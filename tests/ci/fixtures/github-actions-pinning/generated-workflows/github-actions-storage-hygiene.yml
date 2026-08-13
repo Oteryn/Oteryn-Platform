@@ -1,0 +1,158 @@
+name: GitHub Actions Storage Hygiene
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/github-actions-storage-hygiene.yml'
+      - 'scripts/ci/github_actions_storage_hygiene.py'
+      - 'tests/ci/test_github_actions_storage_hygiene.py'
+  pull_request_target:
+    branches:
+      - main
+    types:
+      - closed
+  schedule:
+    - cron: '23 3,15 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Audit only or execute bounded cleanup
+        required: true
+        type: choice
+        default: audit
+        options:
+          - audit
+          - cleanup
+      confirmation:
+        description: Type CLEAN_ACTIONS_STORAGE for manual cleanup
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: actions-storage-hygiene-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  static-validation:
+    name: static-validation
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact validation source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Validate cleanup implementation
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/ci/github_actions_storage_hygiene.py
+          python tests/ci/test_github_actions_storage_hygiene.py
+
+      - name: Validate workflow safety contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow=.github/workflows/github-actions-storage-hygiene.yml
+          script=scripts/ci/github_actions_storage_hygiene.py
+
+          grep -Fq 'pull_request_target:' "$workflow"
+          grep -Fq 'types:' "$workflow"
+          grep -Fq -- '- closed' "$workflow"
+          grep -Fq 'actions: write' "$workflow"
+          grep -Fq 'refs/heads/main' "$workflow"
+          grep -Fq -- '--mode closed-pr' "$workflow"
+          grep -Fq -- '--mode cleanup' "$workflow"
+          grep -Fq 'Record cleanup completion boundary' "$workflow"
+
+          ! grep -Eq 'cache delete --all|system prune|container prune|volume prune|network prune' "$script"
+          ! grep -Eq 'DELETE.+/(packages|releases|environments|contents|git/)' "$script"
+
+  closed-pr-cache-cleanup:
+    name: closed-pr-cache-cleanup
+    if: ${{ github.event_name == 'pull_request_target' && github.event.action == 'closed' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout trusted default branch only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+
+      - name: Remove only this closed pull request cache scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python scripts/ci/github_actions_storage_hygiene.py \
+            --mode closed-pr \
+            --closed-pr-number '${{ github.event.pull_request.number }}' \
+            --delete-budget 700
+
+  maintenance:
+    name: maintenance
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+
+      - name: Validate manual destructive confirmation
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'cleanup' }}
+        shell: bash
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          if [[ "$CONFIRMATION" != 'CLEAN_ACTIONS_STORAGE' ]]; then
+            echo 'Manual cleanup requires exact confirmation CLEAN_ACTIONS_STORAGE.' >&2
+            exit 1
+          fi
+
+      - name: Resolve maintenance mode
+        id: mode
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_MODE: ${{ inputs.mode || 'audit' }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then
+            mode="$REQUESTED_MODE"
+          else
+            mode=cleanup
+          fi
+          printf 'mode=%s\n' "$mode" >> "$GITHUB_OUTPUT"
+
+      - name: Audit or execute bounded retention cleanup
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python scripts/ci/github_actions_storage_hygiene.py \
+            --mode '${{ steps.mode.outputs.mode }}' \
+            --artifact-retention-days 14 \
+            --run-retention-days 30 \
+            --delete-budget 700
+
+      - name: Record cleanup completion boundary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          echo 'Actions storage hygiene job reached terminal cleanup reporting.' >> "$GITHUB_STEP_SUMMARY"

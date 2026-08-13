@@ -1,0 +1,351 @@
+name: Synology Container Hygiene
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - AGENTS.md
+      - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
+      - docs/agents/EXECUTION_RESOURCE_HYGIENE.md
+      - deploy/synology/compose*.yml
+      - .github/workflows/synology-container-hygiene.yml
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Read-only inventory or remove only verified stopped Oteryn staging orphan containers
+        required: true
+        type: choice
+        options:
+          - inventory
+          - cleanup-stopped-portal-orphans
+        default: inventory
+      confirm_cleanup:
+        description: For cleanup enter exactly REMOVE_STOPPED_OTERYN_STAGING_ORPHANS
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: synology-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  static-validation:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Validate retained fail-closed hygiene contract
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          workflow = Path('.github/workflows/synology-container-hygiene.yml').read_text()
+          forbidden = [
+              'docker system ' + 'prune',
+              'docker container ' + 'prune',
+              'docker volume ' + 'prune',
+              'docker network ' + 'prune',
+              'docker image ' + 'prune',
+              'docker rm ' + '-f',
+              'docker ' + 'stop',
+              'docker volume ' + 'rm',
+              'docker network ' + 'rm',
+              'docker ' + 'rmi',
+              'portal-' + 'authentik-local-test',
+              'cleanup-proven-' + 'authentik-local-test',
+              'github.event_name == ' + "'push'",
+          ]
+          present = [pattern for pattern in forbidden if pattern in workflow]
+          if present:
+              raise SystemExit('retired/destructive primitive remains: ' + ', '.join(present))
+
+          required = [
+              'workflow_dispatch',
+              'project=oteryn-staging',
+              'cleanup-stopped-portal-orphans',
+              'REMOVE_STOPPED_OTERYN_STAGING_ORPHANS',
+              'com.docker.compose.project',
+              'com.docker.compose.service',
+              'docker rm "$id"',
+              'validate_canonical_runtime',
+              'OUTSIDE_SCOPE',
+              "-name 'compose*.yml'",
+              'marketplace-scheduler',
+          ]
+          missing = [marker for marker in required if marker not in workflow]
+          if missing:
+              raise SystemExit('missing fail-closed marker(s): ' + ', '.join(missing))
+
+          runtime_match = re.search(r'^\s*runtime_services=\(([^)]*)\)\s*$', workflow, re.MULTILINE)
+          if not runtime_match:
+              raise SystemExit('runtime_services declaration is missing')
+          runtime_services = set(runtime_match.group(1).split())
+
+          def services_from_compose(path: Path) -> set[str]:
+              lines = path.read_text().splitlines()
+              services = set()
+              in_services = False
+              for line in lines:
+                  if line == 'services:':
+                      in_services = True
+                      continue
+                  if not in_services:
+                      continue
+                  if line and not line.startswith(' '):
+                      break
+                  match = re.fullmatch(r'  ([A-Za-z0-9][A-Za-z0-9_-]*):', line)
+                  if match:
+                      services.add(match.group(1))
+              return services
+
+          compose_sources = sorted(Path('deploy/synology').glob('compose*.yml'))
+          if not compose_sources:
+              raise SystemExit('no canonical Compose sources found')
+          canonical_services = set()
+          for source in compose_sources:
+              canonical_services |= services_from_compose(source)
+          if not canonical_services:
+              raise SystemExit('no canonical Compose services were parsed')
+          missing_runtime = runtime_services - canonical_services
+          if missing_runtime:
+              raise SystemExit(
+                  'runtime_services drift from canonical Compose sources: '
+                  f'missing={sorted(missing_runtime)}'
+              )
+          PY
+
+  live-hygiene:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: oteryn-staging
+    environment: synology-staging
+    timeout-minutes: 10
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Validate Docker access
+        run: |
+          set -euo pipefail
+          docker version >/dev/null
+
+      - name: Inventory and optionally remove verified stopped portal orphans
+        id: hygiene
+        env:
+          HYGIENE_ACTION: ${{ inputs.action }}
+          CLEANUP_CONFIRMATION: ${{ inputs.confirm_cleanup }}
+        run: |
+          set -euo pipefail
+
+          project=oteryn-staging
+          runtime_services=(mariadb redis platform canary internal-proxy gateway marketplace-scheduler)
+          mapfile -t compose_sources < <(
+            find deploy/synology -maxdepth 1 -type f -name 'compose*.yml' -print | sort
+          )
+          mapfile -t expected_services < <(
+            for compose_source in "${compose_sources[@]}"; do
+              sed -n '/^services:$/,/^[^ ]/p' "$compose_source" \
+                | sed -n 's/^  \([A-Za-z0-9][A-Za-z0-9_-]*\):$/\1/p'
+            done | sort -u
+          )
+          candidates=()
+          unsafe_portal=()
+          inventory_file="$RUNNER_TEMP/synology-container-inventory.txt"
+          : > "$inventory_file"
+
+          is_in_list() {
+            local candidate="$1"
+            shift
+            local item
+            for item in "$@"; do
+              [[ "$candidate" == "$item" ]] && return 0
+            done
+            return 1
+          }
+
+          is_expected_service() {
+            is_in_list "$1" "${expected_services[@]}"
+          }
+
+          is_runtime_service() {
+            is_in_list "$1" "${runtime_services[@]}"
+          }
+
+          if (( ${#compose_sources[@]} == 0 || ${#expected_services[@]} == 0 )); then
+            echo 'No canonical services parsed from trusted main Compose sources; refusing operation.' >&2
+            exit 1
+          fi
+          for service in "${runtime_services[@]}"; do
+            if ! is_expected_service "$service"; then
+              echo "Runtime service $service is absent from trusted main Compose sources; refusing operation." >&2
+              exit 1
+            fi
+          done
+
+          label_value() {
+            local id="$1"
+            local key="$2"
+            local value
+            value="$(docker inspect --format "{{ index .Config.Labels \"$key\" }}" "$id")"
+            [[ "$value" == '<no value>' ]] && value=""
+            printf '%s' "$value"
+          }
+
+          validate_canonical_runtime() {
+            local service canonical id actual_project actual_service running
+            for service in "${runtime_services[@]}"; do
+              canonical="${project}-${service}-1"
+              if ! id="$(docker inspect --format '{{.Id}}' "$canonical" 2>/dev/null)"; then
+                echo "Canonical runtime container is missing: $canonical" >&2
+                return 1
+              fi
+              actual_project="$(label_value "$id" 'com.docker.compose.project')"
+              actual_service="$(label_value "$id" 'com.docker.compose.service')"
+              running="$(docker inspect --format '{{.State.Running}}' "$id")"
+              if [[ "$actual_project" != "$project" || "$actual_service" != "$service" || "$running" != 'true' ]]; then
+                echo "Canonical runtime identity/health is ambiguous for $canonical; refusing cleanup." >&2
+                return 1
+              fi
+            done
+          }
+
+          mapfile -t all_ids < <(docker ps -aq)
+          for id in "${all_ids[@]}"; do
+            [[ -n "$id" ]] || continue
+            name="$(docker inspect --format '{{.Name}}' "$id")"
+            name="${name#/}"
+            state="$(docker inspect --format '{{.State.Status}}' "$id")"
+            image="$(docker inspect --format '{{.Config.Image}}' "$id")"
+            actual_project="$(label_value "$id" 'com.docker.compose.project')"
+            actual_service="$(label_value "$id" 'com.docker.compose.service')"
+            classification=OUTSIDE_SCOPE
+
+            if [[ "$actual_project" == "$project" ]]; then
+              if [[ -z "$actual_service" ]]; then
+                classification=UNSAFE_PORTAL_UNKNOWN_SERVICE
+                unsafe_portal+=("$id")
+              elif is_expected_service "$actual_service"; then
+                canonical="${project}-${actual_service}-1"
+                if [[ "$name" == "$canonical" ]]; then
+                  classification=CANONICAL_PORTAL_SERVICE
+                elif [[ "$state" == 'running' ]]; then
+                  classification=UNSAFE_RUNNING_NONCANONICAL_PORTAL_SERVICE
+                  unsafe_portal+=("$id")
+                else
+                  canonical_ok=false
+                  if canonical_id="$(docker inspect --format '{{.Id}}' "$canonical" 2>/dev/null)"; then
+                    canonical_project="$(label_value "$canonical_id" 'com.docker.compose.project')"
+                    canonical_service="$(label_value "$canonical_id" 'com.docker.compose.service')"
+                    if [[ "$canonical_project" == "$project" && "$canonical_service" == "$actual_service" ]]; then
+                      if is_runtime_service "$actual_service"; then
+                        canonical_running="$(docker inspect --format '{{.State.Running}}' "$canonical_id")"
+                        [[ "$canonical_running" == 'true' ]] && canonical_ok=true
+                      else
+                        canonical_ok=true
+                      fi
+                    fi
+                  fi
+
+                  if [[ "$canonical_ok" == 'true' ]]; then
+                    classification=CANDIDATE_STOPPED_DUPLICATE_PORTAL_SERVICE
+                    candidates+=("$id")
+                  else
+                    classification=UNSAFE_NONCANONICAL_WITHOUT_VALID_CANONICAL
+                    unsafe_portal+=("$id")
+                  fi
+                fi
+              elif [[ "$state" == 'running' ]]; then
+                classification=UNSAFE_RUNNING_OBSOLETE_PORTAL_SERVICE
+                unsafe_portal+=("$id")
+              else
+                classification=CANDIDATE_STOPPED_OBSOLETE_PORTAL_SERVICE
+                candidates+=("$id")
+              fi
+            fi
+
+            printf 'name=%s | state=%s | image=%s | compose_project=%s | compose_service=%s | class=%s\n' \
+              "$name" "$state" "$image" "${actual_project:-none}" "${actual_service:-none}" "$classification" \
+              >> "$inventory_file"
+          done
+
+          sort -o "$inventory_file" "$inventory_file"
+          cat "$inventory_file"
+
+          {
+            echo '### Synology container hygiene inventory'
+            echo
+            echo "- action: \`$HYGIENE_ACTION\`"
+            echo "- canonical Compose sources: \`${compose_sources[*]}\`"
+            echo "- target Compose project: \`$project\`"
+            echo "- verified stopped cleanup candidates: \`${#candidates[@]}\`"
+            echo "- unsafe/ambiguous portal candidates: \`${#unsafe_portal[@]}\`"
+            echo '- volumes/networks/images cleanup: `NOT PERMITTED`'
+            echo
+            echo '```text'
+            cat "$inventory_file"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          case "$HYGIENE_ACTION" in
+            inventory)
+              ;;
+            cleanup-stopped-portal-orphans)
+              if [[ "$CLEANUP_CONFIRMATION" != 'REMOVE_STOPPED_OTERYN_STAGING_ORPHANS' ]]; then
+                echo 'Cleanup confirmation token is missing or incorrect.' >&2
+                exit 1
+              fi
+              validate_canonical_runtime
+              if (( ${#unsafe_portal[@]} > 0 )); then
+                echo 'Unsafe or ambiguous Oteryn-owned containers exist; refusing all cleanup.' >&2
+                exit 1
+              fi
+
+              for id in "${candidates[@]}"; do
+                state="$(docker inspect --format '{{.State.Status}}' "$id")"
+                actual_project="$(label_value "$id" 'com.docker.compose.project')"
+                if [[ "$state" == 'running' || "$actual_project" != "$project" ]]; then
+                  echo "Candidate changed state/ownership before removal; refusing cleanup for $id." >&2
+                  exit 1
+                fi
+              done
+
+              removed=0
+              for id in "${candidates[@]}"; do
+                name="$(docker inspect --format '{{.Name}}' "$id")"
+                name="${name#/}"
+                echo "Removing verified stopped Oteryn portal orphan: $name"
+                docker rm "$id" >/dev/null
+                if docker inspect "$id" >/dev/null 2>&1; then
+                  echo "Container still exists after removal: $name" >&2
+                  exit 1
+                fi
+                removed=$((removed + 1))
+              done
+
+              validate_canonical_runtime
+              echo "removed_count=$removed" >> "$GITHUB_OUTPUT"
+              echo "Removed verified stopped Oteryn portal orphan containers: $removed" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              echo "Unsupported hygiene action: $HYGIENE_ACTION" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "candidate_count=${#candidates[@]}" >> "$GITHUB_OUTPUT"
+          echo "unsafe_count=${#unsafe_portal[@]}" >> "$GITHUB_OUTPUT"

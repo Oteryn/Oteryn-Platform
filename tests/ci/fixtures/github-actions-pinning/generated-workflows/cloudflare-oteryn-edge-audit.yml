@@ -1,0 +1,97 @@
+name: Cloudflare Oteryn Edge Audit
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/cloudflare-oteryn-edge-audit.yml
+      - scripts/operations/cloudflare-oteryn-edge-audit.py
+      - scripts/operations/cloudflare-edge-apply-preflight-audit.py
+      - scripts/operations/cloudflare-token-capability-audit.py
+      - tests/operations/cloudflare-oteryn-edge-audit/**
+      - docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md
+      - deploy/synology/PUBLIC_ENDPOINTS.md
+      - docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md
+      - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
+      - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
+  pull_request_target:
+    branches:
+      - main
+    paths:
+      - ops/triggers/cloudflare-edge-audit.md
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-oteryn-edge-audit-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact audit implementation SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Validate read-only Cloudflare edge audit
+        run: bash tests/operations/cloudflare-oteryn-edge-audit/run.sh
+
+  live-audit:
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-cloudflare
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+
+    steps:
+      - name: Checkout trusted main implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+
+      - name: Enforce read-only trigger boundary
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin '${{ github.event.pull_request.head.sha }}'
+          changed_files="$(git diff --name-only '${{ github.event.pull_request.base.sha }}' '${{ github.event.pull_request.head.sha }}')"
+          [[ "$changed_files" == "ops/triggers/cloudflare-edge-audit.md" ]] || {
+            echo "Live audit trigger PR must modify only ops/triggers/cloudflare-edge-audit.md." >&2
+            printf '%s\n' "$changed_files" >&2
+            exit 1
+          }
+
+      - name: Audit Cloudflare edge configuration
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_EDGE_AUDIT_TOKEN }}
+          CLOUDFLARE_ACCESS_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: python3 scripts/operations/cloudflare-oteryn-edge-audit.py
+
+      - name: Audit fixed-scope apply prerequisites
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_EDGE_AUDIT_TOKEN }}
+        run: python3 scripts/operations/cloudflare-edge-apply-preflight-audit.py
+
+      - name: Audit account-token self-management capability
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: python3 scripts/operations/cloudflare-token-capability-audit.py
+
+      - name: Upload sanitized edge audit
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloudflare-oteryn-edge-audit-${{ github.event.pull_request.base.sha }}
+          path: cloudflare-edge-audit/
+          if-no-files-found: error
+          retention-days: 14

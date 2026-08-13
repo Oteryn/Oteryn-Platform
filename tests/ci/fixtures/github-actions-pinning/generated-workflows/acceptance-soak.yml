@@ -1,0 +1,28 @@
+name: Acceptance E2E Public Soak
+
+on:
+  schedule:
+    - cron: '41 4 * * 4'
+  workflow_dispatch:
+    inputs:
+      soak_seconds:
+        description: Read-only public soak duration in seconds
+        required: false
+        default: 300
+        type: number
+
+permissions:
+  contents: read
+
+concurrency:
+  group: acceptance-soak-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  public-soak:
+    uses: ./.github/workflows/acceptance-validation.yml
+    with:
+      profile: soak
+      run_suffix: soak
+      zero_retries: true
+      soak_seconds: ${{ github.event_name == 'workflow_dispatch' && inputs.soak_seconds || 300 }}

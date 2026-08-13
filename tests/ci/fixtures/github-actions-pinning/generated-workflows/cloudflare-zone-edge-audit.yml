@@ -1,0 +1,86 @@
+name: Cloudflare Zone Edge Audit
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/cloudflare-zone-edge-audit.yml
+      - scripts/operations/cloudflare-zone-edge-audit.sh
+      - tests/operations/cloudflare-zone-edge-audit/**
+      - docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md
+      - deploy/synology/PUBLIC_ENDPOINTS.md
+      - docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md
+      - docs/operations/CLOUDFLARE_ZONE_EDGE_AUDIT.md
+      - docs/agents/tasks/active/OTERYN-20260801-cloudflare-zone-edge-audit.md
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/cloudflare-zone-edge-audit.yml
+      - scripts/operations/cloudflare-zone-edge-audit.sh
+      - tests/operations/cloudflare-zone-edge-audit/**
+      - docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md
+      - deploy/synology/PUBLIC_ENDPOINTS.md
+      - docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md
+      - docs/operations/CLOUDFLARE_ZONE_EDGE_AUDIT.md
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-zone-edge-audit-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact workflow SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Validate GET-only Cloudflare audit
+        run: bash tests/operations/cloudflare-zone-edge-audit/run.sh
+
+  audit:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-cloudflare
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_EDGE_AUDIT_TOKEN }}
+      CLOUDFLARE_ACCESS_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+      CLOUDFLARE_ZONE_EDGE_OUTPUT: cloudflare-zone-edge-audit.json
+
+    steps:
+      - name: Checkout exact main SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Enforce protected main boundary
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+            echo "Live Cloudflare audit is restricted to main." >&2
+            exit 1
+          }
+
+      - name: Audit Cloudflare zone edge without mutation
+        run: bash scripts/operations/cloudflare-zone-edge-audit.sh
+
+      - name: Upload sanitized audit evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloudflare-zone-edge-audit-${{ github.run_id }}
+          path: cloudflare-zone-edge-audit.json
+          if-no-files-found: error
+          retention-days: 14

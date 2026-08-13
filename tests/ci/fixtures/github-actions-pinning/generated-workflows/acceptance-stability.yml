@@ -1,0 +1,25 @@
+name: Acceptance E2E Stability Repeat
+
+on:
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: acceptance-stability-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  repeated-critical:
+    strategy:
+      fail-fast: false
+      matrix:
+        iteration: [1, 2, 3]
+    uses: ./.github/workflows/acceptance-validation.yml
+    with:
+      profile: critical
+      run_suffix: repeat-${{ matrix.iteration }}
+      zero_retries: true

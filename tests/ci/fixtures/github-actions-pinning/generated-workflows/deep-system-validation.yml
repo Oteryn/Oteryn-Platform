@@ -1,0 +1,502 @@
+name: Deep System Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/deep-system-validation.yml'
+      - 'tools/validation/deep_system_validation.py'
+      - 'tools/validation/test_deep_system_validation.py'
+      - 'docs/agents/tasks/active/OTERYN-20260803-deep-system-validation.md'
+      - 'docs/agents/evidence/OTERYN-20260803-deep-system-validation/**'
+      - 'docs/agents/reports/OTERYN-20260803-deep-system-validation.md'
+      - 'scripts/acceptance/**'
+      - 'app/**'
+      - 'bootstrap/**'
+      - 'config/**'
+      - 'database/**'
+      - 'public/**'
+      - 'resources/**'
+      - 'routes/**'
+      - 'tests/**'
+      - 'composer.json'
+      - 'composer.lock'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/deep-system-validation.yml'
+      - 'tools/validation/**'
+      - 'scripts/acceptance/**'
+      - 'app/**'
+      - 'bootstrap/**'
+      - 'config/**'
+      - 'database/**'
+      - 'public/**'
+      - 'resources/**'
+      - 'routes/**'
+      - 'tests/**'
+      - 'composer.json'
+      - 'composer.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deep-system-validation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Execute all deep validation lanes
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: acceptance-ci-root-not-a-secret
+          MARIADB_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+      mailhog:
+        image: mailhog/mailhog:v1.0.1
+        ports:
+          - 1025:1025
+          - 8025:8025
+
+    env:
+      VALIDATION_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      ACCEPTANCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      ACCEPTANCE_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-deep
+      ACCEPTANCE_RUN_SUFFIX: deep
+      ACCEPTANCE_ZERO_RETRIES: '1'
+      ACCEPTANCE_SOAK_SECONDS: '300'
+      ACCEPTANCE_BASE_URL: http://127.0.0.1:8080
+      ACCEPTANCE_MAILHOG_URL: http://127.0.0.1:8025
+      ACCEPTANCE_OUTPUT_DIR: /tmp/oteryn-deep-visual-acceptance
+      ACCEPTANCE_PROFILE: full
+      APP_ENV: acceptance
+      APP_DEBUG: 'false'
+      APP_URL: http://127.0.0.1:8080
+      LOG_CHANNEL: stderr_json
+      LOG_LEVEL: info
+      SESSION_DRIVER: file
+      SESSION_SECURE_COOKIE: 'false'
+      SESSION_HTTP_ONLY: 'true'
+      CACHE_STORE: file
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: smtp
+      MAIL_HOST: 127.0.0.1
+      MAIL_PORT: 1025
+      MAIL_ENCRYPTION: ''
+      MAIL_FROM_ADDRESS: acceptance@staging.oteryn
+      MAIL_FROM_NAME: Oteryn Deep Validation
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: oteryn_platform_deep_acceptance
+      DB_USERNAME: root
+      DB_PASSWORD: acceptance-ci-root-not-a-secret
+      CANARY_DB_HOST: 127.0.0.1
+      CANARY_DB_PORT: 3306
+      CANARY_DB_DATABASE: canary_deep_acceptance
+      CANARY_DB_USERNAME: oteryn_deep_readonly
+      CANARY_DB_PASSWORD: acceptance-ci-readonly-not-a-secret
+      CANARY_PROVISIONING_DB_HOST: 127.0.0.1
+      CANARY_PROVISIONING_DB_PORT: 3306
+      CANARY_PROVISIONING_DB_DATABASE: canary_deep_acceptance
+      CANARY_PROVISIONING_DB_USERNAME: oteryn_deep_provisioning
+      CANARY_PROVISIONING_DB_PASSWORD: acceptance-ci-provisioning-not-a-secret
+      CANARY_CHARACTER_CREATE_DB_HOST: 127.0.0.1
+      CANARY_CHARACTER_CREATE_DB_PORT: 3306
+      CANARY_CHARACTER_CREATE_DB_DATABASE: canary_deep_acceptance
+      CANARY_CHARACTER_CREATE_DB_USERNAME: oteryn_deep_character_create
+      CANARY_CHARACTER_CREATE_DB_PASSWORD: acceptance-ci-character-not-a-secret
+      CANARY_RUNTIME_REDIS_CLIENT: phpredis
+      CANARY_RUNTIME_REDIS_SCHEME: tcp
+      CANARY_RUNTIME_REDIS_HOST: 127.0.0.1
+      CANARY_RUNTIME_REDIS_PORT: 6379
+      CANARY_RUNTIME_REDIS_DB: 0
+      CANARY_RUNTIME_REDIS_USERNAME: oteryn_deep_runtime
+      CANARY_RUNTIME_REDIS_PASSWORD: acceptance-ci-runtime-not-a-secret
+      MARIADB_ROOT_PASSWORD: acceptance-ci-root-not-a-secret
+
+    steps:
+      - name: Checkout exact validation SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup PHP 8.5
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.5'
+          coverage: none
+          extensions: pdo_mysql, pdo_sqlite, redis, gd, intl, pcntl
+          tools: composer:v2
+
+      - name: Setup Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install system clients
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends mariadb-client redis-tools imagemagick
+
+      - name: Prepare exact checkout
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          mkdir -p \
+            artifacts/acceptance \
+            artifacts/deep \
+            bootstrap/cache \
+            storage/framework/cache/data \
+            storage/framework/sessions \
+            storage/framework/views
+          composer install --no-interaction --prefer-dist --no-progress
+          npm --prefix scripts/acceptance ci --no-audit --no-fund
+          cd scripts/acceptance
+          npx playwright install --with-deps chromium firefox webkit
+          echo "APP_KEY=$(php -r 'echo "base64:".base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
+
+      - name: Validate deep evidence compiler
+        run: PYTHONPATH=tools/validation python -m unittest -v tools/validation/test_deep_system_validation.py
+
+      - name: Validate Composer contract and advisories
+        run: |
+          set -euo pipefail
+          composer validate --strict
+          composer audit --locked --no-interaction
+
+      - name: Validate PHP formatting and static analysis
+        run: |
+          set -euo pipefail
+          composer format:check
+          composer analyse
+
+      - name: Provision isolated production-like dependencies for PHP regression
+        run: bash scripts/acceptance/bootstrap-production-like.sh
+
+      - name: Execute complete PHP regression and concurrency suites
+        env:
+          APP_ENV: testing
+          APP_URL: http://localhost
+          CACHE_STORE: array
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ':memory:'
+          MAIL_MAILER: array
+          QUEUE_CONNECTION: sync
+          SESSION_DRIVER: array
+          CANARY_PROVISIONING_INTEGRATION_HOST: 127.0.0.1
+          CANARY_PROVISIONING_INTEGRATION_PORT: 3306
+          CANARY_PROVISIONING_INTEGRATION_ROOT_PASSWORD: acceptance-ci-root-not-a-secret
+          CANARY_CHARACTER_CREATE_INTEGRATION_HOST: 127.0.0.1
+          CANARY_CHARACTER_CREATE_INTEGRATION_PORT: 3306
+          CANARY_CHARACTER_CREATE_INTEGRATION_ROOT_PASSWORD: acceptance-ci-root-not-a-secret
+          CANARY_RUNTIME_REDIS_CLIENT: phpredis
+          CANARY_RUNTIME_REDIS_SCHEME: tcp
+          CANARY_RUNTIME_REDIS_HOST: 127.0.0.1
+          CANARY_RUNTIME_REDIS_PORT: 1
+          CANARY_RUNTIME_REDIS_USERNAME: ''
+          CANARY_RUNTIME_REDIS_PASSWORD: ''
+          CANARY_RUNTIME_REDIS_DB: 0
+          CANARY_RUNTIME_REDIS_TIMEOUT: '0.1'
+          CANARY_RUNTIME_REDIS_READ_TIMEOUT: '0.1'
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/deep
+
+          unset \
+            CANARY_DB_HOST CANARY_DB_PORT CANARY_DB_DATABASE CANARY_DB_USERNAME CANARY_DB_PASSWORD \
+            CANARY_PROVISIONING_DB_HOST CANARY_PROVISIONING_DB_PORT CANARY_PROVISIONING_DB_DATABASE \
+            CANARY_PROVISIONING_DB_USERNAME CANARY_PROVISIONING_DB_PASSWORD \
+            CANARY_CHARACTER_CREATE_DB_HOST CANARY_CHARACTER_CREATE_DB_PORT CANARY_CHARACTER_CREATE_DB_DATABASE \
+            CANARY_CHARACTER_CREATE_DB_USERNAME CANARY_CHARACTER_CREATE_DB_PASSWORD
+
+          mapfile -d '' BASE_TEST_FILES < <(
+            find tests/Unit tests/Feature -type f -name '*Test.php' \
+              ! -path 'tests/Feature/GameAuth/Concurrency/GameTicketConcurrencyTest.php' \
+              -print0 | sort -z
+          )
+          test "${#BASE_TEST_FILES[@]}" -gt 0
+          php artisan config:clear --ansi
+          php artisan test \
+            --log-junit=artifacts/deep/phpunit-base-junit.xml \
+            "${BASE_TEST_FILES[@]}" \
+            2>&1 | tee artifacts/deep/phpunit-base.log
+          test -s artifacts/deep/phpunit-base-junit.xml
+
+          mysql \
+            --host=127.0.0.1 \
+            --port=3306 \
+            --user=root \
+            --password="$MARIADB_ROOT_PASSWORD" \
+            --execute='DROP DATABASE IF EXISTS `oteryn_deep_game_auth_concurrency`; CREATE DATABASE `oteryn_deep_game_auth_concurrency` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;'
+
+          (
+            export APP_ENV=testing
+            export APP_URL=http://localhost
+            export CACHE_STORE=array
+            export SESSION_DRIVER=array
+            export QUEUE_CONNECTION=sync
+            export MAIL_MAILER=array
+            export DB_CONNECTION=mysql
+            export DB_HOST=127.0.0.1
+            export DB_PORT=3306
+            export DB_DATABASE=oteryn_deep_game_auth_concurrency
+            export DB_USERNAME=root
+            export DB_PASSWORD="$MARIADB_ROOT_PASSWORD"
+            export GAME_AUTH_CONCURRENCY_TEST=1
+            php artisan config:clear --ansi
+            php artisan test \
+              --log-junit=artifacts/deep/phpunit-game-auth-concurrency-junit.xml \
+              tests/Feature/GameAuth/Concurrency/GameTicketConcurrencyTest.php \
+              2>&1 | tee artifacts/deep/phpunit-game-auth-concurrency.log
+          )
+          test -s artifacts/deep/phpunit-game-auth-concurrency-junit.xml
+
+      - name: Validate browser dependency advisories
+        run: npm --prefix scripts/acceptance audit --audit-level=high
+
+      - name: Execute strict portal evidence contracts
+        run: npm --prefix scripts/acceptance run test:coverage-contract:strict
+
+      - name: Reset isolated production-like dependencies before browser matrix
+        run: bash scripts/acceptance/bootstrap-production-like.sh
+
+      - name: Start exact-SHA Laravel HTTP runtime
+        run: |
+          set -euo pipefail
+          php artisan serve --host=127.0.0.1 --port=8080 >/tmp/oteryn-deep-server.log 2>&1 &
+          echo $! >/tmp/oteryn-deep-server.pid
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/oteryn-deep-server.log >&2 || true
+          echo 'Deep validation HTTP runtime did not become healthy.' >&2
+          exit 1
+
+      - name: Execute complete zero-retry browser matrix
+        run: |
+          set -euo pipefail
+
+          reset_state() {
+            rm -rf storage/framework/sessions/* storage/framework/cache/data/*
+            curl -fsS -X DELETE http://127.0.0.1:8025/api/v1/messages >/dev/null 2>&1 || true
+            bash scripts/acceptance/bootstrap-production-like.sh
+          }
+
+          run_main_profile() {
+            local name="$1"
+            shift
+            reset_state
+            rm -f artifacts/acceptance/junit.xml
+            echo "Running $name on $VALIDATION_SHA"
+            "$@"
+            test -s artifacts/acceptance/junit.xml
+            cp artifacts/acceptance/junit.xml "artifacts/deep/junit-${name}.xml"
+          }
+
+          reset_state
+          rm -f artifacts/acceptance/junit.xml
+          ACCEPTANCE_PROFILE=full ACCEPTANCE_RUN_SUFFIX=deep-full \
+            npm --prefix scripts/acceptance test
+          test -s artifacts/acceptance/junit.xml
+          cp artifacts/acceptance/junit.xml artifacts/deep/junit-full.xml
+
+          run_main_profile account-lifecycle \
+            env ACCEPTANCE_PROFILE=full ACCEPTANCE_RUN_SUFFIX=account \
+            npm --prefix scripts/acceptance run test:account-lifecycle
+
+          reset_state
+          rm -f artifacts/acceptance/community-data-junit.xml
+          ACCEPTANCE_PROFILE=full ACCEPTANCE_RUN_SUFFIX=community \
+            npm --prefix scripts/acceptance run test:community-data
+          test -s artifacts/acceptance/community-data-junit.xml
+          cp artifacts/acceptance/community-data-junit.xml artifacts/deep/junit-community-data.xml
+
+          reset_state
+          rm -f artifacts/acceptance/content-scale-junit.xml
+          ACCEPTANCE_PROFILE=full ACCEPTANCE_RUN_SUFFIX=content-scale \
+            npm --prefix scripts/acceptance run test:content-scale
+          test -s artifacts/acceptance/content-scale-junit.xml
+          cp artifacts/acceptance/content-scale-junit.xml artifacts/deep/junit-content-scale.xml
+
+          run_main_profile downloads \
+            env ACCEPTANCE_PROFILE=full ACCEPTANCE_RUN_SUFFIX=downloads \
+            npm --prefix scripts/acceptance run test:downloads
+
+          run_main_profile downloads-portability \
+            env ACCEPTANCE_PROFILE=full ACCEPTANCE_RUN_SUFFIX=downloads-portability \
+            npm --prefix scripts/acceptance run test:downloads-portability
+
+          run_main_profile portability \
+            env ACCEPTANCE_PROFILE=critical ACCEPTANCE_RUN_SUFFIX=portability \
+            npm --prefix scripts/acceptance run test:portability
+
+          run_main_profile responsive \
+            env ACCEPTANCE_PROFILE=critical ACCEPTANCE_RUN_SUFFIX=responsive \
+            npm --prefix scripts/acceptance run test:responsive
+
+          run_main_profile resilience \
+            env ACCEPTANCE_PROFILE=full ACCEPTANCE_RUN_SUFFIX=resilience \
+            npm --prefix scripts/acceptance run test:resilience
+
+          run_main_profile accessibility \
+            env ACCEPTANCE_PROFILE=full ACCEPTANCE_RUN_SUFFIX=accessibility \
+            npm --prefix scripts/acceptance run test:accessibility
+
+          reset_state
+          php scripts/acceptance/seed.php seed > artifacts/deep/visual-seed.json
+          ACCEPTANCE_PROFILE=full ACCEPTANCE_RUN_SUFFIX=visual \
+            node scripts/acceptance/visual-acceptance.js
+          if [ -d "$ACCEPTANCE_OUTPUT_DIR" ]; then
+            mkdir -p artifacts/deep/visual
+            cp -R "$ACCEPTANCE_OUTPUT_DIR"/. artifacts/deep/visual/
+          fi
+
+          reset_state
+          rm -f artifacts/acceptance/junit.xml
+          SERVER_PID="$(cat /tmp/oteryn-deep-server.pid)"
+          RSS_LOG="artifacts/deep/soak-rss-samples.tsv"
+          REDIS_KEYS_BEFORE="$(redis-cli DBSIZE | tr -d '\r')"
+          (
+            while kill -0 "$SERVER_PID" 2>/dev/null; do
+              RSS_KB="$(ps -o rss= -p "$SERVER_PID" --ppid "$SERVER_PID" 2>/dev/null | awk '{sum += $1} END {print sum + 0}')"
+              printf '%s\t%s\n' "$(date +%s)" "$RSS_KB" >> "$RSS_LOG"
+              sleep 5
+            done
+          ) &
+          SAMPLER_PID=$!
+          trap 'kill "$SAMPLER_PID" >/dev/null 2>&1 || true' EXIT
+          STARTED_AT="$(date +%s)"
+          ACCEPTANCE_PROFILE=soak ACCEPTANCE_RUN_SUFFIX=soak ACCEPTANCE_SOAK_SECONDS=300 \
+            npm --prefix scripts/acceptance run test:soak
+          DURATION_SECONDS="$(( $(date +%s) - STARTED_AT ))"
+          kill "$SAMPLER_PID" >/dev/null 2>&1 || true
+          wait "$SAMPLER_PID" 2>/dev/null || true
+          trap - EXIT
+          test -s artifacts/acceptance/junit.xml
+          cp artifacts/acceptance/junit.xml artifacts/deep/junit-soak.xml
+          REDIS_KEYS_AFTER="$(redis-cli DBSIZE | tr -d '\r')"
+          RSS_START_KB="$(awk 'NR == 1 {print $2}' "$RSS_LOG")"
+          RSS_END_KB="$(awk 'END {print $2}' "$RSS_LOG")"
+          RSS_MAX_KB="$(awk 'BEGIN {max = 0} {if ($2 > max) max = $2} END {print max}' "$RSS_LOG")"
+          cat > artifacts/deep/soak-runtime-metrics.json <<JSON
+          {
+            "exact_tested_sha": "$VALIDATION_SHA",
+            "target_duration_seconds": 300,
+            "measured_duration_seconds": $DURATION_SECONDS,
+            "server_rss_start_kb": ${RSS_START_KB:-0},
+            "server_rss_end_kb": ${RSS_END_KB:-0},
+            "server_rss_max_kb": ${RSS_MAX_KB:-0},
+            "redis_keys_before": ${REDIS_KEYS_BEFORE:-0},
+            "redis_keys_after": ${REDIS_KEYS_AFTER:-0},
+            "threshold_policy": "calibration-only-no-production-capacity-claim"
+          }
+          JSON
+
+      - name: Compile fail-closed deep validation evidence
+        run: |
+          set -euo pipefail
+          cat > artifacts/deep/lane-results.json <<JSON
+          {
+            "schema_version": 1,
+            "exact_sha": "$VALIDATION_SHA",
+            "retries": 0,
+            "lanes": [
+              {"name":"python-validator-tests","kind":"command","status":"PASS","required":true,"exit_code":0},
+              {"name":"composer-validate","kind":"command","status":"PASS","required":true,"exit_code":0},
+              {"name":"composer-audit","kind":"command","status":"PASS","required":true,"exit_code":0},
+              {"name":"php-format","kind":"command","status":"PASS","required":true,"exit_code":0},
+              {"name":"php-analysis","kind":"command","status":"PASS","required":true,"exit_code":0},
+              {"name":"php-tests","kind":"junit","status":"PASS","required":true,"junit_files":["artifacts/deep/phpunit-base-junit.xml"]},
+              {"name":"php-game-auth-concurrency","kind":"junit","status":"PASS","required":true,"junit_files":["artifacts/deep/phpunit-game-auth-concurrency-junit.xml"]},
+              {"name":"npm-audit","kind":"command","status":"PASS","required":true,"exit_code":0},
+              {"name":"coverage-contract-strict","kind":"command","status":"PASS","required":true,"exit_code":0},
+              {"name":"browser-full-chromium","kind":"junit","status":"PASS","required":true,"junit_files":["artifacts/deep/junit-full.xml"]},
+              {"name":"account-lifecycle","kind":"junit","status":"PASS","required":true,"junit_files":["artifacts/deep/junit-account-lifecycle.xml"]},
+              {"name":"community-data","kind":"junit","status":"PASS","required":true,"junit_files":["artifacts/deep/junit-community-data.xml"]},
+              {"name":"content-scale-contract","kind":"junit","status":"PASS","required":true,"junit_files":["artifacts/deep/junit-content-scale.xml"]},
+              {"name":"downloads","kind":"junit","status":"PASS","required":true,"junit_files":["artifacts/deep/junit-downloads.xml"]},
+              {"name":"downloads-portability","kind":"junit","status":"PASS","required":true,"junit_files":["artifacts/deep/junit-downloads-portability.xml"],"projects":["downloads-portability-firefox","downloads-portability-webkit"]},
+              {"name":"portability","kind":"junit","status":"PASS","required":true,"junit_files":["artifacts/deep/junit-portability.xml"],"projects":["portability-chromium","portability-firefox","portability-webkit"]},
+              {"name":"responsive","kind":"junit","status":"PASS","required":true,"junit_files":["artifacts/deep/junit-responsive.xml"],"projects":["responsive-desktop","responsive-tablet","responsive-mobile"]},
+              {"name":"resilience","kind":"junit","status":"PASS","required":true,"junit_files":["artifacts/deep/junit-resilience.xml"]},
+              {"name":"accessibility","kind":"junit","status":"PASS","required":true,"junit_files":["artifacts/deep/junit-accessibility.xml"]},
+              {"name":"soak","kind":"junit","status":"PASS","required":true,"junit_files":["artifacts/deep/junit-soak.xml"]},
+              {"name":"visual-exploratory","kind":"command","status":"PASS","required":true,"exit_code":0},
+              {"name":"production-smoke","kind":"external","status":"BLOCKED","required":false,"reason":"No authorized production target or production credentials are available to this repository-only validation programme.","owner_issue":490},
+              {"name":"live-public-edge","kind":"external","status":"BLOCKED","required":false,"reason":"Live DNS TLS WAF Tunnel and origin verification requires separately authorized environment access.","owner_issue":490},
+              {"name":"external-canary-login-runtime","kind":"external","status":"BLOCKED","required":false,"reason":"The isolated Canary schema and Redis contract are exercised; live Canary and login-server runtime compatibility requires external environment authorization.","owner_issue":494},
+              {"name":"payment-provider","kind":"external","status":"BLOCKED","required":false,"reason":"No provider is approved or configured and no real payment operation is authorized.","owner_issue":489},
+              {"name":"production-restore","kind":"external","status":"BLOCKED","required":false,"reason":"A destructive production restore drill is outside repository-only authorization.","owner_issue":490}
+            ],
+            "nonclaims": [
+              "Isolated production-like execution is not production deployment proof.",
+              "The bounded soak calibrates current isolated behavior and is not a production capacity guarantee.",
+              "External Canary login payment DNS Cloudflare and restore lanes remain blocked until separately authorized.",
+              "No production data credentials DNS records payment state or external repository were mutated."
+            ]
+          }
+          JSON
+          python tools/validation/deep_system_validation.py \
+            --exact-sha "$VALIDATION_SHA" \
+            --contract artifacts/deep/lane-results.json \
+            --base-dir . \
+            --output-dir artifacts/deep/compiled
+          {
+            printf 'tested_sha=%s\n' "$VALIDATION_SHA"
+            sha256sum \
+              .github/workflows/deep-system-validation.yml \
+              tools/validation/deep_system_validation.py \
+              tools/validation/test_deep_system_validation.py \
+              scripts/acceptance/package.json \
+              scripts/acceptance/playwright.config.mjs \
+              scripts/acceptance/bootstrap-production-like.sh \
+              composer.json \
+              composer.lock
+          } > artifacts/deep/source-identities.txt
+          cat artifacts/deep/compiled/report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve runtime diagnostics
+        if: always()
+        run: |
+          mkdir -p artifacts/deep/runtime
+          cp /tmp/oteryn-deep-server.log artifacts/deep/runtime/server.log 2>/dev/null || true
+          cp artifacts/acceptance/bootstrap-production-like.json artifacts/deep/runtime/bootstrap-production-like.json 2>/dev/null || true
+
+      - name: Upload durable deep validation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: deep-system-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/deep
+          if-no-files-found: error
+          retention-days: 90

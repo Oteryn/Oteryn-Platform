@@ -1,0 +1,159 @@
+name: Oteryn Public Edge Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/oteryn-public-edge-validation.yml
+      - scripts/operations/oteryn-public-edge-validation.py
+      - scripts/operations/oteryn-public-edge-result.py
+      - tests/operations/oteryn-public-edge-validation/**
+      - ops/triggers/oteryn-public-edge-validation.md
+      - scripts/operations/cloudflare-oteryn-edge-audit.py
+  push:
+    branches:
+      - main
+    paths:
+      - ops/triggers/oteryn-public-edge-validation.md
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oteryn-public-edge-validation-${{ github.event_name }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact pull-request head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Validate bounded public edge collector
+        run: bash tests/operations/oteryn-public-edge-validation/run.sh
+
+      - name: Validate exact operational marker request
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$BASE_SHA" "$HEAD_SHA"
+          changed_files="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+          if grep -Fxq 'ops/triggers/oteryn-public-edge-validation.md' <<<"$changed_files"; then
+            marker="$(cat ops/triggers/oteryn-public-edge-validation.md)"
+            inert_marker=$'# Oteryn public edge validation trigger\n\nmode: inert'
+            audit_marker=$'# Oteryn public edge validation trigger\n\nmode: audit'
+            [[ "$marker" == "$inert_marker" || "$marker" == "$audit_marker" ]] || {
+              echo 'Public edge marker content is invalid.' >&2
+              exit 1
+            }
+            if [[ "$marker" == "$audit_marker" ]]; then
+              [[ "$changed_files" == 'ops/triggers/oteryn-public-edge-validation.md' ]] || {
+                echo 'An operational public edge audit PR may change only its marker.' >&2
+                exit 1
+              }
+            fi
+          fi
+
+  observe:
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      issues: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production-cloudflare
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_EDGE_AUDIT_TOKEN }}
+      CLOUDFLARE_ACCESS_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+      CLOUDFLARE_EDGE_AUDIT_OUT: cloudflare-edge-audit
+      OTERYN_PUBLIC_EDGE_OUT: public-edge-validation
+
+    steps:
+      - name: Checkout exact trusted main SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Enforce exact trusted-main audit marker
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == 'refs/heads/main' ]] || {
+            echo 'Public edge validation is restricted to main.' >&2
+            exit 1
+          }
+          marker="$(cat ops/triggers/oteryn-public-edge-validation.md)"
+          expected=$'# Oteryn public edge validation trigger\n\nmode: audit'
+          [[ "$marker" == "$expected" ]] || {
+            echo 'Trusted main does not contain the exact public edge audit marker.' >&2
+            exit 1
+          }
+
+      - name: Read Cloudflare edge configuration
+        id: edge
+        continue-on-error: true
+        run: python3 scripts/operations/cloudflare-oteryn-edge-audit.py
+
+      - name: Probe public DNS TLS and HTTP
+        id: public
+        continue-on-error: true
+        run: python3 scripts/operations/oteryn-public-edge-validation.py
+
+      - name: Build bounded result
+        if: always()
+        env:
+          EDGE_OUTCOME: ${{ steps.edge.outcome }}
+          PUBLIC_OUTCOME: ${{ steps.public.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "$EDGE_OUTCOME" == 'success' && "$PUBLIC_OUTCOME" == 'success' \
+                && -f cloudflare-edge-audit/evidence.json \
+                && -f public-edge-validation/evidence.json ]]; then
+            python3 scripts/operations/oteryn-public-edge-result.py \
+              cloudflare-edge-audit/evidence.json \
+              public-edge-validation/evidence.json >public-edge-result.txt
+          else
+            printf '%s\n' \
+              'operation_status=failed' \
+              "edge_collector_outcome=$EDGE_OUTCOME" \
+              "public_collector_outcome=$PUBLIC_OUTCOME" \
+              'edge_mutation=none' \
+              'public_mutation=none' >public-edge-result.txt
+          fi
+
+      - name: Upload sanitized validation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: oteryn-public-edge-validation-${{ github.run_id }}
+          path: |
+            cloudflare-edge-audit/
+            public-edge-validation/
+            public-edge-result.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish bounded result to production issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: '91'
+        run: |
+          set -euo pipefail
+          result="$(cat public-edge-result.txt 2>/dev/null || printf 'operation_status=failed')"
+          body="$(printf '## Oteryn public edge trusted-main validation\n\n```text\nrun_id=%s\ntrusted_sha=%s\n%s\n```\n\nCloudflare and public probes were read-only. Only bounded status fields are published.' "$GITHUB_RUN_ID" "$GITHUB_SHA" "$result")"
+          gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" -f body="$body" >/dev/null
+
+      - name: Propagate collector execution failure
+        if: steps.edge.outcome != 'success' || steps.public.outcome != 'success'
+        run: exit 1

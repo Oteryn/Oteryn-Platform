@@ -1,0 +1,354 @@
+name: Game Catalog Contract
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_cross_repository_staging:
+        description: Run the pinned Canary cross-repository staging import/activate/rollback proof
+        required: true
+        type: boolean
+        default: false
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/game-catalog-contract.yml'
+      - 'app/GameCatalog/**'
+      - 'bootstrap/providers.php'
+      - 'config/game-catalog.php'
+      - 'database/migrations/*game_catalog*.php'
+      - 'resources/schemas/game-catalog/**'
+      - 'tests/Fixtures/GameCatalog/**'
+      - 'tests/Feature/GameCatalog/**'
+      - 'tests/Integration/GameCatalog/**'
+      - 'tests/Unit/GameCatalog/**'
+      - 'tools/game-catalog/**'
+      - 'docs/agents/tasks/active/OTERYN-20260728-game-catalog-slice-1.md'
+      - 'docs/agents/tasks/active/OTERYN-20260729-game-catalog-null-boundary.md'
+      - 'docs/agents/tasks/active/OTERYN-20260729-game-catalog-runtime-threshold.md'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/game-catalog-contract.yml'
+      - 'app/GameCatalog/**'
+      - 'bootstrap/providers.php'
+      - 'config/game-catalog.php'
+      - 'database/migrations/*game_catalog*.php'
+      - 'resources/schemas/game-catalog/**'
+      - 'tests/Fixtures/GameCatalog/**'
+      - 'tests/Feature/GameCatalog/**'
+      - 'tests/Integration/GameCatalog/**'
+      - 'tests/Unit/GameCatalog/**'
+      - 'tools/game-catalog/**'
+      - 'docs/agents/tasks/active/OTERYN-20260728-game-catalog-slice-1.md'
+      - 'docs/agents/tasks/active/OTERYN-20260729-game-catalog-null-boundary.md'
+      - 'docs/agents/tasks/active/OTERYN-20260729-game-catalog-runtime-threshold.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: game-catalog-contract-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install contract validator dependency
+        run: python3 -m pip install --disable-pip-version-check --no-cache-dir 'jsonschema==4.26.0'
+
+      - name: Compile contract validator
+        run: python3 -m py_compile tools/game-catalog/validate_contract_fixture.py
+
+      - name: Validate schema and shared fixture
+        run: |
+          python3 tools/game-catalog/validate_contract_fixture.py \
+            --schema resources/schemas/game-catalog/v1/game-catalog-snapshot.schema.json \
+            --fixture tests/Fixtures/GameCatalog/v1/minimal-snapshot.json
+          python3 tools/game-catalog/validate_contract_fixture.py \
+            --schema resources/schemas/game-catalog/v1.1/game-catalog-snapshot.schema.json \
+            --fixture tests/Fixtures/GameCatalog/v1.1/minimal-snapshot.json \
+            --expected-schema-version 1.1.0 \
+            --expected-schema-sha256 323ff6ae849759c9190f2a0c342855194ed74645816adc45051b6d914e67c7ac \
+            --expected-fixture-sha256 6b809e339cdf2c933c032a32e06e649d277eafb84ce9c5e1681d6b29ead4e61a
+          python3 tools/game-catalog/validate_contract_fixture.py \
+            --schema resources/schemas/game-catalog/v1.2/game-catalog-snapshot.schema.json \
+            --fixture tests/Fixtures/GameCatalog/v1.2/minimal-snapshot.json \
+            --expected-schema-version 1.2.0 \
+            --expected-schema-sha256 a9fa1e3c6366a90d61005796511c344ced9c39594ed676276279a5917287c6de \
+            --expected-fixture-sha256 42b832954f9aa68cf7e2465351f92266771b8132d9634757391d010eaec84855
+
+  static-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.5'
+          coverage: none
+          extensions: pdo_mysql, pcntl, gd
+          tools: composer:v2
+
+      - name: Install dependencies from lockfile
+        run: composer install --no-interaction --prefer-dist --no-progress --quiet
+
+      - name: Check Game Catalog formatting
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/ci
+          vendor/bin/pint --test --format=json \
+            app/GameCatalog \
+            bootstrap/providers.php \
+            config/game-catalog.php \
+            database/migrations/2026_07_28_110000_create_game_catalog_tables.php \
+            database/migrations/2026_07_28_110100_add_game_catalog_profile_policies.php \
+            database/migrations/2026_07_28_110200_add_game_catalog_permissions.php \
+            database/migrations/2026_07_29_152000_make_game_catalog_verified_content_boundary_nullable.php \
+            database/migrations/2026_07_29_174500_add_game_catalog_loot_chance_model.php \
+            tests/Feature/GameCatalog \
+            tests/Integration/GameCatalog \
+            tests/Unit/GameCatalog \
+            2>&1 | tee artifacts/ci/game-catalog-pint.json
+
+      - name: Analyse Game Catalog slice
+        shell: bash
+        run: |
+          set -o pipefail
+          vendor/bin/phpstan analyse \
+            app/GameCatalog \
+            bootstrap/providers.php \
+            config/game-catalog.php \
+            database/migrations/2026_07_28_110000_create_game_catalog_tables.php \
+            database/migrations/2026_07_28_110100_add_game_catalog_profile_policies.php \
+            database/migrations/2026_07_28_110200_add_game_catalog_permissions.php \
+            database/migrations/2026_07_29_152000_make_game_catalog_verified_content_boundary_nullable.php \
+            database/migrations/2026_07_29_174500_add_game_catalog_loot_chance_model.php \
+            tests/Feature/GameCatalog \
+            tests/Integration/GameCatalog \
+            tests/Unit/GameCatalog \
+            --memory-limit=1G \
+            --no-progress \
+            --error-format=raw \
+            2>&1 | tee artifacts/ci/game-catalog-phpstan.txt
+
+      - name: Upload Game Catalog diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: game-catalog-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/ci/game-catalog-pint.json
+            artifacts/ci/game-catalog-phpstan.txt
+          if-no-files-found: warn
+          retention-days: 7
+
+  cross-repository-staging:
+    name: Canary staging import activation rollback
+    if: github.event_name == 'workflow_dispatch' && inputs.run_cross_repository_staging
+    needs: [validate-contract, static-analysis]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: catalog-cross-repo-root-not-a-secret
+          MARIADB_ROOT_HOST: '%'
+          MARIADB_DATABASE: oteryn_catalog_cross_repo
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      CANARY_REPOSITORY: blakinio/canary
+      CANARY_HEAD_SHA: 84b089f9a919bb85773798584e5b0205e2e5895c
+      CANARY_SOURCE_RUN_ID: '30427617799'
+      CANARY_SOURCE_ARTIFACT_ID: '8714331268'
+      CANARY_SOURCE_ARTIFACT_DIGEST: sha256:e389915bff1f79e21cbb7b112717550587d3a556afa11e707c0036ba8b2aa5a6
+      CANARY_STAGING_BRANCH: staging/game-catalog-84b089f9
+      CANARY_STAGING_PATH: staging/game-catalog/84b089f9
+      CANARY_STAGING_PAYLOAD_SHA256: cb462adfe988bd903df4c051d86d30faeb1af051ac62f42ef8a2c18ffa97b0b4
+      CANARY_STAGING_CHUNK_COUNT: '7'
+      APP_ENV: testing
+      APP_DEBUG: 'false'
+      APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: oteryn_catalog_cross_repo
+      DB_USERNAME: root
+      DB_PASSWORD: catalog-cross-repo-root-not-a-secret
+    steps:
+      - name: Checkout exact Platform head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.5'
+          coverage: none
+          extensions: pdo_mysql, gd
+          tools: composer:v2
+
+      - name: Install application dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --quiet
+
+      - name: Download and verify exact Canary staging payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          download_dir='artifacts/game-catalog-cross-repo/download'
+          extracted_dir="${download_dir}/extracted"
+          mkdir -p "${extracted_dir}"
+          encoded_ref='staging%2Fgame-catalog-84b089f9'
+          api_base="https://api.github.com/repos/${CANARY_REPOSITORY}/contents/${CANARY_STAGING_PATH}"
+
+          curl --fail --location --silent --show-error \
+            --header 'Accept: application/vnd.github.raw+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "${api_base}/manifest.json?ref=${encoded_ref}" \
+            --output "${download_dir}/manifest.json"
+
+          for index in $(seq -f '%02g' 0 $((CANARY_STAGING_CHUNK_COUNT - 1))); do
+            curl --fail --location --silent --show-error \
+              --header 'Accept: application/vnd.github.raw+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "${api_base}/payload.b64.part-${index}?ref=${encoded_ref}" \
+              --output "${download_dir}/payload.b64.part-${index}"
+          done
+
+          cat "${download_dir}"/payload.b64.part-* | base64 --decode > "${download_dir}/payload.zip"
+          echo "${CANARY_STAGING_PAYLOAD_SHA256}  ${download_dir}/payload.zip" | sha256sum --check -
+          unzip -q "${download_dir}/payload.zip" -d "${extracted_dir}"
+
+          baseline="$(find "${extracted_dir}" -type f -name game-catalog-baseline.json -print -quit)"
+          candidate="$(find "${extracted_dir}" -type f -name game-catalog.json -print -quit)"
+          provenance="${download_dir}/manifest.json"
+          if [[ -z "${baseline}" || -z "${candidate}" || ! -f "${provenance}" ]]; then
+            echo 'The exact Canary staging payload is incomplete.' >&2
+            exit 1
+          fi
+
+          for snapshot in "${baseline}" "${candidate}"; do
+            sidecar="${snapshot}.sha256"
+            test -f "${sidecar}"
+            (cd "$(dirname "${snapshot}")" && sha256sum --check "$(basename "${sidecar}")")
+          done
+
+          GAME_CATALOG_BASELINE_PATH="${GITHUB_WORKSPACE}/${baseline}" \
+          GAME_CATALOG_CANDIDATE_PATH="${GITHUB_WORKSPACE}/${candidate}" \
+          GAME_CATALOG_PROVENANCE_PATH="${GITHUB_WORKSPACE}/${provenance}" \
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          baseline = json.loads(Path(os.environ['GAME_CATALOG_BASELINE_PATH']).read_text(encoding='utf-8'))
+          candidate = json.loads(Path(os.environ['GAME_CATALOG_CANDIDATE_PATH']).read_text(encoding='utf-8'))
+          provenance = json.loads(Path(os.environ['GAME_CATALOG_PROVENANCE_PATH']).read_text(encoding='utf-8'))
+
+          expected_sha = os.environ['CANARY_HEAD_SHA']
+          assert provenance == {
+              'base64_chunk_count': int(os.environ['CANARY_STAGING_CHUNK_COUNT']),
+              'contract': 'oteryn.game-catalog',
+              'payload_sha256': os.environ['CANARY_STAGING_PAYLOAD_SHA256'],
+              'production_activation': False,
+              'schema_version': '1.0.0',
+              'source_artifact_digest': os.environ['CANARY_SOURCE_ARTIFACT_DIGEST'],
+              'source_artifact_id': int(os.environ['CANARY_SOURCE_ARTIFACT_ID']),
+              'source_head_sha': expected_sha,
+              'source_repository': os.environ['CANARY_REPOSITORY'],
+              'source_workflow_run_id': int(os.environ['CANARY_SOURCE_RUN_ID']),
+              'staging_only': True,
+          }
+          for document in (baseline, candidate):
+              assert document['contract'] == 'oteryn.game-catalog'
+              assert document['schema_version'] == '1.0.0'
+              assert document['snapshot']['canary_commit_sha'] == expected_sha
+              assert document['snapshot']['entity_count'] == len(document['entities']) > 0
+              assert document['snapshot']['relation_count'] == len(document['relations']) > 0
+          PY
+
+          echo "GAME_CATALOG_BASELINE_PATH=${GITHUB_WORKSPACE}/${baseline}" >> "${GITHUB_ENV}"
+          echo "GAME_CATALOG_CANDIDATE_PATH=${GITHUB_WORKSPACE}/${candidate}" >> "${GITHUB_ENV}"
+          echo "GAME_CATALOG_CANARY_SHA=${CANARY_HEAD_SHA}" >> "${GITHUB_ENV}"
+
+      - name: Execute generated-snapshot staging lifecycle
+        shell: bash
+        run: |
+          set -o pipefail
+          php artisan config:clear --no-interaction
+          vendor/bin/phpunit \
+            tests/Integration/GameCatalog/CrossRepositoryGameCatalogTest.php \
+            --testdox \
+            2>&1 | tee artifacts/game-catalog-cross-repo/test.log
+
+      - name: Write durable cross-repository evidence
+        if: success()
+        shell: bash
+        env:
+          PLATFORM_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          baseline_path = Path(os.environ['GAME_CATALOG_BASELINE_PATH'])
+          candidate_path = Path(os.environ['GAME_CATALOG_CANDIDATE_PATH'])
+          baseline = json.loads(baseline_path.read_text(encoding='utf-8'))
+          candidate = json.loads(candidate_path.read_text(encoding='utf-8'))
+          evidence = {
+              'contract': 'oteryn.game-catalog',
+              'schema_version': '1.0.0',
+              'platform_head_sha': os.environ['PLATFORM_HEAD_SHA'],
+              'canary_head_sha': os.environ['CANARY_HEAD_SHA'],
+              'canary_workflow_run_id': int(os.environ['CANARY_SOURCE_RUN_ID']),
+              'canary_artifact_id': int(os.environ['CANARY_SOURCE_ARTIFACT_ID']),
+              'canary_artifact_digest': os.environ['CANARY_SOURCE_ARTIFACT_DIGEST'],
+              'canary_staging_branch': os.environ['CANARY_STAGING_BRANCH'],
+              'canary_staging_payload_sha256': os.environ['CANARY_STAGING_PAYLOAD_SHA256'],
+              'baseline_generated_at': baseline['snapshot']['generated_at'],
+              'candidate_generated_at': candidate['snapshot']['generated_at'],
+              'entity_count': candidate['snapshot']['entity_count'],
+              'relation_count': candidate['snapshot']['relation_count'],
+              'profile': 'staging-canary-cross-repo',
+              'public_enabled': False,
+              'lifecycle': ['import-baseline', 'activate-baseline', 'import-candidate', 'activate-candidate', 'rollback-baseline'],
+              'production_deployment': False,
+              'production_profile_activation': False,
+          }
+          Path('artifacts/game-catalog-cross-repo/evidence.json').write_text(
+              json.dumps(evidence, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Upload cross-repository evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: game-catalog-cross-repository-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/game-catalog-cross-repo/evidence.json
+            artifacts/game-catalog-cross-repo/test.log
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,0 +1,189 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  classify_changes:
+    name: classify-changes
+    runs-on: ubuntu-latest
+    outputs:
+      ci: ${{ steps.classify.outputs.ci }}
+      phase7: ${{ steps.classify.outputs.phase7 }}
+      edge: ${{ steps.classify.outputs.edge }}
+      db_outage: ${{ steps.classify.outputs.db_outage }}
+      game_auth_concurrency: ${{ steps.classify.outputs.game_auth_concurrency }}
+      classes: ${{ steps.classify.outputs.classes }}
+    steps:
+      - name: Checkout exact classification range
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Validate CI routing contracts
+        run: |
+          python tests/ci/test_classify_changes.py
+          python tests/ci/test_push_change_routing.py
+          python tests/ci/test_required_test_gate.py
+          python tests/ci/test_workflow_trigger_economy.py
+          python tests/ci/test_acceptance_lockfile_contract.py
+          python tests/ci/test_game_catalog_cross_repo_trigger.py
+          python tests/ci/test_synology_deploy_release_identity.py
+
+      - name: Validate Integration execution registry
+        run: |
+          python tools/validation/test_verify_integration_test_registration.py
+          python tools/validation/verify_integration_test_registration.py
+
+      - name: Validate deterministic prompt contracts
+        run: |
+          python tools/validation/test_prompt_eval.py
+          python tools/validation/prompt_eval.py
+
+      - name: Validate workflow inventory
+        run: |
+          python tools/validation/test_workflow_inventory.py
+          python tools/validation/workflow_inventory.py
+
+      - name: Validate immutable GitHub Actions references
+        run: |
+          python tools/validation/test_github_actions_pinning.py
+          python tools/validation/github_actions_pinning.py --inventory-json
+
+      - name: Validate active task checkpoint contract
+        shell: bash
+        run: |
+          if find docs/agents/tasks/active -maxdepth 1 -type f -name '*.md' -print -quit | grep -q .; then
+            python tools/agents/checkpoint.py --tasks docs/agents/tasks/active --require-checkpoint
+          else
+            echo "Validated 0 active task checkpoints."
+          fi
+
+      - name: Classify changed paths
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            python scripts/ci/classify_changes.py \
+              --base "$BASE_SHA" \
+              --head "$HEAD_SHA" \
+              --github-output "$GITHUB_OUTPUT" \
+              --summary "$GITHUB_STEP_SUMMARY"
+          else
+            python scripts/ci/classify_push_changes.py \
+              --base "$BASE_SHA" \
+              --head "$HEAD_SHA" \
+              --github-output "$GITHUB_OUTPUT" \
+              --summary "$GITHUB_STEP_SUMMARY"
+          fi
+
+  runtime_tests:
+    name: runtime-tests
+    needs: classify_changes
+    if: ${{ needs.classify_changes.result == 'success' && needs.classify_changes.outputs.ci == 'true' }}
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: oteryn-ci-root-password
+          MARIADB_ROOT_HOST: "%"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      CANARY_PROVISIONING_INTEGRATION_HOST: 127.0.0.1
+      CANARY_PROVISIONING_INTEGRATION_PORT: 3306
+      CANARY_PROVISIONING_INTEGRATION_ROOT_PASSWORD: oteryn-ci-root-password
+      CANARY_CHARACTER_CREATE_INTEGRATION_HOST: 127.0.0.1
+      CANARY_CHARACTER_CREATE_INTEGRATION_PORT: 3306
+      CANARY_CHARACTER_CREATE_INTEGRATION_ROOT_PASSWORD: oteryn-ci-root-password
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.5'
+          coverage: none
+          extensions: pdo_mysql, pcntl, gd
+          tools: composer:v2
+
+      - name: Verify editorial image codecs
+        run: >-
+          php -r 'exit(extension_loaded("gd") && (imagetypes() & IMG_JPG) && (imagetypes() & IMG_PNG) && (imagetypes() & IMG_WEBP) ? 0 : 1);'
+
+      - name: Validate Composer metadata and lockfile
+        run: composer validate --strict
+
+      - name: Install dependencies from lockfile
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Audit Composer dependencies
+        run: composer audit --no-interaction
+
+      - name: Check formatting
+        run: vendor/bin/pint --test
+
+      - name: Run static analysis
+        run: composer analyse
+
+      - name: Run tests
+        run: |
+          mkdir -p artifacts/ci
+          php artisan config:clear --ansi
+          php artisan test --log-junit=artifacts/ci/phpunit-junit.xml
+
+      - name: Upload PHPUnit failure diagnostics
+        if: failure() && hashFiles('artifacts/ci/phpunit-junit.xml') != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-phpunit-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/ci/phpunit-junit.xml
+          if-no-files-found: error
+          retention-days: 7
+
+  test:
+    needs:
+      - classify_changes
+      - runtime_tests
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact required-gate implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Evaluate required test gate
+        env:
+          CLASSIFICATION_RESULT: ${{ needs.classify_changes.result }}
+          CI_REQUIRED: ${{ needs.classify_changes.outputs.ci }}
+          RUNTIME_TESTS_RESULT: ${{ needs.runtime_tests.result }}
+        run: >-
+          python scripts/ci/required_test_gate.py
+          --classification-result "$CLASSIFICATION_RESULT"
+          --ci-required "$CI_REQUIRED"
+          --runtime-tests-result "$RUNTIME_TESTS_RESULT"
+          --summary "$GITHUB_STEP_SUMMARY"

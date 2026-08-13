@@ -1,0 +1,164 @@
+name: Native protocol contract audits
+
+on:
+  pull_request:
+    paths:
+      - docs/contracts/**
+      - docs/architecture/**
+      - docs/operations/OTERYN_NATIVE_PROTOCOL_PRODUCER.md
+      - docs/agents/prompts/OTS_NATIVE_PROTOCOL_SINGLE_VERSION_COMPLETION_AGENT.md
+      - docs/agents/tasks/active/OTERYN-20260805-native-protocol-single-version-producer.md
+      - scripts/validate_native_protocol_contract.py
+      - scripts/validate_native_protocol_change_boundary.py
+      - scripts/test_native_protocol_change_boundary.py
+      - .github/workflows/native-protocol-contract*.yml
+  push:
+    branches: [main]
+    paths:
+      - docs/contracts/**
+      - docs/architecture/**
+      - docs/operations/OTERYN_NATIVE_PROTOCOL_PRODUCER.md
+      - docs/agents/prompts/OTS_NATIVE_PROTOCOL_SINGLE_VERSION_COMPLETION_AGENT.md
+      - docs/agents/tasks/active/OTERYN-20260805-native-protocol-single-version-producer.md
+      - scripts/validate_native_protocol_contract.py
+      - scripts/validate_native_protocol_change_boundary.py
+      - scripts/test_native_protocol_change_boundary.py
+      - .github/workflows/native-protocol-contract*.yml
+
+permissions:
+  contents: read
+
+jobs:
+  architecture-boundary:
+    name: Audit 1 - architecture and boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Run native-protocol change-boundary regressions
+        run: python3 scripts/test_native_protocol_change_boundary.py
+      - name: Verify single native identity and governed change boundary
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path('.')
+          contract = (root/'docs/contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md').read_text()
+          adr = (root/'docs/architecture/adr/0011-single-native-protocol-version.md').read_text()
+          required = ['family = oteryn', 'native_protocol_version = 1', 'no `profile` key, alias or placeholder', 'protocol-canary', 'protocol-oteryn']
+          for token in required:
+              if token not in contract and token not in adr:
+                  raise SystemExit(f'missing architecture invariant: {token}')
+          if 'There is no current native `profile` field' not in adr:
+              raise SystemExit('native profile boundary is not explicit')
+          print('native protocol architecture invariants: PASS')
+          PY
+          python3 scripts/validate_native_protocol_change_boundary.py --base-ref origin/main
+
+  security-auth-downgrade:
+    name: Audit 2 - security auth replay downgrade
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify fail-closed security invariants
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          text = '\n'.join((Path(p).read_text() for p in [
+              'docs/contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md',
+              'docs/architecture/OTERYN_NATIVE_PROTOCOL_THREAT_MODEL.md',
+              'docs/architecture/OTERYN_NATIVE_PROTOCOL_ROLLOUT.md',
+          ]))
+          required = ['single admission', 'replay', 'bind_on_first_admission', 'no second candidate', 'no plaintext or cross-family fallback', 'TLS 1.3', 'oteryn-game/1', 'terminal', 'redact', 'production canary', 'owner authorization']
+          missing = [x for x in required if x.lower() not in text.lower()]
+          if missing:
+              raise SystemExit(f'missing security controls: {missing}')
+          print('security/auth/replay/downgrade audit: PASS')
+          PY
+
+  parser-limits:
+    name: Audit 3 - parser schema and limits
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify protobuf compatibility and bounded parser contract
+        shell: bash
+        run: |
+          python3 scripts/validate_native_protocol_contract.py
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          proto = Path('docs/contracts/oteryn_native_gameplay_v1.proto').read_text()
+          contract = Path('docs/contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md').read_text()
+          for marker in ['reserved 3;', 'reserved 7;', 'reserved "gameplay_profile";', 'reserved 5;', 'reserved "PROTOCOL_ERROR_UNSUPPORTED_PROFILE";']:
+              if marker not in proto:
+                  raise SystemExit(f'missing reserved compatibility marker: {marker}')
+          for marker in ['1,048,576', '512 KiB', '16 MiB', '5 seconds']:
+              if marker not in contract:
+                  raise SystemExit(f'missing parser bound: {marker}')
+          if 'big-endian' not in contract.lower() or '32-bit' not in contract.lower():
+              raise SystemExit('missing 32-bit big-endian framing invariant')
+          if len(re.findall(r'\bnative_protocol_version\s*=\s*\d+;', proto)) != 2:
+              raise SystemExit('unexpected native protocol version field count')
+          print('parser/schema/limits audit: PASS')
+          PY
+
+  tests-ci-regression:
+    name: Audit 4 - tests CI and Canary regression boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Validate fixtures and untouched Canary implementation
+        shell: bash
+        run: |
+          python3 scripts/validate_native_protocol_contract.py
+          python3 -m json.tool docs/contracts/fixtures/oteryn-native-v1/gateway-offer.json >/dev/null
+          python3 -m json.tool docs/contracts/fixtures/oteryn-native-v1/gateway-selection.json >/dev/null
+          python3 -m json.tool docs/contracts/fixtures/oteryn-native-v1/manifest.json >/dev/null
+          base=$(git merge-base HEAD origin/main)
+          if git diff --name-only "$base...HEAD" | grep -E '(^|/)(canary|protocol-canary)(/|$)'; then
+            echo 'Canary implementation path changed by contract correction' >&2
+            exit 1
+          fi
+          echo 'tests/CI/Canary regression-boundary audit: PASS'
+
+  integration-rollout-rollback:
+    name: Audit 5 - integration rollout and rollback
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify ordering, staging and production-disable gates
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          prompt = Path('docs/agents/prompts/OTS_NATIVE_PROTOCOL_SINGLE_VERSION_COMPLETION_AGENT.md').read_text()
+          rollout = Path('docs/architecture/OTERYN_NATIVE_PROTOCOL_ROLLOUT.md').read_text()
+          migration = Path('docs/contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_MIGRATION.md').read_text()
+          manifest = json.loads(Path('docs/contracts/fixtures/oteryn-native-v1/manifest.json').read_text())
+          order_section = prompt.split('## Merge and rollout order', 1)[1].split('Rollback:', 1)[0]
+          ordered = ['canonical correction', 'Otheryn correspondence', 'Rust correspondence']
+          positions = [order_section.find(item) for item in ordered]
+          if any(pos < 0 for pos in positions) or positions != sorted(positions):
+              raise SystemExit(f'canonical correspondence merge order missing or invalid: {positions}')
+          required_rollout = ['bounded staging', 'Rollback', 'exact', 'production canary', 'owner authorization']
+          missing = [x for x in required_rollout if x.lower() not in rollout.lower()]
+          if missing:
+              raise SystemExit(f'missing rollout controls: {missing}')
+          if 'must never enable native advertisement' not in migration.lower():
+              raise SystemExit('migration rollback does not forbid native enablement')
+          if manifest.get('production_enabled') is not False:
+              raise SystemExit('fixture manifest enables production')
+          print('integration/rollout/rollback audit: PASS')
+          PY

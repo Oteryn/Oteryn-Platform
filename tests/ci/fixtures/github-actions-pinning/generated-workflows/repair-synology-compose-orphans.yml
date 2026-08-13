@@ -1,0 +1,168 @@
+name: Repair Synology Compose Container Names
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: synology-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    if: github.ref == 'refs/heads/main'
+    runs-on: oteryn-staging
+    timeout-minutes: 10
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+
+      - name: Validate Docker access
+        run: |
+          set -euo pipefail
+          docker version >/dev/null
+
+      - name: Repair and verify canonical Compose names
+        id: repair
+        run: |
+          set -euo pipefail
+
+          project=oteryn-staging
+          services=(mariadb redis platform canary tls-init internal-proxy gateway)
+          repaired_services=()
+
+          for service in "${services[@]}"; do
+            canonical="${project}-${service}-1"
+            candidate_id=""
+            candidate_name=""
+
+            while IFS='|' read -r container_id container_name; do
+              if [[ "$container_name" =~ ^[0-9a-f]{12}_${canonical}$ ]]; then
+                if [[ -n "$candidate_id" ]]; then
+                  echo "More than one stale replacement candidate exists for service $service; refusing repair." >&2
+                  exit 1
+                fi
+                candidate_id="$container_id"
+                candidate_name="$container_name"
+              fi
+            done < <(docker ps -a --format '{{.ID}}|{{.Names}}')
+
+            if [[ -z "$candidate_id" ]]; then
+              continue
+            fi
+
+            actual_project="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "$candidate_id")"
+            actual_service="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "$candidate_id")"
+
+            if [[ "$actual_project" != "$project" || "$actual_service" != "$service" ]]; then
+              echo "Candidate $candidate_name failed exact Compose label verification; refusing repair." >&2
+              exit 1
+            fi
+
+            if docker inspect "$canonical" >/dev/null 2>&1; then
+              echo "Canonical container $canonical already exists; refusing to overwrite it." >&2
+              exit 1
+            fi
+
+            echo "Renaming verified stale Compose replacement for service $service to $canonical."
+            docker rename "$candidate_id" "$canonical"
+            repaired_services+=("$service")
+          done
+
+          for service in platform canary gateway; do
+            name="oteryn-staging-${service}-1"
+            running="$(docker inspect --format '{{.State.Running}}' "$name")"
+            if [[ "$running" != "true" ]]; then
+              echo "$name is not running after name repair." >&2
+              exit 1
+            fi
+            echo "$name: running"
+          done
+
+          if (( ${#repaired_services[@]} == 0 )); then
+            repaired_summary=none
+          else
+            repaired_summary="$(IFS=,; echo "${repaired_services[*]}")"
+          fi
+
+          echo "repaired_services=$repaired_summary" >> "$GITHUB_OUTPUT"
+
+      - name: Read public native OAuth client id
+        id: oauth
+        if: steps.repair.outcome == 'success'
+        run: |
+          set -euo pipefail
+
+          oauth_output="$(docker exec oteryn-staging-platform-1 \
+            sh -lc 'cd /var/www/html && php artisan game-auth:oauth-client:ensure --no-ansi' 2>&1)"
+          oauth_client_id="$(printf '%s\n' "$oauth_output" \
+            | tr -d '\r' \
+            | sed -nE 's/.*Oteryn native OAuth client id:[[:space:]]*([A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*).*/\1/p' \
+            | tail -n 1)"
+
+          if [[ ! "$oauth_client_id" =~ ^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$ ]]; then
+            echo "Unable to read a bounded public native OAuth client id from the no-ANSI command output." >&2
+            exit 1
+          fi
+
+          echo "oauth_client_id=$oauth_client_id" >> "$GITHUB_OUTPUT"
+          echo "Public native OAuth client id: $oauth_client_id"
+
+      - name: Publish sanitized repair status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPAIR_OUTCOME: ${{ steps.repair.outcome }}
+          OAUTH_OUTCOME: ${{ steps.oauth.outcome }}
+          REPAIRED_SERVICES: ${{ steps.repair.outputs.repaired_services }}
+          OAUTH_CLIENT_ID: ${{ steps.oauth.outputs.oauth_client_id }}
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY' > /tmp/repair-comment.json
+          import json
+          import os
+
+          repair_outcome = os.environ.get('REPAIR_OUTCOME', 'unknown')
+          oauth_outcome = os.environ.get('OAUTH_OUTCOME', 'unknown')
+          repaired = os.environ.get('REPAIRED_SERVICES') or 'unavailable'
+          oauth_client_id = os.environ.get('OAUTH_CLIENT_ID') or 'unavailable'
+          run_url = (
+              f"https://github.com/{os.environ['GITHUB_REPOSITORY']}"
+              f"/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+          )
+          overall = 'success' if repair_outcome == 'success' and oauth_outcome == 'success' else 'failure'
+
+          lines = [
+              f"Synology Compose name repair run `{os.environ['GITHUB_RUN_ID']}`: **{overall}**",
+              "",
+              f"- name repair/verification: `{repair_outcome}`",
+              f"- OAuth client-id read: `{oauth_outcome}`",
+              f"- repaired services: `{repaired}`",
+          ]
+          if oauth_outcome == 'success':
+              lines.append(f"- public native OAuth client id: `{oauth_client_id}`")
+          if repair_outcome == 'success':
+              lines.append("- canonical runtime: `platform`, `canary`, `gateway` running")
+          lines.extend([
+              f"- commit: `{os.environ['GITHUB_SHA']}`",
+              f"- run: {run_url}",
+              "",
+              "No secrets or raw Docker inspect data were published.",
+          ])
+
+          print(json.dumps({'body': '\n'.join(lines)}))
+          PY
+
+          curl --fail --silent --show-error \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/163/comments" \
+            --data-binary @/tmp/repair-comment.json >/dev/null

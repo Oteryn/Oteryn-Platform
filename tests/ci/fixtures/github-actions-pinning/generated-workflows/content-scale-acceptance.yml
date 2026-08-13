@@ -1,0 +1,249 @@
+name: Content Scale Acceptance
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'app/Announcements/**'
+      - 'app/Cms/**'
+      - 'app/Downloads/**'
+      - 'app/EditorialMedia/**'
+      - 'app/Events/**'
+      - 'app/Http/Controllers/Admin/AdminEditorialMediaController.php'
+      - 'app/Http/Controllers/Admin/AdminEditorialTranslationController.php'
+      - 'app/Http/Controllers/Cms/**'
+      - 'app/Http/Controllers/Downloads/**'
+      - 'app/Localization/**'
+      - 'app/Wiki/**'
+      - 'database/migrations/*editorial_translations*'
+      - 'public/css/**'
+      - 'resources/views/home.blade.php'
+      - 'resources/views/news/**'
+      - 'resources/views/pages/**'
+      - 'resources/views/downloads/**'
+      - 'resources/views/events/**'
+      - 'resources/views/wiki/**'
+      - 'resources/views/admin/announcements/**'
+      - 'resources/views/admin/downloads/**'
+      - 'resources/views/admin/events/**'
+      - 'resources/views/admin/media/**'
+      - 'resources/views/admin/news/**'
+      - 'resources/views/admin/translations/**'
+      - 'resources/views/admin/wiki/**'
+      - 'routes/**'
+      - 'scripts/acceptance/bootstrap-production-like.sh'
+      - 'scripts/acceptance/package.json'
+      - 'scripts/acceptance/playwright.content-scale.config.mjs'
+      - 'scripts/acceptance/seed-browser-announcements.php'
+      - 'scripts/acceptance/seed-browser-wiki-reconciliation.php'
+      - 'scripts/acceptance/seed-content-scale*.php'
+      - 'scripts/acceptance/tests/content-scale*-acceptance.spec.mjs'
+      - 'docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json'
+      - '.github/workflows/content-scale-acceptance.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'app/Announcements/**'
+      - 'app/Cms/**'
+      - 'app/Downloads/**'
+      - 'app/EditorialMedia/**'
+      - 'app/Events/**'
+      - 'app/Http/Controllers/Admin/AdminEditorialMediaController.php'
+      - 'app/Http/Controllers/Admin/AdminEditorialTranslationController.php'
+      - 'app/Http/Controllers/Cms/**'
+      - 'app/Http/Controllers/Downloads/**'
+      - 'app/Localization/**'
+      - 'app/Wiki/**'
+      - 'database/migrations/*editorial_translations*'
+      - 'public/css/**'
+      - 'resources/views/home.blade.php'
+      - 'resources/views/news/**'
+      - 'resources/views/pages/**'
+      - 'resources/views/downloads/**'
+      - 'resources/views/events/**'
+      - 'resources/views/wiki/**'
+      - 'resources/views/admin/announcements/**'
+      - 'resources/views/admin/downloads/**'
+      - 'resources/views/admin/events/**'
+      - 'resources/views/admin/media/**'
+      - 'resources/views/admin/news/**'
+      - 'resources/views/admin/translations/**'
+      - 'resources/views/admin/wiki/**'
+      - 'routes/**'
+      - 'scripts/acceptance/bootstrap-production-like.sh'
+      - 'scripts/acceptance/package.json'
+      - 'scripts/acceptance/playwright.content-scale.config.mjs'
+      - 'scripts/acceptance/seed-browser-announcements.php'
+      - 'scripts/acceptance/seed-browser-wiki-reconciliation.php'
+      - 'scripts/acceptance/seed-content-scale*.php'
+      - 'scripts/acceptance/tests/content-scale*-acceptance.spec.mjs'
+      - 'docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json'
+      - '.github/workflows/content-scale-acceptance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: content-scale-acceptance-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  content-scale:
+    name: Long bilingual content matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: acceptance-ci-root-not-a-secret
+          MARIADB_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+
+    env:
+      ACCEPTANCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      VALIDATION_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      ACCEPTANCE_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-content-scale
+      ACCEPTANCE_RUN_SUFFIX: content-scale
+      ACCEPTANCE_ZERO_RETRIES: '1'
+      ACCEPTANCE_BASE_URL: http://127.0.0.1:8080
+      ACCEPTANCE_OUTPUT_DIR: /tmp/oteryn-content-scale-acceptance
+      APP_ENV: acceptance
+      APP_DEBUG: 'false'
+      APP_URL: http://127.0.0.1:8080
+      LOG_CHANNEL: stderr_json
+      LOG_LEVEL: info
+      SESSION_DRIVER: file
+      SESSION_SECURE_COOKIE: 'false'
+      SESSION_HTTP_ONLY: 'true'
+      CACHE_STORE: file
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: log
+      DOWNLOADS_ALLOWED_ARTIFACT_HOSTS: downloads.example.test
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: oteryn_platform_acceptance
+      DB_USERNAME: root
+      DB_PASSWORD: acceptance-ci-root-not-a-secret
+      CANARY_DB_HOST: 127.0.0.1
+      CANARY_DB_PORT: 3306
+      CANARY_DB_DATABASE: canary_acceptance
+      CANARY_DB_USERNAME: oteryn_acceptance_readonly
+      CANARY_DB_PASSWORD: acceptance-ci-readonly-not-a-secret
+      CANARY_PROVISIONING_DB_HOST: 127.0.0.1
+      CANARY_PROVISIONING_DB_PORT: 3306
+      CANARY_PROVISIONING_DB_DATABASE: canary_acceptance
+      CANARY_PROVISIONING_DB_USERNAME: oteryn_acceptance_provisioning
+      CANARY_PROVISIONING_DB_PASSWORD: acceptance-ci-provisioning-not-a-secret
+      CANARY_CHARACTER_CREATE_DB_HOST: 127.0.0.1
+      CANARY_CHARACTER_CREATE_DB_PORT: 3306
+      CANARY_CHARACTER_CREATE_DB_DATABASE: canary_acceptance
+      CANARY_CHARACTER_CREATE_DB_USERNAME: oteryn_acceptance_character_create
+      CANARY_CHARACTER_CREATE_DB_PASSWORD: acceptance-ci-character-not-a-secret
+      CANARY_RUNTIME_REDIS_CLIENT: phpredis
+      CANARY_RUNTIME_REDIS_SCHEME: tcp
+      CANARY_RUNTIME_REDIS_HOST: 127.0.0.1
+      CANARY_RUNTIME_REDIS_PORT: 6379
+      CANARY_RUNTIME_REDIS_DB: 0
+      CANARY_RUNTIME_REDIS_USERNAME: oteryn_acceptance_runtime
+      CANARY_RUNTIME_REDIS_PASSWORD: acceptance-ci-runtime-not-a-secret
+      MARIADB_ROOT_PASSWORD: acceptance-ci-root-not-a-secret
+
+    steps:
+      - name: Checkout exact tested SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.5'
+          coverage: none
+          extensions: pdo_mysql, redis, gd
+          tools: composer:v2
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Install acceptance system clients
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends mariadb-client redis-tools
+
+      - name: Install application dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Install pinned Chromium harness
+        run: |
+          npm --prefix scripts/acceptance install --no-audit --no-fund
+          cd scripts/acceptance
+          npx playwright install --with-deps chromium
+
+      - name: Generate ephemeral application key
+        run: echo "APP_KEY=$(php -r 'echo "base64:".base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
+
+      - name: Provision isolated production-like dependencies
+        run: bash scripts/acceptance/bootstrap-production-like.sh
+
+      - name: Start exact-SHA Laravel HTTP runtime
+        run: |
+          mkdir -p artifacts/acceptance
+          php artisan serve --host=127.0.0.1 --port=8080 >/tmp/oteryn-content-scale-server.log 2>&1 &
+          echo $! >/tmp/oteryn-content-scale-server.pid
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/oteryn-content-scale-server.log >&2 || true
+          exit 1
+
+      - name: Execute zero-retry Content Scale matrix
+        run: npm --prefix scripts/acceptance run test:content-scale
+
+      - name: Write non-secret Content Scale evidence
+        if: always()
+        run: |
+          mkdir -p artifacts/acceptance
+          cat > artifacts/acceptance/content-scale-evidence.json <<JSON
+          {
+            "exact_tested_sha": "$ACCEPTANCE_SHA",
+            "profile": "content-scale",
+            "projects": ["content-scale-chromium-desktop", "content-scale-chromium-tablet", "content-scale-chromium-mobile"],
+            "viewports": ["desktop-1440x1000", "tablet-820x1180", "mobile-390x844"],
+            "retries": 0,
+            "runtime": "real Laravel HTTP",
+            "platform_database": "MariaDB 11.8 isolated acceptance schema",
+            "fixture": "deterministic long EN/PL content, valid private media bytes and bounded multi-page collections",
+            "proof_boundary": "homepage, CMS, localization, Downloads, Events, Announcements, Support/Legal, Wiki, Editorial Media, administrator tables, pagination, wrapping, containment and document-level overflow",
+            "production_claim": "none"
+          }
+          JSON
+
+      - name: Upload secret-safe Content Scale evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: content-scale-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/acceptance
+          if-no-files-found: warn
+          retention-days: 7

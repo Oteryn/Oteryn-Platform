@@ -1,0 +1,57 @@
+name: Game Gateway CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'services/game-gateway/**'
+      - '.github/workflows/game-gateway-ci.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'services/game-gateway/**'
+      - '.github/workflows/game-gateway-ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: game-gateway-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: services/game-gateway/go.mod
+          cache-dependency-path: services/game-gateway/go.mod
+
+      - name: Check formatting
+        shell: bash
+        working-directory: services/game-gateway
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            printf 'Unformatted Go files:\n%s\n' "$unformatted"
+            exit 1
+          fi
+
+      - name: Run tests
+        working-directory: services/game-gateway
+        run: go test ./...
+
+      - name: Run vet
+        working-directory: services/game-gateway
+        run: go vet ./...
+
+      - name: Build gateway
+        working-directory: services/game-gateway
+        run: go build -trimpath -o /tmp/oteryn-game-gateway ./cmd/game-gateway

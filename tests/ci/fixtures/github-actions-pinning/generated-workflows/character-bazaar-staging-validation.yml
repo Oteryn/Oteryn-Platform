@@ -1,0 +1,139 @@
+name: Character Bazaar Staging Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'config/marketplace.php'
+      - 'database/provisioning/canary-character-transfer.sql.template'
+      - 'deploy/synology/compose.marketplace.yml'
+      - 'deploy/synology/scripts/marketplace-staging.sh'
+      - 'deploy/synology/.env.example'
+      - '.github/workflows/character-bazaar-staging-control.yml'
+      - '.github/workflows/character-bazaar-staging-validation.yml'
+      - 'docs/operations/MARKETPLACE_OPERATIONS.md'
+      - 'docs/operations/MARKETPLACE_STAGING_ENABLEMENT.md'
+  push:
+    branches:
+      - main
+    paths:
+      - 'config/marketplace.php'
+      - 'database/provisioning/canary-character-transfer.sql.template'
+      - 'deploy/synology/compose.marketplace.yml'
+      - 'deploy/synology/scripts/marketplace-staging.sh'
+      - 'deploy/synology/.env.example'
+      - '.github/workflows/character-bazaar-staging-control.yml'
+      - '.github/workflows/character-bazaar-staging-validation.yml'
+      - 'docs/operations/MARKETPLACE_OPERATIONS.md'
+      - 'docs/operations/MARKETPLACE_STAGING_ENABLEMENT.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: character-bazaar-staging-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-package:
+    name: Validate Character Bazaar staging package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate shell and workflow syntax
+        run: |
+          set -euo pipefail
+          bash -n deploy/synology/scripts/marketplace-staging.sh
+          ruby -e 'require "yaml"; abort("invalid workflow YAML") unless YAML.parse_file(ARGV.fetch(0))' \
+            .github/workflows/character-bazaar-staging-control.yml
+
+      - name: Validate guarded control contract
+        run: |
+          set -euo pipefail
+          control=.github/workflows/character-bazaar-staging-control.yml
+          grep -Fq "contains(github.event.head_commit.message, '[character-bazaar-staging]')" "$control"
+          grep -Fq 'group: synology-staging-deployment' "$control"
+          grep -Fq 'environment: synology-staging' "$control"
+          grep -Fq 'marketplace.env' "$control"
+          grep -Fq 'marketplace-staging.sh prepare-rollback' "$control"
+          grep -Fq 'character-bazaar-staging-evidence.json' "$control"
+          grep -Fq 'production_environment_proven' "$control"
+          if grep -Fq 'OTERYN_STAGING_CANARY_CHARACTER_TRANSFER_DB_PASSWORD' "$control"; then
+            echo 'The transfer secret must be generated and retained only on the staging runner state volume.' >&2
+            exit 1
+          fi
+
+      - name: Validate fail-closed Compose overlay
+        run: |
+          set -euo pipefail
+          env_file=/tmp/oteryn-marketplace-staging.env
+          rendered=/tmp/oteryn-marketplace-staging.json
+          project="oteryn-marketplace-validation-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cp deploy/synology/.env.example "$env_file"
+          sed -E -i 's/=(REQUIRED_[A-Z0-9_]+)$/=localplaceholder/' "$env_file"
+
+          compose=(
+            docker compose
+            -p "$project"
+            --env-file "$env_file"
+            -f deploy/synology/compose.yml
+            -f deploy/synology/compose.marketplace.yml
+          )
+          cleanup() {
+            "${compose[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
+            rm -f "$env_file" "$rendered"
+          }
+          trap cleanup EXIT
+
+          "${compose[@]}" config --quiet
+          "${compose[@]}" config --format json > "$rendered"
+          python3 - "$rendered" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          data = json.loads(Path(sys.argv[1]).read_text())
+          services = data['services']
+          platform = services['platform']
+          scheduler = services['marketplace-scheduler']
+
+          required = {
+              'MARKETPLACE_ENABLED': 'false',
+              'MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID': '0',
+              'CANARY_CHARACTER_TRANSFER_DB_HOST': 'mariadb',
+              'CANARY_CHARACTER_TRANSFER_DB_USERNAME': 'oteryn_character_transfer',
+          }
+          for service_name, service in [('platform', platform), ('marketplace-scheduler', scheduler)]:
+              environment = {key: str(value) for key, value in service.get('environment', {}).items()}
+              for key, expected in required.items():
+                  if environment.get(key) != expected:
+                      raise SystemExit(f'{service_name} {key}={environment.get(key)!r}, expected {expected!r}')
+
+          if scheduler.get('ports'):
+              raise SystemExit('Marketplace scheduler must not publish a port')
+          if scheduler.get('image') != platform.get('image'):
+              raise SystemExit('Marketplace scheduler must use the exact Platform image')
+          command = scheduler.get('command') or []
+          if command != ['php', 'artisan', 'schedule:work', '--no-interaction']:
+              raise SystemExit(f'Unexpected Marketplace scheduler command: {command!r}')
+          if scheduler.get('restart') != 'always':
+              raise SystemExit('Marketplace scheduler must use restart: always')
+
+          bind_mounts = []
+          for service_name, service in services.items():
+              for mount in service.get('volumes', []) or []:
+                  if mount.get('type') == 'bind':
+                      bind_mounts.append((service_name, mount.get('source'), mount.get('target')))
+          if bind_mounts:
+              raise SystemExit(f'Marketplace staging must not depend on checkout bind mounts: {bind_mounts}')
+          PY
+
+      - name: Verify runtime default is fail-closed
+        run: |
+          set -euo pipefail
+          grep -q "\['testing', 'acceptance'\]" config/marketplace.php
+          grep -q "env('MARKETPLACE_ENABLED', \$isolatedTestDefault)" config/marketplace.php

@@ -1,0 +1,104 @@
+name: Native Auth Canary Cache Header Build
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/native-auth-canary-cache-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  CANARY_REF: b15b7d544f4795e3a2a65b88de35391b9fd0a20d
+
+jobs:
+  build-canary:
+    name: Build exact Canary cache-header revision
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      CC: gcc-13
+      CXX: g++-13
+      VCPKG_BINARY_CACHE_ACCESS: read
+      VCPKG_BINARY_SOURCES: "clear;nuget,https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json,read;nugettimeout,600"
+      VCPKG_NUGET_REPOSITORY: https://github.com/blakinio/canary.git
+      VCPKG_NUGET_API_KEY: ${{ github.token }}
+    steps:
+      - name: Checkout exact Canary source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: blakinio/canary
+          ref: ${{ env.CANARY_REF }}
+          persist-credentials: false
+
+      - name: Verify exact Canary revision
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${CANARY_REF}"
+          git rev-parse HEAD | tee canary-commit.txt
+
+      - name: Install Canary build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ccache ninja-build gcc-13 g++-13 mono-complete
+          sudo ln -sf /usr/bin/ninja /usr/bin/ninja-build
+
+      - name: Read Canary vcpkg baseline
+        run: |
+          set -euo pipefail
+          vcpkg_commit_id="$(grep '.builtin-baseline' vcpkg.json | awk -F: '{print $2}' | tr -d ',\" ')"
+          test -n "${vcpkg_commit_id}"
+          echo "VCPKG_GIT_COMMIT_ID=${vcpkg_commit_id}" >> "${GITHUB_ENV}"
+
+      - name: Set up Canary vcpkg
+        uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2
+        with:
+          vcpkgGitURL: "https://github.com/microsoft/vcpkg.git"
+          vcpkgGitCommitId: ${{ env.VCPKG_GIT_COMMIT_ID }}
+
+      - name: Configure Canary NuGet package cache
+        env:
+          NUGET_AUTH_TOKEN: ${{ env.VCPKG_NUGET_API_KEY }}
+        run: |
+          set -euo pipefail
+          unset VCPKG_FORCE_SYSTEM_BINARIES
+          nuget_path="$(vcpkg fetch nuget 2>&1 | grep -E '^/' | tail -n 1)"
+          test -n "${nuget_path}"
+          test -f "${nuget_path}"
+          mono "${nuget_path}" sources remove -name "GitHubPackages" >/dev/null 2>&1 || true
+          mono "${nuget_path}" sources add \
+            -source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+            -storepasswordincleartext \
+            -name "GitHubPackages" \
+            -username "${{ github.repository_owner }}" \
+            -password "${NUGET_AUTH_TOKEN}"
+          mono "${nuget_path}" setapikey "${NUGET_AUTH_TOKEN}" \
+            -source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
+
+      - name: Build exact Canary release
+        run: |
+          set -euo pipefail
+          cmake --preset linux-release \
+            -DTOGGLE_BIN_FOLDER=ON \
+            -DOPTIONS_ENABLE_CCACHE=ON \
+            -DOPTIONS_ENABLE_SCCACHE=OFF
+          cmake --build --preset linux-release --parallel 2
+          CANARY_PATH="$(find build/linux-release/bin -maxdepth 2 -type f -name canary -perm -111 | head -n 1)"
+          test -n "${CANARY_PATH}"
+          cp "${CANARY_PATH}" canary-rehearsal
+          chmod +x canary-rehearsal
+          sha256sum canary-rehearsal | tee canary-build-sha256.txt
+
+      - name: Upload exact Canary binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-auth-rehearsal-canary-cache-headers
+          path: |
+            canary-rehearsal
+            canary-commit.txt
+            canary-build-sha256.txt
+          if-no-files-found: error
+          retention-days: 30

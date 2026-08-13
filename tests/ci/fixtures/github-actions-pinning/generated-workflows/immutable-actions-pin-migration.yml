@@ -1,0 +1,48 @@
+name: Immutable Actions Pin Migration
+# One-shot retry after the previous push was rejected by a transient GitHub Internal Server Error.
+
+on:
+  push:
+    branches:
+      - ci/immutable-actions-pinning-1008
+    paths:
+      - '.github/workflows/immutable-actions-pin-migration.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: github.ref == 'refs/heads/ci/immutable-actions-pinning-1008'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact task branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ci/immutable-actions-pinning-1008
+          fetch-depth: 0
+
+      - name: Apply and validate reviewed immutable mappings
+        run: |
+          python tools/validation/apply_github_actions_pins.py
+          python tools/validation/test_github_actions_pinning.py
+          python tools/validation/github_actions_pinning.py
+          git diff --check
+
+      - name: Materialize content-addressed workflow blobs without editing workflow paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          generated='tests/ci/fixtures/github-actions-pinning/generated-workflows'
+          rm -rf "$generated"
+          mkdir -p "$generated"
+          while IFS= read -r file; do
+            cp "$file" "$generated/$(basename "$file")"
+          done < <(find .github/workflows -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) -print | sort)
+          git restore -- .github/workflows
+          git add "$generated"
+          git diff --cached --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m 'test: materialize immutable Actions workflow blobs'
+          git push origin HEAD:ci/immutable-actions-pinning-1008

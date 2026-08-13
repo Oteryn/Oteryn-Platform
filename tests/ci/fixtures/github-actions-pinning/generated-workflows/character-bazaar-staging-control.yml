@@ -1,0 +1,390 @@
+name: Character Bazaar Staging Control
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/character-bazaar-staging-control.yml'
+      - 'config/marketplace.php'
+      - 'database/provisioning/canary-character-transfer.sql.template'
+      - 'deploy/synology/compose.marketplace.yml'
+      - 'deploy/synology/scripts/marketplace-staging.sh'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Guarded Character Bazaar staging action
+        required: true
+        default: verify
+        type: choice
+        options:
+          - deploy-enable
+          - enable
+          - verify
+          - prepare-rollback
+          - rollback
+      release_tag:
+        description: Exact Platform/Gateway tag used by deploy-enable
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: synology-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  control:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[character-bazaar-staging]')
+    runs-on: oteryn-staging
+    environment: synology-staging
+    timeout-minutes: 60
+    env:
+      APP_KEY: ${{ secrets.OTERYN_STAGING_APP_KEY }}
+      MARIADB_ROOT_PASSWORD: ${{ secrets.OTERYN_STAGING_MARIADB_ROOT_PASSWORD }}
+      PLATFORM_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_DB_PASSWORD }}
+      CANARY_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_DB_PASSWORD }}
+      CANARY_READONLY_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_READONLY_DB_PASSWORD }}
+      CANARY_PROVISIONING_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_PROVISIONING_DB_PASSWORD }}
+      CANARY_CHARACTER_CREATE_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_CHARACTER_CREATE_DB_PASSWORD }}
+      REDIS_PASSWORD: ${{ secrets.OTERYN_STAGING_REDIS_PASSWORD }}
+      CANARY_RUNTIME_REDIS_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_RUNTIME_REDIS_PASSWORD }}
+      OTERYN_PLATFORM_SERVICE_TOKEN: ${{ secrets.OTERYN_STAGING_PLATFORM_SERVICE_TOKEN }}
+      GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256: ${{ secrets.OTERYN_STAGING_PLATFORM_SERVICE_TOKEN_SHA256 }}
+      GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256: ${{ secrets.OTERYN_STAGING_PLATFORM_PREVIOUS_SERVICE_TOKEN_SHA256 }}
+      GAME_SESSION_SERVICE_TOKEN: ${{ secrets.OTERYN_STAGING_GAME_SESSION_SERVICE_TOKEN }}
+      CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256: ${{ secrets.OTERYN_STAGING_GAME_SESSION_SERVICE_TOKEN_SHA256 }}
+      CANARY_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256: ${{ secrets.OTERYN_STAGING_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256 }}
+
+    steps:
+      - name: Checkout exact trusted source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Resolve guarded action
+        id: control
+        env:
+          REQUESTED_ACTION: ${{ inputs.action }}
+          REQUESTED_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == 'push' ]]; then
+            action='deploy-enable'
+            release_tag="sha-${GITHUB_SHA}"
+          else
+            action="$REQUESTED_ACTION"
+            release_tag="${REQUESTED_RELEASE_TAG:-main}"
+          fi
+
+          case "$action" in
+            deploy-enable|enable|verify|prepare-rollback|rollback) ;;
+            *) echo "Unsupported staging control action." >&2; exit 1 ;;
+          esac
+          if [[ ! "$release_tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "release_tag is not a valid bounded Docker tag." >&2
+            exit 1
+          fi
+
+          echo "action=$action" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Validate staging runner tools
+        run: |
+          set -euo pipefail
+          docker version >/dev/null
+          docker compose version >/dev/null
+          python3 --version >/dev/null
+          sha256sum --version >/dev/null
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin
+
+      - name: Wait for exact deploy images
+        if: steps.control.outputs.action == 'deploy-enable'
+        env:
+          RELEASE_TAG: ${{ steps.control.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          wait_for_image() {
+            local image="$1"
+            for attempt in $(seq 1 180); do
+              if docker manifest inspect "$image" >/dev/null 2>&1; then
+                echo "Resolved exact image: $image"
+                return 0
+              fi
+              echo "Waiting for exact image publication (attempt $attempt/180)."
+              sleep 10
+            done
+            echo "Timed out waiting for exact image tag." >&2
+            return 1
+          }
+          wait_for_image "ghcr.io/blakinio/oteryn-platform:${RELEASE_TAG}"
+          wait_for_image "ghcr.io/blakinio/oteryn-game-gateway:${RELEASE_TAG}"
+
+      - name: Render ephemeral staging control environment
+        env:
+          CONTROL_ACTION: ${{ steps.control.outputs.action }}
+          RELEASE_TAG: ${{ steps.control.outputs.release_tag }}
+          OTERYN_STATE_DIR_INPUT: ${{ vars.OTERYN_STAGING_STATE_DIR }}
+          APP_URL_INPUT: ${{ vars.OTERYN_STAGING_APP_URL }}
+        run: |
+          set -euo pipefail
+          umask 077
+          state_dir="${OTERYN_STATE_DIR_INPUT:-/var/lib/oteryn-staging-state}"
+          state_file="$state_dir/marketplace.env"
+          app_url="${APP_URL_INPUT:-http://127.0.0.1:8000}"
+          mkdir -p "$state_dir"
+          chmod 700 "$state_dir"
+
+          source deploy/synology/scripts/lib.sh
+          if [[ -f "$state_file" ]]; then
+            chmod 600 "$state_file"
+            load_oteryn_env_file "$state_file"
+          elif [[ "$CONTROL_ACTION" != 'deploy-enable' && "$CONTROL_ACTION" != 'enable' ]]; then
+            echo "Character Bazaar staging state is absent; enablement must run first." >&2
+            exit 1
+          fi
+
+          marketplace_enabled="${MARKETPLACE_ENABLED:-false}"
+          escrow_id="${MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID:-0}"
+          escrow_name="${MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME:-oteryn_bazaar_escrow}"
+          escrow_epoch="${MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH:-1785456000}"
+          transfer_user="${CANARY_CHARACTER_TRANSFER_DB_USER:-oteryn_character_transfer}"
+          transfer_password="${CANARY_CHARACTER_TRANSFER_DB_PASSWORD:-}"
+          if [[ -z "$transfer_password" ]]; then
+            transfer_password="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          fi
+
+          if [[ "$CONTROL_ACTION" == 'deploy-enable' ]]; then
+            platform_image="ghcr.io/blakinio/oteryn-platform:${RELEASE_TAG}"
+            gateway_image="ghcr.io/blakinio/oteryn-game-gateway:${RELEASE_TAG}"
+            canary_image='ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f'
+          else
+            resolve_image() {
+              local service="$1"
+              local ids
+              ids="$(docker ps --filter label=com.docker.compose.project=oteryn-staging --filter label=com.docker.compose.service="$service" --format '{{.ID}}')"
+              if [[ -z "$ids" || "$(wc -w <<<"$ids")" -ne 1 ]]; then
+                echo "Expected exactly one running staging container for $service." >&2
+                exit 1
+              fi
+              docker inspect --format '{{.Config.Image}}' "$ids"
+            }
+            platform_image="$(resolve_image platform)"
+            gateway_image="$(resolve_image gateway)"
+            canary_image="$(resolve_image canary)"
+          fi
+
+          cat > deploy/synology/.env <<EOF
+          COMPOSE_PROJECT_NAME=oteryn-staging
+          PLATFORM_BIND_ADDRESS=127.0.0.1
+          GATEWAY_BIND_ADDRESS=127.0.0.1
+          CANARY_LOGIN_BIND_ADDRESS=127.0.0.1
+          CANARY_GAME_BIND_ADDRESS=192.168.1.2
+          PLATFORM_PORT=8000
+          GATEWAY_PORT=8080
+          CANARY_LOGIN_PORT=7171
+          CANARY_GAME_PORT=7172
+          GAME_WORLD_ID=1
+          GAME_WORLD_SLUG=oteryn-staging
+          GAME_WORLD_NAME=Oteryn Staging
+          GAME_WORLD_REGION=LAN
+          GAME_WORLD_HOST=192.168.1.2
+          GAME_WORLD_PORT=7172
+          PLATFORM_IMAGE=$platform_image
+          GATEWAY_IMAGE=$gateway_image
+          CANARY_IMAGE=$canary_image
+          APP_NAME=Oteryn Platform Staging
+          APP_ENV=staging
+          APP_DEBUG=false
+          APP_KEY=$APP_KEY
+          APP_URL=$app_url
+          LOG_LEVEL=info
+          SESSION_SECURE_COOKIE=false
+          MARIADB_ROOT_PASSWORD=$MARIADB_ROOT_PASSWORD
+          PLATFORM_DB_NAME=oteryn_platform
+          PLATFORM_DB_USER=oteryn_platform
+          PLATFORM_DB_PASSWORD=$PLATFORM_DB_PASSWORD
+          CANARY_DB_NAME=canary
+          CANARY_DB_USER=canary
+          CANARY_DB_PASSWORD=$CANARY_DB_PASSWORD
+          CANARY_READONLY_DB_USER=oteryn_readonly
+          CANARY_READONLY_DB_PASSWORD=$CANARY_READONLY_DB_PASSWORD
+          CANARY_PROVISIONING_DB_USER=oteryn_provisioning
+          CANARY_PROVISIONING_DB_PASSWORD=$CANARY_PROVISIONING_DB_PASSWORD
+          CANARY_CHARACTER_CREATE_DB_USER=oteryn_character_create
+          CANARY_CHARACTER_CREATE_DB_PASSWORD=$CANARY_CHARACTER_CREATE_DB_PASSWORD
+          MARKETPLACE_ENABLED=$marketplace_enabled
+          MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID=$escrow_id
+          MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME=$escrow_name
+          MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH=$escrow_epoch
+          CANARY_CHARACTER_TRANSFER_DB_USER=$transfer_user
+          CANARY_CHARACTER_TRANSFER_DB_PASSWORD=$transfer_password
+          REDIS_PASSWORD=$REDIS_PASSWORD
+          CANARY_RUNTIME_REDIS_USERNAME=oteryn_runtime
+          CANARY_RUNTIME_REDIS_PASSWORD=$CANARY_RUNTIME_REDIS_PASSWORD
+          OTERYN_PLATFORM_SERVICE_TOKEN=$OTERYN_PLATFORM_SERVICE_TOKEN
+          GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256=$GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256
+          GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256=$GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256
+          GAME_SESSION_SERVICE_TOKEN=$GAME_SESSION_SERVICE_TOKEN
+          CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256=$CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256
+          CANARY_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256=$CANARY_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256
+          CANARY_SERVER_NAME=Oteryn Staging
+          CANARY_SERVER_IP=192.168.1.2
+          CANARY_TEST_ACCOUNTS=false
+          CANARY_DATA_PACK=data-otservbr-global
+          CANARY_MAP_URL=https://github.com/opentibiabr/canary/releases/download/v3.6.1/otservbr.otbm
+          GATEWAY_VERSION=$RELEASE_TAG
+          OTERYN_STATE_DIR=$state_dir
+          EOF
+          chmod 600 deploy/synology/.env
+
+          python3 - deploy/synology/.env "$state_file" <<'PY'
+          from pathlib import Path
+          import os
+          import sys
+
+          source = Path(sys.argv[1])
+          target = Path(sys.argv[2])
+          allowed = [
+              'MARKETPLACE_ENABLED',
+              'MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID',
+              'MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME',
+              'MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH',
+              'CANARY_CHARACTER_TRANSFER_DB_USER',
+              'CANARY_CHARACTER_TRANSFER_DB_PASSWORD',
+          ]
+          values = {}
+          for line in source.read_text().splitlines():
+              if '=' not in line:
+                  continue
+              key, value = line.split('=', 1)
+              if key in allowed:
+                  values[key] = value
+          missing = [key for key in allowed if key not in values]
+          if missing:
+              raise SystemExit(f'missing marketplace state keys: {missing}')
+          temporary = target.with_suffix('.env.tmp')
+          temporary.write_text(''.join(f'{key}={values[key]}\n' for key in allowed))
+          os.chmod(temporary, 0o600)
+          temporary.replace(target)
+          PY
+
+      - name: Execute guarded staging action
+        env:
+          CONTROL_ACTION: ${{ steps.control.outputs.action }}
+        run: |
+          set -euo pipefail
+          case "$CONTROL_ACTION" in
+            deploy-enable)
+              bash deploy/synology/scripts/deploy.sh
+              OTERYN_ENV_FILE=deploy/synology/.env bash deploy/synology/scripts/marketplace-staging.sh enable
+              ;;
+            enable)
+              OTERYN_ENV_FILE=deploy/synology/.env bash deploy/synology/scripts/marketplace-staging.sh enable
+              ;;
+            verify)
+              OTERYN_ENV_FILE=deploy/synology/.env bash deploy/synology/scripts/marketplace-staging.sh verify
+              ;;
+            prepare-rollback)
+              OTERYN_ENV_FILE=deploy/synology/.env bash deploy/synology/scripts/marketplace-staging.sh prepare-rollback
+              ;;
+            rollback)
+              OTERYN_ENV_FILE=deploy/synology/.env bash deploy/synology/scripts/marketplace-staging.sh prepare-rollback
+              OTERYN_ENV_FILE=deploy/synology/.env bash deploy/synology/scripts/rollback.sh
+              ;;
+          esac
+
+      - name: Persist final staging control state
+        env:
+          OTERYN_STATE_DIR_INPUT: ${{ vars.OTERYN_STAGING_STATE_DIR }}
+        run: |
+          set -euo pipefail
+          state_dir="${OTERYN_STATE_DIR_INPUT:-/var/lib/oteryn-staging-state}"
+          state_file="$state_dir/marketplace.env"
+          python3 - deploy/synology/.env "$state_file" <<'PY'
+          from pathlib import Path
+          import os
+          import sys
+
+          source = Path(sys.argv[1])
+          target = Path(sys.argv[2])
+          allowed = [
+              'MARKETPLACE_ENABLED',
+              'MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID',
+              'MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME',
+              'MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH',
+              'CANARY_CHARACTER_TRANSFER_DB_USER',
+              'CANARY_CHARACTER_TRANSFER_DB_PASSWORD',
+          ]
+          values = {}
+          for line in source.read_text().splitlines():
+              if '=' not in line:
+                  continue
+              key, value = line.split('=', 1)
+              if key in allowed:
+                  values[key] = value
+          if values.get('MARKETPLACE_ENABLED') == 'true':
+              escrow_id = values.get('MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID', '')
+              if not escrow_id.isdigit() or int(escrow_id) <= 0:
+                  raise SystemExit('enabled Marketplace state has no positive escrow identifier')
+          temporary = target.with_suffix('.env.tmp')
+          temporary.write_text(''.join(f'{key}={values[key]}\n' for key in allowed))
+          os.chmod(temporary, 0o600)
+          temporary.replace(target)
+          PY
+
+      - name: Write sanitized staging evidence
+        env:
+          CONTROL_ACTION: ${{ steps.control.outputs.action }}
+        run: |
+          set -euo pipefail
+          platform_id="$(docker ps --filter label=com.docker.compose.project=oteryn-staging --filter label=com.docker.compose.service=platform --format '{{.ID}}')"
+          platform_image="$(docker inspect --format '{{.Config.Image}}' "$platform_id")"
+          scheduler_count="$(docker ps --filter label=com.docker.compose.project=oteryn-staging --filter label=com.docker.compose.service=marketplace-scheduler --format '{{.ID}}' | sed '/^$/d' | wc -l | tr -d ' ')"
+          enabled="$(grep '^MARKETPLACE_ENABLED=' deploy/synology/.env | cut -d= -f2)"
+          python3 - "$CONTROL_ACTION" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$platform_image" "$enabled" "$scheduler_count" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          action, sha, run_id, platform_image, enabled, scheduler_count = sys.argv[1:]
+          evidence = {
+              'classification': 'STAGING_PROVEN' if action in {'deploy-enable', 'enable', 'verify'} else 'STAGING_CONTROLLED',
+              'action': action,
+              'exact_source_sha': sha,
+              'workflow_run_id': run_id,
+              'platform_image': platform_image,
+              'marketplace_enabled': enabled == 'true',
+              'scheduler_running_count': int(scheduler_count),
+              'transfer_privileges': 'verified-by-guarded-action',
+              'escrow_identity': 'reviewed-unbound-non-login-account-verified',
+              'production_environment_proven': False,
+          }
+          Path('character-bazaar-staging-evidence.json').write_text(json.dumps(evidence, indent=2) + '\n')
+          PY
+
+      - name: Upload sanitized staging evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: character-bazaar-staging-${{ github.sha }}-${{ steps.control.outputs.action }}
+          path: character-bazaar-staging-evidence.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove ephemeral staging environment
+        if: always()
+        run: rm -f deploy/synology/.env
+
+      - name: Log out of GHCR
+        if: always()
+        run: docker logout ghcr.io >/dev/null 2>&1 || true

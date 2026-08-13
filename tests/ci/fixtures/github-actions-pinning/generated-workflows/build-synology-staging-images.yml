@@ -1,0 +1,270 @@
+name: Build Synology Staging Images
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - composer.json
+      - composer.lock
+      - app/**
+      - bootstrap/**
+      - config/**
+      - database/**
+      - public/**
+      - resources/**
+      - routes/**
+      - services/game-gateway/**
+      - deploy/synology/**
+      - .github/workflows/build-synology-staging-images.yml
+      - .github/workflows/deploy-synology-staging.yml
+  push:
+    branches:
+      - main
+    paths:
+      - composer.json
+      - composer.lock
+      - app/**
+      - bootstrap/**
+      - config/**
+      - database/**
+      - public/**
+      - resources/**
+      - routes/**
+      - services/game-gateway/**
+      - deploy/synology/**
+      - .github/workflows/build-synology-staging-images.yml
+      - .github/workflows/deploy-synology-staging.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: synology-staging-images-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-deployment:
+    name: Validate Synology deployment package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate shell syntax
+        run: |
+          set -euo pipefail
+          bash -n \
+            deploy/synology/scripts/lib.sh \
+            deploy/synology/scripts/deploy.sh \
+            deploy/synology/scripts/health-check.sh \
+            deploy/synology/scripts/rollback.sh \
+            deploy/synology/runner/entrypoint.sh
+          sh -n \
+            deploy/synology/tls/init.sh \
+            deploy/synology/mariadb/init/10-platform-database.sh
+
+      - name: Validate Compose manifests and LAN isolation
+        run: |
+          set -euo pipefail
+          env_file=/tmp/oteryn-synology.env
+          default_json=/tmp/oteryn-runtime-default.json
+          lan_json=/tmp/oteryn-runtime-lan.json
+          project="oteryn-boundary-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cp deploy/synology/.env.example "$env_file"
+          sed -E -i 's/=(REQUIRED_[A-Z0-9_]+)$/=localplaceholder/' "$env_file"
+
+          runtime_compose=(
+            docker compose
+            -p "$project"
+            --env-file "$env_file"
+            -f deploy/synology/compose.yml
+          )
+          cleanup() {
+            "${runtime_compose[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
+            rm -f "$env_file" "$default_json" "$lan_json"
+          }
+          trap cleanup EXIT
+
+          render_compose() {
+            local output="$1"
+            "${runtime_compose[@]}" config --quiet
+            "${runtime_compose[@]}" config --format json > "$output"
+          }
+
+          render_compose "$default_json"
+          python3 - "$default_json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          data = json.loads(Path(sys.argv[1]).read_text())
+
+          def bindings(service):
+              result = {}
+              for port in data['services'][service].get('ports', []) or []:
+                  result[str(port['target'])] = (
+                      str(port.get('host_ip', '')),
+                      str(port['published']),
+                  )
+              return result
+
+          expected = {
+              'platform': {'8000': ('127.0.0.1', '8000')},
+              'gateway': {'8080': ('127.0.0.1', '8080')},
+              'canary': {
+                  '7171': ('127.0.0.1', '7171'),
+                  '7172': ('127.0.0.1', '7172'),
+              },
+          }
+          for service, service_expected in expected.items():
+              actual = bindings(service)
+              if actual != service_expected:
+                  raise SystemExit(f'default bindings for {service} are {actual}, expected {service_expected}')
+
+          bind_mounts = []
+          for service_name, service in data.get('services', {}).items():
+              for mount in service.get('volumes', []) or []:
+                  if mount.get('type') == 'bind':
+                      bind_mounts.append((service_name, mount.get('source'), mount.get('target')))
+          if bind_mounts:
+              raise SystemExit(f'runtime Compose must not depend on runner checkout bind mounts: {bind_mounts}')
+          PY
+
+          sed -i 's/^CANARY_GAME_BIND_ADDRESS=.*/CANARY_GAME_BIND_ADDRESS=192.168.50.10/' "$env_file"
+          sed -i 's/^CANARY_SERVER_IP=.*/CANARY_SERVER_IP=192.168.50.10/' "$env_file"
+          sed -i 's/^GAME_WORLD_HOST=.*/GAME_WORLD_HOST=192.168.50.10/' "$env_file"
+          render_compose "$lan_json"
+          python3 - "$lan_json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          data = json.loads(Path(sys.argv[1]).read_text())
+
+          def bindings(service):
+              result = {}
+              for port in data['services'][service].get('ports', []) or []:
+                  result[str(port['target'])] = (
+                      str(port.get('host_ip', '')),
+                      str(port['published']),
+                  )
+              return result
+
+          expected = {
+              'platform': {'8000': ('127.0.0.1', '8000')},
+              'gateway': {'8080': ('127.0.0.1', '8080')},
+              'canary': {
+                  '7171': ('127.0.0.1', '7171'),
+                  '7172': ('192.168.50.10', '7172'),
+              },
+          }
+          for service, service_expected in expected.items():
+              actual = bindings(service)
+              if actual != service_expected:
+                  raise SystemExit(f'LAN bindings for {service} are {actual}, expected {service_expected}')
+
+          canary_environment = data['services']['canary']['environment']
+          if str(canary_environment['CANARY_SERVER_IP']) != '192.168.50.10':
+              raise SystemExit('Canary advertised server IP does not match the LAN game bind')
+          if str(canary_environment['CANARY_GAME_SESSION_ISSUER_WORLD_ID']) != '1':
+              raise SystemExit('Canary issuer world ID does not match the staging World Registry ID')
+          PY
+
+          "${runtime_compose[@]}" pull tls-init
+          "${runtime_compose[@]}" create tls-init
+          tls_container="$("${runtime_compose[@]}" ps -a -q tls-init)"
+          test -n "$tls_container"
+          docker cp deploy/synology/tls/init.sh "$tls_container:/bootstrap/tls-init.sh"
+          docker cp deploy/synology/nginx/internal.conf "$tls_container:/bootstrap/internal-nginx.conf"
+          bootstrap_volume="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/bootstrap"}}{{.Name}}{{end}}{{end}}' "$tls_container")"
+          test -n "$bootstrap_volume"
+          docker run --rm \
+            -v "$bootstrap_volume:/bootstrap:ro" \
+            alpine:3.22 \
+            /bin/sh -ec 'test -s /bootstrap/tls-init.sh && test -s /bootstrap/internal-nginx.conf'
+
+          grep -q -- '--network "container:' deploy/synology/scripts/health-check.sh
+          grep -q 'assert_binding platform' deploy/synology/scripts/health-check.sh
+          grep -q 'assert_binding gateway' deploy/synology/scripts/health-check.sh
+          grep -q 'assert_binding canary' deploy/synology/scripts/health-check.sh
+
+          docker compose \
+            --env-file deploy/synology/runner/.env.example \
+            -f deploy/synology/runner/compose.yml \
+            config --quiet
+
+  build:
+    name: Build ${{ matrix.name }} image
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: platform
+            image: ghcr.io/blakinio/oteryn-platform
+            dockerfile: deploy/synology/docker/platform.Dockerfile
+          - name: game-gateway
+            image: ghcr.io/blakinio/oteryn-game-gateway
+            dockerfile: deploy/synology/docker/gateway.Dockerfile
+          - name: deploy-runner
+            image: ghcr.io/blakinio/oteryn-deploy-runner
+            dockerfile: deploy/synology/runner/Dockerfile
+
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Compute image tags
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ matrix.image }}
+          tags: |
+            type=sha,format=long
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and optionally publish
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=synology-${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=synology-${{ matrix.name }}
+
+      - name: Validate locally loaded pull-request image
+        if: github.event_name == 'pull_request'
+        env:
+          IMAGE_REF: ${{ matrix.image }}:${{ steps.meta.outputs.version }}
+          IMAGE_NAME: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          docker image inspect "$IMAGE_REF" >/dev/null
+          case "$IMAGE_NAME" in
+            platform)
+              docker run --rm --entrypoint php "$IMAGE_REF" -v
+              ;;
+            game-gateway)
+              docker run --rm --entrypoint /bin/sh "$IMAGE_REF" -ec 'test -x /usr/local/bin/game-gateway'
+              ;;
+            deploy-runner)
+              docker run --rm --entrypoint /bin/bash "$IMAGE_REF" -ec 'docker --version && docker compose version && test -x /usr/local/bin/oteryn-runner-entrypoint'
+              ;;
+          esac

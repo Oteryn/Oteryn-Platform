@@ -1,0 +1,152 @@
+name: Synology Production Target Preflight
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/synology-production-target-preflight.yml
+      - deploy/synology/scripts/production-target-preflight.sh
+      - deploy/synology/README.md
+      - docs/operations/SYNOLOGY_PRODUCTION_TARGET_PREFLIGHT_EVIDENCE.md
+      - docs/agents/ACTIVE_WORK.md
+      - docs/agents/tasks/active/OTERYN-20260727-synology-production-target-preflight.md
+      - docs/agents/tasks/archive/OTERYN-20260727-synology-production-target-preflight.md
+  workflow_dispatch:
+    inputs:
+      run_restore_drill:
+        description: Stream both live staging databases into temporary isolated restore databases and compare sanitized manifests
+        required: true
+        type: choice
+        options:
+          - "true"
+          - "false"
+        default: "true"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: synology-production-target-preflight-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  static-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout exact validation SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Validate script and checkpoint structure
+        run: |
+          set -euo pipefail
+          bash -n deploy/synology/scripts/production-target-preflight.sh
+
+          active_checkpoint="docs/agents/tasks/active/OTERYN-20260727-synology-production-target-preflight.md"
+          archived_checkpoint="docs/agents/tasks/archive/OTERYN-20260727-synology-production-target-preflight.md"
+          if [[ -f "$active_checkpoint" && -f "$archived_checkpoint" ]]; then
+            echo "Both active and archived Synology preflight checkpoints exist." >&2
+            exit 1
+          elif [[ -f "$active_checkpoint" ]]; then
+            checkpoint="$active_checkpoint"
+          elif [[ -f "$archived_checkpoint" ]]; then
+            checkpoint="$archived_checkpoint"
+          else
+            echo "No Synology preflight checkpoint exists." >&2
+            exit 1
+          fi
+
+          python3 tools/agents/checkpoint.py "$checkpoint" --require-checkpoint
+
+      - name: Validate secret-safe evidence boundary
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          script = Path('deploy/synology/scripts/production-target-preflight.sh').read_text()
+          forbidden = {
+              'shell tracing': 'set -x',
+              'full container environment inspection': '.Config.Env',
+              'environment-file output': 'cat deploy/synology/.env',
+              'persistent database dump path': 'mariadb-dump >',
+          }
+          failures = [label for label, marker in forbidden.items() if marker in script]
+          if failures:
+              raise SystemExit('unsafe preflight pattern(s): ' + ', '.join(failures))
+          required = [
+              'production_environment_proven',
+              'database_restore_drill',
+              'remaining_public_production_gaps',
+              'DROP DATABASE IF EXISTS',
+          ]
+          missing = [marker for marker in required if marker not in script]
+          if missing:
+              raise SystemExit('missing fail-closed preflight marker(s): ' + ', '.join(missing))
+          PY
+
+  live-preflight:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: oteryn-staging
+    environment: synology-staging
+    timeout-minutes: 60
+    env:
+      VALIDATION_SHA: ${{ github.sha }}
+      MARIADB_ROOT_PASSWORD: ${{ secrets.OTERYN_STAGING_MARIADB_ROOT_PASSWORD }}
+      REDIS_PASSWORD: ${{ secrets.OTERYN_STAGING_REDIS_PASSWORD }}
+      CANARY_RUNTIME_REDIS_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_RUNTIME_REDIS_PASSWORD }}
+      OTERYN_STATE_DIR: ${{ vars.OTERYN_STAGING_STATE_DIR }}
+      OTERYN_RUN_RESTORE_DRILL: ${{ inputs.run_restore_drill }}
+      OTERYN_PREFLIGHT_EVIDENCE_PATH: /tmp/synology-production-target-preflight-evidence.json
+
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate dedicated runner tools
+        run: |
+          set -euo pipefail
+          docker version >/dev/null
+          docker compose version >/dev/null
+          python3 --version >/dev/null
+          bash --version >/dev/null
+          stat --version >/dev/null
+          sha256sum --version >/dev/null
+
+      - name: Execute live local Synology preflight
+        run: bash deploy/synology/scripts/production-target-preflight.sh
+
+      - name: Record staging-only result
+        run: |
+          set -euo pipefail
+          release_sha="$(python3 -c 'import json; print(json.load(open("/tmp/synology-production-target-preflight-evidence.json"))["deployed_release_sha"])')"
+          restore_result="$(python3 -c 'import json; print(json.load(open("/tmp/synology-production-target-preflight-evidence.json"))["database_restore_drill"])')"
+          {
+            echo "### Synology production-target preflight"
+            echo "- deployed_release_sha: \`$release_sha\`"
+            echo "- live host/runtime/storage/health/privilege checks: PASS"
+            echo "- isolated streaming restore drill: \`$restore_result\`"
+            echo "- classification: \`STAGING_PROVEN\`"
+            echo "- production_environment_proven: \`false\`"
+            echo "- Issue #91: \`PENDING PRODUCTION VERIFICATION\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload sanitized preflight evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: synology-production-target-preflight-evidence-${{ github.run_id }}
+          path: /tmp/synology-production-target-preflight-evidence.json
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Remove local evidence file
+        if: always()
+        run: rm -f /tmp/synology-production-target-preflight-evidence.json

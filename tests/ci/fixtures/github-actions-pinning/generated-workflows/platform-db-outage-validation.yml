@@ -1,0 +1,263 @@
+name: Platform DB Outage Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - 'AGENTS.md'
+      - 'AGENTS.override.md'
+      - 'docs/agents/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-db-outage-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  classify_changes:
+    name: classify-changes
+    runs-on: ubuntu-latest
+    outputs:
+      ci: ${{ steps.classify.outputs.ci }}
+      phase7: ${{ steps.classify.outputs.phase7 }}
+      edge: ${{ steps.classify.outputs.edge }}
+      db_outage: ${{ steps.classify.outputs.db_outage }}
+      game_auth_concurrency: ${{ steps.classify.outputs.game_auth_concurrency }}
+      classes: ${{ steps.classify.outputs.classes }}
+    steps:
+      - name: Checkout exact classification range
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Validate change classifier
+        run: python tests/ci/test_classify_changes.py
+
+      - name: Classify changed paths
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            python scripts/ci/classify_changes.py               --base "$BASE_SHA"               --head "$HEAD_SHA"               --github-output "$GITHUB_OUTPUT"               --summary "$GITHUB_STEP_SUMMARY"
+          else
+            python scripts/ci/classify_changes.py               --all               --github-output "$GITHUB_OUTPUT"               --summary "$GITHUB_STEP_SUMMARY"
+          fi
+
+  validate:
+    needs: classify_changes
+    if: ${{ always() && (needs.classify_changes.result != 'success' || needs.classify_changes.outputs.db_outage == 'true') }}
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: platform-db-outage-ci-root-not-a-secret
+          MARIADB_ROOT_HOST: "%"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      VALIDATION_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: https://staging.oteryn.internal
+      LOG_CHANNEL: stderr_json
+      LOG_LEVEL: info
+      SESSION_SECURE_COOKIE: "true"
+      SESSION_HTTP_ONLY: "true"
+      MAIL_MAILER: smtp
+      MAIL_HOST: 127.0.0.1
+      MAIL_PORT: 1025
+      MAIL_ENCRYPTION: ""
+      MAIL_FROM_ADDRESS: db-outage@staging.oteryn
+      MAIL_FROM_NAME: Oteryn DB Outage Validation
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: oteryn_platform
+      DB_USERNAME: root
+      DB_PASSWORD: platform-db-outage-ci-root-not-a-secret
+      MARIADB_ROOT_PASSWORD: platform-db-outage-ci-root-not-a-secret
+
+    steps:
+      - name: Require successful change classification
+        if: ${{ needs.classify_changes.result != 'success' }}
+        run: |
+          echo "Change classification failed; this required gate is failing closed."
+          exit 1
+
+      - name: Checkout exact validation SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.5'
+          coverage: none
+          extensions: pdo_mysql
+          tools: composer:v2
+
+      - name: Install validation client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends mariadb-client
+
+      - name: Install application dependencies
+        run: composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist --no-progress
+
+      - name: Generate ephemeral application key
+        run: echo "APP_KEY=$(php -r 'echo "base64:".base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
+
+      - name: Prepare production-like Platform database
+        run: |
+          mariadb --protocol=tcp -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" \
+            -e "CREATE DATABASE IF NOT EXISTS oteryn_platform CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+          php artisan production:verify-configuration
+          php artisan migrate --force --no-interaction
+          php artisan migrate:status --no-interaction >/tmp/platform-db-migrate-status.txt
+
+      - name: Validate fail-closed Platform DB outage HTTP mutation
+        run: |
+          set -euo pipefail
+
+          OUTAGE_EMAIL='db-outage-probe@staging.oteryn'
+          OUTAGE_PASSWORD='Functional-Acceptance-9!Outage'
+          BEFORE_IDENTITIES="$(mariadb --protocol=tcp -N -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" \
+            -e "SELECT COUNT(*) FROM oteryn_platform.identities;")"
+
+          (
+            DB_PORT=3307 SESSION_SECURE_COOKIE=false \
+              php artisan serve --host=127.0.0.1 --port=8081 > /tmp/platform-db-outage-server.log 2>&1 &
+            echo $! > /tmp/platform-db-outage-server.pid
+          )
+          trap 'kill "$(cat /tmp/platform-db-outage-server.pid)" 2>/dev/null || true' EXIT
+
+          for attempt in $(seq 1 30); do
+            if curl -fsS -c /tmp/platform-db-outage.cookies \
+              http://127.0.0.1:8081/register \
+              -o /tmp/platform-db-outage-register.body; then
+              break
+            fi
+            sleep 1
+          done
+
+          grep -q 'Create an Oteryn Platform identity' /tmp/platform-db-outage-register.body
+          CSRF_TOKEN="$(grep -oP 'name="_token" value="\K[^"]+' /tmp/platform-db-outage-register.body | head -n1)"
+          test -n "$CSRF_TOKEN"
+
+          OUTAGE_HTTP_STATUS="$(curl -sS \
+            -b /tmp/platform-db-outage.cookies \
+            -c /tmp/platform-db-outage.cookies \
+            -D /tmp/platform-db-outage-post.headers \
+            -o /tmp/platform-db-outage-post.body \
+            -w '%{http_code}' \
+            -X POST \
+            --data-urlencode "_token=$CSRF_TOKEN" \
+            --data-urlencode "email=$OUTAGE_EMAIL" \
+            --data-urlencode "password=$OUTAGE_PASSWORD" \
+            --data-urlencode "password_confirmation=$OUTAGE_PASSWORD" \
+            http://127.0.0.1:8081/register)"
+
+          test "$OUTAGE_HTTP_STATUS" -ge 500
+          test "$OUTAGE_HTTP_STATUS" -lt 600
+          test "$OUTAGE_HTTP_STATUS" != "419"
+
+          AFTER_IDENTITIES="$(mariadb --protocol=tcp -N -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" \
+            -e "SELECT COUNT(*) FROM oteryn_platform.identities;")"
+          test "$BEFORE_IDENTITIES" = "$AFTER_IDENTITIES"
+
+          ! grep -Eqi 'stack trace|SQLSTATE|PDOException|Connection refused' /tmp/platform-db-outage-post.body
+          ! grep -Fq "$APP_KEY" /tmp/platform-db-outage-post.body
+          ! grep -Fq "$DB_PASSWORD" /tmp/platform-db-outage-post.body
+          ! grep -Fq "$OUTAGE_PASSWORD" /tmp/platform-db-outage-post.body
+
+          sleep 1
+          grep -q 'http.request.completed' /tmp/platform-db-outage-server.log
+          ! grep -Fq "$APP_KEY" /tmp/platform-db-outage-server.log
+          ! grep -Fq "$DB_PASSWORD" /tmp/platform-db-outage-server.log
+          ! grep -Fq "$OUTAGE_PASSWORD" /tmp/platform-db-outage-server.log
+
+          kill "$(cat /tmp/platform-db-outage-server.pid)" 2>/dev/null || true
+          rm -f /tmp/platform-db-outage-server.pid
+          trap - EXIT
+
+          echo "OUTAGE_HTTP_STATUS=$OUTAGE_HTTP_STATUS" >> "$GITHUB_ENV"
+          echo "BEFORE_IDENTITIES=$BEFORE_IDENTITIES" >> "$GITHUB_ENV"
+          echo "AFTER_IDENTITIES=$AFTER_IDENTITIES" >> "$GITHUB_ENV"
+
+      - name: Validate database recovery and normal running release
+        run: |
+          set -euo pipefail
+
+          (
+            SESSION_SECURE_COOKIE=false \
+              php artisan serve --host=127.0.0.1 --port=8082 > /tmp/platform-db-recovery-server.log 2>&1 &
+            echo $! > /tmp/platform-db-recovery-server.pid
+          )
+          trap 'kill "$(cat /tmp/platform-db-recovery-server.pid)" 2>/dev/null || true' EXIT
+
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8082/news -o /tmp/platform-db-recovery-news.body; then
+              break
+            fi
+            sleep 1
+          done
+
+          curl -fsS http://127.0.0.1:8082/health >/tmp/platform-db-recovery-health.body
+          curl -fsS http://127.0.0.1:8082/news >/tmp/platform-db-recovery-news.body
+          test "$BEFORE_IDENTITIES" = "$AFTER_IDENTITIES"
+          php artisan migrate:status --no-interaction >/tmp/platform-db-recovery-migrate-status.txt
+
+          {
+            echo "### Platform DB outage validation"
+            echo "- validation_sha: \`$VALIDATION_SHA\`"
+            echo "- outage_http_status: $OUTAGE_HTTP_STATUS"
+            echo "- csrf_valid_mutation_reached_db_failure: PASS"
+            echo "- platform_state_unchanged: PASS"
+            echo "- response_sensitive_data_check: PASS"
+            echo "- log_sensitive_data_check: PASS"
+            echo "- database_recovery_read: PASS"
+            echo "- classification: STAGING_PROVEN"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Write non-secret outage evidence artifact
+        run: |
+          VALIDATED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          cat > /tmp/platform-db-outage-evidence.json <<JSON
+          {
+            "classification": "STAGING_PROVEN",
+            "validated_at_utc": "${VALIDATED_AT_UTC}",
+            "validation_sha": "${VALIDATION_SHA}",
+            "outage_http_status": ${OUTAGE_HTTP_STATUS},
+            "csrf_valid_mutation_reached_db_failure": "PASS",
+            "platform_state_unchanged": "PASS",
+            "response_sensitive_data_check": "PASS",
+            "log_sensitive_data_check": "PASS",
+            "database_recovery_read": "PASS"
+          }
+          JSON
+
+      - name: Upload non-secret outage evidence artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-db-outage-evidence-${{ github.run_id }}
+          path: /tmp/platform-db-outage-evidence.json
+          retention-days: 7
+          if-no-files-found: error

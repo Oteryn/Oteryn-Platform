@@ -1,0 +1,108 @@
+name: Tibia Linux Reference Harness
+
+on:
+  pull_request:
+    paths:
+      - tools/tibia-linux-reference/**
+      - .github/workflows/tibia-linux-live-reference.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  synthetic-no-network:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install isolated graphical-session dependency
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb
+
+      - name: Run focused syntax and unit checks
+        shell: bash
+        run: |
+          set +x
+          umask 077
+          ulimit -c 0
+          safe_home="$RUNNER_TEMP/tibia-linux-reference-home"
+          install -d -m 700 "$safe_home"
+          env -i HOME="$safe_home" PATH="$PATH" LANG="C.UTF-8" LC_ALL="C.UTF-8" \
+            PYTHONPATH="$GITHUB_WORKSPACE/tools/tibia-linux-reference" \
+            python -m compileall -q tools/tibia-linux-reference
+          env -i HOME="$safe_home" PATH="$PATH" LANG="C.UTF-8" LC_ALL="C.UTF-8" \
+            PYTHONPATH="$GITHUB_WORKSPACE/tools/tibia-linux-reference" \
+            python -m unittest discover -s tools/tibia-linux-reference/tests -v
+          env -i HOME="$safe_home" PATH="$PATH" LANG="C.UTF-8" LC_ALL="C.UTF-8" \
+            PYTHONPATH="$GITHUB_WORKSPACE/tools/tibia-linux-reference" \
+            python tools/tibia-linux-reference/run.py validate-manifest \
+              tools/tibia-linux-reference/examples/session-manifest.synthetic.json
+
+      - name: Run synthetic graphical no-network component
+        shell: bash
+        run: |
+          set +x
+          umask 077
+          ulimit -c 0
+          evidence_root="$RUNNER_TEMP/tibia-linux-reference"
+          safe_home="$RUNNER_TEMP/tibia-linux-reference-home"
+          xvfb_log="$RUNNER_TEMP/tibia-xvfb.log"
+          install -d -m 700 "$evidence_root" "$safe_home"
+          Xvfb :99 -screen 0 1024x768x24 -nolisten tcp -ac -noreset \
+            >"$xvfb_log" 2>&1 &
+          xvfb_pid=$!
+          trap 'kill "$xvfb_pid" 2>/dev/null || true; rm -f "$xvfb_log"' EXIT
+          for _ in $(seq 1 50); do
+            test -S /tmp/.X11-unix/X99 && break
+            sleep 0.1
+          done
+          test -S /tmp/.X11-unix/X99
+
+          env -i HOME="$safe_home" PATH="$PATH" DISPLAY="unix/:99" \
+            LANG="C.UTF-8" LC_ALL="C.UTF-8" \
+            PYTHONPATH="$GITHUB_WORKSPACE/tools/tibia-linux-reference" \
+            python tools/tibia-linux-reference/run.py dry-run \
+              --repo-root "$GITHUB_WORKSPACE" \
+              --evidence-dir "$evidence_root"
+
+          manifest="$(find "$evidence_root" -path '*/publishable/session-manifest.json' -type f -print -quit)"
+          test -n "$manifest"
+          env -i PATH="$PATH" LANG="C.UTF-8" LC_ALL="C.UTF-8" python - "$manifest" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          document = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          summary = {
+              "result": "PASS",
+              "environment": document["environment"],
+              "network_denial": document["network_denial"],
+              "cleanup": document["cleanup"]["result"],
+              "leak_scan": document["leak_scan"]["result"],
+          }
+          print(json.dumps(summary, sort_keys=True))
+          PY
+
+      - name: Verify no official or raw artifact is staged
+        shell: bash
+        run: |
+          set +x
+          test -z "$(git status --short --untracked-files=all)"
+          test ! -e "$RUNNER_TEMP/tibia-xvfb.log"
+          ! find "$RUNNER_TEMP/tibia-linux-reference" -type f \
+            \( -name '*.pcap' -o -name '*.png' -o -name '*.log' -o -name '*.bin' \) \
+            -print -quit | grep -q .
