@@ -14,6 +14,16 @@ state_dir="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
 current_file="$state_dir/current-release.env"
 legacy_file="$state_dir/last-good.env"
 last_good_file="$state_dir/last-good-release.env"
+candidate_file="$state_dir/candidate-release.env"
+
+# A surviving candidate marks an incomplete prior transition. Refuse before the
+# lib.sh migration hook can rewrite candidate metadata or reuse its backup path.
+if [[ -f "$candidate_file" ]]; then
+    bash "$SCRIPT_DIR/release-state.sh" validate "$candidate_file"
+    candidate_sha="$(_oteryn_read_state_key "$candidate_file" RELEASE_SHA)"
+    echo "Deployment rejected: unresolved candidate release $candidate_sha still owns recovery evidence." >&2
+    exit 1
+fi
 
 # A managed or provable legacy release already owns the pre-migration baseline.
 if [[ -f "$current_file" || -f "$legacy_file" || -f "$last_good_file" ]]; then
