@@ -14,7 +14,8 @@ Proposed — 2026-08-13
 
 ### PROVEN
 
-- `Downloads` already stores `stable` and `beta` release records plus platform/architecture artifact variants for Windows, Linux and macOS across the repository-defined architectures.
+- `Downloads` stores `stable` and `beta` release records plus platform/architecture artifact variants for Windows, Linux and macOS across the repository-defined architectures.
+- `PublishClientRelease` serializes publication inside one channel and, when a release is made current, clears `is_current` from every other current release in that channel. Current browser publication therefore has one current release per channel rather than an independent current release per platform/architecture target.
 - Published artifacts require an approved machine-testable immutable-reference contract after Issue #948 / PR #966; the web application still does not fetch artifacts and administrator-supplied SHA-256 is not represented as independent publisher verification.
 - `MODULE_CATALOG.md` and `PORTAL_COMPLETENESS_ARCHITECTURE.md` leave minimum-version, mandatory-update, updater-manifest and publisher-provenance policy unresolved.
 - The current Download Center is browser presentation and administration metadata. It is not a cryptographic updater trust root and has no signing-key authority.
@@ -24,21 +25,23 @@ Proposed — 2026-08-13
 
 - Making a launcher consume mutable `is_current`, a `latest` alias, browser metadata or an administrator-supplied digest directly would create an updater authority that the Download Center was not designed to provide.
 - A secure automatic updater needs freshness, rollback and mix-and-match protection in addition to artifact integrity because authentic old release metadata can still be unsafe when replayed as current policy.
+- Preserving one current release sequence per channel in updater-policy schema v1 avoids silently introducing a second platform-specific release timeline. Exact platform/architecture selection remains an artifact-target concern and must fail unavailable when the selected release lacks that target.
 
 ### UNKNOWN
 
 - The exact first-party updater implementation, serialization/library choice, bootstrap packaging, secure local state and release-signing infrastructure are outside this Platform-only review and were not inspected.
 - Exact numerical metadata expiry intervals, release operational staffing and key-custody ceremony are deployment decisions requiring implementation evidence.
+- A future need for staggered current releases or minimum-version policy by platform/architecture is not proven. Introducing it would require an explicit compatible schema/architecture decision rather than implicit divergence from current channel semantics.
 
 ## Problem
 
 The first-party updater needs one machine-verifiable answer to all of these questions without trusting a mutable web response:
 
-- which channel and target tuple it is evaluating;
-- which release is current;
+- which channel and exact platform/architecture target it is evaluating;
+- which channel release is current;
 - whether the installed release is still supported;
 - whether an update is optional, recommended or required;
-- whether a previously valid release has been withdrawn or revoked;
+- whether a release or exact target artifact has been withdrawn or revoked;
 - whether a deliberate rollback to older application bytes is authorized;
 - whether metadata is fresh and internally consistent;
 - whether the publisher, rather than only the transport endpoint or an administrator, authorized the release state.
@@ -52,7 +55,7 @@ If these semantics are invented ad hoc inside the web application or launcher, c
 3. Browser Download Center state is not updater trust authority.
 4. Updater metadata is authenticated, versioned, freshness-bounded and rollback/mix-and-match resistant.
 5. `stable` and `beta` are distinct authorization scopes; neither silently falls back to or promotes into the other.
-6. Target identity includes channel, platform and architecture. A missing target fails unavailable rather than falling back to another target.
+6. Updater-policy schema v1 has one current release identity/sequence per channel. Platform and architecture identify the exact artifact within that release; a missing target fails unavailable rather than selecting another channel, target or older release implicitly.
 7. Minimum-supported-release and mandatory-update policy are signed machine policy, not inferred from version strings, CMS text or `is_current` alone.
 8. A client-side updater decision never grants game admission. Authoritative gameplay/protocol admission remains separately owned and may reject a client that distribution policy still considers installable.
 9. Withdrawal and revocation preserve history. Rollback selects an already immutable artifact through newer trusted policy; it never rewrites old metadata or artifact bytes.
@@ -70,7 +73,7 @@ Adopt The Update Framework security model for the first-party updater repository
 - delegate non-overlapping `stable` and `beta` target scopes so a routine channel credential cannot authorize the other channel;
 - keep Root private keys offline with a threshold that does not reduce root trust to one private key;
 - keep release/Targets/Snapshot signing inside a protected release-publishing boundary and Timestamp signing in a narrowly scoped online freshness service; the Laravel web process receives no private signing key;
-- represent Oteryn application policy as a versioned policy target authenticated by TUF metadata rather than inventing a second unsigned manifest protocol;
+- represent Oteryn application policy as a versioned channel-policy target authenticated by TUF metadata rather than inventing a second unsigned manifest protocol;
 - let TUF target metadata authenticate target length/hash while the Oteryn policy target carries the application semantics defined in the companion contract.
 
 Security properties: reuses a mature role/freshness/version/delegation model for rollback, freeze and mix-and-match resistance; separates root recovery from frequently used release metadata; supports key rotation without treating HTTPS as publisher identity.
@@ -119,40 +122,43 @@ Costs: expands a web-application compromise into software-update signing comprom
 
 Choose **Option A**.
 
-The Update Framework separates Root, Targets, Snapshot and Timestamp authority and uses signed versioned/expiring metadata. Oteryn should reuse those security semantics rather than create a custom updater trust protocol. The Platform-specific decision remains narrow: `Downloads` owns release policy/activation presentation, a protected release-publishing boundary materializes signed updater metadata, and the updater trusts only verified TUF repository state plus the authenticated Oteryn policy target.
+The Update Framework separates Root, Targets, Snapshot and Timestamp authority and uses signed versioned/expiring metadata. Oteryn should reuse those security semantics rather than create a custom updater trust protocol. The Platform-specific decision remains narrow: `Downloads` owns release policy/activation presentation, a protected release-publishing boundary materializes signed updater metadata, and the updater trusts only verified TUF repository state plus the authenticated Oteryn channel-policy target.
 
 This recommendation does not select an external client library or authorize implementation. Acceptance of this ADR is required before canonical module/portal architecture is rewritten from “future decision” to “accepted implementation handoff.”
 
 ## Proposed Oteryn updater policy semantics
 
-For every exact tuple `(channel, platform, architecture)`, the authenticated policy target has a versioned application schema and carries at least:
+For each `stable` or `beta` channel, the authenticated policy target has a versioned application schema and carries at least:
 
 ```text
 schema_version
 policy_revision
 channel
-platform
-architecture
 current_release_id
 current_release_sequence
 current_version_display
 minimum_supported_release_sequence
 update_mode = optional | recommended | required
+artifacts[] = { platform, architecture, target_path }
 revoked_release_ids[]
+revoked_artifact_targets[]
 rollback_authorization = none | explicit
 ```
 
-Security-relevant ordering uses monotonically assigned release/policy sequences, not lexical comparison of the display version string. Updater-enabled releases therefore do not require retroactively interpreting historical Download Center version strings as a total order.
+Security-relevant release ordering uses monotonically assigned channel-scoped release/policy sequences, not lexical comparison of the display version string. Updater-enabled releases therefore do not require retroactively interpreting historical Download Center version strings as a total order.
 
-The policy references a TUF target path/release identity; target length and cryptographic hashes come from trusted TUF target metadata rather than being redefined as a second authority inside the application policy.
+For one channel-policy generation, every supported platform/architecture artifact entry belongs to the same selected `current_release_id` and `current_release_sequence`. The client selects exactly one artifact entry matching its configured platform/architecture. Missing or revoked target entries fail unavailable; they never imply an older release, other architecture or other channel.
+
+The policy references TUF target paths/release identity; target length and cryptographic hashes come from trusted TUF target metadata rather than being redefined as a second authority inside the application policy.
 
 ## Proposed decision semantics
 
-- `minimum_supported_release_sequence` defines the oldest still-supported installed release for the exact channel/target.
+- `minimum_supported_release_sequence` defines the oldest still-supported installed release for the channel.
 - A revoked release is unsupported regardless of its sequence.
+- An exact revoked artifact target is unusable for that platform/architecture even if other artifacts in the same release remain valid.
 - `optional` permits a supported older release to continue without updating.
 - `recommended` permits continued use but requests an update.
-- `required` makes the current signed policy require installation of the selected current release before the updater authorizes normal online launch.
+- `required` makes the signed channel policy require installation of the selected current release before the updater authorizes normal online launch.
 - An installed release below minimum or explicitly revoked is blocked by updater policy even if `update_mode` would otherwise be optional/recommended.
 - If trusted metadata refresh fails while the locally trusted TUF metadata is still unexpired, the updater may continue using only that previously trusted state; it must not accept any new release/policy data.
 - Once required trusted metadata is expired or invalid, the updater cannot assert current update-policy authority and fails closed for normal online launch. Recovery/settings/diagnostic UI may remain available.
@@ -161,10 +167,11 @@ The policy references a TUF target path/release identity; target length and cryp
 ## Withdrawal, revocation and rollback
 
 - **Withdrawal** removes a release from new recommendation/current selection but preserves signed historical metadata and immutable artifact identity.
-- **Revocation** is a newer signed policy decision that marks an exact release identity unusable. It never mutates the old artifact or old metadata.
-- **Rollback** is a newer signed policy revision selecting an older immutable release and must carry explicit rollback authorization. Clients must reject an application-version downgrade that is not authorized by newer trusted policy.
-- A beta artifact may be promoted to stable only through new stable-authorized metadata that references the exact immutable bytes/hash; promotion never mutates the beta record.
-- A release may not be removed in a way that breaks already-issued consistent metadata before the retention/rollback window is satisfied.
+- **Release revocation** is a newer signed policy decision that marks an exact release identity unusable across its channel targets.
+- **Artifact-target revocation** marks one immutable platform/architecture target unusable without claiming that byte-distinct sibling targets are compromised.
+- **Rollback** in schema v1 is a newer channel-policy revision selecting an older immutable release and must carry explicit rollback authorization. TUF metadata versions and `policy_revision` still advance. Platform/architecture-specific rollback would require a future schema/architecture decision.
+- A beta artifact may be authorized in stable only through new stable-authorized metadata that references the exact immutable bytes/hash; promotion never mutates beta authority or history.
+- A release/target may not be removed in a way that breaks already-issued consistent metadata before the retention/rollback window is satisfied.
 
 ## Signing and compromise boundary
 
@@ -180,11 +187,11 @@ The policy references a TUF target path/release identity; target length and cryp
 Proposed effective state:
 
 ```text
-operator-approved Platform release policy
+operator-approved Platform channel release policy
         + exact immutable artifact identities
         + protected signer / TUF repository generation
         + Platform verification of expected signed metadata identity
-        -> updater-publishable release generation
+        -> updater-publishable channel generation
 ```
 
 A release may remain visible as browser-only metadata without becoming updater-publishable. Conversely, an updater generation cannot be claimed production-active solely because signed files exist; deployment, origin, availability and real client evidence remain separate gates.
@@ -194,7 +201,7 @@ A release may remain visible as browser-only metadata without becoming updater-p
 A separately implementation-authorized task should own, in order:
 
 1. a TUF adoption POUF/profile, selected maintained client/repository implementation and threat-model validation;
-2. persistence for opaque release identity/sequence and signed updater-policy generation without reinterpreting historical browser-only versions;
+2. persistence for opaque channel-scoped release identity/sequence and signed updater-policy generations without reinterpreting historical browser-only versions;
 3. protected release-signing/repository publication integration outside the Laravel private-key boundary;
 4. Platform verification/import/activation of the exact signed generation;
 5. updater-facing immutable metadata distribution and browser/admin presentation of signed/unsigned state;
@@ -207,9 +214,9 @@ A separately implementation-authorized task should own, in order:
 
 - canonical architecture documents are reconciled only after Option A (or another named option) is explicitly accepted;
 - repository validators prove ADR numbering/lifecycle and decision-backlog consistency;
-- full-diff review checks channel isolation, rollback/revocation, expiry/failure, key compromise and browser/updater/admission separation;
+- full-diff review checks channel coherence, target isolation, rollback/revocation, expiry/failure, key compromise and browser/updater/admission separation;
 - runtime/browser E2E remains NOT_APPLICABLE for this architecture-only decision package;
-- implementation later requires real updater negative-path tests for tampered/expired/replayed/mixed metadata, wrong channel/target, revoked releases, unauthorized downgrade, key rotation and unavailable metadata.
+- implementation later requires real updater negative-path tests for tampered/expired/replayed/mixed metadata, wrong channel/target, revoked releases/targets, unauthorized downgrade, key rotation and unavailable metadata.
 
 ## Decision required
 
@@ -219,6 +226,7 @@ Repository owner: accept **Option A (TUF-based role-separated update repository)
 
 - Issue #1037
 - Issue #948 / PR #966
+- `app/Downloads/Actions/PublishClientRelease.php`
 - `docs/architecture/MODULE_CATALOG.md`
 - `docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md`
 - `docs/architecture/SECURITY_ARCHITECTURE.md`
