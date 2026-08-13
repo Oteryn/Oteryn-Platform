@@ -41,6 +41,15 @@ for name in RELEASE_SHA PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE GAME_WORLD_ID 
     [[ -n "${!name:-}" ]] || { echo "Rollback configuration is incomplete: $name" >&2; exit 1; }
 done
 
+[[ "${CANARY_GAME_BIND_ADDRESS:-}" == "$GAME_WORLD_HOST" ]] || {
+    echo "Rollback rejected: configured Canary bind address does not match persisted last-good world host." >&2
+    exit 1
+}
+[[ "${CANARY_SERVER_IP:-}" == "$GAME_WORLD_HOST" ]] || {
+    echo "Rollback rejected: configured Canary server IP does not match persisted last-good world host." >&2
+    exit 1
+}
+
 GATEWAY_VERSION="sha-$RELEASE_SHA"
 export PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE GATEWAY_VERSION
 compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
