@@ -10,7 +10,10 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-USES_RE = re.compile(r"^\s*(?:-\s*)?uses\s*:\s*(.*?)\s*$")
+USES_RE = re.compile(r"""^\s*(?:-\s*)?(?:"uses"|'uses'|uses)\s*:\s*(.*?)\s*$""")
+INLINE_FLOW_USES_RE = re.compile(
+    r"""^\s*(?:-\s*)?\{.*(?:"uses"|'uses'|uses)\s*:"""
+)
 FULL_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 EXTERNAL_TARGET_RE = re.compile(
     r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$"
@@ -82,13 +85,23 @@ def scan_files(files: list[Path], display_root: Path | None = None) -> tuple[lis
         for line_no, line in enumerate(text.splitlines(), 1):
             if line.lstrip().startswith("#"):
                 continue
+            shown = str(path.relative_to(display_root)) if display_root else str(path)
             match = USES_RE.match(line)
             if not match:
+                if INLINE_FLOW_USES_RE.match(line):
+                    findings.append(
+                        Finding(
+                            shown,
+                            line_no,
+                            line.strip(),
+                            "malformed",
+                            "uses mapping must be a scalar key on its own line",
+                        )
+                    )
                 continue
             raw = _strip_comment(match.group(1))
             value = _unquote(raw)
             kind, error = classify_uses(value)
-            shown = str(path.relative_to(display_root)) if display_root else str(path)
             inventory.append({"path": shown, "line": line_no, "uses": value, "kind": kind})
             if error:
                 findings.append(Finding(shown, line_no, value, kind, error))

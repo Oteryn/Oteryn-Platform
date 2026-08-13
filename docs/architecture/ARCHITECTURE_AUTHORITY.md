@@ -44,6 +44,7 @@ A lower-ranked source must not silently override a higher-ranked invariant. Reco
 | Modules and responsibility | `docs/architecture/MODULE_CATALOG.md` | Module ownership, responsibilities and dependency boundaries. |
 | Portal completeness, benchmark disposition and release-scope closure | `docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md` | Current portal assessment, remaining architectural gaps, implement/defer/reject baseline and portal completion gate. |
 | Player calculators, plans, hunt guidance, session analysis and recommendations | `docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md` | Focused `PlayerCompanion` ownership, result classification, ruleset/version applicability, privacy, API/client reuse and delivery priorities. |
+| Federated public content search and discoverability | `docs/architecture/FEDERATED_SEARCH_ARCHITECTURE.md` and ADR 0033 | `PublicPortal` orchestration over source-owned public queries; source publication/privacy authority remains upstream and any dedicated index is derived state. |
 | Security | `docs/architecture/SECURITY_ARCHITECTURE.md` | Mandatory security invariants and trust controls. |
 | Persistent data | `docs/architecture/DATA_OWNERSHIP.md` | Platform, Canary and shared data ownership/write rules. |
 | Validation | `docs/architecture/TEST_STRATEGY.md` | Test layers, evidence expectations and E2E policy. |

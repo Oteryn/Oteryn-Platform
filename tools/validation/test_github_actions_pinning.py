@@ -40,11 +40,31 @@ class GitHubActionsPinningTests(unittest.TestCase):
             self.assertEqual(1, len(findings))
             self.assertEqual("malformed", findings[0].kind)
 
+    def test_inline_flow_uses_cannot_bypass_validator(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "inline.yml"
+            path.write_text(
+                "jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n"
+                "      - { name: bypass, uses: actions/checkout@v7 }\n",
+                encoding="utf-8",
+            )
+            _, findings = pinning.scan_files([path])
+            self.assertEqual(1, len(findings))
+            self.assertEqual("malformed", findings[0].kind)
+
     def test_quoted_sha_and_trailing_comment_pass(self) -> None:
         value = "actions/checkout@0123456789abcdef0123456789abcdef01234567"
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "quoted.yml"
             path.write_text(f'jobs:\n  x:\n    uses: "{value}" # v7.0.1\n', encoding="utf-8")
+            _, findings = pinning.scan_files([path])
+            self.assertEqual([], findings)
+
+    def test_quoted_uses_key_with_sha_passes(self) -> None:
+        value = "actions/checkout@0123456789abcdef0123456789abcdef01234567"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "quoted-key.yml"
+            path.write_text(f'jobs:\n  x:\n    "uses": "{value}"\n', encoding="utf-8")
             _, findings = pinning.scan_files([path])
             self.assertEqual([], findings)
 
