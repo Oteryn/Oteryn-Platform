@@ -18,13 +18,13 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-13T22:37:00+02:00
+updated_at: 2026-08-13T22:54:00+02:00
 status: active
 current_review_domain: client-distribution-updater-trust
 active_task: OTERYN-20260813-client-distribution-trust
 issue: 1037
 branch: docs/OTERYN-20260813-client-distribution-trust
-pull_request: null
+pull_request: 1038
 last_completed_domain: native-game-catalog-content-ownership
 last_completed_issue: 1033
 last_completed_pull_request: 1034
@@ -55,7 +55,7 @@ accepted_authority:
   native_game_enforcement_command_contract: docs/contracts/OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md
   native_game_catalog_content_contract: docs/contracts/OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md
 implementation_handoffs: []
-active_architecture_decision_ids: []
+active_architecture_decision_ids: ["ARCH-DEC-0004"]
 architecture_conflicts:
   - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021, but the exact accepted path sets are machine-enforced and cannot expand silently.
   - Issue 586 retains historical evidence that delete_branch_on_merge was disabled; ADR 0024 and current metadata prove the accepted current state is enabled.
@@ -102,7 +102,7 @@ unknown:
   - Native guild identity required by the PublicGameData guild projection remains dependent on an accepted game-owned stable identifier; Platform must not invent one.
 conflicts: []
 blockers: []
-next_action: Define ADR 0035 and the Platform-side signed client-distribution contract, then reconcile canonical architecture records without external-repository access.
+next_action: Validate ARCH-DEC-0004 proposal and await the repository owner decision before accepted architecture reconciliation.
 ```
 
 ## Programme rules
