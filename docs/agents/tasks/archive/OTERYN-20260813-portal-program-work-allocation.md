@@ -3,6 +3,7 @@ task_id: OTERYN-20260813-portal-program-work-allocation
 project_lane: oteryn-platform-core
 task_kind: implementation
 implementation_authorized: true
+status: completed
 required_reads:
   - AGENTS.md
   - docs/agents/CONTEXT_HANDOFF.md
@@ -35,8 +36,8 @@ Turn the current portal-completion backlog and the accepted Tibia/RubinOT/TibiaP
 - [x] Issue #489 and #490 are split by their actual concern/authority boundaries rather than treated as one simplified workstream each.
 - [x] `project_lane: oteryn-platform-core` prevents broad programme text from being misclassified into the Bazaar lane.
 - [x] Existing architecture authority, module boundaries and live-state-first programme rules are preserved.
-- [x] Repaired candidate head passes repository governance/CI and all material PR review threads are resolved.
-- [ ] PR #1031 is merged and this task is archived with post-merge evidence.
+- [x] Repaired final head passes repository governance/CI and all material PR review threads are resolved.
+- [x] PR #1031 is squash-merged and the task record is moved from `active/` to `archive/` with post-merge evidence.
 
 ## Ownership
 
@@ -63,7 +64,7 @@ modules:
 dependencies:
   - OTERYN_PORTAL_COMPLETION
   - GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM for detailed Game Catalog decomposition
-  - PR #1028 is independent active PlayerCompanion implementation and must not be modified by this documentation task
+  - PR #1028 is independent active PlayerCompanion implementation and was not modified by this documentation task
 blockers:
   - none
 cross_repository_tasks:
@@ -75,23 +76,23 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-13T21:40:00+02:00
-head: cb1d95325f7f19d36b4750e96f6fcea8189e62c7
+updated_at: 2026-08-13T21:39:00+02:00
+head: 9f7e5587bf799e173473245ee0c77f781d754623
 branch: docs/portal-program-allocation-final
 pr: 1031
-status: ready
+status: completed
 phase: closeout
 project_lane: oteryn-platform-core
 task_kind: implementation
 implementation_authorized: true
 execution_mode: chat-github
-execution_reason: narrow documentation/programme corrections are safely executable through the GitHub connector without owner-funded AI invocation
+execution_reason: narrow documentation/programme corrections were safely executed through the GitHub connector without owner-funded AI invocation
 context_pressure: medium
 context_growth: stable
 decomposition_decision: single
 validation_level: focused
 session_rotation_count: 0
-heavy_validation_runs: 2
+heavy_validation_runs: 3
 stale_takeover_count: 0
 human_interruptions: 0
 context_routes:
@@ -101,28 +102,24 @@ owned_paths:
   - docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
   - docs/agents/programs/OTERYN_PORTAL_COMPLETION.md
   - docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md
-  - docs/agents/tasks/active/OTERYN-20260813-portal-program-work-allocation.md
   - docs/agents/tasks/archive/OTERYN-20260813-portal-program-work-allocation.md
 proven:
-  - main was synchronized into the task branch at f100334b40181b520a289cf81b28b7f68d26c4ef before review repair continued.
-  - OTERYN_PORTAL_COMPLETION exists and remains the single programme selector.
-  - Issue #488 and Issue #365 are closed completed; Issue #489 and #490 remain open and span multiple concerns.
-  - PR #1028 is an independent active PlayerCompanion Session Analyzer implementation and this task does not modify it.
-  - GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM already owns detailed Game Catalog producer/consumer completion sequencing.
-  - AGENTS.override.md forbids Platform-invocation server/game repository access without separate owner authorization.
-  - PR #1031 review identified three material findings: missing project lane, missing Account Center/Character Portfolio and Today rows, and a competing selection sequence.
-  - The repaired allocation adds the missing workstreams, removes the competing scheduler, restores accepted PlayerCompanion order, separates #489/#490 concerns and adds model-agnostic ownership.
-  - Exact PR diff at cb1d95325f7f19d36b4750e96f6fcea8189e62c7 contains only the four declared documentation/programme paths and no runtime changes.
-  - All three material PR #1031 review threads are resolved after the repaired diff made their comments outdated.
-  - All eight returned workflow runs on cb1d95325f7f19d36b4750e96f6fcea8189e62c7 completed successfully, including CI and Agent Governance.
+  - OTERYN_PORTAL_COMPLETION remains the single programme selector and the merged allocation explicitly acts only after canonical live selection.
+  - The merged allocation includes explicit Account Center/Character Portfolio and PublicPortal Today workstreams, accepted PlayerCompanion ordering, specialized Game Catalog routing and split #489/#490 concern ownership.
+  - Execution roles are model-agnostic and Codex suitability is explicitly non-authorizing.
+  - Final PR head 2d77f8e29848082f5f008fbfc230a09123d19504 included current main e4dab032387b9a4c3fa86fd52b1b74f2bd2529c5 as a merge parent before readiness.
+  - Final PR #1031 diff contains exactly four intended documentation/programme files and no runtime or external-repository mutation.
+  - Review threads PRRT_kwDOTcsYjs6ZDWm5, PRRT_kwDOTcsYjs6ZDWm- and PRRT_kwDOTcsYjs6ZDWnC were all resolved before merge.
+  - All eight workflow runs on final head 2d77f8e29848082f5f008fbfc230a09123d19504 completed successfully, including CI 31736757370 and Agent Governance 31736757390.
+  - PR #1031 auto-merged with squash to protected main as 9f7e5587bf799e173473245ee0c77f781d754623.
+  - Post-merge main verification returned exactly 9f7e5587bf799e173473245ee0c77f781d754623 and contains the four intended documentation/programme changes.
 derived:
-  - The allocation can remain useful as a role/dependency companion without becoming a second source of task priority.
-unknown:
-  - Exact required-check result on the checkpoint-only readiness head created by this record update.
+  - The allocation is now a safe role/dependency companion rather than a competing priority scheduler.
+unknown: []
 conflicts: []
 first_failure:
   marker: checkpoint-validation-result-enum
-  evidence: CI run 31736230255 job 94568413227 failed because validation item 2 used unsupported result IN_PROGRESS; the root cause was repaired and subsequent candidate CI/Agent Governance passed.
+  evidence: CI run 31736230255 job 94568413227 initially failed because validation item 2 used unsupported result IN_PROGRESS; the root cause was repaired and every later required exact-head generation passed.
 rejected_hypotheses:
   - Create a second independent portal-completion programme.
   - Let the allocation board choose a later workstream before the canonical programme selects it.
@@ -132,31 +129,34 @@ changed_paths:
   - docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
   - docs/agents/programs/OTERYN_PORTAL_COMPLETION.md
   - docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md
-  - docs/agents/tasks/active/OTERYN-20260813-portal-program-work-allocation.md
+  - docs/agents/tasks/archive/OTERYN-20260813-portal-program-work-allocation.md
 validation:
-  - command: synchronization with current main
+  - command: final synchronization with current main before merge
     result: PASS
-    evidence: branch contains merge parent f100334b40181b520a289cf81b28b7f68d26c4ef via sync commit 9a88e393fa574471eb6fda05d04cdb66ec063d71.
-  - command: PR review findings content reconciliation
+    evidence: final head 2d77f8e29848082f5f008fbfc230a09123d19504 has e4dab032387b9a4c3fa86fd52b1b74f2bd2529c5 as its second parent.
+  - command: exact final PR full-diff self-review
     result: PASS
-    evidence: exact diff addresses all three material findings by declaring oteryn-platform-core, adding Account Center/Character Portfolio and Today, and removing the competing scheduler.
-  - command: exact PR full-diff self-review
-    result: PASS
-    evidence: PR #1031 at cb1d95325f7f19d36b4750e96f6fcea8189e62c7 changes only four intended documentation/programme files; no runtime or external-repository behavior is changed.
+    evidence: final PR #1031 diff at head 2d77f8e29848082f5f008fbfc230a09123d19504 contains only the four declared documentation/programme files and all reviewed corrections remain present.
   - command: executable runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: this task changes documentation/programme routing only and introduces no executable user or integration journey.
   - command: PR review-thread hygiene
     result: PASS
-    evidence: review threads PRRT_kwDOTcsYjs6ZDWm5, PRRT_kwDOTcsYjs6ZDWm- and PRRT_kwDOTcsYjs6ZDWnC are all resolved.
-  - command: repository governance/CI on cb1d95325f7f19d36b4750e96f6fcea8189e62c7
+    evidence: all three material review threads are resolved.
+  - command: repository governance/CI on final head 2d77f8e29848082f5f008fbfc230a09123d19504
     result: PASS
-    evidence: CI 31736466950, Agent Governance 31736466943 and the six other returned exact-head workflow runs all completed successfully.
+    evidence: CI 31736757370, Agent Governance 31736757390, Native protocol contract 31736757406, Native protocol contract audits 31736757432, Edge Security Emulation 31736757415, Phase 7 Production-Like Validation 31736757387, Platform DB Outage Validation 31736757383 and Game Auth Ticket Concurrency 31736757404 all succeeded.
+  - command: squash merge PR #1031
+    result: PASS
+    evidence: PR #1031 is closed merged with merge commit 9f7e5587bf799e173473245ee0c77f781d754623.
+  - command: post-merge main verification
+    result: PASS
+    evidence: protected main resolved to 9f7e5587bf799e173473245ee0c77f781d754623 immediately after merge and contains the intended four-file documentation delivery.
 blockers:
   - none
-next_action: verify required checks on this checkpoint-only readiness head and squash-merge PR #1031 if every merge gate remains satisfied.
+next_action: re-evaluate OTERYN_PORTAL_COMPLETION from current main and select the first safe, unowned, unblocked and implementation-authorized work item.
 ```
 
 ## Notes
 
-This task changes documentation/programme routing only. It does not invoke Codex, deploy production, mutate protected environments, access or modify a server/game repository, or modify the active PR #1028 implementation.
+This task changed documentation/programme routing only. It did not invoke Codex, deploy production, mutate protected environments, access or modify a server/game repository, or modify the independent PR #1028 implementation.
