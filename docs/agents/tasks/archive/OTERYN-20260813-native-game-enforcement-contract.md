@@ -119,6 +119,13 @@ validation:
   - command: exact-head full-diff self-review and review-thread inventory
     result: PASS
     evidence: PR comment 5284984591 records PASS; P1 sanction-stream finding was repaired and thread PRRT_kwDOTcsYjs6ZC-FJ resolved before merge.
+blockers: []
+next_action: Select the next highest-risk unresolved and unowned Platform architecture question from current main.
+```
+
+## Closeout review
+
+```yaml
 self_review:
   result: PASS
   exact_head: f3fc0b5629d06d171a30976de31d5f5df0620dae
@@ -136,6 +143,4 @@ self_review:
 e2e:
   result: NOT_APPLICABLE
   evidence: Architecture-only documentation changed no executable user or integration journey.
-blockers: []
-next_action: Select the next highest-risk unresolved and unowned Platform architecture question from current main.
 ```
