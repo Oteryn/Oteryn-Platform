@@ -15,15 +15,15 @@ Proposed — 2026-08-13
 ### PROVEN
 
 - `Downloads` already stores `stable` and `beta` release records plus platform/architecture artifact variants for Windows, Linux and macOS across the repository-defined architectures.
-- Published artifacts already require an approved machine-testable immutable-reference contract after Issue #948 / PR #966; the web application still does not fetch artifacts and administrator-supplied SHA-256 is not represented as independent publisher verification.
-- `MODULE_CATALOG.md` and `PORTAL_COMPLETENESS_ARCHITECTURE.md` explicitly leave minimum-version, mandatory-update, updater-manifest and publisher-provenance policy unresolved.
-- The current Download Center is browser presentation and administration metadata. It is not a cryptographic updater trust root and it has no signing-key authority.
-- The architecture programme found no open architecture PR or active architecture task owning this exact decision when Issue #1037 was created.
+- Published artifacts require an approved machine-testable immutable-reference contract after Issue #948 / PR #966; the web application still does not fetch artifacts and administrator-supplied SHA-256 is not represented as independent publisher verification.
+- `MODULE_CATALOG.md` and `PORTAL_COMPLETENESS_ARCHITECTURE.md` leave minimum-version, mandatory-update, updater-manifest and publisher-provenance policy unresolved.
+- The current Download Center is browser presentation and administration metadata. It is not a cryptographic updater trust root and has no signing-key authority.
+- No open architecture PR or active architecture task owned this exact decision when Issue #1037 was created.
 
 ### DERIVED
 
-- Making a launcher consume the current mutable notion of `is_current`, a `latest` alias, browser metadata or an administrator-supplied digest directly would create an updater authority that the existing Download Center was not designed to provide.
-- A secure automatic updater needs freshness, rollback and mix-and-match protection in addition to artifact integrity, because an authentic old release can still be unsafe when replayed as current policy.
+- Making a launcher consume mutable `is_current`, a `latest` alias, browser metadata or an administrator-supplied digest directly would create an updater authority that the Download Center was not designed to provide.
+- A secure automatic updater needs freshness, rollback and mix-and-match protection in addition to artifact integrity because authentic old release metadata can still be unsafe when replayed as current policy.
 
 ### UNKNOWN
 
@@ -43,7 +43,7 @@ The first-party updater needs one machine-verifiable answer to all of these ques
 - whether metadata is fresh and internally consistent;
 - whether the publisher, rather than only the transport endpoint or an administrator, authorized the release state.
 
-If these semantics are invented ad hoc inside the web application or launcher, compromise of one mutable endpoint/key can become compromise of the entire update channel and stale signed data can be replayed without a durable freshness model.
+If these semantics are invented ad hoc inside the web application or launcher, compromise of one mutable endpoint/key can become compromise of the update channel and stale signed data can be replayed without a durable freshness model.
 
 ## Non-negotiable invariants
 
@@ -67,13 +67,13 @@ Adopt The Update Framework security model for the first-party updater repository
 - bootstrap the updater with trusted Root metadata / root trust anchors;
 - use Root, Targets, Snapshot and Timestamp roles with versioned expiring metadata;
 - require consistent-snapshot semantics for updater metadata/targets;
-- delegate non-overlapping `stable` and `beta` target scopes so a channel publisher cannot silently authorize the other channel;
+- delegate non-overlapping `stable` and `beta` target scopes so a routine channel credential cannot authorize the other channel;
 - keep Root private keys offline with a threshold that does not reduce root trust to one private key;
-- keep release/targets signing in a protected release-publishing boundary and timestamp signing in a narrowly scoped service appropriate to freshness; the Laravel web process receives no private signing key;
+- keep release/Targets/Snapshot signing inside a protected release-publishing boundary and Timestamp signing in a narrowly scoped online freshness service; the Laravel web process receives no private signing key;
 - represent Oteryn application policy as a versioned policy target authenticated by TUF metadata rather than inventing a second unsigned manifest protocol;
 - let TUF target metadata authenticate target length/hash while the Oteryn policy target carries the application semantics defined in the companion contract.
 
-Security properties: uses a mature role/freshness/version/delegation model for rollback, freeze and mix-and-match resistance; separates root recovery from frequently used release metadata; supports key rotation without treating HTTPS as publisher identity.
+Security properties: reuses a mature role/freshness/version/delegation model for rollback, freeze and mix-and-match resistance; separates root recovery from frequently used release metadata; supports key rotation without treating HTTPS as publisher identity.
 
 Costs: more metadata roles, key operations, bootstrap/rotation procedures and client integration work than a single signature envelope. The project must document an implementation POUF/profile and prove the selected client library/format before activation.
 
@@ -83,7 +83,7 @@ Define one canonical signed JSON/CBOR envelope containing artifact digests, curr
 
 Benefits: smaller implementation surface and simpler release operations.
 
-Costs: Oteryn becomes responsible for designing and validating its own replay, rollback, freeze, mix-and-match, key-rotation, threshold/recovery and metadata-consistency protocol. A future move to role-separated trust would require a migration of both release operations and clients. This option is acceptable only if TUF implementation feasibility is disproven by concrete client/release constraints.
+Costs: Oteryn becomes responsible for designing and validating its own replay, rollback, freeze, mix-and-match, key-rotation, threshold/recovery and metadata-consistency protocol. A future move to role-separated trust would require migration of both release operations and clients. This option is acceptable only if TUF implementation feasibility is disproven by concrete client/release constraints.
 
 ### Option C — HTTPS + checksum + mutable current/latest policy
 
@@ -119,7 +119,7 @@ Costs: expands a web-application compromise into software-update signing comprom
 
 Choose **Option A**.
 
-The Update Framework already separates root, target, snapshot and timestamp authority and uses signed versioned/expiring metadata. Oteryn should reuse those security semantics rather than create a custom updater trust protocol. The Platform-specific decision remains narrow: `Downloads` owns release policy/activation presentation, a protected release-publishing boundary materializes signed updater metadata, and the updater trusts only verified TUF repository state plus the authenticated Oteryn policy target.
+The Update Framework separates Root, Targets, Snapshot and Timestamp authority and uses signed versioned/expiring metadata. Oteryn should reuse those security semantics rather than create a custom updater trust protocol. The Platform-specific decision remains narrow: `Downloads` owns release policy/activation presentation, a protected release-publishing boundary materializes signed updater metadata, and the updater trusts only verified TUF repository state plus the authenticated Oteryn policy target.
 
 This recommendation does not select an external client library or authorize implementation. Acceptance of this ADR is required before canonical module/portal architecture is rewritten from “future decision” to “accepted implementation handoff.”
 
@@ -168,12 +168,12 @@ The policy references a TUF target path/release identity; target length and cryp
 
 ## Signing and compromise boundary
 
-- Root trust is bootstrapped into the first-party updater and root private-key custody is offline/threshold-controlled.
-- Stable and beta target authority is cryptographically separable. A beta publishing credential must not authorize stable targets.
+- Root trust is bootstrapped into the first-party updater and Root private-key custody is offline/threshold-controlled.
+- Stable and beta delegated target authority is cryptographically separable. A beta channel publishing credential must not authorize stable targets, while compromise of a higher delegating Targets authority remains a correspondingly larger security incident.
 - The Platform web runtime stores no private updater-signing key and cannot mint trusted updater metadata merely because an administrator can publish Download Center records.
 - The protected release-publishing system may consume an approved Platform release-policy snapshot, but generated metadata becomes updater-authoritative only after the required signatures and repository consistency checks exist.
 - Platform may store/serve public keys, signatures, metadata references and verified projections; those are not private-key custody.
-- A compromised non-root role is recovered through a newer Root-authorized key set and newly signed metadata. Threshold Root compromise is an out-of-band recovery/security-incident condition, not an ordinary web-admin action.
+- A compromised top-level non-Root role is recovered by Root-authorized role-key rotation. A compromised delegated channel role is recovered by newer metadata from its trusted delegating Targets authority. Threshold Root compromise is an out-of-band trust-recovery/security-incident condition, not an ordinary web-admin action.
 
 ## Publication/activation model
 
