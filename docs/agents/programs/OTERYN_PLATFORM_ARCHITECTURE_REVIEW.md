@@ -18,18 +18,18 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-13T16:12:00+02:00
+updated_at: 2026-08-13T16:30:00+02:00
 status: ready
 current_review_domain: next-risk-based-rotation
 active_task: null
 issue: null
 branch: null
 pull_request: null
-last_completed_domain: personalized-today-cache-isolation-boundary
-last_completed_issue: 941
-last_completed_pull_request: 970
-last_completed_merge: c5229194c56198421d13333901cc8953723603a6
-latest_review_finding_issue: 941
+last_completed_domain: architecture-programme-state-reconciliation
+last_completed_issue: 1023
+last_completed_pull_request: 1023
+last_completed_merge: 38775e953bd9740df08620482240b483fde69ecc
+latest_review_finding_issue: 1023
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
   authority_adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
@@ -82,6 +82,7 @@ proven:
   - PR 933 merged accepted ADR 0032 for portal composition, private tracking and server-specific system ownership; PR 970 later hardened Today composition so private-influenced representations are PRIVATE_PERSONALIZED and never shared-cache/public-cache authority. PR 970 squash-merged as c5229194c56198421d13333901cc8953723603a6 and closed Issue 941.
   - PR 936 merged accepted ADR 0033 and the focused federated-search architecture; PR 947 later added restrictive publication-revocation fencing so stale search/index/cache state cannot outlive a newer restrictive publication decision.
   - Current ADR inventory ends at accepted ADR 0033 and the active architecture decision backlog is empty.
+  - PR 1023 reconciled the architecture programme, authority routing and focused native-integration backlog with accepted current-main architecture and squash-merged as 38775e953bd9740df08620482240b483fde69ecc after all eight exact-head workflows passed with zero material review findings.
 derived:
   - The Platform core remains a sound Laravel modular monolith; native integration is explicitly separated from Legacy Canary Compatibility.
   - New native Platform consumers use canonical AccountId/CharacterId and explicit command/query/event/projection boundaries instead of inheriting Canary numeric IDs, table shapes, session semantics or gameplay protocol ownership.
