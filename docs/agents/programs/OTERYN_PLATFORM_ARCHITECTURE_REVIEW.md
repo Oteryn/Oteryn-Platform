@@ -18,17 +18,17 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-13T23:53:00+02:00
-status: active
-current_review_domain: client-distribution-updater-trust
-active_task: OTERYN-20260813-client-distribution-trust
-issue: 1037
-branch: docs/OTERYN-20260813-client-distribution-trust
-pull_request: 1038
-last_completed_domain: native-game-catalog-content-ownership
-last_completed_issue: 1033
-last_completed_pull_request: 1034
-last_completed_merge: 7a0664cfd7dadf27aef0a33e2308bf4975fb1405
+updated_at: 2026-08-14T00:08:00+02:00
+status: ready
+current_review_domain: next-risk-based-rotation
+active_task: null
+issue: null
+branch: null
+pull_request: null
+last_completed_domain: client-distribution-updater-trust
+last_completed_issue: 1037
+last_completed_pull_request: 1038
+last_completed_merge: b0ea53ccff6750b56967711c13c3439d29b465a8
 latest_review_finding_issue: 1037
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
@@ -91,9 +91,10 @@ proven:
   - PR 1030 merged the native support/moderation game-enforcement semantic boundary as f100334b40181b520a289cf81b28b7f68d26c4ef after the P1 review finding added explicit stable sanction-stream identity and all eight repaired exact-head workflows passed.
   - ADR 0034 selects native game-domain content authority, Platform immutable catalogue lifecycle ownership and explicit Legacy Canary Compatibility importers without authorizing external implementation.
   - PR 1034 repaired checkpoint, authority-epoch replay and proposed-schema status findings; exact head a1d78af8bbb70e8ac9e75e947bbeeb133be4258b passed all eight workflows and squash-merged as 7a0664cfd7dadf27aef0a33e2308bf4975fb1405.
-  - Repository owner accepted ARCH-DEC-0004 Option A on 2026-08-13; ADR 0035 now selects TUF-based role-separated updater trust with private signing authority outside Laravel.
+  - Repository owner accepted ARCH-DEC-0004 Option A on 2026-08-13; ADR 0035 selects TUF-based role-separated updater trust with private signing authority outside Laravel.
   - CLIENT_DISTRIBUTION_ARCHITECTURE.md is the focused canonical Platform model for first-party updater trust and preserves one current release per channel in schema v1 with fail-closed exact target selection.
   - ARCH-DEC-0004 was removed from the active decision backlog after acceptance, and Issue 1039 is the Platform implementation handoff with no external-repository or protected-operation authority.
+  - Exact PR 1038 head 55fb5e75940480210e381e000e9b2bf384d4210b passed all eight workflows, had zero review threads/reviews, was zero commits behind main and squash-merged as b0ea53ccff6750b56967711c13c3439d29b465a8; Issue 1037 closed completed.
 derived:
   - The Platform core remains a sound Laravel modular monolith; native integration is explicitly separated from Legacy Canary Compatibility.
   - New native Platform consumers use canonical AccountId/CharacterId and explicit command/query/event/projection boundaries instead of inheriting Canary numeric IDs, table shapes, session semantics or gameplay protocol ownership.
@@ -111,7 +112,7 @@ unknown:
   - Exact maintained TUF implementation/POUF, client trust-bootstrap implementation, protected signing infrastructure and numerical metadata expiry values remain implementation/operations decisions.
 conflicts: []
 blockers: []
-next_action: Validate the accepted ADR 0035 package on the exact final PR head, merge it if all gates pass, then archive the task and return the architecture programme to risk-based rotation.
+next_action: Select the next highest-risk unresolved and unowned Platform architecture question from current main.
 ```
 
 ## Programme rules
