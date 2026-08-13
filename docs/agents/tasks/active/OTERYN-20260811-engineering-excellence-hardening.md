@@ -6,6 +6,7 @@ required_reads:
   - docs/agents/AGENTS.md
   - docs/agents/BUILD_TEST_MATRIX.md
   - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
+  - docs/agents/REMEDIATION_AUDIT_RISK_GATE.md
   - docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
   - docs/agents/GITHUB_ONLY_EXECUTION.md
   - docs/agents/SESSION_RECOVERY_AND_ORPHANED_EXECUTION.md
@@ -29,16 +30,16 @@ Close Issue #1002 by making verification, E2E dependency installation, prompt/go
 
 - [x] Acceptance npm lockfile and npm Dependabot coverage exist.
 - [x] `composer verify` is the canonical full developer verification command.
-- [x] Integration registry binds each Integration test to the declared event, proving job, executable PHPUnit run step, and executable environment provisioning.
+- [x] Integration tests are fail-closed registered to an explicit event, proving job, unmasked executable PHPUnit command, and executable environment provisioning.
 - [x] Game Catalog cross-repository staging is selected semantically/manual, not by historical PR number.
 - [x] Deterministic prompt-contract regression fixtures and executable validator exist.
-- [x] Workflow inventory/classification is machine enforced and rejects unsupported/quoted event bypasses.
-- [x] Synology staging resolves exact source SHA images to immutable digests and its production-target preflight accepts digest runtime references.
+- [x] Workflow inventory/classification rejects malformed, unsupported and quoted-event bypasses.
+- [x] Synology staging resolves exact source-SHA images to immutable digests and the production-target preflight accepts digest runtime references.
 - [x] Agent Governance executes deterministic prompt-contract checks.
 - [x] Deep System Validation uses committed-lockfile `npm ci`.
-- [ ] Exact-final-head CI/E2E/self-review is green after the 2026-08-13 repair and main synchronization.
-- [ ] All material review threads are resolved.
-- [ ] Any owner-funded Codex review gate is either explicitly authorized for this exact use or remains an explicit blocker; it must not be invoked implicitly.
+- [x] Full material diff self-review and negative-path audit pass with zero remaining material findings.
+- [x] All PR review threads are resolved.
+- [ ] Exact-final-head applicable CI/E2E is terminal green.
 - [ ] Issue #1002 closes and this task archives after verified squash merge.
 
 ## Ownership
@@ -74,7 +75,7 @@ modules:
 dependencies:
   - Issue #1002
 blockers:
-  - owner-funded Codex review authorization if that review remains a required merge gate
+  - exact-head applicable GitHub Actions generation is still running
 cross_repository_tasks:
   - none
 ```
@@ -83,11 +84,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-13T09:04:00+02:00
-head: 692fd76e46891e67dba5b35e5703ec4a89b55f01
+updated_at: 2026-08-13T09:19:00+02:00
+head: b747d139d353519c7fbc9a8b387d7c67910cce3d
 branch: fix/engineering-excellence-hardening
 pr: 1003
-status: validating
+status: waiting
 context_routes:
   - testing
   - agent-governance
@@ -110,40 +111,70 @@ owned_paths:
   - tests/ci/test_synology_deploy_release_identity.py
   - docs/agents/tasks/active/OTERYN-20260811-engineering-excellence-hardening.md
 proven:
-  - PR #1003 was synchronized history-preservingly with protected main 9b9497ba9147f24e751f3632ba0fad8c8c4b220e at merge commit 85198c9b6308f1520f6b5dfb0208a126141f1452.
-  - PR #1013 explicitly avoids .github/workflows/deploy-synology-staging.yml and its changed-file list does not overlap this repair's modified validator paths or production-target-preflight path.
-  - Material head 692fd76e46891e67dba5b35e5703ec4a89b55f01 restricts Integration proving detection to executable run steps, rejects inline-comment step-name and echo spoofing, and requires executable environment provisioning before the proving step.
-  - The focused synthetic validator suite contains 23 cases and passed locally before the material commit, including the four new invocation-spoof regressions and three environment-marker spoof regressions.
-  - Existing exact-head d39d04c090dcfe2fb52c3c19a0e810c6ff4c3320 had 17 successful pull-request workflow runs before the 2026-08-13 synchronization and repair; those results are historical supporting evidence only.
+  - Protected main remains 9b9497ba9147f24e751f3632ba0fad8c8c4b220e; PR #1003 was synchronized history-preservingly at 85198c9b6308f1520f6b5dfb0208a126141f1452 and is not behind that base generation.
+  - PR #1001 and PR #992 are merged/terminal; PR #1013 explicitly avoids .github/workflows/deploy-synology-staging.yml and does not overlap the final Integration-validator repair.
+  - Material head b747d139d353519c7fbc9a8b387d7c67910cce3d repairs the audit false-green paths: invocation text in comments/step names/echo output, directory-only invocation, commented dispatch input/condition spoofing, required-environment substring spoofing, step-scoped env leakage, same-step GITHUB_ENV misuse, lookalike GITHUB_ENV assignment, masked `|| true`, unreachable invocation and pipeline-without-pipefail.
+  - A pipeline-backed proving command is accepted only when pipefail is active; the current Game Catalog proving step satisfies that shape and receives its three required paths/SHA through earlier GITHUB_ENV exports.
+  - Workflow inventory parses only direct on: children, recognizes bounded quoted keys and fails closed on unsupported events before filename classification.
+  - Synology deployment resolves Platform/Gateway/Canary to immutable digest references; Platform/Gateway OCI revisions must match release_sha; production-target-preflight accepts those digest refs and recovers the matching release SHA from OCI metadata.
+  - The complete PR diff and all acceptance criteria were re-audited after synchronization; no material P1/P2 finding remains in the material head.
+  - Every GitHub review thread on PR #1003 is resolved.
+  - Trusted-base AGENTS.override.md and REMEDIATION_AUDIT_RISK_GATE.md both declare external_repair_auditor_required: false. Issue #1002 requires exact-head self-review/CI, not a Codex review. Therefore historical PR/task narrative naming Codex as a merge gate is superseded by the controlling remediation policy; no owner-funded Codex use is required or authorized for this closeout.
 derived:
-  - The two audit findings for false-green Integration invocation and required_environment substring matching are addressed in the current material implementation and require hosted exact-head proof.
+  - The two user-facing audit findings are repaired and regression-hardened beyond the original substring checks.
+  - The remaining stop condition is hosted exact-head validation, not implementation or review remediation.
 unknown:
-  - Exact-head hosted workflow results for the checkpoint-successor PR head containing material head 692fd76e46891e67dba5b35e5703ec4a89b55f01.
-  - Whether the repository owner authorizes a fresh owner-funded Codex review for the exact final head if that review remains required.
+  - Terminal result of the still-running applicable workflow generation on material head b747d139d353519c7fbc9a8b387d7c67910cce3d and of the checkpoint-only successor generation selected by repository path routing.
 conflicts: []
 first_failure:
-  marker: integration-registration-false-green
-  evidence: Audit reproduced comment step-name echo and environment-marker substring cases that the previous validator accepted without executable proof.
+  marker: none-current
+  evidence: all material audit findings were repaired before this checkpoint; hosted validation is pending rather than failed
 rejected_hypotheses:
-  - Treating any job substring as executable PHPUnit proof is sufficient.
-  - Treating an environment variable name in comments step names or plain echo output as environment provisioning is sufficient.
+  - Any occurrence of the PHPUnit test path in a job proves execution.
+  - A commented or inline-comment workflow_dispatch input/condition is executable configuration.
+  - A required environment name in arbitrary job text proves the variable exists for the proving step.
+  - Step-local env from an earlier step leaks into the proving step.
+  - Writing GITHUB_ENV in the proving step makes the variable available retroactively to that same step.
+  - `vendor/bin/phpunit ... || true` or a pipeline without pipefail is a proving command.
+  - A fresh Codex review is mandatory for this remediation despite the trusted-base one-owner self-review policy explicitly setting external_repair_auditor_required: false.
 changed_paths:
-  - AGENTS.md
-  - .github/workflows/synology-diagnostics.yml
-  - docs/agents/tasks/archive/OTERYN-20260813-synology-diagnostics.md
-  - tools/validation/verify_integration_test_registration.py
-  - tools/validation/test_verify_integration_test_registration.py
+  - .github/dependabot.yml
+  - .github/workflows/agent-governance.yml
+  - .github/workflows/ci.yml
+  - .github/workflows/deep-system-validation.yml
+  - .github/workflows/deploy-synology-staging.yml
+  - .github/workflows/game-catalog-contract.yml
+  - composer.json
+  - deploy/synology/scripts/production-target-preflight.sh
+  - docs/agents/evals/prompt-contract-v1.json
   - docs/agents/tasks/active/OTERYN-20260811-engineering-excellence-hardening.md
+  - scripts/acceptance/package-lock.json
+  - tests/Integration/REGISTRY.json
+  - tests/ci/test_acceptance_lockfile_contract.py
+  - tests/ci/test_game_catalog_cross_repo_trigger.py
+  - tests/ci/test_synology_deploy_release_identity.py
+  - tools/validation/prompt_eval.py
+  - tools/validation/test_prompt_eval.py
+  - tools/validation/test_verify_integration_test_registration.py
+  - tools/validation/test_workflow_inventory.py
+  - tools/validation/verify_integration_test_registration.py
+  - tools/validation/workflow_inventory.py
 validation:
-  - command: python3 tools/validation/test_verify_integration_test_registration.py in isolated pre-commit regression harness
+  - command: full material diff self-review at b747d139d353519c7fbc9a8b387d7c67910cce3d
     result: PASS
-    evidence: 23 of 23 synthetic regression tests passed, including executable-run and environment-provisioning negative paths.
-  - command: exact-head GitHub Actions generation after 2026-08-13 repair
-    result: NOT_RUN
-    evidence: The checkpoint successor must be observed after this durable checkpoint commit is created.
+    evidence: acceptance, negative paths, review findings, rollback/compatibility and related PR ownership were checked; no material finding remains
+  - command: focused Integration validator regression suite before hosted final generation
+    result: PASS
+    evidence: original 23-case repair suite passed before the later self-review hardening; the final expanded suite is part of current hosted CI and must be terminal before merge
+  - command: Agent Governance run 31677042948 on b747d139d353519c7fbc9a8b387d7c67910cce3d
+    result: PASS
+    evidence: exact-head Agent Governance completed successfully
+  - command: aggregate applicable workflows on b747d139d353519c7fbc9a8b387d7c67910cce3d
+    result: PENDING
+    evidence: observations 1 and 2 found 17 emitted workflows; Agent Governance was PASS and remaining CI/E2E/build/validation runs were queued/in-progress with no observed failure
 blockers:
-  - Fresh owner-funded Codex review cannot be invoked without explicit authorization for this exact use if it remains required by the merge gate.
-next_action: Query the live PR #1003 checkpoint-successor head and aggregate its exact-head GitHub Actions results, then investigate any failing gate before final self-review and review-thread cleanup.
+  - ordinary exact-head CI observation budget is exhausted while workflows remain non-terminal
+next_action: On continuation, inspect the live checkpoint-successor PR head and its applicable exact-head generation; investigate any terminal failure, otherwise complete merge/Issue/archive closeout when repository gates are green.
 ```
 
 ## Recovery checkpoint
@@ -151,44 +182,67 @@ next_action: Query the live PR #1003 checkpoint-successor head and aggregate its
 ```yaml
 recovery:
   policy_version: 1
-  generation: 7
+  generation: 8
   session_id: chatgpt-20260813-pr1003-repair
-  session_started_at: 2026-08-13T09:04:00+02:00
-  checkpointed_at: 2026-08-13T09:04:00+02:00
-  last_progress_at: 2026-08-13T09:04:00+02:00
-  phase: exact-head-validation
-  exact_head: 692fd76e46891e67dba5b35e5703ec4a89b55f01
+  session_started_at: 2026-08-13T08:55:00+02:00
+  checkpointed_at: 2026-08-13T09:19:00+02:00
+  last_progress_at: 2026-08-13T09:19:00+02:00
+  phase: final-exact-head-validation
+  exact_head: b747d139d353519c7fbc9a8b387d7c67910cce3d
   pull_request: 1003
-  active_operation: observe checkpoint-successor exact-head hosted validation
-  external_run_ids: []
-  operation_started_at: 2026-08-13T09:04:00+02:00
-  wait_deadline_at: 2026-08-13T09:49:00+02:00
-  check_generation: current-base-integration-registry-repair
-  checks_used: 0
-  status: active
+  active_operation: applicable GitHub Actions generation running for the material head
+  external_run_ids:
+    - 31677042915
+    - 31677042973
+    - 31677042946
+    - 31677042951
+    - 31677042916
+    - 31677042939
+    - 31677042947
+    - 31677043003
+    - 31677042972
+    - 31677042975
+    - 31677042919
+    - 31677042917
+    - 31677042952
+    - 31677043134
+    - 31677042948
+    - 31677042933
+    - 31677042914
+  operation_started_at: 2026-08-13T09:15:40+02:00
+  wait_deadline_at: 2026-08-13T10:00:40+02:00
+  check_generation: final-material-b747d139
+  checks_used: 2
+  status: waiting
   safe_to_resume: true
-  resume_condition: live PR #1003 successor head is stable and exact-head checks are observable
-  next_action: aggregate exact-head checks for PR #1003 and investigate the first failing gate if any
+  resume_condition: live PR successor exact head and applicable workflow generation are terminal enough to classify
+  next_action: inspect the live PR #1003 successor head and reconcile its exact-head workflow generation before merge
 ```
 
 ## Self-review
 
 ```yaml
 self_review:
-  result: PENDING
-  exact_head: 692fd76e46891e67dba5b35e5703ec4a89b55f01
+  result: PASS
+  exact_head: b747d139d353519c7fbc9a8b387d7c67910cce3d
   acceptance_checked: true
-  full_diff_checked: false
+  full_diff_checked: true
   related_prs_checked: true
   negative_paths_checked: true
   rollback_checked: true
   compatibility_checked: true
-  findings:
-    - final exact-head hosted validation and final full-diff review still pending
+  findings: []
   evidence:
-    - focused synthetic regression suite passed before material commit
+    - all audit P1/P2 findings and follow-on negative-path bypasses were repaired in the material head
+    - all PR review threads are resolved
+    - current protected main generation was merged without history rewrite
+    - deployment/preflight producer-consumer identity semantics were checked together
 ```
+
+## E2E
+
+Applicable exact-head hosted E2E is emitted as part of the current PR workflow generation and remains pending at this checkpoint. Repository/static checks do not substitute for its terminal result.
 
 ## Notes
 
-Issue #1002. `feature_scope: internal_only`. No production/staging deployment, protected-environment approval, credential mutation, live data mutation, payment action, or external-repository write is authorized or performed by this task. Owner-funded Codex or other paid/limited AI review services must not be invoked without explicit permission for the exact use.
+Issue #1002. `feature_scope: internal_only`. No production/staging deployment, protected-environment approval, credential mutation, live data mutation, payment action, owner-funded AI use, or external-repository write is authorized or performed by this task.
