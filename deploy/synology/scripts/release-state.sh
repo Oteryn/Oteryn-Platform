@@ -28,6 +28,10 @@ validate_release_file() {
     is_schema_id "${SCHEMA_COMPATIBILITY_ID:-}" || { echo "Invalid or missing SCHEMA_COMPATIBILITY_ID" >&2; return 1; }
     [[ "${MIGRATION_POLICY:-}" == expand-contract ]] || { echo "MIGRATION_POLICY must be expand-contract" >&2; return 1; }
     [[ -n "${APP_ACCEPTS_SCHEMA_IDS:-}" ]] || { echo "Missing APP_ACCEPTS_SCHEMA_IDS" >&2; return 1; }
+    contains_schema_id "$SCHEMA_COMPATIBILITY_ID" "$APP_ACCEPTS_SCHEMA_IDS" || {
+        echo "Release contract must accept its own primary schema identity '$SCHEMA_COMPATIBILITY_ID'." >&2
+        return 1
+    }
     is_immutable_image "${PLATFORM_IMAGE:-}" || { echo "PLATFORM_IMAGE is not immutable" >&2; return 1; }
     is_immutable_image "${GATEWAY_IMAGE:-}" || { echo "GATEWAY_IMAGE is not immutable" >&2; return 1; }
     is_immutable_image "${CANARY_IMAGE:-}" || { echo "CANARY_IMAGE is not immutable" >&2; return 1; }
@@ -66,6 +70,10 @@ write_release() {
     is_sha "$release_sha" || { echo "Release SHA must be exact 40-char lowercase git SHA" >&2; return 1; }
     is_schema_id "$schema_id" || { echo "Invalid schema compatibility identity" >&2; return 1; }
     [[ -n "$accepts" ]] || { echo "Accepted schema identities are required" >&2; return 1; }
+    contains_schema_id "$schema_id" "$accepts" || {
+        echo "Release contract must accept its own primary schema identity '$schema_id'." >&2
+        return 1
+    }
     platform="$(resolve_image "$platform")"; gateway="$(resolve_image "$gateway")"; canary="$(resolve_image "$canary")"
     [[ "$eligible" =~ ^[01]$ ]] || return 1
     local tmp="${out}.tmp"

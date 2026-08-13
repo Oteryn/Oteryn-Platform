@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import pathlib
+import subprocess
+import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SCRIPTS = ROOT / "deploy" / "synology" / "scripts"
 DEPLOY = SCRIPTS / "deploy.sh"
 FRESH_BASELINE = SCRIPTS / "prepare-fresh-schema-baseline.sh"
 RECOVERY = SCRIPTS / "recover-schema.sh"
+RELEASE_STATE = SCRIPTS / "release-state.sh"
 RECOVERY_WORKFLOW = ROOT / ".github" / "workflows" / "recover-synology-staging-schema.yml"
 
 
@@ -44,6 +47,34 @@ def test_recovery_workflow_accepts_release_or_fresh_empty_evidence() -> None:
     assert "(<old-40-sha>|fresh-empty)-before-<candidate-40-sha>/evidence.env" in workflow
     assert "|fresh-empty)-before-[0-9a-f]{40}/evidence" in workflow
     assert 'ref: ${{ github.sha }}' in workflow
+
+
+def test_release_state_requires_candidate_to_accept_its_primary_schema() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        state = pathlib.Path(td) / "candidate.env"
+        sha = "2" * 40
+        digest = "a" * 64
+        result = subprocess.run(
+            [
+                "bash",
+                str(RELEASE_STATE),
+                "write",
+                str(state),
+                sha,
+                "schema-v2",
+                "schema-v1",
+                f"example/platform@sha256:{digest}",
+                f"example/gateway@sha256:{digest}",
+                f"example/canary@sha256:{digest}",
+                "1",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert result.returncode != 0
+        assert "must accept its own primary schema identity 'schema-v2'" in result.stderr
+        assert not state.exists()
 
 
 def main() -> None:
