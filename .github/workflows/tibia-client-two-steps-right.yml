@@ -1,4 +1,4 @@
-name: Tibia Route To Target
+name: Tibia Return To 32554-32517-7
 
 on:
   push:
@@ -14,9 +14,9 @@ env:
 jobs:
   move:
     runs-on: oteryn-staging
-    timeout-minutes: 5
+    timeout-minutes: 3
     steps:
-      - name: Move live character toward target in bounded stages
+      - name: Move live character five steps south
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -28,6 +28,7 @@ jobs:
           set -Eeuo pipefail
           export DISPLAY=:99 HOME=/data/home
           pid=$(pgrep -x client | head -n1); [[ -n "$pid" ]]
+
           tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
           local_before=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
           total_before=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
@@ -47,10 +48,11 @@ jobs:
           [[ -n "$win" ]]
           echo TARGET_WINDOW=$win
 
-          for i in $(seq 1 28); do xdotool key --clearmodifiers --window "$win" Right; sleep 0.35; done
-          echo EAST_INPUTS_SENT=28
-          for i in $(seq 1 16); do xdotool key --clearmodifiers --window "$win" Up; sleep 0.35; done
-          echo NORTH_INPUTS_SENT=16
+          for i in $(seq 1 5); do
+            xdotool key --clearmodifiers --window "$win" Down
+            echo SOUTH_STEP_${i}_SENT=true
+            sleep 0.7
+          done
           sleep 2
 
           kill -0 "$pid"
@@ -61,6 +63,6 @@ jobs:
           echo ACTIVE_LOCAL_SOCKS_COUNT_AFTER=$local_after
           echo ACTIVE_DIRECT_TCP_COUNT_AFTER=$direct_after
           (( local_after > 0 && direct_after == 0 ))
-          echo ROUTE_INPUTS_COMPLETED=true
+          echo SOUTH_INPUTS_SENT=5
           echo LIVE_SESSION_RETAINED=true
           INNER
