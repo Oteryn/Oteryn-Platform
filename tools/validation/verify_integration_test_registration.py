@@ -298,7 +298,9 @@ def _shell_logical_lines(script: str) -> list[str]:
     return logical
 
 
-def _line_invokes_phpunit(line: str, test_path: str) -> bool:
+def _line_invokes_phpunit(line: str, test_path: str, *, pipefail: bool) -> bool:
+    if any(marker in line for marker in ("||", "&&", ";", "`", "$(")):
+        return False
     try:
         tokens = shlex.split(line, posix=True)
     except ValueError:
@@ -306,17 +308,45 @@ def _line_invokes_phpunit(line: str, test_path: str) -> bool:
     if not tokens:
         return False
 
+    pipe_indexes = [index for index, token in enumerate(tokens) if token == "|"]
+    if len(pipe_indexes) > 1:
+        return False
+    if pipe_indexes and not pipefail:
+        return False
+    command_tokens = tokens[: pipe_indexes[0]] if pipe_indexes else tokens
+
     index = 0
-    if tokens[0] == "env":
+    if command_tokens and command_tokens[0] == "env":
         index = 1
-        while index < len(tokens) and tokens[index].startswith("-"):
+        while index < len(command_tokens) and command_tokens[index].startswith("-"):
             index += 1
     assignment = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
-    while index < len(tokens) and assignment.match(tokens[index]):
+    while index < len(command_tokens) and assignment.match(command_tokens[index]):
         index += 1
-    if index >= len(tokens) or tokens[index] != "vendor/bin/phpunit":
+    if index >= len(command_tokens) or command_tokens[index] != "vendor/bin/phpunit":
         return False
-    return test_path in tokens[index + 1 :]
+    return test_path in command_tokens[index + 1 :]
+
+
+def _unsafe_pre_proving_line(line: str) -> bool:
+    stripped = line.lstrip()
+    unsafe_prefixes = (
+        "exit",
+        "return",
+        "exec",
+        "trap",
+        "if ",
+        "if[",
+        "for ",
+        "while ",
+        "until ",
+        "case ",
+        "select ",
+        "function ",
+        ". ",
+        "source ",
+    )
+    return stripped.startswith(unsafe_prefixes)
 
 
 def _proving_step_indexes(job_text: str, test_path: str) -> list[int]:
@@ -325,23 +355,53 @@ def _proving_step_indexes(job_text: str, test_path: str) -> list[int]:
         script = _parse_step_run(step)
         if script is None:
             continue
-        if any(_line_invokes_phpunit(line, test_path) for line in _shell_logical_lines(script)):
-            indexes.append(index)
+        logical = _shell_logical_lines(script)
+        if not logical:
+            continue
+        pipefail = False
+        unsafe_before = False
+        for position, line in enumerate(logical):
+            if line == "set -o pipefail":
+                pipefail = True
+                continue
+            if line == "set +o pipefail":
+                pipefail = False
+                continue
+            if _unsafe_pre_proving_line(line):
+                unsafe_before = True
+                continue
+            if _line_invokes_phpunit(line, test_path, pipefail=pipefail):
+                if position == len(logical) - 1 and not unsafe_before:
+                    indexes.append(index)
+                break
     return indexes
 
 
 def _script_exports_to_github_env(script: str, name: str) -> bool:
-    assignment = re.escape(name) + r"="
-    github_env = r'["\']?\$\{?GITHUB_ENV\}?["\']?'
-    redirect = re.compile(r">>\s*" + github_env)
-    emitter = re.compile(r"^(?:echo|printf)\b")
+    targets = {"$GITHUB_ENV", "${GITHUB_ENV}"}
     for line in _shell_logical_lines(script):
-        if not emitter.search(line):
+        try:
+            tokens = shlex.split(line, posix=True)
+        except ValueError:
             continue
-        if re.search(assignment, line) is None:
+        if ">>" not in tokens:
             continue
-        if redirect.search(line) is not None:
-            return True
+        redirect_index = tokens.index(">>")
+        if redirect_index + 1 >= len(tokens) or tokens[redirect_index + 1] not in targets:
+            continue
+        emitted = tokens[:redirect_index]
+        if not emitted:
+            continue
+        command = emitted[0]
+        if command == "echo":
+            value_index = 1
+            while value_index < len(emitted) and emitted[value_index].startswith("-"):
+                value_index += 1
+            if value_index < len(emitted) and emitted[value_index].startswith(f"{name}="):
+                return True
+        elif command == "printf":
+            if len(emitted) >= 2 and emitted[1].startswith(f"{name}="):
+                return True
     return False
 
 
@@ -445,7 +505,7 @@ def validate_repository(root: Path) -> list[str]:
             proving_indexes = _proving_step_indexes(job_block, invocation)
             if not proving_indexes:
                 raise RegistrationError(
-                    f"{test_path}: proving job {job} does not executably invoke {invocation} through a run step using vendor/bin/phpunit"
+                    f"{test_path}: proving job {job} does not executably invoke {invocation} through an unmasked run step using vendor/bin/phpunit"
                 )
 
             required_environment = record.get("required_environment", [])
