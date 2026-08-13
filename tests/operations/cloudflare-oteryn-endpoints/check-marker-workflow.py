@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import re
 from pathlib import Path
 
 workflow = Path('.github/workflows/cloudflare-oteryn-endpoints.yml').read_text(encoding='utf-8')
@@ -36,8 +37,9 @@ for invariant in required:
     if invariant not in workflow:
         raise SystemExit(f'missing trusted trigger/result invariant: {invariant}')
 
-if 'actions/checkout@v7' not in workflow:
-    raise SystemExit('trusted operation jobs do not pin the checkout action major version')
+checkout_refs = re.findall(r'^\s*uses:\s*actions/checkout@([0-9a-fA-F]{40})(?:\s+#.*)?$', workflow, re.MULTILINE)
+if not checkout_refs:
+    raise SystemExit('trusted operation jobs do not pin checkout to an immutable full SHA')
 
 if marker != '# Cloudflare Oteryn endpoint trigger\n\nmode: inert\nconfirmation:\n':
     raise SystemExit('committed endpoint marker is not inert')

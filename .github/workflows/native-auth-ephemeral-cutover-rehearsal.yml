@@ -35,7 +35,7 @@ jobs:
       artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
     steps:
       - name: Checkout exact Platform/Gateway source
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.GATEWAY_REF }}
           persist-credentials: false
@@ -47,7 +47,7 @@ jobs:
           git rev-parse HEAD | tee gateway-commit.txt
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: services/game-gateway/go.mod
           cache: false
@@ -64,7 +64,7 @@ jobs:
 
       - name: Upload exact Gateway binary
         id: upload
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-auth-rehearsal-gateway
           path: |
@@ -90,7 +90,7 @@ jobs:
       VCPKG_NUGET_API_KEY: ${{ github.token }}
     steps:
       - name: Checkout exact Canary source
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: blakinio/canary
           ref: ${{ env.CANARY_REF }}
@@ -156,7 +156,7 @@ jobs:
 
       - name: Upload exact Canary binary
         id: upload
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-auth-rehearsal-canary
           path: |
@@ -182,7 +182,7 @@ jobs:
       VCPKG_NUGET_API_KEY: ${{ github.token }}
     steps:
       - name: Checkout exact OTClient source
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: blakinio/otclient
           ref: ${{ env.OTCLIENT_REF }}
@@ -254,7 +254,7 @@ jobs:
 
       - name: Upload exact OTClient binary
         id: upload
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-auth-rehearsal-otclient
           path: |
@@ -281,19 +281,19 @@ jobs:
       OTCLIENT_ARTIFACT_DIGEST: ${{ needs.build-otclient.outputs.artifact-digest }}
     steps:
       - name: Checkout validation runner head
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Checkout exact Platform runtime source
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.PLATFORM_REF }}
           path: platform-source
           persist-credentials: false
 
       - name: Checkout exact Canary runtime source
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: blakinio/canary
           ref: ${{ env.CANARY_REF }}
@@ -301,7 +301,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout exact OTClient runtime source
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: blakinio/otclient
           ref: ${{ env.OTCLIENT_REF }}
@@ -309,7 +309,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout exact Canary rehearsal harness
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: blakinio/canary
           ref: ${{ env.CANARY_HARNESS_REF }}
@@ -317,7 +317,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout matching Tibia client assets
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: dudantas/tibia-client
           path: tibia-client-assets
@@ -325,19 +325,19 @@ jobs:
           persist-credentials: false
 
       - name: Download current-run Gateway build
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: native-auth-rehearsal-gateway
           path: gateway-artifact
 
       - name: Download current-run Canary build
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: native-auth-rehearsal-canary
           path: canary-artifact
 
       - name: Download current-run OTClient build
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: native-auth-rehearsal-otclient
           path: otclient-artifact
@@ -537,7 +537,7 @@ jobs:
 
       - name: Upload sanitized rehearsal evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-auth-ephemeral-cutover-evidence
           path: artifacts/native-auth-ephemeral-cutover/

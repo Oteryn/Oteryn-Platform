@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import re
 from pathlib import Path
 
 workflow = Path('.github/workflows/cloudflare-oteryn-endpoint-main-operation.yml').read_text(encoding='utf-8')
@@ -42,8 +43,9 @@ for forbidden in (
 if workflow.count('APPLY-OTERYN-CLOUDFLARE') < 3:
     raise SystemExit('apply confirmation is not independently enforced')
 
-if workflow.count('actions/checkout@v7') < 2:
-    raise SystemExit('pull-request validation and trusted push do not both pin checkout')
+checkout_refs = re.findall(r'^\s*uses:\s*actions/checkout@([0-9a-fA-F]{40})(?:\s+#.*)?$', workflow, re.MULTILINE)
+if len(checkout_refs) < 2 or len(set(checkout_refs)) != 1:
+    raise SystemExit('pull-request validation and trusted push do not both pin the same immutable checkout SHA')
 
 inert_index = workflow.index('if [[ "$marker" == "$inert_marker" ]]')
 operational_index = workflow.index('elif [[ "$marker" == "$audit_marker" || "$marker" == "$apply_marker" ]]')
