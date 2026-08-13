@@ -96,6 +96,7 @@ Inventory reconciled on 2026-08-09. Duplicate prefixes are intentionally shown r
 - `0031-native-oteryn-v2-integration-boundary.md`
 - `0032-portal-composition-tracking-and-server-system-ownership.md`
 - `0033-federated-content-search-and-discoverability.md`
+- `0034-native-game-catalog-content-ownership.md`
 
 ## Preserved legacy duplicate paths
 

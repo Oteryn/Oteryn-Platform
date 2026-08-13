@@ -4,6 +4,8 @@ Status: Proposed
 Contract: `oteryn.game-catalog/v1`  
 Repositories: `blakinio/Oteryn-Platform`, `blakinio/canary`
 
+> Compatibility scope: this document describes the delivered/planned Legacy Canary Compatibility catalogue. ADR 0034 and `docs/contracts/OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md` own the separate native Oteryn-v2 target and supersede any implication that Canary schemas or identifiers define native content authority.
+
 ## 1. Purpose
 
 Oteryn needs a public catalogue of items, weapons, creatures, loot, NPCs and quests that displays only content intentionally available for the selected server content profile. The catalogue must support release gating such as 15.20, 8.60 or a future 7.60 profile without pretending that a modern datapack contains historically exact older data.

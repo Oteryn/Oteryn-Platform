@@ -36,7 +36,7 @@ The frozen PR #453 production-completion baseline and later exact merged PRs pro
 | Support | AVAILABLE | Platform tickets, reports, moderation decisions, enforcement orchestration/records, appeals, notifications, retention and privacy-safe user/moderator presentation | Authoritative game sanction state/effect, direct game-ban mutation, file attachments, disclosure of reporter identity or private moderator notes |
 | EditorialMedia | AVAILABLE | Private normalized raster-image objects, integrity metadata, bounded consumer references and administrator lifecycle | Generic public file hosting, executable uploads, arbitrary documents, consumer-specific publication rules |
 | Wiki | AVAILABLE | Localized Wiki public reads/search, categories, lifecycle, trusted administration, revisions and approved media references | Generic CMS pages, arbitrary HTML, player editing, claims of complete authoritative game content |
-| GameCatalog | AVAILABLE | Versioned deterministic game-catalogue snapshots/projections and, where authoritative, stable typed server-specific system definitions with version/profile/ruleset/season applicability | Inventing missing content, editorial strategy, current runtime/rotation truth, silent producer assumptions, or production activation without a gate |
+| GameCatalog | AVAILABLE | Versioned deterministic game-catalogue snapshots/projections, exact authority provenance and, where authoritative, stable typed server-specific system definitions with version/profile/ruleset/season applicability | Executable native game-content authority, inventing missing content, editorial strategy, current runtime/rotation truth, silent producer assumptions, or production activation without a gate |
 | PlayerCompanion | PLANNED | Versioned calculators, build plans, hunt guidance, session analysis, progression goals, owner-private tracking/routines/change signals, shareable plans and explained recommendations | Canonical game/source facts, raw Canary access, notification transport, public follower graphs, game mutation, payment settlement or hidden balance policy |
 | Admin | AVAILABLE | Admin UI, explicit RBAC/policies, privileged Platform use cases | Bypassing domain/application invariants or granting implicit wildcard authority |
 | Audit | AVAILABLE | Security/admin audit primitives, privileged-action audit and bounded admin audit visibility | Secrets, raw credentials, business-rule authorization decisions |
@@ -440,6 +440,8 @@ Player editing, comments, arbitrary HTML and a complete authoritative game-conte
 - media access requires an effective published translation reference and integrity verification.
 
 ## Game Catalog
+
+ADR 0034 and `OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md` define the native target: the game domain owns canonical native content identity, executable definitions/applicability and authority revisions; `GameCatalog` owns validated immutable imported persistence, profiles, projections, presentation and transactional activation/rollback. Current Canary schemas/importers remain Legacy Canary Compatibility and do not define the native domain model. One profile cannot blend native, Canary and editorial fields into an apparently co-authoritative record.
 
 ### Responsibilities
 

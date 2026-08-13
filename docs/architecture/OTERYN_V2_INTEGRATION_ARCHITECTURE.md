@@ -511,14 +511,11 @@ The following focused architecture questions are now semantically resolved but s
 - **Native game facts → PublicGameData projections** — resolved by `docs/contracts/OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md`: game-domain facts remain authoritative, Platform projections are rebuildable read models with explicit revision/freshness/degraded/rebuild/privacy semantics, and a newer restrictive privacy decision fences stale public material. Producer/worker/storage implementation and required game-owned guild identity remain separately deferred.
 - **Platform entitlement truth → gameplay-affecting delivery/enforcement** — resolved by `docs/contracts/OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md`: payment/order truth, Platform entitlement truth and game enforcement truth remain distinct; Platform owns entitlement/delivery orchestration and stable delivery-operation identity while game application/enforcement is reconciled from authoritative results. Exact provider/transport/game enforcement/runtime implementation remains deferred.
 - **Support/moderation → native game enforcement** — resolved by `docs/contracts/OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md`: Platform owns authorized moderation/workflow decisions and stable operation orchestration while Oteryn-v2 owns sanction applicability, game mutation, active-session effect and authoritative receipts. Exact sanction catalogue, transport/IDL, storage/runtime hooks and activation remain deferred.
+- **Native content authority → Platform GameCatalog** — resolved by ADR 0034 and `docs/contracts/OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md`: Oteryn-v2 owns native canonical content identity, executable definitions/applicability and authoritative revision/removal semantics; Platform owns validated immutable intake, profiles, projections, activation/rollback and presentation. Canary import schemas remain Legacy Canary Compatibility adapters and cannot define native identity or silently become fallback authority. Exact native producer bytes, transport and runtime implementation remain external/deferred.
 
 ## Deferred architecture backlog
 
 The following are intentionally not solved in this baseline and should be addressed in focused Platform decisions rather than assumptions.
-
-### P1
-
-1. Native Game Catalog/content ownership versus Legacy Canary Compatibility importers.
 
 ### P2
 

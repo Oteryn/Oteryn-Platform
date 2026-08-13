@@ -18,18 +18,18 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-13T21:04:00+02:00
-status: ready
-current_review_domain: next-risk-based-rotation
-active_task: null
-issue: null
-branch: null
-pull_request: null
+updated_at: 2026-08-13T21:40:00+02:00
+status: active
+current_review_domain: native-game-catalog-content-ownership
+active_task: OTERYN-20260813-native-game-catalog-ownership
+issue: 1033
+branch: docs/OTERYN-20260813-native-game-catalog-ownership
+pull_request: 1034
 last_completed_domain: native-support-moderation-game-enforcement
 last_completed_issue: 1029
 last_completed_pull_request: 1030
 last_completed_merge: f100334b40181b520a289cf81b28b7f68d26c4ef
-latest_review_finding_issue: 1029
+latest_review_finding_issue: 1033
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
   authority_adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
@@ -42,6 +42,7 @@ accepted_authority:
   native_v2_integration_adr: docs/architecture/adr/0031-native-oteryn-v2-integration-boundary.md
   portal_composition_adr: docs/architecture/adr/0032-portal-composition-tracking-and-server-system-ownership.md
   federated_search_adr: docs/architecture/adr/0033-federated-content-search-and-discoverability.md
+  native_game_catalog_content_adr: docs/architecture/adr/0034-native-game-catalog-content-ownership.md
   native_v2_integration_architecture: docs/architecture/OTERYN_V2_INTEGRATION_ARCHITECTURE.md
   portal_completeness_architecture: docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md
   player_companion_architecture: docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md
@@ -52,6 +53,7 @@ accepted_authority:
   native_character_authority_command_contract: docs/contracts/OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md
   native_entitlement_game_delivery_contract: docs/contracts/OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md
   native_game_enforcement_command_contract: docs/contracts/OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md
+  native_game_catalog_content_contract: docs/contracts/OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md
 implementation_handoffs: []
 active_architecture_decision_ids: []
 architecture_conflicts:
@@ -83,7 +85,7 @@ proven:
   - PR 933 merged accepted ADR 0032 for portal composition, private tracking and server-specific system ownership; PR 970 later hardened Today composition so private-influenced representations are PRIVATE_PERSONALIZED and never shared-cache/public-cache authority. PR 970 squash-merged as c5229194c56198421d13333901cc8953723603a6 and closed Issue 941.
   - PR 936 merged accepted ADR 0033 and the focused federated-search architecture; PR 947 later added restrictive publication-revocation fencing so stale search/index/cache state cannot outlive a newer restrictive publication decision.
   - PR 1030 merged the native support/moderation game-enforcement semantic boundary as f100334b40181b520a289cf81b28b7f68d26c4ef after the P1 review finding added explicit stable sanction-stream identity and all eight repaired exact-head workflows passed.
-  - Current ADR inventory ends at accepted ADR 0033 and the active architecture decision backlog is empty.
+  - ADR 0034 selects native game-domain content authority, Platform immutable catalogue lifecycle ownership and explicit Legacy Canary Compatibility importers without authorizing external implementation.
 derived:
   - The Platform core remains a sound Laravel modular monolith; native integration is explicitly separated from Legacy Canary Compatibility.
   - New native Platform consumers use canonical AccountId/CharacterId and explicit command/query/event/projection boundaries instead of inheriting Canary numeric IDs, table shapes, session semantics or gameplay protocol ownership.
@@ -96,11 +98,10 @@ unknown:
   - Exact deployed game-auth topology, alternate-path network isolation and production activation evidence.
   - Exact external/native producer and consumer transport, wire/IDL, runtime implementation, lease/fencing, replay stores, numerical freshness/TTL values and cutover evidence for accepted cross-boundary contracts remain outside this Platform architecture state record.
   - Exact Oteryn-v2 sanction profiles, transport/IDL, persistence/runtime enforcement implementation and production activation remain outside the accepted Platform game-enforcement contract.
-  - Native Game Catalog/content ownership versus Legacy Canary Compatibility importers remains a focused Platform architecture question.
   - Native guild identity required by the PublicGameData guild projection remains dependent on an accepted game-owned stable identifier; Platform must not invent one.
 conflicts: []
 blockers: []
-next_action: Select native Game Catalog/content ownership versus Legacy Canary Compatibility importers when it remains unresolved and unowned; do not broaden into external-repository implementation.
+next_action: Validate and merge the bounded native Game Catalog content ownership decision without modifying external repositories or draft PR 338.
 ```
 
 ## Programme rules
