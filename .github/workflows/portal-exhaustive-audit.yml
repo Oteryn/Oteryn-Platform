@@ -339,8 +339,8 @@ jobs:
           )
           assert matrix['global_verdict'] == 'AUDIT_COMPLETE_WITH_FINDINGS'
           assert matrix['infrastructure_errors'] == []
-          assert matrix['counts']['discovered_named_routes'] == 244
-          assert matrix['counts']['classified_route_records'] == 232
+          assert matrix['counts']['discovered_named_routes'] == 248
+          assert matrix['counts']['classified_route_records'] == 236
           assert matrix['counts']['excluded_route_records'] == 12
           assert matrix['counts']['module_records'] == 18
           assert matrix['counts']['findings'] > 75

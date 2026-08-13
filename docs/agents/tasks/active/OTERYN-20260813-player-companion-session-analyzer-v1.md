@@ -39,6 +39,7 @@ Deliver the first complete PlayerCompanion vertical slice: an authenticated, own
 
 ```yaml
 owned_paths:
+  - .github/workflows/portal-exhaustive-audit.yml
   - bootstrap/app.php
   - app/PlayerCompanion/**
   - app/Http/Controllers/PlayerCompanion/**
@@ -84,6 +85,7 @@ context_routes:
   - database
   - testing
 owned_paths:
+  - .github/workflows/portal-exhaustive-audit.yml
   - bootstrap/app.php
   - app/PlayerCompanion/**
   - app/Http/Controllers/PlayerCompanion/**
@@ -124,6 +126,7 @@ rejected_hypotheses:
   - Raw session logs must be persisted to provide history; normalized metrics are sufficient for v1 history.
   - A route reachable only by manually entering its URL is sufficient product discoverability; the Account Center now links to the analyzer.
 changed_paths:
+  - .github/workflows/portal-exhaustive-audit.yml
   - bootstrap/app.php
   - app/PlayerCompanion/Models/SessionAnalysis.php
   - app/PlayerCompanion/SessionAnalysis/SessionLogParser.php
