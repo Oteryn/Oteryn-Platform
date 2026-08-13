@@ -102,8 +102,8 @@ LOG);
     public function test_rejects_more_than_twenty_participants(): void
     {
         $parts = ["Session: 01:00h"];
-        for ($index = 1; $index <= 21; $index++) {
-            $parts[] = "Player {$index}";
+        for ($index = 0; $index < 21; $index++) {
+            $parts[] = 'Player '.chr(ord('A') + $index);
             $parts[] = 'Loot: 100';
             $parts[] = 'Supplies: 50';
         }
