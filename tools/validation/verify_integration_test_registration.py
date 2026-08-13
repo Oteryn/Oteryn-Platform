@@ -351,10 +351,16 @@ def _environment_available_by_step(job_text: str, name: str, proving_index: int)
         return True
 
     steps = _direct_sequence_item_blocks(job_text, "steps")
-    for step in steps[: proving_index + 1]:
-        step_env = _direct_child_mapping_block(step, "env")
-        if _mapping_has_direct_key(step_env, name):
-            return True
+    if proving_index >= len(steps):
+        return False
+
+    proving_step_env = _direct_child_mapping_block(steps[proving_index], "env")
+    if _mapping_has_direct_key(proving_step_env, name):
+        return True
+
+    # GITHUB_ENV exports become available only to later steps. Step-level env
+    # is scoped to its own step and cannot satisfy a later proving step.
+    for step in steps[:proving_index]:
         script = _parse_step_run(step)
         if script is not None and _script_exports_to_github_env(script, name):
             return True
