@@ -9,14 +9,14 @@ Consumer: `blakinio/Oteryn-Platform`
 
 ## 1. Purpose
 
-This contract defines the only supported boundary for importing structured game catalogue data from Canary into Oteryn Platform. It is read-only with respect to Canary and Platform-owned after import.
+This contract defines the only supported **Legacy Canary Compatibility** boundary for importing structured game catalogue data from Canary into Oteryn Platform. It is read-only with respect to Canary and Platform-owned after import. ADR 0034 and `OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md` define the separate native target; this contract does not define native identity or producer semantics.
 
 It does not authorize Platform to mutate Canary gameplay data, infer missing content, import external wiki data, or claim historical parity.
 
 ## 2. Ownership
 
 - Canary owns source runtime semantics and snapshot production.
-- Platform owns imported snapshot persistence, profiles, visibility, localization, UI and administration.
+- Platform owns imported snapshot persistence, profiles, visibility, localization, UI and administration. This lifecycle ownership does not transfer authority for executable gameplay content.
 - One snapshot is an immutable representation of one exact producer state.
 - Platform never silently repairs producer facts. A corrected producer result is a new snapshot.
 

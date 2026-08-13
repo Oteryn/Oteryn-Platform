@@ -51,6 +51,7 @@ A lower-ranked source must not silently override a higher-ranked invariant. Reco
 | Delivery order | `docs/architecture/ROADMAP.md` | Phases, dependencies and exit gates; not proof of implementation by itself. |
 | Cross-component behavior | `docs/contracts/**` | Exact producer/consumer and compatibility contracts for their scope. |
 | Native support/moderation game enforcement | `docs/contracts/OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md` subordinate to ADR 0031 | Platform decision/orchestration semantics and authoritative game result boundary; does not own sanction policy, transport or Oteryn-v2 implementation. |
+| Native Game Catalog content ownership | ADR 0034 and `docs/contracts/OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md` | Game-domain source authority versus Platform immutable snapshot/projection lifecycle and Legacy Canary Compatibility importers; does not own Oteryn-v2 implementation or exact producer bytes. |
 | Current execution state | `docs/agents/PROJECT_STATE.md`, active task and live PR | Current work and validation evidence; not a substitute for an ADR. |
 
 Dated benchmark reports under `docs/agents/reports/**` are research evidence. They may justify an ADR or focused architecture update but never become canonical product or implementation authority by themselves.
