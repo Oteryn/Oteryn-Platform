@@ -22,8 +22,8 @@ owned_paths:
   - .github/dependabot.yml
   - tools/validation/github_actions_pinning.py
   - tools/validation/test_github_actions_pinning.py
-  - tools/validation/apply_github_actions_pins.py
   - tests/ci/fixtures/github-actions-pinning/**
+  - tests/operations/cloudflare-oteryn-endpoints/check-main-operation-workflow.py
   - docs/agents/tasks/active/OTERYN-20260813-immutable-actions-pinning.md
   - docs/agents/tasks/archive/OTERYN-20260813-immutable-actions-pinning.md
 modules:
@@ -45,7 +45,7 @@ PR #1003 is merged/terminal and its earlier workflow ownership is released. PR #
 - [x] Resolve every observed mutable dependency from authoritative upstream GitHub tag state without changing its reviewed major version.
 - [ ] Pin every external action to a full immutable SHA with human-readable semantic-version comments; all non-overlapping workflow pins are prepared, one shared path waits on PR #1024.
 - [x] Keep Dependabot `github-actions` ecosystem enabled; `.github/dependabot.yml` remains unchanged.
-- [x] Add deterministic fail-closed validator for mutable tags/branches, short SHAs and malformed external references.
+- [x] Add deterministic fail-closed validator for mutable tags/branches, short SHAs and malformed external references, including quoted-key and inline-flow bypass coverage.
 - [x] Cover valid SHA, tag, branch, short SHA, docker/local/reusable-workflow and malformed forms.
 - [x] Wire validator into the unconditional pre-classification section of `.github/workflows/ci.yml`.
 - [ ] Exact-head validation, full diff self-review, fresh final review, squash merge, Issue closeout and archive.
@@ -72,59 +72,48 @@ lukka/run-cmake: {version: v10.9, sha: 5d55ea7949e25f69f0ecb516d8d572297e03a956,
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-13T16:43:00+02:00
-head: 2b46f047fb8964e5522028122d5a67c626f1e3e9
+policy_version: 2
+updated_at: 2026-08-13T16:52:00+02:00
+head: 2f3b9bc1d4f4de7fd800ddc17ecd65c173ae8ec7
 branch: ci/immutable-actions-pinning-1008
 pr: 1022
 status: implementing
+phase: implement
+execution_mode: github_connector
+execution_reason: repository-wide workflow mutation and exact GitHub Actions validation without owner-funded AI
 context_routes: [testing, ci-repair]
+task_kind: implementation
+context_pressure: medium
+context_growth: stable
+decomposition_decision: phased
+validation_level: focused
 proven:
   - PR #1003 is terminal and merged.
-  - Protected main advanced to 38775e953bd9740df08620482240b483fde69ecc via architecture-doc-only changes; no workflow changed in that main advancement.
-  - Initial fail-closed CI inventory found 180 mutable references; after the two already-pinned workflow files, deterministic migration found 177 remaining mutable references across 47 workflow files.
-  - The migration validator passed 5 fixture tests and validated 193 total uses references after deterministic transformation.
-  - Local reusable workflow references and existing lukka full-SHA references are intentionally preserved.
-  - Dependabot github-actions configuration remains enabled at directory `/`.
-  - PR #1024 currently overlaps only .github/workflows/build-synology-staging-images.yml within this task's workflow inventory.
-unknown: []
+  - Protected main is 38775e953bd9740df08620482240b483fde69ecc; its post-task-start advancement is documentation-only and is already a parent of the current task head.
+  - Initial fail-closed CI inventory found 180 mutable references; deterministic migration found 177 remaining mutable references across 47 workflow files after the first two workflow edits.
+  - The migration validator validated the complete transformed inventory and the permanent validator is hardened against quoted-key and inline-flow bypass forms.
+  - Dependabot github-actions configuration remains enabled at directory `/` and unchanged.
+  - Current head contains every non-overlapping workflow pin and intentionally leaves build-synology-staging-images.yml unchanged while PR #1024 owns it.
+  - Temporary migration workflow/helper/generated files are absent from the current PR diff.
 conflicts:
-  - PR #1024 owns build-synology-staging-images.yml until it becomes terminal; no mutation of that path is permitted meanwhile.
+  - PR #1024 owns build-synology-staging-images.yml until terminal.
+first_failure:
+  marker: pull-request validation and trusted push do not both pin checkout
+  evidence: Cloudflare Oteryn Endpoint Main Operation run 31712025037 job 94487152299; the workflow successfully executed pinned actions/checkout SHA, then a repository contract test failed because it hard-coded the historical actions/checkout@v7 string.
 validation:
   - run_id: 31707680824
     result: EXPECTED_FAIL
-    evidence: new validator rejected the pre-migration mutable inventory; its fixture tests passed.
+    evidence: new validator rejected the pre-migration mutable inventory; fixture tests passed.
   - run_id: 31708212412
     result: PARTIAL_PASS
     evidence: deterministic transform pinned 177 references across 47 files and validator passed 193 uses; branch push was rejected only because GITHUB_TOKEN lacks workflow-write permission.
   - run_id: 31708649280
     result: PASS
-    evidence: read-only migration artifact reproduced the same transformed workflows and validator pass.
-next_action: Materialize content-addressed transformed workflow blobs without editing shared workflow paths, then assemble a current-main-based Git tree for every non-overlapping pin while waiting for PR #1024 to release the final shared path.
-```
-
-## Recovery checkpoint
-
-```yaml
-recovery:
-  policy_version: 1
-  generation: 2
-  session_id: 20260813T1643+0200
-  session_started_at: 2026-08-13T16:27:00+02:00
-  checkpointed_at: 2026-08-13T16:43:00+02:00
-  last_progress_at: 2026-08-13T16:41:18+02:00
-  phase: materialize_non_overlapping_pins
-  exact_head: 2b46f047fb8964e5522028122d5a67c626f1e3e9
-  pull_request: 1022
-  active_operation: Immutable Actions Pin Migration content-addressed blob materialization
-  external_run_ids: [31711349327]
-  operation_started_at: 2026-08-13T16:41:21+02:00
-  wait_deadline_at: 2026-08-13T17:01:21+02:00
-  check_generation: materialization-helper
-  checks_used: 1
-  status: active
-  safe_to_resume: true
-  resume_condition: workflow run 31711349327 is terminal
-  next_action: Inspect run 31711349327 once terminal; if successful, read the generated ordinary-file blob SHAs and assemble the non-overlapping pinned workflow tree without touching build-synology-staging-images.yml.
+    evidence: read-only migration artifact reproduced the transformed workflows and validator pass.
+  - run_id: 31712025037
+    result: FOCUSED_REPAIR_REQUIRED
+    evidence: action checkout by immutable SHA succeeded; only the historical tag-string assertion in check-main-operation-workflow.py failed.
+next_action: Update the explicitly claimed Cloudflare workflow contract test to validate two immutable full-SHA checkout references rather than the historical mutable tag string, then inspect the next first relevant partial-head failure while PR #1024 retains the one shared workflow lock.
 ```
 
 ## Safety
