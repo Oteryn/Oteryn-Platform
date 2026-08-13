@@ -8,7 +8,7 @@ on:
       - '.github/workflows/immutable-actions-pin-migration.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   migrate:
@@ -21,21 +21,55 @@ jobs:
           ref: ci/immutable-actions-pinning-1008
           fetch-depth: 0
 
-      - name: Apply reviewed immutable mappings
+      - name: Apply and validate reviewed immutable mappings
         run: |
           python tools/validation/apply_github_actions_pins.py
           python tools/validation/test_github_actions_pinning.py
           python tools/validation/github_actions_pinning.py
           git diff --check
-          git diff -- .github/workflows > immutable-actions-pins.patch
 
-      - name: Upload bounded transformed workflows
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: immutable-actions-workflows-${{ github.sha }}
-          path: |
-            immutable-actions-pins.patch
-            .github/workflows
-          if-no-files-found: error
-          include-hidden-files: true
-          retention-days: 3
+      - name: Materialize detached Git objects
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import json, os, subprocess, urllib.request
+
+          repo = os.environ['REPOSITORY']
+          token = os.environ['GH_TOKEN']
+          api = f'https://api.github.com/repos/{repo}'
+          headers = {
+              'Authorization': f'Bearer {token}',
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'oteryn-actions-pinning',
+          }
+          def request(method, path, body=None):
+              data = None if body is None else json.dumps(body).encode()
+              req = urllib.request.Request(api + path, data=data, method=method, headers=headers)
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  return json.load(response)
+
+          parent = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          parent_commit = request('GET', f'/git/commits/{parent}')
+          changed = subprocess.check_output(
+              ['git', 'diff', '--name-only', '--', '.github/workflows'], text=True
+          ).splitlines()
+          if not changed:
+              raise SystemExit('no workflow changes generated')
+          entries = []
+          for path in changed:
+              content = open(path, encoding='utf-8').read()
+              blob = request('POST', '/git/blobs', {'content': content, 'encoding': 'utf-8'})
+              entries.append({'path': path, 'mode': '100644', 'type': 'blob', 'sha': blob['sha']})
+          tree = request('POST', '/git/trees', {'base_tree': parent_commit['tree']['sha'], 'tree': entries})
+          commit = request('POST', '/git/commits', {
+              'message': 'ci: pin external GitHub Actions to immutable SHAs',
+              'tree': tree['sha'],
+              'parents': [parent],
+          })
+          print(f'PARENT={parent}')
+          print(f'CHANGED_FILES={len(changed)}')
+          print(f'GENERATED_COMMIT={commit["sha"]}')
+          PY
