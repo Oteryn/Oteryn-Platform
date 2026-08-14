@@ -18,17 +18,17 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-14T10:15:00+02:00
-status: active
-current_review_domain: platform-api-activation-first-surface
-active_task: OTERYN-20260814-platform-api-disposition
-issue: 490
-branch: docs/OTERYN-20260814-platform-api-disposition
-pull_request: 1044
-last_completed_domain: production-topology-operations-observability
+updated_at: 2026-08-14T11:25:00+02:00
+status: ready
+current_review_domain: next-risk-based-rotation
+active_task: null
+issue: null
+branch: null
+pull_request: null
+last_completed_domain: platform-api-activation-first-surface
 last_completed_issue: 490
-last_completed_pull_request: 1042
-last_completed_merge: ae660385f80cea99c484971fd05571c9ac89c817
+last_completed_pull_request: 1044
+last_completed_merge: 714f52bab6d3115bc1396ce0ccfd524df219dfd6
 latest_review_finding_issue: 490
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
@@ -96,28 +96,22 @@ proven:
   - PR 1034 repaired checkpoint, authority-epoch replay and proposed-schema status findings; exact head a1d78af8bbb70e8ac9e75e947bbeeb133be4258b passed all eight workflows and squash-merged as 7a0664cfd7dadf27aef0a33e2308bf4975fb1405.
   - Repository owner accepted ARCH-DEC-0004 Option A on 2026-08-13; ADR 0035 selects TUF-based role-separated updater trust with private signing authority outside Laravel.
   - CLIENT_DISTRIBUTION_ARCHITECTURE.md is the focused canonical Platform model for first-party updater trust and preserves one current release per channel in schema v1 with fail-closed exact target selection.
-  - ARCH-DEC-0004 was removed from the active decision backlog after acceptance, and Issue 1039 is the Platform implementation handoff with no external-repository or protected-operation authority.
   - Exact PR 1038 head 55fb5e75940480210e381e000e9b2bf384d4210b passed all eight workflows, had zero review threads/reviews, was zero commits behind main and squash-merged as b0ea53ccff6750b56967711c13c3439d29b465a8; Issue 1037 closed completed.
-  - Current source proves Laravel `/health` liveness plus server-generated request correlation and bounded request-completion logging; current Production Readiness evidence is STAGING_PROVEN rather than production proof.
-  - `OPERATIONS_OBSERVABILITY_ARCHITECTURE.md` now owns the focused repository/staging/production evidence boundary and `PRODUCTION_TOPOLOGY_EVIDENCE.md` is reconciled to that model.
-  - Exact PR 1042 head b5815c27541f1dffd9c8516ba4ac5e4df3cb3c6c passed all eight triggered workflows, had zero review threads/reviews, was zero commits behind main and squash-merged as ae660385f80cea99c484971fd05571c9ac89c817.
-  - Issue 490 comment 5290619378 records only the OperationsObservability slice as terminal; PlatformAPI, PublicEdge and direct production evidence remained intentionally open before this review.
-  - Current `routes/api.php` exposes only bounded game-auth ticket issuance and `routes/internal.php` exposes private Gateway game-auth contracts; neither is a general PlatformAPI surface.
-  - `MODULE_CATALOG.md` already requires a concrete client/use case and excludes specialized game-auth/internal endpoints from general PlatformAPI classification; `PORTAL_COMPLETENESS_ARCHITECTURE.md` already requires concrete consumers and module-service reuse.
+  - `OPERATIONS_OBSERVABILITY_ARCHITECTURE.md` owns the focused repository/staging/production evidence boundary; exact PR 1042 head b5815c27541f1dffd9c8516ba4ac5e4df3cb3c6c passed all eight workflows and squash-merged as ae660385f80cea99c484971fd05571c9ac89c817.
   - Repository owner selected ARCH-DEC-0005 Option A on 2026-08-14: explicitly defer the general Platform API until a named consumer/use case exists.
-  - ADR 0036 is accepted, `PLATFORM_API_ARCHITECTURE.md` owns the focused activation/adaptation/compatibility boundary, the active decision backlog is empty, and no speculative implementation handoff exists.
-  - Portal work allocation marks Platform API DEFERRED and retains Issue 490 only for separately owned PublicEdge/direct-production evidence.
+  - ADR 0036 is accepted and `PLATFORM_API_ARCHITECTURE.md` owns the focused future activation/adaptation/compatibility boundary; no speculative implementation handoff exists.
+  - PR #1028 merged Hunt Session Analyzer v1 as dfd7acc29f16252a8d83d9de398f915875d36aab; its exact final head de8742d1062ddbbfda263c4d3c3975bd11e16b36 had all 24 emitted workflows successful, and PR #1044 repaired its stale post-merge task ownership without changing runtime behavior.
+  - Exact PR #1044 final head 53aaa8b06a754fe71ee54a903bf2d298eaa49d87 was zero commits behind main, mergeable, had the sole P2 thread resolved/outdated, and all eight emitted workflows succeeded: Native protocol contract 31787098676, Edge Security Emulation 31787098675, Game Auth Ticket Concurrency 31787098687, Platform DB Outage Validation 31787098694, Agent Governance 31787098693, Native protocol contract audits 31787098748, Phase 7 Production-Like Validation 31787098690 and CI 31787098695.
+  - PR #1044 squash-merged as 714f52bab6d3115bc1396ce0ccfd524df219dfd6; Issue #490 comment 5291599962 records the PlatformAPI slice terminal while keeping PublicEdge/direct-production evidence open.
 derived:
   - The Platform core remains a sound Laravel modular monolith; native integration is explicitly separated from Legacy Canary Compatibility.
   - New native Platform consumers use canonical AccountId/CharacterId and explicit command/query/event/projection boundaries instead of inheriting Canary numeric IDs, table shapes, session semantics or gameplay protocol ownership.
-  - Platform-side semantic boundaries are now accepted for runtime status/readiness, bounded pre-admission, Character Authority command/results, PublicGameData projections and entitlement/game delivery; exact producer/server transports and runtime implementations remain separate delivery facts.
-  - The retained Platform PR 542 native producer, protobuf schema and fixtures are historical reconciliation inputs only; they cannot define final game admission, gameplay session/lease/fencing, reconnect or protocol semantics.
-  - Native runtime admission readiness on the Platform side is an intersection of configured Platform policy and fresh applicable current-owner runtime evidence; stale/unavailable evidence fails closed for new admission but cannot be fabricated as authoritative public offline/zero state.
+  - Platform-side semantic boundaries are accepted for runtime status/readiness, bounded pre-admission, Character Authority command/results, PublicGameData projections and entitlement/game delivery; exact producer/server transports and runtime implementations remain separate delivery facts.
   - PublicPortal Today remains composition rather than a new source-of-truth module; any representation influenced by owner-private state is private/non-shareable and must not inherit public cacheability.
   - Federated public content search belongs to PublicPortal orchestration over source-owned public queries; source publication/privacy decisions remain authoritative and restrictive revisions fence derived index/cache state.
-  - First-party client distribution now has an accepted trust boundary; runtime implementation and protected signer/client evidence remain separate delivery facts.
+  - First-party client distribution has an accepted trust boundary; runtime implementation and protected signer/client evidence remain separate delivery facts.
   - OperationsObservability repository applicability and evidence semantics are terminal for its review package; direct production proof remains a separate protected-environment gate.
-  - General PlatformAPI is now an explicit deferred product boundary rather than an ambiguous missing implementation; a named consumer trigger and the accepted activation checklist are required before any general endpoint package.
+  - General PlatformAPI is an explicit deferred product boundary rather than an ambiguous missing implementation; a named consumer trigger and accepted activation checklist are required before any general endpoint package.
 unknown:
   - Exact deployed game-auth topology, alternate-path network isolation and production activation evidence.
   - Exact external/native producer and consumer transport, wire/IDL, runtime implementation, lease/fencing, replay stores, numerical freshness/TTL values and cutover evidence for accepted cross-boundary contracts remain outside this Platform architecture state record.
@@ -127,7 +121,7 @@ unknown:
   - Exact production log/metrics backend, alert/on-call destination, retention/access policy, deployed topology, backup system, deployment mechanism and production restore evidence require direct protected-environment evidence.
 conflicts: []
 blockers: []
-next_action: Validate the exact accepted-decision head of PR 1044, complete full-diff/review hygiene, merge it, record the PlatformAPI slice terminal in Issue 490, then archive the task and return the programme to ready risk-based rotation.
+next_action: Select the next highest-risk unresolved and unowned Platform architecture question from current main.
 ```
 
 ## Programme rules
