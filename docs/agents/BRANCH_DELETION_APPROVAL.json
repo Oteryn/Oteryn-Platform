@@ -1,0 +1,13 @@
+{
+  "apply_on_main": true,
+  "candidate_count": 8,
+  "confirmation": "DELETE_REVIEWED_TERMINAL_MERGED_BRANCHES_ISSUE_658",
+  "entries_sha256": "0aae6e7d9dedc4dcd11775f42d2bc0e43c3ea1fd40f7a4352244e6a1ba55a845",
+  "issue": 658,
+  "policy_sha256": "3d646fbd53bd0ae38572dcf80201159d7e05d5562919e55c75f99a83a4031c20",
+  "review_summary": "Issue #1050 reuses the accepted Issue #658 exact-manifest deletion mechanism for the eight already-proven TERMINAL_MERGED refs. The workflow must rebuild the live candidate set and fail closed on any branch, SHA, PR, protection, ownership, policy or candidate-count drift before apply.",
+  "reviewed_at": "2026-08-14T13:20:00Z",
+  "reviewed_by": "repository owner instruction executed by branch-lifecycle remediation agent",
+  "schema_version": 1,
+  "source_artifact": "Branch Lifecycle run 31727381481 artifact 9191904412 (2026-08-13 dry-run)"
+}
