@@ -1,0 +1,184 @@
+name: Historical Branch Audit
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/historical-branch-audit.yml"
+      - "docs/agents/HISTORICAL_BRANCH_DELETION_APPROVAL.json"
+      - "tools/agents/historical_branch_audit.py"
+      - "tools/agents/test_historical_branch_audit.py"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/historical-branch-audit.yml"
+      - "docs/agents/HISTORICAL_BRANCH_DELETION_APPROVAL.json"
+      - "tools/agents/historical_branch_audit.py"
+      - "tools/agents/test_historical_branch_audit.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: historical-branch-audit-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Run focused historical-audit tests
+        run: python3 tools/agents/test_historical_branch_audit.py
+
+  inventory:
+    name: live-dry-run
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Fetch exact live branch objects
+        run: git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+
+      - name: Build fail-closed historical branch audit
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/agents/historical_branch_audit.py \
+            --mode inventory \
+            --repo "${GITHUB_REPOSITORY}" \
+            --token "${GITHUB_TOKEN}" \
+            --output historical-branch-audit-report.json \
+            --manifest historical-branch-deletion-manifest.generated.json \
+            --approval-validation historical-branch-approval-validation.json
+
+      - name: Verify protected default branch and full accounting
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          report = json.loads(pathlib.Path("historical-branch-audit-report.json").read_text())
+          branches = report.get("branches", [])
+          if report.get("branch_count") != len(branches):
+              raise SystemExit("branch count does not match audited entries")
+          names = [item.get("branch") for item in branches]
+          if len(names) != len(set(names)):
+              raise SystemExit("duplicate audited branch names")
+          main = next((item for item in branches if item.get("branch") == "main"), None)
+          if not main or main.get("disposition") != "PROTECTED" or main.get("protected") is not True:
+              raise SystemExit(f"main is not fail-closed PROTECTED: {main!r}")
+          allowed = {"DELETE", "OPEN_PR", "PROTECTED", "RECOVERY", "RETAIN"}
+          unknown = sorted({item.get("disposition") for item in branches} - allowed)
+          if unknown:
+              raise SystemExit(f"unsupported/unreviewed dispositions: {unknown}")
+          print(
+              f"Fully accounted for {len(branches)} live refs; "
+              f"{report.get('deletion_candidate_count')} exact deletion candidate(s)."
+          )
+          PY
+
+      - name: Publish audit evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: historical-branch-audit-${{ github.run_id }}
+          path: |
+            historical-branch-audit-report.json
+            historical-branch-deletion-manifest.generated.json
+            historical-branch-approval-validation.json
+          if-no-files-found: error
+          retention-days: 30
+
+  apply:
+    name: apply-reviewed-historical-manifest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - validate
+      - inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: write
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Check out protected main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Fetch exact live branch objects
+        run: git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+
+      - name: Detect reviewed historical approval
+        id: approval
+        shell: bash
+        run: |
+          if [[ -f docs/agents/HISTORICAL_BRANCH_DELETION_APPROVAL.json ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "No reviewed historical approval is present; apply is NOT_APPLICABLE."
+          fi
+
+      - name: Apply exact reviewed historical manifest
+        if: steps.approval.outputs.exists == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/agents/historical_branch_audit.py \
+            --mode apply \
+            --repo "${GITHUB_REPOSITORY}" \
+            --token "${GITHUB_TOKEN}" \
+            --event-name "${GITHUB_EVENT_NAME}" \
+            --ref-name "${GITHUB_REF_NAME}" \
+            --expected-main-sha "${GITHUB_SHA}" \
+            --output historical-branch-apply-report.json \
+            --manifest historical-branch-post-apply-manifest.json \
+            --evidence historical-branch-deletion-evidence.json \
+            --recovery-evidence historical-branch-recovery-evidence.json
+
+      - name: Publish apply and recovery evidence
+        if: always() && steps.approval.outputs.exists == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: historical-branch-apply-${{ github.run_id }}
+          path: |
+            historical-branch-apply-report.json
+            historical-branch-post-apply-manifest.json
+            historical-branch-deletion-evidence.json
+            historical-branch-recovery-evidence.json
+          if-no-files-found: warn
+          retention-days: 90
