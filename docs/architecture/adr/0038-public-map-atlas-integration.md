@@ -137,7 +137,7 @@ Rejected. A world map benefits directly from maximum viewport area. A normal con
 
 ### iframe to a standalone atlas
 
-Rejected as the target architecture. It weakens first-party URL/state composition, responsive shell integration, load-error handling, accessibility/navigation cohesion and future Platform feature composition. Current CSP also intentionally disallows arbitrary framed applications through `frame-ancestors 'none'`; no iframe exception is justified.
+Rejected as the target architecture. It weakens first-party URL/state composition, responsive shell integration, load-error handling, accessibility/navigation cohesion and future Platform feature composition. Current CSP has no explicit `frame-src`, so `default-src 'self'` constrains child frames to same-origin; `frame-ancestors 'none'` separately prevents Platform responses from being embedded by other pages. No iframe exception or CSP broadening is justified for the target design.
 
 ### Rewrite the atlas viewer/runtime in Platform
 
