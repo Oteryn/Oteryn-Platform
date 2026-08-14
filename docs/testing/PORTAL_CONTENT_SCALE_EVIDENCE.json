@@ -14,6 +14,7 @@
     "identity.password-lifecycle": {"classification":"not_applicable","rationale":"Bounded password forms and recovery status messages; no long body or collection route is declared."},
     "identity.mfa-lifecycle": {"classification":"not_applicable","rationale":"Bounded MFA forms, QR provisioning and recovery-code state; no long body or paginated collection route is declared."},
     "account.overview-provisioning": {"classification":"not_applicable","rationale":"Bounded account binding and provisioning status surface."},
+    "player-companion.session-analysis": {"classification":"not_applicable","rationale":"Session input is capped at 65,535 bytes, persisted history is capped at 50 records, participants are capped at 20 and metric tables use bounded responsive overflow containers."},
     "account.character-creation-and-visibility": {"classification":"not_applicable","rationale":"Bounded character creation form and visibility outcome; public collection consumers are owned by public.game-data."},
     "public.home-and-seo": {"classification":"long_content_consumer","rationale":"Homepage renders localized managed news and active announcements whose titles and bodies can reach editorial limits."},
     "public.news-and-managed-pages": {"classification":"long_content_consumer","rationale":"Public news and managed-page index/detail routes render localized editorial titles and bodies."},

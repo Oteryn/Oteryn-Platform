@@ -74,6 +74,21 @@
       "portability": {"status": "covered", "profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "e3"}
     },
     {
+      "id": "player-companion.session-analysis",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [
+        {"id": "e1", "file": "scripts/acceptance/tests/player-companion-session-analyzer.spec.mjs", "markers": ["@portal-account Player Companion — private Hunt Session Analyzer create, validation, owner isolation, responsive detail and delete", "const desktopViewport = { width: 1440, height: 1000 }", "const tabletViewport = { width: 820, height: 1180 }", "const mobileViewport = { width: 390, height: 844 }"]}
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "account-lifecycle", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "account-lifecycle", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e1"},
+        "mobile-390x844": {"profile": "account-lifecycle", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e1"}
+      },
+      "browsers": {"chromium-primary": {"profile": "account-lifecycle", "projects": ["chromium-primary"], "evidence": "e1"}},
+      "portability": {"status": "excluded", "rationale": "This owner-private create, cross-owner denial and destructive delete lifecycle remains in the complete zero-retry Chromium account profile; representative Identity and Account Overview flows provide bounded Firefox/WebKit coverage."}
+    },
+    {
       "id": "account.character-creation-and-visibility",
       "kind": "rendered",
       "critical": true,
