@@ -18,17 +18,17 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-14T19:12:50+02:00
-status: active
-current_review_domain: public-edge-evidence-boundary
-active_task: OTERYN-20260814-public-edge-architecture
-issue: 490
-branch: docs/OTERYN-20260814-public-edge-architecture
-pull_request: 1063
-last_completed_domain: platform-api-activation-first-surface
+updated_at: 2026-08-14T22:53:07+02:00
+status: ready
+current_review_domain: next-risk-based-rotation
+active_task: null
+issue: null
+branch: null
+pull_request: null
+last_completed_domain: public-edge-evidence-boundary
 last_completed_issue: 490
-last_completed_pull_request: 1044
-last_completed_merge: 714f52bab6d3115bc1396ce0ccfd524df219dfd6
+last_completed_pull_request: 1063
+last_completed_merge: 780ad6c8178206b13d001537ba651b6e0bd22219
 latest_review_finding_issue: 490
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
@@ -106,7 +106,8 @@ proven:
   - PR #1044 squash-merged as 714f52bab6d3115bc1396ce0ccfd524df219dfd6; Issue #490 comment 5291599962 records the PlatformAPI slice terminal while keeping PublicEdge/direct-production evidence open.
   - Current main declares PublicEdge as an explicit cross-cutting ownership boundary, but the authority index had no focused PublicEdge canonical route before PR #1063.
   - Active OTERYN-20260801-public-domain-repair remains blocked on external replacement of the protected Cloudflare token; its recorded Tunnel/DNS convergence and public failures are execution evidence rather than permission to infer unknown remaining edge controls.
-  - PR #1063 owns the bounded provider-neutral PublicEdge architecture/routing package and performs no protected-environment or external-repository operation.
+  - Exact PR #1063 final head cca8be2b19928311dd5ae5835ccc6ef79be83b11 was zero commits behind main@ef156b16286d531b08feb9477b5e0d72f177d5ae, changed exactly four declared architecture/governance paths, had both prior material review threads resolved/outdated, and passed all eight emitted workflows: Platform DB Outage Validation 31839589553, Native protocol contract 31839589513, Edge Security Emulation 31839589526, Phase 7 Production-Like Validation 31839589518, Native protocol contract audits 31839589580, Game Auth Ticket Concurrency 31839589535, Agent Governance 31839589532 and CI 31839589555.
+  - PR #1063 squash-merged as 780ad6c8178206b13d001537ba651b6e0bd22219; Issue #490 comment 5298101568 records the PublicEdge architecture slice terminal while keeping live protected-environment evidence open, and the implementation source branch is absent.
 derived:
   - The Platform core remains a sound Laravel modular monolith; native integration is explicitly separated from Legacy Canary Compatibility.
   - New native Platform consumers use canonical AccountId/CharacterId and explicit command/query/event/projection boundaries instead of inheriting Canary numeric IDs, table shapes, session semantics or gameplay protocol ownership.
@@ -116,7 +117,7 @@ derived:
   - First-party client distribution has an accepted trust boundary; runtime implementation and protected signer/client evidence remain separate delivery facts.
   - OperationsObservability repository applicability and evidence semantics are terminal for its review package; direct production proof remains a separate protected-environment gate.
   - General PlatformAPI is an explicit deferred product boundary rather than an ambiguous missing implementation; a named consumer trigger and accepted activation checklist are required before any general endpoint package.
-  - PublicEdge can receive one focused provider-neutral canonical owner without changing ADR 0020, application security authority or the Production Go-Live Gate; live proof remains independently blocked.
+  - PublicEdge has a focused provider-neutral canonical owner without changing ADR 0020, application security authority or the Production Go-Live Gate; live proof remains independently blocked.
 unknown:
   - Exact deployed game-auth topology, alternate-path network isolation and production activation evidence.
   - Exact external/native producer and consumer transport, wire/IDL, runtime implementation, lease/fencing, replay stores, numerical freshness/TTL values and cutover evidence for accepted cross-boundary contracts remain outside this Platform architecture state record.
@@ -127,7 +128,7 @@ unknown:
   - Exact current certificate, redirect, WAF/Bot/Access, HSTS and direct-origin state remains protected-environment evidence and cannot be inferred while the active Cloudflare audit token lacks required read scopes.
 conflicts: []
 blockers: []
-next_action: Complete PR #1063 focused PublicEdge architecture/routing, run exact-head self-review and required documentation/governance CI, then merge and archive only if every gate passes.
+next_action: Select the next highest-risk unresolved and unowned Platform architecture question from current main.
 ```
 
 ## Programme rules
