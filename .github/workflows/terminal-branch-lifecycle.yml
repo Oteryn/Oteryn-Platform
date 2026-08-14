@@ -8,7 +8,9 @@ on:
       - "docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json"
       - "tools/agents/branch_lifecycle.py"
       - "tools/agents/terminal_branch_cleanup.py"
+      - "tools/agents/terminal_branch_approval.py"
       - "tools/agents/test_terminal_branch_cleanup.py"
+      - "tools/agents/test_terminal_branch_approval.py"
   pull_request_target:
     types:
       - closed
@@ -21,7 +23,9 @@ on:
       - "docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json"
       - "tools/agents/branch_lifecycle.py"
       - "tools/agents/terminal_branch_cleanup.py"
+      - "tools/agents/terminal_branch_approval.py"
       - "tools/agents/test_terminal_branch_cleanup.py"
+      - "tools/agents/test_terminal_branch_approval.py"
   workflow_dispatch:
 
 permissions:
@@ -49,7 +53,9 @@ jobs:
           python-version: "3.12"
 
       - name: Run terminal branch cleanup tests
-        run: python3 tools/agents/test_terminal_branch_cleanup.py
+        run: |
+          python3 tools/agents/test_terminal_branch_cleanup.py
+          python3 tools/agents/test_terminal_branch_approval.py
 
       - name: Validate base branch lifecycle policy
         run: python3 tools/agents/branch_lifecycle.py --mode validate-policy
@@ -82,15 +88,14 @@ jobs:
             --output terminal-branch-report.json \
             --generate-manifest terminal-branch-deletion-manifest.generated.json
 
-      - name: Validate reviewed manifest when present
+      - name: Validate reviewed candidate digest when present
         if: hashFiles('docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json') != ''
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          python3 tools/agents/terminal_branch_cleanup.py \
-            --mode validate-manifest \
-            --manifest docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json \
-            --output terminal-branch-report.review.json
+          python3 tools/agents/terminal_branch_approval.py \
+            --approval docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json \
+            --manifest terminal-branch-deletion-manifest.generated.json \
+            --report terminal-branch-report.json \
+            --output terminal-branch-approval-validation.json
 
       - name: Publish dry-run evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -98,8 +103,8 @@ jobs:
           name: terminal-branch-lifecycle-dry-run-${{ github.run_id }}
           path: |
             terminal-branch-report.json
-            terminal-branch-report.review.json
             terminal-branch-deletion-manifest.generated.json
+            terminal-branch-approval-validation.json
           if-no-files-found: warn
           retention-days: 30
 
@@ -126,7 +131,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Detect reviewed terminal manifest
+      - name: Detect reviewed terminal candidate digest
         id: approval
         shell: bash
         run: |
@@ -134,8 +139,25 @@ jobs:
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "No reviewed terminal branch manifest is present; apply is NOT_APPLICABLE."
+            echo "No reviewed terminal candidate digest is present; apply is NOT_APPLICABLE."
           fi
+
+      - name: Rebuild live candidate set and materialize exact runtime manifest
+        if: steps.approval.outputs.exists == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/agents/terminal_branch_cleanup.py \
+            --mode inventory \
+            --output terminal-branch-apply-report.json \
+            --generate-manifest terminal-branch-deletion-manifest.runtime.generated.json
+          python3 tools/agents/terminal_branch_approval.py \
+            --approval docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json \
+            --manifest terminal-branch-deletion-manifest.runtime.generated.json \
+            --report terminal-branch-apply-report.json \
+            --output terminal-branch-approval-apply-validation.json \
+            --materialize terminal-branch-deletion-manifest.runtime.json \
+            --require-apply
 
       - name: Apply exact reviewed terminal manifest
         if: steps.approval.outputs.exists == 'true'
@@ -144,7 +166,7 @@ jobs:
         run: |
           python3 tools/agents/terminal_branch_cleanup.py \
             --mode apply \
-            --manifest docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json \
+            --manifest terminal-branch-deletion-manifest.runtime.json \
             --event-name push \
             --ref-name main \
             --output terminal-branch-apply-report.json \
@@ -158,6 +180,9 @@ jobs:
           name: terminal-branch-lifecycle-apply-${{ github.run_id }}
           path: |
             terminal-branch-apply-report.json
+            terminal-branch-deletion-manifest.runtime.generated.json
+            terminal-branch-deletion-manifest.runtime.json
+            terminal-branch-approval-apply-validation.json
             terminal-branch-deletion-evidence.json
             terminal-branch-recovery-evidence.json
           if-no-files-found: warn
