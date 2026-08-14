@@ -58,10 +58,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-14T19:22:00Z
-head: c56abdd1a3298d7c5222449fd7c2aa863601eea3
+updated_at: 2026-08-14T19:26:00Z
+head: 1cf43bcbda28000091485f88ab984c6a1ee1e55c
 branch: closeout/issue-1050-branch-lifecycle
-pr: none
+pr: 1066
 status: validating
 context_routes:
   - agent-governance
@@ -77,11 +77,12 @@ proven:
   - Branch Lifecycle run 31832315361 completed apply-reviewed-manifest successfully; artifact 9231179578 records exactly 8 deleted TERMINAL_MERGED refs and recovery PASS, digest sha256:9fbbf471329c8cd8c97aab1a53df3ef1f8af93006611ec7c8b2c172e3ebf4274.
   - Terminal Branch Lifecycle run 31832315298 completed apply-reviewed-manifest successfully; artifact 9231338351 records exactly 105 deleted TERMINAL_CLOSED_UNMERGED refs and recovery PASS, digest sha256:26c76f80f5b21aef850b634b9d5c1b1c46710f31908d2c32433f45e1837649a9.
   - Live branch inventory after both applies contains 80 refs including main and this closeout branch, down from 192 refs observed by the post-merge reviewed inventories before deletion.
+  - Draft closeout PR #1066 removes both one-time approval files and owns final task archival.
 derived:
   - The two reviewed deletion sets removed 113 historical refs without merging abandoned work.
 unknown:
-  - Approval-free lifecycle dry-run result on the closeout branch.
-  - Closeout PR identity and final merge commit.
+  - Approval-free lifecycle dry-run result on PR #1066.
+  - Closeout PR #1066 final merge commit.
 conflicts: []
 first_failure:
   marker: post-delete-rest-read-after-write
@@ -103,9 +104,9 @@ validation:
     evidence: exact reviewed 105-entry apply plus recovery proof succeeded
   - command: closeout approval-free lifecycle dry-runs
     result: NOT_RUN
-    evidence: triggered after this closeout branch change is pushed
+    evidence: PR #1066 workflows are the proving generation
 blockers: []
-next_action: Archive the task after approval-free Branch Lifecycle and Terminal Branch Lifecycle dry-runs prove zero authorized deletion candidates.
+next_action: Archive the task after approval-free Branch Lifecycle and Terminal Branch Lifecycle dry-runs on PR #1066 prove zero authorized deletion candidates.
 ```
 
 ## Source branch closeout
