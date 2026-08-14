@@ -68,10 +68,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-14T19:13:36Z
-head: e4498ba9856a3779c8ae3a6f5bed608256a35fef
+updated_at: 2026-08-14T19:18:19Z
+head: 8045739c60e9b575684b2449fb744a8a08d962b0
 branch: agent/oteryn-20260814-public-map-atlas-integration
-pr: none
+pr: 1065
 status: blocked
 context_routes:
   - agent-governance
@@ -87,12 +87,14 @@ owned_paths:
   - docs/contracts/PUBLIC_MAP_ATLAS_CONTRACT.md
 proven:
   - Oteryn-Platform main was reconciled at e4498ba9856a3779c8ae3a6f5bed608256a35fef before this task branch was created.
+  - Main advanced during the task to c56abdd1a3298d7c5222449fd7c2aa863601eea3 through one unrelated branch-lifecycle repair commit; compare evidence shows no overlap with this task's four owned paths or ADR allocation.
   - Otheryn main was reconciled at da553b1f2f157526e69e26d051ca3297db7abcf6; atlas PRs #381, #384, #387 and #389 are merged.
   - Otheryn full-world certification proves Z0-Z15 and exactly 3494 chunks for the certified build.
   - Current Otheryn full-world release workflow uploads per-floor verification JSON artifacts rather than complete generated atlas directories; observed current certification artifacts are only hundreds of bytes.
   - Current Otheryn viewer already owns chunked viewport loading, floors, render modes, search/details/overlays, URL state, environment animation and bounded caches.
   - Current Platform has no atlas route or navigation entry, no object-storage/CDN atlas configuration, same-origin-only CSP for script/connect/image, and a Synology Nginx layer that currently proxies all paths to the Platform application.
   - No open Oteryn-Platform PR or active-task owned path inspected for this preflight claims the four documentation paths owned here.
+  - Draft PR #1065 contains exactly the four declared documentation paths before this checkpoint update.
 derived:
   - Implementing a public Map route before a complete producer artifact exists would create a dead or non-canonical product surface.
   - Copying OTBM parsing/build logic or maintaining a forked viewer in Platform would violate the repository source-of-truth boundary.
@@ -110,10 +112,19 @@ rejected_hypotheses:
   - Use current object storage/CDN; rejected because no current Platform atlas storage/CDN contract exists and current CSP is same-origin only.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260814-public-map-atlas-integration.md
+  - docs/architecture/adr/0038-public-map-atlas-integration.md
+  - docs/architecture/adr/README.md
+  - docs/contracts/PUBLIC_MAP_ATLAS_CONTRACT.md
 validation:
   - command: repository and cross-repository GitHub audit
     result: PASS
     evidence: current main heads, PR states, workflow sources, atlas runtime sources and Platform routing/deployment sources inspected through the GitHub connector
+  - command: main-delta ownership reconciliation e4498ba..c56abdd
+    result: PASS
+    evidence: only branch-lifecycle implementation/governance paths changed; this task's four paths and ADR 0038 remain unclaimed on main
+  - command: draft PR #1065 repository CI
+    result: NOT_RUN
+    evidence: PR was opened at head 8045739c60e9b575684b2449fb744a8a08d962b0; exact-head workflow conclusions still require inspection after this checkpoint commit
   - command: runtime/browser E2E
     result: BLOCKED
     evidence: producer release artifact and native viewer consumption contract do not yet exist, so no truthful canonical Platform Map implementation can be exercised
@@ -130,7 +141,7 @@ next_action: In blakinio/Otheryn, implement and merge a producer-owned complete 
 ```yaml
 source_branch_disposition: pending
 source_branch_reason: task remains blocked on an explicit cross-repository producer contract before runtime implementation
-source_branch_evidence: dedicated branch agent/oteryn-20260814-public-map-atlas-integration created from exact Platform main e4498ba9856a3779c8ae3a6f5bed608256a35fef
+source_branch_evidence: dedicated branch agent/oteryn-20260814-public-map-atlas-integration created from exact Platform main e4498ba9856a3779c8ae3a6f5bed608256a35fef; draft PR #1065 is open and intentionally unmerged while the producer dependency is unresolved
 ```
 
 ## Notes
