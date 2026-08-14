@@ -99,6 +99,20 @@ Before closeout:
 - ensure the final implementation is present in exactly the intended delivery path;
 - preserve rollback and provenance.
 
+## Source branch closeout
+
+A task source branch is an execution resource and must have an intentional terminal disposition before the task becomes `completed`.
+
+- For a merged same-repository PR, rely on repository `delete_branch_on_merge=true` and verify that the source ref is absent after merge. If GitHub does not remove it, reconcile it through the repository Branch Lifecycle control rather than leaving it unexplained.
+- Never merge abandoned, superseded, diagnostic, temporary, backup or recovery-only work merely so that automatic branch deletion will run.
+- Before intentionally closing a same-repository PR without merge, write exactly one explicit disposition in the PR body: `Branch-Disposition: delete` or `Branch-Disposition: retain`, plus a non-empty `Branch-Disposition-Reason: ...`.
+- `delete` is valid only when the branch is terminal and no open PR, active task/claim, protected role, release/rollback/recovery purpose, retention exception or exact-head ambiguity remains. The trusted-main Terminal Branch Lifecycle workflow must delete and verify the exact unchanged source SHA.
+- `retain` requires a concrete owner/purpose and a review trigger. An unexplained retained branch is not terminal closeout.
+- If no PR exists for a task branch, delete the ref after preserving required provenance or record an explicit retention exception; do not leave a branch merely because the worker session ended.
+- Branch deletion is never by age or prefix alone. Ambiguous, moved, protected or live refs fail closed.
+
+The terminal task record must state which disposition occurred and its evidence. A completed task with an unexplained source ref is a closeout defect.
+
 ## Execution resource hygiene
 
 Tasks that create or control temporary containers, Compose projects, helper services, runners, test deployments, disposable volumes, networks, images, or equivalent execution scaffolding must follow `EXECUTION_RESOURCE_HYGIENE.md`.
@@ -138,6 +152,7 @@ After merge:
 3. archive the task record;
 4. release branch/path ownership and leases;
 5. record the final merge commit and validation evidence;
-6. verify and remove task-owned temporary execution resources under `EXECUTION_RESOURCE_HYGIENE.md`, recording any explicitly retained resource or exact cleanup blocker.
+6. verify the merged source branch was removed, or reconcile the exact retained ref through Branch Lifecycle;
+7. verify and remove task-owned temporary execution resources under `EXECUTION_RESOURCE_HYGIENE.md`, recording any explicitly retained resource or exact cleanup blocker.
 
 Do not call the task complete before terminal closeout.
