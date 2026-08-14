@@ -18,13 +18,13 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-14T09:20:00+02:00
-status: ready
-current_review_domain: next-risk-based-rotation
-active_task: null
-issue: null
-branch: null
-pull_request: null
+updated_at: 2026-08-14T09:40:00+02:00
+status: blocked
+current_review_domain: platform-api-activation-first-surface
+active_task: OTERYN-20260814-platform-api-disposition
+issue: 490
+branch: docs/OTERYN-20260814-platform-api-disposition
+pull_request: 1044
 last_completed_domain: production-topology-operations-observability
 last_completed_issue: 490
 last_completed_pull_request: 1042
@@ -60,7 +60,8 @@ accepted_authority:
 implementation_handoffs:
   - issue: 1039
     scope: Platform implementation of accepted TUF client distribution boundary
-active_architecture_decision_ids: []
+active_architecture_decision_ids:
+  - ARCH-DEC-0005
 architecture_conflicts:
   - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021, but the exact accepted path sets are machine-enforced and cannot expand silently.
   - Issue 586 retains historical evidence that delete_branch_on_merge was disabled; ADR 0024 and current metadata prove the accepted current state is enabled.
@@ -100,6 +101,9 @@ proven:
   - `OPERATIONS_OBSERVABILITY_ARCHITECTURE.md` now owns the focused repository/staging/production evidence boundary and `PRODUCTION_TOPOLOGY_EVIDENCE.md` is reconciled to that model.
   - Exact PR 1042 head b5815c27541f1dffd9c8516ba4ac5e4df3cb3c6c passed all eight triggered workflows, had zero review threads/reviews, was zero commits behind main and squash-merged as ae660385f80cea99c484971fd05571c9ac89c817.
   - Issue 490 comment 5290619378 records only the OperationsObservability slice as terminal; PlatformAPI, PublicEdge and direct production evidence remain intentionally open.
+  - Current `routes/api.php` exposes only bounded game-auth ticket issuance and `routes/internal.php` exposes private Gateway game-auth contracts; neither is a general PlatformAPI surface.
+  - `MODULE_CATALOG.md` keeps PlatformAPI PLANNED and requires a concrete client/use case; portal work allocation marks the first general surface as owner-decision-required.
+  - Proposed ADR 0036 and ARCH-DEC-0005 on draft PR 1044 contain the decision-ready PlatformAPI activation alternatives with implementation_authorized=false.
 derived:
   - The Platform core remains a sound Laravel modular monolith; native integration is explicitly separated from Legacy Canary Compatibility.
   - New native Platform consumers use canonical AccountId/CharacterId and explicit command/query/event/projection boundaries instead of inheriting Canary numeric IDs, table shapes, session semantics or gameplay protocol ownership.
@@ -110,6 +114,7 @@ derived:
   - Federated public content search belongs to PublicPortal orchestration over source-owned public queries; source publication/privacy decisions remain authoritative and restrictive revisions fence derived index/cache state.
   - First-party client distribution now has an accepted trust boundary; runtime implementation and protected signer/client evidence remain separate delivery facts.
   - OperationsObservability repository applicability and evidence semantics are now terminal for this review package; direct production proof remains a separate protected-environment gate.
+  - A speculative broad Platform API would create security and compatibility commitments before a named consumer exists, contrary to the current concrete-consumer-first boundary.
 unknown:
   - Exact deployed game-auth topology, alternate-path network isolation and production activation evidence.
   - Exact external/native producer and consumer transport, wire/IDL, runtime implementation, lease/fencing, replay stores, numerical freshness/TTL values and cutover evidence for accepted cross-boundary contracts remain outside this Platform architecture state record.
@@ -117,9 +122,11 @@ unknown:
   - Native guild identity required by the PublicGameData guild projection remains dependent on an accepted game-owned stable identifier; Platform must not invent one.
   - Exact maintained TUF implementation/POUF, client trust-bootstrap implementation, protected signing infrastructure and numerical metadata expiry values remain implementation/operations decisions.
   - Exact production log/metrics backend, alert/on-call destination, retention/access policy, deployed topology, backup system, deployment mechanism and production restore evidence require direct protected-environment evidence.
+  - Repository-owner choice for ARCH-DEC-0005: Option A explicit deferral, Option B public read-only v1 first, or Option C authenticated first-party account/client v1 first.
 conflicts: []
-blockers: []
-next_action: Select the next highest-risk unresolved and unowned Platform architecture question from current main.
+blockers:
+  - Repository owner must select ARCH-DEC-0005 Option A, B or C before ADR 0036 can become accepted or any general Platform API implementation can be authorized.
+next_action: Repository owner selects ARCH-DEC-0005 Option A (recommended explicit deferral), Option B (public read-only v1 first), or Option C (authenticated first-party account/client v1 first); then reconcile accepted canonical authority and close the PlatformAPI slice of Issue 490.
 ```
 
 ## Programme rules
