@@ -120,12 +120,12 @@ A trigger starts a new bounded decision/implementation package; it does not itse
 
 ## Existing canonical documents
 
-No content change is required in `MODULE_CATALOG.md` or `PORTAL_COMPLETENESS_ARCHITECTURE.md` for this decision:
+The selected Option A already matched the substantive consumer-first/service-reuse/security rules in existing canonical documents, but this package also reconciles stale Issue #490 lifecycle references so completed PlatformAPI decision work cannot be reopened accidentally:
 
-- `MODULE_CATALOG.md` already states that endpoints exist only for a concrete client/use case, that module services/policies must be reused and that specialized game-auth/internal endpoints are not general PlatformAPI; its `PLANNED` status is an implementation-availability label rather than launch disposition;
-- `PORTAL_COMPLETENESS_ARCHITECTURE.md` already says a versioned first-party API becomes justified by concrete consumers and must reuse module services/authorization/version/freshness semantics.
-
-`SECURITY_ARCHITECTURE.md` also already owns the applicable generic API security invariants: API input is untrusted, expensive/public search APIs require application-level limits, private identifiers do not authorize ownership, and production/edge controls remain defense in depth. Option A adds no runtime API surface and therefore requires no new security mechanism.
+- `MODULE_CATALOG.md` retains `PlatformAPI | PLANNED` as an implementation-availability label, now explicitly records the product/programme `DEFERRED` disposition under ADR 0036 and marks the PlatformAPI slice of Issue #490 terminal;
+- `OPERATIONS_OBSERVABILITY_ARCHITECTURE.md` now removes PlatformAPI from Issue #490's unresolved residual list and keeps only PublicEdge protected-environment proof and direct production evidence as residual concerns;
+- `PORTAL_COMPLETENESS_ARCHITECTURE.md` already says a versioned first-party API becomes justified by concrete consumers and must reuse module services/authorization/version/freshness semantics, so no content change is required there;
+- `SECURITY_ARCHITECTURE.md` already owns the applicable generic API security invariants: API input is untrusted, expensive/public search APIs require application-level limits, private identifiers do not authorize ownership, and production/edge controls remain defense in depth. Option A adds no runtime API surface and therefore requires no new security mechanism.
 
 ## Rejected shortcuts
 
