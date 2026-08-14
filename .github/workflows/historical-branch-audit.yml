@@ -158,13 +158,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
+          CURRENT_MAIN_SHA="$(git rev-parse HEAD)"
           python3 tools/agents/historical_branch_audit.py \
             --mode apply \
             --repo "${GITHUB_REPOSITORY}" \
             --token "${GITHUB_TOKEN}" \
             --event-name "${GITHUB_EVENT_NAME}" \
             --ref-name "${GITHUB_REF_NAME}" \
-            --expected-main-sha "${GITHUB_SHA}" \
+            --expected-main-sha "${CURRENT_MAIN_SHA}" \
             --output historical-branch-apply-report.json \
             --manifest historical-branch-post-apply-manifest.json \
             --evidence historical-branch-deletion-evidence.json \
