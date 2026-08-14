@@ -6,7 +6,7 @@
 
 This focused document reconciles existing accepted Platform architecture, security invariants and Phase 7 operational evidence. It does not introduce a new production provider choice, runtime implementation or production activation decision, so no new ADR is required for this reconciliation.
 
-Issue #490 remains the shared audit owner for three distinct concerns: Platform API, OperationsObservability/repository readiness and PublicEdge live proof. This document closes only the durable OperationsObservability applicability/evidence contract. It does not close Issue #490 or convert missing protected-environment evidence into proof.
+Issue #490 remains the shared audit owner for distinct non-UI concerns. The OperationsObservability applicability/evidence contract is terminal through PR #1042, and ADR 0036 now makes the general PlatformAPI disposition terminal by explicit owner deferral. The remaining Issue #490 concerns are PublicEdge live protected-environment proof and direct production evidence required by the go-live gate. This document does not close Issue #490 or convert missing protected-environment evidence into proof.
 
 ## Purpose
 
@@ -243,11 +243,12 @@ The operational layer follows fail-closed evidence semantics:
 
 ## Issue #490 disposition
 
-After this focused architecture/evidence package is merged, the **OperationsObservability applicability/profile contract and repository/staging evidence reconciliation** are terminal for Issue #490.
+The **OperationsObservability applicability/profile contract and repository/staging evidence reconciliation** are terminal for Issue #490 through PR #1042.
 
-Issue #490 intentionally remains open for residual concerns that this package cannot and must not claim to solve:
+ADR 0036 also makes the **PlatformAPI** product-surface disposition terminal by explicit owner deferral until an approved named consumer/use case exists.
 
-- first general/public Platform API product surface disposition;
+Issue #490 intentionally remains open only for residual concerns that neither terminal architecture disposition can and must not claim to solve:
+
 - PublicEdge live protected-environment proof;
 - direct production environment evidence required by the Production Go-Live Gate, including effective deployed observability, topology, backups and recovery controls.
 
