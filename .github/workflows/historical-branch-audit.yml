@@ -6,7 +6,9 @@ on:
       - ".github/workflows/historical-branch-audit.yml"
       - "docs/agents/HISTORICAL_BRANCH_DELETION_APPROVAL.json"
       - "tools/agents/historical_branch_audit.py"
+      - "tools/agents/historical_branch_policy.py"
       - "tools/agents/test_historical_branch_audit.py"
+      - "tools/agents/test_historical_branch_policy.py"
   push:
     branches:
       - main
@@ -14,7 +16,9 @@ on:
       - ".github/workflows/historical-branch-audit.yml"
       - "docs/agents/HISTORICAL_BRANCH_DELETION_APPROVAL.json"
       - "tools/agents/historical_branch_audit.py"
+      - "tools/agents/historical_branch_policy.py"
       - "tools/agents/test_historical_branch_audit.py"
+      - "tools/agents/test_historical_branch_policy.py"
   workflow_dispatch:
 
 permissions:
@@ -43,7 +47,9 @@ jobs:
           python-version: "3.12"
 
       - name: Run focused historical-audit tests
-        run: python3 tools/agents/test_historical_branch_audit.py
+        run: |
+          python3 tools/agents/test_historical_branch_audit.py
+          python3 tools/agents/test_historical_branch_policy.py
 
   inventory:
     name: live-dry-run
@@ -72,7 +78,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          python3 tools/agents/historical_branch_audit.py \
+          python3 tools/agents/historical_branch_policy.py \
             --mode inventory \
             --repo "${GITHUB_REPOSITORY}" \
             --token "${GITHUB_TOKEN}" \
@@ -98,6 +104,9 @@ jobs:
           unknown = sorted({item.get("disposition") for item in branches} - allowed)
           if unknown:
               raise SystemExit(f"unsupported/unreviewed dispositions: {unknown}")
+          delete_entries = [item for item in branches if item.get("disposition") == "DELETE"]
+          if any(not item.get("cleanup_proof") for item in delete_entries):
+              raise SystemExit("DELETE candidate without cleanup_proof")
           print(
               f"Fully accounted for {len(branches)} live refs; "
               f"{report.get('deletion_candidate_count')} exact deletion candidate(s)."
@@ -159,7 +168,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           CURRENT_MAIN_SHA="$(git rev-parse HEAD)"
-          python3 tools/agents/historical_branch_audit.py \
+          python3 tools/agents/historical_branch_policy.py \
             --mode apply \
             --repo "${GITHUB_REPOSITORY}" \
             --token "${GITHUB_TOKEN}" \
