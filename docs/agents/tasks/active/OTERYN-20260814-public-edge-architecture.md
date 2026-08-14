@@ -109,7 +109,7 @@ CONFLICT: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-14T19:31:00+02:00
+updated_at: 2026-08-14T19:33:00+02:00
 head: LIVE_PR_1063_HEAD
 material_head: 4210c36277c9115facbcbe0ca06b320a23536356
 branch: docs/OTERYN-20260814-public-edge-architecture
@@ -131,13 +131,15 @@ proven:
   - PR #1063 is the live task PR; continuation must resolve its current head_sha rather than treat an embedded SHA as current
   - material architecture repair commit 4210c36277c9115facbcbe0ca06b320a23536356 preserves positively observed direct-origin exposure as a failure
   - superseded head a6bf23dfefbf9938c472b3456b38f404abbc293e passed all eight emitted workflows before review repair but is not final validation evidence
-  - automated review on a6bf23dfefbf9938c472b3456b38f404abbc293e raised P1 stale recovery evidence and P2 direct-origin classification; both root causes are repaired in the current branch
+  - repository-configured ready-for-review automation emitted a Codex review on a6bf23dfefbf9938c472b3456b38f404abbc293e; this task did not manually request or invoke Codex/OpenAI/API review and whether that automatic integration consumes owner-funded quota is UNKNOWN
+  - that automated review raised P1 stale recovery evidence and P2 direct-origin classification; both root causes are repaired in the current branch and no additional Codex review will be manually requested
   - active public-domain-repair remains the live protected-environment evidence/repair owner and its blocker is not bypassed
-  - no server/game repository, protected environment, production secret or owner-funded AI service was accessed by this task
+  - no server/game repository, protected environment or production secret was accessed by this task
 derived:
   - after review repair the remaining repository gate is exact current live-head CI plus terminal review hygiene
 unknown:
   - exact current protected-environment edge-control state remains blocked by the active task token permission boundary
+  - whether the repository-configured automatic Codex review consumes the repository owner's quota
 conflicts: []
 first_failure:
   marker: PR #1063 automated review P1/P2 on a6bf23dfefbf9938c472b3456b38f404abbc293e
