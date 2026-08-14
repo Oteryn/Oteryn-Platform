@@ -22,46 +22,52 @@ reason: >-
   strict promotion rule from ARCHITECTURE_READY to canonical READY; focused LiveOps
   architecture was terminal while runtime promotion/source gates were implicit;
   Client Distribution Issue #1039 was not reachable from canonical selection order;
-  and ACTIVE_WORK/PROJECT_STATE contained stale routing text capable of misleading
-  selection. The reconciliation is documentation/governance-only, Platform-scoped,
-  unowned, reversible and has known validation/closeout gates.
+  the canonical execution prompt duplicated a stale queue; mixed entries had no
+  deterministic candidate roll-up; and ACTIVE_WORK/PROJECT_STATE contained stale
+  routing text capable of misleading selection. The reconciliation is
+  documentation/governance-only, Platform-scoped, unowned, reversible and has known
+  validation/closeout gates.
 ```
 
 ## Canonical selection-order classification at claim time
 
 The classification vocabulary is exactly `TERMINAL | OWNED | BLOCKED | DECISION_REQUIRED | READY`. `READY` here is a transient live selector result, not a Work Allocation board status.
 
-| Entry | Classification | Exact evidence / skip reason |
+Each entry was reconstructed candidate-first. Entry roll-up follows programme version 3: `READY` if any candidate is ready; otherwise `OWNED`; otherwise `DECISION_REQUIRED`; otherwise `BLOCKED`; otherwise `TERMINAL`. This prevents an owned/blocked sibling from hiding an independent ready candidate.
+
+| Entry | Entry classification | Candidate-level evidence / skip reason |
 |---|---|---|
-| 1. Resume current valid portal-completion task | `OWNED` | Issue #1049 (`arch(portal): define focused Today command-centre composition boundary`) had been claimed by draft PR #1055 and active task `OTERYN-20260814-public-today-architecture`. PR #1055 changed only its task record, `ARCHITECTURE_AUTHORITY.md` and `PUBLIC_PORTAL_TODAY_ARCHITECTURE.md`; this invocation could not duplicate/resume another owner. |
-| 2. Reconcile material source-of-truth/task/PR/selector drift | `READY` | Selected as Issue #1057 / task `OTERYN-20260814-portal-selector-reconciliation` / PR #1058. No earlier unowned READY entry existed. |
-| 3. Current implementation-authorized high-risk repair | `BLOCKED` | Historical #948, #944 and #941 are all closed `completed`; a live query for open `risk:high` Issues returned none. Shared audit Issue #486 remains open and contains HIGH findings, but concrete character owners #317/#319 are `state:blocked`, achievement #323 is `state:blocked` on authoritative catalogue/earned-source evidence, and optional badge/status #325 is `state:triage` and requires product/source decisions. There is no exact implementation-authorized unblocked high-risk remediation candidate to route ahead of #1057. |
-| 4. Production/PublicEdge proof | `BLOCKED` | Issue #490 retains direct production/PublicEdge evidence. Active `OTERYN-20260801-public-domain-repair` is blocked on protected Cloudflare token-scope / protected-environment authority. This prompt explicitly grants neither protected-environment nor Cloudflare authority. |
-| 5. Core Account Center / Character Portfolio | `BLOCKED` | #317 deletion/restore and #319 rename are open `state:blocked` on accepted native Character Authority command/result semantics. #320 is open `state:blocked` and additionally requires an explicit product decision that native transferable worlds/channels exist. Required server-owned evidence cannot be obtained by inspecting another repository under this invocation. |
-| 6. LiveOps and PublicPortal Today | `OWNED` | Focused LiveOps architecture Issue #1046 is already closed and PRs #1047/#1048 are merged/archived; this does **not** imply runtime implementation. The next WorldStatus + configured Maintenance runtime package is not promoted without exact authoritative runtime-status source evidence, and ServerSave remains unavailable until its own source/applicability/time-base/recurrence/freshness semantics are proven. In parallel, the currently executable architecture sub-slice PublicPortal Today is owned by #1049 / PR #1055. |
-| 7. Federated search reverse-edge cleanup + orchestration | `READY` | ADR 0033 / focused federated-search architecture is accepted; the first Platform-only dependency cleanup is bounded. Live Issue search for `federated`, `reverse edge` and `PublicContentState` found no open candidate/owner, so a canonical Issue/task may be created under the new-product-slice rule after earlier selector obligations are handled. Architecture maturity alone is not a persistent READY claim; ownership/source evidence must be rerun before claim. |
-| 8. Client Distribution Platform boundary | `READY` | Issue #1039 is open with `agent:ready`; ADR 0035 is accepted; mandatory immutable-reference repair #948 is terminal. #1039 explicitly scopes a Platform-only TUF distribution boundary and excludes external-repository writes, private signing operations, deployment and production activation. Real updater E2E remains a separate gate and therefore does not make the truthful Platform-only slice unreachable. |
-| 9. Wiki / Game Catalog expected inventories | `OWNED` | Wiki audit #488 is closed completed. Game Catalog remains specialized/open, while draft PR #338 owns an inactive schema 1.3 NPC-shop consumer and intentionally waits on separately evidenced producer compatibility. Do not duplicate that owned slice or inspect the external producer repository. |
-| 10. Player Companion P0 / follow-up vertical slices | `BLOCKED` | First complete P0 Session Analyzer is terminal through merged PR #1028. Work Allocation lists follow-up tools as independent `OPEN` work, but live search found no exact Hunt Finder/Equipment Explorer/Build Planner/Quest-Access Issue. `PLAYER_COMPANION_ARCHITECTURE.md` requires versioned authoritative inputs; this invocation did not prove one exact follow-up source/acceptance package, so implementation is not promoted to canonical READY. |
-| 11. World Hub/community expansion | `BLOCKED` | Work Allocation intentionally defers World Hub until multiple worlds/profiles and authoritative LiveOps/community inputs plus product need justify activation. Those activation conditions are not proven in this invocation. |
-| 12. Commerce | `DECISION_REQUIRED` | Commerce capability disposition still requires owner/product decisions; production activation additionally requires provider, legal/tax, webhook/reconciliation/refund/entitlement-freshness and protected-production gates. No payment activation authority exists here. |
+| 1. Resume current valid portal-completion task | `OWNED` | PublicPortal Today architecture #1049 = `OWNED` by draft PR #1055 and active task `OTERYN-20260814-public-today-architecture`. PR #1055 changed only its task record, `ARCHITECTURE_AUTHORITY.md` and `PUBLIC_PORTAL_TODAY_ARCHITECTURE.md`; this invocation could not duplicate/resume another owner. |
+| 2. Reconcile material source-of-truth/task/PR/selector drift | `READY` | Selector/prompt/routing reconciliation = `READY`, selected as Issue #1057 / task `OTERYN-20260814-portal-selector-reconciliation` / PR #1058. No earlier unowned READY entry existed. |
+| 3. Current implementation-authorized high-risk repair | `BLOCKED` | Historical #948 = `TERMINAL`, #944 = `TERMINAL`, #941 = `TERMINAL`. A live query for open `risk:high` Issues returned none. Shared audit #486 is not itself a bounded implementation package; concrete currently relevant character/achievement repair owners #317/#319/#323 are `BLOCKED` on accepted authority/source evidence. No exact implementation-authorized unblocked high-risk repair candidate exists. |
+| 4. Production/PublicEdge proof | `BLOCKED` | Issue #490 production/PublicEdge proof = `BLOCKED`; active `OTERYN-20260801-public-domain-repair` = `BLOCKED` on protected Cloudflare token-scope / protected-environment authority. This invocation grants neither authority. |
+| 5. Core Account Center / Character Portfolio | `DECISION_REQUIRED` | #317 delete/restore = `BLOCKED` on accepted native Character Authority command/result semantics. #319 rename = `BLOCKED` on the same authority. #320 world/channel transfer = `DECISION_REQUIRED` because native transferable worlds/channels require an explicit product decision before its additional server-owned contract/evidence blocker can be resolved. READY/OWNED are absent, so the entry rolls up `DECISION_REQUIRED`. |
+| 6. LiveOps and PublicPortal Today | `OWNED` | Focused LiveOps architecture #1046 = `TERMINAL` through merged #1047/#1048. `WorldStatus + configured Maintenance` runtime handoff = `BLOCKED` until the exact authoritative runtime-status source/producer identity and accepted contract version are proven from permitted evidence; the accepted Platform consumer contract explicitly defers producer transport/implementation. `ServerSave` = `BLOCKED` until its own authoritative producer/applicability/time-base/recurrence/freshness semantics are proven. PublicPortal Today architecture #1049 = `OWNED` by PR #1055. No READY sibling exists, so the entry rolls up `OWNED`. |
+| 7. Federated search reverse-edge cleanup + orchestration | `READY` | Announcements/Events reverse-edge cleanup = `READY`: ADR 0033/focused architecture is accepted, the bounded Platform-only dependency cleanup is known, and live search for `federated`, `reverse edge` and `PublicContentState` found no existing Issue/owner. Federated orchestration dependent on that cleanup is not selected ahead of its predecessor. Fresh ownership/source evidence must still be rerun before claim. |
+| 8. Client Distribution Platform boundary | `READY` | Issue #1039 = `READY`: it is open with `agent:ready`; ADR 0035 is accepted; mandatory immutable-reference repair #948 is terminal; the Issue explicitly scopes a Platform-only TUF distribution boundary and excludes external-repository writes, private signing operations, deployment and production activation. Real updater E2E remains a separate gate and does not make the truthful Platform-only slice unreachable. |
+| 9. Wiki / Game Catalog expected inventories | `OWNED` | Wiki audit #488 = `TERMINAL`. Game Catalog schema 1.3 consumer PR #338 = `OWNED` and intentionally held for separately evidenced producer compatibility. Game Catalog expected-inventory finding #489 remains unresolved/triage and requires specialized programme/source reconciliation; no external producer repository may be inspected here. READY is absent while a live candidate is owned, so the entry rolls up `OWNED`. |
+| 10. Player Companion P0 / follow-up vertical slices | `BLOCKED` | Session Analyzer v1 = `TERMINAL` through merged PR #1028. Follow-up Hunt Finder/Equipment Explorer/Build Planner/Quest-Access implementation package = `BLOCKED` for selector purposes because live search found no exact implementation Issue and this invocation did not prove one exact versioned authoritative source/acceptance package required by `PLAYER_COMPANION_ARCHITECTURE.md`. |
+| 11. World Hub/community expansion | `BLOCKED` | World Hub activation = `BLOCKED`: Work Allocation defers it until multiple worlds/profiles, authoritative LiveOps/community inputs and product need are proven; those activation inputs are absent. |
+| 12. Commerce | `DECISION_REQUIRED` | Commerce capability disposition = `DECISION_REQUIRED` on owner/product choices. Production activation is additionally blocked by provider, legal/tax, webhook/reconciliation/refund/entitlement-freshness and protected-production gates. No payment activation authority exists here. |
 
 ## Earlier-entry skip proof for selected Issue #1057
 
-Only entry 1 precedes the selected entry. It was skipped because it was `OWNED`, not because it was lower priority: #1049/PR #1055 already had a valid task/branch/PR owner. The selected control-plane reconciliation therefore was the first unowned canonical `READY` entry.
+Only entry 1 precedes the selected entry. It was skipped because its only live candidate was `OWNED`, not because it was lower priority: #1049/PR #1055 already had a valid task/branch/PR owner. The selected control-plane reconciliation therefore was the first unowned canonical `READY` candidate.
 
 ## Authority boundaries
 
-- `OTERYN_PORTAL_COMPLETION.md` is the sole live selection authority.
+- `OTERYN_PORTAL_COMPLETION.md` is the sole live selection authority, including candidate-level classification and mixed-entry roll-up.
+- `docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md` delegates queue ordering to the programme and contains no independent dated queue.
 - Work Allocation is allocation/maturity metadata only; `ARCHITECTURE_READY` never promotes itself to canonical `READY`.
 - `MODULE_CATALOG.md` describes repository implementation availability. `LiveOps | PLANNED` remains correct after architecture #1046 because no executable LiveOps capability is proven merged.
 - `LIVEOPS_ARCHITECTURE.md` owns Platform current-state projection semantics; it preserves Platform configured maintenance policy separately from observed runtime authority and explicitly leaves ServerSave source unknown.
+- `OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md` is an accepted Platform **consumer** contract but explicitly defers producer transport/implementation and requires accepted producer identity/exact contract evidence before implementation/activation claims.
 - PublicPortal Today/World Hub are composition consumers, never runtime-routing/admission authority.
 - External producer behavior/transport is not invented. If required evidence exists only in a server/game repository, the candidate is blocked pending separate owner authorization.
 
 ## Ownership and overlap
 
-- This task owns only the paths declared in `docs/agents/tasks/active/OTERYN-20260814-portal-selector-reconciliation.md`.
+- This task owns only the paths declared in `docs/agents/tasks/active/OTERYN-20260814-portal-selector-reconciliation.md`, including the canonical execution prompt after review proved it was part of the stale selector surface.
 - PR #1055 owns Today architecture paths and does not overlap this task.
 - PR #1056 owns branch-lifecycle workflow/governance paths and does not overlap this task.
 - Existing PRs #338, #988, #1006, #1019 and #1020 have distinct intent/paths; none is modified or closed by this task.
@@ -84,24 +90,33 @@ Architecture #1046 is terminal and already defines the required boundary:
 - additive/reversible Platform projection storage if needed;
 - implementation-handoff acceptance and production-activation separation.
 
-The first runtime implementation package is therefore bounded as `WorldStatus + configured Maintenance`, but **not selector-READY until exact authoritative runtime-status source evidence is proven from permitted Platform-side evidence**. `ServerSave` does not join by assumption.
+The first runtime implementation package is bounded as `WorldStatus + configured Maintenance`, but **not selector-READY**. The exact blocker is Platform contract `docs/contracts/OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md`: it is accepted consumer architecture while producer transport/implementation, source identity/generation representation, exact cadence/freshness and producer contract details remain deferred/unknown; its own validation requirements demand accepted producer identity and exact contract version before implementation/activation claims. `ServerSave` does not join by assumption and retains its separate source/applicability/time-base/recurrence/freshness blocker.
+
+## Review repair
+
+PR review on the pre-repair diff identified two material deterministic-selection defects:
+
+1. the canonical execution prompt still contained historical repair examples and omitted Client Distribution #1039 from its duplicated order;
+2. combined entries could be both OWNED/BLOCKED and contain a READY sibling without a deterministic roll-up rule.
+
+Programme version 3 now classifies candidates first with READY-first roll-up, and prompt version 1.1 delegates all ordering to the programme instead of copying the queue. Exact-final-head CI and self-review must validate these repairs before merge.
 
 ## Validation and E2E policy
 
-This task changes documentation/governance only. Runtime/browser E2E is `NOT_APPLICABLE`: no route, controller, API, persistence, frontend, runtime adapter or environment behavior is introduced or changed. Documentation/link/governance validation and exact-final-head CI remain mandatory.
+This task changes documentation/governance only. Runtime/browser E2E is `NOT_APPLICABLE`: no route, controller, API, persistence, frontend, runtime adapter or environment behavior is introduced or changed. Documentation/path/link/prompt/governance validation and exact-final-head CI remain mandatory.
 
 ## Final state
 
 ```yaml
 implementation_pr: 1058
 implementation_head: pending_final_head
-required_ci: pending
-full_diff_self_review: pending
-review_threads: pending
+required_ci: pending_after_review_repairs
+full_diff_self_review: pending_after_review_repairs
+review_threads: pending_resolution_after_final_head
 merge: pending
 issue_1057: open
 archive: pending
 ownership_release: pending
 post_merge_selector_rerun: pending
-next_action: Finish exact-head validation/review, merge PR #1058 when eligible, archive the task, then rerun the selector against the new protected main.
+next_action: Validate and re-review the final repaired head, resolve review threads, merge PR #1058 when eligible, archive the task, then rerun the selector against the new protected main.
 ```
