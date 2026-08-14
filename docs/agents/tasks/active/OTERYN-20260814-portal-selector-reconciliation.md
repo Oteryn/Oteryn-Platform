@@ -72,9 +72,9 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-14T13:41:00Z
-head: 08fc666bf467175b2f222c35e94d7f86b6ab9a40
-material_head: 08fc666bf467175b2f222c35e94d7f86b6ab9a40
+updated_at: 2026-08-14T13:47:00Z
+head: b3d7acea0cfe03e4eb821a8535785e6e4fb71ddf
+material_head: b3d7acea0cfe03e4eb821a8535785e6e4fb71ddf
 branch: docs/issue-1057-portal-selector-reconcile
 pr: 1058
 status: validating
@@ -136,10 +136,13 @@ validation:
     result: FAIL
     evidence: job 94782179072 failed at checkpoint validation because rejected_hypotheses was missing; deterministic correction applied
   - command: exact-head CI and Agent Governance on 48a931c5d89d4cf87f279171b54b7d16e2737932
-    result: PASS_SUPERSEDED
-    evidence: CI run 31805351755 and Agent Governance run 31805351631 passed; review findings then required programme/prompt repairs, so this is not final-head evidence
+    result: PASS
+    evidence: CI run 31805351755 and Agent Governance run 31805351631 passed; review findings then required programme/prompt repairs, so this is superseded rather than final-head evidence
+  - command: Agent Governance on b3d7acea0cfe03e4eb821a8535785e6e4fb71ddf
+    result: FAIL
+    evidence: run 31806121359 job 94785347388 failed only at Validate active task checkpoints because PASS_SUPERSEDED is not an allowed validation result; deterministic vocabulary correction is applied in this commit
 blockers: []
-next_action: Run final-head prompt/governance/required CI after the mixed-entry and canonical-prompt repairs, re-review the complete diff, resolve both review threads, then merge/archive only if terminal.
+next_action: Run exact-final-head CI and Agent Governance on the corrected checkpoint, re-review the complete eight-file diff, verify review threads remain resolved, then merge/archive only if terminal.
 ```
 
 ## Notes
