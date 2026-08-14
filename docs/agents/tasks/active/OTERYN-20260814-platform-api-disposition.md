@@ -41,7 +41,7 @@ Resolve the remaining PlatformAPI architecture/product-disposition gap from Issu
 - [x] `MODULE_CATALOG.md` reconciles its stale Issue #490 decision-gap statement while retaining `PLANNED` strictly as implementation availability.
 - [x] `OPERATIONS_OBSERVABILITY_ARCHITECTURE.md` removes PlatformAPI from Issue #490's unresolved residual list while preserving PublicEdge/direct-production evidence as open.
 - [x] `PORTAL_COMPLETENESS_ARCHITECTURE.md` and `SECURITY_ARCHITECTURE.md` were rechecked and require no content change because their concrete-consumer/service-reuse/security statements already agree with Option A.
-- [x] PR #1044 P2 review finding about stale PlatformAPI decision references is remediated in the exact canonical owner documents and ADR rationale.
+- [x] PR #1044 P2 review finding about stale PlatformAPI decision references is remediated in the exact canonical owner documents and ADR rationale; its thread is resolved.
 - [x] Issue #490 already contains the decision-ready question; terminal PlatformAPI disposition will be recorded after the accepted package merges.
 - [ ] Exact final-head documentation/governance CI and PR hygiene pass.
 - [ ] Accepted package is merged, PlatformAPI slice is recorded terminal in Issue #490, task is archived and programme returns to ready rotation.
@@ -89,8 +89,8 @@ decomposition_reason: one cohesive Platform-only product/API activation decision
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-14T10:32:00+02:00
-head: 1f1d4824f854594641a6fbd05331c3d3e4f1aeb9
+updated_at: 2026-08-14T10:36:00+02:00
+head: c4acc6ed8b0ad0c431e32d147a771a4faf3d2456
 material_head: 1f1d4824f854594641a6fbd05331c3d3e4f1aeb9
 branch: docs/OTERYN-20260814-platform-api-disposition
 pr: 1044
@@ -126,7 +126,8 @@ proven:
   - ADR README contains the unique 0036 inventory entry allocated by this PR.
   - Agent Governance run 31783580860 on pre-repair head 6d1a3df750f13c50c8e6332ebe6e0ff4e30b655a passed checkpoint-validator tests, liveness tests, Control Room tests, 95 policy-consistency tests and prompt-contract validation before failing the live checkpoint command only because `head` was absent and validation result `PENDING` was unsupported.
   - Exact head 688ff0b70d0bbdeaa607f2f80b4d311b9d535543 then passed Agent Governance run 31783716186 completely, including active checkpoint and live ownership validation.
-  - PR #1044 review thread PRRT_kwDOTcsYjs6ZNajT identified one P2 stale-reference finding; exact net patches for MODULE_CATALOG and OPERATIONS_OBSERVABILITY_ARCHITECTURE now reconcile those references without unrelated file drift.
+  - Repository-configured automated Codex PR review was triggered by the earlier ready-for-review transition and reviewed older head f087717af1ab256d7580530b329568188ca1b7c4; the agent did not request `@codex review` or another explicit Codex invocation.
+  - That automated review produced PR #1044 thread PRRT_kwDOTcsYjs6ZNajT with one P2 stale-reference finding; exact net patches for MODULE_CATALOG and OPERATIONS_OBSERVABILITY_ARCHITECTURE reconcile those references without unrelated file drift, and the thread is resolved/outdated.
 derived:
   - Explicit deferral is the smallest secure architecture disposition: it closes audit ambiguity without creating an unused compatibility and attack surface.
   - A future API package is implementation-authorized only after a named consumer trigger and a new bounded architecture/security package satisfy the accepted activation checklist.
@@ -163,16 +164,19 @@ validation:
   - command: review-remediation net patch inspection
     result: PASS
     evidence: MODULE_CATALOG patch changes only PlatformAPI lifecycle/reference lines; OPERATIONS_OBSERVABILITY_ARCHITECTURE patch changes only Issue 490 residual wording; no unrelated replacement drift
+  - command: review hygiene
+    result: PASS
+    evidence: sole P2 review thread is resolved and outdated; review submission is COMMENTED rather than REQUEST_CHANGES
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: architecture/governance-only explicit deferral; no executable behavior changes
-  - command: exact-final-head CI and PR hygiene
+  - command: exact-final-head CI
     result: NOT_RUN
-    evidence: new exact-head generation required after P2 review remediation and task checkpoint update
+    evidence: one final exact-head generation is required after this evidence-only checkpoint correction
 blockers: []
-next_action: Reply to and resolve the remediated P2 review thread, validate the new exact PR 1044 head with zero unresolved material reviews and all exact-head workflows, squash-merge, record the PlatformAPI slice terminal in Issue 490, then archive this task and return the architecture programme to ready rotation.
+next_action: Validate the new exact PR 1044 head with all exact-head workflows, current-base mergeability and zero unresolved material reviews; squash-merge, record the PlatformAPI slice terminal in Issue 490, then archive this task and return the architecture programme to ready rotation.
 ```
 
 ## Notes
 
-No Codex, owner-funded OpenAI/API token, protected environment, production secret, live-system mutation or external-repository access is authorized or used by this task.
+No explicit owner-funded Codex/OpenAI/API invocation was authorized or requested by the agent. A repository-configured automated Codex review triggered when PR #1044 was marked ready before that behavior was observed; it reviewed an older head, produced the remediated P2 finding above and no further Codex action is being requested. No protected-environment operation, production secret, live-system mutation or external-repository access is used by this task.
