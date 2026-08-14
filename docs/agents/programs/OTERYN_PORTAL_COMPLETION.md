@@ -2,7 +2,7 @@
 
 ```yaml
 programme_id: OTERYN_PORTAL_COMPLETION
-programme_version: 2
+programme_version: 3
 repository: blakinio/Oteryn-Platform
 trusted_base: main
 owner_alias: PORTAL-CLOSEOUT
@@ -52,15 +52,29 @@ Durable live state overrides every dated example, report, board row and convenie
 
 ## Canonical selector states
 
-Every selection-order entry is classified from live evidence as exactly one of:
+Every exact candidate is classified from live evidence as exactly one of:
 
-- `TERMINAL` — the required current scope is complete, explicitly deferred/rejected by accepted authority, or no resumable item exists for that entry;
+- `TERMINAL` — the required current candidate scope is complete, explicitly deferred/rejected by accepted authority, or no resumable candidate remains;
 - `OWNED` — a valid live task/branch/PR/lease already owns the candidate; do not duplicate it;
 - `BLOCKED` — an exact dependency, authority, environment or required evidence prevents safe execution;
 - `DECISION_REQUIRED` — one explicit owner/product/architecture decision is required before execution can be authorized;
-- `READY` — at least one exact candidate satisfies every eligibility rule below and is unowned.
+- `READY` — the exact candidate satisfies every eligibility rule below and is unowned.
 
-Classification is per live invocation, not a persistent workstream status. For every skipped earlier entry, persist the exact evidence/reason in the task or selection proof.
+Classification is per live invocation, not a persistent workstream status. For every skipped earlier entry, persist the exact candidate evidence/reason in the task or selection proof.
+
+### Mixed-entry candidate classification and roll-up
+
+A numbered selection entry may contain more than one exact candidate (for example LiveOps and PublicPortal Today, or Wiki and Game Catalog). The selector must never collapse those candidates before checking whether an unowned `READY` sibling exists.
+
+For each numbered entry:
+
+1. enumerate every exact currently relevant candidate package that can be identified from accepted architecture/programmes, live Issues/tasks/PRs and current dependencies;
+2. classify **each candidate** independently as `TERMINAL | OWNED | BLOCKED | DECISION_REQUIRED | READY` with exact evidence;
+3. order candidates by an accepted sub-order when one exists; otherwise use dependency order first, then accepted programme/delivery sub-priority, then canonical candidate identity (Issue number ascending, otherwise task/package identifier lexical ascending) only as a final deterministic tie-breaker among otherwise independent peers;
+4. roll the entry up with this strict precedence: `READY` if any candidate is `READY`; otherwise `OWNED` if any candidate is `OWNED`; otherwise `DECISION_REQUIRED` if any candidate is `DECISION_REQUIRED`; otherwise `BLOCKED` if any candidate is `BLOCKED`; otherwise `TERMINAL`;
+5. when the entry rolls up `READY`, select its first `READY` candidate in the candidate order above before considering any later numbered entry.
+
+`READY` therefore outranks `OWNED` and `BLOCKED` at entry roll-up specifically so an owned or blocked sibling cannot make an independent ready candidate unreachable. The proof must still retain all candidate classifications; roll-up is only the entry-level selector state.
 
 ## Selection order
 
