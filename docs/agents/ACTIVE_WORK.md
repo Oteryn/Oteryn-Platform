@@ -1,10 +1,14 @@
 # Oteryn Platform Active Work
 
-Convenience index only. Individual active task records, live PRs and Git state are authoritative.
+Convenience index only. Individual active task records, live PRs and Git state are authoritative. This file is **not** a programme scheduler; portal-completion selection is owned by `docs/agents/programs/OTERYN_PORTAL_COMPLETION.md` and must be resolved from current protected `main` plus live tasks/Issues/PRs.
 
 ## Active tasks
 
-None recorded by this index. Live active task files and pull requests remain authoritative when newer.
+- `docs/agents/tasks/active/OTERYN-20260801-public-domain-repair.md` — `BLOCKED`; the remaining Cloudflare edge proof requires protected token-scope replacement / protected-environment authority and is not selectable under ordinary repository-only authorization.
+- `docs/agents/tasks/active/OTERYN-20260805-native-auth-production-verification.md` — `BLOCKED`; verification-only record waiting on future native runtime/admission and authorized production evidence, with no runtime path ownership.
+- `docs/agents/tasks/active/OTERYN-20260814-portal-selector-reconciliation.md` — `IMPLEMENTING` under Issue #1057 / PR #1058; owns only the bounded portal selector/allocation/delivery-state reconciliation paths declared in that task.
+
+Any newer active task or PR overrides this convenience snapshot. Do not infer that an unlisted workstream is free, blocked or next without rerunning its canonical selector.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -87,11 +91,11 @@ The latest verified final-portal staging refresh identity is `583cae5f430998b2bb
 
 ## Next work
 
-Start one bounded, unowned audit-remediation slice. #319 is already owned by the rename-contract work; #317/#320 require operation-specific Canary contracts; #321/#322 require payment/product decisions. The next safe acceptance slice is the machine-enforced backend–frontend capability ledger under #326. Direct production verification remains #91.
+Do not route new work from this historical snapshot. For `OTERYN_PORTAL_COMPLETION`, run the canonical selector in `docs/agents/programs/OTERYN_PORTAL_COMPLETION.md` against current protected `main`, active task files, live Issues/PRs and ownership, recording exact reasons for each earlier `TERMINAL | OWNED | BLOCKED | DECISION_REQUIRED` entry before selecting the first `READY` candidate. Other programmes must use their own live coordinator/selector. Direct production verification remains separately gated by Issue #91 and explicit production authority.
 
 ## Remaining cross-repository dependency
 
-The authoritative Platform game-login bridge remains separate and requires explicit authorization before external repository writes if it is part of launch scope.
+Any authoritative game/server dependency remains separate and requires explicit owner authorization before external-repository access or mutation. A Platform task must record an exact blocker instead of inspecting another repository without that authority.
 
 ## Coordination rule
 
