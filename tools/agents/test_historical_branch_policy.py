@@ -17,21 +17,8 @@ def branch(
     *,
     active: bool = False,
     reserved: bool = False,
-    merged_pr: int | None = None,
     ahead: int = 1,
 ) -> dict:
-    pulls = []
-    if merged_pr is not None:
-        pulls.append(
-            {
-                "head_sha": sha,
-                "merged": True,
-                "merged_at": "2026-08-14T00:00:00Z",
-                "number": merged_pr,
-                "state": "closed",
-                "title": "merged",
-            }
-        )
     return {
         "active_claims": ["task.md"] if active else [],
         "branch": name,
@@ -39,7 +26,7 @@ def branch(
         "head_sha": sha,
         "open_pr_numbers": [1] if disposition == "OPEN_PR" else [],
         "protected": disposition == "PROTECTED",
-        "pull_history": pulls,
+        "pull_history": [],
         "reason": "initial",
         "relation": {"ahead": ahead, "proof": "UNIQUE_HISTORY_REMAINS"},
         "reserved_purpose_name": reserved,
@@ -54,7 +41,8 @@ class CollapseTests(unittest.TestCase):
             or (ancestor, descendant) in ancestry,
         )
 
-    def by_name(self, result: list[dict]) -> dict[str, dict]:
+    @staticmethod
+    def by_name(result: list[dict]) -> dict[str, dict]:
         return {item["branch"]: item for item in result}
 
     def test_generic_ref_reachable_from_open_pr_is_delete(self) -> None:
@@ -68,50 +56,40 @@ class CollapseTests(unittest.TestCase):
             )
         )
         self.assertEqual(result["old"]["disposition"], "DELETE")
-        self.assertIn("REACHABLE_FROM_LIVE_ANCHOR:live", result["old"]["cleanup_proof"])
+        self.assertEqual(
+            result["old"]["cleanup_proof"],
+            "REACHABLE_FROM_LIVE_ANCHOR:live",
+        )
         self.assertEqual(result["live"]["disposition"], "OPEN_PR")
 
-    def test_active_task_ref_is_never_collapsed(self) -> None:
+    def test_active_task_ref_is_anchor_and_never_collapsed(self) -> None:
         result = self.by_name(
             self.collapse(
                 [
-                    branch("active", "a" * 40, "RETAIN", active=True),
-                    branch("later", "b" * 40, "RETAIN", ahead=2),
+                    branch("older", "a" * 40, "RETAIN"),
+                    branch("active", "b" * 40, "RETAIN", active=True, ahead=2),
                 ],
                 {("a" * 40, "b" * 40)},
             )
         )
+        self.assertEqual(result["older"]["disposition"], "DELETE")
         self.assertEqual(result["active"]["disposition"], "RETAIN")
+        self.assertEqual(
+            result["older"]["cleanup_proof"],
+            "REACHABLE_FROM_LIVE_ANCHOR:active",
+        )
 
-    def test_reserved_recovery_ref_is_never_collapsed(self) -> None:
+    def test_recovery_ref_is_anchor_and_never_collapsed(self) -> None:
         result = self.by_name(
             self.collapse(
                 [
-                    branch("recovery", "a" * 40, "RECOVERY", reserved=True),
-                    branch("live", "b" * 40, "OPEN_PR", ahead=2),
+                    branch("older", "a" * 40, "RETAIN"),
+                    branch("backup/recovery", "b" * 40, "RECOVERY", reserved=True, ahead=2),
                 ],
                 {("a" * 40, "b" * 40)},
             )
         )
-        self.assertEqual(result["recovery"]["disposition"], "RECOVERY")
-
-    def test_exact_merged_pr_head_is_delete_when_not_reserved(self) -> None:
-        result = self.by_name(
-            self.collapse(
-                [branch("merged-work", "a" * 40, "RETAIN", merged_pr=42)],
-                set(),
-            )
-        )
-        self.assertEqual(result["merged-work"]["disposition"], "DELETE")
-        self.assertEqual(result["merged-work"]["cleanup_proof"], "EXACT_MERGED_PR_HEAD:42")
-
-    def test_reserved_exact_merged_head_stays_recovery(self) -> None:
-        result = self.by_name(
-            self.collapse(
-                [branch("backup/recovery", "a" * 40, "RECOVERY", reserved=True, merged_pr=42)],
-                set(),
-            )
-        )
+        self.assertEqual(result["older"]["disposition"], "DELETE")
         self.assertEqual(result["backup/recovery"]["disposition"], "RECOVERY")
 
     def test_duplicate_generic_refs_keep_one_deterministic_anchor(self) -> None:
@@ -128,40 +106,35 @@ class CollapseTests(unittest.TestCase):
         self.assertEqual(result["x"]["disposition"], "RETAIN")
         self.assertEqual(result["x2"]["disposition"], "DELETE")
         self.assertEqual(result["x3"]["disposition"], "DELETE")
-        self.assertIn("DUPLICATE_HEAD_RETAINED_AS:x", result["x2"]["cleanup_proof"])
+        self.assertEqual(
+            result["x2"]["cleanup_proof"],
+            "DUPLICATE_HEAD_RETAINED_AS:x",
+        )
 
-    def test_nonmaximal_generic_tip_is_delete(self) -> None:
+    def test_unique_generic_ancestor_of_other_generic_is_still_retained(self) -> None:
         result = self.by_name(
             self.collapse(
                 [
-                    branch("old", "a" * 40, "RETAIN", ahead=1),
-                    branch("new", "b" * 40, "RETAIN", ahead=3),
+                    branch("older-semantic-label", "a" * 40, "RETAIN", ahead=1),
+                    branch("newer-unclaimed", "b" * 40, "RETAIN", ahead=3),
                 ],
                 {("a" * 40, "b" * 40)},
             )
         )
-        self.assertEqual(result["old"]["disposition"], "DELETE")
-        self.assertEqual(result["new"]["disposition"], "RETAIN")
-        self.assertIn("REACHABLE_FROM_RETAINED_TIP:new", result["old"]["cleanup_proof"])
-
-    def test_divergent_generic_tips_are_both_retained(self) -> None:
-        result = self.by_name(
-            self.collapse(
-                [
-                    branch("left", "a" * 40, "RETAIN"),
-                    branch("right", "b" * 40, "RETAIN"),
-                ],
-                set(),
-            )
-        )
-        self.assertEqual(result["left"]["disposition"], "RETAIN")
-        self.assertEqual(result["right"]["disposition"], "RETAIN")
+        self.assertEqual(result["older-semantic-label"]["disposition"], "RETAIN")
+        self.assertEqual(result["newer-unclaimed"]["disposition"], "RETAIN")
 
     def test_base_delete_keeps_git_proof(self) -> None:
         item = branch("old", "a" * 40, "DELETE")
         item["relation"]["proof"] = "ANCESTOR_OF_MAIN"
         result = self.by_name(self.collapse([item], set()))
         self.assertEqual(result["old"]["cleanup_proof"], "ANCESTOR_OF_MAIN")
+
+    def test_invalid_base_delete_proof_fails_closed(self) -> None:
+        item = branch("old", "a" * 40, "DELETE")
+        item["relation"]["proof"] = "UNIQUE_HISTORY_REMAINS"
+        with self.assertRaises(policy.ValidationError):
+            self.collapse([item], set())
 
 
 if __name__ == "__main__":
