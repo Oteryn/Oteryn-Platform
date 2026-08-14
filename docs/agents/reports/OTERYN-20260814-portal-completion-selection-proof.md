@@ -4,7 +4,7 @@
 
 Repository: `blakinio/Oteryn-Platform` only.
 
-This proof records the live selector reconciliation started from protected `main` at `166561fe066b12310fb534172542e60b51484c46`. No Oteryn-v2, Canary or other game/server repository was accessed. No production/protected-environment, credential, Cloudflare, signing, payment or owner-funded Codex/OpenAI/API operation was used.
+This proof records the live selector reconciliation started from protected `main` at `166561fe066b12310fb534172542e60b51484c46`. No Oteryn-v2, Canary or other game/server repository was accessed. No production/protected-environment, credential, Cloudflare, signing or payment operation was performed. This task did not request or invoke owner-funded Codex/OpenAI/API usage; after PR #1058 was marked ready, the repository's preconfigured GitHub review app automatically posted a review. Whether that repository automation consumes an owner quota is not established by repository evidence.
 
 ## Selected candidate
 
@@ -100,6 +100,8 @@ PR review on the pre-repair diff identified two material deterministic-selection
 2. combined entries could be both OWNED/BLOCKED and contain a READY sibling without a deterministic roll-up rule.
 
 Programme version 3 now classifies candidates first with READY-first roll-up, and prompt version 1.1 delegates all ordering to the programme instead of copying the queue. Exact-final-head CI and self-review must validate these repairs before merge.
+
+The review was posted automatically by the repository's configured `chatgpt-codex-connector` after PR #1058 became ready for review. This task did not request a Codex run. Both material review threads were answered and resolved after the fixes.
 
 ## Validation and E2E policy
 
