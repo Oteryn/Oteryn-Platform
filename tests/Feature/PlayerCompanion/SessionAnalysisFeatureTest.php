@@ -49,7 +49,13 @@ final class SessionAnalysisFeatureTest extends TestCase
         $analysis = SessionAnalysis::query()->sole();
         $response->assertRedirect(route('player-companion.session-analyses.show', $analysis->id));
         self::assertSame($identity->id, $analysis->identity_id);
-        self::assertSame('1.1.0', $analysis->parser_version);
+        self::assertSame('1.2.0', $analysis->parser_version);
+        self::assertSame('session-analysis-applicability-v1', $analysis->applicability['schema_version']);
+        self::assertSame('tibia-session-analysis-v1', $analysis->applicability['game_profile']);
+        self::assertSame('arithmetic-only-v1', $analysis->applicability['ruleset']);
+        self::assertSame('not-required', $analysis->applicability['catalog_snapshot']);
+        self::assertSame('not-required', $analysis->applicability['world']);
+        self::assertSame('not-required', $analysis->applicability['season']);
         self::assertSame(400_000, $analysis->balance_value);
         self::assertSame(2, $analysis->participant_count);
         self::assertSame('Alice', $analysis->settlements[0]['from']);
@@ -102,8 +108,17 @@ final class SessionAnalysisFeatureTest extends TestCase
             'identity_id' => $owner->id,
             'label' => 'Private hunt',
             'source_format' => 'tibia-session-text-v1',
-            'parser_version' => '1.1.0',
+            'parser_version' => '1.2.0',
             'formula_version' => 'equal-split-v1',
+            'applicability' => [
+                'schema_version' => 'session-analysis-applicability-v1',
+                'game_profile' => 'tibia-session-analysis-v1',
+                'ruleset' => 'arithmetic-only-v1',
+                'catalog_snapshot' => 'not-required',
+                'world' => 'not-required',
+                'season' => 'not-required',
+                'effective_scope' => 'submitted-session',
+            ],
             'session_seconds' => 3600,
             'experience_gain' => 100,
             'loot_value' => 100,

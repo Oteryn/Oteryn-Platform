@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
  *
  * Raw submitted session text is intentionally never persisted by this model.
  *
+ * @property array{schema_version:string,game_profile:string,ruleset:string,catalog_snapshot:string,world:string,season:string,effective_scope:string} $applicability
  * @property list<array{from:string,to:string,amount:int}> $settlements
  */
 final class SessionAnalysis extends Model
@@ -22,6 +23,7 @@ final class SessionAnalysis extends Model
         'source_format',
         'parser_version',
         'formula_version',
+        'applicability',
         'session_seconds',
         'experience_gain',
         'loot_value',
@@ -40,6 +42,7 @@ final class SessionAnalysis extends Model
     protected function casts(): array
     {
         return [
+            'applicability' => 'array',
             'session_seconds' => 'integer',
             'experience_gain' => 'integer',
             'loot_value' => 'integer',

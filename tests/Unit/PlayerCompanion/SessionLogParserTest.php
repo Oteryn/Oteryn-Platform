@@ -35,7 +35,13 @@ Bob
 LOG);
 
         self::assertSame(3600, $result['session_seconds']);
-        self::assertSame('1.1.0', $result['parser_version']);
+        self::assertSame('1.2.0', $result['parser_version']);
+        self::assertSame('session-analysis-applicability-v1', $result['applicability']['schema_version']);
+        self::assertSame('tibia-session-analysis-v1', $result['applicability']['game_profile']);
+        self::assertSame('arithmetic-only-v1', $result['applicability']['ruleset']);
+        self::assertSame('not-required', $result['applicability']['catalog_snapshot']);
+        self::assertSame('not-required', $result['applicability']['world']);
+        self::assertSame('not-required', $result['applicability']['season']);
         self::assertSame(3_600_000, $result['experience_gain']);
         self::assertSame(3_600_000, $result['experience_per_hour']);
         self::assertSame(400_000, $result['balance_value']);
@@ -110,6 +116,21 @@ LOG);
 
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('too_many_participants');
+
+        (new SessionLogParser)->parse(implode("\n", $parts));
+    }
+
+    public function test_rejects_derived_hourly_rate_that_exceeds_integer_bounds(): void
+    {
+        $parts = ['Session: 00:01h'];
+        for ($index = 0; $index < 20; $index++) {
+            $parts[] = 'Player '.chr(65 + $index);
+            $parts[] = 'Loot: 9000000000000000';
+            $parts[] = 'Supplies: 0';
+        }
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('derived_metric_out_of_range');
 
         (new SessionLogParser)->parse(implode("\n", $parts));
     }

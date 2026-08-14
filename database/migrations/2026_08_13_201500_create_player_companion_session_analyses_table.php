@@ -15,6 +15,7 @@ return new class extends Migration
             $table->string('source_format', 48);
             $table->string('parser_version', 32);
             $table->string('formula_version', 48);
+            $table->json('applicability');
             $table->unsignedInteger('session_seconds');
             $table->bigInteger('experience_gain')->nullable();
             $table->bigInteger('loot_value')->nullable();

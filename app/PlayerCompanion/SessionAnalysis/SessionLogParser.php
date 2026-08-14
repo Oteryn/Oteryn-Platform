@@ -8,9 +8,11 @@ final class SessionLogParser
 {
     public const SOURCE_FORMAT = 'tibia-session-text-v1';
 
-    public const PARSER_VERSION = '1.1.0';
+    public const PARSER_VERSION = '1.2.0';
 
     public const FORMULA_VERSION = 'equal-split-v1';
+
+    public const APPLICABILITY_SCHEMA_VERSION = 'session-analysis-applicability-v1';
 
     private const MAX_METRIC = 9_000_000_000_000_000;
 
@@ -19,10 +21,15 @@ final class SessionLogParser
     /**
      * Parse a bounded Tibia-style session/party-hunt text export into normalized private data.
      *
+     * V1 arithmetic does not depend on a GameCatalog snapshot, world or season. Persisting
+     * explicit applicability sentinels keeps that fact reproducible if later formula generations
+     * become profile/ruleset/catalog/world/season dependent.
+     *
      * @return array{
      *   source_format:string,
      *   parser_version:string,
      *   formula_version:string,
+     *   applicability:array{schema_version:string,game_profile:string,ruleset:string,catalog_snapshot:string,world:string,season:string,effective_scope:string},
      *   session_seconds:int,
      *   experience_gain:int|null,
      *   loot_value:int|null,
@@ -169,6 +176,7 @@ final class SessionLogParser
             'source_format' => self::SOURCE_FORMAT,
             'parser_version' => self::PARSER_VERSION,
             'formula_version' => self::FORMULA_VERSION,
+            'applicability' => $this->applicability(),
             'session_seconds' => $sessionSeconds,
             'experience_gain' => $experience,
             'loot_value' => $loot,
@@ -181,6 +189,20 @@ final class SessionLogParser
             'participant_count' => count($participants),
             'participants' => $participants,
             'settlements' => $this->settlements($participants),
+        ];
+    }
+
+    /** @return array{schema_version:string,game_profile:string,ruleset:string,catalog_snapshot:string,world:string,season:string,effective_scope:string} */
+    private function applicability(): array
+    {
+        return [
+            'schema_version' => self::APPLICABILITY_SCHEMA_VERSION,
+            'game_profile' => 'tibia-session-analysis-v1',
+            'ruleset' => 'arithmetic-only-v1',
+            'catalog_snapshot' => 'not-required',
+            'world' => 'not-required',
+            'season' => 'not-required',
+            'effective_scope' => 'submitted-session',
         ];
     }
 
@@ -286,7 +308,21 @@ final class SessionLogParser
             return null;
         }
 
-        return (int) round(($value * 3600) / $seconds);
+        $whole = intdiv($value, $seconds);
+        $remainder = $value % $seconds;
+        $maxWhole = intdiv(PHP_INT_MAX, 3600);
+        $minWhole = intdiv(PHP_INT_MIN, 3600);
+        if ($whole > $maxWhole || $whole < $minWhole) {
+            throw new InvalidArgumentException('derived_metric_out_of_range');
+        }
+
+        $base = $whole * 3600;
+        $fraction = (int) round(($remainder * 3600) / $seconds);
+        if (($fraction > 0 && $base > PHP_INT_MAX - $fraction) || ($fraction < 0 && $base < PHP_INT_MIN - $fraction)) {
+            throw new InvalidArgumentException('derived_metric_out_of_range');
+        }
+
+        return $base + $fraction;
     }
 
     /**

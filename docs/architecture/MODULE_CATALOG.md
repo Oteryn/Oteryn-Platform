@@ -37,7 +37,7 @@ The frozen PR #453 production-completion baseline and later exact merged PRs pro
 | EditorialMedia | AVAILABLE | Private normalized raster-image objects, integrity metadata, bounded consumer references and administrator lifecycle | Generic public file hosting, executable uploads, arbitrary documents, consumer-specific publication rules |
 | Wiki | AVAILABLE | Localized Wiki public reads/search, categories, lifecycle, trusted administration, revisions and approved media references | Generic CMS pages, arbitrary HTML, player editing, claims of complete authoritative game content |
 | GameCatalog | AVAILABLE | Versioned deterministic game-catalogue snapshots/projections, exact authority provenance and, where authoritative, stable typed server-specific system definitions with version/profile/ruleset/season applicability | Executable native game-content authority, inventing missing content, editorial strategy, current runtime/rotation truth, silent producer assumptions, or production activation without a gate |
-| PlayerCompanion | PLANNED | Versioned calculators, build plans, hunt guidance, session analysis, progression goals, owner-private tracking/routines/change signals, shareable plans and explained recommendations | Canonical game/source facts, raw Canary access, notification transport, public follower graphs, game mutation, payment settlement or hidden balance policy |
+| PlayerCompanion | AVAILABLE | Versioned calculators, build plans, hunt guidance, session analysis, progression goals, owner-private tracking/routines/change signals, shareable plans and explained recommendations | Canonical game/source facts, raw Canary access, notification transport, public follower graphs, game mutation, payment settlement or hidden balance policy |
 | Admin | AVAILABLE | Admin UI, explicit RBAC/policies, privileged Platform use cases | Bypassing domain/application invariants or granting implicit wildcard authority |
 | Audit | AVAILABLE | Security/admin audit primitives, privileged-action audit and bounded admin audit visibility | Secrets, raw credentials, business-rule authorization decisions |
 | Integration | AVAILABLE | Implemented Canary read/write adapters, schema translation and contract enforcement; the bounded Identity -> Game Gateway -> private Platform login-context -> Game Session v1 bridge is merged, while native v2 and production cutover remain separate gated work | Product policy that belongs in domain modules, direct credential policy duplication or production-activation claims without exact evidence |
@@ -474,7 +474,7 @@ ADR 0032 assigns future typed server-specific system definitions to this module 
 - activation failure preserves the prior active snapshot and projections;
 - production import or activation requires a separate environment-gated task.
 
-## PlayerCompanion — planned
+## PlayerCompanion — available
 
 ### Responsibilities
 
@@ -489,6 +489,10 @@ ADR 0032 assigns future typed server-specific system definitions to this module 
 - ruleset/catalog/world/season freshness presentation.
 
 The focused architecture is `docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md`; ADR 0025 owns the broad durable module decision and ADR 0032 owns the tracking/subscription responsibility refinement.
+
+### Current available boundary
+
+Hunt Session Analyzer v1 is the first implemented PlayerCompanion capability. It provides authenticated owner-private normalized session analysis, deterministic XP/profit rates and advisory equal-split settlement suggestions, parser/formula versioning, explicit applicability metadata, private history/detail/delete flows and EN/PL presentation. Raw submitted session text is intentionally not persisted. Other PlayerCompanion responsibilities listed above remain planned and are not implied by the module-level `AVAILABLE` status.
 
 ### Dependencies
 
