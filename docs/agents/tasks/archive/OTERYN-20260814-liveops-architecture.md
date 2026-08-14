@@ -50,7 +50,6 @@ Define one focused canonical Platform architecture for `LiveOps` current world/s
 ```yaml
 owned_paths:
   - docs/agents/tasks/archive/OTERYN-20260814-liveops-architecture.md
-  - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
 modules:
   - LiveOps architecture
 dependencies:
@@ -75,13 +74,14 @@ context_routes:
   - agent-governance
 owned_paths:
   - docs/agents/tasks/archive/OTERYN-20260814-liveops-architecture.md
-  - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
 proven:
   - PR #1047 final head 2078158017e2468320ef77e9c83113c64ea3912f changed exactly three declared paths: the task record, one Architecture Authority routing row and the focused LiveOps architecture.
   - All eight workflows emitted for PR #1047 completed successfully on exact final head: CI 31803688308, Phase 7 Production-Like Validation 31803688337, Edge Security Emulation 31803688311, Platform DB Outage Validation 31803688305, Native protocol contract audits 31803688351, Native protocol contract 31803688307, Agent Governance 31803688333 and Game Auth Ticket Concurrency 31803688314.
   - Exact-head review 4937431004 records PASS with no material findings; PR #1047 had no unresolved review threads.
   - PR #1047 squash-merged as 13f5a526c107abfdd2d1eb6cc0a15ac45a18c1ca and main points to that merge.
   - Issue #1046 is closed with state_reason completed.
+  - `OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md` already classifies LiveOps as `ARCHITECTURE_READY`, which remains correct after architecture completion because runtime implementation is still absent; no board rewrite is required.
+  - `OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md` remains `ready` with `next_action` selecting the next risk-based domain and no active task/branch/PR ownership, so no active-state repair is required by this closeout.
   - No Oteryn-v2/Canary repository was accessed and no runtime, production or protected-environment operation was performed.
 derived:
   - LiveOps now has a focused canonical Platform architecture while implementation availability correctly remains PLANNED.
@@ -102,7 +102,6 @@ changed_paths:
   - docs/architecture/LIVEOPS_ARCHITECTURE.md
   - docs/architecture/ARCHITECTURE_AUTHORITY.md
   - docs/agents/tasks/archive/OTERYN-20260814-liveops-architecture.md
-  - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
 validation:
   - command: PR #1047 exact-head workflows on 2078158017e2468320ef77e9c83113c64ea3912f
     result: PASS
