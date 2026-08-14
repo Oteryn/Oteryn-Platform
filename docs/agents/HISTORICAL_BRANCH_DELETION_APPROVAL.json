@@ -1,0 +1,147 @@
+{
+  "apply_on_main": true,
+  "candidate_count": 33,
+  "confirmation": "DELETE_REVIEWED_HISTORICAL_REDUNDANT_BRANCHES_ISSUE_1068",
+  "entries": [
+    {
+      "branch": "audit/OTERYN-20260728-product-completeness",
+      "head_sha": "583cae5f430998b2bbdf5e60b59d93f09ec6f4c8"
+    },
+    {
+      "branch": "audit/native-oauth-revocation-integrity-20260807-copy",
+      "head_sha": "f8a727f3aa33cb123cbab5ff0d04a9d3cefcd69c"
+    },
+    {
+      "branch": "chore/OTERYN-20260725-synology-editorial-redeploy-cleanup",
+      "head_sha": "bd0bd9883e2753c8a385b3297aaed7a1cb2ce429"
+    },
+    {
+      "branch": "docs/OTERYN-20260805-route-view-repair-lifecycle",
+      "head_sha": "2abfb961201f7f5d359c5b140dba68be492157be"
+    },
+    {
+      "branch": "docs/OTERYN-20260807-account-id-boundary-2",
+      "head_sha": "022dbcef97b2dd0ff4eeeda11bf053c9c11341e8"
+    },
+    {
+      "branch": "docs/OTERYN-20260808-native-v2-integration-boundary",
+      "head_sha": "916629f1f0224adaa1392755a29f99fe31570a03"
+    },
+    {
+      "branch": "docs/OTERYN-20260813-architecture-programme-state-reconciliation-issue",
+      "head_sha": "0e2351c0b590c24b81d64ed9ec7b2bdea0da09c8"
+    },
+    {
+      "branch": "docs/archive-github-only-execution-v1-20260802",
+      "head_sha": "f8b67b7c84bfa86f41dd70b8116d2e8878b023cb"
+    },
+    {
+      "branch": "docs/finalize-issue-691-dependency-refresh",
+      "head_sha": "8584a96adfe2fa220b4b9c70e1575c5f7a98ca5b"
+    },
+    {
+      "branch": "docs/github-only-execution-v1-20260802",
+      "head_sha": "f8b67b7c84bfa86f41dd70b8116d2e8878b023cb"
+    },
+    {
+      "branch": "docs/issue-691-closeout",
+      "head_sha": "b8f00be56bd648a35e4fe1d4294633d85781c721"
+    },
+    {
+      "branch": "docs/lifecycle-closeout-actions-commonmark-20260807",
+      "head_sha": "dace403a9d1baa8f622540f38d205c6fbb1aea25"
+    },
+    {
+      "branch": "docs/portal-program-allocation",
+      "head_sha": "638df04f616c93d80e33e1abf3f2cf0198163e7a"
+    },
+    {
+      "branch": "docs/portal-program-allocation-v2",
+      "head_sha": "638df04f616c93d80e33e1abf3f2cf0198163e7a"
+    },
+    {
+      "branch": "docs/portal-program-allocation-v3",
+      "head_sha": "638df04f616c93d80e33e1abf3f2cf0198163e7a"
+    },
+    {
+      "branch": "docs/portal-program-allocation-v4",
+      "head_sha": "638df04f616c93d80e33e1abf3f2cf0198163e7a"
+    },
+    {
+      "branch": "fix/OTERYN-20260801-marketplace-control-trigger",
+      "head_sha": "b249e5e9cb864ba01376efb273be323b90bcd500"
+    },
+    {
+      "branch": "ops/OTERYN-20260725-synology-editorial-redeploy",
+      "head_sha": "bd0bd9883e2753c8a385b3297aaed7a1cb2ce429"
+    },
+    {
+      "branch": "ops/OTERYN-20260725-synology-redeploy-diagnostic",
+      "head_sha": "bd0bd9883e2753c8a385b3297aaed7a1cb2ce429"
+    },
+    {
+      "branch": "ops/OTERYN-20260727-staging-admin-observable-recovery",
+      "head_sha": "d75cfc84fc3ea01eaa24556185888123ffbc5f9c"
+    },
+    {
+      "branch": "ops/oteryn-tibia-client-analysis-20260811-sessioncheck",
+      "head_sha": "103769e3f7255489bd089435fe6f511bbcee2e10"
+    },
+    {
+      "branch": "ops/oteryn-tibia-livecheck-20260812",
+      "head_sha": "103769e3f7255489bd089435fe6f511bbcee2e10"
+    },
+    {
+      "branch": "ops/oteryn-tibia-session-check",
+      "head_sha": "103769e3f7255489bd089435fe6f511bbcee2e10"
+    },
+    {
+      "branch": "ops/oteryn-tibia-session-check-20260812",
+      "head_sha": "103769e3f7255489bd089435fe6f511bbcee2e10"
+    },
+    {
+      "branch": "repair/issue-586-branch-lifecycle-implementation",
+      "head_sha": "828f8fc5c4b64f6b6ac315e527d82d735ce3de50"
+    },
+    {
+      "branch": "repair/issue-586-branch-lifecycle-implementation-2",
+      "head_sha": "828f8fc5c4b64f6b6ac315e527d82d735ce3de50"
+    },
+    {
+      "branch": "repair/issue-658-branch-lifecycle-implementation-v2",
+      "head_sha": "47c6caa6b35c2d2af08d06322c6911721370860d"
+    },
+    {
+      "branch": "test/OTERYN-20260727-editorial-media-acceptance-prep",
+      "head_sha": "05d08714a0b87ee8a453d01bded605ff42de8bbc"
+    },
+    {
+      "branch": "test/OTERYN-20260727-support-legal-acceptance-v2",
+      "head_sha": "d08062c653a137e1359b5626fda635b170704cd8"
+    },
+    {
+      "branch": "x2",
+      "head_sha": "3c59fec368c68196851ebc9a205f91c38c1b6947"
+    },
+    {
+      "branch": "x3",
+      "head_sha": "3c59fec368c68196851ebc9a205f91c38c1b6947"
+    },
+    {
+      "branch": "x4",
+      "head_sha": "3c59fec368c68196851ebc9a205f91c38c1b6947"
+    },
+    {
+      "branch": "x5",
+      "head_sha": "3c59fec368c68196851ebc9a205f91c38c1b6947"
+    }
+  ],
+  "entries_sha256": "4fd027de83cf893b40ff0e3eb6fb61cec5a5513fd3bd2a852d4491aaec42230c",
+  "implementation_sha256": "3cad7d0210d20e88ac1e495d6004bd55c6fd7ed948727fa14589eb8200f96966",
+  "issue": 1068,
+  "review_summary": "Reviewed the complete 80-ref live audit from Historical Branch Audit run 31841162360. The 33 exact candidates are limited to 25 branch heads that are strict ancestors of protected main, 4 historical Tibia session refs whose exact head remains an ancestor of live open-PR branch ops/oteryn-tibia-client-analysis-20260811, and 4 exact duplicate x2-x5 refs whose unique head remains retained by branch x. All 15 recovery/rollback/backup refs, 22 unique unmerged generic refs, 9 open-PR refs and protected main remain non-candidates. No deletion is authorized by age, prefix or naming alone; any candidate/SHA/implementation/liveness drift invalidates apply.",
+  "reviewed_at": "2026-08-14T21:12:00Z",
+  "reviewed_by": "repository owner cleanup instruction executed by Issue #1068 remediation agent",
+  "schema_version": 1,
+  "source_artifact": "Historical Branch Audit run 31841162360 artifact 9234290642 digest sha256:a12c3a60be37e413fca897f586ad29e2ffdffefe35f0cad160cb9c7c49354682"
+}
