@@ -114,7 +114,7 @@ proven:
   - The architecture decision backlog was empty before this package; ARCH-DEC-0005 is the only active record on this branch.
   - ADR README proves 0035 was the highest allocated prefix before this package and no open architecture PR claimed 0036; Proposed ADR 0036 is therefore the next valid allocation.
   - Open PR #1028 does not own any path claimed by this architecture package; the other open PRs are unrelated operational/research/GameCatalog work.
-  - Draft PR #1044 contains the decision package and remains intentionally unmergeable by product policy until explicit owner selection.
+  - Draft PR #1044 contains the decision package and is intentionally blocked from merge by product/owner-decision policy until explicit owner selection.
   - Issue #490 comment 5290781071 asks for exactly A, B or C and recommends A without treating continuation as acceptance.
 derived:
   - Existing Passport-backed API authentication is reusable implementation capability for specialized game-auth, not evidence that a general token/scopes/client product has been selected.
