@@ -79,7 +79,7 @@ def classify_snapshot(
             exact = _exact_closed_unmerged_prs(
                 pulls, repo, item["branch"], item["head_sha"]
             )
-            if exact:
+            if len(exact) == 1:
                 matched = exact[0]
                 item["classification"] = "TERMINAL_CLOSED_UNMERGED"
                 item["deletion_candidate"] = True
@@ -91,6 +91,10 @@ def classify_snapshot(
                 item["evidence"] = [
                     f"closed unmerged pull request #{_pull_number(matched)} has the exact current branch head SHA",
                     "no open pull request, active task/open deterministic Issue, protection, retention exception or reserved recovery-sensitive name was accepted by the base classifier",
+                ]
+            elif len(exact) > 1:
+                item["evidence"] = [
+                    "multiple closed unmerged pull requests match the exact current branch head SHA; explicit PR identity is required before cleanup"
                 ]
         output.append(item)
 
