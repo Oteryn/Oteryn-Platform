@@ -41,10 +41,11 @@ Resolve the remaining PlatformAPI architecture/product-disposition gap from Issu
 - [x] `MODULE_CATALOG.md` reconciles its stale Issue #490 decision-gap statement while retaining `PLANNED` strictly as implementation availability.
 - [x] `OPERATIONS_OBSERVABILITY_ARCHITECTURE.md` removes PlatformAPI from Issue #490's unresolved residual list while preserving PublicEdge/direct-production evidence as open.
 - [x] `PORTAL_COMPLETENESS_ARCHITECTURE.md` and `SECURITY_ARCHITECTURE.md` were rechecked and require no content change because their concrete-consumer/service-reuse/security statements already agree with Option A.
-- [x] PR #1044 P2 review finding about stale PlatformAPI decision references is remediated in the exact canonical owner documents and ADR rationale; its thread is resolved.
-- [x] Concurrent PlayerCompanion merge #1028 is preserved through an exact current-main three-way merge without losing either PlayerCompanion or PlatformAPI canonical state.
+- [x] PR #1044 P2 review finding about stale PlatformAPI decision references is remediated and its thread is resolved.
+- [x] Concurrent PlayerCompanion merge #1028 is preserved through current-main three-way synchronization.
+- [x] The post-merge orphaned #1028 active task that made repository-wide Governance fail is terminally moved active → archive in this package, and PlayerCompanion foundation work allocation is reconciled from `IN_PROGRESS` to `DONE`.
 - [x] Issue #490 already contains the decision-ready question; terminal PlatformAPI disposition will be recorded after the accepted package merges.
-- [ ] Exact final-head documentation/governance CI and PR hygiene pass on the synchronized head.
+- [ ] Exact final-head documentation/governance CI and PR hygiene pass after the liveness repair.
 - [ ] Accepted package is merged, PlatformAPI slice is recorded terminal in Issue #490, task is archived and programme returns to ready rotation.
 - [x] Runtime/browser E2E is `NOT_APPLICABLE` because this package changes architecture/governance only and intentionally creates no general API endpoint.
 
@@ -55,6 +56,8 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260814-platform-api-disposition.md
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
   - docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
+  - docs/agents/tasks/active/OTERYN-20260813-player-companion-session-analyzer-v1.md
+  - docs/agents/tasks/archive/OTERYN-20260813-player-companion-session-analyzer-v1.md
   - docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
   - docs/architecture/ARCHITECTURE_AUTHORITY.md
   - docs/architecture/MODULE_CATALOG.md
@@ -64,6 +67,7 @@ owned_paths:
   - docs/architecture/adr/README.md
 modules:
   - PlatformAPI
+  - PlayerCompanion.SessionAnalysis lifecycle repair only
 dependencies:
   - Issue #490 shared audit owner
   - current module/service authority boundaries
@@ -80,18 +84,18 @@ policy_version: 2
 task_kind: architecture
 context_pressure: medium
 context_growth: stable
-context_score: 7
+context_score: 8
 estimate_confidence: high
 decomposition_decision: single
-decomposition_reason: one cohesive Platform-only product/API activation decision with no runtime implementation
+decomposition_reason: cohesive Platform architecture decision plus a bounded current-main governance blocker repair caused by a concurrently merged terminal task
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-14T11:02:00+02:00
-head: 8024689319a8b133f3d446a1389af6157d338eab
+updated_at: 2026-08-14T11:18:00+02:00
+head: ca6eec1fa915f931811a371d72b19c0e9dc4f2bf
 material_head: 1f1d4824f854594641a6fbd05331c3d3e4f1aeb9
 branch: docs/OTERYN-20260814-platform-api-disposition
 pr: 1044
@@ -104,6 +108,8 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260814-platform-api-disposition.md
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
   - docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
+  - docs/agents/tasks/active/OTERYN-20260813-player-companion-session-analyzer-v1.md
+  - docs/agents/tasks/archive/OTERYN-20260813-player-companion-session-analyzer-v1.md
   - docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
   - docs/architecture/ARCHITECTURE_AUTHORITY.md
   - docs/architecture/MODULE_CATALOG.md
@@ -113,47 +119,41 @@ owned_paths:
   - docs/architecture/adr/README.md
 proven:
   - Trusted main at task start was e0d9f28abad3a30c547d53f40cccf4ea713cf197.
-  - `routes/api.php` exposes only POST `/v1/game-auth/tickets`, protected by Passport-backed `auth:api` and a dedicated throttle.
-  - `routes/internal.php` exposes only private game-auth ticket redemption and login-context routes guarded by the Gateway service credential and dedicated throttles.
-  - Existing specialized game-auth/internal endpoints are not a general PlatformAPI surface.
-  - Repository owner explicitly selected ARCH-DEC-0005 Option A in the controlling conversation on 2026-08-14.
+  - `routes/api.php` exposes only POST `/v1/game-auth/tickets`; `routes/internal.php` exposes private Gateway game-auth contracts; neither is a general PlatformAPI surface.
+  - Repository owner selected ARCH-DEC-0005 Option A on 2026-08-14.
   - ADR 0036 is accepted with Option A and `PLATFORM_API_ARCHITECTURE.md` defines a fail-closed named-consumer activation checklist.
-  - ARCH-DEC-0005 has been removed from the active decision backlog; the backlog serializes exactly to current main bytes and therefore is not a final PR changed path.
-  - Portal work allocation marks Platform API DEFERRED and creates no speculative implementation handoff.
-  - `MODULE_CATALOG.md` explicitly separates PLANNED implementation availability from ADR 0036 DEFERRED product disposition and records PlatformAPI as terminal for Issue #490.
-  - `OPERATIONS_OBSERVABILITY_ARCHITECTURE.md` records OperationsObservability and PlatformAPI as terminal Issue #490 slices and leaves only PublicEdge/direct-production evidence residual.
-  - `PORTAL_COMPLETENESS_ARCHITECTURE.md` already states that first-party API is justified by concrete consumers and must reuse module services/authorization/version/freshness semantics.
-  - `SECURITY_ARCHITECTURE.md` already supplies the applicable generic API trust/rate/privacy/logging requirements; Option A creates no new runtime attack surface.
-  - ADR README contains the unique 0036 inventory entry allocated by this PR.
-  - Agent Governance run 31783580860 on pre-repair head 6d1a3df750f13c50c8e6332ebe6e0ff4e30b655a passed checkpoint-validator tests, liveness tests, Control Room tests, 95 policy-consistency tests and prompt-contract validation before failing the live checkpoint command only because `head` was absent and validation result `PENDING` was unsupported.
-  - Exact head 688ff0b70d0bbdeaa607f2f80b4d311b9d535543 then passed Agent Governance run 31783716186 completely, including active checkpoint and live ownership validation.
-  - Repository-configured automated Codex PR review was triggered by the earlier ready-for-review transition and reviewed older head f087717af1ab256d7580530b329568188ca1b7c4; the agent did not request `@codex review` or another explicit Codex invocation.
-  - That automated review produced PR #1044 thread PRRT_kwDOTcsYjs6ZNajT with one P2 stale-reference finding; exact net patches for MODULE_CATALOG and OPERATIONS_OBSERVABILITY_ARCHITECTURE reconcile those references without unrelated file drift, and the thread is resolved/outdated.
-  - Exact pre-sync head b2b6d2ab316c36c704f3a9de28ea49a22c434536 reached seven successful exact-head workflows before concurrent PR #1028 advanced main; those results are retained as historical evidence only and are not used as the final merge gate.
-  - PR #1028 advanced main to dfd7acc29f16252a8d83d9de398f915875d36aab and overlapped this package only in MODULE_CATALOG.md.
-  - GitHub computed signed three-way merge 8024689319a8b133f3d446a1389af6157d338eab with parents main@dfd7acc29f16252a8d83d9de398f915875d36aab and branch refresh 11e8760d93f559bc5c052774b6ca367d987aadde; the feature branch was fast-forwarded to this commit without force.
-  - The synchronized MODULE_CATALOG tree preserves PlayerCompanion AVAILABLE plus Hunt Session Analyzer v1 from #1028 and the accepted PlatformAPI PLANNED-implementation/DEFERRED-product distinction and terminal #490 wording.
+  - ARCH-DEC-0005 is removed from the active decision backlog; no speculative PlatformAPI implementation handoff exists.
+  - Portal work allocation marks Platform API DEFERRED.
+  - `MODULE_CATALOG.md` separates PLANNED implementation availability from ADR 0036 DEFERRED product disposition and records PlatformAPI as terminal for Issue #490.
+  - `OPERATIONS_OBSERVABILITY_ARCHITECTURE.md` leaves only PublicEdge/direct-production evidence as residual Issue #490 concerns.
+  - Repository-configured automated Codex review on older head f087717af1ab256d7580530b329568188ca1b7c4 produced one P2 stale-reference finding; it is repaired and the thread is resolved/outdated. No explicit Codex invocation was requested by the agent.
+  - PR #1028 advanced main to dfd7acc29f16252a8d83d9de398f915875d36aab; GitHub's signed three-way synchronization preserved both #1028 PlayerCompanion state and this PlatformAPI package.
+  - Exact final #1028 head de8742d1062ddbbfda263c4d3c3975bd11e16b36 emitted 24 workflows and all 24 completed SUCCESS; its three material review threads are resolved; PR #1028 merged as dfd7acc29f16252a8d83d9de398f915875d36aab.
+  - Fresh #1044 Governance run 31786345949 on synchronized head 7501b8c574105079d0089ca57c1827b33de44824 passed all repository policy/checkpoint tests but failed live task liveness because merged PR #1028 still had an active task with stale next action `merge` and no archive-pending transition.
+  - No independent open lifecycle PR owned the #1028 task, so this package performs the bounded blocker repair: active task removed, terminal archive added, and the already-owned portal work-allocation row changed PlayerCompanion foundation IN_PROGRESS → DONE.
+  - The PlayerCompanion repair changes no implementation/runtime/schema/workflow behavior and merely records already-proven terminal evidence.
 derived:
-  - Explicit deferral is the smallest secure architecture disposition: it closes audit ambiguity without creating an unused compatibility and attack surface.
-  - A future API package is implementation-authorized only after a named consumer trigger and a new bounded architecture/security package satisfy the accepted activation checklist.
+  - Explicit PlatformAPI deferral is the smallest secure disposition: it closes audit ambiguity without creating an unused compatibility or attack surface.
+  - The #1028 lifecycle repair is required current-main governance reconciliation, not scope expansion into PlayerCompanion implementation.
 unknown:
-  - Future named API consumer, exact resource inventory, scopes/token lifecycle, rate budgets and compatibility windows; these are intentionally deferred until an activation trigger exists.
+  - Future named API consumer, exact resource inventory, scopes/token lifecycle, rate budgets and compatibility windows; intentionally deferred until an activation trigger exists.
 conflicts: []
 first_failure:
-  marker: architecture-decision-programme-projection-format
-  evidence: Initial ARCH-DEC-0005 programme projection used a YAML block list; direct validator inspection proved only an inline JSON array is accepted, and the projection was repaired before acceptance. After decision resolution the projection is `[]`.
+  marker: current-main-terminal-task-liveness-after-concurrent-merge
+  evidence: Agent Governance 31786345949 failed only after all static checkpoint/policy tests passed because merged PR #1028 remained represented by a stale active task; exact errors were `terminal_pr_stale_next_action` and `terminal_pr_active_task`.
 rejected_hypotheses:
   - Existing game-auth `/api/v1` proves a general Platform API already exists.
-  - Internal Gateway routes may be reclassified as public/first-party PlatformAPI merely to close Issue #490.
+  - Internal Gateway routes may be reclassified as general PlatformAPI to close Issue #490.
   - Passport availability authorizes a blanket general authenticated API.
-  - Option A requires changing module implementation status from PLANNED; module status and product/programme launch disposition are separate dimensions.
-  - Option A requires new runtime security controls; no general endpoint is being activated.
-  - The first accepted draft could leave stale canonical #490 references because higher-level authority would override them; canonical routing must instead be internally reconciled so future agents do not reopen terminal work.
-  - Pre-sync exact-head CI may be used after main advances; current-main synchronization requires a fresh exact-head generation.
+  - Option A requires changing module implementation status from PLANNED; implementation availability and product disposition are separate dimensions.
+  - Pre-sync exact-head CI may be used after main advances; current-main synchronization requires a fresh generation.
+  - The #1028 liveness failure may be ignored as unrelated; repository-wide Governance correctly blocks all PRs until terminal active ownership is reconciled.
 changed_paths:
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
   - docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
   - docs/agents/tasks/active/OTERYN-20260814-platform-api-disposition.md
+  - docs/agents/tasks/active/OTERYN-20260813-player-companion-session-analyzer-v1.md
+  - docs/agents/tasks/archive/OTERYN-20260813-player-companion-session-analyzer-v1.md
   - docs/architecture/ARCHITECTURE_AUTHORITY.md
   - docs/architecture/MODULE_CATALOG.md
   - docs/architecture/OPERATIONS_OBSERVABILITY_ARCHITECTURE.md
@@ -161,31 +161,28 @@ changed_paths:
   - docs/architecture/adr/0036-platform-api-activation-and-first-surface-policy.md
   - docs/architecture/adr/README.md
 validation:
-  - command: source/ownership inspection
+  - command: source/ownership and architecture reconciliation
     result: PASS
-    evidence: exact routes, auth guard, module catalogue, portal completeness, security architecture, work allocation, backlog, active tasks and open PRs inspected
-  - command: accepted decision reconciliation
+    evidence: Option A accepted; focused authority/routing/module/operations/work-allocation state reconciled
+  - command: PlatformAPI review remediation
     result: PASS
-    evidence: Option A recorded in accepted ADR 0036, focused authority, authority index, module lifecycle references, OperationsObservability residuals and portal work allocation; decision backlog empty
-  - command: review-remediation net patch inspection
+    evidence: sole P2 thread resolved/outdated; no REQUEST_CHANGES review remains
+  - command: concurrent main synchronization
     result: PASS
-    evidence: MODULE_CATALOG PlatformAPI patch and OPERATIONS_OBSERVABILITY_ARCHITECTURE Issue 490 wording contain no unrelated replacement drift
-  - command: review hygiene
+    evidence: exact three-way merge preserved #1028 PlayerCompanion and #1044 PlatformAPI state
+  - command: PlayerCompanion terminal evidence
     result: PASS
-    evidence: sole P2 review thread is resolved and outdated; review submission is COMMENTED rather than REQUEST_CHANGES
-  - command: current-main synchronization
-    result: PASS
-    evidence: signed three-way merge 8024689319a8b133f3d446a1389af6157d338eab preserves exact main@dfd7acc plus the nine-path PlatformAPI package; merged MODULE_CATALOG was directly inspected for both PlayerCompanion and PlatformAPI state
-  - command: runtime/browser E2E
+    evidence: exact final #1028 head has 24/24 emitted workflows success and all three review threads resolved before merge dfd7acc29f16252a8d83d9de398f915875d36aab
+  - command: runtime/browser E2E for this architecture/lifecycle delta
     result: NOT_APPLICABLE
-    evidence: architecture/governance-only explicit deferral; no executable behavior changes
+    evidence: no executable behavior changes; PlayerCompanion implementation E2E was already proven on its exact delivery head
   - command: exact-final-head CI
     result: NOT_RUN
-    evidence: fresh exact-head generation is required after this synchronized checkpoint commit
+    evidence: fresh generation required after bounded terminal-task liveness repair and checkpoint update
 blockers: []
-next_action: Validate the new exact PR 1044 head with all exact-head workflows, current-base mergeability and zero unresolved material reviews; squash-merge, record the PlatformAPI slice terminal in Issue 490, then archive this task and return the architecture programme to ready rotation.
+next_action: Validate the exact new PR #1044 head with all emitted workflows, current-base mergeability and zero unresolved material reviews; squash-merge, record PlatformAPI terminal in Issue #490, then archive this task and return the architecture programme to ready rotation.
 ```
 
 ## Notes
 
-No explicit owner-funded Codex/OpenAI/API invocation was authorized or requested by the agent. A repository-configured automated Codex review triggered when PR #1044 was marked ready before that behavior was observed; it reviewed an older head, produced the remediated P2 finding above and no further Codex action is being requested. No protected-environment operation, production secret, live-system mutation or external-repository access is used by this task.
+No explicit owner-funded Codex/OpenAI/API invocation was authorized or requested by the agent. A repository-configured automated Codex review triggered earlier when PR #1044 was marked ready; it reviewed an older head, produced the remediated P2 finding and no further Codex action is requested. No protected-environment operation, production secret, live-system mutation or external-repository access is used by this task.
