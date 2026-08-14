@@ -2,10 +2,10 @@
 task_id: OTERYN-20260814-liveops-architecture
 mode: architecture
 issue: 1046
-status: implementing
+status: validating
 programme: OTERYN_PLATFORM_ARCHITECTURE_REVIEW
 project_lane: oteryn-platform-core
-phase: implement
+phase: validate
 execution_mode: github_connector
 required_reads:
   - AGENTS.md
@@ -41,7 +41,7 @@ Define one focused canonical Platform architecture for `LiveOps` current world/s
 - [x] Existing accepted runtime-status and portal-composition authority is reused rather than duplicated.
 - [x] Focused `LIVEOPS_ARCHITECTURE.md` defines source authority, evidence/freshness, applicability, history, cache, failure, observability and PublicPortal consumption boundaries.
 - [x] Server-save timing remains explicitly unknown until an authoritative source is proven; no conventional schedule is invented.
-- [ ] `ARCHITECTURE_AUTHORITY.md` routes LiveOps to the focused architecture and accepted runtime-status contract.
+- [x] `ARCHITECTURE_AUTHORITY.md` routes LiveOps to the focused architecture and accepted runtime-status contract.
 - [x] `MODULE_CATALOG.md` was reconciled against the focused design; its existing `LiveOps | PLANNED` status and responsibilities remain semantically correct, so no status promotion or content rewrite is justified by architecture-only work.
 - [x] ADR allocation is `NOT_APPLICABLE`: no new durable ownership decision is introduced beyond accepted ADR 0029/0031/0032 and the accepted runtime-status consumer contract.
 - [x] The next implementation handoff is bounded to Platform-owned paths and requires exact producer evidence before exposing a capability.
@@ -86,11 +86,12 @@ decomposition_reason: one cohesive Platform architecture boundary with no runtim
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-14T13:07:10Z
-head: 696e2e868c78426b9ecc9df41e1c437e99ba375e
+updated_at: 2026-08-14T13:12:08Z
+head: 54d769353535a02ccccaa466c254ba520102636f
+material_head: 54d769353535a02ccccaa466c254ba520102636f
 branch: docs/OTERYN-20260814-liveops-architecture
-pr: none
-status: implementing
+pr: 1047
+status: validating
 context_routes:
   - architecture
   - testing
@@ -100,15 +101,16 @@ owned_paths:
   - docs/architecture/LIVEOPS_ARCHITECTURE.md
   - docs/architecture/ARCHITECTURE_AUTHORITY.md
 proven:
-  - Trusted main is 696e2e868c78426b9ecc9df41e1c437e99ba375e.
+  - Trusted main at task selection was 696e2e868c78426b9ecc9df41e1c437e99ba375e.
   - The two pre-existing active Platform task records are externally or production blocked and do not own LiveOps architecture.
   - Character deletion Issue #317 and rename Issue #319 are blocked on accepted Oteryn-v2 Character Authority operation semantics; world transfer #320 is additionally blocked on a product decision.
-  - No open LiveOps PR was found on the trusted base.
+  - No open LiveOps PR was found on the trusted base before claim.
   - ADR 0032 already assigns current operational/schedule/runtime state to LiveOps and PublicPortal Today/World Hub composition to PublicPortal.
   - OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT is an accepted Platform consumer architecture contract and already defines fresh/stale/unavailable/invalid evidence semantics, canonical WorldId/ChannelId scope and no-fabricated-offline/zero rules.
   - Current Module Catalog already marks LiveOps PLANNED and its existing responsibilities/invariants agree with the focused design.
   - Repository search on the trusted base returned no `server save` or `server_save` implementation/source.
-  - Issue #1046 and branch docs/OTERYN-20260814-liveops-architecture were created from trusted main.
+  - Issue #1046 owns the architecture package and PR #1047 contains exactly the task record, focused LiveOps architecture and one Architecture Authority routing row at material head 54d769353535a02ccccaa466c254ba520102636f.
+  - Full material diff comparison against trusted main is 3 files, 458 additions, 0 deletions; Architecture Authority changes by exactly one row.
 derived:
   - LiveOps is the first safe unowned architecture-ready portal slice after higher-priority items that are blocked on external/protected authority.
   - A focused architecture document can make the accepted LiveOps consequences implementation-ready without allocating a new ADR because no accepted durable ownership rule changes.
@@ -126,16 +128,40 @@ rejected_hypotheses:
   - A conventional Tibia/OTS server-save time can be assumed without an authoritative source.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260814-liveops-architecture.md
+  - docs/architecture/ARCHITECTURE_AUTHORITY.md
   - docs/architecture/LIVEOPS_ARCHITECTURE.md
 validation:
   - command: repository source/authority reconciliation
     result: PASS
     evidence: accepted ADR 0032 and runtime-status projection contract align with the focused boundary
+  - command: material-head full diff self-review
+    result: PASS
+    evidence: compare 696e2e868c78426b9ecc9df41e1c437e99ba375e...54d769353535a02ccccaa466c254ba520102636f shows only the three declared paths and no deletion or runtime change
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: architecture-only task creates no runtime route, persistence, API or frontend behavior
 blockers: []
-next_action: Route LiveOps in ARCHITECTURE_AUTHORITY.md, create the exact-head architecture PR, self-review the full diff, then complete required documentation/governance CI and terminal closeout.
+next_action: Validate the exact final PR head through emitted documentation/governance CI, reconcile reviews/threads and merge only if every exact-head gate passes.
+```
+
+## Self-review
+
+```yaml
+self_review:
+  result: PASS
+  exact_head: 54d769353535a02ccccaa466c254ba520102636f
+  acceptance_checked: true
+  full_diff_checked: true
+  negative_paths_checked: true
+  rollback_checked: true
+  compatibility_checked: true
+  related_prs_checked: true
+  findings: []
+  evidence:
+    - PR #1047 material diff contains only the three declared architecture/task paths.
+    - Existing LiveOps Module Catalog boundary remains PLANNED and compatible; no false implementation promotion is introduced.
+    - No new ADR is needed because accepted ownership and evidence semantics are preserved rather than changed.
+    - Removing the focused architecture/routing row is a documentation-only rollback; no runtime or persisted state is affected.
 ```
 
 ## Notes
