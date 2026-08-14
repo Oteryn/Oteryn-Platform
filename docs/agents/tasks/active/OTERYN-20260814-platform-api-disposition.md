@@ -2,10 +2,10 @@
 task_id: OTERYN-20260814-platform-api-disposition
 mode: architecture
 issue: 490
-status: blocked
+status: validating
 programme: OTERYN_PLATFORM_ARCHITECTURE_REVIEW
 project_lane: oteryn-platform-core
-phase: investigate
+phase: validate
 execution_mode: github_connector
 required_reads:
   - AGENTS.md
@@ -26,19 +26,23 @@ search_first:
 
 ## Goal
 
-Resolve the remaining PlatformAPI architecture/product-disposition gap from Issue #490 without misclassifying bounded game-auth/internal endpoints as a general API and without implementing a speculative public/authenticated surface before the repository owner chooses the first approved consumer posture.
+Resolve the remaining PlatformAPI architecture/product-disposition gap from Issue #490 without misclassifying bounded game-auth/internal endpoints as a general API and without implementing a speculative public/authenticated surface before an approved named consumer exists.
 
 ## Acceptance criteria
 
 - [x] Current API and internal route surfaces are classified from exact `main` source.
 - [x] Open PR/task ownership is checked and no PlatformAPI architecture owner overlaps this package.
-- [x] Proposed ADR 0036 records concrete options, trade-offs, recommendation, activation invariants and rejected shortcuts without claiming acceptance.
-- [x] ARCH-DEC-0005 records exactly one owner decision obligation with `implementation_authorized=false`.
-- [x] ADR inventory and architecture programme projection include the proposal/active decision without promoting it to accepted authority.
-- [x] Issue #490 comment 5290781071 records one decision-ready owner question without claiming acceptance.
-- [ ] Exact final-head documentation/governance CI and PR hygiene pass for the decision-ready package.
-- [ ] Repository owner selects A, B or C; then accepted authority or explicit deferral is reconciled, the PlatformAPI slice of Issue #490 is terminally dispositioned, and task ownership is released.
-- [x] Runtime/browser E2E is `NOT_APPLICABLE` before a runtime surface is authorized because this task is architecture/governance only.
+- [x] ADR 0036 records concrete options, trade-offs, activation invariants and rejected shortcuts.
+- [x] Repository owner selected Option A on 2026-08-14: explicitly defer general Platform API until a named consumer/use case exists.
+- [x] ADR 0036 is `Accepted` and `PLATFORM_API_ARCHITECTURE.md` is the focused canonical owner.
+- [x] ARCH-DEC-0005 is removed from the active architecture decision backlog and programme projection is empty.
+- [x] `ARCHITECTURE_AUTHORITY.md` routes PlatformAPI to ADR 0036 / focused architecture.
+- [x] Portal work allocation marks Platform API `DEFERRED` with no implementation handoff.
+- [x] Existing `MODULE_CATALOG.md`, `PORTAL_COMPLETENESS_ARCHITECTURE.md` and `SECURITY_ARCHITECTURE.md` were rechecked and require no content change because their concrete-consumer/service-reuse/security statements already agree with Option A; module `PLANNED` is explicitly an implementation-availability label rather than launch disposition.
+- [x] Issue #490 already contains the decision-ready question; terminal PlatformAPI disposition will be recorded after the accepted package merges.
+- [ ] Exact final-head documentation/governance CI and PR hygiene pass.
+- [ ] Accepted package is merged, PlatformAPI slice is recorded terminal in Issue #490, task is archived and programme returns to ready rotation.
+- [x] Runtime/browser E2E is `NOT_APPLICABLE` because this package changes architecture/governance only and intentionally creates no general API endpoint.
 
 ## Ownership
 
@@ -46,23 +50,19 @@ Resolve the remaining PlatformAPI architecture/product-disposition gap from Issu
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260814-platform-api-disposition.md
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
+  - docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
   - docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
+  - docs/architecture/ARCHITECTURE_AUTHORITY.md
+  - docs/architecture/PLATFORM_API_ARCHITECTURE.md
   - docs/architecture/adr/0036-platform-api-activation-and-first-surface-policy.md
   - docs/architecture/adr/README.md
-  - docs/architecture/PLATFORM_API_ARCHITECTURE.md
-  - docs/architecture/ARCHITECTURE_AUTHORITY.md
-  - docs/architecture/MODULE_CATALOG.md
-  - docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md
-  - docs/architecture/SECURITY_ARCHITECTURE.md
-  - docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
 modules:
   - PlatformAPI
 dependencies:
   - Issue #490 shared audit owner
   - current module/service authority boundaries
-  - repository-owner first-surface disposition
-blockers:
-  - Repository owner must select ARCH-DEC-0005 Option A, B or C.
+  - repository-owner Option A decision
+blockers: []
 cross_repository_tasks:
   - none
 ```
@@ -77,18 +77,18 @@ context_growth: stable
 context_score: 7
 estimate_confidence: high
 decomposition_decision: single
-decomposition_reason: one cohesive Platform-only product/API activation decision with no runtime implementation before acceptance
+decomposition_reason: one cohesive Platform-only product/API activation decision with no runtime implementation
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-14T09:50:00+02:00
-head: d18ff8f7cbfde188492e072abe84a77f329dcd21
+updated_at: 2026-08-14T10:18:00+02:00
+material_head: af3d355f126f8f31261c3e704fa3df44f4d16fd0
 branch: docs/OTERYN-20260814-platform-api-disposition
 pr: 1044
-status: blocked
+status: validating
 context_routes:
   - architecture
   - security
@@ -96,64 +96,64 @@ context_routes:
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260814-platform-api-disposition.md
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
+  - docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
   - docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
+  - docs/architecture/ARCHITECTURE_AUTHORITY.md
+  - docs/architecture/PLATFORM_API_ARCHITECTURE.md
   - docs/architecture/adr/0036-platform-api-activation-and-first-surface-policy.md
   - docs/architecture/adr/README.md
-  - docs/architecture/PLATFORM_API_ARCHITECTURE.md
-  - docs/architecture/ARCHITECTURE_AUTHORITY.md
-  - docs/architecture/MODULE_CATALOG.md
-  - docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md
-  - docs/architecture/SECURITY_ARCHITECTURE.md
-  - docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
 proven:
   - Trusted main at task start is e0d9f28abad3a30c547d53f40cccf4ea713cf197.
   - `routes/api.php` exposes only POST `/v1/game-auth/tickets`, protected by Passport-backed `auth:api` and a dedicated throttle.
   - `routes/internal.php` exposes only private game-auth ticket redemption and login-context routes guarded by the Gateway service credential and dedicated throttles.
-  - `MODULE_CATALOG.md` marks PlatformAPI `PLANNED`, requires a concrete client/use case, and excludes bounded internal/game-auth routes from general PlatformAPI classification.
-  - Portal work allocation marks Platform API `ARCHITECTURE_READY / DECISION_REQUIRED for first public surface`.
-  - The architecture decision backlog was empty before this package; ARCH-DEC-0005 is the only active record on this branch.
-  - ADR README proves 0035 was the highest allocated prefix before this package and no open architecture PR claimed 0036; Proposed ADR 0036 is therefore the next valid allocation.
-  - Open PR #1028 does not own any path claimed by this architecture package; the other open PRs are unrelated operational/research/GameCatalog work.
-  - Draft PR #1044 contains the decision package and is intentionally blocked from merge by product/owner-decision policy until explicit owner selection.
-  - Issue #490 comment 5290781071 asks for exactly A, B or C and recommends A without treating continuation as acceptance.
-  - Architecture backlog validator source requires `active_architecture_decision_ids` to be one inline JSON array; the programme projection was repaired to `["ARCH-DEC-0005"]` before exact-head validation.
+  - Existing specialized game-auth/internal endpoints are not a general PlatformAPI surface.
+  - Repository owner explicitly selected ARCH-DEC-0005 Option A in the controlling conversation on 2026-08-14.
+  - ADR 0036 is accepted with Option A and `PLATFORM_API_ARCHITECTURE.md` defines a fail-closed named-consumer activation checklist.
+  - ARCH-DEC-0005 has been removed from the active decision backlog; no unresolved PlatformAPI architecture decision remains.
+  - Portal work allocation marks Platform API DEFERRED and creates no speculative implementation handoff.
+  - `MODULE_CATALOG.md` already requires a concrete consumer and excludes specialized endpoints from general API completeness; its PLANNED status is implementation availability only.
+  - `PORTAL_COMPLETENESS_ARCHITECTURE.md` already states that first-party API is justified by concrete consumers and must reuse module services/authorization/version/freshness semantics.
+  - `SECURITY_ARCHITECTURE.md` already supplies the applicable generic API trust/rate/privacy/logging requirements; Option A creates no new runtime attack surface.
+  - ADR README already contains the unique 0036 inventory entry allocated by this PR.
 derived:
-  - Existing Passport-backed API authentication is reusable implementation capability for specialized game-auth, not evidence that a general token/scopes/client product has been selected.
-  - Option A best matches the current concrete-consumer-first architecture and minimizes attack/compatibility surface while preserving a machine-auditable future activation trigger.
+  - Explicit deferral is the smallest secure architecture disposition: it closes audit ambiguity without creating an unused compatibility and attack surface.
+  - A future API package is implementation-authorized only after a named consumer trigger and a new bounded architecture/security package satisfy the accepted activation checklist.
 unknown:
-  - Repository-owner selection: A explicit deferral until a named consumer exists, B public read-only v1 first, or C authenticated first-party account/client v1 first.
-  - Exact future resource inventory, token/scopes model, rate budgets and compatibility/deprecation windows depend on the selected posture and later implementation design.
+  - Future named API consumer, exact resource inventory, scopes/token lifecycle, rate budgets and compatibility windows; these are intentionally deferred until an activation trigger exists.
 conflicts: []
 first_failure:
   marker: architecture-decision-programme-projection-format
-  evidence: Initial ARCH-DEC-0005 programme projection used a YAML block list; direct validator inspection proved only an inline JSON array is accepted, so it was repaired before CI.
+  evidence: Initial ARCH-DEC-0005 programme projection used a YAML block list; direct validator inspection proved only an inline JSON array is accepted, and the projection was repaired before acceptance. After decision resolution the projection is `[]`.
 rejected_hypotheses:
   - Existing game-auth `/api/v1` proves a general Platform API already exists.
   - Internal Gateway routes may be reclassified as public/first-party PlatformAPI merely to close Issue #490.
-  - Generic continuation authorizes a material public API product decision.
   - Passport availability authorizes a blanket general authenticated API.
+  - Option A requires changing module implementation status from PLANNED; module status and product/programme launch disposition are separate dimensions.
+  - Option A requires new runtime security controls; no general endpoint is being activated.
 changed_paths:
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
+  - docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
   - docs/agents/tasks/active/OTERYN-20260814-platform-api-disposition.md
+  - docs/architecture/ARCHITECTURE_AUTHORITY.md
   - docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
+  - docs/architecture/PLATFORM_API_ARCHITECTURE.md
   - docs/architecture/adr/0036-platform-api-activation-and-first-surface-policy.md
   - docs/architecture/adr/README.md
 validation:
   - command: source/ownership inspection
     result: PASS
-    evidence: exact main routes, auth guard, module catalogue, work allocation, backlog, active tasks and open PRs inspected
-  - command: decision-package structural review
+    evidence: exact main routes, auth guard, module catalogue, portal completeness, security architecture, work allocation, backlog, active tasks and open PRs inspected
+  - command: accepted decision reconciliation
     result: PASS
-    evidence: Proposed lifecycle only, unique ADR 0036 allocation, one decision_required ARCH-DEC-0005 record, implementation_authorized=false and repaired exact programme projection
+    evidence: Option A recorded in accepted ADR 0036, focused authority, authority index and portal work allocation; decision backlog empty
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
-    evidence: architecture/governance-only decision preparation
+    evidence: architecture/governance-only explicit deferral; no executable behavior changes
   - command: exact-final-head CI and PR hygiene
-    result: NOT_RUN
-    evidence: run after this repaired durable blocked checkpoint is persisted
-blockers:
-  - Repository owner must select ARCH-DEC-0005 Option A, B or C.
-next_action: Repository owner selects A (recommended explicit deferral), B (public read-only v1 first), or C (authenticated first-party account/client v1 first); then reconcile accepted canonical authority and close the PlatformAPI slice of Issue #490.
+    result: PENDING
+    evidence: run on the unchanged accepted-decision head after this checkpoint commit
+blockers: []
+next_action: Validate exact final PR 1044 head and full diff/review hygiene, mark ready, squash-merge, record the PlatformAPI slice terminal in Issue 490, then archive this task and return the architecture programme to ready rotation.
 ```
 
 ## Notes
