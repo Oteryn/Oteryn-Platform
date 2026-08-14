@@ -48,6 +48,7 @@ return [
         'invalid_session_duration' => 'The Session duration is invalid. Supported examples: 01:30h or 1h 30m.',
         'invalid_numeric_metric' => 'One of the numeric session metrics has an unsupported integer format.',
         'metric_out_of_range' => 'One of the session metrics is outside the supported range.',
+        'derived_metric_out_of_range' => 'The derived hourly rate is outside the supported range. Reduce the session values or use a longer supported duration.',
         'missing_session_metrics' => 'The log contains no supported session metrics.',
         'duplicate_participant' => 'The same participant appears more than once. Merge duplicate participant sections before analyzing.',
         'too_many_participants' => 'The session contains too many participants. At most 20 are supported.',

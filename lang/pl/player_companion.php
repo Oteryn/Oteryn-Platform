@@ -48,6 +48,7 @@ return [
         'invalid_session_duration' => 'Czas Session jest nieprawidłowy. Obsługiwane przykłady: 01:30h lub 1h 30m.',
         'invalid_numeric_metric' => 'Jedna z wartości liczbowych ma nieobsługiwany format liczby całkowitej.',
         'metric_out_of_range' => 'Jedna z metryk sesji jest poza obsługiwanym zakresem.',
+        'derived_metric_out_of_range' => 'Wyliczona wartość na godzinę jest poza obsługiwanym zakresem. Zmniejsz wartości sesji albo użyj dłuższego obsługiwanego czasu.',
         'missing_session_metrics' => 'Log nie zawiera obsługiwanych metryk sesji.',
         'duplicate_participant' => 'Ten sam uczestnik występuje więcej niż raz. Połącz powtarzające się sekcje przed analizą.',
         'too_many_participants' => 'Sesja zawiera zbyt wielu uczestników. Obsługiwanych jest maksymalnie 20.',
