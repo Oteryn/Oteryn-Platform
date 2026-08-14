@@ -38,7 +38,10 @@ Resolve the remaining PlatformAPI architecture/product-disposition gap from Issu
 - [x] ARCH-DEC-0005 is removed from the active architecture decision backlog and programme projection is empty.
 - [x] `ARCHITECTURE_AUTHORITY.md` routes PlatformAPI to ADR 0036 / focused architecture.
 - [x] Portal work allocation marks Platform API `DEFERRED` with no implementation handoff.
-- [x] Existing `MODULE_CATALOG.md`, `PORTAL_COMPLETENESS_ARCHITECTURE.md` and `SECURITY_ARCHITECTURE.md` were rechecked and require no content change because their concrete-consumer/service-reuse/security statements already agree with Option A; module `PLANNED` is explicitly an implementation-availability label rather than launch disposition.
+- [x] `MODULE_CATALOG.md` reconciles its stale Issue #490 decision-gap statement while retaining `PLANNED` strictly as implementation availability.
+- [x] `OPERATIONS_OBSERVABILITY_ARCHITECTURE.md` removes PlatformAPI from Issue #490's unresolved residual list while preserving PublicEdge/direct-production evidence as open.
+- [x] `PORTAL_COMPLETENESS_ARCHITECTURE.md` and `SECURITY_ARCHITECTURE.md` were rechecked and require no content change because their concrete-consumer/service-reuse/security statements already agree with Option A.
+- [x] PR #1044 P2 review finding about stale PlatformAPI decision references is remediated in the exact canonical owner documents and ADR rationale.
 - [x] Issue #490 already contains the decision-ready question; terminal PlatformAPI disposition will be recorded after the accepted package merges.
 - [ ] Exact final-head documentation/governance CI and PR hygiene pass.
 - [ ] Accepted package is merged, PlatformAPI slice is recorded terminal in Issue #490, task is archived and programme returns to ready rotation.
@@ -53,6 +56,8 @@ owned_paths:
   - docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
   - docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
   - docs/architecture/ARCHITECTURE_AUTHORITY.md
+  - docs/architecture/MODULE_CATALOG.md
+  - docs/architecture/OPERATIONS_OBSERVABILITY_ARCHITECTURE.md
   - docs/architecture/PLATFORM_API_ARCHITECTURE.md
   - docs/architecture/adr/0036-platform-api-activation-and-first-surface-policy.md
   - docs/architecture/adr/README.md
@@ -84,9 +89,9 @@ decomposition_reason: one cohesive Platform-only product/API activation decision
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-14T10:25:00+02:00
-head: 6d1a3df750f13c50c8e6332ebe6e0ff4e30b655a
-material_head: af3d355f126f8f31261c3e704fa3df44f4d16fd0
+updated_at: 2026-08-14T10:32:00+02:00
+head: 1f1d4824f854594641a6fbd05331c3d3e4f1aeb9
+material_head: 1f1d4824f854594641a6fbd05331c3d3e4f1aeb9
 branch: docs/OTERYN-20260814-platform-api-disposition
 pr: 1044
 status: validating
@@ -100,6 +105,8 @@ owned_paths:
   - docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
   - docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
   - docs/architecture/ARCHITECTURE_AUTHORITY.md
+  - docs/architecture/MODULE_CATALOG.md
+  - docs/architecture/OPERATIONS_OBSERVABILITY_ARCHITECTURE.md
   - docs/architecture/PLATFORM_API_ARCHITECTURE.md
   - docs/architecture/adr/0036-platform-api-activation-and-first-surface-policy.md
   - docs/architecture/adr/README.md
@@ -112,12 +119,14 @@ proven:
   - ADR 0036 is accepted with Option A and `PLATFORM_API_ARCHITECTURE.md` defines a fail-closed named-consumer activation checklist.
   - ARCH-DEC-0005 has been removed from the active decision backlog; the backlog serializes exactly to current main bytes and therefore is not a final PR changed path.
   - Portal work allocation marks Platform API DEFERRED and creates no speculative implementation handoff.
-  - `MODULE_CATALOG.md` already requires a concrete consumer and excludes specialized endpoints from general API completeness; its PLANNED status is implementation availability only.
+  - `MODULE_CATALOG.md` now explicitly separates PLANNED implementation availability from ADR 0036 DEFERRED product disposition and records PlatformAPI as terminal for Issue #490.
+  - `OPERATIONS_OBSERVABILITY_ARCHITECTURE.md` now records OperationsObservability and PlatformAPI as terminal Issue #490 slices and leaves only PublicEdge/direct-production evidence residual.
   - `PORTAL_COMPLETENESS_ARCHITECTURE.md` already states that first-party API is justified by concrete consumers and must reuse module services/authorization/version/freshness semantics.
   - `SECURITY_ARCHITECTURE.md` already supplies the applicable generic API trust/rate/privacy/logging requirements; Option A creates no new runtime attack surface.
   - ADR README contains the unique 0036 inventory entry allocated by this PR.
-  - Exact compare after accepted reconciliation reports `behind_by=0` and seven final changed paths.
-  - Agent Governance run 31783580860 on pre-repair head 6d1a3df750f13c50c8e6332ebe6e0ff4e30b655a passed checkpoint-validator tests, liveness tests, Control Room tests, 95 policy-consistency tests and prompt-contract validation before failing the live checkpoint command only because `head` was absent and validation result `PENDING` is unsupported.
+  - Agent Governance run 31783580860 on pre-repair head 6d1a3df750f13c50c8e6332ebe6e0ff4e30b655a passed checkpoint-validator tests, liveness tests, Control Room tests, 95 policy-consistency tests and prompt-contract validation before failing the live checkpoint command only because `head` was absent and validation result `PENDING` was unsupported.
+  - Exact head 688ff0b70d0bbdeaa607f2f80b4d311b9d535543 then passed Agent Governance run 31783716186 completely, including active checkpoint and live ownership validation.
+  - PR #1044 review thread PRRT_kwDOTcsYjs6ZNajT identified one P2 stale-reference finding; exact net patches for MODULE_CATALOG and OPERATIONS_OBSERVABILITY_ARCHITECTURE now reconcile those references without unrelated file drift.
 derived:
   - Explicit deferral is the smallest secure architecture disposition: it closes audit ambiguity without creating an unused compatibility and attack surface.
   - A future API package is implementation-authorized only after a named consumer trigger and a new bounded architecture/security package satisfy the accepted activation checklist.
@@ -133,11 +142,14 @@ rejected_hypotheses:
   - Passport availability authorizes a blanket general authenticated API.
   - Option A requires changing module implementation status from PLANNED; module status and product/programme launch disposition are separate dimensions.
   - Option A requires new runtime security controls; no general endpoint is being activated.
+  - The first accepted draft could leave stale canonical #490 references because higher-level authority would override them; canonical routing must instead be internally reconciled so future agents do not reopen terminal work.
 changed_paths:
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
   - docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
   - docs/agents/tasks/active/OTERYN-20260814-platform-api-disposition.md
   - docs/architecture/ARCHITECTURE_AUTHORITY.md
+  - docs/architecture/MODULE_CATALOG.md
+  - docs/architecture/OPERATIONS_OBSERVABILITY_ARCHITECTURE.md
   - docs/architecture/PLATFORM_API_ARCHITECTURE.md
   - docs/architecture/adr/0036-platform-api-activation-and-first-surface-policy.md
   - docs/architecture/adr/README.md
@@ -147,18 +159,18 @@ validation:
     evidence: exact main routes, auth guard, module catalogue, portal completeness, security architecture, work allocation, backlog, active tasks and open PRs inspected
   - command: accepted decision reconciliation
     result: PASS
-    evidence: Option A recorded in accepted ADR 0036, focused authority, authority index and portal work allocation; decision backlog empty
-  - command: final diff inventory
+    evidence: Option A recorded in accepted ADR 0036, focused authority, authority index, module lifecycle references, OperationsObservability residuals and portal work allocation; decision backlog empty
+  - command: review-remediation net patch inspection
     result: PASS
-    evidence: compare against current main is behind_by=0 with exactly seven final documentation/governance paths; backlog reconciliation has zero net diff
+    evidence: MODULE_CATALOG patch changes only PlatformAPI lifecycle/reference lines; OPERATIONS_OBSERVABILITY_ARCHITECTURE patch changes only Issue 490 residual wording; no unrelated replacement drift
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: architecture/governance-only explicit deferral; no executable behavior changes
   - command: exact-final-head CI and PR hygiene
     result: NOT_RUN
-    evidence: pre-repair Agent Governance 31783580860 isolated checkpoint-schema defects; rerun/new generation is required on the repaired unchanged architecture head
+    evidence: new exact-head generation required after P2 review remediation and task checkpoint update
 blockers: []
-next_action: Validate exact final PR 1044 head and full diff/review hygiene, squash-merge, record the PlatformAPI slice terminal in Issue 490, then archive this task and return the architecture programme to ready rotation.
+next_action: Reply to and resolve the remediated P2 review thread, validate the new exact PR 1044 head with zero unresolved material reviews and all exact-head workflows, squash-merge, record the PlatformAPI slice terminal in Issue 490, then archive this task and return the architecture programme to ready rotation.
 ```
 
 ## Notes
