@@ -53,7 +53,7 @@ The historical exception is a closed exact-path allowlist, not permission to cre
 
 ## Inventory
 
-Inventory reconciled on 2026-08-13. Duplicate prefixes are intentionally shown rather than hidden.
+Inventory reconciled on 2026-08-14. Duplicate prefixes are intentionally shown rather than hidden.
 
 - `0001-laravel-modular-monolith.md`
 - `0002-separate-platform-and-canary-repositories.md`
@@ -98,6 +98,7 @@ Inventory reconciled on 2026-08-13. Duplicate prefixes are intentionally shown r
 - `0033-federated-content-search-and-discoverability.md`
 - `0034-native-game-catalog-content-ownership.md`
 - `0035-first-party-client-distribution-and-updater-trust-boundary.md`
+- `0036-platform-api-activation-and-first-surface-policy.md`
 
 ## Preserved legacy duplicate paths
 
