@@ -18,18 +18,18 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-13T23:53:00+02:00
-status: active
-current_review_domain: client-distribution-updater-trust
-active_task: OTERYN-20260813-client-distribution-trust
-issue: 1037
-branch: docs/OTERYN-20260813-client-distribution-trust
-pull_request: 1038
-last_completed_domain: native-game-catalog-content-ownership
-last_completed_issue: 1033
-last_completed_pull_request: 1034
-last_completed_merge: 7a0664cfd7dadf27aef0a33e2308bf4975fb1405
-latest_review_finding_issue: 1037
+updated_at: 2026-08-14T09:20:00+02:00
+status: ready
+current_review_domain: next-risk-based-rotation
+active_task: null
+issue: null
+branch: null
+pull_request: null
+last_completed_domain: production-topology-operations-observability
+last_completed_issue: 490
+last_completed_pull_request: 1042
+last_completed_merge: ae660385f80cea99c484971fd05571c9ac89c817
+latest_review_finding_issue: 490
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
   authority_adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
@@ -45,6 +45,7 @@ accepted_authority:
   native_game_catalog_content_adr: docs/architecture/adr/0034-native-game-catalog-content-ownership.md
   client_distribution_adr: docs/architecture/adr/0035-first-party-client-distribution-and-updater-trust-boundary.md
   client_distribution_architecture: docs/architecture/CLIENT_DISTRIBUTION_ARCHITECTURE.md
+  operations_observability_architecture: docs/architecture/OPERATIONS_OBSERVABILITY_ARCHITECTURE.md
   native_v2_integration_architecture: docs/architecture/OTERYN_V2_INTEGRATION_ARCHITECTURE.md
   portal_completeness_architecture: docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md
   player_companion_architecture: docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md
@@ -91,9 +92,14 @@ proven:
   - PR 1030 merged the native support/moderation game-enforcement semantic boundary as f100334b40181b520a289cf81b28b7f68d26c4ef after the P1 review finding added explicit stable sanction-stream identity and all eight repaired exact-head workflows passed.
   - ADR 0034 selects native game-domain content authority, Platform immutable catalogue lifecycle ownership and explicit Legacy Canary Compatibility importers without authorizing external implementation.
   - PR 1034 repaired checkpoint, authority-epoch replay and proposed-schema status findings; exact head a1d78af8bbb70e8ac9e75e947bbeeb133be4258b passed all eight workflows and squash-merged as 7a0664cfd7dadf27aef0a33e2308bf4975fb1405.
-  - Repository owner accepted ARCH-DEC-0004 Option A on 2026-08-13; ADR 0035 now selects TUF-based role-separated updater trust with private signing authority outside Laravel.
+  - Repository owner accepted ARCH-DEC-0004 Option A on 2026-08-13; ADR 0035 selects TUF-based role-separated updater trust with private signing authority outside Laravel.
   - CLIENT_DISTRIBUTION_ARCHITECTURE.md is the focused canonical Platform model for first-party updater trust and preserves one current release per channel in schema v1 with fail-closed exact target selection.
   - ARCH-DEC-0004 was removed from the active decision backlog after acceptance, and Issue 1039 is the Platform implementation handoff with no external-repository or protected-operation authority.
+  - Exact PR 1038 head 55fb5e75940480210e381e000e9b2bf384d4210b passed all eight workflows, had zero review threads/reviews, was zero commits behind main and squash-merged as b0ea53ccff6750b56967711c13c3439d29b465a8; Issue 1037 closed completed.
+  - Current source proves Laravel `/health` liveness plus server-generated request correlation and bounded request-completion logging; current Production Readiness evidence is STAGING_PROVEN rather than production proof.
+  - `OPERATIONS_OBSERVABILITY_ARCHITECTURE.md` now owns the focused repository/staging/production evidence boundary and `PRODUCTION_TOPOLOGY_EVIDENCE.md` is reconciled to that model.
+  - Exact PR 1042 head b5815c27541f1dffd9c8516ba4ac5e4df3cb3c6c passed all eight triggered workflows, had zero review threads/reviews, was zero commits behind main and squash-merged as ae660385f80cea99c484971fd05571c9ac89c817.
+  - Issue 490 comment 5290619378 records only the OperationsObservability slice as terminal; PlatformAPI, PublicEdge and direct production evidence remain intentionally open.
 derived:
   - The Platform core remains a sound Laravel modular monolith; native integration is explicitly separated from Legacy Canary Compatibility.
   - New native Platform consumers use canonical AccountId/CharacterId and explicit command/query/event/projection boundaries instead of inheriting Canary numeric IDs, table shapes, session semantics or gameplay protocol ownership.
@@ -103,15 +109,17 @@ derived:
   - PublicPortal Today remains composition rather than a new source-of-truth module; any representation influenced by owner-private state is private/non-shareable and must not inherit public cacheability.
   - Federated public content search belongs to PublicPortal orchestration over source-owned public queries; source publication/privacy decisions remain authoritative and restrictive revisions fence derived index/cache state.
   - First-party client distribution now has an accepted trust boundary; runtime implementation and protected signer/client evidence remain separate delivery facts.
+  - OperationsObservability repository applicability and evidence semantics are now terminal for this review package; direct production proof remains a separate protected-environment gate.
 unknown:
   - Exact deployed game-auth topology, alternate-path network isolation and production activation evidence.
   - Exact external/native producer and consumer transport, wire/IDL, runtime implementation, lease/fencing, replay stores, numerical freshness/TTL values and cutover evidence for accepted cross-boundary contracts remain outside this Platform architecture state record.
   - Exact Oteryn-v2 sanction profiles, transport/IDL, persistence/runtime enforcement implementation and production activation remain outside the accepted Platform game-enforcement contract.
   - Native guild identity required by the PublicGameData guild projection remains dependent on an accepted game-owned stable identifier; Platform must not invent one.
   - Exact maintained TUF implementation/POUF, client trust-bootstrap implementation, protected signing infrastructure and numerical metadata expiry values remain implementation/operations decisions.
+  - Exact production log/metrics backend, alert/on-call destination, retention/access policy, deployed topology, backup system, deployment mechanism and production restore evidence require direct protected-environment evidence.
 conflicts: []
 blockers: []
-next_action: Validate the accepted ADR 0035 package on the exact final PR head, merge it if all gates pass, then archive the task and return the architecture programme to risk-based rotation.
+next_action: Select the next highest-risk unresolved and unowned Platform architecture question from current main.
 ```
 
 ## Programme rules
