@@ -84,7 +84,7 @@ decomposition_reason: one cohesive Platform-only product/API activation decision
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-14T10:18:00+02:00
+updated_at: 2026-08-14T10:20:00+02:00
 material_head: af3d355f126f8f31261c3e704fa3df44f4d16fd0
 branch: docs/OTERYN-20260814-platform-api-disposition
 pr: 1044
@@ -109,12 +109,13 @@ proven:
   - Existing specialized game-auth/internal endpoints are not a general PlatformAPI surface.
   - Repository owner explicitly selected ARCH-DEC-0005 Option A in the controlling conversation on 2026-08-14.
   - ADR 0036 is accepted with Option A and `PLATFORM_API_ARCHITECTURE.md` defines a fail-closed named-consumer activation checklist.
-  - ARCH-DEC-0005 has been removed from the active decision backlog; no unresolved PlatformAPI architecture decision remains.
+  - ARCH-DEC-0005 has been removed from the active decision backlog; the backlog serializes exactly to current main bytes and therefore is not a final PR changed path.
   - Portal work allocation marks Platform API DEFERRED and creates no speculative implementation handoff.
   - `MODULE_CATALOG.md` already requires a concrete consumer and excludes specialized endpoints from general API completeness; its PLANNED status is implementation availability only.
   - `PORTAL_COMPLETENESS_ARCHITECTURE.md` already states that first-party API is justified by concrete consumers and must reuse module services/authorization/version/freshness semantics.
   - `SECURITY_ARCHITECTURE.md` already supplies the applicable generic API trust/rate/privacy/logging requirements; Option A creates no new runtime attack surface.
-  - ADR README already contains the unique 0036 inventory entry allocated by this PR.
+  - ADR README contains the unique 0036 inventory entry allocated by this PR.
+  - Exact compare after accepted reconciliation reports `behind_by=0` and seven final changed paths.
 derived:
   - Explicit deferral is the smallest secure architecture disposition: it closes audit ambiguity without creating an unused compatibility and attack surface.
   - A future API package is implementation-authorized only after a named consumer trigger and a new bounded architecture/security package satisfy the accepted activation checklist.
@@ -135,7 +136,6 @@ changed_paths:
   - docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
   - docs/agents/tasks/active/OTERYN-20260814-platform-api-disposition.md
   - docs/architecture/ARCHITECTURE_AUTHORITY.md
-  - docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
   - docs/architecture/PLATFORM_API_ARCHITECTURE.md
   - docs/architecture/adr/0036-platform-api-activation-and-first-surface-policy.md
   - docs/architecture/adr/README.md
@@ -146,6 +146,9 @@ validation:
   - command: accepted decision reconciliation
     result: PASS
     evidence: Option A recorded in accepted ADR 0036, focused authority, authority index and portal work allocation; decision backlog empty
+  - command: final diff inventory
+    result: PASS
+    evidence: compare against current main is behind_by=0 with exactly seven final documentation/governance paths; backlog reconciliation has zero net diff
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: architecture/governance-only explicit deferral; no executable behavior changes
