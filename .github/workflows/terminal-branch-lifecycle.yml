@@ -7,11 +7,13 @@ on:
       - "docs/agents/BRANCH_LIFECYCLE_POLICY.json"
       - "docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json"
       - "tools/agents/branch_lifecycle.py"
+      - "tools/agents/branch_lifecycle_legacy.py"
       - "tools/agents/terminal_branch_cleanup.py"
       - "tools/agents/terminal_branch_cleanup_legacy.py"
       - "tools/agents/terminal_branch_approval.py"
       - "tools/agents/test_terminal_branch_cleanup.py"
       - "tools/agents/test_terminal_branch_guarded.py"
+      - "tools/agents/test_terminal_branch_guarded_legacy.py"
       - "tools/agents/test_terminal_branch_approval.py"
   pull_request_target:
     types:
@@ -24,11 +26,13 @@ on:
       - "docs/agents/BRANCH_LIFECYCLE_POLICY.json"
       - "docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json"
       - "tools/agents/branch_lifecycle.py"
+      - "tools/agents/branch_lifecycle_legacy.py"
       - "tools/agents/terminal_branch_cleanup.py"
       - "tools/agents/terminal_branch_cleanup_legacy.py"
       - "tools/agents/terminal_branch_approval.py"
       - "tools/agents/test_terminal_branch_cleanup.py"
       - "tools/agents/test_terminal_branch_guarded.py"
+      - "tools/agents/test_terminal_branch_guarded_legacy.py"
       - "tools/agents/test_terminal_branch_approval.py"
   workflow_dispatch:
 
