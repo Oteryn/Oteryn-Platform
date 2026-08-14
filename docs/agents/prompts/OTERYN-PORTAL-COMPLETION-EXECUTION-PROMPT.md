@@ -14,15 +14,16 @@ This prompt is behavioural code under `docs/agents/PROMPT_EVAL_STANDARD.md`.
 
 ```yaml
 prompt_contract:
-  version: 1.0
+  version: 1.1
   changed_surfaces:
     - worker_template
     - repository_routing
     - continuation_rule
-  objective: execute portal completion from live state with connector-first GitHub routing, no false access blockers and no cross-repository authority expansion
-  baseline_version: prompting_standard_2.1_plus_existing_platform_programmes
+    - selection_routing
+  objective: execute portal completion from live state while delegating all queue ordering and selector promotion to the canonical programme, with connector-first GitHub routing, no false access blockers and no cross-repository authority expansion
+  baseline_version: portal_closeout_prompt_1.0
   eval_suite: embedded_manual_scenarios_v1
-  rollback_version: remove PORTAL-CLOSEOUT registration and use existing architecture/remediation programmes
+  rollback_version: portal_closeout_prompt_1.0
 manual_evaluation:
   automation_available: false
   status: MANUAL_SPECIFICATION_REVIEW_ONLY
@@ -30,12 +31,13 @@ manual_evaluation:
   comparison_basis: same representative scenarios reviewed against current main governance and this candidate prompt
 ```
 
-The matrix below is a **manual static baseline/candidate comparison**, not an automated/model-trial PASS. Current `main` governance is the baseline; the candidate must preserve or make its behavior explicit without weakening safety.
+The matrix below is a **manual static baseline/candidate comparison**, not an automated/model-trial PASS. Current `main` governance plus prompt version 1.0 is the baseline; the candidate must preserve or make its behavior explicit without weakening safety.
 
 | Scenario | Baseline manual review | Candidate manual review |
 |---|---|---|
 | Docs-only portal slice | Existing task/closeout rules require ownership, exact-head validation and concrete E2E N/A reasoning. | Preserved and made explicit for the portal programme. |
 | Ready remediation Issue | Existing remediation programme requires one Issue/owner/PR and terminal closeout. | Reuses that flow; does not create duplicate repair ownership. |
+| Canonical programme order changes | Prompt 1.0 duplicated dated queue examples/order and could diverge from `OTERYN_PORTAL_COMPLETION.md`. | Prompt 1.1 contains no independent queue and requires the canonical programme's live candidate classification, mixed-entry roll-up and selection order. |
 | Connector available, local `gh` missing/unauthed | Current root/GitHub-only rules forbid treating local CLI state as GitHub unavailability. | Preserved and repeated in the dedicated worker routing rule. |
 | Required connector operation absent or actually fails | Current root rules require capability verification, exact error and safe fallback analysis. | Preserved; blocks only when no permitted alternative exists. |
 | Platform work appears to require Oteryn-v2/Canary evidence | Current Platform override forbids external/server repository access without separate owner authority. | Preserved; records a cross-repository decision dependency instead of expanding scope. |
@@ -144,6 +146,8 @@ Always read the smallest applicable set beginning with:
 - `docs/agents/TERMINAL_ONLY_COMMUNICATION.md`;
 - `docs/agents/GITHUB_ONLY_EXECUTION.md`;
 - `docs/agents/PROJECT_STATE.md`, `ACTIVE_WORK.md`, active tasks and `BUILD_TEST_MATRIX.md`;
+- `docs/agents/programs/OTERYN_PORTAL_COMPLETION.md`;
+- `docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md` after the canonical programme selects a candidate;
 - `docs/architecture/ARCHITECTURE_AUTHORITY.md`;
 - `docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md`;
 - `docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md`;
@@ -165,11 +169,15 @@ For GitHub repository/Issue/PR/review/branch/file/Actions work:
 
 ## Selection algorithm
 
-1. Resume a valid active portal-completion task before creating a new one.
-2. If source-of-truth/task/PR drift prevents safe routing, perform a bounded state-reconciliation task first.
-3. Prefer proven high-risk ready repairs. Current candidates must be revalidated live; expected priorities include #948 (immutable download artifact reference), #944 (bounded entitlement stale authority) and #941 (private Today cache isolation). Existing audit repairs stay in `OTERYN_PLATFORM_REMEDIATION` with one Issue/owner/PR.
-4. Then follow the delivery-plan order: production/public-edge proof only with explicit authority; core account/character lifecycle and Character Portfolio; LiveOps/Today; reverse-edge cleanup and federated search; Wiki/GameCatalog inventories; Player Companion P0; World Hub; commerce only after separate security/legal/operational gates.
+This prompt deliberately contains **no independent portal queue**. `docs/agents/programs/OTERYN_PORTAL_COMPLETION.md` is the sole selection authority and its current protected-`main` version wins over any examples or wording in this prompt.
+
+1. Rerun the canonical programme against live protected `main`, active tasks/leases, Issues, PRs, reviews/checks and current authority/evidence.
+2. For every numbered programme entry, enumerate its exact live candidates, classify each candidate with the programme's `TERMINAL | OWNED | BLOCKED | DECISION_REQUIRED | READY` vocabulary, and apply the programme's deterministic mixed-entry roll-up/candidate order.
+3. Persist exact evidence for every skipped earlier entry/candidate and select the first candidate that the canonical programme makes `READY`.
+4. Only after selection consult Work Allocation for model-agnostic execution ownership/mode. A Work Allocation maturity label never promotes or reorders a candidate.
 5. For every overlapping PR classify `KEEP | FIX | REBASE | SUPERSEDED | CLOSE | NEEDS_DECISION`; close only with concrete duplicate/obsolete/superseded evidence.
+
+Do not copy historical Issue numbers or a second delivery order into this prompt. If the programme's selector changes, this prompt continues to delegate to it; update this prompt only when its delegation/worker contract itself changes.
 
 ## Delivery matrix and engineering requirements
 

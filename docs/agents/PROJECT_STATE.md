@@ -1,10 +1,16 @@
 # Oteryn Platform Project State
 
-This file is the compact authoritative entry point for “where are we now?”. Live Git, PR, issue, task and exact-SHA evidence remain authoritative when they are newer.
+This file is a compact project-state entry point. Live protected Git refs, active task records, PRs, Issues and exact-SHA evidence are authoritative when newer. It is **not** a programme scheduler and must not be used to bypass a programme's current live selector.
 
 ## Last architecture-state update
 
-2026-07-30
+2026-08-14
+
+## Live routing override
+
+For `OTERYN_PORTAL_COMPLETION`, `docs/agents/programs/OTERYN_PORTAL_COMPLETION.md` is the selection authority. On every invocation it classifies canonical entries from live evidence as `TERMINAL | OWNED | BLOCKED | DECISION_REQUIRED | READY` and selects only the first unowned `READY` candidate. Historical backlog text below is product-state context only; closed Issues, old PR ownership and prior “next work” recommendations are never current routing authority.
+
+At the selector-reconciliation base `166561fe066b12310fb534172542e60b51484c46`, the long-lived active task records are the blocked public-domain repair and blocked native-auth production verification records; the portal selector reconciliation itself is owned by Issue #1057 / PR #1058 until its terminal closeout. Any newer live state supersedes this snapshot.
 
 ## Engineering phase state
 
@@ -195,7 +201,7 @@ Open focused backlog:
 - #325 — optional loyalty/badge/status presentation;
 - #326 — remaining exhaustive delivered-screen/browser/visual/state matrix.
 
-A green route or API contract must not be described as product complete while required benchmark or frontend gaps remain.
+These identifiers are historical/product-gap context, not a current execution queue. A green route or API contract must not be described as product complete while required benchmark or frontend gaps remain.
 
 ## Production hardening and evidence
 
@@ -217,20 +223,15 @@ A deployment-targeted preflight previously failed closed before network or mutat
 
 ## Game-login boundary
 
-Repository and exact-revision E2E work has hardened the native-auth direction, but production activation remains separately gated. Cross-repository writes to Canary or a login server require explicit user authorization and a coordinated contract/rollout.
+Repository and exact-revision E2E work has hardened the native-auth direction, but production activation remains separately gated. Any new external repository access or write requires separate current owner authorization and a coordinated contract/rollout; this state file does not grant it.
 
 ## Current active task
 
-No active task currently owns the next remaining #326 screen/state/data/error/media evidence slice. Live active task records and open PRs remain authoritative for parallel work, including PR #328 for the character-rename contract.
+Do not infer a single global owner from this section. Current ownership is the union of live `docs/agents/tasks/active/**`, branches/PRs and programme leases. At selector-reconciliation base `166561fe066b12310fb534172542e60b51484c46`, the two pre-existing active task records are blocked and non-overlapping; Issue #1057 / PR #1058 owns the bounded portal selector reconciliation. The concurrent PublicPortal Today architecture is separately owned by Issue #1049 / PR #1055 and does not overlap #1058's claimed paths.
 
 ## Recommended sequence
 
-1. Select and execute the next separately owned #326 screen/state/data/error/media evidence slice; do not duplicate completed #340, #347 or public game-data #350.
-2. Continue required character deletion/restore #317 and rename #319 only after operation-specific Canary contracts and authorization exist; do not overlap PR #328.
-3. Decide authoritative world ownership before #320 and deliver #323 only after #301 provides earned-achievement truth.
-4. Keep commerce disabled until #321 payment security/provider decisions and #322 entitlement lifecycle are complete.
-5. Treat #302/#325 as optional product discovery.
-6. Resume #91 only after explicit production deployment/verification authorization and required production evidence access exist.
+For portal completion, do not execute this numbered history as a queue. Run `OTERYN_PORTAL_COMPLETION.md` from live protected `main` and select the first exact candidate classified `READY` after persisting exact reasons for earlier `TERMINAL`, `OWNED`, `BLOCKED` and `DECISION_REQUIRED` entries. In particular, closed remediation Issues #948/#944/#941 are historical terminal evidence, LiveOps architecture #1046 is terminal without implying runtime implementation, `WorldStatus + configured Maintenance` requires exact authoritative runtime-source evidence, `ServerSave` requires its own proven source, and Client Distribution Issue #1039 is explicitly reachable by the canonical order. Production, external-repository and owner-funded-service gates remain separate.
 
 ## Community data delivery
 
