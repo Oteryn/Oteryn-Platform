@@ -8,6 +8,7 @@ on:
       - "docs/agents/BRANCH_DELETION_APPROVAL.json"
       - "docs/agents/tasks/active/OTERYN-20260806-branch-lifecycle-implementation.md"
       - "tools/agents/branch_lifecycle.py"
+      - "tools/agents/branch_lifecycle_legacy.py"
       - "tools/agents/test_branch_lifecycle.py"
   push:
     branches:
@@ -17,6 +18,7 @@ on:
       - "docs/agents/BRANCH_LIFECYCLE_POLICY.json"
       - "docs/agents/BRANCH_DELETION_APPROVAL.json"
       - "tools/agents/branch_lifecycle.py"
+      - "tools/agents/branch_lifecycle_legacy.py"
       - "tools/agents/test_branch_lifecycle.py"
   workflow_dispatch:
 
