@@ -1,9 +1,9 @@
 ---
 task_id: OTERYN-20260814-remaining-branch-audit
 issue: 1068
-status: investigating
+status: validating
 project_lane: oteryn-platform-core
-phase: investigate
+phase: validate
 execution_mode: github_connector
 required_reads:
   - AGENTS.md
@@ -71,11 +71,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-14T20:49:00Z
-head: ef156b16286d531b08feb9477b5e0d72f177d5ae
+updated_at: 2026-08-14T21:01:00Z
+head: 1d24638fd9263542805652ad1d2df86094d48bcd
 branch: repair/issue-1068-remaining-branch-audit
-pr: none
-status: investigating
+pr: 1069
+status: validating
 context_routes:
   - agent-governance
   - testing
@@ -89,15 +89,18 @@ owned_paths:
   - .github/workflows/historical-branch-audit.yml
 proven:
   - Issue #1050 closed completed after deleting 113 exact-reviewed historical refs and installing terminal branch lifecycle governance.
-  - Protected main at task start is ef156b16286d531b08feb9477b5e0d72f177d5ae.
-  - The prior approval-free inventory immediately before PR #1066 merge had 80 refs: 9 OPEN_PR, 1 PROTECTED, 60 UNKNOWN and 10 UNMERGED_ORPHAN; PR #1066 then merged and its source ref was auto-deleted.
-  - Current live repository has 8 open PRs and two active task records whose checkpoints own no branch.
+  - Protected main at task start was ef156b16286d531b08feb9477b5e0d72f177d5ae; while this task was being claimed, PR #1063 advanced main to 780ad6c8178206b13d001537ba651b6e0bd22219.
+  - The task branch was synchronised with current main as merge head 1d24638fd9263542805652ad1d2df86094d48bcd before the first authoritative audit generation.
+  - Draft PR #1069 owns the same-repository implementation branch; no PR event can enter the destructive apply job.
+  - The prior approval-free inventory immediately before PR #1066 merge had 80 refs: 9 OPEN_PR, 1 PROTECTED, 60 UNKNOWN and 10 UNMERGED_ORPHAN; #1066 and later #1063 source refs were automatically deleted after protected merges.
+  - Current live repository has eight open PRs including this draft audit PR; protected/open branches are excluded before any historical redundancy decision.
   - No Codex/OpenAI/owner-funded AI use is authorized for Issue #1068.
 derived:
   - The remaining historical set requires a one-time evidence-rich audit because current terminal lifecycle intentionally fails closed on moved/no-PR refs.
-  - Exact ancestry/divergence and PR history can distinguish redundant historical refs from unique recovery evidence without merging abandoned work.
+  - Exact ancestry, tree equality and patch-equivalence can prove a historical ref redundant without merging abandoned work; unique history remains retained or recovery-classified.
+  - A one-time exact reviewed branch/SHA approval must be committed only after the first full audit artifact is inspected.
 unknown:
-  - Exact disposition of each remaining UNKNOWN and UNMERGED_ORPHAN ref.
+  - Exact disposition of each remaining historical ref on current main.
   - Exact reviewed deletion candidate count after live ancestry/PR/task audit.
 conflicts: []
 first_failure:
@@ -106,25 +109,32 @@ first_failure:
 rejected_hypotheses:
   - Delete all old-looking refs by prefix or date; forbidden because naming/age is not terminal evidence.
   - Merge abandoned branches merely to make them deletable; forbidden by repository lifecycle policy.
+  - Reuse Issue #1050 approvals; they were one-time candidate-set approvals and are already consumed/removed.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260814-remaining-branch-audit.md
+  - tools/agents/historical_branch_audit.py
+  - tools/agents/test_historical_branch_audit.py
+  - .github/workflows/historical-branch-audit.yml
 validation:
   - command: live Issue #1050 / PR #1066 / branch inventory reconciliation
     result: PASS
-    evidence: #1050 is closed completed, #1066 merged, its source branch is absent, and current open PR/active-task state was re-read at task start.
+    evidence: #1050 is closed completed, #1066 merged, its source branch is absent, and live branch/PR/task state was re-read at task start.
+  - command: current-main reconciliation
+    result: PASS
+    evidence: non-overlapping PR #1063 main delta was incorporated before audit generation; merge head 1d24638fd9263542805652ad1d2df86094d48bcd contains both current main and the audit implementation.
   - command: audit E2E
     result: NOT_APPLICABLE
     evidence: repository Git-ref governance has no user/browser/runtime journey; exact live GitHub inventory and destructive-ref recovery verification are the applicable end-to-end evidence.
 blockers:
   - none
-next_action: Implement a fail-closed historical branch audit that resolves exact branch SHA, main ancestry/divergence, PR history, active ownership and recovery-purpose evidence, then run it through GitHub Actions on the task branch before approving any deletion.
+next_action: Inspect the first successful Historical Branch Audit artifact for PR #1069, manually review every DELETE/RETAIN/RECOVERY disposition, then bind only the exact proven DELETE branch/SHA set in the one-time Issue #1068 approval.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: task is active on a dedicated same-repository repair branch
+source_branch_reason: task is active on dedicated same-repository draft PR #1069
 source_branch_evidence: pending
 ```
 
