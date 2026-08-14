@@ -5,7 +5,6 @@ import argparse
 import copy
 import hashlib
 import os
-import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -19,6 +18,13 @@ POLICY_FILES = (
     Path("tools/agents/historical_branch_policy.py"),
 )
 HARD_ANCHOR_DISPOSITIONS = {"OPEN_PR", "PROTECTED", "RECOVERY"}
+LIVE_ANCHOR_PREFIX = "REACHABLE_FROM_LIVE_ANCHOR:"
+DUPLICATE_ANCHOR_PREFIX = "DUPLICATE_HEAD_RETAINED_AS:"
+BASE_MAIN_PROOFS = {
+    "ANCESTOR_OF_MAIN",
+    "TREE_EQUAL_TO_MAIN",
+    "PATCH_EQUIVALENT_TO_MAIN",
+}
 
 
 def combined_implementation_sha256(root: Path) -> str:
@@ -45,22 +51,6 @@ def is_ancestor(root: Path, ancestor_sha: str, descendant_sha: str) -> bool:
     return result.returncode == 0
 
 
-def exact_merged_pr_number(branch: dict[str, Any]) -> int | None:
-    head_sha = branch.get("head_sha")
-    if not isinstance(head_sha, str):
-        return None
-    for pull in branch.get("pull_history", []):
-        if not isinstance(pull, dict):
-            continue
-        if (
-            pull.get("merged") is True
-            and pull.get("head_sha") == head_sha
-            and isinstance(pull.get("number"), int)
-        ):
-            return int(pull["number"])
-    return None
-
-
 def anchor_rank(branch: dict[str, Any]) -> tuple[int, int, str]:
     name = str(branch.get("branch", ""))
     disposition = str(branch.get("disposition", ""))
@@ -74,7 +64,9 @@ def collapse_redundant_refs(
     ancestor_predicate: Callable[[str, str], bool],
 ) -> list[dict[str, Any]]:
     result = copy.deepcopy(branches)
-    by_name = {str(item["branch"]): item for item in result}
+    names = [str(item["branch"]) for item in result]
+    if len(names) != len(set(names)):
+        raise ValidationError("historical policy input contains duplicate branch identities")
 
     # Active task claims are semantic anchors even though the base classifier labels them RETAIN.
     hard_anchors = [
@@ -83,39 +75,22 @@ def collapse_redundant_refs(
         if item.get("disposition") in HARD_ANCHOR_DISPOSITIONS
         or bool(item.get("active_claims"))
     ]
-
     generic = [
         item
         for item in result
         if item.get("disposition") == "RETAIN" and not item.get("active_claims")
     ]
 
-    # Exact terminal merged PR evidence is stronger than squash-merge ancestry. Reserved
-    # recovery/rollback/backup names are deliberately excluded: their semantic pointer is retained.
+    # A generic historical ref is redundant only when every one of its commits remains
+    # reachable from a semantically protected live anchor: an open PR, protected branch,
+    # active task branch, or deliberately preserved recovery/rollback/backup ref.
     for item in generic:
-        if bool(item.get("reserved_purpose_name")):
-            continue
-        pr_number = exact_merged_pr_number(item)
-        if pr_number is None:
-            continue
-        item["disposition"] = "DELETE"
-        item["reason"] = (
-            f"current branch head exactly matches merged PR #{pr_number} terminal head; "
-            "immutable PR/commit provenance preserves recovery"
-        )
-        item["cleanup_proof"] = f"EXACT_MERGED_PR_HEAD:{pr_number}"
-
-    remaining = [item for item in generic if item.get("disposition") == "RETAIN"]
-
-    # A generic historical ref is redundant when all of its commits are still reachable
-    # from a hard live anchor (open PR, protected branch, active task, or preserved recovery ref).
-    for item in remaining:
         head_sha = str(item["head_sha"])
-        covering: list[dict[str, Any]] = []
-        for anchor in hard_anchors:
-            anchor_sha = str(anchor["head_sha"])
-            if ancestor_predicate(head_sha, anchor_sha):
-                covering.append(anchor)
+        covering = [
+            anchor
+            for anchor in hard_anchors
+            if ancestor_predicate(head_sha, str(anchor["head_sha"]))
+        ]
         if not covering:
             continue
         anchor = sorted(covering, key=anchor_rank)[0]
@@ -124,18 +99,21 @@ def collapse_redundant_refs(
             f"all commits remain reachable from live {anchor['disposition']} anchor "
             f"{anchor['branch']}@{anchor['head_sha']}"
         )
-        item["cleanup_proof"] = f"REACHABLE_FROM_LIVE_ANCHOR:{anchor['branch']}"
+        item["cleanup_proof"] = f"{LIVE_ANCHOR_PREFIX}{anchor['branch']}"
 
+    # Collapse exact duplicate generic refs while preserving one deterministic retained
+    # semantic label. This never removes the last live ref that reaches the unique commit.
     remaining = [item for item in generic if item.get("disposition") == "RETAIN"]
-
-    # Collapse exact duplicate generic refs while preserving one deterministic semantic anchor.
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for item in remaining:
         groups[str(item["head_sha"])].append(item)
     for head_sha, group in groups.items():
         if len(group) < 2:
             continue
-        anchor = sorted(group, key=lambda item: (len(str(item["branch"])), str(item["branch"])))[0]
+        anchor = sorted(
+            group,
+            key=lambda item: (len(str(item["branch"])), str(item["branch"])),
+        )[0]
         for item in group:
             if item is anchor:
                 continue
@@ -144,47 +122,23 @@ def collapse_redundant_refs(
                 f"exact duplicate head {head_sha} remains reachable from retained ref "
                 f"{anchor['branch']}"
             )
-            item["cleanup_proof"] = f"DUPLICATE_HEAD_RETAINED_AS:{anchor['branch']}"
+            item["cleanup_proof"] = f"{DUPLICATE_ANCHOR_PREFIX}{anchor['branch']}"
 
-    remaining = [item for item in generic if item.get("disposition") == "RETAIN"]
-
-    # Preserve only maximal generic history tips. If one generic ref is a strict ancestor
-    # of another retained generic ref, deleting the older label cannot orphan any commit.
-    for item in remaining:
-        head_sha = str(item["head_sha"])
-        descendants: list[dict[str, Any]] = []
-        for other in remaining:
-            if other is item:
-                continue
-            other_sha = str(other["head_sha"])
-            if head_sha == other_sha:
-                continue
-            if ancestor_predicate(head_sha, other_sha):
-                descendants.append(other)
-        if not descendants:
-            continue
-        descendant = sorted(
-            descendants,
-            key=lambda entry: (-int(entry.get("relation", {}).get("ahead", 0)), len(str(entry["branch"])), str(entry["branch"])),
-        )[0]
-        item["disposition"] = "DELETE"
-        item["reason"] = (
-            f"all commits remain reachable from newer retained historical tip "
-            f"{descendant['branch']}@{descendant['head_sha']}"
-        )
-        item["cleanup_proof"] = f"REACHABLE_FROM_RETAINED_TIP:{descendant['branch']}"
-
-    # Base DELETE entries already carry an exact Git proof; normalize it into cleanup_proof.
+    # Base DELETE entries already carry one of the strict Git-to-main proofs.
     for item in result:
         if item.get("disposition") != "DELETE":
             continue
         if "cleanup_proof" not in item:
             relation = item.get("relation") if isinstance(item.get("relation"), dict) else {}
-            item["cleanup_proof"] = str(relation.get("proof", "BASE_DELETE"))
+            proof = str(relation.get("proof", ""))
+            if proof not in BASE_MAIN_PROOFS:
+                raise ValidationError(
+                    f"base DELETE {item.get('branch')} lacks an accepted main-incorporation proof"
+                )
+            item["cleanup_proof"] = proof
 
-    # Defensive accounting: no branch may vanish from the policy transform.
-    if set(by_name) != {str(item["branch"]) for item in result}:
-        raise ValidationError("historical policy transform lost or duplicated branch identities")
+    if names != [str(item["branch"]) for item in sorted(result, key=lambda x: names.index(str(x["branch"])))]:
+        raise ValidationError("historical policy transform changed branch identity accounting")
     return sorted(result, key=lambda item: str(item["branch"]))
 
 
@@ -229,6 +183,86 @@ def build_policy_audit(
     return report, manifest
 
 
+def fetch_exact_live_branch(
+    client: GitHubClient,
+    *,
+    branch: str,
+    expected_sha: str,
+) -> dict[str, Any]:
+    state = client.get_branch(branch)
+    if not isinstance(state, dict):
+        raise ValidationError(f"required live branch disappeared: {branch}")
+    commit = state.get("commit")
+    live_sha = commit.get("sha") if isinstance(commit, dict) else None
+    if live_sha != expected_sha:
+        raise ValidationError(
+            f"required live branch SHA drift for {branch}: expected {expected_sha}, got {live_sha}"
+        )
+    return state
+
+
+def verify_candidate_proof_live(
+    client: GitHubClient,
+    *,
+    root: Path,
+    candidate: dict[str, Any],
+    branch_index: dict[str, dict[str, Any]],
+    main_sha: str,
+) -> None:
+    branch = str(candidate["branch"])
+    head_sha = str(candidate["head_sha"])
+    proof = str(candidate.get("cleanup_proof", ""))
+
+    if proof in BASE_MAIN_PROOFS:
+        relation = audit.branch_relation(root, main_sha, head_sha)
+        if relation.get("incorporated") is not True or relation.get("proof") != proof:
+            raise ValidationError(
+                f"main-incorporation proof drift for {branch}: expected {proof}, got {relation.get('proof')}"
+            )
+        return
+
+    if proof.startswith(LIVE_ANCHOR_PREFIX):
+        anchor_name = proof[len(LIVE_ANCHOR_PREFIX) :]
+        anchor = branch_index.get(anchor_name)
+        if not anchor:
+            raise ValidationError(f"missing reviewed live anchor {anchor_name} for {branch}")
+        anchor_sha = str(anchor["head_sha"])
+        state = fetch_exact_live_branch(
+            client,
+            branch=anchor_name,
+            expected_sha=anchor_sha,
+        )
+        expected_disposition = str(anchor.get("disposition", ""))
+        if expected_disposition == "PROTECTED" and state.get("protected") is not True:
+            raise ValidationError(f"reviewed protected anchor lost protection: {anchor_name}")
+        if expected_disposition == "OPEN_PR" and not client.open_pulls_for_branch(anchor_name):
+            raise ValidationError(f"reviewed open-PR anchor is no longer open: {anchor_name}")
+        if not is_ancestor(root, head_sha, anchor_sha):
+            raise ValidationError(
+                f"reviewed live anchor no longer contains candidate history: {branch} -> {anchor_name}"
+            )
+        return
+
+    if proof.startswith(DUPLICATE_ANCHOR_PREFIX):
+        anchor_name = proof[len(DUPLICATE_ANCHOR_PREFIX) :]
+        anchor = branch_index.get(anchor_name)
+        if not anchor:
+            raise ValidationError(f"missing reviewed duplicate anchor {anchor_name} for {branch}")
+        anchor_sha = str(anchor["head_sha"])
+        if anchor_sha != head_sha:
+            raise ValidationError(
+                f"reviewed duplicate proof no longer shares exact head: {branch} vs {anchor_name}"
+            )
+        fetch_exact_live_branch(
+            client,
+            branch=anchor_name,
+            expected_sha=anchor_sha,
+        )
+        return
+
+    raise ValidationError(f"unsupported cleanup proof for {branch}: {proof!r}")
+
+
 def apply_reviewed_policy(
     client: GitHubClient,
     *,
@@ -254,8 +288,9 @@ def apply_reviewed_policy(
             f"audit default branch SHA mismatch: expected {expected_main_sha}, got {report['default_branch_sha']}"
         )
 
+    branch_index = {str(item["branch"]): item for item in report["branches"]}
     current_branches = {
-        str(item["branch"]): str(item["head_sha"]) for item in report["branches"]
+        branch: str(item["head_sha"]) for branch, item in branch_index.items()
     }
     present, already_absent = audit.validate_apply_candidate_set(
         approval=approval,
@@ -277,36 +312,22 @@ def apply_reviewed_policy(
         sha = entry["head_sha"]
         audit.assert_main_unchanged(client, default_branch, expected_main_sha)
 
-        # Rebuild the complete policy immediately before each destructive operation.
-        latest_report, latest_manifest = build_policy_audit(
+        candidate = branch_index.get(branch)
+        if not candidate or candidate.get("disposition") != "DELETE":
+            raise ValidationError(f"reviewed candidate is no longer DELETE: {branch}")
+        verify_candidate_proof_live(
             client,
             root=root,
-            default_branch=default_branch,
+            candidate=candidate,
+            branch_index=branch_index,
+            main_sha=expected_main_sha,
         )
-        latest_branches = {
-            str(item["branch"]): str(item["head_sha"]) for item in latest_report["branches"]
-        }
-        latest_present, _ = audit.validate_apply_candidate_set(
-            approval=approval,
-            current_manifest=latest_manifest,
-            current_branches=latest_branches,
-        )
-        if {item["branch"] for item in latest_present} != {
-            candidate["branch"]
-            for candidate in present
-            if candidate["branch"] in latest_branches
-        }:
-            raise ValidationError("historical deletion candidate liveness changed during apply")
 
-        branch_state = client.get_branch(branch)
-        if not isinstance(branch_state, dict):
-            raise ValidationError(f"approved branch disappeared before exact delete: {branch}")
-        live_commit = branch_state.get("commit")
-        live_sha = live_commit.get("sha") if isinstance(live_commit, dict) else None
-        if live_sha != sha:
-            raise ValidationError(
-                f"pre-delete SHA drift for {branch}: expected {sha}, got {live_sha}"
-            )
+        branch_state = fetch_exact_live_branch(
+            client,
+            branch=branch,
+            expected_sha=sha,
+        )
         if branch_state.get("protected") is True:
             raise ValidationError(f"approved branch became protected: {branch}")
         if client.open_pulls_for_branch(branch):
