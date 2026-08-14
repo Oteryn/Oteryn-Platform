@@ -2,7 +2,7 @@
 task_id: OTERYN-20260814-public-today-architecture
 mode: architecture
 issue: 1049
-status: waiting
+status: validating
 programme: OTERYN_PORTAL_COMPLETION
 project_lane: oteryn-platform-core
 phase: validate
@@ -66,12 +66,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-14T13:20:28Z
-head: c5963cfbb46686f3ec07ac3c7e81a7c8e270452c
+updated_at: 2026-08-14T14:46:00Z
+head: 0663db2f59302b62eca129baef43e9e67e52e2c4
 material_head: c5963cfbb46686f3ec07ac3c7e81a7c8e270452c
 branch: docs/OTERYN-20260814-public-today-architecture
 pr: 1055
-status: waiting
+status: validating
 context_routes:
   - architecture
   - security
@@ -91,21 +91,24 @@ proven:
   - Material diff at c5963cfbb46686f3ec07ac3c7e81a7c8e270452c contains exactly three declared paths, with one Architecture Authority routing row and no runtime deletion/change.
   - Exact-head review 4937489372 records PASS with no material findings and E2E NOT_APPLICABLE for the architecture-only material head.
   - Security architecture deny-by-default, server-side ownership and no-private-data logging rules are compatible with the focused Today public/private boundary.
+  - On head 0663db2f59302b62eca129baef43e9e67e52e2c4 six of eight emitted workflows passed; Agent Governance 31804310744 and CI 31804310707 failed only because the task checkpoint used unsupported validation result `PENDING`.
 derived:
   - A focused Today document can narrow implementation sequencing without creating a new ADR because durable ownership/privacy policy is already accepted.
   - Public guest first materially reduces cross-principal cache risk and allows a complete user-facing slice before private personalization.
+  - The failed gates are checkpoint-schema defects, not architecture-content findings.
 unknown:
   - exact future public Today route path
   - exact provider registry/card DTO implementation
   - exact cache technology/TTL and production CDN path
 conflicts: []
 first_failure:
-  marker: exact-head-ci-pending
-  evidence: first two aggregate observations of material head c5963cfbb46686f3ec07ac3c7e81a7c8e270452c found the eight emitted workflows queued; no failure conclusion exists
+  marker: unsupported-checkpoint-validation-result
+  evidence: Agent Governance job 94779422557 and CI classify-changes job 94779502965 both report validation item 4 result `PENDING` is unsupported; allowed results are BLOCKED, FAIL, NOT_APPLICABLE, NOT_RUN, PASS
 rejected_hypotheses:
   - Today should become a new source-of-truth domain module.
   - A mixed public/private response can inherit public shared-cache eligibility.
   - Source dependency failure can be shown as authoritative empty/normal state.
+  - CI failures indicate an architecture-content defect.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260814-public-today-architecture.md
   - docs/architecture/PUBLIC_PORTAL_TODAY_ARCHITECTURE.md
@@ -116,15 +119,15 @@ validation:
     evidence: ADR 0032, LiveOps architecture, Module Catalog, Security Architecture and work allocation align with public-guest-first focused design
   - command: exact-head architecture self-review
     result: PASS
-    evidence: review 4937489372 on c5963cfbb46686f3ec07ac3c7e81a7c8e270452c
+    evidence: reviews 4937489372 and 4937509718; no architecture-content finding
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: architecture-only task creates no executable user/system path
-  - command: exact-head PR CI
-    result: PENDING
-    evidence: runs 31804205611, 31804205662, 31804205668, 31804205655, 31804205692, 31804205746, 31804205729 and 31804205736 were queued at the two permitted ordinary observations
+  - command: exact-head PR CI after checkpoint repair
+    result: NOT_RUN
+    evidence: checkpoint-schema repair committed after head 0663db2f59302b62eca129baef43e9e67e52e2c4 failures; new exact-head workflows must validate the repair
 blockers: []
-next_action: Verify live PR #1055 head after the checkpoint-only commit, perform one exact-head full-diff self-review, then resume bounded final CI/review/merge closeout without changing architecture content unless a material finding appears.
+next_action: Validate the new exact PR head; if all emitted checks pass and review hygiene remains clean, squash-merge PR #1055 and complete Issue/task archival closeout.
 ```
 
 ## Recovery checkpoint
@@ -132,24 +135,24 @@ next_action: Verify live PR #1055 head after the checkpoint-only commit, perform
 ```yaml
 recovery:
   policy_version: 1
-  generation: 1
-  session_id: 20260814T131704Z-public-today-architecture
-  session_started_at: 2026-08-14T13:17:04Z
-  checkpointed_at: 2026-08-14T13:20:28Z
-  last_progress_at: 2026-08-14T13:20:28Z
+  generation: 2
+  session_id: 20260814T144600Z-public-today-architecture-repair
+  session_started_at: 2026-08-14T14:46:00Z
+  checkpointed_at: 2026-08-14T14:46:00Z
+  last_progress_at: 2026-08-14T14:46:00Z
   phase: final-validation-and-merge
-  exact_head: c5963cfbb46686f3ec07ac3c7e81a7c8e270452c
+  exact_head: 0663db2f59302b62eca129baef43e9e67e52e2c4
   pull_request: 1055
   active_operation: none
-  external_run_ids: [31804205611, 31804205662, 31804205668, 31804205655, 31804205692, 31804205746, 31804205729, 31804205736]
+  external_run_ids: [31804310694, 31804310705, 31804310738, 31804310754, 31804310699, 31804310744, 31804310842, 31804310707]
   operation_started_at: null
   wait_deadline_at: null
-  check_generation: material-head-c5963cf
-  checks_used: 2
-  status: waiting
+  check_generation: checkpoint-repair
+  checks_used: 0
+  status: ready
   safe_to_resume: true
-  resume_condition: GitHub exposes the live PR #1055 head and its exact-head workflow/review state.
-  next_action: Fetch PR #1055, treat the live checkpoint commit as the new exact head, self-review that docs-only delta, then validate its emitted CI and merge/archive only if every gate passes.
+  resume_condition: GitHub exposes workflows for the checkpoint-repair commit.
+  next_action: Fetch PR #1055 current head and validate its emitted exact-head workflows; merge only after all required gates pass.
 ```
 
 ## Self-review
@@ -157,18 +160,20 @@ recovery:
 ```yaml
 self_review:
   result: PASS
-  exact_head: c5963cfbb46686f3ec07ac3c7e81a7c8e270452c
+  exact_head: 0663db2f59302b62eca129baef43e9e67e52e2c4
   acceptance_checked: true
   full_diff_checked: true
   negative_paths_checked: true
   rollback_checked: true
   compatibility_checked: true
   related_prs_checked: true
-  findings: []
+  findings:
+    - checkpoint validation result `PENDING` is invalid repository schema and must be replaced with a supported state
   evidence:
-    - review 4937489372
+    - reviews 4937489372 and 4937509718
+    - Agent Governance job 94779422557 exact error
+    - CI classify-changes job 94779502965 exact error
     - no runtime, API, persistence, frontend, workflow or external-repository change
-    - removing the focused document/routing row is documentation-only rollback
 ```
 
 ## Notes
