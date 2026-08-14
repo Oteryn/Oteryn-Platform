@@ -4,7 +4,7 @@
 
 **CURRENT DELIVERY PLAN — subordinate to accepted ADRs, operation-specific contracts, repository governance and `docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md`.**
 
-This plan converts the 2026-08-10 portal review into an implementation order. It does not itself authorize production, protected-environment, payment, live-data or external-repository mutation. Live Git/task/Issue/PR/CI state always overrides dated queue examples.
+This plan converts the portal review into an implementation order. It does not itself authorize production, protected-environment, payment, live-data or external-repository mutation. Live Git/task/Issue/PR/CI state always overrides dated examples.
 
 Companion records:
 
@@ -31,7 +31,7 @@ Every slice must preserve:
 
 ## Execution allocation
 
-The delivery order in this document answers **what should happen next**. `docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md` answers **who should own each type of work** through model-agnostic roles and whether a bounded implementation is technically suitable for optional Codex execution.
+The delivery order in this document answers **what should happen next** at a product/architecture level. The canonical live scheduler is `docs/agents/programs/OTERYN_PORTAL_COMPLETION.md`; it classifies every selection-order entry from live evidence and selects the first unowned `READY` candidate. `docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md` answers **who should own the already-selected work** through model-agnostic roles and whether a bounded implementation is technically suitable for optional Codex execution.
 
 The allocation is subordinate to this delivery order, the canonical programme's live selection, task/PR ownership and repository authorization. `IMPLEMENTATION_OWNER` is an ownership role, not a model choice. Codex suitability never grants permission to consume owner-funded Codex/OpenAI quota; `AGENTS.md` requires explicit owner permission for each exact use/task. Without that permission, the same bounded task uses another permitted execution mode.
 
@@ -43,46 +43,25 @@ Goal: make future autonomous task selection trustworthy.
 
 Required outcomes:
 
-1. live task files, `ACTIVE_WORK.md`, `PROJECT_STATE.md`, Issues and PR state are reconciled where drift materially affects routing;
+1. live task files, convenience indexes, Issues and PR state are reconciled where drift materially affects routing;
 2. no completed task remains falsely active;
 3. no open related PR lacks an intentional disposition;
 4. historical state is labelled historical rather than silently overwritten;
 5. GitHub connector capability is checked before any local-CLI access conclusion;
-6. prompt/governance changes follow the prompt-evaluation standard.
+6. prompt/governance changes follow the prompt-evaluation standard;
+7. `ACTIVE_WORK.md` and `PROJECT_STATE.md` never override newer active-task, PR/Issue or protected-`main` evidence.
 
-Current known drift includes `ACTIVE_WORK.md` reporting no active work while two blocked active task files exist. At the corrected 2026-08-10 closeout refresh PRs #961, #541 and #338 were open: #961 is separate synthetic/no-network research work currently requiring `FIX`, while #541/#338 retain their evidence-dependent portal-review dispositions.
+The exact current routing snapshot belongs in the selected task/selection proof rather than in this durable plan. A stale convenience index is evidence to reconcile, not a queue.
 
-Exit gate: an agent can determine current owner, exact next action and blockers from live durable state without relying on chat history.
+Exit gate: an agent can determine current owner, exact next action and blockers from live durable state without relying on chat history or dated queue prose.
 
 ### P1 — close proven high-risk security/authority findings
 
 Use the existing Issue-owned remediation programme; do not duplicate repair ownership.
 
-Current live priorities at the 2026-08-10 refresh:
+Historical repairs #948 (immutable Download Center artifact reference), #944 (bounded entitlement stale-authority lease) and #941 (private Today cache isolation) are terminal completed examples. They must not be treated as current priorities simply because an older report listed them. Each invocation queries live open remediation Issues and routes only an implementation-authorized current high-risk candidate through `OTERYN_PLATFORM_REMEDIATION`.
 
-1. **#948 — immutable Download Center artifact reference**
-   - enforce machine-testable immutable reference identity;
-   - preserve approved-host/scheme/path safeguards;
-   - reject mutable aliases/overwriteable references unless storage contract proves immutability;
-   - revalidate at publication time;
-   - do not falsely claim administrator SHA-256 was independently verified.
-
-2. **#944 — bounded entitlement stale-authority lease**
-   - define finite game-consumed authority validity;
-   - bind lifecycle revision/effective interval;
-   - distinguish current, stale-within-bound, unavailable, expired and revoked authority;
-   - prevent rollback/resurrection from delayed or cached older states;
-   - cover outage, reconnect, restart, expiry/revoke and clock/skew semantics;
-   - do not claim Premium/VIP runtime is already deployed.
-
-3. **#941 — private Today cache isolation**
-   - classify any representation containing owner-private PlayerCompanion state as private;
-   - prevent shared/CDN/anonymous cache reuse;
-   - separate guest and authenticated variants;
-   - bind any private server cache to owner/security/privacy revisions;
-   - prove two-user and auth↔guest/logout/privacy-tightening isolation.
-
-Exit gate: each repair reaches exact-head validation, applicable E2E/N/A, terminal PR/Issue/task closeout and no material finding remains.
+Exit gate: every launch-critical repair has exact-head validation, applicable E2E/N/A, terminal PR/Issue/task closeout and no material finding remains.
 
 ### P1 — production/public-edge proof
 
@@ -103,20 +82,20 @@ Exit gate: every production claim is tied to exact deployed identity and direct 
 
 ### P1/P2 — core Account Center and Character Portfolio
 
-Finish the user-critical account/character lifecycle before optional social polish.
+Finish the user-critical account/character lifecycle before optional social polish when its authoritative dependencies exist.
 
 Revalidate live product gaps and deliver bounded slices for:
 
 - delete/grace/restore;
 - conflict-safe rename;
-- world/profile transfer only behind an accepted operation contract;
+- world/profile transfer only behind an accepted product decision and operation contract;
 - native Character Portfolio composition under Accounts;
 - canonical `CharacterId` integration and additive migration away from permanent Canary numeric identifiers where authorized;
 - typed unavailable/stale/conflict/incompatible portfolio states;
 - idempotent command receipts/results for game-owned mutations;
 - EN/PL, accessibility, responsive and negative-path E2E.
 
-Server-owned evidence is a dependency, not implied Platform authority. If a slice requires Oteryn-v2/Canary inspection, record the cross-repository decision gate and stop that part until separately authorized.
+Current native delete/restore Issue #317 and rename Issue #319 require accepted Oteryn-v2 Character Authority command/result semantics before runtime implementation. World transfer #320 additionally requires an explicit product decision. Server-owned evidence is a dependency, not implied Platform authority. If the required evidence lives only in a server repository, record the exact cross-repository blocker and do not inspect that repository without separate owner authorization.
 
 Exit gate: the Account Center gives a player one authoritative, safe view of owned characters and supported lifecycle actions without hidden legacy identity coupling.
 
@@ -126,6 +105,8 @@ Build a first-party “what matters now?” surface rather than more disconnecte
 
 #### LiveOps owner responsibilities
 
+`docs/architecture/LIVEOPS_ARCHITECTURE.md` is the focused canonical architecture. Architecture Issue #1046 and its closeout are terminal; that is architecture evidence only and does not mean LiveOps runtime exists. `MODULE_CATALOG.md` correctly remains `LiveOps | PLANNED` until an executable capability is merged and validated.
+
 Typed current-state projections may include:
 
 - maintenance/server save;
@@ -134,7 +115,9 @@ Typed current-state projections may include:
 - authoritative raid/boss schedules when a producer exists;
 - rotations/boosted systems when their authoritative contract exists.
 
-Never convert stale/unavailable data into `0`, `offline`, `none` or another fabricated fact.
+The first intended runtime package is `WorldStatus + configured Maintenance`. It is not promoted to canonical selector `READY` until the exact authoritative runtime-status source required by the delivered WorldStatus capability is proven from permitted evidence. Platform configured maintenance remains independent policy authority and cannot manufacture observed runtime health. `ServerSave` is a separate blocked capability until its authoritative producer, applicability, time-base, recurrence/effective revision and freshness semantics are proven.
+
+Never convert stale/unavailable data into `0`, `offline`, `none`, success or another fabricated fact.
 
 #### PublicPortal Today composition
 
@@ -150,8 +133,9 @@ Announcements / Events / CMS editorial state
 Rules:
 
 - source freshness/applicability/confidence is preserved;
-- public Today can launch before private personalization;
-- private Today waits for the #941-equivalent cache isolation gate;
+- a focused public Today architecture/documentation package may proceed independently of a blocked runtime producer when it does not claim runtime delivery;
+- public Today implementation may launch before private personalization if its exact public source dependencies are ready;
+- private Today waits for the accepted owner-private cache isolation/security gate;
 - public subfragments may be cached only when private state cannot influence them.
 
 Exit gate: Today is useful under normal, stale, partial and dependency-failure states and never leaks owner-private content.
@@ -178,7 +162,26 @@ Rules:
 - raw query text is not an ordinary log field/metric label;
 - future search index is rebuildable derived infrastructure, never source truth.
 
+Before implementation starts, create or reuse one exact bounded Issue/package and prove dependency cleanup scope and ownership. Architecture maturity alone is not selector `READY`.
+
 Exit gate: search is useful, privacy-safe, resilient to partial provider failure and has no reverse module cycle.
+
+### P2 — first-party Client Distribution
+
+ADR 0035 and `docs/architecture/CLIENT_DISTRIBUTION_ARCHITECTURE.md` accept the Platform-side TUF role-separated updater trust boundary. Issue #1039 is the explicit Platform implementation handoff and is reachable directly from the canonical programme after earlier entries are terminal, owned, blocked or decision-gated.
+
+Platform implementation must preserve:
+
+- updater-enabled immutable release/target identity and channel-scoped monotonic sequencing;
+- policy revision, minimum-supported release, optional/recommended/required mode, withdrawal/revocation and explicit rollback state;
+- browser publication truth separate from signed-generation/updater activation truth;
+- exact signed-generation public metadata verification without private signing-key custody in Laravel;
+- fail-closed channel/target/replay/generation mismatch behavior;
+- idempotent ambiguity-safe reconciliation across Platform approval, protected signing/publication and Platform activation.
+
+External updater implementation, protected signer infrastructure/key operations and production activation remain separate authority/evidence gates. They must not make the bounded Platform implementation unreachable, and Platform-only tests must not be mislabeled as real updater E2E.
+
+Exit gate: the Platform side truthfully implements the accepted updater-distribution contract with exact-head focused/integration/security evidence and no private signer custody.
 
 ### P2 — Wiki and GameCatalog completeness
 
@@ -190,7 +193,7 @@ Framework existence is not content completeness. Create/maintain machine-readabl
 - expected counts and profile/version applicability;
 - provenance and effective dates.
 
-Close known media/failure paths rather than hiding HTTP 500s or broken references.
+Close known media/failure paths rather than hiding HTTP 500s or broken references. Route Game Catalog detail through `GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM.md`; do not inspect an external producer repository without separate authorization.
 
 Exit gate: content-completeness claims are machine-checkable against expected inventories and version/profile boundaries.
 
@@ -198,14 +201,15 @@ Exit gate: content-completeness claims are machine-checkable against expected in
 
 Deliver player utility as narrow vertical slices backed by authoritative/versioned data.
 
-Recommended first candidates, subject to live dependency proof:
+The Hunt Session Analyzer v1 is the terminal first complete PlayerCompanion workflow. Further tools are independent follow-up slices and must be selected/decomposed separately rather than keeping the P0 foundation perpetually non-terminal.
 
-1. loot/session split/analyzer;
-2. hunt finder/guidance;
-3. equipment explorer;
-4. build/proficiency/perk planner;
-5. quest/access tracker;
-6. EXP/training calculators.
+Recommended follow-up candidates, subject to live dependency proof:
+
+1. hunt finder/guidance;
+2. equipment explorer;
+3. build/proficiency/perk planner;
+4. quest/access tracker;
+5. EXP/training calculators.
 
 For every tool:
 
@@ -216,7 +220,7 @@ For every tool:
 - shareable artifacts are explicit and revocable where applicable;
 - UI explains assumptions and unavailable/incompatible inputs.
 
-Exit gate: at least one complete, repeatedly useful player workflow exists end-to-end, not merely a calculator stub.
+Exit gate: every promoted workflow is complete end-to-end, not merely a calculator stub.
 
 ### P3 — World Hub and community expansion
 
@@ -267,11 +271,11 @@ Before beginning a slice, inspect overlapping open/recent PRs and classify them 
 
 Never close because a PR is merely old or red. Close automatically only with concrete duplicate/obsolete/superseded evidence and after preserving unique work/evidence.
 
-At the corrected 2026-08-10 closeout refresh #961, #541 and #338 were open. #961 is a separate synthetic/no-network research `FIX` candidate with red exact-head governance/CI/harness validation; #541 and #338 retain the evidence-dependent dispositions documented in the dated review. Future invocations must always revalidate this inventory from live GitHub state.
+Do not preserve a dated list of “currently open” PR numbers here as routing authority. The exact live PR inventory and overlap disposition belongs in the selected task/selection proof and must be refreshed before mutation and before closeout.
 
 ## Completion definition
 
-The portal programme is not globally complete while required product capabilities, production evidence or P1 security/authority findings remain unresolved.
+The portal programme is not globally complete while required product capabilities, production evidence or launch-critical security/authority findings remain unresolved.
 
 A single task is complete only when its observable outcome exists and the repository's exact-head validation, E2E/N/A, review/PR hygiene, merge and task/Issue closeout rules are terminal.
 
