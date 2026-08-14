@@ -17,7 +17,7 @@ REQUIRED_FIELDS = {
 }
 ALLOWED_TERMINAL_DISPOSITIONS = {
     "auto_delete_after_merge",
-    "delete_after_close",
+    "delete_on_close",
     "retain",
 }
 PLACEHOLDER_VALUES = {
