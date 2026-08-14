@@ -59,10 +59,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-14T17:36:00Z
-head: 582f5085be79939a679cc19b1b624b9ebef818f1
+updated_at: 2026-08-14T17:37:00Z
+head: a3e24a7285df338e04c6805d9b356a1ededc6d28
 branch: repair/issue-1050-cleanup-verification
-pr: none
+pr: 1064
 status: validating
 context_routes:
   - agent-governance
@@ -81,7 +81,7 @@ proven:
 derived:
   - Post-delete absence must be reconciled through Git transport after the exact lease-guarded Git push instead of trusting an immediately consistent REST read.
 unknown:
-  - Exact-head CI and lifecycle dry-run result for the verification repair.
+  - Exact-head CI and lifecycle dry-run result for PR #1064.
   - Final post-merge deletion evidence for both reviewed candidate sets.
 conflicts: []
 first_failure:
@@ -101,14 +101,14 @@ validation:
     result: BLOCKED
     evidence: validate and live-dry-run passed; apply failed only at immediate post-delete REST verification after the exact deletion push
 blockers: []
-next_action: Open the bounded verification repair PR, run exact-head CI/lifecycle validation, then merge and verify both reviewed cleanup applies.
+next_action: Run exact-head CI/lifecycle validation for PR #1064, self-review the complete diff, then merge and verify both reviewed cleanup applies.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: bounded same-repository repair branch will merge only after exact-head gates pass
+source_branch_reason: bounded same-repository repair PR #1064 will merge only after exact-head gates pass
 source_branch_evidence: pending merge and post-merge source-ref verification
 ```
 
