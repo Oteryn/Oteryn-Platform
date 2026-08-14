@@ -24,14 +24,14 @@ Deliver the first complete PlayerCompanion vertical slice: an authenticated, own
 
 ## Acceptance criteria
 
-- [ ] Authenticated users can open the analyzer, submit a supported bounded session log, see deterministic metrics and save the normalized analysis.
-- [ ] Raw submitted logs are treated as untrusted input and are not persisted or written to ordinary application logs.
-- [ ] Saved analyses are owner-private and cross-owner access returns a safe denial/not-found result.
-- [ ] History, detail and deletion journeys are implemented with CSRF-protected state changes.
-- [ ] Invalid/unsupported/oversized logs fail with bounded validation errors and no partial persisted record.
-- [ ] Parser/domain logic is reusable outside Blade and carries parser/formula version metadata.
-- [ ] EN/PL UI copy, loading-independent empty/error/success states, responsive layout and accessible labels are present.
-- [ ] Focused unit/feature tests cover parsing, ownership, validation, persistence and deletion.
+- [x] Authenticated users can open the analyzer, submit a supported bounded session log, see deterministic metrics and save the normalized analysis.
+- [x] Raw submitted logs are treated as untrusted input and are not persisted or written to ordinary application logs.
+- [x] Saved analyses are owner-private and cross-owner access returns a safe denial/not-found result.
+- [x] History, detail and deletion journeys are implemented with CSRF-protected state changes.
+- [x] Invalid/unsupported/oversized logs fail with bounded validation errors and no partial persisted record.
+- [x] Parser/domain logic is reusable outside Blade and carries parser/formula version and explicit applicability metadata.
+- [x] EN/PL UI copy, loading-independent empty/error/success states, responsive layout and accessible labels are present.
+- [x] Focused unit/feature tests cover parsing, ownership, validation, persistence and deletion, including checked hourly-rate overflow handling.
 - [ ] Real browser E2E and exact-final-head repository-required CI pass before merge.
 - [ ] Full exact-head self-review passes, related PRs are terminal, task is archived and ownership released after merge.
 
@@ -58,6 +58,7 @@ owned_paths:
   - scripts/acceptance/coverage/test-portal-content-scale-evidence.mjs
   - lang/en/player_companion.php
   - lang/pl/player_companion.php
+  - docs/architecture/MODULE_CATALOG.md
   - docs/agents/tasks/active/OTERYN-20260813-player-companion-session-analyzer-v1.md
   - docs/agents/tasks/archive/OTERYN-20260813-player-companion-session-analyzer-v1.md
 modules:
@@ -74,8 +75,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-13T20:18:00+02:00
-head: 05b2642b277530e2a5a79bc302af41496a52e603
+updated_at: 2026-08-14T10:36:00+02:00
+head: 1ba1a5722038cfac30173a4281fdd9f6b0b1a563
 branch: feat/player-companion-session-analyzer-v1
 pr: 1028
 status: validating
@@ -84,6 +85,7 @@ context_routes:
   - web-cms
   - database
   - testing
+  - agent-governance
 owned_paths:
   - .github/workflows/portal-exhaustive-audit.yml
   - bootstrap/app.php
@@ -104,27 +106,29 @@ owned_paths:
   - scripts/acceptance/coverage/test-portal-content-scale-evidence.mjs
   - lang/en/player_companion.php
   - lang/pl/player_companion.php
+  - docs/architecture/MODULE_CATALOG.md
   - docs/agents/tasks/active/OTERYN-20260813-player-companion-session-analyzer-v1.md
   - docs/agents/tasks/archive/OTERYN-20260813-player-companion-session-analyzer-v1.md
 proven:
-  - main at task start is 638df04f616c93d80e33e1abf3f2cf0198163e7a.
-  - PlayerCompanion SessionAnalysis is accepted architecture and P0 priority 1.
-  - No active task at claim time owned PlayerCompanion paths.
-  - No repository search result showed an existing PlayerCompanion SessionAnalysis implementation to reuse.
-  - PR 1028 is the sole delivery path for this task.
-  - Implementation includes normalized persistence, parser/formula versioning, private owner-scoped routes, raw-log non-retention, EN/PL UI, Account Center discoverability, bounded validation, focused tests and a zero-retry browser journey.
-  - Parser hardening rejects duplicate participants, more than 20 participants, decimal/ambiguous metrics and partial participant aggregates presented as complete totals.
+  - PlayerCompanion SessionAnalysis is accepted architecture and PR #1028 remains the sole delivery path for this task.
+  - Branch synchronization commit 8494153fbd5d2bb1657c1db409991226c30d9f8a incorporates main e0d9f28abad3a30c547d53f40cccf4ea713cf197 without overlapping feature-path changes; compare state after review repair is zero commits behind that main.
+  - Implementation includes owner-private normalized persistence, parser/formula versioning, explicit applicability metadata, private routes, raw-log non-retention, EN/PL UI, Account Center discoverability, bounded validation, focused tests and a zero-retry browser journey.
+  - Review findings 3779503401, 3779503404 and 3779503407 were repaired: durable applicability metadata, canonical module availability boundary and checked hourly-rate overflow handling with regression coverage.
+  - All three material review threads are resolved after bounded fixes and evidence replies.
+  - Parser hardening rejects duplicate participants, more than 20 participants, decimal/ambiguous metrics, incomplete participant aggregates presented as totals and derived hourly rates outside integer bounds.
 derived:
   - V1 remains Platform-only and avoids Canary/Oteryn-v2 access because session text is user-supplied and analysis is advisory.
 unknown:
-  - Exact-head CI and browser E2E result for the latest implementation generation.
+  - Exact-head required CI and browser E2E result for the post-checkpoint final generation.
 conflicts: []
 first_failure:
-  marker: checkpoint-validation
-  evidence: The first workflow generation rejected an invalid checkpoint validation result before runtime tests.
+  marker: stale-global-task-liveness
+  evidence: The prior Agent Governance generation on c2bceb6434d6b28240f72e55cde21afa38cbe796 failed because merged PR #1038 still had a stale active task representation; current main archived that unrelated task and was synchronized before final validation.
 rejected_hypotheses:
   - Raw session logs must be persisted to provide history; normalized metrics are sufficient for v1 history.
-  - A route reachable only by manually entering its URL is sufficient product discoverability; the Account Center now links to the analyzer.
+  - A route reachable only by manually entering its URL is sufficient product discoverability; the Account Center links to the analyzer.
+  - Parser/formula version alone is sufficient persisted applicability; explicit applicability dimensions are now persisted.
+  - Large valid-looking integers may be cast through overflowing float arithmetic; derived out-of-range rates now fail closed.
 changed_paths:
   - .github/workflows/portal-exhaustive-audit.yml
   - bootstrap/app.php
@@ -147,14 +151,21 @@ changed_paths:
   - docs/testing/PORTAL_MEDIA_STATE_EVIDENCE.json
   - docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json
   - scripts/acceptance/coverage/test-portal-content-scale-evidence.mjs
+  - docs/architecture/MODULE_CATALOG.md
   - docs/agents/tasks/active/OTERYN-20260813-player-companion-session-analyzer-v1.md
 validation:
-  - command: repository-selected PR workflows
+  - command: synchronize current main before final validation
+    result: PASS
+    evidence: merge commit 8494153fbd5d2bb1657c1db409991226c30d9f8a has e0d9f28abad3a30c547d53f40cccf4ea713cf197 as second parent; subsequent compare reported behind_by=0.
+  - command: material review finding reconciliation
+    result: PASS
+    evidence: three review findings are addressed and all three review threads are resolved.
+  - command: repository-selected exact-head workflows and browser E2E
     result: NOT_RUN
-    evidence: The first generation stopped at checkpoint validation; a corrected generation is required.
+    evidence: final post-checkpoint generation is required before merge.
 blockers:
   - none
-next_action: validate the corrected exact head, repair only proven failures, then perform full-diff self-review and merge only when every required gate is green.
+next_action: validate the exact post-checkpoint head, repair only proven failures, perform full-diff self-review, and squash-merge only when every required gate is green.
 ```
 
 ## Notes
