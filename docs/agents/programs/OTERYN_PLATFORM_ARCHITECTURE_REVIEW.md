@@ -60,8 +60,7 @@ accepted_authority:
 implementation_handoffs:
   - issue: 1039
     scope: Platform implementation of accepted TUF client distribution boundary
-active_architecture_decision_ids:
-  - ARCH-DEC-0005
+active_architecture_decision_ids: ["ARCH-DEC-0005"]
 architecture_conflicts:
   - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021, but the exact accepted path sets are machine-enforced and cannot expand silently.
   - Issue 586 retains historical evidence that delete_branch_on_merge was disabled; ADR 0024 and current metadata prove the accepted current state is enabled.
