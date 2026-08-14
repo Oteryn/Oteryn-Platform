@@ -67,10 +67,10 @@ Only entry 1 precedes the selected entry. It was skipped because its only live c
 
 ## Ownership and overlap
 
-- The implementation task owned only the paths declared in `docs/agents/tasks/active/OTERYN-20260814-portal-selector-reconciliation.md`, including the canonical execution prompt after review proved it was part of the stale selector surface.
-- PR #1055 owns Today architecture paths and did not overlap implementation PR #1058.
-- PR #1056 owns branch-lifecycle workflow/governance paths and did not overlap implementation PR #1058.
-- Existing PRs #338, #988, #1006, #1019 and #1020 had distinct intent/paths; none was modified or closed by this task.
+- This task owns only the paths declared in `docs/agents/tasks/active/OTERYN-20260814-portal-selector-reconciliation.md`, including the canonical execution prompt after review proved it was part of the stale selector surface.
+- PR #1055 owns Today architecture paths and does not overlap this task.
+- PR #1056 owns branch-lifecycle workflow/governance paths and does not overlap this task.
+- Existing PRs #338, #988, #1006, #1019 and #1020 have distinct intent/paths; none is modified or closed by this task.
 - No external repository was queried to resolve overlap.
 
 ## LiveOps handoff result
@@ -99,42 +99,26 @@ PR review on the pre-repair diff identified two material deterministic-selection
 1. the canonical execution prompt still contained historical repair examples and omitted Client Distribution #1039 from its duplicated order;
 2. combined entries could be both OWNED/BLOCKED and contain a READY sibling without a deterministic roll-up rule.
 
-Programme version 3 now classifies candidates first with READY-first roll-up, and prompt version 1.1 delegates all ordering to the programme instead of copying the queue.
+Programme version 3 now classifies candidates first with READY-first roll-up, and prompt version 1.1 delegates all ordering to the programme instead of copying the queue. Exact-final-head CI and self-review must validate these repairs before merge.
 
 The review was posted automatically by the repository's configured `chatgpt-codex-connector` after PR #1058 became ready for review. This task did not request a Codex run. Both material review threads were answered and resolved after the fixes.
 
 ## Validation and E2E policy
 
-This task changed documentation/governance only. Runtime/browser E2E is `NOT_APPLICABLE`: no route, controller, API, persistence, frontend, runtime adapter or environment behavior was introduced or changed.
-
-Exact final implementation evidence:
-
-- final head `2731d3ae66cb9c7963eb3e45f0623660aeba0ad4`;
-- CI run `31806513187` — `SUCCESS`;
-- Agent Governance run `31806513090` — `SUCCESS`;
-- exact-head full-diff self-review #4937785951 — `PASS`;
-- both material review threads resolved;
-- squash merge `9be7747f6e37a6f642d586ed79aa5d632ee5cc21`;
-- Issue #1057 closed `completed` by merge.
+This task changes documentation/governance only. Runtime/browser E2E is `NOT_APPLICABLE`: no route, controller, API, persistence, frontend, runtime adapter or environment behavior is introduced or changed. Documentation/path/link/prompt/governance validation and exact-final-head CI remain mandatory.
 
 ## Final state
 
 ```yaml
 implementation_pr: 1058
-implementation_head: 2731d3ae66cb9c7963eb3e45f0623660aeba0ad4
-required_ci:
-  ci_run: 31806513187
-  agent_governance_run: 31806513090
-  result: PASS
-full_diff_self_review:
-  review_id: 4937785951
-  result: PASS
-review_threads: RESOLVED
-merge: 9be7747f6e37a6f642d586ed79aa5d632ee5cc21
-issue_1057: CLOSED_COMPLETED
-archive_pr: 1059
-archive: IN_PROGRESS
-ownership_release: PENDING_ARCHIVE_MERGE
-post_archive_selector_rerun: PENDING
-next_action: Validate and merge archive PR #1059, verify the active task is absent and archive record present on protected main, then rerun the canonical selector from that new main.
+implementation_head: pending_final_head
+required_ci: pending_after_review_repairs
+full_diff_self_review: pending_after_review_repairs
+review_threads: pending_resolution_after_final_head
+merge: pending
+issue_1057: open
+archive: pending
+ownership_release: pending
+post_merge_selector_rerun: pending
+next_action: Validate and re-review the final repaired head, resolve review threads, merge PR #1058 when eligible, archive the task, then rerun the selector against the new protected main.
 ```
