@@ -114,6 +114,24 @@ class TerminalBranchCleanupTest(unittest.TestCase):
         self.assertEqual("TERMINAL_MERGED", by_branch["docs/merged"]["classification"])
         self.assertEqual(1, report["deletion_candidate_count"])
 
+    def test_multiple_exact_closed_prs_fail_closed(self) -> None:
+        snapshot = self.snapshot()
+        snapshot["pulls"].append(
+            self.pull(
+                16,
+                "closed/exact",
+                "b" * 40,
+                closed_at="2026-08-11T10:00:00Z",
+            )
+        )
+        report = self.classify(snapshot)
+        entry = next(
+            item for item in report["branches"] if item["branch"] == "closed/exact"
+        )
+        self.assertEqual("UNMERGED_ORPHAN", entry["classification"])
+        self.assertFalse(entry["deletion_candidate"])
+        self.assertIn("multiple closed unmerged", entry["evidence"][0])
+
     def test_foreign_closed_pr_is_not_authoritative(self) -> None:
         snapshot = self.snapshot()
         foreign = self.pull(20, "closed/exact", "b" * 40)
