@@ -152,7 +152,7 @@ The current deployment contract uses loopback origins for the Platform WWW and G
 
 Tunnel/DNS convergence proves neither TLS correctness nor origin-bypass resistance. Likewise, successful application health from the origin does not prove the public edge path.
 
-Direct-origin exposure is `UNKNOWN` until the applicable network/provider evidence proves either that bypass is blocked or that a documented accepted risk applies where policy permits it.
+Direct-origin disposition is `UNKNOWN` only while applicable network/provider evidence is absent, stale, permission-denied or otherwise insufficient. If authorized evidence proves that bypass is blocked, record that bounded compliant result for the observed environment. If authorized evidence instead proves that an origin is directly reachable outside the intended edge path, preserve that fact as an observed failing/noncompliant exposure and keep the applicable go-live gate blocked unless a separately authorized accepted-risk decision explicitly covers it. A positively observed bypass must never be downgraded to `UNKNOWN` merely because risk acceptance is absent.
 
 ## Evidence model
 
@@ -208,6 +208,7 @@ The following states must stay distinct:
 | HSTS missing or `max-age=0` | HSTS inactive/disabled at the observed response, not a generic TLS failure |
 | Provider API returns permission denied | provider-control state remains unknown; inspection scope is insufficient |
 | Origin responds locally | origin/runtime evidence only; public route and bypass posture not proven |
+| Authorized probe proves direct-origin bypass | observed failing/noncompliant exposure; keep the applicable go-live gate blocked unless separately accepted |
 | Public endpoint succeeds | observed public path works; hidden controls and direct-origin posture still require their own evidence |
 
 An implementation or operator must not collapse these observations into one generic `edge healthy` boolean.
