@@ -4,7 +4,7 @@ mode: architecture
 task_kind: audit
 implementation_authorized: false
 issue: 490
-status: validating
+status: waiting
 programme: OTERYN_PLATFORM_ARCHITECTURE_REVIEW
 project_lane: oteryn-platform-core
 phase: validate
@@ -53,7 +53,7 @@ Define one focused, provider-neutral `PublicEdge` architecture and evidence boun
 - [x] Architecture-review programme records the package and protected-environment handoff.
 - [x] Portal work allocation already keeps live PublicEdge proof `BLOCKED` while repository-safe preparation remains executable; no edit was required.
 - [x] ADR allocation is `NOT_APPLICABLE`: no durable hostname, application-security or go-live policy changed.
-- [ ] Exact final-head CI passes after the P1/P2 review repairs and PR review hygiene is terminal.
+- [ ] Exact final-head CI passes after the P1/P2 review repairs and the external repository-governance dependency is terminal.
 - [x] Runtime/browser E2E is `NOT_APPLICABLE`: this architecture/governance-only package creates no executable route, deployment or user path.
 - [ ] PR merge, Issue #490 residual reconciliation, task archival and ownership release are terminal.
 
@@ -75,8 +75,9 @@ dependencies:
   - docs/operations/PRODUCTION_READINESS_CHECKLIST.md
   - docs/operations/PRODUCTION_TOPOLOGY_EVIDENCE.md
   - OTERYN-20260801-public-domain-repair for live Cloudflare/public acceptance evidence
+  - PR #1064 / Issue #1050 for terminal branch-lifecycle governance repair before final merge validation
 blockers:
-  - none for repository architecture work
+  - PR #1064 actively owns the repository-governance repair after merged PR #1056 left terminal cleanup verification inconsistent; PublicEdge must not take over or bypass that ownership.
 cross_repository_tasks:
   - none
 ```
@@ -109,12 +110,12 @@ CONFLICT: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-14T19:33:00+02:00
+updated_at: 2026-08-14T19:39:58+02:00
 head: LIVE_PR_1063_HEAD
 material_head: 4210c36277c9115facbcbe0ca06b320a23536356
 branch: docs/OTERYN-20260814-public-edge-architecture
 pr: 1063
-status: validating
+status: waiting
 phase: validate
 context_routes:
   - architecture
@@ -130,24 +131,31 @@ proven:
   - trusted main at task selection was 50cec78777c6ce3f5ddb4cc2ff17499a90164463
   - PR #1063 is the live task PR; continuation must resolve its current head_sha rather than treat an embedded SHA as current
   - material architecture repair commit 4210c36277c9115facbcbe0ca06b320a23536356 preserves positively observed direct-origin exposure as a failure
-  - superseded head a6bf23dfefbf9938c472b3456b38f404abbc293e passed all eight emitted workflows before review repair but is not final validation evidence
+  - superseded PublicEdge head a6bf23dfefbf9938c472b3456b38f404abbc293e passed all eight emitted workflows before review repair but is not final validation evidence
   - repository-configured ready-for-review automation emitted a Codex review on a6bf23dfefbf9938c472b3456b38f404abbc293e; this task did not manually request or invoke Codex/OpenAI/API review and whether that automatic integration consumes owner-funded quota is UNKNOWN
-  - that automated review raised P1 stale recovery evidence and P2 direct-origin classification; both root causes are repaired in the current branch and no additional Codex review will be manually requested
+  - that automated review raised P1 stale recovery evidence and P2 direct-origin classification; both root causes are repaired in the current branch and the corresponding review threads are resolved/outdated
+  - repaired PublicEdge head f1ea93a516be7a6b4a3137e06daaa2efcba741ea had seven successful emitted workflows and one Agent Governance failure whose actionable findings concerned terminal PR #1056 stale active-task state, not a PublicEdge-owned path
+  - PR #1056 merged as main e4498ba9856a3779c8ae3a6f5bed608256a35fef but its post-merge lifecycle apply exposed read-after-delete verification failures
+  - active PR #1064 on repair/issue-1050-cleanup-verification owns that repository-governance repair and must not be taken over while its owner remains active
+  - exact PR #1064 head b9da9145836d0e7be42c67529e4d24b7cede26ed has Agent Governance, Terminal Branch Lifecycle, CI, Edge Security Emulation, Game Auth Ticket Concurrency, Platform DB Outage and Phase 7 validation successful; Branch Lifecycle remains failed on reviewed candidate-count drift
   - active public-domain-repair remains the live protected-environment evidence/repair owner and its blocker is not bypassed
   - no server/game repository, protected environment or production secret was accessed by this task
 derived:
-  - after review repair the remaining repository gate is exact current live-head CI plus terminal review hygiene
+  - PublicEdge has no remaining material architecture defect currently identified; final merge validation is externally blocked until repository-governance state is reconciled by PR #1064 and main is synchronized
 unknown:
   - exact current protected-environment edge-control state remains blocked by the active task token permission boundary
   - whether the repository-configured automatic Codex review consumes the repository owner's quota
+  - terminal result and merge SHA of PR #1064
 conflicts: []
 first_failure:
-  marker: PR #1063 automated review P1/P2 on a6bf23dfefbf9938c472b3456b38f404abbc293e
-  evidence: stale embedded recovery SHA could misroute continuation; direct-origin positive exposure was incorrectly collapsible to UNKNOWN
+  marker: external-repository-governance-gate
+  evidence: Agent Governance run 31824524523 on PublicEdge head f1ea93a516be7a6b4a3137e06daaa2efcba741ea failed because terminal PR #1056 remained represented as active with stale merge next_action; active recovery PR #1064 now owns the causal repair.
 rejected_hypotheses:
   - a historical embedded checkpoint SHA is safe to use as the current PR head after later task commits
   - a positively observed direct-origin bypass should return to UNKNOWN when no accepted-risk decision exists
   - current protected Cloudflare token permissions can be bypassed from this architecture task
+  - blindly rerunning PublicEdge Agent Governance can repair a failure caused by live main task-lifecycle state
+  - PublicEdge may take over Issue #1050 while PR #1064 has an active owner and fresh repository mutations
 changed_paths:
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
   - docs/agents/tasks/active/OTERYN-20260814-public-edge-architecture.md
@@ -160,14 +168,18 @@ validation:
   - command: architecture negative-path audit after P2 repair
     result: PASS
     evidence: UNKNOWN is now evidence absence only; confirmed origin bypass remains an explicit failing/noncompliant observation
+  - command: automated review thread reconciliation
+    result: PASS
+    evidence: both P1/P2 threads are resolved/outdated after direct inspection of the repaired diff; no additional manual Codex review was requested
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: architecture/governance-only package creates no executable runtime or user path
-  - command: exact current live-head GitHub Actions
-    result: NOT_RUN
-    evidence: review repair changed the head; prior eight-workflow success belongs only to superseded a6bf23dfefbf9938c472b3456b38f404abbc293e
-blockers: []
-next_action: Resolve PR #1063 live head_sha, verify both review repairs on that exact diff, then require all emitted workflows and review threads to pass before squash merge.
+  - command: exact PublicEdge head f1ea93a516be7a6b4a3137e06daaa2efcba741ea GitHub Actions
+    result: BLOCKED
+    evidence: seven emitted workflows passed; Agent Governance failed on external terminal PR #1056 live-task state now owned by recovery PR #1064
+blockers:
+  - active PR #1064 / Issue #1050 must reconcile terminal branch-lifecycle state on main before PublicEdge exact-head merge validation can be trusted
+next_action: When PR #1064 reaches a terminal merged state, resolve current main and PR #1063 live head, synchronize PublicEdge with that main, then run one fresh exact-head validation generation before squash merge.
 ```
 
 ## Recovery checkpoint
@@ -175,18 +187,28 @@ next_action: Resolve PR #1063 live head_sha, verify both review repairs on that 
 ```yaml
 recovery:
   policy_version: 1
-  generation: 2
+  generation: 3
   session_id: 20260814T190900+0200-public-edge-architecture
-  phase: review-repair-validation
+  session_started_at: 2026-08-14T19:09:00+02:00
+  checkpointed_at: 2026-08-14T19:39:58+02:00
+  last_progress_at: 2026-08-14T19:39:58+02:00
+  phase: external-governance-dependency
   exact_head: LIVE_PR_1063_HEAD
   pull_request: 1063
   material_head: 4210c36277c9115facbcbe0ca06b320a23536356
-  source_of_truth: GitHub PR #1063 live head_sha
-  active_operation: none
-  status: ready
+  source_of_truth: GitHub PR #1063 live head_sha plus protected main
+  active_operation: PR #1064 / Issue #1050 terminal branch-lifecycle recovery owned by another active task
+  external_run_ids:
+    - 31824524523
+    - 31824773849
+  operation_started_at: 2026-08-14T19:33:00+02:00
+  wait_deadline_at: null
+  check_generation: external-governance-repair
+  checks_used: 1
+  status: waiting
   safe_to_resume: true
-  resume_condition: Resolve the live PR head first; never substitute the embedded material_head for current head validation.
-  next_action: Fetch PR #1063, audit the P1/P2 repairs on its live head, then aggregate exact-head CI and review state.
+  resume_condition: PR #1064 is terminal and protected main no longer exposes the terminal-PR active-task defect that failed PublicEdge Agent Governance.
+  next_action: Fetch PR #1064 and protected main; if #1064 merged, synchronize PR #1063 to current main and start one fresh exact-head validation generation.
 ```
 
 ## Self-review
@@ -208,6 +230,7 @@ self_review:
     - provider-neutral ownership does not take application auth/security or production activation authority
     - positive direct-origin exposure remains a preserved failure, while evidence absence remains UNKNOWN
     - current public-domain-repair ownership and protected-token blocker remain untouched
+    - active Issue #1050 ownership remains with PR #1064 and is not mutated by PublicEdge
     - no runtime, workflow, persistence, deployment or protected-environment behavior changes
 ```
 
