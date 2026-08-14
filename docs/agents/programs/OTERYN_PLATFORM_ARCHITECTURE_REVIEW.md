@@ -18,13 +18,13 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-14T09:20:00+02:00
-status: ready
-current_review_domain: next-risk-based-rotation
-active_task: null
-issue: null
-branch: null
-pull_request: null
+updated_at: 2026-08-14T10:15:00+02:00
+status: active
+current_review_domain: platform-api-activation-first-surface
+active_task: OTERYN-20260814-platform-api-disposition
+issue: 490
+branch: docs/OTERYN-20260814-platform-api-disposition
+pull_request: 1044
 last_completed_domain: production-topology-operations-observability
 last_completed_issue: 490
 last_completed_pull_request: 1042
@@ -44,8 +44,10 @@ accepted_authority:
   federated_search_adr: docs/architecture/adr/0033-federated-content-search-and-discoverability.md
   native_game_catalog_content_adr: docs/architecture/adr/0034-native-game-catalog-content-ownership.md
   client_distribution_adr: docs/architecture/adr/0035-first-party-client-distribution-and-updater-trust-boundary.md
+  platform_api_adr: docs/architecture/adr/0036-platform-api-activation-and-first-surface-policy.md
   client_distribution_architecture: docs/architecture/CLIENT_DISTRIBUTION_ARCHITECTURE.md
   operations_observability_architecture: docs/architecture/OPERATIONS_OBSERVABILITY_ARCHITECTURE.md
+  platform_api_architecture: docs/architecture/PLATFORM_API_ARCHITECTURE.md
   native_v2_integration_architecture: docs/architecture/OTERYN_V2_INTEGRATION_ARCHITECTURE.md
   portal_completeness_architecture: docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md
   player_companion_architecture: docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md
@@ -99,7 +101,12 @@ proven:
   - Current source proves Laravel `/health` liveness plus server-generated request correlation and bounded request-completion logging; current Production Readiness evidence is STAGING_PROVEN rather than production proof.
   - `OPERATIONS_OBSERVABILITY_ARCHITECTURE.md` now owns the focused repository/staging/production evidence boundary and `PRODUCTION_TOPOLOGY_EVIDENCE.md` is reconciled to that model.
   - Exact PR 1042 head b5815c27541f1dffd9c8516ba4ac5e4df3cb3c6c passed all eight triggered workflows, had zero review threads/reviews, was zero commits behind main and squash-merged as ae660385f80cea99c484971fd05571c9ac89c817.
-  - Issue 490 comment 5290619378 records only the OperationsObservability slice as terminal; PlatformAPI, PublicEdge and direct production evidence remain intentionally open.
+  - Issue 490 comment 5290619378 records only the OperationsObservability slice as terminal; PlatformAPI, PublicEdge and direct production evidence remained intentionally open before this review.
+  - Current `routes/api.php` exposes only bounded game-auth ticket issuance and `routes/internal.php` exposes private Gateway game-auth contracts; neither is a general PlatformAPI surface.
+  - `MODULE_CATALOG.md` already requires a concrete client/use case and excludes specialized game-auth/internal endpoints from general PlatformAPI classification; `PORTAL_COMPLETENESS_ARCHITECTURE.md` already requires concrete consumers and module-service reuse.
+  - Repository owner selected ARCH-DEC-0005 Option A on 2026-08-14: explicitly defer the general Platform API until a named consumer/use case exists.
+  - ADR 0036 is accepted, `PLATFORM_API_ARCHITECTURE.md` owns the focused activation/adaptation/compatibility boundary, the active decision backlog is empty, and no speculative implementation handoff exists.
+  - Portal work allocation marks Platform API DEFERRED and retains Issue 490 only for separately owned PublicEdge/direct-production evidence.
 derived:
   - The Platform core remains a sound Laravel modular monolith; native integration is explicitly separated from Legacy Canary Compatibility.
   - New native Platform consumers use canonical AccountId/CharacterId and explicit command/query/event/projection boundaries instead of inheriting Canary numeric IDs, table shapes, session semantics or gameplay protocol ownership.
@@ -109,7 +116,8 @@ derived:
   - PublicPortal Today remains composition rather than a new source-of-truth module; any representation influenced by owner-private state is private/non-shareable and must not inherit public cacheability.
   - Federated public content search belongs to PublicPortal orchestration over source-owned public queries; source publication/privacy decisions remain authoritative and restrictive revisions fence derived index/cache state.
   - First-party client distribution now has an accepted trust boundary; runtime implementation and protected signer/client evidence remain separate delivery facts.
-  - OperationsObservability repository applicability and evidence semantics are now terminal for this review package; direct production proof remains a separate protected-environment gate.
+  - OperationsObservability repository applicability and evidence semantics are terminal for its review package; direct production proof remains a separate protected-environment gate.
+  - General PlatformAPI is now an explicit deferred product boundary rather than an ambiguous missing implementation; a named consumer trigger and the accepted activation checklist are required before any general endpoint package.
 unknown:
   - Exact deployed game-auth topology, alternate-path network isolation and production activation evidence.
   - Exact external/native producer and consumer transport, wire/IDL, runtime implementation, lease/fencing, replay stores, numerical freshness/TTL values and cutover evidence for accepted cross-boundary contracts remain outside this Platform architecture state record.
@@ -119,7 +127,7 @@ unknown:
   - Exact production log/metrics backend, alert/on-call destination, retention/access policy, deployed topology, backup system, deployment mechanism and production restore evidence require direct protected-environment evidence.
 conflicts: []
 blockers: []
-next_action: Select the next highest-risk unresolved and unowned Platform architecture question from current main.
+next_action: Validate the exact accepted-decision head of PR 1044, complete full-diff/review hygiene, merge it, record the PlatformAPI slice terminal in Issue 490, then archive the task and return the programme to ready risk-based rotation.
 ```
 
 ## Programme rules
