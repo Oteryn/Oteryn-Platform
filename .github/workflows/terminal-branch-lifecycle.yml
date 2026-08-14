@@ -1,0 +1,209 @@
+name: Terminal Branch Lifecycle
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/terminal-branch-lifecycle.yml"
+      - "docs/agents/BRANCH_LIFECYCLE_POLICY.json"
+      - "docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json"
+      - "tools/agents/branch_lifecycle.py"
+      - "tools/agents/terminal_branch_cleanup.py"
+      - "tools/agents/test_terminal_branch_cleanup.py"
+  pull_request_target:
+    types:
+      - closed
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/terminal-branch-lifecycle.yml"
+      - "docs/agents/BRANCH_LIFECYCLE_POLICY.json"
+      - "docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json"
+      - "tools/agents/branch_lifecycle.py"
+      - "tools/agents/terminal_branch_cleanup.py"
+      - "tools/agents/test_terminal_branch_cleanup.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: terminal-branch-lifecycle-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.event_name != 'pull_request_target'
+    name: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Run terminal branch cleanup tests
+        run: python3 tools/agents/test_terminal_branch_cleanup.py
+
+      - name: Validate base branch lifecycle policy
+        run: python3 tools/agents/branch_lifecycle.py --mode validate-policy
+
+  inventory:
+    if: github.event_name != 'pull_request_target'
+    name: live-dry-run
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Build fail-closed terminal branch inventory
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/agents/terminal_branch_cleanup.py \
+            --mode inventory \
+            --output terminal-branch-report.json \
+            --generate-manifest terminal-branch-deletion-manifest.generated.json
+
+      - name: Validate reviewed manifest when present
+        if: hashFiles('docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json') != ''
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/agents/terminal_branch_cleanup.py \
+            --mode validate-manifest \
+            --manifest docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json \
+            --output terminal-branch-report.review.json
+
+      - name: Publish dry-run evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: terminal-branch-lifecycle-dry-run-${{ github.run_id }}
+          path: |
+            terminal-branch-report.json
+            terminal-branch-report.review.json
+            terminal-branch-deletion-manifest.generated.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  apply-reviewed-manifest:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    name: apply-reviewed-manifest
+    needs:
+      - validate
+      - inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Check out protected main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Detect reviewed terminal manifest
+        id: approval
+        shell: bash
+        run: |
+          if [[ -f docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "No reviewed terminal branch manifest is present; apply is NOT_APPLICABLE."
+          fi
+
+      - name: Apply exact reviewed terminal manifest
+        if: steps.approval.outputs.exists == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/agents/terminal_branch_cleanup.py \
+            --mode apply \
+            --manifest docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json \
+            --event-name push \
+            --ref-name main \
+            --output terminal-branch-apply-report.json \
+            --evidence terminal-branch-deletion-evidence.json \
+            --recovery-evidence terminal-branch-recovery-evidence.json
+
+      - name: Publish apply evidence
+        if: always() && steps.approval.outputs.exists == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: terminal-branch-lifecycle-apply-${{ github.run_id }}
+          path: |
+            terminal-branch-apply-report.json
+            terminal-branch-deletion-evidence.json
+            terminal-branch-recovery-evidence.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  close-event-cleanup:
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    name: close-event-cleanup
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Check out trusted protected main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Process explicit terminal branch disposition
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/agents/terminal_branch_cleanup.py \
+            --mode event \
+            --event "$GITHUB_EVENT_PATH" \
+            --output terminal-branch-close-event-report.json \
+            --evidence terminal-branch-close-event-evidence.json
+
+      - name: Publish close-event evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: terminal-branch-close-event-${{ github.run_id }}
+          path: |
+            terminal-branch-close-event-report.json
+            terminal-branch-close-event-evidence.json
+          if-no-files-found: warn
+          retention-days: 30
