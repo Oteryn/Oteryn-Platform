@@ -84,8 +84,8 @@ decomposition_reason: one cohesive Platform-only product/API activation decision
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-14T09:45:00+02:00
-head: a30e655e350c29d81f553ab2d80c94765125f13c
+updated_at: 2026-08-14T09:50:00+02:00
+head: d18ff8f7cbfde188492e072abe84a77f329dcd21
 branch: docs/OTERYN-20260814-platform-api-disposition
 pr: 1044
 status: blocked
@@ -116,6 +116,7 @@ proven:
   - Open PR #1028 does not own any path claimed by this architecture package; the other open PRs are unrelated operational/research/GameCatalog work.
   - Draft PR #1044 contains the decision package and is intentionally blocked from merge by product/owner-decision policy until explicit owner selection.
   - Issue #490 comment 5290781071 asks for exactly A, B or C and recommends A without treating continuation as acceptance.
+  - Architecture backlog validator source requires `active_architecture_decision_ids` to be one inline JSON array; the programme projection was repaired to `["ARCH-DEC-0005"]` before exact-head validation.
 derived:
   - Existing Passport-backed API authentication is reusable implementation capability for specialized game-auth, not evidence that a general token/scopes/client product has been selected.
   - Option A best matches the current concrete-consumer-first architecture and minimizes attack/compatibility surface while preserving a machine-auditable future activation trigger.
@@ -124,8 +125,8 @@ unknown:
   - Exact future resource inventory, token/scopes model, rate budgets and compatibility/deprecation windows depend on the selected posture and later implementation design.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: architecture-decision-programme-projection-format
+  evidence: Initial ARCH-DEC-0005 programme projection used a YAML block list; direct validator inspection proved only an inline JSON array is accepted, so it was repaired before CI.
 rejected_hypotheses:
   - Existing game-auth `/api/v1` proves a general Platform API already exists.
   - Internal Gateway routes may be reclassified as public/first-party PlatformAPI merely to close Issue #490.
@@ -143,13 +144,13 @@ validation:
     evidence: exact main routes, auth guard, module catalogue, work allocation, backlog, active tasks and open PRs inspected
   - command: decision-package structural review
     result: PASS
-    evidence: Proposed lifecycle only, unique ADR 0036 allocation, one decision_required ARCH-DEC-0005 record, implementation_authorized=false and exact programme projection
+    evidence: Proposed lifecycle only, unique ADR 0036 allocation, one decision_required ARCH-DEC-0005 record, implementation_authorized=false and repaired exact programme projection
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: architecture/governance-only decision preparation
   - command: exact-final-head CI and PR hygiene
     result: NOT_RUN
-    evidence: run after this durable blocked checkpoint is persisted
+    evidence: run after this repaired durable blocked checkpoint is persisted
 blockers:
   - Repository owner must select ARCH-DEC-0005 Option A, B or C.
 next_action: Repository owner selects A (recommended explicit deferral), B (public read-only v1 first), or C (authenticated first-party account/client v1 first); then reconcile accepted canonical authority and close the PlatformAPI slice of Issue #490.
