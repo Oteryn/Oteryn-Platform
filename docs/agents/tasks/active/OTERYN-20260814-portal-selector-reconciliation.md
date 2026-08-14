@@ -68,7 +68,7 @@ cross_repository_tasks: []
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 2
+checkpoint_version: 1
 updated_at: 2026-08-14T13:35:00Z
 head: 732a0f35786bb962cd7bfa195f9f39fce2e27917
 material_head: 732a0f35786bb962cd7bfa195f9f39fce2e27917
@@ -103,9 +103,10 @@ derived:
   - Federated search dependency cleanup and Client Distribution #1039 are reachable later READY candidates subject to a fresh ownership/eligibility rerun.
 unknown: []
 conflicts: []
+rejected_hypotheses: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: checkpoint-contract-missing-rejected-hypotheses
+  evidence: Exact-head CI classify-changes job 94782179072 failed only at Validate active task checkpoint contract because the new task checkpoint omitted required field rejected_hypotheses; the field is now present as an explicit empty list.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260814-portal-selector-reconciliation.md
   - docs/agents/programs/OTERYN_PORTAL_COMPLETION.md
@@ -121,8 +122,11 @@ validation:
   - command: runtime/browser E2E applicability review
     result: NOT_APPLICABLE
     evidence: documentation/governance-only diff; no route, API, persistence, frontend or runtime behavior is changed
+  - command: exact-head CI classify-changes / active task checkpoint contract on c84ab815dee97a50f7991e626492d66a283b7064
+    result: FAIL
+    evidence: job 94782179072 failed at checkpoint validation because rejected_hypotheses was missing; deterministic correction applied in this commit
 blockers: []
-next_action: Run exact-head full-diff self-review and required PR CI; fix any material finding before ready-for-review/merge.
+next_action: Re-run exact-head required CI on the corrected checkpoint, then complete review/merge/archive only if the new final head is green.
 ```
 
 ## Notes
