@@ -84,7 +84,8 @@ decomposition_reason: one cohesive Platform-only product/API activation decision
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-14T10:20:00+02:00
+updated_at: 2026-08-14T10:25:00+02:00
+head: 6d1a3df750f13c50c8e6332ebe6e0ff4e30b655a
 material_head: af3d355f126f8f31261c3e704fa3df44f4d16fd0
 branch: docs/OTERYN-20260814-platform-api-disposition
 pr: 1044
@@ -116,6 +117,7 @@ proven:
   - `SECURITY_ARCHITECTURE.md` already supplies the applicable generic API trust/rate/privacy/logging requirements; Option A creates no new runtime attack surface.
   - ADR README contains the unique 0036 inventory entry allocated by this PR.
   - Exact compare after accepted reconciliation reports `behind_by=0` and seven final changed paths.
+  - Agent Governance run 31783580860 on pre-repair head 6d1a3df750f13c50c8e6332ebe6e0ff4e30b655a passed checkpoint-validator tests, liveness tests, Control Room tests, 95 policy-consistency tests and prompt-contract validation before failing the live checkpoint command only because `head` was absent and validation result `PENDING` is unsupported.
 derived:
   - Explicit deferral is the smallest secure architecture disposition: it closes audit ambiguity without creating an unused compatibility and attack surface.
   - A future API package is implementation-authorized only after a named consumer trigger and a new bounded architecture/security package satisfy the accepted activation checklist.
@@ -153,10 +155,10 @@ validation:
     result: NOT_APPLICABLE
     evidence: architecture/governance-only explicit deferral; no executable behavior changes
   - command: exact-final-head CI and PR hygiene
-    result: PENDING
-    evidence: run on the unchanged accepted-decision head after this checkpoint commit
+    result: NOT_RUN
+    evidence: pre-repair Agent Governance 31783580860 isolated checkpoint-schema defects; rerun/new generation is required on the repaired unchanged architecture head
 blockers: []
-next_action: Validate exact final PR 1044 head and full diff/review hygiene, mark ready, squash-merge, record the PlatformAPI slice terminal in Issue 490, then archive this task and return the architecture programme to ready rotation.
+next_action: Validate exact final PR 1044 head and full diff/review hygiene, squash-merge, record the PlatformAPI slice terminal in Issue 490, then archive this task and return the architecture programme to ready rotation.
 ```
 
 ## Notes
