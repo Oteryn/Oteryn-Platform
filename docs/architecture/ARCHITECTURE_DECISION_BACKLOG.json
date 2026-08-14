@@ -15,7 +15,105 @@
     ],
     "terminal_handling": "Remove resolved, rejected, or superseded records in the same bounded package that records their accepted ADR, canonical rationale, or explicit rejection; preserve history in Git and linked Issues rather than in a second permanent archive."
   },
-  "records": [],
+  "records": [
+    {
+      "blockers": [],
+      "blocking_owner_question": "Select ADR 0036 Option A (recommended explicit deferral until a named consumer exists), Option B (public read-only v1 first), or Option C (authenticated first-party account/client v1 first).",
+      "canonical_owners": [
+        "docs/architecture/MODULE_CATALOG.md",
+        "docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md",
+        "docs/architecture/SECURITY_ARCHITECTURE.md"
+      ],
+      "created_at": "2026-08-14",
+      "decision_id": "ARCH-DEC-0005",
+      "decision_owner": "Repository owner",
+      "decision_question": "Should Oteryn activate a general Platform API now, and if so which consumer class should establish the first stable surface?",
+      "deferral_reason": null,
+      "dependencies": {
+        "decision_ids": [],
+        "issues": [
+          490
+        ],
+        "local_paths": [
+          "config/auth.php",
+          "routes/api.php",
+          "routes/internal.php",
+          "docs/architecture/MODULE_CATALOG.md",
+          "docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md"
+        ]
+      },
+      "evidence": {
+        "CONFLICT": [],
+        "DERIVED": [
+          "A speculative broad API would create security and compatibility commitments before a named consumer exists, contrary to the current concrete-consumer-first module boundary.",
+          "Existing Passport-backed API authentication is reusable implementation capability for specialized game-auth, but it is not evidence that a general authenticated API product, scopes model or token lifecycle has been accepted."
+        ],
+        "PROVEN": [
+          "PlatformAPI is PLANNED and canonical module architecture says to expose endpoints only for a concrete client/use case while reusing module application services and policies.",
+          "Current routes/api.php exposes only POST /v1/game-auth/tickets and current routes/internal.php exposes only private Gateway game-auth contracts; canonical architecture explicitly excludes them from general PlatformAPI classification.",
+          "Portal work allocation marks Platform API ARCHITECTURE_READY / DECISION_REQUIRED for the first public surface, and Issue 490 retains PlatformAPI as a residual open finding."
+        ],
+        "UNKNOWN": [
+          "Whether the repository owner wants explicit deferral, a public read-only v1 first surface, or an authenticated first-party account/client v1 first surface.",
+          "Exact future resource inventory, authentication/scopes, rate budgets and compatibility/deprecation windows depend on the selected consumer posture and implementation design."
+        ]
+      },
+      "implementation_authorized": false,
+      "options": [
+        {
+          "description": "Keep the general Platform API explicitly deferred until an approved named consumer/use case exists, while preserving specialized game-auth/internal contracts outside PlatformAPI classification and enforcing a fail-closed activation checklist before the first stable endpoint.",
+          "option_id": "A",
+          "title": "Defer general Platform API until a named consumer exists",
+          "trade_offs": [
+            "Lowest security and compatibility surface and best match for the current concrete-consumer-first architecture.",
+            "No general public/first-party API is available immediately; a future consumer requires a separate activation package."
+          ]
+        },
+        {
+          "description": "Activate a stable anonymous/read-only v1 over explicitly approved already-public application queries/read models with public enumeration/privacy, freshness, cache, pagination, abuse/rate-limit and compatibility policy.",
+          "option_id": "B",
+          "title": "Public read-only v1 first",
+          "trade_offs": [
+            "Lower authorization complexity than a private API and useful for machine-readable public capabilities.",
+            "Creates public scraping/enumeration, availability and compatibility commitments before a named consumer has demonstrated need."
+          ]
+        },
+        {
+          "description": "Activate a stable authenticated API for an identified first-party Oteryn client using source-module application services and a purpose-designed client/scopes/token lifecycle rather than inheriting game-auth ticket semantics.",
+          "option_id": "C",
+          "title": "Authenticated first-party account/client v1 first",
+          "trade_offs": [
+            "Directly supports future native/desktop/mobile owner-private workflows.",
+            "Largest accepted-option security/privacy burden, including token theft/revocation, client trust, scopes, device/session and compatibility decisions."
+          ]
+        },
+        {
+          "description": "Expose a broad mixed public and authenticated v1 spanning many modules before a concrete consumer boundary is selected.",
+          "option_id": "D",
+          "title": "Broad mixed API now",
+          "trade_offs": [
+            "Maximum immediate surface area.",
+            "Rejected baseline because it maximizes attack surface, duplicated orchestration risk and long-lived compatibility commitments."
+          ]
+        }
+      ],
+      "problem_statement": "The repository has specialized API-shaped game-auth/internal transports but no accepted general Platform API product surface. Issue 490 requires an explicit disposition, while current architecture forbids treating specialized routes or speculative endpoints as general API completeness.",
+      "recommendation": "Adopt Option A. Explicitly defer the general Platform API until a named consumer exists, retain specialized game-auth/internal contracts outside PlatformAPI classification, and require the ADR 0036 activation checklist before the first stable endpoint.",
+      "recommended_owner": "Repository owner",
+      "references": {
+        "issue": 490,
+        "proposed_adr": "docs/architecture/adr/0036-platform-api-activation-and-first-surface-policy.md",
+        "related_prs": [
+          1044
+        ]
+      },
+      "revisit_trigger": null,
+      "severity": "medium",
+      "state": "decision_required",
+      "title": "Platform API activation and first-surface policy",
+      "updated_at": "2026-08-14"
+    }
+  ],
   "registry_name": "Oteryn Platform Architecture Decision Backlog",
   "schema_version": 1
 }
