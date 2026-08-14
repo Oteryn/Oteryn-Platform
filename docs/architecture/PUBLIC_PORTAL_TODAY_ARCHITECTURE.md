@@ -269,20 +269,20 @@ PublicPortal PUBLIC_GUEST Today
 
 If the available LiveOps implementation is not yet sufficient for a useful card, the first Today slice may still deliver editorial/public cards, but it must render LiveOps as explicitly unavailable/not-yet-provided rather than fabricate normal state. The implementation task must state which providers are real at its exact base.
 
-Minimum implementation acceptance:
+Minimum implementation acceptance is **provider-capability aware at the exact implementation base**. Observation-age, stale-state and recovery assertions apply only to a provider that actually exists and can emit those states. A provider that is not implemented or not yet authoritative must instead receive explicit unavailable/not-yet-provided coverage, and tests must prove that Today does not fabricate current, stale or recovered source evidence.
 
 1. source modules are accessed only through bounded public application/query interfaces;
 2. no raw cross-module persistence query is introduced in PublicPortal;
 3. `PUBLIC_GUEST` representation is provably uninfluenced by owner-private state;
-4. one provider outage yields truthful partial presentation rather than authoritative empty state;
-5. stale LiveOps evidence remains stale and observation age is preserved where required;
+4. one implemented provider outage yields truthful partial presentation rather than authoritative empty state;
+5. when a real LiveOps provider exists, stale LiveOps evidence remains stale and observation age is preserved; otherwise LiveOps renders explicit unavailable/not-yet-provided and no current/stale observation is fabricated;
 6. deterministic priority/card order is covered by tests;
 7. locale/applicability cache identity prevents cross-context reuse;
 8. any public cache cannot outlive source publication/freshness authority;
 9. private/authenticated bytes never enter the first public slice;
 10. canonical/source links and SEO metadata are correct for delivered routes;
 11. EN/PL desktop/tablet/mobile accessibility and responsive behavior pass;
-12. browser E2E covers success, empty, partial dependency failure, stale/unavailable card and recovery;
+12. browser E2E covers success, empty and partial dependency failure; with a real LiveOps provider it additionally covers stale/unavailable/recovery, while without one it covers explicit unavailable/not-yet-provided and proves that no runtime state or recovery is fabricated;
 13. dependency responses contain no internal exception/topology/private detail;
 14. exact final-head self-review, CI, review hygiene and merge gates pass;
 15. production activation remains separately gated.
