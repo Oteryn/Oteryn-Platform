@@ -807,9 +807,11 @@ Issues #488, #489 and #490 retain missing expected inventories, failure/recovery
 
 ## Platform API — planned
 
+`PLANNED` here describes repository implementation availability only. ADR 0036 explicitly sets the general PlatformAPI product/launch disposition to `DEFERRED` until an approved named consumer/use case exists; `PLATFORM_API_ARCHITECTURE.md` owns the fail-closed activation checklist.
+
 Expose API endpoints only for a concrete client/use case. API endpoints must reuse module services/policies and must not implement a second business-rule path.
 
-Bounded internal endpoints, game-auth tickets or operational probes are not a general public/first-party Platform API. Issue #490 retains the decision and evidence gap.
+Bounded internal endpoints, game-auth tickets or operational probes are not a general public/first-party Platform API. The PlatformAPI slice of Issue #490 is terminal by the repository-owner Option A deferral; Issue #490 remains open for separately owned PublicEdge protected-environment proof and direct production evidence.
 
 PlayerCompanion is a concrete future consumer candidate: the API may expose calculator metadata/execution, owner workspaces, compatible recommendations, owner tracking/routine preferences and share resolution only through the same application services, version/freshness semantics, authentication and rate limits as the web UI.
 
