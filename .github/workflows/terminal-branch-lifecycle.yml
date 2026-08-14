@@ -8,7 +8,7 @@ on:
       - "docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json"
       - "tools/agents/branch_lifecycle.py"
       - "tools/agents/terminal_branch_cleanup.py"
-      - "tools/agents/terminal_branch_guarded.py"
+      - "tools/agents/terminal_branch_cleanup_legacy.py"
       - "tools/agents/terminal_branch_approval.py"
       - "tools/agents/test_terminal_branch_cleanup.py"
       - "tools/agents/test_terminal_branch_guarded.py"
@@ -25,7 +25,7 @@ on:
       - "docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json"
       - "tools/agents/branch_lifecycle.py"
       - "tools/agents/terminal_branch_cleanup.py"
-      - "tools/agents/terminal_branch_guarded.py"
+      - "tools/agents/terminal_branch_cleanup_legacy.py"
       - "tools/agents/terminal_branch_approval.py"
       - "tools/agents/test_terminal_branch_cleanup.py"
       - "tools/agents/test_terminal_branch_guarded.py"
@@ -88,7 +88,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          python3 tools/agents/terminal_branch_guarded.py \
+          python3 tools/agents/terminal_branch_cleanup.py \
             --mode inventory \
             --output terminal-branch-report.json \
             --generate-manifest terminal-branch-deletion-manifest.generated.json
@@ -152,7 +152,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          python3 tools/agents/terminal_branch_guarded.py \
+          python3 tools/agents/terminal_branch_cleanup.py \
             --mode inventory \
             --output terminal-branch-apply-report.json \
             --generate-manifest terminal-branch-deletion-manifest.runtime.generated.json
@@ -169,7 +169,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          python3 tools/agents/terminal_branch_guarded.py \
+          python3 tools/agents/terminal_branch_cleanup.py \
             --mode apply \
             --manifest terminal-branch-deletion-manifest.runtime.json \
             --event-name push \
@@ -221,7 +221,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          python3 tools/agents/terminal_branch_guarded.py \
+          python3 tools/agents/terminal_branch_cleanup.py \
             --mode event \
             --event "$GITHUB_EVENT_PATH" \
             --output terminal-branch-close-event-report.json \

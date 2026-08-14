@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-import terminal_branch_guarded as guarded
+import terminal_branch_cleanup as guarded
 
 
 class TerminalBranchRetentionGuardTest(unittest.TestCase):
@@ -69,12 +69,12 @@ class TerminalBranchRetentionGuardTest(unittest.TestCase):
 
     def test_event_parser_rejects_duplicate_or_missing_reason(self):
         with self.assertRaises(guarded.ValidationError):
-            guarded.event_disposition(
+            guarded._event_disposition(
                 "Branch-Disposition: delete\nBranch-Disposition: delete\n"
                 "Branch-Disposition-Reason: duplicate\n"
             )
         with self.assertRaises(guarded.ValidationError):
-            guarded.event_disposition("Branch-Disposition: retain\n")
+            guarded._event_disposition("Branch-Disposition: retain\n")
 
 
 if __name__ == "__main__":

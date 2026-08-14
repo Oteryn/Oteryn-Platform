@@ -29,7 +29,7 @@ Safely reconcile stale repository branches and extend branch lifecycle so termin
 - [ ] Proven terminal deletion candidates are removed with exact-head evidence.
 - [ ] Open PR, active task/claim, protected, recovery, rollback, release and retained refs survive post-apply verification.
 - [x] Closed-unmerged PR refs can be distinguished from ambiguous or modified orphan refs without deletion by age/prefix alone.
-- [x] Agent/task closeout requires explicit source-branch disposition before `completed`.
+- [x] Agent/task closeout requires explicit source-branch disposition before `completed` and the rule is machine-enforced for completed active/newly archived task records.
 - [x] Ordinary merged PR branches continue to use repository automatic deletion.
 - [ ] Focused tests and exact-head required CI pass on the final material head.
 - [ ] One-time approval state is removed after cleanup and final inventory has zero policy-authorized pending deletions.
@@ -46,7 +46,7 @@ owned_paths:
   - tools/agents/branch_lifecycle.py
   - tools/agents/test_branch_lifecycle.py
   - tools/agents/terminal_branch_cleanup.py
-  - tools/agents/terminal_branch_guarded.py
+  - tools/agents/terminal_branch_cleanup_legacy.py
   - tools/agents/terminal_branch_approval.py
   - tools/agents/test_terminal_branch_cleanup.py
   - tools/agents/test_terminal_branch_guarded.py
@@ -76,11 +76,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-14T14:45:00Z
-head: 1a06f3d3296e0912a6f426ee0b267cf2bce782dd
+updated_at: 2026-08-14T15:08:00Z
+head: 548280e1fab3f986f02db1dd8238ba9673984f33
 branch: repair/issue-1050
 pr: 1056
-status: implementing
+status: validating
 context_routes:
   - agent-governance
   - testing
@@ -89,7 +89,7 @@ owned_paths:
   - docs/agents/BRANCH_DELETION_APPROVAL.json
   - docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json
   - tools/agents/terminal_branch_cleanup.py
-  - tools/agents/terminal_branch_guarded.py
+  - tools/agents/terminal_branch_cleanup_legacy.py
   - tools/agents/terminal_branch_approval.py
   - tools/agents/test_terminal_branch_cleanup.py
   - tools/agents/test_terminal_branch_guarded.py
@@ -106,26 +106,28 @@ owned_paths:
 proven:
   - Protected main remains f61c7b229cbf251be6e5eae0be5db55aac722242 and PR #1056 is synchronized with that base.
   - Repository has delete_branch_on_merge enabled and protected main requires classify-changes and test.
-  - Exact-head 1a06f3d3296e0912a6f426ee0b267cf2bce782dd passed CI 31807580870, Agent Governance 31807580829, Branch Lifecycle 31807580831, Terminal Branch Lifecycle 31807580891 and all other associated workflows returned by GitHub.
-  - Branch Lifecycle exact artifact validates eight reviewed TERMINAL_MERGED candidates; Terminal Branch Lifecycle exact artifact validates 105 reviewed TERMINAL_CLOSED_UNMERGED candidates on the current base.
-  - The repository owner explicitly authorized one Codex review for PR #1056 and that single review was consumed by review 4938107909; no further owner-funded AI invocation is authorized.
-  - Codex review 4938107909 identified two material P2 findings: historical reconciliation did not honor explicit Branch-Disposition retain metadata, and the source-branch closeout contract was not machine-enforced for completed/newly archived task records.
-  - No open PR overlaps the newly claimed terminal-closeout validator paths or .github/workflows/agent-governance.yml.
+  - Exact-head 1a06f3d3296e0912a6f426ee0b267cf2bce782dd passed CI 31807580870, Agent Governance 31807580829, Branch Lifecycle 31807580831, Terminal Branch Lifecycle 31807580891 and all other associated workflows returned by GitHub before Codex review.
+  - The repository owner explicitly authorized one Codex review for PR #1056; review 4938107909 consumed that authorization and no further owner-funded AI invocation is authorized.
+  - Codex review 4938107909 identified two P2 defects: explicit retain metadata could be bypassed by historical reconciliation, and source-branch closeout was documentation-only.
+  - Agent Governance 31812781404 on repair head 548280e1fab3f986f02db1dd8238ba9673984f33 passed the new source-closeout unit tests and the live Validate terminal source branch closeout gate.
+  - Self-review of the first retain fix found a bypass risk when invoking terminal_branch_cleanup.py directly, so the guarded implementation is being moved under the canonical tool name while the prior implementation is preserved only as an internal legacy module.
 derived:
-  - Historical classification must treat an exact closed-unmerged PR with valid retain metadata as a non-deletion candidate and malformed disposition metadata must fail closed.
-  - Migration-safe closeout enforcement must validate every completed active task while validating only newly added or modified archive records relative to the current PR/push base, so legacy archives are not retroactively invalidated.
+  - Every canonical invocation path must apply retain-aware historical classification; a workflow-only wrapper is insufficient.
+  - Historical exact closed-unmerged PRs with valid retain metadata must never enter deletion manifests; malformed branch-disposition metadata must fail closed.
+  - Migration-safe closeout enforcement validates every completed active task and only newly added/modified archive records relative to the current PR/push base.
 unknown:
-  - Exact candidate count/digest after the retain-aware guard is exercised against live GitHub data.
-  - Exact-final-head CI and full-diff self-review result after both Codex findings are repaired.
+  - Exact live terminal candidate count/digest after canonical retain-aware classification.
+  - Exact-final-head CI and complete full-diff self-review result after the canonical-facade refinement.
   - Post-merge deletion evidence and final retained branch inventory.
 conflicts: []
 first_failure:
   marker: codex-review-retention-and-closeout-enforcement
-  evidence: Codex review 4938107909 on exact head 1a06f3d3296e0912a6f426ee0b267cf2bce782dd produced two P2 findings requiring repair before merge; merge remains blocked until both are fixed, exact-head CI passes and the review threads are resolved.
+  evidence: Codex review 4938107909 on exact head 1a06f3d3296e0912a6f426ee0b267cf2bce782dd produced two P2 findings; both remain merge-blocking until the canonical repair head is green and the corresponding review threads are resolved.
 rejected_hypotheses:
   - All retained branches should be merged to main before deletion; abandoned and diagnostic refs must not be merged merely for cleanup.
-  - Closed-unmerged refs can be deleted by age or prefix; rejected because exact PR/ref identity and liveness must be proven.
-  - A documented source-branch closeout rule is sufficient without machine validation; rejected by Codex review because completed/archive tasks could bypass the rule while CI remained green.
+  - Closed-unmerged refs can be deleted by age or prefix; exact PR/ref identity and liveness must be proven.
+  - A workflow-only retain guard is sufficient; direct canonical tool invocation would bypass it, so the guard must own terminal_branch_cleanup.py itself.
+  - A documented source-branch closeout rule is sufficient without machine validation; completed/archive tasks could otherwise bypass it while CI remained green.
 changed_paths:
   - .github/workflows/agent-governance.yml
   - .github/workflows/branch-lifecycle.yml
@@ -140,23 +142,23 @@ changed_paths:
   - tools/agents/source_branch_closeout.py
   - tools/agents/terminal_branch_approval.py
   - tools/agents/terminal_branch_cleanup.py
-  - tools/agents/terminal_branch_guarded.py
+  - tools/agents/terminal_branch_cleanup_legacy.py
   - tools/agents/test_source_branch_closeout.py
   - tools/agents/test_terminal_branch_approval.py
   - tools/agents/test_terminal_branch_cleanup.py
   - tools/agents/test_terminal_branch_guarded.py
 validation:
-  - command: Exact-head workflow set on 1a06f3d3296e0912a6f426ee0b267cf2bce782dd before Codex review
+  - command: exact-head workflow set on 1a06f3d3296e0912a6f426ee0b267cf2bce782dd before Codex review
     result: PASS
-    evidence: CI 31807580870, Agent Governance 31807580829, Branch Lifecycle 31807580831, Terminal Branch Lifecycle 31807580891 and all associated exact-head workflows succeeded; this evidence is superseded for merge by the pending repair head.
+    evidence: CI 31807580870, Agent Governance 31807580829, Branch Lifecycle 31807580831, Terminal Branch Lifecycle 31807580891 and all associated exact-head workflows succeeded; superseded for merge by review-driven repairs.
   - command: owner-authorized Codex review 4938107909
     result: BLOCKED
-    evidence: review produced two P2 findings that must be repaired before merge; no second Codex invocation is authorized.
-  - command: focused retain-guard and source-closeout validator tests
-    result: NOT_APPLICABLE
-    evidence: implementation is being committed; exact-head GitHub Actions will run the repository copies immediately after the coherent repair commit.
+    evidence: two P2 findings require repair before merge; no second Codex invocation is authorized.
+  - command: Agent Governance 31812781404 on 548280e1fab3f986f02db1dd8238ba9673984f33
+    result: PASS
+    evidence: source-closeout tests, live terminal source-closeout gate, checkpoints, task liveness, Control Room, policy and prompt gates all passed.
 blockers: []
-next_action: Commit the retain-aware historical guard and machine-enforced source-branch closeout validator in PR #1056, then inspect exact-head CI and repair any failure before resolving the two Codex threads.
+next_action: Validate the canonical terminal_branch_cleanup.py retain guard and exact reviewed candidate digest on the next PR head, then repair any CI failure before resolving the two existing Codex review threads.
 ```
 
 ## Source branch closeout
