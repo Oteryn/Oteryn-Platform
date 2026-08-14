@@ -99,6 +99,7 @@ Inventory reconciled on 2026-08-14. Duplicate prefixes are intentionally shown r
 - `0034-native-game-catalog-content-ownership.md`
 - `0035-first-party-client-distribution-and-updater-trust-boundary.md`
 - `0036-platform-api-activation-and-first-surface-policy.md`
+- `0037-terminal-source-branch-lifecycle.md`
 
 ## Preserved legacy duplicate paths
 
