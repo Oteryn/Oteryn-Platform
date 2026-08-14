@@ -2,13 +2,15 @@
 
 ## Status
 
-Proposed — 2026-08-14
+Accepted — 2026-08-14
 
-Decision owner: repository owner. Shared audit owner: Issue #490. Decision-ready PR: #1044.
+Decision owner: repository owner. Shared audit owner: Issue #490. Decision PR: #1044.
+
+Selected option: **Option A — explicitly defer the general Platform API until a named consumer exists.**
 
 ## Context
 
-`PlatformAPI` is currently `PLANNED`. Canonical module architecture says a general API is exposed only for a concrete client/use case and must adapt existing module application services and policies rather than become a second business-rule path.
+`PlatformAPI` has an accepted ownership boundary but no general API implementation on `main`. Canonical module architecture says a general API is exposed only for a concrete client/use case and must adapt existing module application services and policies rather than become a second business-rule path.
 
 Current `main` proves only specialized API-shaped transport surfaces:
 
@@ -16,7 +18,7 @@ Current `main` proves only specialized API-shaped transport surfaces:
 - `/internal/v1/game-auth/**` is a private Gateway-service contract protected by a service credential and dedicated throttles;
 - these endpoints are explicitly not a general public/first-party Platform API.
 
-Issue #490 therefore cannot be closed by relabelling those routes. The unresolved product decision is whether Oteryn should activate a general Platform API now, and if so which consumer class should establish the first durable compatibility/security surface.
+Issue #490 therefore cannot be closed by relabelling those routes. The product question was whether Oteryn should activate a general Platform API now, and if so which consumer class should establish the first durable compatibility/security surface.
 
 Two future consumer candidates already exist in accepted architecture, but neither currently requires a general API contract on `main`:
 
@@ -25,13 +27,15 @@ Two future consumer candidates already exist in accepted architecture, but neith
 
 Creating a broad API before a named consumer exists would add a versioning, authentication, privacy, rate-limit and compatibility promise without a demonstrated product requirement.
 
-## Decision question
+## Decision
 
-What should be the first durable disposition for the general Oteryn Platform API?
+The repository owner selected **Option A** on 2026-08-14.
 
-## Non-negotiable invariants for every option
+Oteryn does **not** activate a general Platform API merely to satisfy an audit row or because Passport/API-shaped specialized routes already exist. `PlatformAPI` remains a deliberately deferred product surface until an approved named consumer and use case require it.
 
-Regardless of the selected disposition:
+This is an explicit product disposition, not an absence of architecture. It closes the PlatformAPI ambiguity by defining both the non-activation decision and a fail-closed future activation gate.
+
+## Non-negotiable invariants
 
 1. Existing game-auth and internal Gateway endpoints remain specialized contracts and do not count as general PlatformAPI completeness.
 2. PlatformAPI is an adapter over source-module application services/queries. It does not query module persistence directly, bypass policies, recreate business logic or become source-of-truth ownership.
@@ -41,16 +45,14 @@ Regardless of the selected disposition:
 6. Authentication class, authorization/scopes, token lifecycle, CSRF/CORS applicability, rate limits/abuse controls, cacheability and privacy are explicit per surface; existing Passport configuration is implementation capability, not blanket authorization for new APIs.
 7. Sensitive/private resources default to non-public and non-shared-cache. Browser-supplied account/character identifiers never establish ownership.
 8. No API endpoint obtains production activation authority merely because code or a contract is merged. Exact production/security/operations gates remain separate.
-9. API telemetry must follow OperationsObservability privacy/secrecy rules and must not use high-cardinality private identifiers or credentials as metric/log labels.
-10. Breaking change, deprecation and withdrawal semantics must be explicit before a surface is declared stable.
+9. API telemetry follows OperationsObservability privacy/secrecy rules and does not use high-cardinality private identifiers or credentials as metric/log labels.
+10. Breaking change, deprecation and withdrawal semantics are explicit before a surface is declared stable.
 
-## Options
+## Selected posture — Option A
 
-### Option A — Explicitly defer the general Platform API until a named consumer exists — RECOMMENDED
+Do not add a general route namespace merely to manufacture completeness. Existing specialized game-auth/internal contracts remain valid but remain outside PlatformAPI classification.
 
-Keep `PlatformAPI` as a deliberately deferred product surface. Do not add a general route namespace merely to satisfy an audit row. Existing specialized game-auth/internal contracts remain valid but remain outside PlatformAPI classification.
-
-Activation requires a future bounded architecture/implementation package that identifies one **named consumer and use case** and supplies, before the first stable endpoint:
+A future activation package must identify one **named consumer and use case** and supply, before the first stable endpoint:
 
 - exact resource/operation inventory and source-module owners;
 - public versus authenticated/private classification;
@@ -63,98 +65,67 @@ Activation requires a future bounded architecture/implementation package that id
 - compatibility, deprecation and sunset rules;
 - security, focused/integration/E2E evidence and exact production activation gates.
 
-#### Benefits
+### Benefits
 
 - follows the existing “concrete consumer first” architecture;
 - minimizes public attack surface and long-lived compatibility commitments;
 - avoids designing an abstraction around hypothetical consumers;
 - allows the first API to inherit the exact privacy/freshness semantics of the product that actually needs it.
 
-#### Costs
+### Costs
 
 - no general-purpose first-party/public API exists immediately;
 - future client integration requires a separate activation package before use;
-- Issue #490 closes the PlatformAPI finding by explicit owner deferral rather than implementation.
+- Issue #490's PlatformAPI finding is terminal by explicit owner disposition rather than implementation.
+
+## Alternatives considered
 
 ### Option B — Activate a public read-only v1 first
 
 Create a stable anonymous/read-only API for already-public Platform information, beginning only with explicitly approved public read models/application queries. Candidate capabilities are public game-data reads and, once implemented, the same federated-search application service used by PublicPortal.
 
-The first package would need a fixed resource inventory, public enumeration/privacy policy, cache semantics, pagination, conditional/freshness metadata, anonymous abuse/rate controls, response/error versioning and compatibility/deprecation policy.
-
-#### Benefits
-
-- lowest authorization complexity among active API options;
-- useful for first-party portal/client reuse and possible ecosystem integrations;
-- can validate versioning/rate-limit/observability conventions without private mutations.
-
-#### Costs
-
-- creates a durable public compatibility and abuse surface before a named consumer has demonstrated need;
-- public endpoints can amplify scraping/enumeration and stale-data interpretation risks;
-- source publication/freshness rules must remain synchronized with web presentation without duplication.
+This was not selected because it would create a durable public compatibility, scraping/enumeration and abuse-control surface before a named consumer has demonstrated need.
 
 ### Option C — Activate an authenticated first-party account/client v1 first
 
-Create a stable authenticated API intended only for an identified Oteryn first-party client. It would expose a narrowly approved owner-private resource/operation set through source-module application services. Existing Passport-backed API authentication is a reusable implementation primitive, but scopes, client registration, grant/token lifecycle and resource authorization would be designed specifically for the approved consumer rather than inherited from game-auth ticket issuance.
+Create a stable authenticated API intended only for an identified Oteryn first-party client, using source-module application services and a purpose-designed client/scopes/token lifecycle rather than inheriting game-auth ticket semantics.
 
-#### Benefits
+This was not selected because it creates a materially larger security/privacy and compatibility surface before an approved client requires it.
 
-- directly supports future native/desktop/mobile first-party client workflows;
-- creates a reusable authenticated adapter around already-authorized module services;
-- avoids making private workflows depend on HTML/session presentation.
+### Option D — Activate a broad mixed public + authenticated API now
 
-#### Costs
+Rejected. This would maximize attack surface and compatibility commitments, encourage duplicated orchestration/direct persistence access and conflict with the concrete-consumer-first architecture.
 
-- materially larger security/privacy surface than Option B;
-- requires explicit client trust, token theft/revocation, scope, device/session, CORS/CSRF applicability and abuse decisions;
-- premature account/client schemas can become difficult compatibility constraints as native CharacterId/account integration evolves.
+## Activation triggers
 
-### Option D — Activate a broad mixed public + authenticated API now — REJECTED BASELINE
-
-Expose many public and private module capabilities under a common general v1 before a concrete consumer boundary is selected.
-
-#### Why rejected
-
-- maximizes attack surface and compatibility commitments;
-- encourages direct cross-module/persistence access and duplicated orchestration;
-- makes authorization, privacy, caching and deprecation policy too broad to validate as one bounded package;
-- conflicts with the current concrete-consumer-first module architecture.
-
-## Trade-off summary
-
-| Option | Product immediacy | Security surface | Compatibility commitment | Architecture fit | Recommendation |
-|---|---:|---:|---:|---:|---|
-| A — defer to named consumer | Low now | Lowest | None beyond activation contract | Best | **Recommended** |
-| B — public read-only v1 | Medium | Medium | Public/stable | Good if a public consumer is named | Acceptable alternative |
-| C — authenticated first-party v1 | Medium/High | High | Private client/stable | Good if a first-party client is named | Acceptable alternative |
-| D — broad mixed v1 | High | Highest | Broad/stable | Poor | Reject |
-
-## Recommendation
-
-Select **Option A** now.
-
-This is an explicit product disposition, not an absence of architecture. It closes the audit ambiguity by stating that no general Platform API is launch-required until a named consumer justifies one. It also provides a fail-closed activation checklist so a future implementation cannot silently grow from the specialized game-auth namespace into a general API.
-
-The recommendation should be revisited when one of these concrete triggers occurs:
+Revisit this decision only when at least one concrete trigger exists:
 
 - an approved first-party native/desktop/mobile client needs Platform resources not covered by a specialized existing contract;
 - PlayerCompanion requires a non-web consumer API;
 - Federated Search or another public capability has an approved machine-consumer requirement;
 - an explicit partner/developer API product is promoted into scope.
 
-## Consequences if Option A is accepted
+A trigger starts a new bounded decision/implementation package; it does not itself authorize endpoints.
 
-- `PlatformAPI` remains non-implemented and is explicitly `DEFERRED` rather than ambiguously `PLANNED`;
+## Consequences
+
+- `PlatformAPI` remains non-implemented and is product/programme `DEFERRED` until a named consumer activation trigger exists;
+- module-catalog implementation status may remain `PLANNED` because that status describes repository implementation availability rather than launch disposition;
 - Issue #490's PlatformAPI audit finding becomes terminal by owner disposition, while PublicEdge/direct-production evidence remains separately open;
-- no general `/api/v1` resource family is added by the architecture closeout;
+- no general `/api/v1` resource family is added by this architecture closeout;
 - specialized game-auth/internal APIs retain their existing owners/contracts;
-- `PLATFORM_API_ARCHITECTURE.md` records the activation gate and shared invariants, not a fictional endpoint inventory;
-- the next API implementation requires a named consumer and a bounded handoff that satisfies the activation checklist.
+- `PLATFORM_API_ARCHITECTURE.md` becomes the focused canonical owner for the activation gate and shared invariants, not a fictional endpoint inventory;
+- no speculative implementation handoff is created;
+- future API implementation requires a named consumer and a bounded package satisfying the activation checklist.
 
-## Consequences if Option B or C is accepted
+## Existing canonical documents
 
-The accepted option becomes architecture authority, but this architecture PR still does not implement runtime endpoints. The canonical focused architecture must define the exact first-surface profile and create a separate implementation handoff. Runtime implementation, migrations, auth/scopes, rate-limit configuration, browser/client E2E and production activation remain separately validated delivery work.
+No content change is required in `MODULE_CATALOG.md` or `PORTAL_COMPLETENESS_ARCHITECTURE.md` for this decision:
+
+- `MODULE_CATALOG.md` already states that endpoints exist only for a concrete client/use case, that module services/policies must be reused and that specialized game-auth/internal endpoints are not general PlatformAPI; its `PLANNED` status is an implementation-availability label rather than launch disposition;
+- `PORTAL_COMPLETENESS_ARCHITECTURE.md` already says a versioned first-party API becomes justified by concrete consumers and must reuse module services/authorization/version/freshness semantics.
+
+`SECURITY_ARCHITECTURE.md` also already owns the applicable generic API security invariants: API input is untrusted, expensive/public search APIs require application-level limits, private identifiers do not authorize ownership, and production/edge controls remain defense in depth. Option A adds no runtime API surface and therefore requires no new security mechanism.
 
 ## Rejected shortcuts
 
@@ -165,17 +136,17 @@ The accepted option becomes architecture authority, but this architecture PR sti
 - using one global rate limit, cache policy or authorization rule for unrelated modules;
 - promising indefinite v1 compatibility without an explicit deprecation/sunset contract.
 
-## Implementation handoff after acceptance
+## Future implementation handoff
 
-After owner selection, the same bounded architecture package should:
+There is **no implementation handoff now**.
 
-1. mark this ADR `Accepted` with the chosen option;
-2. add `PLATFORM_API_ARCHITECTURE.md` as the focused owner for API activation/versioning/adaptation invariants;
-3. route it through `ARCHITECTURE_AUTHORITY.md`;
-4. reconcile `MODULE_CATALOG.md`, `PORTAL_COMPLETENESS_ARCHITECTURE.md` and portal work allocation;
-5. reconcile `SECURITY_ARCHITECTURE.md` only for accepted API security invariants not already owned elsewhere;
-6. remove ARCH-DEC-0005 from the active backlog;
-7. for Option B/C, create a separate bounded implementation Issue/handoff with exact first-surface resources and tests;
-8. for Option A, create no speculative implementation handoff until an activation trigger occurs.
+When an activation trigger exists, the new package must:
+
+1. name the exact consumer/use case;
+2. define the first resource/operation inventory and source owners;
+3. satisfy the activation checklist in `PLATFORM_API_ARCHITECTURE.md`;
+4. create a bounded implementation Issue only after architecture/security scope is accepted;
+5. validate focused, integration/E2E and negative paths on exact final head;
+6. keep production activation behind independent security/operations/protected-environment gates.
 
 No external repository, protected environment, production operation or owner-funded AI service is authorized by this ADR.
