@@ -60,6 +60,7 @@ dependencies:
 blockers:
   - Otheryn current full-world release workflow publishes tiny verification evidence artifacts only, not the complete generated atlas payload required by a consumer deployment.
   - Otheryn current standalone viewer resolves manifest/runtime/data through relative paths and has no explicit stable consumer-facing asset-base or mount/bootstrap contract for native Platform integration.
+  - Current Platform main has an unrelated live-task liveness failure left by merged PR #1064; this task does not own that branch-lifecycle task path and must not repair it opportunistically.
 cross_repository_tasks:
   - A producer-owned Otheryn follow-up must publish the complete immutable atlas release and stable viewer consumption contract; Otheryn remains read-only to this Platform task.
 ```
@@ -68,8 +69,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-14T19:18:19Z
-head: 8045739c60e9b575684b2449fb744a8a08d962b0
+updated_at: 2026-08-14T19:22:00Z
+head: f80ebd303b770e01c4992b7c0ba6fe3356c464c8
 branch: agent/oteryn-20260814-public-map-atlas-integration
 pr: 1065
 status: blocked
@@ -94,14 +95,19 @@ proven:
   - Current Otheryn viewer already owns chunked viewport loading, floors, render modes, search/details/overlays, URL state, environment animation and bounded caches.
   - Current Platform has no atlas route or navigation entry, no object-storage/CDN atlas configuration, same-origin-only CSP for script/connect/image, and a Synology Nginx layer that currently proxies all paths to the Platform application.
   - No open Oteryn-Platform PR or active-task owned path inspected for this preflight claims the four documentation paths owned here.
-  - Draft PR #1065 contains exactly the four declared documentation paths before this checkpoint update.
+  - Draft PR #1065 contains exactly the four declared documentation paths.
+  - Exact-head CI run 31832721939 on f80ebd303b770e01c4992b7c0ba6fe3356c464c8 passed classify-changes, formatting, static analysis, the repository test suite and required test gate.
+  - Agent Governance run 31832721996 on f80ebd303b770e01c4992b7c0ba6fe3356c464c8 failed only in live-aware Control Room/liveness enforcement after all static checkpoint/policy validations passed.
+  - Platform main c56abdd1a3298d7c5222449fd7c2aa863601eea3 independently has the same Agent Governance failure in push run 31832315322 after PR #1064 merged, while its active branch-lifecycle checkpoint still says PR #1064 is awaiting merge.
 derived:
   - Implementing a public Map route before a complete producer artifact exists would create a dead or non-canonical product surface.
   - Copying OTBM parsing/build logic or maintaining a forked viewer in Platform would violate the repository source-of-truth boundary.
   - Initial same-origin consumption of a producer-built immutable artifact is the lowest-risk deployment model because it preserves current CSP/CORS boundaries and existing chunked browser behavior.
+  - PR #1065 Agent Governance failure is inherited from current main live-task state, not introduced by the four-file map integration diff; the conflicting branch-lifecycle task path is owned by another active task.
 unknown:
   - Exact final Otheryn release descriptor/path and stable viewer asset-base/bootstrap API until the producer follow-up is implemented.
   - Exact production Map browser behavior because no public Map implementation exists yet.
+  - Exact completion timing/state of the separately owned branch-lifecycle closeout after merged PR #1064.
 conflicts: []
 first_failure:
   marker: producer-consumption-artifact-missing
@@ -110,6 +116,7 @@ rejected_hypotheses:
   - Rebuild the atlas in Platform; rejected because Otheryn is the canonical producer and already owns the mature pipeline.
   - Publish a temporary iframe; rejected because it would not satisfy first-class Platform URL, shell, CSP and future integration requirements.
   - Use current object storage/CDN; rejected because no current Platform atlas storage/CDN contract exists and current CSP is same-origin only.
+  - Repair the unrelated branch-lifecycle task from this branch; rejected because its owned path belongs to a separate active task and multi-agent ownership rules forbid opportunistic edits.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260814-public-map-atlas-integration.md
   - docs/architecture/adr/0038-public-map-atlas-integration.md
@@ -122,9 +129,12 @@ validation:
   - command: main-delta ownership reconciliation e4498ba..c56abdd
     result: PASS
     evidence: only branch-lifecycle implementation/governance paths changed; this task's four paths and ADR 0038 remain unclaimed on main
-  - command: draft PR #1065 repository CI
-    result: NOT_RUN
-    evidence: PR was opened at head 8045739c60e9b575684b2449fb744a8a08d962b0; exact-head workflow conclusions still require inspection after this checkpoint commit
+  - command: CI run 31832721939 on f80ebd303b770e01c4992b7c0ba6fe3356c464c8
+    result: PASS
+    evidence: classify-changes, runtime-tests and required test jobs all completed successfully; runtime-tests passed formatting, static analysis and repository tests
+  - command: Agent Governance run 31832721996 on f80ebd303b770e01c4992b7c0ba6fe3356c464c8
+    result: BLOCKED
+    evidence: static governance validations passed; live-aware Control Room/liveness enforcement failed identically on current main push run 31832315322 because separately owned PR #1064 task state remained stale after merge
   - command: runtime/browser E2E
     result: BLOCKED
     evidence: producer release artifact and native viewer consumption contract do not yet exist, so no truthful canonical Platform Map implementation can be exercised
@@ -133,6 +143,7 @@ validation:
     evidence: no production Map implementation is authorized before the producer contract exists
 blockers:
   - Otheryn must publish the complete immutable atlas release artifact and stable viewer asset-base/bootstrap contract before Platform runtime implementation can continue without duplication.
+  - Platform main live-task liveness for the separately owned branch-lifecycle closeout must be repaired by its owner before PR #1065 can satisfy a fully green merge gate.
 next_action: In blakinio/Otheryn, implement and merge a producer-owned complete immutable atlas release plus a stable configurable viewer asset-base/bootstrap contract, then resume this Platform task against that exact build ID and digest.
 ```
 
@@ -141,7 +152,7 @@ next_action: In blakinio/Otheryn, implement and merge a producer-owned complete 
 ```yaml
 source_branch_disposition: pending
 source_branch_reason: task remains blocked on an explicit cross-repository producer contract before runtime implementation
-source_branch_evidence: dedicated branch agent/oteryn-20260814-public-map-atlas-integration created from exact Platform main e4498ba9856a3779c8ae3a6f5bed608256a35fef; draft PR #1065 is open and intentionally unmerged while the producer dependency is unresolved
+source_branch_evidence: dedicated branch agent/oteryn-20260814-public-map-atlas-integration created from exact Platform main e4498ba9856a3779c8ae3a6f5bed608256a35fef; draft PR #1065 is open and intentionally unmerged while producer and inherited governance dependencies remain unresolved
 ```
 
 ## Notes
