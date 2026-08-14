@@ -1,9 +1,47 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 import terminal_branch_cleanup as guarded
+
+
+class FakeClient:
+    repo = "blakinio/Oteryn-Platform"
+
+    def __init__(self, body: str):
+        self.body = body
+
+    def get_branch(self, branch: str):
+        return {"commit": {"sha": "b" * 40}, "protected": False}
+
+    def open_pulls_for_branch(self, branch: str):
+        return []
+
+    def get_issue_state(self, issue_number: int):
+        return "closed"
+
+    def get_ref(self, branch: str):
+        sha = "a" * 40 if branch == "main" else "b" * 40
+        return {"object": {"sha": sha}}
+
+    def request(self, method: str, path: str, expected=(200,)):
+        return (
+            {
+                "state": "closed",
+                "merged": False,
+                "merged_at": None,
+                "body": self.body,
+                "head": {
+                    "ref": "closed/exact",
+                    "sha": "b" * 40,
+                    "repo": {"full_name": self.repo},
+                },
+            },
+            {},
+        )
 
 
 class TerminalBranchRetentionGuardTest(unittest.TestCase):
@@ -11,10 +49,10 @@ class TerminalBranchRetentionGuardTest(unittest.TestCase):
         return {
             "branches": [
                 {
-                    "branch": "repair/issue-123",
+                    "branch": "closed/exact",
                     "classification": "TERMINAL_CLOSED_UNMERGED",
                     "deletion_candidate": True,
-                    "head_sha": "a" * 40,
+                    "head_sha": "b" * 40,
                     "closed_unmerged_pr": {"number": 77, "closed_at": "2026-08-01T00:00:00Z"},
                     "evidence": ["legacy candidate"],
                 }
@@ -25,6 +63,40 @@ class TerminalBranchRetentionGuardTest(unittest.TestCase):
 
     def snapshot(self, body: str):
         return {"pulls": [{"number": 77, "body": body}]}
+
+    def policy_and_root(self):
+        temporary = tempfile.TemporaryDirectory()
+        root = Path(temporary.name)
+        adr = root / "docs/architecture/adr/0024-merged-source-branch-lifecycle-policy.md"
+        adr.parent.mkdir(parents=True)
+        adr.write_text("# ADR\n", encoding="utf-8")
+        (root / "docs/agents/tasks/active").mkdir(parents=True)
+        policy = {
+            "accepted_adr": "docs/architecture/adr/0024-merged-source-branch-lifecycle-policy.md",
+            "default_branch": "main",
+            "deletion_requirements": {
+                "active_claim_forbidden": True,
+                "classification": "TERMINAL_MERGED",
+                "exact_head_sha_required": True,
+                "merged_pr_required": True,
+                "open_pr_forbidden": True,
+                "protected_forbidden": True,
+                "reserved_name_without_exception_forbidden": True,
+            },
+            "issue": 658,
+            "retention_exceptions": [
+                {
+                    "branch": "main",
+                    "classification": "PROTECTED",
+                    "owner": "repository owner",
+                    "protected_required": True,
+                    "purpose": "default branch",
+                    "review_trigger": "default branch changes",
+                }
+            ],
+            "schema_version": 1,
+        }
+        return temporary, root, policy
 
     def test_explicit_retain_is_not_a_historical_deletion_candidate(self):
         report = guarded.apply_historical_retention_guard(
@@ -75,6 +147,31 @@ class TerminalBranchRetentionGuardTest(unittest.TestCase):
             )
         with self.assertRaises(guarded.ValidationError):
             guarded._event_disposition("Branch-Disposition: retain\n")
+
+    def test_predelete_revalidation_refuses_new_retain_marker(self):
+        temporary, root, policy = self.policy_and_root()
+        try:
+            report = {
+                "default_branch": "main",
+                "default_branch_sha": "a" * 40,
+                "repository": "blakinio/Oteryn-Platform",
+            }
+            entry = {
+                "branch": "closed/exact",
+                "closed_at": "2026-08-01T00:00:00Z",
+                "closed_pr_number": 77,
+                "head_sha": "b" * 40,
+            }
+            client = FakeClient(
+                "Branch-Disposition: retain\n"
+                "Branch-Disposition-Reason: operator retained before apply\n"
+            )
+            with self.assertRaisesRegex(guarded.ValidationError, "explicitly retains"):
+                guarded._revalidate_delete_entry(
+                    client, policy, report, entry, root=root
+                )
+        finally:
+            temporary.cleanup()
 
 
 if __name__ == "__main__":

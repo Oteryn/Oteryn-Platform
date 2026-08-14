@@ -18,6 +18,7 @@ REASON_RE = re.compile(r"^\s*Branch-Disposition-Reason:\s*(\S.*)\s*$", re.I | re
 ValidationError = branch_lifecycle.ValidationError
 ApiError = branch_lifecycle.ApiError
 _ORIGINAL_CLASSIFY_SNAPSHOT = legacy.classify_snapshot
+_ORIGINAL_REVALIDATE_DELETE_ENTRY = legacy._revalidate_delete_entry
 
 
 def parse_disposition_metadata(body: str) -> tuple[str | None, str | None, str | None]:
@@ -139,9 +140,57 @@ def _event_disposition(body: str) -> tuple[str | None, str | None]:
     return disposition, reason
 
 
+def _revalidate_delete_entry(
+    client: legacy.GitHubClient,
+    policy: dict[str, Any],
+    report: dict[str, Any],
+    entry: dict[str, Any],
+    *,
+    root: Path,
+) -> None:
+    _ORIGINAL_REVALIDATE_DELETE_ENTRY(client, policy, report, entry, root=root)
+
+    branch = branch_lifecycle._text(entry.get("branch"), "terminal delete entry.branch")
+    expected_sha = branch_lifecycle._text(
+        entry.get("head_sha"), f"terminal delete {branch}.head_sha"
+    )
+    pr_number = entry.get("closed_pr_number")
+    if not isinstance(pr_number, int) or isinstance(pr_number, bool):
+        raise ValidationError(f"terminal delete {branch}: closed_pr_number must be integer")
+
+    pull, _ = client.request(
+        "GET", f"/repos/{client.repo}/pulls/{pr_number}", expected=(200,)
+    )
+    if not isinstance(pull, dict):
+        raise ValidationError(f"terminal delete {branch}: pull request response is not an object")
+    if (
+        pull.get("state") != "closed"
+        or pull.get("merged") is True
+        or pull.get("merged_at") is not None
+        or not branch_lifecycle._same_repo_pull(pull, report["repository"])
+        or branch_lifecycle._pull_branch(pull) != branch
+        or branch_lifecycle._pull_sha(pull) != expected_sha
+    ):
+        raise ValidationError(
+            f"terminal delete {branch}: live closed-PR identity drift detected"
+        )
+
+    body = pull.get("body") if isinstance(pull.get("body"), str) else ""
+    disposition, _, error = parse_disposition_metadata(body)
+    if error is not None:
+        raise ValidationError(
+            f"terminal delete {branch}: malformed live branch-disposition metadata: {error}"
+        )
+    if disposition == "retain":
+        raise ValidationError(
+            f"terminal delete {branch}: live pull request now explicitly retains the branch"
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     legacy.classify_snapshot = classify_snapshot
     legacy._event_disposition = _event_disposition
+    legacy._revalidate_delete_entry = _revalidate_delete_entry
     return legacy.main(argv)
 
 
