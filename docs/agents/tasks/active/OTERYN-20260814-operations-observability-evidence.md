@@ -2,10 +2,10 @@
 task_id: OTERYN-20260814-operations-observability-evidence
 mode: architecture
 issue: 490
-status: investigating
+status: validating
 programme: OTERYN_PLATFORM_ARCHITECTURE_REVIEW
 project_lane: oteryn-platform-core
-phase: investigate
+phase: validate
 execution_mode: github_connector
 required_reads:
   - AGENTS.md
@@ -38,16 +38,17 @@ Close the repository-only Production topology + OperationsObservability architec
 
 ## Acceptance criteria
 
-- [ ] A focused current OperationsObservability architecture defines ownership, operational evidence categories and explicit non-authorities.
-- [ ] Logical target topology, repository-proven capability, staging evidence and direct production evidence are separated so no repository document can imply `PRODUCTION_PROVEN` without environment identity.
-- [ ] Current repository/staging evidence for request correlation/log shape, release identity, health, dependency operations, restore/rollback and incident recovery is reconciled without preserving known-stale baseline claims.
-- [ ] Liveness and dependency readiness are not conflated; absence of a separately proven readiness capability cannot be interpreted as healthy dependencies.
-- [ ] Logging, metrics/alerts/on-call, retention/access, backup/restore, deployment/migrations/rollback and critical dependency evidence have explicit owners and fail-closed evidence requirements.
-- [ ] `ARCHITECTURE_AUTHORITY.md` routes this concern to the focused owner without transferring PublicEdge, product-domain or production activation authority.
-- [ ] Portal work allocation and Issue #490 accurately distinguish the terminal repository-only OperationsObservability slice from still-open PlatformAPI/PublicEdge/production-environment proof.
+- [x] A focused current OperationsObservability architecture defines ownership, operational evidence categories and explicit non-authorities.
+- [x] Logical target topology, repository-proven capability, staging evidence and direct production evidence are separated so no repository document can imply `PRODUCTION_PROVEN` without environment identity.
+- [x] Current repository/staging evidence for request correlation/log shape, release identity, health, dependency operations, restore/rollback and incident recovery is reconciled without preserving known-stale baseline claims.
+- [x] Liveness and dependency readiness are not conflated; absence of a separately proven readiness capability cannot be interpreted as healthy dependencies.
+- [x] Logging, metrics/alerts/on-call, retention/access, backup/restore, deployment/migrations/rollback and critical dependency evidence have explicit owners and fail-closed evidence requirements.
+- [x] `ARCHITECTURE_AUTHORITY.md` routes this concern to the focused owner without transferring PublicEdge, product-domain or production activation authority.
+- [x] Portal work allocation accurately distinguishes the architecture-ready repository/staging slice from direct production proof that remains blocked on protected-environment evidence.
+- [x] `MODULE_CATALOG.md` and `PORTAL_COMPLETENESS_ARCHITECTURE.md` were reviewed and already express compatible OperationsObservability ownership/production-proof separation; no duplicate semantic edit is required.
 - [ ] Exact final-head self-review, applicable repository CI and PR hygiene pass with no material finding.
-- [ ] Runtime/browser E2E is explicitly `NOT_APPLICABLE` because this package changes architecture/evidence documentation only and performs no executable user/integration behavior.
-- [ ] Merge, task archival and ownership release are terminal while Issue #490 remains intentionally open only for its residual shared findings.
+- [x] Runtime/browser E2E is explicitly `NOT_APPLICABLE` because this package changes architecture/evidence documentation only and performs no executable user/integration behavior.
+- [ ] Merge, Issue #490 residual-scope reconciliation, task archival and ownership release are terminal.
 
 ## Ownership
 
@@ -90,11 +91,11 @@ decomposition_reason: one cohesive Platform-only evidence/authority boundary wit
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-14T09:00:00+02:00
+updated_at: 2026-08-14T09:15:00+02:00
 head: UNKNOWN
 branch: docs/OTERYN-20260814-operations-observability-evidence
-pr: none
-status: investigating
+pr: 1042
+status: validating
 context_routes:
   - architecture
   - testing
@@ -111,14 +112,21 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260814-operations-observability-evidence.md
 proven:
   - Trusted main at task start is 1cbcaa9fb7013c83834c5632e95b2d5e7408bffa.
-  - Issue 490 remains open as the shared audit owner for PlatformAPI, OperationsObservability and PublicEdge; its 2026-08-08 revalidation classifies OperationsObservability as partial with production evidence still open.
-  - MODULE_CATALOG currently marks OperationsObservability AVAILABLE for repository/runtime health, release identity, structured observability and operational contracts while explicitly forbidding production-proof claims without exact environment evidence.
+  - Issue #490 remains open as the shared audit owner for PlatformAPI, OperationsObservability and PublicEdge; its 2026-08-08 revalidation classifies OperationsObservability as partial with direct production evidence still open.
+  - `MODULE_CATALOG.md` marks OperationsObservability AVAILABLE for repository/runtime health, release identity, structured observability and operational contracts while explicitly forbidding production-proof claims without exact environment evidence.
   - Production Readiness is STAGING_PROVEN and the Production Go-Live Gate remains PENDING PRODUCTION VERIFICATION.
-  - Current controlled production-like evidence includes request correlation/logging smoke, deployment/migration/rollback exercises, dependency controls and backup/clean-restore validation; these are not production proof.
-  - No relevant open PR or active task owns this repository-only OperationsObservability reconciliation.
+  - `bootstrap/app.php` configures Laravel `/health`; the reviewed repository does not establish a separate general dependency-aware readiness contract.
+  - `RequestCorrelation` generates a fresh server-side UUID, returns `X-Request-ID`, and emits bounded `http.request.completed` fields without full URL/query/body/headers/credentials.
+  - Controlled Production Readiness evidence includes request-correlation/logging smoke, deployment/migration/rollback exercises, dependency controls and Platform DB clean restore/integrity validation; these are staging/production-like evidence, not production proof.
+  - `OPERATIONS_OBSERVABILITY_ARCHITECTURE.md` defines the focused evidence model and exact authority/non-authority boundary.
+  - `PRODUCTION_TOPOLOGY_EVIDENCE.md` now reconciles the historical Phase 7 discovery baseline with current repository and staging evidence rather than preserving stale in-progress statements.
+  - `ARCHITECTURE_AUTHORITY.md` routes production topology evidence and OperationsObservability to the focused architecture and operational evidence records.
+  - Portal work allocation now marks the repository/staging OperationsObservability boundary architecture-ready while direct production proof remains blocked on protected-environment authority.
+  - `MODULE_CATALOG.md` and `PORTAL_COMPLETENESS_ARCHITECTURE.md` were reviewed; their existing status/evidence wording is compatible with the focused architecture and required no churn.
+  - Draft PR #1042 owns this bounded documentation package.
 derived:
-  - Issue 490 can receive a terminal disposition for its OperationsObservability applicability/contract finding without closing the shared Issue or claiming its PlatformAPI/PublicEdge findings are resolved.
-  - A focused canonical OperationsObservability document can reconcile existing accepted direction and evidence without selecting a provider or authorizing production operations.
+  - Issue #490 can receive a terminal disposition for its OperationsObservability applicability/profile contract without closing or weakening its PlatformAPI/PublicEdge/direct-production findings.
+  - Repository/staging evidence can progress independently while production topology/logging/metrics/alerts/on-call/backup/restore remain fail-closed `ENVIRONMENT_EVIDENCE_REQUIRED` facts.
 unknown:
   - Exact production log/metrics backend, alert/on-call destination, retention/access policy, deployed topology, backup system, deployment mechanism and production restore evidence remain unavailable without protected-environment evidence.
 conflicts: []
@@ -126,18 +134,34 @@ first_failure:
   marker: none
   evidence: none
 rejected_hypotheses:
-  - Repository or staging evidence can be promoted to PRODUCTION_PROVEN without direct environment evidence.
+  - Repository or staging evidence can be promoted to `PRODUCTION_PROVEN` without direct environment evidence.
   - PublicEdge live proof is part of this repository-only task.
-  - OperationsObservability should become business-policy or gameplay/runtime authority.
+  - A successful `/health` response proves critical dependency readiness.
+  - Optional JSON/stderr logging capability proves centralized production logs, metrics or alerts exist.
+  - OperationsObservability should become business-policy, gameplay/runtime or production-activation authority.
 changed_paths:
+  - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
+  - docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
   - docs/agents/tasks/active/OTERYN-20260814-operations-observability-evidence.md
+  - docs/architecture/ARCHITECTURE_AUTHORITY.md
+  - docs/architecture/OPERATIONS_OBSERVABILITY_ARCHITECTURE.md
+  - docs/operations/PRODUCTION_TOPOLOGY_EVIDENCE.md
 validation:
-  - command: not-run
+  - command: source-level repository evidence inspection
+    result: PASS
+    evidence: exact main source verifies `/health` configuration and RequestCorrelation semantics; current operations/readiness documents were reconciled by evidence class
+  - command: architecture/source-owner consistency review
+    result: PASS
+    evidence: MODULE_CATALOG and PORTAL_COMPLETENESS existing semantics remain compatible and no new ADR/owner decision is required for this reconciliation
+  - command: runtime/browser E2E
+    result: NOT_APPLICABLE
+    evidence: documentation/architecture evidence package changes no executable user or integration journey
+  - command: exact-final-head CI and full-diff review
     result: NOT_RUN
-    evidence: bounded discovery and reconciliation package is not yet complete
+    evidence: package is entering exact-head self-review before terminal validation
 blockers:
   - none
-next_action: Verify current source-level health/request-correlation/logging and operational evidence, then write the focused OperationsObservability architecture and reconcile the dated topology baseline.
+next_action: Perform full PR #1042 diff/review-hygiene inspection, repair any material finding, then freeze the exact final head for required CI and merge.
 ```
 
 ## Notes
