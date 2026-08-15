@@ -160,9 +160,9 @@
     {
       "id": "commerce_capability",
       "selector_entry": 12,
-      "disposition": "CONDITIONAL",
-      "activation_trigger": "the repository owner accepts a product/business disposition that promotes a commerce capability",
-      "boundary": "wallet/bazaar foundations do not imply customer payment activation"
+      "disposition": "REQUIRED",
+      "activation_trigger": "global portal completion requires an explicit implement, defer or reject disposition for current commerce capability findings",
+      "boundary": "REQUIRED here means terminal product disposition, not payment implementation or customer-payment activation"
     },
     {
       "id": "commerce_production_activation",
