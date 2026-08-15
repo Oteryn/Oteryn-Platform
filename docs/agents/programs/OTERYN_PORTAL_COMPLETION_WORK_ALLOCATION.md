@@ -8,6 +8,7 @@ trusted_base: main
 status: ACTIVE
 live_state_required: true
 selection_authority: docs/agents/programs/OTERYN_PORTAL_COMPLETION.md
+completion_scope: docs/agents/programs/OTERYN_PORTAL_COMPLETION_SCOPE.json
 architecture_authority: docs/architecture/ARCHITECTURE_AUTHORITY.md
 delivery_plan: docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md
 player_companion: docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md
@@ -18,32 +19,47 @@ execution_roles_are_model_agnostic: true
 
 ## Purpose
 
-This document is the execution-allocation companion for the existing `OTERYN_PORTAL_COMPLETION` programme. It maps accepted portal workstreams to model-agnostic execution roles, dependencies, optional Codex suitability and terminal outcomes.
+This document is the execution-allocation companion for `OTERYN_PORTAL_COMPLETION`. It maps portal capability maturity to model-agnostic execution roles, dependencies, optional Codex suitability and terminal outcomes **after the canonical programme has selected one live candidate**.
 
-It is **not** a second scheduler, architecture authority or source of current ownership. `OTERYN_PORTAL_COMPLETION.md` selects what work may run next from live state. This companion is consulted only after that selection to decide how the selected work is owned and executed.
+It is **not a scheduler, priority queue, architecture authority, completion-scope authority or source of current ownership**. `OTERYN_PORTAL_COMPLETION.md` is the sole live selector. `OTERYN_PORTAL_COMPLETION_SCOPE.json` records non-scheduling launch/completion dispositions. Accepted ADRs, focused architecture, contracts, specialized programmes, live Issues, active task records and exact PR/CI state remain authoritative for their own scopes.
 
-Accepted ADRs, focused architecture, contracts, specialized programmes, live Issues, active task records and exact PR/CI state remain authoritative for their scopes. Live repository state always wins over dated board examples below.
+Live repository state always wins over the maturity projection below.
+
+## Control-plane relationship
+
+Use the portal control plane in this order:
+
+1. `ROADMAP.md` — global Platform phases and risk ordering.
+2. `PORTAL_COMPLETENESS_ARCHITECTURE.md` — durable portal completion/release boundary.
+3. `PORTAL_COMPLETION_DELIVERY_PLAN.md` — portal capability/dependency order.
+4. `OTERYN_PORTAL_COMPLETION.md` — sole live selector.
+5. **This file** — post-selection execution role/maturity mapping.
+6. Selected Issue/task/branch/PR — one exact execution owner.
+
+A delivery band or maturity value in this file cannot promote a candidate to selector `READY`, bypass an earlier canonical candidate, change a launch disposition, or override live ownership.
 
 ## Execution roles
 
 ### `ARCHITECTURE_COORDINATOR`
 
-Primary owner for:
+Applies and decomposes already accepted architecture for the selected portal capability. Primary responsibilities:
 
-- architecture and product decomposition;
+- bounded product/architecture decomposition inside accepted boundaries;
 - dependency and sequencing reconciliation with the canonical programme;
 - source-of-truth reconciliation;
-- security/privacy/contract review;
-- Platform API, multi-world and cross-module contract decisions;
-- production/public-edge evidence interpretation;
+- security/privacy/contract interpretation;
+- implementation-package definition;
+- production/public-edge evidence interpretation without protected mutation authority;
 - PR review, CI diagnosis and final integration/closeout;
-- deciding whether a bounded implementation package is ready for an implementation owner.
+- deciding whether accepted architecture is sufficient for a bounded implementation owner.
 
-This role may also implement a bounded change directly when that is the smallest safe path.
+This role may implement a bounded change directly when that is the smallest safe path.
+
+**Boundary with `OTERYN_PLATFORM_ARCHITECTURE_REVIEW`:** the coordinator does not create or silently decide a new durable module boundary, major dependency direction, trust boundary or other ADR-level product architecture merely to make a selected slice executable. A genuinely new/superseding durable decision is routed to Architecture Review / the architecture decision backlog first; the affected runtime candidate remains `DECISION_REQUIRED` or `BLOCKED` until accepted authority exists.
 
 ### `IMPLEMENTATION_OWNER`
 
-Owns one bounded implementation slice from accepted scope through focused tests, exact-head self-review, required CI, E2E where applicable, PR closeout and task archival. Typical work includes:
+Owns one selected bounded implementation slice from accepted scope through focused tests, exact-head self-review, required CI, E2E where applicable, PR closeout and task archival. Typical work includes:
 
 - machine-readable inventories and validators;
 - isolated module vertical slices;
@@ -56,9 +72,9 @@ The role is independent of model or tool. Chat/GitHub, a permitted runner or ano
 
 ### `OWNER_DECISION`
 
-The repository owner is required only for product/business choices or authorities that cannot be inferred safely, including:
+Required only for product/business choices or authorities that cannot be inferred safely, including:
 
-- explicit launch-scope defer/reject decisions where the accepted programme requires one;
+- explicit launch-scope defer/reject/promotion decisions where accepted authority requires one;
 - forum vs Discord if/when a durable owned community product is desired;
 - payment/provider/legal activation;
 - explicit production/protected-environment authorization;
@@ -73,112 +89,108 @@ Executes authorized production/protected-environment evidence collection or muta
 
 The `Codex suitability` column is only a technical fit assessment for a bounded task package.
 
-**Suitability is not authorization.** No Codex, OpenAI API or other owner-funded AI invocation is allowed unless the repository owner explicitly approves that exact use/task. Prior approval never becomes standing permission. When permission is absent, the selected task remains valid and must be executed through another permitted mode.
+**Suitability is not authorization.** No Codex, OpenAI API or other owner-funded AI invocation is allowed unless the repository owner explicitly approves that exact use/task. Prior approval never becomes standing permission. When permission is absent, the selected task remains valid and must use another genuinely capable permitted mode or record the exact technical blocker.
 
-## Current project board
+## Capability maturity and execution matrix
 
-These are **programme workstream maturity/disposition states**, not task-checkpoint statuses and not canonical selector states. The board never emits or persists canonical `READY`; `OTERYN_PORTAL_COMPLETION.md` derives `TERMINAL | OWNED | BLOCKED | DECISION_REQUIRED | READY` from live evidence on every invocation.
+The matrix contains **non-scheduling maturity projections**. It is not a current task board. `OTERYN_PORTAL_COMPLETION.md` recomputes live selector state from current protected `main`, Issues, tasks, PRs, dependencies and authority on every invocation.
 
-Status meanings:
+Maturity values:
 
-- `DONE` — accepted scope is terminal for this project item;
-- `IN_PROGRESS` — a valid live task/PR currently owns the item at the time the row is deliberately refreshed; live ownership must still be rechecked;
-- `ARCHITECTURE_READY` — an accepted architecture boundary exists and implementation remains; **this does not mean canonical selector `READY`**;
-- `OPEN` — implementation, decomposition or evidence remains and is not currently proven complete;
-- `BLOCKED` — a known external/authority dependency prevents the stated outcome; live selector still verifies the exact candidate;
-- `DECISION_REQUIRED` — an owner/product decision is required before the stated outcome;
-- `DEFERRED` — intentionally not required in the current launch scope;
-- `REJECTED` — explicitly excluded by an accepted owner/product decision.
+- `DONE` — accepted scope represented by the row is terminal;
+- `IN_PROGRESS` — a deliberately refreshed observation found a live owner; current ownership must still be rechecked;
+- `ARCHITECTURE_READY` — accepted architecture exists and implementation/evidence may remain; **never equivalent to selector `READY`**;
+- `OPEN` — implementation/decomposition/evidence remains; does not imply eligibility;
+- `CONDITIONAL` — cross-cutting or product work participates only when its named activation trigger is proven; not an independent standing queue entry;
+- `BLOCKED` — a known dependency/authority/evidence prevents the stated outcome; selector verifies the exact live candidate;
+- `DECISION_REQUIRED` — an owner/product/architecture decision is required;
+- `DEFERRED` — intentionally outside current launch scope until an accepted trigger reactivates it;
+- `REJECTED` — explicitly excluded by accepted authority.
 
-### Strict promotion invariant
+`REQUIRED | CONDITIONAL | DEFERRED | REJECTED` launch/completion dispositions are stored separately in `OTERYN_PORTAL_COMPLETION_SCOPE.json`; they are not maturity states.
 
-A workstream row may be `ARCHITECTURE_READY` while every current implementation candidate is `BLOCKED`, `OWNED` or `DECISION_REQUIRED`. Canonical selector `READY` exists only transiently when one exact Issue/task package satisfies **all** programme eligibility gates: accepted predecessors, exact source authority, Platform-only scope, no conflicting owner, no implied protected/external mutation, bounded completion, rollback and known validation.
-
-The reverse is also true: a documentation/architecture package inside an `OPEN` or `ARCHITECTURE_READY` workstream may be selector-`READY` even though the workstream is not implemented. Completing that package does not promote runtime availability.
-
-| Programme priority | Workstream | Current status | Primary execution role | Codex suitability | Dependencies / next terminal outcome |
+| Delivery band (non-scheduling) | Workstream | Maturity projection | Primary execution role | Codex suitability | Dependencies / next terminal outcome |
 |---|---|---|---|---|---|
 | P0 | Canonical module catalogue | `DONE` | `ARCHITECTURE_COORDINATOR` | No | Keep `MODULE_CATALOG.md` synchronized when accepted boundaries or implementation availability change. |
-| P1 | Production topology and OperationsObservability repository evidence | `ARCHITECTURE_READY` / `BLOCKED` for direct production proof | `ARCHITECTURE_COORDINATOR` + `PROTECTED_ENV_OPERATOR` for live proof | Low | `OPERATIONS_OBSERVABILITY_ARCHITECTURE.md` and the reconciled topology baseline define the current repository/staging evidence contract. Issue #490 retains direct production topology/logging/metrics/alerts/on-call/backup/restore evidence, which requires exact protected-environment authority and identity. Repository or staging evidence must not be promoted to `PRODUCTION_PROVEN`. |
-| P1 | PublicEdge protected-environment proof | `BLOCKED` for live proof | `ARCHITECTURE_COORDINATOR` + `PROTECTED_ENV_OPERATOR` | Low | Issue #490. DNS/TLS/HSTS/WAF/private-origin/deployed-identity/smoke evidence requires explicit protected-environment authority. Repository-safe preparation is not blocked. |
-| P1/P2 | Core Account Center / Character Portfolio | `ARCHITECTURE_READY` | `ARCHITECTURE_COORDINATOR`, then `IMPLEMENTATION_OWNER` per vertical slice | High after contract/dependency proof | Native delete/restore and rename Issues #317/#319 remain blocked until accepted Oteryn-v2 Character Authority command/result semantics exist; world transfer #320 additionally requires an explicit product decision. Architecture maturity does not bypass either gate. |
-| P2 | LiveOps | `ARCHITECTURE_READY` | `ARCHITECTURE_COORDINATOR`, then `IMPLEMENTATION_OWNER` per slice | High when sliced | `LIVEOPS_ARCHITECTURE.md` is canonical and architecture Issue #1046 is terminal. The first runtime package is `WorldStatus + configured Maintenance`, but it becomes selector-`READY` only after the exact authoritative runtime-status source required by the delivered capability is proven from permitted evidence. `ServerSave` is separately blocked until its authoritative source/applicability/time-base/recurrence/freshness contract is proven. Never fabricate stale/unavailable state. `MODULE_CATALOG.md` correctly remains `LiveOps | PLANNED` until executable capability is merged. |
-| P2 | PublicPortal Today | `ARCHITECTURE_READY` | `ARCHITECTURE_COORDINATOR`, then `IMPLEMENTATION_OWNER` | High after focused architecture/source readiness | Public Today architecture/documentation may proceed independently when unowned. Runtime implementation must consume source-owned projections, preserve partial/freshness states and keep authenticated/private composition behind the full ADR 0032 owner-private cache/isolation gate. |
-| P2 | Federated Search & Discovery | `ARCHITECTURE_READY` | `IMPLEMENTATION_OWNER` after coordinator confirms dependency cleanup | High | Remove Announcements/Events reverse `PublicPortal` dependency first, then implement source-owned providers and PublicPortal orchestration with partial-failure semantics. Before selector promotion, create/reuse one exact bounded Issue/package and prove no overlapping owner. |
-| P2 | Client Distribution hardening | `ARCHITECTURE_READY` | `IMPLEMENTATION_OWNER` after architecture closeout | High for Platform-only slice | ADR 0035 and `CLIENT_DISTRIBUTION_ARCHITECTURE.md` accept TUF-based role-separated updater trust with signing keys outside Laravel. Issue #1039 is the explicit Platform implementation handoff and is reachable from the canonical programme order. External updater implementation, private signing infrastructure/operations and production activation remain separate authority/evidence gates and are not required for a truthful Platform-only partial-consumer claim. |
-| P2 | Wiki expected-content inventory | `DONE` | `ARCHITECTURE_COORDINATOR` | No | Issue #488 terminal; preserve validators and provenance gates. |
-| P2 | Game Catalog authoritative expected inventory | `OPEN` | `ARCHITECTURE_COORDINATOR`, then `IMPLEMENTATION_OWNER` for Platform-only slices | High for Platform-only bounded slices | Route through `GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM.md`. Issue #489 is a shared audit owner; only its GameCatalog/content findings belong here. Server/game producer or authority work requires separate owner authorization before repository access. |
-| P2 | Wiki/media 500 + publication-flash investigation | `DONE` | `ARCHITECTURE_COORDINATOR` | No | Issue #365 terminal; do not reopen without new reproduction. |
-| P2 | Platform API | `DEFERRED` | `ARCHITECTURE_COORDINATOR` when a named consumer trigger exists | No active handoff | ADR 0036 and `PLATFORM_API_ARCHITECTURE.md` explicitly defer the general API until an approved named consumer/use case exists. Specialized game-auth/internal endpoints remain outside general PlatformAPI classification. Do not create a speculative implementation task; reactivate only through the accepted activation checklist. |
-| P2 | Multi-world / rulesets / seasons contract | `OPEN` | `ARCHITECTURE_COORDINATOR` | Low initially | Preserve world/profile/ruleset/season dimensions for URLs, cache keys, projections, events, LiveOps, analytics and PlayerCompanion before broad multi-world rollout. |
-| P2/P3 | PlayerCompanion foundation | `DONE` | `ARCHITECTURE_COORDINATOR` | No | PR #1028 merged Hunt Session Analyzer v1 as the first complete PlayerCompanion workflow; exact final-head E2E/CI passed and its task is terminally archived. Follow-up tools remain independent slices. |
-| P2/P3 | PlayerCompanion follow-up tools | `OPEN` | `IMPLEMENTATION_OWNER` per independent vertical slice | High | After #1028 use accepted architecture order: Hunt Finder → Equipment Explorer → Character Build Planner → Charm/Perk/Proficiency Planner → Quest/Access Tracker → EXP/Training calculators → validated shareable builds. |
-| P3 | PublicGameData / richer community read surfaces | `DEFERRED` by default until promoted | `ARCHITECTURE_COORDINATOR`, then `IMPLEMENTATION_OWNER` per read-only slice | High when promoted | Houses, kill statistics, richer leaderboards, guild wars/activity history are product inventory inputs, not automatic launch requirements. Writes require separate operation contracts. |
+| P1 | Production topology and OperationsObservability repository evidence | `ARCHITECTURE_READY` / `BLOCKED` for direct production proof | `ARCHITECTURE_COORDINATOR` + `PROTECTED_ENV_OPERATOR` for live proof | Low | `OPERATIONS_OBSERVABILITY_ARCHITECTURE.md` owns repository/staging evidence semantics. Direct production topology/logging/metrics/alerts/on-call/backup/restore evidence requires exact protected-environment authority and identity. |
+| P1 | PublicEdge protected-environment proof | `BLOCKED` for live proof | `ARCHITECTURE_COORDINATOR` + `PROTECTED_ENV_OPERATOR` | Low | DNS/TLS/HSTS/WAF/private-origin/deployed-identity/smoke evidence requires explicit protected-environment authority. Repository-safe preparation is independent. |
+| P1/P2 | Core Account Center / Character Portfolio | `ARCHITECTURE_READY` | `ARCHITECTURE_COORDINATOR`, then `IMPLEMENTATION_OWNER` per vertical slice | High after contract/dependency proof | Native delete/restore and rename remain gated by accepted Character Authority semantics and current external evidence; world transfer additionally requires its accepted product/operation decision. Architecture maturity bypasses no gate. |
+| P2 | LiveOps | `ARCHITECTURE_READY` | `ARCHITECTURE_COORDINATOR`, then `IMPLEMENTATION_OWNER` per slice | High when sliced | `LIVEOPS_ARCHITECTURE.md` is canonical. Runtime `WorldStatus + configured Maintenance` requires exact authoritative runtime-status producer evidence; `ServerSave` remains separately gated by producer/applicability/time/freshness semantics. `MODULE_CATALOG.md` remains `LiveOps | PLANNED` until executable capability is merged. |
+| P2 | PublicPortal Today | `ARCHITECTURE_READY` | `ARCHITECTURE_COORDINATOR`, then `IMPLEMENTATION_OWNER` | High after source readiness | Public Today consumes source-owned projections and preserves partial/freshness states. Private Today participates only when its completion-scope trigger and ADR 0032 owner-private cache/isolation gates are satisfied. |
+| P2 | Federated Search & Discovery | `ARCHITECTURE_READY` | `IMPLEMENTATION_OWNER` after coordinator confirms dependency cleanup | High | Remove Announcements/Events reverse `PublicPortal` dependency first, then implement source-owned providers and PublicPortal orchestration with partial-failure semantics. Live ownership may already exist; always recheck. |
+| P2 | Client Distribution hardening | `ARCHITECTURE_READY` | `IMPLEMENTATION_OWNER` after architecture closeout | High for Platform-only slice | ADR 0035 / `CLIENT_DISTRIBUTION_ARCHITECTURE.md` define the Platform TUF boundary. External updater implementation, signing infrastructure/operations and production activation are separate authorities. Live ownership may already exist; always recheck. |
+| P2 | Wiki expected-content inventory | `DONE` | `ARCHITECTURE_COORDINATOR` | No | Preserve validators and provenance gates. |
+| P2 | Game Catalog authoritative expected inventory | `OPEN` | `ARCHITECTURE_COORDINATOR`, then `IMPLEMENTATION_OWNER` for Platform-only slices | High for bounded Platform slices | Route specialized decomposition through `GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM.md`, but current Platform governance controls external/server repository authority. |
+| P2 | Wiki/media failure investigation | `DONE` | `ARCHITECTURE_COORDINATOR` | No | Do not reopen without new exact reproduction/evidence. |
+| P2 | Platform API | `DEFERRED` | `ARCHITECTURE_COORDINATOR` when a named consumer trigger exists | No active handoff | ADR 0036 explicitly defers the general API until an approved named consumer/use case satisfies activation criteria. |
+| Cross-cutting | Multi-world / rulesets / seasons dimensions | `CONDITIONAL` | `ARCHITECTURE_COORDINATOR`; `OTERYN_PLATFORM_ARCHITECTURE_REVIEW` if a new durable decision is required | Low initially | Not a standing queue item. Activate a bounded decision package only when a selected capability would otherwise introduce an unresolved irreversible world/profile/ruleset/catalog/season assumption. Otherwise preserve dimensions inside that capability. |
+| P2/P3 | PlayerCompanion foundation | `DONE` | `ARCHITECTURE_COORDINATOR` | No | Hunt Session Analyzer v1 is the first terminal complete workflow; current terminal state is resolved live, not inferred from this row. |
+| P2/P3 | PlayerCompanion follow-up tools | `CONDITIONAL` | `IMPLEMENTATION_OWNER` per promoted independent vertical slice | High | Hunt Finder → Equipment Explorer → Character Build Planner → Charm/Perk/Proficiency Planner → Quest/Access Tracker → EXP/Training calculators → validated shareable builds only when individually promoted and dependency-ready. |
+| P3 | PublicGameData / richer community read surfaces | `DEFERRED` | `ARCHITECTURE_COORDINATOR`, then `IMPLEMENTATION_OWNER` when promoted | High when promoted | Houses, kill statistics, richer leaderboards, guild wars/activity history are product inventory inputs, not automatic launch requirements. |
 | P3 | Forum vs Discord | `DEFERRED` | `OWNER_DECISION` | No | Default direction remains Discord + existing Support; build an owned forum only when durable discussion/moderation need is proven. |
-| P3 | Read scaling / projections / dedicated search index | `DEFERRED` | `ARCHITECTURE_COORDINATOR` | Medium after telemetry | Keep the modular-monolith/direct-read-model approach until measured thresholds justify a read DB, projection or search infrastructure. |
-| P3 | World Hub / richer community composition | `DEFERRED` | `ARCHITECTURE_COORDINATOR`, then bounded `IMPLEMENTATION_OWNER` slices | Medium | Activate only when multiple worlds/profiles and authoritative LiveOps/community inputs justify it; it never becomes routing/admission authority. |
-| P3 | Commerce capability disposition | `DECISION_REQUIRED` | `OWNER_DECISION` + `ARCHITECTURE_COORDINATOR` | Low before decision | Issue #489 also owns commerce findings. Each missing product/payment capability must be delivered, explicitly deferred or rejected; do not treat the GameCatalog inventory row as closing commerce findings. |
-| P3 | Commerce production activation | `BLOCKED` by independent product/security/legal/production gates | `OWNER_DECISION` + `ARCHITECTURE_COORDINATOR` + `PROTECTED_ENV_OPERATOR` | Only bounded post-decision tasks | Provider, legal/tax, signed webhooks, reconciliation, refunds/chargebacks, entitlement freshness and production authority must all be independently satisfied. |
+| P3 | Read scaling / projections / dedicated search index | `DEFERRED` | `ARCHITECTURE_COORDINATOR` | Medium after telemetry | Keep modular-monolith/direct-read-model approach until measured thresholds justify derived infrastructure. |
+| P3 | World Hub / richer community composition | `DEFERRED` | `ARCHITECTURE_COORDINATOR`, then bounded `IMPLEMENTATION_OWNER` slices | Medium | Activate only when multiple worlds/profiles and authoritative LiveOps/community inputs justify it; never routing/admission authority. |
+| P3 | Commerce capability disposition | `DECISION_REQUIRED` / conditional on product promotion | `OWNER_DECISION` + `ARCHITECTURE_COORDINATOR` | Low before decision | Missing product/payment capabilities require an explicit implement/defer/reject disposition before any promoted commerce scope can claim completion. |
+| P3 | Commerce production activation | `DEFERRED` / `BLOCKED` until independent gates | `OWNER_DECISION` + `ARCHITECTURE_COORDINATOR` + `PROTECTED_ENV_OPERATOR` | Only bounded post-decision tasks | Provider, legal/tax, signed webhooks, reconciliation, refunds/chargebacks, entitlement freshness and protected production authority are separate mandatory gates. |
 
 ## Selection contract
 
 This companion must not create a second priority algorithm.
 
-1. `OTERYN_PORTAL_COMPLETION.md` resolves live state and classifies each canonical selection-order entry as `TERMINAL | OWNED | BLOCKED | DECISION_REQUIRED | READY`.
-2. It selects the first unowned `READY` candidate and persists exact reasons for every skipped earlier entry.
-3. Only after selection is the candidate mapped to the board above to choose a model-agnostic execution role and permitted execution mode.
-4. A specialized programme or Issue owner named by the selected row controls its detailed decomposition and acceptance criteria.
-5. Board priority labels or maturity states never authorize skipping an earlier canonical `READY` item.
-6. `ARCHITECTURE_READY` never promotes itself to selector `READY`; promotion is a live programme decision and is invalidated immediately by ownership, blocker, decision or source-authority drift.
-7. If live state or accepted architecture conflicts with a board row, execution stops using that row until this companion is reconciled; the live authoritative state is not overwritten to fit the table.
+1. `OTERYN_PORTAL_COMPLETION.md` resolves completion-scope applicability and live state, then classifies each canonical selection-order entry as `TERMINAL | OWNED | BLOCKED | DECISION_REQUIRED | READY`.
+2. It selects the first unowned `READY` candidate and stops traversal; exact reasons for skipped earlier entries are persisted.
+3. Only after selection is the candidate mapped here to choose a model-agnostic execution role and permitted execution mode.
+4. A specialized programme or Issue owner named by the selected row controls detailed decomposition and acceptance without changing canonical portal order or repository authority.
+5. Delivery bands and maturity states never authorize skipping an earlier canonical `READY` item.
+6. `ARCHITECTURE_READY`, `OPEN` and `CONDITIONAL` never promote themselves to selector `READY`.
+7. If live state or accepted architecture conflicts with a row, stop using that row until this companion is reconciled; never rewrite live truth to fit the matrix.
 
 ## Specialized routing and overlap rules
 
 - Audit repair findings use `OTERYN_PLATFORM_REMEDIATION`; this allocation does not create duplicate repair ownership. Historical closed Issues are not candidates.
-- Game Catalog implementation must reuse `GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM.md`. Platform-only inventory/consumer work may proceed within Platform authority; server/game producer or authority work is inaccessible from a Platform invocation until the owner separately authorizes that repository access.
-- Issue #489 is intentionally split by concern: GameCatalog/content findings route to the Game Catalog row; product/payment findings route to Commerce capability disposition/activation.
-- Issue #490 is intentionally split by concern: the PlatformAPI slice is terminally deferred by ADR 0036; OperationsObservability repository/staging applicability is architecture-ready through `OPERATIONS_OBSERVABILITY_ARCHITECTURE.md`; PublicEdge live proof and direct production evidence remain separately blocked on protected-environment authority/evidence.
-- Client Distribution Issue #1039 is explicitly routed by canonical selection order; its Platform-only implementation must not be held unreachable behind a permanently blocked external signer/updater gate.
-- PR #1028 is merged terminal; its Session Analyzer v1 task is archived and PlayerCompanion follow-up tools remain separately owned work.
+- New durable architecture decisions route through `OTERYN_PLATFORM_ARCHITECTURE_REVIEW`; the Portal coordinator applies accepted decisions but does not silently become a competing architecture-decision programme.
+- Game Catalog implementation reuses `GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM.md` for specialized decomposition only. That programme cannot grant server/game repository access; current Platform governance and exact owner authorization remain controlling.
+- Historical `RETAIN`/`RECOVERY`, historical branch preservation/deletion and steady-state branch hygiene are repository-governance concerns under ADR 0037/0039, not portal capability workstreams.
+- Shared Issue identifiers may contain several concerns; route each concern to its canonical owner rather than allowing one terminal slice to close unrelated findings.
+- A live authoritative PR is reused/fixed/rebased when safe; duplicate/superseded attempts are closed only with concrete evidence and preserved provenance.
 
 ## Worker execution contract
 
-Before assigning a selected item to an `IMPLEMENTATION_OWNER`, the `ARCHITECTURE_COORDINATOR` or existing specialized programme must provide a bounded task package containing:
+Before assigning a selected item to an `IMPLEMENTATION_OWNER`, the coordinator or existing specialized programme must provide a bounded package containing:
 
 1. exact repository and protected-base identity;
 2. exact task/Issue, owned paths and overlap result;
 3. accepted architecture/ADR/contracts/programmes to obey;
-4. explicit in-scope and out-of-scope behavior;
-5. exact source-of-truth inputs and forbidden assumptions, including producer evidence for every delivered current-state fact;
-6. test/E2E/negative-path/rollback requirements;
-7. merge and closeout gate;
-8. explicit external-repository, production and owner-funded-service authority boundaries.
+4. completion-scope disposition and, for `CONDITIONAL`, the proven activation trigger;
+5. explicit in-scope and out-of-scope behavior;
+6. exact source-of-truth inputs and forbidden assumptions, including producer evidence for every delivered current-state fact;
+7. multi-world/profile/ruleset/catalog/season applicability where relevant;
+8. test/E2E/negative-path/rollback requirements;
+9. merge and closeout gate;
+10. explicit external-repository, production and owner-funded-service authority boundaries.
 
-If any prerequisite is missing, the implementation package is not canonical `READY`; classify the exact candidate `BLOCKED` or `DECISION_REQUIRED` and continue canonical selection. If Codex is technically suitable, it may be recorded as an optional execution mode, but it may be invoked only after exact owner permission for that use/task. Without that permission, the same task is executed through another permitted mode.
+If any prerequisite is missing, the implementation package is not canonical `READY`; classify the exact candidate `BLOCKED` or `DECISION_REQUIRED` and continue canonical selection. Codex suitability may be recorded as optional technical fit, but invocation still requires exact owner permission for owner-funded use.
 
 ## Parallelism rules
 
-Parallel work is allowed only across independently selected, non-overlapping tasks/branches with distinct `owned_paths` and no unresolved dependency ordering.
+Parallelism is global across **already selected/claimed independent tasks**, not inside one selected PR:
 
-Do not create parallel workers merely because several board rows are `OPEN` or `ARCHITECTURE_READY`, and never run multiple workers inside the same active PR or give two workers overlapping module/migration/route ownership.
+- one worker owns one Issue/task/branch/PR;
+- the canonical selector chooses at most one new candidate for a worker/invocation entry;
+- independent already-owned tasks may run concurrently when `owned_paths` do not overlap and no dependency ordering exists;
+- never run multiple workers inside one active PR/worktree or give two owners overlapping module/migration/route paths;
+- `OWNED` is a collision-avoidance state, not permission to share another task's branch.
 
 ## Definition of project completion
 
-The portal completion project is terminal only when every workstream that the canonical programme or accepted owner decision marks launch-required is either:
+`docs/agents/programs/OTERYN_PORTAL_COMPLETION_SCOPE.json` is the machine-readable non-scheduling projection of launch/completion dispositions. The portal completion project is globally terminal only when:
 
-- `DONE`, or
-- explicitly `DEFERRED`/`REJECTED` by an accepted owner/product decision with no remaining launch dependency.
-
-Additionally:
-
-- core Account Center / Character Portfolio launch scope has a terminal implementation/defer/reject disposition;
-- required LiveOps and PublicPortal Today launch surfaces have terminal dispositions, with authoritative producers and typed stale/unavailable semantics for every delivered current-state fact;
-- Issue #489 has terminal dispositions for both GameCatalog/content and commerce findings rather than being closed by one side alone;
-- Issue #490 has terminal dispositions for Platform API, OperationsObservability/repository readiness and PublicEdge evidence, with production claims tied to exact authorized environment identity;
-- at least one complete PlayerCompanion workflow is merged and validated end-to-end;
-- the launcher/client distribution path has the accepted provenance/update contract if it is part of launch;
-- release-scope search/community/API items are implemented or explicitly deferred/rejected;
+- every `REQUIRED` item has an accepted terminal implement/defer/reject disposition;
+- every `CONDITIONAL` item whose activation trigger is proven for current launch scope has a terminal disposition;
+- inactive conditional and deferred items remain outside the completion claim rather than being silently described as implemented;
 - no launch-critical security/privacy/audit finding remains unresolved;
-- every merged implementation has terminal task/PR/Issue lifecycle and released ownership.
+- every production/go-live claim is tied to direct authorized evidence for the exact deployed identity;
+- at least the accepted PlayerCompanion foundation workflow remains terminal; follow-ups are required only when individually promoted;
+- every merged implementation has terminal task/PR/Issue/source-branch lifecycle and released ownership.
 
-This definition does not require an owned forum, payments, microservices, World Hub, richer optional community reads or every TibiaPal-style tool unless the owner/canonical programme explicitly promotes them into launch scope.
+The scope projection never proves current status, ownership, production evidence or selector `READY`; all of those are recomputed from live state.
