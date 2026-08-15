@@ -157,10 +157,10 @@ jobs:
       issues: read
       pull-requests: read
     steps:
-      - name: Check out protected main
+      - name: Check out exact triggering main commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Set up Python
@@ -188,12 +188,14 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           CURRENT_MAIN_SHA="$(git rev-parse HEAD)"
+          test "${CURRENT_MAIN_SHA}" = "${GITHUB_SHA}"
           python3 tools/agents/historical_work_reconciliation.py \
             --mode apply \
             --repo "${GITHUB_REPOSITORY}" \
             --token "${GITHUB_TOKEN}" \
             --event-name "${GITHUB_EVENT_NAME}" \
             --ref-name "${GITHUB_REF_NAME}" \
+            --event-sha "${GITHUB_SHA}" \
             --expected-main-sha "${CURRENT_MAIN_SHA}" \
             --output historical-work-reconciliation-post-apply.json \
             --evidence historical-work-reconciliation-apply-evidence.json
