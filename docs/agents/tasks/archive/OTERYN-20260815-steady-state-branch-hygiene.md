@@ -15,6 +15,7 @@ required_reads:
 search_first:
   - Issue #1089
   - PR #1090
+  - PR #1091
   - Historical Branch Audit run #31875670995
 optional_reads:
   - docs/agents/HISTORICAL_WORK_RECONCILIATION_REGISTRY.json
@@ -60,16 +61,18 @@ Historical Branch Audit artifact `9244663203` (`sha256:13a7775b56ea5cef9d032d7a0
 
 Exact-head full-diff self-review was recorded in PR review `4943425906` with no material findings. PR #1090 had zero unresolved review threads before merge.
 
-Runtime/browser E2E is `NOT_APPLICABLE`; this task changes repository Git/PR/task governance. The real integration path is the live GitHub branch-hygiene inventory, which passed on the exact implementation head.
+The lifecycle-only closeout PR #1091 then exercised the new trusted-base PR lifecycle path. Historical Branch Audit `pull_request_target` run `31876137415` completed `steady-state-read-only` successfully while all validation/mutation jobs were skipped, proving that the closeout branch itself was accounted for without enabling destructive historical apply.
+
+Runtime/browser E2E is `NOT_APPLICABLE`; this task changes repository Git/PR/task governance. The real integration path is the live GitHub branch-hygiene inventory, which passed on the exact implementation head and on the trusted-base closeout PR event.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-15T09:06:00Z
+updated_at: 2026-08-15T09:08:00Z
 head: bd9110cb3f998f41241b01da295ef147d2dd428e
 branch: docs/issue-1089-steady-state-branch-hygiene-closeout
-pr: PENDING_CLOSEOUT_PR
+pr: 1091
 status: completed
 context_routes:
   - agent-governance
@@ -85,11 +88,12 @@ proven:
   - exact-head self-review 4943425906 reported PASS with no material findings
   - Issue #1089 auto-closed completed after PR #1090 merge
   - implementation source branch repair/issue-1089-steady-state-branch-hygiene is absent after merge
+  - closeout PR #1091 trusted-base Historical Branch Audit run 31876137415 passed steady-state-read-only and skipped destructive apply
   - no production staging external-repository credential payment or protected-environment operation was performed
 derived:
   - branch hygiene is now preventative steady-state governance rather than periodic historical cleanup
 unknown:
-  - final closeout merge SHA until the lifecycle-only archive PR merges
+  - final closeout merge SHA until PR #1091 merges
   - closeout branch final absence until after that merge
 conflicts: []
 first_failure:
@@ -117,6 +121,9 @@ validation:
   - command: full-diff self-review
     result: PASS
     evidence: PR review 4943425906 on exact implementation head
+  - command: trusted-base PR lifecycle read-only branch hygiene
+    result: PASS
+    evidence: Historical Branch Audit pull_request_target run 31876137415 on closeout PR #1091; steady-state-read-only PASS and apply skipped
   - command: implementation source branch closeout
     result: PASS
     evidence: exact Git ref lookup after merge returned 404 for repair/issue-1089-steady-state-branch-hygiene
@@ -124,7 +131,7 @@ validation:
     result: NOT_APPLICABLE
     evidence: repository-governance task has no product/browser journey; live GitHub inventory is the integration path
 blockers: []
-next_action: merge the single lifecycle-only Issue #1089 archive-closeout PR after exact-head governance/CI and trusted-base branch-hygiene checks pass, then verify the closeout source ref is absent
+next_action: merge PR #1091 after its exact-head Agent Governance and CI pass, then verify docs/issue-1089-steady-state-branch-hygiene-closeout is absent
 ```
 
 ## Source branch closeout
