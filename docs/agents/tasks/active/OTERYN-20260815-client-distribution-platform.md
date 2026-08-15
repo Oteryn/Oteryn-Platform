@@ -68,7 +68,7 @@ Canonical selection was rerun from protected `main@5000f271db49215c93432b78397dd
 - Entry 5: `BLOCKED` / `DECISION_REQUIRED` — #317 and #319 require accepted native Character Authority command/result semantics; #320 additionally requires explicit product decision.
 - Entry 6: `BLOCKED` for runtime delivery — LiveOps runtime promotion still requires exact authoritative runtime-status producer evidence; Public Today architecture #1049 is terminal and no independent ready runtime package was proven.
 - Entry 7: `OWNED` — Issue #1060 is actively owned by PR #1061.
-- Entry 8: `READY` — Issue #1039 is open `agent:ready`, architecture Issue #1037 is terminal through merged PR #1038/ADR 0035, prerequisite #948 is terminal, no open PR owns #1039, and the bounded Platform-only scope does not require external/protected mutations.
+- Entry 8: `READY` — Issue #1039 is open `agent:ready`, architecture Issue #1037 is terminal through merged PR #1038/ADR 0035, prerequisite #948 is terminal, no open PR owned #1039 at selection time, and the bounded Platform-only scope does not require external/protected mutations.
 
 Work Allocation maps the selected package to `IMPLEMENTATION_OWNER`; Codex suitability is informational only and no owner-funded Codex/OpenAI invocation is authorized or required.
 
@@ -76,10 +76,10 @@ Work Allocation maps the selected package to `IMPLEMENTATION_OWNER`; Codex suita
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-15T08:38:00+02:00
-head: 5000f271db49215c93432b78397dd3560b49e7e7
+updated_at: 2026-08-15T08:44:00+02:00
+head: 6690110d6000e569de9b2478c6b60c6def618298
 branch: feat/issue-1039-client-distribution-platform
-pr: pending
+pr: 1073
 status: implementing
 context_routes:
   - downloads
@@ -103,6 +103,7 @@ proven:
   - Immutable artifact-reference prerequisite Issue #948 is closed completed.
   - Issue #1060 is already owned by open PR #1061 and therefore canonical entry 7 is not selectable.
   - No open risk:high repair Issue was returned by the live selector query.
+  - Draft PR #1073 now owns the selected Issue #1039 package on branch feat/issue-1039-client-distribution-platform.
 derived:
   - Issue #1039 is the first unowned canonical READY candidate under OTERYN_PORTAL_COMPLETION programme version 3.
   - External updater implementation, private signing operations and production activation are not prerequisites for truthful completion of the bounded Platform-only slice.
@@ -125,5 +126,5 @@ validation:
     result: NOT_RUN
     evidence: task was just selected and no runtime implementation change has been made yet
 blockers: []
-next_action: Inspect ADR 0035, CLIENT_DISTRIBUTION_ARCHITECTURE.md and the current Downloads persistence/application code on this branch, then implement the smallest complete Platform-only #1039 vertical slice without external or protected-environment operations.
+next_action: Inspect ADR 0035, CLIENT_DISTRIBUTION_ARCHITECTURE.md and the current Downloads persistence/application code on PR #1073, then implement the smallest complete Platform-only #1039 vertical slice without external or protected-environment operations.
 ```
