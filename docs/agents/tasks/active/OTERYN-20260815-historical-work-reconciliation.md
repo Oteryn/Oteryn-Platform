@@ -108,8 +108,8 @@ The implementation owner may choose the concrete managed recovery mechanism afte
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-15T06:46:00Z
-head: 77719cd8c725c0bb6f1cf35efa670ee63416c124
+updated_at: 2026-08-15T06:48:00Z
+head: LIVE_PR_1074_HEAD
 branch: repair/issue-1072-historical-work-reconciliation
 pr: 1074
 status: investigating
@@ -169,7 +169,7 @@ validation:
     evidence: main and repository governance state were read before task bootstrap; implementation must repeat mutable live-state checks before destructive work
   - command: draft PR #1074 bootstrap ownership
     result: PASS
-    evidence: PR #1074 is draft, base main@5000f271db49215c93432b78397dd3560b49e7e7, head repair/issue-1072-historical-work-reconciliation@77719cd8c725c0bb6f1cf35efa670ee63416c124, with exactly the four declared bootstrap paths before this checkpoint update
+    evidence: PR #1074 is draft and owns the dedicated Issue #1072 branch against protected main; continuation must resolve the live PR head rather than trust an embedded historical SHA
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: bootstrap phase is repository-governance documentation/prompt setup only; the implementation task must define the real Git-ref reconciliation E2E path and verify it directly
