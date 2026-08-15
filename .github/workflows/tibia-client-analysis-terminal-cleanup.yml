@@ -1,0 +1,122 @@
+name: Tibia Client Analysis Terminal Cleanup
+
+on:
+  push:
+    branches:
+      - ops/OTERYN-20260815-tibia-analysis-terminal-cleanup
+    paths:
+      - .github/workflows/tibia-client-analysis-terminal-cleanup.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oteryn-tibia-client-analysis-terminal-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: oteryn-staging
+    timeout-minutes: 5
+    env:
+      CONTAINER_NAME: oteryn-tibia-client-analysis
+      RELAY_NAME: oteryn-tibia-vnc-relay
+      HOST_PARENT: /volume1/docker/oteryn
+      HOST_DATA_DIR: /volume1/docker/oteryn/tibia-analysis
+      TASK_ID: OTERYN-20260811-tibia-client-analysis
+    steps:
+      - name: Verify exact runner, ownership and dead session
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          docker version >/dev/null
+
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' \
+            --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-canonical-before.tsv
+          test -s /tmp/oteryn-canonical-before.tsv
+
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.task" }}' "$CONTAINER_NAME")" == "$TASK_ID" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+
+          mount_identity="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}|{{.Destination}}|{{.Type}}{{end}}{{end}}' "$CONTAINER_NAME")"
+          [[ "$mount_identity" == "$HOST_DATA_DIR|/data|bind" ]]
+
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          pid="$(pgrep -x client | head -n1 || true)"
+          echo CLIENT_PID_PRESENT=$([[ -n "$pid" ]] && echo true || echo false)
+          if [[ -n "$pid" ]]; then
+            tcp_rows="$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)"
+            local_count="$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')"
+            total_count="$(printf '%s\n' "$tcp_rows" | grep -c . || true)"
+            direct_count=$((total_count-local_count))
+            echo ACTIVE_LOCAL_SOCKS_COUNT="$local_count"
+            echo ACTIVE_DIRECT_TCP_COUNT="$direct_count"
+            (( local_count == 0 && direct_count == 0 ))
+          fi
+          INNER
+
+          if docker inspect "$RELAY_NAME" >/dev/null 2>&1; then
+            relay_image="$(docker inspect --format '{{.Config.Image}}' "$RELAY_NAME")"
+            relay_network="$(docker inspect --format '{{.HostConfig.NetworkMode}}' "$RELAY_NAME")"
+            relay_name="$(docker inspect --format '{{.Name}}' "$RELAY_NAME")"
+            [[ "$relay_name" == "/$RELAY_NAME" ]]
+            [[ "$relay_image" == "alpine/socat" ]]
+            [[ "$relay_network" == "host" ]]
+          fi
+
+      - name: Remove only task-owned runtime resources
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          if docker inspect "$RELAY_NAME" >/dev/null 2>&1; then
+            docker rm -f "$RELAY_NAME" >/dev/null
+          fi
+
+          docker rm -f "$CONTAINER_NAME" >/dev/null
+
+          docker run --rm \
+            --name oteryn-tibia-client-analysis-terminal-cleanup-helper \
+            --label com.blakinio.owner=oteryn \
+            --label com.blakinio.purpose=tibia-client-analysis-terminal-cleanup \
+            --label com.blakinio.task="$TASK_ID" \
+            -v "$HOST_PARENT:/host" \
+            ubuntu:24.04 bash -lc '
+              set -Eeuo pipefail
+              target=/host/tibia-analysis
+              [[ ! -L "$target" ]]
+              [[ "$(realpath -m "$target")" == "/host/tibia-analysis" ]]
+              if [[ -e "$target" ]]; then
+                du -sb "$target" | awk "{print \"owned_bind_bytes_before=\" \$1}"
+                rm -rf --one-file-system -- "$target"
+              fi
+              [[ ! -e "$target" ]]
+            '
+
+      - name: Verify exact cleanup and canonical staging invariance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ! docker inspect "$CONTAINER_NAME" >/dev/null 2>&1
+          ! docker inspect "$RELAY_NAME" >/dev/null 2>&1
+
+          remaining="$(docker ps -a --filter "label=com.blakinio.task=$TASK_ID" --format '{{.Names}}' | sort)"
+          [[ -z "$remaining" ]]
+
+          docker run --rm \
+            --name oteryn-tibia-client-analysis-terminal-cleanup-verify \
+            --label com.blakinio.owner=oteryn \
+            --label com.blakinio.purpose=tibia-client-analysis-terminal-cleanup-verify \
+            -v "$HOST_PARENT:/host:ro" \
+            ubuntu:24.04 bash -lc '[[ ! -e /host/tibia-analysis ]]'
+
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' \
+            --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-canonical-after.tsv
+          diff -u /tmp/oteryn-canonical-before.tsv /tmp/oteryn-canonical-after.tsv
+
+          echo TASK_RUNTIME_CLEANUP=PASS
+          echo CANONICAL_OTERYN_STAGING_UNCHANGED=true
