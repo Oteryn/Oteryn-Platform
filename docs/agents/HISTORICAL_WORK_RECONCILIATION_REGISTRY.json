@@ -502,7 +502,7 @@
     "ZERO_DELTA": "No content delta versus canonical main."
   },
   "registry_phase": "reviewed_for_deletion",
-  "reviewed_main_sha": "88b3dce7b822ed27d9f61c412493c57ba6608a38",
+  "reviewed_main_sha": "939fc95b8b86959371aad372ad17a2bff2c4da66",
   "reviewed_pr": 1074,
   "schema_version": 1,
   "terminal_disposition_counts": {
