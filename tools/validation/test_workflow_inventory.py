@@ -2,14 +2,40 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from workflow_inventory import WorkflowInventoryError, classify_workflow, validate_inventory
+from workflow_inventory import (
+    WorkflowInventoryError,
+    classify_workflow,
+    validate_inventory,
+    validate_lifecycle_policy,
+)
 
 
 BASE = """name: Test\non:\n{events}\npermissions:\n  contents: read\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n"""
+
+
+def write_policy(
+    root: Path,
+    *,
+    registered: list[str],
+    retired: list[str] | None = None,
+    manual_only: list[str] | None = None,
+    budget: int | None = None,
+) -> None:
+    policy = {
+        "schema_version": 1,
+        "workflow_budget": budget if budget is not None else max(1, len(registered)),
+        "registered_workflows": registered,
+        "retired_workflows": retired or [],
+        "manual_only_workflows": manual_only or [],
+    }
+    path = root / "docs/agents/CI_WORKFLOW_LIFECYCLE.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(policy), encoding="utf-8")
 
 
 class WorkflowInventoryTest(unittest.TestCase):
@@ -103,7 +129,8 @@ jobs:
             path = root / ".github/workflows/example.yml"
             path.parent.mkdir(parents=True)
             path.write_text(
-                "name: Example\non:\n  pull_request:\njobs:\n  test:\n    permissions:\n      contents: read\n    runs-on: ubuntu-latest\n",
+                "name: Example\non:\n  pull_request:\njobs:\n  test:\n"
+                "    permissions:\n      contents: read\n    runs-on: ubuntu-latest\n",
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(WorkflowInventoryError, "missing required top-level workflow marker permissions:"):
@@ -117,7 +144,9 @@ jobs:
                 path = root / ".github/workflows/example.yml"
                 path.parent.mkdir(parents=True)
                 path.write_text(
-                    f"name: Example\non:\n  pull_request:\n{permissions}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n",
+                    f"name: Example\non:\n  pull_request:\n{permissions}\n"
+                    "jobs:\n  test:\n    runs-on: ubuntu-latest\n"
+                    "    steps:\n      - run: true\n",
                     encoding="utf-8",
                 )
                 result = validate_inventory(root)
@@ -138,6 +167,89 @@ jobs:
             self.assertEqual(2, len(result))
             self.assertEqual("required_core", result[".github/workflows/ci.yml"])
             self.assertEqual("scheduled_validation", result[".github/workflows/weekly.yml"])
+
+    def test_lifecycle_rejects_unregistered_workflow(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workflow_root = root / ".github/workflows"
+            workflow_root.mkdir(parents=True)
+            (workflow_root / "ci.yml").write_text(
+                BASE.format(events="  pull_request:"), encoding="utf-8"
+            )
+            (workflow_root / "surprise.yml").write_text(
+                BASE.format(events="  workflow_dispatch:"), encoding="utf-8"
+            )
+            write_policy(root, registered=["ci.yml"], budget=1)
+            with self.assertRaisesRegex(WorkflowInventoryError, "unregistered workflow files"):
+                validate_lifecycle_policy(root)
+
+    def test_lifecycle_rejects_reintroduced_retired_workflow(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workflow_root = root / ".github/workflows"
+            workflow_root.mkdir(parents=True)
+            (workflow_root / "old.yml").write_text(
+                BASE.format(events="  workflow_dispatch:"), encoding="utf-8"
+            )
+            write_policy(root, registered=[], retired=["old.yml"], budget=1)
+            with self.assertRaisesRegex(WorkflowInventoryError, "retired workflows were reintroduced"):
+                validate_lifecycle_policy(root)
+
+    def test_lifecycle_requires_every_registered_workflow_to_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / ".github/workflows").mkdir(parents=True)
+            write_policy(root, registered=["missing.yml"], budget=1)
+            with self.assertRaisesRegex(WorkflowInventoryError, "registered workflows missing"):
+                validate_lifecycle_policy(root)
+
+    def test_lifecycle_enforces_manual_only_trigger(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workflow_root = root / ".github/workflows"
+            workflow_root.mkdir(parents=True)
+            (workflow_root / "deep.yml").write_text(
+                BASE.format(events="  pull_request:\n  workflow_dispatch:"), encoding="utf-8"
+            )
+            write_policy(root, registered=["deep.yml"], manual_only=["deep.yml"], budget=1)
+            with self.assertRaisesRegex(WorkflowInventoryError, "manual-only workflow"):
+                validate_lifecycle_policy(root)
+
+    def test_lifecycle_accepts_explicit_registered_manual_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workflow_root = root / ".github/workflows"
+            workflow_root.mkdir(parents=True)
+            (workflow_root / "ci.yml").write_text(
+                BASE.format(events="  pull_request:"), encoding="utf-8"
+            )
+            (workflow_root / "deep.yml").write_text(
+                BASE.format(events="  workflow_dispatch:"), encoding="utf-8"
+            )
+            write_policy(
+                root,
+                registered=["ci.yml", "deep.yml"],
+                retired=["old.yml"],
+                manual_only=["deep.yml"],
+                budget=2,
+            )
+            result = validate_lifecycle_policy(root)
+            self.assertEqual(2, result["actual"])
+            self.assertEqual(1, result["retired"])
+            self.assertEqual(1, result["manual_only"])
+
+    def test_lifecycle_enforces_workflow_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workflow_root = root / ".github/workflows"
+            workflow_root.mkdir(parents=True)
+            for name in ("a.yml", "b.yml"):
+                (workflow_root / name).write_text(
+                    BASE.format(events="  workflow_dispatch:"), encoding="utf-8"
+                )
+            write_policy(root, registered=["a.yml", "b.yml"], budget=1)
+            with self.assertRaisesRegex(WorkflowInventoryError, "workflow budget exceeded"):
+                validate_lifecycle_policy(root)
 
 
 if __name__ == "__main__":

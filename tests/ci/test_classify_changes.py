@@ -30,7 +30,7 @@ class ChangeRoutingTest(unittest.TestCase):
 
     def test_declared_change_classes(self) -> None:
         observed = set()
-        for case in self.fixture["cases"][:13]:
+        for case in self.fixture["cases"]:
             result = classifier.classify_paths(case["paths"])
             observed.update(result["classes"])
         self.assertEqual(
@@ -67,6 +67,45 @@ class ChangeRoutingTest(unittest.TestCase):
             len(self.fixture["cases"]),
             classifier.validate_policy_contract(FIXTURES_PATH),
         )
+
+    def test_ordinary_workflow_change_runs_only_core_ci(self) -> None:
+        result = classifier.classify_paths(
+            [".github/workflows/downloads-acceptance.yml"]
+        )
+        self.assertEqual(["workflow"], result["classes"])
+        self.assertEqual(
+            {
+                "ci": True,
+                "phase7": False,
+                "edge": False,
+                "db_outage": False,
+                "game_auth_concurrency": False,
+            },
+            result["gates"],
+        )
+
+    def test_heavy_workflow_change_runs_only_core_and_own_lane(self) -> None:
+        expected = {
+            ".github/workflows/phase7-production-like-validation.yml": "phase7",
+            ".github/workflows/edge-security-emulation.yml": "edge",
+            ".github/workflows/platform-db-outage-validation.yml": "db_outage",
+            ".github/workflows/game-auth-ticket-concurrency.yml": "game_auth_concurrency",
+        }
+        for path, own_gate in expected.items():
+            with self.subTest(path=path):
+                result = classifier.classify_paths([path])
+                enabled = {gate for gate, value in result["gates"].items() if value}
+                self.assertEqual({"ci", own_gate}, enabled)
+
+    def test_central_routing_changes_fail_closed(self) -> None:
+        for path in (
+            ".github/workflows/ci.yml",
+            "scripts/ci/classify_changes.py",
+            "tests/ci/test_classify_changes.py",
+        ):
+            with self.subTest(path=path):
+                result = classifier.classify_paths([path])
+                self.assertTrue(all(result["gates"].values()))
 
     def test_empty_change_set_fails_closed(self) -> None:
         result = classifier.classify_paths([])
