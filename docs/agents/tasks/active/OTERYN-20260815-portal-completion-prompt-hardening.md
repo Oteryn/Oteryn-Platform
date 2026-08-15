@@ -31,13 +31,14 @@ Harden the canonical `OTERYN_PORTAL_COMPLETION` execution prompt so it is determ
 - [x] Separate normal fresh independent validation routing from the one-owner remediation self-review model.
 - [x] Make selector traversal ordered and short-circuit after the first canonical `READY` candidate while still classifying all siblings in the current mixed entry.
 - [x] Preserve mandatory startup reads and move selected-slice context to just-in-time retrieval.
-- [x] Separate coordinator execution mode from selected-slice execution mode.
+- [x] Separate coordinator execution mode from selected-slice execution mode while preserving the standard `execution_mode` field.
 - [x] Reconcile entry-slice wording with the anti-stall allowance for at most one additional task.
-- [x] Externalize focused prompt-evaluation cases under `docs/agents/evals/` and state model-trial limitations explicitly.
+- [x] Externalize focused prompt-evaluation cases under `docs/agents/evals/` and cover every required `PROMPT_EVAL_STANDARD.md` scenario class.
+- [x] Preserve connector-first routing and false-GitHub-blocker protections.
 - [x] Preserve Platform-only, non-production, non-protected, non-payment, non-external-repository and no-standing-Codex authority.
-- [ ] Verify exact branch diff contains only declared governance paths.
-- [ ] Complete exact-head self-review and applicable repository CI.
-- [ ] Record runtime/browser E2E as `NOT_APPLICABLE` with the concrete docs-only reason.
+- [x] Verify exact branch diff contains only the three declared governance paths.
+- [x] Record runtime/browser E2E as `NOT_APPLICABLE` with the concrete docs-only reason.
+- [ ] Complete final exact-head self-review and required GitHub CI.
 - [ ] Merge/close Issue #1075 and archive this task when all gates pass.
 
 ## Ownership
@@ -65,14 +66,14 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-15T06:55:00Z
-head: 5000f271db49215c93432b78397dd3560b49e7e7
+updated_at: 2026-08-15T06:58:30Z
+head: LIVE_PR_HEAD
 branch: docs/issue-1075-portal-completion-prompt-hardening
-pr: none
-status: implementing
-phase: implement
+pr: 1076
+status: validating
+phase: validate
 execution_mode: chat
-execution_reason: narrow governance/documentation edit through GitHub connector; no owner-funded AI invocation required
+execution_reason: narrow governance/documentation edit and validation through GitHub connector; no owner-funded AI invocation required
 project_lane: oteryn-platform-core
 context_routes:
   - agent-governance
@@ -82,15 +83,20 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260815-portal-completion-prompt-hardening.md
 proven:
   - protected main at task start is 5000f271db49215c93432b78397dd3560b49e7e7
-  - Issue #1075 owns this bounded prompt-hardening task
-  - no open Issue or matching branch was found owning the canonical portal-completion execution prompt
+  - Issue #1075 and PR #1076 own this bounded prompt-hardening task
+  - no pre-existing open Issue or matching branch owned the canonical portal-completion execution prompt
   - prompt version 1.1 duplicated a shorter terminal response than the controlling anti-stall contract
-  - current governance requires mandatory startup context plus just-in-time task-specific expansion
+  - current governance requires PROJECT_STATE.md and BUILD_TEST_MATRIX.md in mandatory startup context
   - current autonomous programme contract permits at most one additional task after a terminal entry task under explicit anti-stall conditions
+  - prompt v1.2 keeps OTERYN_PORTAL_COMPLETION.md as the sole selector authority and short-circuits only after all siblings in the current mixed entry are classified
+  - prompt v1.2 preserves the standard execution_mode field and resolves selected-slice execution mode only after canonical selection
+  - dedicated v1.2 eval covers every required PROMPT_EVAL_STANDARD scenario category and records zero identified static safety regressions
+  - branch diff from task-start main contains exactly the three declared governance paths
+  - PR #1076 has no review submissions or unresolved review threads at this checkpoint
 derived:
-  - prompt version 1.2 can remove ambiguity and context waste without changing the canonical programme queue
+  - the revised prompt removes the identified ambiguity/context waste without changing the canonical programme queue or authority boundaries
 unknown:
-  - exact required CI result on the final PR head
+  - required GitHub CI result on the final unchanged PR head
 conflicts: []
 first_failure:
   marker: none
@@ -98,27 +104,35 @@ first_failure:
 rejected_hypotheses:
   - rewriting the programme queue inside the worker prompt
   - removing PROJECT_STATE.md or BUILD_TEST_MATRIX.md from mandatory startup despite CONTEXT_ROUTING.md
+  - replacing the standard execution_mode policy field with only a custom coordinator field
+  - accepting an eval suite that omitted required positive/negative tool-use, stale-state, ambiguity and injection scenarios
 changed_paths:
   - docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md
   - docs/agents/evals/oteryn-portal-completion-prompt-v1.2.json
   - docs/agents/tasks/active/OTERYN-20260815-portal-completion-prompt-hardening.md
 validation:
-  - command: focused static specification review against current governance
+  - command: focused static specification review against current governance and dedicated v1.2 scenario inventory
     result: PASS
-    evidence: dedicated v1.2 eval artifact records zero identified safety regressions and explicit model-trial limitations
+    evidence: prompt retains canonical selector/authority/connector/vertical-slice/closeout invariants; eval covers all required scenario classes with zero identified static safety regression
+  - command: exact changed-path inventory against main@5000f271db49215c93432b78397dd3560b49e7e7
+    result: PASS
+    evidence: only prompt, focused eval and active task record are changed
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: task changes only agent-governance Markdown/JSON and has no executable browser/runtime behavior
+  - command: GitHub required CI on final PR head
+    result: NOT_RUN
+    evidence: final checkpoint-only head must be observed after this durable checkpoint update
 blockers:
   - none
-next_action: persist the coherent three-file prompt-hardening commit, open the authoritative PR, and verify exact-head governance CI
+next_action: inspect the exact final PR diff/head, publish exact-head self-review evidence, mark PR ready, and verify required CI under the anti-stall contract
 ```
 
 ## Anti-stall state
 
 ```yaml
 invocation_started_at: 2026-08-15T06:52:51Z
-last_progress_at: 2026-08-15T06:55:00Z
+last_progress_at: 2026-08-15T06:58:30Z
 ci_checks_for_current_head: 0
 ci_check_generation: draft
 terminal_ci_wait_started_at: null
