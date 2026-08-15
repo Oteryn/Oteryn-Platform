@@ -38,7 +38,7 @@ Harden the canonical `OTERYN_PORTAL_COMPLETION` execution prompt so it is determ
 - [x] Preserve Platform-only, non-production, non-protected, non-payment, non-external-repository and no-standing-Codex authority.
 - [x] Verify exact branch diff contains only the three declared governance paths.
 - [x] Record runtime/browser E2E as `NOT_APPLICABLE` with the concrete docs-only reason.
-- [ ] Complete required GitHub CI and final exact-head self-review on the resulting checkpoint-only head.
+- [ ] Complete required GitHub CI and final exact-head self-review on the terminal-wait checkpoint head.
 - [ ] Merge/close Issue #1075 and archive this task when all gates pass.
 
 ## Ownership
@@ -66,7 +66,7 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-15T07:00:00Z
+updated_at: 2026-08-15T07:00:40Z
 head: LIVE_PR_HEAD
 branch: docs/issue-1075-portal-completion-prompt-hardening
 pr: 1076
@@ -94,12 +94,12 @@ proven:
   - branch diff from task-start main contains exactly the three declared governance paths
   - exact-head full-diff self-review PASS was recorded on PR #1076 for head 9071e6288e8fee3e9f672b34ec9d0ac416bef361 with no findings
   - Agent Governance run 31870738284 and CI run 31870738287 both passed on head 9071e6288e8fee3e9f672b34ec9d0ac416bef361
-  - PR #1076 is ready for review and had no review submissions or unresolved review threads before this checkpoint-only update
+  - PR #1076 is ready for review and had no review submissions or unresolved review threads before the terminal wait checkpoint
 derived:
   - the revised prompt removes the identified ambiguity/context waste without changing the canonical programme queue or authority boundaries
-  - this checkpoint-only update changes task evidence only; prompt and eval bytes remain unchanged from the reviewed candidate
+  - checkpoint-only commits after 9071e6288e8fee3e9f672b34ec9d0ac416bef361 change only durable task evidence; prompt and eval bytes remain unchanged from the reviewed candidate
 unknown:
-  - required GitHub CI result on the resulting LIVE_PR_HEAD after this checkpoint-only update
+  - required GitHub CI result on the terminal-wait LIVE_PR_HEAD
 conflicts: []
 first_failure:
   marker: none
@@ -132,28 +132,53 @@ validation:
   - command: CI on 9071e6288e8fee3e9f672b34ec9d0ac416bef361
     result: PASS
     evidence: workflow run 31870738287
-  - command: GitHub required CI on resulting LIVE_PR_HEAD
+  - command: GitHub required CI on terminal-wait LIVE_PR_HEAD
     result: NOT_RUN
-    evidence: this task-record-only checkpoint creates the final candidate head; live PR checks must pass before merge
+    evidence: terminal-wait checkpoint creates the final candidate head and intentionally prevents any further pre-merge repository commit
 blockers:
   - none
-next_action: verify the resulting LIVE_PR_HEAD has green required checks and no review findings; then record final exact-head task-only delta review and squash-merge PR #1076
+next_action: observe required checks on the terminal-wait LIVE_PR_HEAD under the bounded terminal-CI contract; if green and review hygiene remains clean, record final head evidence in the PR conversation and squash-merge PR #1076 without another branch commit
 ```
 
 ## Anti-stall state
 
 ```yaml
 invocation_started_at: 2026-08-15T06:52:51Z
-last_progress_at: 2026-08-15T07:00:00Z
+last_progress_at: 2026-08-15T07:00:40Z
 ci_checks_for_current_head: 0
 ci_check_generation: ready
-terminal_ci_wait_started_at: null
+terminal_ci_wait_started_at: 2026-08-15T07:00:40Z
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
 repair_cycles_for_current_gate: 0
 context_reconstruction_attempts: 0
 stall_warnings: 0
+```
+
+## Recovery checkpoint
+
+```yaml
+recovery:
+  policy_version: 1
+  generation: 1
+  session_id: portal-prompt-hardening-20260815T065251Z
+  session_started_at: 2026-08-15T06:52:51Z
+  checkpointed_at: 2026-08-15T07:00:40Z
+  last_progress_at: 2026-08-15T07:00:40Z
+  phase: final_ci
+  exact_head: LIVE_PR_HEAD
+  pull_request: 1076
+  active_operation: bounded terminal CI wait for the final checkpoint-only head
+  external_run_ids: []
+  operation_started_at: 2026-08-15T07:00:40Z
+  wait_deadline_at: 2026-08-15T07:45:40Z
+  check_generation: ready
+  checks_used: 0
+  status: active
+  safe_to_resume: true
+  resume_condition: required checks on PR #1076 current exact head are terminal and review/merge gates can be re-evaluated
+  next_action: Observe one aggregate required-check snapshot for PR #1076 current exact head; if pending, wait at least three minutes before the next unchanged snapshot; if green, reverify review hygiene and merge gates and squash-merge with expected exact head.
 ```
 
 ## Source branch closeout
