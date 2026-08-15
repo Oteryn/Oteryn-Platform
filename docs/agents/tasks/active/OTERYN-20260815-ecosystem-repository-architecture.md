@@ -65,14 +65,14 @@ checkpoint_version: 1
 policy_version: 2
 task_kind: implementation
 implementation_authorized: true
-updated_at: 2026-08-15T10:39:00Z
+updated_at: 2026-08-15T10:42:00Z
 phase: validate
 session_id: chat-20260815-ecosystem-architecture
 session_role: implementer
 execution_mode: github
 execution_reason: bounded documentation-only architecture change using the GitHub connector
 project_lane: oteryn-platform-core
-head: df40d2afcf51b4d80f282fe4a420c2bd685ebfa5
+head: 9c2749216fb0523d33518c93bb9336ed3f2d1e8e
 branch: agent/oteryn-20260815-ecosystem-repository-architecture
 pr: 1096
 status: validating
@@ -88,10 +88,10 @@ heavy_validation_runs: 0
 stale_takeover_count: 0
 human_interruptions: 0
 invocation_started_at: 2026-08-15T10:31:00Z
-last_progress_at: 2026-08-15T10:39:00Z
+last_progress_at: 2026-08-15T10:42:00Z
 ci_checks_for_current_head: 0
-ci_check_generation: draft
-terminal_ci_wait_started_at: null
+ci_check_generation: ready
+terminal_ci_wait_started_at: 2026-08-15T10:42:00Z
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
@@ -113,6 +113,7 @@ proven:
   - Issue #302 previously deferred interactive maps pending authoritative ownership/provenance; this owner decision now supplies the repository/product ownership direction without authorizing runtime implementation.
   - The repository owner states that the current OTBM Atlas lives in the legacy blakinio/Otheryn project, which is an old Canary/Crystal Server lineage and should be moved out rather than treated as the target Oteryn architecture.
   - ADR 0040 and the ADR registry update are persisted in draft PR #1096.
+  - Exact-head self-review on 9c2749216fb0523d33518c93bb9336ed3f2d1e8e found no material findings before this recovery-checkpoint-only update.
 derived:
   - PR #1065's assumption that the legacy Otheryn repository should remain the canonical Atlas producer is no longer valid.
   - A dedicated Oteryn-Atlas product repository avoids coupling the browser map product to the legacy Canary/Crystal server repository while preserving a clean ownership boundary with the future native game/world implementation.
@@ -148,10 +149,35 @@ validation:
     evidence: this task changes architecture documentation only and creates no executable product or integration journey
   - command: exact-head repository CI
     result: NOT_RUN
-    evidence: final checkpoint commit must be persisted before exact-head checks are observed
+    evidence: ready-state exact-head checks are the next operation
 blockers:
   - none
-next_action: Persist this validation checkpoint, record exact-head self-review on PR #1096, mark the PR ready and run/observe repository-required exact-head checks.
+next_action: Mark PR #1096 ready, inspect one aggregate exact-head required-check snapshot, and continue through the bounded terminal-CI gate when eligible.
+```
+
+## Recovery checkpoint
+
+```yaml
+recovery:
+  policy_version: 1
+  generation: 1
+  session_id: chat-20260815-ecosystem-architecture
+  session_started_at: 2026-08-15T10:31:00Z
+  checkpointed_at: 2026-08-15T10:42:00Z
+  last_progress_at: 2026-08-15T10:42:00Z
+  phase: validate
+  exact_head: 9c2749216fb0523d33518c93bb9336ed3f2d1e8e
+  pull_request: 1096
+  active_operation: ready transition and exact-head required CI
+  external_run_ids: []
+  operation_started_at: 2026-08-15T10:42:00Z
+  wait_deadline_at: 2026-08-15T11:27:00Z
+  check_generation: ready
+  checks_used: 0
+  status: active
+  safe_to_resume: true
+  resume_condition: PR #1096 exact live head has repository-required checks available for aggregate inspection
+  next_action: Mark PR #1096 ready and inspect the aggregate required-check state for its exact live head.
 ```
 
 ## Source branch closeout
