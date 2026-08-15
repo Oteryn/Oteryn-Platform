@@ -18,6 +18,7 @@ required_reads:
   - docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
   - docs/agents/SESSION_RECOVERY_AND_ORPHANED_EXECUTION.md
   - docs/agents/GITHUB_ONLY_EXECUTION.md
+  - docs/agents/REMEDIATION_AUDIT_RISK_GATE.md
 search_first:
   - open PRs and active tasks touching CI/workflow paths
 optional_reads: []
@@ -34,8 +35,8 @@ Make Oteryn Platform CI risk/path-aware and lifecycle-managed so complete valida
 - [ ] Documentation/governance-only main pushes do not execute Portal Acceptance runtime/account-lifecycle jobs.
 - [ ] Editing an ordinary workflow no longer fans out to every heavy runtime gate; central routing changes remain fail-closed.
 - [ ] Repository tests fail when domain workflows regress to unbounded push/PR triggering or lose superseded-run cancellation where applicable.
-- [ ] Proven obsolete diagnostic/task-wrapper workflows are removed without deleting unique test coverage.
-- [ ] Completed deep/exhaustive audit programmes retained for diagnostic value no longer run automatically on ordinary product PRs/main pushes.
+- [ ] Proven obsolete diagnostic/task-wrapper workflows are removed without deleting unique product test coverage.
+- [ ] Completed one-off deep/exhaustive orchestration no longer runs automatically on ordinary product PRs/main pushes.
 - [ ] PHP application coverage is measured outside the blocking PR fast path with a ratchet-ready policy and durable report artifact.
 - [ ] Workflow lifecycle rules make temporary/task-specific workflow retention explicit and testable.
 - [ ] Exact-head CI, self-review, diff scope, review hygiene and source-branch closeout satisfy repository gates.
@@ -46,6 +47,7 @@ Make Oteryn Platform CI risk/path-aware and lifecycle-managed so complete valida
 owned_paths:
   - .github/workflows/ci.yml
   - .github/workflows/portal-acceptance-contract.yml
+  - .github/workflows/cloudflare-oteryn-edge-audit.yml
   - .github/workflows/deep-system-validation.yml
   - .github/workflows/portal-exhaustive-audit.yml
   - .github/workflows/portal-exhaustive-acceptance.yml
@@ -62,7 +64,8 @@ owned_paths:
   - tools/validation/test_php_coverage_policy.py
   - docs/agents/BUILD_TEST_MATRIX.md
   - docs/agents/CI_WORKFLOW_LIFECYCLE.md
-  - docs/architecture/TEST_STRATEGY.md
+  - docs/agents/CI_WORKFLOW_LIFECYCLE.json
+  - docs/agents/CI_COVERAGE_POLICY.json
   - docs/agents/tasks/active/OTERYN-20260815-ci-workflow-orchestration.md
 modules:
   - ci
@@ -76,14 +79,38 @@ cross_repository_tasks:
   - none
 ```
 
+## Validation gate
+
+```yaml
+validation_gate:
+  version: 2
+  intensity: HEIGHTENED
+  classified_by: implementation owner
+  classified_at: 2026-08-15T08:15:12Z
+  risk: high
+  triggers:
+    - CI routing and required-gate behavior
+    - GitHub Actions workflow lifecycle
+    - workflow deletion and concurrency semantics
+    - post-merge coverage instrumentation
+  unknown_or_conflict:
+    - exact classic branch-protection required-status-check list is not readable through the connected integration
+  rationale: CI and workflow changes can alter repository-wide merge evidence; routing remains fail-closed at the control plane and unique retained gate names are preserved where live protection configuration cannot be inspected.
+  self_review:
+    result: PENDING
+    exact_head: 1bab2057ed30384361e8ffa726a996251af3e04a
+    evidence:
+      - whole-diff review is in progress; final exact-head review will be recorded only after all CI findings are repaired
+```
+
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-15T07:42:00Z
-head: 88b3dce7b822ed27d9f61c412493c57ba6608a38
+updated_at: 2026-08-15T08:15:12Z
+head: 1bab2057ed30384361e8ffa726a996251af3e04a
 branch: ci/issue-1085-workflow-orchestration
-pr: none
+pr: 1086
 status: implementing
 context_routes:
   - testing
@@ -92,6 +119,7 @@ context_routes:
 owned_paths:
   - .github/workflows/ci.yml
   - .github/workflows/portal-acceptance-contract.yml
+  - .github/workflows/cloudflare-oteryn-edge-audit.yml
   - .github/workflows/deep-system-validation.yml
   - .github/workflows/portal-exhaustive-audit.yml
   - .github/workflows/portal-exhaustive-acceptance.yml
@@ -108,40 +136,51 @@ owned_paths:
   - tools/validation/test_php_coverage_policy.py
   - docs/agents/BUILD_TEST_MATRIX.md
   - docs/agents/CI_WORKFLOW_LIFECYCLE.md
-  - docs/architecture/TEST_STRATEGY.md
+  - docs/agents/CI_WORKFLOW_LIFECYCLE.json
+  - docs/agents/CI_COVERAGE_POLICY.json
   - docs/agents/tasks/active/OTERYN-20260815-ci-workflow-orchestration.md
 proven:
-  - protected main at task start is 88b3dce7b822ed27d9f61c412493c57ba6608a38
-  - workflow inventory currently reports 58 workflows, including 45 domain-validation workflows
-  - portal-acceptance-contract.yml has an unfiltered push-to-main trigger and executed complete account lifecycle for a docs-only main commit
-  - scripts/ci/classify_changes.py currently maps generic workflow changes to ALL_GATES
-  - account-security format/static diagnostic workflows are self-trigger-only diagnostics whose proving checks are already blocking in central CI
-  - archived portal-exhaustive and deep-system tasks have released ownership; retained workflows are historical validation capabilities rather than active task ownership
-  - PR #1074 owns historical-branch-audit.yml and PR #1083 owns parallel-coordinator-prompt-eval.yml; this task does not edit either file
+  - task branch has draft PR #1086 and Issue #1085 is the owning remediation Issue
+  - protected main advanced during the task through merged PRs #1083 and #1074; no current overlap exists with this task's owned CI paths
+  - baseline workflow inventory reached 59 workflows after PR #1083; the current candidate removes six proven obsolete workflow definitions
+  - portal-acceptance-contract.yml previously had an unfiltered push-to-main trigger and executed complete account lifecycle for docs-only main commit 860033172c8b4f1ba21d8d79263f04e2f0a49928
+  - scripts/ci/classify_changes.py previously mapped generic workflow changes to ALL_GATES
+  - account-security format/static diagnostic workflows duplicated blocking Pint and PHPStan/Larastan checks already present in central CI
+  - portal-exhaustive acceptance/trigger-coupling and deep/portal-exhaustive programme workflows belonged to completed archived validation programmes rather than active delivery ownership
   - current GitHub integration returns 403 for classic branch-protection configuration and therefore exact required-check policy remains unreadable
   - repository rulesets endpoint returns no repository rulesets
-  - no open PR or Issue already owns this CI consolidation scope
-  - Issue #1085 owns this remediation
+  - exact-head generation ed4b78b59263afe44089a764654eeeb680bd4360 exposed a test-parser defect for safe conditional PR cancellation; repaired in 1bab2057ed30384361e8ffa726a996251af3e04a
+  - exact-head generation 1bab2057ed30384361e8ffa726a996251af3e04a exposed a real existing workflow-economy defect: cloudflare-oteryn-edge-audit.yml used cancel-in-progress false for its replaceable pull_request validation
+  - exact-head generation 1bab2057ed30384361e8ffa726a996251af3e04a also exposed task liveness error branch_pr_identity_omitted because the task checkpoint had not yet recorded PR #1086
+  - on exact head 1bab2057ed30384361e8ffa726a996251af3e04a Platform DB Outage, Game Auth Ticket Concurrency, Editorial Media Acceptance and Wiki Reconciliation Acceptance passed while central CI failed before runtime on the new trigger-economy contract
 derived:
+  - Cloudflare live pull_request_target audit must remain non-cancelled while ordinary pull_request validation may safely cancel superseded generations
+  - workflow trigger-economy diagnostics should aggregate inventory findings so one generation reports all legacy violations rather than forcing one repair generation per file
   - workflow cleanup must preserve stable retained check names until required-check configuration can be independently verified
-  - manualizing completed exhaustive programmes is safer than deleting their unique diagnostic capability
 unknown:
   - exact classic branch-protection required-status-check list
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: tests/ci/test_workflow_trigger_economy.py conditional cancellation parser
+  evidence: CI run 31873486132 job 94985519513 on ed4b78b59263afe44089a764654eeeb680bd4360
 rejected_hypotheses:
   - delete broad product acceptance workflows solely to reach an arbitrary workflow count
+  - weaken workflow-economy assertions when they reveal an existing replaceable-PR cancellation defect
 changed_paths:
-  - docs/agents/tasks/active/OTERYN-20260815-ci-workflow-orchestration.md
+  - CI routing, lifecycle, coverage policy, workflow trigger and task-record paths declared above
 validation:
   - command: repository preflight and live overlap inspection
     result: PASS
-    evidence: main/Issue/open-PR ownership and workflow evidence inspected through GitHub connector
+    evidence: Issue/open-PR ownership and workflow evidence inspected through GitHub connector
+  - command: exact-head CI generation ed4b78b59263afe44089a764654eeeb680bd4360
+    result: FAIL_REPAIRED
+    evidence: run 31873486132 job 94985519513 identified parser defect; repair committed as 1bab2057ed30384361e8ffa726a996251af3e04a
+  - command: exact-head CI generation 1bab2057ed30384361e8ffa726a996251af3e04a
+    result: FAIL_REPAIRING
+    evidence: run 31873708280 job 94986114553 identified cloudflare-oteryn-edge-audit cancellation defect; Agent Governance run 31873708252 identified omitted PR identity in task record
 blockers:
   - none
-next_action: implement the bounded CI routing, lifecycle and coverage changes on this branch
+next_action: repair the Cloudflare PR-only cancellation policy, aggregate trigger-economy findings, persist PR identity, then run a fresh exact-head validation generation
 ```
 
 ## Recovery checkpoint
@@ -149,24 +188,27 @@ next_action: implement the bounded CI routing, lifecycle and coverage changes on
 ```yaml
 recovery:
   policy_version: 1
-  generation: 1
+  generation: 3
   session_id: chat-20260815-ci-1085-01
   session_started_at: 2026-08-15T07:41:00Z
-  checkpointed_at: 2026-08-15T07:42:00Z
-  last_progress_at: 2026-08-15T07:42:00Z
-  phase: implement
-  exact_head: 88b3dce7b822ed27d9f61c412493c57ba6608a38
-  pull_request: none
-  active_operation: repository implementation
-  external_run_ids: []
-  operation_started_at: 2026-08-15T07:42:00Z
+  checkpointed_at: 2026-08-15T08:15:12Z
+  last_progress_at: 2026-08-15T08:15:12Z
+  phase: repair
+  exact_head: 1bab2057ed30384361e8ffa726a996251af3e04a
+  pull_request: 1086
+  active_operation: repair exact-head CI findings
+  external_run_ids:
+    - 31873486132
+    - 31873708280
+    - 31873708252
+  operation_started_at: 2026-08-15T08:15:12Z
   wait_deadline_at: null
   check_generation: draft
-  checks_used: 0
+  checks_used: 2
   status: active
   safe_to_resume: true
-  resume_condition: branch remains owned by Issue #1085 with no overlapping path owner
-  next_action: implement the bounded CI routing, lifecycle and coverage changes on this branch
+  resume_condition: branch remains owned by Issue #1085 and PR #1086 with no overlapping path owner
+  next_action: repair the Cloudflare PR-only cancellation policy, aggregate trigger-economy findings, persist PR identity, then run a fresh exact-head validation generation
 ```
 
 ## Source branch closeout
@@ -174,9 +216,9 @@ recovery:
 ```yaml
 source_branch_disposition: pending
 source_branch_reason: task is active
-source_branch_evidence: pending
+source_branch_evidence: PR #1086 remains draft and unmerged
 ```
 
 ## Notes
 
-This task deliberately does not touch `.github/workflows/historical-branch-audit.yml` or `.github/workflows/parallel-coordinator-prompt-eval.yml`, which are owned by active PRs #1074 and #1083 respectively. Workflow-count reduction is evidence-driven; unique product/security/operations checks are retained unless safely consolidated without changing their externally visible gate contract.
+Workflow-count reduction is evidence-driven rather than a numerical target. Unique product/security/operations checks are retained unless their proof is already supplied by a current canonical workflow; historical workflow runs and Git history retain provenance after executable task-specific orchestration is removed.

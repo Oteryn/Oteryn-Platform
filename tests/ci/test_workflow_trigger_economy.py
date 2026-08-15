@@ -68,6 +68,9 @@ RETIRED_WORKFLOWS = (
 
 GLOBAL_PULL_REQUEST_WORKFLOWS = {
     "ci.yml",
+    # This housekeeping workflow has a tiny trusted PR observation job and a
+    # separately trusted pull_request_target closeout job. It is intentionally
+    # repository-wide and therefore cannot be path-admitted like a domain gate.
     "github-actions-storage-hygiene.yml",
 }
 
@@ -121,9 +124,8 @@ def has_superseded_run_cancellation(text: str) -> bool:
     value = match.group(1).strip()
     if value == "true":
         return True
-    # A workflow that also runs on push/manual events may cancel only the PR
-    # generation. This is equivalent to literal true for the supersedable PR
-    # path while deliberately preserving independent non-PR executions.
+    # Workflows that also serve non-PR events may cancel only the replaceable
+    # PR generation while preserving trusted/manual/scheduled executions.
     return "github.event_name == 'pull_request'" in value
 
 
@@ -151,6 +153,7 @@ for filename in RETIRED_WORKFLOWS:
         f"{filename}: retired task/diagnostic workflow was reintroduced"
     )
 
+inventory_findings: list[str] = []
 for path in sorted([*WORKFLOW_ROOT.glob("*.yml"), *WORKFLOW_ROOT.glob("*.yaml")]):
     text = path.read_text(encoding="utf-8")
     trigger = trigger_prefix(text)
@@ -158,23 +161,32 @@ for path in sorted([*WORKFLOW_ROOT.glob("*.yml"), *WORKFLOW_ROOT.glob("*.yaml")]
     push = event_block(trigger, "push")
 
     if pull_request is not None and path.name not in GLOBAL_PULL_REQUEST_WORKFLOWS:
-        assert has_path_filter(pull_request), (
-            f"{path.name}: pull_request must use paths/paths-ignore or be an "
-            "explicit repository-wide control-plane workflow"
-        )
-        assert has_superseded_run_cancellation(text), (
-            f"{path.name}: supersedable pull_request workflow lacks cancel-in-progress"
-        )
+        if not has_path_filter(pull_request):
+            inventory_findings.append(
+                f"{path.name}: pull_request must use paths/paths-ignore or be an "
+                "explicit repository-wide control-plane workflow"
+            )
+        if not has_superseded_run_cancellation(text):
+            inventory_findings.append(
+                f"{path.name}: supersedable pull_request workflow lacks "
+                "cancel-in-progress"
+            )
 
     if (
         push is not None
         and targets_main(push)
         and path.name not in GLOBAL_MAIN_PUSH_WORKFLOWS
+        and not has_path_filter(push)
     ):
-        assert has_path_filter(push), (
+        inventory_findings.append(
             f"{path.name}: push to main must use paths/paths-ignore or be an "
             "explicit repository-wide control-plane workflow"
         )
+
+if inventory_findings:
+    raise AssertionError(
+        "workflow trigger economy findings:\n- " + "\n- ".join(inventory_findings)
+    )
 
 agent_governance = (WORKFLOW_ROOT / "agent-governance.yml").read_text(encoding="utf-8")
 assert (
