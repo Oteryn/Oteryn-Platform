@@ -230,7 +230,18 @@ Documentation-only work still verifies exact paths, references, contradictions, 
 
 ## Global completion claim
 
-Do not infer global completion from the maturity matrix or scope manifest alone. A global Portal Completion claim requires live proof that every `REQUIRED` item and every currently active `CONDITIONAL` item has a terminal accepted disposition, no launch-critical material finding remains, delivered slices have terminal exact-head lifecycle, and any production/go-live claim is directly proven for the exact deployed identity under separate authority.
+Do not infer global completion from the maturity matrix, a broad workstream disposition, or the scope manifest alone. A global Portal Completion claim requires current durable proof for the exact named release scope that:
+
+- every `REQUIRED` workstream and every currently active `CONDITIONAL` workstream has a terminal accepted disposition;
+- the exact canonical per-capability inventory has been resolved from current architecture/owner authority;
+- every capability has exactly one owner-approved `IMPLEMENT | DEFER | REJECT` record containing stable `capability_id`, `owner`, `rationale`, `outcome`, and `authority_evidence`;
+- no broad workstream/family disposition substitutes for member-capability records;
+- no capability record is missing, duplicated, conflicting, or ambiguous; otherwise global completion stays false and the programme state is `DECISION_REQUIRED`;
+- no launch-critical material finding remains;
+- delivered slices have terminal exact-head lifecycle;
+- any production/go-live claim is directly proven for the exact deployed identity under separate authority.
+
+`IMPLEMENT` is product disposition only and never substitutes for implementation, E2E, CI, production-readiness or activation proof.
 
 ## Stop conditions
 
