@@ -38,7 +38,7 @@ Harden the canonical `OTERYN_PORTAL_COMPLETION` execution prompt so it is determ
 - [x] Preserve Platform-only, non-production, non-protected, non-payment, non-external-repository and no-standing-Codex authority.
 - [x] Verify exact branch diff contains only the three declared governance paths.
 - [x] Record runtime/browser E2E as `NOT_APPLICABLE` with the concrete docs-only reason.
-- [ ] Complete final exact-head self-review and required GitHub CI.
+- [ ] Complete required GitHub CI and final exact-head self-review on the resulting checkpoint-only head.
 - [ ] Merge/close Issue #1075 and archive this task when all gates pass.
 
 ## Ownership
@@ -66,7 +66,7 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-15T06:58:30Z
+updated_at: 2026-08-15T07:00:00Z
 head: LIVE_PR_HEAD
 branch: docs/issue-1075-portal-completion-prompt-hardening
 pr: 1076
@@ -82,7 +82,7 @@ owned_paths:
   - docs/agents/evals/oteryn-portal-completion-prompt-v1.2.json
   - docs/agents/tasks/active/OTERYN-20260815-portal-completion-prompt-hardening.md
 proven:
-  - protected main at task start is 5000f271db49215c93432b78397dd3560b49e7e7
+  - protected main at task start and immediately before readiness remained 5000f271db49215c93432b78397dd3560b49e7e7
   - Issue #1075 and PR #1076 own this bounded prompt-hardening task
   - no pre-existing open Issue or matching branch owned the canonical portal-completion execution prompt
   - prompt version 1.1 duplicated a shorter terminal response than the controlling anti-stall contract
@@ -92,11 +92,14 @@ proven:
   - prompt v1.2 preserves the standard execution_mode field and resolves selected-slice execution mode only after canonical selection
   - dedicated v1.2 eval covers every required PROMPT_EVAL_STANDARD scenario category and records zero identified static safety regressions
   - branch diff from task-start main contains exactly the three declared governance paths
-  - PR #1076 has no review submissions or unresolved review threads at this checkpoint
+  - exact-head full-diff self-review PASS was recorded on PR #1076 for head 9071e6288e8fee3e9f672b34ec9d0ac416bef361 with no findings
+  - Agent Governance run 31870738284 and CI run 31870738287 both passed on head 9071e6288e8fee3e9f672b34ec9d0ac416bef361
+  - PR #1076 is ready for review and had no review submissions or unresolved review threads before this checkpoint-only update
 derived:
   - the revised prompt removes the identified ambiguity/context waste without changing the canonical programme queue or authority boundaries
+  - this checkpoint-only update changes task evidence only; prompt and eval bytes remain unchanged from the reviewed candidate
 unknown:
-  - required GitHub CI result on the final unchanged PR head
+  - required GitHub CI result on the resulting LIVE_PR_HEAD after this checkpoint-only update
 conflicts: []
 first_failure:
   marker: none
@@ -120,21 +123,30 @@ validation:
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: task changes only agent-governance Markdown/JSON and has no executable browser/runtime behavior
-  - command: GitHub required CI on final PR head
+  - command: exact-head self-review on 9071e6288e8fee3e9f672b34ec9d0ac416bef361
+    result: PASS
+    evidence: PR #1076 comment id 5301047874 records full-diff review, negative paths, rollback, compatibility and related-PR checks with zero findings
+  - command: Agent Governance on 9071e6288e8fee3e9f672b34ec9d0ac416bef361
+    result: PASS
+    evidence: workflow run 31870738284
+  - command: CI on 9071e6288e8fee3e9f672b34ec9d0ac416bef361
+    result: PASS
+    evidence: workflow run 31870738287
+  - command: GitHub required CI on resulting LIVE_PR_HEAD
     result: NOT_RUN
-    evidence: final checkpoint-only head must be observed after this durable checkpoint update
+    evidence: this task-record-only checkpoint creates the final candidate head; live PR checks must pass before merge
 blockers:
   - none
-next_action: inspect the exact final PR diff/head, publish exact-head self-review evidence, mark PR ready, and verify required CI under the anti-stall contract
+next_action: verify the resulting LIVE_PR_HEAD has green required checks and no review findings; then record final exact-head task-only delta review and squash-merge PR #1076
 ```
 
 ## Anti-stall state
 
 ```yaml
 invocation_started_at: 2026-08-15T06:52:51Z
-last_progress_at: 2026-08-15T06:58:30Z
+last_progress_at: 2026-08-15T07:00:00Z
 ci_checks_for_current_head: 0
-ci_check_generation: draft
+ci_check_generation: ready
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
@@ -148,7 +160,7 @@ stall_warnings: 0
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: task is active and awaiting exact-head validation/merge
+source_branch_reason: task is active and awaiting final exact-head checks/merge
 source_branch_evidence: pending
 ```
 
