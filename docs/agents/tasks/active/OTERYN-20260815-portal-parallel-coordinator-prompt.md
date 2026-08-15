@@ -36,7 +36,7 @@ Add a standalone repository-owned prompt and dedicated evaluation inventory for 
 - [x] External/server repositories, production/protected environments, credentials, signing, payments and owner-funded AI remain unauthorized absent separate exact permission.
 - [x] The new prompt has a versioned `PROMPT_EVAL_STANDARD.md` contract and dedicated balanced evaluation inventory with explicit no-model-trial limitation.
 - [x] No file owned by PR #1076 is changed.
-- [ ] Documentation/governance validation and exact-head required CI pass; runtime/browser E2E is `NOT_APPLICABLE` with reason.
+- [x] Documentation/governance validation passed on candidate head `1318be02fd21c89824752f21d89eb94c610767f5`; runtime/browser E2E is `NOT_APPLICABLE` with reason. The checkpoint-only closeout update must also pass required exact-head CI before merge.
 - [ ] Issue/PR/task lifecycle is terminal and ownership is released after merge.
 
 ## Ownership
@@ -68,12 +68,12 @@ forbidden_paths:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-15T07:18:30Z
-head: ac757da25daadf652f06dc5afe16356a549bba7b
+updated_at: 2026-08-15T07:21:30Z
+head: 1318be02fd21c89824752f21d89eb94c610767f5
 branch: docs/portal-parallel-coordinator-prompt
 pr: 1083
-status: validating
-phase: validate
+status: ready
+phase: close
 project_lane: oteryn-platform-core
 session_id: chatgpt-20260815-portal-parallel-prompt
 session_role: implementation_owner
@@ -85,7 +85,7 @@ context_routes:
 context_pressure: medium
 context_growth: stable
 decomposition_decision: single
-validation_level: focused
+validation_level: full
 owned_paths:
   - docs/agents/prompts/OTERYN-PORTAL-COMPLETION-PARALLEL-COORDINATOR-PROMPT.md
   - docs/agents/evals/oteryn-portal-parallel-coordinator-prompt-v1.json
@@ -93,18 +93,21 @@ owned_paths:
 proven:
   - protected main at task start is 3c3499f38100ec15ba76f958558444c87d644c15
   - Issue #1082 owns this additive prompt package
-  - draft PR #1083 owns branch docs/portal-parallel-coordinator-prompt
+  - PR #1083 owns branch docs/portal-parallel-coordinator-prompt and is Ready for Review
   - PR #1076 owns the canonical portal-completion prompt and shared prompt-contract eval; this task excludes both paths
-  - repository compare from task-start main through ac757da25daadf652f06dc5afe16356a549bba7b changes exactly the standalone prompt, dedicated eval and this task record
+  - repository compare changes exactly the standalone prompt, dedicated eval and this task record; forbidden #1076 paths are absent
   - no existing parallel-coordinator prompt was found by repository search
   - repository policy permits parallel workers only across independent tasks and forbids concurrent branch/worktree sharing
   - prompt requires canonical selector precedence, existing-work reuse, one branch writer, candidate handoff, dependency-safe merge and barrier reselection
   - dedicated eval contains positive, negative, boundary, authority, injection, validation-routing, integration and closeout cases
   - repeated model-behaviour trials are explicitly not claimed
+  - Agent Governance run 31871643614 passed on candidate head 1318be02fd21c89824752f21d89eb94c610767f5
+  - CI run 31871644297 passed on candidate head 1318be02fd21c89824752f21d89eb94c610767f5
+  - PR #1083 has no review submissions, comments or unresolved review threads at candidate readiness
 derived:
   - a standalone prompt plus dedicated eval avoids ownership conflict with PR #1076
 unknown:
-  - exact final required CI outcome on the final task-checkpoint head
+  - final required CI result on the checkpoint-only closeout head created by this update
 conflicts: []
 first_failure:
   marker: none
@@ -121,7 +124,7 @@ validation:
   - command: repository overlap search against PR #1076 and existing parallel-coordinator prompt
     result: PASS
     evidence: owned paths are additive and distinct; no existing matching prompt found
-  - command: compare task-start protected main 3c3499f38100ec15ba76f958558444c87d644c15 to ac757da25daadf652f06dc5afe16356a549bba7b
+  - command: repository compare against task-start protected main
     result: PASS
     evidence: exactly three declared additive documentation/governance paths changed; forbidden #1076 paths are absent
   - command: dedicated evaluation inventory static review
@@ -130,12 +133,21 @@ validation:
   - command: full prompt specification review against PROMPTING_STANDARD, PROMPT_EVAL_STANDARD and EXECUTION_PROTOCOL
     result: PASS
     evidence: no identified authority, ownership, selector, audit-routing, E2E or closeout weakening
+  - command: Agent Governance run 31871643614
+    result: PASS
+    evidence: candidate head 1318be02fd21c89824752f21d89eb94c610767f5
+  - command: CI run 31871644297
+    result: PASS
+    evidence: candidate head 1318be02fd21c89824752f21d89eb94c610767f5
+  - command: exact-head whole-diff self-review
+    result: PASS
+    evidence: only declared additive prompt/eval/task paths; no material authority, overlap, selector, validation, E2E or closeout finding identified
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: task changes agent-governance Markdown/JSON only and no executable product route, API, persistence or frontend behavior
 blockers:
   - none
-next_action: verify exact final branch head, mark PR ready when coherent, then require repository CI and governance checks before merge
+next_action: verify required checks on the checkpoint-only final head, then squash-merge PR #1083 if unchanged and eligible
 ```
 
 ## Source branch closeout
