@@ -175,7 +175,7 @@ proven:
   - focused PublicEdge architecture names login.oteryn.molehill.cloud only in an exact retirement invariant; the legacy-host guard verifies that exact statement rather than blindly allowlisting the file
   - prior exact-head 17ad32e604902b6150c71fcabfaa6ab04997e00e completed all 22 observed applicable PR workflow runs successfully
   - final review found one retained audit unit test still reading deleted portal-exhaustive-audit.yml; branch commit 7fc7bc5848abf9ae75654afa12a9f532f637debc repaired it to canonical portal-e2e-audit.yml
-  - core CI at 4a91f2b1f1a8736e65766f99e3b9960a213b6ed1 now explicitly runs tools/audit/test_portal_exhaustive_audit.py so this class of stale-reference drift cannot remain latent
+  - core CI at 4a91f2b1f1a8736e65766f99e3b9960a213b6ed1 explicitly runs tools/audit/test_portal_exhaustive_audit.py so this class of stale-reference drift cannot remain latent
   - candidate branch was synchronized with protected main 536c6320f91d1df981600530e50522d84b1c0588 through merge commit 82d3b3b5abe51f35f8becda4e9486f9ed2fbd9bf before the final CI registration change
   - active unrelated tasks do not own the exact workflow paths modified here; historical-work and steady-state branch-hygiene closeouts are already on current main
   - repository delete_branch_on_merge is true
