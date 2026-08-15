@@ -11,6 +11,10 @@ permissions:
   contents: read
   packages: read
 
+concurrency:
+  group: native-auth-canary-cache-build-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CANARY_REF: b15b7d544f4795e3a2a65b88de35391b9fd0a20d
 

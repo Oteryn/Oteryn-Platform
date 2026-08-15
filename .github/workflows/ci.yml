@@ -26,6 +26,7 @@ jobs:
       db_outage: ${{ steps.classify.outputs.db_outage }}
       game_auth_concurrency: ${{ steps.classify.outputs.game_auth_concurrency }}
       classes: ${{ steps.classify.outputs.classes }}
+      paths_json: ${{ steps.classify.outputs.paths_json }}
     steps:
       - name: Checkout exact classification range
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -53,10 +54,16 @@ jobs:
           python tools/validation/test_prompt_eval.py
           python tools/validation/prompt_eval.py
 
-      - name: Validate workflow inventory
+      - name: Validate workflow inventory and lifecycle
         run: |
           python tools/validation/test_workflow_inventory.py
           python tools/validation/workflow_inventory.py
+          python tools/audit/test_portal_exhaustive_audit.py
+
+      - name: Validate PHP coverage policy
+        run: |
+          python tools/validation/test_php_coverage_policy.py
+          python tools/validation/php_coverage_policy.py --validate-policy
 
       - name: Validate immutable GitHub Actions references
         run: |
@@ -163,6 +170,87 @@ jobs:
           path: artifacts/ci/phpunit-junit.xml
           if-no-files-found: error
           retention-days: 7
+
+  php_coverage:
+    name: php-coverage-report
+    needs: classify_changes
+    if: >-
+      ${{
+        github.event_name == 'push' &&
+        needs.classify_changes.result == 'success' &&
+        needs.classify_changes.outputs.ci == 'true' &&
+        (
+          contains(needs.classify_changes.outputs.classes, 'backend') ||
+          contains(needs.classify_changes.outputs.classes, 'auth_security') ||
+          contains(needs.classify_changes.outputs.classes, 'payment') ||
+          contains(needs.classify_changes.outputs.classes, 'database') ||
+          contains(needs.classify_changes.outputs.classes, 'dependency') ||
+          contains(needs.classify_changes.outputs.classes, 'shared') ||
+          contains(needs.classify_changes.outputs.paths_json, '.github/workflows/ci.yml')
+        )
+      }}
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: oteryn-coverage-root-password
+          MARIADB_ROOT_HOST: "%"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      CANARY_PROVISIONING_INTEGRATION_HOST: 127.0.0.1
+      CANARY_PROVISIONING_INTEGRATION_PORT: 3306
+      CANARY_PROVISIONING_INTEGRATION_ROOT_PASSWORD: oteryn-coverage-root-password
+      CANARY_CHARACTER_CREATE_INTEGRATION_HOST: 127.0.0.1
+      CANARY_CHARACTER_CREATE_INTEGRATION_PORT: 3306
+      CANARY_CHARACTER_CREATE_INTEGRATION_ROOT_PASSWORD: oteryn-coverage-root-password
+    steps:
+      - name: Checkout exact main SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Setup PHP with PCOV
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.5'
+          coverage: pcov
+          extensions: pdo_mysql, pcntl, gd
+          tools: composer:v2
+
+      - name: Install dependencies from lockfile
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Measure PHP application coverage
+        run: |
+          mkdir -p artifacts/coverage
+          php artisan config:clear --ansi
+          vendor/bin/phpunit \
+            --coverage-clover=artifacts/coverage/clover.xml \
+            --log-junit=artifacts/coverage/phpunit-junit.xml
+
+      - name: Evaluate coverage policy
+        run: >-
+          python tools/validation/php_coverage_policy.py
+          --clover artifacts/coverage/clover.xml
+          --policy docs/agents/CI_COVERAGE_POLICY.json
+          --json-output artifacts/coverage/summary.json
+          --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload bounded coverage evidence
+        if: always() && hashFiles('artifacts/coverage/**') != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: php-coverage-${{ github.sha }}-${{ github.run_attempt }}
+          path: artifacts/coverage
+          if-no-files-found: error
+          retention-days: 14
 
   test:
     needs:

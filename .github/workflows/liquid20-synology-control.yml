@@ -31,8 +31,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: liquid20-synology-control
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('liquid20-synology-control-pr-{0}', github.event.pull_request.number) || 'liquid20-synology-control' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   FREQTRADE_COMMIT: c00a091c5adc67cf75c46db5805e358ffc72fad7

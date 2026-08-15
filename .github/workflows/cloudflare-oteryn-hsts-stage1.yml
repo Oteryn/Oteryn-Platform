@@ -21,8 +21,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloudflare-oteryn-hsts-stage1-${{ github.event_name }}-${{ github.sha }}
-  cancel-in-progress: false
+  group: cloudflare-oteryn-hsts-stage1-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   validate:

@@ -19,7 +19,20 @@ GATES = (
 
 ALL_GATES = frozenset(GATES)
 NO_GATES = frozenset()
+CI_ONLY = frozenset(("ci",))
 POLICY_FIXTURES = Path(__file__).resolve().parents[2] / "tests/ci/fixtures/change-routing-cases.json"
+
+WORKFLOW_GATE_OVERRIDES: dict[str, frozenset[str]] = {
+    # Central routing changes can invalidate every heavy-gate decision and must
+    # therefore continue to fail closed.
+    ".github/workflows/ci.yml": ALL_GATES,
+    # A heavy workflow definition needs its own proving lane plus central CI,
+    # not every unrelated heavy lane.
+    ".github/workflows/phase7-production-like-validation.yml": frozenset(("ci", "phase7")),
+    ".github/workflows/edge-security-emulation.yml": frozenset(("ci", "edge")),
+    ".github/workflows/platform-db-outage-validation.yml": frozenset(("ci", "db_outage")),
+    ".github/workflows/game-auth-ticket-concurrency.yml": frozenset(("ci", "game_auth_concurrency")),
+}
 
 
 @dataclass(frozen=True)
@@ -38,6 +51,18 @@ def _is_root_document(path: str) -> bool:
     return path.endswith(".md") or path == "LICENSE" or path.startswith("LICENSE.")
 
 
+def _classify_workflow_path(path: str) -> PathClassification:
+    # Agent-governance executable changes are proved by the dedicated
+    # Agent Governance workflow. Do not fan them into runtime proof.
+    if path == ".github/workflows/agent-governance.yml":
+        return PathClassification("agent_governance", NO_GATES)
+
+    return PathClassification(
+        "workflow",
+        WORKFLOW_GATE_OVERRIDES.get(path, CI_ONLY),
+    )
+
+
 def classify_path(raw_path: str) -> PathClassification:
     path = raw_path.strip().replace("\\", "/").removeprefix("./")
     lowered = path.casefold()
@@ -45,21 +70,12 @@ def classify_path(raw_path: str) -> PathClassification:
     if not path:
         return PathClassification("shared", ALL_GATES)
 
-    # The Agent Governance workflow is itself part of the governance surface.
-    # Treating this one file as a generic workflow would fan a governance-only
-    # change into Phase 7, edge, DB-outage and game-auth runtime proof. The
-    # dedicated Agent Governance workflow validates its own executable change.
-    if path == ".github/workflows/agent-governance.yml":
-        return PathClassification("agent_governance", NO_GATES)
+    if _matches(path, (".github/workflows/**",)):
+        return _classify_workflow_path(path)
 
-    if _matches(
-        path,
-        (
-            ".github/workflows/**",
-            "scripts/ci/**",
-            "tests/ci/**",
-        ),
-    ):
+    # The classifier and its contract tests are the routing control plane. Any
+    # change here can affect every downstream gate, so keep this fail closed.
+    if _matches(path, ("scripts/ci/**", "tests/ci/**")):
         return PathClassification("workflow", ALL_GATES)
 
     if _matches(
