@@ -15,6 +15,7 @@ required_reads:
   - docs/architecture/adr/0040-oteryn-ecosystem-repository-topology-and-atlas-extraction.md
 search_first:
   - PR #1100
+  - PR #1101
   - merge f4bb44a9aec0a9a89581a1b9a4ded5ab22ecbe19
   - synchronized validation head 1d3d6f3341f106c9e2a1aeaf6eba46a0cafb3f27
   - review document OTERYN_ECOSYSTEM_REPOSITORY_TOPOLOGY_PLATFORM_REVIEW_2026-08-15.md
@@ -61,19 +62,19 @@ Runtime/browser/deployment E2E is `NOT_APPLICABLE`: the task changes architectur
 ## Merge and resulting-state evidence
 
 - PR #1100 squash-merged to protected `main` as `f4bb44a9aec0a9a89581a1b9a4ded5ab22ecbe19` on 2026-08-15.
-- `main` now points to `f4bb44a9aec0a9a89581a1b9a4ded5ab22ecbe19`.
+- `main` points to `f4bb44a9aec0a9a89581a1b9a4ded5ab22ecbe19` at lifecycle closeout creation.
 - Compare `5847973676ba82b74aaac7d5cc90238c262dd541..f4bb44a9aec0a9a89581a1b9a4ded5ab22ecbe19` proves the delivered merge contains exactly the review document and its task record; no unrelated PR #1099 lifecycle delta was re-applied.
 - Original source branch `docs/adr0040-platform-review-20260815` is absent after merge.
-- Post-merge Agent Governance run `31884489337` passes static checkpoint, policy, prompt, branch-closeout, and ownership validation but fails only live-aware Control Room/liveness because the completed task record still exists under `tasks/active/`; this lifecycle-only archive transition removes that stale active state.
+- Post-merge Agent Governance run `31884489337` passes static checkpoint, policy, prompt, branch-closeout, and ownership validation but fails only live-aware Control Room/liveness because the completed task record still exists under `tasks/active/`; PR #1101 is the lifecycle-only archive transition that removes that stale active state.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-15T12:26:00Z
-head: PENDING
+updated_at: 2026-08-15T12:29:00Z
+head: UNKNOWN
 branch: docs/adr0040-platform-review-closeout-20260815
-pr: none
+pr: 1101
 status: completed
 context_routes:
   - agent-governance
@@ -89,11 +90,13 @@ proven:
   - Actual main delta from pre-merge 5847973676ba82b74aaac7d5cc90238c262dd541 to merge f4bb44a9aec0a9a89581a1b9a4ded5ab22ecbe19 contains exactly the architecture review and task record.
   - Original PR #1100 source branch docs/adr0040-platform-review-20260815 is absent.
   - Post-merge Agent Governance 31884489337 fails only live-aware Control Room/liveness while all preceding static and terminal-closeout validation passes.
+  - PR #1101 is an intentionally draft lifecycle-only closeout so repository validation can run without triggering an unauthorized owner-funded Codex review.
   - No runtime deployment Synology production DNS authentication-behavior credential payment external-repository or live-data mutation was performed.
 derived:
-  - The post-merge liveness failure is lifecycle debt caused by the completed task record remaining in the active directory and is resolved by this active-to-archive transition.
+  - The post-merge liveness failure is lifecycle debt caused by the completed task record remaining in the active directory and is resolved by PR #1101 moving that record to archive.
 unknown:
-  - Exact lifecycle-only closeout PR number and final closeout head until the draft closeout PR is created and checkpointed.
+  - Exact final lifecycle-only closeout head and check results until this checkpoint carrier is committed and workflows complete.
+  - Final PR #1101 merge SHA and closeout branch absence until the owner authorizes any automatically triggered Codex review required by Ready/merge policy.
 conflicts: []
 first_failure:
   marker: post-merge-active-task-liveness
@@ -101,6 +104,7 @@ first_failure:
 rejected_hypotheses:
   - Reopen or modify ADR 0040 directly after review; rejected because material correction belongs in a future superseding ADR.
   - Treat the post-merge liveness failure as a review-content defect; rejected because all static review/task validations pass and the remaining state is task lifecycle only.
+  - Mark PR #1101 Ready merely to finish lifecycle closeout; rejected because repository automation may invoke owner-funded Codex and AGENTS.md requires explicit authorization for that specific use.
 changed_paths:
   - docs/agents/tasks/archive/OTERYN-20260815-adr0040-platform-review.md
   - docs/agents/tasks/active/OTERYN-20260815-adr0040-platform-review.md
@@ -110,16 +114,16 @@ validation:
     evidence: CI 31884474357; Agent Governance 31884474387; Native protocol 31884474411; Native audits 31884474339; Edge Security 31884474404; DB Outage 31884474456; Phase 7 31884474371; Game Auth Concurrency 31884474413.
   - command: PR #1100 merge and resulting-state verification
     result: PASS
-    evidence: merged as f4bb44a9aec0a9a89581a1b9a4ded5ab22ecbe19; main points to that SHA; compare against 5847973676ba82b74aaac7d5cc90238c262dd541 contains only the two intended documentation files; original source branch absent.
+    evidence: merged as f4bb44a9aec0a9a89581a1b9a4ded5ab22ecbe19; compare against 5847973676ba82b74aaac7d5cc90238c262dd541 contains only the two intended documentation files; original source branch absent.
   - command: lifecycle-only archive exact-head repository validation
     result: NOT_RUN
-    evidence: closeout branch has been created but the draft PR/final checkpoint head are not yet established.
+    evidence: PR #1101 is draft and this checkpoint update establishes its candidate head; exact-head workflows are checked next.
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: lifecycle-only architecture/task documentation has no executable product/browser path.
 blockers:
-  - making the lifecycle-only closeout PR Ready would automatically invoke owner-funded Codex review, which AGENTS.md forbids without explicit current-task authorization
-next_action: Create the lifecycle-only closeout PR as draft, record its exact head, and validate non-AI repository checks without triggering owner-funded Codex.
+  - making PR #1101 Ready may automatically invoke owner-funded Codex review, which AGENTS.md forbids without explicit current-task authorization
+next_action: Verify exact-head non-AI repository checks on draft PR #1101 and leave it draft unless explicit authorization is provided for the owner-funded Codex review that Ready may trigger.
 ```
 
 ## Source branch closeout
@@ -127,7 +131,7 @@ next_action: Create the lifecycle-only closeout PR as draft, record its exact he
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: lifecycle-only archival branch has no recovery purpose after the active task is removed and the archive is merged
-source_branch_evidence: original implementation/review branch is already absent; closeout branch deletion remains pending lifecycle-only closeout merge
+source_branch_evidence: original PR #1100 source branch is absent; closeout branch deletion remains pending lifecycle-only closeout merge
 ```
 
 ## Closeout boundary
