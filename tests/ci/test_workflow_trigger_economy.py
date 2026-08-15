@@ -160,6 +160,13 @@ for path in sorted([*WORKFLOW_ROOT.glob("*.yml"), *WORKFLOW_ROOT.glob("*.yaml")]
     pull_request = event_block(trigger, "pull_request")
     push = event_block(trigger, "push")
 
+    for retired in RETIRED_WORKFLOWS:
+        marker = f".github/workflows/{retired}"
+        if marker in trigger:
+            inventory_findings.append(
+                f"{path.name}: trigger still references retired workflow {retired}"
+            )
+
     if pull_request is not None and path.name not in GLOBAL_PULL_REQUEST_WORKFLOWS:
         if not has_path_filter(pull_request):
             inventory_findings.append(
