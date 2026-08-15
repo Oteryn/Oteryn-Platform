@@ -27,7 +27,7 @@ A declaration may add a bounded qualifier or date after the lifecycle token. Mul
 
 Allocate a new ADR only after scanning every file in this directory and open architecture PRs. Use the next integer after the highest observed numeric prefix; do not reuse gaps.
 
-Closed unmerged PR #1065 historically proposed ADR prefix `0038`, but that draft was superseded before acceptance and is intentionally not reused. Protected `main` already contains `0039`, so the next non-conflicting allocation for the corrected repository-topology decision is `0040`.
+Closed unmerged PR #1065 historically proposed ADR prefix `0038`, but that draft was superseded before acceptance and is intentionally not reused. Protected `main` contained accepted ADR 0040 before the 2026-08-15 cross-repository review reconciliation; no open architecture PR claimed `0041`, so the successor ecosystem decision is allocated as ADR 0041.
 
 Existing duplicate identifiers are historical compatibility defects. Do not rename or renumber accepted records without a separate compatibility decision that preserves inbound references.
 
@@ -55,7 +55,7 @@ The historical exception is a closed exact-path allowlist, not permission to cre
 
 ## Inventory
 
-Inventory reconciled on 2026-08-15. Duplicate prefixes are intentionally shown rather than hidden. Prefix `0038` remains intentionally absent because the only proposal using it was closed unmerged in PR #1065 and must not be resurrected merely to fill a numbering gap.
+Inventory reconciled on 2026-08-15. Duplicate prefixes are intentionally shown rather than hidden. Prefix `0038` remains intentionally absent because the only proposal using it was closed unmerged in PR #1065 and must not be resurrected merely to fill a numbering gap. ADR 0040 is retained with `Superseded` lifecycle; ADR 0041 is the current ecosystem-topology successor.
 
 - `0001-laravel-modular-monolith.md`
 - `0002-separate-platform-and-canary-repositories.md`
@@ -104,6 +104,7 @@ Inventory reconciled on 2026-08-15. Duplicate prefixes are intentionally shown r
 - `0037-terminal-source-branch-lifecycle.md`
 - `0039-historical-work-canonicalization-and-managed-recovery.md`
 - `0040-oteryn-ecosystem-repository-topology-and-atlas-extraction.md`
+- `0041-ecosystem-repository-authority-contracts-and-atlas-integration.md`
 
 ## Preserved legacy duplicate paths
 

@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted — 2026-08-15
+Superseded — 2026-08-15 by ADR 0041
+
+This record is retained as the initial ecosystem-topology decision and provenance. ADR 0041 — `0041-ecosystem-repository-authority-contracts-and-atlas-integration.md` — is canonical for current ecosystem topology, authority, contract and Atlas-integration scope.
 
 - Decision owner: repository owner
 - Applies to: target Oteryn repository topology, temporary cross-repository architecture authority, Atlas extraction/ownership, canonical world versus Atlas product boundaries, Platform integration ownership, legacy repository disposition and future meta-repository handoff
