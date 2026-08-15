@@ -5,8 +5,10 @@ on:
     paths:
       - ".github/workflows/historical-branch-audit.yml"
       - "docs/agents/HISTORICAL_BRANCH_DELETION_APPROVAL.json"
+      - "docs/agents/HISTORICAL_WORK_RECONCILIATION_REGISTRY.json"
       - "tools/agents/historical_branch_audit.py"
       - "tools/agents/historical_branch_policy.py"
+      - "tools/agents/historical_work_reconciliation.py"
       - "tools/agents/test_historical_branch_audit.py"
       - "tools/agents/test_historical_branch_policy.py"
   push:
@@ -15,8 +17,10 @@ on:
     paths:
       - ".github/workflows/historical-branch-audit.yml"
       - "docs/agents/HISTORICAL_BRANCH_DELETION_APPROVAL.json"
+      - "docs/agents/HISTORICAL_WORK_RECONCILIATION_REGISTRY.json"
       - "tools/agents/historical_branch_audit.py"
       - "tools/agents/historical_branch_policy.py"
+      - "tools/agents/historical_work_reconciliation.py"
       - "tools/agents/test_historical_branch_audit.py"
       - "tools/agents/test_historical_branch_policy.py"
   workflow_dispatch:
@@ -48,6 +52,7 @@ jobs:
 
       - name: Run focused historical-audit tests
         run: |
+          python3 -m py_compile tools/agents/historical_work_reconciliation.py
           python3 tools/agents/test_historical_branch_audit.py
           python3 tools/agents/test_historical_branch_policy.py
 
@@ -86,6 +91,15 @@ jobs:
             --manifest historical-branch-deletion-manifest.generated.json \
             --approval-validation historical-branch-approval-validation.json
 
+      - name: Build Issue 1072 content and provenance inventory
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/agents/historical_work_reconciliation.py \
+            --repo "${GITHUB_REPOSITORY}" \
+            --token "${GITHUB_TOKEN}" \
+            --output historical-work-reconciliation-inventory.json
+
       - name: Verify protected default branch and full accounting
         run: |
           python3 - <<'PY'
@@ -121,6 +135,7 @@ jobs:
             historical-branch-audit-report.json
             historical-branch-deletion-manifest.generated.json
             historical-branch-approval-validation.json
+            historical-work-reconciliation-inventory.json
           if-no-files-found: error
           retention-days: 30
 
