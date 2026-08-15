@@ -74,8 +74,8 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-15T07:52:00Z
-head: 4c324dd2b26a495aab9bc49499358cb9b221b658
+updated_at: 2026-08-15T07:54:30Z
+head: 71d8c4fda1baeeec425930b56697dfe57c2f6c41
 branch: docs/archive-1082-parallel-coordinator-prompt
 pr: 1087
 status: completed
@@ -106,18 +106,21 @@ proven:
   - exact Git ref lookup for heads/docs/portal-parallel-coordinator-prompt returns 404 after implementation merge
   - protected main contains implementation merge 939fc95b8b86959371aad372ad17a2bff2c4da66
   - runtime/browser E2E is NOT_APPLICABLE because the task changes agent-governance prompt/eval/workflow behavior only, not executable product behavior
+  - PR #1087 review identified three closeout defects and the repair now keeps a concrete next_action, separates implementation review from archive review, and explicitly tracks the archive closeout branch
+  - archive exact-head self-review for head 71d8c4fda1baeeec425930b56697dfe57c2f6c41 is retained as PR #1087 review 4943299858, but this source-closeout schema repair requires a fresh self-review on its resulting final head
 derived:
   - implementation ownership is released; archive closeout remains responsible only for moving the task record and verifying its own lifecycle branch
 unknown:
-  - exact final archive PR #1087 head until review repair is committed
+  - exact final archive PR #1087 head after this source-closeout schema repair
   - archive-closeout branch deletion result until after PR #1087 merges
 conflicts: []
 first_failure:
-  marker: archive-closeout-review-findings
-  evidence: PR #1087 review identified invalid placeholder next_action, implementation-head self-review misattribution and missing archive-branch disposition tracking; all are addressed by this repair package and require final exact-head verification
+  marker: archive-closeout-review-and-governance-findings
+  evidence: initial PR #1087 review found invalid placeholder next_action, wrong self-review head and missing archive-branch tracking; first repair then exposed nested source-branch closeout fields rejected by Agent Governance; this repair uses the required top-level scalar schema
 rejected_hypotheses:
   - merge alone is sufficient without task archival and branch verification
   - implementation-head self-review can certify the archive diff
+  - nested source-branch closeout YAML is accepted by the validator
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260815-portal-parallel-coordinator-prompt.md
   - docs/agents/tasks/archive/OTERYN-20260815-portal-parallel-coordinator-prompt.md
@@ -136,13 +139,16 @@ validation:
     evidence: exact Git ref lookup returns 404 after merge; delete_branch_on_merge=true
   - command: archive PR #1087 initial CI
     result: PASS
-    evidence: Agent Governance 31872842300 and CI 31872842322 passed on initial archive head 4c324dd2b26a495aab9bc49499358cb9b221b658 before review-repair commit
+    evidence: Agent Governance 31872842300 and CI 31872842322 passed on initial archive head 4c324dd2b26a495aab9bc49499358cb9b221b658 before review repair
+  - command: archive PR #1087 first review-repair Agent Governance
+    result: FAIL
+    evidence: run 31873042124 rejected nested source-branch closeout fields; exact failure repaired in this commit
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: archive closeout changes no product runtime/user journey
 blockers:
   - none
-next_action: verify the repaired exact final head of archive PR #1087, record its exact-head self-review in the PR, merge when all gates pass, then verify heads/docs/archive-1082-parallel-coordinator-prompt is absent or reconcile it through Branch Lifecycle and record that terminal evidence on PR #1087 / Issue #1082
+next_action: verify this repaired exact final head of archive PR #1087, record a fresh exact-head self-review in the PR, resolve all review threads, merge after required CI passes, then verify heads/docs/archive-1082-parallel-coordinator-prompt is absent or reconcile it through Branch Lifecycle and record terminal evidence on PR #1087 / Issue #1082
 ```
 
 ## Implementation self-review evidence
@@ -151,37 +157,14 @@ The implementation self-review belongs to PR #1083 and exact implementation head
 
 ## Archive PR self-review requirement
 
-Before PR #1087 merges, perform a fresh full-diff self-review on its exact final archive head and record that review durably in the PR conversation with:
-
-```yaml
-self_review:
-  result: PASS
-  exact_head: <final PR #1087 head>
-  acceptance_checked: true
-  full_diff_checked: true
-  negative_paths_checked: NOT_APPLICABLE
-  rollback_checked: true
-  compatibility_checked: NOT_APPLICABLE
-  related_prs_checked: true
-  findings: []
-```
-
-The archive PR may not merge if that exact-head review or required CI is missing or non-terminal.
+Before PR #1087 merges, perform a fresh full-diff self-review on its exact final archive head and record that review durably in the PR conversation. The archive PR may not merge if that exact-head review or required CI is missing or non-terminal.
 
 ## Source branch closeout
 
 ```yaml
-implementation_source_branch:
-  name: docs/portal-parallel-coordinator-prompt
-  disposition: auto_delete_after_merge
-  reason: implementation PR #1083 is merged and the branch has no continuing ownership or recovery purpose
-  evidence: repository delete_branch_on_merge=true and exact Git ref lookup returns 404 after PR #1083 merge
-archive_closeout_branch:
-  name: docs/archive-1082-parallel-coordinator-prompt
-  disposition: auto_delete_after_merge
-  reason: lifecycle-only archive branch has no continuing ownership or recovery purpose after PR #1087 merges
-  evidence: pending post-merge exact Git ref verification; if the ref remains, task closeout is not terminal until Branch Lifecycle reconciliation completes
-  terminal_evidence_destination: PR #1087 conversation and Issue #1082
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: implementation branch docs/portal-parallel-coordinator-prompt was auto-deleted after merged PR #1083; lifecycle branch docs/archive-1082-parallel-coordinator-prompt has no retention purpose and must auto-delete after PR #1087 merges
+source_branch_evidence: implementation ref lookup is 404 and repository delete_branch_on_merge=true; after PR #1087 merges the archive ref must also return 404 or be explicitly reconciled through Branch Lifecycle, with terminal evidence recorded in PR #1087 and Issue #1082
 ```
 
 ## Closeout
