@@ -36,9 +36,9 @@ Add a standalone repository-owned prompt and executable dedicated evaluation for
 - [x] The prompt has a versioned `PROMPT_EVAL_STANDARD.md` contract and a dedicated schema-valid balanced evaluation inventory with explicit no-model-trial limitation.
 - [x] The dedicated suite is wired to a bounded workflow that executes the repository evaluator whenever the prompt/suite/workflow changes.
 - [x] No canonical prompt/shared-eval file owned by PR #1076 is changed.
-- [ ] Review threads are resolved after exact repair inspection.
-- [ ] Dedicated prompt-eval workflow plus required Agent Governance and CI pass on the exact final head; runtime/browser E2E remains `NOT_APPLICABLE` with reason.
-- [ ] Issue/PR/task lifecycle is terminal and ownership is released after merge.
+- [x] Both material PR review findings are repaired and both review threads are resolved.
+- [x] Repaired candidate head `e088630e5d5b9ce31300705e534da9fb35b37a27` passed dedicated prompt eval, Agent Governance, repository CI and all additionally triggered validation workflows; runtime/browser E2E is `NOT_APPLICABLE` with reason. The checkpoint-only final head created by this update must still pass its exact-head merge gates.
+- [ ] Issue/PR/task lifecycle is terminal and ownership is released after merge and archive closeout.
 
 ## Ownership
 
@@ -71,29 +71,29 @@ forbidden_paths:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-15T07:27:30Z
-head: aad5f7c87df010f865e59789c61d83a1095f2ab1
+updated_at: 2026-08-15T07:32:30Z
+head: e088630e5d5b9ce31300705e534da9fb35b37a27
 branch: docs/portal-parallel-coordinator-prompt
 pr: 1083
-status: implementing
-phase: validate
+status: ready
+phase: close
 project_lane: oteryn-platform-core
 session_id: chatgpt-20260815-portal-parallel-prompt
 session_role: implementation_owner
 execution_mode: chat_github
-execution_reason: review repair of additive prompt/eval/governance package
+execution_reason: additive prompt/eval/governance package at final merge gate
 context_routes:
   - agent-governance
   - portal-completion
 context_pressure: medium
 context_growth: stable
 decomposition_decision: single
-validation_level: focused
+validation_level: full
 invocation_started_at: 2026-08-15T07:15:00Z
-last_progress_at: 2026-08-15T07:27:30Z
+last_progress_at: 2026-08-15T07:32:30Z
 ci_checks_for_current_head: 0
 ci_check_generation: ready
-terminal_ci_wait_started_at: null
+terminal_ci_wait_started_at: 2026-08-15T07:32:30Z
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
@@ -110,43 +110,60 @@ proven:
   - Issue #1082 owns this additive package and records the review-repair scope
   - PR #1083 is Ready for Review
   - PR #1076 owns the canonical portal-completion prompt and shared prompt-contract eval; this task excludes both paths
-  - review thread PRRT_kwDOTcsYjs6Ze-4h identifies invalid ambiguity between candidate handoff and allowed checkpoint statuses
-  - review thread PRRT_kwDOTcsYjs6Ze-4i proves the original dedicated eval is schema-invalid and not executed by existing required workflows
-  - repository prompt evaluator schema requires id, deterministic_text_contract mode, exact policy keys, limitations, all eleven required categories, source/must_contain cases and at least three safety-critical cases
-  - a new dedicated workflow can execute the corrected suite without modifying PR #1076 owned files or existing shared workflow semantics
+  - PR #1083 changed-file inventory contains only the dedicated workflow, standalone prompt, dedicated eval and this task record
+  - review finding on invalid candidate checkpoint status was repaired by using checkpoint status ready plus separate HANDOFF_STATE
+  - review finding on inert/schema-invalid eval was repaired with the repository evaluator schema plus dedicated workflow execution
+  - both PR #1083 review threads are resolved on repaired head
+  - dedicated Parallel Coordinator Prompt Eval run 31872049023 passed on repaired candidate head e088630e5d5b9ce31300705e534da9fb35b37a27
+  - Agent Governance run 31872049094 passed on repaired candidate head e088630e5d5b9ce31300705e534da9fb35b37a27
+  - CI run 31872048955 passed on repaired candidate head e088630e5d5b9ce31300705e534da9fb35b37a27
+  - additionally triggered Phase 7, DB outage, game-auth concurrency and edge-emulation workflows all passed on repaired candidate head
+  - runtime/browser E2E is not applicable because no executable product route, API, persistence or frontend behavior changes
 derived:
-  - the smallest safe repair is prompt handoff clarification plus schema-valid suite plus additive dedicated workflow
+  - the review-repaired package satisfies its prompt/eval behavior contract and is ready for final checkpoint-head CI
 unknown:
-  - exact-head validation result after the review repair
+  - exact required-check outcome on the checkpoint-only head created by this update
 conflicts: []
 first_failure:
   marker: pr-1083-review-contract-defects
-  evidence: two unresolved P2 review threads on prompt handoff status and inert/schema-invalid dedicated eval
+  evidence: two P2 findings on initial candidate were repaired and review threads resolved
 rejected_hypotheses:
   - an inert JSON inventory satisfies deterministic prompt regression acceptance
   - CANDIDATE_READY_FOR_AUDIT may be persisted as checkpoint status
   - modifying the PR #1076 canonical prompt/shared eval is necessary for this task
 changed_paths:
-  - docs/agents/prompts/OTERYN-PORTAL-COMPLETION-PARALLEL-COORDINATOR-PROMPT.md
-  - docs/agents/evals/oteryn-portal-parallel-coordinator-prompt-v1.json
   - .github/workflows/parallel-coordinator-prompt-eval.yml
+  - docs/agents/evals/oteryn-portal-parallel-coordinator-prompt-v1.json
+  - docs/agents/prompts/OTERYN-PORTAL-COMPLETION-PARALLEL-COORDINATOR-PROMPT.md
   - docs/agents/tasks/active/OTERYN-20260815-portal-parallel-coordinator-prompt.md
 validation:
-  - command: repository overlap review
+  - command: exact changed-file inventory
     result: PASS
-    evidence: canonical prompt/shared eval remain forbidden and unchanged; dedicated workflow is additive
-  - command: prompt handoff repair review
+    evidence: four declared task-owned paths only; canonical prompt/shared eval are absent
+  - command: dedicated evaluation inventory schema and execution
     result: PASS
-    evidence: checkpoint status is explicitly ready and candidate readiness is a separate handoff state
-  - command: dedicated eval schema review against tools/validation/prompt_eval.py
+    evidence: Parallel Coordinator Prompt Eval run 31872049023 SUCCESS on e088630e5d5b9ce31300705e534da9fb35b37a27
+  - command: Agent Governance run 31872049094
     result: PASS
-    evidence: corrected suite declares required schema/mode/policy/limitations/categories/source markers and three safety-critical cases
+    evidence: repaired candidate head e088630e5d5b9ce31300705e534da9fb35b37a27
+  - command: CI run 31872048955
+    result: PASS
+    evidence: repaired candidate head e088630e5d5b9ce31300705e534da9fb35b37a27
+  - command: additional triggered validation workflows
+    result: PASS
+    evidence: Phase 7 31872049007, Platform DB Outage 31872048980, Game Auth Ticket Concurrency 31872048928, Edge Security Emulation 31872048963 all SUCCESS
+  - command: PR #1083 review hygiene
+    result: PASS
+    evidence: both material review threads repaired, replied to and resolved
+  - command: exact-head whole-diff self-review
+    result: PASS
+    evidence: no open material authority, ownership, selector, checkpoint-status, eval-execution, E2E or closeout finding remains on repaired candidate
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: no executable product route, API, persistence or frontend behavior changes
 blockers:
   - none
-next_action: commit review repairs, inspect exact diff, resolve both review threads, then require dedicated prompt-eval plus repository-required exact-head CI before merge
+next_action: verify required checks on the checkpoint-only final PR head, then squash-merge PR #1083 if unchanged and eligible
 ```
 
 ## Source branch closeout
@@ -154,7 +171,7 @@ next_action: commit review repairs, inspect exact diff, resolve both review thre
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository agent-governance task branch
-source_branch_evidence: pending merge and source-ref verification
+source_branch_evidence: pending implementation merge and source-ref verification during archive closeout
 ```
 
 ## Notes
