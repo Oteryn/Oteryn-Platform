@@ -32,10 +32,10 @@ Record the repository owner's corrected target Oteryn ecosystem repository topol
 
 - [x] Reconcile protected `main`, active task paths and open architecture PR ownership before editing.
 - [x] Intentionally close draft PR #1065 because its canonical-Otheryn-producer premise is superseded by the repository owner's corrected Atlas decision.
-- [ ] Record an accepted ADR for the target `Oteryn`, `Oteryn-Game`, `Oteryn-Platform` and `Oteryn-Atlas` repository topology.
-- [ ] Record the ownership split between canonical world/OTBM migration concerns, Atlas product concerns and Platform public integration.
-- [ ] Record that the legacy `blakinio/Otheryn` project is a migration source, not a target architecture authority.
-- [ ] Update the ADR registry without reusing the abandoned `0038` draft identifier.
+- [x] Record an accepted ADR for the target `Oteryn`, `Oteryn-Game`, `Oteryn-Platform` and `Oteryn-Atlas` repository topology.
+- [x] Record the ownership split between canonical world/OTBM migration concerns, Atlas product concerns and Platform public integration.
+- [x] Record that the legacy `blakinio/Otheryn` project is a migration source, not a target architecture authority.
+- [x] Update the ADR registry without reusing the abandoned `0038` draft identifier.
 - [ ] Pass repository-required exact-head validation for the documentation-only change.
 - [ ] Merge only after the exact-head merge gate is satisfied, then archive/release this task through repository closeout policy.
 
@@ -63,33 +63,56 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-15T10:35:00Z
-phase: implement
+task_kind: implementation
+implementation_authorized: true
+updated_at: 2026-08-15T10:39:00Z
+phase: validate
 session_id: chat-20260815-ecosystem-architecture
 session_role: implementer
 execution_mode: github
 execution_reason: bounded documentation-only architecture change using the GitHub connector
 project_lane: oteryn-platform-core
-head: UNKNOWN
+head: df40d2afcf51b4d80f282fe4a420c2bd685ebfa5
 branch: agent/oteryn-20260815-ecosystem-repository-architecture
-pr: none
-status: implementing
-context_routes:
-  - agent-governance
-  - architecture
-  - testing
+pr: 1096
+status: validating
+context_pressure: medium
+context_growth: stable
+context_score: 6
+estimate_confidence: high
+decomposition_decision: single
+decomposition_reason: one cohesive cross-repository topology decision with one Platform ADR and registry update
+validation_level: focused
+session_rotation_count: 0
+heavy_validation_runs: 0
+stale_takeover_count: 0
+human_interruptions: 0
+invocation_started_at: 2026-08-15T10:31:00Z
+last_progress_at: 2026-08-15T10:39:00Z
+ci_checks_for_current_head: 0
+ci_check_generation: draft
+terminal_ci_wait_started_at: null
+terminal_ci_checks_for_current_generation: 0
+unchanged_state_checks: 0
+identical_failure_retries: 0
+repair_cycles_for_current_gate: 0
+context_reconstruction_attempts: 0
+stall_warnings: 0
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260815-ecosystem-repository-architecture.md
   - docs/architecture/adr/0040-oteryn-ecosystem-repository-topology-and-atlas-extraction.md
   - docs/architecture/adr/README.md
 proven:
   - Protected main was reconciled at 536c6320f91d1df981600530e50522d84b1c0588 before the task branch was created.
-  - Main active task records do not claim this task's new task/ADR paths.
+  - Main advanced once to ee080d04a28eafa2934ad9912a359844befac9b2 through PR #1086 after branch creation; compare evidence shows no overlap with this task's three owned paths.
+  - PR #1096 remains mergeable against current main after that non-overlapping advance.
+  - Main active task records at preflight do not claim this task's new task/ADR paths.
   - Open PR #1093 owns docs/architecture/ARCHITECTURE_AUTHORITY.md, so this task intentionally does not edit that shared authority index.
   - Draft PR #1065 owned docs/architecture/adr/README.md and proposed ADR 0038; it was intentionally closed unmerged on 2026-08-15 with Branch-Disposition: delete before this replacement task claimed the registry path.
   - PR #1065 had no submitted reviews or unresolved review threads when closed.
   - Issue #302 previously deferred interactive maps pending authoritative ownership/provenance; this owner decision now supplies the repository/product ownership direction without authorizing runtime implementation.
   - The repository owner states that the current OTBM Atlas lives in the legacy blakinio/Otheryn project, which is an old Canary/Crystal Server lineage and should be moved out rather than treated as the target Oteryn architecture.
+  - ADR 0040 and the ADR registry update are persisted in draft PR #1096.
 derived:
   - PR #1065's assumption that the legacy Otheryn repository should remain the canonical Atlas producer is no longer valid.
   - A dedicated Oteryn-Atlas product repository avoids coupling the browser map product to the legacy Canary/Crystal server repository while preserving a clean ownership boundary with the future native game/world implementation.
@@ -113,24 +136,30 @@ changed_paths:
 validation:
   - command: live repository/PR/path ownership reconciliation
     result: PASS
-    evidence: protected main 536c6320f91d1df981600530e50522d84b1c0588; predecessor PR #1065 closed unmerged; open architecture PR #1093 does not own this task's three paths
+    evidence: protected main preflight 536c6320f91d1df981600530e50522d84b1c0588; predecessor PR #1065 closed unmerged; open architecture PR #1093 does not own this task's three paths
+  - command: main delta 536c6320..ee080d04
+    result: PASS
+    evidence: only PR #1086 CI/workflow/test/governance paths changed; no task-owned path overlaps and PR #1096 remains mergeable
+  - command: full PR #1096 diff review
+    result: PASS
+    evidence: exactly three declared documentation paths; no runtime, workflow, deployment, secret or external-repository mutation
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: this task changes architecture documentation only and creates no executable product or integration journey
   - command: exact-head repository CI
     result: NOT_RUN
-    evidence: candidate commit not yet persisted
+    evidence: final checkpoint commit must be persisted before exact-head checks are observed
 blockers:
   - none
-next_action: Persist ADR 0040 and the ADR registry update on the dedicated task branch, then open the replacement draft PR and run exact-head validation.
+next_action: Persist this validation checkpoint, record exact-head self-review on PR #1096, mark the PR ready and run/observe repository-required exact-head checks.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: task is active
-source_branch_evidence: dedicated branch created from protected main 536c6320f91d1df981600530e50522d84b1c0588
+source_branch_reason: task is active and validating
+source_branch_evidence: dedicated branch agent/oteryn-20260815-ecosystem-repository-architecture; PR #1096; implementation commit df40d2afcf51b4d80f282fe4a420c2bd685ebfa5
 ```
 
 ## Notes
