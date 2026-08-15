@@ -5,7 +5,17 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT"
 
 legacy='login.oteryn.molehill.cloud'
+public_edge_architecture='docs/architecture/PUBLIC_EDGE_ARCHITECTURE.md'
+expected_retirement='`login.oteryn.molehill.cloud` is retired and must not be restored as a canonical endpoint without an explicit contract/decision change.'
 unexpected=()
+
+# PublicEdge is the current focused architecture and must be allowed to name the
+# legacy host only as an explicit retirement invariant. Fail closed if that
+# statement is removed or softened instead of blindly allowlisting the file.
+grep -Fxq "$expected_retirement" "$public_edge_architecture" || {
+    printf 'PublicEdge architecture must preserve the exact legacy-host retirement invariant.\n' >&2
+    exit 1
+}
 
 while IFS= read -r path; do
     [[ -n "$path" ]] || continue
@@ -14,6 +24,7 @@ while IFS= read -r path; do
         docs/agents/reports/* | \
         docs/agents/tasks/* | \
         docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md | \
+        docs/architecture/PUBLIC_EDGE_ARCHITECTURE.md | \
         docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md | \
         deploy/synology/PUBLIC_ENDPOINTS.md | \
         docs/operations/CLOUDFLARE_EDGE_AUDIT.md | \
