@@ -161,14 +161,31 @@ class PromptEvalTest(unittest.TestCase):
             scope["selection_authority"],
         )
 
-        rules = scope["rules"]
-        for key in ("selects_work", "claims_ownership", "proves_live_state", "can_promote_ready"):
-            self.assertIs(False, rules[key], f"{key} must stay fail-closed/non-scheduling")
-        self.assertIs(True, rules["live_selector_state_required"])
-        self.assertIs(True, rules["higher_authority_overrides_projection"])
+        expected_rules = {
+            "selects_work": False,
+            "claims_ownership": False,
+            "proves_live_state": False,
+            "can_promote_ready": False,
+            "live_selector_state_required": True,
+            "higher_authority_overrides_projection": True,
+            "required_meaning": (
+                "A terminal implement, defer or reject disposition is required before global portal "
+                "completion; REQUIRED does not mean live READY."
+            ),
+            "conditional_meaning": (
+                "The workstream participates only when its named accepted activation trigger is proven; "
+                "CONDITIONAL does not self-activate."
+            ),
+            "deferred_meaning": (
+                "Outside current launch scope until an accepted reactivation trigger is satisfied."
+            ),
+            "rejected_meaning": "Explicitly excluded by accepted authority.",
+        }
+        self.assertEqual(expected_rules, scope["rules"], "portal completion scope rule semantics drift")
 
-        allowed = {"REQUIRED", "CONDITIONAL", "DEFERRED", "REJECTED"}
-        self.assertEqual(allowed, set(scope["allowed_dispositions"]))
+        allowed_list = ["REQUIRED", "CONDITIONAL", "DEFERRED", "REJECTED"]
+        self.assertEqual(allowed_list, scope["allowed_dispositions"])
+        allowed = set(allowed_list)
 
         expected_capability_disposition_contract = {
             "required_for_global_completion": True,
@@ -213,6 +230,20 @@ class PromptEvalTest(unittest.TestCase):
             "no broad workstream/family disposition is being used as a substitute for the required per-capability records;",
         ):
             self.assertIn(marker, programme_text)
+
+        completion_markers = (
+            "the exact canonical per-capability inventory",
+            "every capability has exactly one owner-approved `IMPLEMENT | DEFER | REJECT` record containing stable `capability_id`, `owner`, `rationale`, `outcome` and `authority_evidence`;",
+            "no broad workstream/family disposition substitutes for the required per-capability records;",
+            "`DECISION_REQUIRED` and global completion is false",
+        )
+        for relative in (
+            "docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md",
+            "docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md",
+        ):
+            text = (root / relative).read_text(encoding="utf-8")
+            for marker in completion_markers:
+                self.assertIn(marker, text, f"{relative} missing completion marker: {marker}")
 
         workstreams = scope["workstreams"]
         self.assertTrue(workstreams)

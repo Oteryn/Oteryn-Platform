@@ -308,14 +308,20 @@ Do not preserve a dated list of “currently open” PR numbers here as routing 
 
 ## Completion definition
 
-Global portal completion uses `OTERYN_PORTAL_COMPLETION_SCOPE.json` only as a **non-scheduling disposition projection**. Completion still requires live proof:
+Global portal completion uses `OTERYN_PORTAL_COMPLETION_SCOPE.json` only as a **non-scheduling disposition projection**. Completion still requires current durable proof for the exact named release scope that:
 
 - every `REQUIRED` item has a terminal implement/defer/reject disposition;
 - every `CONDITIONAL` item whose accepted activation trigger is active has a terminal disposition;
+- the exact canonical per-capability inventory is resolved from current architecture/owner authority;
+- every capability has exactly one owner-approved `IMPLEMENT | DEFER | REJECT` record containing stable `capability_id`, `owner`, `rationale`, `outcome` and `authority_evidence`;
+- no broad workstream/family disposition substitutes for the required per-capability records;
+- missing, duplicate, conflicting or ambiguous capability-disposition evidence is absent; otherwise the programme remains `DECISION_REQUIRED` and global completion is false;
 - deferred/inactive conditional work is not falsely described as implemented;
 - no launch-critical security/authority finding remains unresolved;
 - current exact-head implementation/E2E/CI/PR/task/source-branch lifecycle is terminal for delivered slices;
 - production/go-live claims have direct authorized evidence for the exact deployed identity.
+
+`IMPLEMENT` is product disposition only; it does not prove implementation, E2E, CI, production readiness or activation. The scope projection never proves live selector state, ownership, production evidence or per-capability disposition records.
 
 A single task is complete only when its observable outcome exists and repository exact-head validation, E2E/N/A, review/PR hygiene, merge, task/Issue and source-branch/resource closeout rules are terminal.
 

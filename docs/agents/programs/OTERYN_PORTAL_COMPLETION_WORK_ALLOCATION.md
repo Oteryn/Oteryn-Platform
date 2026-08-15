@@ -183,14 +183,18 @@ Parallelism is global across **already selected/claimed independent tasks**, not
 
 ## Definition of project completion
 
-`docs/agents/programs/OTERYN_PORTAL_COMPLETION_SCOPE.json` is the machine-readable non-scheduling projection of launch/completion dispositions. The portal completion project is globally terminal only when:
+`docs/agents/programs/OTERYN_PORTAL_COMPLETION_SCOPE.json` is the machine-readable non-scheduling projection of launch/completion dispositions. The portal completion project is globally terminal only when all of the following are proven from current durable evidence for the exact named release scope:
 
 - every `REQUIRED` item has an accepted terminal implement/defer/reject disposition;
 - every `CONDITIONAL` item whose activation trigger is proven for current launch scope has a terminal disposition;
-- inactive conditional and deferred items remain outside the completion claim rather than being silently described as implemented;
+- the exact canonical per-capability inventory is resolved from current architecture/owner authority;
+- every capability has exactly one owner-approved `IMPLEMENT | DEFER | REJECT` record containing stable `capability_id`, `owner`, `rationale`, `outcome` and `authority_evidence`;
+- no broad workstream/family disposition substitutes for the required per-capability records;
+- missing, duplicate, conflicting or ambiguous capability-disposition evidence is absent; otherwise the programme remains `DECISION_REQUIRED` and global completion is false;
+- inactive conditional and deferred work is not falsely described as implemented;
 - no launch-critical security/privacy/audit finding remains unresolved;
 - every production/go-live claim is tied to direct authorized evidence for the exact deployed identity;
-- at least the accepted PlayerCompanion foundation workflow remains terminal; follow-ups are required only when individually promoted;
+- the accepted PlayerCompanion foundation workflow remains terminal; follow-up **implementation** is required only for capabilities whose owner-approved outcome is `IMPLEMENT`, while every canonical capability still requires its product disposition record;
 - every merged implementation has terminal task/PR/Issue/source-branch lifecycle and released ownership.
 
-The scope projection never proves current status, ownership, production evidence or selector `READY`; all of those are recomputed from live state.
+`IMPLEMENT` is product disposition only; it does not prove implementation, E2E, CI, production readiness or activation. The scope projection never proves current status, ownership, production evidence, selector `READY` or per-capability disposition evidence; all of those are resolved from their current authorities.
