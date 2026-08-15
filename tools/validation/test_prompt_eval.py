@@ -134,6 +134,50 @@ class PromptEvalTest(unittest.TestCase):
         allowed = {"REQUIRED", "CONDITIONAL", "DEFERRED", "REJECTED"}
         self.assertEqual(allowed, set(scope["allowed_dispositions"]))
 
+        expected_capability_disposition_contract = {
+            "required_for_global_completion": True,
+            "inventory_authority": [
+                "docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md",
+                "focused canonical architecture owners for included capability families",
+                "accepted owner decisions for the named release scope",
+            ],
+            "inventory_resolution": (
+                "Enumerate every named benchmark capability for the exact release scope with a stable "
+                "capability_id; workstream or family grouping must not replace member capabilities."
+            ),
+            "allowed_outcomes": ["IMPLEMENT", "DEFER", "REJECT"],
+            "required_record_fields": [
+                "capability_id",
+                "owner",
+                "rationale",
+                "outcome",
+                "authority_evidence",
+            ],
+            "one_record_per_capability": True,
+            "owner_approved": True,
+            "stable_capability_id_required": True,
+            "workstream_disposition_is_not_capability_proof": True,
+            "scope_manifest_is_not_live_proof": True,
+            "missing_or_ambiguous_record_state": "DECISION_REQUIRED",
+        }
+        self.assertEqual(
+            expected_capability_disposition_contract,
+            scope["capability_disposition_contract"],
+            "global per-capability disposition proof contract drift",
+        )
+
+        programme_text = (
+            root / "docs/agents/programs/OTERYN_PORTAL_COMPLETION.md"
+        ).read_text(encoding="utf-8")
+        for marker in (
+            "## Per-capability disposition proof",
+            "a broad workstream/family row must not replace or collapse its member capabilities;",
+            "every record must contain `capability_id`, `owner`, `rationale`, `outcome` and `authority_evidence`;",
+            "missing, duplicate, conflicting or ambiguous capability-disposition evidence is `DECISION_REQUIRED` and keeps global Portal Completion false.",
+            "no broad workstream/family disposition is being used as a substitute for the required per-capability records;",
+        ):
+            self.assertIn(marker, programme_text)
+
         workstreams = scope["workstreams"]
         self.assertTrue(workstreams)
         ids = [item["id"] for item in workstreams]

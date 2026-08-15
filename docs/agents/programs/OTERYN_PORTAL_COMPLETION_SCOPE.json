@@ -23,6 +23,33 @@
     "DEFERRED",
     "REJECTED"
   ],
+  "capability_disposition_contract": {
+    "required_for_global_completion": true,
+    "inventory_authority": [
+      "docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md",
+      "focused canonical architecture owners for included capability families",
+      "accepted owner decisions for the named release scope"
+    ],
+    "inventory_resolution": "Enumerate every named benchmark capability for the exact release scope with a stable capability_id; workstream or family grouping must not replace member capabilities.",
+    "allowed_outcomes": [
+      "IMPLEMENT",
+      "DEFER",
+      "REJECT"
+    ],
+    "required_record_fields": [
+      "capability_id",
+      "owner",
+      "rationale",
+      "outcome",
+      "authority_evidence"
+    ],
+    "one_record_per_capability": true,
+    "owner_approved": true,
+    "stable_capability_id_required": true,
+    "workstream_disposition_is_not_capability_proof": true,
+    "scope_manifest_is_not_live_proof": true,
+    "missing_or_ambiguous_record_state": "DECISION_REQUIRED"
+  },
   "workstreams": [
     {
       "id": "portal_control_plane",

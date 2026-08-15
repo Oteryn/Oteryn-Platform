@@ -46,17 +46,17 @@ Make portal delivery authority, live selection, completion scope, execution allo
 - [x] Architecture Review owns new durable ADR-level decisions; Portal coordination applies accepted architecture.
 - [x] Multi-world/ruleset/season is a conditional cross-cutting invariant.
 - [x] PlayerCompanion foundation is terminal; implementation follow-ups remain individually conditional.
-- [x] Global completion cannot bypass PlayerCompanion product decisions: a required decision gate inventories every remaining canonical capability and requires owner-approved IMPLEMENT/DEFER/REJECT plus rationale before terminal completion.
+- [x] PlayerCompanion global completion cannot bypass the canonical capability inventory: twenty-four remaining capabilities require owner-approved IMPLEMENT/DEFER/REJECT decisions and rationale.
+- [x] Global Portal Completion requires per-capability proof for the complete named-release benchmark inventory; broad workstream dispositions cannot substitute.
+- [x] Every per-capability record requires stable `capability_id`, owner, rationale, outcome and authority evidence; missing/duplicate/conflicting/ambiguous evidence remains `DECISION_REQUIRED`.
 - [x] Work Allocation is a non-scheduling capability maturity/execution matrix.
 - [x] Historical Work Reconciliation is tombstoned `TERMINAL_DO_NOT_RUN`.
 - [x] Game Catalog grants no standing server-repository authority and preserves atomic consumer-first merge ordering.
-- [x] Prompt-contract and semantic completion-scope regression tests cover the new invariants.
-- [x] Every canonical scope workstream ID, disposition, selector entry, activation trigger and authority boundary is pinned fail-closed by deterministic validation.
-- [x] PlayerCompanion decision inventory is pinned to the complete remaining P0/P1/P2 capability set from canonical architecture, without silently choosing product outcomes.
+- [x] Deterministic validation pins scope workstreams, exact trigger/boundary semantics, PlayerCompanion inventory and the global per-capability disposition-proof contract.
 - [x] CI orchestration changes from #1086 remain non-overlapping with this task.
 - [x] Duplicate PRs/refs #1094/#1095 are closed/absent.
-- [x] Initial Codex P2 findings for checkpoint identity and full workstream inventory were remediated and verified by Agent Governance.
-- [x] Exact-head Codex P1/P2 findings for PlayerCompanion disposition completeness and trigger semantics are remediated without weakening product/authority gates.
+- [x] Prior Codex checkpoint/full-inventory, PlayerCompanion-disposition and trigger-semantic findings were remediated and resolved.
+- [x] Third exact-head Codex P2 per-capability-proof finding is remediated without inventing product outcomes.
 - [ ] Remediated exact-head Agent Governance and required CI pass.
 - [ ] Final exact-head Codex review/self-review and review hygiene are terminal.
 - [ ] PR/Issue/task/source-branch closeout is terminal.
@@ -93,7 +93,7 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-15T11:04:28Z
+updated_at: 2026-08-15T11:13:34Z
 head: UNKNOWN
 branch: docs/portal-programme-coherence-20260815
 pr: 1093
@@ -114,41 +114,36 @@ owned_paths:
   - docs/agents/evals/prompt-contract-v1.json
   - tools/validation/test_prompt_eval.py
 proven:
-  - Protected main advanced to dfec0c0683202c0c380b78cb4b956b2d19de68b8 only through lifecycle-only archive PR #1098 after the prior synchronization; that main delta does not overlap Issue #1092 owned paths.
-  - Portal Completion is the sole live selector; completion scope cannot select work, claim ownership, persist live selector state or promote READY.
-  - Work Allocation is post-selection only and Architecture Review owns new or superseding durable decisions.
-  - Multi-world/ruleset/season is conditional cross-cutting applicability.
-  - Portal Completeness Architecture requires every benchmark capability to have an IMPLEMENT/DEFER/REJECT disposition with owner and rationale before release-scope closure.
-  - PlayerCompanion Architecture states product delivery remains incomplete until the owner-approved capability inventory has explicit implementation/defer/reject disposition.
-  - PlayerCompanion canonical remaining capability inventory contains Loot Split; seven additional P0 follow-ups after the Session Analyzer foundation; nine P1 capabilities; and seven P2 capabilities, for twenty-four explicit remaining decisions.
-  - Historical Work Reconciliation is TERMINAL_DO_NOT_RUN and future branch hygiene remains ADR 0037/0039 governance.
-  - Game Catalog retains historical provenance and the atomic-required prohibition on merging a producer schema before a compatible inactive consumer.
-  - Game Catalog grants no standing cross-repository access or mutation authority from a Platform invocation.
-  - Exact-head 8c264ea814a06e3c05d3a6e7f321f3c71e345216 passed all eight emitted repository workflows, including Agent Governance 31880971013 and CI 31880971004.
-  - Initial Codex P2 threads for checkpoint identity and incomplete workstream inventory were replied to with exact remediation evidence and resolved.
-  - Exact-head Codex review on 8c264ea814a06e3c05d3a6e7f321f3c71e345216 identified a P1 gap where conditional PlayerCompanion follow-ups could disappear from global completion without explicit owner dispositions, plus a P2 gap where activation-trigger semantics were not pinned.
-  - The remediation adds a REQUIRED non-implementation PlayerCompanion capability-inventory decision gate and preserves actual follow-up implementation as CONDITIONAL only after an owner-approved IMPLEMENT disposition.
-  - The deterministic scope validator now pins every canonical ID, disposition, selector entry, activation trigger and boundary, plus the exact twenty-four-item PlayerCompanion decision inventory and allowed field shape.
+  - Protected main is dfec0c0683202c0c380b78cb4b956b2d19de68b8 and the current Issue #1092 candidate bcf6b437012a081761352d34ba2ace760f549a95 is behind_by=0 before the third-review remediation.
+  - Portal Completeness Architecture requires an explicit named-release capability inventory and an IMPLEMENT/DEFER/REJECT disposition with owner and rationale for every benchmark capability before release-scope closure.
+  - PlayerCompanion Architecture separately requires owner-approved capability inventory dispositions before its product delivery can be complete.
+  - Portal Completion is the sole live selector; scope/workstream rows cannot prove live state or READY.
+  - Work Allocation is post-selection only and Architecture Review owns new durable decisions.
+  - Historical Work Reconciliation is TERMINAL_DO_NOT_RUN; future branch hygiene remains ADR 0037/0039 governance.
+  - Game Catalog retains historical provenance, atomic consumer-first merge ordering and no standing server-repository authority.
+  - Exact-head bcf6b437012a081761352d34ba2ace760f549a95 passed Agent Governance 31881322784 and all eight emitted workflows, including CI 31881322729.
+  - First four Codex findings were remediated, replied to with exact evidence and resolved.
+  - Third exact-head Codex review on bcf6b437012a081761352d34ba2ace760f549a95 identified one P2: broad workstream terminality could still substitute for per-capability owner/rationale/outcome proof.
+  - The remediation adds a machine-readable global per-capability disposition contract and makes missing, duplicate, conflicting or ambiguous records DECISION_REQUIRED.
+  - Deterministic validation now pins the per-capability proof contract and mandatory Portal Completion programme markers in addition to exact workstream/trigger/boundary semantics.
 derived:
-  - The P1 remediation strengthens the existing owner-decision requirement without deciding IMPLEMENT/DEFER/REJECT outcomes on the owner's behalf.
-  - The P2 remediation prevents trigger or authority-boundary drift from silently activating unauthorized work or suppressing required work.
-  - A fresh exact-head CI generation and fresh Codex review are required after the coherent second-review remediation and current-main synchronization.
+  - The remediation strengthens the existing completion boundary without choosing IMPLEMENT/DEFER/REJECT outcomes or expanding implementation scope.
+  - A broad terminal workstream can no longer justify global completion unless every canonical member capability has its own owner-approved durable record.
+  - A fresh exact-head CI generation and Codex review are required after this coherent remediation.
 unknown:
-  - Exact remediated PR head until the coherent second-review fix and main-sync commit is created.
+  - Exact remediated PR head until the coherent commit is created.
   - Exact conclusions of required CI and final Codex review on that new head.
   - Final implementation and closeout merge SHAs until merge occurs.
 conflicts: []
 first_failure:
-  marker: codex-exact-head-playercompanion-and-trigger-findings
-  evidence: Codex review submitted 2026-08-15T11:04:27Z/28Z on exact head 8c264ea814a06e3c05d3a6e7f321f3c71e345216 identified P1 missing explicit PlayerCompanion inventory dispositions and P2 unpinned activation-trigger semantics; both are addressed in the next coherent commit.
+  marker: codex-exact-head-global-per-capability-proof-gap
+  evidence: Codex review submitted 2026-08-15T11:13:34Z on bcf6b437012a081761352d34ba2ace760f549a95 found that broad workstream dispositions could satisfy the written global rule while benchmark capabilities still lacked owner/rationale/outcome records required by canonical architecture.
 rejected_hypotheses:
-  - treat one terminal PlayerCompanion foundation workflow as satisfying disposition requirements for all remaining tools
-  - silently mark all PlayerCompanion follow-ups DEFERRED or REJECTED without owner authority
-  - make all PlayerCompanion follow-up implementations immediately REQUIRED
-  - validate trigger strings only as non-empty
-  - weaken or bypass checkpoint validation
-  - treat a stale Codex review as sufficient after a head change
-  - change CI workflow paths delivered by PR #1086
+  - enumerate or decide all product outcomes inside this governance repair
+  - let workstream DEFER or REJECT imply member-capability decisions
+  - treat inactivity or missing ownership as an implicit capability disposition
+  - weaken or bypass canonical Portal Completeness Architecture
+  - weaken CI or Codex review requirements
   - expand cross-repository authority
 changed_paths:
   - docs/agents/evals/prompt-contract-v1.json
@@ -163,29 +158,26 @@ changed_paths:
   - docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md
   - tools/validation/test_prompt_eval.py
 validation:
-  - command: canonical architecture check for second Codex findings
+  - command: canonical architecture verification
     result: PASS
-    evidence: PORTAL_COMPLETENESS_ARCHITECTURE completion gate requires per-capability IMPLEMENT/DEFER/REJECT; PLAYER_COMPANION_ARCHITECTURE completion criteria require owner-approved capability inventory dispositions.
+    evidence: PORTAL_COMPLETENESS_ARCHITECTURE requires explicit capability inventory plus per-benchmark IMPLEMENT/DEFER/REJECT owner+rationale proof; PlayerCompanion has the same product-delivery invariant.
   - command: prior exact-head repository validation
     result: PASS
-    evidence: 8c264ea814a06e3c05d3a6e7f321f3c71e345216 passed all eight emitted workflows including Agent Governance 31880971013 and CI 31880971004.
-  - command: exact-head Codex review on prior candidate
+    evidence: bcf6b437012a081761352d34ba2ace760f549a95 passed all eight emitted workflows including Agent Governance 31881322784 and CI 31881322729.
+  - command: third exact-head Codex review on prior candidate
     result: FAIL
-    evidence: P1 PlayerCompanion disposition completeness and P2 trigger-semantic pinning findings remain open until this coherent remediation is committed and re-reviewed.
-  - command: second-review remediated exact-head repository validation
+    evidence: one P2 per-capability global-completion proof gap remains open until this coherent remediation is committed and re-reviewed.
+  - command: remediated exact-head repository validation
     result: NOT_RUN
-    evidence: the coherent remediation/main-sync commit has not yet been created; exact current head is resolved from live PR state after commit.
-  - command: second-review remediated exact-head Codex review
+    evidence: coherent remediation commit has not yet been created.
+  - command: remediated exact-head Codex review
     result: NOT_RUN
-    evidence: must be re-triggered after the coherent remediation/main-sync commit so review covers the exact final candidate.
-  - command: dedicated stochastic prompt-adherence trials
-    result: NOT_RUN
-    evidence: Codex PR review is a code/governance review and is not represented as repeated prompt-runtime adherence evaluation.
+    evidence: must be re-triggered on the exact remediation head.
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
-    evidence: governance/documentation/prompt-contract work creates no product runtime or browser journey.
+    evidence: governance/documentation/prompt-contract work creates no product runtime/browser journey.
 blockers: []
-next_action: Commit the P1/P2 Codex remediations together with the non-overlapping current-main sync, run exact-head CI, re-trigger Codex review, resolve all threads, and merge only when every exact-head gate is terminal green.
+next_action: Commit the per-capability global-completion proof contract, run exact-head CI, re-trigger Codex review, resolve the P2 thread, and merge only when every exact-head gate is terminal green.
 ```
 
 ## Source branch closeout

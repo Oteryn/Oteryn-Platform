@@ -68,6 +68,22 @@ These values are product/release dispositions, **not** selector states. `REQUIRE
 
 When the scope projection and a newer accepted ADR/owner decision conflict, the higher authority wins and the projection must be reconciled before it is used for a global completion claim.
 
+## Per-capability disposition proof
+
+Workstream disposition is not proof that every benchmark capability inside that workstream has an accepted product outcome. Before any global Portal Completion claim, resolve the **named release capability inventory** from `PORTAL_COMPLETENESS_ARCHITECTURE.md`, the focused canonical architecture owners for the included capability families, and accepted owner decisions for that release scope.
+
+For that exact inventory:
+
+1. enumerate every named capability with a stable capability ID; a broad workstream/family row must not replace or collapse its member capabilities;
+2. prove exactly one durable live disposition record for every capability;
+3. every record must contain `capability_id`, `owner`, `rationale`, `outcome` and `authority_evidence`;
+4. `outcome` is exactly `IMPLEMENT | DEFER | REJECT` and must be owner-approved under current repository/product authority;
+5. `IMPLEMENT` is product disposition only and does not prove implementation, E2E, CI, production readiness or activation;
+6. `DEFER`/`REJECT` must retain owner/rationale/authority evidence and cannot be inferred from inactivity, missing ownership or a broader workstream state;
+7. missing, duplicate, conflicting or ambiguous capability-disposition evidence is `DECISION_REQUIRED` and keeps global Portal Completion false.
+
+`OTERYN_PORTAL_COMPLETION_SCOPE.json` carries the machine-readable proof contract, not the live disposition records themselves. The records must come from current durable authority/evidence for the named release. A workstream becoming terminal never substitutes for this per-capability proof.
+
 ## Architecture decision boundary
 
 `OTERYN_PLATFORM_ARCHITECTURE_REVIEW` owns discovery and resolution of a **new or superseding durable architecture decision**: new module ownership, durable cross-module direction, new trust boundary, major product architecture alternative, or another question that requires an ADR/backlog decision.
@@ -212,7 +228,17 @@ A selected item becomes terminal only after:
 - source-branch/resource closeout is verified;
 - the programme queue is re-evaluated from the new protected `main`.
 
-Global Portal Completion may be claimed only when every `REQUIRED` scope item has a terminal implementation/defer/reject disposition, every active `CONDITIONAL` trigger has a terminal disposition, no launch-critical repair remains unresolved, and any production/go-live claim is backed by the separately authorized direct environment evidence it requires. The scope manifest never substitutes for those live facts.
+Global Portal Completion may be claimed only when all of the following are proven from current durable evidence for the exact named release scope:
+
+- every `REQUIRED` scope item has a terminal implementation/defer/reject disposition;
+- every active `CONDITIONAL` trigger has a terminal disposition;
+- the exact canonical per-capability inventory has been resolved from current architecture/owner authority and every capability has exactly one owner-approved `IMPLEMENT | DEFER | REJECT` record containing stable `capability_id`, `owner`, `rationale`, `outcome` and `authority_evidence`;
+- no broad workstream/family disposition is being used as a substitute for the required per-capability records;
+- missing, duplicate, conflicting or ambiguous capability-disposition evidence is absent; otherwise the programme remains `DECISION_REQUIRED` and global completion is false;
+- no launch-critical repair remains unresolved;
+- any production/go-live claim is backed by separately authorized direct environment evidence for the exact deployed identity.
+
+The scope manifest and workstream terminality never substitute for the live per-capability proof or the other live facts above.
 
 ## Real stop conditions
 
