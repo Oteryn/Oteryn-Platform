@@ -70,17 +70,21 @@ checkpoint_version: 1
 policy_version: 2
 task_kind: implementation
 implementation_authorized: true
-updated_at: 2026-08-15T22:27:00+02:00
+updated_at: 2026-08-15T22:31:00+02:00
 phase: validate
 session_id: chat-20260815-ecosystem-topology-reconciliation
 session_role: implementer
 execution_mode: github
 execution_reason: bounded architecture/governance reconciliation using merged repository evidence and the GitHub connector
 project_lane: oteryn-platform-core
-head: a6d696fbc24058782f8272eff50715ff174e2ac3
+head: 58d8d9a43dfcce596d1ca11e892cfc2875ef4c2b
 branch: docs/oteryn-20260815-ecosystem-topology-reconciliation
 pr: 1102
 status: validating
+context_routes:
+  - architecture
+  - agent-governance
+  - testing
 context_pressure: medium
 context_growth: stable
 context_score: 7
@@ -116,9 +120,11 @@ unknown:
   - exact history extraction path set until separately authorized legacy-source migration discovery
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: checkpoint-context-routes-missing
+  evidence: CI run 31906695872 job 95065557257 failed active-task checkpoint validation because context_routes was missing; Agent Governance run 31906695840 failed on the same candidate generation
 rejected_hypotheses:
+  - retry the failed exact-head generation unchanged
+  - weaken or bypass the active-task checkpoint validator
   - require Canary or otclient approval before target architecture can proceed
   - split Client, Server or protocol-oteryn into separate repositories now
   - copy the existing mixed Otheryn tools/otbm_atlas subtree wholesale into Oteryn-Atlas
@@ -135,34 +141,40 @@ validation:
   - command: full PR #1102 diff review
     result: PASS
     evidence: exactly four declared documentation paths; ADR 0040 lifecycle-only supersession plus ADR 0041 and registry/task changes; no runtime/workflow/deployment/external-repository mutation
+  - command: first exact-head required generation on 58d8d9a43dfcce596d1ca11e892cfc2875ef4c2b
+    result: FAIL
+    evidence: CI 31906695872 job 95065557257 and Agent Governance 31906695840 fail because the active checkpoint omitted context_routes; six other emitted workflows passed
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: architecture documentation only; no executable product or deployment journey changes
-  - command: exact-head repository CI
+  - command: repaired exact-head repository CI
     result: NOT_RUN
-    evidence: PR will be marked ready after this validation checkpoint and exact-head checks observed
+    evidence: this commit adds only the missing required checkpoint routing field and records the observed failure; a new exact-head generation is required
 blockers:
   - none
-next_action: Mark PR #1102 ready, observe the required exact-head check generation, repair only evidence-based failures, then merge after all gates pass.
+next_action: Observe the new exact-head workflow generation after this checkpoint repair; merge only if every required gate passes and review state remains clean.
 ```
 
 ## Self-review
 
 ```yaml
 result: PASS
-exact_head_reviewed: a6d696fbc24058782f8272eff50715ff174e2ac3
+exact_head_reviewed: 58d8d9a43dfcce596d1ca11e892cfc2875ef4c2b
 acceptance_checked: true
 full_diff_checked: true
 negative_paths_checked: true
 rollback_checked: true
 compatibility_checked: true
 related_prs_checked: true
-findings: []
+findings:
+  - repaired missing context_routes required by the active-task checkpoint schema
+  - no architecture content change was required by the failed validation
 evidence:
   - PR #1102 changes exactly four declared documentation/architecture paths
   - ADR 0041 records the merged Oteryn-v2, Platform and Otheryn review outcomes without treating Canary/otclient as target authorities
   - ADR 0040 content is preserved except for explicit supersession lifecycle/provenance text
   - no executable/runtime/deployment/production authority is added
+  - CI 31906695872 identified one deterministic checkpoint-schema defect and the repair is narrowly scoped to that task record
 ```
 
 ## Source branch closeout
@@ -170,7 +182,7 @@ evidence:
 ```yaml
 source_branch_disposition: pending
 source_branch_reason: task is active and validating
-source_branch_evidence: dedicated branch docs/oteryn-20260815-ecosystem-topology-reconciliation; PR #1102; implementation commit a6d696fbc24058782f8272eff50715ff174e2ac3
+source_branch_evidence: dedicated branch docs/oteryn-20260815-ecosystem-topology-reconciliation; PR #1102; previous candidate head 58d8d9a43dfcce596d1ca11e892cfc2875ef4c2b
 ```
 
 ## Notes
