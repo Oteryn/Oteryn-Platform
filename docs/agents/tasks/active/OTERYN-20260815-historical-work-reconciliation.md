@@ -1,9 +1,9 @@
 ---
 task_id: OTERYN-20260815-historical-work-reconciliation
 issue: 1072
-status: investigating
+status: blocked
 project_lane: oteryn-platform-core
-phase: investigate
+phase: validate
 execution_mode: github_connector
 required_reads:
   - AGENTS.md
@@ -38,26 +38,25 @@ optional_reads:
 
 ## Goal
 
-Reconcile every historical branch that survives only because Issue #1068 classified it `RETAIN` or `RECOVERY`, move valuable work/evidence to its correct durable home, introduce managed recovery retention where exact Git reachability is genuinely required, and remove obsolete execution refs using exact-head fail-closed controls.
+Reconcile every historical branch that survived Issue #1068 as `RETAIN` or `RECOVERY`, preserve useful work in canonical durable state, and remove obsolete execution refs under exact-head fail-closed controls so ordinary branches are not historical archives.
 
 ## Acceptance criteria
 
-- [ ] Reconcile against fresh protected `main`; do not rely on the 2026-08-14/15 seed counts without live verification.
-- [ ] Account for every live branch and every open same-repository PR before mutation.
-- [ ] Audit each historical `RETAIN` / `RECOVERY` ref for unique commits, changed paths, content value, PR/Issue/task provenance, ancestry/reachability, current-main relevance and recovery purpose.
-- [ ] No ordinary historical branch remains solely as an archive convenience.
-- [ ] `RETAIN` is treated as reconciliation-required, not terminal.
-- [ ] Every valuable source/config/test/governance change selected for current use is intentionally reconstructed/delivered against current `main`; no blind historical branch merge.
-- [ ] Historical evidence/context selected for preservation is persisted in the focused canonical report/task/ADR/Issue/PR location with exact branch/SHA provenance before ref deletion.
-- [ ] Every long-lived recovery ref that truly requires exact Git reachability has machine-checkable owner, purpose, reachability mechanism, restore procedure, review trigger, and expiry/retention semantics.
-- [ ] A SHA in JSON/Markdown alone is never treated as proof that a required Git object will remain reachable.
-- [ ] Any tag/custom-ref/other managed recovery mechanism is proven not to trigger release/deploy/publication workflows before adoption.
-- [ ] Obsolete/superseded/disposable refs are deleted only under exact-head, liveness, protection, ownership and recovery checks with post-delete verification.
-- [ ] Open-PR, protected and genuinely active work is preserved and attached to explicit ownership.
-- [ ] Durable policy/validators prevent future unexplained `RETAIN` or unmanaged `RECOVERY` from being accepted as terminal closeout.
-- [ ] Final live inventory contains zero unexplained `RETAIN` refs and zero unmanaged `RECOVERY` refs; only protected `main`, live/owned work and the minimum explicitly managed recovery refs remain.
-- [ ] Relevant focused validation, exact-head self-review, required CI, PR hygiene and runtime E2E classification are terminal.
-- [ ] Issue #1072 closes completed only after implementation merge, task archival, approval/temporary-state cleanup, ownership release and source-branch verification.
+- [x] Reconcile against fresh protected `main`; seed counts are evidence only.
+- [x] Account for every live branch and every open same-repository PR before mutation design.
+- [x] Audit every historical `RETAIN` / `RECOVERY` ref for commits, changed paths, content value, provenance, reachability, current-main relevance and recovery purpose.
+- [x] Replace non-terminal `RETAIN` / unmanaged `RECOVERY` classifications with terminal decisions.
+- [x] Do not blindly merge stale historical branches.
+- [x] Preserve selected historical evidence and exact source SHA/provenance before deletion.
+- [x] Prove no long-lived managed recovery ref is required for the reviewed legacy set.
+- [x] Inspect repository workflows before considering custom/tag recovery refs; introduce none when no recovery requirement exists.
+- [x] Implement exact-SHA, protection, open-PR, active-claim, provenance, preservation and main-drift guards before deletion.
+- [x] Implement authoritative post-delete Git ref absence verification, non-candidate exact-SHA preservation and a real create/delete/recreate/delete restore probe.
+- [x] Preserve protected/open/live owned work.
+- [x] Add durable validator coverage preventing unexplained live historical refs and incomplete managed recovery contracts.
+- [ ] Merge the reviewed implementation to protected `main`.
+- [ ] Execute trusted-main reviewed mutation and prove post-mutation inventory plus real Git lifecycle E2E.
+- [ ] Move this task to `docs/agents/tasks/archive/`, close Issue #1072 completed, remove temporary state, and verify source branch deletion.
 
 ## Ownership
 
@@ -85,35 +84,24 @@ dependencies:
   - Issue #1068 historical exact-SHA cleanup and final zero-candidate audit
   - ADR 0037 terminal source-branch lifecycle
 blockers:
-  - none
+  - PR #1074 is intentionally draft and its accepted authorization explicitly forbids marking Ready or invoking Codex/OpenAI/API/owner-funded AI review without explicit permission for that exact use.
 cross_repository_tasks:
   - none
 ```
 
-`HISTORICAL_WORK_RECONCILIATION_REGISTRY.json` is a proposed path, not a mandatory abstraction. Create it only if live design proves a machine-readable registry is the smallest correct enforcement mechanism. If a different focused path is chosen, update this ownership record before editing.
-
 ## Accepted owner decision
 
-The repository owner has accepted the durable policy recorded in ADR 0039:
-
-- branches are execution resources, not the default historical archive;
-- `RETAIN` is transitional;
-- historical value must be canonicalized to `main`, focused documentation/evidence, PR provenance, or a purpose-built managed recovery mechanism;
-- managed recovery must preserve actual required reachability, not merely textual SHA provenance;
-- branch deletion remains exact-head and fail-closed under ADR 0037.
-
-The implementation owner may choose the concrete managed recovery mechanism after inspecting repository automation, but may not weaken those invariants.
+ADR 0039 remains authoritative: branches are execution resources, `RETAIN` is transitional, historical value belongs on current `main`, focused durable provenance, or a real managed recovery mechanism, and branch deletion remains exact-head/fail-closed under ADR 0037.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-15T06:48:00Z
+updated_at: 2026-08-15T07:38:20Z
 head: LIVE_PR_1074_HEAD
 branch: repair/issue-1072-historical-work-reconciliation
 pr: 1074
-status: investigating
-phase: investigate
+status: blocked
 context_routes:
   - agent-governance
   - architecture
@@ -133,59 +121,71 @@ owned_paths:
   - tools/agents/*historical*reconciliation*.py
   - .github/workflows/historical-branch-audit.yml
 proven:
-  - Issue #1068 is closed completed after deleting 33 exact-reviewed historical refs and removing its one-time approval.
-  - Protected main at task creation is 5000f271db49215c93432b78397dd3560b49e7e7.
-  - Issue #1068 final approval-free audit reported 45 refs with zero DELETE candidates under the prior policy: 7 OPEN_PR, 1 PROTECTED, 15 RECOVERY, 22 RETAIN.
-  - Current main has two pre-existing active tasks unrelated to this repository-governance path set: public-domain repair and native-auth production verification.
-  - Open PR #1065 already allocates proposed ADR prefix 0038; this task therefore allocates ADR 0039 to avoid collision.
-  - Repository owner accepted that ordinary branches are not the default long-term archive and that RETAIN must not remain an unexplained terminal state.
-  - Bootstrap commit 77719cd8c725c0bb6f1cf35efa670ee63416c124 persists ADR 0039, this active task, the execution prompt and ADR inventory update on the dedicated Issue #1072 branch.
-  - Draft PR #1074 owns the bootstrap branch against main; it is intentionally draft so no Ready-triggered owner-funded review is invoked during handoff.
+  - Issue #1068 is closed completed after its exact-reviewed historical cleanup and approval removal.
+  - Discovery run 31870802443 produced artifact 9243364594 with digest sha256:8923531b9a224f1cfaa3d341abf553ad054f1b31d84f168b5b63ae1dc5eb5177 and content/provenance/reachability evidence for the historical candidates.
+  - The reviewed historical set contains 37 refs with terminal decisions: 6 DELETE, 20 DOCUMENT_ARCHIVE and 11 PR_PROVENANCE_DELETE; MANAGED_RECOVERY and CANONICALIZE_TO_MAIN are both zero.
+  - Every one of the 15 legacy RECOVERY refs was individually reconciled; none retains an independent exact Git-history recovery requirement.
+  - The live branch test/OTERYN-20260815-e2e-486-completion moved into owned PR #1077 after discovery and was excluded from historical deletion before review.
+  - Current protected main was rechecked at 841793be68d4c52aff14bfc51d6f291a24b74477; the intervening merged PR #1076 changed only three unrelated prompt-hardening paths admitted to the reviewed main-drift allowlist.
+  - PR #1074 current implementation head before this checkpoint commit was 5b1c3e586c368e9f1843003fe147fb06d75f7dbe, mergeable, draft, and changed exactly the eight Issue #1072-owned implementation paths.
+  - PR #1074 has no submitted reviews, no inline review threads and no PR discussion comments at the latest review-hygiene check.
+  - Historical Branch Audit run 31872416348 validate job passed focused historical-governance tests on head 5b1c3e586c368e9f1843003fe147fb06d75f7dbe.
+  - The previous exact implementation head f5f45d284ee27d86c8f485784cb216b8e8a14a21 passed all automatically triggered workflows including CI, Agent Governance and Historical Branch Audit before protected main advanced.
+  - Agent Governance run 31872416374 on the current synthetic merge failed only because the unrelated merged PR #1076 left task OTERYN-20260815-portal-completion-prompt-hardening active with stale terminal next action; its dedicated closeout PR #1084 exists separately and is outside Issue #1072 ownership.
+  - PR #1074 body preserves the explicit authorization boundary that it must remain draft unless exact Ready/owner-funded-review permission is granted.
 derived:
-  - The 37 seed RETAIN/RECOVERY refs require content-level reconciliation, not another name/age-based deletion sweep.
-  - Some exact recovery histories may need a purpose-built reachable Git ref mechanism; PR/Issue/document provenance alone is not automatically equivalent to object reachability.
+  - Historical deletion must not run until the reviewed implementation is merged and the trusted-main apply job rechecks all live guards.
+  - No custom/tag recovery ref should be created for the reviewed legacy set because there is no surviving exact-history recovery requirement.
+  - The implementation itself is ready for terminal merge gating once the explicit draft authorization blocker is removed and exact-head validation is refreshed against then-live main.
 unknown:
-  - Current exact branch count and classification when the implementation owner begins execution.
-  - Which historical refs contain still-useful current code versus evidence-only or obsolete work.
-  - Which existing PR refs provide sufficient durable provenance/recovery authority for deletion of their source branches.
-  - Whether annotated tags, custom refs, PR refs or another mechanism are operationally safe for managed recovery under current workflows.
-conflicts: []
+  - Protected main and active/open-work drift at the future instant authorization is granted.
+  - Exact final merge SHA and trusted-main apply run because merge is not authorized while PR #1074 remains draft.
+conflicts:
+  - Current Agent Governance synthetic-merge validation is red because of unrelated Issue #1075 lifecycle debt on protected main, not because of an Issue #1072-owned validation failure.
 first_failure:
-  marker: none
-  evidence: none
+  marker: PR_1074_DRAFT_AUTHORIZATION_BOUNDARY
+  evidence: PR #1074 is draft and explicitly says not to mark Ready or invoke Codex/OpenAI/API/owner-funded AI review without explicit permission for that exact use.
 rejected_hypotheses:
-  - keep all unique historical branches indefinitely because they are safer than deciding
-  - delete by age, name, prefix or apparent inactivity
-  - blindly merge stale branches so GitHub will auto-delete them
-  - store only commit SHAs in a registry and assume that guarantees future object reachability
+  - keep historical RETAIN or RECOVERY branches indefinitely
+  - delete branches by name prefix age inactivity or similarity
+  - blindly merge stale historical branches
+  - treat a textual SHA as managed Git recovery
+  - mark PR #1074 Ready despite the explicit authorization boundary
 changed_paths:
+  - .github/workflows/historical-branch-audit.yml
+  - docs/agents/HISTORICAL_WORK_RECONCILIATION_REGISTRY.json
   - docs/agents/prompts/OTERYN-HISTORICAL-WORK-RECONCILIATION.md
   - docs/agents/tasks/active/OTERYN-20260815-historical-work-reconciliation.md
   - docs/architecture/adr/0039-historical-work-canonicalization-and-managed-recovery.md
   - docs/architecture/adr/README.md
+  - tools/agents/historical_work_reconciliation.py
+  - tools/agents/test_historical_work_reconciliation.py
 validation:
-  - command: live main / active task / open PR preflight
+  - command: discovery content/provenance/reachability inventory
     result: PASS
-    evidence: main and repository governance state were read before task bootstrap; implementation must repeat mutable live-state checks before destructive work
-  - command: draft PR #1074 bootstrap ownership
+    evidence: Historical Branch Audit run 31870802443 artifact 9243364594 digest sha256:8923531b9a224f1cfaa3d341abf553ad054f1b31d84f168b5b63ae1dc5eb5177
+  - command: focused historical governance tests
     result: PASS
-    evidence: PR #1074 is draft and owns the dedicated Issue #1072 branch against protected main; continuation must resolve the live PR head rather than trust an embedded historical SHA
+    evidence: run 31872416348 validate job passed on implementation head 5b1c3e586c368e9f1843003fe147fb06d75f7dbe
+  - command: exact-head Agent Governance after protected-main advance
+    result: FAIL
+    evidence: run 31872416374 failed live-task liveness only for unrelated merged PR #1076 task; Issue #1072-owned validator/test steps passed
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
-    evidence: bootstrap phase is repository-governance documentation/prompt setup only; the implementation task must define the real Git-ref reconciliation E2E path and verify it directly
+    evidence: Issue #1072 changes repository governance and Git-ref lifecycle tooling; mandatory E2E is the real Git create/delete/restore/apply lifecycle after merge, not browser/runtime behavior
 blockers:
-  - none
-next_action: Rebuild a fresh live branch/PR/task inventory from protected main and produce a per-branch content/provenance/reachability reconciliation matrix before any historical ref mutation.
+  - Explicit owner authorization is absent for marking draft PR #1074 Ready for review or invoking any Ready-triggered owner-funded AI review.
+next_action: Owner explicitly authorizes marking PR #1074 Ready for review for Issue #1072, including any Ready-triggered owner-funded review required by repository policy.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: Issue #1072 is active on dedicated branch repair/issue-1072-historical-work-reconciliation and draft PR #1074
-source_branch_evidence: pending
+source_branch_reason: Issue #1072 remains blocked before merge on repair/issue-1072-historical-work-reconciliation and draft PR #1074
+source_branch_evidence: live PR #1074 owns the source branch; deletion is required only after terminal merge and closeout
 ```
 
 ## Notes
 
-Seed counts from Issue #1068 are discovery hints only. The implementation owner must distrust stale branch classifications, preserve all live/open/protected work, and keep every destructive step recoverable and exact-head guarded.
+All destructive work remains fail-closed. No historical ref has been deleted by this task yet, no managed recovery ref has been introduced, and no paid/owner-funded AI/Codex/OpenAI API service has been invoked.
