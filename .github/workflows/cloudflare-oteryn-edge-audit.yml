@@ -85,7 +85,7 @@ jobs:
 
       - name: Audit account-token self-management capability
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_EDGE_AUDIT_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: python3 scripts/operations/cloudflare-token-capability-audit.py
 
       - name: Upload sanitized edge audit
