@@ -1,87 +1,71 @@
-# Tibia research ownership reconciliation — 2026-08-15
+# Tibia research ownership reconciliation — current durable state
 
 Coordination ID: `OTER-CLIENT-REFERENCE-HARVEST-20260815`.
 
-## Decision
+## Verified ownership
 
-The stale research does not have one uniform owner.
+- Native Oteryn client/game/protocol/world semantics belong to the Oteryn-Game lineage, currently `blakinio/Oteryn-v2`.
+- `blakinio/otclient` is historical migration/reference evidence and receives no new Oteryn v2 implementation work.
+- Platform owns reusable infrastructure/reference execution tooling when it is a Platform host/control-plane concern rather than native game code.
 
-| Source | Durable surface | Canonical disposition |
-|---|---|---|
-| Platform PR #988 | official-package identity hashing, dedicated-host preflight, fail-closed LUKS evidence setup, non-execution tests | **Platform infrastructure/reference harness** — harvest cleanly to current Platform lineage |
-| Platform PR #988 | client/game conclusions and future implementation handoff | **Oteryn-v2 / Oteryn-Game lineage** — evidence only; no new work in `blakinio/otclient` |
-| Platform PR #1006 | `tools/tibia-worldmap-reconstruction/**` | **Oteryn-v2 / Oteryn-Game lineage** — migrated by Oteryn-v2 PR #283 |
-| Platform PR #1006 | Platform runner/container orchestration and temporary live-client workflows | **execution history only** — do not merge |
-| Platform PR #1006 | screenshots/base64, credentials paths, VNC, gdb/ptrace/live attach, private-message and blind movement experiments | **do not migrate** — keep only historical PR provenance |
+## Completed delivery
 
-## Authority
+### Platform PR #988 harvest
 
-### FACT — current client/game owner
+Historical source: `blakinio/Oteryn-Platform#988`, head `f9ff34b37cf81c400a48f7ab9329393416ac304d`.
 
-Platform ADR 0041 assigns the native Client, authoritative Game Server, `protocol-oteryn`, native client/server/protocol E2E mechanics, canonical World/Content and bounded OTBM migration semantics to the Oteryn-Game lineage. It identifies current `blakinio/Oteryn-v2` as the target source lineage.
+Reusable official archive identity, dedicated-host/real-UID/direct-rendering preflight, Ubuntu dedicated-user preparation, interactive LUKS2 evidence-volume setup and focused tests were reworked on current Platform lineage. Review repairs made the destructive and future execution paths fail closed:
 
-Oteryn-v2 ADR-0002 independently records the Rust client cutover to `blakinio/Oteryn-v2/apps/client`. `blakinio/otclient` is historical migration/reference evidence and is not a target for new Oteryn v2 work.
+- `wipefs` inspection failure stops before formatting;
+- the documented `official-component` CLI enforces dedicated-host/real-UID/accelerated-graphics gates before launcher delegation;
+- dedicated-user identity is derived from `os.getuid()` plus the password database rather than environment variables.
 
-### FACT — prior drift was already identified
+Clean Platform PR #1104 final head `f4ecbe1bfdd7a51940901d1dd236cdb968da1d44` passed CI `31911457035`, Phase 7 `31911457015`, Platform DB Outage `31911457054`, Agent Governance `31911457030` and Tibia Linux Reference Harness `31911457036`, then merged as `c014fcad498e2568cc47b64f6d886967f270d7a1`.
 
-Platform Issues #864 and #886 previously proved that post-cutover handoffs targeting historical `blakinio/otclient` were stale. Issue #886 explicitly distinguished the still-useful synthetic/no-network harness from the incorrect implementation handoff target.
+PR #988 was subsequently closed without merge with `Branch-Disposition: delete`; its source branch is absent. Issue #987 remains open/blocked because dedicated-host official package acquisition/execution/BattlEye acceptance is still unperformed.
 
-## PR #988 audit
+### Platform PR #1006 durable client/world artifact
 
-Source PR: `blakinio/Oteryn-Platform#988`.
-Source head: `f9ff34b37cf81c400a48f7ab9329393416ac304d`.
+Historical source: `blakinio/Oteryn-Platform#1006`, head `97f8df9e64e1e4f0520440073e497f24dad929ef`.
 
-The branch has eight changed files. The blocked lifecycle requires a dedicated normal Linux graphical host, encrypted private evidence storage, normal official browser acquisition and offline no-network execution. Those acceptance steps are not complete and must not be represented as completed.
+The proprietary-data-free `tools/tibia-worldmap-reconstruction/**` package and durable client/world ownership evidence were migrated to Oteryn-v2 rather than merged with the 302-commit/76-file Platform research history.
 
-The following implementation is self-contained, non-executing/reference infrastructure and is harvested onto a clean current-main branch:
+Oteryn-v2 PR #283 repaired four automated-review findings, passed exact-head merge/governance/reference validation, and merged as `0c307db73832b824ccf50801e626671e0aeb38d1`. Lifecycle closeout PR #284 merged as `5d40711074dd914e0fcf8a95954180d84feef5f3`; the active task is absent and the terminal archive is present on Oteryn-v2 `main`.
 
-- `tools/tibia-linux-reference/official_identity_probe.py`;
-- `tools/tibia-linux-reference/official_host_preflight.py`;
-- `tools/tibia-linux-reference/official_host_prepare.sh`;
-- `tools/tibia-linux-reference/official_evidence_luks_setup.sh`;
-- `tools/tibia-linux-reference/tests/test_official_offline.py`.
+The migration deliberately excludes Platform live-client/login/VNC/private-message/gdb/ptrace/blind-movement workflows, screenshots/base64 evidence, credentials/session material and proprietary binaries.
 
-Validation is integrated into the already-registered `.github/workflows/tibia-linux-live-reference.yml` workflow instead of adding a second task-specific workflow. The registered workflow now performs Python compilation/unit discovery, shell syntax checks for the harvested host/LUKS scripts, a CI-rejection proof for official-host execution, the existing synthetic no-network component, and checkout/artifact hygiene checks.
+## Inherited Platform repair
 
-The task/report state from #988 is not copied as an active completed feature because actual dedicated-host execution remains blocked. The original Issue #987 remains historical authorization/provenance for that research phase until source closeout is recorded.
+Fresh Platform CI exposed an existing ADR registry defect unrelated to the Tibia harvest: ADR 0040 declared supersession without the required explicit `- Superseded by:` target. PR #1104 added the missing target to ADR 0041. The resulting exact-head CI generation passed.
 
-## PR #1006 audit
+## Remaining blocker — PR #1006 runtime closeout
 
-Source PR: `blakinio/Oteryn-Platform#1006`.
-Source head: `97f8df9e64e1e4f0520440073e497f24dad929ef`.
+PR #1006 is intentionally still open and must not be wholesale merged or deleted yet.
 
-The PR contains 302 commits and 76 changed files. The majority are experimental `.github/workflows/tibia-client-*` runner/live-client probes. The PR itself states its one-shot research workflow is temporary and must be removed before terminal merge/closeout.
+Read-only session-check rerun job `95075794423` observed the client PID with zero local/direct TCP at one instant. The immediately following ownership-scoped terminal-cleanup attempt run `31911054031` / job `95076020397` revalidated the exact runner/container labels/mount and then observed:
 
-### Durable artifact
+```text
+CLIENT_PID_PRESENT=true
+ACTIVE_LOCAL_SOCKS_COUNT=1
+ACTIVE_DIRECT_TCP_COUNT=0
+```
 
-The six-file `tools/tibia-worldmap-reconstruction/**` package is proprietary-data-free and independent of the Platform runner. It provides:
+The precondition failed. Every destructive cleanup step was skipped. The attempt did not intentionally mutate canonical `oteryn-staging` or remove the task container/bind.
 
-- strict normalized worldmap document validation;
-- explicit observed/unknown semantics;
-- monotonic merge with same-sequence conflict rejection;
-- coordinate/static-stack comparison;
-- fail-closed mapping states;
-- OTBM export planning that ignores explicitly unobserved placeholders and refuses readiness for observed static tiles with unproven mappings or ground identity.
+Ephemeral cleanup-attempt PR #1105 was closed without merge with `Branch-Disposition: delete`; its source branch is absent.
 
-The package was migrated to Oteryn-v2 PR #283 and then hardened there after automated review. Destination head `54165596f98b66c3164cccab881bb53f0655cb2b` fixes four edge cases: unobserved updates cannot erase observed evidence, incoming entities are rejected until merge semantics exist, JSON booleans are rejected for integer fields, and unobserved placeholders do not block OTBM export readiness. Regression tests cover all four findings and the corresponding review threads are resolved.
+PR #1006 comment `5304478532` records the canonical migration destinations and runtime blocker. Its branch remains intentionally live until cleanup can be proven safe.
 
-### Deliberately excluded
+## Exact next action
 
-No branch-only live-client workflow is promoted to `main`. In particular, the migration excludes login/credential injection, VNC, private-message actions, gdb/ptrace/live-attach experiments, blind batched movement, raw screenshots/base64 and proprietary client material.
+Run the existing read-only #1006 session check again. Only when the check proves no active client transport, immediately perform ownership-scoped removal of exactly:
 
-## Remaining research questions
+- container `oteryn-tibia-client-analysis`;
+- bind `/volume1/docker/oteryn/tibia-analysis`;
+- any independently verified task-owned `oteryn-tibia-vnc-relay`.
 
-The following are still UNKNOWN and are not acceptance criteria of the harvest:
+The cleanup must compare canonical `oteryn-staging` inventory before/after and fail closed on any ownership or session ambiguity. After cleanup PASS, close #1006 without merge using `Branch-Disposition: delete` and verify source-ref removal.
 
-- exact player XYZ structure/API independent of viewport-center inference;
-- stable semantic mapping of raw captured Worldmap fields;
-- reliable tile passability/collision classification;
-- exact outbound writer/framing chain and higher-level action ABI;
-- exact OTBM-relevant coverage recoverable from official-client state;
-- exact current official Linux archive/client identity and BattlEye offline behavior.
+## Status
 
-Any continuation of live official-client research requires a new bounded owner-authorized task in the correct repository and must not be inferred from this migration.
-
-## Closeout gate
-
-PRs #988 and #1006 must remain unmerged. After the clean Platform harvest and Oteryn-v2 PR #283 are validated and merged, their PR bodies must receive `Branch-Disposition: delete` with a non-empty reason, then the PRs should be closed without merge and their exact source refs removed through the trusted branch-lifecycle control.
+`WAITING` — repository ownership and durable harvest are complete; only #1006 task-owned live-runtime closeout remains. No polling or destructive action is justified while the local SOCKS transport survives/reconnects.
