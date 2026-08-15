@@ -43,6 +43,10 @@ A lower-ranked source must not silently override a higher-ranked invariant. Reco
 | Native Oteryn-v2 integration and Legacy Canary Compatibility | `docs/architecture/OTERYN_V2_INTEGRATION_ARCHITECTURE.md` and ADR 0031 | Owns the Platform-side native-v2/compatibility split, cross-system authority direction, persistence/admission/projection boundaries and migration invariants; does not own Oteryn-v2 implementation or protocol IDL bytes. |
 | Modules and responsibility | `docs/architecture/MODULE_CATALOG.md` | Module ownership, responsibilities and dependency boundaries. |
 | Portal completeness, benchmark disposition and release-scope closure | `docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md` | Current portal assessment, remaining architectural gaps, implement/defer/reject baseline and portal completion gate. |
+| Portal capability/dependency delivery order | `docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md` | Portal-specific implementation/dependency sequence subordinate to accepted architecture; not live ownership or current-candidate scheduling. |
+| Portal completion-scope projection | `docs/agents/programs/OTERYN_PORTAL_COMPLETION_SCOPE.json` | Machine-readable non-scheduling projection of already accepted `REQUIRED | CONDITIONAL | DEFERRED | REJECTED` dispositions; never live state, ownership or `READY` authority. |
+| Portal live execution selection | `docs/agents/programs/OTERYN_PORTAL_COMPLETION.md` | Sole live portal candidate selector from protected `main`, Issues, tasks, PRs, dependencies and current authority; it applies architecture but does not supersede it. |
+| Portal post-selection execution allocation | `docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md` | Role/maturity mapping after selection only; cannot reorder the live selector or change completion scope. |
 | Player calculators, plans, hunt guidance, session analysis and recommendations | `docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md` | Focused `PlayerCompanion` ownership, result classification, ruleset/version applicability, privacy, API/client reuse and delivery priorities. |
 | Live operational world/service state, maintenance and freshness | `docs/architecture/LIVEOPS_ARCHITECTURE.md` plus `docs/contracts/OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md` | Owns Platform LiveOps projection/history/public-consumption semantics while preserving separate Platform configured policy and Oteryn-v2 observed runtime authority; does not define producer transport, game-runtime implementation or production activation. |
 | PublicPortal Today / command-centre composition | `docs/architecture/PUBLIC_PORTAL_TODAY_ARCHITECTURE.md` and ADR 0032 | Owns Today provider composition, public/private representation, partial-failure, freshness, cache and presentation semantics; source modules retain fact/publication/privacy authority and private/shared-cache isolation cannot be weakened. |
@@ -54,13 +58,56 @@ A lower-ranked source must not silently override a higher-ranked invariant. Reco
 | Security | `docs/architecture/SECURITY_ARCHITECTURE.md` | Mandatory security invariants and trust controls. |
 | Persistent data | `docs/architecture/DATA_OWNERSHIP.md` | Platform, Canary and shared data ownership/write rules. |
 | Validation | `docs/architecture/TEST_STRATEGY.md` | Test layers, evidence expectations and E2E policy. |
-| Delivery order | `docs/architecture/ROADMAP.md` | Phases, dependencies and exit gates; not proof of implementation by itself. |
+| Global delivery order | `docs/architecture/ROADMAP.md` | Platform phases, dependencies and exit gates; not portal-specific live scheduling and not proof of implementation by itself. |
+| Repository source-branch lifecycle and historical work | ADR 0037, ADR 0039 and the repository Branch Lifecycle / Historical Branch Audit controls | Branches are execution resources, not archives. Historical retention/deletion and steady-state ref hygiene are repository governance, not product/portal scheduling. |
 | Cross-component behavior | `docs/contracts/**` | Exact producer/consumer and compatibility contracts for their scope. |
 | Native support/moderation game enforcement | `docs/contracts/OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md` subordinate to ADR 0031 | Platform decision/orchestration semantics and authoritative game result boundary; does not own sanction policy, transport or Oteryn-v2 implementation. |
 | Native Game Catalog content ownership | ADR 0034 and `docs/contracts/OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md` | Game-domain source authority versus Platform immutable snapshot/projection lifecycle and Legacy Canary Compatibility importers; does not own Oteryn-v2 implementation or exact producer bytes. |
-| Current execution state | `docs/agents/PROJECT_STATE.md`, active task and live PR | Current work and validation evidence; not a substitute for an ADR. |
+| Current execution state | `docs/agents/PROJECT_STATE.md`, active task and live PR | Current work and validation evidence; not a substitute for an ADR or a programme's canonical live selector. |
 
 Dated benchmark reports under `docs/agents/reports/**` are research evidence. They may justify an ADR or focused architecture update but never become canonical product or implementation authority by themselves.
+
+## Portal delivery control-plane hierarchy
+
+For portal work, distinguish global architecture/delivery intent from live execution selection:
+
+```text
+ROADMAP.md
+  global Platform phase/risk order
+    -> PORTAL_COMPLETENESS_ARCHITECTURE.md
+       durable portal completion/release boundary
+      -> PORTAL_COMPLETION_DELIVERY_PLAN.md
+         portal capability/dependency order
+        -> OTERYN_PORTAL_COMPLETION.md
+           sole live candidate selector
+          -> OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
+             post-selection execution role/maturity mapping
+            -> exact Issue/task/branch/PR
+               one execution owner
+```
+
+`OTERYN_PORTAL_COMPLETION_SCOPE.json` sits beside this chain as a non-scheduling projection of accepted launch/completion dispositions. It never selects work or substitutes for live evidence.
+
+A lower layer must not reinterpret an earlier layer to make work convenient. In particular:
+
+- the Roadmap does not mean all later portal product gaps are already closed when a historical engineering phase is marked complete;
+- the Delivery Plan does not claim current ownership or `READY` state;
+- Work Allocation delivery bands/maturity values do not create a second queue;
+- a task/PR cannot redefine architecture, completion scope or repository authority by prose.
+
+## Architecture Review versus delivery coordination
+
+`docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md` owns unresolved **new or superseding durable architecture decisions** and their ADR/backlog lifecycle. Examples include a new module owner, new durable dependency direction, new trust boundary or a product architecture choice with alternatives that outlives one implementation task.
+
+A delivery/programme coordinator may apply and decompose already accepted architecture, reconcile implementation evidence to it, and create bounded implementation handoffs. It must not silently decide a new durable architecture question merely to unblock a feature.
+
+When a selected delivery candidate exposes a new durable architecture obligation:
+
+1. search accepted ADRs/focused architecture and the architecture decision backlog;
+2. reuse any existing architecture owner;
+3. otherwise route the bounded question through Architecture Review/backlog;
+4. keep affected runtime work `DECISION_REQUIRED` or `BLOCKED` until accepted authority exists;
+5. after acceptance, return implementation to the normal delivery owner.
 
 ## Source-state labels
 
