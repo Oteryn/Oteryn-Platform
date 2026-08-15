@@ -42,7 +42,8 @@ Make Oteryn Platform CI risk/path-aware and lifecycle-managed so complete valida
 - [x] PHP application coverage is measured on relevant main pushes outside the blocking PR path with a ratchet-ready policy and bounded artifact.
 - [x] Workflow lifecycle rules make new/task-specific workflow retention explicit and machine-enforced.
 - [x] Legacy public-host reuse guard permits the focused architecture reference only while the exact fail-closed retirement invariant remains present.
-- [ ] Final exact-head CI, ready-state checks, merge, Issue closure, archival and source-branch closeout remain.
+- [x] Retained portal-audit regression targets the canonical `portal-e2e-audit.yml` orchestration and is executed by core CI.
+- [ ] Final exact-head CI, merge, Issue closure, archival and source-branch closeout remain.
 
 ## Ownership
 
@@ -76,6 +77,7 @@ owned_paths:
   - tests/ci/fixtures/change-routing-cases.json
   - tests/ci/test_workflow_trigger_economy.py
   - tests/operations/cloudflare-oteryn-endpoints/check-legacy-hostname.sh
+  - tools/audit/test_portal_exhaustive_audit.py
   - tools/validation/workflow_inventory.py
   - tools/validation/test_workflow_inventory.py
   - tools/validation/php_coverage_policy.py
@@ -117,7 +119,7 @@ validation_gate:
   rationale: CI changes can alter repository-wide merge evidence; central routing remains fail-closed, event authority is preserved, and retained gate names are not administratively bypassed.
   self_review:
     result: PASS
-    exact_head: ac3f3682045eedd40d0fbc6e95e51c3021dae4cf
+    exact_head: 4a91f2b1f1a8736e65766f99e3b9960a213b6ed1
     acceptance_checked: true
     full_diff_checked: true
     negative_paths_checked: true
@@ -126,10 +128,10 @@ validation_gate:
     related_prs_checked: true
     findings: []
     evidence:
-      - full PR diff and all twelve concurrency workflow patches were inspected individually
+      - full PR diff and concurrency workflow patches were inspected individually
       - accidental Cloudflare capability-audit credential drift was found by self-review and restored before PASS
-      - current runtime head is synchronized with protected main ad0fec2bb0ce12a236916fa84af5be8f8f382050
-      - PR #1086 has zero submitted reviews and zero review threads at this checkpoint
+      - late P2 stale reference in tools/audit/test_portal_exhaustive_audit.py was found, repaired to portal-e2e-audit.yml and wired into core CI before final validation
+      - current candidate contains protected main 536c6320f91d1df981600530e50522d84b1c0588 as a merge parent
       - product/browser E2E is NOT_APPLICABLE because no product behavior/UI changes; real GitHub Actions executions are the integration E2E for CI routing/orchestration
 ```
 
@@ -137,8 +139,8 @@ validation_gate:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-15T08:46:37Z
-head: ac3f3682045eedd40d0fbc6e95e51c3021dae4cf
+updated_at: 2026-08-15T10:25:35Z
+head: 4a91f2b1f1a8736e65766f99e3b9960a213b6ed1
 branch: ci/issue-1085-workflow-orchestration
 pr: 1086
 status: validating
@@ -151,6 +153,7 @@ owned_paths:
   - scripts/ci/**
   - tests/ci/**
   - tests/operations/cloudflare-oteryn-endpoints/check-legacy-hostname.sh
+  - tools/audit/test_portal_exhaustive_audit.py
   - tools/validation/workflow_inventory.py
   - tools/validation/test_workflow_inventory.py
   - tools/validation/php_coverage_policy.py
@@ -165,21 +168,22 @@ proven:
   - docs-only main commit 860033172c8b4f1ba21d8d79263f04e2f0a49928 previously ran Portal Acceptance complete account lifecycle because push/main lacked path admission
   - generic workflow-file changes previously mapped to ALL_GATES; the candidate routes ordinary workflow edits to core CI, own heavy workflow edits to core CI plus their lane, and central CI/router edits to ALL_GATES
   - workflow lifecycle registry fails closed on unregistered growth, retired reintroduction, missing registered files and budget overflow
-  - trigger-economy contract now scans the full workflow inventory, rejects retired trigger coupling, and verifies PR cancellation plus stable per-PR concurrency identity
+  - trigger-economy contract scans the workflow inventory, rejects retired trigger coupling, and verifies PR cancellation plus stable per-PR concurrency identity
   - trusted/main/manual operations retain non-PR serialization; only replaceable pull_request validation is cancellable
   - Editorial Media and Wiki acceptance retain exact domain code/migrations/routes/browser specs/portal-manifest dependencies while broad historical exhaustive coupling is removed
   - coverage policy is report_only because historical CI used coverage:none and no verified numerical baseline exists; relevant main pushes use PCOV/Clover and a 14-day evidence artifact
-  - focused PublicEdge architecture names login.oteryn.molehill.cloud only in an exact retirement invariant; the legacy-host guard now verifies that exact statement rather than blindly allowlisting the file
-  - previous failed generations were investigated from logs and repaired at root cause rather than rerun or weakened
-  - on runtime head ac3f3682045eedd40d0fbc6e95e51c3021dae4cf central CI, Agent Governance, Phase 7, DB outage, edge security, game-auth concurrency, Cloudflare validations, Editorial Media and Wiki acceptance were observed PASS; Native Auth build and Portal Acceptance were still pending at the last pre-checkpoint observation
-  - active unrelated tasks do not own the exact workflow paths modified here; historical-work closeout was independently completed by PR #1088
+  - focused PublicEdge architecture names login.oteryn.molehill.cloud only in an exact retirement invariant; the legacy-host guard verifies that exact statement rather than blindly allowlisting the file
+  - prior exact-head 17ad32e604902b6150c71fcabfaa6ab04997e00e completed all 22 observed applicable PR workflow runs successfully
+  - final review found one retained audit unit test still reading deleted portal-exhaustive-audit.yml; branch commit 7fc7bc5848abf9ae75654afa12a9f532f637debc repaired it to canonical portal-e2e-audit.yml
+  - core CI at 4a91f2b1f1a8736e65766f99e3b9960a213b6ed1 now explicitly runs tools/audit/test_portal_exhaustive_audit.py so this class of stale-reference drift cannot remain latent
+  - candidate branch was synchronized with protected main 536c6320f91d1df981600530e50522d84b1c0588 through merge commit 82d3b3b5abe51f35f8becda4e9486f9ed2fbd9bf before the final CI registration change
+  - active unrelated tasks do not own the exact workflow paths modified here; historical-work and steady-state branch-hygiene closeouts are already on current main
   - repository delete_branch_on_merge is true
   - repository rulesets endpoint is empty; classic branch-protection configuration remains unreadable through this integration
-  - full-diff self-review is PASS on runtime head ac3f3682045eedd40d0fbc6e95e51c3021dae4cf with zero open findings
-
+  - full-diff self-review is PASS on semantic head 4a91f2b1f1a8736e65766f99e3b9960a213b6ed1 with zero open findings
 derived:
   - a numerical coverage floor must not be invented before stable observed baseline evidence exists
-  - final checkpoint-only commit does not change runtime semantics; nevertheless the PR-wide workflow path set may emit a fresh exact-head generation, which remains required before merge
+  - this checkpoint-only commit changes governance evidence but no runtime behavior; it still requires a fresh exact-head PR generation before merge
 unknown:
   - exact classic branch-protection required-status-check list
 conflicts: []
@@ -191,27 +195,28 @@ rejected_hypotheses:
   - weaken failing tests or broad safety checks to obtain green CI
   - globally cancel trusted/manual/production operation events
   - invent an immediate code-coverage percentage gate without a measured baseline
+  - ignore the late stale portal-exhaustive unit-test reference because previous workflow checks were green
 changed_paths:
-  - 37 files in PR #1086, all within declared CI/testing/governance scope
+  - PR #1086 paths, all within declared CI/testing/governance scope
 validation:
-  - command: repository preflight, overlap/ownership and main synchronization
+  - command: repository preflight, overlap/ownership and current-main synchronization
     result: PASS
-    evidence: live GitHub Issue/PR/task/main state inspected; runtime head includes protected main ad0fec2bb0ce12a236916fa84af5be8f8f382050
+    evidence: candidate includes current protected main 536c6320f91d1df981600530e50522d84b1c0588 and no overlapping active owner was taken over
   - command: historical exact-head repair generations
     result: PASS
     evidence: each prior FAIL was diagnosed from job logs and followed by a materially changed candidate; no identical blind reruns
-  - command: full exact-head diff/self-review on ac3f3682045eedd40d0fbc6e95e51c3021dae4cf
+  - command: full diff/self-review on 4a91f2b1f1a8736e65766f99e3b9960a213b6ed1
     result: PASS
-    evidence: 37 changed paths inspected; one accidental secret-reference drift found and repaired before PASS
-  - command: review hygiene on PR #1086
+    evidence: late stale audit-test reference was repaired and core-CI registration added; zero material findings remain
+  - command: prior exact-head GitHub Actions generation on 17ad32e604902b6150c71fcabfaa6ab04997e00e
     result: PASS
-    evidence: zero submitted reviews and zero review threads
+    evidence: 22 of 22 observed applicable PR workflows completed success
   - command: product/browser E2E
     result: NOT_APPLICABLE
     evidence: no product behavior/UI path changed; GitHub Actions is the executable integration surface under test
 blockers:
   - none
-next_action: observe the final exact-head PR generation after this checkpoint commit; when all applicable checks pass, mark PR #1086 ready and complete the protected squash-merge gate
+next_action: observe the fresh exact-head PR generation from this checkpoint commit; if all applicable checks pass and main remains contained, squash-merge PR #1086 and perform post-merge archival/source-branch/Issue closeout
 ```
 
 ## Recovery checkpoint
@@ -219,24 +224,24 @@ next_action: observe the final exact-head PR generation after this checkpoint co
 ```yaml
 recovery:
   policy_version: 1
-  generation: 7
+  generation: 8
   session_id: chat-20260815-ci-1085-01
   session_started_at: 2026-08-15T07:41:00Z
-  checkpointed_at: 2026-08-15T08:46:37Z
-  last_progress_at: 2026-08-15T08:46:37Z
+  checkpointed_at: 2026-08-15T10:25:35Z
+  last_progress_at: 2026-08-15T10:25:35Z
   phase: validate
-  exact_head: ac3f3682045eedd40d0fbc6e95e51c3021dae4cf
+  exact_head: 4a91f2b1f1a8736e65766f99e3b9960a213b6ed1
   pull_request: 1086
-  active_operation: final exact-head validation after checkpoint persistence
+  active_operation: final exact-head validation after semantic closeout checkpoint
   external_run_ids: []
-  operation_started_at: 2026-08-15T08:46:37Z
-  wait_deadline_at: 2026-08-15T09:31:37Z
-  check_generation: draft
+  operation_started_at: 2026-08-15T10:25:35Z
+  wait_deadline_at: 2026-08-15T11:10:35Z
+  check_generation: final-candidate
   checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: PR #1086 head remains unchanged and no requested change, ownership conflict or safety blocker appears
-  next_action: observe the final exact-head PR generation after this checkpoint commit; when all applicable checks pass, mark PR #1086 ready and complete the protected squash-merge gate
+  resume_condition: PR #1086 head remains unchanged, still contains current main and no requested change, ownership conflict or safety blocker appears
+  next_action: require all applicable exact-head checks to pass, then protected squash-merge and perform repository lifecycle closeout
 ```
 
 ## Source branch closeout
