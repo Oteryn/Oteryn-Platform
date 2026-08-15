@@ -30,7 +30,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('synology-staging-deployment-pr-{0}', github.event.pull_request.number) || 'synology-staging-deployment' }}
+  group: ${{ github.event_name == 'pull_request' && github.ref || 'synology-staging-deployment' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
