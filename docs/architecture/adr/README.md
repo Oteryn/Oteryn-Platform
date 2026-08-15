@@ -27,7 +27,7 @@ A declaration may add a bounded qualifier or date after the lifecycle token. Mul
 
 Allocate a new ADR only after scanning every file in this directory and open architecture PRs. Use the next integer after the highest observed numeric prefix; do not reuse gaps.
 
-Open PR #1065 currently claims proposed ADR prefix `0038`, so the next non-conflicting allocation is `0039` even while `0038` is not yet present on protected `main`.
+Closed unmerged PR #1065 historically proposed ADR prefix `0038`, but that draft was superseded before acceptance and is intentionally not reused. Protected `main` already contains `0039`, so the next non-conflicting allocation for the corrected repository-topology decision is `0040`.
 
 Existing duplicate identifiers are historical compatibility defects. Do not rename or renumber accepted records without a separate compatibility decision that preserves inbound references.
 
@@ -55,7 +55,7 @@ The historical exception is a closed exact-path allowlist, not permission to cre
 
 ## Inventory
 
-Inventory reconciled on 2026-08-15. Duplicate prefixes are intentionally shown rather than hidden. Proposed `0038` remains on open PR #1065 and is therefore reserved but not listed as a file on this branch.
+Inventory reconciled on 2026-08-15. Duplicate prefixes are intentionally shown rather than hidden. Prefix `0038` remains intentionally absent because the only proposal using it was closed unmerged in PR #1065 and must not be resurrected merely to fill a numbering gap.
 
 - `0001-laravel-modular-monolith.md`
 - `0002-separate-platform-and-canary-repositories.md`
@@ -103,6 +103,7 @@ Inventory reconciled on 2026-08-15. Duplicate prefixes are intentionally shown r
 - `0036-platform-api-activation-and-first-surface-policy.md`
 - `0037-terminal-source-branch-lifecycle.md`
 - `0039-historical-work-canonicalization-and-managed-recovery.md`
+- `0040-oteryn-ecosystem-repository-topology-and-atlas-extraction.md`
 
 ## Preserved legacy duplicate paths
 
