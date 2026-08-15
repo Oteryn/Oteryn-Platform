@@ -68,6 +68,14 @@ Canonical evidence lives in:
 
 Issue #491 closed the evidence-contract and historical-PR disposition, including the requirement that PR #381 be closed only after PR #483 persisted the current-main evidence. Issue #326 is also closed as completed.
 
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: the closeout repair PR is documentation-only and its dedicated source branch has no continuing ownership or recovery purpose
+source_branch_evidence: repository metadata confirms delete_branch_on_merge=true and the repair PR is the sole delivery path for this closeout correction
+```
+
 ## Closeout
 
 ```yaml
