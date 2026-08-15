@@ -37,10 +37,11 @@ Harden the canonical `OTERYN_PORTAL_COMPLETION` execution prompt so it is determ
 - [x] Preserve connector-first, Platform-only, non-production, non-protected, non-payment, non-external-repository and no-standing-Codex boundaries.
 - [x] Record runtime/browser E2E as `NOT_APPLICABLE` with the docs-only reason.
 - [x] Repair and resolve both material P2 eval-integration review findings with exact-head required-CI evidence.
-- [x] Synchronize the task branch with the current protected `main` without rewriting history or modifying unrelated archive content.
-- [x] Repair the invalid checkpoint validation enum exposed by the synchronized final checks.
-- [ ] Complete final required checks and exact-head task-only/base-sync delta self-review.
-- [ ] Squash-merge PR #1076, close Issue #1075, archive this task and release branch/path ownership.
+- [x] Synchronize the task branch with protected `main` without rewriting history or modifying unrelated archive content.
+- [x] Repair the invalid checkpoint validation enum exposed by the synchronized checks.
+- [x] Prove the checkpoint-fixed head with exact-head Agent Governance and CI.
+- [ ] Complete the final task-record-only checkpoint generation and squash-merge PR #1076.
+- [ ] Archive this task, verify source-branch cleanup, close/reconcile Issue #1075 and release ownership.
 
 ## Ownership
 
@@ -66,16 +67,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-policy_version: 2
-updated_at: 2026-08-15T07:17:00Z
+updated_at: 2026-08-15T07:24:00Z
 head: LIVE_PR_HEAD
 branch: docs/issue-1075-portal-completion-prompt-hardening
 pr: 1076
 status: validating
-phase: final_ci_after_checkpoint_fix
-execution_mode: chat
-execution_reason: bounded agent-governance validation through GitHub connector; no owner-funded AI invocation required
-project_lane: oteryn-platform-core
 context_routes:
   - agent-governance
 owned_paths:
@@ -87,60 +83,56 @@ proven:
   - Prompt v1.2 keeps `OTERYN_PORTAL_COMPLETION.md` as the sole selector authority and short-circuits only after complete sibling classification in the current mixed entry.
   - Prompt v1.2 preserves standard execution-mode routing, connector-first GitHub routing, full vertical-slice semantics and all production/external/owner-funded-AI authority denials.
   - Runtime/browser E2E is NOT_APPLICABLE because this task changes only agent-governance Markdown/JSON.
-  - PR review found two real P2 defects: the first focused eval suite was schema-incompatible and was not executed by required CI.
-  - Repair head ba8487ef6cd3e5ca08d93c686c8f4cee889b34f5 removed the separate suite, moved focused portal cases into canonical schema-valid `prompt-contract-v1.json`, and pointed the prompt at that suite.
-  - Agent Governance 31871134618 and CI 31871134611 passed on ba8487ef6cd3e5ca08d93c686c8f4cee889b34f5; both workflows execute the canonical prompt evaluator, proving the repaired portal cases are in required validation.
-  - Review threads PRRT_kwDOTcsYjs6Ze3O1 and PRRT_kwDOTcsYjs6Ze3O3 were resolved only after that evidence passed.
-  - Final checkpoint head 18a5e536df9a849230a518ff2ff400667dbd7c06 had CI 31871206722 PASS and Agent Governance 31871206716 FAIL only at terminal source-branch closeout after all prompt/eval/checkpoint checks passed.
-  - Protected main advanced independently and the unrelated archive closeout defect was repaired on main by PR #1079.
-  - Current protected main 3c3499f38100ec15ba76f958558444c87d644c15 was merged normally into the task branch as d09fde29c5d8a9764e3e3dc6bb3f5a3a5712afda, preserving current-main archive bytes without history rewrite.
-  - On d09fde29c5d8a9764e3e3dc6bb3f5a3a5712afda both deterministic prompt-contract steps passed in CI and Agent Governance.
-  - CI 31871442184 failed at `Validate active task checkpoint contract` and Agent Governance 31871442254 failed at `Validate active task checkpoints` on d09fde29c5d8a9764e3e3dc6bb3f5a3a5712afda.
-  - `docs/agents/GOVERNANCE_CONTRACT.json` permits validation results only PASS, FAIL, BLOCKED, NOT_RUN and NOT_APPLICABLE.
-  - The task checkpoint on d09fde29c5d8a9764e3e3dc6bb3f5a3a5712afda contained unsupported validation result `PARTIAL`, which is the direct checkpoint-contract defect repaired by this commit.
+  - Focused portal-v1.2 regression cases are integrated into schema-valid canonical `docs/agents/evals/prompt-contract-v1.json`, which both required workflows execute.
+  - Repair head ba8487ef6cd3e5ca08d93c686c8f4cee889b34f5 passed Agent Governance 31871134618 and CI 31871134611 after both P2 eval-integration findings were repaired.
+  - Review threads PRRT_kwDOTcsYjs6Ze3O1 and PRRT_kwDOTcsYjs6Ze3O3 are resolved.
+  - Protected main 3c3499f38100ec15ba76f958558444c87d644c15 was merged normally into this branch as d09fde29c5d8a9764e3e3dc6bb3f5a3a5712afda, preserving unrelated archive bytes without history rewrite.
+  - The synchronized d09fde29c5d8a9764e3e3dc6bb3f5a3a5712afda failure was isolated to unsupported checkpoint validation result `PARTIAL`; deterministic prompt-contract steps passed first.
+  - Checkpoint-fixed head afde56613db97ac1735d53aec64167e5c1c9f014 passed Agent Governance 31871662218 and CI 31871662221 on the exact unchanged head.
+  - The delta from d09fde29c5d8a9764e3e3dc6bb3f5a3a5712afda to afde56613db97ac1735d53aec64167e5c1c9f014 modifies only this active task record.
+  - Protected main later advanced independently to 860033172c8b4f1ba21d8d79263f04e2f0a49928 through PR #1081, modifying only `docs/agents/tasks/archive/OTERYN-20260814-public-today-architecture.md`, which does not overlap this task's three owned paths.
 derived:
-  - no prompt or canonical eval change is required for the d09 checkpoint failure because their deterministic validation steps passed on that exact head
-  - replacing unsupported `PARTIAL` with truthful `FAIL` is the smallest contract-correct checkpoint repair
+  - no further prompt or canonical-eval edit is warranted because the exact prompt/eval bytes already passed required deterministic validation and the latest main advancement is non-overlapping
 unknown:
-  - final required-check result and mergeability on the resulting checkpoint-fixed exact head
+  - required checks and mergeability on the resulting task-record-only checkpoint head
 conflicts: []
 first_failure:
-  marker: CI 31871442184 `Validate active task checkpoint contract` / Agent Governance 31871442254 `Validate active task checkpoints`
-  evidence: prompt-contract validation passed first; checkpoint.py rejects validation result values outside GOVERNANCE_CONTRACT.json, and the task contained unsupported `PARTIAL`
+  marker: none
+  evidence: all material prompt/eval/review/checkpoint defects identified during this task are repaired; remaining work is final checkpoint generation and merge closeout
 rejected_hypotheses:
-  - prompt/eval regression caused the synchronized-head failures; both deterministic prompt-contract steps passed on d09fde29c5d8a9764e3e3dc6bb3f5a3a5712afda
-  - weaken or bypass checkpoint validation
-  - change the governance contract to permit `PARTIAL` instead of correcting this task record
-  - perform another main synchronization or prompt edit without evidence that either is required
+  - maintain a separate unregistered portal eval suite instead of using the canonical required suite
+  - weaken or bypass prompt, checkpoint or source-branch validation to obtain green CI
+  - change GOVERNANCE_CONTRACT.json to permit unsupported `PARTIAL` instead of correcting the task record
+  - resynchronize solely because current main advanced through a non-overlapping archive-only closeout repair
 changed_paths:
   - docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md
   - docs/agents/evals/prompt-contract-v1.json
   - docs/agents/tasks/active/OTERYN-20260815-portal-completion-prompt-hardening.md
 validation:
-  - command: canonical deterministic prompt contract on ba8487ef6cd3e5ca08d93c686c8f4cee889b34f5
+  - command: canonical deterministic prompt contract after review repair
     result: PASS
-    evidence: Agent Governance 31871134618 and CI 31871134611
+    evidence: Agent Governance 31871134618 and CI 31871134611 on ba8487ef6cd3e5ca08d93c686c8f4cee889b34f5
   - command: review repair exact-head self-review
     result: PASS
-    evidence: PR #1076 comment 5301080752 and both resolved P2 threads
-  - command: final checkpoint CI on 18a5e536df9a849230a518ff2ff400667dbd7c06
-    result: FAIL
-    evidence: CI 31871206722 passed but Agent Governance 31871206716 failed terminal source-branch closeout after all prompt/eval/checkpoint steps passed
-  - command: synchronized-head deterministic prompt contracts on d09fde29c5d8a9764e3e3dc6bb3f5a3a5712afda
+    evidence: PR #1076 comment 5301080752 and both resolved P2 review threads
+  - command: synchronized-head checkpoint diagnosis
     result: PASS
-    evidence: CI 31871442184 and Agent Governance 31871442254 both passed their deterministic prompt-contract steps before checkpoint validation
-  - command: synchronized-head repository gate on d09fde29c5d8a9764e3e3dc6bb3f5a3a5712afda
-    result: FAIL
-    evidence: both required workflows failed checkpoint validation because the task record used unsupported result `PARTIAL`
+    evidence: CI 31871442184 and Agent Governance 31871442254 both passed deterministic prompt-contract validation before exposing unsupported checkpoint result `PARTIAL`
+  - command: checkpoint-fixed exact-head required CI
+    result: PASS
+    evidence: Agent Governance 31871662218 and CI 31871662221 both succeeded on afde56613db97ac1735d53aec64167e5c1c9f014
+  - command: exact-head task-only delta review
+    result: PASS
+    evidence: compare d09fde29c5d8a9764e3e3dc6bb3f5a3a5712afda...afde56613db97ac1735d53aec64167e5c1c9f014 shows only this active task record changed
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
-    evidence: governance Markdown/JSON only
-  - command: final required CI on LIVE_PR_HEAD
+    evidence: governance Markdown/JSON only; no executable browser or runtime journey exists for this task
+  - command: final task-record-only checkpoint generation
     result: NOT_RUN
-    evidence: this checkpoint-only repair creates the final pre-merge candidate head; no further branch commit is planned unless a new materially different failure is proven
+    evidence: this commit creates the final pre-merge checkpoint head and must pass repository-selected exact-head checks before merge
 blockers:
   - none
-next_action: observe required checks on LIVE_PR_HEAD under the bounded terminal-CI contract; if green, verify only the task-record delta, review hygiene, current main/base and mergeability, then squash-merge PR #1076 with expected exact head
+next_action: verify required checks, review hygiene, current main/base and mergeability on LIVE_PR_HEAD; if green and non-overlapping, squash-merge PR #1076 with the expected exact head without another pre-merge branch commit
 ```
 
 ## Review findings
@@ -163,10 +155,10 @@ findings:
 
 ```yaml
 invocation_started_at: 2026-08-15T06:52:51Z
-last_progress_at: 2026-08-15T07:17:00Z
+last_progress_at: 2026-08-15T07:24:00Z
 ci_checks_for_current_head: 0
 ci_check_generation: ready
-terminal_ci_wait_started_at: 2026-08-15T07:17:00Z
+terminal_ci_wait_started_at: 2026-08-15T07:24:00Z
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
@@ -180,24 +172,24 @@ stall_warnings: 0
 ```yaml
 recovery:
   policy_version: 1
-  generation: 5
+  generation: 6
   session_id: portal-prompt-hardening-20260815T065251Z
   session_started_at: 2026-08-15T06:52:51Z
-  checkpointed_at: 2026-08-15T07:17:00Z
-  last_progress_at: 2026-08-15T07:17:00Z
-  phase: final_ci_after_checkpoint_fix
+  checkpointed_at: 2026-08-15T07:24:00Z
+  last_progress_at: 2026-08-15T07:24:00Z
+  phase: final_ci
   exact_head: LIVE_PR_HEAD
   pull_request: 1076
-  active_operation: bounded terminal CI wait for final checkpoint-fixed head
+  active_operation: bounded terminal CI wait for final task-record-only checkpoint head
   external_run_ids: []
-  operation_started_at: 2026-08-15T07:17:00Z
+  operation_started_at: 2026-08-15T07:24:00Z
   wait_deadline_at: 2026-08-15T07:45:40Z
   check_generation: ready
   checks_used: 0
   status: active
   safe_to_resume: true
   resume_condition: PR #1076 current exact head has terminal required checks and clean review/current-base/merge gates
-  next_action: Observe one aggregate required-check snapshot for PR #1076 current exact head; if pending, wait at least three minutes before the next unchanged snapshot; if green, verify the task-only delta, review hygiene, current main/base and mergeability, then squash-merge with expected head.
+  next_action: Observe one aggregate required-check snapshot for PR #1076 current exact head; if pending, wait at least three minutes before the next unchanged snapshot; if green, reverify review hygiene/current main/mergeability and squash-merge with expected head.
 ```
 
 ## Source branch closeout
