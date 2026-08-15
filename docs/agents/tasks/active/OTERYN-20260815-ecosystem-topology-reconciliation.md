@@ -70,14 +70,14 @@ checkpoint_version: 1
 policy_version: 2
 task_kind: implementation
 implementation_authorized: true
-updated_at: 2026-08-15T22:31:00+02:00
+updated_at: 2026-08-15T22:36:00+02:00
 phase: validate
 session_id: chat-20260815-ecosystem-topology-reconciliation
 session_role: implementer
 execution_mode: github
 execution_reason: bounded architecture/governance reconciliation using merged repository evidence and the GitHub connector
 project_lane: oteryn-platform-core
-head: 58d8d9a43dfcce596d1ca11e892cfc2875ef4c2b
+head: a02257a5ec91584d8d0900f4f877eb7cccff41be
 branch: docs/oteryn-20260815-ecosystem-topology-reconciliation
 pr: 1102
 status: validating
@@ -91,7 +91,7 @@ context_score: 7
 estimate_confidence: high
 decomposition_decision: single
 decomposition_reason: one cohesive successor architecture decision with one supersession and registry update
-validation_level: focused
+validation_level: full
 session_rotation_count: 0
 heavy_validation_runs: 0
 stale_takeover_count: 0
@@ -109,7 +109,8 @@ proven:
   - Otheryn merged PR #407 records EXTRACTABLE_WITH_REFACTOR for the legacy OTBM Atlas.
   - Repository owner explicitly excludes Canary and otclient from target-architecture approval and classifies them as legacy sources only.
   - ADR 0041 is persisted in PR #1102 and ADR 0040 is marked superseded by that successor.
-  - PR #1102 diff contains exactly the four declared documentation/architecture paths.
+  - PR #1102 changes exactly the four declared documentation/architecture paths.
+  - Repaired head a02257a5ec91584d8d0900f4f877eb7cccff41be passed all eight emitted workflows, including CI 31906840685 and Agent Governance 31906840682.
 derived:
   - The four-repository target boundary has converged across every target product perspective that has normative standing.
   - ADR 0041 preserves the topology while incorporating narrower meta authority, artifact-first Game-to-Atlas ownership, independent release/origin boundaries and refactor-first Atlas extraction.
@@ -121,7 +122,7 @@ unknown:
 conflicts: []
 first_failure:
   marker: checkpoint-context-routes-missing
-  evidence: CI run 31906695872 job 95065557257 failed active-task checkpoint validation because context_routes was missing; Agent Governance run 31906695840 failed on the same candidate generation
+  evidence: first ready generation CI 31906695872 / Agent Governance 31906695840 failed because context_routes was missing; repaired generation on a02257a5ec91584d8d0900f4f877eb7cccff41be passed all emitted workflows
 rejected_hypotheses:
   - retry the failed exact-head generation unchanged
   - weaken or bypass the active-task checkpoint validator
@@ -138,28 +139,31 @@ validation:
   - command: live repository, ADR allocation and source-review reconciliation
     result: PASS
     evidence: Platform main b059cb0f; Oteryn-v2 main 4246b165; Otheryn main 28a33496; merged review PRs #278/#280, #1100 and #407
-  - command: full PR #1102 diff review
+  - command: full PR #1102 diff review through head a02257a5ec91584d8d0900f4f877eb7cccff41be
     result: PASS
     evidence: exactly four declared documentation paths; ADR 0040 lifecycle-only supersession plus ADR 0041 and registry/task changes; no runtime/workflow/deployment/external-repository mutation
-  - command: first exact-head required generation on 58d8d9a43dfcce596d1ca11e892cfc2875ef4c2b
+  - command: first required generation on 58d8d9a43dfcce596d1ca11e892cfc2875ef4c2b
     result: FAIL
-    evidence: CI 31906695872 job 95065557257 and Agent Governance 31906695840 fail because the active checkpoint omitted context_routes; six other emitted workflows passed
+    evidence: CI 31906695872 job 95065557257 and Agent Governance 31906695840 failed because context_routes was missing; six other emitted workflows passed
+  - command: repaired required generation on a02257a5ec91584d8d0900f4f877eb7cccff41be
+    result: PASS
+    evidence: CI 31906840685, Agent Governance 31906840682, Native protocol 31906840730, native audits 31906840701, Platform DB outage 31906840654, Game Auth concurrency 31906840660, Edge Security 31906840656 and Phase 7 validation 31906840698 all SUCCESS
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: architecture documentation only; no executable product or deployment journey changes
-  - command: repaired exact-head repository CI
+  - command: final record-only candidate generation
     result: NOT_RUN
-    evidence: this commit adds only the missing required checkpoint routing field and records the observed failure; a new exact-head generation is required
+    evidence: this commit only records the completed self-review/validation for parent candidate a02257a5ec91584d8d0900f4f877eb7cccff41be; repository exact-head checks must validate this final metadata commit before merge
 blockers:
-  - none
-next_action: Observe the new exact-head workflow generation after this checkpoint repair; merge only if every required gate passes and review state remains clean.
+  - unresolved Codex review thread must be replied to and resolved after this exact candidate review evidence is persisted
+next_action: Reply to and resolve the Codex exact-candidate review thread, then require the final record-only head to pass repository checks before merge.
 ```
 
 ## Self-review
 
 ```yaml
 result: PASS
-exact_head_reviewed: 58d8d9a43dfcce596d1ca11e892cfc2875ef4c2b
+exact_head_reviewed: a02257a5ec91584d8d0900f4f877eb7cccff41be
 acceptance_checked: true
 full_diff_checked: true
 negative_paths_checked: true
@@ -167,22 +171,25 @@ rollback_checked: true
 compatibility_checked: true
 related_prs_checked: true
 findings:
-  - repaired missing context_routes required by the active-task checkpoint schema
-  - no architecture content change was required by the failed validation
+  - first CI generation exposed missing context_routes in the active checkpoint; repaired without architecture-content changes
+  - Codex review correctly required the self-review record to cover the repaired candidate instead of only the earlier implementation commit
 evidence:
-  - PR #1102 changes exactly four declared documentation/architecture paths
+  - compare a6d696fbc24058782f8272eff50715ff174e2ac3..a02257a5ec91584d8d0900f4f877eb7cccff41be is linear and changes only this task record after the original four-path architecture commit
+  - complete PR #1102 diff through a02257a5ec91584d8d0900f4f877eb7cccff41be was re-reviewed after the checkpoint repair
   - ADR 0041 records the merged Oteryn-v2, Platform and Otheryn review outcomes without treating Canary/otclient as target authorities
   - ADR 0040 content is preserved except for explicit supersession lifecycle/provenance text
   - no executable/runtime/deployment/production authority is added
-  - CI 31906695872 identified one deterministic checkpoint-schema defect and the repair is narrowly scoped to that task record
+  - all eight workflows on repaired head a02257a5ec91584d8d0900f4f877eb7cccff41be succeeded
 ```
+
+The commit that persists this self-review is record-only: it changes only this task/checkpoint evidence after the complete candidate through `a02257a5ec91584d8d0900f4f877eb7cccff41be` was reviewed. It does not modify ADR 0040, ADR 0041 or the ADR registry. The resulting exact PR head still requires repository-required CI/governance before merge.
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
 source_branch_reason: task is active and validating
-source_branch_evidence: dedicated branch docs/oteryn-20260815-ecosystem-topology-reconciliation; PR #1102; previous candidate head 58d8d9a43dfcce596d1ca11e892cfc2875ef4c2b
+source_branch_evidence: dedicated branch docs/oteryn-20260815-ecosystem-topology-reconciliation; PR #1102; reviewed content candidate a02257a5ec91584d8d0900f4f877eb7cccff41be
 ```
 
 ## Notes
