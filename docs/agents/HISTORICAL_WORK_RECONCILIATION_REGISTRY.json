@@ -2,8 +2,11 @@
   "apply_main_change_allowlist": [
     ".github/workflows/historical-branch-audit.yml",
     "docs/agents/HISTORICAL_WORK_RECONCILIATION_REGISTRY.json",
+    "docs/agents/evals/prompt-contract-v1.json",
     "docs/agents/prompts/OTERYN-HISTORICAL-WORK-RECONCILIATION.md",
+    "docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md",
     "docs/agents/tasks/active/OTERYN-20260815-historical-work-reconciliation.md",
+    "docs/agents/tasks/active/OTERYN-20260815-portal-completion-prompt-hardening.md",
     "docs/architecture/adr/0039-historical-work-canonicalization-and-managed-recovery.md",
     "docs/architecture/adr/README.md",
     "tools/agents/historical_work_reconciliation.py",
