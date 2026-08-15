@@ -134,7 +134,7 @@ reusable immutable artifact transport
     -> exact-snapshot manual production activation task
 ```
 
-No producer schema may become active before a compatible inactive consumer exists when the contract is `atomic-required`. This ordering rule does not itself authorize producer-repository access, writes, staging or production operations.
+No producer schema may merge before a compatible inactive consumer exists when the contract is `atomic-required`. This ordering rule does not itself authorize producer-repository access, writes, staging or production operations.
 
 ## Evidence model
 
