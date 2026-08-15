@@ -4,6 +4,8 @@
 
 Superseded — 2026-08-15 by ADR 0041
 
+- Superseded by: `0041-ecosystem-repository-authority-contracts-and-atlas-integration.md`
+
 This record is retained as the initial ecosystem-topology decision and provenance. ADR 0041 — `0041-ecosystem-repository-authority-contracts-and-atlas-integration.md` — is canonical for current ecosystem topology, authority, contract and Atlas-integration scope.
 
 - Decision owner: repository owner
