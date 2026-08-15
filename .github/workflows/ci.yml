@@ -58,6 +58,7 @@ jobs:
         run: |
           python tools/validation/test_workflow_inventory.py
           python tools/validation/workflow_inventory.py
+          python tools/audit/test_portal_exhaustive_audit.py
 
       - name: Validate PHP coverage policy
         run: |
