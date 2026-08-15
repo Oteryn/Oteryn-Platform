@@ -116,11 +116,44 @@
       "boundary": "the Hunt Session Analyzer v1 satisfies the accepted first complete workflow foundation; current terminal state is resolved live, not stored here"
     },
     {
+      "id": "player_companion_capability_inventory_disposition",
+      "selector_entry": 10,
+      "disposition": "REQUIRED",
+      "activation_trigger": "global portal completion is being claimed and one or more canonical PlayerCompanion capabilities lacks an owner-approved IMPLEMENT/DEFER/REJECT disposition",
+      "boundary": "decision gate only; implementation is not implied; every listed capability needs an owner-approved disposition and rationale before this gate is terminal",
+      "required_capability_dispositions": [
+        "loot_split",
+        "hunt_finder",
+        "equipment_explorer_comparison",
+        "character_build_planner",
+        "charm_perk_proficiency_planner",
+        "quest_access_tracker",
+        "exp_training_calculators",
+        "validated_shareable_builds",
+        "bestiary_bosstiary_planner",
+        "forge_upgrade_calculator",
+        "imbuement_sustain_calculators",
+        "team_hunt_composer",
+        "weekly_task_personal_goal_planner",
+        "owner_private_tracking_routines_change_signals",
+        "equipment_set_comparison",
+        "damage_sustain_resistance_simulation",
+        "explainable_next_action_recommendations",
+        "interactive_maps_route_planning",
+        "raid_boss_scheduling_integrations",
+        "market_price_trends_economy_analytics",
+        "public_build_profiles_comparisons",
+        "advanced_full_build_simulation",
+        "community_contribution_workflows",
+        "public_social_tracking_graphs_comparisons"
+      ]
+    },
+    {
       "id": "player_companion_followups",
       "selector_entry": 10,
       "disposition": "CONDITIONAL",
-      "activation_trigger": "a follow-up tool is explicitly promoted by accepted product scope and its authoritative dependencies are proven",
-      "boundary": "follow-ups are independent slices and do not become launch-required merely by appearing in architecture"
+      "activation_trigger": "an individual follow-up capability has an owner-approved IMPLEMENT disposition and its authoritative dependencies are proven",
+      "boundary": "only capabilities explicitly dispositioned IMPLEMENT become runtime candidates; DEFER/REJECT decisions remain terminal and do not self-reactivate"
     },
     {
       "id": "platform_api",
