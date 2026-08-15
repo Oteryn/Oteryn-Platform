@@ -71,10 +71,10 @@ Runtime/browser E2E is `NOT_APPLICABLE`: this task changes repository governance
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-15T11:52:30Z
-head: aaac24350aa60f610507792d737948abe8a30b50
+updated_at: 2026-08-15T12:03:30Z
+head: UNKNOWN
 branch: docs/issue-1092-portal-programme-coherence-closeout
-pr: 1093
+pr: 1099
 status: completed
 context_routes:
   - agent-governance
@@ -83,22 +83,25 @@ context_routes:
 owned_paths:
   - docs/agents/tasks/archive/OTERYN-20260815-portal-programme-coherence.md
 proven:
+  - PR #1099 is the lifecycle-only closeout carrier for this archived task; PR #1093 is historical implementation evidence only.
   - PR #1093 exact head 38c03023333d5e189d3be5118cf412c7a21d5699 squash-merged as aaac24350aa60f610507792d737948abe8a30b50.
-  - All eight emitted final-head workflows passed, including Agent Governance 31882790354 and CI 31882790365.
-  - Final Codex gate produced no new finding and bot reaction +1 id 455429469 is present on PR #1093.
-  - Final exact-head self-review 4943779270 passed with zero open material findings.
+  - All eight emitted final-head implementation workflows passed, including Agent Governance 31882790354 and CI 31882790365.
+  - Final implementation Codex gate produced no new finding and bot reaction +1 id 455429469 is present on PR #1093.
+  - Final implementation exact-head self-review 4943779270 passed with zero open material findings.
   - All PR #1093 review threads are resolved.
   - Issue #1092 is closed completed.
   - Implementation source branch docs/portal-programme-coherence-20260815 is absent after merge.
+  - Lifecycle-only candidate f35b81f8e7c54175157cc5864698c315721d295a passed Agent Governance 31883257455 and CI 31883257444 before the checkpoint-carrier correction.
   - No product runtime production protected-environment external-repository credential payment or live-data mutation was performed.
 derived:
-  - Issue #1092 implementation is terminal and only lifecycle task archival delivery remains on this closeout branch.
+  - Issue #1092 implementation is terminal and only lifecycle task archival delivery remains on PR #1099.
 unknown:
-  - Final lifecycle-only closeout PR merge SHA and closeout branch absence until that PR is merged.
+  - Exact lifecycle-only closeout head after this checkpoint-carrier correction until the commit is created and validated.
+  - Final lifecycle-only closeout PR merge SHA and closeout branch absence until PR #1099 is merged.
 conflicts: []
 first_failure:
-  marker: none-open
-  evidence: all implementation/review findings were repaired before merge and post-merge implementation state is terminal.
+  marker: codex-lifecycle-checkpoint-carrier-mismatch
+  evidence: Codex review on lifecycle candidate f35b81f8e7c54175157cc5864698c315721d295a found that the durable checkpoint pointed branch docs/issue-1092-portal-programme-coherence-closeout at historical implementation PR #1093 and merge aaac24350aa60f610507792d737948abe8a30b50 instead of lifecycle carrier PR #1099.
 rejected_hypotheses:
   - create a second portal scheduler
   - let Work Allocation delivery bands become live priority
@@ -106,6 +109,7 @@ rejected_hypotheses:
   - allow completion-scope manifest to persist live ownership or READY state
   - restart completed historical reconciliation
   - allow specialized programme prose to grant external repository authority
+  - treat historical implementation PR #1093 as the current lifecycle closeout carrier
 changed_paths:
   - docs/agents/tasks/archive/OTERYN-20260815-portal-programme-coherence.md
   - docs/agents/tasks/active/OTERYN-20260815-portal-programme-coherence.md
@@ -122,11 +126,23 @@ validation:
   - command: implementation Issue and source-branch closeout
     result: PASS
     evidence: Issue #1092 closed completed; implementation source ref absent; PR #1093 merged as aaac24350aa60f610507792d737948abe8a30b50.
+  - command: lifecycle-only repository validation before checkpoint-carrier correction
+    result: PASS
+    evidence: PR #1099 candidate f35b81f8e7c54175157cc5864698c315721d295a passed Agent Governance 31883257455 and CI 31883257444.
+  - command: lifecycle-only Codex review before checkpoint-carrier correction
+    result: FAIL
+    evidence: one P2 durable checkpoint carrier mismatch on PR #1099; remediation updates the checkpoint to branch docs/issue-1092-portal-programme-coherence-closeout and PR #1099 with schema-valid head UNKNOWN.
+  - command: checkpoint-carrier-corrected exact-head repository validation
+    result: NOT_RUN
+    evidence: coherent remediation commit has not yet been created.
+  - command: checkpoint-carrier-corrected exact-head Codex review
+    result: NOT_RUN
+    evidence: must be re-triggered on the exact remediation head.
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: governance/documentation/prompt-contract scope has no product/browser journey.
 blockers: []
-next_action: Merge the lifecycle-only closeout PR after its exact-head repository gates and review policy permit, then verify its source branch is absent.
+next_action: Validate the checkpoint-carrier correction on the new exact PR #1099 head, re-trigger Codex review, resolve the P2 thread with exact evidence, then merge and verify the closeout source branch is absent.
 ```
 
 ## Source branch closeout
