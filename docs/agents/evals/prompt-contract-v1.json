@@ -251,6 +251,110 @@
         "user_communication: terminal_only",
         "Never start a second additional task in the same invocation."
       ]
+    },
+    {
+      "id": "portal-completion-v13-scope-is-non-scheduling",
+      "category": "stale_conflicting_state",
+      "source": "docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md",
+      "must_contain": [
+        "Completion scope: `docs/agents/programs/OTERYN_PORTAL_COMPLETION_SCOPE.json`.",
+        "The completion scope does **not** select work, claim ownership, prove current status or promote a candidate to `READY`.",
+        "`CONDITIONAL` participates only when its exact named activation trigger is proven;"
+      ]
+    },
+    {
+      "id": "portal-completion-v13-architecture-decision-routing",
+      "category": "authority_stop",
+      "safety_critical": true,
+      "source": "docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md",
+      "must_contain": [
+        "route that exact obligation through `OTERYN_PLATFORM_ARCHITECTURE_REVIEW` / the architecture decision backlog",
+        "Keep affected runtime work `DECISION_REQUIRED` or `BLOCKED` until accepted authority exists.",
+        "Do not let `ARCHITECTURE_COORDINATOR` become a second architecture-decision programme."
+      ]
+    },
+    {
+      "id": "portal-completion-v13-one-new-owner-parallelism",
+      "category": "autonomous_continuation",
+      "source": "docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md",
+      "must_contain": [
+        "A selector pass chooses **at most one new candidate for the current worker/invocation entry**.",
+        "Multiple independently owned portal tasks may already be active globally in parallel",
+        "Treat them as `OWNED`; do not join, steal or duplicate their branches."
+      ]
+    },
+    {
+      "id": "portal-program-v4-sole-live-selector",
+      "category": "normal_success",
+      "source": "docs/agents/programs/OTERYN_PORTAL_COMPLETION.md",
+      "must_contain": [
+        "**This document is the sole live portal selector.**",
+        "One selector pass chooses at most one new candidate for the current worker/invocation entry.",
+        "## Parallelism contract",
+        "Historical `RETAIN`/`RECOVERY`"
+      ]
+    },
+    {
+      "id": "portal-work-allocation-non-scheduling-matrix",
+      "category": "stale_conflicting_state",
+      "source": "docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md",
+      "must_contain": [
+        "## Capability maturity and execution matrix",
+        "Delivery band (non-scheduling)",
+        "`CONDITIONAL` — cross-cutting or product work participates only when its named activation trigger is proven",
+        "It is **not a scheduler, priority queue, architecture authority, completion-scope authority or source of current ownership**."
+      ]
+    },
+    {
+      "id": "portal-architecture-control-plane-hierarchy",
+      "category": "normal_success",
+      "source": "docs/architecture/ARCHITECTURE_AUTHORITY.md",
+      "must_contain": [
+        "## Portal delivery control-plane hierarchy",
+        "OTERYN_PORTAL_COMPLETION.md\n           sole live candidate selector",
+        "Work Allocation delivery bands/maturity values do not create a second queue;",
+        "## Architecture Review versus delivery coordination"
+      ]
+    },
+    {
+      "id": "historical-reconciliation-prompt-is-terminal",
+      "category": "authority_stop",
+      "safety_critical": true,
+      "source": "docs/agents/prompts/OTERYN-HISTORICAL-WORK-RECONCILIATION.md",
+      "must_contain": [
+        "status: TERMINAL_DO_NOT_RUN",
+        "**Issue #1072 is terminal. Do not execute this prompt as a worker instruction.**",
+        "Future branch/ref hygiene is not a continuation of Issue #1072."
+      ],
+      "must_not_contain": [
+        "Use this prompt to continue Issue #1072 to terminal closeout."
+      ]
+    },
+    {
+      "id": "game-catalog-programme-cannot-grant-server-authority",
+      "category": "authority_stop",
+      "safety_critical": true,
+      "source": "docs/agents/programs/GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM.md",
+      "must_contain": [
+        "**It grants no cross-repository access or mutation authority.**",
+        "default authorized repository scope is `blakinio/Oteryn-Platform` only;",
+        "must not be read, searched, fetched, inspected, audited, branched, edited, reviewed or merged unless the repository owner explicitly authorizes that exact repository scope for the current task;"
+      ],
+      "must_not_contain": [
+        "Writes are permitted only in:"
+      ]
+    },
+    {
+      "id": "portal-completion-scope-manifest-is-not-live-state",
+      "category": "normal_success",
+      "source": "docs/agents/programs/OTERYN_PORTAL_COMPLETION_SCOPE.json",
+      "must_contain": [
+        "\"mode\": \"non_scheduling_completion_scope\"",
+        "\"selects_work\": false",
+        "\"claims_ownership\": false",
+        "\"can_promote_ready\": false",
+        "\"multi_world_ruleset_season_dimensions\""
+      ]
     }
   ]
 }
