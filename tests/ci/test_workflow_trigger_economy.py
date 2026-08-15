@@ -129,6 +129,20 @@ def has_superseded_run_cancellation(text: str) -> bool:
     return "github.event_name == 'pull_request'" in value
 
 
+def has_stable_pr_concurrency_identity(text: str) -> bool:
+    match = re.search(r"(?m)^  group:\s*(.+)$", text)
+    if match is None:
+        return False
+    value = match.group(1).strip()
+    # A PR number is the strongest identity. github.ref is also stable for a
+    # PR (refs/pull/<number>/merge). A bare SHA/run ID/fixed global mutex is
+    # not sufficient because a new PR head would evade cancellation or an
+    # unrelated PR could cancel another PR.
+    if "github.event.pull_request.number" in value:
+        return True
+    return "github.ref" in value and "github.sha" not in value
+
+
 for filename in HEAVY_WORKFLOWS:
     path = WORKFLOW_ROOT / filename
     text = path.read_text(encoding="utf-8")
@@ -143,6 +157,9 @@ for filename in HEAVY_WORKFLOWS:
 
     assert has_superseded_run_cancellation(text), (
         f"{filename}: superseded same-PR runs are not cancelled"
+    )
+    assert has_stable_pr_concurrency_identity(text), (
+        f"{filename}: pull-request concurrency identity is not stable per PR"
     )
     assert "scripts/ci/classify_changes.py" in text, (
         f"{filename}: internal fail-closed path classification was removed"
@@ -167,8 +184,11 @@ for path in sorted([*WORKFLOW_ROOT.glob("*.yml"), *WORKFLOW_ROOT.glob("*.yaml")]
                 f"{path.name}: trigger still references retired workflow {retired}"
             )
 
-    if pull_request is not None and path.name not in GLOBAL_PULL_REQUEST_WORKFLOWS:
-        if not has_path_filter(pull_request):
+    if pull_request is not None:
+        if (
+            path.name not in GLOBAL_PULL_REQUEST_WORKFLOWS
+            and not has_path_filter(pull_request)
+        ):
             inventory_findings.append(
                 f"{path.name}: pull_request must use paths/paths-ignore or be an "
                 "explicit repository-wide control-plane workflow"
@@ -177,6 +197,11 @@ for path in sorted([*WORKFLOW_ROOT.glob("*.yml"), *WORKFLOW_ROOT.glob("*.yaml")]
             inventory_findings.append(
                 f"{path.name}: supersedable pull_request workflow lacks "
                 "cancel-in-progress"
+            )
+        if not has_stable_pr_concurrency_identity(text):
+            inventory_findings.append(
+                f"{path.name}: pull_request concurrency group is not stable and "
+                "isolated per PR"
             )
 
     if (
@@ -201,6 +226,7 @@ assert (
     in agent_governance
 )
 assert has_superseded_run_cancellation(agent_governance)
+assert has_stable_pr_concurrency_identity(agent_governance)
 
 ci = (WORKFLOW_ROOT / "ci.yml").read_text(encoding="utf-8")
 assert (
@@ -217,6 +243,9 @@ assert "scripts/ci/classify_changes.py" in ci
 assert "scripts/ci/classify_push_changes.py" in ci
 assert "github.event.pull_request.base.sha || github.event.before || ''" in ci
 assert "python tests/ci/test_push_change_routing.py" in ci
+assert "paths_json: ${{ steps.classify.outputs.paths_json }}" in ci
+assert "contains(needs.classify_changes.outputs.paths_json, '.github/workflows/ci.yml')" in ci
+assert "contains(needs.classify_changes.outputs.classes, 'workflow')" not in ci
 
 acceptance = (WORKFLOW_ROOT / "acceptance-validation.yml").read_text(encoding="utf-8")
 acceptance_trigger = trigger_prefix(acceptance)
@@ -238,6 +267,7 @@ assert (
     in acceptance
 )
 assert has_superseded_run_cancellation(acceptance)
+assert has_stable_pr_concurrency_identity(acceptance)
 
 portal_acceptance = (
     WORKFLOW_ROOT / "portal-acceptance-contract.yml"

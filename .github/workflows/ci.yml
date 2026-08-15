@@ -26,6 +26,7 @@ jobs:
       db_outage: ${{ steps.classify.outputs.db_outage }}
       game_auth_concurrency: ${{ steps.classify.outputs.game_auth_concurrency }}
       classes: ${{ steps.classify.outputs.classes }}
+      paths_json: ${{ steps.classify.outputs.paths_json }}
     steps:
       - name: Checkout exact classification range
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -184,7 +185,7 @@ jobs:
           contains(needs.classify_changes.outputs.classes, 'database') ||
           contains(needs.classify_changes.outputs.classes, 'dependency') ||
           contains(needs.classify_changes.outputs.classes, 'shared') ||
-          contains(needs.classify_changes.outputs.classes, 'workflow')
+          contains(needs.classify_changes.outputs.paths_json, '.github/workflows/ci.yml')
         )
       }}
     runs-on: ubuntu-latest

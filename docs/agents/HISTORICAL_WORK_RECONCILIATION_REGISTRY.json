@@ -1,4 +1,24 @@
 {
+  "apply_evidence": {
+    "artifact_digest": "sha256:461324c161e4604ee36436f9fefe6c05259438e5c043f1cfb7a4a14c0cf33c95",
+    "artifact_id": 9244232232,
+    "deleted_count": 37,
+    "deletion_mode": "atomic_exact_head_batch",
+    "main_sha": "30c4f60795108fb032667e9b3011a446f4c3db55",
+    "non_candidate_ref_count_verified_present": 11,
+    "post_apply_branch_count": 11,
+    "restore_probe": {
+      "branch": "historical-reconciliation-restore-probe-31873953934",
+      "create": true,
+      "delete": true,
+      "final_absence": true,
+      "object_sha": "30c4f60795108fb032667e9b3011a446f4c3db55",
+      "restore": true,
+      "result": "PASS"
+    },
+    "unexplained_count": 0,
+    "workflow_run_id": 31873953934
+  },
   "apply_main_change_allowlist": [
     ".github/workflows/historical-branch-audit.yml",
     "docs/agents/HISTORICAL_WORK_RECONCILIATION_REGISTRY.json",
@@ -10,93 +30,84 @@
     "tools/agents/test_historical_work_reconciliation.py"
   ],
   "discovery_evidence": {
-    "artifact_digest": "sha256:562fe26572947031da3b1d92228de78a8fbb045002c1cd95dffd140241f27b64",
-    "artifact_id": 9243721593,
-    "workflow_run_id": 31872078706
+    "content_inventory_artifact_id": 9243364594,
+    "reviewed_inventory_artifact_id": 9243721593
   },
   "entries": [
     {
       "branch": "audit/OTERYN-20260802-production-completion-baseline",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "ZERO_DELTA",
       "source_head_sha": "d4f2da91c2a328d93f9f3521bb45094295e322ea",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DELETE"
     },
     {
       "branch": "audit/OTERYN-20260802-production-completion-baseline-rebase",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "SUPERSEDED_CANONICAL_MAIN",
       "source_head_sha": "b259465b07fde7e09698e7b07144539d23ddee63",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DOCUMENT_ARCHIVE"
     },
     {
       "branch": "audit/OTERYN-20260803-portal-evidence-staging",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "SUPERSEDED_CANONICAL_MAIN",
       "source_head_sha": "d415144f1c300c7bb92d5824a919f3c7e6bb7a61",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DOCUMENT_ARCHIVE"
     },
     {
       "branch": "audit/platform-continuous-payments-20260805",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "TASK_SEED_ONLY",
       "source_head_sha": "1fd2f3871fdb5809f9ad4c4df2ca7e924f047865",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DOCUMENT_ARCHIVE"
     },
     {
       "branch": "backup/OTERYN-20260727-tibia-linux-runner-analysis-pre-restack-20260801",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "PRE_RESTACK_SUPERSEDED",
       "source_head_sha": "34fba18d58e2532f08b95f2e027283f100f23bd0",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DOCUMENT_ARCHIVE"
     },
     {
       "branch": "backup/OTERYN-20260730-viewport-browser-evidence-dimensions-pre-restack",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "PRE_RESTACK_SUPERSEDED",
       "source_head_sha": "611b130fb50a1fb2661b890b7f80a70675dad58d",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DOCUMENT_ARCHIVE"
     },
     {
       "branch": "backup/OTERYN-20260808-native-pre-admission-handoff-pre-restack",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "PRE_RESTACK_SUPERSEDED",
       "source_head_sha": "72129cf6f8291df0ba420c32495be80fd754b6d7",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DOCUMENT_ARCHIVE"
     },
     {
       "branch": "chore/OTERYN-20260724-synology-compose-recovery-closeout",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "exact_pr": {
         "head_sha": "743e9d102fd8895c6230f17af6503aa8871f041f",
@@ -105,14 +116,13 @@
       },
       "reason": "EXACT_CLOSED_PR",
       "source_head_sha": "743e9d102fd8895c6230f17af6503aa8871f041f",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "PR_PROVENANCE_DELETE"
     },
     {
       "branch": "chore/OTERYN-20260727-staging-admin-recovery-cleanup",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "exact_pr": {
         "head_sha": "9f30731e8fcc97ce8d3300a550239270979b5284",
@@ -121,80 +131,73 @@
       },
       "reason": "EXACT_CLOSED_PR",
       "source_head_sha": "9f30731e8fcc97ce8d3300a550239270979b5284",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "PR_PROVENANCE_DELETE"
     },
     {
       "branch": "chore/OTERYN-20260729-archive-character-profile-preferences",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "LIFECYCLE_SUPERSEDED",
       "source_head_sha": "2d52490c44375066751a645fc10947208056477e",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DOCUMENT_ARCHIVE"
     },
     {
       "branch": "chore/closeout-actions-storage-hygiene",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "SUPERSEDED_CANONICAL_MAIN",
       "source_head_sha": "580e029d8e85b06a389e296357b4926af488fdeb",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DOCUMENT_ARCHIVE"
     },
     {
       "branch": "docs/OTERYN-20260802-agent-governance-sync",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "STALE_GOVERNANCE",
       "source_head_sha": "cf469580c605cf6ba00c52fa7bd78a3994820130",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DOCUMENT_ARCHIVE"
     },
     {
       "branch": "docs/OTERYN-20260808-native-pre-admission-handoff-restack",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "PRE_RESTACK_SUPERSEDED",
       "source_head_sha": "e85b9b542b82ac07909f5886f86c85071f96d075",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DOCUMENT_ARCHIVE"
     },
     {
       "branch": "docs/OTERYN-20260813-architecture-programme-state-reconciliation-temp",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "TEMPORARY_NO_VALUE",
       "source_head_sha": "0399d540d69c4c6ea7d7cf0f11fb02e8b786470f",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DELETE"
     },
     {
       "branch": "docs/OTERYN-20260813-player-companion-session-analyzer-v1-archive",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "LIFECYCLE_SUPERSEDED",
       "source_head_sha": "6f41c5aa6e02ed1f72da80623bd80050aee1e289",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DOCUMENT_ARCHIVE"
     },
     {
       "branch": "docs/agent-session-stall-recovery-20260804",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "exact_pr": {
         "head_sha": "0b6806b18b9e084d80775a6f2b6207dfaf9fa742",
@@ -203,25 +206,23 @@
       },
       "reason": "EXACT_CLOSED_PR",
       "source_head_sha": "0b6806b18b9e084d80775a6f2b6207dfaf9fa742",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "PR_PROVENANCE_DELETE"
     },
     {
       "branch": "docs/archive-issue-691-dependency-refresh",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "LIFECYCLE_SUPERSEDED",
       "source_head_sha": "73c6774084f84852239e17afa59de38df3e78269",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DOCUMENT_ARCHIVE"
     },
     {
       "branch": "fix/OTERYN-20260724-synology-compose-orphan-recovery",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "exact_pr": {
         "head_sha": "604d1c26c253cb5086c240630057ed893c1bd987",
@@ -230,14 +231,13 @@
       },
       "reason": "EXACT_CLOSED_PR",
       "source_head_sha": "604d1c26c253cb5086c240630057ed893c1bd987",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "PR_PROVENANCE_DELETE"
     },
     {
       "branch": "ops/OTERYN-20260727-staging-admin-credential-recovery",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "exact_pr": {
         "head_sha": "5f3947d1e7b7f8908c1f83fb02b51485aacc82d5",
@@ -246,25 +246,23 @@
       },
       "reason": "EXACT_CLOSED_PR",
       "source_head_sha": "5f3947d1e7b7f8908c1f83fb02b51485aacc82d5",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "PR_PROVENANCE_DELETE"
     },
     {
       "branch": "ops/OTERYN-20260801-cloudflare-edge-audit",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "ACTIVE_CANONICAL_OWNER_SUPERSEDES",
       "source_head_sha": "dc627cafb1fe4c99ac4dbc30bf3b81f854f38ee9",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DOCUMENT_ARCHIVE"
     },
     {
       "branch": "ops/synology-rollback-schema-safety-1007",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "exact_pr": {
         "head_sha": "516b4a0e1e200f3f94b4432a8ad3c1e2d9af5459",
@@ -273,36 +271,33 @@
       },
       "reason": "EXACT_CLOSED_PR",
       "source_head_sha": "516b4a0e1e200f3f94b4432a8ad3c1e2d9af5459",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "PR_PROVENANCE_DELETE"
     },
     {
       "branch": "repair/issue-561",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "LIFECYCLE_SUPERSEDED",
       "source_head_sha": "f93923f11a7bdf310cfb724160dbc9480c331f7e",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DOCUMENT_ARCHIVE"
     },
     {
       "branch": "repair/issue-576-recovery-tmp",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "EXPLICIT_TEMP_HELPER",
       "source_head_sha": "d3cb258f49b912cfa752f622b24c37c0affcd3bd",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DELETE"
     },
     {
       "branch": "task/OTERYN-20260719-password-recovery-credentials",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "exact_pr": {
         "head_sha": "87aec30b783b136e87989b741e787aa3939c4cf1",
@@ -311,14 +306,13 @@
       },
       "reason": "EXACT_CLOSED_PR",
       "source_head_sha": "87aec30b783b136e87989b741e787aa3939c4cf1",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "PR_PROVENANCE_DELETE"
     },
     {
       "branch": "task/OTERYN-20260721-e2e-migration-rollback-validation",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "exact_pr": {
         "head_sha": "cddaebfb14e1235bcc00ca242ef82a8c49d84e0c",
@@ -327,14 +321,13 @@
       },
       "reason": "EXACT_CLOSED_PR",
       "source_head_sha": "cddaebfb14e1235bcc00ca242ef82a8c49d84e0c",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "PR_PROVENANCE_DELETE"
     },
     {
       "branch": "task/OTERYN-20260721-e2e-migration-rollback-validation-archive",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "exact_pr": {
         "head_sha": "1c0acf3299f61d0dcf8abf7f75e3b380d15ff468",
@@ -343,14 +336,13 @@
       },
       "reason": "EXACT_CLOSED_PR",
       "source_head_sha": "1c0acf3299f61d0dcf8abf7f75e3b380d15ff468",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "PR_PROVENANCE_DELETE"
     },
     {
       "branch": "task/OTERYN-20260721-e2e-public-dependency-recovery",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "exact_pr": {
         "head_sha": "ecdf19f325d849634d045274c78425ac8f2ec820",
@@ -359,14 +351,13 @@
       },
       "reason": "EXACT_CLOSED_PR",
       "source_head_sha": "ecdf19f325d849634d045274c78425ac8f2ec820",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "PR_PROVENANCE_DELETE"
     },
     {
       "branch": "task/OTERYN-20260721-e2e-public-dependency-recovery-archive",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "exact_pr": {
         "head_sha": "c6493104c8cf551c2608ca56f8b16d29a8b25a7b",
@@ -375,116 +366,103 @@
       },
       "reason": "EXACT_CLOSED_PR",
       "source_head_sha": "c6493104c8cf551c2608ca56f8b16d29a8b25a7b",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "PR_PROVENANCE_DELETE"
     },
     {
       "branch": "task/OTERYN-20260722-game-ticket-hardening",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "SECURITY_INTENT_CANONICALIZED",
       "source_head_sha": "646ba18d8caefc05d8eb07e536def9a3c9d9819c",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DOCUMENT_ARCHIVE"
     },
     {
       "branch": "test/OTERYN-20260727-support-legal-acceptance",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "SUPPORT_TEST_SUPERSEDED",
       "source_head_sha": "7b2bfa973e2cb82b990d66a4e403166d2c8657da",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DOCUMENT_ARCHIVE"
     },
     {
       "branch": "test/OTERYN-20260730-route-view-navigation-reachability",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "EXPLICIT_PR_SUPERSEDED",
       "source_head_sha": "31065052c7db1160d5d7b6d648373a0394cced61",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DOCUMENT_ARCHIVE"
     },
     {
       "branch": "tmp-do-not-use",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "TEMPORARY_NO_VALUE",
       "source_head_sha": "adc1b07c81e8df51829c1d139c36c72cedd5c5d0",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DELETE"
     },
     {
       "branch": "tmp-placeholder",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "SUPERSEDED_CANONICAL_MAIN",
       "source_head_sha": "39d557136c7b843596c1ca4b16345f134da6af69",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DOCUMENT_ARCHIVE"
     },
     {
       "branch": "tmp/rebase-OTERYN-20260730-character-deletion-contract",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "SUPERSEDED_CANONICAL_MAIN",
       "source_head_sha": "3dd59d6b1ecadfda9f3192422a32ecc745073044",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DOCUMENT_ARCHIVE"
     },
     {
       "branch": "tooling/OTERYN-20260729-resume-character-rename",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "ONE_SHOT_TRANSIENT",
       "source_head_sha": "5d88fde66899028a5f6f3b814a4a1b9d4398bc73",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DELETE"
     },
     {
       "branch": "trigger/OTERYN-20260729-character-profile-archive",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "ONE_SHOT_TRANSIENT",
       "source_head_sha": "df64df021a9315537542818255651e690398915a",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DELETE"
     },
     {
       "branch": "x",
       "evidence": [
-        "registry:self",
-        "workflow-artifact:9243721593"
+        "registry:self"
       ],
       "reason": "SUPERSEDED_CANONICAL_MAIN",
       "source_head_sha": "3c59fec368c68196851ebc9a205f91c38c1b6947",
-      "source_ref_state": "present_reviewed",
+      "source_ref_state": "deleted_verified",
       "terminal_disposition": "DOCUMENT_ARCHIVE"
     }
   ],
   "issue": 1072,
   "managed_recovery": [],
   "managed_recovery_reason": "All 15 legacy RECOVERY refs were individually reconciled; no independent exact Git-history retention requirement remains.",
-  "owner_ready_authorization": {
-    "authorized_at": "2026-08-15T07:41:00Z",
-    "scope": "Mark PR #1074 Ready and permit any repository-required Ready-triggered owner-funded AI review for Issue #1072."
-  },
   "reason_catalog": {
     "ACTIVE_CANONICAL_OWNER_SUPERSEDES": "Current canonical owner/main supersedes stale implementation.",
     "EXACT_CLOSED_PR": "Exact source head is preserved by closed PR provenance; independent Git recovery is unnecessary.",
@@ -501,7 +479,7 @@
     "TEMPORARY_NO_VALUE": "Temporary carrier has no required source/evidence/recovery value.",
     "ZERO_DELTA": "No content delta versus canonical main."
   },
-  "registry_phase": "reviewed_for_deletion",
+  "registry_phase": "applied",
   "reviewed_apply_implementation_blobs": {
     ".github/workflows/historical-branch-audit.yml": "126aed6d9abc62c0ff1d69f7484777f1919b6217",
     "tools/agents/historical_work_reconciliation.py": "60d318c1c20440beb91318ddeb4ba9cbe24bbe7e"
