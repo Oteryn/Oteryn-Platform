@@ -4,25 +4,25 @@ on:
   pull_request:
     paths:
       - ".github/workflows/historical-branch-audit.yml"
-      - "docs/agents/HISTORICAL_BRANCH_DELETION_APPROVAL.json"
       - "docs/agents/HISTORICAL_WORK_RECONCILIATION_REGISTRY.json"
       - "tools/agents/historical_branch_audit.py"
       - "tools/agents/historical_branch_policy.py"
       - "tools/agents/historical_work_reconciliation.py"
       - "tools/agents/test_historical_branch_audit.py"
       - "tools/agents/test_historical_branch_policy.py"
+      - "tools/agents/test_historical_work_reconciliation.py"
   push:
     branches:
       - main
     paths:
       - ".github/workflows/historical-branch-audit.yml"
-      - "docs/agents/HISTORICAL_BRANCH_DELETION_APPROVAL.json"
       - "docs/agents/HISTORICAL_WORK_RECONCILIATION_REGISTRY.json"
       - "tools/agents/historical_branch_audit.py"
       - "tools/agents/historical_branch_policy.py"
       - "tools/agents/historical_work_reconciliation.py"
       - "tools/agents/test_historical_branch_audit.py"
       - "tools/agents/test_historical_branch_policy.py"
+      - "tools/agents/test_historical_work_reconciliation.py"
   workflow_dispatch:
 
 permissions:
@@ -50,17 +50,18 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Run focused historical-audit tests
+      - name: Run focused historical governance tests
         run: |
           python3 -m py_compile tools/agents/historical_work_reconciliation.py
           python3 tools/agents/test_historical_branch_audit.py
           python3 tools/agents/test_historical_branch_policy.py
+          python3 tools/agents/test_historical_work_reconciliation.py
 
   inventory:
     name: live-dry-run
     needs: validate
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     permissions:
       contents: read
       issues: read
@@ -79,7 +80,7 @@ jobs:
       - name: Fetch exact live branch objects
         run: git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
 
-      - name: Build fail-closed historical branch audit
+      - name: Build raw fail-closed Git/provenance inventory
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -91,62 +92,66 @@ jobs:
             --manifest historical-branch-deletion-manifest.generated.json \
             --approval-validation historical-branch-approval-validation.json
 
-      - name: Build Issue 1072 content and provenance inventory
+      - name: Enforce Issue 1072 terminal reconciliation registry
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           python3 tools/agents/historical_work_reconciliation.py \
+            --mode inventory \
             --repo "${GITHUB_REPOSITORY}" \
             --token "${GITHUB_TOKEN}" \
-            --output historical-work-reconciliation-inventory.json
+            --output historical-work-reconciliation-live.json
 
       - name: Verify protected default branch and full accounting
         run: |
           python3 - <<'PY'
           import json, pathlib
-          report = json.loads(pathlib.Path("historical-branch-audit-report.json").read_text())
-          branches = report.get("branches", [])
-          if report.get("branch_count") != len(branches):
-              raise SystemExit("branch count does not match audited entries")
-          names = [item.get("branch") for item in branches]
+          report = json.loads(pathlib.Path("historical-work-reconciliation-live.json").read_text())
+          if report.get("unexplained_count") != 0:
+              raise SystemExit(f"unexplained live refs: {report.get('unexplained')}")
+          accounted = report.get("accounted", [])
+          if len(accounted) != report.get("branch_count"):
+              raise SystemExit(
+                  f"live accounting mismatch: branch_count={report.get('branch_count')} accounted={len(accounted)}"
+              )
+          names = [item.get("branch") for item in accounted]
           if len(names) != len(set(names)):
-              raise SystemExit("duplicate audited branch names")
-          main = next((item for item in branches if item.get("branch") == "main"), None)
-          if not main or main.get("disposition") != "PROTECTED" or main.get("protected") is not True:
-              raise SystemExit(f"main is not fail-closed PROTECTED: {main!r}")
-          allowed = {"DELETE", "OPEN_PR", "PROTECTED", "RECOVERY", "RETAIN"}
-          unknown = sorted({item.get("disposition") for item in branches} - allowed)
-          if unknown:
-              raise SystemExit(f"unsupported/unreviewed dispositions: {unknown}")
-          delete_entries = [item for item in branches if item.get("disposition") == "DELETE"]
-          if any(not item.get("cleanup_proof") for item in delete_entries):
-              raise SystemExit("DELETE candidate without cleanup_proof")
+              raise SystemExit("duplicate live branch accounting")
+          main = next((item for item in accounted if item.get("branch") == "main"), None)
+          if not main or main.get("classification") != "PROTECTED":
+              raise SystemExit(f"main is not terminally PROTECTED: {main!r}")
+          forbidden = {"RETAIN", "RECOVERY", "UNKNOWN"}
+          bad = [item for item in accounted if item.get("classification") in forbidden]
+          if bad:
+              raise SystemExit(f"non-terminal live classifications: {bad}")
           print(
-              f"Fully accounted for {len(branches)} live refs; "
-              f"{report.get('deletion_candidate_count')} exact deletion candidate(s)."
+              f"Fully accounted for {len(accounted)} live refs; "
+              f"registry phase={report.get('registry_phase')}; "
+              f"reviewed sources present={len(report.get('registered_present', []))}; "
+              f"terminally absent={len(report.get('registered_absent', []))}."
           )
           PY
 
-      - name: Publish audit evidence
+      - name: Publish inventory evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: historical-branch-audit-${{ github.run_id }}
+          name: historical-work-reconciliation-inventory-${{ github.run_id }}
           path: |
             historical-branch-audit-report.json
             historical-branch-deletion-manifest.generated.json
             historical-branch-approval-validation.json
-            historical-work-reconciliation-inventory.json
+            historical-work-reconciliation-live.json
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
 
   apply:
-    name: apply-reviewed-historical-manifest
+    name: apply-reviewed-historical-reconciliation
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs:
       - validate
       - inventory
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     permissions:
       contents: write
       issues: read
@@ -166,44 +171,50 @@ jobs:
       - name: Fetch exact live branch objects
         run: git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
 
-      - name: Detect reviewed historical approval
-        id: approval
-        shell: bash
+      - name: Resolve reconciliation phase
+        id: phase
         run: |
-          if [[ -f docs/agents/HISTORICAL_BRANCH_DELETION_APPROVAL.json ]]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "No reviewed historical approval is present; apply is NOT_APPLICABLE."
-          fi
+          value="$(python3 - <<'PY'
+          import json
+          print(json.load(open('docs/agents/HISTORICAL_WORK_RECONCILIATION_REGISTRY.json'))['registry_phase'])
+          PY
+          )"
+          echo "value=${value}" >> "$GITHUB_OUTPUT"
+          echo "registry phase: ${value}"
 
-      - name: Apply exact reviewed historical manifest
-        if: steps.approval.outputs.exists == 'true'
+      - name: Apply exact reviewed reconciliation set with restore proof
+        if: steps.phase.outputs.value == 'reviewed_for_deletion'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           CURRENT_MAIN_SHA="$(git rev-parse HEAD)"
-          python3 tools/agents/historical_branch_policy.py \
+          python3 tools/agents/historical_work_reconciliation.py \
             --mode apply \
             --repo "${GITHUB_REPOSITORY}" \
             --token "${GITHUB_TOKEN}" \
             --event-name "${GITHUB_EVENT_NAME}" \
             --ref-name "${GITHUB_REF_NAME}" \
             --expected-main-sha "${CURRENT_MAIN_SHA}" \
-            --output historical-branch-apply-report.json \
-            --manifest historical-branch-post-apply-manifest.json \
-            --evidence historical-branch-deletion-evidence.json \
-            --recovery-evidence historical-branch-recovery-evidence.json
+            --output historical-work-reconciliation-post-apply.json \
+            --evidence historical-work-reconciliation-apply-evidence.json
 
-      - name: Publish apply and recovery evidence
-        if: always() && steps.approval.outputs.exists == 'true'
+      - name: Confirm no mutation is needed for applied registry
+        if: steps.phase.outputs.value == 'applied'
+        run: echo "Registry is already applied; protected-main mutation is NOT_APPLICABLE."
+
+      - name: Reject unknown reconciliation phase
+        if: steps.phase.outputs.value != 'reviewed_for_deletion' && steps.phase.outputs.value != 'applied'
+        run: |
+          echo "Unsupported registry phase: ${{ steps.phase.outputs.value }}" >&2
+          exit 1
+
+      - name: Publish apply and restore evidence
+        if: always() && steps.phase.outputs.value == 'reviewed_for_deletion'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: historical-branch-apply-${{ github.run_id }}
+          name: historical-work-reconciliation-apply-${{ github.run_id }}
           path: |
-            historical-branch-apply-report.json
-            historical-branch-post-apply-manifest.json
-            historical-branch-deletion-evidence.json
-            historical-branch-recovery-evidence.json
+            historical-work-reconciliation-post-apply.json
+            historical-work-reconciliation-apply-evidence.json
           if-no-files-found: warn
           retention-days: 90
