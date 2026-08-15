@@ -4,17 +4,18 @@
 
 ```yaml
 prompt_contract:
-  version: 1.0
+  version: 1.1
   changed_surfaces:
     - worker_template
     - parallel_routing
     - audit_handoff
     - integration_routing
     - continuation_rule
-  objective: coordinate multiple genuinely independent OTERYN_PORTAL_COMPLETION lanes without duplicate ownership, shared-branch writes, selector bypass, false completion or authority expansion
-  baseline_version: none_standalone_prompt
+    - evaluation_wiring
+  objective: coordinate multiple genuinely independent OTERYN_PORTAL_COMPLETION lanes without duplicate ownership, shared-branch writes, selector bypass, invalid checkpoint states, inert evaluation, false completion or authority expansion
+  baseline_version: parallel_coordinator_prompt_1.0
   eval_suite: docs/agents/evals/oteryn-portal-parallel-coordinator-prompt-v1.json
-  rollback_version: remove_standalone_prompt_and_invocation
+  rollback_version: parallel_coordinator_prompt_1.0
 ```
 
 This is a **standalone operator prompt**, not a second scheduler and not a replacement for `docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md`.
@@ -265,10 +266,11 @@ Workers must not:
 
 ## Candidate handoff
 
-A worker hands off only after durable state records:
+A worker hands off only after the task checkpoint uses the allowed checkpoint state `status: ready` and durable handoff metadata records:
 
 ```text
-STATUS: CANDIDATE_READY_FOR_AUDIT
+CHECKPOINT_STATUS: ready
+HANDOFF_STATE: CANDIDATE_READY_FOR_AUDIT
 TASK: <task>
 BRANCH: <branch>
 HEAD: <sha>
@@ -281,6 +283,8 @@ KNOWN_LIMITATIONS: <none or exact>
 OPEN_FINDINGS: <none or exact>
 NEXT_ACTION: coordinator exact-head audit
 ```
+
+`CANDIDATE_READY_FOR_AUDIT` is a handoff state, never a checkpoint `status` value.
 
 At handoff the worker stops writing that branch.
 
@@ -461,6 +465,6 @@ Do not provide a chronological diary. Persist detailed evidence in tasks, PRs an
 
 ## Evaluation status
 
-This prompt's deterministic/manual evaluation inventory is `docs/agents/evals/oteryn-portal-parallel-coordinator-prompt-v1.json`.
+The schema-valid deterministic evaluation inventory is `docs/agents/evals/oteryn-portal-parallel-coordinator-prompt-v1.json` and is executed by `.github/workflows/parallel-coordinator-prompt-eval.yml` whenever this prompt, its suite, or the workflow changes.
 
-No repeated model-behaviour trials are claimed by this file. When a model/runtime eval harness is available and nondeterminism materially matters, run the repeated trials required by `PROMPT_EVAL_STANDARD.md` before treating portability as proven.
+That deterministic evaluator does not execute an LLM and does not prove stochastic model adherence. No repeated model-behaviour trials are claimed by this file. When a model/runtime eval harness is available and nondeterminism materially matters, run the repeated trials required by `PROMPT_EVAL_STANDARD.md` before treating portability as proven.
