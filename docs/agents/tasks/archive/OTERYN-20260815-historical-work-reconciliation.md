@@ -90,10 +90,10 @@ Runtime/browser E2E is `NOT_APPLICABLE`; the mandatory real Git-ref lifecycle E2
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-15T08:18:00Z
+updated_at: 2026-08-15T08:25:00Z
 head: 30c4f60795108fb032667e9b3011a446f4c3db55
 branch: docs/issue-1072-historical-work-closeout
-pr: CLOSEOUT_PR_LIVE
+pr: 1088
 status: completed
 context_routes:
   - agent-governance
@@ -117,7 +117,7 @@ proven:
 derived:
   - only protected main and genuinely open/live work remain after the historical mutation
 unknown:
-  - final closeout PR number and merge SHA until this archive-closeout PR is created and merged
+  - final closeout merge SHA until PR #1088 merges
   - closeout branch final absence until after closeout merge
 conflicts: []
 first_failure:
@@ -165,4 +165,4 @@ source_branch_evidence: implementation source ref search is empty; repository au
 
 This archive-closeout changes only repository governance state. It performs no further historical deletion, production/staging/protected-environment operation, external-repository mutation, credential change, payment operation or new owner-funded AI task.
 
-After this closeout PR merges, verify the closeout branch is absent, run/inspect the approval-free `applied` inventory, and close Issue #1072 with state reason `completed`.
+After PR #1088 merges, verify the closeout branch is absent, run/inspect the approval-free `applied` inventory, and close Issue #1072 with state reason `completed`.
