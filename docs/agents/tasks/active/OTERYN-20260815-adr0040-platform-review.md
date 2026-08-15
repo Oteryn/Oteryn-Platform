@@ -81,8 +81,8 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-15T12:12:00Z
-head: dbf4114e30a0692a06924ffa7d6d2a0b272e9599
+updated_at: 2026-08-15T12:19:00Z
+head: 630c40be9b515a225e0105b06716ba7fb2cf04e5
 branch: docs/adr0040-platform-review-20260815
 pr: 1100
 status: validating
@@ -102,6 +102,11 @@ heavy_validation_runs: 0
 session_rotation_count: 1
 stale_takeover_count: 0
 human_interruptions: 0
+context_routes:
+  - agent-governance
+  - architecture
+  - security
+  - testing
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260815-adr0040-platform-review.md
   - docs/agents/tasks/archive/OTERYN-20260815-adr0040-platform-review.md
@@ -116,6 +121,7 @@ proven:
   - PR #1100 first-pass review produced two P2 findings: inaccurate general PlatformAPI wording and insufficient same-origin Atlas browser-trust isolation.
   - The senior re-review corrected both findings and changed the Atlas deployment recommendation to prefer a distinct browser origin for independently released Atlas executable code; same-origin is now explicitly a full-trust alternative.
   - The senior re-review additionally records independent release/failure-domain requirements and warns against unnecessarily serial migration planning.
+  - Both prior PR #1100 review threads are resolved and outdated after the corrective review commit.
   - Review document changes no runtime, deployment, Synology, production, DNS, authentication behavior or external repository.
 derived:
   - The four-repository topology is sound but ADR 0040 requires future supersession to make authority transfer, Atlas release independence, browser-origin trust and contract ownership unambiguous.
@@ -127,8 +133,8 @@ unknown:
   - Exact future Oteryn meta repository creation date and canonical path conventions.
 conflicts: []
 first_failure:
-  marker: pr-review-material-findings
-  evidence: PR #1100 review threads identified the PlatformAPI classification error and same-origin Atlas JavaScript trust issue; both are repaired in review commit dbf4114e30a0692a06924ffa7d6d2a0b272e9599
+  marker: checkpoint-schema-self-review-nesting
+  evidence: exact-head runs 31884224391 and 31884224372 failed active-task checkpoint validation because self_review was placed as an unsupported nested mapping inside the shared checkpoint block; the self-review evidence is now outside the checkpoint contract
 rejected_hypotheses:
   - Edit Accepted ADR 0040 directly; rejected by Architecture Authority because material correction requires a new ADR/supersession.
   - Extract Identity or GameGateway now merely because they can be independently deployed; rejected because deployability is not repository/domain authority.
@@ -145,29 +151,33 @@ validation:
   - command: full changed-path review
     result: PASS
     evidence: change remains documentation-only and within declared review/task ownership
-  - command: repository-required exact-head CI/governance workflows
-    result: NOT_RUN
-    evidence: final checkpoint commit must be created before exact-head workflow status is evaluated
+  - command: exact-head workflow generation on 630c40be9b515a225e0105b06716ba7fb2cf04e5
+    result: FAIL
+    evidence: CI 31884224372 and Agent Governance 31884224391 isolated the first actionable failure to active-task checkpoint validation; all unrelated emitted runtime/security/protocol validation workflows passed
   - command: runtime/build/browser/deployment E2E
     result: NOT_APPLICABLE
     evidence: architecture-review documentation changes no executable user/integration path and authorizes no deployment
 blockers:
   - none
-next_action: Verify PR #1100 final exact-head checks, review-thread state, current-main compatibility and mergeability; resolve repaired threads and squash-merge only if every merge gate passes.
-self_review:
-  result: PASS
-  exact_head: dbf4114e30a0692a06924ffa7d6d2a0b272e9599
-  acceptance_checked: true
-  full_diff_checked: true
-  negative_paths_checked: true
-  rollback_checked: true
-  compatibility_checked: true
-  related_prs_checked: true
-  findings: []
-  evidence:
-    - second-pass review explicitly corrected both material PR review findings
-    - current main delta from PR #1099 is lifecycle-only and non-overlapping
-    - no runtime, deployment, auth behavior or external repository mutation is present
+next_action: Verify repository-required workflows on the new exact head after the checkpoint-schema repair, then recheck PR head/diff/reviews/current-main compatibility and squash-merge PR #1100 if every gate passes.
+```
+
+## Self review
+
+```yaml
+result: PASS
+exact_head_reviewed: 630c40be9b515a225e0105b06716ba7fb2cf04e5
+acceptance_checked: true
+full_diff_checked: true
+negative_paths_checked: true
+rollback_checked: true
+compatibility_checked: true
+related_prs_checked: true
+findings: []
+evidence:
+  - second-pass review explicitly corrected both material PR review findings
+  - current main delta from PR #1099 is lifecycle-only and non-overlapping
+  - no runtime, deployment, auth behavior or external repository mutation is present
 ```
 
 ## Source branch closeout
