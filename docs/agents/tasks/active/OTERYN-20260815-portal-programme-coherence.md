@@ -19,24 +19,18 @@ required_reads:
   - docs/agents/TERMINAL_ONLY_COMMUNICATION.md
   - docs/agents/GITHUB_ONLY_EXECUTION.md
   - docs/agents/AUTONOMOUS_PROGRAM_CONTINUATION.md
-  - docs/agents/EXECUTION_PROTOCOL.md
-  - docs/agents/PROJECT_LANES.json
   - docs/agents/PROMPTING_STANDARD.md
-  - docs/agents/PROMPTING_HANDOVER.md
   - docs/agents/PROMPT_EVAL_STANDARD.md
   - docs/architecture/ARCHITECTURE_AUTHORITY.md
-  - docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md
   - docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md
   - docs/agents/programs/OTERYN_PORTAL_COMPLETION.md
   - docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
 search_first:
   - Issue #1092 and PR #1093
   - open PR #1086 CI orchestration ownership
-  - terminal Issues #1072/#1089 and branch-hygiene authority
-  - current Portal Completion PR/task ownership including #1061 and #1073
+  - terminal Issues #1072 and #1089
 optional_reads:
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
-  - docs/agents/programs/OTERYN_PLATFORM_CONTINUOUS_AUDIT.md
   - docs/agents/programs/OTERYN_PLATFORM_REMEDIATION.md
   - docs/agents/programs/GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM.md
 ---
@@ -49,23 +43,21 @@ Make portal delivery authority, live selection, completion scope, execution allo
 
 ## Acceptance criteria
 
-- [x] `ROADMAP -> PORTAL_COMPLETENESS_ARCHITECTURE -> PORTAL_COMPLETION_DELIVERY_PLAN -> OTERYN_PORTAL_COMPLETION -> WORK_ALLOCATION` responsibilities are explicitly separated without creating a second scheduler.
-- [x] `OTERYN_PORTAL_COMPLETION` remains the sole live selector and clarifies one selected slice per worker/invocation entry versus safe global parallelism across independently owned tasks.
-- [x] Portal P0 live-drift reconciliation excludes historical-ref retention/deletion, which remains repository-governance-owned under ADR 0037/0039 and steady-state branch hygiene.
-- [x] New durable architecture decisions route to `OTERYN_PLATFORM_ARCHITECTURE_REVIEW`; Portal coordination only decomposes/applies already accepted architecture unless a new decision is explicitly routed first.
-- [x] Multi-world/ruleset/season handling is a conditional cross-cutting invariant with an activation trigger, not an orphaned independent queue item.
-- [x] Portal launch/completion disposition is machine-readable and explicitly non-scheduling/non-live-state.
-- [x] PlayerCompanion selector wording reflects terminal foundation plus individually promoted follow-up slices.
-- [x] Work Allocation is visibly a non-scheduling capability maturity/execution matrix.
-- [x] Historical Work Reconciliation prompt is terminal/tombstoned and cannot restart completed Issue #1072.
-- [x] Game Catalog programme cannot grant standing Canary/server-repository access from a Platform invocation and preserves the existing atomic consumer-first merge ordering.
-- [x] Deterministic prompt/policy regression cases encode the new invariants.
-- [x] The completion-scope manifest has a semantic validator for JSON shape, allowed dispositions, uniqueness, non-scheduling rules, forbidden mutable live state and critical workstream invariants.
-- [x] No active implementation-owned CI/workflow path from #1086 was modified. Existing `ci.yml` already executes `tools/validation/test_prompt_eval.py` and remains untouched.
-- [x] Merged #1089/#1090/#1091 lifecycle state was incorporated without changing its implementation.
-- [x] Accidental duplicate PRs/refs #1094/#1095 are terminally closed/absent and no unexplained duplicate branch remains.
-- [ ] Exact-head documentation/governance CI and self-review pass; runtime/browser E2E is `NOT_APPLICABLE` with a concrete reason.
-- [ ] Issue/task/PR/source-branch closeout is terminal.
+- [x] Global Roadmap, Portal Completeness Architecture, Portal Delivery Plan, live Portal Completion selector and Work Allocation have explicit non-overlapping responsibilities.
+- [x] `OTERYN_PORTAL_COMPLETION` remains the sole live selector.
+- [x] `OTERYN_PORTAL_COMPLETION_SCOPE.json` is machine-readable but non-scheduling/non-owning/non-live-state.
+- [x] Architecture Review owns new durable ADR-level decisions; Portal coordination applies/decomposes accepted architecture.
+- [x] Multi-world/ruleset/season handling is a conditional cross-cutting invariant rather than a standing queue item.
+- [x] PlayerCompanion foundation is terminal; follow-up tools are independently promoted conditional slices.
+- [x] Work Allocation is explicitly a non-scheduling capability maturity/execution matrix.
+- [x] Historical Work Reconciliation prompt is tombstoned `TERMINAL_DO_NOT_RUN`.
+- [x] Game Catalog cannot grant standing server/game-repository authority and preserves the existing atomic consumer-first merge gate.
+- [x] Deterministic prompt-contract cases and semantic scope-manifest validation protect the new invariants.
+- [x] Open CI refactor #1086 paths remain untouched.
+- [x] Duplicate bookkeeping PRs #1094/#1095 are closed and their refs are absent.
+- [ ] Exact-head CI passes after the checkpoint-format repair.
+- [ ] Exact-head final self-review/review hygiene remain terminal on the repaired head.
+- [ ] PR/Issue/task/source-branch closeout is terminal.
 
 ## Ownership
 
@@ -83,33 +75,27 @@ owned_paths:
   - docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md
   - docs/agents/evals/prompt-contract-v1.json
   - tools/validation/test_prompt_eval.py
-synchronization_paths:
-  - docs/agents/tasks/active/OTERYN-20260815-steady-state-branch-hygiene.md
-  - docs/agents/tasks/archive/OTERYN-20260815-steady-state-branch-hygiene.md
 modules:
   - repository-governance
   - portal-completion-control-plane
   - prompt-contracts
 dependencies:
-  - Issue #1072 terminal historical reconciliation
-  - Issue #1089 / merged PRs #1090 and #1091 steady-state branch hygiene
+  - terminal Issue #1072 historical reconciliation
+  - terminal Issue #1089 steady-state branch hygiene
   - open PR #1086 owns CI/workflow-economy paths and remains non-overlapping
 blockers: []
 cross_repository_tasks: []
 ```
 
-The synchronization paths reproduce the exact terminal #1091 active-to-archive state already present on protected `main@536c6320f91d1df981600530e50522d84b1c0588`. They are not Issue #1092 implementation ownership and produce no net tree difference from current main.
-
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-15T09:34:00Z
+updated_at: 2026-08-15T09:42:00Z
 head: LIVE_PR_1093_HEAD
 branch: docs/portal-programme-coherence-20260815
 pr: 1093
 status: validating
-phase: validate
 context_routes:
   - agent-governance
   - architecture
@@ -126,48 +112,35 @@ owned_paths:
   - docs/agents/evals/prompt-contract-v1.json
   - tools/validation/test_prompt_eval.py
 proven:
-  - Protected main at task start was bd9110cb3f998f41241b01da295ef147d2dd428e and later advanced only through terminal steady-state branch-hygiene archive closeout #1091 to 536c6320f91d1df981600530e50522d84b1c0588.
-  - PR #1093 history now includes current `main@536c6320f91d1df981600530e50522d84b1c0588` as an ancestor through a non-content merge commit; exact compare is behind_by=0 and the two #1091 synchronization paths no longer appear in the effective PR diff.
-  - Issue #1072 is closed completed; its historical-work task is archived and 37 reviewed historical refs are terminally absent.
-  - Issue #1089 is terminal; steady-state branch hygiene now owns future unexplained-ref detection and no second cleanup programme is required.
-  - PR #1086 owns CI/workflow orchestration including ci.yml and BUILD_TEST_MATRIX; Issue #1092 does not claim or modify those paths.
-  - Existing `ci.yml` already runs `python tools/validation/test_prompt_eval.py` and `python tools/validation/prompt_eval.py` in the blocking classify-changes path, so the new semantic test needs no workflow edit.
-  - Portal Completion is explicitly the sole live selector; the completion-scope JSON is non-scheduling and cannot promote READY.
-  - Work Allocation uses non-scheduling delivery bands/maturity and classifies multi-world plus PlayerCompanion follow-ups as conditional rather than standing READY work.
-  - Architecture Authority separates global Roadmap, portal architecture, delivery plan, live selector, post-selection allocation and exact execution ownership.
-  - Architecture Review owns new/superseding durable decisions; Portal delivery only applies/decomposes accepted architecture.
-  - Historical Work Reconciliation prompt is TERMINAL_DO_NOT_RUN and routes future branch hygiene to ADR 0037/0039/current governance.
-  - Game Catalog specialized programme preserves its exact historical PR/schema/task provenance while classifying it as historical planning evidence; it grants no cross-repository access or mutation authority and requires exact current owner authorization before any server/game repository access.
-  - Game Catalog `atomic-required` ordering remains unchanged in effect: no producer schema may merge before a compatible inactive consumer exists; the new wording only adds that the dependency does not itself grant repository/staging/production authority.
-  - Completion-scope commerce semantics require a terminal implement/defer/reject product disposition while keeping production payment activation separately deferred/protected.
-  - `tools/validation/test_prompt_eval.py` parses the scope manifest and fails closed on scheduler/ownership/live-state leakage, invalid dispositions/selector entries, duplicate workstream ids, missing conditional triggers and drift of critical multi-world/PlayerCompanion/API/commerce invariants.
-  - Draft PR #1093 is the sole authoritative Issue #1092 delivery PR.
-  - Duplicate PRs #1094 and #1095 are closed unmerged with explicit delete disposition; exact branch search returned only the authoritative `docs/portal-programme-coherence-20260815` ref for this slug.
+  - Protected main is 536c6320f91d1df981600530e50522d84b1c0588 and PR #1093 includes it as an ancestor with behind_by=0 before this checkpoint-only repair.
+  - Portal Completion is explicitly the sole live selector and Work Allocation is post-selection only.
+  - Completion scope cannot select work, claim ownership, persist live selector state or promote READY.
+  - Architecture Review owns new or superseding durable decisions; Portal delivery applies accepted architecture.
+  - Multi-world/ruleset/season is conditional cross-cutting applicability and PlayerCompanion follow-ups are conditional independent slices.
+  - Historical Work Reconciliation is TERMINAL_DO_NOT_RUN and branch hygiene remains ADR 0037/0039 governance.
+  - Game Catalog retains historical PR/schema/task provenance and its atomic-required rule that no producer schema may merge before a compatible inactive consumer exists.
+  - Game Catalog grants no standing cross-repository access or mutation authority from a Platform invocation.
+  - Prompt contract evaluation on prior head d0bbebf331a13e9ab8cc3c10581b15de5c45bac4 passed 31 cases across 11 categories with 8 safety-critical cases and zero model trials claimed.
+  - Semantic portal completion scope test passed on prior head d0bbebf331a13e9ab8cc3c10581b15de5c45bac4.
+  - Exact-head whole-diff self-review on prior head d0bbebf331a13e9ab8cc3c10581b15de5c45bac4 recorded PASS after repairing GAME-CATALOG-ORDER-01.
+  - Agent Governance run 31877385848 failed only because this task checkpoint used unsupported nested key resolved_findings; all earlier governance/prompt-policy steps in that job passed.
+  - Live task liveness on the failing Agent Governance run still validated all active tasks with zero advisory findings.
 derived:
-  - The portal control plane has one live scheduler, one separate launch-disposition projection and one post-selection execution matrix instead of overlapping pseudo-queues.
-  - The completion-scope projection is protected both by text-contract cases and semantic JSON validation.
-  - Game Catalog authority was corrected without discarding the specialized programme's historical audit trail or weakening its consumer-first compatibility gate.
-  - No live product/CI/branch-hygiene implementation owner overlaps Issue #1092.
-  - The remaining work is exact-head validation/review and lifecycle closeout, not additional product design.
+  - The current repair is checkpoint-format-only and does not alter the accepted portal control-plane design or product/runtime behavior.
+  - New exact-head CI is required because the task file changed after the prior self-review/CI generation.
 unknown:
-  - Exact final required CI conclusions on the final checkpoint head until current workflows complete.
-  - Final absence of the authoritative task source ref until merge/source-branch closeout.
+  - Exact conclusions of required CI on the repaired head until the new generation completes.
+  - Final implementation and closeout merge SHAs until merge occurs.
 conflicts: []
 first_failure:
-  marker: self-review-game-catalog-atomic-ordering-regression
-  evidence: an intermediate Issue #1092 Game Catalog rewrite changed the existing atomic-required dependency from "producer schema may not merge before a compatible inactive consumer" to the weaker "may not become active" formulation.
-resolved_findings:
-  - finding: GAME-CATALOG-ORDER-01
-    severity: P1
-    resolution: restored the exact merge-before-compatible-consumer prohibition and retained only the intended authority qualifier; historical PR/schema/task provenance was also restored instead of being unnecessarily generalized away.
+  marker: checkpoint-parser-unsupported-nested-key
+  evidence: Agent Governance run 31877385848 step Validate active task checkpoints failed with scalar key resolved_findings cannot have nested values; the unsupported key has been removed in this revision.
 rejected_hypotheses:
-  - merge all portal documents into one monolith
-  - create a second portal scheduler
-  - create a second historical cleanup programme
-  - treat Work Allocation P-bands as live priority
-  - treat multi-world as speculative standalone infrastructure
-  - allow a specialized programme to grant cross-repository authority
-  - weaken Platform-only external-repository authority to match legacy programme prose
+  - prompt-contract evaluation failed
+  - semantic completion-scope validation failed
+  - live task ownership is invalid
+  - weaken checkpoint validation to accept an ad-hoc field
+  - change CI workflow owned by PR #1086
 changed_paths:
   - docs/agents/evals/prompt-contract-v1.json
   - docs/agents/programs/GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM.md
@@ -181,72 +154,32 @@ changed_paths:
   - docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md
   - tools/validation/test_prompt_eval.py
 validation:
-  - command: live repository/ownership preflight
+  - command: manual portal control-plane scenario matrix
     result: PASS
-    evidence: current main, active tasks, open PRs and relevant programme/authority documents were inspected before mutation
-  - command: current-main ancestry/effective diff reconciliation
+    evidence: stale allocation cannot reorder; REQUIRED is not READY; inactive conditional does not self-activate; existing portal owner remains OWNED; ADR-level decision routes Architecture Review; no-trigger multi-world creates no speculative task; historical #1072 stops at tombstone; Game Catalog cannot inspect server repo without current permission.
+  - command: prior exact-head prompt contract and semantic scope tests
     result: PASS
-    evidence: branch history includes main@536c6320f91d1df981600530e50522d84b1c0588; compare reports behind_by=0 and exactly 11 effective Issue #1092 paths
-  - command: manual prompt/control-plane scenario matrix
+    evidence: Agent Governance run 31877385848 passed prompt evaluator tests and prompt suite; test_portal_completion_scope_manifest_contract also passed.
+  - command: prior exact-head whole-diff self-review
     result: PASS
-    evidence: eight bounded scenarios reviewed: stale Work Allocation cannot reorder selector; REQUIRED does not mean READY; inactive CONDITIONAL does not self-activate; concurrent existing portal PR remains OWNED not duplicated; new ADR-level question routes to Architecture Review; multi-world without a trigger creates no speculative task; historical #1072 invocation stops at tombstone; Game Catalog cannot inspect a server repository without current explicit authorization
-  - command: deterministic prompt-contract + semantic scope tests
-    result: PENDING_FINAL_HEAD_CI
-    evidence: dedicated v1.3 hierarchy/scope/parallelism/tombstone/external-authority text cases plus semantic JSON assertions are in the blocking test path; no claim of model/runtime adherence is made
-  - command: self-review repair
-    result: PASS
-    evidence: intermediate Game Catalog ordering/provenance regression was identified before readiness and repaired; final exact-head whole-diff review remains the next action
+    evidence: PR review 4943508478 on d0bbebf331a13e9ab8cc3c10581b15de5c45bac4; zero unresolved review threads.
+  - command: repaired exact-head repository validation
+    result: PENDING
+    evidence: new generation is required after the checkpoint-format-only change.
   - command: model/runtime prompt trials
-    result: NOT_RUN
-    evidence: no separately authorized owner-funded model invocation was used; deterministic repository contract and manual scenario review do not claim stochastic model adherence
-  - command: duplicate branch/PR lifecycle
-    result: PASS
-    evidence: PR #1094 and #1095 are closed unmerged with delete disposition and exact branch search returns only authoritative Issue #1092 ref
+    result: NOT_APPLICABLE
+    evidence: no separately authorized owner-funded model invocation was used; deterministic/static checks do not claim stochastic model adherence.
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
-    evidence: task changes only governance/documentation/prompt contracts and introduces no executable product/runtime/browser journey
+    evidence: repository governance/documentation/prompt-contract task creates no product runtime or browser journey.
 blockers: []
-next_action: Perform exact-head whole-diff self-review on this checkpoint head, then inspect its required CI once under the bounded terminal-CI rules and repair only a concrete failing gate.
-```
-
-## Recovery checkpoint
-
-```yaml
-recovery:
-  policy_version: 1
-  generation: 5
-  session_id: github-20260815-portal-programme-coherence
-  session_started_at: 2026-08-15T09:07:50Z
-  checkpointed_at: 2026-08-15T09:34:00Z
-  last_progress_at: 2026-08-15T09:34:00Z
-  phase: validate
-  exact_head: LIVE_PR_1093_HEAD
-  pull_request: 1093
-  active_operation: exact-head self-review and repository validation
-  external_run_ids: []
-  operation_started_at: 2026-08-15T09:34:00Z
-  wait_deadline_at: null
-  check_generation: final-draft
-  checks_used: 0
-  status: active
-  safe_to_resume: true
-  resume_condition: PR #1093 remains the authoritative Issue #1092 branch and no ownership conflict appears
-  next_action: Perform exact-head whole-diff self-review and inspect final required CI.
+next_action: Inspect the repaired exact-head Agent Governance and CI generation; if green, record an exact-head checkpoint-only self-review and proceed through normal merge/closeout without marking Ready solely to trigger owner-funded review.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: Issue #1092 is active on docs/portal-programme-coherence-20260815 and PR #1093
+source_branch_reason: Issue #1092 remains active on PR #1093; branch must be deleted after successful merge and verified absent before terminal closeout.
 source_branch_evidence: pending
 ```
-
-## Temporary branch bookkeeping
-
-Two accidental exact-duplicate refs were created during connector branch-name resolution:
-
-- `docs/issue-1091-portal-programme-coherence` -> closed unmerged duplicate PR #1094;
-- `docs/portal-programme-coherence` -> closed unmerged duplicate PR #1095.
-
-Both PRs carry `Branch-Disposition: delete`, and current exact branch search returns only `docs/portal-programme-coherence-20260815`. No duplicate ref remains live.
