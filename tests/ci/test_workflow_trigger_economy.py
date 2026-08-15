@@ -119,7 +119,12 @@ def has_superseded_run_cancellation(text: str) -> bool:
     if match is None:
         return False
     value = match.group(1).strip()
-    return value == "true" or "true" in value
+    if value == "true":
+        return True
+    # A workflow that also runs on push/manual events may cancel only the PR
+    # generation. This is equivalent to literal true for the supersedable PR
+    # path while deliberately preserving independent non-PR executions.
+    return "github.event_name == 'pull_request'" in value
 
 
 for filename in HEAVY_WORKFLOWS:
