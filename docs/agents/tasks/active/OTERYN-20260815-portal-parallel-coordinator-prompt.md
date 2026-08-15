@@ -36,7 +36,7 @@ Add a standalone repository-owned prompt and dedicated evaluation inventory for 
 - [x] External/server repositories, production/protected environments, credentials, signing, payments and owner-funded AI remain unauthorized absent separate exact permission.
 - [x] The new prompt has a versioned `PROMPT_EVAL_STANDARD.md` contract and dedicated balanced evaluation inventory with explicit no-model-trial limitation.
 - [x] No file owned by PR #1076 is changed.
-- [x] Documentation/governance validation passed on candidate head `1318be02fd21c89824752f21d89eb94c610767f5`; runtime/browser E2E is `NOT_APPLICABLE` with reason. The checkpoint-only closeout update must also pass required exact-head CI before merge.
+- [x] Documentation/governance validation passed on candidate head `1318be02fd21c89824752f21d89eb94c610767f5`; runtime/browser E2E is `NOT_APPLICABLE` with reason. The checkpoint-only closeout head must also pass required exact-head CI before merge.
 - [ ] Issue/PR/task lifecycle is terminal and ownership is released after merge.
 
 ## Ownership
@@ -68,8 +68,8 @@ forbidden_paths:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-15T07:21:30Z
-head: 1318be02fd21c89824752f21d89eb94c610767f5
+updated_at: 2026-08-15T07:22:30Z
+head: ebd9233fd1b57069e0d235aec7d8ae6e02445477
 branch: docs/portal-parallel-coordinator-prompt
 pr: 1083
 status: ready
@@ -86,6 +86,17 @@ context_pressure: medium
 context_growth: stable
 decomposition_decision: single
 validation_level: full
+invocation_started_at: 2026-08-15T07:15:00Z
+last_progress_at: 2026-08-15T07:22:30Z
+ci_checks_for_current_head: 0
+ci_check_generation: ready
+terminal_ci_wait_started_at: 2026-08-15T07:22:30Z
+terminal_ci_checks_for_current_generation: 0
+unchanged_state_checks: 0
+identical_failure_retries: 0
+repair_cycles_for_current_gate: 0
+context_reconstruction_attempts: 0
+stall_warnings: 0
 owned_paths:
   - docs/agents/prompts/OTERYN-PORTAL-COMPLETION-PARALLEL-COORDINATOR-PROMPT.md
   - docs/agents/evals/oteryn-portal-parallel-coordinator-prompt-v1.json
@@ -107,7 +118,7 @@ proven:
 derived:
   - a standalone prompt plus dedicated eval avoids ownership conflict with PR #1076
 unknown:
-  - final required CI result on the checkpoint-only closeout head created by this update
+  - final required CI result on the checkpoint-only terminal-CI head created by this update
 conflicts: []
 first_failure:
   marker: none
@@ -147,7 +158,7 @@ validation:
     evidence: task changes agent-governance Markdown/JSON only and no executable product route, API, persistence or frontend behavior
 blockers:
   - none
-next_action: verify required checks on the checkpoint-only final head, then squash-merge PR #1083 if unchanged and eligible
+next_action: wait at least three minutes, verify required checks on this final checkpoint-only head, then squash-merge PR #1083 if unchanged and eligible
 ```
 
 ## Source branch closeout
