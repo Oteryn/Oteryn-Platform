@@ -58,7 +58,7 @@ Make portal delivery authority, live selection, completion scope, execution allo
 - [x] PlayerCompanion selector wording reflects terminal foundation plus individually promoted follow-up slices.
 - [x] Work Allocation is visibly a non-scheduling capability maturity/execution matrix.
 - [x] Historical Work Reconciliation prompt is terminal/tombstoned and cannot restart completed Issue #1072.
-- [x] Game Catalog programme cannot grant standing Canary/server-repository access from a Platform invocation.
+- [x] Game Catalog programme cannot grant standing Canary/server-repository access from a Platform invocation and preserves the existing atomic consumer-first merge ordering.
 - [x] Deterministic prompt/policy regression cases encode the new invariants.
 - [x] The completion-scope manifest has a semantic validator for JSON shape, allowed dispositions, uniqueness, non-scheduling rules, forbidden mutable live state and critical workstream invariants.
 - [x] No active implementation-owned CI/workflow path from #1086 was modified. Existing `ci.yml` already executes `tools/validation/test_prompt_eval.py` and remains untouched.
@@ -98,13 +98,13 @@ blockers: []
 cross_repository_tasks: []
 ```
 
-The synchronization paths reproduce the exact terminal #1091 active-to-archive state already present on protected `main@536c6320f91d1df981600530e50522d84b1c0588`. They are not Issue #1092 implementation ownership and must produce no net tree difference from current main.
+The synchronization paths reproduce the exact terminal #1091 active-to-archive state already present on protected `main@536c6320f91d1df981600530e50522d84b1c0588`. They are not Issue #1092 implementation ownership and produce no net tree difference from current main.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-15T09:31:00Z
+updated_at: 2026-08-15T09:34:00Z
 head: LIVE_PR_1093_HEAD
 branch: docs/portal-programme-coherence-20260815
 pr: 1093
@@ -127,7 +127,7 @@ owned_paths:
   - tools/validation/test_prompt_eval.py
 proven:
   - Protected main at task start was bd9110cb3f998f41241b01da295ef147d2dd428e and later advanced only through terminal steady-state branch-hygiene archive closeout #1091 to 536c6320f91d1df981600530e50522d84b1c0588.
-  - PR #1093 base was explicitly refreshed to current `main@536c6320f91d1df981600530e50522d84b1c0588`; the branch mirrors the #1091 active-to-archive state byte-for-byte and does not change branch-hygiene implementation.
+  - PR #1093 history now includes current `main@536c6320f91d1df981600530e50522d84b1c0588` as an ancestor through a non-content merge commit; exact compare is behind_by=0 and the two #1091 synchronization paths no longer appear in the effective PR diff.
   - Issue #1072 is closed completed; its historical-work task is archived and 37 reviewed historical refs are terminally absent.
   - Issue #1089 is terminal; steady-state branch hygiene now owns future unexplained-ref detection and no second cleanup programme is required.
   - PR #1086 owns CI/workflow orchestration including ci.yml and BUILD_TEST_MATRIX; Issue #1092 does not claim or modify those paths.
@@ -137,14 +137,16 @@ proven:
   - Architecture Authority separates global Roadmap, portal architecture, delivery plan, live selector, post-selection allocation and exact execution ownership.
   - Architecture Review owns new/superseding durable decisions; Portal delivery only applies/decomposes accepted architecture.
   - Historical Work Reconciliation prompt is TERMINAL_DO_NOT_RUN and routes future branch hygiene to ADR 0037/0039/current governance.
-  - Game Catalog specialized programme grants no cross-repository access or mutation authority and requires exact current owner authorization before any server/game repository access.
+  - Game Catalog specialized programme preserves its exact historical PR/schema/task provenance while classifying it as historical planning evidence; it grants no cross-repository access or mutation authority and requires exact current owner authorization before any server/game repository access.
+  - Game Catalog `atomic-required` ordering remains unchanged in effect: no producer schema may merge before a compatible inactive consumer exists; the new wording only adds that the dependency does not itself grant repository/staging/production authority.
   - Completion-scope commerce semantics require a terminal implement/defer/reject product disposition while keeping production payment activation separately deferred/protected.
-  - `tools/validation/test_prompt_eval.py` now parses the scope manifest and fails closed on scheduler/ownership/live-state leakage, invalid dispositions/selector entries, duplicate workstream ids, missing conditional triggers and drift of critical multi-world/PlayerCompanion/API/commerce invariants.
+  - `tools/validation/test_prompt_eval.py` parses the scope manifest and fails closed on scheduler/ownership/live-state leakage, invalid dispositions/selector entries, duplicate workstream ids, missing conditional triggers and drift of critical multi-world/PlayerCompanion/API/commerce invariants.
   - Draft PR #1093 is the sole authoritative Issue #1092 delivery PR.
-  - Duplicate PRs #1094 and #1095 are closed unmerged with explicit delete disposition; branch search returned only the authoritative `docs/portal-programme-coherence-20260815` ref for this slug.
+  - Duplicate PRs #1094 and #1095 are closed unmerged with explicit delete disposition; exact branch search returned only the authoritative `docs/portal-programme-coherence-20260815` ref for this slug.
 derived:
   - The portal control plane has one live scheduler, one separate launch-disposition projection and one post-selection execution matrix instead of overlapping pseudo-queues.
-  - The completion-scope projection is now protected both by text-contract cases and semantic JSON validation.
+  - The completion-scope projection is protected both by text-contract cases and semantic JSON validation.
+  - Game Catalog authority was corrected without discarding the specialized programme's historical audit trail or weakening its consumer-first compatibility gate.
   - No live product/CI/branch-hygiene implementation owner overlaps Issue #1092.
   - The remaining work is exact-head validation/review and lifecycle closeout, not additional product design.
 unknown:
@@ -152,8 +154,12 @@ unknown:
   - Final absence of the authoritative task source ref until merge/source-branch closeout.
 conflicts: []
 first_failure:
-  marker: none-open
-  evidence: no material implementation contradiction is currently known; final validation generation is required
+  marker: self-review-game-catalog-atomic-ordering-regression
+  evidence: an intermediate Issue #1092 Game Catalog rewrite changed the existing atomic-required dependency from "producer schema may not merge before a compatible inactive consumer" to the weaker "may not become active" formulation.
+resolved_findings:
+  - finding: GAME-CATALOG-ORDER-01
+    severity: P1
+    resolution: restored the exact merge-before-compatible-consumer prohibition and retained only the intended authority qualifier; historical PR/schema/task provenance was also restored instead of being unnecessarily generalized away.
 rejected_hypotheses:
   - merge all portal documents into one monolith
   - create a second portal scheduler
@@ -174,19 +180,22 @@ changed_paths:
   - docs/architecture/ARCHITECTURE_AUTHORITY.md
   - docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md
   - tools/validation/test_prompt_eval.py
-base_sync_paths:
-  - docs/agents/tasks/active/OTERYN-20260815-steady-state-branch-hygiene.md
-  - docs/agents/tasks/archive/OTERYN-20260815-steady-state-branch-hygiene.md
 validation:
   - command: live repository/ownership preflight
     result: PASS
     evidence: current main, active tasks, open PRs and relevant programme/authority documents were inspected before mutation
+  - command: current-main ancestry/effective diff reconciliation
+    result: PASS
+    evidence: branch history includes main@536c6320f91d1df981600530e50522d84b1c0588; compare reports behind_by=0 and exactly 11 effective Issue #1092 paths
   - command: manual prompt/control-plane scenario matrix
     result: PASS
     evidence: eight bounded scenarios reviewed: stale Work Allocation cannot reorder selector; REQUIRED does not mean READY; inactive CONDITIONAL does not self-activate; concurrent existing portal PR remains OWNED not duplicated; new ADR-level question routes to Architecture Review; multi-world without a trigger creates no speculative task; historical #1072 invocation stops at tombstone; Game Catalog cannot inspect a server repository without current explicit authorization
   - command: deterministic prompt-contract + semantic scope tests
     result: PENDING_FINAL_HEAD_CI
     evidence: dedicated v1.3 hierarchy/scope/parallelism/tombstone/external-authority text cases plus semantic JSON assertions are in the blocking test path; no claim of model/runtime adherence is made
+  - command: self-review repair
+    result: PASS
+    evidence: intermediate Game Catalog ordering/provenance regression was identified before readiness and repaired; final exact-head whole-diff review remains the next action
   - command: model/runtime prompt trials
     result: NOT_RUN
     evidence: no separately authorized owner-funded model invocation was used; deterministic repository contract and manual scenario review do not claim stochastic model adherence
@@ -205,17 +214,17 @@ next_action: Perform exact-head whole-diff self-review on this checkpoint head, 
 ```yaml
 recovery:
   policy_version: 1
-  generation: 4
+  generation: 5
   session_id: github-20260815-portal-programme-coherence
   session_started_at: 2026-08-15T09:07:50Z
-  checkpointed_at: 2026-08-15T09:31:00Z
-  last_progress_at: 2026-08-15T09:31:00Z
+  checkpointed_at: 2026-08-15T09:34:00Z
+  last_progress_at: 2026-08-15T09:34:00Z
   phase: validate
   exact_head: LIVE_PR_1093_HEAD
   pull_request: 1093
   active_operation: exact-head self-review and repository validation
   external_run_ids: []
-  operation_started_at: 2026-08-15T09:31:00Z
+  operation_started_at: 2026-08-15T09:34:00Z
   wait_deadline_at: null
   check_generation: final-draft
   checks_used: 0
