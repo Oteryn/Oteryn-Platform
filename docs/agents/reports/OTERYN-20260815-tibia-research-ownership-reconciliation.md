@@ -39,8 +39,9 @@ The following implementation is self-contained, non-executing/reference infrastr
 - `tools/tibia-linux-reference/official_host_preflight.py`;
 - `tools/tibia-linux-reference/official_host_prepare.sh`;
 - `tools/tibia-linux-reference/official_evidence_luks_setup.sh`;
-- `tools/tibia-linux-reference/tests/test_official_offline.py`;
-- `.github/workflows/tibia-linux-official-identity.yml` with GitHub Actions pinned to immutable SHAs.
+- `tools/tibia-linux-reference/tests/test_official_offline.py`.
+
+Validation is integrated into the already-registered `.github/workflows/tibia-linux-live-reference.yml` workflow instead of adding a second task-specific workflow. The registered workflow now performs Python compilation/unit discovery, shell syntax checks for the harvested host/LUKS scripts, a CI-rejection proof for official-host execution, the existing synthetic no-network component, and checkout/artifact hygiene checks.
 
 The task/report state from #988 is not copied as an active completed feature because actual dedicated-host execution remains blocked. The original Issue #987 remains historical authorization/provenance for that research phase until source closeout is recorded.
 
@@ -53,16 +54,16 @@ The PR contains 302 commits and 76 changed files. The majority are experimental 
 
 ### Durable artifact
 
-The six-file `tools/tibia-worldmap-reconstruction/**` package is proprietary-data-free and independent of the Platform runner. It implements:
+The six-file `tools/tibia-worldmap-reconstruction/**` package is proprietary-data-free and independent of the Platform runner. It provides:
 
 - strict normalized worldmap document validation;
 - explicit observed/unknown semantics;
 - monotonic merge with same-sequence conflict rejection;
 - coordinate/static-stack comparison;
 - fail-closed mapping states;
-- OTBM export planning that refuses readiness for unobserved, unmapped or ground-unproven tiles.
+- OTBM export planning that ignores explicitly unobserved placeholders and refuses readiness for observed static tiles with unproven mappings or ground identity.
 
-That package is migrated unchanged in executable semantics to Oteryn-v2 PR #283. Its README is updated only to describe current provenance/ownership.
+The package was migrated to Oteryn-v2 PR #283 and then hardened there after automated review. Destination head `54165596f98b66c3164cccab881bb53f0655cb2b` fixes four edge cases: unobserved updates cannot erase observed evidence, incoming entities are rejected until merge semantics exist, JSON booleans are rejected for integer fields, and unobserved placeholders do not block OTBM export readiness. Regression tests cover all four findings and the corresponding review threads are resolved.
 
 ### Deliberately excluded
 
