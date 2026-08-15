@@ -79,7 +79,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-15T08:46:43Z
+updated_at: 2026-08-15T08:53:30Z
 head: LIVE_PR_1090_HEAD
 branch: repair/issue-1089-steady-state-branch-hygiene
 pr: 1090
@@ -102,7 +102,7 @@ proven:
   - Current Historical Branch Audit before this task was path-triggered plus workflow_dispatch only; it had no scheduled or trusted PR-lifecycle steady-state trigger.
   - PR #1086 explicitly does not own .github/workflows/historical-branch-audit.yml and does not claim this task's helper/ADR paths.
   - The task owns Issue #1089, branch repair/issue-1089-steady-state-branch-hygiene and draft PR #1090.
-  - Focused helper/test construction validation passes eight deterministic negative/positive cases in isolated Python execution.
+  - Focused helper/test construction validation passes nine deterministic negative/positive cases in isolated Python execution, including REST-to-GraphQL merge-setting fallback.
 derived:
   - The smallest correct design extends the existing Historical Branch Audit rather than creating another governance workflow or programme.
   - Keeping the terminal #1072 destructive script and registry unchanged preserves immutable deletion provenance; a new read-only helper is safer than repurposing the destructive historical implementation.
@@ -112,8 +112,8 @@ unknown:
   - Whether exact-head self-review or GitHub review reveals an additional material finding.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: REPOSITORY_SETTING_DRIFT_FROM_REST_FIELD_OMISSION
+  evidence: Historical Branch Audit run 31875483710 job 94990473867 produced artifact 9244613114; all four merge-setting fields were null while default_branch was present, and live branch ownership itself had zero hard findings
 rejected_hypotheses:
   - impose a fixed maximum raw branch count
   - delete branches by name or age
@@ -130,15 +130,18 @@ validation:
   - command: live repository and overlap preflight
     result: PASS
     evidence: terminal #1072 state, current live refs, current repo settings and open PR ownership were verified through GitHub before implementation
-  - command: isolated Python compile + focused branch-hygiene tests
+  - command: exact-head Historical Branch Audit 31875483710
+    result: FAIL
+    evidence: focused validate job passed; live inventory found 12 accounted refs and zero unexplained refs but REST repository metadata omitted four merge-setting fields, producing false REPOSITORY_SETTING_DRIFT
+  - command: isolated Python compile + focused branch-hygiene repair tests
     result: PASS
-    evidence: branch_hygiene.py and test_branch_hygiene.py compile; 8 focused tests pass with only minimal import stubs, before repository CI
+    evidence: 9 focused tests pass, including deterministic GraphQL fallback when REST omits merge settings
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: this is repository GitHub branch/PR/task governance; executable integration evidence is the real live GitHub inventory workflow, not browser behavior
 blockers:
   - none
-next_action: Push the coherent implementation, inspect exact-head Historical Branch Audit and Agent Governance/CI, then repair only evidence-backed failures.
+next_action: Push the REST-to-GraphQL merge-setting fallback repair and inspect the new exact-head Historical Branch Audit before any readiness transition.
 ```
 
 ## Recovery checkpoint
@@ -146,16 +149,17 @@ next_action: Push the coherent implementation, inspect exact-head Historical Bra
 ```yaml
 recovery:
   policy_version: 1
-  generation: 2
+  generation: 3
   session_id: github-20260815-0838
   session_started_at: 2026-08-15T08:33:00Z
-  checkpointed_at: 2026-08-15T08:46:43Z
-  last_progress_at: 2026-08-15T08:46:43Z
+  checkpointed_at: 2026-08-15T08:53:30Z
+  last_progress_at: 2026-08-15T08:53:30Z
   phase: validate
   exact_head: LIVE_PR_1090_HEAD
   pull_request: 1090
-  active_operation: exact-head GitHub Actions validation after coherent implementation push
-  external_run_ids: []
+  active_operation: validate REST-to-GraphQL merge-setting fallback after first exact-head failure
+  external_run_ids:
+    - 31875483710
   operation_started_at: null
   wait_deadline_at: null
   check_generation: draft

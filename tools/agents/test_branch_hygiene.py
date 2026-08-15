@@ -122,6 +122,40 @@ def test_repository_setting_drift_fails():
     assert findings[0]["field"] == "delete_branch_on_merge"
 
 
+def test_repository_settings_graphql_fallback():
+    class Client:
+        repo = "blakinio/Oteryn-Platform"
+
+        def __init__(self):
+            self.calls = []
+
+        def request(self, method, path, data=None):
+            self.calls.append((method, path))
+            if method == "GET":
+                return {"default_branch": "main"}, {}
+            assert method == "POST" and path == "/graphql"
+            return {
+                "data": {
+                    "repository": {
+                        "defaultBranchRef": {"name": "main"},
+                        "mergeCommitAllowed": False,
+                        "rebaseMergeAllowed": False,
+                        "squashMergeAllowed": True,
+                        "deleteBranchOnMerge": True,
+                    }
+                }
+            }, {}
+
+    client = Client()
+    observed, findings = m.repository_settings(client)
+    assert observed == good_settings()
+    assert findings == []
+    assert client.calls == [
+        ("GET", "/repos/blakinio/Oteryn-Platform"),
+        ("POST", "/graphql"),
+    ]
+
+
 def main() -> int:
     tests = [
         value

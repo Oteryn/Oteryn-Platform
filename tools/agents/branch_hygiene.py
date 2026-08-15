@@ -97,6 +97,52 @@ def repository_settings(client: GitHubClient) -> tuple[dict[str, Any], list[dict
         key: payload.get(key)
         for key in EXPECTED_REPOSITORY_SETTINGS
     }
+
+    merge_fields = (
+        "allow_squash_merge",
+        "allow_merge_commit",
+        "allow_rebase_merge",
+        "delete_branch_on_merge",
+    )
+    if any(observed.get(field) is None for field in merge_fields):
+        owner, name = client.repo.split("/", 1)
+        query = """
+        query RepositoryMergeSettings($owner: String!, $name: String!) {
+          repository(owner: $owner, name: $name) {
+            defaultBranchRef { name }
+            mergeCommitAllowed
+            rebaseMergeAllowed
+            squashMergeAllowed
+            deleteBranchOnMerge
+          }
+        }
+        """
+        graphql, _ = client.request(
+            "POST",
+            "/graphql",
+            data={"query": query, "variables": {"owner": owner, "name": name}},
+        )
+        repository = (
+            graphql.get("data", {}).get("repository")
+            if isinstance(graphql, dict)
+            else None
+        )
+        if not isinstance(repository, dict):
+            raise ValidationError(
+                "repository merge settings are unavailable from REST and GraphQL"
+            )
+        default_ref = repository.get("defaultBranchRef")
+        if observed.get("default_branch") is None and isinstance(default_ref, dict):
+            observed["default_branch"] = default_ref.get("name")
+        observed.update(
+            {
+                "allow_squash_merge": repository.get("squashMergeAllowed"),
+                "allow_merge_commit": repository.get("mergeCommitAllowed"),
+                "allow_rebase_merge": repository.get("rebaseMergeAllowed"),
+                "delete_branch_on_merge": repository.get("deleteBranchOnMerge"),
+            }
+        )
+
     findings = repository_setting_findings(observed)
     return observed, findings
 
