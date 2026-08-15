@@ -112,6 +112,74 @@ class PromptEvalTest(unittest.TestCase):
         with self.assertRaisesRegex(PromptEvalError, "deterministic scope"):
             validate_suite(root, suite)
 
+    def test_portal_completion_scope_manifest_contract(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        scope_path = root / "docs/agents/programs/OTERYN_PORTAL_COMPLETION_SCOPE.json"
+        scope = json.loads(scope_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(1, scope["schema_version"])
+        self.assertEqual("OTERYN_PORTAL_COMPLETION", scope["programme"])
+        self.assertEqual("non_scheduling_completion_scope", scope["mode"])
+        self.assertEqual(
+            "docs/agents/programs/OTERYN_PORTAL_COMPLETION.md",
+            scope["selection_authority"],
+        )
+
+        rules = scope["rules"]
+        for key in ("selects_work", "claims_ownership", "proves_live_state", "can_promote_ready"):
+            self.assertIs(False, rules[key], f"{key} must stay fail-closed/non-scheduling")
+        self.assertIs(True, rules["live_selector_state_required"])
+        self.assertIs(True, rules["higher_authority_overrides_projection"])
+
+        allowed = {"REQUIRED", "CONDITIONAL", "DEFERRED", "REJECTED"}
+        self.assertEqual(allowed, set(scope["allowed_dispositions"]))
+
+        workstreams = scope["workstreams"]
+        self.assertTrue(workstreams)
+        ids = [item["id"] for item in workstreams]
+        self.assertEqual(len(ids), len(set(ids)), "portal completion workstream ids must be unique")
+
+        forbidden_live_fields = {
+            "status",
+            "current_status",
+            "selector_state",
+            "ready",
+            "owned",
+            "branch",
+            "pull_request",
+            "head",
+        }
+        for item in workstreams:
+            self.assertIn(item["disposition"], allowed)
+            self.assertIsInstance(item["boundary"], str)
+            self.assertTrue(item["boundary"].strip())
+            selector_entry = item["selector_entry"]
+            self.assertTrue(
+                selector_entry is None or (isinstance(selector_entry, int) and 1 <= selector_entry <= 12),
+                f"invalid selector_entry for {item['id']}",
+            )
+            if item["disposition"] == "CONDITIONAL":
+                self.assertIsInstance(item["activation_trigger"], str)
+                self.assertTrue(item["activation_trigger"].strip())
+            self.assertFalse(
+                forbidden_live_fields.intersection(item),
+                f"{item['id']} must not persist mutable live selector/ownership state",
+            )
+
+        by_id = {item["id"]: item for item in workstreams}
+        expected = {
+            "multi_world_ruleset_season_dimensions": ("CONDITIONAL", None),
+            "player_companion_foundation": ("REQUIRED", 10),
+            "player_companion_followups": ("CONDITIONAL", 10),
+            "platform_api": ("DEFERRED", None),
+            "commerce_capability": ("REQUIRED", 12),
+            "commerce_production_activation": ("DEFERRED", 12),
+        }
+        for workstream_id, (disposition, selector_entry) in expected.items():
+            self.assertIn(workstream_id, by_id)
+            self.assertEqual(disposition, by_id[workstream_id]["disposition"])
+            self.assertEqual(selector_entry, by_id[workstream_id]["selector_entry"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
