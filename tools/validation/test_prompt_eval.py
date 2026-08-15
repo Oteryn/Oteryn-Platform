@@ -117,9 +117,45 @@ class PromptEvalTest(unittest.TestCase):
         scope_path = root / "docs/agents/programs/OTERYN_PORTAL_COMPLETION_SCOPE.json"
         scope = json.loads(scope_path.read_text(encoding="utf-8"))
 
+        expected_root_keys = {
+            "schema_version",
+            "programme",
+            "mode",
+            "authority",
+            "delivery_plan",
+            "selection_authority",
+            "rules",
+            "allowed_dispositions",
+            "capability_disposition_contract",
+            "workstreams",
+        }
+        self.assertEqual(expected_root_keys, set(scope), "portal completion scope root schema drift")
+        forbidden_root_live_fields = {
+            "status",
+            "current_status",
+            "selector_state",
+            "ready",
+            "owned",
+            "branch",
+            "pull_request",
+            "head",
+        }
+        self.assertFalse(
+            forbidden_root_live_fields.intersection(scope),
+            "portal completion scope root must not persist mutable live selector/ownership state",
+        )
+
         self.assertEqual(1, scope["schema_version"])
         self.assertEqual("OTERYN_PORTAL_COMPLETION", scope["programme"])
         self.assertEqual("non_scheduling_completion_scope", scope["mode"])
+        self.assertEqual(
+            "docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md",
+            scope["authority"],
+        )
+        self.assertEqual(
+            "docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md",
+            scope["delivery_plan"],
+        )
         self.assertEqual(
             "docs/agents/programs/OTERYN_PORTAL_COMPLETION.md",
             scope["selection_authority"],

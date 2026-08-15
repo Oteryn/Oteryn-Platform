@@ -53,11 +53,11 @@ Make portal delivery authority, live selection, completion scope, execution allo
 - [x] Work Allocation is a non-scheduling capability maturity/execution matrix.
 - [x] Historical Work Reconciliation is tombstoned `TERMINAL_DO_NOT_RUN`.
 - [x] Game Catalog grants no standing server-repository authority and preserves atomic consumer-first merge ordering.
-- [x] Deterministic validation pins scope workstreams, exact trigger/boundary semantics, PlayerCompanion inventory and the global per-capability disposition-proof contract.
+- [x] Deterministic validation pins the exact scope root schema, canonical authority/delivery/selector pointers, absence of root live-state fields, scope workstreams, exact trigger/boundary semantics, PlayerCompanion inventory and the global per-capability disposition-proof contract.
 - [x] CI orchestration changes from #1086 remain non-overlapping with this task.
 - [x] Duplicate PRs/refs #1094/#1095 are closed/absent.
-- [x] Prior Codex findings for checkpoint identity, full workstream inventory, PlayerCompanion disposition completeness, trigger semantics and programme-level per-capability proof were remediated and resolved.
-- [x] Final Codex P2 executable-prompt consistency finding is remediated.
+- [x] Prior Codex findings for checkpoint identity, full workstream inventory, PlayerCompanion disposition completeness, trigger semantics, programme/executable per-capability proof were remediated and resolved.
+- [x] Codex P2 root-manifest schema finding is remediated with exact-key/canonical-pointer/root-live-state validation.
 - [ ] Remediated exact-head Agent Governance and required CI pass.
 - [ ] Final exact-head Codex review/self-review and review hygiene are terminal.
 - [ ] PR/Issue/task/source-branch closeout is terminal.
@@ -94,7 +94,7 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-15T11:24:09Z
+updated_at: 2026-08-15T11:32:41Z
 head: UNKNOWN
 branch: docs/portal-programme-coherence-20260815
 pr: 1093
@@ -115,32 +115,33 @@ owned_paths:
   - docs/agents/evals/prompt-contract-v1.json
   - tools/validation/test_prompt_eval.py
 proven:
-  - Protected main is dfec0c0683202c0c380b78cb4b956b2d19de68b8 and Issue #1092 exact candidate 70b7f7824f02d92bbb93a3dbb3d874d63c375a04 is behind_by=0 before the final prompt-consistency remediation.
-  - Portal Completeness Architecture requires a named-release capability inventory and owner-approved IMPLEMENT/DEFER/REJECT disposition with rationale for every benchmark capability.
-  - Portal Completion programme now requires exactly one durable per-capability record with stable capability_id, owner, rationale, outcome and authority_evidence; broad workstream dispositions cannot substitute and ambiguous evidence remains DECISION_REQUIRED.
-  - Scope JSON carries the machine-readable per-capability proof contract and semantic validation pins it exactly.
+  - Protected main is dfec0c0683202c0c380b78cb4b956b2d19de68b8 and Issue #1092 candidate 0b514e9843272ad19253c6d06b2f3b11862389af is behind_by=0 before root-schema remediation.
+  - Portal Completeness Architecture requires named-release per-capability owner-approved dispositions before release-scope closure.
+  - Portal Completion programme and executable prompt require exactly one durable per-capability record with stable capability_id, owner, rationale, outcome and authority_evidence; broad workstream dispositions cannot substitute and ambiguous evidence remains DECISION_REQUIRED.
+  - Scope JSON carries the machine-readable per-capability proof contract and remains non-scheduling/non-owning/non-live-state by design.
   - Portal Completion remains the sole live selector; Work Allocation is post-selection only; Architecture Review owns new durable decisions; multi-world is conditional cross-cutting applicability.
   - Historical Work Reconciliation is TERMINAL_DO_NOT_RUN; Game Catalog preserves atomic consumer-first merge ordering and no standing server-repository authority.
-  - Exact-head 70b7f7824f02d92bbb93a3dbb3d874d63c375a04 passed all eight emitted workflows, including Agent Governance 31881811371 and CI 31881811345, and exact-head self-review PASS is recorded as PR review 4943733590.
-  - The third Codex programme-level per-capability P2 was remediated, replied to with exact evidence and resolved.
-  - Final Codex review on 70b7f7824f02d92bbb93a3dbb3d874d63c375a04 identified one P2: executable prompt global completion wording was weaker than the strengthened programme and could still be satisfied by broad workstream dispositions.
-  - The remediation makes the executable prompt require the exact same canonical per-capability inventory, stable ID, owner, rationale, outcome, authority-evidence, uniqueness and DECISION_REQUIRED semantics as the programme.
+  - Exact-head 0b514e9843272ad19253c6d06b2f3b11862389af passed all eight emitted workflows, including Agent Governance 31882058311 and CI 31882058321.
+  - All earlier Codex findings were remediated, replied to with exact evidence and resolved before the root-schema review.
+  - Codex review on 0b514e9843272ad19253c6d06b2f3b11862389af identified one P2: scope workstream entries were fail-closed, but the manifest root lacked exact-key validation, root live-state rejection and canonical `authority`/`delivery_plan` pointer assertions.
+  - The remediation requires the exact ten root keys, rejects root-level mutable live-state/ownership fields, and pins canonical architecture owner, delivery plan and selection authority paths.
 derived:
-  - This is a prompt consistency repair only; it changes no product outcome, workstream disposition, architecture decision, runtime behavior, CI workflow or repository authority.
-  - A fresh exact-head CI generation and Codex review are required because the executable prompt is behavioural code.
+  - The root-schema remediation prevents the non-scheduling scope projection from silently becoming conflicting live-state/routing authority.
+  - No product outcome, workstream disposition, implementation scope, runtime behavior, workflow or repository authority changes are introduced by this repair.
+  - A fresh exact-head CI generation and Codex review are required because the semantic validator changed.
 unknown:
-  - Exact remediated PR head until the coherent prompt-consistency commit is created.
+  - Exact remediated PR head until the coherent root-schema commit is created.
   - Exact conclusions of required CI and final Codex review on that new head.
   - Final implementation and closeout merge SHAs until merge occurs.
 conflicts: []
 first_failure:
-  marker: codex-exact-head-executable-prompt-capability-proof-gap
-  evidence: Codex review submitted 2026-08-15T11:24:09Z on 70b7f7824f02d92bbb93a3dbb3d874d63c375a04 found the executable prompt global-completion checklist still allowed broad workstream dispositions to substitute for per-capability proof required by the programme.
+  marker: codex-exact-head-scope-root-schema-gap
+  evidence: Codex review submitted 2026-08-15T11:32:41Z on 0b514e9843272ad19253c6d06b2f3b11862389af found that root-level live state or canonical authority/delivery pointer drift could bypass the existing semantic test.
 rejected_hypotheses:
-  - weaken the programme-level per-capability proof to match the prompt
-  - treat workstream terminality as capability proof
-  - infer owner/rationale from inactivity or missing ownership
-  - skip exact-head revalidation because the change is text-only
+  - weaken the non-scheduling scope model
+  - allow extra root metadata without review
+  - rely only on non-empty workstream semantics
+  - skip exact-head revalidation because the change is validator-only
   - expand implementation or external-repository authority
 changed_paths:
   - docs/agents/evals/prompt-contract-v1.json
@@ -157,24 +158,21 @@ changed_paths:
 validation:
   - command: prior exact-head repository validation
     result: PASS
-    evidence: 70b7f7824f02d92bbb93a3dbb3d874d63c375a04 passed all eight emitted workflows including Agent Governance 31881811371 and CI 31881811345.
-  - command: prior exact-head self-review
-    result: PASS
-    evidence: PR review 4943733590 records zero open material findings after programme-level per-capability remediation.
-  - command: final Codex review on prior candidate
+    evidence: 0b514e9843272ad19253c6d06b2f3b11862389af passed all eight emitted workflows including Agent Governance 31882058311 and CI 31882058321.
+  - command: prior exact-head Codex review
     result: FAIL
-    evidence: one P2 executable-prompt consistency finding remains open until this coherent remediation is committed and re-reviewed.
-  - command: prompt-consistency remediated exact-head repository validation
+    evidence: one P2 root-manifest schema/canonical-pointer enforcement gap remains open until this coherent remediation is committed and re-reviewed.
+  - command: root-schema remediated exact-head repository validation
     result: NOT_RUN
-    evidence: coherent prompt-consistency commit has not yet been created.
-  - command: prompt-consistency remediated exact-head Codex review
+    evidence: coherent remediation commit has not yet been created.
+  - command: root-schema remediated exact-head Codex review
     result: NOT_RUN
     evidence: must be re-triggered on the exact remediation head.
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: governance/documentation/prompt-contract work creates no product runtime/browser journey.
 blockers: []
-next_action: Commit the executable-prompt per-capability proof remediation, run exact-head CI, re-trigger Codex review, resolve the P2 thread, and merge only when every exact-head gate is terminal green.
+next_action: Commit the root-schema/canonical-pointer validator remediation, run exact-head CI, re-trigger Codex review, resolve the P2 thread, and merge only when every exact-head gate is terminal green.
 ```
 
 ## Source branch closeout
