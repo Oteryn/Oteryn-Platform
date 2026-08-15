@@ -6,31 +6,36 @@ required_reads:
   - docs/agents/AGENTS.md
   - docs/architecture/adr/0041-ecosystem-repository-authority-contracts-and-atlas-integration.md
   - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
+  - docs/agents/EXECUTION_RESOURCE_HYGIENE.md
 search_first:
-  - PR #988
   - PR #1006
+  - issue #987
   - Oteryn-v2 PR #283
-status: validating
+  - Oteryn-v2 PR #284
+status: waiting
 ---
 
 # OTERYN-20260815 Tibia research ownership reconciliation
 
 ## Goal
 
-Reconcile stale Tibia/official-client research from Platform PRs #988 and #1006 against the accepted repository topology, preserve only durable Platform-owned infrastructure tooling on a clean current-main branch, migrate client/world semantic tooling to the canonical Oteryn-v2 lineage, and make the two historical research PRs eligible for intentional close/delete rather than blind merge.
+Reconcile stale Tibia/official-client research from Platform PRs #988 and #1006 against the accepted repository topology, preserve durable outputs on clean canonical delivery paths, and close historical branches only when repository and runtime closeout gates are satisfied.
+
+## Delivery state
+
+The repository-ownership migration is complete. One runtime closeout gate remains for source PR #1006, so this task is intentionally `waiting` rather than falsely `completed`.
 
 ## Acceptance criteria
 
 - [x] Current ownership is reconciled against Platform ADR 0041 and Oteryn-v2 ADR-0002.
 - [x] `blakinio/otclient` is classified historical/non-canonical for new Oteryn v2 client work.
-- [x] The safe, reusable #988 official Linux identity/host/evidence tooling is harvested onto current Platform `main` lineage without the blocked task state or proprietary artifacts.
-- [x] #1006 worldmap reconstruction tooling and client/game semantic evidence are routed to Oteryn-v2 and merged by PR #283 as `0c307db73832b824ccf50801e626671e0aeb38d1`.
-- [x] Branch-only #1006 diagnostic/live workflows, credentials paths, screenshots/base64 evidence, VNC and gdb/ptrace scaffolding are excluded from Platform `main` and from the destination migration.
-- [x] The harvested official-execution path now enforces dedicated-host/UID/graphics gates before delegating to the bounded launcher.
-- [x] The destructive LUKS setup treats `wipefs` inspection failure as a hard stop before formatting.
-- [ ] Fresh exact-head focused validation and Platform required CI pass after review repairs.
-- [ ] Source PR #988 receives terminal delete disposition and closes only after this clean harvest is merged.
-- [ ] Source PR #1006 remains open while its task-owned live SOCKS session prevents safe runtime cleanup; it must not be closed or deleted until cleanup is proven.
+- [x] Reusable #988 Platform infrastructure was hardened and merged through PR #1104 as `c014fcad498e2568cc47b64f6d886967f270d7a1`.
+- [x] #1006 proprietary-data-free worldmap/client-world tooling was migrated through Oteryn-v2 PR #283 as `0c307db73832b824ccf50801e626671e0aeb38d1` and lifecycle-closeout PR #284 as `5d40711074dd914e0fcf8a95954180d84feef5f3`.
+- [x] #988 was closed without merge with `Branch-Disposition: delete`; its source branch was verified absent. Issue #987 remains open/blocked for the still-unperformed dedicated-host offline validation.
+- [x] #1006 live/debug/VNC/gdb/credential/private-message/screenshot/proprietary material was not promoted into Platform `main` or Oteryn-v2.
+- [x] A task-owned cleanup attempt for #1006 failed closed before mutation when the client local SOCKS transport reappeared.
+- [ ] #1006 task-owned Synology runtime resources are removed only after a fresh read-only check proves the client transport is gone, and canonical `oteryn-staging` invariance is verified.
+- [ ] #1006 then receives an explicit terminal branch disposition, closes without wholesale merge, and its source ref is removed.
 
 ## Ownership
 
@@ -38,95 +43,73 @@ Reconcile stale Tibia/official-client research from Platform PRs #988 and #1006 
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260815-tibia-research-ownership-reconciliation.md
   - docs/agents/reports/OTERYN-20260815-tibia-research-ownership-reconciliation.md
-  - docs/architecture/adr/0040-oteryn-ecosystem-repository-topology-and-atlas-extraction.md
-  - tools/tibia-linux-reference/official_identity_probe.py
-  - tools/tibia-linux-reference/official_host_preflight.py
-  - tools/tibia-linux-reference/official_host_prepare.sh
-  - tools/tibia-linux-reference/official_evidence_luks_setup.sh
-  - tools/tibia-linux-reference/tests/test_official_offline.py
-  - tools/tibia-linux-reference/tibia_linux_reference/official_host.py
-  - tools/tibia-linux-reference/tibia_linux_reference/official_execution.py
-  - tools/tibia-linux-reference/tibia_linux_reference/cli.py
-  - .github/workflows/tibia-linux-live-reference.yml
 modules:
-  - external-reference-infrastructure
-  - agent-governance
+  - lifecycle-reconciliation
+  - execution-resource-closeout
 dependencies:
-  - Platform PR #988
-  - Platform PR #1006
-  - Oteryn-v2 PR #283 merged as 0c307db73832b824ccf50801e626671e0aeb38d1
-blockers: []
+  - Platform PR #1006 live runtime closeout
+blockers:
+  - PR #1006 task-owned client process can retain/re-establish a local SOCKS transport, so destructive cleanup is not currently safe
 cross_repository_tasks:
-  - blakinio/Oteryn-v2#283 (merged)
-  - blakinio/Oteryn-v2#284 (lifecycle closeout)
+  - none; Oteryn-v2 #283/#284 are terminal merged
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-16T00:11:00+02:00
-head: pending-review-repair-commit
-branch: chore/OTERYN-20260815-tibia-research-ownership-reconciliation
-pr: 1104
-status: validating
+updated_at: 2026-08-16T00:18:00+02:00
+head: none
+branch: none
+pr: none
+status: waiting
 context_routes:
   - agent-governance
-  - architecture
-  - security
-  - testing
+  - execution-resource-hygiene
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260815-tibia-research-ownership-reconciliation.md
   - docs/agents/reports/OTERYN-20260815-tibia-research-ownership-reconciliation.md
-  - docs/architecture/adr/0040-oteryn-ecosystem-repository-topology-and-atlas-extraction.md
-  - tools/tibia-linux-reference/**
-  - .github/workflows/tibia-linux-live-reference.yml
 proven:
-  - Platform ADR 0041 assigns native client/server/protocol/world/content ownership to the Oteryn-Game lineage and identifies blakinio/Oteryn-v2 as its current source lineage.
-  - Oteryn-v2 ADR-0002 makes blakinio/Oteryn-v2 canonical for the native Rust client and makes blakinio/otclient historical migration/reference evidence after cutover.
-  - Oteryn-v2 PR #283 merged the proprietary-data-free worldmap package as main commit 0c307db73832b824ccf50801e626671e0aeb38d1 after four review findings were repaired and exact-head governance/reference/merge-gate checks passed.
-  - Platform PR #988 contains reusable non-executing official Linux identity, host-preflight, dedicated-user and encrypted-evidence tooling while its dedicated-host execution acceptance remains blocked.
-  - Platform PR #1006 is dominated by experimental live-client workflows and must not be merged wholesale.
-  - Initial PR #1104 workflow-lifecycle/checkpoint failures were repaired by reusing the registered tibia-linux-live-reference workflow and correcting the v1 task record.
-  - Full Platform CI then exposed an inherited ADR 0040 registry defect; b779d2d92532a562c845fd672885ef65211d35c9 added the required explicit supersession target and the fresh exact-head CI/Phase7/DB-outage/reference/governance generation passed.
-  - Fresh review on #1104 found three remaining material safety gaps: wipefs inspection failure could fall through, the official execution CLI did not enforce the new dedicated-host/graphics checks, and getpass-based username resolution was environment-spoofable.
-  - The repair introduces package-level official_host gates using os.getuid()+pwd.getpwuid, an official_execution wrapper used by the CLI before launcher delegation, fail-closed wipefs status handling, and focused regressions for all three findings.
-  - A read-only rerun of the historical #1006 session check initially observed zero sockets, but a fail-closed terminal cleanup attempt one minute later observed ACTIVE_LOCAL_SOCKS_COUNT=1 and therefore skipped every destructive step; #1006 runtime cleanup remains blocked by a surviving/reconnecting local SOCKS session.
+  - Platform PR #1104 final head f4ecbe1bfdd7a51940901d1dd236cdb968da1d44 passed CI 31911457035, Phase 7 31911457015, Platform DB Outage 31911457054, Agent Governance 31911457030 and Tibia Linux Reference Harness 31911457036 after all review findings were repaired; it merged as c014fcad498e2568cc47b64f6d886967f270d7a1 and its delivery branch was automatically removed.
+  - Oteryn-v2 PR #283 merged the worldmap reference package as 0c307db73832b824ccf50801e626671e0aeb38d1; closeout PR #284 merged as 5d40711074dd914e0fcf8a95954180d84feef5f3, the active task is absent on Oteryn-v2 main and the archive record is present.
+  - Platform PR #988 was closed without merge after adding Branch-Disposition: delete; branch search then returned no research/OTERYN-20260811-official-linux-offline-launch ref. Issue #987 remains open/blocked, so no false offline-execution completion was claimed.
+  - Ephemeral cleanup-attempt PR #1105 closed without merge with Branch-Disposition: delete and its source branch was verified absent.
+  - Historical #1006 session-check rerun job 95075794423 observed CLIENT_PID_PRESENT=true with zero local/direct TCP at one point.
+  - Immediately following terminal-cleanup run 31911054031 job 95076020397 observed CLIENT_PID_PRESENT=true, ACTIVE_LOCAL_SOCKS_COUNT=1 and ACTIVE_DIRECT_TCP_COUNT=0; the destructive cleanup and verification steps were skipped by the fail-closed precondition.
+  - PR #1006 now contains durable comment 5304478532 recording the canonical Oteryn-v2 destination, Platform #1104 delivery, runtime blocker and exact next terminal action.
 derived:
-  - Neither Platform PR #988 nor #1006 should be merged wholesale into Platform main.
-  - #1006 cannot yet receive a terminal branch disposition because live task-owned runtime resources cannot be safely removed while the client transport survives/reconnects.
+  - Repository ownership is no longer ambiguous: new native client/game/world work belongs to Oteryn-v2, not historical blakinio/otclient.
+  - #1006 must remain open until runtime cleanup is safe; deleting its branch now would violate execution-resource and source-branch closeout policy.
 unknown:
-  - Final exact-head result of the review-repair generation for Platform PR #1104.
-  - Exact future time when the #1006 local SOCKS session is definitively gone and ownership-scoped runtime cleanup can execute safely.
+  - When the local SOCKS transport will stop and remain absent long enough for immediate ownership-scoped cleanup.
 conflicts: []
 first_failure:
-  marker: pr-1104-review-safety-gaps
-  evidence: three unresolved review threads identified wipefs fail-open behavior, unenforced official host gates in the CLI execution path, and environment-spoofable dedicated-user identity; all are repaired in the pending coherent commit and require fresh exact-head validation.
+  marker: source-pr-1006-runtime-cleanup-blocked-by-live-transport
+  evidence: cleanup run 31911054031 job 95076020397 failed before mutation because ACTIVE_LOCAL_SOCKS_COUNT=1
 rejected_hypotheses:
-  - Merge PR #1104 merely because the previous exact-head CI was green; open material review findings block merge.
-  - Treat getpass.getuser() as proof of process identity; it trusts environment variables before the password database.
-  - Treat a failing wipefs inspection as equivalent to a blank disk; destructive setup must fail closed.
-  - Close #1006 after one no-socket observation; the immediately following cleanup gate proved the local SOCKS transport had reappeared.
+  - A single zero-socket observation is sufficient to delete #1006 runtime resources; the immediately following cleanup gate disproved this.
+  - Closing #1006 now is harmless because its durable code is already migrated; repository policy also requires safe cleanup of task-owned execution resources before terminal closeout.
 changed_paths:
-  - .github/workflows/tibia-linux-live-reference.yml
   - docs/agents/tasks/active/OTERYN-20260815-tibia-research-ownership-reconciliation.md
   - docs/agents/reports/OTERYN-20260815-tibia-research-ownership-reconciliation.md
-  - docs/architecture/adr/0040-oteryn-ecosystem-repository-topology-and-atlas-extraction.md
-  - tools/tibia-linux-reference/official_identity_probe.py
-  - tools/tibia-linux-reference/official_host_preflight.py
-  - tools/tibia-linux-reference/official_host_prepare.sh
-  - tools/tibia-linux-reference/official_evidence_luks_setup.sh
-  - tools/tibia-linux-reference/tests/test_official_offline.py
-  - tools/tibia-linux-reference/tibia_linux_reference/official_host.py
-  - tools/tibia-linux-reference/tibia_linux_reference/official_execution.py
-  - tools/tibia-linux-reference/tibia_linux_reference/cli.py
 validation:
-  - command: Platform PR 1104 pre-review-repair exact-head generation on b779d2d92532a562c845fd672885ef65211d35c9
+  - command: Oteryn-v2 delivery and lifecycle verification
     result: PASS
-    evidence: CI 31910900981, Phase 7 31910901013, DB Outage 31910900997, Agent Governance 31910900969 and Tibia Linux Reference Harness 31910900996 all passed after the inherited ADR repair.
-  - command: review-repair focused tests and exact-head CI
-    result: NOT_RUN
-    evidence: coherent repair commit is being prepared.
-blockers: []
-next_action: Commit the three review repairs with regression coverage, resolve the review threads only after focused validation passes, run fresh exact-head CI, then merge PR #1104 if no new material finding remains.
+    evidence: main 5d40711074dd914e0fcf8a95954180d84feef5f3 contains terminal archive; implementation and closeout branches are absent
+  - command: Platform clean ownership harvest
+    result: PASS
+    evidence: PR #1104 merged as c014fcad498e2568cc47b64f6d886967f270d7a1 after exact-head CI and review PASS
+  - command: #988 stale branch lifecycle
+    result: PASS
+    evidence: PR #988 closed unmerged with delete disposition and source branch verified absent; Issue #987 remains blocked
+  - command: #1006 task-owned runtime cleanup
+    result: BLOCKED
+    evidence: run 31911054031 failed closed before mutation because local SOCKS transport was active
+blockers:
+  - A fresh read-only no-session check must prove the #1006 client has no local SOCKS or direct TCP, followed immediately by ownership-scoped cleanup before the transport can reconnect.
+next_action: Re-run the read-only #1006 session check; only if CLIENT_PID/transport evidence proves no active client session, immediately remove the exact task-owned container/bind/verified relay with canonical oteryn-staging before/after invariance checks, then close #1006 with Branch-Disposition: delete and verify source-ref removal.
 ```
+
+## Waiting semantics
+
+No worker should poll or delete resources while the transport remains live. The next invocation starts from the single `next_action` above; it must fail closed again if the client reconnects.
