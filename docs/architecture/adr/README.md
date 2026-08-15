@@ -27,6 +27,8 @@ A declaration may add a bounded qualifier or date after the lifecycle token. Mul
 
 Allocate a new ADR only after scanning every file in this directory and open architecture PRs. Use the next integer after the highest observed numeric prefix; do not reuse gaps.
 
+Open PR #1065 currently claims proposed ADR prefix `0038`, so the next non-conflicting allocation is `0039` even while `0038` is not yet present on protected `main`.
+
 Existing duplicate identifiers are historical compatibility defects. Do not rename or renumber accepted records without a separate compatibility decision that preserves inbound references.
 
 ## Machine validation
@@ -53,7 +55,7 @@ The historical exception is a closed exact-path allowlist, not permission to cre
 
 ## Inventory
 
-Inventory reconciled on 2026-08-14. Duplicate prefixes are intentionally shown rather than hidden.
+Inventory reconciled on 2026-08-15. Duplicate prefixes are intentionally shown rather than hidden. Proposed `0038` remains on open PR #1065 and is therefore reserved but not listed as a file on this branch.
 
 - `0001-laravel-modular-monolith.md`
 - `0002-separate-platform-and-canary-repositories.md`
@@ -100,6 +102,7 @@ Inventory reconciled on 2026-08-14. Duplicate prefixes are intentionally shown r
 - `0035-first-party-client-distribution-and-updater-trust-boundary.md`
 - `0036-platform-api-activation-and-first-surface-policy.md`
 - `0037-terminal-source-branch-lifecycle.md`
+- `0039-historical-work-canonicalization-and-managed-recovery.md`
 
 ## Preserved legacy duplicate paths
 
