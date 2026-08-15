@@ -8,10 +8,10 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_ROOT = ROOT / "tibia_linux_reference"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -25,8 +25,8 @@ def load_module(name: str, path: Path):
 
 
 identity_probe = load_module("official_identity_probe", ROOT / "official_identity_probe.py")
-host_preflight = load_module("official_host_preflight", ROOT / "official_host_preflight.py")
 from tibia_linux_reference import HarnessError  # noqa: E402
+from tibia_linux_reference import official_execution, official_host  # noqa: E402
 
 
 class OfficialIdentityProbeTests(unittest.TestCase):
@@ -69,7 +69,7 @@ class OfficialHostPreflightTests(unittest.TestCase):
     def test_ci_environment_is_rejected_before_official_execution(self) -> None:
         with mock.patch.dict(os.environ, {"CI": "true"}, clear=True):
             with self.assertRaisesRegex(HarnessError, "CI runner"):
-                host_preflight.require_normal_host("oteryn-tibia-ref")
+                official_host.require_normal_host("oteryn-tibia-ref")
 
     def test_container_marker_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -77,10 +77,20 @@ class OfficialHostPreflightTests(unittest.TestCase):
             marker.touch()
             with (
                 mock.patch.dict(os.environ, {}, clear=True),
-                mock.patch.object(host_preflight, "CONTAINER_MARKERS", (marker,)),
+                mock.patch.object(official_host, "CONTAINER_MARKERS", (marker,)),
             ):
                 with self.assertRaisesRegex(HarnessError, "containers"):
-                    host_preflight.require_normal_host("oteryn-tibia-ref")
+                    official_host.require_normal_host("oteryn-tibia-ref")
+
+    def test_environment_username_cannot_spoof_real_uid(self) -> None:
+        fake_record = SimpleNamespace(pw_name="actual-user")
+        with (
+            mock.patch.dict(os.environ, {"USER": "oteryn-tibia-ref", "LOGNAME": "oteryn-tibia-ref"}, clear=True),
+            mock.patch.object(official_host.os, "getuid", return_value=12345),
+            mock.patch.object(official_host.pwd, "getpwuid", return_value=fake_record) as lookup,
+        ):
+            self.assertEqual(official_host.current_username(), "actual-user")
+        lookup.assert_called_once_with(12345)
 
     def test_software_only_gl_renderer_is_rejected(self) -> None:
         completed = mock.Mock(
@@ -90,11 +100,11 @@ class OfficialHostPreflightTests(unittest.TestCase):
         )
         with (
             mock.patch.dict(os.environ, {"DISPLAY": ":0"}, clear=True),
-            mock.patch.object(host_preflight.shutil, "which", return_value="/usr/bin/glxinfo"),
-            mock.patch.object(host_preflight.subprocess, "run", return_value=completed),
+            mock.patch.object(official_host.shutil, "which", return_value="/usr/bin/glxinfo"),
+            mock.patch.object(official_host.subprocess, "run", return_value=completed),
         ):
             with self.assertRaisesRegex(HarnessError, "software-only"):
-                host_preflight.require_accelerated_graphics()
+                official_host.require_accelerated_graphics()
 
     def test_direct_hardware_gl_renderer_is_accepted(self) -> None:
         completed = mock.Mock(
@@ -104,13 +114,53 @@ class OfficialHostPreflightTests(unittest.TestCase):
         )
         with (
             mock.patch.dict(os.environ, {"DISPLAY": ":0"}, clear=True),
-            mock.patch.object(host_preflight.shutil, "which", return_value="/usr/bin/glxinfo"),
-            mock.patch.object(host_preflight.subprocess, "run", return_value=completed),
+            mock.patch.object(official_host.shutil, "which", return_value="/usr/bin/glxinfo"),
+            mock.patch.object(official_host.subprocess, "run", return_value=completed),
         ):
-            result = host_preflight.require_accelerated_graphics()
+            result = official_host.require_accelerated_graphics()
         self.assertTrue(result["direct_rendering"])
         self.assertFalse(result["software_renderer"])
         self.assertIn("AMD Radeon", result["renderer"])
+
+
+class OfficialExecutionPathTests(unittest.TestCase):
+    def test_host_preflight_failure_prevents_launcher_delegation(self) -> None:
+        with (
+            mock.patch.object(
+                official_execution,
+                "run_official_host_preflight",
+                side_effect=HarnessError("official execution is forbidden inside containers"),
+            ) as preflight,
+            mock.patch.object(official_execution, "_run_official_component") as delegated,
+        ):
+            with self.assertRaisesRegex(HarnessError, "forbidden inside containers"):
+                official_execution.run_official_component(
+                    repo_root=Path("/repo"),
+                    evidence_root=Path("/evidence"),
+                    identity_file=Path("/identity.json"),
+                    package_path=Path("/package.tar.gz"),
+                    executable_path=Path("/client"),
+                    observation_seconds=5.0,
+                )
+        preflight.assert_called_once_with(repo_root=Path("/repo"), evidence_root=Path("/evidence"))
+        delegated.assert_not_called()
+
+    def test_host_preflight_runs_before_launcher_delegation(self) -> None:
+        with (
+            mock.patch.object(official_execution, "run_official_host_preflight") as preflight,
+            mock.patch.object(official_execution, "_run_official_component", return_value={"session_id": "safe"}) as delegated,
+        ):
+            result = official_execution.run_official_component(
+                repo_root=Path("/repo"),
+                evidence_root=Path("/evidence"),
+                identity_file=Path("/identity.json"),
+                package_path=Path("/package.tar.gz"),
+                executable_path=Path("/client"),
+                observation_seconds=5.0,
+            )
+        self.assertEqual(result, {"session_id": "safe"})
+        preflight.assert_called_once()
+        delegated.assert_called_once()
 
 
 class HostSetupScriptSafetyTests(unittest.TestCase):
@@ -118,7 +168,8 @@ class HostSetupScriptSafetyTests(unittest.TestCase):
         script = (ROOT / "official_evidence_luks_setup.sh").read_text(encoding="utf-8")
         self.assertIn('"DESTROY:$device"', script)
         self.assertIn("[[ -t 0 && -t 1 ]]", script)
-        self.assertIn('wipefs -n "$device"', script)
+        self.assertIn('wipefs_report="$(wipefs -n "$device" 2>&1)"', script)
+        self.assertIn("wipefs could not inspect", script)
         self.assertIn('findmnt -n -o SOURCE /', script)
         self.assertIn('umount "$mountpoint"', script)
         self.assertIn('cryptsetup close "$mapper"', script)

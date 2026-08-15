@@ -43,9 +43,14 @@ while read -r name mounted; do
 done < <(lsblk -nrpo NAME,MOUNTPOINT "$device")
 
 # Only a deliberately blank second virtual/physical disk is accepted. Existing
-# signatures are never wiped automatically.
-if wipefs -n "$device" | grep -q '[^[:space:]]'; then
-  fail "device contains an existing signature; refusing to overwrite it"
+# signatures are never wiped automatically, and an inspection failure is a
+# hard stop rather than being mistaken for an empty successful result.
+wipefs_report=""
+if ! wipefs_report="$(wipefs -n "$device" 2>&1)"; then
+  fail "wipefs could not inspect the evidence device; refusing to format it"
+fi
+if [[ -n "$wipefs_report" ]]; then
+  fail "device contains an existing signature or unexpected wipefs output; refusing to overwrite it"
 fi
 
 [[ ! -e "/dev/mapper/$mapper" ]] || fail "evidence mapper already exists"
