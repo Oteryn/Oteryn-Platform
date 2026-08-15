@@ -1,7 +1,7 @@
 ---
 task_id: OTERYN-20260815-historical-work-reconciliation
 issue: 1072
-status: blocked
+status: validating
 project_lane: oteryn-platform-core
 phase: validate
 execution_mode: github_connector
@@ -42,21 +42,20 @@ Reconcile every historical branch that survived Issue #1068 as `RETAIN` or `RECO
 
 ## Acceptance criteria
 
-- [x] Reconcile against fresh protected `main`; seed counts are evidence only.
-- [x] Account for every live branch and every open same-repository PR before mutation design.
-- [x] Audit every historical `RETAIN` / `RECOVERY` ref for commits, changed paths, content value, provenance, reachability, current-main relevance and recovery purpose.
-- [x] Replace non-terminal `RETAIN` / unmanaged `RECOVERY` classifications with terminal decisions.
-- [x] Do not blindly merge stale historical branches.
-- [x] Preserve selected historical evidence and exact source SHA/provenance before deletion.
-- [x] Prove no long-lived managed recovery ref is required for the reviewed legacy set.
-- [x] Inspect repository workflows before considering custom/tag recovery refs; introduce none when no recovery requirement exists.
-- [x] Implement exact-SHA, protection, open-PR, active-claim, provenance, preservation and main-drift guards before deletion.
-- [x] Implement authoritative post-delete Git ref absence verification, non-candidate exact-SHA preservation and a real create/delete/recreate/delete restore probe.
-- [x] Preserve protected/open/live owned work.
-- [x] Add durable validator coverage preventing unexplained live historical refs and incomplete managed recovery contracts.
-- [ ] Merge the reviewed implementation to protected `main`.
-- [ ] Execute trusted-main reviewed mutation and prove post-mutation inventory plus real Git lifecycle E2E.
-- [ ] Move this task to `docs/agents/tasks/archive/`, close Issue #1072 completed, remove temporary state, and verify source branch deletion.
+- [x] Fresh live branch/PR/task accounting performed from protected main.
+- [x] All 37 historical candidates received individual content/provenance/reachability review and terminal dispositions.
+- [x] Terminal matrix contains 6 `DELETE`, 20 `DOCUMENT_ARCHIVE`, 11 `PR_PROVENANCE_DELETE`, 0 `MANAGED_RECOVERY`, 0 `CANONICALIZE_TO_MAIN`.
+- [x] All 15 legacy `RECOVERY` refs were individually reconciled; no independent exact-Git-history retention requirement remains.
+- [x] No historical branch was blindly merged and no deletion decision was based on name, age, prefix or inactivity.
+- [x] Exact-SHA, protection, open-PR, active-claim, provenance, preservation and main-drift guards are implemented.
+- [x] Authoritative Git ref absence checks, non-candidate exact-SHA preservation and create/delete/recreate/delete restore probe are implemented.
+- [x] Owner explicitly authorized marking PR #1074 Ready and any repository-required Ready-triggered owner-funded review for this exact Issue.
+- [x] Protected main drift through #1076/#1084 was re-read; the #1084 lifecycle archive change was accepted by refreshing reviewed main rather than weakening drift policy.
+- [ ] Exact current-head focused validation, repository-required CI and Ready-triggered review state are terminal green.
+- [ ] PR #1074 is merged with expected-head protection after final current-main/mergeability recheck.
+- [ ] Trusted-main reconciliation apply deletes the exact reviewed historical refs and proves real Git lifecycle E2E.
+- [ ] Approval-free post-mutation inventory has zero unexplained `RETAIN` and zero unmanaged `RECOVERY`.
+- [ ] Task is archived, Issue #1072 is closed completed, temporary state is absent and source branch deletion is verified.
 
 ## Ownership
 
@@ -81,27 +80,24 @@ modules:
   - historical-work-reconciliation
 dependencies:
   - Issue #1050 terminal source-branch lifecycle
-  - Issue #1068 historical exact-SHA cleanup and final zero-candidate audit
-  - ADR 0037 terminal source-branch lifecycle
+  - Issue #1068 historical exact-SHA cleanup
+  - ADR 0037
+  - ADR 0039
 blockers:
-  - PR #1074 is intentionally draft and its accepted authorization explicitly forbids marking Ready or invoking Codex/OpenAI/API/owner-funded AI review without explicit permission for that exact use.
+  - none
 cross_repository_tasks:
   - none
 ```
-
-## Accepted owner decision
-
-ADR 0039 remains authoritative: branches are execution resources, `RETAIN` is transitional, historical value belongs on current `main`, focused durable provenance, or a real managed recovery mechanism, and branch deletion remains exact-head/fail-closed under ADR 0037.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-15T07:38:20Z
+updated_at: 2026-08-15T07:47:00Z
 head: LIVE_PR_1074_HEAD
 branch: repair/issue-1072-historical-work-reconciliation
 pr: 1074
-status: blocked
+status: validating
 context_routes:
   - agent-governance
   - architecture
@@ -110,47 +106,35 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260815-historical-work-reconciliation.md
   - docs/agents/tasks/archive/OTERYN-20260815-historical-work-reconciliation.md
   - docs/agents/prompts/OTERYN-HISTORICAL-WORK-RECONCILIATION.md
-  - docs/agents/BRANCH_LIFECYCLE_POLICY.json
   - docs/agents/HISTORICAL_WORK_RECONCILIATION_REGISTRY.json
   - docs/architecture/adr/0039-historical-work-canonicalization-and-managed-recovery.md
   - docs/architecture/adr/README.md
-  - tools/agents/historical_branch_audit.py
-  - tools/agents/historical_branch_policy.py
-  - tools/agents/test_historical_branch_audit.py
-  - tools/agents/test_historical_branch_policy.py
-  - tools/agents/*historical*reconciliation*.py
+  - tools/agents/historical_work_reconciliation.py
+  - tools/agents/test_historical_work_reconciliation.py
   - .github/workflows/historical-branch-audit.yml
 proven:
-  - Issue #1068 is closed completed after its exact-reviewed historical cleanup and approval removal.
-  - Discovery run 31870802443 produced artifact 9243364594 with digest sha256:8923531b9a224f1cfaa3d341abf553ad054f1b31d84f168b5b63ae1dc5eb5177 and content/provenance/reachability evidence for the historical candidates.
-  - The reviewed historical set contains 37 refs with terminal decisions: 6 DELETE, 20 DOCUMENT_ARCHIVE and 11 PR_PROVENANCE_DELETE; MANAGED_RECOVERY and CANONICALIZE_TO_MAIN are both zero.
-  - Every one of the 15 legacy RECOVERY refs was individually reconciled; none retains an independent exact Git-history recovery requirement.
-  - The live branch test/OTERYN-20260815-e2e-486-completion moved into owned PR #1077 after discovery and was excluded from historical deletion before review.
-  - Current protected main was rechecked at 841793be68d4c52aff14bfc51d6f291a24b74477; the intervening merged PR #1076 changed only three unrelated prompt-hardening paths admitted to the reviewed main-drift allowlist.
-  - PR #1074 current implementation head before this checkpoint commit was 5b1c3e586c368e9f1843003fe147fb06d75f7dbe, mergeable, draft, and changed exactly the eight Issue #1072-owned implementation paths.
-  - PR #1074 has no submitted reviews, no inline review threads and no PR discussion comments at the latest review-hygiene check.
-  - Historical Branch Audit run 31872416348 validate job passed focused historical-governance tests on head 5b1c3e586c368e9f1843003fe147fb06d75f7dbe.
-  - The previous exact implementation head f5f45d284ee27d86c8f485784cb216b8e8a14a21 passed all automatically triggered workflows including CI, Agent Governance and Historical Branch Audit before protected main advanced.
-  - Agent Governance run 31872416374 on the current synthetic merge failed only because the unrelated merged PR #1076 left task OTERYN-20260815-portal-completion-prompt-hardening active with stale terminal next action; its dedicated closeout PR #1084 exists separately and is outside Issue #1072 ownership.
-  - PR #1074 body preserves the explicit authorization boundary that it must remain draft unless exact Ready/owner-funded-review permission is granted.
+  - Discovery and content/provenance inventory run 31870802443 produced artifact 9243364594.
+  - Later full-accounting run 31872078706 produced artifact 9243721593 with digest sha256:562fe26572947031da3b1d92228de78a8fbb045002c1cd95dffd140241f27b64.
+  - The reviewed historical set is exactly 37 refs: 6 DELETE, 20 DOCUMENT_ARCHIVE, 11 PR_PROVENANCE_DELETE.
+  - No managed recovery ref is required for the reviewed legacy set.
+  - PR #1074 was changed from Draft to Ready after explicit owner authorization in this conversation.
+  - Current protected main was re-read as 88b3dce7b822ed27d9f61c412493c57ba6608a38 after merged closeout PR #1084.
+  - Historical Branch Audit run 31872549491 failed only because reviewed-main drift correctly detected the newly archived Issue #1075 task path.
+  - The registry now binds reviewed_main_sha to 88b3dce7b822ed27d9f61c412493c57ba6608a38 instead of allowlisting that unrelated drift.
 derived:
-  - Historical deletion must not run until the reviewed implementation is merged and the trusted-main apply job rechecks all live guards.
-  - No custom/tag recovery ref should be created for the reviewed legacy set because there is no surviving exact-history recovery requirement.
-  - The implementation itself is ready for terminal merge gating once the explicit draft authorization blocker is removed and exact-head validation is refreshed against then-live main.
+  - A fresh exact-head validation generation is required because the registry and task checkpoint changed after owner authorization and main refresh.
 unknown:
-  - Protected main and active/open-work drift at the future instant authorization is granted.
-  - Exact final merge SHA and trusted-main apply run because merge is not authorized while PR #1074 remains draft.
-conflicts:
-  - Current Agent Governance synthetic-merge validation is red because of unrelated Issue #1075 lifecycle debt on protected main, not because of an Issue #1072-owned validation failure.
+  - Ready-triggered review terminal verdict on the resulting exact PR head.
+  - Exact final merge SHA and trusted-main apply run ID.
+conflicts: []
 first_failure:
-  marker: PR_1074_DRAFT_AUTHORIZATION_BOUNDARY
-  evidence: PR #1074 is draft and explicitly says not to mark Ready or invoke Codex/OpenAI/API/owner-funded AI review without explicit permission for that exact use.
+  marker: none-open
+  evidence: the prior draft authorization blocker was explicitly removed by the owner; the prior reviewed-main drift failure was repaired fail-closed.
 rejected_hypotheses:
-  - keep historical RETAIN or RECOVERY branches indefinitely
-  - delete branches by name prefix age inactivity or similarity
-  - blindly merge stale historical branches
-  - treat a textual SHA as managed Git recovery
-  - mark PR #1074 Ready despite the explicit authorization boundary
+  - weaken reviewed-main drift validation to ignore arbitrary unrelated changes
+  - keep legacy RETAIN or RECOVERY branches indefinitely
+  - create a managed recovery ref without a real exact-history recovery requirement
+  - delete before trusted-main exact-head revalidation
 changed_paths:
   - .github/workflows/historical-branch-audit.yml
   - docs/agents/HISTORICAL_WORK_RECONCILIATION_REGISTRY.json
@@ -161,31 +145,30 @@ changed_paths:
   - tools/agents/historical_work_reconciliation.py
   - tools/agents/test_historical_work_reconciliation.py
 validation:
-  - command: discovery content/provenance/reachability inventory
+  - command: historical content/provenance/reachability discovery
     result: PASS
-    evidence: Historical Branch Audit run 31870802443 artifact 9243364594 digest sha256:8923531b9a224f1cfaa3d341abf553ad054f1b31d84f168b5b63ae1dc5eb5177
-  - command: focused historical governance tests
+    evidence: run 31870802443 artifact 9243364594
+  - command: full live accounting before owner authorization
     result: PASS
-    evidence: run 31872416348 validate job passed on implementation head 5b1c3e586c368e9f1843003fe147fb06d75f7dbe
-  - command: exact-head Agent Governance after protected-main advance
-    result: FAIL
-    evidence: run 31872416374 failed live-task liveness only for unrelated merged PR #1076 task; Issue #1072-owned validator/test steps passed
+    evidence: run 31872078706 artifact 9243721593
+  - command: current-main drift gate
+    result: PASS
+    evidence: run 31872549491 rejected #1084 archive drift before mutation; registry was then refreshed to exact current protected main 88b3dce7b822ed27d9f61c412493c57ba6608a38
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
-    evidence: Issue #1072 changes repository governance and Git-ref lifecycle tooling; mandatory E2E is the real Git create/delete/restore/apply lifecycle after merge, not browser/runtime behavior
-blockers:
-  - Explicit owner authorization is absent for marking draft PR #1074 Ready for review or invoking any Ready-triggered owner-funded AI review.
-next_action: Owner explicitly authorizes marking PR #1074 Ready for review for Issue #1072, including any Ready-triggered owner-funded review required by repository policy.
+    evidence: Issue #1072 is repository Git-ref governance; mandatory E2E is the real Git lifecycle apply/restore proof after merge
+blockers: []
+next_action: Validate the resulting exact PR #1074 head against current protected main, inspect Ready-triggered review and all required checks, then merge only if the head is unchanged and every gate is terminal green.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: Issue #1072 remains blocked before merge on repair/issue-1072-historical-work-reconciliation and draft PR #1074
-source_branch_evidence: live PR #1074 owns the source branch; deletion is required only after terminal merge and closeout
+source_branch_reason: source branch remains required until PR #1074 merge, trusted-main apply and terminal archive closeout complete
+source_branch_evidence: PR #1074 currently owns repair/issue-1072-historical-work-reconciliation; final closeout must verify ref absence after merge
 ```
 
 ## Notes
 
-All destructive work remains fail-closed. No historical ref has been deleted by this task yet, no managed recovery ref has been introduced, and no paid/owner-funded AI/Codex/OpenAI API service has been invoked.
+No historical ref has been deleted yet. No production, staging, protected-environment deployment, external-repository mutation or unapproved owner-funded AI operation is performed by this task.
