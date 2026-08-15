@@ -28,14 +28,14 @@ Add a standalone repository-owned prompt and dedicated evaluation inventory for 
 
 ## Acceptance criteria
 
-- [ ] The prompt allows parallel execution only for genuinely independent tasks with separate Issues/tasks/branches/PRs and non-overlapping `owned_paths`.
-- [ ] Existing live task/PR ownership is reused rather than duplicated.
-- [ ] Worker handoff requires a durable candidate-ready state and stops branch writes before coordinator audit/takeover.
-- [ ] Coordinator audit distrusts worker summaries, verifies exact-head outcome, remediates or returns findings, and integrates in dependency-safe order.
-- [ ] Canonical selector ordering remains authoritative and is rerun at synchronization barriers.
-- [ ] External/server repositories, production/protected environments, credentials, signing, payments and owner-funded AI remain unauthorized absent separate exact permission.
-- [ ] The new prompt has a versioned `PROMPT_EVAL_STANDARD.md` contract and dedicated balanced evaluation inventory with explicit no-model-trial limitation.
-- [ ] No file owned by PR #1076 is changed.
+- [x] The prompt allows parallel execution only for genuinely independent tasks with separate Issues/tasks/branches/PRs and non-overlapping `owned_paths`.
+- [x] Existing live task/PR ownership is reused rather than duplicated.
+- [x] Worker handoff requires a durable candidate-ready state and stops branch writes before coordinator audit/takeover.
+- [x] Coordinator audit distrusts worker summaries, verifies exact-head outcome, remediates or returns findings, and integrates in dependency-safe order.
+- [x] Canonical selector ordering remains authoritative and is rerun at synchronization barriers.
+- [x] External/server repositories, production/protected environments, credentials, signing, payments and owner-funded AI remain unauthorized absent separate exact permission.
+- [x] The new prompt has a versioned `PROMPT_EVAL_STANDARD.md` contract and dedicated balanced evaluation inventory with explicit no-model-trial limitation.
+- [x] No file owned by PR #1076 is changed.
 - [ ] Documentation/governance validation and exact-head required CI pass; runtime/browser E2E is `NOT_APPLICABLE` with reason.
 - [ ] Issue/PR/task lifecycle is terminal and ownership is released after merge.
 
@@ -68,12 +68,12 @@ forbidden_paths:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-15T07:16:30Z
-head: UNKNOWN
+updated_at: 2026-08-15T07:18:30Z
+head: ac757da25daadf652f06dc5afe16356a549bba7b
 branch: docs/portal-parallel-coordinator-prompt
-pr: none
-status: implementing
-phase: implement
+pr: 1083
+status: validating
+phase: validate
 project_lane: oteryn-platform-core
 session_id: chatgpt-20260815-portal-parallel-prompt
 session_role: implementation_owner
@@ -93,31 +93,49 @@ owned_paths:
 proven:
   - protected main at task start is 3c3499f38100ec15ba76f958558444c87d644c15
   - Issue #1082 owns this additive prompt package
+  - draft PR #1083 owns branch docs/portal-parallel-coordinator-prompt
   - PR #1076 owns the canonical portal-completion prompt and shared prompt-contract eval; this task excludes both paths
+  - repository compare from task-start main through ac757da25daadf652f06dc5afe16356a549bba7b changes exactly the standalone prompt, dedicated eval and this task record
   - no existing parallel-coordinator prompt was found by repository search
   - repository policy permits parallel workers only across independent tasks and forbids concurrent branch/worktree sharing
+  - prompt requires canonical selector precedence, existing-work reuse, one branch writer, candidate handoff, dependency-safe merge and barrier reselection
+  - dedicated eval contains positive, negative, boundary, authority, injection, validation-routing, integration and closeout cases
+  - repeated model-behaviour trials are explicitly not claimed
 derived:
   - a standalone prompt plus dedicated eval avoids ownership conflict with PR #1076
 unknown:
-  - exact final prompt/eval validation outcome
+  - exact final required CI outcome on the final task-checkpoint head
 conflicts: []
 first_failure:
   marker: none
   evidence: none
 rejected_hypotheses:
   - modifying the canonical execution prompt in parallel with PR #1076 is safe
+  - several workers should be allowed to write one shared branch before integrator review
+  - board OPEN or ARCHITECTURE_READY state alone is sufficient to dispatch a new parallel worker
 changed_paths:
+  - docs/agents/prompts/OTERYN-PORTAL-COMPLETION-PARALLEL-COORDINATOR-PROMPT.md
+  - docs/agents/evals/oteryn-portal-parallel-coordinator-prompt-v1.json
   - docs/agents/tasks/active/OTERYN-20260815-portal-parallel-coordinator-prompt.md
 validation:
   - command: repository overlap search against PR #1076 and existing parallel-coordinator prompt
     result: PASS
     evidence: owned paths are additive and distinct; no existing matching prompt found
+  - command: compare task-start protected main 3c3499f38100ec15ba76f958558444c87d644c15 to ac757da25daadf652f06dc5afe16356a549bba7b
+    result: PASS
+    evidence: exactly three declared additive documentation/governance paths changed; forbidden #1076 paths are absent
+  - command: dedicated evaluation inventory static review
+    result: PASS
+    evidence: balanced positive/negative/boundary/authority/injection/integration/closeout cases are present; model trials explicitly not claimed
+  - command: full prompt specification review against PROMPTING_STANDARD, PROMPT_EVAL_STANDARD and EXECUTION_PROTOCOL
+    result: PASS
+    evidence: no identified authority, ownership, selector, audit-routing, E2E or closeout weakening
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: task changes agent-governance Markdown/JSON only and no executable product route, API, persistence or frontend behavior
 blockers:
   - none
-next_action: create the standalone prompt and dedicated evaluation inventory, then validate the exact branch diff
+next_action: verify exact final branch head, mark PR ready when coherent, then require repository CI and governance checks before merge
 ```
 
 ## Source branch closeout
@@ -130,4 +148,4 @@ source_branch_evidence: pending merge and source-ref verification
 
 ## Notes
 
-Issue: #1082. The package is deliberately additive so it can proceed without touching PR #1076 ownership.
+Issue: #1082. PR: #1083. The package is deliberately additive so it can proceed without touching PR #1076 ownership.
