@@ -24,11 +24,11 @@ prompt_contract:
     - terminal_response
   objective: execute portal completion from live state with one canonical selector, bounded context, correct validator/remediation routing, canonical anti-stall closeout reporting and no authority expansion
   baseline_version: portal_closeout_prompt_1.1
-  eval_suite: docs/agents/evals/oteryn-portal-completion-prompt-v1.2.json
+  eval_suite: docs/agents/evals/prompt-contract-v1.json
   rollback_version: portal_closeout_prompt_1.1
 ```
 
-The focused eval artifact records the baseline/candidate cases and limitations. Deterministic/static review is not an LLM trial; never describe it as automated model-behaviour proof. Repeated model/runtime trials remain required when the evaluation environment supports them and nondeterminism materially matters.
+The canonical deterministic suite contains focused v1.2 portal-completion regression cases alongside the shared prompting invariants and is executed by required repository validation. Deterministic/static evaluation is not an LLM trial; never describe it as automated model-behaviour proof. Repeated model/runtime trials remain required when the evaluation environment supports them and nondeterminism materially matters.
 
 ## Repository, authority and live state
 
