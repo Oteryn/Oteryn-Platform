@@ -74,31 +74,43 @@ def validate_repository_scope(repo: str, default_branch: str) -> None:
         )
 
 
-def sha256_file(path: Path) -> str:
-    try:
-        payload = path.read_bytes()
-    except OSError as exc:
-        raise ValidationError(f"reviewed implementation file unavailable: {path}") from exc
-    return hashlib.sha256(payload).hexdigest()
+def git_blob_sha(root: Path, relative: Path) -> str:
+    value = audit.run_git(
+        root,
+        ["rev-parse", "--verify", f"HEAD:{relative.as_posix()}"],
+        purpose=f"reviewed implementation blob {relative.as_posix()}",
+        timeout=30,
+    ).stdout.strip()
+    if not SHA_RE.fullmatch(value):
+        raise ValidationError(
+            f"reviewed implementation blob invalid for {relative.as_posix()}: {value!r}"
+        )
+    return value
 
 
-def validate_reviewed_implementation(root: Path, registry: dict[str, Any]) -> None:
-    binding = registry.get("reviewed_apply_implementation_sha256")
+def validate_reviewed_implementation(
+    root: Path,
+    registry: dict[str, Any],
+    *,
+    blob_resolver: Callable[[Path], str] | None = None,
+) -> None:
+    binding = registry.get("reviewed_apply_implementation_blobs")
     if not isinstance(binding, dict):
-        raise ValidationError("reviewed_apply_implementation_sha256 missing")
+        raise ValidationError("reviewed_apply_implementation_blobs missing")
     expected_paths = {path.as_posix() for path in REVIEWED_IMPLEMENTATION_PATHS}
     if set(binding) != expected_paths:
         raise ValidationError(
             "reviewed apply implementation binding must cover exactly "
             + ", ".join(sorted(expected_paths))
         )
+    resolve = blob_resolver or (lambda relative: git_blob_sha(root, relative))
     for relative in REVIEWED_IMPLEMENTATION_PATHS:
         expected = binding.get(relative.as_posix())
-        if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+        if not isinstance(expected, str) or not SHA_RE.fullmatch(expected):
             raise ValidationError(
-                f"reviewed implementation digest invalid for {relative.as_posix()}"
+                f"reviewed implementation blob binding invalid for {relative.as_posix()}"
             )
-        actual = sha256_file(root / relative)
+        actual = resolve(relative)
         if actual != expected:
             raise ValidationError(
                 f"reviewed implementation drift for {relative.as_posix()}: "
@@ -209,6 +221,7 @@ def validate_registry(
     workflows: dict[str, Any],
     now: dt.datetime | None = None,
     reachable: Callable[[str, str], bool] | None = None,
+    blob_resolver: Callable[[Path], str] | None = None,
 ) -> list[dict[str, Any]]:
     if registry.get("schema_version") != 1 or registry.get("issue") != ISSUE_NUMBER:
         raise ValidationError("registry identity mismatch")
@@ -230,7 +243,7 @@ def validate_registry(
         or expected_entries_digest != entries_sha256(entries)
     ):
         raise ValidationError("reviewed_entries_sha256 drift")
-    validate_reviewed_implementation(root, registry)
+    validate_reviewed_implementation(root, registry, blob_resolver=blob_resolver)
 
     names: set[str] = set()
     counts: Counter[str] = Counter()
@@ -704,8 +717,6 @@ def apply(
     deleted: list[dict[str, str]] = []
     try:
         assert_main(client, default_branch, main_sha)
-        # One atomic push makes the reviewed mutation all-or-none. Per-ref leases bind every
-        # deletion to its exact reviewed SHA; branch protection can reject the entire batch.
         deleted = atomic_delete_reviewed_refs(client, root, entries)
         for item in deleted:
             if remote_ref_sha(root, item["branch"]) is not None:
