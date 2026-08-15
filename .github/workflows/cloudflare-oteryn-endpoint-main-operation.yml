@@ -18,8 +18,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloudflare-oteryn-endpoint-main-operation-${{ github.event_name }}-${{ github.sha }}
-  cancel-in-progress: false
+  group: cloudflare-oteryn-endpoint-main-operation-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   validate:

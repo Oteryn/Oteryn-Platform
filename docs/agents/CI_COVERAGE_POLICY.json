@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "mode": "report_only",
+  "scope": "app/**",
+  "minimum_statement_percent": null,
+  "execution": "relevant_main_pushes_only",
+  "instrumentation": "PCOV",
+  "metrics": [
+    "statement_percent",
+    "method_percent"
+  ],
+  "baseline_state": "UNKNOWN",
+  "promotion_rule": "After a verified stable main-branch baseline is observed, set a reviewed minimum_statement_percent and switch mode to enforce. Do not invent a floor and do not lower an enforced floor merely to make CI green.",
+  "reason": "Historical CI explicitly disabled coverage instrumentation, so no directly verified mathematical baseline exists yet."
+}
