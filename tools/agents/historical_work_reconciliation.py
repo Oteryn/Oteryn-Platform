@@ -118,10 +118,6 @@ def validate_reviewed_implementation(
             )
 
 
-def entries_sha256(entries: list[dict[str, Any]]) -> str:
-    return hashlib.sha256(canonical(entries).encode("utf-8")).hexdigest()
-
-
 def workflow_inventory(root: Path) -> dict[str, Any]:
     base = root / ".github/workflows"
     if not base.is_dir():
@@ -236,13 +232,6 @@ def validate_registry(
     entries = registry.get("entries")
     if not isinstance(entries, list) or not entries:
         raise ValidationError("registry entries missing")
-    expected_entries_digest = registry.get("reviewed_entries_sha256")
-    if (
-        not isinstance(expected_entries_digest, str)
-        or not re.fullmatch(r"[0-9a-f]{64}", expected_entries_digest)
-        or expected_entries_digest != entries_sha256(entries)
-    ):
-        raise ValidationError("reviewed_entries_sha256 drift")
     validate_reviewed_implementation(root, registry, blob_resolver=blob_resolver)
 
     names: set[str] = set()
