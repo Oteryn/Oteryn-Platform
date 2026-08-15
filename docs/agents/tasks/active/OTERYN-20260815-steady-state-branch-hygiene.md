@@ -1,9 +1,9 @@
 ---
 task_id: OTERYN-20260815-steady-state-branch-hygiene
 issue: 1089
-status: implementing
+status: validating
 project_lane: oteryn-platform-core
-phase: implement
+phase: validate
 execution_mode: github_connector
 task_kind: implementation
 required_reads:
@@ -39,16 +39,17 @@ Extend the existing post-#1072 repository governance so new unexplained remote b
 
 ## Acceptance criteria
 
-- [ ] Hard steady-state invariant is `NEW_UNEXPLAINED_BRANCHES = 0`; raw branch count remains informational and has no fixed cap.
-- [ ] Protected `main` is the only ordinary long-lived branch; other ordinary remote refs require a live same-repository PR, active task claim, or managed-recovery contract.
-- [ ] New active ordinary refs using top-level `tmp`, `backup`, `archive`, `recovery`, or `rollback` fail closed; the terminal #1072 registry is provenance, not a future exemption.
-- [ ] Multiple open same-repository PRs on one branch or multiple active task claims on one branch fail closed.
-- [ ] Human/agent naming `<type>/issue-<number>-<slug>` is advisory only; bot/system branches are exempt and naming never authorizes deletion.
-- [ ] Repository setting drift from `main`, squash-only delivery and `delete_branch_on_merge=true` is reported deterministically and never auto-mutated.
-- [ ] Existing Historical Branch Audit gains read-only trusted PR-lifecycle plus scheduled steady-state execution; destructive apply remains trusted-main push only.
-- [ ] Applied historical registry no longer blocks safe validator/workflow maintenance merely because the original destructive implementation blob/count changed after deletion completed.
-- [ ] Focused negative-path tests cover the new invariants and current live repository state passes.
-- [ ] Exact-head CI, self-review, PR hygiene and terminal task/branch closeout are complete.
+- [x] Hard steady-state invariant is `NEW_UNEXPLAINED_BRANCHES = 0`; raw branch count remains informational and has no fixed cap.
+- [x] Protected `main` is the only ordinary long-lived branch; other ordinary remote refs require a live same-repository PR, active task claim, or managed-recovery contract.
+- [x] New active ordinary refs using top-level `tmp`, `backup`, `archive`, `recovery`, or `rollback` fail closed; the terminal #1072 registry is provenance, not a future exemption.
+- [x] Multiple open same-repository PRs on one branch or multiple active task claims on one branch fail closed.
+- [x] Human/agent naming `<type>/issue-<number>-<slug>` is advisory only; bot/system branches are exempt and naming never authorizes deletion.
+- [x] Repository setting drift from `main`, squash-only delivery and `delete_branch_on_merge=true` is reported deterministically and never auto-mutated.
+- [x] Existing Historical Branch Audit has a read-only trusted PR-lifecycle event and bounded schedule; destructive historical apply remains trusted-main push only.
+- [x] Terminal historical destructive tooling/registry remain unchanged; applied-phase ongoing inventory routes through a separate read-only hygiene helper so the historical blob binding remains meaningful if destructive state is ever reintroduced.
+- [x] Focused negative-path tests cover the new invariants.
+- [ ] Exact-head current-repository live inventory passes with zero hard findings.
+- [ ] Exact-head self-review, required CI, PR hygiene and terminal task/branch closeout are complete.
 
 ## Ownership
 
@@ -58,8 +59,8 @@ owned_paths:
   - docs/agents/tasks/archive/OTERYN-20260815-steady-state-branch-hygiene.md
   - docs/architecture/adr/0039-historical-work-canonicalization-and-managed-recovery.md
   - .github/workflows/historical-branch-audit.yml
-  - tools/agents/historical_work_reconciliation.py
-  - tools/agents/test_historical_work_reconciliation.py
+  - tools/agents/branch_hygiene.py
+  - tools/agents/test_branch_hygiene.py
 modules:
   - repository-governance
   - branch-lifecycle
@@ -78,11 +79,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-15T08:38:00Z
-head: UNKNOWN
+updated_at: 2026-08-15T08:46:43Z
+head: LIVE_PR_1090_HEAD
 branch: repair/issue-1089-steady-state-branch-hygiene
-pr: none
-status: implementing
+pr: 1090
+status: validating
 context_routes:
   - agent-governance
   - architecture
@@ -93,20 +94,22 @@ owned_paths:
   - docs/agents/tasks/archive/OTERYN-20260815-steady-state-branch-hygiene.md
   - docs/architecture/adr/0039-historical-work-canonicalization-and-managed-recovery.md
   - .github/workflows/historical-branch-audit.yml
-  - tools/agents/historical_work_reconciliation.py
-  - tools/agents/test_historical_work_reconciliation.py
+  - tools/agents/branch_hygiene.py
+  - tools/agents/test_branch_hygiene.py
 proven:
-  - Issue #1072 is terminal completed; 37 reviewed historical refs are absent and the final approval-free audit reports 11 fully accounted live refs with zero unexplained refs.
-  - Repository settings currently use default main, squash merge enabled, merge/rebase merge disabled and delete_branch_on_merge=true.
-  - Current Historical Branch Audit is path-triggered plus workflow_dispatch; it has no scheduled or trusted PR-lifecycle steady-state trigger.
-  - Current live_state already detects ownerless unregistered refs but does not reject duplicate PR/task ownership, forbidden active namespaces, or report naming advisories/repository setting drift.
-  - PR #1086 explicitly does not own .github/workflows/historical-branch-audit.yml.
+  - Issue #1072 is terminal completed; 37 reviewed historical refs are absent and its final approval-free audit reports 11 fully accounted live refs with zero unexplained refs.
+  - Repository settings at task start use default main, squash merge enabled, merge/rebase merge disabled and delete_branch_on_merge=true.
+  - Current Historical Branch Audit before this task was path-triggered plus workflow_dispatch only; it had no scheduled or trusted PR-lifecycle steady-state trigger.
+  - PR #1086 explicitly does not own .github/workflows/historical-branch-audit.yml and does not claim this task's helper/ADR paths.
+  - The task owns Issue #1089, branch repair/issue-1089-steady-state-branch-hygiene and draft PR #1090.
+  - Focused helper/test construction validation passes eight deterministic negative/positive cases in isolated Python execution.
 derived:
-  - The smallest correct implementation extends existing Historical Branch Audit and historical_work_reconciliation.py rather than creating another workflow/programme.
-  - Destructive reviewed-implementation blob/count binding is only safety-critical while registry_phase is reviewed_for_deletion; after applied with no managed recovery it must not freeze future read-only maintenance.
+  - The smallest correct design extends the existing Historical Branch Audit rather than creating another governance workflow or programme.
+  - Keeping the terminal #1072 destructive script and registry unchanged preserves immutable deletion provenance; a new read-only helper is safer than repurposing the destructive historical implementation.
+  - pull_request_target is limited to opened/reopened and checks out trusted main, avoiding transient branch-creation failures and untrusted PR execution; daily schedule catches ownerless refs with no PR.
 unknown:
-  - Exact final head after coherent implementation commit.
-  - Exact required CI generation and review state after draft PR creation.
+  - Exact required CI results on the coherent implementation head.
+  - Whether exact-head self-review or GitHub review reveals an additional material finding.
 conflicts: []
 first_failure:
   marker: none
@@ -115,16 +118,27 @@ rejected_hypotheses:
   - impose a fixed maximum raw branch count
   - delete branches by name or age
   - create a second branch-hygiene workflow/programme
-  - auto-mutate repository merge settings from the audit
+  - mutate repository merge settings automatically from the audit
+  - modify the terminal historical registry merely to permit future read-only maintenance
 changed_paths:
+  - .github/workflows/historical-branch-audit.yml
   - docs/agents/tasks/active/OTERYN-20260815-steady-state-branch-hygiene.md
+  - docs/architecture/adr/0039-historical-work-canonicalization-and-managed-recovery.md
+  - tools/agents/branch_hygiene.py
+  - tools/agents/test_branch_hygiene.py
 validation:
   - command: live repository and overlap preflight
     result: PASS
-    evidence: terminal #1072 evidence, 11 live refs, current repo settings and open PR ownership were read from GitHub before task creation
+    evidence: terminal #1072 state, current live refs, current repo settings and open PR ownership were verified through GitHub before implementation
+  - command: isolated Python compile + focused branch-hygiene tests
+    result: PASS
+    evidence: branch_hygiene.py and test_branch_hygiene.py compile; 8 focused tests pass with only minimal import stubs, before repository CI
+  - command: runtime/browser E2E
+    result: NOT_APPLICABLE
+    evidence: this is repository GitHub branch/PR/task governance; executable integration evidence is the real live GitHub inventory workflow, not browser behavior
 blockers:
   - none
-next_action: Implement the steady-state validator, focused tests, ADR update and read-only scheduled/PR-lifecycle audit in one coherent change.
+next_action: Push the coherent implementation, inspect exact-head Historical Branch Audit and Agent Governance/CI, then repair only evidence-backed failures.
 ```
 
 ## Recovery checkpoint
@@ -132,34 +146,34 @@ next_action: Implement the steady-state validator, focused tests, ADR update and
 ```yaml
 recovery:
   policy_version: 1
-  generation: 1
+  generation: 2
   session_id: github-20260815-0838
   session_started_at: 2026-08-15T08:33:00Z
-  checkpointed_at: 2026-08-15T08:38:00Z
-  last_progress_at: 2026-08-15T08:38:00Z
-  phase: implement
-  exact_head: UNKNOWN
-  pull_request: none
-  active_operation: none
+  checkpointed_at: 2026-08-15T08:46:43Z
+  last_progress_at: 2026-08-15T08:46:43Z
+  phase: validate
+  exact_head: LIVE_PR_1090_HEAD
+  pull_request: 1090
+  active_operation: exact-head GitHub Actions validation after coherent implementation push
   external_run_ids: []
   operation_started_at: null
   wait_deadline_at: null
-  check_generation: null
+  check_generation: draft
   checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: dedicated task branch remains owned by Issue #1089
-  next_action: Implement the steady-state branch hygiene change and open/update the draft PR.
+  resume_condition: PR #1090 head remains the dedicated Issue #1089 branch and no ownership conflict appears
+  next_action: Inspect exact-head validation and repair only a concrete failing gate.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: Issue #1089 implementation is active on repair/issue-1089-steady-state-branch-hygiene
+source_branch_reason: Issue #1089 is active on repair/issue-1089-steady-state-branch-hygiene and PR #1090
 source_branch_evidence: pending
 ```
 
 ## Notes
 
-No production, staging, external-repository, credential or owner-funded AI operation is in scope. Runtime/browser E2E is expected `NOT_APPLICABLE`; the real integration path is the read-only GitHub branch/PR/task inventory audit.
+No production, staging, external-repository, credential or owner-funded AI operation is in scope. Runtime/browser E2E is `NOT_APPLICABLE`; the real integration path is the read-only GitHub branch/PR/task inventory audit.
