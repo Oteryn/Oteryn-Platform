@@ -43,7 +43,8 @@ Perform an independent Platform-side architecture review of Accepted ADR 0040, r
 - [x] Inspect closed PR #1065 only as non-authoritative historical evidence.
 - [x] Evaluate Portal, Identity, Gateway, Atlas, `/map`, meta-repository authority, and cross-repository contract boundaries.
 - [x] Write the requested architecture review at the canonical review path.
-- [ ] Open a same-repository PR and verify the exact PR head, changed paths, and required documentation/governance validation.
+- [x] Open a same-repository PR and verify its changed paths and pre-checkpoint head.
+- [ ] Verify repository-required validation on the final exact PR head.
 
 ## Ownership
 
@@ -66,10 +67,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-15T12:05:00Z
-head: 021e5cbf0616f3e3640786b4658ea18a4c4666e4
+updated_at: 2026-08-15T12:07:00Z
+head: b0478b74f38c593d879ca6eb7a490bfaff18a4c7
 branch: docs/adr0040-platform-review-20260815
-pr: none
+pr: 1100
 status: validating
 context_routes:
   - agent-governance
@@ -85,6 +86,7 @@ proven:
   - PublicPortal, Identity, Accounts, Integration/GameAuth and GameGateway are Platform-owned in current architecture; GameGateway is already a separate deployable without a separate repository.
   - Closed PR #1065 was draft, unmerged, and explicitly superseded; its proposed ADR 0038 and PUBLIC_MAP_ATLAS_CONTRACT are historical evidence only.
   - Review document was created on this task branch without runtime, deployment, Synology, production, DNS, auth-behavior or external-repository changes.
+  - PR #1100 is open against main and pre-checkpoint head b0478b74f38c593d879ca6eb7a490bfaff18a4c7 contains exactly the two declared documentation paths.
 derived:
   - The four-repository topology is sound but ADR 0040 requires future supersession to make authority transfer and Atlas integration invariants unambiguous.
   - There is no current architecture evidence justifying separate Identity or Gateway repositories.
@@ -103,26 +105,26 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260815-adr0040-platform-review.md
   - docs/architecture/reviews/OTERYN_ECOSYSTEM_REPOSITORY_TOPOLOGY_PLATFORM_REVIEW_2026-08-15.md
 validation:
-  - command: exact-head documentation/path/link/consistency review
-    result: NOT_RUN
-    evidence: pending PR creation and exact-head inspection
+  - command: documentation/path/link/consistency review
+    result: PASS
+    evidence: review document fetched from task branch; every relative architecture/contract reference used by the review was inspected on baseline main; PR #1100 changed-file inventory contains exactly the two owned documentation paths
   - command: repository-required exact-head CI/governance workflows
     result: NOT_RUN
-    evidence: pending PR creation
+    evidence: final checkpoint commit must be created before exact-head workflow status can be evaluated
   - command: runtime/build/browser/deployment validation
     result: NOT_APPLICABLE
     evidence: documentation-only architecture review changes no runtime or deployment artifacts
 blockers:
   - none
-next_action: Open the same-repository PR, inspect its exact changed files and head, and verify required exact-head validation.
+next_action: Verify repository-required workflow/check status on the final PR #1100 head and report the exact head SHA and merge state without merging the PR.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: review PR has not yet been created or merged
-source_branch_evidence: dedicated branch docs/adr0040-platform-review-20260815 was created from exact main aaac24350aa60f610507792d737948abe8a30b50
+source_branch_reason: PR #1100 is open and intentionally remains available for owner/architecture review
+source_branch_evidence: dedicated branch docs/adr0040-platform-review-20260815 was created from exact main aaac24350aa60f610507792d737948abe8a30b50; PR #1100 targets main and declares deletion after successful merge
 ```
 
 ## Notes
