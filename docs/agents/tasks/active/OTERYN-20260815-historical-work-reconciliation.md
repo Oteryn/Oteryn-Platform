@@ -108,10 +108,10 @@ The implementation owner may choose the concrete managed recovery mechanism afte
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-15T06:40:43Z
-head: 5000f271db49215c93432b78397dd3560b49e7e7
+updated_at: 2026-08-15T06:46:00Z
+head: 77719cd8c725c0bb6f1cf35efa670ee63416c124
 branch: repair/issue-1072-historical-work-reconciliation
-pr: none
+pr: 1074
 status: investigating
 phase: investigate
 context_routes:
@@ -139,6 +139,8 @@ proven:
   - Current main has two pre-existing active tasks unrelated to this repository-governance path set: public-domain repair and native-auth production verification.
   - Open PR #1065 already allocates proposed ADR prefix 0038; this task therefore allocates ADR 0039 to avoid collision.
   - Repository owner accepted that ordinary branches are not the default long-term archive and that RETAIN must not remain an unexplained terminal state.
+  - Bootstrap commit 77719cd8c725c0bb6f1cf35efa670ee63416c124 persists ADR 0039, this active task, the execution prompt and ADR inventory update on the dedicated Issue #1072 branch.
+  - Draft PR #1074 owns the bootstrap branch against main; it is intentionally draft so no Ready-triggered owner-funded review is invoked during handoff.
 derived:
   - The 37 seed RETAIN/RECOVERY refs require content-level reconciliation, not another name/age-based deletion sweep.
   - Some exact recovery histories may need a purpose-built reachable Git ref mechanism; PR/Issue/document provenance alone is not automatically equivalent to object reachability.
@@ -156,11 +158,18 @@ rejected_hypotheses:
   - delete by age, name, prefix or apparent inactivity
   - blindly merge stale branches so GitHub will auto-delete them
   - store only commit SHAs in a registry and assume that guarantees future object reachability
-changed_paths: []
+changed_paths:
+  - docs/agents/prompts/OTERYN-HISTORICAL-WORK-RECONCILIATION.md
+  - docs/agents/tasks/active/OTERYN-20260815-historical-work-reconciliation.md
+  - docs/architecture/adr/0039-historical-work-canonicalization-and-managed-recovery.md
+  - docs/architecture/adr/README.md
 validation:
   - command: live main / active task / open PR preflight
     result: PASS
     evidence: main and repository governance state were read before task bootstrap; implementation must repeat mutable live-state checks before destructive work
+  - command: draft PR #1074 bootstrap ownership
+    result: PASS
+    evidence: PR #1074 is draft, base main@5000f271db49215c93432b78397dd3560b49e7e7, head repair/issue-1072-historical-work-reconciliation@77719cd8c725c0bb6f1cf35efa670ee63416c124, with exactly the four declared bootstrap paths before this checkpoint update
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: bootstrap phase is repository-governance documentation/prompt setup only; the implementation task must define the real Git-ref reconciliation E2E path and verify it directly
@@ -173,7 +182,7 @@ next_action: Rebuild a fresh live branch/PR/task inventory from protected main a
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: Issue #1072 is active on dedicated branch repair/issue-1072-historical-work-reconciliation
+source_branch_reason: Issue #1072 is active on dedicated branch repair/issue-1072-historical-work-reconciliation and draft PR #1074
 source_branch_evidence: pending
 ```
 
