@@ -22,7 +22,7 @@ required_reads:
   - docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
 search_first:
   - Issue #1092 and PR #1093
-  - open PR #1086 CI orchestration ownership
+  - merged PR #1086 CI orchestration
   - terminal Issues #1072 and #1089
 optional_reads:
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
@@ -48,10 +48,12 @@ Make portal delivery authority, live selection, completion scope, execution allo
 - [x] Historical Work Reconciliation is tombstoned `TERMINAL_DO_NOT_RUN`.
 - [x] Game Catalog grants no standing server-repository authority and preserves atomic consumer-first merge ordering.
 - [x] Prompt-contract and semantic completion-scope regression tests cover the new invariants.
-- [x] CI orchestration paths owned by #1086 remain untouched.
+- [x] CI orchestration changes from #1086 remain non-overlapping with this task.
 - [x] Duplicate PRs/refs #1094/#1095 are closed/absent.
-- [ ] Repaired exact-head Agent Governance and required CI pass.
-- [ ] Final exact-head self-review/review hygiene remain terminal.
+- [x] Codex P2 checkpoint finding is remediated by using schema-valid `UNKNOWN` rather than a symbolic pseudo-SHA.
+- [x] Codex P2 scope-inventory finding is remediated by fail-closed validation of all 21 canonical workstream IDs, dispositions and selector entries.
+- [ ] Remediated exact-head Agent Governance and required CI pass.
+- [ ] Final exact-head Codex review/self-review and review hygiene are terminal.
 - [ ] PR/Issue/task/source-branch closeout is terminal.
 
 ## Ownership
@@ -77,7 +79,7 @@ modules:
 dependencies:
   - terminal Issue #1072 historical reconciliation
   - terminal Issue #1089 steady-state branch hygiene
-  - open PR #1086 owns CI/workflow-economy paths and remains non-overlapping
+  - merged PR #1086 CI/workflow-economy state, non-overlapping with Issue #1092 paths
 blockers: []
 cross_repository_tasks: []
 ```
@@ -86,8 +88,8 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-15T09:52:00Z
-head: LIVE_PR_1093_HEAD
+updated_at: 2026-08-15T10:56:22Z
+head: UNKNOWN
 branch: docs/portal-programme-coherence-20260815
 pr: 1093
 status: validating
@@ -107,34 +109,36 @@ owned_paths:
   - docs/agents/evals/prompt-contract-v1.json
   - tools/validation/test_prompt_eval.py
 proven:
-  - Protected main is 536c6320f91d1df981600530e50522d84b1c0588 and PR #1093 includes it as an ancestor with behind_by=0 before this checkpoint-only repair.
+  - Protected main at Codex remediation is d5468c96a5a6dd5fd6a52d504e9cf8a2757f5a7e and the Issue #1092 branch was synchronized through eba31638e9b4f70c59bd76c4ac55b5456b10bd2b with behind_by=0 before applying review findings.
+  - The main advances from merged #1086 and #1096 do not modify any of the eleven effective Issue #1092 paths; #1096 explicitly avoided ARCHITECTURE_AUTHORITY.md because PR #1093 owns it.
   - Portal Completion is the sole live selector; completion scope cannot select work, claim ownership, persist live selector state or promote READY.
   - Work Allocation is post-selection only and Architecture Review owns new or superseding durable decisions.
   - Multi-world/ruleset/season is conditional cross-cutting applicability and PlayerCompanion follow-ups are conditional independent slices.
   - Historical Work Reconciliation is TERMINAL_DO_NOT_RUN and future branch hygiene remains ADR 0037/0039 governance.
   - Game Catalog retains historical provenance and the atomic-required prohibition on merging a producer schema before a compatible inactive consumer.
   - Game Catalog grants no standing cross-repository access or mutation authority from a Platform invocation.
-  - Prompt contract evaluation and semantic portal completion scope validation passed on prior exact-head generations.
-  - Whole-diff self-review on prior exact-head generations found and repaired GAME-CATALOG-ORDER-01 before readiness.
-  - Agent Governance run 31877385848 failed only on unsupported nested checkpoint key resolved_findings; that key was removed.
-  - Agent Governance run 31877632986 then failed only because validation result PENDING is outside the allowed evidence vocabulary; it is now recorded as NOT_RUN.
-  - Live task ownership/liveness remained valid in both failed Agent Governance generations.
+  - Exact-head e844ea0c731ab5347a300523d86891329a0868f6 passed Agent Governance, required CI and all emitted relevant validation workflows before the later non-overlapping main synchronization.
+  - The repository owner explicitly authorized Ready-triggered Codex/OpenAI review for PR #1093 and Issue #1092.
+  - Ready-triggered Codex review on e844ea0c731ab5347a300523d86891329a0868f6 produced two P2 findings: replace LIVE_PR_1093_HEAD with a schema-valid commit identity/UNKNOWN, and validate the complete 21-workstream completion-scope inventory.
+  - This remediation uses head UNKNOWN because a task file cannot truthfully embed the SHA of the same commit that contains it; live PR state supplies the exact current head.
+  - The semantic scope validator now requires exact set equality with all 21 canonical workstream IDs and verifies every canonical disposition and selector entry.
 derived:
-  - Both Agent Governance failures were task-checkpoint schema/evidence-vocabulary defects, not portal control-plane design, prompt-contract, scope-validator or live ownership failures.
-  - A new exact-head validation generation is required after this checkpoint-only repair.
+  - Both Codex findings are narrow fail-closed governance improvements and do not require changing portal product scope, architecture authority, CI workflows or runtime behavior.
+  - A fresh exact-head CI generation and fresh Codex review are required after this remediation commit.
 unknown:
-  - Exact conclusions of required CI on the repaired head until the new generation completes.
+  - Exact remediated PR head until the coherent review-fix commit is created.
+  - Exact conclusions of required CI and final Codex review on that new head.
   - Final implementation and closeout merge SHAs until merge occurs.
 conflicts: []
 first_failure:
-  marker: checkpoint-validation-result-vocabulary
-  evidence: Agent Governance run 31877632986 rejected validation result PENDING; repository contract permits BLOCKED, FAIL, NOT_APPLICABLE, NOT_RUN or PASS and this revision uses NOT_RUN for not-yet-executed repaired-head CI.
+  marker: codex-ready-review-p2-findings
+  evidence: Codex review submitted 2026-08-15T10:56:22Z identified the symbolic checkpoint head and partial six-of-twenty-one scope inventory enforcement; both are remediated in the next coherent commit.
 rejected_hypotheses:
-  - prompt-contract evaluation failed
-  - semantic completion-scope validation failed
-  - live task ownership is invalid
-  - weaken checkpoint validation
-  - change CI workflow owned by PR #1086
+  - weaken or bypass checkpoint validation
+  - treat the old e844ea0c Codex review as sufficient after a head change
+  - validate only selected launch-critical workstreams
+  - change CI workflow paths delivered by PR #1086
+  - expand cross-repository authority
 changed_paths:
   - docs/agents/evals/prompt-contract-v1.json
   - docs/agents/programs/GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM.md
@@ -151,23 +155,26 @@ validation:
   - command: portal control-plane manual scenario matrix
     result: PASS
     evidence: stale allocation cannot reorder; REQUIRED is not READY; inactive conditional does not self-activate; existing portal owner remains OWNED; ADR-level decision routes Architecture Review; no-trigger multi-world creates no speculative task; historical #1072 stops at tombstone; Game Catalog cannot inspect server repo without current permission.
-  - command: prompt-contract and semantic scope validation on prior candidate
+  - command: prior exact-head repository validation
     result: PASS
-    evidence: Agent Governance run 31877632986 passed prompt evaluator tests and prompt suite; semantic scope manifest test passed.
-  - command: prior exact-head whole-diff self-review
-    result: PASS
-    evidence: PR reviews 4943508478 and 4943519012; zero unresolved material findings after GAME-CATALOG-ORDER-01 repair.
-  - command: repaired exact-head repository validation
+    evidence: e844ea0c731ab5347a300523d86891329a0868f6 passed Agent Governance 31878090616, CI 31878090559 and all emitted relevant validation workflows.
+  - command: Ready-triggered Codex review on prior head
+    result: FAIL
+    evidence: review from chatgpt-codex-connector identified two P2 findings, both addressed in this coherent remediation.
+  - command: remediated exact-head repository validation
     result: NOT_RUN
-    evidence: this checkpoint creates the repaired head; a new required CI generation will execute after commit.
-  - command: model/runtime prompt trials
-    result: NOT_APPLICABLE
-    evidence: no separately authorized owner-funded model invocation was used and deterministic checks do not claim stochastic adherence.
+    evidence: the coherent review-fix commit has not yet been created; exact current head is resolved from live PR state after commit.
+  - command: remediated exact-head Codex review
+    result: NOT_RUN
+    evidence: must be re-triggered after the coherent review-fix commit so review covers the exact final candidate.
+  - command: dedicated stochastic prompt-adherence trials
+    result: NOT_RUN
+    evidence: Codex PR review is a code/governance review and is not represented as repeated prompt-runtime adherence evaluation.
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: governance/documentation/prompt-contract work creates no product runtime or browser journey.
 blockers: []
-next_action: Inspect the repaired exact-head Agent Governance and required CI; if green, record exact-head self-review and proceed through normal merge/closeout without marking Ready solely to trigger owner-funded review.
+next_action: Commit the two Codex review remediations coherently, run exact-head CI, re-trigger Codex review on that head, resolve all threads, and merge only when the exact-head gates are terminal green.
 ```
 
 ## Source branch closeout

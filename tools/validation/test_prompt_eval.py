@@ -168,15 +168,30 @@ class PromptEvalTest(unittest.TestCase):
 
         by_id = {item["id"]: item for item in workstreams}
         expected = {
+            "portal_control_plane": ("REQUIRED", 2),
+            "launch_critical_remediation": ("CONDITIONAL", 3),
+            "production_public_edge_proof": ("REQUIRED", 4),
+            "core_account_character_portfolio": ("REQUIRED", 5),
+            "liveops": ("REQUIRED", 6),
+            "public_today": ("REQUIRED", 6),
+            "private_today": ("CONDITIONAL", 6),
+            "federated_search": ("REQUIRED", 7),
+            "client_distribution_platform": ("CONDITIONAL", 8),
+            "wiki_expected_inventory": ("REQUIRED", 9),
+            "game_catalog_expected_inventory": ("REQUIRED", 9),
             "multi_world_ruleset_season_dimensions": ("CONDITIONAL", None),
             "player_companion_foundation": ("REQUIRED", 10),
             "player_companion_followups": ("CONDITIONAL", 10),
             "platform_api": ("DEFERRED", None),
+            "public_game_data_richer_community_reads": ("DEFERRED", 11),
+            "forum": ("DEFERRED", 11),
+            "read_scaling_dedicated_index": ("DEFERRED", 11),
+            "world_hub": ("DEFERRED", 11),
             "commerce_capability": ("REQUIRED", 12),
             "commerce_production_activation": ("DEFERRED", 12),
         }
+        self.assertEqual(set(expected), set(by_id), "portal completion canonical workstream inventory drift")
         for workstream_id, (disposition, selector_entry) in expected.items():
-            self.assertIn(workstream_id, by_id)
             self.assertEqual(disposition, by_id[workstream_id]["disposition"])
             self.assertEqual(selector_entry, by_id[workstream_id]["selector_entry"])
 
