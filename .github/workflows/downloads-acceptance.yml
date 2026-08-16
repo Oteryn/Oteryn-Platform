@@ -48,7 +48,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: downloads-acceptance-${{ github.workflow }}-${{ github.ref }}
@@ -165,6 +165,24 @@ jobs:
 
       - name: Install application dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Apply canonical PHP formatting to task branch
+        if: github.event_name == 'pull_request'
+        env:
+          TASK_HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          vendor/bin/pint
+          git add -A -- ':(glob)**/*.php'
+          if git diff --cached --quiet; then
+            echo 'No PHP formatting repair required.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'style(downloads): apply canonical Pint formatting'
+          git push origin "HEAD:${TASK_HEAD_REF}"
+          echo 'Canonical formatting commit pushed to the task branch.'
 
       - name: Install pinned browser harnesses
         run: |
