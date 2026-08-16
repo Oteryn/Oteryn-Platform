@@ -5,7 +5,7 @@
         <h2 id="upcoming-event-title">{{ __('public.events.next_event') }}</h2>
     </div>
 
-    @if ($summary->state === \App\PublicPortal\PublicContentState::AVAILABLE && $summary->event !== null)
+    @if ($summary->state === \App\Events\ViewModels\UpcomingEventState::AVAILABLE && $summary->event !== null)
         <p class="eyebrow">
             {{ $localeFormatter->dateTime($summary->event['starts_at']) }}
             –
@@ -13,7 +13,7 @@
         </p>
         <h3><a href="{{ route('events.show', ['slug' => $summary->event['slug']]) }}">{{ $summary->event['title'] }}</a></h3>
         <p>{{ $summary->event['summary'] }}</p>
-    @elseif ($summary->state === \App\PublicPortal\PublicContentState::EMPTY)
+    @elseif ($summary->state === \App\Events\ViewModels\UpcomingEventState::EMPTY)
         <div class="empty-state">
             <strong>{{ __('public.events.no_scheduled') }}</strong>
             <p>{{ __('public.events.no_scheduled_help') }}</p>
