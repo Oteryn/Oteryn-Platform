@@ -168,6 +168,37 @@ test('@portal-downloads complete public, administrator, localization and recover
   await expect(page.getByText('This release is published and current.')).toBeVisible();
   await expect(page.locator('input[type="file"]')).toHaveCount(0);
   await expect(page.locator('input[name="artifact_url"]')).toHaveCount(0);
+  await expect(page.getByText('Browser-published only.')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Enable for automatic updates' }).click();
+  await expect(page.getByText('Updater release identity enabled without changing browser publication state.')).toBeVisible();
+  await expect(page.getByText('Channel sequence')).toBeVisible();
+  await page.getByRole('link', { name: 'Stable updater diagnostics' }).click();
+  await expect(page.getByRole('heading', { name: 'Stable updater diagnostics' })).toBeVisible();
+  await expect(page.getByText('No private updater signing key is accepted or stored by this Platform.')).toBeVisible();
+  await expect(page.getByText('No Platform-active updater generation.')).toBeVisible();
+  await expect(page.getByText('This web console intentionally has no route to import or activate signed-generation metadata.')).toBeVisible();
+  await expect(page.getByLabel('Public signed-generation metadata JSON')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Activate Platform updater state' })).toHaveCount(0);
+
+  await page.getByLabel('Update mode').selectOption('recommended');
+  await page.getByLabel('Minimum supported release sequence').fill('1');
+  await page.getByRole('button', { name: 'Approve updater policy' }).click();
+  await expect(page.getByText(/Updater policy revision 1 approved/u)).toBeVisible();
+  await expect(page.getByText('Revision 1 · sequence 1 · Recommended')).toBeVisible();
+
+  const protectedIntegration = downloadsState('reconcile-updater-generation', 'stable', adminEmail);
+  expect(protectedIntegration.platform_active).toBe(true);
+  expect(protectedIntegration.harness_scope).toContain('acceptance-only');
+  expect(protectedIntegration.harness_scope).toContain('no cryptographic TUF signing');
+  await page.reload();
+  await expect(
+    page.getByRole('definition')
+      .filter({ hasText: protectedIntegration.generation_id })
+      .getByRole('code'),
+  ).toHaveText(protectedIntegration.generation_id);
+  await expect(page.getByText('Platform-active').first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Activate Platform updater state' })).toHaveCount(0);
 
   await page.goto('/en/download');
   await expect(page.getByRole('heading', { name: `Oteryn Client ${version}` })).toBeVisible();
@@ -175,6 +206,8 @@ test('@portal-downloads complete public, administrator, localization and recover
   await expect(page.getByText(filename)).toBeVisible();
   await expect(page.getByText('1.5 MB')).toBeVisible();
   await expect(page.getByText(sha256)).toBeVisible();
+  await expect(page.getByText('Platform-active signed generation selects this exact release.')).toBeVisible();
+  await expect(page.getByText(/first-party updater independently verifies TUF signatures/u)).toBeVisible();
   await expect(artifactDownloadLink(page, filename)).toHaveAttribute('href', approvedUrl);
 
   await page.goto('/en/download/windows');
@@ -185,6 +218,7 @@ test('@portal-downloads complete public, administrator, localization and recover
   await page.goto('/pl/download');
   await expect(page.getByText(filename)).toBeVisible();
   await expect(page.getByText('Opis wydania nie jest dostępny w tym języku.')).toBeVisible();
+  await expect(page.getByText(/Aktywna w Platformie podpisana generacja wskazuje dokładnie to wydanie/u)).toBeVisible();
   await expect(page.getByText(englishNotes)).toHaveCount(0);
 
   await page.goto('/admin/downloads');
@@ -217,12 +251,18 @@ test('@portal-downloads complete public, administrator, localization and recover
     await assertNoPageOverflow(page);
     await page.goto('/admin/downloads');
     await assertNoPageOverflow(page);
+    await page.goto('/admin/downloads/updater/stable');
+    await assertNoPageOverflow(page);
   }
 
   await page.setViewportSize(desktopViewport);
   await page.goto('/admin/audit');
   await expect(page.getByText('downloads.release_created').first()).toBeVisible();
   await expect(page.getByText('downloads.release_published').first()).toBeVisible();
+  await expect(page.getByText('downloads.updater_release_enabled').first()).toBeVisible();
+  await expect(page.getByText('downloads.updater_policy_approved').first()).toBeVisible();
+  await expect(page.getByText('downloads.updater_generation_reconciled').first()).toBeVisible();
+  await expect(page.getByText('downloads.updater_generation_activated').first()).toBeVisible();
 
   expect(page.__acceptanceDiagnostics.pageErrors).toEqual([]);
   expect(page.__acceptanceDiagnostics.serverErrors).toEqual([]);

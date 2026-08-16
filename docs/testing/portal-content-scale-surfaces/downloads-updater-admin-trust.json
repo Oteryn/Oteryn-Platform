@@ -1,0 +1,8 @@
+{
+  "surfaces": {
+    "downloads.updater-admin-trust": {
+      "classification": "not_applicable",
+      "rationale": "Updater diagnostics and control forms render bounded trust-state fields only; long release-note and paginated Download Center scale remain owned and proven by downloads.public-admin-localization."
+    }
+  }
+}

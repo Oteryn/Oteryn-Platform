@@ -20,7 +20,17 @@ Route::middleware([
         Route::get('/', [AdminDownloadController::class, 'index'])->name('admin.downloads.index');
         Route::get('/create', [AdminDownloadController::class, 'create'])->name('admin.downloads.create');
         Route::post('/', [AdminDownloadController::class, 'store'])->name('admin.downloads.store');
+        Route::get('/updater/{channel}', [AdminDownloadController::class, 'updater'])
+            ->whereIn('channel', DownloadCatalog::channels())
+            ->name('admin.downloads.updater');
+        Route::post('/updater/{channel}/policies', [AdminDownloadController::class, 'approveUpdaterPolicy'])
+            ->whereIn('channel', DownloadCatalog::channels())
+            ->name('admin.downloads.updater.policies.store');
         Route::get('/{clientRelease}/edit', [AdminDownloadController::class, 'edit'])->name('admin.downloads.edit');
         Route::put('/{clientRelease}', [AdminDownloadController::class, 'update'])->name('admin.downloads.update');
         Route::post('/{clientRelease}/publish', [AdminDownloadController::class, 'publish'])->name('admin.downloads.publish');
+        Route::post('/{clientRelease}/updater/enable', [AdminDownloadController::class, 'enableUpdater'])
+            ->name('admin.downloads.updater.enable');
+        Route::post('/{clientRelease}/updater/withdraw', [AdminDownloadController::class, 'withdrawUpdater'])
+            ->name('admin.downloads.updater.withdraw');
     });

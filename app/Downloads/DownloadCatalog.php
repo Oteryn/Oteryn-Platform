@@ -20,6 +20,16 @@ final class DownloadCatalog
 
     public const ARCHITECTURE_X86 = 'x86';
 
+    public const UPDATE_MODE_OPTIONAL = 'optional';
+
+    public const UPDATE_MODE_RECOMMENDED = 'recommended';
+
+    public const UPDATE_MODE_REQUIRED = 'required';
+
+    public const ROLLBACK_NONE = 'none';
+
+    public const ROLLBACK_EXPLICIT = 'explicit';
+
     /**
      * @return list<string>
      */
@@ -42,6 +52,26 @@ final class DownloadCatalog
     public static function architectures(): array
     {
         return [self::ARCHITECTURE_X86_64, self::ARCHITECTURE_ARM64, self::ARCHITECTURE_X86];
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function updateModes(): array
+    {
+        return [
+            self::UPDATE_MODE_OPTIONAL,
+            self::UPDATE_MODE_RECOMMENDED,
+            self::UPDATE_MODE_REQUIRED,
+        ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function rollbackAuthorizations(): array
+    {
+        return [self::ROLLBACK_NONE, self::ROLLBACK_EXPLICIT];
     }
 
     public static function channelLabel(string $channel): string
@@ -70,6 +100,16 @@ final class DownloadCatalog
             self::ARCHITECTURE_ARM64 => 'ARM64',
             self::ARCHITECTURE_X86 => 'x86',
             default => $architecture,
+        };
+    }
+
+    public static function updateModeLabel(string $mode): string
+    {
+        return match ($mode) {
+            self::UPDATE_MODE_OPTIONAL => 'Optional',
+            self::UPDATE_MODE_RECOMMENDED => 'Recommended',
+            self::UPDATE_MODE_REQUIRED => 'Required',
+            default => $mode,
         };
     }
 
