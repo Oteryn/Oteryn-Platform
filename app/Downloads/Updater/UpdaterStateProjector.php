@@ -34,17 +34,20 @@ final class UpdaterStateProjector
                     $release,
                     $release->updater_release_id === null ? 'browser_only' : 'pending',
                 );
+
                 continue;
             }
 
             if ($activeCandidates->count() !== 1) {
                 $this->setReleaseState($release, 'degraded');
+
                 continue;
             }
 
             $generation = $activeCandidates->first();
             if (! $generation instanceof ClientUpdateGeneration || ! $generation->policy instanceof ClientUpdatePolicy) {
                 $this->setReleaseState($release, 'degraded');
+
                 continue;
             }
 
@@ -53,11 +56,13 @@ final class UpdaterStateProjector
 
             if (! $generation->metadata_expires_at->isFuture()) {
                 $this->setReleaseState($release, 'trust_expired');
+
                 continue;
             }
 
             if ($release->updater_withdrawn_at !== null) {
                 $this->setReleaseState($release, 'withdrawn');
+
                 continue;
             }
 
@@ -66,11 +71,13 @@ final class UpdaterStateProjector
             if ($release->updater_release_id !== null
                 && in_array($release->updater_release_id, $revokedReleaseIds, true)) {
                 $this->setReleaseState($release, 'revoked');
+
                 continue;
             }
 
             if ($policy->current_release_id !== $release->id) {
                 $this->setReleaseState($release, 'browser_mismatch');
+
                 continue;
             }
 
@@ -134,11 +141,13 @@ final class UpdaterStateProjector
         foreach ($release->artifacts as $artifact) {
             if ($artifact->updater_target_path === null) {
                 $artifact->setAttribute('updater_target_state', 'unavailable');
+
                 continue;
             }
 
             if (in_array($artifact->updater_target_path, $revokedTargets, true)) {
                 $artifact->setAttribute('updater_target_state', 'revoked');
+
                 continue;
             }
 

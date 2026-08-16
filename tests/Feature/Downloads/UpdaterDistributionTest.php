@@ -302,8 +302,8 @@ final class UpdaterDistributionTest extends TestCase
     }
 
     /**
-     * @param list<string> $revokedReleaseIds
-     * @param list<string> $revokedArtifactTargets
+     * @param  list<string>  $revokedReleaseIds
+     * @param  list<string>  $revokedArtifactTargets
      */
     private function approve(
         Identity $actor,

@@ -43,7 +43,7 @@ final readonly class ImportSignedUpdaterGeneration
      *
      * There is intentionally no ordinary web-administrator route to this action.
      *
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     public function execute(Identity $actor, array $payload): ClientUpdateGeneration
     {
@@ -170,7 +170,7 @@ final readonly class ImportSignedUpdaterGeneration
     }
 
     /**
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      * @return array{
      *   generation_id: string,
      *   channel: string,
@@ -317,7 +317,7 @@ final readonly class ImportSignedUpdaterGeneration
     }
 
     /**
-     * @param list<array{platform: string, architecture: string, target_path: string, length: int, sha256: string}> $targets
+     * @param  list<array{platform: string, architecture: string, target_path: string, length: int, sha256: string}>  $targets
      * @return list<array{platform: string, architecture: string, target_path: string, length: int, sha256: string}>
      */
     private function normalizeTargets(array $targets): array
@@ -372,7 +372,7 @@ final readonly class ImportSignedUpdaterGeneration
      *   policy_target_sha256: string, policy_target_length: int,
      *   targets: list<array{platform: string, architecture: string, target_path: string, length: int, sha256: string}>
      * } $payload
-     * @param list<array{platform: string, architecture: string, target_path: string, length: int, sha256: string}> $targets
+     * @param  list<array{platform: string, architecture: string, target_path: string, length: int, sha256: string}>  $targets
      */
     private function assertExistingGeneration(
         ClientUpdateGeneration $existing,

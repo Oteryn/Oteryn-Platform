@@ -257,8 +257,8 @@ final readonly class ApproveUpdaterPolicy
     }
 
     /**
-     * @param list<string> $revokedReleaseIds
-     * @param list<string> $revokedArtifactTargets
+     * @param  list<string>  $revokedReleaseIds
+     * @param  list<string>  $revokedArtifactTargets
      */
     private function assertExistingIntent(
         ClientUpdatePolicy $existing,
