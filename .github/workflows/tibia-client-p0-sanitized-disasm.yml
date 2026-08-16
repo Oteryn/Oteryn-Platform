@@ -18,7 +18,7 @@ jobs:
     runs-on: oteryn-staging
     timeout-minutes: 5
     steps:
-      - name: Emit bounded TPlayerData qt_metacall target bytes
+      - name: Locate direct callers of exact playerPosition serializer
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -33,16 +33,21 @@ jobs:
               client=/runner-work/_otclient_tibia_re_state/cache/current-client/client
               [[ "$(stat -c %s "$client")" == "$EXPECTED_SIZE" ]]
               [[ "$(sha256sum "$client" | awk "{print \$1}")" == "$EXPECTED_SHA256" ]]
-              po=$(od -An -tu8 -j $((64+3*56+8)) -N8 "$client" | tr -d "[:space:]")
-              pv=$(od -An -tu8 -j $((64+3*56+16)) -N8 "$client" | tr -d "[:space:]")
-              pfs=$(od -An -tu8 -j $((64+3*56+32)) -N8 "$client" | tr -d "[:space:]")
-              echo "EXEC_PT_LOAD offset=$po vaddr=$pv filesz=$pfs"
-              [[ "$po" == "$pv" ]]
-              start=$((0xd19e80)); stop=$((0xd1a600)); len=$((stop-start))
-              (( pv <= start && stop <= pv+pfs ))
-              echo "HEX_TPLAYERDATA_METACALL_TARGET VA=0xd19e80..0xd1a600 FILEOFF=$start LEN=$len"
-              od -An -v -tx1 -j "$start" -N "$len" "$client" | tr -d "[:space:]"; echo
-            '
+              cat "$client"
+            ' | python3 -c '
+import hashlib, struct, sys
+raw=sys.stdin.buffer.read()
+expected="e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe"
+assert len(raw)==51965216 and hashlib.sha256(raw).hexdigest()==expected
+target=0x836580
+hits=[]
+for i in range(0x4da000, min(len(raw)-5,0x1cb0000)):
+    if raw[i] != 0xE8: continue
+    disp=struct.unpack_from("<i",raw,i+1)[0]
+    if i+5+disp == target: hits.append(i)
+print("TARGET=0x%x DIRECT_REL32_CALL_COUNT=%d" % (target,len(hits)))
+for i in hits: print("CALL_XREF=0x%x" % i)
+'
       - name: State static-only boundary
         shell: bash
         run: |
