@@ -9,29 +9,28 @@ permissions:
   contents: read
 
 env:
-  EXPECTED_SIZE: '51965216'
-  EXPECTED_SHA256: e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe
+  VOLUME_NAME: oteryn-tibia-linux-analysis
 
 jobs:
-  retained-source-inventory:
+  retained-volume-inspect:
     runs-on: oteryn-staging
     timeout-minutes: 5
     steps:
-      - name: Read-only retained source inventory
+      - name: Inspect retained static-analysis volume metadata
         shell: bash
         run: |
           set -Eeuo pipefail
           [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
-          echo '=== CONTAINERS_RELEVANT ==='
-          docker ps -a --format '{{.Names}}|{{.Status}}|{{.Labels}}' | grep -Ei 'tibia|oteryn' || true
-          echo '=== VOLUMES_RELEVANT ==='
-          docker volume ls --format '{{.Name}}' | grep -Ei 'tibia|oteryn' || true
-          echo '=== KNOWN_RETAINED_PATHS ==='
-          for root in /work /home/runner/_work; do
-            [[ -d "$root" ]] || continue
-            find "$root" -type f -path '*/Tibia/packages/Tibia/bin/client' -size 51965216c -print 2>/dev/null | head -20 || true
-            find "$root" -type f -path '*/client-15.32.df7b29/bin/client' -size 51965216c -print 2>/dev/null | head -20 || true
-          done
+          echo '=== VOLUME ==='
+          docker volume inspect "$VOLUME_NAME" --format 'name={{.Name}} driver={{.Driver}} mountpoint={{.Mountpoint}} labels={{json .Labels}}'
+          echo '=== CONSUMERS ==='
+          docker ps -a --filter "volume=$VOLUME_NAME" --format '{{.Names}}|{{.Status}}|{{.Image}}'
+          echo '=== CONSUMER_MOUNTS ==='
+          while read -r name; do
+            [[ -n "$name" ]] || continue
+            echo "--- $name ---"
+            docker inspect "$name" --format '{{range .Mounts}}{{.Type}}|{{.Name}}|{{.Source}}|{{.Destination}}|rw={{.RW}}{{println}}{{end}}'
+          done < <(docker ps -a --filter "volume=$VOLUME_NAME" --format '{{.Names}}')
           echo '=== STATIC_ONLY ==='
           echo 'CLIENT_EXECUTED=false'
           echo 'PROCESS_MEMORY_ACCESSED=false'
