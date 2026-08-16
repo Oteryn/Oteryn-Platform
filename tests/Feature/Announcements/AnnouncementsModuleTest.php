@@ -5,9 +5,9 @@ namespace Tests\Feature\Announcements;
 use App\Announcements\Models\SiteAnnouncement;
 use App\Announcements\Queries\ActiveAnnouncementQuery;
 use App\Announcements\Queries\AnnouncementTickerProvider;
+use App\Announcements\ViewModels\AnnouncementTickerState;
 use App\Identity\Models\Identity;
 use App\Identity\Sessions\WebSessionState;
-use App\PublicPortal\PublicContentState;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -63,7 +63,7 @@ final class AnnouncementsModuleTest extends TestCase
         ]);
 
         $provider = app(AnnouncementTickerProvider::class);
-        self::assertSame(PublicContentState::AVAILABLE, $provider->get($at)->state);
+        self::assertSame(AnnouncementTickerState::AVAILABLE, $provider->get($at)->state);
 
         $html = $provider->render($at)->render();
         self::assertStringContainsString('&lt;script&gt;', $html);
@@ -72,7 +72,7 @@ final class AnnouncementsModuleTest extends TestCase
         self::assertStringNotContainsString('<img src=x', $html);
 
         $empty = $provider->get($at->addDay());
-        self::assertSame(PublicContentState::EMPTY, $empty->state);
+        self::assertSame(AnnouncementTickerState::EMPTY, $empty->state);
         self::assertSame([], $empty->items);
     }
 

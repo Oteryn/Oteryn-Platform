@@ -7,8 +7,9 @@ from pathlib import Path
 
 from . import HarnessError
 from .identity import ApprovedIdentity, verify_client_identity
-from .launcher import run_official_component, run_synthetic_dry_run
+from .launcher import run_synthetic_dry_run
 from .manifest import validate_manifest
+from .official_execution import run_official_component
 from .preflight import run_preflight
 
 

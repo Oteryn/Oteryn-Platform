@@ -48,6 +48,14 @@ review_threads: RESOLVED
 runtime_browser_e2e: NOT_APPLICABLE
 ```
 
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: the dedicated PublicPortal Today architecture branch has no continuing ownership or recovery purpose after PR #1055 merged and the task was archived
+source_branch_evidence: live branch search confirms the PublicPortal Today source branch is absent, while repository metadata confirms delete_branch_on_merge=true; immutable PR #1055 and this archive retain the delivery provenance
+```
+
 ## Closeout
 
 The implementation PR was squash-merged only after synchronization with the then-current protected `main` and a fresh exact-head validation generation. Issue #1049 closed with reason `completed`. This archive move releases active task ownership; no runtime, deployment, protected-environment, external-repository or production activation work is performed by this closeout.

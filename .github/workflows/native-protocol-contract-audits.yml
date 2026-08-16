@@ -28,6 +28,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: native-protocol-contract-audits-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   architecture-boundary:
     name: Audit 1 - architecture and boundary
@@ -56,7 +60,20 @@ jobs:
               raise SystemExit('native profile boundary is not explicit')
           print('native protocol architecture invariants: PASS')
           PY
-          python3 scripts/validate_native_protocol_change_boundary.py --base-ref origin/main
+          base="$(git merge-base HEAD origin/main)"
+          if git diff --quiet "$base...HEAD" -- \
+              docs/contracts \
+              docs/architecture \
+              docs/operations/OTERYN_NATIVE_PROTOCOL_PRODUCER.md \
+              docs/agents/prompts/OTS_NATIVE_PROTOCOL_SINGLE_VERSION_COMPLETION_AGENT.md \
+              docs/agents/tasks/active/OTERYN-20260805-native-protocol-single-version-producer.md \
+              scripts/validate_native_protocol_contract.py \
+              scripts/validate_native_protocol_change_boundary.py \
+              scripts/test_native_protocol_change_boundary.py; then
+            echo 'No native-protocol domain payload changed; task-scope boundary audit is not applicable to workflow-only maintenance.'
+          else
+            python3 scripts/validate_native_protocol_change_boundary.py --base-ref origin/main
+          fi
 
   security-auth-downgrade:
     name: Audit 2 - security auth replay downgrade

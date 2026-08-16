@@ -76,25 +76,27 @@ class PortalExhaustiveAuditTests(unittest.TestCase):
         self.assertNotEqual(first, other)
         self.assertTrue(first.startswith("OTERYN-AUDIT-CURRENT-CONTENT-"))
 
-    def test_canonical_workflow_gates_wiki_and_executed_evidence_before_generation(self) -> None:
+    def test_canonical_workflow_dispatches_and_verifies_exact_head_acceptance(self) -> None:
         repo_root = MODULE_PATH.parents[2]
-        workflow = (repo_root / ".github/workflows/portal-exhaustive-audit.yml").read_text(encoding="utf-8")
+        workflow = (repo_root / ".github/workflows/portal-e2e-audit.yml").read_text(encoding="utf-8")
 
-        inventory_gate = workflow.index("- name: Validate Wiki expected-content inventory")
-        inventory_command = workflow.index("php artisan wiki:launch-content:validate --json")
-        execution_gate = workflow.index("- name: Await exact-head strictness execution evidence")
-        generation = workflow.index("- name: Generate exhaustive current-main audit")
+        dispatch = workflow.index("- name: Dispatch exact-head audit workflows")
+        collect = workflow.index("- name: Wait for exact-head audit workflows and collect results")
+        upload = workflow.index("- name: Upload audit orchestration evidence")
 
-        self.assertLess(inventory_gate, inventory_command)
-        self.assertLess(inventory_command, execution_gate)
-        self.assertLess(execution_gate, generation)
-        self.assertIn("Wiki Reconciliation Acceptance", workflow)
-        self.assertIn("Editorial Media Acceptance", workflow)
-        self.assertIn("Portal Exhaustive Acceptance E2E", workflow)
-        self.assertIn("value['head_sha'] == os.environ['AUDIT_SHA']", workflow)
-        self.assertIn("value['conclusion'] == 'success'", workflow)
-        self.assertIn("wiki-expected-content-validation.json", workflow)
-        self.assertIn("portal-strictness-execution-evidence.json", workflow)
+        self.assertLess(dispatch, collect)
+        self.assertLess(collect, upload)
+        self.assertIn("AUDIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
+        self.assertIn("'portal-contract|portal-acceptance-contract.yml|'", workflow)
+        self.assertIn("'editorial-media|editorial-media-acceptance.yml|'", workflow)
+        self.assertIn("'wiki|wiki-reconciliation-acceptance.yml|'", workflow)
+        self.assertIn("'acceptance-critical|acceptance-validation.yml|critical'", workflow)
+        self.assertIn("'acceptance-full|acceptance-validation.yml|full'", workflow)
+        self.assertIn("'soak|acceptance-validation.yml|soak'", workflow)
+        self.assertIn("select(.headSha == $sha", workflow)
+        self.assertIn('if [ "$head_sha" != "$AUDIT_SHA" ] || [ "$conclusion" != \'success\' ]; then', workflow)
+        self.assertNotIn("portal-exhaustive-audit.yml", workflow)
+        self.assertNotIn("portal-exhaustive-acceptance.yml", workflow)
 
 
 if __name__ == "__main__":

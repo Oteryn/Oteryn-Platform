@@ -2,17 +2,34 @@
 
 ## Status and authority
 
-**CURRENT DELIVERY PLAN — subordinate to accepted ADRs, operation-specific contracts, repository governance and `docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md`.**
+**CURRENT PORTAL CAPABILITY/DEPENDENCY DELIVERY PLAN — subordinate to accepted ADRs, operation-specific contracts, repository governance and `docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md`.**
 
-This plan converts the portal review into an implementation order. It does not itself authorize production, protected-environment, payment, live-data or external-repository mutation. Live Git/task/Issue/PR/CI state always overrides dated examples.
+This plan converts the portal review into a portal-specific capability/dependency order. It is not the global Platform Roadmap, live task scheduler, ownership source or production authority. Live Git/task/Issue/PR/CI state always overrides dated examples.
 
 Companion records:
 
 - review: `docs/agents/reports/OTERYN-20260810-portal-architecture-product-review.md`;
-- programme: `docs/agents/programs/OTERYN_PORTAL_COMPLETION.md`;
-- work allocation: `docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md`;
+- architecture owner: `docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md`;
+- programme / sole live selector: `docs/agents/programs/OTERYN_PORTAL_COMPLETION.md`;
+- non-scheduling completion scope: `docs/agents/programs/OTERYN_PORTAL_COMPLETION_SCOPE.json`;
+- post-selection work allocation: `docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md`;
 - worker prompt: `docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md`;
 - short alias: `PORTAL-CLOSEOUT`.
+
+## Delivery-control hierarchy
+
+Use this order without collapsing the layers:
+
+1. `ROADMAP.md` — global Platform phase/risk order and phase exit gates.
+2. `PORTAL_COMPLETENESS_ARCHITECTURE.md` — durable portal completion/release boundary and implement/defer/reject architecture.
+3. **This plan** — portal capability/dependency order.
+4. `OTERYN_PORTAL_COMPLETION.md` — sole live selector that resolves current candidates and ownership.
+5. `OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md` — post-selection role/maturity mapping only.
+6. Exact Issue/task/branch/PR — one bounded execution owner.
+
+`OTERYN_PORTAL_COMPLETION_SCOPE.json` is a non-scheduling projection of accepted launch/completion dispositions. It cannot reorder this plan, select work, claim ownership, prove live state or promote a candidate to `READY`.
+
+A historical Roadmap phase marked complete does not imply that every later product capability in this portal plan is exhausted. Conversely, an accepted portal design does not prove runtime implementation or production readiness.
 
 ## Guiding decision
 
@@ -27,47 +44,56 @@ Every slice must preserve:
 - additive/reversible data changes when persistence changes;
 - real applicable frontend/integration/E2E for user-facing work;
 - structured observability and rollback/operational boundaries;
-- exact-head validation and terminal task/PR lifecycle.
+- explicit world/profile/ruleset/catalog/season applicability where relevant;
+- exact-head validation and terminal task/PR/source-branch lifecycle.
 
-## Execution allocation
+## Architecture decision boundary
 
-The delivery order in this document answers **what should happen next** at a product/architecture level. The canonical live scheduler is `docs/agents/programs/OTERYN_PORTAL_COMPLETION.md`; it classifies every selection-order entry from live evidence and selects the first unowned `READY` candidate. `docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md` answers **who should own the already-selected work** through model-agnostic roles and whether a bounded implementation is technically suitable for optional Codex execution.
+This delivery plan applies accepted architecture. A new durable module boundary, trust boundary, dependency direction or other ADR-level decision is not invented inside a delivery slice.
 
-The allocation is subordinate to this delivery order, the canonical programme's live selection, task/PR ownership and repository authorization. `IMPLEMENTATION_OWNER` is an ownership role, not a model choice. Codex suitability never grants permission to consume owner-funded Codex/OpenAI quota; `AGENTS.md` requires explicit owner permission for each exact use/task. Without that permission, the same bounded task uses another permitted execution mode.
+When a capability exposes a genuinely unresolved durable architecture question:
+
+- search accepted ADRs/focused architecture and the architecture decision backlog;
+- reuse an existing architecture owner when present;
+- otherwise route the exact decision through `OTERYN_PLATFORM_ARCHITECTURE_REVIEW`;
+- keep affected runtime implementation `DECISION_REQUIRED` or `BLOCKED` until accepted authority exists;
+- return implementation to the normal Portal Completion owner after the decision is accepted.
+
+Bounded documentation/decomposition work that merely applies an accepted boundary may remain inside Portal Completion and must not claim runtime delivery.
 
 ## Programme priorities
 
 ### P0 — reliable control plane and source of truth
 
-Goal: make future autonomous task selection trustworthy.
+Goal: make future autonomous **portal** task selection trustworthy.
 
 Required outcomes:
 
-1. live task files, convenience indexes, Issues and PR state are reconciled where drift materially affects routing;
-2. no completed task remains falsely active;
-3. no open related PR lacks an intentional disposition;
+1. live portal task files, convenience indexes, Issues and PR state are reconciled where drift materially affects routing;
+2. no completed portal task remains falsely active;
+3. no related portal PR lacks an intentional disposition;
 4. historical state is labelled historical rather than silently overwritten;
 5. GitHub connector capability is checked before any local-CLI access conclusion;
 6. prompt/governance changes follow the prompt-evaluation standard;
 7. `ACTIVE_WORK.md` and `PROJECT_STATE.md` never override newer active-task, PR/Issue or protected-`main` evidence.
 
-The exact current routing snapshot belongs in the selected task/selection proof rather than in this durable plan. A stale convenience index is evidence to reconcile, not a queue.
+**Repository-history boundary:** historical `RETAIN`/`RECOVERY`, historical ref preservation/deletion and steady-state branch hygiene are governed by ADR 0037/0039 and the repository Branch Lifecycle / Historical Branch Audit controls. They are not Portal Completion P0 feature work. Portal selection only consumes the resulting live ownership/ref truth.
 
-Exit gate: an agent can determine current owner, exact next action and blockers from live durable state without relying on chat history or dated queue prose.
+Exit gate: an agent can determine current portal owner, exact next action and blockers from live durable state without relying on chat history or dated queue prose.
 
 ### P1 — close proven high-risk security/authority findings
 
 Use the existing Issue-owned remediation programme; do not duplicate repair ownership.
 
-Historical repairs #948 (immutable Download Center artifact reference), #944 (bounded entitlement stale-authority lease) and #941 (private Today cache isolation) are terminal completed examples. They must not be treated as current priorities simply because an older report listed them. Each invocation queries live open remediation Issues and routes only an implementation-authorized current high-risk candidate through `OTERYN_PLATFORM_REMEDIATION`.
+Historical repairs such as #948, #944 and #941 are terminal examples only. Each invocation queries live open remediation Issues and routes only a currently implementation-authorized candidate through `OTERYN_PLATFORM_REMEDIATION`.
 
-Exit gate: every launch-critical repair has exact-head validation, applicable E2E/N/A, terminal PR/Issue/task closeout and no material finding remains.
+Exit gate: every launch-critical repair has exact-head validation, applicable E2E/N/A, terminal PR/Issue/task/source-branch closeout and no material finding remains.
 
 ### P1 — production/public-edge proof
 
-Repository/staging evidence is not production proof. Issue #490 and the production-readiness gate control this work.
+Repository/staging evidence is not production proof. The production-readiness gate and current PublicEdge/OperationsObservability evidence owners control this work.
 
-Required evidence before public-go-live claims can become true:
+Required evidence before public-go-live claims can become true includes:
 
 - exact deployed Platform/Gateway release identities;
 - DNS/TLS/redirect/HSTS/WAF/origin/private-ingress state;
@@ -90,14 +116,14 @@ Revalidate live product gaps and deliver bounded slices for:
 - conflict-safe rename;
 - world/profile transfer only behind an accepted product decision and operation contract;
 - native Character Portfolio composition under Accounts;
-- canonical `CharacterId` integration and additive migration away from permanent Canary numeric identifiers where authorized;
+- canonical `CharacterId` integration and additive migration away from permanent legacy numeric identifiers where authorized;
 - typed unavailable/stale/conflict/incompatible portfolio states;
 - idempotent command receipts/results for game-owned mutations;
 - EN/PL, accessibility, responsive and negative-path E2E.
 
-Current native delete/restore Issue #317 and rename Issue #319 require accepted Oteryn-v2 Character Authority command/result semantics before runtime implementation. World transfer #320 additionally requires an explicit product decision. Server-owned evidence is a dependency, not implied Platform authority. If the required evidence lives only in a server repository, record the exact cross-repository blocker and do not inspect that repository without separate owner authorization.
+Server-owned evidence is a dependency, not implied Platform authority. If required evidence lives only in a server/game repository, record the exact blocker and do not inspect that repository without separate owner authorization.
 
-Exit gate: the Account Center gives a player one authoritative, safe view of owned characters and supported lifecycle actions without hidden legacy identity coupling.
+Exit gate: Account Center gives a player one authoritative, safe view of owned characters and supported lifecycle actions without hidden legacy identity coupling.
 
 ### P2 — LiveOps and Today
 
@@ -105,7 +131,7 @@ Build a first-party “what matters now?” surface rather than more disconnecte
 
 #### LiveOps owner responsibilities
 
-`docs/architecture/LIVEOPS_ARCHITECTURE.md` is the focused canonical architecture. Architecture Issue #1046 and its closeout are terminal; that is architecture evidence only and does not mean LiveOps runtime exists. `MODULE_CATALOG.md` correctly remains `LiveOps | PLANNED` until an executable capability is merged and validated.
+`docs/architecture/LIVEOPS_ARCHITECTURE.md` is the focused canonical architecture. Architecture completion does not mean LiveOps runtime exists; `MODULE_CATALOG.md` remains truthful until executable capability is merged and validated.
 
 Typed current-state projections may include:
 
@@ -115,7 +141,7 @@ Typed current-state projections may include:
 - authoritative raid/boss schedules when a producer exists;
 - rotations/boosted systems when their authoritative contract exists.
 
-The first intended runtime package is `WorldStatus + configured Maintenance`. It is not promoted to canonical selector `READY` until the exact authoritative runtime-status source required by the delivered WorldStatus capability is proven from permitted evidence. Platform configured maintenance remains independent policy authority and cannot manufacture observed runtime health. `ServerSave` is a separate blocked capability until its authoritative producer, applicability, time-base, recurrence/effective revision and freshness semantics are proven.
+The first intended runtime package is `WorldStatus + configured Maintenance`. It is not promoted to live selector `READY` until the exact authoritative runtime-status source required by the capability is proven from permitted evidence. Platform configured maintenance remains independent policy authority and cannot manufacture observed runtime health. `ServerSave` remains separately gated until its authoritative producer, applicability, time-base, recurrence/effective revision and freshness semantics are proven.
 
 Never convert stale/unavailable data into `0`, `offline`, `none`, success or another fabricated fact.
 
@@ -133,9 +159,9 @@ Announcements / Events / CMS editorial state
 Rules:
 
 - source freshness/applicability/confidence is preserved;
-- a focused public Today architecture/documentation package may proceed independently of a blocked runtime producer when it does not claim runtime delivery;
-- public Today implementation may launch before private personalization if its exact public source dependencies are ready;
-- private Today waits for the accepted owner-private cache isolation/security gate;
+- focused public Today architecture/documentation may proceed independently when it does not claim blocked runtime delivery;
+- public Today implementation may launch before private personalization when its exact public source dependencies are ready;
+- private Today participates only when its accepted completion-scope trigger and ADR 0032 identity/privacy/cache gates are satisfied;
 - public subfragments may be cached only when private state cannot influence them.
 
 Exit gate: Today is useful under normal, stale, partial and dependency-failure states and never leaks owner-private content.
@@ -144,7 +170,7 @@ Exit gate: Today is useful under normal, stale, partial and dependency-failure s
 
 Before onboarding Announcements/Events as search providers, remove their reverse dependency on `PublicPortal\PublicContentState` so provider direction remains acyclic.
 
-Then implement the accepted PublicPortal federated-search capability over source-owned queries:
+Then implement accepted PublicPortal federated search over source-owned queries:
 
 - CMS/news/pages;
 - Announcements/Events after reverse-edge cleanup;
@@ -168,7 +194,7 @@ Exit gate: search is useful, privacy-safe, resilient to partial provider failure
 
 ### P2 — first-party Client Distribution
 
-ADR 0035 and `docs/architecture/CLIENT_DISTRIBUTION_ARCHITECTURE.md` accept the Platform-side TUF role-separated updater trust boundary. Issue #1039 is the explicit Platform implementation handoff and is reachable directly from the canonical programme after earlier entries are terminal, owned, blocked or decision-gated.
+ADR 0035 and `docs/architecture/CLIENT_DISTRIBUTION_ARCHITECTURE.md` accept the Platform-side TUF role-separated updater trust boundary. A live implementation handoff is selected only when its completion-scope trigger and current ownership/eligibility are proven.
 
 Platform implementation must preserve:
 
@@ -179,7 +205,7 @@ Platform implementation must preserve:
 - fail-closed channel/target/replay/generation mismatch behavior;
 - idempotent ambiguity-safe reconciliation across Platform approval, protected signing/publication and Platform activation.
 
-External updater implementation, protected signer infrastructure/key operations and production activation remain separate authority/evidence gates. They must not make the bounded Platform implementation unreachable, and Platform-only tests must not be mislabeled as real updater E2E.
+External updater implementation, protected signer infrastructure/key operations and production activation remain separate authority/evidence gates. Platform-only tests must never be mislabeled as real updater E2E.
 
 Exit gate: the Platform side truthfully implements the accepted updater-distribution contract with exact-head focused/integration/security evidence and no private signer custody.
 
@@ -193,25 +219,25 @@ Framework existence is not content completeness. Create/maintain machine-readabl
 - expected counts and profile/version applicability;
 - provenance and effective dates.
 
-Close known media/failure paths rather than hiding HTTP 500s or broken references. Route Game Catalog detail through `GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM.md`; do not inspect an external producer repository without separate authorization.
+Close known media/failure paths rather than hiding HTTP 500s or broken references. Route specialized Game Catalog detail through `GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM.md`, but current repository governance still controls whether any server/game repository may be accessed.
 
 Exit gate: content-completeness claims are machine-checkable against expected inventories and version/profile boundaries.
 
-### P2/P3 — Player Companion P0
+### P2/P3 — Player Companion
 
-Deliver player utility as narrow vertical slices backed by authoritative/versioned data.
+The Hunt Session Analyzer v1 is the terminal first complete PlayerCompanion foundation workflow. It is not a perpetual open P0 item.
 
-The Hunt Session Analyzer v1 is the terminal first complete PlayerCompanion workflow. Further tools are independent follow-up slices and must be selected/decomposed separately rather than keeping the P0 foundation perpetually non-terminal.
-
-Recommended follow-up candidates, subject to live dependency proof:
+Further tools are independent **conditional** vertical slices and participate only when individually promoted by accepted product scope and their authoritative/versioned dependencies are proven:
 
 1. hunt finder/guidance;
 2. equipment explorer;
-3. build/proficiency/perk planner;
-4. quest/access tracker;
-5. EXP/training calculators.
+3. character build planner;
+4. charm/perk/proficiency planner;
+5. quest/access tracker;
+6. EXP/training calculators;
+7. validated shareable builds.
 
-For every tool:
+For every promoted tool:
 
 - formulas/rules carry ruleset/catalog/profile version;
 - deterministic facts are distinguished from recommendations;
@@ -222,19 +248,25 @@ For every tool:
 
 Exit gate: every promoted workflow is complete end-to-end, not merely a calculator stub.
 
+### Cross-cutting — multi-world, profiles, rulesets and seasons
+
+This is a conditional invariant, not an independent standing queue item.
+
+Every selected capability must preserve applicable `world`, `profile`, `ruleset`, `catalog snapshot`, `season` and effective-period dimensions in URLs, cache keys, projections, events, formulas and persistence where relevant. A single-world launch must not create an irreversible global assumption.
+
+If accepted architecture already defines the dimensions, implement them inside the selected slice. If the slice would require a new durable identity/dimension/compatibility decision, route that exact question through Architecture Review before runtime work. Do not create speculative multi-world infrastructure solely to satisfy the invariant.
+
 ### P3 — World Hub and community expansion
 
-Create a World Hub only when multiple worlds/profiles or meaningful status/history signals justify it. It is a composition, not routing authority.
+Create World Hub only after its deferred/conditional scope is explicitly promoted and multiple worlds/profiles or meaningful authoritative status/history signals justify it. It remains composition, never routing/admission authority.
 
-May combine world identity/policy, PublicGameData population/community projections, LiveOps status/history and evidence-backed GameAnalytics trends. Preserve world/profile/ruleset/season dimensions and observation age.
-
-Do not derive current admission/routing authority from cached portal data.
+Optional community read surfaces are product inventory inputs, not automatic launch requirements. Forum remains deferred unless durable owned discussion/moderation need is accepted.
 
 ### P3 — commerce activation
 
 Wallet/Bazaar foundations do not make the portal a complete payment system.
 
-Activate customer payments/products/entitlements only after separate gates cover:
+Commerce capability participates only after an explicit product/business disposition. Production activation remains deferred/blocked until separate gates cover:
 
 - provider selection and signed/idempotent webhook contract;
 - ledger/reconciliation and failure recovery;
@@ -245,25 +277,26 @@ Activate customer payments/products/entitlements only after separate gates cover
 - observability, kill switch, rollback and support procedures;
 - explicit owner/protected-environment authorization.
 
-Exit gate: commercial authority cannot outlive its trusted validity and every money/value mutation is auditable/recoverable.
+Exit gate: commercial authority cannot outlive trusted validity and every money/value mutation is auditable/recoverable.
 
 ## Cross-cutting acceptance gates
 
-Every task must classify scope and prove applicable rows:
+Every selected task must classify scope and prove applicable rows:
 
 | Layer | Gate |
 |---|---|
-| Evidence | Exact gap, owner, duplicate/overlap search. |
-| Architecture | Ownership, dependency direction, contract/versioning/migration/rollback. |
+| Evidence | Exact gap, owner, completion-scope disposition/trigger and duplicate/overlap search. |
+| Architecture | Ownership, dependency direction, accepted decision/contract/versioning/migration/rollback. |
 | Security/privacy | Threat/abuse paths, authn/authz, validation, cache/log/privacy boundaries. |
 | Persistence | Correct owner, transaction/idempotency, additive/reversible migration where needed. |
 | Backend | Domain/application/adapters, failure/freshness semantics, telemetry. |
 | Frontend | Real integrated UI and required states, EN/PL, accessibility, responsive behaviour. |
 | Integration | Real producer/consumer path; no completion claim from mocks. |
+| Multi-world applicability | Preserve applicable world/profile/ruleset/catalog/season/effective-period dimensions or route the exact unresolved durable decision. |
 | Tests | Risk-proportional unit/property/feature/integration/security/contract tests. |
 | E2E | Real browser/runtime path or concrete non-executable `NOT_APPLICABLE` reason. |
 | Operations | Rollout, feature flag when needed, observability, rollback/runbook. |
-| Closeout | Exact-head self-review/CI, terminal related PRs/reviews, merge, task/Issue archive and released ownership. |
+| Closeout | Exact-head self-review/CI, terminal related PRs/reviews, merge, task/Issue archive, source-branch/resource closeout and released ownership. |
 
 ## PR policy
 
@@ -271,12 +304,25 @@ Before beginning a slice, inspect overlapping open/recent PRs and classify them 
 
 Never close because a PR is merely old or red. Close automatically only with concrete duplicate/obsolete/superseded evidence and after preserving unique work/evidence.
 
-Do not preserve a dated list of “currently open” PR numbers here as routing authority. The exact live PR inventory and overlap disposition belongs in the selected task/selection proof and must be refreshed before mutation and before closeout.
+Do not preserve a dated list of “currently open” PR numbers here as routing authority. Exact live PR inventory and overlap disposition belongs in the selected task/selection proof and is refreshed before mutation and closeout.
 
 ## Completion definition
 
-The portal programme is not globally complete while required product capabilities, production evidence or launch-critical security/authority findings remain unresolved.
+Global portal completion uses `OTERYN_PORTAL_COMPLETION_SCOPE.json` only as a **non-scheduling disposition projection**. Completion still requires current durable proof for the exact named release scope that:
 
-A single task is complete only when its observable outcome exists and the repository's exact-head validation, E2E/N/A, review/PR hygiene, merge and task/Issue closeout rules are terminal.
+- every `REQUIRED` item has a terminal implement/defer/reject disposition;
+- every `CONDITIONAL` item whose accepted activation trigger is active has a terminal disposition;
+- the exact canonical per-capability inventory is resolved from current architecture/owner authority;
+- every capability has exactly one owner-approved `IMPLEMENT | DEFER | REJECT` record containing stable `capability_id`, `owner`, `rationale`, `outcome` and `authority_evidence`;
+- no broad workstream/family disposition substitutes for the required per-capability records;
+- missing, duplicate, conflicting or ambiguous capability-disposition evidence is absent; otherwise the programme remains `DECISION_REQUIRED` and global completion is false;
+- deferred/inactive conditional work is not falsely described as implemented;
+- no launch-critical security/authority finding remains unresolved;
+- current exact-head implementation/E2E/CI/PR/task/source-branch lifecycle is terminal for delivered slices;
+- production/go-live claims have direct authorized evidence for the exact deployed identity.
 
-`PORTAL-CLOSEOUT` is the durable short alias for selecting/resuming this programme from live state.
+`IMPLEMENT` is product disposition only; it does not prove implementation, E2E, CI, production readiness or activation. The scope projection never proves live selector state, ownership, production evidence or per-capability disposition records.
+
+A single task is complete only when its observable outcome exists and repository exact-head validation, E2E/N/A, review/PR hygiene, merge, task/Issue and source-branch/resource closeout rules are terminal.
+
+`PORTAL-CLOSEOUT` remains the durable short alias for selecting/resuming this programme from live state.

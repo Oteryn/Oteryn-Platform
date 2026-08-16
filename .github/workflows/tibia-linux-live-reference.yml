@@ -30,8 +30,8 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install isolated graphical-session dependency
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb
+      - name: Install isolated graphical and identity dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb binutils file
 
       - name: Run focused syntax and unit checks
         shell: bash
@@ -44,6 +44,8 @@ jobs:
           env -i HOME="$safe_home" PATH="$PATH" LANG="C.UTF-8" LC_ALL="C.UTF-8" \
             PYTHONPATH="$GITHUB_WORKSPACE/tools/tibia-linux-reference" \
             python -m compileall -q tools/tibia-linux-reference
+          bash -n tools/tibia-linux-reference/official_host_prepare.sh
+          bash -n tools/tibia-linux-reference/official_evidence_luks_setup.sh
           env -i HOME="$safe_home" PATH="$PATH" LANG="C.UTF-8" LC_ALL="C.UTF-8" \
             PYTHONPATH="$GITHUB_WORKSPACE/tools/tibia-linux-reference" \
             python -m unittest discover -s tools/tibia-linux-reference/tests -v
@@ -51,6 +53,27 @@ jobs:
             PYTHONPATH="$GITHUB_WORKSPACE/tools/tibia-linux-reference" \
             python tools/tibia-linux-reference/run.py validate-manifest \
               tools/tibia-linux-reference/examples/session-manifest.synthetic.json
+
+      - name: Prove official-host execution gate rejects CI
+        shell: bash
+        run: |
+          set +x
+          set +e
+          output="$(PYTHONPATH=tools/tibia-linux-reference \
+            python tools/tibia-linux-reference/official_host_preflight.py \
+              --repo-root "$GITHUB_WORKSPACE" \
+              --evidence-dir "$RUNNER_TEMP/tibia-official-evidence" 2>/dev/null)"
+          status=$?
+          set -e
+          test "$status" -eq 2
+          python - "$output" <<'PY'
+          import json
+          import sys
+
+          document = json.loads(sys.argv[1])
+          assert document == {"error_class": "HarnessError", "result": "FAIL"}
+          print('{"ci_execution_gate":"PASS","official_binary_executed":false}')
+          PY
 
       - name: Run synthetic graphical no-network component
         shell: bash
@@ -101,6 +124,7 @@ jobs:
         shell: bash
         run: |
           set +x
+          test ! -e tibia.x64.tar.gz
           test -z "$(git status --short --untracked-files=all)"
           test ! -e "$RUNNER_TEMP/tibia-xvfb.log"
           ! find "$RUNNER_TEMP/tibia-linux-reference" -type f \

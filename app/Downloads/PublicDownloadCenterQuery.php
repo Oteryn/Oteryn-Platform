@@ -7,6 +7,7 @@ use App\Cms\Models\EditorialTranslation;
 use App\Downloads\Models\ClientRelease;
 use App\Downloads\Models\ClientReleaseArtifact;
 use App\Downloads\Security\ArtifactUrlPolicy;
+use App\Downloads\Updater\UpdaterStateProjector;
 use App\Downloads\ViewModels\DownloadCenterViewModel;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Collection;
@@ -14,7 +15,10 @@ use Throwable;
 
 final readonly class PublicDownloadCenterQuery
 {
-    public function __construct(private ArtifactUrlPolicy $artifactUrls) {}
+    public function __construct(
+        private ArtifactUrlPolicy $artifactUrls,
+        private UpdaterStateProjector $updaterStates,
+    ) {}
 
     public function get(?string $platform = null): DownloadCenterViewModel
     {
@@ -32,6 +36,12 @@ final readonly class PublicDownloadCenterQuery
             $this->localizeReleaseNotes($releases);
         } catch (Throwable) {
             return new DownloadCenterViewModel(DownloadCenterState::UNAVAILABLE, [], $platform);
+        }
+
+        try {
+            $this->updaterStates->annotate($releases);
+        } catch (Throwable) {
+            $this->updaterStates->markUnavailable($releases);
         }
 
         if ($releases->isEmpty()) {

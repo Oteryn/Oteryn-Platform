@@ -4,21 +4,37 @@ on:
   pull_request:
     paths:
       - ".github/workflows/historical-branch-audit.yml"
-      - "docs/agents/HISTORICAL_BRANCH_DELETION_APPROVAL.json"
+      - "docs/agents/HISTORICAL_WORK_RECONCILIATION_REGISTRY.json"
+      - "docs/architecture/adr/0039-historical-work-canonicalization-and-managed-recovery.md"
+      - "tools/agents/branch_hygiene.py"
       - "tools/agents/historical_branch_audit.py"
       - "tools/agents/historical_branch_policy.py"
+      - "tools/agents/historical_work_reconciliation.py"
+      - "tools/agents/test_branch_hygiene.py"
       - "tools/agents/test_historical_branch_audit.py"
       - "tools/agents/test_historical_branch_policy.py"
+      - "tools/agents/test_historical_work_reconciliation.py"
+  pull_request_target:
+    types:
+      - opened
+      - reopened
   push:
     branches:
       - main
     paths:
       - ".github/workflows/historical-branch-audit.yml"
-      - "docs/agents/HISTORICAL_BRANCH_DELETION_APPROVAL.json"
+      - "docs/agents/HISTORICAL_WORK_RECONCILIATION_REGISTRY.json"
+      - "docs/architecture/adr/0039-historical-work-canonicalization-and-managed-recovery.md"
+      - "tools/agents/branch_hygiene.py"
       - "tools/agents/historical_branch_audit.py"
       - "tools/agents/historical_branch_policy.py"
+      - "tools/agents/historical_work_reconciliation.py"
+      - "tools/agents/test_branch_hygiene.py"
       - "tools/agents/test_historical_branch_audit.py"
       - "tools/agents/test_historical_branch_policy.py"
+      - "tools/agents/test_historical_work_reconciliation.py"
+  schedule:
+    - cron: "17 4 * * *"
   workflow_dispatch:
 
 permissions:
@@ -27,12 +43,13 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: historical-branch-audit-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: historical-branch-audit-${{ github.event.pull_request.number || github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'pull_request_target' }}
 
 jobs:
   validate:
     name: validate
+    if: github.event_name != 'pull_request_target' && github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -46,16 +63,21 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Run focused historical-audit tests
+      - name: Run focused branch-governance tests
         run: |
+          python3 -m py_compile tools/agents/branch_hygiene.py
+          python3 -m py_compile tools/agents/historical_work_reconciliation.py
+          python3 tools/agents/test_branch_hygiene.py
           python3 tools/agents/test_historical_branch_audit.py
           python3 tools/agents/test_historical_branch_policy.py
+          python3 tools/agents/test_historical_work_reconciliation.py
 
   inventory:
     name: live-dry-run
+    if: github.event_name != 'pull_request_target' && github.event_name != 'schedule'
     needs: validate
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     permissions:
       contents: read
       issues: read
@@ -71,10 +93,23 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Fetch exact live branch objects
+      - name: Resolve reconciliation phase
+        id: phase
+        run: |
+          value="$(python3 - <<'PY'
+          import json
+          print(json.load(open('docs/agents/HISTORICAL_WORK_RECONCILIATION_REGISTRY.json'))['registry_phase'])
+          PY
+          )"
+          echo "value=${value}" >> "$GITHUB_OUTPUT"
+          echo "registry phase: ${value}"
+
+      - name: Fetch exact live branch objects for historical mutation review
+        if: steps.phase.outputs.value == 'reviewed_for_deletion'
         run: git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
 
-      - name: Build fail-closed historical branch audit
+      - name: Build raw fail-closed Git/provenance inventory
+        if: steps.phase.outputs.value == 'reviewed_for_deletion'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -86,34 +121,93 @@ jobs:
             --manifest historical-branch-deletion-manifest.generated.json \
             --approval-validation historical-branch-approval-validation.json
 
-      - name: Verify protected default branch and full accounting
+      - name: Enforce historical reviewed-deletion registry
+        if: steps.phase.outputs.value == 'reviewed_for_deletion'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/agents/historical_work_reconciliation.py \
+            --mode inventory \
+            --repo "${GITHUB_REPOSITORY}" \
+            --token "${GITHUB_TOKEN}" \
+            --output historical-work-reconciliation-live.json
+
+      - name: Enforce steady-state branch hygiene
+        if: steps.phase.outputs.value == 'applied'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/agents/branch_hygiene.py \
+            --repo "${GITHUB_REPOSITORY}" \
+            --token "${GITHUB_TOKEN}" \
+            --output branch-hygiene-live.json
+
+      - name: Reject unknown reconciliation phase
+        if: steps.phase.outputs.value != 'reviewed_for_deletion' && steps.phase.outputs.value != 'applied'
+        run: |
+          echo "Unsupported registry phase: ${{ steps.phase.outputs.value }}" >&2
+          exit 1
+
+      - name: Verify historical full accounting
+        if: steps.phase.outputs.value == 'reviewed_for_deletion'
         run: |
           python3 - <<'PY'
           import json, pathlib
-          report = json.loads(pathlib.Path("historical-branch-audit-report.json").read_text())
-          branches = report.get("branches", [])
-          if report.get("branch_count") != len(branches):
-              raise SystemExit("branch count does not match audited entries")
-          names = [item.get("branch") for item in branches]
+          report = json.loads(pathlib.Path("historical-work-reconciliation-live.json").read_text())
+          if report.get("unexplained_count") != 0:
+              raise SystemExit(f"unexplained live refs: {report.get('unexplained')}")
+          accounted = report.get("accounted", [])
+          if len(accounted) != report.get("branch_count"):
+              raise SystemExit(
+                  f"live accounting mismatch: branch_count={report.get('branch_count')} accounted={len(accounted)}"
+              )
+          names = [item.get("branch") for item in accounted]
           if len(names) != len(set(names)):
-              raise SystemExit("duplicate audited branch names")
-          main = next((item for item in branches if item.get("branch") == "main"), None)
-          if not main or main.get("disposition") != "PROTECTED" or main.get("protected") is not True:
-              raise SystemExit(f"main is not fail-closed PROTECTED: {main!r}")
-          allowed = {"DELETE", "OPEN_PR", "PROTECTED", "RECOVERY", "RETAIN"}
-          unknown = sorted({item.get("disposition") for item in branches} - allowed)
-          if unknown:
-              raise SystemExit(f"unsupported/unreviewed dispositions: {unknown}")
-          delete_entries = [item for item in branches if item.get("disposition") == "DELETE"]
-          if any(not item.get("cleanup_proof") for item in delete_entries):
-              raise SystemExit("DELETE candidate without cleanup_proof")
+              raise SystemExit("duplicate live branch accounting")
+          main = next((item for item in accounted if item.get("branch") == "main"), None)
+          if not main or main.get("classification") != "PROTECTED":
+              raise SystemExit(f"main is not terminally PROTECTED: {main!r}")
+          forbidden = {"RETAIN", "RECOVERY", "UNKNOWN"}
+          bad = [item for item in accounted if item.get("classification") in forbidden]
+          if bad:
+              raise SystemExit(f"non-terminal live classifications: {bad}")
           print(
-              f"Fully accounted for {len(branches)} live refs; "
-              f"{report.get('deletion_candidate_count')} exact deletion candidate(s)."
+              f"Fully accounted for {len(accounted)} live refs; "
+              f"registry phase={report.get('registry_phase')}; "
+              f"reviewed sources present={len(report.get('registered_present', []))}; "
+              f"terminally absent={len(report.get('registered_absent', []))}."
           )
           PY
 
-      - name: Publish audit evidence
+      - name: Verify steady-state hard target
+        if: steps.phase.outputs.value == 'applied'
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          report = json.loads(pathlib.Path("branch-hygiene-live.json").read_text())
+          if report.get("hard_target") != {"NEW_UNEXPLAINED_BRANCHES": 0}:
+              raise SystemExit(f"steady-state hard target drift: {report.get('hard_target')!r}")
+          if report.get("raw_branch_count_cap") is not None:
+              raise SystemExit("raw branch count must remain informational; fixed cap is forbidden")
+          if report.get("new_unexplained_branch_count") != 0:
+              raise SystemExit(
+                  f"new unexplained refs: {report.get('new_unexplained_branches')}"
+              )
+          if report.get("finding_count") != 0:
+              raise SystemExit(f"branch hygiene findings: {report.get('findings')}")
+          accounted = report.get("accounted", [])
+          if len(accounted) != report.get("branch_count"):
+              raise SystemExit(
+                  f"live accounting mismatch: branch_count={report.get('branch_count')} accounted={len(accounted)}"
+              )
+          print(
+              f"Steady-state branch hygiene PASS: {len(accounted)} live refs; "
+              f"new unexplained=0; advisories={report.get('advisory_count', 0)}."
+          )
+          PY
+
+      - name: Publish inventory evidence
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: historical-branch-audit-${{ github.run_id }}
@@ -121,26 +215,67 @@ jobs:
             historical-branch-audit-report.json
             historical-branch-deletion-manifest.generated.json
             historical-branch-approval-validation.json
-          if-no-files-found: error
+            historical-work-reconciliation-live.json
+            branch-hygiene-live.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  steady-state:
+    name: steady-state-read-only
+    if: github.event_name == 'pull_request_target' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Check out trusted default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Audit live branch hygiene without mutation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/agents/branch_hygiene.py \
+            --repo "${GITHUB_REPOSITORY}" \
+            --token "${GITHUB_TOKEN}" \
+            --output branch-hygiene-live.json
+
+      - name: Publish steady-state evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: steady-state-branch-hygiene-${{ github.run_id }}
+          path: branch-hygiene-live.json
+          if-no-files-found: warn
           retention-days: 30
 
   apply:
-    name: apply-reviewed-historical-manifest
+    name: apply-reviewed-historical-reconciliation
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs:
       - validate
       - inventory
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     permissions:
       contents: write
       issues: read
       pull-requests: read
     steps:
-      - name: Check out protected main
+      - name: Check out exact triggering main commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Set up Python
@@ -148,47 +283,56 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Resolve reconciliation phase
+        id: phase
+        run: |
+          value="$(python3 - <<'PY'
+          import json
+          print(json.load(open('docs/agents/HISTORICAL_WORK_RECONCILIATION_REGISTRY.json'))['registry_phase'])
+          PY
+          )"
+          echo "value=${value}" >> "$GITHUB_OUTPUT"
+          echo "registry phase: ${value}"
+
       - name: Fetch exact live branch objects
+        if: steps.phase.outputs.value == 'reviewed_for_deletion'
         run: git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
 
-      - name: Detect reviewed historical approval
-        id: approval
-        shell: bash
-        run: |
-          if [[ -f docs/agents/HISTORICAL_BRANCH_DELETION_APPROVAL.json ]]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "No reviewed historical approval is present; apply is NOT_APPLICABLE."
-          fi
-
-      - name: Apply exact reviewed historical manifest
-        if: steps.approval.outputs.exists == 'true'
+      - name: Apply exact reviewed reconciliation set with restore proof
+        if: steps.phase.outputs.value == 'reviewed_for_deletion'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           CURRENT_MAIN_SHA="$(git rev-parse HEAD)"
-          python3 tools/agents/historical_branch_policy.py \
+          test "${CURRENT_MAIN_SHA}" = "${GITHUB_SHA}"
+          python3 tools/agents/historical_work_reconciliation.py \
             --mode apply \
             --repo "${GITHUB_REPOSITORY}" \
             --token "${GITHUB_TOKEN}" \
             --event-name "${GITHUB_EVENT_NAME}" \
             --ref-name "${GITHUB_REF_NAME}" \
+            --event-sha "${GITHUB_SHA}" \
             --expected-main-sha "${CURRENT_MAIN_SHA}" \
-            --output historical-branch-apply-report.json \
-            --manifest historical-branch-post-apply-manifest.json \
-            --evidence historical-branch-deletion-evidence.json \
-            --recovery-evidence historical-branch-recovery-evidence.json
+            --output historical-work-reconciliation-post-apply.json \
+            --evidence historical-work-reconciliation-apply-evidence.json
 
-      - name: Publish apply and recovery evidence
-        if: always() && steps.approval.outputs.exists == 'true'
+      - name: Confirm no mutation is needed for applied registry
+        if: steps.phase.outputs.value == 'applied'
+        run: echo "Registry is already applied; protected-main mutation is NOT_APPLICABLE."
+
+      - name: Reject unknown reconciliation phase
+        if: steps.phase.outputs.value != 'reviewed_for_deletion' && steps.phase.outputs.value != 'applied'
+        run: |
+          echo "Unsupported registry phase: ${{ steps.phase.outputs.value }}" >&2
+          exit 1
+
+      - name: Publish apply and restore evidence
+        if: always() && steps.phase.outputs.value == 'reviewed_for_deletion'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: historical-branch-apply-${{ github.run_id }}
+          name: historical-work-reconciliation-apply-${{ github.run_id }}
           path: |
-            historical-branch-apply-report.json
-            historical-branch-post-apply-manifest.json
-            historical-branch-deletion-evidence.json
-            historical-branch-recovery-evidence.json
+            historical-work-reconciliation-post-apply.json
+            historical-work-reconciliation-apply-evidence.json
           if-no-files-found: warn
           retention-days: 90

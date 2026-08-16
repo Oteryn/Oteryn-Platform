@@ -9,6 +9,8 @@ on:
       - 'app/Http/Controllers/Downloads/**'
       - 'app/Http/Requests/Downloads/**'
       - 'config/downloads.php'
+      - 'database/migrations/*client*updater*'
+      - 'lang/*/downloads.php'
       - 'resources/views/downloads/**'
       - 'resources/views/admin/downloads/**'
       - 'resources/views/admin/translations/form.blade.php'
@@ -29,6 +31,8 @@ on:
       - 'app/Http/Controllers/Downloads/**'
       - 'app/Http/Requests/Downloads/**'
       - 'config/downloads.php'
+      - 'database/migrations/*client*updater*'
+      - 'lang/*/downloads.php'
       - 'resources/views/downloads/**'
       - 'resources/views/admin/downloads/**'
       - 'resources/views/admin/translations/form.blade.php'
@@ -174,6 +178,11 @@ jobs:
       - name: Provision isolated production-like dependencies
         run: bash scripts/acceptance/bootstrap-production-like.sh
 
+      - name: Prove Downloads updater migration rollback and replay
+        run: |
+          php artisan migrate:rollback --force --path=database/migrations/2026_08_16_100000_add_client_updater_distribution_tables.php
+          php artisan migrate --force --path=database/migrations/2026_08_16_100000_add_client_updater_distribution_tables.php
+
       - name: Start exact-SHA Laravel HTTP runtime
         run: |
           mkdir -p artifacts/acceptance
@@ -208,6 +217,7 @@ jobs:
             "runtime": "real Laravel HTTP",
             "platform_database": "MariaDB 11.8 isolated acceptance schema",
             "artifact_policy": "direct approved HTTPS metadata only; no upload, fetch or proxy",
+            "updater_policy": "public signed-generation reconciliation only; no private signing keys; client TUF verification remains authoritative",
             "production_claim": "none"
           }
           JSON
