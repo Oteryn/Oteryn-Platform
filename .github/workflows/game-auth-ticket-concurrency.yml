@@ -29,6 +29,7 @@ jobs:
       db_outage: ${{ steps.classify.outputs.db_outage }}
       game_auth_concurrency: ${{ steps.classify.outputs.game_auth_concurrency }}
       classes: ${{ steps.classify.outputs.classes }}
+      paths_json: ${{ steps.classify.outputs.paths_json }}
     steps:
       - name: Checkout exact classification range
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,7 +55,7 @@ jobs:
 
   concurrency-proof:
     needs: classify_changes
-    if: ${{ always() && (needs.classify_changes.result != 'success' || needs.classify_changes.outputs.game_auth_concurrency == 'true') }}
+    if: ${{ always() && (needs.classify_changes.result != 'success' || needs.classify_changes.outputs.game_auth_concurrency == 'true' || contains(needs.classify_changes.outputs.paths_json, 'app/CharacterProfiles/') || contains(needs.classify_changes.outputs.paths_json, 'tests/Feature/CharacterProfiles/Concurrency/')) }}
     runs-on: ubuntu-latest
     services:
       mariadb:
@@ -84,6 +85,7 @@ jobs:
       QUEUE_CONNECTION: sync
       MAIL_MAILER: array
       GAME_AUTH_CONCURRENCY_TEST: 1
+      CHARACTER_PROFILE_CONCURRENCY_TEST: 1
     steps:
       - name: Require successful change classification
         if: ${{ needs.classify_changes.result != 'success' }}
@@ -99,7 +101,7 @@ jobs:
         with:
           php-version: '8.5'
           coverage: none
-          extensions: pdo_mysql, pcntl
+          extensions: pdo_mysql, pdo_sqlite, pcntl
           tools: composer:v2
 
       - name: Install dependencies
@@ -107,3 +109,6 @@ jobs:
 
       - name: Run independent-process MariaDB game auth concurrency proof
         run: php artisan test --filter=GameTicketConcurrencyTest
+
+      - name: Run independent-process MariaDB character profile concurrency proof
+        run: php artisan test tests/Feature/CharacterProfiles/Concurrency/CharacterProfilePreferenceConcurrencyTest.php
