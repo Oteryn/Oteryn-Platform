@@ -4,6 +4,7 @@
 audit_id: OTERYN-20260816-content-audit
 repository: blakinio/Oteryn-Platform
 base_sha: 286efb1625d510c9d2cc344cb51a2438b31ebe48
+observed_main_after_audit_sha: 5cc42a9bc2a4732265cf83533fe7681ab1ab5865
 parent_issue: 1115
 audit_pr: 1117
 runtime_access: false
@@ -16,14 +17,17 @@ ledger_json: docs/agents/reports/OTERYN-20260816-content-audit-ledger.json
 
 The discovery barrier is complete at repository-evidence level. The audited `main` is not an empty content shell, but repository capability and production population must remain separate.
 
+The detailed ledger remains intentionally frozen to audited base `286efb1625d510c9d2cc344cb51a2438b31ebe48`. During final validation, protected `main` advanced by exactly one commit to `5cc42a9bc2a4732265cf83533fe7681ab1ab5865`, the merge of PR #1114 (`feat(portal): deliver public Today command centre`). A direct base-to-main comparison reported `ahead_by: 1`, `behind_by: 0`. This handoff reconciles that live ownership change without retroactively relabelling frozen-base evidence.
+
 Proven current-state anchors:
 
 - Game Catalog has public/admin/import/activation/query machinery and focused tests, but the only record-level corpus proven inside the audited repository for public projection is explicitly synthetic fixture data. Production active profile/snapshot and visible counts remain `UNKNOWN`.
 - Wiki has a real reviewed deployable launch corpus, not only schema/CRUD: inventory version `2026-08-10.2`, catalog version `2026-07-26.1`, reviewed catalog blob `07ff3324a4530958f9f4e164c5f7a2a399a1bb8b`, exactly 4 categories and 13 bilingual articles. The install test yields 8 category translations, 26 article translations, 26 revisions and 13 published articles. Production installation remains `UNKNOWN`.
 - Player Companion currently proves one complete route/test family: the authenticated Hunt Session Analyzer. No additional companion tool route family is proven on the audited base.
-- `routes/web.php` deterministically loads 13 `routes/modules/*.php` files. All 13 have an explicit ledger disposition.
+- `routes/web.php` deterministically loads 13 `routes/modules/*.php` files on the frozen audit base. All 13 have an explicit ledger disposition.
 - Account/security/registration/login/recovery/MFA are implemented workflow surfaces and are not missing static-content families.
-- Billing/library tiers are not a product surface proven on this base and are outside Issue #1115; do not invent a content lane for them.
+- Billing/library tiers are not a product surface proven on the frozen base and are outside Issue #1115; do not invent a content lane for them.
+- Public Today is now delivered on current `main` by merged PR #1114 at `5cc42a9bc2a4732265cf83533fe7681ab1ab5865`; future content work must not recreate that slice.
 
 ## Corrected evidence
 
@@ -74,16 +78,16 @@ These are source-side counts only. They are not Platform production counts and t
 
 ## Live ownership locks
 
-Refresh these before dispatch, but at audit closeout they are:
+Refreshed during final validation:
 
 | Owner | State | Lock / consequence |
 |---|---|---|
-| #1114 | open draft | owns PublicPortal Today runtime paths; do not overlap |
-| #1116 | open draft | programme/source-inventory bootstrap candidate; unmerged |
+| #1114 | merged as `5cc42a9bc2a4732265cf83533fe7681ab1ab5865` | PublicPortal Today is delivered on current `main`; do not recreate or claim its former draft paths as unowned |
+| #1116 | open draft; observed `mergeable: false` after the `main` advance | programme/source-inventory bootstrap remains unmerged candidate evidence; refresh/reconcile before any merge action |
 | #330 | open programme/issue | existing Game Catalog production-completion owner |
 | #489 | open issue | broad catalogue/content/knowledge/tools completion owner |
 | #301 | open blocked issue | spells/NPCs/quests/achievements package ownership |
-| #338 | open draft | NPC/shop schema 1.3 consumer; producer/authority hold; no duplicate consumer work |
+| #338 | open draft; observed `mergeable: false` | NPC/shop schema 1.3 consumer remains under explicit producer/authority hold; no duplicate consumer work |
 | #1115 | open owner-started programme | coordinator umbrella for this content-completion effort |
 
 Because these owners already cover the material gaps, `CONTENT-AUDIT` created zero new task/branch/PR remediation scaffolds.
@@ -120,6 +124,7 @@ Generate/link reference surfaces only from accepted structured facts. Preserve s
 
 ```yaml
 content_audit_base_sha: 286efb1625d510c9d2cc344cb51a2438b31ebe48
+observed_main_after_audit_sha: 5cc42a9bc2a4732265cf83533fe7681ab1ab5865
 wiki_inventory_version: 2026-08-10.2
 wiki_catalog_version: 2026-07-26.1
 wiki_catalog_blob_sha: 07ff3324a4530958f9f4e164c5f7a2a399a1bb8b
@@ -129,6 +134,7 @@ source_profile_alternate: data-crystal
 catalog_runtime_population: UNKNOWN
 wiki_runtime_installation: UNKNOWN
 player_companion_proven_vertical_slices: 1
+public_today_main_state: MERGED_5cc42a9bc2a4732265cf83533fe7681ab1ab5865
 new_audit_scaffolds: 0
 ```
 
@@ -139,4 +145,4 @@ new_audit_scaffolds: 0
 3. Current production/staging content and feature-config state, because this audit has repository authority only.
 4. Which single Player Companion tool should be first after dependency/authority refresh.
 
-These uncertainties block only the affected lane. Independent existing work such as #1114 may continue under its own ownership.
+These uncertainties block only the affected lane. Public Today is already merged on current `main`; subsequent work should consume that terminal state rather than open a parallel Today implementation lane.
