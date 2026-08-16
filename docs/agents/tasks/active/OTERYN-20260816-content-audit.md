@@ -2,7 +2,7 @@
 
 ```yaml
 task_id: OTERYN-20260816-content-audit
-status: AUDITING
+status: VALIDATING
 profile: audit
 lane: oteryn-platform-content
 repository: blakinio/Oteryn-Platform
@@ -10,7 +10,7 @@ branch: audit/issue-1115-content-audit
 base_branch: main
 base_sha: 286efb1625d510c9d2cc344cb51a2438b31ebe48
 parent_issue: 1115
-pull_request: pending
+pull_request: 1117
 owner_role: discovery-auditor
 implementation_authorized: false
 ```
@@ -42,7 +42,7 @@ Any remediation scaffold created by this auditor must use a separate branch/task
 2. Game Catalog.
 3. Wiki.
 4. Player Companion.
-5. Logged-in shared navigation.
+5. Logged-in/shared navigation.
 6. Account/settings.
 7. Onboarding/login and identity.
 8. Billing/library tiers.
@@ -52,20 +52,33 @@ Any remediation scaffold created by this auditor must use a separate branch/task
 
 For each finding record: status, severity, scope, owner/lane, exact path/evidence, expected count where known, actual count where proven, provenance/source state, and recommended remediation. Distinguish deployed/seeded content from fixtures/examples and from schema/engine capability.
 
+## Audit outputs
+
+- `docs/agents/reports/OTERYN-20260816-content-audit-ledger.md`
+- `docs/agents/reports/OTERYN-20260816-content-audit-ledger.json`
+- `docs/agents/handovers/OTERYN-20260816-content-audit-to-coordinator.md`
+
+Key audit correction: the current Wiki repository state includes a deterministic launch corpus (`WikiExpectedContentInventory` v`2026-08-10.2`) of 4 categories and 13 bilingual articles. Production installation remains unknown. Earlier provisional counts `9 guide steps + 2 replies` and `Wiki 10 + 9 pages` were not substantiated and are explicitly rejected in ledger finding `CA-020`.
+
+No new remediation scaffold was created because material gaps are already owned by #1114, #330, #489, #301, #338 or the owner-started #1115 programme, while runtime verification is outside this audit's authority.
+
 ## Exit criteria
 
-- Every discovered player-visible content surface has an explicit ledger disposition.
-- Candidate source counts are reconciled where possible against current Platform deployable content; unsupported comparisons remain `UNKNOWN`, never inferred as populated.
-- Missing/incomplete independent remediation streams are deduplicated against live Issues/PRs and scaffolded only where genuinely non-overlapping.
-- Coordinator handoff records source-of-truth boundaries, exact proven counts, dependencies, serialization keys, and unresolved authority/provenance questions.
-- Exactly one self-review and applicable exact-head repository checks are completed on the audit PR.
-- No product implementation paths are changed.
+- [x] Every discovered player-visible/content-producing route family has an explicit ledger disposition.
+- [x] Candidate source counts are reconciled where possible; unsupported production comparisons remain `UNKNOWN`.
+- [x] Existing Issues/PRs were deduplicated before remediation decisions; duplicate scaffolds were not created.
+- [x] Coordinator handoff records source-of-truth boundaries, exact proven counts, dependencies, serialization keys, and unresolved authority/provenance questions.
+- [ ] Exactly one final self-review completed and recorded.
+- [ ] Applicable exact-head repository checks completed and recorded.
+- [x] No product implementation path changed.
 
 ## Checkpoint
 
 ```yaml
-phase: activation
-head: pending
+phase: pre_self_review
+last_content_commit: 79f5677cfdb8f918c67b698fdc92d002c727bb81
 last_verified_main: 286efb1625d510c9d2cc344cb51a2438b31ebe48
-next_action: open draft audit PR, then inspect live routes/data/tests and build ledger
+runtime_population_evidence: UNKNOWN
+new_remediation_scaffolds: 0
+next_action: perform exactly one final whole-PR self-review, fix any audit-artifact defect, then validate exact head
 ```
