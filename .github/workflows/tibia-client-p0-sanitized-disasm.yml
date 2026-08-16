@@ -8,22 +8,43 @@ on:
 permissions:
   contents: read
 
+env:
+  WORK_VOLUME: otclient-runner_runner_work
+  EXPECTED_SIZE: '51965216'
+  EXPECTED_SHA256: e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe
+
 jobs:
-  analysis-mount-inventory:
+  runner-work-search:
     runs-on: oteryn-staging
     timeout-minutes: 5
     steps:
-      - name: Inspect analysis-container mounts only
+      - name: Search retained runner work read-only
         shell: bash
         run: |
           set -Eeuo pipefail
           [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
-          for name in otclient-tibia-global-login-lab otclient-tibia-login-analysis otclient-tibia-auth-analysis; do
-            echo "=== $name ==="
-            docker inspect "$name" --format 'image={{.Image}} status={{.State.Status}} labels={{json .Config.Labels}}'
-            docker inspect "$name" --format '{{range .Mounts}}{{.Type}}|{{.Name}}|{{.Source}}|{{.Destination}}|rw={{.RW}}{{println}}{{end}}'
-          done
-          echo '=== STATIC_ONLY ==='
+          image=$(docker inspect otclient-tibia-login-analysis --format '{{.Image}}')
+          docker run --rm --network none --read-only \
+            --security-opt no-new-privileges:true \
+            -e EXPECTED_SIZE -e EXPECTED_SHA256 \
+            --mount type=volume,src="$WORK_VOLUME",dst=/runner-work,readonly \
+            --entrypoint /bin/bash "$image" -lc '
+              set -Eeuo pipefail
+              echo "=== NAMED_STATE_PATHS ==="
+              find /runner-work -maxdepth 8 \( -type d -o -type f \) \( -name "*df7b29*" -o -name "_otclient_tibia_re_state" \) -print 2>/dev/null | head -100 || true
+              echo "=== EXPECTED_SIZE_FILES ==="
+              count=0
+              while IFS= read -r f; do
+                [[ -f "$f" ]] || continue
+                sha=$(sha256sum "$f" | awk "{print \$1}")
+                echo "CANDIDATE=$f SIZE=$EXPECTED_SIZE SHA256=$sha"
+                count=$((count+1))
+                [[ "$sha" == "$EXPECTED_SHA256" ]] && echo "EXACT_MATCH=$f"
+                [[ $count -ge 20 ]] && break
+              done < <(find /runner-work -type f -size "${EXPECTED_SIZE}c" -print 2>/dev/null)
+              echo "SIZE_MATCH_COUNT_SCANNED=$count"
+            '
+          echo 'STATIC_ONLY=true'
           echo 'CLIENT_EXECUTED=false'
           echo 'PROCESS_MEMORY_ACCESSED=false'
           echo 'NETWORK_ACCESSED=false'
