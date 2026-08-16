@@ -1,0 +1,92 @@
+name: Atlas Synology Legacy Storage Probe
+
+on:
+  push:
+    branches:
+      - ops/atlas-synology-runtime-bridge-20260816
+    paths:
+      - .github/workflows/atlas-synology-legacy-storage-probe.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-synology-legacy-storage-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: Locate Atlas in legacy OTS runner storage
+    runs-on: oteryn-staging
+    timeout-minutes: 8
+    steps:
+      - name: Mount only known OTS legacy volumes and backup directory read-only
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          image='python:3.13-alpine'
+          docker pull "$image" >/dev/null
+          args=()
+          for volume in ots-runner_ots_runner_work ots-runner_runner_work ots-runner_ots_runner_state; do
+            if docker volume inspect "$volume" >/dev/null 2>&1; then
+              args+=( -v "$volume:/host/$volume:ro" )
+            fi
+          done
+          for path in /volume1/docker/BACKUP-runner-volumes /volume1/docker/ots-runner; do
+            if docker run --rm -v "$path:/check:ro" alpine:3.22 test -e /check; then
+              key="$(basename "$path")"
+              args+=( -v "$path:/host/bind-$key:ro" )
+            fi
+          done
+          docker run --rm -i \
+            --name "atlas-legacy-storage-probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --label com.blakinio.owner=otbm-atlas \
+            --label com.blakinio.purpose=atlas-legacy-storage-probe \
+            --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+            "${args[@]}" "$image" python - <<'PY'
+          from __future__ import annotations
+          import json, os
+          from pathlib import Path
+          EXPECTED='3bd40d14fefec41f24c4b3ae879e420be1a831ef55b95dcbec721e587a09b034'
+          roots=[p for p in Path('/host').iterdir()] if Path('/host').exists() else []
+          print('ROOTS',','.join(sorted(p.name for p in roots)))
+          found=[]
+          for root in roots:
+              for current,dirs,files in os.walk(root):
+                  rel=Path(current).relative_to(root)
+                  if len(rel.parts)>10:
+                      dirs[:]=[]; continue
+                  lower={x.lower() for x in rel.parts}
+                  if lower & {'.git','node_modules','vendor'}:
+                      dirs[:]=[]; continue
+                  if 'manifest.json' not in files: continue
+                  path=Path(current)/'manifest.json'
+                  try: data=json.loads(path.read_text(encoding='utf-8'))
+                  except Exception: continue
+                  chunks=data.get('chunks',[]); src=data.get('sources',{})
+                  if not isinstance(chunks,list) or not isinstance(src,dict): continue
+                  if data.get('schemaVersion')!=3 or src.get('mapSha256')!=EXPECTED: continue
+                  atlas=path.parent; found.append((root,atlas))
+                  floors=sorted({int(c['z']) for c in chunks if isinstance(c,dict) and 'z' in c})
+                  print('ATLAS_ROOT',root.name,atlas.relative_to(root).as_posix())
+                  print('IDENTITY',len(chunks),','.join(map(str,floors)),src.get('assetsSha256'),src.get('atlasVersion'))
+                  for name in ('index.html','viewer-app.js','viewer-runtime.js','creature-animation-runtime.js','data/search-index.json','data/statistics.json','data/spawns.json','data/environment-animations/index.json','.spool/source.json'):
+                      print('FILE',name,int((atlas/name).is_file()))
+                  print('TILES',sum(1 for _ in (atlas/'tiles').glob('z*/*.png')))
+                  print('OVERVIEW',sum(1 for _ in (atlas/'overview').glob('z*/*.png')))
+                  print('OVERVIEW_LOW',sum(1 for _ in (atlas/'overview-low').glob('z*/*.png')))
+          print('ATLAS_FOUND',len(found))
+          PY
+
+      - name: Verify helper cleanup
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          name="atlas-legacy-storage-probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if docker inspect "$name" >/dev/null 2>&1; then
+            owner="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$name" 2>/dev/null || true)"
+            purpose="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$name" 2>/dev/null || true)"
+            if [[ "$owner" == otbm-atlas && "$purpose" == atlas-legacy-storage-probe ]]; then docker rm -f "$name" || true; fi
+          fi
+          ! docker inspect "$name" >/dev/null 2>&1
