@@ -102,15 +102,17 @@ overlap_resolution: reconstruct exact implementation tree from current protected
 workflow_policy: reuse_or_extend
 workflow_budget: 53
 new_workflows: 0
+clean_material_commit: da514f3eda178e904a6fc481616a737d1b12d8c4
+first_published_reconstruction_head: 4a2fa4e3b19571e257d5462f6c6b58ef841a4ad0
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 2
-updated_at: 2026-08-16T11:18:27+02:00
+updated_at: 2026-08-16T11:31:00+02:00
 status: validating
-phase: reconstructed_platform_vertical_slice_ready_for_exact_head_validation
+phase: repair_checkpoint_contract_then_resume_exact_head_validation
 branch: feat/issue-1039-client-distribution-platform
 pr: 1073
 context_routes:
@@ -144,41 +146,50 @@ proven:
   - the existing browser Download Center and Downloads Acceptance workflow were extended rather than replaced
   - no new workflow was created and the registered workflow budget remains 53
   - all implementation writes are confined to Oteryn-Platform
+  - first published reconstruction head was 4a2fa4e3b19571e257d5462f6c6b58ef841a4ad0 with merge base exactly protected main and behind_by zero
+  - Agent Governance run 31939121881 reached checkpoint validation after all preceding governance contract tests passed
 unknown:
-  - exact CI run ids and terminal conclusions until reconstructed head is pushed
+  - terminal conclusions of the follow-up exact-head CI runs after this checkpoint repair
   - real updater/client cross-repository behavior because that separate authority is not granted
 conflicts: []
-first_failure: null
+first_failure:
+  marker: agent-governance-checkpoint-schema-first-failure-scalar
+  evidence: exact-head Agent Governance run 31939121881 failed because this task encoded first_failure as null instead of the required YAML mapping; implementation code was not implicated by that failure
 rejected_hypotheses:
   - lexical display version can safely order updates
   - browser is_current can stand in for updater-active state
   - administrator-supplied SHA-256 proves publisher authenticity
   - Laravel should own private TUF signing keys
   - a new task-specific workflow is needed
+  - rerunning the failed governance job without changing the malformed checkpoint would provide new evidence
 validation:
-  - command: exact reconstructed GitHub Actions
-    result: PENDING
-    evidence: run ids are populated after branch reconstruction is published
+  - command: Agent Governance run 31939121881 on head 4a2fa4e3b19571e257d5462f6c6b58ef841a4ad0
+    result: FAIL
+    evidence: checkpoint-validation step 12 reported first_failure must be a YAML mapping; all earlier governance tests in the same job passed
+  - command: follow-up exact-head GitHub Actions after checkpoint repair
+    result: NOT_RUN
+    evidence: new head is created by this checkpoint repair and its run ids must be captured directly after publication
 blockers: []
-next_action: Publish the reconstructed exact-main implementation head, capture exact GitHub run ids, repair any first relevant failure, complete exact-head self-review, then squash-merge #1073 and execute lifecycle-only task archival.
+next_action: Capture the new exact PR head and associated GitHub Actions run ids, inspect the first material failure if any, then complete whole-diff self-review and terminal merge/lifecycle closeout only after all gates are green.
 ```
 
 ## Recovery checkpoint
 
 ```yaml
 checkpoint_type: RECOVERY
-captured_at: 2026-08-16T11:18:27+02:00
-current_state: coherent implementation tree prepared from exact protected main; no external mutation or production action performed
-last_completed_step: Platform-only data/model/action/request/admin/public/test/acceptance implementation assembled against main 9336cd1f240196908a84cdea124992300bede59c
-active_operation: publish reconstructed PR head and execute existing exact-head GitHub validation lanes
-external_run_ids: []
-expected_success_marker: exact PR head has required CI plus Downloads Acceptance success and zero unresolved material review findings
-expected_failure_marker: first failing required job or review finding on exact PR head
-wait_deadline: none; independent programme audit work remains available while Actions execute
+captured_at: 2026-08-16T11:31:00+02:00
+current_state: Platform-only implementation remains coherent; first exact-head governance failure is isolated to checkpoint YAML shape and is repaired by this commit
+last_completed_step: diagnosed Agent Governance run 31939121881 to exact invariant first_failure must be a YAML mapping
+active_operation: publish checkpoint repair and execute follow-up exact-head GitHub validation lanes
+external_run_ids:
+  - 31939121881
+expected_success_marker: follow-up exact PR head has required CI plus Downloads Acceptance success and zero unresolved material review findings
+expected_failure_marker: first failing required job or review finding on the follow-up exact PR head
+wait_deadline: none; independent self-review remains available while Actions execute
 next_step_on_success: whole-diff self-review, mark PR ready, exact expected-head squash merge, Issue #1039 close, lifecycle archive
 next_step_on_failure: inspect first relevant failing job log, repair root cause on the same branch, rerun exact-head validation
 parallel_work_allowed: true
-parallel_work_scope: Platform-side audit of #338 only; no Canary/server reads or writes and no merge while producer proof is absent
+parallel_work_scope: same-PR self-review only until entry task is terminal
 context_pressure: medium
 rotation_reason: null
 ```
