@@ -79,7 +79,7 @@ test('@portal-today public guest command centre preserves source truth empty par
   await expect(page.locator('[data-today-card="liveops"] [data-today-item]')).toHaveCount(0);
   await expect(page.getByText('Acceptance Today maintenance')).toBeVisible();
   await expect(page.getByText('Acceptance Today event')).toBeVisible();
-  await expect(page.getByText('Acceptance Today news')).toBeVisible();
+  await expect(page.getByText('Acceptance Today update')).toBeVisible();
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /\/en\/today$/u);
   await expect(page.locator('link[rel="alternate"][hreflang="pl"]')).toHaveAttribute('href', /\/pl\/today$/u);
 
