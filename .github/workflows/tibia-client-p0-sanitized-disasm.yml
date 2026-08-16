@@ -10,28 +10,61 @@ permissions:
 
 env:
   VOLUME_NAME: oteryn-tibia-linux-analysis
+  EXPECTED_SIZE: '51965216'
+  EXPECTED_SHA256: e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe
 
 jobs:
-  retained-volume-inspect:
+  sanitized-static-disasm:
     runs-on: oteryn-staging
     timeout-minutes: 5
     steps:
-      - name: Inspect retained static-analysis volume metadata
+      - name: Read exact retained client through isolated read-only helper
         shell: bash
         run: |
           set -Eeuo pipefail
           [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
-          echo '=== VOLUME ==='
-          docker volume inspect "$VOLUME_NAME" --format 'name={{.Name}} driver={{.Driver}} mountpoint={{.Mountpoint}} labels={{json .Labels}}'
-          echo '=== CONSUMERS ==='
-          docker ps -a --filter "volume=$VOLUME_NAME" --format '{{.Names}}|{{.Status}}|{{.Image}}'
-          echo '=== CONSUMER_MOUNTS ==='
-          while read -r name; do
-            [[ -n "$name" ]] || continue
-            echo "--- $name ---"
-            docker inspect "$name" --format '{{range .Mounts}}{{.Type}}|{{.Name}}|{{.Source}}|{{.Destination}}|rw={{.RW}}{{println}}{{end}}'
-          done < <(docker ps -a --filter "volume=$VOLUME_NAME" --format '{{.Names}}')
-          echo '=== STATIC_ONLY ==='
+          [[ -z "$(docker ps -a --filter "volume=$VOLUME_NAME" --format '{{.Names}}')" ]]
+          image=$(docker inspect otclient-tibia-login-analysis --format '{{.Image}}')
+          echo "HELPER_IMAGE=$image"
+          docker run --rm --network none --read-only \
+            --security-opt no-new-privileges:true \
+            -e EXPECTED_SIZE -e EXPECTED_SHA256 \
+            -v "$VOLUME_NAME:/analysis:ro" \
+            --entrypoint /bin/bash "$image" -lc '
+              set -Eeuo pipefail
+              tool=$(command -v objdump || command -v llvm-objdump || true)
+              [[ -n "$tool" ]]
+              echo "DISASM_TOOL=$tool"
+              exact=""
+              while IFS= read -r candidate; do
+                [[ -f "$candidate" ]] || continue
+                size=$(stat -c %s "$candidate")
+                [[ "$size" == "$EXPECTED_SIZE" ]] || continue
+                sha=$(sha256sum "$candidate" | awk "{print \$1}")
+                echo "CANDIDATE=$candidate SIZE=$size SHA256=$sha"
+                if [[ "$sha" == "$EXPECTED_SHA256" ]]; then exact="$candidate"; break; fi
+              done < <(find /analysis -type f -name client -size "${EXPECTED_SIZE}c" -print 2>/dev/null)
+              [[ -n "$exact" ]]
+              echo "EXACT_CLIENT=$exact"
+              echo "EXACT_CLIENT_SIZE=$(stat -c %s "$exact")"
+              echo "EXACT_CLIENT_SHA256=$(sha256sum "$exact" | awk "{print \$1}")"
+              dump() {
+                local label="$1" start="$2" stop="$3"
+                echo "===== ${label} ${start}..${stop} ====="
+                "$tool" -d -C -M intel --start-address="$start" --stop-address="$stop" "$exact"
+              }
+              dump PLAYERPOSITION_XREF 0x836500 0x836a00
+              dump TPLAYERDATA_SLOT0 0xd1cb00 0xd1ce00
+              dump TPLAYERDATA_SLOT1 0xd2abc0 0xd2b000
+              dump TPLAYERDATA_SLOT2 0xd2ee80 0xd2f200
+              dump TPLAYERDATA_SLOT3_4 0x843d80 0x844100
+              dump TPLAYERDATA_LATE_A 0xeda300 0xeda600
+              dump TPLAYERDATA_LATE_B 0xedff40 0xee0300
+            '
+      - name: State static-only boundary
+        shell: bash
+        run: |
+          echo 'STATIC_ONLY=true'
           echo 'CLIENT_EXECUTED=false'
           echo 'PROCESS_MEMORY_ACCESSED=false'
           echo 'NETWORK_ACCESSED=false'
