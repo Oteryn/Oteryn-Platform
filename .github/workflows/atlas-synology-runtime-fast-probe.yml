@@ -1,0 +1,129 @@
+name: Atlas Synology Runtime Fast Probe
+
+on:
+  push:
+    branches:
+      - ops/atlas-synology-runtime-bridge-20260816
+    paths:
+      - .github/workflows/atlas-synology-runtime-fast-probe.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-synology-runtime-fast-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: Targeted Atlas probe on Synology Docker host
+    runs-on: oteryn-staging
+    timeout-minutes: 5
+    steps:
+      - name: Verify runner and Docker
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "runner=${RUNNER_NAME:-unknown} host_container=${HOSTNAME:-unknown}"
+          docker info --format 'name={{.Name}} version={{.ServerVersion}} arch={{.Architecture}} root={{.DockerRootDir}}'
+
+      - name: Inspect runner host mounts and Docker allocations
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo '=== runner container mounts ==='
+          if [[ -n "${HOSTNAME:-}" ]] && docker inspect "$HOSTNAME" >/dev/null 2>&1; then
+            docker inspect --format '{{range .Mounts}}{{.Type}}|{{.Source}}|{{.Destination}}|rw={{.RW}}{{println}}{{end}}' "$HOSTNAME"
+          else
+            echo 'runner-container-inspect=unavailable'
+          fi
+          echo '=== atlas/oteryn containers ==='
+          docker ps -a --format '{{.Names}}|{{.Image}}|{{.Status}}|{{.Ports}}' | grep -Ei 'atlas|otheryn|oteryn' || true
+          echo '=== docker port 8095 ==='
+          docker ps -a --format '{{.Names}}|{{.Ports}}' | grep -E '(^|[^0-9])8095([^0-9]|$)' || true
+
+      - name: Targeted host path probe
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          image='python:3.13-alpine'
+          docker pull "$image" >/dev/null
+          docker run --rm -i \
+            --name "atlas-fast-probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --label com.blakinio.owner=otbm-atlas \
+            --label com.blakinio.purpose=atlas-runtime-fast-probe \
+            --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+            -v /volume1/docker:/host/docker:ro \
+            "$image" python - <<'PY'
+          from __future__ import annotations
+          import json
+          import os
+          from pathlib import Path
+
+          base=Path('/host/docker')
+          print('DOCKER_ROOT_VISIBLE', int(base.exists()))
+          if base.exists():
+              print('TOP_LEVEL_MATCHES')
+              for p in sorted(base.iterdir(), key=lambda x:x.name.lower()):
+                  n=p.name.lower()
+                  if any(t in n for t in ('oteryn','otheryn','runner','atlas')):
+                      try:
+                          typ='dir' if p.is_dir() else 'file'
+                      except Exception:
+                          typ='unknown'
+                      print(typ, p.name)
+
+          preferred=[
+              base/'otheryn/atlas/current',
+              base/'otheryn/atlas/project',
+              base/'otheryn/atlas',
+              base/'oteryn/atlas/current',
+              base/'oteryn/atlas/project',
+              base/'oteryn/atlas',
+          ]
+          for p in preferred:
+              print('PREFERRED', p.as_posix().replace('/host/docker','/volume1/docker'), 'EXISTS' if p.exists() else 'MISSING')
+
+          manifests=[]
+          if base.exists():
+              for current,dirs,files in os.walk(base):
+                  rel=Path(current).relative_to(base)
+                  if len(rel.parts)>7:
+                      dirs[:]=[]
+                      continue
+                  # avoid database/application storage and node/vendor trees
+                  lowered={x.lower() for x in rel.parts}
+                  if lowered & {'mysql','mariadb','postgres','storage','node_modules','vendor'}:
+                      dirs[:]=[]
+                      continue
+                  if 'manifest.json' in files and any(t in current.lower() for t in ('atlas','full-map')):
+                      manifests.append(Path(current)/'manifest.json')
+                      if len(manifests)>=20:
+                          break
+          print('MANIFEST_COUNT',len(manifests))
+          for path in manifests:
+              try:
+                  data=json.loads(path.read_text(encoding='utf-8'))
+                  chunks=data.get('chunks',[]); src=data.get('sources',{})
+                  if not isinstance(chunks,list) or not isinstance(src,dict):
+                      continue
+                  root=path.parent
+                  floors=sorted({int(c['z']) for c in chunks if isinstance(c,dict) and 'z' in c})
+                  print('ATLAS_ROOT',root.as_posix().replace('/host/docker','/volume1/docker'))
+                  print('IDENTITY',data.get('schemaVersion'),data.get('chunkSize'),len(chunks),','.join(map(str,floors)),src.get('mapSha256'),src.get('assetsSha256'),src.get('atlasVersion'))
+                  for rel in ('index.html','viewer-app.js','viewer-runtime.js','creature-animation-runtime.js','data/search-index.json','data/statistics.json','data/spawns.json','data/environment-animations/index.json','.spool/source.json'):
+                      print('FILE',rel,int((root/rel).is_file()))
+              except Exception as exc:
+                  print('INVALID_MANIFEST',type(exc).__name__)
+          PY
+
+      - name: Verify helper cleanup
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          name="atlas-fast-probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if docker ps -a --format '{{.Names}}' | grep -Fx "$name"; then
+            echo "helper remains: $name" >&2
+            exit 1
+          fi
