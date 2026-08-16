@@ -6,7 +6,7 @@ task_kind: discovery
 issue: 1121
 programme: OTERYN_PLATFORM_ARCHITECTURE_REVIEW
 project_lane: oteryn-platform-content
-status: ready
+status: investigating
 implementation_authorized: false
 required_reads:
   - AGENTS.md
@@ -60,8 +60,16 @@ Resolve Issue #1121 as an architecture-only package: determine whether a provena
 ```yaml
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260816-reference-source-architecture.md
+  - docs/architecture/adr/0042-non-native-reference-content-boundary.md
+  - docs/architecture/adr/README.md
+  - docs/architecture/ARCHITECTURE_AUTHORITY.md
+  - docs/architecture/MODULE_CATALOG.md
+  - docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md
+  - docs/contracts/NON_NATIVE_REFERENCE_CONTENT_CONTRACT.md
+  - docs/contracts/OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md
 modules:
   - Architecture Review
+  - ReferenceContent
   - GameCatalog
   - Wiki
   - PlayerCompanion
@@ -71,87 +79,117 @@ dependencies:
   - OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md
   - GAME_CATALOG_IMPORT_CONTRACT.md
   - Issue #1115 content completion programme
-blockers:
-  - none for architecture investigation; any final owner-acceptance requirement must be recorded rather than inferred
+blockers: []
 cross_repository_tasks:
   - none; external server/game repository access is not authorized
 ```
 
-The architecture worker must update `owned_paths` with the exact ADR/backlog/contract/programme files before editing them. This scaffold intentionally reserves only its task record and Issue/branch identity.
+The architecture worker has now claimed the exact durable decision/contract/focused-architecture paths before editing them. No runtime/product paths are owned by this task.
 
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 1
-updated_at: 2026-08-16T20:52:00Z
-head: b42b9e844d045a8e50e2dbf351fe80804b61aa39
+checkpoint_version: 2
+updated_at: 2026-08-16T21:00:36Z
+invocation_started_at: 2026-08-16T20:55:00Z
+last_progress_at: 2026-08-16T21:00:36Z
+head: c2dad69de9cdb1e027800aebd50850bee01c8904
 branch: docs/issue-1121-reference-source-architecture
 pr: 1122
-status: ready
+status: investigating
+phase: design
+session_role: architecture-reviewer
+execution_mode: github
+execution_reason: bounded documentation/contract architecture package with GitHub-native validation
+project_lane: oteryn-platform-content
+context_pressure: medium
+context_growth: stable
+context_score: 6
+estimate_confidence: high
+decomposition_decision: single
+decomposition_reason: one durable source-authority question with one coherent ADR/contract/focused-doc package
+ci_checks_for_current_head: 0
+ci_check_generation: draft
+terminal_ci_wait_started_at: null
+terminal_ci_checks_for_current_generation: 0
+unchanged_state_checks: 0
+identical_failure_retries: 0
+repair_cycles_for_current_gate: 0
+context_reconstruction_attempts: 1
+stall_warnings: 0
 context_routes:
   - architecture
   - agent-governance
   - content
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260816-reference-source-architecture.md
+  - docs/architecture/adr/0042-non-native-reference-content-boundary.md
+  - docs/architecture/adr/README.md
+  - docs/architecture/ARCHITECTURE_AUTHORITY.md
+  - docs/architecture/MODULE_CATALOG.md
+  - docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md
+  - docs/contracts/NON_NATIVE_REFERENCE_CONTENT_CONTRACT.md
+  - docs/contracts/OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md
 proven:
-  - Issue #1121 exists and is labelled agent:ready
-  - draft PR #1122 exists for docs/issue-1121-reference-source-architecture
+  - Issue #1121 is open and labelled agent:ready
+  - draft PR #1122 exists on docs/issue-1121-reference-source-architecture and live head was c2dad69de9cdb1e027800aebd50850bee01c8904 at takeover
+  - scaffold repair head c2dad69de9cdb1e027800aebd50850bee01c8904 passed CI run 31971781327 and Agent Governance run 31971781324
+  - protected main is f617120975cb1522cad87d74f8bea37f829b2b64 and matches PR #1122 base at takeover
   - ADR 0034 is accepted and assigns native gameplay-content authority to Oteryn-v2 while Platform owns catalogue lifecycle
   - ADR 0034 keeps Legacy Canary Compatibility importers as explicit anti-corruption adapters
-  - OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT forbids co-authoritative source blending and allows only presentation metadata supplementation under explicit provenance/precedence
+  - OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT forbids co-authoritative source blending and allows historical/other snapshots to coexist for comparison without field blending
+  - GAME_CATALOG_IMPORT_CONTRACT is scoped only to Legacy Canary Compatibility and does not authorize external Wiki data
   - owner-supplied CrystalServer archive is source material only under #1115 and is not native authority
-  - architecture programme currently reports no active task in its durable queue snapshot
-  - scaffold head b42b9e844d045a8e50e2dbf351fe80804b61aa39 passed CI run 31971593660
-  - Agent Governance run 31971593663 failed only because the initial task scaffold omitted the already-open draft PR #1122 identity
-  - no external server/game repository was accessed while scaffolding or repairing dispatch metadata
+  - archive identity is crystalserver-main.zip SHA-256 920a59e15175a5f53721f60b17f4bb37370bf0b61cd91abb4c909bf0d85e5f26; data-global and data-crystal are separate source profiles
+  - content-audit handoff permits only source-side candidate counts and keeps production population/publication rights separate
+  - Wiki accepted architecture owns editorial publication lifecycle and must not claim complete authoritative game content
+  - PlayerCompanion accepted architecture consumes versioned evidence but must not own canonical game/source facts and already distinguishes deterministic, simulation and recommendation outputs
+  - ADR 0026 and THIRD_PARTY_NOTICES keep unresolved third-party game-data/prose/assets rights fail-closed
+  - current architecture decision backlog is empty
+  - highest accepted/currently allocated ADR prefix on main is 0041 and no open PR claims 0042
+  - open related PRs #1116 and #1120 do not overlap the claimed architecture paths; #1122 is the sole open reference-source architecture PR
+  - the task-required OTERYN_CONTENT_COMPLETION programme file is not on main; its candidate version was read from open draft PR #1116 and treated as non-authoritative programme evidence subordinate to Issue #1115 and merged audit handoff
+  - no external server/game repository was accessed during takeover or analysis
 derived:
   - ADR 0034 already rejects promoting CrystalServer-derived facts into native Oteryn gameplay authority
   - a remaining bounded decision exists only for non-native/non-executable reference use and presentation/tool consumption
-  - the Agent Governance failure is a coordinator handoff metadata defect, not an architecture/product failure
+  - a separate logical ReferenceContent read-model boundary is the least ambiguous way to permit reference use without giving GameCatalog authority-profile or activation semantics to third-party material
+  - a new ADR is required because the selected boundary introduces a durable module/dependency/source-authority rule that outlives Issue #1121
 unknown:
-  - whether a reference-only profile belongs inside GameCatalog, a separate read model, or should be rejected/deferred
-  - exact allowed public Wiki/PlayerCompanion uses of third-party structured facts
-  - exact publication-rights status of third-party prose/dialogue/maps/media
+  - exact publication-rights status of third-party prose/dialogue/maps/media; this remains intentionally outside Issue #1121
 conflicts: []
 first_failure:
   marker: branch_pr_identity_omitted
-  evidence: Agent Governance run 31971593663 job 95224784888; task branch current head had draft PR #1122 but checkpoint pr was none
+  evidence: historical Agent Governance run 31971593663 job 95224784888; repaired on c2dad69de9cdb1e027800aebd50850bee01c8904
 rejected_hypotheses:
   - promote CrystalServer source material to native Oteryn authority
   - reuse legacy-canary authority name for a CrystalServer source
   - blend third-party fields into authoritative rows without explicit presentation-only precedence
-  - architecture content caused the first CI failure: task liveness log proves PR identity omission was the actionable failure
+  - place third-party reference snapshots inside the authoritative GameCatalog activation/profile lifecycle
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260816-reference-source-architecture.md
 validation:
-  - command: coordinator live-state and authority preflight
+  - command: fresh admission/ownership/uniqueness review
     result: PASS
-    evidence: Issue #1121 plus current ADR 0034 and Game Catalog contracts
-  - command: CI run 31971593660 on scaffold head b42b9e844d045a8e50e2dbf351fe80804b61aa39
+    evidence: Issue #1121, PRs #1116/#1120/#1122, active task inventory, ADR inventory and open 0042 search
+  - command: scaffold exact-head CI/Agent Governance
     result: PASS
-    evidence: completed success
-  - command: Agent Governance run 31971593663 on scaffold head b42b9e844d045a8e50e2dbf351fe80804b61aa39
-    result: FAIL
-    evidence: job 95224784888 branch_pr_identity_omitted; repaired by this checkpoint update recording pr 1122
+    evidence: c2dad69de9cdb1e027800aebd50850bee01c8904; CI 31971781327 and Agent Governance 31971781324
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
-    evidence: architecture task/dispatch metadata only; no executable product path changed
-blockers:
-  - none after PR identity repair; exact-head governance must be re-observed on the repaired head before a worker relies on dispatch liveness
-next_action: verify this PR-identity repair produces a live-valid task, then Architecture Review worker claims exact decision/backlog/document paths and produces the smallest evidence-backed architecture candidate for Issue #1121
+    evidence: architecture-only documentation/contract task; no executable product or integration journey is changed
+blockers: []
+next_action: write the accepted ADR 0042 plus the non-native reference-content contract and focused authority/module/PlayerCompanion/native-contract reconciliations as one coherent architecture candidate
 ```
-
-The checkpoint records the pre-repair scaffold head because this checkpoint-only commit advances the branch. Live PR #1122 head is authoritative and must be refreshed by the next worker before mutation.
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: architecture review task is READY and draft PR #1122 is the active task identity
-source_branch_evidence: PR #1122 open draft; initial liveness defect repaired by recording its identity
+source_branch_reason: architecture review is active on draft PR #1122
+source_branch_evidence: PR #1122 open; source branch is the sole task delivery path
 ```
 
 ## Notes
 
-This task was dispatched by `CONTENT-COORD` after the content audit proved that source/native authority is a gating dependency for source-driven Wiki and Player Companion expansion. The worker must not reinterpret this scaffold as permission for runtime implementation or external-repository access.
+This task was dispatched by `CONTENT-COORD` after the content audit proved that source/native authority is a gating dependency for source-driven Wiki and Player Companion expansion. The owner explicitly instructed this Architecture Review to resolve the bounded decision autonomously. That instruction authorizes selecting and recording the architecture outcome inside this repository, but does not grant runtime, production, external-repository or third-party-publication authority.
