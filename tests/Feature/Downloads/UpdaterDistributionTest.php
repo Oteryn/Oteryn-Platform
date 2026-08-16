@@ -13,7 +13,6 @@ use App\Downloads\DownloadCatalog;
 use App\Downloads\Models\ClientRelease;
 use App\Downloads\Models\ClientUpdateGeneration;
 use App\Downloads\Models\ClientUpdatePolicy;
-use App\Downloads\Updater\UpdaterPolicyDocument;
 use App\Identity\Models\Identity;
 use App\Identity\Sessions\WebSessionState;
 use Closure;
@@ -78,23 +77,11 @@ final class UpdaterDistributionTest extends TestCase
         $second = $this->enable($actor, $this->release('2.0.0', DownloadCatalog::CHANNEL_STABLE, true));
         $operation = Str::uuid()->toString();
 
-        $policy = $this->approve(
-            $actor,
-            $operation,
-            $second,
-            1,
-            DownloadCatalog::UPDATE_MODE_RECOMMENDED,
-        );
+        $policy = $this->approve($actor, $operation, $second, 1, DownloadCatalog::UPDATE_MODE_RECOMMENDED);
         self::assertSame(1, $policy->revision);
         self::assertSame(2, $policy->current_release_sequence);
 
-        $idempotent = $this->approve(
-            $actor,
-            $operation,
-            $second,
-            1,
-            DownloadCatalog::UPDATE_MODE_RECOMMENDED,
-        );
+        $idempotent = $this->approve($actor, $operation, $second, 1, DownloadCatalog::UPDATE_MODE_RECOMMENDED);
         self::assertSame($policy->id, $idempotent->id);
 
         $this->assertValidationError('operation_id', fn () => $this->approve(
@@ -153,7 +140,7 @@ final class UpdaterDistributionTest extends TestCase
         ));
     }
 
-    public function test_signed_generation_import_is_idempotent_and_fails_closed_on_mismatch_staleness_and_replay(): void
+    public function test_protected_generation_import_is_idempotent_and_fails_closed_on_mismatch_staleness_and_replay(): void
     {
         $actor = $this->administrator('updater-import@example.com');
         $release = $this->enable($actor, $this->release('3.0.0', DownloadCatalog::CHANNEL_STABLE, true));
@@ -172,22 +159,29 @@ final class UpdaterDistributionTest extends TestCase
         self::assertNotNull($generation->reconciled_at);
         self::assertNull($generation->activated_at);
 
+        $freshnessOnly = $this->generationPayload($policy, 'stable-generation-freshness-2', 1);
+        $freshnessOnly['timestamp_version'] = 2;
+        $freshness = app(ImportSignedUpdaterGeneration::class)->execute($actor, $freshnessOnly);
+        self::assertSame(1, $freshness->targets_version);
+        self::assertSame(1, $freshness->snapshot_version);
+        self::assertSame(2, $freshness->timestamp_version);
+
         $changedIdentity = $payload;
         $changedIdentity['metadata_set_sha256'] = str_repeat('9', 64);
         $this->assertValidationError('generation_id', fn () => app(ImportSignedUpdaterGeneration::class)
             ->execute($actor, $changedIdentity));
 
-        $wrongPolicyTarget = $this->generationPayload($policy, 'stable-generation-wrong-policy', 2);
+        $wrongPolicyTarget = $this->generationPayload($policy, 'stable-generation-wrong-policy', 3);
         $wrongPolicyTarget['policy_target_sha256'] = str_repeat('8', 64);
         $this->assertValidationError('policy_target', fn () => app(ImportSignedUpdaterGeneration::class)
             ->execute($actor, $wrongPolicyTarget));
 
-        $wrongTarget = $this->generationPayload($policy, 'stable-generation-wrong-target', 2);
+        $wrongTarget = $this->generationPayload($policy, 'stable-generation-wrong-target', 3);
         $wrongTarget['targets'][0]['target_path'] .= '.other';
         $this->assertValidationError('targets', fn () => app(ImportSignedUpdaterGeneration::class)
             ->execute($actor, $wrongTarget));
 
-        $wrongChannel = $this->generationPayload($policy, 'beta-generation-mismatch', 2);
+        $wrongChannel = $this->generationPayload($policy, 'beta-generation-mismatch', 3);
         $wrongChannel['channel'] = DownloadCatalog::CHANNEL_BETA;
         $this->assertValidationError('channel', fn () => app(ImportSignedUpdaterGeneration::class)
             ->execute($actor, $wrongChannel));
@@ -196,7 +190,7 @@ final class UpdaterDistributionTest extends TestCase
         $this->assertValidationError('metadata_versions', fn () => app(ImportSignedUpdaterGeneration::class)
             ->execute($actor, $replay));
 
-        $expired = $this->generationPayload($policy, 'stable-generation-expired', 2);
+        $expired = $this->generationPayload($policy, 'stable-generation-expired', 3);
         $expired['metadata_expires_at'] = now()->subMinute()->utc()->toIso8601String();
         $this->assertValidationError('metadata_expires_at', fn () => app(ImportSignedUpdaterGeneration::class)
             ->execute($actor, $expired));
@@ -262,7 +256,7 @@ final class UpdaterDistributionTest extends TestCase
             ->assertDontSeeText('Oteryn Client 4.0.0');
     }
 
-    public function test_admin_import_rejects_private_key_shaped_fields_and_persistence_has_no_private_key_columns(): void
+    public function test_signed_generation_boundary_rejects_secret_shaped_fields_and_has_no_web_admin_mutation_route(): void
     {
         $actor = $this->administrator('updater-private-key@example.com');
         $release = $this->enable($actor, $this->release('5.0.0', DownloadCatalog::CHANNEL_STABLE, true));
@@ -276,11 +270,20 @@ final class UpdaterDistributionTest extends TestCase
         $payload = $this->generationPayload($policy, 'stable-generation-private-key-reject', 1);
         $payload['private_key'] = 'must-never-be-accepted';
 
-        $this->actingAsCurrent($actor);
-        $this->post(route('admin.downloads.updater.generations.store', ['channel' => 'stable']), [
-            'public_metadata_json' => json_encode($payload, JSON_THROW_ON_ERROR),
-        ])->assertSessionHasErrors('public_metadata_json');
+        $this->assertValidationError('generation_payload', fn () => app(ImportSignedUpdaterGeneration::class)
+            ->execute($actor, $payload));
         self::assertSame(0, ClientUpdateGeneration::query()->count());
+
+        $this->actingAsCurrent($actor);
+        $this->post('/admin/downloads/updater/stable/generations', [
+            'public_metadata_json' => '{}',
+        ])->assertNotFound();
+        $this->post('/admin/downloads/updater/stable/generations/1/activate')->assertNotFound();
+        $this->get(route('admin.downloads.updater', ['channel' => 'stable']))
+            ->assertOk()
+            ->assertSeeText('This web console intentionally has no route to import or activate signed-generation metadata.')
+            ->assertDontSee('public_metadata_json', false)
+            ->assertDontSeeText('Activate Platform updater state');
 
         $columns = array_merge(
             Schema::getColumnListing('client_update_policies'),

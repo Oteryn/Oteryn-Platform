@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use App\Admin\AdminPermission;
 use App\Admin\AdminRoleManager;
+use App\Downloads\Actions\ActivateUpdaterGeneration;
+use App\Downloads\Actions\ImportSignedUpdaterGeneration;
 use App\Downloads\Models\ClientRelease;
 use App\Downloads\Models\ClientUpdateGeneration;
 use App\Downloads\Models\ClientUpdatePolicy;
@@ -40,6 +42,60 @@ $databaseId = static function (string $table, string $key) use ($fail): int {
     }
 
     $fail("Expected integer-compatible id for {$table}.{$key}.");
+};
+
+$generationPayload = static function (string $channel) use ($fail): array {
+    $policy = ClientUpdatePolicy::query()
+        ->where('channel', $channel)
+        ->orderByDesc('revision')
+        ->first();
+    if (! $policy instanceof ClientUpdatePolicy) {
+        $fail('Approved updater policy not found.');
+    }
+
+    $latest = ClientUpdateGeneration::query()
+        ->where('channel', $channel)
+        ->orderByDesc('timestamp_version')
+        ->first();
+    $nextTargetsVersion = ($latest?->targets_version ?? 0) + 1;
+    $nextSnapshotVersion = ($latest?->snapshot_version ?? 0) + 1;
+    $nextTimestampVersion = ($latest?->timestamp_version ?? 0) + 1;
+    $rootVersion = max(1, $latest?->root_version ?? 1);
+
+    /** @var list<array{artifact_id: int, platform: string, architecture: string, target_path: string, size_bytes: int, supplied_sha256: string}> $artifactTargets */
+    $artifactTargets = $policy->artifact_targets;
+    $targets = array_map(
+        static fn (array $target): array => [
+            'platform' => $target['platform'],
+            'architecture' => $target['architecture'],
+            'target_path' => $target['target_path'],
+            'length' => $target['size_bytes'],
+            'sha256' => $target['supplied_sha256'],
+        ],
+        $artifactTargets,
+    );
+    $generationId = sprintf(
+        'acceptance-%s-policy-%d-timestamp-%d',
+        $channel,
+        $policy->revision,
+        $nextTimestampVersion,
+    );
+
+    return [
+        'generation_id' => $generationId,
+        'channel' => $channel,
+        'policy_revision' => $policy->revision,
+        'root_version' => $rootVersion,
+        'targets_version' => $nextTargetsVersion,
+        'snapshot_version' => $nextSnapshotVersion,
+        'timestamp_version' => $nextTimestampVersion,
+        'metadata_expires_at' => now()->addHour()->utc()->toIso8601String(),
+        'metadata_set_sha256' => hash('sha256', 'acceptance-public-metadata-set|'.$generationId),
+        'policy_target_path' => $policy->policy_target_path,
+        'policy_target_sha256' => $policy->policy_document_sha256,
+        'policy_target_length' => $policy->policy_document_length,
+        'targets' => $targets,
+    ];
 };
 
 if ($command === 'grant-downloads') {
@@ -135,52 +191,31 @@ if ($command === 'set-artifact-url') {
 }
 
 if ($command === 'updater-generation-template') {
-    $channel = $argv[2] ?? '';
-    $policy = ClientUpdatePolicy::query()
-        ->where('channel', $channel)
-        ->orderByDesc('revision')
-        ->first();
-    if (! $policy instanceof ClientUpdatePolicy) {
-        $fail('Approved updater policy not found.');
+    $json($generationPayload($argv[2] ?? ''));
+}
+
+if ($command === 'reconcile-updater-generation') {
+    if (! app()->environment('acceptance')) {
+        $fail('This protected-integration simulation is acceptance-only.', 3);
     }
 
-    $latest = ClientUpdateGeneration::query()
-        ->where('channel', $channel)
-        ->orderByDesc('timestamp_version')
-        ->first();
-    $nextTargetsVersion = ($latest?->targets_version ?? 0) + 1;
-    $nextSnapshotVersion = ($latest?->snapshot_version ?? 0) + 1;
-    $nextTimestampVersion = ($latest?->timestamp_version ?? 0) + 1;
-    $rootVersion = max(1, $latest?->root_version ?? 1);
+    $channel = $argv[2] ?? '';
+    $email = $argv[3] ?? '';
+    $identity = Identity::query()->where('email', $email)->first();
+    if (! $identity instanceof Identity) {
+        $fail('Acceptance integration actor not found.');
+    }
 
-    /** @var list<array{artifact_id: int, platform: string, architecture: string, target_path: string, size_bytes: int, supplied_sha256: string}> $artifactTargets */
-    $artifactTargets = $policy->artifact_targets;
-    $targets = array_map(
-        static fn (array $target): array => [
-            'platform' => $target['platform'],
-            'architecture' => $target['architecture'],
-            'target_path' => $target['target_path'],
-            'length' => $target['size_bytes'],
-            'sha256' => $target['supplied_sha256'],
-        ],
-        $artifactTargets,
-    );
-    $generationId = sprintf('acceptance-%s-policy-%d-timestamp-%d', $channel, $policy->revision, $nextTimestampVersion);
+    $payload = $generationPayload($channel);
+    $generation = app(ImportSignedUpdaterGeneration::class)->execute($identity, $payload);
+    $active = app(ActivateUpdaterGeneration::class)->execute($identity, $generation);
 
     $json([
-        'generation_id' => $generationId,
-        'channel' => $channel,
-        'policy_revision' => $policy->revision,
-        'root_version' => $rootVersion,
-        'targets_version' => $nextTargetsVersion,
-        'snapshot_version' => $nextSnapshotVersion,
-        'timestamp_version' => $nextTimestampVersion,
-        'metadata_expires_at' => now()->addHour()->utc()->toIso8601String(),
-        'metadata_set_sha256' => hash('sha256', 'acceptance-public-metadata-set|'.$generationId),
-        'policy_target_path' => $policy->policy_target_path,
-        'policy_target_sha256' => $policy->policy_document_sha256,
-        'policy_target_length' => $policy->policy_document_length,
-        'targets' => $targets,
+        'generation_id' => $active->generation_id,
+        'channel' => $active->channel,
+        'policy_revision' => $active->policy->revision,
+        'platform_active' => $active->activated_at !== null && $active->superseded_at === null,
+        'harness_scope' => 'acceptance-only protected-integration simulation; no cryptographic TUF signing or production activation',
     ]);
 }
 

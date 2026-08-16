@@ -2,10 +2,8 @@
 
 namespace App\Http\Controllers\Downloads;
 
-use App\Downloads\Actions\ActivateUpdaterGeneration;
 use App\Downloads\Actions\ApproveUpdaterPolicy;
 use App\Downloads\Actions\EnableUpdaterRelease;
-use App\Downloads\Actions\ImportSignedUpdaterGeneration;
 use App\Downloads\Actions\PublishClientRelease;
 use App\Downloads\Actions\SaveClientRelease;
 use App\Downloads\Actions\WithdrawUpdaterRelease;
@@ -15,7 +13,6 @@ use App\Downloads\Models\ClientUpdateGeneration;
 use App\Downloads\Models\ClientUpdatePolicy;
 use App\Downloads\Updater\UpdaterPolicyDocument;
 use App\Http\Requests\Downloads\ApproveUpdaterPolicyRequest;
-use App\Http\Requests\Downloads\ImportUpdaterGenerationRequest;
 use App\Http\Requests\Downloads\PublishClientReleaseRequest;
 use App\Http\Requests\Downloads\SaveClientReleaseRequest;
 use App\Identity\Models\Identity;
@@ -190,35 +187,7 @@ final class AdminDownloadController
 
         return redirect()
             ->route('admin.downloads.updater', ['channel' => $channel])
-            ->with('status', "Updater policy revision {$policy->revision} approved for signing/repository reconciliation.");
-    }
-
-    public function importUpdaterGeneration(
-        ImportUpdaterGenerationRequest $request,
-        string $channel,
-        ImportSignedUpdaterGeneration $import,
-    ): RedirectResponse {
-        $this->assertChannel($channel);
-        $generation = $import->execute($this->identity($request), $request->generationPayload());
-
-        return redirect()
-            ->route('admin.downloads.updater', ['channel' => $channel])
-            ->with('status', "Public signed-generation metadata {$generation->generation_id} reconciled. No signing key was used or stored.");
-    }
-
-    public function activateUpdaterGeneration(
-        Request $request,
-        string $channel,
-        ClientUpdateGeneration $clientUpdateGeneration,
-        ActivateUpdaterGeneration $activate,
-    ): RedirectResponse {
-        $this->assertChannel($channel);
-        abort_unless($clientUpdateGeneration->channel === $channel, 404);
-        $generation = $activate->execute($this->identity($request), $clientUpdateGeneration);
-
-        return redirect()
-            ->route('admin.downloads.updater', ['channel' => $channel])
-            ->with('status', "Generation {$generation->generation_id} is Platform-active for updater state. This is not production deployment or client trust verification.");
+            ->with('status', "Updater policy revision {$policy->revision} approved for protected signing/repository reconciliation.");
     }
 
     private function identity(Request $request): Identity

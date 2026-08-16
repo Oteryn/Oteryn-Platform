@@ -75,7 +75,7 @@ test.afterEach(async ({ page }, testInfo) => {
   }
 });
 
-test('@portal-downloads complete public, administrator, updater, localization and recovery lifecycle', async ({ browser, page }) => {
+test('@portal-downloads complete public, administrator, protected-integration simulation, localization and recovery lifecycle', async ({ browser, page }) => {
   const suffix = (process.env.ACCEPTANCE_RUN_ID ?? 'local')
     .replace(/[^a-zA-Z0-9-]/gu, '-')
     .toLowerCase()
@@ -177,6 +177,9 @@ test('@portal-downloads complete public, administrator, updater, localization an
   await expect(page.getByRole('heading', { name: 'Stable updater diagnostics' })).toBeVisible();
   await expect(page.getByText('No private updater signing key is accepted or stored by this Platform.')).toBeVisible();
   await expect(page.getByText('No Platform-active updater generation.')).toBeVisible();
+  await expect(page.getByText('This web console intentionally has no route to import or activate signed-generation metadata.')).toBeVisible();
+  await expect(page.getByLabel('Public signed-generation metadata JSON')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Activate Platform updater state' })).toHaveCount(0);
 
   await page.getByLabel('Update mode').selectOption('recommended');
   await page.getByLabel('Minimum supported release sequence').fill('1');
@@ -184,15 +187,14 @@ test('@portal-downloads complete public, administrator, updater, localization an
   await expect(page.getByText(/Updater policy revision 1 approved/u)).toBeVisible();
   await expect(page.getByText('Revision 1 · sequence 1 · Recommended')).toBeVisible();
 
-  const signedProjection = downloadsState('updater-generation-template', 'stable');
-  await page.getByLabel('Public signed-generation metadata JSON').fill(JSON.stringify(signedProjection));
-  await page.getByRole('button', { name: 'Reconcile public metadata' }).click();
-  await expect(page.getByText(new RegExp(`Public signed-generation metadata ${signedProjection.generation_id} reconciled`, 'u'))).toBeVisible();
-  const generationRow = page.locator('tr').filter({ hasText: signedProjection.generation_id });
-  await expect(generationRow.getByText('Reconciled, inactive')).toBeVisible();
-  await generationRow.getByRole('button', { name: 'Activate Platform updater state' }).click();
-  await expect(page.getByText(new RegExp(`Generation ${signedProjection.generation_id} is Platform-active`, 'u'))).toBeVisible();
+  const protectedIntegration = downloadsState('reconcile-updater-generation', 'stable', adminEmail);
+  expect(protectedIntegration.platform_active).toBe(true);
+  expect(protectedIntegration.harness_scope).toContain('acceptance-only');
+  expect(protectedIntegration.harness_scope).toContain('no cryptographic TUF signing');
+  await page.reload();
+  await expect(page.getByText(protectedIntegration.generation_id)).toBeVisible();
   await expect(page.getByText('Platform-active').first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Activate Platform updater state' })).toHaveCount(0);
 
   await page.goto('/en/download');
   await expect(page.getByRole('heading', { name: `Oteryn Client ${version}` })).toBeVisible();

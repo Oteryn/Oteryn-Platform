@@ -26,15 +26,6 @@ Route::middleware([
         Route::post('/updater/{channel}/policies', [AdminDownloadController::class, 'approveUpdaterPolicy'])
             ->whereIn('channel', DownloadCatalog::channels())
             ->name('admin.downloads.updater.policies.store');
-        Route::post('/updater/{channel}/generations', [AdminDownloadController::class, 'importUpdaterGeneration'])
-            ->whereIn('channel', DownloadCatalog::channels())
-            ->name('admin.downloads.updater.generations.store');
-        Route::post(
-            '/updater/{channel}/generations/{clientUpdateGeneration}/activate',
-            [AdminDownloadController::class, 'activateUpdaterGeneration'],
-        )
-            ->whereIn('channel', DownloadCatalog::channels())
-            ->name('admin.downloads.updater.generations.activate');
         Route::get('/{clientRelease}/edit', [AdminDownloadController::class, 'edit'])->name('admin.downloads.edit');
         Route::put('/{clientRelease}', [AdminDownloadController::class, 'update'])->name('admin.downloads.update');
         Route::post('/{clientRelease}/publish', [AdminDownloadController::class, 'publish'])->name('admin.downloads.publish');

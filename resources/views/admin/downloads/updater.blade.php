@@ -4,7 +4,6 @@
 
 @section('content')
     @php
-        $latestPolicy = $policies->first();
         $activeGeneration = $generations->first(static fn ($generation): bool => $generation->activated_at !== null && $generation->superseded_at === null);
         $defaultRelease = $releases->whereNull('updater_withdrawn_at')->sortByDesc('updater_sequence')->first();
         $defaultMinimum = $releases->min('updater_sequence');
@@ -13,12 +12,12 @@
     <div class="page-header">
         <p class="eyebrow">Content · Downloads · Updater</p>
         <h1>{{ \App\Downloads\DownloadCatalog::channelLabel($channel) }} updater diagnostics</h1>
-        <p class="muted">Browser publication, approved updater policy, signed-repository reconciliation and Platform-active updater state are separate lifecycle facts.</p>
+        <p class="muted">Browser publication, approved updater policy, protected signed-repository reconciliation and Platform-active updater state are separate lifecycle facts.</p>
     </div>
 
     <div class="alert alert-warning" role="status">
         <strong>No private updater signing key is accepted or stored by this Platform.</strong>
-        <p>Imports below are public projections of metadata already produced by the protected TUF boundary. Platform reconciliation checks identity, ordering, expiry, channel, policy and exact target consistency; the first-party updater still performs cryptographic TUF verification. Platform-active does not mean deployed or production-active.</p>
+        <p>Ordinary web administrators can approve Platform policy intent, but they cannot import or activate signed-generation state. Reconciliation and Platform activation are internal boundaries for the separately protected release-publishing integration after its TUF verification. The first-party updater still performs its own trusted TUF verification. Platform-active never means deployed or production-active.</p>
     </div>
 
     <div class="action-row">
@@ -41,7 +40,7 @@
         @else
             <div class="empty-state">
                 <strong>No Platform-active updater generation.</strong>
-                <p>Browser downloads can remain published independently. Approve policy, reconcile the exact public signed generation, then activate only the reconciled state.</p>
+                <p>Browser downloads can remain published independently. After policy approval, only the protected integration may reconcile and activate matching public repository state.</p>
             </div>
         @endif
     </div>
@@ -165,26 +164,18 @@
     </div>
 
     <div class="card">
-        <h2>Reconcile public signed-generation metadata</h2>
-        <p class="muted">Paste only the bounded public projection produced after protected signing/repository generation. Raw private keys, signing secrets and unmodelled fields are rejected. This reconciliation does not claim that Laravel verified TUF signatures.</p>
-        <form class="form-stack" method="POST" action="{{ route('admin.downloads.updater.generations.store', ['channel' => $channel]) }}">
-            @csrf
-            <div class="form-field">
-                <label for="public_metadata_json">Public signed-generation metadata JSON</label>
-                <textarea id="public_metadata_json" name="public_metadata_json" rows="18" maxlength="200000" required>{{ old('public_metadata_json') }}</textarea>
-            </div>
-            <button type="submit">Reconcile public metadata</button>
-        </form>
+        <h2>Protected integration boundary</h2>
+        <p class="muted">This web console intentionally has no route to import or activate signed-generation metadata. The internal reconciliation boundary accepts only a bounded public projection after the protected integration has performed the required TUF verification, then checks exact Platform policy association, channel, target, freshness and monotonic metadata identity. Private keys and signing secrets are never accepted.</p>
     </div>
 
     <div class="card">
         <h2>Signed-generation history</h2>
         @if ($generations->isEmpty())
-            <p class="muted">No signed repository generation has been reconciled yet.</p>
+            <p class="muted">No protected-integration generation has been reconciled yet.</p>
         @else
             <div class="table-region" tabindex="0" aria-label="Signed generation history, horizontally scrollable">
                 <table>
-                    <thead><tr><th>Generation</th><th>Policy</th><th>T/S/T versions</th><th>Expiry</th><th>State</th><th>Action</th></tr></thead>
+                    <thead><tr><th>Generation</th><th>Policy</th><th>T/S/T versions</th><th>Expiry</th><th>State</th></tr></thead>
                     <tbody>
                         @foreach ($generations as $generation)
                             <tr>
@@ -199,14 +190,6 @@
                                         <span class="badge badge-success">Platform-active</span>
                                     @else
                                         Reconciled, inactive
-                                    @endif
-                                </td>
-                                <td>
-                                    @if (! $generation->activated_at && ! $generation->superseded_at)
-                                        <form method="POST" action="{{ route('admin.downloads.updater.generations.activate', ['channel' => $channel, 'clientUpdateGeneration' => $generation]) }}">
-                                            @csrf
-                                            <button type="submit">Activate Platform updater state</button>
-                                        </form>
                                     @endif
                                 </td>
                             </tr>
