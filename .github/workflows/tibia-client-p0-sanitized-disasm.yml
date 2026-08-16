@@ -18,7 +18,7 @@ jobs:
     runs-on: oteryn-staging
     timeout-minutes: 5
     steps:
-      - name: Emit bounded exact-client bytes with ELF VA mapping
+      - name: Emit bounded exact-client TPlayerData target bytes
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -31,33 +31,25 @@ jobs:
             --entrypoint /bin/bash "$image" -lc '
               set -Eeuo pipefail
               client=/runner-work/_otclient_tibia_re_state/cache/current-client/client
-              [[ -f "$client" ]]
-              size=$(stat -c %s "$client")
-              sha=$(sha256sum "$client" | awk "{print \$1}")
-              echo "EXACT_CLIENT_SIZE=$size"
-              echo "EXACT_CLIENT_SHA256=$sha"
-              [[ "$size" == "$EXPECTED_SIZE" ]]
-              [[ "$sha" == "$EXPECTED_SHA256" ]]
-              command -v od >/dev/null
-              u16(){ od -An -tu2 -j "$2" -N2 "$1" | tr -d "[:space:]"; }
-              u32(){ od -An -tu4 -j "$2" -N4 "$1" | tr -d "[:space:]"; }
-              u64(){ od -An -tu8 -j "$2" -N8 "$1" | tr -d "[:space:]"; }
-              start=$((0x836500)); stop=$((0x836a00))
-              phoff=$(u64 "$client" 32); ents=$(u16 "$client" 54); n=$(u16 "$client" 56)
-              echo "ELF_PHOFF=$phoff ELF_PHENTSIZE=$ents ELF_PHNUM=$n"
-              fileoff=""
-              for ((i=0;i<n;i++)); do
-                base=$((phoff+i*ents)); type=$(u32 "$client" "$base")
-                [[ "$type" == 1 ]] || continue
-                po=$(u64 "$client" $((base+8))); pv=$(u64 "$client" $((base+16))); pfs=$(u64 "$client" $((base+32)));
-                echo "PT_LOAD index=$i offset=$po vaddr=$pv filesz=$pfs"
-                if (( pv <= start && stop <= pv+pfs )); then fileoff=$((po+start-pv)); fi
-              done
-              [[ -n "$fileoff" ]]
-              len=$((stop-start))
-              echo "HEX_PLAYERPOSITION VA=0x836500..0x836a00 FILEOFF=$fileoff LEN=$len"
-              od -An -v -tx1 -j "$fileoff" -N "$len" "$client" | tr -d "[:space:]"
-              echo
+              [[ "$(stat -c %s "$client")" == "$EXPECTED_SIZE" ]]
+              [[ "$(sha256sum "$client" | awk "{print \$1}")" == "$EXPECTED_SHA256" ]]
+              # Run 31952152531 proved the executable PT_LOAD has p_offset == p_vaddr
+              # and spans every range below. Re-assert the exact segment boundary.
+              po=$(od -An -tu8 -j $((64+3*56+8)) -N8 "$client" | tr -d "[:space:]")
+              pv=$(od -An -tu8 -j $((64+3*56+16)) -N8 "$client" | tr -d "[:space:]")
+              pfs=$(od -An -tu8 -j $((64+3*56+32)) -N8 "$client" | tr -d "[:space:]")
+              echo "EXEC_PT_LOAD offset=$po vaddr=$pv filesz=$pfs"
+              [[ "$po" == "$pv" ]]
+              emit(){
+                label="$1"; start=$(( $2 )); stop=$(( $3 )); len=$((stop-start));
+                (( pv <= start && stop <= pv+pfs ));
+                echo "HEX_${label} VA=$(printf 0x%x "$start")..$(printf 0x%x "$stop") FILEOFF=$start LEN=$len"
+                od -An -v -tx1 -j "$start" -N "$len" "$client" | tr -d "[:space:]"; echo
+              }
+              emit TPLAYERDATA_SLOT3_4 0x843d80 0x844100
+              emit TPLAYERDATA_SLOT0 0xd1cb00 0xd1ce00
+              emit TPLAYERDATA_SLOT1 0xd2abc0 0xd2b000
+              emit TPLAYERDATA_SLOT2 0xd2ee80 0xd2f200
             '
       - name: State static-only boundary
         shell: bash
