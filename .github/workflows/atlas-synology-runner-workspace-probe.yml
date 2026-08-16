@@ -1,0 +1,116 @@
+name: Atlas Synology Runner Workspace Probe
+
+on:
+  push:
+    branches:
+      - ops/atlas-synology-runtime-bridge-20260816
+    paths:
+      - .github/workflows/atlas-synology-runner-workspace-probe.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-synology-runner-workspace-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: Locate preserved Atlas corpus in OTS runner storage
+    runs-on: oteryn-staging
+    timeout-minutes: 8
+    steps:
+      - name: Discover OTS runner mounts and candidate volumes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo '=== ots runner mounts ==='
+          docker inspect --format '{{range .Mounts}}{{.Type}}|{{.Name}}|{{.Source}}|{{.Destination}}|rw={{.RW}}{{println}}{{end}}' ots-synology-runner
+          echo '=== relevant Docker volumes ==='
+          docker volume ls --format '{{.Name}}' | grep -Ei 'ots|otheryn|runner' || true
+          echo '=== otclient runner mounts ==='
+          docker inspect --format '{{range .Mounts}}{{.Type}}|{{.Name}}|{{.Source}}|{{.Destination}}|rw={{.RW}}{{println}}{{end}}' otclient-synology-runner 2>/dev/null || true
+
+      - name: Search only runner work/config volumes for canonical Atlas manifest
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mapfile -t sources < <(docker inspect --format '{{range .Mounts}}{{if or (eq .Destination "/work") (eq .Destination "/runner")}}{{.Source}}{{println}}{{end}}{{end}}' ots-synology-runner | sed '/^$/d')
+          [[ ${#sources[@]} -gt 0 ]]
+          args=()
+          idx=0
+          for source in "${sources[@]}"; do
+            args+=( -v "${source}:/host/source${idx}:ro" )
+            idx=$((idx+1))
+          done
+          image='python:3.13-alpine'
+          docker pull "$image" >/dev/null
+          docker run --rm -i \
+            --name "atlas-runner-workspace-probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --label com.blakinio.owner=otbm-atlas \
+            --label com.blakinio.purpose=atlas-runner-workspace-probe \
+            --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+            "${args[@]}" \
+            "$image" python - <<'PY'
+          from __future__ import annotations
+          import json, os
+          from pathlib import Path
+
+          EXPECTED_MAP='3bd40d14fefec41f24c4b3ae879e420be1a831ef55b95dcbec721e587a09b034'
+          roots=sorted(Path('/host').glob('source*'))
+          print('SOURCE_COUNT',len(roots))
+          found=[]
+          for root in roots:
+              print('SOURCE',root.name)
+              for current,dirs,files in os.walk(root):
+                  rel=Path(current).relative_to(root)
+                  if len(rel.parts)>9:
+                      dirs[:]=[]; continue
+                  lower={p.lower() for p in rel.parts}
+                  if lower & {'.git','node_modules','vendor'}:
+                      dirs[:]=[]; continue
+                  if 'manifest.json' not in files:
+                      continue
+                  path=Path(current)/'manifest.json'
+                  try:
+                      data=json.loads(path.read_text(encoding='utf-8'))
+                  except Exception:
+                      continue
+                  chunks=data.get('chunks',[]); src=data.get('sources',{})
+                  if not isinstance(chunks,list) or not isinstance(src,dict):
+                      continue
+                  if data.get('schemaVersion') != 3 or src.get('mapSha256') != EXPECTED_MAP:
+                      continue
+                  atlas_root=path.parent
+                  floors=sorted({int(c['z']) for c in chunks if isinstance(c,dict) and 'z' in c})
+                  found.append(atlas_root)
+                  print('ATLAS_ROOT',root.name,atlas_root.relative_to(root).as_posix())
+                  print('IDENTITY',data.get('schemaVersion'),data.get('chunkSize'),len(chunks),','.join(map(str,floors)),src.get('mapSha256'),src.get('assetsSha256'),src.get('atlasVersion'))
+                  required=('index.html','viewer-app.js','viewer-runtime.js','creature-animation-runtime.js','data/search-index.json','data/statistics.json','data/spawns.json','data/environment-animations/index.json','.spool/source.json')
+                  for name in required:
+                      p=atlas_root/name
+                      print('FILE',name,int(p.is_file()))
+                  for dirname in ('tiles','overview','overview-low','data/environment-animations'):
+                      p=atlas_root/dirname
+                      print('DIR',dirname,int(p.is_dir()))
+                  try:
+                      print('TILE_PNG_COUNT',sum(1 for _ in (atlas_root/'tiles').glob('z*/*.png')))
+                      print('OVERVIEW_PNG_COUNT',sum(1 for _ in (atlas_root/'overview').glob('z*/*.png')))
+                      print('OVERVIEW_LOW_PNG_COUNT',sum(1 for _ in (atlas_root/'overview-low').glob('z*/*.png')))
+                  except Exception:
+                      pass
+          print('ATLAS_FOUND',len(found))
+          PY
+
+      - name: Verify helper cleanup
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          name="atlas-runner-workspace-probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if docker inspect "$name" >/dev/null 2>&1; then
+            owner="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$name" 2>/dev/null || true)"
+            purpose="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$name" 2>/dev/null || true)"
+            if [[ "$owner" == 'otbm-atlas' && "$purpose" == 'atlas-runner-workspace-probe' ]]; then docker rm -f "$name" || true; fi
+          fi
+          ! docker inspect "$name" >/dev/null 2>&1
