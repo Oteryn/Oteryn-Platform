@@ -83,10 +83,10 @@ The architecture worker must update `owned_paths` with the exact ADR/backlog/con
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-16T20:48:00Z
-head: UNKNOWN
+updated_at: 2026-08-16T20:52:00Z
+head: b42b9e844d045a8e50e2dbf351fe80804b61aa39
 branch: docs/issue-1121-reference-source-architecture
-pr: none
+pr: 1122
 status: ready
 context_routes:
   - architecture
@@ -96,47 +96,60 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260816-reference-source-architecture.md
 proven:
   - Issue #1121 exists and is labelled agent:ready
+  - draft PR #1122 exists for docs/issue-1121-reference-source-architecture
   - ADR 0034 is accepted and assigns native gameplay-content authority to Oteryn-v2 while Platform owns catalogue lifecycle
   - ADR 0034 keeps Legacy Canary Compatibility importers as explicit anti-corruption adapters
   - OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT forbids co-authoritative source blending and allows only presentation metadata supplementation under explicit provenance/precedence
   - owner-supplied CrystalServer archive is source material only under #1115 and is not native authority
   - architecture programme currently reports no active task in its durable queue snapshot
-  - no external server/game repository was accessed while scaffolding this task
+  - scaffold head b42b9e844d045a8e50e2dbf351fe80804b61aa39 passed CI run 31971593660
+  - Agent Governance run 31971593663 failed only because the initial task scaffold omitted the already-open draft PR #1122 identity
+  - no external server/game repository was accessed while scaffolding or repairing dispatch metadata
 derived:
   - ADR 0034 already rejects promoting CrystalServer-derived facts into native Oteryn gameplay authority
   - a remaining bounded decision exists only for non-native/non-executable reference use and presentation/tool consumption
+  - the Agent Governance failure is a coordinator handoff metadata defect, not an architecture/product failure
 unknown:
   - whether a reference-only profile belongs inside GameCatalog, a separate read model, or should be rejected/deferred
   - exact allowed public Wiki/PlayerCompanion uses of third-party structured facts
   - exact publication-rights status of third-party prose/dialogue/maps/media
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: branch_pr_identity_omitted
+  evidence: Agent Governance run 31971593663 job 95224784888; task branch current head had draft PR #1122 but checkpoint pr was none
 rejected_hypotheses:
   - promote CrystalServer source material to native Oteryn authority
   - reuse legacy-canary authority name for a CrystalServer source
   - blend third-party fields into authoritative rows without explicit presentation-only precedence
+  - architecture content caused the first CI failure: task liveness log proves PR identity omission was the actionable failure
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260816-reference-source-architecture.md
 validation:
   - command: coordinator live-state and authority preflight
     result: PASS
     evidence: Issue #1121 plus current ADR 0034 and Game Catalog contracts
+  - command: CI run 31971593660 on scaffold head b42b9e844d045a8e50e2dbf351fe80804b61aa39
+    result: PASS
+    evidence: completed success
+  - command: Agent Governance run 31971593663 on scaffold head b42b9e844d045a8e50e2dbf351fe80804b61aa39
+    result: FAIL
+    evidence: job 95224784888 branch_pr_identity_omitted; repaired by this checkpoint update recording pr 1122
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
-    evidence: architecture scaffold only; no executable product path changed
+    evidence: architecture task/dispatch metadata only; no executable product path changed
 blockers:
-  - none
-next_action: claim exact architecture decision/backlog/document paths, inspect current architecture decision registry for overlap, and produce the smallest evidence-backed architecture candidate for Issue #1121
+  - none after PR identity repair; exact-head governance must be re-observed on the repaired head before a worker relies on dispatch liveness
+next_action: verify this PR-identity repair produces a live-valid task, then Architecture Review worker claims exact decision/backlog/document paths and produces the smallest evidence-backed architecture candidate for Issue #1121
 ```
+
+The checkpoint records the pre-repair scaffold head because this checkpoint-only commit advances the branch. Live PR #1122 head is authoritative and must be refreshed by the next worker before mutation.
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: architecture review task is READY and has not started implementation/review work
-source_branch_evidence: pending
+source_branch_reason: architecture review task is READY and draft PR #1122 is the active task identity
+source_branch_evidence: PR #1122 open draft; initial liveness defect repaired by recording its identity
 ```
 
 ## Notes
