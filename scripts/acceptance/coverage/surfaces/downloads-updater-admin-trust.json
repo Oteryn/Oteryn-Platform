@@ -1,0 +1,63 @@
+{
+  "surfaces": [
+    {
+      "id": "downloads.updater-admin-trust",
+      "owner": "Downloads",
+      "status": "covered",
+      "route_names": [
+        "admin.downloads.updater",
+        "admin.downloads.updater.enable",
+        "admin.downloads.updater.policies.store",
+        "admin.downloads.updater.withdraw"
+      ],
+      "roles": [
+        "guest",
+        "authenticated-no-mfa",
+        "mfa-confirmed-no-permission",
+        "downloads-manager"
+      ],
+      "states": [
+        "diagnostics-read-only",
+        "updater-release-enabled",
+        "policy-approved",
+        "release-withdrawn",
+        "permission-denied",
+        "signed-generation-web-mutation-absent",
+        "audit-visible"
+      ],
+      "viewports": [
+        "desktop-1440x1000",
+        "tablet-820x1180",
+        "mobile-390x844"
+      ],
+      "browsers": [
+        "chromium-primary",
+        "firefox-bounded",
+        "webkit-bounded"
+      ],
+      "evidence_layers": [
+        "feature",
+        "playwright",
+        "responsive",
+        "security",
+        "audit"
+      ],
+      "evidence": [
+        {
+          "file": "tests/Feature/Downloads/UpdaterDistributionTest.php",
+          "markers": [
+            "test_policy_revision_requires_explicit_rollback_preserves_revocation_history_and_respects_withdrawal",
+            "test_signed_generation_boundary_rejects_secret_shaped_fields_and_has_no_web_admin_mutation_route"
+          ]
+        },
+        {
+          "file": "scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs",
+          "markers": [
+            "@portal-downloads complete public, administrator, localization and recovery lifecycle"
+          ]
+        }
+      ],
+      "gaps": []
+    }
+  ]
+}

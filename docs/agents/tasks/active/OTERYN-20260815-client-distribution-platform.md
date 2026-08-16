@@ -70,6 +70,7 @@ owned_paths:
   - tests/Feature/Downloads/**
   - scripts/acceptance/seed-downloads-state.php
   - scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs
+  - scripts/acceptance/coverage/surfaces/downloads-updater-admin-trust.json
   - .github/workflows/downloads-acceptance.yml
   - docs/agents/tasks/active/OTERYN-20260815-client-distribution-platform.md
   - docs/agents/tasks/archive/OTERYN-20260815-client-distribution-platform.md
@@ -107,16 +108,17 @@ clean_material_commit: da514f3eda178e904a6fc481616a737d1b12d8c4
 first_published_reconstruction_head: 4a2fa4e3b19571e257d5462f6c6b58ef841a4ad0
 formatter_repair_commit: aaec9fe4cda15c48da12d5a1646cd7eba018aad2
 phase7_fixture_repair_commit: 2e8d81c9c8a957c1aeef4b5ff2ecffa8c9106fde
+static_analysis_repair_commit: b67c361aa924e96b9ce54c2ba1c15d5bb104d724
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-16T15:55:00+02:00
-head: 2e8d81c9c8a957c1aeef4b5ff2ecffa8c9106fde
+updated_at: 2026-08-16T16:09:00+02:00
+head: b67c361aa924e96b9ce54c2ba1c15d5bb104d724
 status: validating
-phase: final_exact_head_validation_after_phase7_fixture_repair
+phase: final_exact_head_validation_after_portal_route_classification_repair
 branch: feat/issue-1039-client-distribution-platform
 pr: 1073
 context_routes:
@@ -138,6 +140,7 @@ owned_paths:
   - tests/Feature/Downloads/**
   - scripts/acceptance/seed-downloads-state.php
   - scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs
+  - scripts/acceptance/coverage/surfaces/downloads-updater-admin-trust.json
   - .github/workflows/downloads-acceptance.yml
 repository_mutation_authorization: PROVEN
 external_repository_mutation_authorization: ABSENT_AND_NOT_REQUIRED
@@ -149,25 +152,25 @@ proven:
   - ADR 0035 and CLIENT_DISTRIBUTION_ARCHITECTURE remain the accepted authority for this slice
   - ordinary downloads.manage web administration cannot import or activate protected generation state
   - no private updater signing key or signing secret is accepted or persisted by the Platform implementation
-  - exact head 0d8c8a34eac5f00ddfa014dcf79684e3f3fcb089 passed Downloads Acceptance run 31940052536 including migration rollback/re-apply, zero-retry Chromium lifecycle, Firefox portability and WebKit portability
-  - CI run 31940052520 on 0d8c8a34eac5f00ddfa014dcf79684e3f3fcb089 isolated 22 Pint formatting findings before static analysis/tests
   - canonical formatter repair commit aaec9fe4cda15c48da12d5a1646cd7eba018aad2 changed exactly the 22 PHP files reported by Pint
-  - temporary formatter permissions and source-editing step were removed from the retained Downloads Acceptance workflow
-  - Phase 7 run on head 5beb6230c6e33933a29cc55542861e260e2fec02 isolated one UpdaterDistributionTest failure at the protected admin diagnostic GET
-  - the Phase 7 403 root cause was test-fixture mass assignment: Identity fillable excludes MFA fields, while the fixture attempted to set them in create()
-  - commit 2e8d81c9c8a957c1aeef4b5ff2ecffa8c9106fde now persists the MFA fixture explicitly with forceFill()->save(), matching existing valid admin test setup
+  - Phase 7 MFA fixture root cause was repaired by explicit forceFill persistence in 2e8d81c9c8a957c1aeef4b5ff2ecffa8c9106fde without weakening middleware
+  - exact head b67c361aa924e96b9ce54c2ba1c15d5bb104d724 passed CI 31951774672 including Pint, PHPStan/Larastan and the full PHPUnit suite
+  - exact head b67c361aa924e96b9ce54c2ba1c15d5bb104d724 passed Phase 7 Production-Like Validation 31951774659 including critical regression, backup/restore and upgrade/rollback coverage
+  - exact head b67c361aa924e96b9ce54c2ba1c15d5bb104d724 passed Downloads Acceptance 31951774825 including migration rollback/replay, zero-retry Chromium lifecycle and Firefox/WebKit portability
+  - Portal Acceptance Contract 31951774841 found exactly four unclassified new updater admin routes after all content-scale checks passed with zero gaps
   - whole-diff self-review was completed after architecture-authority repair and formatter cleanup; review threads and submitted reviews were empty at that checkpoint
 derived:
-  - the Phase 7 failure was a fixture-authentication defect, not a reason to weaken the MFA or downloads.manage middleware boundary
-  - final exact-head validation must be regenerated after the fixture and checkpoint repairs
+  - the strict portal failure is a coverage-ledger completeness defect, not an application runtime defect
+  - the canonical surface-fragment mechanism should classify the four updater admin routes with their existing Feature and Playwright evidence rather than weakening route discovery or exclusions
+  - final exact-head validation must be regenerated after the coverage fragment is committed
 unknown:
-  - terminal conclusions of required CI and Downloads Acceptance for the checkpoint successor head until GitHub executes them
+  - terminal conclusions of required CI and acceptance workflows for the coverage-fragment successor head until GitHub executes them
   - real protected signer/repository integration behavior because that separate authority and implementation are outside this task
   - real updater/client cross-repository behavior because that separate authority is not granted
 conflicts: []
 first_failure:
-  marker: phase7-admin-fixture-mfa-mass-assignment-repaired
-  evidence: Phase 7 expected 200 but received 403 at UpdaterDistributionTest diagnostic GET; Identity fillable excludes MFA fields, and commit 2e8d81c9c8a957c1aeef4b5ff2ecffa8c9106fde changed the fixture to forceFill and persist confirmed MFA state
+  marker: portal-strict-four-updater-routes-unclassified
+  evidence: Portal Acceptance Contract 31951774841 strict coverage reported only admin.downloads.updater, admin.downloads.updater.enable, admin.downloads.updater.policies.store and admin.downloads.updater.withdraw as unclassified routes
 rejected_hypotheses:
   - lexical display version can safely order updates
   - browser is_current can stand in for updater-active state
@@ -178,6 +181,7 @@ rejected_hypotheses:
   - a new persistent task-specific workflow is needed
   - the Pint failure represented application behavior rather than source formatting
   - the Phase 7 diagnostic should bypass MFA or downloads.manage authorization
+  - updater admin routes should be excluded from strict portal route discovery
 changed_paths:
   - .github/workflows/downloads-acceptance.yml
   - app/Downloads/**
@@ -190,51 +194,53 @@ changed_paths:
   - resources/views/downloads/**
   - resources/views/admin/downloads/**
   - routes/modules/downloads.php
+  - scripts/acceptance/coverage/surfaces/downloads-updater-admin-trust.json
   - scripts/acceptance/seed-downloads-state.php
   - scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs
   - tests/Feature/Downloads/**
   - tests/Unit/Downloads/**
 validation:
-  - command: Downloads Acceptance 31940052536 on 0d8c8a34eac5f00ddfa014dcf79684e3f3fcb089
+  - command: CI 31951774672 on b67c361aa924e96b9ce54c2ba1c15d5bb104d724
     result: PASS
-    evidence: migration rollback/replay, zero-retry Chromium lifecycle and Firefox/WebKit portability all succeeded
-  - command: CI 31940052520 runtime-tests on 0d8c8a34eac5f00ddfa014dcf79684e3f3fcb089
-    result: FAIL
-    evidence: vendor/bin/pint --test reported 22 style findings and fail-fast skipped static analysis/tests
-  - command: canonical Pint formatter repair
+    evidence: Composer metadata/audit, Pint, PHPStan/Larastan and full PHPUnit suite succeeded
+  - command: Phase 7 Production-Like Validation 31951774659 on b67c361aa924e96b9ce54c2ba1c15d5bb104d724
     result: PASS
-    evidence: aaec9fe4cda15c48da12d5a1646cd7eba018aad2 changed exactly the 22 reported PHP paths
-  - command: Phase 7 validation on 5beb6230c6e33933a29cc55542861e260e2fec02
+    evidence: production-like dependency boundaries, critical regression suite, backup/restore and upgrade/rollback/redeploy succeeded
+  - command: Downloads Acceptance 31951774825 on b67c361aa924e96b9ce54c2ba1c15d5bb104d724
+    result: PASS
+    evidence: migration rollback/replay, zero-retry Chromium lifecycle and Firefox/WebKit portability succeeded
+  - command: Portal Acceptance Contract 31951774841 strict coverage on b67c361aa924e96b9ce54c2ba1c15d5bb104d724
     result: FAIL
-    evidence: one UpdaterDistributionTest admin diagnostics GET returned 403 because the test fixture had not persisted confirmed MFA state
+    evidence: all baseline content-scale checks passed with zero gaps; exactly four new updater admin routes lacked portal classification
 blockers: []
 invocation_started_at: 2026-08-16T15:05:00+02:00
-last_progress_at: 2026-08-16T15:55:00+02:00
-ci_checks_for_current_head: 0
-ci_check_generation: final_checkpoint_successor
+last_progress_at: 2026-08-16T16:09:00+02:00
+ci_checks_for_current_head: 11
+ci_check_generation: coverage_fragment_successor
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 2
+repair_cycles_for_current_gate: 3
 context_reconstruction_attempts: 1
 stall_warnings: 0
-next_action: Verify the checkpoint successor exact head through all required CI including Downloads Acceptance and Phase 7, then mark PR #1073 ready and squash-merge with expected head SHA before Issue/task/source-branch lifecycle closeout.
+next_action: Publish the canonical updater admin coverage surface fragment, then verify its successor exact head through all required CI and acceptance workflows before ready-for-review and exact expected-head squash merge.
 ```
 
 ## Recovery checkpoint
 
 ```yaml
 checkpoint_type: RECOVERY
-captured_at: 2026-08-16T15:55:00+02:00
-current_state: formatter repair and Phase 7 MFA fixture repair are complete; fresh exact-head CI and terminal merge/lifecycle remain
-last_completed_step: repaired UpdaterDistributionTest confirmed-MFA persistence and removed unsupported nested self_review checkpoint mapping
-active_operation: final exact-head GitHub validation for the checkpoint successor
+captured_at: 2026-08-16T16:09:00+02:00
+current_state: application CI, Phase 7 and Downloads Acceptance are green on b67c361; only strict portal classification of four new updater admin routes requires a canonical coverage fragment before final exact-head validation
+last_completed_step: diagnosed Portal Acceptance Contract 31951774841 to four exact unclassified updater admin route names with zero content-scale gaps
+active_operation: publish canonical coverage surface fragment and regenerate final exact-head validation
 external_run_ids:
-  - 31940052536
-  - 31940052520
-  - 31949239736
-expected_success_marker: final checkpoint successor has required CI, Downloads Acceptance and Phase 7 SUCCESS with zero unresolved material review findings
+  - 31951774672
+  - 31951774659
+  - 31951774825
+  - 31951774841
+expected_success_marker: successor head has strict portal coverage plus required CI, Downloads Acceptance and Phase 7 SUCCESS with zero unresolved material review findings
 expected_failure_marker: first failing required job or final-head review finding
 wait_deadline: bounded terminal-CI exception only after the final head is confirmed and non-CI gates remain satisfied
 next_step_on_success: mark PR ready, exact expected-head squash merge, close Issue #1039, create lifecycle-only archive closeout, verify source/archive branch disposition and final main
