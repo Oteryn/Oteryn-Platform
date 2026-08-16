@@ -173,7 +173,7 @@ DB::transaction(function () use ($now): void {
     }
     $todayNewsId = DB::table('news_posts')->insertGetId([
         'slug' => 'acceptance-today-news',
-        'title' => 'Acceptance Today news',
+        'title' => 'Acceptance Today update',
         'body' => 'A deterministic published update for the public Today page.',
         'published_at' => $now->copy()->subMinutes(2),
         'created_at' => $now,
