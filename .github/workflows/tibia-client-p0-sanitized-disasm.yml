@@ -8,49 +8,22 @@ on:
 permissions:
   contents: read
 
-env:
-  HOST_DATA_DIR: /volume1/docker/oteryn/tibia-analysis
-  EXPECTED_SIZE: '51965216'
-  EXPECTED_SHA256: e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe
-
 jobs:
-  exact-bind-inventory:
+  analysis-mount-inventory:
     runs-on: oteryn-staging
     timeout-minutes: 5
     steps:
-      - name: Inspect historical exact-client bind read-only
+      - name: Inspect analysis-container mounts only
         shell: bash
         run: |
           set -Eeuo pipefail
           [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
-          image=$(docker inspect otclient-tibia-login-analysis --format '{{.Image}}')
-          echo "HELPER_IMAGE=$image"
-          docker run --rm --network none --read-only \
-            --security-opt no-new-privileges:true \
-            -e EXPECTED_SIZE -e EXPECTED_SHA256 \
-            --mount type=bind,src="$HOST_DATA_DIR",dst=/analysis,readonly \
-            --entrypoint /bin/bash "$image" -lc '
-              set -Eeuo pipefail
-              echo "=== TOP_LEVEL ==="
-              find /analysis -maxdepth 2 -mindepth 1 -printf "%y %s %p\n" 2>/dev/null | sort | head -120 || true
-              echo "=== EXACT_PATH_CANDIDATES ==="
-              for f in /analysis/client-15.32.df7b29/bin/client /analysis/home/.local/share/CipSoft\ GmbH/Tibia/packages/Tibia/bin/client; do
-                if [[ -f "$f" ]]; then
-                  size=$(stat -c %s "$f")
-                  sha=$(sha256sum "$f" | awk "{print \$1}")
-                  echo "CANDIDATE=$f SIZE=$size SHA256=$sha"
-                fi
-              done
-              echo "=== SIZE_MATCH_CANDIDATES ==="
-              find /analysis -type f -size "${EXPECTED_SIZE}c" -print 2>/dev/null | head -20 | while IFS= read -r f; do
-                sha=$(sha256sum "$f" | awk "{print \$1}")
-                echo "CANDIDATE=$f SIZE=$EXPECTED_SIZE SHA256=$sha"
-              done
-            '
-      - name: State static-only boundary
-        shell: bash
-        run: |
-          echo 'STATIC_ONLY=true'
+          for name in otclient-tibia-global-login-lab otclient-tibia-login-analysis otclient-tibia-auth-analysis; do
+            echo "=== $name ==="
+            docker inspect "$name" --format 'image={{.Image}} status={{.State.Status}} labels={{json .Config.Labels}}'
+            docker inspect "$name" --format '{{range .Mounts}}{{.Type}}|{{.Name}}|{{.Source}}|{{.Destination}}|rw={{.RW}}{{println}}{{end}}'
+          done
+          echo '=== STATIC_ONLY ==='
           echo 'CLIENT_EXECUTED=false'
           echo 'PROCESS_MEMORY_ACCESSED=false'
           echo 'NETWORK_ACCESSED=false'
