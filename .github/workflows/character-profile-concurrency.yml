@@ -1,0 +1,72 @@
+name: Character Profile Concurrency
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/character-profile-concurrency.yml'
+      - 'app/CharacterProfiles/**'
+      - 'app/PublicGameData/**'
+      - 'database/migrations/**'
+      - 'tests/Feature/CharacterProfiles/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: character-profile-concurrency-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  concurrency-proof:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: oteryn-character-profile-root
+          MARIADB_DATABASE: oteryn_character_profile_concurrency
+          MARIADB_ROOT_HOST: "%"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      APP_ENV: testing
+      APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: oteryn_character_profile_concurrency
+      DB_USERNAME: root
+      DB_PASSWORD: oteryn-character-profile-root
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      CHARACTER_PROFILE_CONCURRENCY_TEST: 1
+    steps:
+      - name: Checkout exact validation SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup PHP 8.5
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.5'
+          coverage: none
+          extensions: pdo_mysql, pdo_sqlite, pcntl
+          tools: composer:v2
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Run independent-process MariaDB single-main proof
+        run: php artisan test tests/Feature/CharacterProfiles/Concurrency/CharacterProfilePreferenceConcurrencyTest.php
