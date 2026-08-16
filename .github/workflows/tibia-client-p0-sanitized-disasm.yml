@@ -9,59 +9,30 @@ permissions:
   contents: read
 
 env:
-  CONTAINER_NAME: oteryn-tibia-client-analysis
   EXPECTED_SIZE: '51965216'
   EXPECTED_SHA256: e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe
 
 jobs:
-  sanitized-static-disasm:
+  retained-source-inventory:
     runs-on: oteryn-staging
     timeout-minutes: 5
     steps:
-      - name: Verify static analysis container and exact client fence
+      - name: Read-only retained source inventory
         shell: bash
         run: |
           set -Eeuo pipefail
           [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
-          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
-          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
-          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
-          docker exec "$CONTAINER_NAME" bash -lc '
-            set -Eeuo pipefail
-            client=/data/client-15.32.df7b29/bin/client
-            size=$(stat -c %s "$client")
-            sha=$(sha256sum "$client" | awk "{print \$1}")
-            echo "EXACT_CLIENT_SIZE=$size"
-            echo "EXACT_CLIENT_SHA256=$sha"
-            [[ "$size" == "'"$EXPECTED_SIZE"'" ]]
-            [[ "$sha" == "'"$EXPECTED_SHA256"'" ]]
-          '
-
-      - name: Emit bounded sanitized disassembly only
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker exec "$CONTAINER_NAME" bash -lc '
-            set -Eeuo pipefail
-            client=/data/client-15.32.df7b29/bin/client
-            dump() {
-              local label="$1" start="$2" stop="$3"
-              echo "===== ${label} ${start}..${stop} ====="
-              objdump -d -C -M intel --start-address="$start" --stop-address="$stop" "$client"
-            }
-            dump PLAYERPOSITION_XREF 0x836500 0x836a00
-            dump TPLAYERDATA_SLOT0 0xd1cb00 0xd1ce00
-            dump TPLAYERDATA_SLOT1 0xd2abc0 0xd2b000
-            dump TPLAYERDATA_SLOT2 0xd2ee80 0xd2f200
-            dump TPLAYERDATA_SLOT3_4 0x843d80 0x844100
-            dump TPLAYERDATA_LATE_A 0xeda300 0xeda600
-            dump TPLAYERDATA_LATE_B 0xedff40 0xee0300
-          '
-
-      - name: Confirm no runtime mutation was requested
-        shell: bash
-        run: |
-          echo 'STATIC_ONLY=true'
+          echo '=== CONTAINERS_RELEVANT ==='
+          docker ps -a --format '{{.Names}}|{{.Status}}|{{.Labels}}' | grep -Ei 'tibia|oteryn' || true
+          echo '=== VOLUMES_RELEVANT ==='
+          docker volume ls --format '{{.Name}}' | grep -Ei 'tibia|oteryn' || true
+          echo '=== KNOWN_RETAINED_PATHS ==='
+          for root in /work /home/runner/_work; do
+            [[ -d "$root" ]] || continue
+            find "$root" -type f -path '*/Tibia/packages/Tibia/bin/client' -size 51965216c -print 2>/dev/null | head -20 || true
+            find "$root" -type f -path '*/client-15.32.df7b29/bin/client' -size 51965216c -print 2>/dev/null | head -20 || true
+          done
+          echo '=== STATIC_ONLY ==='
           echo 'CLIENT_EXECUTED=false'
           echo 'PROCESS_MEMORY_ACCESSED=false'
           echo 'NETWORK_ACCESSED=false'
