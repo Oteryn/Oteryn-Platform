@@ -27,6 +27,20 @@ jobs:
           echo "runner=${RUNNER_NAME:-unknown} host_container=${HOSTNAME:-unknown}"
           docker info --format 'name={{.Name}} version={{.ServerVersion}} arch={{.Architecture}} root={{.DockerRootDir}}'
 
+      - name: Clean exact cancelled task helper
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          stale='atlas-discovery-31935877215-1'
+          if docker inspect "$stale" >/dev/null 2>&1; then
+            owner="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$stale")"
+            purpose="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$stale")"
+            [[ "$owner" == 'otbm-atlas' ]]
+            [[ "$purpose" == 'atlas-runtime-discovery' ]]
+            docker rm -f "$stale"
+          fi
+          ! docker inspect "$stale" >/dev/null 2>&1
+
       - name: Inspect runner host mounts and Docker allocations
         shell: bash
         run: |
@@ -91,7 +105,6 @@ jobs:
                   if len(rel.parts)>7:
                       dirs[:]=[]
                       continue
-                  # avoid database/application storage and node/vendor trees
                   lowered={x.lower() for x in rel.parts}
                   if lowered & {'mysql','mariadb','postgres','storage','node_modules','vendor'}:
                       dirs[:]=[]
@@ -124,6 +137,10 @@ jobs:
           set -Eeuo pipefail
           name="atlas-fast-probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           if docker ps -a --format '{{.Names}}' | grep -Fx "$name"; then
-            echo "helper remains: $name" >&2
-            exit 1
+            owner="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$name" 2>/dev/null || true)"
+            purpose="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$name" 2>/dev/null || true)"
+            if [[ "$owner" == 'otbm-atlas' && "$purpose" == 'atlas-runtime-fast-probe' ]]; then
+              docker rm -f "$name" || true
+            fi
           fi
+          ! docker inspect "$name" >/dev/null 2>&1
