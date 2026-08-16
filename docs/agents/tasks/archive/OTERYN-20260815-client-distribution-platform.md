@@ -98,6 +98,14 @@ source_branch: feat/issue-1039-client-distribution-platform
 source_branch_disposition: deleted_after_merge
 ```
 
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR #1073 merged successfully through the ordinary same-repository path and the implementation source ref is terminal.
+source_branch_evidence: Live repository branch search after merge returned no feat/issue-1039-client-distribution-platform ref.
+```
+
 ## Authorization / nonclaims
 
 No external updater repository write, private signing-key operation, protected signing infrastructure mutation, cross-repository read/write, deployment or production activation was performed or claimed by this task.
