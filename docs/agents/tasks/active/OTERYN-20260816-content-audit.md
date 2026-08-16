@@ -21,7 +21,7 @@ Run `CONTENT-AUDIT` as the discovery/audit phase of Issue #1115: reconcile the l
 
 ## Authority and trust boundary
 
-- Trusted repository base for this task is protected `main` at `286efb1625d510c9d2cc344cb51a2438b31ebe48`.
+- Trusted repository base for the substantive audit is protected `main` at `286efb1625d510c9d2cc344cb51a2438b31ebe48`.
 - Issue #1115 is the parent programme authority for this audit.
 - Draft PR #1116 and its source-inventory/programme documents are candidate evidence only until merged; their claims must be revalidated against live `main`.
 - Repository scope is `blakinio/Oteryn-Platform` only. No external repository access, deployment, runtime mutation, secrets, payments, or owner-funded AI/Codex/API usage is authorized.
@@ -60,7 +60,7 @@ For each finding record: status, severity, scope, owner/lane, exact path/evidenc
 
 Key audit correction: the current Wiki repository state includes a deterministic launch corpus (`WikiExpectedContentInventory` v`2026-08-10.2`) of 4 categories and 13 bilingual articles. Production installation remains unknown. Earlier provisional counts `9 guide steps + 2 replies` and `Wiki 10 + 9 pages` were not substantiated and are explicitly rejected in ledger finding `CA-020`.
 
-No new remediation scaffold was created because material gaps are already owned by #1114, #330, #489, #301, #338 or the owner-started #1115 programme, while runtime verification is outside this audit's authority.
+No new remediation scaffold was created because material gaps are already owned by #330, #489, #301, #338 or the owner-started #1115 programme, while Public Today ownership was delivered and archived by merged #1114/#1118 and runtime verification is outside this audit's authority.
 
 ## Exit criteria
 
@@ -68,17 +68,23 @@ No new remediation scaffold was created because material gaps are already owned 
 - [x] Candidate source counts are reconciled where possible; unsupported production comparisons remain `UNKNOWN`.
 - [x] Existing Issues/PRs were deduplicated before remediation decisions; duplicate scaffolds were not created.
 - [x] Coordinator handoff records source-of-truth boundaries, exact proven counts, dependencies, serialization keys, and unresolved authority/provenance questions.
-- [x] One whole-PR self-review was completed and recorded on prior head `ab1288aa6f45b0aacc97ca1127d96792ebae5e85` as review `4947079488`.
-- [ ] Applicable exact-head repository checks pass on the current corrective head.
-- [ ] The merge gate has final-head self-review proof; the recorded review predates this CI-required checkpoint-only correction and must not be misrepresented as final-head proof.
+- [x] Historical whole-PR review `4947079488` on `ab1288aa6f45b0aacc97ca1127d96792ebae5e85` is preserved as historical evidence only.
+- [ ] A whole-PR self-review is recorded as `PASS` on the exact final source head, as required by `DELIVERY_COMPLETENESS_AND_CLOSEOUT.md`.
+- [ ] Applicable repository-required checks pass on that same unchanged final source head.
 - [x] No product implementation path changed.
+
+## Self-review policy correction
+
+The prior checkpoint incorrectly interpreted repository policy as allowing only one whole-PR self-review in total. The trusted current `docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md` instead requires that the merge-gate self-review be `PASS` on the **exact final head**; it does not prohibit a later review when a corrective commit has superseded an earlier reviewed SHA. `AGENTS.override.md` independently requires an exact-head self-review.
+
+Therefore review `4947079488` remains truthful historical evidence for `ab1288aa6f45b0aacc97ca1127d96792ebae5e85`, but it is not final-head merge evidence. After this policy-correction commit, the correct recovery is to inspect the entire new exact-head diff and record a new self-review on that exact SHA, then require repository checks to pass on the same unchanged SHA. No policy gate will be weakened or falsely marked satisfied.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-16T21:01:11+02:00
-head: ab1288aa6f45b0aacc97ca1127d96792ebae5e85
+updated_at: 2026-08-16T21:12:39+02:00
+head: 8517c8c53251c97bf4c1fd63ec784b77ad8cb308
 branch: audit/issue-1115-content-audit
 pr: 1117
 status: validating
@@ -94,43 +100,46 @@ owned_paths:
   - docs/agents/handovers/OTERYN-20260816-content-audit-to-coordinator.md
 proven:
   - PR #1117 is an open draft whose live source branch is audit/issue-1115-content-audit.
-  - The audit PR changes only the four declared documentation and evidence paths.
+  - Before this final policy-correction commit, source head 8517c8c53251c97bf4c1fd63ec784b77ad8cb308 changed exactly the four declared documentation/evidence paths and passed Agent Governance run 31966721970 and CI run 31966721997.
+  - Current protected main observed during validation is 785886a31c5719983121bbd8a2d1c81f24c11557, exactly two commits ahead of the frozen substantive audit base: merged #1114 Public Today delivery and merged #1118 lifecycle archive/ownership release.
   - The Markdown and JSON ledgers contain 20 findings and explicitly preserve production/runtime population as UNKNOWN where repository evidence cannot prove it.
   - The reviewed Wiki launch inventory is 4 categories and 13 bilingual articles; its production installation state is not proven by this audit.
   - Material catalogue and toolbox gaps are already owned by #330, #489, #301, #338 or parent programme #1115, so the audit created zero duplicate remediation scaffolds.
+  - Canonical DELIVERY_COMPLETENESS_AND_CLOSEOUT requires self-review PASS on the exact final head and does not impose a one-review-total prohibition.
 derived:
   - Repository capability, fixtures and deployable packages cannot by themselves establish current production population.
-  - The corrective checkpoint commit is governance-only and does not alter any player-visible executable behavior audited by the ledger.
+  - The prior review on ab1288aa6f45b0aacc97ca1127d96792ebae5e85 is historical evidence but cannot satisfy final-head review after later documentation corrections.
+  - This policy-correction commit changes only audit-governance documentation and no player-visible executable behavior.
 unknown:
   - active production Game Catalog profile, snapshot identity and player-visible record counts
   - production Wiki launch-content installation state
   - current runtime content counts and feature configuration for other database-backed public modules
-conflicts:
-  - Review 4947079488 is anchored to ab1288aa6f45b0aacc97ca1127d96792ebae5e85 and therefore cannot be cited as final-head self-review proof after the CI-required checkpoint correction changes the branch head.
+  - whether any future draft-to-ready/review automation would consume owner-funded AI; such use remains unauthorized and must not be invoked without explicit owner permission
+conflicts: []
 first_failure:
-  marker: exact-head active-task checkpoint contract failure
-  evidence: Agent Governance run 31966114258 and CI run 31966114225 failed on ab1288aa6f45b0aacc97ca1127d96792ebae5e85 because this active task lacked the required Context checkpoint section; liveness then could not read its PR and branch identity.
+  marker: historical exact-head active-task checkpoint contract failure
+  evidence: Agent Governance run 31966114258 and CI run 31966114225 failed on ab1288aa6f45b0aacc97ca1127d96792ebae5e85 because the active task lacked the required Context checkpoint section; later corrective heads repaired that defect.
 rejected_hypotheses:
   - The top task metadata block substitutes for the required Context checkpoint contract.
   - A red exact-head CI can be ignored because the PR changes documentation only.
   - The prior self-review remains final-head proof after a corrective commit changes the branch SHA.
+  - Repository policy permits only one self-review submission in total; canonical closeout policy requires exact-final-head review and contains no such prohibition.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260816-content-audit.md
   - docs/agents/reports/OTERYN-20260816-content-audit-ledger.md
   - docs/agents/reports/OTERYN-20260816-content-audit-ledger.json
   - docs/agents/handovers/OTERYN-20260816-content-audit-to-coordinator.md
 validation:
-  - command: Agent Governance run 31966114258 on ab1288aa6f45b0aacc97ca1127d96792ebae5e85
-    result: FAIL
-    evidence: checkpoint-validation failed at Validate active task checkpoints with missing Context checkpoint; downstream liveness and Control Room steps also failed.
-  - command: CI run 31966114225 on ab1288aa6f45b0aacc97ca1127d96792ebae5e85
-    result: FAIL
-    evidence: classify-changes failed at Validate active task checkpoint contract for the same missing Context checkpoint condition; runtime tests were not selected.
+  - command: Agent Governance run 31966721970 on 8517c8c53251c97bf4c1fd63ec784b77ad8cb308
+    result: PASS
+    evidence: checkpoint, source-branch closeout, live ownership and Control Room all passed before this final task-record correction.
+  - command: CI run 31966721997 on 8517c8c53251c97bf4c1fd63ec784b77ad8cb308
+    result: PASS
+    evidence: classify-changes and required test gate passed; runtime tests and PHP coverage were correctly skipped as docs-only before this final task-record correction.
   - command: player-visible E2E
     result: NOT_APPLICABLE
-    evidence: PR #1117 changes only audit documentation/evidence and this correction changes only task-governance metadata; no executable user or integration journey is modified.
+    evidence: PR #1117 changes only audit documentation/evidence; no executable user or integration journey is modified.
 blockers:
-  - exact-head Agent Governance and CI must pass after this checkpoint-contract correction
-  - merge readiness still lacks a self-review record anchored to the post-correction final head; the existing review is historical evidence only
-next_action: Observe the checks emitted for the checkpoint-corrected PR head, diagnose any remaining deterministic failure, and keep PR #1117 draft; if exact-head checks pass, record the final-head self-review mismatch as a merge-readiness blocker rather than representing the historical review as current proof.
+  - final whole-PR self-review and repository checks must both be green on the exact unchanged head created by this policy-correction commit
+next_action: Inspect the full PR diff on the new exact source head, record the required final-head self-review, then verify Agent Governance and CI on the same unchanged head; do not invoke any owner-funded AI review or transition whose metered side effects are not explicitly authorized.
 ```
