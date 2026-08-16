@@ -38,57 +38,15 @@ jobs:
               echo "EXACT_CLIENT_SHA256=$sha"
               [[ "$size" == "$EXPECTED_SIZE" ]]
               [[ "$sha" == "$EXPECTED_SHA256" ]]
-              if command -v objdump >/dev/null 2>&1; then
-                echo DISASM_MODE=objdump
-                objdump -d -C -M intel --start-address=0x836500 --stop-address=0x836a00 "$client"
-                exit 0
-              fi
               if command -v gdb >/dev/null 2>&1; then
                 echo DISASM_MODE=gdb
-                if gdb -q -nx -batch \
-                    -ex "set auto-load python-scripts off" \
-                    -ex "set debuginfod enabled off" \
-                    -ex "file $client" \
-                    -ex "set disassembly-flavor intel" \
-                    -ex "disassemble /r 0x836500,0x836a00"; then
+                if gdb -q -nx -batch -ex "set auto-load python-scripts off" -ex "set debuginfod enabled off" -ex "file $client" -ex "set disassembly-flavor intel" -ex "disassemble /r 0x836500,0x836a00"; then
                   exit 0
                 fi
                 echo GDB_DISASM_FAILED=1
               fi
               echo DISASM_MODE=elf64_hex_fallback
-              python3 - "$client" <<"PY"
-import hashlib, struct, sys
-p=sys.argv[1]
-raw=open(p,"rb").read()
-assert hashlib.sha256(raw).hexdigest()=="e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe"
-eh=struct.unpack_from("<16sHHIQQQIHHHHHH", raw, 0)
-phoff, phentsize, phnum = eh[5], eh[9], eh[10]
-segments=[]
-for i in range(phnum):
-    off=phoff+i*phentsize
-    p_type,p_flags,p_offset,p_vaddr,p_paddr,p_filesz,p_memsz,p_align=struct.unpack_from("<IIQQQQQQ",raw,off)
-    if p_type==1:
-        segments.append((p_offset,p_vaddr,p_filesz,p_flags))
-def read_va(start,stop):
-    for po,pv,psz,pflags in segments:
-        if pv <= start and stop <= pv+psz:
-            fo=po+(start-pv)
-            return fo,raw[fo:fo+(stop-start)]
-    raise SystemExit(f"unmapped VA {start:#x}..{stop:#x}")
-for label,start,stop in [
-    ("PLAYERPOSITION_XREF",0x836500,0x836a00),
-    ("TPLAYERDATA_SLOT3_4",0x843d80,0x844100),
-    ("TPLAYERDATA_SLOT0",0xd1cb00,0xd1ce00),
-    ("TPLAYERDATA_SLOT1",0xd2abc0,0xd2b000),
-    ("TPLAYERDATA_SLOT2",0xd2ee80,0xd2f200),
-    ("TPLAYERDATA_LATE_A",0xeda300,0xeda600),
-    ("TPLAYERDATA_LATE_B",0xedff40,0xee0300),
-]:
-    fo,data=read_va(start,stop)
-    print(f"===== HEX {label} VA={start:#x}..{stop:#x} FILEOFF={fo:#x} LEN={len(data)} =====")
-    hx=data.hex()
-    for j in range(0,len(hx),128): print(hx[j:j+128])
-PY
+              python3 -c '"'"'import sys,struct,hashlib; r=open(sys.argv[1],"rb").read(); s=int(sys.argv[2],0); e=int(sys.argv[3],0); assert hashlib.sha256(r).hexdigest()=="e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe"; phoff=struct.unpack_from("<Q",r,32)[0]; ents=struct.unpack_from("<H",r,54)[0]; n=struct.unpack_from("<H",r,56)[0]; ph=[struct.unpack_from("<IIQQQQQQ",r,phoff+i*ents) for i in range(n)]; g=[x for x in ph if x[0]==1 and x[3]<=s and e<=x[3]+x[5]][0]; o=g[2]+s-g[3]; print(f"HEX_PLAYERPOSITION VA={s:#x}..{e:#x} FILEOFF={o:#x} LEN={e-s}"); print(r[o:o+e-s].hex())'"'"' "$client" 0x836500 0x836a00
             '
       - name: State static-only boundary
         shell: bash
