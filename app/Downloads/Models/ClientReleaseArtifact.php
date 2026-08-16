@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $size_bytes
  * @property string $sha256
  * @property bool $is_enabled
+ * @property string|null $updater_target_path
  * @property-read ClientRelease $release
  */
 final class ClientReleaseArtifact extends Model

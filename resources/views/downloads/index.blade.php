@@ -43,6 +43,13 @@
         </div>
     @else
         @foreach ($downloadCenter->releases as $release)
+            @php
+                $updaterState = (string) $release->getAttribute('updater_public_state');
+                $updaterPolicyRevision = $release->getAttribute('updater_policy_revision');
+                $updaterMode = $release->getAttribute('updater_update_mode');
+                $updaterMinimum = $release->getAttribute('updater_minimum_supported_release_sequence');
+                $updaterExpires = $release->getAttribute('updater_metadata_expires_at');
+            @endphp
             <article class="card">
                 <div class="page-header">
                     <p class="eyebrow">{{ __('public.downloads.channel', ['channel' => \App\Downloads\DownloadCatalog::channelLabel($release->channel)]) }}</p>
@@ -60,6 +67,20 @@
                 @elseif ((bool) $release->getAttribute('release_notes_translation_unavailable'))
                     <div class="notice" role="status">{{ __('public.downloads.notes_unavailable') }}</div>
                 @endif
+
+                <div class="notice" role="status">
+                    <strong>{{ __('downloads.updater.title') }}</strong>
+                    <p>{{ __('downloads.updater.states.'.$updaterState) }}</p>
+                    @if (is_int($updaterPolicyRevision) && is_string($updaterMode) && is_int($updaterMinimum) && $updaterExpires instanceof \DateTimeInterface)
+                        <p>{{ __('downloads.updater.policy', [
+                            'revision' => $updaterPolicyRevision,
+                            'mode' => $updaterMode,
+                            'minimum' => $updaterMinimum,
+                            'expires' => $updaterExpires->format('Y-m-d H:i:s'),
+                        ]) }}</p>
+                    @endif
+                    <p class="muted">{{ __('downloads.updater.trust_notice') }}</p>
+                </div>
 
                 <div class="table-region" tabindex="0" aria-label="{{ __('public.downloads.artifacts_table') }}">
                     <table aria-label="{{ __('public.downloads.artifacts_table') }}">

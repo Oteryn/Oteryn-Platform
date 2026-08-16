@@ -97,6 +97,50 @@
                 </table>
             </div>
 
+            <h2>Updater distribution boundary</h2>
+            <p class="muted">Browser publication above is independent from updater eligibility, signed repository generation and Platform-active updater state. SHA-256 remains administrator-supplied release metadata unless it is exactly reconciled with public signed target metadata; this page does not turn it into publisher-signature proof.</p>
+
+            @if ($release->updater_release_id)
+                <dl>
+                    <dt>Updater release identity</dt><dd><code>{{ $release->updater_release_id }}</code></dd>
+                    <dt>Channel sequence</dt><dd>{{ $release->updater_sequence }}</dd>
+                    <dt>Updater enabled</dt><dd>{{ $release->updater_enabled_at?->format('Y-m-d H:i:s') }} UTC</dd>
+                    <dt>Withdrawal</dt><dd>{{ $release->updater_withdrawn_at?->format('Y-m-d H:i:s') ?? 'Not withdrawn' }}{{ $release->updater_withdrawn_at ? ' UTC' : '' }}</dd>
+                </dl>
+                <div class="table-region" tabindex="0" aria-label="Exact updater target paths, horizontally scrollable on small screens">
+                    <table>
+                        <thead><tr><th>Platform</th><th>Architecture</th><th>Exact target path</th></tr></thead>
+                        <tbody>
+                            @foreach ($release->artifacts->where('is_enabled', true) as $artifact)
+                                <tr>
+                                    <td>{{ \App\Downloads\DownloadCatalog::platformLabel($artifact->platform) }}</td>
+                                    <td>{{ \App\Downloads\DownloadCatalog::architectureLabel($artifact->architecture) }}</td>
+                                    <td><code>{{ $artifact->updater_target_path }}</code></td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+                <div class="action-row">
+                    <a class="button button-secondary" href="{{ route('admin.downloads.updater', ['channel' => $release->channel]) }}">{{ \App\Downloads\DownloadCatalog::channelLabel($release->channel) }} updater diagnostics</a>
+                    @if (! $release->updater_withdrawn_at)
+                        <form method="POST" action="{{ route('admin.downloads.updater.withdraw', $release) }}">
+                            @csrf
+                            <button class="button-secondary" type="submit">Withdraw from future updater selection</button>
+                        </form>
+                    @endif
+                </div>
+            @else
+                <div class="alert alert-warning" role="status">
+                    <strong>Browser-published only.</strong>
+                    <p>No updater identity or channel sequence has been allocated. Enabling updater distribution does not make a policy signed, repository-published, Platform-active or production-active.</p>
+                </div>
+                <form method="POST" action="{{ route('admin.downloads.updater.enable', $release) }}">
+                    @csrf
+                    <button type="submit">Enable for automatic updates</button>
+                </form>
+            @endif
+
             @if (! $release->is_current)
                 <form class="form-stack" method="POST" action="{{ route('admin.downloads.publish', $release) }}">
                     @csrf

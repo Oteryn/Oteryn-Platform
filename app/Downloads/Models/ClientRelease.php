@@ -14,6 +14,10 @@ use Illuminate\Support\Carbon;
  * @property string|null $release_notes
  * @property Carbon|null $published_at
  * @property bool $is_current
+ * @property string|null $updater_release_id
+ * @property int|null $updater_sequence
+ * @property Carbon|null $updater_enabled_at
+ * @property Carbon|null $updater_withdrawn_at
  * @property-read Collection<int, ClientReleaseArtifact> $artifacts
  */
 final class ClientRelease extends Model
@@ -45,6 +49,9 @@ final class ClientRelease extends Model
         return [
             'published_at' => 'datetime',
             'is_current' => 'boolean',
+            'updater_sequence' => 'integer',
+            'updater_enabled_at' => 'datetime',
+            'updater_withdrawn_at' => 'datetime',
         ];
     }
 }

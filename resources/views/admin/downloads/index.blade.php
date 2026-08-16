@@ -6,11 +6,13 @@
     <div class="page-header">
         <p class="eyebrow">Content · Downloads</p>
         <h1>Client releases</h1>
-        <p class="muted">Manage immutable approved artifact references and explicit Polish release-note translations. Executable uploads are not supported.</p>
+        <p class="muted">Manage immutable approved artifact references, browser publication and the separately reconciled updater policy boundary. Executable uploads and private updater signing keys are not supported.</p>
     </div>
 
     <div class="action-row">
         <a class="button" href="{{ route('admin.downloads.create') }}">Create release draft</a>
+        <a class="button button-secondary" href="{{ route('admin.downloads.updater', ['channel' => 'stable']) }}">Stable updater diagnostics</a>
+        <a class="button button-secondary" href="{{ route('admin.downloads.updater', ['channel' => 'beta']) }}">Beta updater diagnostics</a>
         <a class="button button-secondary" href="{{ route('downloads.index') }}">View public Download Center</a>
     </div>
 
@@ -27,7 +29,8 @@
                         <th scope="col">Version</th>
                         <th scope="col">Channel</th>
                         <th scope="col">Artifacts</th>
-                        <th scope="col">State</th>
+                        <th scope="col">Browser state</th>
+                        <th scope="col">Updater identity</th>
                         <th scope="col">Updated</th>
                         <th scope="col">Actions</th>
                     </tr>
@@ -47,6 +50,17 @@
                                     <br><span class="muted">{{ $release->published_at->format('Y-m-d H:i') }}</span>
                                 @else
                                     <span class="badge badge-warning">Draft</span>
+                                @endif
+                            </td>
+                            <td>
+                                @if ($release->updater_release_id)
+                                    <span class="badge badge-success">Sequence {{ $release->updater_sequence }}</span>
+                                    @if ($release->updater_withdrawn_at)
+                                        <span class="badge badge-warning">Withdrawn</span>
+                                    @endif
+                                    <br><code>{{ $release->updater_release_id }}</code>
+                                @else
+                                    <span class="muted">Browser-only</span>
                                 @endif
                             </td>
                             <td>{{ $release->updated_at?->format('Y-m-d H:i') }}</td>
