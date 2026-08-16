@@ -2,12 +2,11 @@
 
 namespace App\Http\Controllers\PublicPortal;
 
-use App\Http\Controllers\Controller;
 use App\PublicPortal\Today\TodayPageQuery;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
-final class PublicTodayController extends Controller
+final class PublicTodayController
 {
     private const ACCEPTANCE_SCENARIO_HEADER = 'X-Oteryn-Acceptance-Today-Scenario';
 
