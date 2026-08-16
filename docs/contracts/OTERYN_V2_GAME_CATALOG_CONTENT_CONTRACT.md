@@ -75,6 +75,22 @@ One active profile has one declared authoritative gameplay-content source. Nativ
 
 Reviewed Platform metadata may supplement only allowlisted presentation fields. Each supplemented field carries its source/revision and an explicit precedence rule. It cannot change identifiers, executable parameters, relations, availability, completeness, tombstones or ruleset applicability.
 
+## Non-native reference content
+
+ADR 0042 and `NON_NATIVE_REFERENCE_CONTENT_CONTRACT.md` define a separate `ReferenceContent` boundary for provenance-pinned, non-native, non-executable reference evidence.
+
+A `ReferenceContent` snapshot:
+
+- is not a `GameCatalog` authority profile and cannot be activated through this contract;
+- cannot use the `legacy-canary` authority name or inherit Canary compatibility identity semantics;
+- may be compared offline against an authoritative native/compatibility snapshot without rewriting either side;
+- may hold candidate crosswalks, but cannot mint or infer canonical native identity;
+- cannot supply executable gameplay definitions, availability/reachability or authoritative tombstones;
+- cannot become an automatic fallback when native authority is unavailable;
+- remains source-labelled when consumed by Wiki or PlayerCompanion.
+
+A verified mapping from a reference entity to a native entity changes only the mapping state. It does not transfer native authority to the reference fields. For native claims, this contract remains the controlling source boundary.
+
 ## Legacy Canary Compatibility
 
 `GAME_CATALOG_IMPORT_CONTRACT.md` and supported schemas `1.0.0`–`1.2.0` remain current Canary compatibility artifacts. Programme #330 and draft PR #338 carry proposed schema `1.3.0`; it remains inactive and non-authoritative until its separate consumer/producer compatibility gate is terminal. Final-registry assumptions and canonical keys are valid only for the exact supported Canary source profile/schema.
@@ -116,3 +132,4 @@ The external producer owner must separately select exact identity forms, capabil
 5. Activation and rollback are exact-snapshot, transactional and auditable.
 6. Delayed/replayed evidence cannot silently lower accepted authority revision or reactivate a retired authority epoch.
 7. Compatibility remains explicit and removable without changing the native contract.
+8. Non-native `ReferenceContent` never participates in authoritative activation or fallback and cannot mint native identity.
