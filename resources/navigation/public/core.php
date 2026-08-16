@@ -3,6 +3,7 @@
 return [
     'header' => [
         ['label' => 'Home', 'route' => 'home', 'active' => 'home', 'priority' => 10],
+        ['label' => 'Today', 'route' => 'today.index', 'active' => 'today.*', 'priority' => 15],
         ['label' => 'News', 'route' => 'news.index', 'active' => 'news.*', 'priority' => 20],
         ['label' => 'Online', 'route' => 'game.online.index', 'active' => 'game.online.*', 'priority' => 30],
         ['label' => 'Highscores', 'route' => 'game.highscores.index', 'active' => 'game.highscores.*', 'priority' => 40],
@@ -25,6 +26,7 @@ return [
             'label' => 'Chronicles',
             'priority' => 20,
             'items' => [
+                ['label' => 'Today', 'route' => 'today.index', 'active' => 'today.*', 'priority' => 5],
                 ['label' => 'Latest news', 'route' => 'news.index', 'active' => 'news.*', 'priority' => 10],
             ],
         ],

@@ -49,6 +49,37 @@
         "status": "excluded",
         "rationale": "The selector is a privileged bounded two-template administrator mutation surface; Firefox and WebKit expansion is not required by Issue #244, while authorization, concurrency, rollback and fail-closed selection are independently covered below the browser layer."
       }
+    },
+    {
+      "id": "public.today-command-centre",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [
+        {
+          "id": "today-responsive",
+          "file": "scripts/acceptance/tests/homepage-navigation-seo.spec.mjs",
+          "markers": [
+            "@portal-today public guest command centre preserves source truth empty partial LiveOps absence localization and no-store"
+          ]
+        },
+        {
+          "id": "today-portability",
+          "file": "scripts/acceptance/tests/homepage-navigation-seo.spec.mjs",
+          "markers": [
+            "@portal-today public guest command centre preserves source truth empty partial LiveOps absence localization and no-store"
+          ]
+        }
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "standard-responsive", "project": "responsive-desktop", "mode": "project", "evidence": "today-responsive"},
+        "tablet-820x1180": {"profile": "standard-responsive", "project": "responsive-tablet", "mode": "project", "evidence": "today-responsive"},
+        "mobile-390x844": {"profile": "standard-responsive", "project": "responsive-mobile", "mode": "project", "evidence": "today-responsive"}
+      },
+      "browsers": {
+        "chromium-primary": {"profile": "standard-responsive", "projects": ["responsive-desktop"], "evidence": "today-responsive"},
+        "bounded-portability": {"profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "today-portability"}
+      },
+      "portability": {"status": "covered", "profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "today-portability"}
     }
   ]
 }

@@ -35,7 +35,7 @@ final class PublicPortalExtensionTest extends TestCase
         }
 
         self::assertSame(
-            ['Home', 'News', 'Online', 'Highscores', 'Guilds', 'Character Bazaar', 'Deaths', 'Servers', 'Events', 'Beginner\'s Guide', 'Wiki', 'Game Catalog', 'Support', 'Download'],
+            ['Home', 'Today', 'News', 'Online', 'Highscores', 'Guilds', 'Character Bazaar', 'Deaths', 'Servers', 'Events', 'Beginner\'s Guide', 'Wiki', 'Game Catalog', 'Support', 'Download'],
             array_column($navigation->header(), 'label'),
         );
     }

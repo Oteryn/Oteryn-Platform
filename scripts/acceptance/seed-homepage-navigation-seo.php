@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Announcements\Models\SiteAnnouncement;
+use App\Cms\Editorial\EditorialContentType;
 use App\Events\Models\Event;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
@@ -83,6 +84,113 @@ DB::transaction(function () use ($now): void {
             'updated_at' => $now,
         ],
     ]);
+
+    $todayAnnouncementId = DB::table('site_announcements')->where('title', 'Acceptance Today maintenance')->value('id');
+    if ($todayAnnouncementId !== null) {
+        DB::table('editorial_translations')
+            ->where('content_type', EditorialContentType::SiteAnnouncement->value)
+            ->where('content_id', $todayAnnouncementId)
+            ->delete();
+        DB::table('site_announcements')->where('id', $todayAnnouncementId)->delete();
+    }
+    $todayAnnouncementId = DB::table('site_announcements')->insertGetId([
+        'title' => 'Acceptance Today maintenance',
+        'body' => 'A deterministic public Today announcement.',
+        'severity' => SiteAnnouncement::SEVERITY_MAINTENANCE,
+        'starts_at' => $now->copy()->subMinutes(30),
+        'ends_at' => $now->copy()->addHours(12),
+        'publication_state' => SiteAnnouncement::STATE_PUBLISHED,
+        'action_label' => null,
+        'action_url' => null,
+        'lock_version' => 1,
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+    DB::table('editorial_translations')->insert([
+        'content_type' => EditorialContentType::SiteAnnouncement->value,
+        'content_id' => $todayAnnouncementId,
+        'locale' => 'pl',
+        'title' => 'Testowa konserwacja Dzisiaj',
+        'body' => 'Deterministyczny publiczny komunikat dla widoku Dzisiaj.',
+        'action_label' => null,
+        'source_updated_at' => $now,
+        'published_at' => $now->copy()->subMinute(),
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    $todayEventIds = DB::table('event_translations')
+        ->whereIn('slug', ['acceptance-today-event', 'testowe-wydarzenie-dzisiaj'])
+        ->pluck('event_id')
+        ->map(static fn (mixed $id): int => (int) $id)
+        ->unique()
+        ->values()
+        ->all();
+    if ($todayEventIds !== []) {
+        DB::table('event_translations')->whereIn('event_id', $todayEventIds)->delete();
+        DB::table('events')->whereIn('id', $todayEventIds)->delete();
+    }
+    $todayEventId = DB::table('events')->insertGetId([
+        'status' => Event::STATUS_SCHEDULED,
+        'starts_at' => $now->copy()->addHours(6),
+        'ends_at' => $now->copy()->addHours(8),
+        'featured' => true,
+        'news_post_id' => null,
+        'lock_version' => 1,
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+    DB::table('event_translations')->insert([
+        [
+            'event_id' => $todayEventId,
+            'locale' => 'en',
+            'title' => 'Acceptance Today event',
+            'slug' => 'acceptance-today-event',
+            'summary' => 'A deterministic public Today event.',
+            'body' => 'Acceptance Today event details.',
+            'created_at' => $now,
+            'updated_at' => $now,
+        ],
+        [
+            'event_id' => $todayEventId,
+            'locale' => 'pl',
+            'title' => 'Testowe wydarzenie Dzisiaj',
+            'slug' => 'testowe-wydarzenie-dzisiaj',
+            'summary' => 'Deterministyczne publiczne wydarzenie dla widoku Dzisiaj.',
+            'body' => 'Szczegóły testowego wydarzenia Dzisiaj.',
+            'created_at' => $now,
+            'updated_at' => $now,
+        ],
+    ]);
+
+    $todayNewsId = DB::table('news_posts')->where('slug', 'acceptance-today-news')->value('id');
+    if ($todayNewsId !== null) {
+        DB::table('editorial_translations')
+            ->where('content_type', EditorialContentType::NewsPost->value)
+            ->where('content_id', $todayNewsId)
+            ->delete();
+        DB::table('news_posts')->where('id', $todayNewsId)->delete();
+    }
+    $todayNewsId = DB::table('news_posts')->insertGetId([
+        'slug' => 'acceptance-today-news',
+        'title' => 'Acceptance Today update',
+        'body' => 'A deterministic published update for the public Today page.',
+        'published_at' => $now->copy()->subMinutes(2),
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+    DB::table('editorial_translations')->insert([
+        'content_type' => EditorialContentType::NewsPost->value,
+        'content_id' => $todayNewsId,
+        'locale' => 'pl',
+        'title' => 'Testowa aktualność Dzisiaj',
+        'body' => 'Deterministyczna opublikowana aktualność dla publicznego widoku Dzisiaj.',
+        'action_label' => null,
+        'source_updated_at' => $now,
+        'published_at' => $now->copy()->subMinute(),
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
 });
 
-fwrite(STDOUT, "acceptance-state: homepage navigation and SEO seeded\n");
+fwrite(STDOUT, "acceptance-state: homepage navigation SEO and public Today seeded\n");
