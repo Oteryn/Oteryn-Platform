@@ -33,6 +33,6 @@
     "test:route-view-navigation:fixtures": "node coverage/test-route-view-navigation-final.mjs"
   },
   "devDependencies": {
-    "@playwright/test": "1.60.0"
+    "@playwright/test": "1.62.1"
   }
 }
