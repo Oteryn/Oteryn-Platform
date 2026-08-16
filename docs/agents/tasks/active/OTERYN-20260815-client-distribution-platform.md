@@ -30,28 +30,23 @@ Implement the complete Platform-only vertical slice of ADR 0035 for first-party 
 
 ## Acceptance criteria
 
-- [x] Existing browser Download Center publication and immutable approved artifact references remain supported independently from updater state.
-- [x] Updater-enabled releases receive opaque stable identities and positive channel-scoped monotonic integer sequences; display-version text is never security ordering.
-- [x] Updater targets are exact platform + architecture targets with no fallback identity.
-- [x] Immutable policy revisions model minimum support, optional/recommended/required update mode, release revocations, exact target revocations and explicit older-sequence rollback authorization.
-- [x] Withdrawal is separate from revocation and preserves browser/release history.
-- [x] Browser publication, approved policy/signing intent, reconciled protected-integration generation state and Platform-active updater state are separate facts.
-- [x] Platform stores and validates a bounded PUBLIC generation projection only through an internal protected-integration boundary after required TUF verification outside Laravel; no ordinary web-admin route can import or activate it.
-- [x] No private signing key or signing secret is accepted or persisted, including through direct internal action input.
-- [x] Policy operation identity and protected-generation identity are idempotent; identity reuse with different intent fails closed.
-- [x] Import rejects stale/replayed metadata, expired metadata, channel/policy mismatch, policy-target mismatch, duplicate/extra/missing platform targets and exact target/length/digest mismatch.
-- [x] Metadata rollback is fail-closed while freshness-only Timestamp advancement can preserve unchanged Root/Targets/Snapshot versions.
-- [x] Activation rejects stale, expired, superseded, non-latest-policy and withdrawn-current generations.
-- [x] Browser/admin presentation describes administrator-supplied SHA-256 truthfully and never presents it as publisher-signature verification.
-- [x] Admin diagnostics are behind the existing auth + confirmed MFA + `downloads.manage` boundary and explicitly state that Platform reconciliation is not TUF client verification or production activation.
-- [x] Unit and Feature coverage include sequence ordering, rollback, withdrawal, revocation, idempotency, replay/staleness, freshness-only metadata advancement, mismatch handling, private-key rejection, absent web-admin generation mutation routes and browser/updater divergence.
-- [x] Existing Downloads Playwright acceptance exercises browser publication plus updater enable → policy approval → acceptance-only protected-integration simulation → Platform-active read-only diagnostics and localized presentation; it explicitly does not claim cryptographic TUF signing or production activation.
-- [x] Existing `downloads-acceptance.yml` is extended rather than creating a new workflow; workflow budget remains 53.
-- [x] The isolated acceptance workflow proves migration rollback and re-apply before browser lifecycle execution.
+- [x] Browser Download Center publication remains independent from updater trust state.
+- [x] Updater-enabled releases use opaque identities and channel-scoped positive monotonic integer sequences, never display-version ordering.
+- [x] Updater targets are exact platform + architecture targets.
+- [x] Immutable policy revisions model minimum support, optional/recommended/required mode, withdrawal, release revocation, target revocation and explicit rollback.
+- [x] Browser publication, policy intent, protected-generation reconciliation and Platform-active state are separate facts.
+- [x] Platform accepts only a bounded PUBLIC generation projection through an internal protected-integration boundary; ordinary web administration cannot import or activate signed-generation state.
+- [x] No private signing key or signing secret is accepted or persisted.
+- [x] Policy and generation identities are idempotent and ambiguity-safe; replay, stale metadata, expiry, channel/policy/target mismatch and rollback fail closed.
+- [x] Administrator-supplied SHA-256 is presented truthfully and never as publisher-signature verification.
+- [x] Admin diagnostics remain behind authentication + confirmed MFA + `downloads.manage`.
+- [x] Unit, Feature and zero-retry Playwright coverage exercise the complete Platform lifecycle, negative boundaries, EN/PL presentation and Firefox/WebKit portability.
+- [x] Existing `downloads-acceptance.yml` is extended; no new persistent task-specific workflow is created and workflow budget remains 53.
+- [x] Migration rollback/re-apply is proven in Downloads Acceptance.
 - [ ] Exact final PR head passes all required GitHub CI and acceptance contracts.
-- [x] Whole-diff self-review and review-thread hygiene were completed on the material implementation; final-head hygiene will be reconfirmed after ledger closure.
+- [x] Whole-diff self-review found and repaired the ordinary-admin signed-generation authority defect; final review/thread hygiene will be reconfirmed on the final head.
 - [ ] Issue #1039, source branch and task lifecycle are terminal after implementation merge.
-- [x] Real protected signer/repository integration and real first-party updater/client cross-repository E2E remain separately authorized future gates and are not claimed by this task.
+- [x] Real protected signer/repository integration and real first-party updater/client cross-repository E2E remain separately authorized future gates and are not claimed.
 
 ## Ownership
 
@@ -72,6 +67,7 @@ owned_paths:
   - scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs
   - scripts/acceptance/coverage/surfaces/downloads-updater-admin-trust.json
   - docs/testing/portal-content-scale-surfaces/downloads-updater-admin-trust.json
+  - scripts/acceptance/coverage/test-portal-content-scale-evidence.mjs
   - scripts/acceptance/coverage/portal-evidence-dimensions/content.json
   - docs/testing/PORTAL_MEDIA_STATE_EVIDENCE.json
   - .github/workflows/downloads-acceptance.yml
@@ -89,21 +85,12 @@ blockers: []
 
 ## Architecture boundary
 
-- Platform persists browser metadata, updater policy intent, exact bounded public generation projection received from the protected integration and Platform-active reconciliation state.
-- Platform does not persist private updater signing keys, expose an ordinary web-admin generation import/activation route, or perform/claim TUF signature verification.
-- The internal generation reconciliation action is a receiving boundary for a future separately protected release-publishing integration after that integration has verified the required TUF signatures/repository coherence; the real integration itself is outside this task.
-- Exact policy association is checked by canonical policy target path + byte length + SHA-256 and exact target tuple/path/length/digest reconciliation.
-- The administrator-supplied artifact SHA-256 remains supplied metadata; matching it to the bounded public target projection proves association consistency, not independent publisher authenticity.
-- External signer/repository writes, production activation and real first-party updater/client cross-repository E2E are outside this task's authority.
+Platform stores browser metadata, updater policy intent, a bounded public generation projection received from a separately protected integration, and Platform-active reconciliation state. Laravel owns no private updater signing keys and performs no claimed TUF client verification. Matching target path/length/digest proves association consistency only; the first-party updater remains the authoritative TUF verifier. External signer/repository writes, production activation and cross-repository client E2E are outside this task's authorization.
 
 ## Reconstruction evidence
 
 ```yaml
 protected_main: 9336cd1f240196908a84cdea124992300bede59c
-protected_main_tree: 5d1921a69091816b98e2c22b7e0621d1cd82b1b0
-previous_pr_head: 72a0aea11c4b610a2b7e561f39a5fa68c0ad05cc
-previous_material_implementation: none
-overlap_resolution: reconstruct exact implementation tree from current protected main; do not replay stale implementation history
 workflow_policy: reuse_or_extend
 workflow_budget: 53
 new_persistent_workflows: 0
@@ -112,16 +99,17 @@ formatter_repair_commit: aaec9fe4cda15c48da12d5a1646cd7eba018aad2
 phase7_fixture_repair_commit: 2e8d81c9c8a957c1aeef4b5ff2ecffa8c9106fde
 static_analysis_repair_commit: b67c361aa924e96b9ce54c2ba1c15d5bb104d724
 route_classification_commit: e1c4084615883d4456bd133db8a2045cb525c084
+complete_portal_ledgers_commit: 1852ba017255d1e42251f174a16d735e571a0928
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-16T16:16:00+02:00
-head: e1c4084615883d4456bd133db8a2045cb525c084
+updated_at: 2026-08-16T16:22:00+02:00
+head: 1852ba017255d1e42251f174a16d735e571a0928
 status: validating
-phase: final_exact_head_validation_after_complete_portal_ledger_classification
+phase: final_exact_head_validation_after_content_scale_fixture_count_repair
 branch: feat/issue-1039-client-distribution-platform
 pr: 1073
 context_routes:
@@ -145,6 +133,7 @@ owned_paths:
   - scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs
   - scripts/acceptance/coverage/surfaces/downloads-updater-admin-trust.json
   - docs/testing/portal-content-scale-surfaces/downloads-updater-admin-trust.json
+  - scripts/acceptance/coverage/test-portal-content-scale-evidence.mjs
   - scripts/acceptance/coverage/portal-evidence-dimensions/content.json
   - docs/testing/PORTAL_MEDIA_STATE_EVIDENCE.json
   - .github/workflows/downloads-acceptance.yml
@@ -154,45 +143,36 @@ production_activation_authorization: ABSENT_AND_NOT_REQUIRED
 owner_funded_agent_authorization: ABSENT_AND_NOT_USED
 proven:
   - protected main was re-read at 9336cd1f240196908a84cdea124992300bede59c before continuation
-  - PR #1073 is the sole open Downloads implementation owner found by live PR search
-  - ADR 0035 and CLIENT_DISTRIBUTION_ARCHITECTURE remain the accepted authority for this slice
+  - ADR 0035 remains the accepted authority for this slice
   - ordinary downloads.manage web administration cannot import or activate protected generation state
-  - no private updater signing key or signing secret is accepted or persisted by the Platform implementation
-  - Phase 7 MFA fixture root cause was repaired by explicit forceFill persistence without weakening middleware
-  - exact head b67c361aa924e96b9ce54c2ba1c15d5bb104d724 passed CI 31951774672 including Pint, PHPStan/Larastan and the full PHPUnit suite
-  - exact head b67c361aa924e96b9ce54c2ba1c15d5bb104d724 passed Phase 7 Production-Like Validation 31951774659
+  - no private updater signing key or signing secret is accepted or persisted
+  - exact head b67c361aa924e96b9ce54c2ba1c15d5bb104d724 passed CI 31951774672 including Pint, PHPStan/Larastan and full PHPUnit
+  - exact head b67c361aa924e96b9ce54c2ba1c15d5bb104d724 passed Phase 7 31951774659
   - exact head b67c361aa924e96b9ce54c2ba1c15d5bb104d724 passed Downloads Acceptance 31951774825 including migration rollback/replay, zero-retry Chromium lifecycle and Firefox/WebKit portability
-  - Portal Acceptance Contract 31951774841 isolated exactly four unclassified updater admin routes with zero content-scale gaps
-  - commit e1c4084615883d4456bd133db8a2045cb525c084 classified exactly those four routes through the canonical portal surface-fragment mechanism
-  - Portal Acceptance Contract 31952049555 then advanced to the content-scale pretest and isolated exactly one missing classification for downloads.updater-admin-trust
-  - repository validators require every portal surface to have matching content-scale, dimension and media applicability records
-  - content-scale supports dedicated classification fragments; updater admin trust is not an independent long-content or large-collection consumer
-  - the existing Downloads lifecycle and portability evidence already exercise the updater admin trust UI across required viewport/browser dimensions
-  - updater admin trust does not consume repository-managed media and is correctly not_applicable to the media state contract
-  - whole-diff self-review was completed after architecture-authority repair and formatter cleanup; submitted reviews and review threads were empty before final ledger closure
+  - route classification commit e1c4084615883d4456bd133db8a2045cb525c084 classified exactly the four new updater admin routes without exclusions
+  - complete portal ledgers commit 1852ba017255d1e42251f174a16d735e571a0928 classified downloads.updater-admin-trust in content-scale, dimension and media contracts
+  - Portal Acceptance Contract 31952358341 proved content-scale validator status complete with portal_surface_count 30, classified_surface_count 30, zero errors and zero gaps
+  - the sole 31952358341 failure was the deterministic content-scale fixture asserting the previous fixed count 29 instead of 30
+  - repository search found no other coverage fixture hardcode requiring the old 29-surface count
+  - whole-diff self-review repaired the architecture authority issue; submitted reviews and review threads were empty before final evidence-only repairs
 derived:
-  - portal strict failures are evidence-ledger completeness defects, not application runtime defects
-  - the complete ledger repair must classify the new surface in content-scale, dimension and media contracts without weakening strict discovery or exclusions
-  - final exact-head validation must be regenerated once for the complete ledger successor head
+  - the current strict failure is a fixture cardinality update required by the intentionally added portal surface, not a runtime or evidence-contract defect
+  - changing the fixture expectation from 29 to 30 preserves strictness because the validator independently proves exact classification completeness and zero gaps
 unknown:
-  - terminal conclusions of required CI and acceptance workflows for the complete-ledger successor head until GitHub executes them
-  - real protected signer/repository integration behavior because that separate authority and implementation are outside this task
-  - real updater/client cross-repository behavior because that separate authority is not granted
+  - terminal conclusions of all required CI and acceptance workflows for the fixture-repair successor head until GitHub executes them
+  - real protected signer/repository integration and real updater/client cross-repository behavior because those separate authorities are not granted
 conflicts: []
 first_failure:
-  marker: portal-new-surface-ledger-classifications-repaired
-  evidence: 31952049555 reported only Missing content scale classification for portal surface downloads.updater-admin-trust after route classification; validator inspection proves dimension and media contracts also require one record per portal surface
+  marker: content-scale-fixture-cardinality-repaired
+  evidence: Portal Acceptance Contract 31952358341 validator produced complete 30/30 with no errors, then test-portal-content-scale-evidence.mjs line 23 failed only because it expected 29
 rejected_hypotheses:
-  - lexical display version can safely order updates
-  - browser is_current can stand in for updater-active state
+  - display version can safely order security updates
+  - browser is_current can substitute for updater-active state
   - administrator-supplied SHA-256 proves publisher authenticity
-  - Laravel should own private TUF signing keys
-  - ordinary downloads.manage web administration should be able to mint reconciled signed-generation state
-  - TUF Targets and Snapshot versions must increase on every Timestamp freshness refresh
-  - a new persistent task-specific workflow is needed
-  - the Phase 7 diagnostic should bypass MFA or downloads.manage authorization
-  - updater admin routes should be excluded from strict portal route discovery
-  - strict portal or content-scale validators should be weakened to ignore the new surface
+  - Laravel should own TUF private signing keys
+  - ordinary web administration should mint signed-generation state
+  - strict route, scale, dimension or media validators should be weakened or exclude updater admin routes
+  - the 30-surface result is a coverage gap
 changed_paths:
   - .github/workflows/downloads-acceptance.yml
   - app/Downloads/**
@@ -209,6 +189,7 @@ changed_paths:
   - routes/modules/downloads.php
   - scripts/acceptance/coverage/portal-evidence-dimensions/content.json
   - scripts/acceptance/coverage/surfaces/downloads-updater-admin-trust.json
+  - scripts/acceptance/coverage/test-portal-content-scale-evidence.mjs
   - scripts/acceptance/seed-downloads-state.php
   - scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs
   - tests/Feature/Downloads/**
@@ -216,50 +197,49 @@ changed_paths:
 validation:
   - command: CI 31951774672 on b67c361aa924e96b9ce54c2ba1c15d5bb104d724
     result: PASS
-    evidence: Composer metadata/audit, Pint, PHPStan/Larastan and full PHPUnit suite succeeded
-  - command: Phase 7 Production-Like Validation 31951774659 on b67c361aa924e96b9ce54c2ba1c15d5bb104d724
+    evidence: Composer audit, Pint, PHPStan/Larastan and full PHPUnit succeeded
+  - command: Phase 7 31951774659 on b67c361aa924e96b9ce54c2ba1c15d5bb104d724
     result: PASS
-    evidence: production-like dependency boundaries, critical regression suite, backup/restore and upgrade/rollback/redeploy succeeded
+    evidence: production-like boundaries, critical regression, backup/restore and upgrade/rollback succeeded
   - command: Downloads Acceptance 31951774825 on b67c361aa924e96b9ce54c2ba1c15d5bb104d724
     result: PASS
-    evidence: migration rollback/replay, zero-retry Chromium lifecycle and Firefox/WebKit portability succeeded
-  - command: Portal Acceptance Contract 31952049555 strict pretest on e1c4084615883d4456bd133db8a2045cb525c084
+    evidence: rollback/replay, zero-retry Chromium and Firefox/WebKit portability succeeded
+  - command: Portal Acceptance Contract 31952358341 on 1852ba017255d1e42251f174a16d735e571a0928
     result: FAIL
-    evidence: exactly one missing content-scale classification for downloads.updater-admin-trust; route classification had already advanced past the earlier four-route failure
+    evidence: content-scale validator was complete 30/30 with zero errors; deterministic fixture alone expected obsolete count 29
 blockers: []
 invocation_started_at: 2026-08-16T15:05:00+02:00
-last_progress_at: 2026-08-16T16:16:00+02:00
-ci_checks_for_current_head: 10
-ci_check_generation: complete_portal_ledger_successor
+last_progress_at: 2026-08-16T16:22:00+02:00
+ci_checks_for_current_head: 11
+ci_check_generation: fixture_count_successor
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 4
+repair_cycles_for_current_gate: 5
 context_reconstruction_attempts: 1
 stall_warnings: 0
-next_action: Publish the complete content-scale, dimension and media classification repair in one fast-forward commit, then validate that exact successor head through all required CI and acceptance contracts before ready-for-review and exact expected-head squash merge.
+next_action: Publish the deterministic content-scale fixture count repair in one fast-forward commit, then validate that exact successor head through all required CI and acceptance contracts before final review hygiene and expected-head squash merge.
 ```
 
 ## Recovery checkpoint
 
 ```yaml
 checkpoint_type: RECOVERY
-captured_at: 2026-08-16T16:16:00+02:00
-current_state: application CI, Phase 7 and Downloads Acceptance were green on the material implementation; strict portal route classification is complete and the remaining new-surface content-scale/dimension/media ledgers are repaired atomically in the successor tree
-last_completed_step: assembled complete portal ledger classifications for downloads.updater-admin-trust without weakening any validator
-active_operation: publish and validate the complete-ledger successor exact head
+captured_at: 2026-08-16T16:22:00+02:00
+current_state: application validation is green on the material implementation and portal ledgers validate 30/30; only the deterministic fixture still expected the historical 29-surface cardinality
+last_completed_step: audited all coverage fixture tests and isolated the single obsolete hardcoded count
+active_operation: publish fixture cardinality repair and regenerate exact-head validation
 external_run_ids:
   - 31951774672
   - 31951774659
   - 31951774825
-  - 31951774841
-  - 31952049555
+  - 31952358341
 expected_success_marker: successor head has strict portal coverage plus required CI, Downloads Acceptance and Phase 7 SUCCESS with zero unresolved material review findings
 expected_failure_marker: first failing required job or final-head review finding
-wait_deadline: bounded terminal-CI exception only after the final head is confirmed and non-CI gates remain satisfied
-next_step_on_success: mark PR ready, exact expected-head squash merge, close Issue #1039, create lifecycle-only archive closeout, verify source/archive branch disposition and final main
-next_step_on_failure: inspect the first relevant failing job log and repair the root cause on the same branch
+wait_deadline: bounded terminal-CI exception only after final head is confirmed and non-CI gates remain satisfied
+next_step_on_success: final review hygiene, mark PR ready, exact expected-head squash merge, close Issue #1039, lifecycle-only archive closeout, branch deletion and selector rerun
+next_step_on_failure: inspect first relevant failing job log and repair the root cause on the same branch
 parallel_work_allowed: false
 parallel_work_scope: none during final exact-head validation
 context_pressure: low
