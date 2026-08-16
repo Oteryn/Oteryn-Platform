@@ -139,39 +139,26 @@ test('Flows 7-9 — admin MFA/RBAC, CMS lifecycle and audit evidence', async ({ 
 
   const editorAuthorizedContext = await browser.newContext();
   const editorAuthorizedPage = await editorAuthorizedContext.newPage();
-  try {
-    await login(editorAuthorizedPage, editorEmail, editorPassword);
-    const editorCode = await waitForDifferentTotp(editorMfa.secret, editorLastTotp);
-    await completeMfaChallenge(editorAuthorizedPage, editorCode);
-    editorLastTotp = editorCode;
+  await login(editorAuthorizedPage, editorEmail, editorPassword);
+  const editorCode = await waitForDifferentTotp(editorMfa.secret, editorLastTotp);
+  await completeMfaChallenge(editorAuthorizedPage, editorCode);
+  editorLastTotp = editorCode;
 
-    await editorAuthorizedPage.goto('/admin/news');
-    await expect(editorAuthorizedPage.getByRole('heading', { name: 'News' })).toBeVisible();
+  await editorAuthorizedPage.goto('/admin/news');
+  await expect(editorAuthorizedPage.getByRole('heading', { name: 'News' })).toBeVisible();
 
-    const deniedRoles = await editorAuthorizedPage.goto('/admin/roles');
-    expect(deniedRoles?.status()).toBe(403);
-    const deniedAudit = await editorAuthorizedPage.goto('/admin/audit');
-    expect(deniedAudit?.status()).toBe(403);
-  } finally {
-    await editorAuthorizedContext.close();
-  }
+  const deniedRoles = await editorAuthorizedPage.goto('/admin/roles');
+  expect(deniedRoles?.status()).toBe(403);
+  const deniedAudit = await editorAuthorizedPage.goto('/admin/audit');
+  expect(deniedAudit?.status()).toBe(403);
 
   await page.goto('/admin/roles');
   await page.locator('tr').filter({ hasText: editorEmail }).getByRole('button', { name: 'Remove content_editor' }).click();
   await expect(page.getByRole('status')).toBeVisible();
 
-  const removedRoleContext = await browser.newContext();
-  const removedRolePage = await removedRoleContext.newPage();
-  try {
-    await login(removedRolePage, editorEmail, editorPassword);
-    const removedRoleCode = await waitForDifferentTotp(editorMfa.secret, editorLastTotp);
-    await completeMfaChallenge(removedRolePage, removedRoleCode);
-    editorLastTotp = removedRoleCode;
-    const deniedNews = await removedRolePage.goto('/admin/news');
-    expect(deniedNews?.status()).toBe(403);
-  } finally {
-    await removedRoleContext.close();
-  }
+  const revokedExistingSession = await editorAuthorizedPage.goto('/admin/news');
+  expect(revokedExistingSession?.status()).toBe(403);
+  await editorAuthorizedContext.close();
 
   await page.goto('/admin/roles');
   await page.locator('tr').filter({ hasText: adminEmail }).getByRole('button', { name: 'Remove platform_admin' }).click();
