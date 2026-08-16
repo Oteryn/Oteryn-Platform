@@ -92,12 +92,14 @@ proven:
   - comparison against current main 11c8c47b723ad669d9d23374b12149296ac3f492 found no intervening main changes to the 11 material implementation/test/view paths
   - material candidate 4fdefdaf518734bb1c48250ce15839be01ef4ecd reconstructs exactly those validated 11 blobs on current main and therefore avoids replaying 20 stale commits
   - runtime/browser E2E is semantically not applicable because routes, state values, markup branches, persistence and runtime integrations are unchanged
+derived:
+  - preserving the exact repaired material blob identities on a current-main parent is safer than replaying stale branch history because it retains the reviewed behavior while eliminating unrelated historical drift
 unknown:
   - conclusions of fresh exact-head CI/governance/acceptance on reconstructed PR #1061
 conflicts: []
 first_failure:
-  marker: historical-architecture-alias-guard
-  evidence: prior automated P2 finding repaired on be22972; no current unresolved thread
+  marker: reconstructed-checkpoint-missing-derived
+  evidence: Agent Governance run 31930846300 validated every other governance stage but failed checkpoint validation because the first refreshed checkpoint omitted required field derived; this commit repairs only that metadata omission
 rejected_hypotheses:
   - merge the stale 20-commit branch wholesale
   - delete PublicPortal PublicContentState globally
@@ -124,8 +126,8 @@ validation:
     result: PASS
     evidence: no current-main changes overlap the 11 material implementation/test/view paths
   - command: reconstructed exact-head CI/governance/acceptance
-    result: NOT_RUN
-    evidence: this checkpoint commit triggers the fresh PR generation
+    result: FAIL
+    evidence: first generation Agent Governance 31930846300 failed only for missing required checkpoint field derived; other current generation workflows continue independently and this metadata-only repair triggers a fresh generation
 blockers: []
-next_action: require all fresh exact-head checks to pass, perform exact-head whole-diff self-review, then squash merge #1061, close #1060 and archive the task.
+next_action: require all fresh exact-head checks after this metadata repair to pass, perform exact-head whole-diff self-review, then squash merge #1061, close #1060 and archive the task.
 ```
