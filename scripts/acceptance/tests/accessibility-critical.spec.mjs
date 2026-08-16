@@ -127,6 +127,33 @@ test('@accessibility login and password-recovery forms are keyboard reachable an
   await expect(page.getByRole('status')).toBeVisible();
 });
 
+test('@accessibility account-security privacy controls are keyboard reachable and activatable', async ({ page }) => {
+  const email = uniqueEmail('accessibility-security');
+  seedReadyAccount(email);
+
+  await keyboardLogin(page, email, accountPassword);
+  await page.goto('/account/security');
+  await expect(page.getByRole('heading', { name: 'Security and lifecycle' })).toBeVisible();
+
+  const privacy = page.locator('section[aria-labelledby="privacy-heading"]');
+  const association = privacy.getByLabel('Allow public characters to show an account association when that feature is delivered.');
+  await tabTo(page, association, 'account security association privacy checkbox');
+  await page.keyboard.press('Space');
+  await expect(association).toBeChecked();
+
+  const status = privacy.getByLabel('Allow public online/status visibility when supported by a public profile.');
+  await tabTo(page, status, 'account security status privacy checkbox');
+  await page.keyboard.press('Space');
+  await expect(status).toBeChecked();
+
+  const save = privacy.getByRole('button', { name: 'Save privacy settings' });
+  await tabTo(page, save, 'account security privacy submit');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('status')).toContainText('Account privacy settings have been updated.');
+  await expect(association).toBeChecked();
+  await expect(status).toBeChecked();
+});
+
 test('@accessibility Account Overview reaches character creation and its controls through keyboard traversal', async ({ page }) => {
   const email = uniqueEmail('accessibility-account');
   seedReadyAccount(email);
