@@ -4,7 +4,7 @@
 audit_id: OTERYN-20260816-content-audit
 repository: blakinio/Oteryn-Platform
 base_sha: 286efb1625d510c9d2cc344cb51a2438b31ebe48
-observed_main_after_audit_sha: 5cc42a9bc2a4732265cf83533fe7681ab1ab5865
+observed_main_after_audit_sha: 785886a31c5719983121bbd8a2d1c81f24c11557
 parent_issue: 1115
 audit_pr: 1117
 runtime_access: false
@@ -17,7 +17,7 @@ ledger_json: docs/agents/reports/OTERYN-20260816-content-audit-ledger.json
 
 The discovery barrier is complete at repository-evidence level. The audited `main` is not an empty content shell, but repository capability and production population must remain separate.
 
-The detailed ledger remains intentionally frozen to audited base `286efb1625d510c9d2cc344cb51a2438b31ebe48`. During final validation, protected `main` advanced by exactly one commit to `5cc42a9bc2a4732265cf83533fe7681ab1ab5865`, the merge of PR #1114 (`feat(portal): deliver public Today command centre`). A direct base-to-main comparison reported `ahead_by: 1`, `behind_by: 0`. This handoff reconciles that live ownership change without retroactively relabelling frozen-base evidence.
+The detailed ledger remains intentionally frozen to audited base `286efb1625d510c9d2cc344cb51a2438b31ebe48`. During validation, protected `main` advanced by exactly two commits to `785886a31c5719983121bbd8a2d1c81f24c11557`: PR #1114 delivered the Public Today command centre as `5cc42a9bc2a4732265cf83533fe7681ab1ab5865`, then PR #1118 archived that terminal task and released its active ownership. A direct base-to-main comparison reported `ahead_by: 2`, `behind_by: 0`. This handoff reconciles those live ownership/lifecycle changes without retroactively relabelling frozen-base evidence.
 
 Proven current-state anchors:
 
@@ -27,7 +27,7 @@ Proven current-state anchors:
 - `routes/web.php` deterministically loads 13 `routes/modules/*.php` files on the frozen audit base. All 13 have an explicit ledger disposition.
 - Account/security/registration/login/recovery/MFA are implemented workflow surfaces and are not missing static-content families.
 - Billing/library tiers are not a product surface proven on the frozen base and are outside Issue #1115; do not invent a content lane for them.
-- Public Today is now delivered on current `main` by merged PR #1114 at `5cc42a9bc2a4732265cf83533fe7681ab1ab5865`; future content work must not recreate that slice.
+- Public Today is delivered by merged PR #1114 and its lifecycle is terminal/archived on current `main` by merged PR #1118; future content work must not recreate that slice or retain its former active path ownership.
 
 ## Corrected evidence
 
@@ -78,11 +78,11 @@ These are source-side counts only. They are not Platform production counts and t
 
 ## Live ownership locks
 
-Refreshed during final validation:
+Refreshed during validation:
 
 | Owner | State | Lock / consequence |
 |---|---|---|
-| #1114 | merged as `5cc42a9bc2a4732265cf83533fe7681ab1ab5865` | PublicPortal Today is delivered on current `main`; do not recreate or claim its former draft paths as unowned |
+| #1114 | merged as `5cc42a9bc2a4732265cf83533fe7681ab1ab5865`; closeout #1118 merged as `785886a31c5719983121bbd8a2d1c81f24c11557` | PublicPortal Today is delivered and its task is archived; do not recreate its implementation or former active ownership |
 | #1116 | open draft; observed `mergeable: false` after the `main` advance | programme/source-inventory bootstrap remains unmerged candidate evidence; refresh/reconcile before any merge action |
 | #330 | open programme/issue | existing Game Catalog production-completion owner |
 | #489 | open issue | broad catalogue/content/knowledge/tools completion owner |
@@ -124,7 +124,7 @@ Generate/link reference surfaces only from accepted structured facts. Preserve s
 
 ```yaml
 content_audit_base_sha: 286efb1625d510c9d2cc344cb51a2438b31ebe48
-observed_main_after_audit_sha: 5cc42a9bc2a4732265cf83533fe7681ab1ab5865
+observed_main_after_audit_sha: 785886a31c5719983121bbd8a2d1c81f24c11557
 wiki_inventory_version: 2026-08-10.2
 wiki_catalog_version: 2026-07-26.1
 wiki_catalog_blob_sha: 07ff3324a4530958f9f4e164c5f7a2a399a1bb8b
@@ -134,7 +134,7 @@ source_profile_alternate: data-crystal
 catalog_runtime_population: UNKNOWN
 wiki_runtime_installation: UNKNOWN
 player_companion_proven_vertical_slices: 1
-public_today_main_state: MERGED_5cc42a9bc2a4732265cf83533fe7681ab1ab5865
+public_today_main_state: MERGED_AND_ARCHIVED_785886a31c5719983121bbd8a2d1c81f24c11557
 new_audit_scaffolds: 0
 ```
 
@@ -145,4 +145,4 @@ new_audit_scaffolds: 0
 3. Current production/staging content and feature-config state, because this audit has repository authority only.
 4. Which single Player Companion tool should be first after dependency/authority refresh.
 
-These uncertainties block only the affected lane. Public Today is already merged on current `main`; subsequent work should consume that terminal state rather than open a parallel Today implementation lane.
+These uncertainties block only the affected lane. Public Today is already merged and archived on current `main`; subsequent work should consume that terminal state rather than open a parallel Today implementation lane.
