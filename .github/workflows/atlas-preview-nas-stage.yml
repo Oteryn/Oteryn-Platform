@@ -1,0 +1,176 @@
+name: Atlas Preview NAS Stage
+
+on:
+  push:
+    branches:
+      - ops/OTERYN-20260816-atlas-preview-nas-stage
+    paths:
+      - .github/workflows/atlas-preview-nas-stage.yml
+      - docs/agents/tasks/active/OTERYN-20260816-atlas-preview-nas-stage.md
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oteryn-atlas-preview-nas-stage
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    name: Stage Atlas project and inspect corpus
+    runs-on: oteryn-staging
+    timeout-minutes: 10
+    env:
+      HOST_PARENT: /volume1/docker/otheryn
+      PROJECT_REL: atlas/project
+      CURRENT_REL: atlas/current
+      EXPECT_COMPOSE: 64497eeaef5488a849e3a420ce2c3142d4659007fefec228d6224d14b3086d90
+      EXPECT_NGINX: e4ede6aeb53e07cd721578e85edee4038939e5531e5077cf5fff8327ff616ad2
+      EXPECT_ENV: f38ac0693f693755d045d3fa3a4573e0d849f5a02ff74e739a4e65b374130bf9
+      EXPECT_SOURCE: 81d17743be8788b039b749c59a1c5524f0ce24e70d988bd28eeb94cb2e27a857
+    steps:
+      - name: Verify exact dedicated runner and snapshot canonical staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          docker version >/dev/null
+          docker info >/dev/null
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' \
+            --format '{{.ID}}\t{{.Names}}\t{{.Status}}' | sort > /tmp/atlas-stage-canonical-before.tsv
+          test -s /tmp/atlas-stage-canonical-before.tsv
+          echo RUNNER_VERIFIED=true
+
+      - name: Read-only inventory for an existing Atlas corpus
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          helper="oteryn-atlas-stage-inventory-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker run --rm --name "$helper" \
+            -v /volume1/docker:/host:ro \
+            ubuntu:24.04 bash -lc '
+              set -Eeuo pipefail
+              target=/host/otheryn/atlas/current
+              if [[ -f "$target/manifest.json" ]]; then
+                echo ATLAS_CURRENT_PRESENT=true
+                for required in index.html viewer-app.js viewer-runtime.js creature-animation-runtime.js manifest.json; do
+                  if [[ -f "$target/$required" ]]; then echo "ATLAS_REQUIRED_${required//[^A-Za-z0-9]/_}=present"; else echo "ATLAS_REQUIRED_${required//[^A-Za-z0-9]/_}=missing"; fi
+                done
+                if grep -q '"'"'schemaVersion'"'"[[:space:]]*:[[:space:]]*3' "$target/manifest.json"; then echo ATLAS_SCHEMA_V3_MATCH=true; else echo ATLAS_SCHEMA_V3_MATCH=false; fi
+                if grep -q '3bd40d14fefec41f24c4b3ae879e420be1a831ef55b95dcbec721e587a09b034' "$target/manifest.json"; then echo ATLAS_MAP_SHA_MATCH=true; else echo ATLAS_MAP_SHA_MATCH=false; fi
+                chunk_rows=$(grep -c '"'"'path'"'"[[:space:]]*:[[:space:]]*"tiles/' "$target/manifest.json" || true)
+                echo ATLAS_MANIFEST_DETAIL_PATH_ROWS="$chunk_rows"
+                if [[ -f "$target/data/environment-animations/index.json" ]]; then echo ATLAS_ENVIRONMENT_INDEX_PRESENT=true; else echo ATLAS_ENVIRONMENT_INDEX_PRESENT=false; fi
+              else
+                echo ATLAS_CURRENT_PRESENT=false
+              fi
+              echo ATLAS_CANDIDATE_MANIFESTS_BEGIN
+              find /host -maxdepth 8 -type f \( -path '"'"'*/full-map-atlas/manifest.json'"'"' -o -path '"'"'*/atlas/current/manifest.json'"'"' \) -print 2>/dev/null | sort | head -50
+              echo ATLAS_CANDIDATE_MANIFESTS_END
+            '
+
+      - name: Materialize exact merged Atlas project payload
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          payload="$RUNNER_TEMP/atlas-project-payload"
+          rm -rf "$payload"
+          mkdir -p "$payload"
+          printf '%s' 'LS0tCm5hbWU6IG90aGVyeW4tYXRsYXMtcHJldmlldwoKc2VydmljZXM6CiAgYXRsYXM6CiAgICBpbWFnZTogImdoY3IuaW8vbmdpbngvbmdpbngtdW5wcml2aWxlZ2VkOjEuMzEuMy1hbHBpbmUzLjI0LXNsaW1Ac2hhMjU2OjIyZjgzOWM1ZmI0MDA3ZGMyNGQyMDNhMTcwYTllMDNmYzE4NWQ2NjBiZmVmYzM0YWM2ODIzYTdhZWYwODVjYmMiCiAgICByZXN0YXJ0OiB1bmxlc3Mtc3RvcHBlZAogICAgcmVhZF9vbmx5OiB0cnVlCiAgICBzZWN1cml0eV9vcHQ6CiAgICAgIC0gbm8tbmV3LXByaXZpbGVnZXM6dHJ1ZQogICAgY2FwX2Ryb3A6CiAgICAgIC0gQUxMCiAgICBwaWRzX2xpbWl0OiAxMDAKICAgIHBvcnRzOgogICAgICAtICIke0FUTEFTX0JJTkRfQUREUkVTUzotMTI3LjAuMC4xfToke0FUTEFTX0hUVFBfUE9SVDotODA5NX06ODA4MCIKICAgIHZvbHVtZXM6CiAgICAgIC0gIiR7QVRMQVNfREFUQV9ESVI6LS92b2x1bWUxL2RvY2tlci9vdGhlcnluL2F0bGFzL2N1cnJlbnR9Oi91c3Ivc2hhcmUvbmdpbngvaHRtbDpybyIKICAgICAgLSAiLi9uZ2lueC5jb25mOi9ldGMvbmdpbngvY29uZi5kL2RlZmF1bHQuY29uZjpybyIKICAgIHRtcGZzOgogICAgICAtIC90bXA6c2l6ZT02NG0sbW9kZT0xNzc3CiAgICBoZWFsdGhjaGVjazoKICAgICAgdGVzdDogWyJDTUQtU0hFTEwiLCAid2dldCAtcSAtTyAvZGV2L251bGwgaHR0cDovLzEyNy4wLjAuMTo4MDgwL2luZGV4Lmh0bWwiXQogICAgICBpbnRlcnZhbDogMzBzCiAgICAgIHRpbWVvdXQ6IDVzCiAgICAgIHJldHJpZXM6IDMKICAgICAgc3RhcnRfcGVyaW9kOiAxMHMKICAgIGxvZ2dpbmc6CiAgICAgIGRyaXZlcjoganNvbi1maWxlCiAgICAgIG9wdGlvbnM6CiAgICAgICAgbWF4LXNpemU6ICIxMG0iCiAgICAgICAgbWF4LWZpbGU6ICIzIgo=' | base64 -d > "$payload/docker-compose.yml"
+          printf '%s' 'c2VydmVyIHsKICAgIGxpc3RlbiA4MDgwIGRlZmF1bHRfc2VydmVyOwogICAgbGlzdGVuIFs6Ol06ODA4MCBkZWZhdWx0X3NlcnZlcjsKICAgIHNlcnZlcl9uYW1lIF87CgogICAgcm9vdCAvdXNyL3NoYXJlL25naW54L2h0bWw7CiAgICBpbmRleCBpbmRleC5odG1sOwogICAgY2hhcnNldCB1dGYtODsKICAgIHNlcnZlcl90b2tlbnMgb2ZmOwogICAgZXRhZyBvbjsKCiAgICBpbmNsdWRlIC9ldGMvbmdpbngvbWltZS50eXBlczsKICAgIGRlZmF1bHRfdHlwZSBhcHBsaWNhdGlvbi9vY3RldC1zdHJlYW07CgogICAgYWRkX2hlYWRlciBYLUNvbnRlbnQtVHlwZS1PcHRpb25zICJub3NuaWZmIiBhbHdheXM7CiAgICBhZGRfaGVhZGVyIFJlZmVycmVyLVBvbGljeSAibm8tcmVmZXJyZXIiIGFsd2F5czsKICAgIGFkZF9oZWFkZXIgWC1GcmFtZS1PcHRpb25zICJERU5ZIiBhbHdheXM7CiAgICBhZGRfaGVhZGVyIENhY2hlLUNvbnRyb2wgInByaXZhdGUiIGFsd2F5czsKICAgIGFkZF9oZWFkZXIgQ29udGVudC1TZWN1cml0eS1Qb2xpY3kgImRlZmF1bHQtc3JjICdzZWxmJzsgaW1nLXNyYyAnc2VsZicgZGF0YTo7IHNjcmlwdC1zcmMgJ3NlbGYnOyBzdHlsZS1zcmMgJ3NlbGYnICd1bnNhZmUtaW5saW5lJzsgY29ubmVjdC1zcmMgJ3NlbGYnOyBvYmplY3Qtc3JjICdub25lJzsgYmFzZS11cmkgJ25vbmUnOyBmcmFtZS1hbmNlc3RvcnMgJ25vbmUnIiBhbHdheXM7CgogICAgZ3ppcCBvbjsKICAgIGd6aXBfdmFyeSBvbjsKICAgIGd6aXBfY29tcF9sZXZlbCA1OwogICAgZ3ppcF9taW5fbGVuZ3RoIDEwMjQ7CiAgICBnemlwX3R5cGVzIHRleHQvY3NzIGFwcGxpY2F0aW9uL2phdmFzY3JpcHQgYXBwbGljYXRpb24vanNvbjsKCiAgICBsb2NhdGlvbiA9IC9oZWFsdGh6IHsKICAgICAgICBhY2Nlc3NfbG9nIG9mZjsKICAgICAgICBleHBpcmVzIC0xOwogICAgICAgIGRlZmF1bHRfdHlwZSB0ZXh0L3BsYWluOwogICAgICAgIHJldHVybiAyMDAgIm9rXG4iOwogICAgfQoKICAgIGxvY2F0aW9uID0gL2Zhdmljb24uaWNvIHsKICAgICAgICBhY2Nlc3NfbG9nIG9mZjsKICAgICAgICBsb2dfbm90X2ZvdW5kIG9mZjsKICAgICAgICByZXR1cm4gMjA0OwogICAgfQoKICAgIGxvY2F0aW9uID0gL2luZGV4Lmh0bWwgewogICAgICAgIGV4cGlyZXMgLTE7CiAgICAgICAgdHJ5X2ZpbGVzICR1cmkgPTQwNDsKICAgIH0KCiAgICBsb2NhdGlvbiA9IC9tYW5pZmVzdC5qc29uIHsKICAgICAgICBleHBpcmVzIC0xOwogICAgICAgIHRyeV9maWxlcyAkdXJpID00MDQ7CiAgICB9CgogICAgbG9jYXRpb24gfiogXC4oPzpqc3xjc3N8anNvbikkIHsKICAgICAgICBleHBpcmVzIDVtOwogICAgICAgIHRyeV9maWxlcyAkdXJpID00MDQ7CiAgICB9CgogICAgbG9jYXRpb24gfiogXC4oPzpwbmd8d2VicCkkIHsKICAgICAgICBleHBpcmVzIDFoOwogICAgICAgIHRyeV9maWxlcyAkdXJpID00MDQ7CiAgICB9CgogICAgbG9jYXRpb24gLyB7CiAgICAgICAgdHJ5X2ZpbGVzICR1cmkgJHVyaS8gPTQwNDsKICAgIH0KfQo=' | base64 -d > "$payload/nginx.conf"
+          printf '%s' 'IyBPVEJNIEF0bGFzIFN5bm9sb2d5IHByZXZpZXcgZGVmYXVsdHMuCiMgUkVDT01NRU5ERUQgdmFsdWVzIG9ubHkuIENoYW5nZSB0aGVtIG9ubHkgaWYgdGhlIGxpdmUgTkFTIHJlcXVpcmVzIGl0LgpBVExBU19EQVRBX0RJUj0vdm9sdW1lMS9kb2NrZXIvb3RoZXJ5bi9hdGxhcy9jdXJyZW50CkFUTEFTX0JJTkRfQUREUkVTUz0xMjcuMC4wLjEKQVRMQVNfSFRUUF9QT1JUPTgwOTUK' | base64 -d > "$payload/.env.example"
+          printf '%s' 'c291cmNlX3JlcG9zaXRvcnk9Ymxha2luaW8vT3RoZXJ5bgpzb3VyY2VfY29tbWl0PWI5ZjUxYjAxMzUyYWJjZGE0ZGI4ZGY1NGYzYjU3NWRkYzdiMjUzMmIKc291cmNlX3ByPTQxNQpwdXJwb3NlPXByaXZhdGUgU3lub2xvZ3kgQXRsYXMgYnJvd3NlciBwcmV2aWV3IHByb2plY3QgZmlsZXMK' | base64 -d > "$payload/SOURCE.txt"
+          echo "$EXPECT_COMPOSE  $payload/docker-compose.yml" | sha256sum -c -
+          echo "$EXPECT_NGINX  $payload/nginx.conf" | sha256sum -c -
+          echo "$EXPECT_ENV  $payload/.env.example" | sha256sum -c -
+          echo "$EXPECT_SOURCE  $payload/SOURCE.txt" | sha256sum -c -
+
+      - name: Fail closed on unexpected existing project content
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          helper="oteryn-atlas-stage-preflight-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          existing="$({ docker run --rm --name "$helper" \
+            -v "$HOST_PARENT:/host:ro" \
+            ubuntu:24.04 bash -lc '
+              set -Eeuo pipefail
+              target=/host/'"$PROJECT_REL"'
+              [[ -d "$target" ]] || exit 0
+              find "$target" -mindepth 1 -maxdepth 1 -printf "%f\n" | sort
+              for file in docker-compose.yml nginx.conf .env.example SOURCE.txt; do
+                [[ -f "$target/$file" ]] && sha256sum "$target/$file"
+              done
+            '; } 2>&1)"
+          printf '%s\n' "$existing"
+          unexpected="$(printf '%s\n' "$existing" | awk '!/^[0-9a-f]{64}  / && $0 !~ /^(docker-compose.yml|nginx.conf|\.env\.example|SOURCE\.txt)$/ && NF {print}')"
+          [[ -z "$unexpected" ]]
+          while read -r hash path; do
+            [[ -n "${hash:-}" ]] || continue
+            case "${path##*/}" in
+              docker-compose.yml) [[ "$hash" == "$EXPECT_COMPOSE" ]] ;;
+              nginx.conf) [[ "$hash" == "$EXPECT_NGINX" ]] ;;
+              .env.example) [[ "$hash" == "$EXPECT_ENV" ]] ;;
+              SOURCE.txt) [[ "$hash" == "$EXPECT_SOURCE" ]] ;;
+              *) exit 1 ;;
+            esac
+          done < <(printf '%s\n' "$existing" | grep -E '^[0-9a-f]{64}  ' || true)
+          allowed_names='^(docker-compose.yml|nginx.conf|\.env\.example|SOURCE\.txt)$'
+          bad_names="$(printf '%s\n' "$existing" | grep -Ev '^[0-9a-f]{64}  ' | grep -Ev "$allowed_names" || true)"
+          [[ -z "$bad_names" ]]
+
+      - name: Stage only the Atlas project files on Synology
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          payload="$RUNNER_TEMP/atlas-project-payload"
+          helper="oteryn-atlas-stage-write-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          tar -C "$payload" -cf - docker-compose.yml nginx.conf .env.example SOURCE.txt | \
+            docker run --rm -i --name "$helper" \
+              -v "$HOST_PARENT:/host" \
+              ubuntu:24.04 bash -lc '
+                set -Eeuo pipefail
+                target=/host/'"$PROJECT_REL"'
+                mkdir -p "$target"
+                tar -xf - -C "$target"
+                chmod 0644 "$target/docker-compose.yml" "$target/nginx.conf" "$target/.env.example" "$target/SOURCE.txt"
+              '
+          echo ATLAS_PROJECT_STAGED=true
+
+      - name: Verify staged bytes and canonical staging invariance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          helper="oteryn-atlas-stage-verify-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          report="$(docker run --rm --name "$helper" \
+            -v "$HOST_PARENT:/host:ro" \
+            ubuntu:24.04 bash -lc '
+              set -Eeuo pipefail
+              target=/host/'"$PROJECT_REL"'
+              for file in docker-compose.yml nginx.conf .env.example SOURCE.txt; do sha256sum "$target/$file"; done
+            ')"
+          printf '%s\n' "$report"
+          printf '%s\n' "$report" | grep -F "$EXPECT_COMPOSE  /host/$PROJECT_REL/docker-compose.yml"
+          printf '%s\n' "$report" | grep -F "$EXPECT_NGINX  /host/$PROJECT_REL/nginx.conf"
+          printf '%s\n' "$report" | grep -F "$EXPECT_ENV  /host/$PROJECT_REL/.env.example"
+          printf '%s\n' "$report" | grep -F "$EXPECT_SOURCE  /host/$PROJECT_REL/SOURCE.txt"
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' \
+            --format '{{.ID}}\t{{.Names}}\t{{.Status}}' | sort > /tmp/atlas-stage-canonical-after.tsv
+          diff -u /tmp/atlas-stage-canonical-before.tsv /tmp/atlas-stage-canonical-after.tsv
+          leftovers="$(docker ps -a --format '{{.Names}}' | grep '^oteryn-atlas-stage-' || true)"
+          [[ -z "$leftovers" ]]
+          echo CANONICAL_OTERYN_STAGING_UNCHANGED=true
+          echo ATLAS_PROJECT_HASH_VERIFICATION=PASS
+
+      - name: Publish sanitized result
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Otheryn Atlas NAS staging
+
+          This one-shot workflow uses the dedicated `oteryn-staging` Synology runner without SSH.
+
+          It stages only the static Atlas Container Manager project files beneath `/volume1/docker/otheryn/atlas/project` after exact-hash and existing-content guards. It does not start/stop the Atlas runtime, alter DSM Reverse Proxy, rebuild the Atlas, inspect secrets, or change canonical `oteryn-staging` services.
+
+          Review the read-only inventory step to determine whether `/volume1/docker/otheryn/atlas/current` or another `full-map-atlas` corpus already exists on the NAS.
+          EOF
