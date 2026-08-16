@@ -96,10 +96,10 @@ external_repository_access: none
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-16T20:05:00+02:00
-head: pending-first-commit
+updated_at: 2026-08-16T20:12:00+02:00
+head: 9402e7f8de01d2ecc739b0f18a061743de85cd87
 branch: docs/issue-1115-content-completion-programme
-pr: pending
+pr: 1116
 status: validating
 context_routes:
   - agent-governance
@@ -120,6 +120,8 @@ proven:
   - root archive license text is GNU GPL v2
   - no external server/game repository was accessed
   - programme Issue #1115 created
+  - bootstrap material commit = 9402e7f8de01d2ecc739b0f18a061743de85cd87
+  - draft bootstrap PR #1116 created from the dedicated task branch
 derived:
   - content completion requires a fresh audit because module AVAILABLE state does not prove real corpus/tool completeness
   - source families provide strong candidate material but do not establish native Oteryn authority
@@ -136,21 +138,26 @@ rejected_hypotheses:
   - treat module AVAILABLE status as player-visible completeness
   - duplicate live PR #338 NPC/shop consumer ownership
 changed_paths:
-  - pending first coherent commit
+  - docs/agents/programs/OTERYN_CONTENT_COMPLETION.md
+  - docs/agents/prompts/OTERYN-CONTENT-COMPLETION-PROMPTS.md
+  - docs/agents/reports/OTERYN-20260816-crystalserver-content-source-inventory.json
+  - docs/agents/reports/OTERYN-20260816-crystalserver-content-source-inventory.md
+  - docs/agents/evals/OTERYN-CONTENT-COMPLETION-MANUAL-EVAL.md
+  - docs/agents/tasks/active/OTERYN-20260816-content-completion-programme-bootstrap.md
 validation:
   - command: GitHub exact-head docs/governance CI
     result: NOT_RUN
-    evidence: draft PR not created yet
+    evidence: draft PR #1116 created; first exact-head observation remains
 blockers:
   - none
-next_action: create one coherent bootstrap commit, open the draft PR, bind the PR number into this checkpoint, then inspect applicable exact-head CI once
+next_action: inspect the draft PR #1116 exact-head changed paths and applicable CI once; record self-review/validation without marking Ready or invoking owner-funded review
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: task is active and the bootstrap PR is not merged
+source_branch_reason: task is active and draft PR #1116 is not merged
 source_branch_evidence: pending
 ```
 
