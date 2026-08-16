@@ -48,10 +48,10 @@ Implement the complete Platform-only vertical slice of ADR 0035 for first-party 
 - [x] Existing Downloads Playwright acceptance exercises browser publication plus updater enable → policy approval → acceptance-only protected-integration simulation → Platform-active read-only diagnostics and localized presentation; it explicitly does not claim cryptographic TUF signing or production activation.
 - [x] Existing `downloads-acceptance.yml` is extended rather than creating a new workflow; workflow budget remains 53.
 - [x] The isolated acceptance workflow proves migration rollback and re-apply before browser lifecycle execution.
-- [ ] Exact reconstructed PR head passes required GitHub CI and Downloads Acceptance.
-- [ ] Whole-diff self-review and review-thread hygiene are terminal with no unresolved material finding.
+- [ ] Exact final PR head passes required GitHub CI and Downloads Acceptance.
+- [x] Whole-diff self-review and review-thread hygiene are complete with no unresolved material finding on the final material implementation head.
 - [ ] Issue #1039, source branch and task lifecycle are terminal after implementation merge.
-- [ ] Real protected signer/repository integration and real first-party updater/client cross-repository E2E remain separately authorized future gates and are not claimed by this task.
+- [x] Real protected signer/repository integration and real first-party updater/client cross-repository E2E remain separately authorized future gates and are not claimed by this task.
 
 ## Ownership
 
@@ -98,26 +98,25 @@ blockers: []
 protected_main: 9336cd1f240196908a84cdea124992300bede59c
 protected_main_tree: 5d1921a69091816b98e2c22b7e0621d1cd82b1b0
 previous_pr_head: 72a0aea11c4b610a2b7e561f39a5fa68c0ad05cc
-previous_pr_changed_files:
-  - docs/agents/tasks/active/OTERYN-20260815-client-distribution-platform.md
 previous_material_implementation: none
 overlap_resolution: reconstruct exact implementation tree from current protected main; do not replay stale implementation history
 workflow_policy: reuse_or_extend
 workflow_budget: 53
-new_workflows: 0
+new_persistent_workflows: 0
 clean_material_commit: da514f3eda178e904a6fc481616a737d1b12d8c4
 first_published_reconstruction_head: 4a2fa4e3b19571e257d5462f6c6b58ef841a4ad0
-pre_authority_boundary_repair_head: 9af2db04d29ba726c3f171ae975388e70f906414
+formatter_repair_commit: aaec9fe4cda15c48da12d5a1646cd7eba018aad2
+final_material_head_before_checkpoint: a1c910461f8ebc09b98dec602dd92c6abf37dca1
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-16T11:49:00+02:00
-head: 9af2db04d29ba726c3f171ae975388e70f906414
+updated_at: 2026-08-16T15:13:17+02:00
+head: a1c910461f8ebc09b98dec602dd92c6abf37dca1
 status: validating
-phase: authority_boundary_repaired_ready_for_exact_head_validation
+phase: final_exact_head_validation_after_formatter_repair
 branch: feat/issue-1039-client-distribution-platform
 pr: 1073
 context_routes:
@@ -145,29 +144,28 @@ external_repository_mutation_authorization: ABSENT_AND_NOT_REQUIRED
 production_activation_authorization: ABSENT_AND_NOT_REQUIRED
 owner_funded_agent_authorization: ABSENT_AND_NOT_USED
 proven:
-  - protected main was re-read at 9336cd1f240196908a84cdea124992300bede59c before reconstruction
-  - PR #1073 contained only this task record before reconstruction
-  - ADR 0035 and CLIENT_DISTRIBUTION_ARCHITECTURE are accepted authority for this slice
-  - the existing browser Download Center and Downloads Acceptance workflow were extended rather than replaced
-  - no new workflow was created and the registered workflow budget remains 53
-  - all implementation writes are confined to Oteryn-Platform
-  - first published reconstruction head was 4a2fa4e3b19571e257d5462f6c6b58ef841a4ad0 with merge base exactly protected main and behind_by zero
-  - Agent Governance run 31939121881 isolated the original first_failure scalar defect
-  - Agent Governance run 31939204176 proved the remaining checkpoint contract omissions exactly after all earlier governance tests passed
-  - whole-diff self-review identified that ordinary downloads.manage web routes could incorrectly mint reconciled/Platform-active generation state without an independently authenticated protected integration
-  - the repaired tree removes those web mutation routes/controller methods/forms, hardens the internal importer itself against unknown/secret-shaped fields, and changes browser acceptance to an acceptance-environment-only internal integration simulation
+  - protected main was re-read at 9336cd1f240196908a84cdea124992300bede59c before continuation
+  - PR #1073 is the sole open Downloads implementation owner found by live PR search
+  - ADR 0035 and CLIENT_DISTRIBUTION_ARCHITECTURE remain the accepted authority for this slice
+  - ordinary downloads.manage web administration cannot import or activate protected generation state
+  - no private updater signing key or signing secret is accepted or persisted by the Platform implementation
+  - exact head 0d8c8a34eac5f00ddfa014dcf79684e3f3fcb089 passed Downloads Acceptance run 31940052536 including migration rollback/re-apply, zero-retry Chromium lifecycle, Firefox portability and WebKit portability
+  - CI run 31940052520 on 0d8c8a34eac5f00ddfa014dcf79684e3f3fcb089 isolated 22 Pint formatting findings before static analysis/tests
+  - temporary same-PR formatter execution produced commit aaec9fe4cda15c48da12d5a1646cd7eba018aad2 and changed exactly the 22 PHP files reported by Pint; no other path changed in that formatter commit
+  - temporary formatter permissions and source-editing step were removed from the retained Downloads Acceptance workflow in a1c910461f8ebc09b98dec602dd92c6abf37dca1
+  - current whole PR diff on a1c910461f8ebc09b98dec602dd92c6abf37dca1 contains no temporary formatter step or contents-write workflow permission
+  - current review-thread inventory for PR #1073 is empty and no submitted reviews/requested changes exist
 derived:
-  - ordinary Download Center administration may approve Platform policy intent but cannot itself establish a trusted signed-generation fact
-  - real TUF signature/repository verification belongs to the separately protected integration and first-party updater, not Laravel web administration
-  - a fresh exact head is required after the authority-boundary repair
+  - the original CI failure was formatting-only and the canonical repository formatter repaired the same bounded set of files
+  - the final material implementation is ready for a fresh exact-head required-CI generation after this checkpoint update
 unknown:
-  - terminal conclusions of exact-head CI/Downloads Acceptance for the repaired tree until GitHub executes them
+  - terminal conclusions of required CI and Downloads Acceptance for the checkpoint successor head until GitHub executes them
   - real protected signer/repository integration behavior because that separate authority and implementation are outside this task
   - real updater/client cross-repository behavior because that separate authority is not granted
 conflicts: []
 first_failure:
-  marker: self-review-web-admin-signed-generation-authority
-  evidence: pre-repair head 9af2db04d29ba726c3f171ae975388e70f906414 exposed POST generation import and activation through the ordinary downloads.manage web boundary, which was inconsistent with ADR 0035 separation of web administration from protected TUF authority
+  marker: ci-pint-formatting-resolved
+  evidence: CI 31940052520 failed only at vendor/bin/pint --test with 22 style findings; canonical Pint formatting commit aaec9fe4cda15c48da12d5a1646cd7eba018aad2 modified exactly those 22 PHP files and the temporary formatter workflow modification was then removed
 rejected_hypotheses:
   - lexical display version can safely order updates
   - browser is_current can stand in for updater-active state
@@ -175,55 +173,82 @@ rejected_hypotheses:
   - Laravel should own private TUF signing keys
   - ordinary downloads.manage web administration should be able to mint reconciled signed-generation state
   - TUF Targets and Snapshot versions must increase on every Timestamp freshness refresh
-  - a new task-specific workflow is needed
+  - a new persistent task-specific workflow is needed
+  - the final Pint failure represented application behavior rather than source formatting
 changed_paths:
-  - docs/agents/tasks/active/OTERYN-20260815-client-distribution-platform.md
+  - .github/workflows/downloads-acceptance.yml
   - app/Downloads/**
   - app/Http/Controllers/Downloads/**
   - app/Http/Requests/Downloads/**
   - database/migrations/2026_08_16_100000_add_client_updater_distribution_tables.php
+  - docs/agents/tasks/active/OTERYN-20260815-client-distribution-platform.md
   - lang/en/downloads.php
   - lang/pl/downloads.php
   - resources/views/downloads/**
   - resources/views/admin/downloads/**
   - routes/modules/downloads.php
-  - tests/Unit/Downloads/**
-  - tests/Feature/Downloads/**
   - scripts/acceptance/seed-downloads-state.php
   - scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs
-  - .github/workflows/downloads-acceptance.yml
+  - tests/Feature/Downloads/**
+  - tests/Unit/Downloads/**
 validation:
-  - command: Agent Governance run 31939121881 on head 4a2fa4e3b19571e257d5462f6c6b58ef841a4ad0
+  - command: Downloads Acceptance 31940052536 on 0d8c8a34eac5f00ddfa014dcf79684e3f3fcb089
+    result: PASS
+    evidence: migration rollback/replay, zero-retry Chromium lifecycle and Firefox/WebKit portability all succeeded
+  - command: CI 31940052520 runtime-tests on 0d8c8a34eac5f00ddfa014dcf79684e3f3fcb089
     result: FAIL
-    evidence: checkpoint-validation rejected first_failure scalar encoding; all earlier governance tests in that job passed
-  - command: Agent Governance run 31939204176 on head 6bbbb06578a1686d2fb35f3e8869e7e22b37e7ca
-    result: FAIL
-    evidence: checkpoint-validation required changed_paths, derived, head and checkpoint_version 1; all earlier governance tests in that job passed
-  - command: repaired authority-boundary exact-head GitHub Actions
-    result: NOT_RUN
-    evidence: the repaired tree has not yet been published to the branch at this checkpoint
+    evidence: vendor/bin/pint --test reported 22 style findings and fail-fast skipped static analysis/tests
+  - command: canonical Pint formatter repair 90e70ade1233efe245c1b7f2ff5812160d166d12..aaec9fe4cda15c48da12d5a1646cd7eba018aad2
+    result: PASS
+    evidence: one formatter commit changed exactly the 22 PHP paths from the CI formatter report
+self_review:
+  result: PASS
+  exact_head: a1c910461f8ebc09b98dec602dd92c6abf37dca1
+  acceptance_checked: true
+  full_diff_checked: true
+  negative_paths_checked: true
+  rollback_checked: true
+  compatibility_checked: true
+  related_prs_checked: true
+  findings: []
+  evidence:
+    - full PR patch re-read after formatter repair and after removal of temporary workflow mutation
+    - review threads empty on PR #1073
+    - no submitted review/requested-change state on PR #1073
 blockers: []
-next_action: Publish the repaired exact PR head, capture all GitHub Actions run ids, inspect and repair the first material failure if any, then complete whole-diff self-review and terminal merge/lifecycle closeout only after all gates are green.
+invocation_started_at: 2026-08-16T15:05:00+02:00
+last_progress_at: 2026-08-16T15:13:17+02:00
+ci_checks_for_current_head: 0
+ci_check_generation: final_checkpoint_successor
+terminal_ci_wait_started_at: null
+terminal_ci_checks_for_current_generation: 0
+unchanged_state_checks: 0
+identical_failure_retries: 0
+repair_cycles_for_current_gate: 1
+context_reconstruction_attempts: 1
+stall_warnings: 0
+next_action: Capture the checkpoint successor head, verify all required exact-head CI plus Downloads Acceptance, then mark PR #1073 ready and squash-merge with expected head SHA before Issue/task/source-branch lifecycle closeout.
 ```
 
 ## Recovery checkpoint
 
 ```yaml
 checkpoint_type: RECOVERY
-captured_at: 2026-08-16T11:49:00+02:00
-current_state: Platform-only implementation is reconstructed and the web-admin/protected-integration authority boundary has been repaired before merge
-last_completed_step: removed ordinary web mutation authority for protected generation state and moved acceptance reconciliation to an acceptance-only internal integration simulation
-active_operation: publish repaired tree and execute exact-head GitHub validation lanes
+captured_at: 2026-08-16T15:13:17+02:00
+current_state: final material implementation and canonical formatting repair are complete; only fresh exact-head CI and terminal merge/lifecycle remain
+last_completed_step: removed temporary formatter workflow mutation after canonical Pint repaired exactly the 22 reported PHP paths
+active_operation: final exact-head GitHub validation for the checkpoint successor
 external_run_ids:
-  - 31939121881
-  - 31939204176
-expected_success_marker: repaired exact PR head has required CI plus Downloads Acceptance success and zero unresolved material review findings
-expected_failure_marker: first failing required job or review finding on the repaired exact PR head
-wait_deadline: none; same-PR self-review remains available while Actions execute
-next_step_on_success: whole-diff self-review, mark PR ready, exact expected-head squash merge, Issue #1039 close, lifecycle archive
-next_step_on_failure: inspect first relevant failing job log, repair root cause on the same branch, rerun exact-head validation
-parallel_work_allowed: true
-parallel_work_scope: same-PR self-review only until entry task is terminal
-context_pressure: medium
+  - 31940052536
+  - 31940052520
+  - 31949062325
+expected_success_marker: final checkpoint successor has required CI and Downloads Acceptance SUCCESS with zero unresolved material review findings
+expected_failure_marker: first failing required job or final-head review finding
+wait_deadline: bounded terminal-CI exception only after the final head is confirmed and non-CI gates remain satisfied
+next_step_on_success: mark PR ready, exact expected-head squash merge, close Issue #1039, create lifecycle-only archive closeout, verify source/archive branch disposition and final main
+next_step_on_failure: inspect the first relevant failing job log and repair the root cause on the same branch within the remaining repair-cycle budget
+parallel_work_allowed: false
+parallel_work_scope: none during final exact-head validation
+context_pressure: low
 rotation_reason: null
 ```
