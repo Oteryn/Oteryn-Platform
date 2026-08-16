@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "audit_id": "OTERYN-20260816-content-audit",
+  "repository": "blakinio/Oteryn-Platform",
+  "base_branch": "main",
+  "base_sha": "286efb1625d510c9d2cc344cb51a2438b31ebe48",
+  "parent_issue": 1115,
+  "audit_pr": 1117,
+  "mode": "repository-evidence-only",
+  "runtime_access": false,
+  "ownership_basis": {
+    "substantive_audit_base_sha": "286efb1625d510c9d2cc344cb51a2438b31ebe48",
+    "post_audit_main_sha": "785886a31c5719983121bbd8a2d1c81f24c11557",
+    "post_audit_reconciliation": "docs/agents/handovers/OTERYN-20260816-content-audit-to-coordinator.md"
+  },
+  "module_route_file_count": 13,
+  "module_route_files": [
+    "routes/modules/announcements.php",
+    "routes/modules/character-profile-preferences.php",
+    "routes/modules/downloads.php",
+    "routes/modules/editorial-media.php",
+    "routes/modules/events.php",
+    "routes/modules/game-catalog.php",
+    "routes/modules/homepage-templates.php",
+    "routes/modules/marketplace.php",
+    "routes/modules/player-companion.php",
+    "routes/modules/public-game-statistics.php",
+    "routes/modules/public-portal.php",
+    "routes/modules/support.php",
+    "routes/modules/wiki.php"
+  ],
+  "findings": [
+    {"id":"CA-001","surface":"Public landing / dashboard","evidence_state":["IMPLEMENTED","RUNTIME_UNKNOWN"],"disposition":"OWNED","severity":"P1","expected_count":null,"actual_count":null,"owner":["PR #1114 on audit snapshot; later merged/archived per handoff"],"evidence":["routes/modules/public-portal.php","app/PublicPortal/HomePageQuery.php"],"note":"Explicit AVAILABLE/EMPTY/UNAVAILABLE/STALE composition semantics; live source counts not proven. Do not recreate the later-delivered Today slice."},
+    {"id":"CA-002","surface":"Game Catalog public item/creature/loot core","evidence_state":["IMPLEMENTED","FIXTURE_ONLY","RUNTIME_UNKNOWN"],"disposition":"OWNED","severity":"P0","expected_count":"candidate source inventory only","actual_count":null,"owner":["Issue #330","Issue #489"],"evidence":["routes/modules/game-catalog.php","app/GameCatalog/Queries/Public/DatabasePublicCatalogQuery.php","tests/Feature/GameCatalog/PublicGameCatalogTest.php","tests/Fixtures/GameCatalog/v1.2/minimal-snapshot.json"],"note":"Production active profile/snapshot and visible record counts are unknown."},
+    {"id":"CA-003","surface":"Game Catalog NPC/shop extension","evidence_state":["CONSUMER_DRAFT","RUNTIME_UNKNOWN"],"disposition":"BLOCKED","severity":"P1","expected_count":"candidate source inventory only","actual_count":null,"owner":["PR #338","Issue #301","Issue #330"],"evidence":["PR #338"],"note":"Do not duplicate schema 1.3 consumer paths; producer/authority dependency remains."},
+    {"id":"CA-004","surface":"Wiki launch corpus","evidence_state":["DEPLOYABLE_CONTENT","RUNTIME_UNKNOWN"],"disposition":"BLOCKED","severity":"P1","expected_count":{"categories":4,"articles":13,"category_translations":8,"article_translations":26},"actual_count":null,"owner":["runtime verification"],"evidence":["app/Wiki/Content/WikiExpectedContentInventory.php","app/Wiki/Content/WikiExpectedContentValidator.php","tests/Feature/Wiki/WikiLaunchContentCommandTest.php"],"note":"Install test proves deterministic package and 13 published articles after install; production installation is unknown."},
+    {"id":"CA-005","surface":"Wiki structured reference expansion","evidence_state":["ENGINE_PRESENT","INCOMPLETE_COVERAGE"],"disposition":"OWNED","severity":"P1","expected_count":"source-family dependent","actual_count":null,"owner":["Issue #489","Issue #1115","Issue #301","PR #338"],"evidence":["routes/modules/wiki.php","app/Wiki/Content/WikiExpectedContentInventory.php"],"note":"Launch corpus is 13 articles; source-driven item/creature/system reference coverage is not proven."},
+    {"id":"CA-006","surface":"Player Companion Hunt Session Analyzer","evidence_state":["IMPLEMENTED"],"disposition":"TERMINAL","severity":"P2","expected_count":1,"actual_count":1,"owner":["audited-base main"],"evidence":["routes/modules/player-companion.php","app/Http/Controllers/PlayerCompanion/SessionAnalysisController.php","tests/Feature/PlayerCompanion/SessionAnalysisFeatureTest.php"],"note":"One current vertical slice; user-created session count is runtime/user data, not a completeness metric."},
+    {"id":"CA-007","surface":"Player Companion toolbox beyond Session Analyzer","evidence_state":["MISSING_ADDITIONAL_SLICES"],"disposition":"OWNED","severity":"P0","expected_count":"programme-selected vertical slices","actual_count":0,"owner":["Issue #489","Issue #1115"],"evidence":["routes/modules/player-companion.php","tests/Feature/PlayerCompanion/SessionAnalysisFeatureTest.php"],"note":"No additional companion tool route family proven on audited base."},
+    {"id":"CA-008","surface":"Public/shared navigation","evidence_state":["IMPLEMENTED"],"disposition":"TERMINAL","severity":"P2","expected_count":null,"actual_count":null,"owner":["audited-base main"],"evidence":["resources/navigation/public/core.php","resources/navigation/public/game-catalog.php","resources/navigation/public/wiki.php","resources/navigation/public/downloads.php","resources/navigation/public/events.php","resources/navigation/public/marketplace.php","resources/navigation/public/support.php"],"note":"Conditional runtime-enabled entries can still depend on module configuration."},
+    {"id":"CA-009","surface":"Account/security/registration/login/recovery/MFA","evidence_state":["IMPLEMENTED"],"disposition":"TERMINAL","severity":"P2","expected_count":null,"actual_count":null,"owner":["audited-base main"],"evidence":["routes/web.php","tests/Feature/Accounts/AccountOverviewTest.php","tests/Feature/Identity"],"note":"Workflow surface, not a static content-count target."},
+    {"id":"CA-010","surface":"Billing / library tiers","evidence_state":["NOT_PRESENT"],"disposition":"TERMINAL","severity":"P3","expected_count":null,"actual_count":0,"owner":[],"evidence":["routes/web.php","routes/modules"],"note":"No matching billing/subscription/plan/tier/checkout or library/entitlement/premium route/controller/view/test surface found; outside Issue #1115 target."},
+    {"id":"CA-011","surface":"Announcements","evidence_state":["ADMIN_ENGINE_PRESENT","RUNTIME_UNKNOWN"],"disposition":"OWNED","severity":"P2","expected_count":null,"actual_count":null,"owner":["PR #1114 on audit snapshot; later merged/archived per handoff"],"evidence":["routes/modules/announcements.php"],"note":"Standalone public route is not proven by the audited module file; Today consumption is now delivered, while runtime announcement count remains unknown."},
+    {"id":"CA-012","surface":"Events","evidence_state":["IMPLEMENTED","RUNTIME_UNKNOWN"],"disposition":"OWNED","severity":"P2","expected_count":null,"actual_count":null,"owner":["PR #1114 on audit snapshot; later merged/archived per handoff","Events module"],"evidence":["routes/modules/events.php"],"note":"Public list/detail and protected administration exist; live record count unknown. Do not duplicate the delivered Today composition."},
+    {"id":"CA-013","surface":"Downloads","evidence_state":["IMPLEMENTED","RUNTIME_UNKNOWN"],"disposition":"TERMINAL","severity":"P2","expected_count":null,"actual_count":null,"owner":["Downloads module"],"evidence":["routes/modules/downloads.php"],"note":"Published release/channel state is runtime evidence."},
+    {"id":"CA-014","surface":"Editorial media","evidence_state":["ADMIN_ENGINE_PRESENT"],"disposition":"TERMINAL","severity":"P3","expected_count":0,"actual_count":null,"owner":["Wiki/editorial media modules"],"evidence":["routes/modules/editorial-media.php","app/Wiki/Content/WikiExpectedContentInventory.php"],"note":"Reviewed Wiki launch inventory expects zero editorial-media tokens."},
+    {"id":"CA-015","surface":"Homepage templates","evidence_state":["ADMIN_ENGINE_PRESENT","RUNTIME_UNKNOWN"],"disposition":"TERMINAL","severity":"P3","expected_count":null,"actual_count":null,"owner":["PublicPortal/homepage template module"],"evidence":["routes/modules/homepage-templates.php"],"note":"Production active template is runtime state; Today paths were later delivered by PR #1114."},
+    {"id":"CA-016","surface":"Marketplace / bazaar","evidence_state":["CONFIG_GATED_ENGINE_PRESENT","RUNTIME_UNKNOWN"],"disposition":"BLOCKED","severity":"P2","expected_count":null,"actual_count":null,"owner":["Marketplace runtime/configuration"],"evidence":["routes/modules/marketplace.php"],"note":"marketplace.enabled and live auction count are unknown."},
+    {"id":"CA-017","surface":"Public game statistics","evidence_state":["IMPLEMENTED","RUNTIME_UNKNOWN"],"disposition":"TERMINAL","severity":"P2","expected_count":null,"actual_count":null,"owner":["public game-data providers"],"evidence":["routes/modules/public-game-statistics.php","routes/web.php"],"note":"Live provider counts/status are not static content-completion evidence."},
+    {"id":"CA-018","surface":"Support/editorial/legal","evidence_state":["IMPLEMENTED","RUNTIME_UNKNOWN"],"disposition":"TERMINAL","severity":"P2","expected_count":null,"actual_count":null,"owner":["Support/CMS modules"],"evidence":["routes/modules/support.php"],"note":"Public editorial/support plus authenticated ticket/report/enforcement paths exist; published record state unknown."},
+    {"id":"CA-019","surface":"Character profile preferences","evidence_state":["IMPLEMENTED"],"disposition":"TERMINAL","severity":"P3","expected_count":null,"actual_count":null,"owner":["CharacterProfiles module"],"evidence":["routes/modules/character-profile-preferences.php"],"note":"Authenticated preference workflow; no static content population required."},
+    {"id":"CA-020","surface":"Interim count correction","evidence_state":["REJECTED_UNSUPPORTED_COUNTS"],"disposition":"TERMINAL","severity":"P2","expected_count":null,"actual_count":null,"owner":["audit"],"evidence":["app/Wiki/Content/WikiExpectedContentInventory.php","tests/Feature/Wiki/WikiLaunchContentCommandTest.php"],"note":"Earlier provisional '9 guide steps + 2 replies' and 'Wiki 10 + 9 pages' are not accepted evidence. Wiki repo inventory is 4 categories/13 articles; Game Catalog guide/reply production counts remain unknown."}
+  ],
+  "source_candidate": {
+    "status": "UNMERGED_CANDIDATE",
+    "pr": 1116,
+    "archive_sha256": "920a59e15175a5f53721f60b17f4bb37370bf0b61cd91abb4c909bf0d85e5f26",
+    "families": [
+      {"family":"items","count":"17,571 XML definitions; 38,059 expanded unique server IDs","class":"DIRECT_STRUCTURED"},
+      {"family":"creatures","count":"1,802 Lua files","class":"TRANSFORM_REQUIRED"},
+      {"family":"creature_loot","count":"1,754 files with monster.loot assignment","class":"TRANSFORM_REQUIRED"},
+      {"family":"bestiary_like","count":"799 files with Bestiary markers","class":"TRANSFORM_REQUIRED"},
+      {"family":"npcs","count":"1,112 Lua files","class":"TRANSFORM_REQUIRED"},
+      {"family":"npc_shops","count":"290 files / 10,907 buy-or-sell rows","class":"TRANSFORM_REQUIRED"},
+      {"family":"npc_world_entries","count":"1,043 entries","class":"DIRECT_STRUCTURED_WITH_PROFILE_CAVEAT"},
+      {"family":"player_spells","count":"218 files","class":"TRANSFORM_REQUIRED"},
+      {"family":"achievements","count":"558 table entries","class":"DIRECT_STRUCTURED_CORE_FIELDS"},
+      {"family":"quests","count":"1,061 files / 119 top-level families","class":"PARTIAL_SEMANTICS"},
+      {"family":"imbuements","count":72,"class":"DIRECT_STRUCTURED"},
+      {"family":"mounts","count":250,"class":"DIRECT_STRUCTURED"},
+      {"family":"outfits","count":260,"class":"DIRECT_STRUCTURED"},
+      {"family":"vocations","count":11,"class":"DIRECT_STRUCTURED"}
+    ],
+    "warning": "Source-side counts are not Platform production population and do not grant native/source authority."
+  },
+  "ownership_snapshot": {
+    "basis": "frozen audit-time observation on base 286efb1625d510c9d2cc344cb51a2438b31ebe48",
+    "1114": "observed open draft PublicPortal Today owner during audit; later merged and archived by #1118",
+    "1116": "open draft content-completion bootstrap candidate",
+    "330": "Game Catalog production-completion programme",
+    "489": "Game Catalog/content/knowledge/tools completion owner",
+    "301": "blocked spells/NPCs/quests/achievements package owner",
+    "338": "open draft NPC/shop schema 1.3 consumer with producer/authority hold"
+  },
+  "post_audit_live_reconciliation": {
+    "main_sha": "785886a31c5719983121bbd8a2d1c81f24c11557",
+    "1114": "merged as 5cc42a9bc2a4732265cf83533fe7681ab1ab5865",
+    "1118": "merged as 785886a31c5719983121bbd8a2d1c81f24c11557; archived Public Today task and released active ownership",
+    "1116": "open draft and unmerged when rechecked during final audit validation",
+    "338": "open draft and unmerged when rechecked during final audit validation"
+  },
+  "new_remediation_scaffolds_created": 0,
+  "runtime_unknowns": [
+    "active Game Catalog public profile and active snapshot identity",
+    "production-visible Game Catalog item/creature/loot/guide/reply counts",
+    "production Wiki launch-content exact inventory/install state",
+    "event/announcement/download/marketplace/support/editorial record counts",
+    "marketplace.enabled runtime configuration",
+    "active production homepage template"
+  ]
+}
