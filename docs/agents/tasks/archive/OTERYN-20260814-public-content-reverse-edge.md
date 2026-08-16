@@ -63,7 +63,7 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-16T09:10:00+02:00
+updated_at: 2026-08-16T09:19:00+02:00
 status: completed
 branch: refactor/issue-1060-public-content-reverse-edge
 pr: 1061
@@ -107,8 +107,16 @@ self_review:
     - exact-head workflow aggregate is green
     - material review finding is resolved/outdated
     - implementation merge and resulting main state verified
-source_branch_disposition: auto_deleted_after_merge
+source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository implementation task branch
 source_branch_evidence: exact branch search returned no matching ref after merge
 next_action: none
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository implementation task branch merged by squash through PR #1061
+source_branch_evidence: exact branch search for refactor/issue-1060-public-content-reverse-edge returned no matching ref after merge
 ```
