@@ -83,7 +83,6 @@ parent_issue_1115_state: open_programme_continues
 ## Source branch closeout
 
 ```yaml
-source_branch: audit/issue-1115-content-audit
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: PR #1117 merged successfully through the ordinary protected same-repository path and the audit branch is terminal.
 source_branch_evidence: Live branch search after merge returned no `audit/issue-1115-content-audit` ref.
