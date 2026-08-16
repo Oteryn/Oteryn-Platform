@@ -4,7 +4,7 @@ namespace App\Announcements\Queries;
 
 use App\Announcements\Models\SiteAnnouncement;
 use App\Announcements\ViewModels\AnnouncementTicker;
-use App\PublicPortal\PublicContentState;
+use App\Announcements\ViewModels\AnnouncementTickerState;
 use DateTimeInterface;
 use Illuminate\Contracts\View\View;
 use Throwable;
@@ -18,17 +18,17 @@ final class AnnouncementTickerProvider
         try {
             $items = $this->announcements->active($limit, $readTime);
         } catch (Throwable) {
-            return new AnnouncementTicker(PublicContentState::UNAVAILABLE, []);
+            return new AnnouncementTicker(AnnouncementTickerState::UNAVAILABLE, []);
         }
 
         if ($items->isEmpty()) {
-            return new AnnouncementTicker(PublicContentState::EMPTY, []);
+            return new AnnouncementTicker(AnnouncementTickerState::EMPTY, []);
         }
 
         /** @var list<SiteAnnouncement> $list */
         $list = array_values($items->all());
 
-        return new AnnouncementTicker(PublicContentState::AVAILABLE, $list);
+        return new AnnouncementTicker(AnnouncementTickerState::AVAILABLE, $list);
     }
 
     public function render(?DateTimeInterface $readTime = null, int $limit = 5): View

@@ -4,7 +4,7 @@
         <h2 id="announcement-ticker-title">{{ __('public.announcements.title') }}</h2>
     </div>
 
-    @if ($ticker->state === \App\PublicPortal\PublicContentState::AVAILABLE)
+    @if ($ticker->state === \App\Announcements\ViewModels\AnnouncementTickerState::AVAILABLE)
         <div class="stack">
             @foreach ($ticker->items as $announcement)
                 <article class="notice notice-{{ $announcement->severity }}">
@@ -20,7 +20,7 @@
                 </article>
             @endforeach
         </div>
-    @elseif ($ticker->state === \App\PublicPortal\PublicContentState::EMPTY)
+    @elseif ($ticker->state === \App\Announcements\ViewModels\AnnouncementTickerState::EMPTY)
         <div class="empty-state">
             <strong>{{ __('public.announcements.empty') }}</strong>
             <p>{{ __('public.announcements.empty_help') }}</p>

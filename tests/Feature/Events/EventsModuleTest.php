@@ -7,9 +7,9 @@ use App\Events\Models\Event;
 use App\Events\Models\EventTranslation;
 use App\Events\Queries\EventCalendarQuery;
 use App\Events\Queries\UpcomingEventProvider;
+use App\Events\ViewModels\UpcomingEventState;
 use App\Identity\Models\Identity;
 use App\Identity\Sessions\WebSessionState;
-use App\PublicPortal\PublicContentState;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -138,9 +138,9 @@ final class EventsModuleTest extends TestCase
 
         $provider = app(UpcomingEventProvider::class);
         $active = $provider->get('en', $start);
-        self::assertSame(PublicContentState::AVAILABLE, $active->state);
+        self::assertSame(UpcomingEventState::AVAILABLE, $active->state);
         self::assertSame('UTC boundary', $active->event['title'] ?? null);
-        self::assertSame(PublicContentState::EMPTY, $provider->get('en', $end)->state);
+        self::assertSame(UpcomingEventState::EMPTY, $provider->get('en', $end)->state);
     }
 
     public function test_admin_workflow_separates_manage_and_publish_permissions_audits_and_rejects_stale_edits(): void

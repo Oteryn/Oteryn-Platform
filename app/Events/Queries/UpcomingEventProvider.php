@@ -2,8 +2,8 @@
 
 namespace App\Events\Queries;
 
+use App\Events\ViewModels\UpcomingEventState;
 use App\Events\ViewModels\UpcomingEventSummary;
-use App\PublicPortal\PublicContentState;
 use DateTimeInterface;
 use Illuminate\Contracts\View\View;
 use Throwable;
@@ -17,14 +17,14 @@ final class UpcomingEventProvider
         try {
             $event = $this->events->upcomingSummary($locale ?? app()->getLocale(), $readTime);
         } catch (Throwable) {
-            return new UpcomingEventSummary(PublicContentState::UNAVAILABLE, null);
+            return new UpcomingEventSummary(UpcomingEventState::UNAVAILABLE, null);
         }
 
         if ($event === null) {
-            return new UpcomingEventSummary(PublicContentState::EMPTY, null);
+            return new UpcomingEventSummary(UpcomingEventState::EMPTY, null);
         }
 
-        return new UpcomingEventSummary(PublicContentState::AVAILABLE, $event);
+        return new UpcomingEventSummary(UpcomingEventState::AVAILABLE, $event);
     }
 
     public function render(?string $locale = null, ?DateTimeInterface $readTime = null): View
