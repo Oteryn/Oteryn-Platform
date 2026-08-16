@@ -163,7 +163,7 @@ final readonly class TodayPageQuery
                 publicId: 'news-'.$post->id,
                 title: $post->title,
                 summary: self::snippet($post->body),
-                url: route('news.show', ['locale' => app()->getLocale(), 'slug' => $post->slug]),
+                url: route('news.show', ['locale' => $locale, 'slug' => $post->slug]),
                 actionLabel: (string) __('today.actions.read_news'),
                 effectiveAt: $post->published_at,
             ))
