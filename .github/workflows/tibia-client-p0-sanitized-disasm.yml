@@ -18,7 +18,7 @@ jobs:
     runs-on: oteryn-staging
     timeout-minutes: 5
     steps:
-      - name: Emit remaining bounded exact-client TPlayerData target bytes
+      - name: Emit bounded TPlayerData qt_metacall target bytes
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -31,25 +31,17 @@ jobs:
             --entrypoint /bin/bash "$image" -lc '
               set -Eeuo pipefail
               client=/runner-work/_otclient_tibia_re_state/cache/current-client/client
-              size=$(stat -c %s "$client")
-              sha=$(sha256sum "$client" | awk "{print \$1}")
-              echo "EXACT_CLIENT_SIZE=$size"
-              echo "EXACT_CLIENT_SHA256=$sha"
-              [[ "$size" == "$EXPECTED_SIZE" ]]
-              [[ "$sha" == "$EXPECTED_SHA256" ]]
+              [[ "$(stat -c %s "$client")" == "$EXPECTED_SIZE" ]]
+              [[ "$(sha256sum "$client" | awk "{print \$1}")" == "$EXPECTED_SHA256" ]]
               po=$(od -An -tu8 -j $((64+3*56+8)) -N8 "$client" | tr -d "[:space:]")
               pv=$(od -An -tu8 -j $((64+3*56+16)) -N8 "$client" | tr -d "[:space:]")
               pfs=$(od -An -tu8 -j $((64+3*56+32)) -N8 "$client" | tr -d "[:space:]")
               echo "EXEC_PT_LOAD offset=$po vaddr=$pv filesz=$pfs"
               [[ "$po" == "$pv" ]]
-              emit(){
-                label="$1"; start=$(( $2 )); stop=$(( $3 )); len=$((stop-start));
-                (( pv <= start && stop <= pv+pfs ));
-                echo "HEX_${label} VA=$(printf 0x%x "$start")..$(printf 0x%x "$stop") FILEOFF=$start LEN=$len"
-                od -An -v -tx1 -j "$start" -N "$len" "$client" | tr -d "[:space:]"; echo
-              }
-              emit TPLAYERDATA_REMAINING_A 0xeda340 0xeda560
-              emit TPLAYERDATA_REMAINING_B 0xedff90 0xee0290
+              start=$((0xd19e80)); stop=$((0xd1a600)); len=$((stop-start))
+              (( pv <= start && stop <= pv+pfs ))
+              echo "HEX_TPLAYERDATA_METACALL_TARGET VA=0xd19e80..0xd1a600 FILEOFF=$start LEN=$len"
+              od -An -v -tx1 -j "$start" -N "$len" "$client" | tr -d "[:space:]"; echo
             '
       - name: State static-only boundary
         shell: bash
