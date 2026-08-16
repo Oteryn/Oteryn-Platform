@@ -77,14 +77,14 @@ No new remediation scaffold was created because material gaps are already owned 
 
 The prior checkpoint incorrectly interpreted repository policy as allowing only one whole-PR self-review in total. The trusted current `docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md` instead requires that the merge-gate self-review be `PASS` on the **exact final head**; it does not prohibit a later review when a corrective commit has superseded an earlier reviewed SHA. `AGENTS.override.md` independently requires an exact-head self-review.
 
-Therefore review `4947079488` remains truthful historical evidence for `ab1288aa6f45b0aacc97ca1127d96792ebae5e85`, but it is not final-head merge evidence. After this policy-correction commit, the correct recovery is to inspect the entire new exact-head diff and record a new self-review on that exact SHA, then require repository checks to pass on the same unchanged SHA. No policy gate will be weakened or falsely marked satisfied.
+Therefore review `4947079488` remains truthful historical evidence for `ab1288aa6f45b0aacc97ca1127d96792ebae5e85`, but it is not final-head merge evidence. The correct recovery is to inspect the entire final exact-head diff and record a new self-review on that exact SHA, then require repository checks to pass on the same unchanged SHA. No policy gate will be weakened or falsely marked satisfied.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-16T21:12:39+02:00
-head: 8517c8c53251c97bf4c1fd63ec784b77ad8cb308
+updated_at: 2026-08-16T21:16:36+02:00
+head: 1ac492303ee0c3486e7b3c0f2d011ef67dc24447
 branch: audit/issue-1115-content-audit
 pr: 1117
 status: validating
@@ -100,16 +100,18 @@ owned_paths:
   - docs/agents/handovers/OTERYN-20260816-content-audit-to-coordinator.md
 proven:
   - PR #1117 is an open draft whose live source branch is audit/issue-1115-content-audit.
-  - Before this final policy-correction commit, source head 8517c8c53251c97bf4c1fd63ec784b77ad8cb308 changed exactly the four declared documentation/evidence paths and passed Agent Governance run 31966721970 and CI run 31966721997.
+  - Before this checkpoint commit, source head 1ac492303ee0c3486e7b3c0f2d011ef67dc24447 changed exactly the four declared documentation/evidence paths.
   - Current protected main observed during validation is 785886a31c5719983121bbd8a2d1c81f24c11557, exactly two commits ahead of the frozen substantive audit base: merged #1114 Public Today delivery and merged #1118 lifecycle archive/ownership release.
   - The Markdown and JSON ledgers contain 20 findings and explicitly preserve production/runtime population as UNKNOWN where repository evidence cannot prove it.
   - The reviewed Wiki launch inventory is 4 categories and 13 bilingual articles; its production installation state is not proven by this audit.
   - Material catalogue and toolbox gaps are already owned by #330, #489, #301, #338 or parent programme #1115, so the audit created zero duplicate remediation scaffolds.
   - Canonical DELIVERY_COMPLETENESS_AND_CLOSEOUT requires self-review PASS on the exact final head and does not impose a one-review-total prohibition.
+  - During final whole-diff inspection, the auditor found that the ledger still labelled #1114 as live/open even though the handoff had already recorded its post-audit merge and #1118 closeout.
+  - The ownership defect was repaired by explicitly separating frozen audit-time ownership from post-audit live reconciliation in both Markdown and JSON ledgers; current #1116 and #338 draft/unmerged state was rechecked before recording the reconciliation.
 derived:
   - Repository capability, fixtures and deployable packages cannot by themselves establish current production population.
   - The prior review on ab1288aa6f45b0aacc97ca1127d96792ebae5e85 is historical evidence but cannot satisfy final-head review after later documentation corrections.
-  - This policy-correction commit changes only audit-governance documentation and no player-visible executable behavior.
+  - This checkpoint and the resolved ownership-timeline edits change only audit/governance documentation and no player-visible executable behavior.
 unknown:
   - active production Game Catalog profile, snapshot identity and player-visible record counts
   - production Wiki launch-content installation state
@@ -124,6 +126,7 @@ rejected_hypotheses:
   - A red exact-head CI can be ignored because the PR changes documentation only.
   - The prior self-review remains final-head proof after a corrective commit changes the branch SHA.
   - Repository policy permits only one self-review submission in total; canonical closeout policy requires exact-final-head review and contains no such prohibition.
+  - A frozen substantive audit ledger may call stale ownership state live without qualification merely because a separate handoff later reconciles it.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260816-content-audit.md
   - docs/agents/reports/OTERYN-20260816-content-audit-ledger.md
@@ -131,15 +134,15 @@ changed_paths:
   - docs/agents/handovers/OTERYN-20260816-content-audit-to-coordinator.md
 validation:
   - command: Agent Governance run 31966721970 on 8517c8c53251c97bf4c1fd63ec784b77ad8cb308
-    result: PASS
-    evidence: checkpoint, source-branch closeout, live ownership and Control Room all passed before this final task-record correction.
+    result: PASS_HISTORICAL
+    evidence: checkpoint, source-branch closeout, live ownership and Control Room passed before the final policy/ownership documentation corrections.
   - command: CI run 31966721997 on 8517c8c53251c97bf4c1fd63ec784b77ad8cb308
-    result: PASS
-    evidence: classify-changes and required test gate passed; runtime tests and PHP coverage were correctly skipped as docs-only before this final task-record correction.
+    result: PASS_HISTORICAL
+    evidence: classify-changes and required test gate passed; runtime tests and PHP coverage were correctly skipped as docs-only before the final policy/ownership documentation corrections.
   - command: player-visible E2E
     result: NOT_APPLICABLE
     evidence: PR #1117 changes only audit documentation/evidence; no executable user or integration journey is modified.
 blockers:
-  - final whole-PR self-review and repository checks must both be green on the exact unchanged head created by this policy-correction commit
-next_action: Inspect the full PR diff on the new exact source head, record the required final-head self-review, then verify Agent Governance and CI on the same unchanged head; do not invoke any owner-funded AI review or transition whose metered side effects are not explicitly authorized.
+  - final whole-PR self-review and repository checks must both be green on the exact unchanged head created by this checkpoint commit
+next_action: Treat the source head produced by this checkpoint as final unless the exact-head whole-diff review finds another material defect; record the required self-review on that exact head, then verify Agent Governance and CI on the same unchanged head without invoking owner-funded AI.
 ```
