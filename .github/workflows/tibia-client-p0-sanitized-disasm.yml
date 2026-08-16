@@ -14,11 +14,11 @@ env:
   EXPECTED_SHA256: e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe
 
 jobs:
-  sanitized-static-disasm:
+  sanitized-static-evidence:
     runs-on: oteryn-staging
     timeout-minutes: 5
     steps:
-      - name: Emit bounded disassembly from exact retained client
+      - name: Emit bounded exact-client instruction evidence
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -38,21 +38,57 @@ jobs:
               echo "EXACT_CLIENT_SHA256=$sha"
               [[ "$size" == "$EXPECTED_SIZE" ]]
               [[ "$sha" == "$EXPECTED_SHA256" ]]
-              tool=$(command -v objdump || command -v llvm-objdump || true)
-              echo "DISASM_TOOL=${tool:-MISSING}"
-              [[ -n "$tool" ]]
-              dump() {
-                local label="$1" start="$2" stop="$3"
-                echo "===== ${label} ${start}..${stop} ====="
-                "$tool" -d -C -M intel --start-address="$start" --stop-address="$stop" "$client"
-              }
-              dump PLAYERPOSITION_XREF 0x836500 0x836a00
-              dump TPLAYERDATA_SLOT3_4 0x843d80 0x844100
-              dump TPLAYERDATA_SLOT0 0xd1cb00 0xd1ce00
-              dump TPLAYERDATA_SLOT1 0xd2abc0 0xd2b000
-              dump TPLAYERDATA_SLOT2 0xd2ee80 0xd2f200
-              dump TPLAYERDATA_LATE_A 0xeda300 0xeda600
-              dump TPLAYERDATA_LATE_B 0xedff40 0xee0300
+              if command -v objdump >/dev/null 2>&1; then
+                echo DISASM_MODE=objdump
+                objdump -d -C -M intel --start-address=0x836500 --stop-address=0x836a00 "$client"
+                exit 0
+              fi
+              if command -v gdb >/dev/null 2>&1; then
+                echo DISASM_MODE=gdb
+                if gdb -q -nx -batch \
+                    -ex "set auto-load python-scripts off" \
+                    -ex "set debuginfod enabled off" \
+                    -ex "file $client" \
+                    -ex "set disassembly-flavor intel" \
+                    -ex "disassemble /r 0x836500,0x836a00"; then
+                  exit 0
+                fi
+                echo GDB_DISASM_FAILED=1
+              fi
+              echo DISASM_MODE=elf64_hex_fallback
+              python3 - "$client" <<"PY"
+import hashlib, struct, sys
+p=sys.argv[1]
+raw=open(p,"rb").read()
+assert hashlib.sha256(raw).hexdigest()=="e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe"
+eh=struct.unpack_from("<16sHHIQQQIHHHHHH", raw, 0)
+phoff, phentsize, phnum = eh[5], eh[9], eh[10]
+segments=[]
+for i in range(phnum):
+    off=phoff+i*phentsize
+    p_type,p_flags,p_offset,p_vaddr,p_paddr,p_filesz,p_memsz,p_align=struct.unpack_from("<IIQQQQQQ",raw,off)
+    if p_type==1:
+        segments.append((p_offset,p_vaddr,p_filesz,p_flags))
+def read_va(start,stop):
+    for po,pv,psz,pflags in segments:
+        if pv <= start and stop <= pv+psz:
+            fo=po+(start-pv)
+            return fo,raw[fo:fo+(stop-start)]
+    raise SystemExit(f"unmapped VA {start:#x}..{stop:#x}")
+for label,start,stop in [
+    ("PLAYERPOSITION_XREF",0x836500,0x836a00),
+    ("TPLAYERDATA_SLOT3_4",0x843d80,0x844100),
+    ("TPLAYERDATA_SLOT0",0xd1cb00,0xd1ce00),
+    ("TPLAYERDATA_SLOT1",0xd2abc0,0xd2b000),
+    ("TPLAYERDATA_SLOT2",0xd2ee80,0xd2f200),
+    ("TPLAYERDATA_LATE_A",0xeda300,0xeda600),
+    ("TPLAYERDATA_LATE_B",0xedff40,0xee0300),
+]:
+    fo,data=read_va(start,stop)
+    print(f"===== HEX {label} VA={start:#x}..{stop:#x} FILEOFF={fo:#x} LEN={len(data)} =====")
+    hx=data.hex()
+    for j in range(0,len(hx),128): print(hx[j:j+128])
+PY
             '
       - name: State static-only boundary
         shell: bash
