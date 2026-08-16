@@ -14,11 +14,11 @@ env:
   EXPECTED_SHA256: e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe
 
 jobs:
-  runner-work-search:
+  sanitized-static-disasm:
     runs-on: oteryn-staging
     timeout-minutes: 5
     steps:
-      - name: Search retained runner work read-only
+      - name: Emit bounded disassembly from exact retained client
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -30,20 +30,33 @@ jobs:
             --mount type=volume,src="$WORK_VOLUME",dst=/runner-work,readonly \
             --entrypoint /bin/bash "$image" -lc '
               set -Eeuo pipefail
-              echo "=== NAMED_STATE_PATHS ==="
-              find /runner-work -maxdepth 8 \( -type d -o -type f \) \( -name "*df7b29*" -o -name "_otclient_tibia_re_state" \) -print 2>/dev/null | head -100 || true
-              echo "=== EXPECTED_SIZE_FILES ==="
-              count=0
-              while IFS= read -r f; do
-                [[ -f "$f" ]] || continue
-                sha=$(sha256sum "$f" | awk "{print \$1}")
-                echo "CANDIDATE=$f SIZE=$EXPECTED_SIZE SHA256=$sha"
-                count=$((count+1))
-                [[ "$sha" == "$EXPECTED_SHA256" ]] && echo "EXACT_MATCH=$f"
-                [[ $count -ge 20 ]] && break
-              done < <(find /runner-work -type f -size "${EXPECTED_SIZE}c" -print 2>/dev/null)
-              echo "SIZE_MATCH_COUNT_SCANNED=$count"
+              client=/runner-work/_otclient_tibia_re_state/cache/current-client/client
+              [[ -f "$client" ]]
+              size=$(stat -c %s "$client")
+              sha=$(sha256sum "$client" | awk "{print \$1}")
+              echo "EXACT_CLIENT_SIZE=$size"
+              echo "EXACT_CLIENT_SHA256=$sha"
+              [[ "$size" == "$EXPECTED_SIZE" ]]
+              [[ "$sha" == "$EXPECTED_SHA256" ]]
+              tool=$(command -v objdump || command -v llvm-objdump || true)
+              echo "DISASM_TOOL=${tool:-MISSING}"
+              [[ -n "$tool" ]]
+              dump() {
+                local label="$1" start="$2" stop="$3"
+                echo "===== ${label} ${start}..${stop} ====="
+                "$tool" -d -C -M intel --start-address="$start" --stop-address="$stop" "$client"
+              }
+              dump PLAYERPOSITION_XREF 0x836500 0x836a00
+              dump TPLAYERDATA_SLOT3_4 0x843d80 0x844100
+              dump TPLAYERDATA_SLOT0 0xd1cb00 0xd1ce00
+              dump TPLAYERDATA_SLOT1 0xd2abc0 0xd2b000
+              dump TPLAYERDATA_SLOT2 0xd2ee80 0xd2f200
+              dump TPLAYERDATA_LATE_A 0xeda300 0xeda600
+              dump TPLAYERDATA_LATE_B 0xedff40 0xee0300
             '
+      - name: State static-only boundary
+        shell: bash
+        run: |
           echo 'STATIC_ONLY=true'
           echo 'CLIENT_EXECUTED=false'
           echo 'PROCESS_MEMORY_ACCESSED=false'
