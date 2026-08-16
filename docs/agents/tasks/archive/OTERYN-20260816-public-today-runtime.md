@@ -100,6 +100,14 @@ source_branch: feat/issue-1113-public-today
 source_branch_disposition: auto_delete_after_merge
 ```
 
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR #1114 merged successfully through the ordinary same-repository path and the implementation source ref is terminal.
+source_branch_evidence: Live repository branch search after merge returned no feat/issue-1113-public-today ref.
+```
+
 ## Authorization / nonclaims
 
 No Oteryn-v2/Canary repository access, external/server-repository operation, production/staging/protected-environment mutation, deployment, secret mutation or owner-funded Codex/OpenAI/API operation was performed or claimed.
