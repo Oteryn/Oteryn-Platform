@@ -141,6 +141,10 @@
       "rationale": "This locale-neutral compatibility entry preserves bookmarked managed-page URLs and delegates to the same delivered screen; canonical navigation uses the localized route."
     },
     {
+      "exact": "legacy.today.index",
+      "rationale": "This locale-neutral compatibility entry preserves bookmarked Today URLs and delegates to the same delivered screen; canonical navigation uses the localized route."
+    },
+    {
       "exact": "legacy.wiki.article",
       "rationale": "This locale-neutral compatibility entry preserves bookmarked wiki-article URLs and delegates to the same delivered screen; canonical navigation uses the localized route."
     },

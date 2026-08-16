@@ -1,0 +1,8 @@
+{
+  "surfaces": {
+    "public.today-command-centre": {
+      "classification": "not_applicable",
+      "rationale": "Today renders fixed provider cards with bounded item counts and application-limited text snippets; it does not expose unbounded long-form content or a pageable large collection."
+    }
+  }
+}

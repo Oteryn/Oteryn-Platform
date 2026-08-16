@@ -93,6 +93,7 @@ final readonly class PublicSitemapQuery
     {
         $routeNames = [
             'localized.home',
+            'today.index',
             'news.index',
             'game.highscores.index',
             'game.guilds.index',

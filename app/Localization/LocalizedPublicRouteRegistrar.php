@@ -21,6 +21,7 @@ final readonly class LocalizedPublicRouteRegistrar
 
         /** @var array<string, string> $definitions */
         $definitions = [
+            'today.index' => '/today',
             'news.index' => '/news',
             'news.show' => '/news/{slug}',
             'pages.show' => '/pages/{slug}',

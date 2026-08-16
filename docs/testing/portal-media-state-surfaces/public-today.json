@@ -1,0 +1,9 @@
+{
+  "surfaces": [
+    {
+      "id": "public.today-command-centre",
+      "classification": "not_applicable",
+      "rationale": "The initial public Today slice composes bounded text, links and availability states only and does not consume repository-managed EditorialMedia or user-managed image state."
+    }
+  ]
+}
