@@ -124,6 +124,14 @@ test('@portal-today public guest command centre preserves source truth empty par
   await expect(page.getByText('Testowa konserwacja Dzisiaj')).toBeVisible();
   await expect(page.getByText('Testowe wydarzenie Dzisiaj')).toBeVisible();
   await expect(page.getByText('Testowa aktualność Dzisiaj')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Testowe wydarzenie Dzisiaj', exact: true }).first()).toHaveAttribute(
+    'href',
+    /\/pl\/events\/testowe-wydarzenie-dzisiaj$/u,
+  );
+  await expect(page.getByRole('link', { name: 'Testowa aktualność Dzisiaj', exact: true }).first()).toHaveAttribute(
+    'href',
+    /\/pl\/news\/acceptance-today-news$/u,
+  );
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /\/pl\/today$/u);
   await expect(page.locator('link[rel="alternate"][hreflang="en"]')).toHaveAttribute('href', /\/en\/today$/u);
 
