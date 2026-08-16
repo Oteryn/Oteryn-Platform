@@ -2,90 +2,88 @@
 
 namespace App\PublicPortal\Seo;
 
-use App\Cms\Editorial\EditorialContentType;
 use App\Cms\Editorial\EditorialPageKey;
-use App\Cms\Editorial\EditorialTranslationResolver;
-use App\Cms\Models\ManagedPage;
-use App\Cms\Models\NewsPost;
+use App\Cms\Editorial\EditorialPageQuery;
+use App\Cms\Editorial\EditorialPageState;
 use App\Cms\PublicNewsQuery;
+use App\Cms\PublicPageQuery;
 use App\Events\Queries\EventCalendarQuery;
 use App\Localization\PublicLocale;
+use App\Marketplace\Queries\PublicCharacterAuctionQuery;
 use App\Wiki\Queries\Public\PublicWikiQuery;
-use DateTimeInterface;
-use Illuminate\Support\Facades\Route;
-use Throwable;
+use OverflowException;
 
 final readonly class PublicSitemapQuery
 {
     public function __construct(
         private PublicLocale $locales,
         private PublicNewsQuery $news,
-        private EditorialTranslationResolver $translations,
+        private PublicPageQuery $pages,
+        private EditorialPageQuery $editorialPages,
         private EventCalendarQuery $events,
+        private PublicCharacterAuctionQuery $marketplace,
         private PublicWikiQuery $wiki,
     ) {}
 
-    public function urls(?DateTimeInterface $readTime = null): ?array
+    /** @return list<string> */
+    public function urls(): array
     {
-        $readTime ??= now();
+        $originalLocale = app()->getLocale();
         $urls = [];
 
         try {
             foreach ($this->locales->supported() as $locale) {
+                app()->setLocale($locale);
+
                 foreach ($this->staticRouteNames() as $routeName) {
-                    if (Route::has($routeName)) {
-                        $urls[] = route($routeName, ['locale' => $locale]);
+                    $urls[] = route($routeName, ['locale' => $locale]);
+                }
+
+                foreach (EditorialPageKey::cases() as $key) {
+                    if ($this->editorialPages->find($key)->state === EditorialPageState::Published) {
+                        $urls[] = route($key->publicRouteName(), ['locale' => $locale]);
                     }
                 }
 
-                foreach ($this->news->publishedSlugs($readTime) as $slug) {
-                    if ($locale !== 'en') {
-                        $post = NewsPost::query()->where('slug', $slug)->first();
-                        if ($post === null || $this->translations->published(
-                            EditorialContentType::NewsPost,
-                            $post->id,
-                            $post->updated_at,
-                            $locale,
-                            $readTime,
-                        ) === null) {
-                            continue;
-                        }
-                    }
+                foreach ($this->news->publishedSlugs() as $slug) {
                     $urls[] = route('news.show', ['locale' => $locale, 'slug' => $slug]);
                 }
 
-                foreach (ManagedPage::query()
-                    ->whereNotNull('published_at')
-                    ->where('published_at', '<=', $readTime)
-                    ->whereNotIn('slug', $this->typedManagedPageSlugs())
-                    ->orderBy('slug')
-                    ->get() as $page) {
-                    if ($locale !== 'en' && $this->translations->published(
-                        EditorialContentType::ManagedPage,
-                        $page->id,
-                        $page->updated_at,
-                        $locale,
-                        $readTime,
-                    ) === null) {
-                        continue;
+                foreach ($this->pages->publishedSlugs() as $slug) {
+                    if (! in_array($slug, EditorialPageKey::managedPageSlugs(), true)) {
+                        $urls[] = route('pages.show', ['locale' => $locale, 'slug' => $slug]);
                     }
-                    $urls[] = route('pages.show', ['locale' => $locale, 'slug' => $page->slug]);
                 }
 
-                foreach ($this->events->sitemapSlugs($locale, $readTime) as $slug) {
-                    $urls[] = route('events.show', ['locale' => $locale, 'slug' => $slug]);
+                foreach ($this->events->calendar($locale) as $bucket) {
+                    foreach ($bucket as $event) {
+                        $urls[] = route('events.show', ['locale' => $locale, 'slug' => $event['slug']]);
+                    }
                 }
 
-                foreach ($this->wiki->sitemapSlugs($locale) as $slug) {
+                if (config('marketplace.enabled')) {
+                    foreach ($this->marketplace->sitemapIds() as $auctionId) {
+                        $urls[] = route('marketplace.show', ['locale' => $locale, 'auction' => $auctionId]);
+                    }
+                }
+
+                $wikiSlugs = $this->wiki->sitemapSlugs($locale);
+                foreach ($wikiSlugs['categories'] as $slug) {
+                    $urls[] = route('wiki.category', ['locale' => $locale, 'slug' => $slug]);
+                }
+                foreach ($wikiSlugs['articles'] as $slug) {
                     $urls[] = route('wiki.article', ['locale' => $locale, 'slug' => $slug]);
                 }
             }
-        } catch (Throwable) {
-            return null;
+        } finally {
+            app()->setLocale($originalLocale);
         }
 
         $urls = array_values(array_unique($urls));
         sort($urls, SORT_STRING);
+        if (count($urls) > 50000) {
+            throw new OverflowException('The public sitemap exceeds the single-file URL limit.');
+        }
 
         return $urls;
     }
@@ -93,38 +91,23 @@ final readonly class PublicSitemapQuery
     /** @return list<string> */
     private function staticRouteNames(): array
     {
-        return [
+        $routeNames = [
             'localized.home',
             'today.index',
             'news.index',
             'game.highscores.index',
             'game.guilds.index',
-            'game.deaths.index',
             'game.online.index',
             'game.servers.index',
             'events.index',
             'downloads.index',
-            'editorial.getting-started',
-            'editorial.server-information',
-            'support.index',
-            'support.report-a-bug',
-            'editorial.rules',
-            'legal.terms',
-            'legal.privacy',
-            'legal.cookies',
             'wiki.index',
-            'game-catalog.index',
-            'game-catalog.items.index',
-            'game-catalog.creatures.index',
         ];
-    }
 
-    /** @return list<string> */
-    private function typedManagedPageSlugs(): array
-    {
-        return array_map(
-            static fn (EditorialPageKey $key): string => $key->managedPageSlug(),
-            EditorialPageKey::cases(),
-        );
+        if (config('marketplace.enabled')) {
+            $routeNames[] = 'marketplace.index';
+        }
+
+        return $routeNames;
     }
 }
