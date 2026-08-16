@@ -192,7 +192,11 @@ test('@portal-downloads complete public, administrator, localization and recover
   expect(protectedIntegration.harness_scope).toContain('acceptance-only');
   expect(protectedIntegration.harness_scope).toContain('no cryptographic TUF signing');
   await page.reload();
-  await expect(page.getByText(protectedIntegration.generation_id)).toBeVisible();
+  await expect(
+    page.getByRole('definition')
+      .filter({ hasText: protectedIntegration.generation_id })
+      .getByRole('code'),
+  ).toHaveText(protectedIntegration.generation_id);
   await expect(page.getByText('Platform-active').first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Activate Platform updater state' })).toHaveCount(0);
 
