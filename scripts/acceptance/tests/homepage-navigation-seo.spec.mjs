@@ -26,7 +26,7 @@ test('@homepage-seo homepage navigation metadata and crawl policy remain respons
   expect(response?.status()).toBe(200);
 
   await expect(page.getByText('Acceptance realm maintenance')).toBeVisible();
-  await expect(page.getByText('Acceptance tournament')).toBeVisible();
+  await expect(page.getByText('Acceptance Today event')).toBeVisible();
   await expect(page.locator('meta[name="description"]')).toHaveAttribute('content', /Ancient powers stir/u);
   await expect(page.locator('meta[property="og:title"]')).toHaveAttribute('content', /Oteryn Platform/u);
   await expect(page.locator('meta[property="og:url"]')).toHaveAttribute('content', /\/en$/u);
