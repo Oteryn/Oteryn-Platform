@@ -18,7 +18,7 @@ jobs:
     runs-on: oteryn-staging
     timeout-minutes: 5
     steps:
-      - name: Emit bounded unique caller bytes
+      - name: Emit bounded TPlayerData vptr construction bytes
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -33,9 +33,9 @@ jobs:
               client=/runner-work/_otclient_tibia_re_state/cache/current-client/client
               [[ "$(stat -c %s "$client")" == "$EXPECTED_SIZE" ]]
               [[ "$(sha256sum "$client" | awk "{print \$1}")" == "$EXPECTED_SHA256" ]]
-              start=$((0x6eae00)); stop=$((0x6eb300)); len=$((stop-start))
-              echo "HEX_UNIQUE_CALLER VA=0x6eae00..0x6eb300 FILEOFF=$start LEN=$len"
-              od -An -v -tx1 -j "$start" -N "$len" "$client" | tr -d "[:space:]"; echo
+              emit(){ label="$1"; start=$(( $2 )); stop=$(( $3 )); len=$((stop-start)); echo "HEX_${label} VA=$(printf 0x%x "$start")..$(printf 0x%x "$stop") FILEOFF=$start LEN=$len"; od -An -v -tx1 -j "$start" -N "$len" "$client" | tr -d "[:space:]"; echo; }
+              emit TPLAYERDATA_VPTR_XREF_EFD 0xefcf80 0xefd380
+              emit TPLAYERDATA_VPTR_XREF_844 0x844000 0x844380
             '
       - name: State static-only boundary
         shell: bash
