@@ -44,13 +44,7 @@ final class UpdaterStateProjector
                 continue;
             }
 
-            $generation = $activeCandidates->first();
-            if (! $generation instanceof ClientUpdateGeneration || ! $generation->policy instanceof ClientUpdatePolicy) {
-                $this->setReleaseState($release, 'degraded');
-
-                continue;
-            }
-
+            $generation = $activeCandidates->firstOrFail();
             $policy = $generation->policy;
             $this->setGenerationAttributes($release, $generation, $policy);
 

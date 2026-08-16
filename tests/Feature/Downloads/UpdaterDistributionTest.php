@@ -156,7 +156,7 @@ final class UpdaterDistributionTest extends TestCase
         $generation = app(ImportSignedUpdaterGeneration::class)->execute($actor, $payload);
         $same = app(ImportSignedUpdaterGeneration::class)->execute($actor, $payload);
         self::assertSame($generation->id, $same->id);
-        self::assertNotNull($generation->reconciled_at);
+        self::assertNotNull(DB::table('client_update_generations')->where('id', $generation->id)->value('reconciled_at'));
         self::assertNull($generation->activated_at);
 
         $freshnessOnly = $this->generationPayload($policy, 'stable-generation-freshness-2', 1);
@@ -291,6 +291,7 @@ final class UpdaterDistributionTest extends TestCase
             Schema::getColumnListing('client_releases'),
         );
         foreach ($columns as $column) {
+            self::assertIsString($column);
             self::assertStringNotContainsString('private_key', $column);
             self::assertStringNotContainsString('signing_secret', $column);
         }

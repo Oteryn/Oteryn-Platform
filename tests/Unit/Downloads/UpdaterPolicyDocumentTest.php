@@ -61,6 +61,8 @@ final class UpdaterPolicyDocumentTest extends TestCase
         self::assertSame('channels/stable/policy-v1.json', $documents->targetPath('stable'));
 
         $decoded = json_decode($first, true, 64, JSON_THROW_ON_ERROR);
+        self::assertIsArray($decoded);
+        /** @var array{schema_version: int, policy_revision: int, current_release_sequence: int, current_version_display: string, revoked_release_ids: list<string>, revoked_artifact_targets: list<string>, artifacts: list<array{platform: string}>} $decoded */
         self::assertSame(1, $decoded['schema_version']);
         self::assertSame(7, $decoded['policy_revision']);
         self::assertSame(12, $decoded['current_release_sequence']);

@@ -99,7 +99,10 @@ final class UpdaterPolicyDocument
         return hash('sha256', $document);
     }
 
-    /** @param list<string> $values @return list<string> */
+    /**
+     * @param  list<string>  $values
+     * @return list<string>
+     */
     private function sortedUnique(array $values): array
     {
         $values = array_values(array_unique($values));

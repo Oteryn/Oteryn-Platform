@@ -46,20 +46,29 @@ final class ApproveUpdaterPolicyRequest extends FormRequest
      */
     public function policyInput(): array
     {
+        /**
+         * @var array{
+         *   operation_id: string,
+         *   current_release_id: int|string,
+         *   minimum_supported_release_sequence: int|string,
+         *   update_mode: string,
+         *   rollback_authorization: string,
+         *   revoked_release_ids?: list<string>,
+         *   revoked_artifact_targets?: list<string>
+         * } $validated
+         */
         $validated = $this->validated();
-        /** @var list<string> $revokedReleaseIds */
         $revokedReleaseIds = $validated['revoked_release_ids'] ?? [];
-        /** @var list<string> $revokedArtifactTargets */
         $revokedArtifactTargets = $validated['revoked_artifact_targets'] ?? [];
 
         return [
-            'operation_id' => (string) $validated['operation_id'],
+            'operation_id' => $validated['operation_id'],
             'current_release_id' => (int) $validated['current_release_id'],
             'minimum_supported_release_sequence' => (int) $validated['minimum_supported_release_sequence'],
-            'update_mode' => (string) $validated['update_mode'],
-            'rollback_authorization' => (string) $validated['rollback_authorization'],
-            'revoked_release_ids' => array_values($revokedReleaseIds),
-            'revoked_artifact_targets' => array_values($revokedArtifactTargets),
+            'update_mode' => $validated['update_mode'],
+            'rollback_authorization' => $validated['rollback_authorization'],
+            'revoked_release_ids' => $revokedReleaseIds,
+            'revoked_artifact_targets' => $revokedArtifactTargets,
         ];
     }
 

@@ -5,7 +5,6 @@ namespace App\Downloads\Actions;
 use App\Audit\AdminAuditRecorder;
 use App\Downloads\DownloadCatalog;
 use App\Downloads\Models\ClientRelease;
-use App\Downloads\Models\ClientReleaseArtifact;
 use App\Downloads\Models\ClientUpdatePolicy;
 use App\Downloads\Updater\UpdaterPolicyDocument;
 use App\Identity\Models\Identity;
@@ -111,6 +110,7 @@ final readonly class ApproveUpdaterPolicy
                 ]);
             }
 
+            /** @var list<string> $knownReleaseIds */
             $knownReleaseIds = $channelReleases
                 ->pluck('updater_release_id')
                 ->filter(static fn (mixed $value): bool => is_string($value) && $value !== '')
@@ -122,6 +122,7 @@ final readonly class ApproveUpdaterPolicy
                 ]);
             }
 
+            /** @var list<string> $knownTargetPaths */
             $knownTargetPaths = [];
             foreach ($channelReleases as $release) {
                 foreach ($release->artifacts as $artifact) {
@@ -141,7 +142,7 @@ final readonly class ApproveUpdaterPolicy
                 ->orderByDesc('revision')
                 ->lockForUpdate()
                 ->first();
-            $revision = ($previous?->revision ?? 0) + 1;
+            $revision = $previous instanceof ClientUpdatePolicy ? $previous->revision + 1 : 1;
             $isRollback = $previous instanceof ClientUpdatePolicy
                 && $currentRelease->updater_sequence < $previous->current_release_sequence;
 
@@ -223,7 +224,7 @@ final readonly class ApproveUpdaterPolicy
                 continue;
             }
 
-            if (! $artifact instanceof ClientReleaseArtifact || $artifact->updater_target_path === null) {
+            if ($artifact->updater_target_path === null) {
                 throw ValidationException::withMessages([
                     'artifacts' => 'Every enabled artifact requires an exact updater target before policy approval.',
                 ]);
@@ -285,7 +286,10 @@ final readonly class ApproveUpdaterPolicy
         }
     }
 
-    /** @param list<string> $values @return list<string> */
+    /**
+     * @param  list<string>  $values
+     * @return list<string>
+     */
     private function sortedUnique(array $values): array
     {
         $values = array_values(array_unique($values));

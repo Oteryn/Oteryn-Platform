@@ -60,7 +60,13 @@ final readonly class EnableUpdaterRelease
                 return $storedRelease->load('artifacts');
             }
 
-            $sequence = (int) ($channelReleases->max('updater_sequence') ?? 0) + 1;
+            $maxSequence = $channelReleases->max('updater_sequence');
+            if ($maxSequence !== null && ! is_int($maxSequence)) {
+                throw ValidationException::withMessages([
+                    'release' => 'Existing updater sequence state is invalid and must be reconciled before allocation.',
+                ]);
+            }
+            $sequence = ($maxSequence ?? 0) + 1;
             $updaterReleaseId = 'rel_'.Str::uuid()->toString();
 
             $storedRelease->forceFill([
