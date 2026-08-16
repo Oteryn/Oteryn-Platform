@@ -34,20 +34,7 @@ jobs:
               [[ "$(stat -c %s "$client")" == "$EXPECTED_SIZE" ]]
               [[ "$(sha256sum "$client" | awk "{print \$1}")" == "$EXPECTED_SHA256" ]]
               cat "$client"
-            ' | python3 -c '
-import hashlib, struct, sys
-raw=sys.stdin.buffer.read()
-expected="e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe"
-assert len(raw)==51965216 and hashlib.sha256(raw).hexdigest()==expected
-target=0x836580
-hits=[]
-for i in range(0x4da000, min(len(raw)-5,0x1cb0000)):
-    if raw[i] != 0xE8: continue
-    disp=struct.unpack_from("<i",raw,i+1)[0]
-    if i+5+disp == target: hits.append(i)
-print("TARGET=0x%x DIRECT_REL32_CALL_COUNT=%d" % (target,len(hits)))
-for i in hits: print("CALL_XREF=0x%x" % i)
-'
+            ' | python3 -c 'import hashlib,struct,sys; raw=sys.stdin.buffer.read(); expected="e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe"; assert len(raw)==51965216 and hashlib.sha256(raw).hexdigest()==expected; target=0x836580; hits=[i for i in range(0x4da000,min(len(raw)-5,0x1cb0000)) if raw[i]==0xe8 and i+5+struct.unpack_from("<i",raw,i+1)[0]==target]; print("TARGET=0x%x DIRECT_REL32_CALL_COUNT=%d"%(target,len(hits))); [print("CALL_XREF=0x%x"%i) for i in hits]'
       - name: State static-only boundary
         shell: bash
         run: |
