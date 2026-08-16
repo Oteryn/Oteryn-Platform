@@ -75,7 +75,7 @@ test.afterEach(async ({ page }, testInfo) => {
   }
 });
 
-test('@portal-downloads complete public, administrator, protected-integration simulation, localization and recovery lifecycle', async ({ browser, page }) => {
+test('@portal-downloads complete public, administrator, localization and recovery lifecycle', async ({ browser, page }) => {
   const suffix = (process.env.ACCEPTANCE_RUN_ID ?? 'local')
     .replace(/[^a-zA-Z0-9-]/gu, '-')
     .toLowerCase()
