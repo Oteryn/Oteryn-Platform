@@ -87,6 +87,11 @@
       "rationale": "Download artifacts are externally linked and are explicitly not uploaded, fetched, proxied or rendered as managed media by the portal."
     },
     {
+      "id": "downloads.updater-admin-trust",
+      "classification": "not_applicable",
+      "rationale": "Updater diagnostics, policy controls and withdrawal actions render bounded trust-state text and controls; they do not consume repository-managed media or create an image fallback surface."
+    },
+    {
       "id": "events.public-admin",
       "classification": "not_applicable",
       "rationale": "Current event fields and browser evidence establish textual calendar and administration content without a repository-managed image contract."

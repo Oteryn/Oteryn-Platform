@@ -24,6 +24,29 @@
       "portability": {"status": "covered", "profile": "downloads-portability", "projects": ["downloads-portability-firefox", "downloads-portability-webkit"], "evidence": "e5"}
     },
     {
+      "id": "downloads.updater-admin-trust",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [
+        {"id": "e1", "file": "scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs", "markers": ["@portal-downloads complete public, administrator, localization and recovery lifecycle", "const desktopViewport = { width: 1440, height: 1000 };"]},
+        {"id": "e2", "file": "scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs", "markers": ["@portal-downloads complete public, administrator, localization and recovery lifecycle", "const tabletViewport = { width: 820, height: 1180 };"]},
+        {"id": "e3", "file": "scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs", "markers": ["@portal-downloads complete public, administrator, localization and recovery lifecycle", "const mobileViewport = { width: 390, height: 844 };"]},
+        {"id": "e4", "file": "scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs", "markers": ["@portal-downloads complete public, administrator, localization and recovery lifecycle"]},
+        {"id": "e5", "file": "scripts/acceptance/tests/downloads-public-portability.spec.mjs", "markers": ["@portal-downloads-portability current public release renders in bounded browser engines"]}
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "downloads-lifecycle", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "downloads-lifecycle", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e2"},
+        "mobile-390x844": {"profile": "downloads-lifecycle", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e3"}
+      },
+      "browsers": {
+        "chromium-primary": {"profile": "downloads-lifecycle", "projects": ["chromium-primary"], "evidence": "e4"},
+        "firefox-bounded": {"profile": "downloads-portability", "projects": ["downloads-portability-firefox"], "evidence": "e5"},
+        "webkit-bounded": {"profile": "downloads-portability", "projects": ["downloads-portability-webkit"], "evidence": "e5"}
+      },
+      "portability": {"status": "covered", "profile": "downloads-portability", "projects": ["downloads-portability-firefox", "downloads-portability-webkit"], "evidence": "e5"}
+    },
+    {
       "id": "events.public-admin",
       "kind": "rendered",
       "critical": true,
