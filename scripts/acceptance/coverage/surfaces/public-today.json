@@ -1,0 +1,62 @@
+{
+  "surfaces": [
+    {
+      "id": "public.today-command-centre",
+      "owner": "PublicPortal",
+      "status": "covered",
+      "route_names": [
+        "today.index",
+        "legacy.today.index"
+      ],
+      "roles": [
+        "public-guest"
+      ],
+      "states": [
+        "authoritative-editorial-present",
+        "healthy-editorial-empty",
+        "partial-provider-unavailable",
+        "liveops-not-yet-provided",
+        "localized-en",
+        "localized-pl",
+        "explicit-no-store"
+      ],
+      "viewports": [
+        "desktop-1440x1000",
+        "tablet-820x1180",
+        "mobile-390x844"
+      ],
+      "browsers": [
+        "chromium-primary",
+        "bounded-portability"
+      ],
+      "evidence_layers": [
+        "feature",
+        "localization",
+        "seo",
+        "cache-policy",
+        "responsive",
+        "accessibility",
+        "playwright"
+      ],
+      "evidence": [
+        {
+          "file": "tests/Feature/PublicPortal/PublicTodayTest.php",
+          "markers": [
+            "test_public_today_composes_real_public_sources_in_deterministic_order_without_fabricating_liveops",
+            "test_healthy_empty_sources_remain_distinct_from_unavailable_liveops",
+            "test_one_provider_failure_yields_truthful_partial_state_instead_of_empty",
+            "test_acceptance_failure_injection_header_is_ignored_outside_acceptance_environment",
+            "test_today_is_localized_and_present_in_the_public_sitemap"
+          ]
+        },
+        {
+          "file": "scripts/acceptance/tests/homepage-navigation-seo.spec.mjs",
+          "markers": [
+            "@portal-today public guest command centre preserves source truth empty partial LiveOps absence localization and no-store"
+          ]
+        }
+      ],
+      "gaps": []
+    }
+  ]
+}
