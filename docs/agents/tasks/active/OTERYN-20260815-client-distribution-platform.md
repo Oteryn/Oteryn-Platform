@@ -106,17 +106,17 @@ new_persistent_workflows: 0
 clean_material_commit: da514f3eda178e904a6fc481616a737d1b12d8c4
 first_published_reconstruction_head: 4a2fa4e3b19571e257d5462f6c6b58ef841a4ad0
 formatter_repair_commit: aaec9fe4cda15c48da12d5a1646cd7eba018aad2
-final_material_head_before_checkpoint: a1c910461f8ebc09b98dec602dd92c6abf37dca1
+phase7_fixture_repair_commit: 2e8d81c9c8a957c1aeef4b5ff2ecffa8c9106fde
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-16T15:13:17+02:00
-head: a1c910461f8ebc09b98dec602dd92c6abf37dca1
+updated_at: 2026-08-16T15:55:00+02:00
+head: 2e8d81c9c8a957c1aeef4b5ff2ecffa8c9106fde
 status: validating
-phase: final_exact_head_validation_after_formatter_repair
+phase: final_exact_head_validation_after_phase7_fixture_repair
 branch: feat/issue-1039-client-distribution-platform
 pr: 1073
 context_routes:
@@ -151,21 +151,23 @@ proven:
   - no private updater signing key or signing secret is accepted or persisted by the Platform implementation
   - exact head 0d8c8a34eac5f00ddfa014dcf79684e3f3fcb089 passed Downloads Acceptance run 31940052536 including migration rollback/re-apply, zero-retry Chromium lifecycle, Firefox portability and WebKit portability
   - CI run 31940052520 on 0d8c8a34eac5f00ddfa014dcf79684e3f3fcb089 isolated 22 Pint formatting findings before static analysis/tests
-  - temporary same-PR formatter execution produced commit aaec9fe4cda15c48da12d5a1646cd7eba018aad2 and changed exactly the 22 PHP files reported by Pint; no other path changed in that formatter commit
-  - temporary formatter permissions and source-editing step were removed from the retained Downloads Acceptance workflow in a1c910461f8ebc09b98dec602dd92c6abf37dca1
-  - current whole PR diff on a1c910461f8ebc09b98dec602dd92c6abf37dca1 contains no temporary formatter step or contents-write workflow permission
-  - current review-thread inventory for PR #1073 is empty and no submitted reviews/requested changes exist
+  - canonical formatter repair commit aaec9fe4cda15c48da12d5a1646cd7eba018aad2 changed exactly the 22 PHP files reported by Pint
+  - temporary formatter permissions and source-editing step were removed from the retained Downloads Acceptance workflow
+  - Phase 7 run on head 5beb6230c6e33933a29cc55542861e260e2fec02 isolated one UpdaterDistributionTest failure at the protected admin diagnostic GET
+  - the Phase 7 403 root cause was test-fixture mass assignment: Identity fillable excludes MFA fields, while the fixture attempted to set them in create()
+  - commit 2e8d81c9c8a957c1aeef4b5ff2ecffa8c9106fde now persists the MFA fixture explicitly with forceFill()->save(), matching existing valid admin test setup
+  - whole-diff self-review was completed after architecture-authority repair and formatter cleanup; review threads and submitted reviews were empty at that checkpoint
 derived:
-  - the original CI failure was formatting-only and the canonical repository formatter repaired the same bounded set of files
-  - the final material implementation is ready for a fresh exact-head required-CI generation after this checkpoint update
+  - the Phase 7 failure was a fixture-authentication defect, not a reason to weaken the MFA or downloads.manage middleware boundary
+  - final exact-head validation must be regenerated after the fixture and checkpoint repairs
 unknown:
   - terminal conclusions of required CI and Downloads Acceptance for the checkpoint successor head until GitHub executes them
   - real protected signer/repository integration behavior because that separate authority and implementation are outside this task
   - real updater/client cross-repository behavior because that separate authority is not granted
 conflicts: []
 first_failure:
-  marker: ci-pint-formatting-resolved
-  evidence: CI 31940052520 failed only at vendor/bin/pint --test with 22 style findings; canonical Pint formatting commit aaec9fe4cda15c48da12d5a1646cd7eba018aad2 modified exactly those 22 PHP files and the temporary formatter workflow modification was then removed
+  marker: phase7-admin-fixture-mfa-mass-assignment-repaired
+  evidence: Phase 7 expected 200 but received 403 at UpdaterDistributionTest diagnostic GET; Identity fillable excludes MFA fields, and commit 2e8d81c9c8a957c1aeef4b5ff2ecffa8c9106fde changed the fixture to forceFill and persist confirmed MFA state
 rejected_hypotheses:
   - lexical display version can safely order updates
   - browser is_current can stand in for updater-active state
@@ -174,7 +176,8 @@ rejected_hypotheses:
   - ordinary downloads.manage web administration should be able to mint reconciled signed-generation state
   - TUF Targets and Snapshot versions must increase on every Timestamp freshness refresh
   - a new persistent task-specific workflow is needed
-  - the final Pint failure represented application behavior rather than source formatting
+  - the Pint failure represented application behavior rather than source formatting
+  - the Phase 7 diagnostic should bypass MFA or downloads.manage authorization
 changed_paths:
   - .github/workflows/downloads-acceptance.yml
   - app/Downloads/**
@@ -198,55 +201,44 @@ validation:
   - command: CI 31940052520 runtime-tests on 0d8c8a34eac5f00ddfa014dcf79684e3f3fcb089
     result: FAIL
     evidence: vendor/bin/pint --test reported 22 style findings and fail-fast skipped static analysis/tests
-  - command: canonical Pint formatter repair 90e70ade1233efe245c1b7f2ff5812160d166d12..aaec9fe4cda15c48da12d5a1646cd7eba018aad2
+  - command: canonical Pint formatter repair
     result: PASS
-    evidence: one formatter commit changed exactly the 22 PHP paths from the CI formatter report
-self_review:
-  result: PASS
-  exact_head: a1c910461f8ebc09b98dec602dd92c6abf37dca1
-  acceptance_checked: true
-  full_diff_checked: true
-  negative_paths_checked: true
-  rollback_checked: true
-  compatibility_checked: true
-  related_prs_checked: true
-  findings: []
-  evidence:
-    - full PR patch re-read after formatter repair and after removal of temporary workflow mutation
-    - review threads empty on PR #1073
-    - no submitted review/requested-change state on PR #1073
+    evidence: aaec9fe4cda15c48da12d5a1646cd7eba018aad2 changed exactly the 22 reported PHP paths
+  - command: Phase 7 validation on 5beb6230c6e33933a29cc55542861e260e2fec02
+    result: FAIL
+    evidence: one UpdaterDistributionTest admin diagnostics GET returned 403 because the test fixture had not persisted confirmed MFA state
 blockers: []
 invocation_started_at: 2026-08-16T15:05:00+02:00
-last_progress_at: 2026-08-16T15:13:17+02:00
+last_progress_at: 2026-08-16T15:55:00+02:00
 ci_checks_for_current_head: 0
 ci_check_generation: final_checkpoint_successor
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 1
+repair_cycles_for_current_gate: 2
 context_reconstruction_attempts: 1
 stall_warnings: 0
-next_action: Capture the checkpoint successor head, verify all required exact-head CI plus Downloads Acceptance, then mark PR #1073 ready and squash-merge with expected head SHA before Issue/task/source-branch lifecycle closeout.
+next_action: Verify the checkpoint successor exact head through all required CI including Downloads Acceptance and Phase 7, then mark PR #1073 ready and squash-merge with expected head SHA before Issue/task/source-branch lifecycle closeout.
 ```
 
 ## Recovery checkpoint
 
 ```yaml
 checkpoint_type: RECOVERY
-captured_at: 2026-08-16T15:13:17+02:00
-current_state: final material implementation and canonical formatting repair are complete; only fresh exact-head CI and terminal merge/lifecycle remain
-last_completed_step: removed temporary formatter workflow mutation after canonical Pint repaired exactly the 22 reported PHP paths
+captured_at: 2026-08-16T15:55:00+02:00
+current_state: formatter repair and Phase 7 MFA fixture repair are complete; fresh exact-head CI and terminal merge/lifecycle remain
+last_completed_step: repaired UpdaterDistributionTest confirmed-MFA persistence and removed unsupported nested self_review checkpoint mapping
 active_operation: final exact-head GitHub validation for the checkpoint successor
 external_run_ids:
   - 31940052536
   - 31940052520
-  - 31949062325
-expected_success_marker: final checkpoint successor has required CI and Downloads Acceptance SUCCESS with zero unresolved material review findings
+  - 31949239736
+expected_success_marker: final checkpoint successor has required CI, Downloads Acceptance and Phase 7 SUCCESS with zero unresolved material review findings
 expected_failure_marker: first failing required job or final-head review finding
 wait_deadline: bounded terminal-CI exception only after the final head is confirmed and non-CI gates remain satisfied
 next_step_on_success: mark PR ready, exact expected-head squash merge, close Issue #1039, create lifecycle-only archive closeout, verify source/archive branch disposition and final main
-next_step_on_failure: inspect the first relevant failing job log and repair the root cause on the same branch within the remaining repair-cycle budget
+next_step_on_failure: inspect the first relevant failing job log and repair the root cause on the same branch
 parallel_work_allowed: false
 parallel_work_scope: none during final exact-head validation
 context_pressure: low
