@@ -109,10 +109,11 @@ first_published_reconstruction_head: 4a2fa4e3b19571e257d5462f6c6b58ef841a4ad0
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 2
-updated_at: 2026-08-16T11:31:00+02:00
+checkpoint_version: 1
+updated_at: 2026-08-16T11:34:00+02:00
+head: 6bbbb06578a1686d2fb35f3e8869e7e22b37e7ca
 status: validating
-phase: repair_checkpoint_contract_then_resume_exact_head_validation
+phase: repair_complete_checkpoint_contract_then_resume_exact_head_validation
 branch: feat/issue-1039-client-distribution-platform
 pr: 1073
 context_routes:
@@ -147,28 +148,51 @@ proven:
   - no new workflow was created and the registered workflow budget remains 53
   - all implementation writes are confined to Oteryn-Platform
   - first published reconstruction head was 4a2fa4e3b19571e257d5462f6c6b58ef841a4ad0 with merge base exactly protected main and behind_by zero
-  - Agent Governance run 31939121881 reached checkpoint validation after all preceding governance contract tests passed
+  - Agent Governance run 31939121881 isolated the original first_failure scalar defect
+  - Agent Governance run 31939204176 proved the remaining checkpoint contract omissions exactly after all earlier governance tests passed
+derived:
+  - the first two exact-head governance failures are task-checkpoint metadata defects, not evidence of an application-code failure
+  - a fresh exact head is required because repairing durable checkpoint metadata changes the PR head
 unknown:
-  - terminal conclusions of the follow-up exact-head CI runs after this checkpoint repair
+  - terminal conclusions of the follow-up exact-head CI runs after this complete checkpoint-contract repair
   - real updater/client cross-repository behavior because that separate authority is not granted
 conflicts: []
 first_failure:
-  marker: agent-governance-checkpoint-schema-first-failure-scalar
-  evidence: exact-head Agent Governance run 31939121881 failed because this task encoded first_failure as null instead of the required YAML mapping; implementation code was not implicated by that failure
+  marker: agent-governance-checkpoint-contract-required-fields
+  evidence: Agent Governance run 31939204176 failed checkpoint validation because changed_paths, derived and head were absent and checkpoint_version was 2 instead of governance-contract version 1
 rejected_hypotheses:
   - lexical display version can safely order updates
   - browser is_current can stand in for updater-active state
   - administrator-supplied SHA-256 proves publisher authenticity
   - Laravel should own private TUF signing keys
   - a new task-specific workflow is needed
-  - rerunning the failed governance job without changing the malformed checkpoint would provide new evidence
+  - rerunning either failed governance head without repairing checkpoint metadata would provide new evidence
+changed_paths:
+  - docs/agents/tasks/active/OTERYN-20260815-client-distribution-platform.md
+  - app/Downloads/**
+  - app/Http/Controllers/Downloads/**
+  - app/Http/Requests/Downloads/**
+  - database/migrations/2026_08_16_100000_add_client_updater_distribution_tables.php
+  - lang/en/downloads.php
+  - lang/pl/downloads.php
+  - resources/views/downloads/**
+  - resources/views/admin/downloads/**
+  - routes/modules/downloads.php
+  - tests/Unit/Downloads/**
+  - tests/Feature/Downloads/**
+  - scripts/acceptance/seed-downloads-state.php
+  - scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs
+  - .github/workflows/downloads-acceptance.yml
 validation:
   - command: Agent Governance run 31939121881 on head 4a2fa4e3b19571e257d5462f6c6b58ef841a4ad0
     result: FAIL
-    evidence: checkpoint-validation step 12 reported first_failure must be a YAML mapping; all earlier governance tests in the same job passed
-  - command: follow-up exact-head GitHub Actions after checkpoint repair
+    evidence: checkpoint-validation rejected first_failure scalar encoding; all earlier governance tests in that job passed
+  - command: Agent Governance run 31939204176 on head 6bbbb06578a1686d2fb35f3e8869e7e22b37e7ca
+    result: FAIL
+    evidence: checkpoint-validation required changed_paths, derived, head and checkpoint_version 1; all earlier governance tests in that job passed
+  - command: follow-up exact-head GitHub Actions after complete checkpoint-contract repair
     result: NOT_RUN
-    evidence: new head is created by this checkpoint repair and its run ids must be captured directly after publication
+    evidence: new head is created by this repair and its run ids must be captured directly after publication
 blockers: []
 next_action: Capture the new exact PR head and associated GitHub Actions run ids, inspect the first material failure if any, then complete whole-diff self-review and terminal merge/lifecycle closeout only after all gates are green.
 ```
@@ -177,15 +201,16 @@ next_action: Capture the new exact PR head and associated GitHub Actions run ids
 
 ```yaml
 checkpoint_type: RECOVERY
-captured_at: 2026-08-16T11:31:00+02:00
-current_state: Platform-only implementation remains coherent; first exact-head governance failure is isolated to checkpoint YAML shape and is repaired by this commit
-last_completed_step: diagnosed Agent Governance run 31939121881 to exact invariant first_failure must be a YAML mapping
-active_operation: publish checkpoint repair and execute follow-up exact-head GitHub validation lanes
+captured_at: 2026-08-16T11:34:00+02:00
+current_state: Platform-only implementation remains coherent; complete checkpoint contract is now represented according to governance version 1
+last_completed_step: diagnosed Agent Governance run 31939204176 to its exact four remaining checkpoint-contract invariants and repaired them
+active_operation: publish complete checkpoint repair and execute follow-up exact-head GitHub validation lanes
 external_run_ids:
   - 31939121881
+  - 31939204176
 expected_success_marker: follow-up exact PR head has required CI plus Downloads Acceptance success and zero unresolved material review findings
 expected_failure_marker: first failing required job or review finding on the follow-up exact PR head
-wait_deadline: none; independent self-review remains available while Actions execute
+wait_deadline: none; same-PR self-review remains available while Actions execute
 next_step_on_success: whole-diff self-review, mark PR ready, exact expected-head squash merge, Issue #1039 close, lifecycle archive
 next_step_on_failure: inspect first relevant failing job log, repair root cause on the same branch, rerun exact-head validation
 parallel_work_allowed: true
