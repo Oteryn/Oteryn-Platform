@@ -18,7 +18,7 @@ jobs:
     runs-on: oteryn-staging
     timeout-minutes: 5
     steps:
-      - name: Emit bounded exact-client instruction evidence
+      - name: Emit bounded exact-client bytes with ELF VA mapping
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -38,15 +38,26 @@ jobs:
               echo "EXACT_CLIENT_SHA256=$sha"
               [[ "$size" == "$EXPECTED_SIZE" ]]
               [[ "$sha" == "$EXPECTED_SHA256" ]]
-              if command -v gdb >/dev/null 2>&1; then
-                echo DISASM_MODE=gdb
-                if gdb -q -nx -batch -ex "set auto-load python-scripts off" -ex "set debuginfod enabled off" -ex "file $client" -ex "set disassembly-flavor intel" -ex "disassemble /r 0x836500,0x836a00"; then
-                  exit 0
-                fi
-                echo GDB_DISASM_FAILED=1
-              fi
-              echo DISASM_MODE=elf64_hex_fallback
-              python3 -c '"'"'import sys,struct,hashlib; r=open(sys.argv[1],"rb").read(); s=int(sys.argv[2],0); e=int(sys.argv[3],0); assert hashlib.sha256(r).hexdigest()=="e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe"; phoff=struct.unpack_from("<Q",r,32)[0]; ents=struct.unpack_from("<H",r,54)[0]; n=struct.unpack_from("<H",r,56)[0]; ph=[struct.unpack_from("<IIQQQQQQ",r,phoff+i*ents) for i in range(n)]; g=[x for x in ph if x[0]==1 and x[3]<=s and e<=x[3]+x[5]][0]; o=g[2]+s-g[3]; print(f"HEX_PLAYERPOSITION VA={s:#x}..{e:#x} FILEOFF={o:#x} LEN={e-s}"); print(r[o:o+e-s].hex())'"'"' "$client" 0x836500 0x836a00
+              command -v od >/dev/null
+              u16(){ od -An -tu2 -j "$2" -N2 "$1" | tr -d "[:space:]"; }
+              u32(){ od -An -tu4 -j "$2" -N4 "$1" | tr -d "[:space:]"; }
+              u64(){ od -An -tu8 -j "$2" -N8 "$1" | tr -d "[:space:]"; }
+              start=$((0x836500)); stop=$((0x836a00))
+              phoff=$(u64 "$client" 32); ents=$(u16 "$client" 54); n=$(u16 "$client" 56)
+              echo "ELF_PHOFF=$phoff ELF_PHENTSIZE=$ents ELF_PHNUM=$n"
+              fileoff=""
+              for ((i=0;i<n;i++)); do
+                base=$((phoff+i*ents)); type=$(u32 "$client" "$base")
+                [[ "$type" == 1 ]] || continue
+                po=$(u64 "$client" $((base+8))); pv=$(u64 "$client" $((base+16))); pfs=$(u64 "$client" $((base+32)));
+                echo "PT_LOAD index=$i offset=$po vaddr=$pv filesz=$pfs"
+                if (( pv <= start && stop <= pv+pfs )); then fileoff=$((po+start-pv)); fi
+              done
+              [[ -n "$fileoff" ]]
+              len=$((stop-start))
+              echo "HEX_PLAYERPOSITION VA=0x836500..0x836a00 FILEOFF=$fileoff LEN=$len"
+              od -An -v -tx1 -j "$fileoff" -N "$len" "$client" | tr -d "[:space:]"
+              echo
             '
       - name: State static-only boundary
         shell: bash
