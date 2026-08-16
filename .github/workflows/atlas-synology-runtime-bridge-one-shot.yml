@@ -12,13 +12,13 @@ permissions:
 
 concurrency:
   group: atlas-synology-runtime-bridge-one-shot
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   discover:
-    name: Read-only Atlas discovery on Synology Docker host
+    name: Bounded Atlas discovery on Synology Docker host
     runs-on: oteryn-staging
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - name: Verify runner and Docker boundary
         shell: bash
@@ -27,139 +27,75 @@ jobs:
           echo "runner_name=${RUNNER_NAME:-unknown}"
           echo "runner_os=${RUNNER_OS:-unknown}"
           echo "runner_arch=${RUNNER_ARCH:-unknown}"
-          docker version
+          echo "runner_container=${HOSTNAME:-unknown}"
           docker info --format 'name={{.Name}} server={{.ServerVersion}} os={{.OperatingSystem}} arch={{.Architecture}} root={{.DockerRootDir}}'
+          if [[ -n "${HOSTNAME:-}" ]] && docker inspect "$HOSTNAME" >/dev/null 2>&1; then
+            echo '=== runner mounts ==='
+            docker inspect --format '{{range .Mounts}}{{.Type}}|{{.Source}}|{{.Destination}}|rw={{.RW}}{{println}}{{end}}' "$HOSTNAME"
+          fi
 
-      - name: Inventory Atlas-owned Docker surface
+      - name: Inventory Atlas Docker surface
         shell: bash
         run: |
           set -Eeuo pipefail
-          echo '=== atlas-related containers ==='
+          echo '=== atlas/oteryn containers ==='
           docker ps -a --format '{{.Names}}|{{.Image}}|{{.Status}}|{{.Ports}}' | grep -Ei 'atlas|otheryn|oteryn' || true
-          echo '=== port 8095 docker allocations ==='
+          echo '=== port 8095 ==='
           docker ps -a --format '{{.Names}}|{{.Ports}}' | grep -E '(^|[^0-9])8095([^0-9]|$)' || true
-          echo '=== project labels, bounded ==='
-          for cid in $(docker ps -aq); do
-            name="$(docker inspect --format '{{.Name}}' "$cid" 2>/dev/null | sed 's#^/##')"
-            case "$name" in
-              *atlas*|*otheryn*|*oteryn*)
-                project="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "$cid" 2>/dev/null || true)"
-                service="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "$cid" 2>/dev/null || true)"
-                owner="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$cid" 2>/dev/null || true)"
-                purpose="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$cid" 2>/dev/null || true)"
-                printf '%s|project=%s|service=%s|owner=%s|purpose=%s\n' "$name" "$project" "$service" "$owner" "$purpose"
-                ;;
-            esac
-          done
 
-      - name: Inspect Atlas host filesystem metadata with ephemeral read-only helper
+      - name: Probe only Docker-hosted Atlas paths
         shell: bash
         run: |
           set -Eeuo pipefail
-          helper_image='python:3.13-alpine'
-          docker pull "$helper_image" >/dev/null
+          image='python:3.13-alpine'
+          docker pull "$image" >/dev/null
           docker run --rm -i \
             --name "atlas-discovery-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             --label com.blakinio.owner=otbm-atlas \
             --label com.blakinio.purpose=atlas-runtime-discovery \
-            --read-only \
-            --cap-drop ALL \
-            --security-opt no-new-privileges:true \
-            -v /:/host:ro \
-            "$helper_image" python - <<'PY'
+            --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+            -v /volume1/docker:/host/docker:ro \
+            "$image" python - <<'PY'
           from __future__ import annotations
-          import json
-          import os
+          import json, os
           from pathlib import Path
 
-          host = Path('/host')
-          recommended = [
-              Path('/volume1/docker/otheryn'),
-              Path('/volume1/docker/otheryn/atlas'),
-              Path('/volume1/docker/otheryn/atlas/current'),
-              Path('/volume1/docker/otheryn/atlas/project'),
-              Path('/volume1/docker/oteryn'),
-          ]
-          for value in recommended:
-              path = host / value.relative_to('/')
-              print(('EXISTS' if path.exists() else 'MISSING'), value.as_posix())
+          base=Path('/host/docker')
+          print('DOCKER_ROOT_VISIBLE', int(base.exists()))
+          if not base.exists():
+              raise SystemExit(0)
+          for p in sorted(base.iterdir(), key=lambda x:x.name.lower()):
+              n=p.name.lower()
+              if any(t in n for t in ('oteryn','otheryn','runner','atlas')):
+                  print('TOP', 'DIR' if p.is_dir() else 'FILE', p.name)
+          for rel in ('otheryn/atlas/current','otheryn/atlas/project','otheryn/atlas','oteryn/atlas/current','oteryn/atlas/project','oteryn/atlas'):
+              print('PATH', '/volume1/docker/'+rel, 'EXISTS' if (base/rel).exists() else 'MISSING')
 
-          roots = [
-              host / 'volume1/docker',
-              host / 'volume1',
-          ]
-          candidates: list[Path] = []
-          seen: set[str] = set()
-          max_candidates = 40
-          for base in roots:
-              if not base.exists():
-                  continue
-              for current, dirs, files in os.walk(base):
-                  rel = Path(current).relative_to(host)
-                  if len(rel.parts) > 9:
-                      dirs[:] = []
-                      continue
-                  # Avoid expensive and irrelevant Docker internals and database trees.
-                  lowered = {part.lower() for part in rel.parts}
-                  if '@docker' in lowered or 'mysql' in lowered or 'mariadb' in lowered:
-                      dirs[:] = []
-                      continue
-                  if 'manifest.json' not in files:
-                      continue
-                  path = Path(current) / 'manifest.json'
-                  key = path.as_posix()
-                  if key in seen:
-                      continue
-                  try:
-                      data = json.loads(path.read_text(encoding='utf-8'))
-                  except Exception:
-                      continue
-                  chunks = data.get('chunks')
-                  sources = data.get('sources')
-                  if not isinstance(chunks, list) or not isinstance(sources, dict):
-                      continue
-                  # Atlas v3 identity metadata only; never print chunk payloads.
-                  seen.add(key)
-                  candidates.append(path)
-                  atlas_root = path.parent
-                  floors = sorted({int(chunk['z']) for chunk in chunks if isinstance(chunk, dict) and 'z' in chunk})
-                  viewer = [
-                      'index.html', 'viewer-app.js', 'viewer-runtime.js',
-                      'creature-animation-runtime.js', 'data/search-index.json',
-                      'data/statistics.json', 'data/spawns.json',
-                  ]
-                  print('ATLAS_ROOT', '/' + atlas_root.relative_to(host).as_posix())
-                  print('ATLAS_IDENTITY',
-                        'schema=', data.get('schemaVersion'),
-                        'chunkSize=', data.get('chunkSize'),
-                        'chunks=', len(chunks),
-                        'floors=', ','.join(map(str, floors)),
-                        'mapSha=', sources.get('mapSha256'),
-                        'assetsSha=', sources.get('assetsSha256'),
-                        'atlasVersion=', sources.get('atlasVersion'))
-                  print('ATLAS_VIEWER_FILES', ','.join(f'{name}={int((atlas_root/name).is_file())}' for name in viewer))
-                  print('ATLAS_ENV_INDEX', int((atlas_root/'data/environment-animations/index.json').is_file()))
-                  print('ATLAS_SPOOL', int((atlas_root/'.spool/source.json').is_file()))
-                  try:
-                      top_dirs = {p.name for p in atlas_root.iterdir() if p.is_dir()}
-                      print('ATLAS_TOP_DIRS', ','.join(sorted(name for name in top_dirs if name in {'.spool','tiles','overview','overview-low','data'})))
-                  except Exception:
-                      pass
-                  if len(candidates) >= max_candidates:
-                      break
-              if len(candidates) >= max_candidates:
-                  break
-          print('ATLAS_CANDIDATE_COUNT', len(candidates))
-
-          # Only report existence of known Synology reverse-proxy/runtime files; do not read contents.
-          for value in [
-              '/etc/nginx/app.d/server.ReverseProxy.conf',
-              '/usr/syno/etc/www/ReverseProxy.json',
-              '/usr/syno/etc/www/ReverseProxy.conf',
-              '/usr/syno/bin/synowebapi',
-          ]:
-              path = host / value.lstrip('/')
-              print('HOST_PATH', value, 'EXISTS' if path.exists() else 'MISSING')
+          manifests=[]
+          for current,dirs,files in os.walk(base):
+              rel=Path(current).relative_to(base)
+              if len(rel.parts)>7:
+                  dirs[:]=[]; continue
+              lowered={x.lower() for x in rel.parts}
+              if lowered & {'mysql','mariadb','postgres','storage','node_modules','vendor','@docker'}:
+                  dirs[:]=[]; continue
+              if 'manifest.json' in files and any(t in current.lower() for t in ('atlas','full-map')):
+                  manifests.append(Path(current)/'manifest.json')
+                  if len(manifests)>=30: break
+          print('MANIFEST_COUNT',len(manifests))
+          for path in manifests:
+              try:
+                  data=json.loads(path.read_text(encoding='utf-8'))
+                  chunks=data.get('chunks',[]); src=data.get('sources',{})
+                  if not isinstance(chunks,list) or not isinstance(src,dict): continue
+                  root=path.parent
+                  floors=sorted({int(c['z']) for c in chunks if isinstance(c,dict) and 'z' in c})
+                  print('ATLAS_ROOT',root.as_posix().replace('/host/docker','/volume1/docker'))
+                  print('IDENTITY',data.get('schemaVersion'),data.get('chunkSize'),len(chunks),','.join(map(str,floors)),src.get('mapSha256'),src.get('assetsSha256'),src.get('atlasVersion'))
+                  for name in ('index.html','viewer-app.js','viewer-runtime.js','creature-animation-runtime.js','data/search-index.json','data/statistics.json','data/spawns.json','data/environment-animations/index.json','.spool/source.json'):
+                      print('FILE',name,int((root/name).is_file()))
+              except Exception as exc:
+                  print('INVALID_MANIFEST',type(exc).__name__)
           PY
 
       - name: Verify helper cleanup
@@ -167,7 +103,8 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          if docker ps -a --format '{{.Names}}' | grep -Fx "atlas-discovery-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"; then
-            echo 'ephemeral Atlas discovery helper still exists' >&2
+          name="atlas-discovery-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if docker ps -a --format '{{.Names}}' | grep -Fx "$name"; then
+            echo "helper remains: $name" >&2
             exit 1
           fi
