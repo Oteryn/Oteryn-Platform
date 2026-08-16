@@ -54,7 +54,7 @@ final readonly class TodayPageQuery
             default => TodayPageState::COMPLETE,
         };
 
-        return new TodayPageViewModel($state, array_values($cards));
+        return new TodayPageViewModel($state, $cards);
     }
 
     private function liveOpsCard(DateTimeInterface $evaluatedAt): TodayCard
