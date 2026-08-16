@@ -9,57 +9,43 @@ permissions:
   contents: read
 
 env:
-  VOLUME_NAME: oteryn-tibia-linux-analysis
+  HOST_DATA_DIR: /volume1/docker/oteryn/tibia-analysis
   EXPECTED_SIZE: '51965216'
   EXPECTED_SHA256: e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe
 
 jobs:
-  sanitized-static-disasm:
+  exact-bind-inventory:
     runs-on: oteryn-staging
     timeout-minutes: 5
     steps:
-      - name: Read exact retained client through isolated read-only helper
+      - name: Inspect historical exact-client bind read-only
         shell: bash
         run: |
           set -Eeuo pipefail
           [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
-          [[ -z "$(docker ps -a --filter "volume=$VOLUME_NAME" --format '{{.Names}}')" ]]
           image=$(docker inspect otclient-tibia-login-analysis --format '{{.Image}}')
           echo "HELPER_IMAGE=$image"
           docker run --rm --network none --read-only \
             --security-opt no-new-privileges:true \
             -e EXPECTED_SIZE -e EXPECTED_SHA256 \
-            -v "$VOLUME_NAME:/analysis:ro" \
+            --mount type=bind,src="$HOST_DATA_DIR",dst=/analysis,readonly \
             --entrypoint /bin/bash "$image" -lc '
               set -Eeuo pipefail
-              tool=$(command -v objdump || command -v llvm-objdump || true)
-              [[ -n "$tool" ]]
-              echo "DISASM_TOOL=$tool"
-              exact=""
-              while IFS= read -r candidate; do
-                [[ -f "$candidate" ]] || continue
-                size=$(stat -c %s "$candidate")
-                [[ "$size" == "$EXPECTED_SIZE" ]] || continue
-                sha=$(sha256sum "$candidate" | awk "{print \$1}")
-                echo "CANDIDATE=$candidate SIZE=$size SHA256=$sha"
-                if [[ "$sha" == "$EXPECTED_SHA256" ]]; then exact="$candidate"; break; fi
-              done < <(find /analysis -type f -name client -size "${EXPECTED_SIZE}c" -print 2>/dev/null)
-              [[ -n "$exact" ]]
-              echo "EXACT_CLIENT=$exact"
-              echo "EXACT_CLIENT_SIZE=$(stat -c %s "$exact")"
-              echo "EXACT_CLIENT_SHA256=$(sha256sum "$exact" | awk "{print \$1}")"
-              dump() {
-                local label="$1" start="$2" stop="$3"
-                echo "===== ${label} ${start}..${stop} ====="
-                "$tool" -d -C -M intel --start-address="$start" --stop-address="$stop" "$exact"
-              }
-              dump PLAYERPOSITION_XREF 0x836500 0x836a00
-              dump TPLAYERDATA_SLOT0 0xd1cb00 0xd1ce00
-              dump TPLAYERDATA_SLOT1 0xd2abc0 0xd2b000
-              dump TPLAYERDATA_SLOT2 0xd2ee80 0xd2f200
-              dump TPLAYERDATA_SLOT3_4 0x843d80 0x844100
-              dump TPLAYERDATA_LATE_A 0xeda300 0xeda600
-              dump TPLAYERDATA_LATE_B 0xedff40 0xee0300
+              echo "=== TOP_LEVEL ==="
+              find /analysis -maxdepth 2 -mindepth 1 -printf "%y %s %p\n" 2>/dev/null | sort | head -120 || true
+              echo "=== EXACT_PATH_CANDIDATES ==="
+              for f in /analysis/client-15.32.df7b29/bin/client /analysis/home/.local/share/CipSoft\ GmbH/Tibia/packages/Tibia/bin/client; do
+                if [[ -f "$f" ]]; then
+                  size=$(stat -c %s "$f")
+                  sha=$(sha256sum "$f" | awk "{print \$1}")
+                  echo "CANDIDATE=$f SIZE=$size SHA256=$sha"
+                fi
+              done
+              echo "=== SIZE_MATCH_CANDIDATES ==="
+              find /analysis -type f -size "${EXPECTED_SIZE}c" -print 2>/dev/null | head -20 | while IFS= read -r f; do
+                sha=$(sha256sum "$f" | awk "{print \$1}")
+                echo "CANDIDATE=$f SIZE=$EXPECTED_SIZE SHA256=$sha"
+              done
             '
       - name: State static-only boundary
         shell: bash
