@@ -391,9 +391,12 @@ final class UpdaterDistributionTest extends TestCase
         $identity = Identity::query()->create([
             'email' => $email,
             'password' => Hash::make('Correct-Horse-9!Battery'),
+        ]);
+        $identity->forceFill([
             'two_factor_secret' => 'TEST-MFA-SECRET-NOT-REAL',
             'two_factor_confirmed_at' => now(),
-        ]);
+        ])->save();
+
         $roleId = $this->databaseId('admin_roles', AdminRoleManager::CONTENT_EDITOR);
         $permissionId = $this->databaseId('admin_permissions', AdminPermission::MANAGE_DOWNLOADS);
         DB::table('admin_role_permissions')->insertOrIgnore([
