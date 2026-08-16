@@ -14,6 +14,7 @@ required_reads:
   - docs/agents/programs/OTERYN_PORTAL_COMPLETION.md
 search_first:
   - Issue #1113
+  - PR #1114
   - PR #1061
 optional_reads:
   - docs/agents/BUILD_TEST_MATRIX.md
@@ -44,17 +45,22 @@ Deliver Issue #1113 as the first complete `PUBLIC_GUEST` Today vertical slice se
 owned_paths:
   - app/PublicPortal/Today/**
   - app/Http/Controllers/PublicPortal/PublicTodayController.php
-  - resources/views/public/today/**
-  - routes/modules/public-portal.php
+  - app/Localization/LocalizedPublicRouteRegistrar.php
   - app/PublicPortal/Seo/PublicSitemapQuery.php
-  - resources/views/components/public-navigation.blade.php
-  - resources/lang/en/**
-  - resources/lang/pl/**
-  - tests/Feature/PublicPortal/**
-  - tests/Unit/PublicPortal/**
-  - tests/Browser/**
-  - scripts/acceptance/**
-  - docs/testing/**
+  - routes/modules/public-portal.php
+  - resources/views/public/today/**
+  - resources/navigation/public/core.php
+  - lang/en/today.php
+  - lang/pl/today.php
+  - lang/pl.json
+  - tests/Feature/PublicPortal/PublicTodayTest.php
+  - scripts/acceptance/tests/homepage-navigation-seo.spec.mjs
+  - scripts/acceptance/seed-homepage-navigation-seo.php
+  - scripts/acceptance/coverage/surfaces/public-today.json
+  - scripts/acceptance/coverage/portal-evidence-dimensions/homepage-template-selector.json
+  - docs/testing/portal-content-scale-surfaces/public-today.json
+  - docs/testing/portal-media-state-surfaces/public-today.json
+  - docs/testing/ROUTE_VIEW_NAVIGATION_INVENTORY.json
   - docs/agents/tasks/active/OTERYN-20260816-public-today-runtime.md
 modules:
   - PublicPortal
@@ -72,63 +78,103 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-16T17:43:30Z
-head: 286efb1625d510c9d2cc344cb51a2438b31ebe48
+updated_at: 2026-08-16T17:55:00Z
+head: 851b0577a2a166a2bedf703253e897c4ed1d839f
 branch: feat/issue-1113-public-today
-pr: none
-status: implementing
+pr: 1114
+status: validating
 context_routes:
   - OTERYN_PORTAL_COMPLETION entry 6 public_today
   - PUBLIC_PORTAL_TODAY_ARCHITECTURE first implementation handoff
 owned_paths:
   - app/PublicPortal/Today/**
   - app/Http/Controllers/PublicPortal/PublicTodayController.php
-  - resources/views/public/today/**
-  - routes/modules/public-portal.php
+  - app/Localization/LocalizedPublicRouteRegistrar.php
   - app/PublicPortal/Seo/PublicSitemapQuery.php
-  - tests/Feature/PublicPortal/**
-  - tests/Unit/PublicPortal/**
-  - scripts/acceptance/**
-  - docs/testing/**
+  - routes/modules/public-portal.php
+  - resources/views/public/today/**
+  - resources/navigation/public/core.php
+  - lang/en/today.php
+  - lang/pl/today.php
+  - lang/pl.json
+  - tests/Feature/PublicPortal/PublicTodayTest.php
+  - scripts/acceptance/tests/homepage-navigation-seo.spec.mjs
+  - scripts/acceptance/seed-homepage-navigation-seo.php
+  - scripts/acceptance/coverage/surfaces/public-today.json
+  - scripts/acceptance/coverage/portal-evidence-dimensions/homepage-template-selector.json
+  - docs/testing/portal-content-scale-surfaces/public-today.json
+  - docs/testing/portal-media-state-surfaces/public-today.json
+  - docs/testing/ROUTE_VIEW_NAVIGATION_INVENTORY.json
   - docs/agents/tasks/active/OTERYN-20260816-public-today-runtime.md
 proven:
-  - protected base main is 286efb1625d510c9d2cc344cb51a2438b31ebe48
-  - Issue #1113 owns the selected bounded slice
-  - Announcements Upcoming Events and CMS public query providers exist on the base
-  - no App LiveOps runtime provider exists on the base
-  - PR #1061 merged the Announcements Events reverse-edge prerequisite
-  - architecture permits public Today with explicit unavailable LiveOps
-  - no external repository access is authorized or required
-  - initial no-cache policy avoids derived representation authority
-  - open PR #338 is unrelated and remains external compatibility hold
-  - current active long-lived tasks own public-domain and native-auth production verification only
+  - protected implementation base main is 286efb1625d510c9d2cc344cb51a2438b31ebe48
+  - Issue #1113 and draft PR #1114 durably own the selected bounded slice
+  - material implementation head before checkpoint is 851b0577a2a166a2bedf703253e897c4ed1d839f
+  - Announcements Upcoming Events and CMS public query providers are consumed through source-owned boundaries
+  - no App LiveOps runtime provider exists on the selected base
+  - LiveOps is rendered as unavailable with runtime-evidence absent and no fabricated state
+  - healthy empty and provider unavailable are separate typed states
+  - Today card priority is deterministic and versioned at schema version 1
+  - Today response is explicitly no-store and no derived Today cache or index is introduced
+  - route localization navigation sitemap route-view coverage content-scale media-applicability and viewport/browser evidence contracts are wired
+  - browser acceptance uses the existing zero-retry responsive portability accessibility matrix and acceptance-only bounded failure injection
+  - acceptance failure injection header is ignored outside APP_ENV acceptance
+  - no external repository access protected operation deployment signer payment or owner-funded AI operation is used
+  - open PR #338 remains unrelated and on its external compatibility hold
 derived:
-  - selector entries before public_today have no safe READY Platform implementation candidate on this base
-  - public_today is the first READY candidate
+  - public_today remains the first safe READY selector entry for this invocation
+  - lack of LiveOps authority makes the normal public Today page partial rather than blocking publication or fabricating empty state
 unknown:
-  - exact existing acceptance ledger files that must classify the new Today route
+  - exact-head workflow outcomes for the checkpointed implementation
 conflicts: []
 first_failure:
   marker: none
   evidence: none
 rejected_hypotheses:
   - LiveOps must be implemented before Today; focused architecture explicitly allows unavailable/not-yet-provided LiveOps
+  - a Today result cache is required for the first slice; architecture explicitly permits no-cache and the implementation uses no-store
 changed_paths:
+  - app/PublicPortal/Today/TodayCardState.php
+  - app/PublicPortal/Today/TodayPageState.php
+  - app/PublicPortal/Today/TodayItem.php
+  - app/PublicPortal/Today/TodayCard.php
+  - app/PublicPortal/Today/TodayPageViewModel.php
+  - app/PublicPortal/Today/TodayPageQuery.php
+  - app/Http/Controllers/PublicPortal/PublicTodayController.php
+  - app/Localization/LocalizedPublicRouteRegistrar.php
+  - app/PublicPortal/Seo/PublicSitemapQuery.php
+  - routes/modules/public-portal.php
+  - resources/views/public/today/index.blade.php
+  - resources/navigation/public/core.php
+  - lang/en/today.php
+  - lang/pl/today.php
+  - lang/pl.json
+  - tests/Feature/PublicPortal/PublicTodayTest.php
+  - scripts/acceptance/tests/homepage-navigation-seo.spec.mjs
+  - scripts/acceptance/seed-homepage-navigation-seo.php
+  - scripts/acceptance/coverage/surfaces/public-today.json
+  - scripts/acceptance/coverage/portal-evidence-dimensions/homepage-template-selector.json
+  - docs/testing/portal-content-scale-surfaces/public-today.json
+  - docs/testing/portal-media-state-surfaces/public-today.json
+  - docs/testing/ROUTE_VIEW_NAVIGATION_INVENTORY.json
   - docs/agents/tasks/active/OTERYN-20260816-public-today-runtime.md
 validation:
   - command: selector and ownership preflight
     result: PASS
-    evidence: Issue #1113 plus live main architecture and task ownership state
+    evidence: Issue #1113 PR #1114 plus live main architecture and task ownership state
+  - command: whole implementation construction review
+    result: PASS
+    evidence: source-owned providers explicit LiveOps absence no-store localized route and existing acceptance matrices wired at material head 851b0577a2a166a2bedf703253e897c4ed1d839f
 blockers:
   - none
-next_action: implement the complete public Today slice and required acceptance classification on this branch
+next_action: run exact-head repository governance CI feature integration and zero-retry browser validation; repair every concrete failure before merge
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: implementation is active
+source_branch_reason: implementation is active and exact-head validation is pending
 source_branch_evidence: pending
 ```
 
