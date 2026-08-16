@@ -104,11 +104,14 @@ final readonly class TodayPageQuery
 
     private function eventCard(DateTimeInterface $evaluatedAt, ?string $scenario): TodayCard
     {
+        $locale = app()->getLocale();
+        $sourceUrl = route('events.index', ['locale' => $locale]);
+
         if ($scenario === 'empty') {
-            return $this->card('events', 'Events', 'Events.upcoming-public', route('events.index'), TodayCardState::EMPTY, 30, $evaluatedAt);
+            return $this->card('events', 'Events', 'Events.upcoming-public', $sourceUrl, TodayCardState::EMPTY, 30, $evaluatedAt);
         }
 
-        $summary = $this->events->get(app()->getLocale(), $evaluatedAt);
+        $summary = $this->events->get($locale, $evaluatedAt);
         $state = match ($summary->state) {
             UpcomingEventState::AVAILABLE => TodayCardState::PRESENT,
             UpcomingEventState::EMPTY => TodayCardState::EMPTY,
@@ -122,33 +125,36 @@ final readonly class TodayPageQuery
                 publicId: 'event-'.$event['id'],
                 title: $event['title'],
                 summary: self::snippet($event['summary']),
-                url: route('events.show', ['slug' => $event['slug']]),
+                url: route('events.show', ['locale' => $locale, 'slug' => $event['slug']]),
                 actionLabel: (string) __('today.actions.view_event'),
                 effectiveAt: $event['starts_at'],
                 badge: $event['featured'] ? (string) __('today.badges.featured') : null,
             );
         }
 
-        return $this->card('events', 'Events', 'Events.upcoming-public', route('events.index'), $state, 30, $evaluatedAt, $items);
+        return $this->card('events', 'Events', 'Events.upcoming-public', $sourceUrl, $state, 30, $evaluatedAt, $items);
     }
 
     private function newsCard(DateTimeInterface $evaluatedAt, ?string $scenario): TodayCard
     {
+        $locale = app()->getLocale();
+        $sourceUrl = route('news.index', ['locale' => $locale]);
+
         if ($scenario === 'empty') {
-            return $this->card('news', 'CMS', 'CMS.news-latest-public', route('news.index'), TodayCardState::EMPTY, 40, $evaluatedAt);
+            return $this->card('news', 'CMS', 'CMS.news-latest-public', $sourceUrl, TodayCardState::EMPTY, 40, $evaluatedAt);
         }
         if ($scenario === 'news-outage') {
-            return $this->card('news', 'CMS', 'CMS.news-latest-public', route('news.index'), TodayCardState::UNAVAILABLE, 40, $evaluatedAt);
+            return $this->card('news', 'CMS', 'CMS.news-latest-public', $sourceUrl, TodayCardState::UNAVAILABLE, 40, $evaluatedAt);
         }
 
         try {
             $posts = $this->news->latestPublished(self::CARD_LIMIT, $evaluatedAt);
         } catch (Throwable) {
-            return $this->card('news', 'CMS', 'CMS.news-latest-public', route('news.index'), TodayCardState::UNAVAILABLE, 40, $evaluatedAt);
+            return $this->card('news', 'CMS', 'CMS.news-latest-public', $sourceUrl, TodayCardState::UNAVAILABLE, 40, $evaluatedAt);
         }
 
         if ($posts->isEmpty()) {
-            return $this->card('news', 'CMS', 'CMS.news-latest-public', route('news.index'), TodayCardState::EMPTY, 40, $evaluatedAt);
+            return $this->card('news', 'CMS', 'CMS.news-latest-public', $sourceUrl, TodayCardState::EMPTY, 40, $evaluatedAt);
         }
 
         /** @var list<TodayItem> $items */
@@ -157,13 +163,13 @@ final readonly class TodayPageQuery
                 publicId: 'news-'.$post->id,
                 title: $post->title,
                 summary: self::snippet($post->body),
-                url: route('news.show', ['slug' => $post->slug]),
+                url: route('news.show', ['locale' => app()->getLocale(), 'slug' => $post->slug]),
                 actionLabel: (string) __('today.actions.read_news'),
                 effectiveAt: $post->published_at,
             ))
             ->all());
 
-        return $this->card('news', 'CMS', 'CMS.news-latest-public', route('news.index'), TodayCardState::PRESENT, 40, $evaluatedAt, $items);
+        return $this->card('news', 'CMS', 'CMS.news-latest-public', $sourceUrl, TodayCardState::PRESENT, 40, $evaluatedAt, $items);
     }
 
     /** @param list<TodayItem> $items */
