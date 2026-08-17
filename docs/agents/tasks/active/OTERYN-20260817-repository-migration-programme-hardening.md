@@ -35,6 +35,7 @@ Harden the canonical `OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION` programme while pre
 Trusted-base reconstruction: `blakinio/Oteryn-Platform@fcafc20bc9705ca92256fdddc7433bcc3d191c40` (`main`, observed 2026-08-17).
 
 Branch: `docs/oteryn-20260817-repository-migration-programme-hardening`.
+PR: `#1138`.
 
 ## Acceptance criteria
 
@@ -46,8 +47,8 @@ Branch: `docs/oteryn-20260817-repository-migration-programme-hardening`.
 - [x] Hardening covers authority narrowing, evidence leases, target collision, bounded risk acceptance, single-mutation transactions, rollback-versus-redirect, drift invalidation and docs-only completion semantics.
 - [x] The Ultra evaluation covers positive, negative, boundary, drift, collision, rollback, unavailable-tooling and unreproduced-review cases.
 - [x] The controlled branch exists from the verified `main` base.
-- [x] Current branch diff is restricted to exactly the four owned paths.
-- [ ] Exactly one PR is open for this task and records the final exact head.
+- [x] Exactly one PR is open for this task: #1138.
+- [x] Current PR diff is restricted to exactly the four owned paths.
 - [ ] Full exact-head self-review has zero unresolved material findings.
 - [ ] Repository-required Agent Governance and CI checks pass on the unchanged final PR head.
 - [ ] Review-thread hygiene and source-branch lifecycle gates are terminal.
@@ -74,10 +75,11 @@ cross_repository_tasks: []
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 2
+checkpoint_version: 3
 updated_at: 2026-08-17
 base_head: fcafc20bc9705ca92256fdddc7433bcc3d191c40
 branch: docs/oteryn-20260817-repository-migration-programme-hardening
+pr: 1138
 status: validating
 context_routes:
   - agent-governance
@@ -88,13 +90,15 @@ proven:
   - PR #1135 established the canonical-programme plus thin-Ultra-overlay model.
   - The active tasks and open PRs inspected at preflight did not own any of the four candidate paths.
   - The remote task branch was created from the verified main head.
-  - GitHub compare confirmed the branch is ahead of the trusted base and changes exactly the four owned paths.
+  - Exactly one draft PR exists for this task: #1138.
+  - GitHub compare and PR metadata confirm exactly four changed files, matching the owned-path allowlist.
+  - Full-diff audit found one material wording defect in the canonical programme (`stronger_only`); it was repaired on the same branch before final exact-head gates.
   - No physical repository coordinate, production runtime, deployment, credential, secret or live-game mutation is part of this hardening.
 derived:
   - This increment is documentation and prompt-governance only, so executable migration E2E is not applicable.
 unknown:
   - The exact external critical-review V2 artifact is unavailable in this execution context; no unreproduced review claim is promoted into canonical authority.
-  - Final PR number, exact final head, required-check results and terminal review state remain unresolved until the PR is created and exact-head gates run.
+  - Final exact-head CI, review-thread and merge/readiness state remain unresolved until repository-required gates run on the frozen PR head.
 conflicts: []
 changed_paths:
   - docs/agents/prompts/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_PROGRAM.md
@@ -104,21 +108,24 @@ changed_paths:
 validation:
   - check: changed-path allowlist
     result: PASS
-    evidence: GitHub compare reports exactly the four owned paths.
+    evidence: GitHub compare and PR metadata report exactly the four owned paths.
+  - check: full-diff audit repair
+    result: PASS
+    evidence: material `stronger_only` wording defect was replaced by the exact reviewed canonical candidate wording before final gate execution.
   - check: E2E
     result: NOT_APPLICABLE
     evidence: documentation and prompt-governance hardening only; no executable repository/control-plane effect changed.
   - check: exact-head Agent Governance and CI
     result: PENDING
-    evidence: requires the final PR head and repository-selected checks.
-next_action: Open exactly one draft PR for the controlled branch, inspect the full PR diff, then run/observe repository-required exact-head gates without changing the final head unless a material finding requires repair.
+    evidence: final frozen PR head must be selected by repository-required checks.
+next_action: Freeze the PR head, inspect the full exact PR diff again, then observe repository-required Agent Governance and CI without changing the head unless a material finding requires repair.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: branch is active for the single hardening PR and must remain until PR lifecycle is terminal
+source_branch_reason: branch is active for PR #1138 and must remain until PR lifecycle is terminal
 source_branch_evidence: docs/oteryn-20260817-repository-migration-programme-hardening
 ```
 
