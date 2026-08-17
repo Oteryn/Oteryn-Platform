@@ -1,0 +1,42 @@
+name: Synology Docker Cleanup
+
+on:
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: self-hosted
+    steps:
+      - name: Inspect Docker state
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== docker ps -a ==='
+          docker ps -a --format 'table {{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.CreatedAt}}'
+          echo '=== docker system df ==='
+          docker system df
+
+      - name: Remove clearly disposable stopped containers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t ids < <(docker ps -a --filter status=exited --filter status=created --filter status=dead --format '{{.ID}} {{.Names}}' | awk '$2 ~ /^(spark-review-runner|oteryn-|otclient-|codex-|review-|research-|agent-|tmp-|temp-)/ {print $1}')
+          if ((${#ids[@]})); then
+            printf 'Removing disposable stopped containers:\n'
+            docker ps -a --filter id="${ids[0]}" --format '{{.ID}} {{.Names}} {{.Image}} {{.Status}}' || true
+            docker rm "${ids[@]}"
+          else
+            echo 'No clearly disposable stopped containers matched cleanup policy.'
+          fi
+
+      - name: Prune dangling Docker objects only
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker image prune -f
+          docker builder prune -f
+          docker network prune -f
+          echo '=== final docker ps -a ==='
+          docker ps -a --format 'table {{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.CreatedAt}}'
+          echo '=== final docker system df ==='
+          docker system df
