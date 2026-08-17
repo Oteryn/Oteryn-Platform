@@ -18,6 +18,7 @@ required_reads:
 Execute Wave 1 of `OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION`: reconstruct fresh repository state, classify migration-critical coordinates and publish a fail-closed physical-cutover readiness decision before any rename/create/transfer/extraction.
 
 Issue: #1130
+PR: #1131
 Branch: `docs/oteryn-ecosystem-repository-migration-wave1`
 
 ## Acceptance criteria
@@ -68,14 +69,14 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 2
 policy_version: 2
-updated_at: 2026-08-17T14:42:00+02:00
+updated_at: 2026-08-17T14:44:00+02:00
 phase: validate
 execution_mode: chat_github
 execution_reason: GitHub connector supports exact repository/branch/file/PR inspection and documentation delivery; destructive repository administration is neither required nor safe in this wave
 status: working
-head: null
+head: 9456099a3c739f17268adea1b1c2490576dbc395
 branch: docs/oteryn-ecosystem-repository-migration-wave1
-pr: null
+pr: 1131
 issue: 1130
 project_lane: oteryn-platform-core
 task_kind: discovery
@@ -87,9 +88,9 @@ estimate_confidence: high
 decomposition_decision: discovery_first
 decomposition_reason: physical cutover is forbidden until repository-coordinate/package/Actions/deployment evidence is complete
 invocation_started_at: 2026-08-17T14:21:00+02:00
-last_progress_at: 2026-08-17T14:42:00+02:00
+last_progress_at: 2026-08-17T14:44:00+02:00
 ci_checks_for_current_head: 0
-ci_check_generation: not_started
+ci_check_generation: pending_after_checkpoint
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
@@ -150,7 +151,7 @@ blockers:
   - intended future Oteryn organization is unavailable to current authenticated account
   - package and external executable-caller proofs are incomplete
   - Atlas deployment/path ownership requires a later separately authorized cutover design
-next_action: Validate this documentation PR; after integration/archive, owner creates or identifies the intended future Oteryn GitHub organization and makes it visible to the authenticated account.
+next_action: Validate PR 1131; after integration/archive, owner creates or identifies the intended future Oteryn GitHub organization and makes it visible to the authenticated account.
 ```
 
 ## Safety boundary
