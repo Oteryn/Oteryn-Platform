@@ -15,7 +15,7 @@ repair_external_audit_command_status: retired
 
 The owner's established short commands remain valid unless explicitly retired below. Resolve work from canonical prompts, immutable scope, current repair/lifecycle contracts, programme state, active tasks, Issues, deterministic branches, PRs, reviews, CI and live ownership.
 
-No command authorizes hidden background execution, production operations, secrets, protected-environment approval or live-data mutation. Commands also do not authorize writes outside `blakinio/Oteryn-Platform` except the explicitly scoped `OTERYN-REPO-MIGRATION` owner alias below. That alias is limited to the repository-migration scope named in its canonical prompt, remains subordinate to every target repository's stricter current `AGENTS.md` hierarchy, and never authorizes writes to `blakinio/canary` or `blakinio/otclient`.
+No command authorizes hidden background execution, production operations, secrets, protected-environment approval or live-data mutation. Commands also do not authorize writes outside `blakinio/Oteryn-Platform` except the explicitly scoped repository-migration aliases `OTERYN-REPO-MIGRATION` and `OTERYN-REPO-MIGRATION-ULTRA` below. Both resolve to the same bounded canonical repository-migration authorization; the Ultra alias adds only its registered execution overlay. Both remain subordinate to every target repository's stricter current `AGENTS.md` hierarchy and never authorize writes to `blakinio/canary` or `blakinio/otclient`.
 
 ## Ecosystem repository migration
 
@@ -55,7 +55,7 @@ invocation_budget_source: docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
 programme_time_limit: none
 ```
 
-The Ultra alias executes the same canonical migration programme with a stricter high-reasoning execution overlay. The repository-defined large budget applies to one foreground owner invocation only; it is not a lifetime limit for the durable programme. Budget exhaustion requires a recovery-complete checkpoint and accurate rotation/wait/block state, after which a later invocation resumes from durable state. The overlay emphasizes delta-first continuation, hidden-dependency falsification, blocker decomposition, fail-closed Tier-2 cutover and immediate post-mutation verification without expanding repository, production, secret, Synology, DNS, live-game or owner-funded-AI authority.
+For authorization and repository scope, the Ultra alias is routing-equivalent to the canonical owner invocation `OTERYN-REPO-MIGRATION`; it then applies the stricter Ultra execution overlay. It does not create a second authorization class or grant additional effects. The repository-defined large budget applies to one foreground owner invocation only; it is not a lifetime limit for the durable programme. Budget exhaustion requires a recovery-complete checkpoint and accurate rotation/wait/block state, after which a later invocation resumes from durable state. The overlay emphasizes delta-first continuation, hidden-dependency falsification, blocker decomposition, fail-closed Tier-2 cutover and immediate post-mutation verification without expanding repository, production, secret, Synology, DNS, live-game or owner-funded-AI authority.
 
 ## Continuous platform audit
 
