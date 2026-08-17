@@ -21,6 +21,7 @@ optional_reads: []
 Add a thin Ultra execution overlay and registered short alias for the existing repository-migration programme. Preserve the canonical programme as authority, make the large execution budget explicitly per-invocation rather than programme-wide, enforce delta-first continuation and blocker decomposition, and align terminal reporting with the canonical anti-stall contract.
 
 Issue: #1134
+PR: #1135
 
 ## Acceptance criteria
 
@@ -30,9 +31,10 @@ Issue: #1134
 - [x] Add delta-first startup and anti-waste rules that preserve live-state refresh before material mutation.
 - [x] Preserve fail-closed Tier-2 cutover, rollback, provenance, package, workflow, ownership and post-mutation verification requirements.
 - [x] Add a documented manual prompt-evaluation matrix covering positive, negative, boundary, stale-state, injection, budget and cutover cases.
-- [ ] Register `OTERYN-REPO-MIGRATION-ULTRA` in `docs/agents/SHORT_PROGRAM_INVOCATIONS.md`.
-- [ ] Open/update the draft PR and verify repository-selected exact-head checks.
-- [ ] Complete exact-head self-review and terminal closeout when merge gates permit.
+- [x] Register `OTERYN-REPO-MIGRATION-ULTRA` in `docs/agents/SHORT_PROGRAM_INVOCATIONS.md`.
+- [x] Open the draft PR for repository-selected validation.
+- [ ] Verify repository-selected exact-head checks and complete exact-head self-review.
+- [ ] Complete terminal closeout when merge gates permit.
 
 ## Ownership
 
@@ -68,11 +70,11 @@ large_budget_reason: Cross-repository migration execution needs high-confidence 
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-17T13:47:00Z
-head: 94338e1cb231765d783dcb69f9b9b77268a2d469
+updated_at: 2026-08-17T13:49:00Z
+head: 3e4a14d7fe02b51a90df812ead37de23f2a02671
 branch: docs/issue-1134-repo-migration-ultra
-pr: none
-status: implementing
+pr: 1135
+status: validating
 context_routes:
   - agent-governance
   - prompt-as-code
@@ -85,12 +87,13 @@ owned_paths:
 proven:
   - Canonical migration prompt remains docs/agents/prompts/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_PROGRAM.md.
   - Current anti-stall policy requires an explicit task declaration for the large foreground budget and currently defines that large budget as 120 minutes.
-  - The large budget limits one owner invocation; durable programme continuation persists across rotations.
-  - Issue 1134 owns this bounded prompt/routing change.
+  - The large budget limits one owner invocation; durable programme continuation persists across rotations and the programme itself has no fixed elapsed-time limit.
+  - Issue 1134 and draft PR 1135 own this bounded prompt/routing change.
+  - OTERYN-REPO-MIGRATION-ULTRA is registered as a thin execution overlay over the canonical migration programme.
 derived:
   - A thin execution overlay avoids creating a second canonical migration authority while allowing an Ultra-specific execution profile.
 unknown:
-  - Exact repository-selected CI checks for the final prompt/routing diff until a PR is opened.
+  - Repository-selected exact-head CI result for the current PR generation.
 conflicts: []
 first_failure:
   marker: none
@@ -101,14 +104,18 @@ rejected_hypotheses:
 changed_paths:
   - docs/agents/prompts/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_ULTRA.md
   - docs/agents/evidence/OTERYN-20260817-repository-migration-ultra-prompt-eval.md
+  - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
   - docs/agents/tasks/active/OTERYN-20260817-repository-migration-ultra-overlay.md
 validation:
   - command: manual prompt-contract review against PROMPTING_STANDARD.md, PROMPT_EVAL_STANDARD.md and ANTI_STALL_AND_EXECUTION_BUDGET.md
     result: PASS
     evidence: overlay preserves canonical authority, explicitly declares large per-invocation budget, keeps programme_time_limit none, adds fail-closed cutover and canonical final response
+  - command: GitHub draft PR creation
+    result: PASS
+    evidence: PR 1135 opened from docs/issue-1134-repo-migration-ultra to protected main with four intended changed paths
 blockers:
   - none
-next_action: Register OTERYN-REPO-MIGRATION-ULTRA in docs/agents/SHORT_PROGRAM_INVOCATIONS.md and open the draft PR.
+next_action: Verify repository-selected exact-head checks for PR 1135 and perform exact-head full-diff self-review.
 ```
 
 ## Source branch closeout
