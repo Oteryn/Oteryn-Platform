@@ -2,13 +2,14 @@
 
 ```yaml
 prompt_contract:
-  version: 1.0.0
+  version: 1.0.1
   programme_id: OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION
   overlay_id: OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_ULTRA
   owner_alias: OTERYN-REPO-MIGRATION-ULTRA
   objective: Maximize verified physical repository-migration progress per invocation without weakening the canonical programme's authority, cutover gates, rollback, provenance, CI, package, ownership or closeout requirements.
-  baseline_version: OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION@1.0.0
-  rollback_version: remove_ultra_alias_and_overlay
+  baseline_version: OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_ULTRA@1.0.0
+  canonical_version: OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION@1.1.0
+  rollback_version: OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_ULTRA@1.0.0
   eval_suite: docs/agents/evidence/OTERYN-20260817-repository-migration-ultra-prompt-eval.md
   changed_surfaces:
     - repository-migration execution profile
@@ -16,6 +17,7 @@ prompt_contract:
     - invocation budget declaration
     - delta-first continuation
     - blocker decomposition
+    - canonical hardening inheritance
 policy_version: 2
 prompting_standard_version: 2.1
 run_scope: autonomous_program
@@ -46,6 +48,8 @@ Always execute the current canonical programme first and apply this file only as
 - repository and nested `AGENTS.md` hierarchies for every repository before each write.
 
 A stricter current rule always wins. This overlay must never expand repository, production, credential, deployment, secret, payment, live-game, merge or owner-funded-AI authority.
+
+Every Tier-2 gate inherits the canonical programme's current-authority intersection, evidence lease, target-collision, bounded risk-acceptance, single-mutation transaction and executable rollback requirements. Alias candidate scope never defeats a narrower trusted invocation; GitHub redirect behaviour is not rollback; and the overlay creates no alternate waiver path.
 
 The large execution budget limits **one foreground owner invocation only**. It is not a time limit for the durable migration programme. When the invocation budget is exhausted, persist a recovery-complete checkpoint and return the correct `ROTATE`, `WAITING` or `BLOCKED` state. A later invocation resumes from durable state; budget exhaustion must never be interpreted as programme completion or abandonment.
 
@@ -215,23 +219,27 @@ Before every physical cutover record or prove:
 ```yaml
 cutover_gate:
   authority_verified: true
-  target_identity_verified: true
+  target_identity_or_absence_verified: true
   target_governance_verified: true
-  exact_source_head_verified: true
+  source_state_verified: true
+  evidence_lease_current: true
   active_pr_task_impact_verified: true
   coordinate_inventory_complete_for_cutover: true
   executable_callers_resolved: true
   ci_impact_resolved: true
-  package_impact_resolved_or_explicitly_accepted: true
+  package_impact_resolved_or_owner_risk_acceptance_proven: true
   provenance_strategy_verified: true
+  target_collision: false
+  single_mutation_transaction: true
   rollback_runbook_ready: true
+  rollback_independent_of_redirect: true
   rollback_trigger_defined: true
   post_cutover_validation_defined: true
   ownership_conflict: false
   material_unknowns: []
 ```
 
-If a required value is not satisfied, the verdict for that mutation is `NO_GO`. A `NO_GO` for one mutation does not automatically end unrelated READY programme work.
+Every boolean is an evidence-backed claim, not a self-attestation. Canonical invalidation triggers make the affected gate stale. If a required value is not satisfied, the verdict for that mutation is `NO_GO`; unrelated READY programme work may continue.
 
 After a Tier-2 mutation, immediately verify the resulting repository identity, default branch, exact head, expected history/tags/Issues/PR preservation, Actions/reusable callers, packages where observable, branch protection/rulesets, clone/API/web coordinates, required focused/integration checks and rollback triggers.
 
@@ -260,7 +268,7 @@ The physical Game verdict is exactly one of:
 - `CUTOVER_READY`;
 - `COMPLETED`.
 
-`CUTOVER_READY` means every preparation executable with the available tools is complete and the remaining action is a precise unsupported or owner-only physical operation.
+`CUTOVER_READY` means every other applicable gate and safe preparation is proven complete, and exactly one precise unsupported or owner-only physical operation remains.
 
 ## Trust boundary
 
@@ -292,7 +300,7 @@ Never weaken acceptance to obtain completion. For the applicable migration incre
 - fresh live state where needed;
 - exact target authority;
 - migration-critical coordinate inventory complete for the operation;
-- explicit `GO`, `NO_GO`, `CUTOVER_READY` or `COMPLETED` verdict as applicable;
+- explicit `NO_GO`, `CUTOVER_READY` or `COMPLETED` physical-operation status as applicable;
 - deterministic rollback;
 - CI/workflow impact resolved;
 - package/GHCR evidence or exact unresolved blocker;
@@ -335,7 +343,7 @@ Prioritize reasoning and tool budget in this order:
 2. falsification of hidden dependencies;
 3. blocker resolution;
 4. cutover and rollback correctness;
-5. physical execution when genuinely `GO`;
+5. physical execution only when every applicable transaction gate passes;
 6. exact post-mutation verification;
 7. durable state and closeout.
 
@@ -371,4 +379,4 @@ NEXT_ACTION: <one action or none>
 
 In `RESULT`, additionally summarize the architecture verdict only if changed, META status, Game status, Platform status, Atlas status, coordinate-inventory delta, CI/GHCR/release delta and physical mutations actually performed.
 
-Never claim `DONE`, `GO`, `COMPLETED` or successful migration without direct resulting-environment verification.
+`DONE` is an invocation/task terminal state, not a physical migration verdict. Never claim `CUTOVER_READY`, `COMPLETED` or successful physical migration without the direct evidence required by the canonical status contract.

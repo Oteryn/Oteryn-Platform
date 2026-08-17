@@ -2,16 +2,19 @@
 
 ```yaml
 prompt_contract:
-  version: 1.0.0
+  version: 1.1.0
   programme_id: OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION
   objective: Verify and execute the safest bounded physical migration from the current Oteryn repositories to the accepted four-repository target topology, with exact repository-coordinate inventory, cutover, rollback, CI/release/provenance and Atlas extraction evidence.
-  baseline_version: none
-  rollback_version: unregister_alias_and_remove_prompt
-  eval_suite: docs/agents/evidence/OTERYN-20260817-ecosystem-repository-migration-prompt-eval.md
+  baseline_version: OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION@1.0.0
+  rollback_version: OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION@1.0.0
+  eval_suite: docs/agents/evidence/OTERYN-20260817-repository-migration-ultra-prompt-eval.md
+  registration_eval_suite: docs/agents/evidence/OTERYN-20260817-ecosystem-repository-migration-prompt-eval.md
   changed_surfaces:
     - worker prompt
     - short-programme routing
     - cross-repository migration coordination
+    - authority and evidence leases
+    - Tier-2 cutover transaction and rollback
 policy_version: 2
 prompting_standard_version: 2.1
 run_scope: autonomous_program
@@ -58,20 +61,30 @@ Canonical prompt:
 Short-command registry:
   docs/agents/SHORT_PROGRAM_INVOCATIONS.md
 
-The owner invocation `OTERYN-REPO-MIGRATION` is the explicit current-task request to execute this bounded programme. It authorizes migration work only for the following owner-controlled repository scope, and only subject to each target repository's own stricter AGENTS/governance:
+The owner invocation `OTERYN-REPO-MIGRATION` is a routing key for a separately trusted current owner request. It is not self-authorizing and cannot widen the current task's repository, read, write, production, credential, merge or protected-environment authority.
+
+Effective authority is the intersection of:
+- current system and owner instructions;
+- governance on the trusted base ref at task start;
+- the programme's maximum candidate scope below;
+- the stricter current governance of every repository involved.
+
+A current trusted invocation may narrow the candidate scope, including prohibiting even read/search access to a repository named by the programme. Never inspect or mutate an excluded repository merely because the alias, credentials, connector or an earlier session names it.
+
+Only when current authority permits, the programme's maximum owner-controlled candidate scope is:
 - blakinio/Oteryn-Platform;
 - blakinio/Oteryn-v2;
 - blakinio/Otheryn;
 - the future target repositories Oteryn, Oteryn-Game and Oteryn-Atlas if their creation/rename/transfer becomes proven safe and the available tool actually supports it.
 
-Writes to blakinio/canary and blakinio/otclient are NOT authorized. Treat them as read-only legacy/reference sources.
+Writes to blakinio/canary and blakinio/otclient are NOT authorized. Treat them as read-only legacy/reference sources only when current trusted scope permits that read.
 
 Before EVERY cross-repository write:
 1. read the target repository's current AGENTS hierarchy and migration/ownership rules;
 2. verify exact current repository identity and main/default branch;
 3. verify no active ownership conflict;
 4. obey the more restrictive rule;
-5. if target governance requires a stronger owner-only action than this alias can lawfully supply, stop that mutation and continue all independent preparation.
+5. if target governance requires a stronger_only action than this alias can lawfully supply, stop that mutation and continue all independent preparation.
 
 Never infer permission from credentials, connectors, admin rights or a previous session.
 
@@ -198,6 +211,28 @@ Repository-local conventions may use PROVEN / DERIVED / UNKNOWN / CONFLICT; pres
 
 Do not copy researcher summaries as proof. Do not guess. Do not turn UNKNOWN into an assumption. Do not re-audit settled topics without a reason, but actively try to falsify migration-critical assumptions before mutation.
 
+MIGRATION EVIDENCE LEASES
+
+Every fact used by a physical repository cutover must be bound to the exact intended mutation. Record at least:
+
+~~~yaml
+evidence_lease:
+  claim: <one mutation-critical fact>
+  classification: FACT | UNKNOWN | CONFLICT
+  source: <live API, canonical file, official documentation or exact tool result>
+  scope: <repository/path/caller/package/ruleset actually observed>
+  observed_at: <UTC timestamp>
+  exact_ref: <SHA, tag, URL identity, run, ruleset or repository coordinate>
+  observability_limit: <none or exact unobservable boundary>
+  valid_for_mutation: <one transaction identifier>
+  invalidated_by:
+    - <specific drift trigger>
+~~~
+
+A lease is invalid when a relevant source/default-branch head, target identity, permission, governance rule, active PR/task ownership, workflow caller, package/release surface, ruleset or intended mutation changes. Revalidate the affected claim immediately before cutover. Evidence for one mutation or one inspected scope must not be generalized to another.
+
+A review finding, worker summary or risk acceptance is input to verification, not a substitute for a current evidence lease.
+
 MANDATORY FRESH LIVE RECONSTRUCTION
 
 Before material mutation:
@@ -210,6 +245,8 @@ Before material mutation:
 6. Inspect open PRs, Issues, active tasks, branches and path ownership for collision with rename, workflow, release, package/image, contract-lock and Atlas-extraction work.
 7. Resume an existing equivalent migration task instead of creating a duplicate.
 8. Verify the current topology authority and whether any later accepted decision supersedes ADR 0041.
+9. If an expected-absent target repository already exists, classify `CONFLICT`, freeze the create/rename/transfer path and verify identity, provenance and ownership before proceeding. Never overwrite or create a competing target.
+10. If live task, branch or PR ownership overlaps the intended mutation or changed paths, freeze that affected mutation. Continue only disjoint read/evidence work that cannot prejudice the current owner.
 
 If one owner decision blocks only a later step, persist it and continue all independent READY preparation.
 
@@ -287,6 +324,49 @@ Before any physical rename/transfer, verify current official GitHub documentatio
 
 Do not design cutover from memory. Prefer official GitHub documentation and live repository metadata.
 
+TIER-2 CUTOVER TRANSACTION
+
+Treat each operation that changes a canonical repository coordinate or history boundary as one separate transaction. Repository create, rename, transfer and selective history extraction must not be bundled into one unverified batch.
+
+Before every transaction persist an evidence-backed record equivalent to:
+
+~~~yaml
+migration_transaction:
+  transaction_id: <stable identifier>
+  mutation: <create | rename | transfer | selective_history_extraction>
+  source_coordinate: <exact source or none>
+  target_coordinate: <exact target>
+  source_head: <exact immutable ref or none for create>
+  evidence_lease_current: true
+  target_identity_or_absence_verified: true
+  target_collision: false
+  ownership_conflict: false
+  material_unknowns: []
+  residual_risk_acceptance:
+    status: none | proven
+    accepted_by: <exact owner identity or none>
+    accepted_at: <UTC timestamp or none>
+    exact_scope: <bounded risk or none>
+    expiry_or_recheck: <condition or none>
+    evidence: <exact approval record or none>
+  rollback:
+    operation: <separate executable mutation>
+    trigger: <observable failure condition>
+    decision_owner: <exact authority>
+    execution_window: <bounded window>
+    verification: <resulting-state checks>
+  post_mutation_validation:
+    - <repository identity/default branch/exact head>
+    - <history/tags/Issues/PRs and redirects>
+    - <Actions/callers/packages/rulesets/clone/API/web coordinates>
+~~~
+
+A material unknown is not cleared by generic prose, an old approval or the prompt itself. Explicit residual-risk acceptance is valid only when the current authorized owner accepts the exact bounded risk, scope, expiry/recheck condition and rollback consequence in an exact durable approval record. It cannot waive repository authority, protected-runtime boundaries, branch protection, secret safety or another repository's governance.
+
+A GitHub redirect is temporary compatibility behaviour, not rollback. Rollback requires a separate executable operation with a trigger, decision owner, bounded window and resulting-state verification.
+
+Execute at most one physical coordinate/history mutation, then immediately verify the resulting environment. If any required post-mutation check fails, execute or escalate the recorded rollback decision and do not start the next physical mutation.
+
 META REPOSITORY
 
 If evidence proves META creation is architecture-ready, define the smallest real bootstrap. It may include:
@@ -313,9 +393,12 @@ The first canonical META topology ADR must explicitly supersede the temporary Pl
 
 OTERYN-v2 -> OTERYN-GAME
 
-Produce an exact GO / NO-GO / COMPLETED verdict.
+Produce exactly one physical-operation status:
+- `NO_GO` — one or more material gates, evidence leases, authority requirements or tool capabilities are unsatisfied;
+- `CUTOVER_READY` — every gate and safe preparation is complete, and exactly one unsupported or owner-only physical action remains;
+- `COMPLETED` — the physical operation occurred and all required resulting-environment verification passed.
 
-GO requires at least:
+`CUTOVER_READY` requires at least:
 - complete migration-critical repository-coordinate inventory;
 - no unresolved critical cross-repo reference;
 - understood Actions/reusable-workflow impact;
@@ -324,18 +407,18 @@ GO requires at least:
 - active PR/task impact known;
 - no conflicting migration ownership;
 - history/Issues/PR preservation understood;
-- sufficient permissions/tool support;
+- required owner permissions proven and either executable tool support available or exactly one owner-only action isolated;
 - exact cutover checklist.
 
 Do not rename merely because the destination name is known. Do not block rename on unrelated architecture backlog.
 
-If rename is safe and the tool supports it, execute only after all gates pass and after reconciling any target-repository governance.
+If rename is safe and the tool supports it, execute only after all gates pass and after reconciling any target-repository governance. Status becomes `COMPLETED` only after immediate post-mutation verification passes.
 
 If the environment/tool cannot perform the rename:
 - do not claim success;
 - complete every safe preparatory change;
-- make the package CUTOVER_READY;
-- state exactly one remaining owner/UI action.
+- use `CUTOVER_READY` only when every other gate is proven and exactly one remaining owner/UI action exists;
+- otherwise retain `NO_GO` with the exact unresolved evidence or capability gaps.
 
 Do not create a competing empty Oteryn-Game repository if the correct operation is rename/transfer of Oteryn-v2.
 
@@ -453,7 +536,7 @@ When no equivalent canonical package already exists, persist at least:
 - verified authority;
 - drift from ADR 0041;
 - repository existence/ownership feasibility;
-- GO/NO-GO per wave;
+- `NO_GO`/`CUTOVER_READY`/`COMPLETED` per physical wave;
 - blockers/risks/rollback.
 
 2. Machine-readable repository manifest
@@ -476,7 +559,7 @@ PREFERRED EXECUTION ORDER
 A. Complete Wave-1 repository-coordinate and migration-readiness inventory.
 B. If META creation is proven ready, prepare or execute the minimal META bootstrap.
 C. Only after canonical META authority exists, supersede Platform ADR 0041 for ecosystem scope.
-D. Produce Oteryn-v2 -> Oteryn-Game GO/NO-GO.
+D. Produce the Oteryn-v2 -> Oteryn-Game `NO_GO`/`CUTOVER_READY`/`COMPLETED` status.
 E. If safe and tool-supported, execute the rename/transfer according to the runbook.
 F. If the physical operation needs owner/UI action or unsupported tooling, reach CUTOVER_READY and leave exactly one owner action.
 G. Execute Atlas extraction only after its own responsibility/refactor/contract/history/licensing gates; never create it from a random incomplete subtree.
@@ -500,7 +583,11 @@ For every material migration package:
 - current-main drift check;
 - zero unresolved material findings.
 
-If main advances, previous exact-head evidence becomes stale. Reconcile through normal ancestry, never force-push a reviewed head, and rerun required validation.
+If main advances, previous exact-head evidence becomes stale. Reconcile through normal ancestry, never force-push a reviewed head, and rerun required validation. Revalidate only the claims and gates affected by the drift, but do not preserve an affected PASS by narrative.
+
+If active ownership or the exact diff changes after validation, freeze the overlapping mutation, inspect the new exact diff and rerun affected review and validation.
+
+Documentation, prompt or readiness hardening that performs no physical repository/control-plane mutation must not claim `COMPLETED`, physical migration progress or executable E2E success. Record `E2E: NOT_APPLICABLE` only with the concrete no-executable-effect reason.
 
 Use a fresh non-authoring validator when required by repository risk policy and available without forbidden owner-funded AI. Never mislabel self-review as independent.
 
@@ -531,8 +618,8 @@ Maximize verified completion of:
 - target topology confirmation/correction;
 - complete migration-critical repository-coordinate inventory;
 - current GitHub rename/transfer behaviour verification;
-- META creation GO/NO-GO/CREATED;
-- Oteryn-Game rename GO/NO-GO/COMPLETED;
+- META creation `NO_GO`/`CUTOVER_READY`/`COMPLETED`;
+- Oteryn-Game rename `NO_GO`/`CUTOVER_READY`/`COMPLETED`;
 - migration runbook and rollback;
 - Atlas extraction manifest/readiness;
 - CI/GHCR/release impact inventory;
@@ -548,8 +635,8 @@ FINAL RESPONSE CONTRACT
 Return a compact whole-invocation report with:
 1. EXACT LIVE STATE — repository, main SHA, target disposition, migration status;
 2. ARCHITECTURE VERDICT — whether four-repo topology still holds;
-3. META — READY/BLOCKED/CREATED and canonical authority state;
-4. OTERYN-GAME — GO/NO-GO/COMPLETED with exact blockers/proof;
+3. META — `NO_GO`/`CUTOVER_READY`/`COMPLETED` and canonical authority state;
+4. OTERYN-GAME — `NO_GO`/`CUTOVER_READY`/`COMPLETED` with exact blockers/proof;
 5. OTERYN-PLATFORM — KEEP/TRANSFER and required actions;
 6. OTERYN-ATLAS — extraction readiness/blockers/manifest state;
 7. REPOSITORY COORDINATE INVENTORY — counts/classes/pre-cutover blockers;
