@@ -1,7 +1,7 @@
 # Oteryn Platform Short Programme Invocation Registry
 
 ```yaml
-registry_version: 1.8
+registry_version: 1.9
 repository: blakinio/Oteryn-Platform
 trusted_base: main
 scope_contract: docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md
@@ -34,6 +34,28 @@ prompt_eval: docs/agents/evidence/OTERYN-20260817-ecosystem-repository-migration
 ```
 
 The alias is the repository owner's bounded current-task request to verify and, only when proven safe and supported by target-repository governance, execute the physical Oteryn repository migration programme. It covers live topology reconstruction, repository-coordinate inventory, META readiness/bootstrap, `Oteryn-v2` -> `Oteryn-Game` cutover readiness/execution, Platform transfer analysis where required, selective Atlas extraction planning/execution, CI/GHCR/release/provenance impact and rollback. It grants no production/DNS/Synology/secret/live-game mutation and no owner-funded Codex/OpenAI/API use.
+
+### Ultra execution profile
+
+```text
+OTERYN-REPO-MIGRATION-ULTRA
+Uruchom OTERYN-REPO-MIGRATION-ULTRA autonomicznie.
+Kontynuuj OTERYN-REPO-MIGRATION-ULTRA autonomicznie.
+Pokaż stan OTERYN-REPO-MIGRATION-ULTRA.
+```
+
+```yaml
+programme_id: OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION
+canonical_prompt: docs/agents/prompts/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_PROGRAM.md
+execution_overlay: docs/agents/prompts/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_ULTRA.md
+programme_state: docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md
+prompt_eval: docs/agents/evidence/OTERYN-20260817-repository-migration-ultra-prompt-eval.md
+execution_budget_class: large
+invocation_budget_source: docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
+programme_time_limit: none
+```
+
+The Ultra alias executes the same canonical migration programme with a stricter high-reasoning execution overlay. The repository-defined large budget applies to one foreground owner invocation only; it is not a lifetime limit for the durable programme. Budget exhaustion requires a recovery-complete checkpoint and accurate rotation/wait/block state, after which a later invocation resumes from durable state. The overlay emphasizes delta-first continuation, hidden-dependency falsification, blocker decomposition, fail-closed Tier-2 cutover and immediate post-mutation verification without expanding repository, production, secret, Synology, DNS, live-game or owner-funded-AI authority.
 
 ## Continuous platform audit
 
@@ -171,6 +193,7 @@ Pokaż stan napraw Platformy.
 Pokaż stan architektury Platformy.
 Pokaż stan programów Platformy.
 Pokaż stan OTERYN-REPO-MIGRATION.
+Pokaż stan OTERYN-REPO-MIGRATION-ULTRA.
 ```
 
 Status inspection reads programme state, active tasks, Issues, deterministic branches, PRs, reviews and CI without mutation unless continuation is requested.
