@@ -32,8 +32,9 @@ PR: #1135
 - [x] Preserve fail-closed Tier-2 cutover, rollback, provenance, package, workflow, ownership and post-mutation verification requirements.
 - [x] Add a documented manual prompt-evaluation matrix covering positive, negative, boundary, stale-state, injection, budget and cutover cases.
 - [x] Register `OTERYN-REPO-MIGRATION-ULTRA` in `docs/agents/SHORT_PROGRAM_INVOCATIONS.md`.
+- [x] Make Ultra routing-equivalent to the base migration authorization without creating broader authority.
 - [x] Open the draft PR for repository-selected validation.
-- [ ] Verify repository-selected exact-head checks and complete exact-head self-review.
+- [ ] Verify repository-selected exact-head checks and record exact-head self-review.
 - [ ] Complete terminal closeout when merge gates permit.
 
 ## Ownership
@@ -70,8 +71,8 @@ large_budget_reason: Cross-repository migration execution needs high-confidence 
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-17T13:49:00Z
-head: 3e4a14d7fe02b51a90df812ead37de23f2a02671
+updated_at: 2026-08-17T13:54:00Z
+head: 12e80c60e30c36f8dc62b2c20314b95cdf19d70a
 branch: docs/issue-1134-repo-migration-ultra
 pr: 1135
 status: validating
@@ -90,17 +91,19 @@ proven:
   - The large budget limits one owner invocation; durable programme continuation persists across rotations and the programme itself has no fixed elapsed-time limit.
   - Issue 1134 and draft PR 1135 own this bounded prompt/routing change.
   - OTERYN-REPO-MIGRATION-ULTRA is registered as a thin execution overlay over the canonical migration programme.
+  - Ultra routing now resolves to the same bounded base migration authorization and explicitly adds no new authorization class or effect.
 derived:
   - A thin execution overlay avoids creating a second canonical migration authority while allowing an Ultra-specific execution profile.
 unknown:
-  - Repository-selected exact-head CI result for the current PR generation.
+  - Repository-selected exact-head CI result for the final PR generation.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: self-review-authority-routing
+  evidence: Initial registry wording granted the cross-repository exception literally only to OTERYN-REPO-MIGRATION, which could make the Ultra alias ambiguous or too restrictive.
 rejected_hypotheses:
   - Hard-code a programme-wide 120-minute lifetime; rejected because the anti-stall budget applies to one foreground invocation.
   - Duplicate the full canonical migration prompt; rejected because it would create drift and competing behavioural authority.
+  - Treat Ultra as an independent broader authorization class; rejected because it must be routing-equivalent to the bounded base migration authorization.
 changed_paths:
   - docs/agents/prompts/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_ULTRA.md
   - docs/agents/evidence/OTERYN-20260817-repository-migration-ultra-prompt-eval.md
@@ -113,9 +116,12 @@ validation:
   - command: GitHub draft PR creation
     result: PASS
     evidence: PR 1135 opened from docs/issue-1134-repo-migration-ultra to protected main with four intended changed paths
+  - command: full changed-surface authority review
+    result: PASS
+    evidence: self-review found and repaired the alias authorization-routing ambiguity; eval case ULTRA-17 now guards the corrected behaviour
 blockers:
   - none
-next_action: Verify repository-selected exact-head checks for PR 1135 and perform exact-head full-diff self-review.
+next_action: Verify repository-selected exact-head checks for PR 1135 and record exact-head self-review without changing the head.
 ```
 
 ## Source branch closeout
