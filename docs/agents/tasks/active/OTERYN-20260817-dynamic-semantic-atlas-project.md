@@ -33,7 +33,7 @@ Persist the agreed Dynamic Semantic Atlas target architecture, phased programme 
 - [x] Keep physical serializer, compression, chunk size/floor packing and canonical coordinate profile evidence-gated; FlatBuffers is not frozen.
 - [x] Keep DYN-ATLAS-001 limited to a static Semantic Thais Z7 proof.
 - [x] Provide a thin execution prompt that refuses to implement Atlas runtime in Platform merely because the actual Atlas repository is unavailable.
-- [ ] Run applicable documentation/governance validation and exact-head full-diff self-review before merge.
+- [x] Run applicable documentation/governance validation and exact-head full-diff self-review before merge.
 - [ ] Merge only if current-head required checks and merge gate pass.
 
 ## Ownership
@@ -67,12 +67,16 @@ No existing open Atlas PR or active task owned these paths at preflight. Open PR
 - Platform `main` preflight SHA: `fcafc20bc9705ca92256fdddc7433bcc3d191c40`.
 - Platform ADR 0041 makes future Oteryn-Atlas an independently releasable derived browser/read-model product and keeps Game canonical World/Content + Atlas export ownership.
 - Platform `PLAYER_COMPANION_ARCHITECTURE.md` already owns `HuntAdvisor`, `ProgressTracker` and personalized `Recommendations`.
+- Closed Issue #302 previously deferred interactive maps/route planning to a separate later programme while assigning hunting-place guidance to `PlayerCompanion`; DYN-ATLAS is that separate map programme and preserves the earlier ownership split.
 - Oteryn-v2 current `main` preflight SHA: `5577f6fc7c1f7ddef482f0f7b08039047704e36b`.
 - Oteryn-v2 contains `docs/contracts/OTERYN_GAME_ATLAS_EXPORT_CONTRACT_V1.md`; the contract is artifact-first, immutable and default-deny public-safe.
 - Oteryn-v2 physical-profile readiness evidence reports `EVIDENCE_GAP` and explicitly leaves serializer/chunk-size decisions open pending canonical spatial/coordinate authority.
 - Oteryn-v2 ANL-02 is a candidate/nonbinding analytics contract that provides useful design evidence for versioned hunt/session, XP/profit and world/spawn analytics but is not promoted by this task to accepted Game authority.
 - Oteryn-v2 social presence baseline treats exact placement as non-public and privacy/consent controlled.
-- Draft PR #1139 exists from branch `docs/oteryn-20260817-dynamic-semantic-atlas` and contains exactly the four owned paths at initial head `9094b5b1d11a2f9563c7f9e26b14773735dcc1a7`.
+- Draft PR #1139 exists from branch `docs/oteryn-20260817-dynamic-semantic-atlas`; exact content-validation head `517f9e4ec8b0d6fd2f667dc21f8bfda925d3862b` contains exactly the four owned paths.
+- All eight workflows observed on `517f9e4ec8b0d6fd2f667dc21f8bfda925d3862b` completed successfully: CI #7452, Agent Governance #7075, Native protocol contract #604, Native protocol contract audits #604, Platform DB Outage Validation #5616, Game Auth Ticket Concurrency #5187, Edge Security Emulation #4110 and Phase 7 Production-Like Validation #5689.
+- Exact PR changed-file review is limited to the four owned paths; no review submissions, review threads or PR comments were present at the pre-readiness review point.
+- Protected `main` remained `fcafc20bc9705ca92256fdddc7433bcc3d191c40` through the content-validation/self-review gate.
 
 ### DERIVED
 
@@ -93,11 +97,11 @@ No existing open Atlas PR or active task owned these paths at preflight. Open PR
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-17T21:57:00Z
-head: 9094b5b1d11a2f9563c7f9e26b14773735dcc1a7
+updated_at: 2026-08-17T22:02:00Z
+head: 517f9e4ec8b0d6fd2f667dc21f8bfda925d3862b
 branch: docs/oteryn-20260817-dynamic-semantic-atlas
 pr: 1139
-status: validating
+status: ready
 context_routes:
   - architecture
   - agent-governance
@@ -107,13 +111,17 @@ owned_paths:
   - docs/maps/oteryn-dynamic-semantic-atlas-execution-prompt.md
   - docs/agents/tasks/active/OTERYN-20260817-dynamic-semantic-atlas-project.md
 proven:
-  - Platform main preflight is fcafc20bc9705ca92256fdddc7433bcc3d191c40
+  - Platform main preflight and pre-readiness drift check are fcafc20bc9705ca92256fdddc7433bcc3d191c40
   - no active task or open PR owned the Dynamic Atlas target paths before task creation
   - ADR 0041 preserves Game canonical authority and derived independent Atlas ownership
   - PlayerCompanion owns hunt guidance progress tracking and personalized recommendations
+  - closed Issue 302 deferred interactive maps into a separate later programme and kept hunt guidance under PlayerCompanion
   - Oteryn-v2 main evidence is pinned at 5577f6fc7c1f7ddef482f0f7b08039047704e36b
   - Oteryn-v2 physical-profile evidence keeps serializer chunk size and coordinate details evidence-gated
-  - PR 1139 exists and initial changed-file set is exactly the four owned documentation paths
+  - PR 1139 changed-file set is exactly the four owned documentation paths
+  - all eight observed GitHub workflows on content-validation head 517f9e4ec8b0d6fd2f667dc21f8bfda925d3862b completed successfully
+  - full-diff self-review of all four owned files on PR 1139 found no unresolved material architecture scope security or evidence defect
+  - no review submission review thread or PR comment was present at the pre-readiness review point
 derived:
   - one semantic Atlas foundation can support static map knowledge personalized hunt planning and later authorized live overlays without becoming gameplay authority
 unknown:
@@ -135,18 +143,18 @@ changed_paths:
   - docs/maps/oteryn-dynamic-semantic-atlas-execution-prompt.md
   - docs/agents/tasks/active/OTERYN-20260817-dynamic-semantic-atlas-project.md
 validation:
-  - command: GitHub exact-head documentation/governance checks
-    result: NOT_RUN
-    evidence: PR 1139 opened; current checkpoint commit will establish the validation head
+  - command: GitHub exact-head required workflows on content-validation head
+    result: PASS
+    evidence: 517f9e4ec8b0d6fd2f667dc21f8bfda925d3862b; CI 7452 and Agent Governance 7075 plus six additional triggered workflows all SUCCESS
   - command: exact-head full-diff self-review
-    result: NOT_RUN
-    evidence: pending after checkpoint commit and changed-file verification
+    result: PASS
+    evidence: PR 1139 four-file diff reviewed after 517f9e4ec8b0d6fd2f667dc21f8bfda925d3862b; no unresolved material finding
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: documentation architecture/programme/prompt task only; no executable product path changes
 blockers:
   - none
-next_action: validate PR 1139 on the checkpoint-updated exact head and perform full-diff self-review
+next_action: verify the task-only readiness checkpoint head checks remain green then mark PR 1139 ready and squash-merge if the merge gate is unchanged
 ```
 
 ## Source branch closeout
