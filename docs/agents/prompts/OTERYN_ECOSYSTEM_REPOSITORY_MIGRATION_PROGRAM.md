@@ -84,7 +84,7 @@ Before EVERY cross-repository write:
 2. verify exact current repository identity and main/default branch;
 3. verify no active ownership conflict;
 4. obey the more restrictive rule;
-5. if target governance requires a stronger_only action than this alias can lawfully supply, stop that mutation and continue all independent preparation.
+5. if target governance requires a stronger owner-only action than this alias can lawfully supply, stop that mutation and continue all independent preparation.
 
 Never infer permission from credentials, connectors, admin rights or a previous session.
 
