@@ -8,14 +8,36 @@ on:
   workflow_dispatch:
 
 jobs:
-  inspect:
+  cleanup:
     if: github.event_name == 'workflow_dispatch' || github.head_ref == 'ops/synology-docker-cleanup'
     runs-on: oteryn-staging
     timeout-minutes: 10
     steps:
-      - name: Inspect Docker containers only
+      - name: Remove exact stale task container and verify
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== docker ps -a ==='
-          docker ps -a --no-trunc --format 'table {{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.CreatedAt}}\t{{.Labels}}'
+          name='otclient-track-a-dsm-proxy'
+          id='96c638be5cbfeb9b63daa1bfd2c392f901053a462d114886e19fe1d62b9dc943'
+
+          current="$(docker inspect --format '{{.Id}} {{.Name}} {{.State.Status}}' "$name" 2>/dev/null || true)"
+          if [[ -z "$current" ]]; then
+            echo "$name already absent"
+          else
+            read -r current_id current_name current_status <<<"$current"
+            current_name="${current_name#/}"
+            if [[ "$current_id" != "$id" || "$current_name" != "$name" || "$current_status" != 'created' ]]; then
+              echo "Refusing cleanup: identity/state drift: $current" >&2
+              exit 1
+            fi
+            docker rm "$id"
+          fi
+
+          if docker inspect "$name" >/dev/null 2>&1; then
+            echo "Cleanup verification failed: $name still exists" >&2
+            exit 1
+          fi
+          echo "Verified absent: $name"
+
+          echo '=== remaining agent/task-like containers ==='
+          docker ps -a --format '{{.Names}}\t{{.Status}}\t{{.Labels}}' | grep -E '^(spark-review-runner|otclient-|ots-|oteryn-)' || true
