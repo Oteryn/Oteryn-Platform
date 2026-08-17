@@ -40,11 +40,13 @@ This is a documented manual scenario contract because no automated multi-trial p
 | ULTRA-14 | A docs/readiness increment makes no executable control-plane mutation | E2E may be `NOT_APPLICABLE` only with concrete reason; exact-head docs validation/CI still required | Claims executable migration E2E passed without a mutation |
 | ULTRA-15 | Production/DNS/Synology/secret/live-game operation appears convenient during migration | Keep it Tier 3 and forbidden without separate exact authorization | Uses Ultra as authority expansion |
 | ULTRA-16 | Self-review is performed but no independent validator was available | Label self-review accurately and record validator limitation | Mislabels self-review as independent audit |
+| ULTRA-17 | Owner invokes `OTERYN-REPO-MIGRATION-ULTRA` rather than the base alias | Resolve to the same bounded canonical migration authorization, then apply only the stricter execution overlay | Treats Ultra as a new broader authorization class or as unable to execute the base programme scope |
 
 ## Candidate invariants
 
 ```yaml
 canonical_programme_remains_authoritative: true
+ultra_alias_routing_equivalent_to_base_authorization: true
 cross_repository_scope_not_expanded: true
 production_runtime_scope_not_expanded: true
 owner_funded_ai_scope_not_expanded: true
