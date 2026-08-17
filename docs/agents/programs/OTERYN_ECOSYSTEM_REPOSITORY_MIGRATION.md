@@ -21,16 +21,16 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-17T08:55:00Z
-status: ready
-active_task: null
-issue: null
-branch: null
+updated_at: 2026-08-17T12:42:00Z
+status: blocked
+active_task: OTERYN-20260817-ecosystem-repository-migration-wave1
+issue: 1130
+branch: docs/oteryn-ecosystem-repository-migration-wave1
 pull_request: null
 temporary_topology_authority:
   repository: blakinio/Oteryn-Platform
   path: docs/architecture/adr/0041-ecosystem-repository-authority-contracts-and-atlas-integration.md
-  status: VERIFY_LIVE_ON_INVOCATION
+  status: VERIFIED_LIVE_FOR_WAVE_1
 target_topology:
   - Oteryn
   - Oteryn-Game
@@ -43,18 +43,31 @@ known_migration_sources:
 legacy_read_only_sources:
   - blakinio/canary
   - blakinio/otclient
+wave_1_evidence:
+  readiness_report: docs/architecture/migration/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_READINESS.md
+  coordinate_inventory: docs/architecture/migration/oteryn-repository-coordinate-inventory.json
+  atlas_extraction_manifest: docs/architecture/migration/oteryn-atlas-extraction-manifest.json
 proven:
-  - The programme alias is OTERYN-REPO-MIGRATION and resolves to the canonical prompt in this repository after this registration is merged.
-  - Physical repository state, current SHAs, organizations, open ownership and migration readiness are intentionally not cached as truth here and must be reconstructed live on every invocation.
+  - The programme alias is OTERYN-REPO-MIGRATION and resolves to the canonical prompt in this repository.
+  - Wave 1 reconstructed live source/target state and found no current target repositories at the inspected same-user names.
+  - The authenticated GitHub account currently exposes no organization membership to the connector.
+  - Game repository-local control-plane inspection is mostly rename-dynamic, but package inventory is inaccessible and external Actions/reusable-workflow callers are not exhaustively proven.
+  - Current Otheryn Atlas automation includes an active private Synology deployment path and mixed build/deployment ownership.
 derived:
-  - The first high-value migration increment is repository-coordinate and control-plane inventory before physical rename/transfer.
+  - The accepted four-repository architecture remains valid.
+  - Physical META bootstrap, Game cutover and Atlas extraction remain fail-closed until the Wave-1 blockers are resolved.
 unknown:
-  - Whether Oteryn, Oteryn-Game or Oteryn-Atlas already exist at invocation time.
-  - Exact current GitHub organization/ownership target and whether META creation should occur before product-repository rename/transfer.
-  - Exact current rename/transfer blockers in workflows, GHCR/packages, releases, provenance and cross-repository references.
+  - Exact future Oteryn GitHub organization identity/permissions.
+  - Exhaustive external Actions/reusable-workflow callers of Oteryn-v2.
+  - Exact Oteryn-v2 GHCR/package names, links, permissions and consumers.
+  - Complete path-level Atlas ownership split needed for selective extraction.
 conflicts: []
-blockers: []
-next_action: Run fresh live-state reconstruction, deduplicate existing migration ownership, and complete the migration-critical repository-coordinate inventory before selecting the first physical cutover increment.
+blockers:
+  - Future Oteryn GitHub organization is not visible/available to the authenticated account.
+  - Oteryn-v2 GHCR/package inventory is unavailable through the current integration.
+  - External Actions/reusable-workflow caller inventory is not exhaustive and GitHub rename redirects do not protect this execution path.
+  - Otheryn Atlas remains coupled to active private Synology deployment and mixed path ownership.
+next_action: After Wave-1 evidence is merged and archived, create or identify the intended future Oteryn GitHub organization and make it visible to the authenticated GitHub account.
 ```
 
 ## Programme rules

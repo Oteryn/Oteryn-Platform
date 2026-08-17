@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "programme": "OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION",
+  "issue": 1130,
+  "sourceRepository": "blakinio/Otheryn",
+  "sourceBaseline": "5001cb42b9027d763d87a099696136acd3e12e83",
+  "targetRepository": "Oteryn-Atlas",
+  "decision": "EXTRACTABLE_WITH_REFACTOR_PHYSICAL_NO_GO",
+  "principles": [
+    "Oteryn-Game remains gameplay/world authority and owns the export contract/public allowlist boundary.",
+    "Oteryn-Atlas owns derived ingestion, transformation, indexing, rendering and presentation after selective extraction.",
+    "Do not wholesale move tools/otbm_atlas/** because accepted architecture records mixed responsibilities.",
+    "Do not migrate build/** generated output as source.",
+    "Do not mutate Synology, production deployment, DNS, secrets or live state as part of documentation-only extraction planning.",
+    "Preserve provenance-pinned reference inputs without promoting them to native gameplay authority."
+  ],
+  "groups": [
+    {
+      "path": "tools/otbm_atlas/**",
+      "classification": "MIXED_REQUIRES_PATH_LEVEL_SPLIT",
+      "target": "SPLIT",
+      "evidence": "ADR 0041 records mixed Game/Atlas responsibilities and current full-world deployment packages the path wholesale.",
+      "nextProof": "identify Game-owned source/export authority code versus Atlas-owned derived transformation/index/render code before any move"
+    },
+    {
+      "path": "tools/otbm_atlas_facts/**",
+      "classification": "ATLAS_CANDIDATE_REVALIDATE_DEPENDENCIES",
+      "target": "OTERYN_ATLAS_CANDIDATE",
+      "evidence": "current full-world workflow packages this path and multiple otbm-atlas facts/factual-layer workflows exist.",
+      "nextProof": "prove that each retained module consumes exported/provenance-bounded data and does not become native world authority"
+    },
+    {
+      "path": ".github/workflows/otbm-atlas-*.yml",
+      "classification": "ATLAS_AUTOMATION_CANDIDATE_DEPLOYMENT_BOUND",
+      "target": "SELECTIVE_RECREATE_IN_OTERYN_ATLAS",
+      "evidence": "Otheryn currently contains dedicated ingest, facts, factual-layer, full-world, incremental, SMB, Synology and test workflows.",
+      "nextProof": "separate pure build/test workflows from production/Synology deployment authority; migrate only after target repo and permissions exist"
+    },
+    {
+      "path": ".github/workflows/otbm-atlas-deploy-request.yml",
+      "classification": "PROTECTED_DEPLOYMENT_CONTROL",
+      "target": "KEEP_UNCHANGED_UNTIL_EXPLICIT_CUTOVER",
+      "evidence": "main-push request validates target private-synology and dispatches the canonical full-world workflow via GITHUB_REPOSITORY.",
+      "nextProof": "define rollback-compatible target-repo deployment admission and exact owner authorization"
+    },
+    {
+      "path": ".github/workflows/otbm-atlas-full-world-16.yml",
+      "classification": "MIXED_BUILD_AND_PROTECTED_DEPLOYMENT_CONTROL",
+      "target": "SPLIT",
+      "evidence": "workflow builds 32 shards on GitHub-hosted runners but deployment mode also creates a receiver/tunnel/network on [ots, synology], uses /volume1/docker/otheryn/atlas and copies source/control paths.",
+      "nextProof": "extract repository-neutral build/certification logic separately from Synology cutover logic"
+    },
+    {
+      "path": "deploy/otbm-atlas-ci-ingest/**",
+      "classification": "ATLAS_RUNTIME_CONTROL_CANDIDATE_PROTECTED",
+      "target": "OTERYN_ATLAS_CANDIDATE_AFTER_REVIEW",
+      "evidence": "current full-world workflow copies this control path to a private Synology generation and uses receiver.py.",
+      "nextProof": "security/ownership review plus target-repo deployment authority"
+    },
+    {
+      "path": "deploy/otbm-atlas-controlled-beta/**",
+      "classification": "ATLAS_DEPLOYMENT_CANDIDATE_PROTECTED",
+      "target": "OTERYN_ATLAS_CANDIDATE_AFTER_REVIEW",
+      "evidence": "current full-world deployment packages this control path alongside ingest control.",
+      "nextProof": "verify current runtime consumers and rollback compatibility before extraction"
+    },
+    {
+      "path": "vendor/map-analysis/crystalserver/**",
+      "classification": "PROVENANCE_PINNED_REFERENCE_INPUT",
+      "target": "REFERENCE_ONLY_NOT_NATIVE_AUTHORITY",
+      "evidence": "current full-world planner/build consumes the pinned map input under this tree.",
+      "nextProof": "retain provenance/licensing boundary and decide whether target accesses a pinned artifact/export instead of bulk repository copy"
+    },
+    {
+      "path": "vendor/map-analysis/tibia-client/**",
+      "classification": "PROVENANCE_PINNED_REFERENCE_INPUT",
+      "target": "REFERENCE_ONLY_NOT_NATIVE_AUTHORITY",
+      "evidence": "current full-world planner/build consumes pinned client assets under this tree.",
+      "nextProof": "retain provenance/licensing boundary and avoid treating reference assets as product authority"
+    },
+    {
+      "path": "build/**",
+      "classification": "GENERATED_DO_NOT_MIGRATE",
+      "target": "REGENERATE",
+      "evidence": "current workflows generate plans/shards/corpus under build and upload compact artifacts.",
+      "nextProof": "none; generated output must be reproduced from pinned inputs"
+    },
+    {
+      "path": "blakinio/Oteryn-v2:tools/game-atlas-profile-spike/**",
+      "classification": "GAME_SIDE_BOUNDARY_EVIDENCE",
+      "target": "KEEP_WITH_GAME",
+      "evidence": "Game repository has a dedicated local physical-profile spike workflow; this is evidence for the Game-to-Atlas export boundary rather than Atlas ownership of Game source.",
+      "nextProof": "turn bounded spike/architecture into a stable Game-owned export schema/public allowlist before Atlas depends on it"
+    }
+  ],
+  "generatedArtifacts": {
+    "migrate": false,
+    "reason": "generated corpus is reproducible evidence/output, not repository source authority"
+  },
+  "productionCutoverAuthorized": false,
+  "oneNextAction": "Do not begin physical Atlas extraction before the future Oteryn organization/META exists and the mixed path-level ownership plus Synology deployment boundary are separately proven."
+}

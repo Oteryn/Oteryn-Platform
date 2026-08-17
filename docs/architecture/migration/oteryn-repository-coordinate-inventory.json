@@ -1,0 +1,184 @@
+{
+  "schemaVersion": 1,
+  "programme": "OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION",
+  "issue": 1130,
+  "observedAt": "2026-08-17",
+  "scope": "migration-critical repository-coordinate inventory; UNKNOWN entries prevent physical cutover and explicitly mean this is not an exhaustive all-file/all-external-repository proof",
+  "baselines": {
+    "blakinio/Oteryn-Platform": "3724349a8738bff8229b83239244120876bdedfd",
+    "blakinio/Oteryn-v2": "c8a3ac666845f3e8679e55dd4c84d1e440e830c8",
+    "blakinio/Otheryn": "5001cb42b9027d763d87a099696136acd3e12e83"
+  },
+  "classes": {
+    "A": "MUST_CHANGE_BEFORE_RENAME",
+    "B": "MUST_CHANGE_AT_CUTOVER",
+    "C": "MUST_CHANGE_AFTER_RENAME",
+    "D": "SAFE_VIA_GITHUB_REDIRECT_TEMPORARILY",
+    "E": "HISTORICAL_PROVENANCE_DO_NOT_REWRITE",
+    "F": "LEGACY_REFERENCE_INTENTIONALLY_PRESERVE",
+    "G": "UNKNOWN_REQUIRES_EVIDENCE"
+  },
+  "entries": [
+    {
+      "surface": "Oteryn-v2 repository-policy application",
+      "location": "blakinio/Oteryn-v2:tools/repository/apply_github_settings.py",
+      "classification": "D",
+      "evidence": "repository identity is read from GITHUB_REPOSITORY instead of a literal owner/repo coordinate",
+      "cutoverAction": "refresh exact head and verify after rename"
+    },
+    {
+      "surface": "Oteryn-v2 repository configuration workflow",
+      "location": "blakinio/Oteryn-v2:.github/workflows/repository-configuration.yml",
+      "classification": "D",
+      "evidence": "same-repository checkout and dynamic repository-policy application",
+      "cutoverAction": "post-rename workflow smoke/readback"
+    },
+    {
+      "surface": "Oteryn-v2 merge gate repository API calls",
+      "location": "blakinio/Oteryn-v2:.github/workflows/merge-gate.yml",
+      "classification": "D",
+      "evidence": "uses github.repository for same-repository REST calls",
+      "cutoverAction": "post-rename exact-head merge-gate verification"
+    },
+    {
+      "surface": "Oteryn-v2 Game/Atlas profile spike",
+      "location": "blakinio/Oteryn-v2:.github/workflows/game-atlas-profile-spike.yml",
+      "classification": "D",
+      "evidence": "checks out the exact PR head and executes local tools/game-atlas-profile-spike paths; no literal external repository coordinate in the inspected workflow",
+      "cutoverAction": "post-rename smoke on next applicable PR"
+    },
+    {
+      "surface": "Oteryn-v2 hosted action/reusable workflow definitions",
+      "location": "blakinio/Oteryn-v2 exact recursive tree + .github/workflows directory",
+      "classification": "G",
+      "evidence": "no action.yml path was found, but repository-local inspection cannot prove absence of external callers to reusable workflow/action coordinates",
+      "cutoverAction": "enumerate all accessible and owner-known callers before rename; any caller using old owner/repo executable coordinates becomes class B"
+    },
+    {
+      "surface": "External callers of Oteryn-v2 GitHub Actions/reusable workflows",
+      "location": "outside blakinio/Oteryn-v2",
+      "classification": "G",
+      "evidence": "connector search returned no match for an exact old reusable-workflow coordinate, but this is not an exhaustive proof of all external/private callers; GitHub documents that Actions references do not follow rename redirects",
+      "cutoverAction": "prove caller inventory; update proven callers atomically at cutover as class B"
+    },
+    {
+      "surface": "Oteryn-v2 GHCR/packages",
+      "location": "GitHub Packages / GHCR",
+      "classification": "G",
+      "evidence": "package inventory endpoint returned 403 Resource not accessible by integration",
+      "cutoverAction": "obtain package inventory and verify image names, repository links, permissions, workflow access and consumers before rename/transfer"
+    },
+    {
+      "surface": "Oteryn-v2 GitHub Releases",
+      "location": "GitHub Releases",
+      "classification": "D",
+      "evidence": "releases endpoint returned an empty list at the inspected baseline",
+      "cutoverAction": "refresh immediately before cutover"
+    },
+    {
+      "surface": "Current Game branding",
+      "location": "blakinio/Oteryn-v2:README.md",
+      "classification": "C",
+      "evidence": "current title/licensing prose still says Oteryn v2 / Oteryn-v2",
+      "cutoverAction": "rename product/repository wording after physical rename, preserving historical provenance elsewhere"
+    },
+    {
+      "surface": "Cosmetic Game workflow/policy user-agent labels",
+      "location": "blakinio/Oteryn-v2 merge/repository policy scripts",
+      "classification": "C",
+      "evidence": "Oteryn-v2 appears in cosmetic user-agent strings rather than routing authority",
+      "cutoverAction": "cleanup after rename; not a cutover blocker"
+    },
+    {
+      "surface": "Platform native protocol contract workflow",
+      "location": "blakinio/Oteryn-Platform:.github/workflows/native-protocol-contract.yml",
+      "classification": "D",
+      "evidence": "inspected workflow is repository-local and has no literal old Game executable coordinate",
+      "cutoverAction": "none for Game rename; retain ordinary Platform validation"
+    },
+    {
+      "surface": "Platform native protocol audit workflow",
+      "location": "blakinio/Oteryn-Platform:.github/workflows/native-protocol-contract-audits.yml",
+      "classification": "D",
+      "evidence": "inspected workflow is repository-local; it describes Otheryn/Rust correspondence in validation prose but does not invoke an old Game repository action/workflow coordinate",
+      "cutoverAction": "review correspondence prose/links as class C/D/E according to provenance; no executable cutover change proven here"
+    },
+    {
+      "surface": "Platform all-file/cross-repository references to Oteryn-v2",
+      "location": "blakinio/Oteryn-Platform beyond migration-relevant workflows",
+      "classification": "G",
+      "evidence": "two critical workflows were inspected, but connector code search is not treated as a complete repository-history/text proof",
+      "cutoverAction": "perform exact exhaustive text/uses scan using an authenticated repository-capable channel before GO"
+    },
+    {
+      "surface": "Otheryn Atlas deployment request workflow",
+      "location": "blakinio/Otheryn:.github/workflows/otbm-atlas-deploy-request.yml",
+      "classification": "B",
+      "evidence": "active main-push request dispatches canonical full-world workflow inside GITHUB_REPOSITORY for target private-synology",
+      "cutoverAction": "during Atlas extraction, establish new repository-owned dispatch only after rollback-compatible deployment authority is designed; do not mutate current production path in advance"
+    },
+    {
+      "surface": "Otheryn Atlas full-world Synology deployment control",
+      "location": "blakinio/Otheryn:.github/workflows/otbm-atlas-full-world-16.yml",
+      "classification": "B",
+      "evidence": "active workflow contains [ots, synology] self-hosted receiver, /volume1/docker/otheryn/atlas state and deployment control paths",
+      "cutoverAction": "requires a separately authorized deployment cutover/rollback plan; blind copy is forbidden"
+    },
+    {
+      "surface": "Otheryn Atlas implementation path",
+      "location": "blakinio/Otheryn:tools/otbm_atlas/**",
+      "classification": "G",
+      "evidence": "ADR 0041 already records mixed responsibilities; current full-world workflow packages this entire path, so path-level ownership must be split before extraction",
+      "cutoverAction": "produce path-level Atlas-vs-source-authority manifest; do not wholesale move"
+    },
+    {
+      "surface": "Otheryn Atlas factual-layer implementation",
+      "location": "blakinio/Otheryn:tools/otbm_atlas_facts/**",
+      "classification": "G",
+      "evidence": "current Atlas workflow packages the path and multiple dedicated facts workflows exist, but dependency/authority boundaries were not fully proven in this wave",
+      "cutoverAction": "revalidate dependencies and migrate only Atlas-owned derived logic"
+    },
+    {
+      "surface": "Atlas generated corpus",
+      "location": "blakinio/Otheryn:build/**",
+      "classification": "F",
+      "evidence": "generated output; migration programme explicitly rejects generated corpus as source",
+      "cutoverAction": "do not migrate; regenerate from provenance-pinned inputs"
+    },
+    {
+      "surface": "Atlas source provenance inputs",
+      "location": "blakinio/Otheryn:vendor/map-analysis/**",
+      "classification": "F",
+      "evidence": "full-world workflow consumes provenance-pinned world/client assets; these are reference/source inputs rather than Atlas gameplay authority",
+      "cutoverAction": "preserve provenance contract; do not silently promote to native authority or bulk-copy without licensing/ownership proof"
+    },
+    {
+      "surface": "Historical migration/architecture evidence referencing old coordinates",
+      "location": "docs/architecture/**, docs/agents/tasks/archive/**, PR/issue evidence",
+      "classification": "E",
+      "evidence": "old repository names are part of historical provenance",
+      "cutoverAction": "do not global-rewrite; change only documents that claim current routing/authority"
+    },
+    {
+      "surface": "Legacy Canary/OTClient references",
+      "location": "blakinio/canary and blakinio/otclient references",
+      "classification": "F",
+      "evidence": "programme declares these repositories legacy read-only reference sources",
+      "cutoverAction": "preserve intentionally; no writes"
+    },
+    {
+      "surface": "Future Oteryn GitHub organization / owner coordinate",
+      "location": "target owner",
+      "classification": "G",
+      "evidence": "authenticated organization membership returned empty; intended future organization cannot currently be proven or targeted",
+      "cutoverAction": "owner creates or identifies intended organization and grants visibility/access before META bootstrap or transfers"
+    }
+  ],
+  "decision": {
+    "gameRename": "NO_GO_YET",
+    "metaBootstrap": "PHYSICAL_BLOCKED",
+    "platformMove": "NO_CHANGE_IN_WAVE_1",
+    "atlasExtraction": "PHYSICAL_NO_GO",
+    "oneNextAction": "Create or identify the intended future Oteryn GitHub organization and make it visible to the authenticated GitHub account."
+  }
+}
