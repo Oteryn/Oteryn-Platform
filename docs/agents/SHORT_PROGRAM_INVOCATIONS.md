@@ -1,7 +1,7 @@
 # Oteryn Platform Short Programme Invocation Registry
 
 ```yaml
-registry_version: 1.7
+registry_version: 1.8
 repository: blakinio/Oteryn-Platform
 trusted_base: main
 scope_contract: docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md
@@ -15,7 +15,25 @@ repair_external_audit_command_status: retired
 
 The owner's established short commands remain valid unless explicitly retired below. Resolve work from canonical prompts, immutable scope, current repair/lifecycle contracts, programme state, active tasks, Issues, deterministic branches, PRs, reviews, CI and live ownership.
 
-No command authorizes hidden background execution, production operations, secrets, protected-environment approval, live-data mutation or writes outside `blakinio/Oteryn-Platform`.
+No command authorizes hidden background execution, production operations, secrets, protected-environment approval or live-data mutation. Commands also do not authorize writes outside `blakinio/Oteryn-Platform` except the explicitly scoped `OTERYN-REPO-MIGRATION` owner alias below. That alias is limited to the repository-migration scope named in its canonical prompt, remains subordinate to every target repository's stricter current `AGENTS.md` hierarchy, and never authorizes writes to `blakinio/canary` or `blakinio/otclient`.
+
+## Ecosystem repository migration
+
+```text
+OTERYN-REPO-MIGRATION
+Uruchom OTERYN-REPO-MIGRATION autonomicznie.
+Kontynuuj OTERYN-REPO-MIGRATION autonomicznie.
+Pokaż stan OTERYN-REPO-MIGRATION.
+```
+
+```yaml
+programme_id: OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION
+canonical_prompt: docs/agents/prompts/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_PROGRAM.md
+programme_state: docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md
+prompt_eval: docs/agents/evidence/OTERYN-20260817-ecosystem-repository-migration-prompt-eval.md
+```
+
+The alias is the repository owner's bounded current-task request to verify and, only when proven safe and supported by target-repository governance, execute the physical Oteryn repository migration programme. It covers live topology reconstruction, repository-coordinate inventory, META readiness/bootstrap, `Oteryn-v2` -> `Oteryn-Game` cutover readiness/execution, Platform transfer analysis where required, selective Atlas extraction planning/execution, CI/GHCR/release/provenance impact and rollback. It grants no production/DNS/Synology/secret/live-game mutation and no owner-funded Codex/OpenAI/API use.
 
 ## Continuous platform audit
 
@@ -152,6 +170,7 @@ Pokaż stan audytu Platformy.
 Pokaż stan napraw Platformy.
 Pokaż stan architektury Platformy.
 Pokaż stan programów Platformy.
+Pokaż stan OTERYN-REPO-MIGRATION.
 ```
 
 Status inspection reads programme state, active tasks, Issues, deterministic branches, PRs, reviews and CI without mutation unless continuation is requested.
