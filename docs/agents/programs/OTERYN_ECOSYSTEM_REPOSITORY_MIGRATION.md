@@ -21,12 +21,12 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-17T12:42:00Z
+updated_at: 2026-08-17T12:44:00Z
 status: blocked
 active_task: OTERYN-20260817-ecosystem-repository-migration-wave1
 issue: 1130
 branch: docs/oteryn-ecosystem-repository-migration-wave1
-pull_request: null
+pull_request: 1131
 temporary_topology_authority:
   repository: blakinio/Oteryn-Platform
   path: docs/architecture/adr/0041-ecosystem-repository-authority-contracts-and-atlas-integration.md
