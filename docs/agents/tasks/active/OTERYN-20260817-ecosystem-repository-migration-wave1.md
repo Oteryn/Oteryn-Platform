@@ -69,7 +69,7 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 2
 policy_version: 2
-updated_at: 2026-08-17T14:48:00+02:00
+updated_at: 2026-08-17T14:50:00+02:00
 phase: validate
 execution_mode: chat_github
 execution_reason: GitHub connector supports exact repository/branch/file/PR inspection and documentation delivery; destructive repository administration is neither required nor safe in this wave
@@ -89,14 +89,14 @@ estimate_confidence: high
 decomposition_decision: discovery_first
 decomposition_reason: physical cutover is forbidden until repository-coordinate/package/Actions/deployment evidence is complete
 invocation_started_at: 2026-08-17T14:21:00+02:00
-last_progress_at: 2026-08-17T14:48:00+02:00
+last_progress_at: 2026-08-17T14:50:00+02:00
 ci_checks_for_current_head: 0
-ci_check_generation: pending_after_checkpoint
+ci_check_generation: pending_after_checkpoint_repair
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 0
+repair_cycles_for_current_gate: 1
 context_reconstruction_attempts: 1
 stall_warnings: 0
 proven:
@@ -125,7 +125,9 @@ unknown:
   - exact Oteryn-v2 GHCR/package names, links, consumers and permissions
   - complete path-level Atlas ownership split inside tools/otbm_atlas and tools/otbm_atlas_facts
 conflicts: []
-first_failure: null
+first_failure:
+  marker: agent-governance-checkpoint-schema
+  evidence: Agent Governance run 32031726541 failed in Validate active task checkpoints because first_failure was null instead of a YAML mapping.
 rejected_hypotheses:
   - Creating empty temporary blakinio/Oteryn, blakinio/Oteryn-Game or blakinio/Oteryn-Atlas repositories is not an acceptable substitute for the intended topology.
   - Ordinary GitHub rename redirects are not sufficient proof for GitHub Actions/reusable-workflow consumers.
@@ -146,6 +148,9 @@ validation:
   - command: migration-critical Game/Platform/Atlas file inspection
     result: PASS_WITH_UNKNOWN_GATES
     evidence: coordinate inventory and Atlas extraction manifest
+  - command: Agent Governance run 32031726541
+    result: FAIL_REPAIRED_IN_NEXT_HEAD
+    evidence: checkpoint validator required first_failure to be a YAML mapping; this checkpoint now records the mapping
   - command: runtime/component/browser E2E
     result: NOT_APPLICABLE
     evidence: discovery/documentation only; no executable product or deployment path changed
@@ -153,7 +158,7 @@ blockers:
   - intended future Oteryn organization is unavailable to current authenticated account
   - package and external executable-caller proofs are incomplete
   - Atlas deployment/path ownership requires a later separately authorized cutover design
-next_action: Validate PR 1131; after integration/archive, owner creates or identifies the intended future Oteryn GitHub organization and makes it visible to the authenticated account.
+next_action: Validate PR 1131; after integration/archive, owner creates or identifies the intended future Oteryn GitHub organization and makes it visible to the authenticated GitHub account.
 ```
 
 ## Safety boundary
