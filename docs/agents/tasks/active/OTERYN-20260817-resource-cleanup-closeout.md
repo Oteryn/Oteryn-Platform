@@ -46,11 +46,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-17T09:27:00Z
-head: 8e3ad67a0fcad33403916a6f44c35823413fc93d
+updated_at: 2026-08-17T09:30:00Z
+head: d2ec342bb7b6e0dd19183470a58b486b15fd491f
 branch: docs/resource-cleanup-closeout-contract
-pr: none
-status: implementing
+pr: 1126
+status: validating
 context_routes:
   - agent-governance
 owned_paths:
@@ -61,31 +61,39 @@ proven:
   - main was f617120975cb1522cad87d74f8bea37f829b2b64 at task start
   - main requires classify-changes and test status checks
   - root AGENTS.md already makes EXECUTION_RESOURCE_HYGIENE.md mandatory for execution resource work
+  - PR 1126 is the dedicated same-repository PR for this branch
   - the policy update is documentation/agent-governance only
   - no temporary host/container/runner resources were created by this task
+  - Synology Container Hygiene run 32015454577 completed successfully; static-validation passed and live-hygiene was skipped
   - repository write scope is blakinio/Oteryn-Platform only
 derived:
   - application/browser/container validation is not applicable to this governance-only change
 unknown:
-  - exact-head CI result
+  - exact-head CI result after recording PR ownership
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: Agent Governance run 32015454595
+  evidence: task_liveness rejected omitted PR identity for branch with open PR 1126
 rejected_hypotheses: []
 changed_paths:
   - docs/agents/EXECUTION_RESOURCE_HYGIENE.md
   - docs/agents/tasks/active/OTERYN-20260817-resource-cleanup-closeout.md
 validation:
-  - command: GitHub protected required checks on PR exact head
+  - command: Synology Container Hygiene run 32015454577 static-validation
+    result: PASS
+    evidence: static-validation job 95343847784 succeeded; live-hygiene job 95343848506 skipped
+  - command: Agent Governance run 32015454595
+    result: FAIL
+    evidence: live task liveness required PR 1126 identity in the active checkpoint; governance unit/policy/checkpoint tests before that gate passed
+  - command: GitHub protected required checks on corrected PR exact head
     result: NOT_RUN
-    evidence: PR not opened yet
+    evidence: corrected checkpoint commit will create a new exact head
   - command: application/browser/container build
     result: NOT_APPLICABLE
     evidence: BUILD_TEST_MATRIX classifies agent-governance/documentation-only changes for lightweight checks only
 blockers:
   - none
-next_action: open the dedicated PR and inspect exact-head required checks
+next_action: inspect the corrected exact-head required checks and repair only if a current-head gate fails
 ```
 
 ## Source branch closeout
