@@ -24,15 +24,15 @@ Persist the agreed Dynamic Semantic Atlas target architecture, phased programme 
 
 ## Acceptance criteria
 
-- [ ] Preserve the main Atlas as the product being evolved rather than defining a parallel replacement map.
-- [ ] Record Atlas as a derived semantic projection/read model, never a second canonical World/Content authority.
-- [ ] Record future capability families for NPC/shop/monster/loot knowledge, Hunt Intelligence, bounty/task planning and authorized live-state.
-- [ ] Preserve `PlayerCompanion` ownership of personalized hunt guidance/progression/recommendations.
-- [ ] Preserve privacy-first player-position rules and default-deny live/public disclosure.
-- [ ] Record Svelte/TypeScript + PixiJS/WebGL2 as a recommended proof candidate, not an irreversible framework decision.
-- [ ] Keep physical serializer, compression, chunk size/floor packing and canonical coordinate profile evidence-gated; FlatBuffers is not frozen.
-- [ ] Keep DYN-ATLAS-001 limited to a static Semantic Thais Z7 proof.
-- [ ] Provide a thin execution prompt that refuses to implement Atlas runtime in Platform merely because the actual Atlas repository is unavailable.
+- [x] Preserve the main Atlas as the product being evolved rather than defining a parallel replacement map.
+- [x] Record Atlas as a derived semantic projection/read model, never a second canonical World/Content authority.
+- [x] Record future capability families for NPC/shop/monster/loot knowledge, Hunt Intelligence, bounty/task planning and authorized live-state.
+- [x] Preserve `PlayerCompanion` ownership of personalized hunt guidance/progression/recommendations.
+- [x] Preserve privacy-first player-position rules and default-deny live/public disclosure.
+- [x] Record Svelte/TypeScript + PixiJS/WebGL2 as a recommended proof candidate, not an irreversible framework decision.
+- [x] Keep physical serializer, compression, chunk size/floor packing and canonical coordinate profile evidence-gated; FlatBuffers is not frozen.
+- [x] Keep DYN-ATLAS-001 limited to a static Semantic Thais Z7 proof.
+- [x] Provide a thin execution prompt that refuses to implement Atlas runtime in Platform merely because the actual Atlas repository is unavailable.
 - [ ] Run applicable documentation/governance validation and exact-head full-diff self-review before merge.
 - [ ] Merge only if current-head required checks and merge gate pass.
 
@@ -72,6 +72,7 @@ No existing open Atlas PR or active task owned these paths at preflight. Open PR
 - Oteryn-v2 physical-profile readiness evidence reports `EVIDENCE_GAP` and explicitly leaves serializer/chunk-size decisions open pending canonical spatial/coordinate authority.
 - Oteryn-v2 ANL-02 is a candidate/nonbinding analytics contract that provides useful design evidence for versioned hunt/session, XP/profit and world/spawn analytics but is not promoted by this task to accepted Game authority.
 - Oteryn-v2 social presence baseline treats exact placement as non-public and privacy/consent controlled.
+- Draft PR #1139 exists from branch `docs/oteryn-20260817-dynamic-semantic-atlas` and contains exactly the four owned paths at initial head `9094b5b1d11a2f9563c7f9e26b14773735dcc1a7`.
 
 ### DERIVED
 
@@ -92,11 +93,11 @@ No existing open Atlas PR or active task owned these paths at preflight. Open PR
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-17T21:50:00Z
-head: fcafc20bc9705ca92256fdddc7433bcc3d191c40
+updated_at: 2026-08-17T21:57:00Z
+head: 9094b5b1d11a2f9563c7f9e26b14773735dcc1a7
 branch: docs/oteryn-20260817-dynamic-semantic-atlas
-pr: none
-status: implementing
+pr: 1139
+status: validating
 context_routes:
   - architecture
   - agent-governance
@@ -107,11 +108,12 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260817-dynamic-semantic-atlas-project.md
 proven:
   - Platform main preflight is fcafc20bc9705ca92256fdddc7433bcc3d191c40
-  - no active task or open PR owns the Dynamic Atlas target paths
+  - no active task or open PR owned the Dynamic Atlas target paths before task creation
   - ADR 0041 preserves Game canonical authority and derived independent Atlas ownership
   - PlayerCompanion owns hunt guidance progress tracking and personalized recommendations
   - Oteryn-v2 main evidence is pinned at 5577f6fc7c1f7ddef482f0f7b08039047704e36b
   - Oteryn-v2 physical-profile evidence keeps serializer chunk size and coordinate details evidence-gated
+  - PR 1139 exists and initial changed-file set is exactly the four owned documentation paths
 derived:
   - one semantic Atlas foundation can support static map knowledge personalized hunt planning and later authorized live overlays without becoming gameplay authority
 unknown:
@@ -133,18 +135,18 @@ changed_paths:
   - docs/maps/oteryn-dynamic-semantic-atlas-execution-prompt.md
   - docs/agents/tasks/active/OTERYN-20260817-dynamic-semantic-atlas-project.md
 validation:
-  - command: documentation/governance validation
+  - command: GitHub exact-head documentation/governance checks
     result: NOT_RUN
-    evidence: implementation commit not yet created
+    evidence: PR 1139 opened; current checkpoint commit will establish the validation head
   - command: exact-head full-diff self-review
     result: NOT_RUN
-    evidence: implementation commit not yet created
+    evidence: pending after checkpoint commit and changed-file verification
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: documentation architecture/programme/prompt task only; no executable product path changes
 blockers:
   - none
-next_action: create the documentation commit and open the draft PR for exact-head validation
+next_action: validate PR 1139 on the checkpoint-updated exact head and perform full-diff self-review
 ```
 
 ## Source branch closeout
