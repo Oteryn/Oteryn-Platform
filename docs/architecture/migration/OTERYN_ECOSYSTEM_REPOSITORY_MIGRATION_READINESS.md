@@ -65,16 +65,18 @@ Positive evidence:
 - `.github/repository-policy.json` contains no hard-coded repository coordinate;
 - `tools/repository/apply_github_settings.py` derives the repository from `GITHUB_REPOSITORY`;
 - `.github/workflows/repository-configuration.yml` is same-repository/dynamic;
-- `.github/workflows/merge-gate.yml` uses `${{ github.repository }}` for repository API calls;
-- the current workflow directory contains ordinary same-repository workflows; no `action.yml` path was found in the exact recursive tree;
+- `.github/workflows/merge-gate.yml` uses `${{ github.repository }}` for inspected repository API calls;
+- the current recursive tree contains no `action.yml` path;
 - `game-atlas-profile-spike.yml` checks out and runs only local paths.
+
+These are non-coordinate safety signals. They are deliberately not placed in A-G redirect classes because they do not themselves represent old repository coordinates that need redirect/cutover treatment.
 
 Remaining cutover gates:
 
 1. **External Actions/reusable workflows.** GitHub documents that Actions references to a renamed repository do not follow ordinary repository redirects. Repository-local inspection and connector code search did not prove every caller in every accessible/external repository. Any caller using `blakinio/Oteryn-v2/.github/workflows/...@...` or a repository-hosted action would need a cutover edit.
 2. **GHCR/packages.** The package endpoint returned `403 Resource not accessible by integration`; exact image/package names, links, workflow access and consumers are therefore UNKNOWN.
 3. **Open work.** At inspection, open draft PRs #314 and #317 exist in `Oteryn-v2`. A rename may preserve normal PR state, but active branches/checkpoints and any external automation must be revalidated immediately before cutover.
-4. **Brand/current-name cleanup.** `README.md` still presents `Oteryn v2`; cosmetic user-agent strings also contain `Oteryn-v2`. These are post-rename cleanup, not rename blockers.
+4. **Brand/current-name cleanup.** `README.md` still presents `Oteryn v2`; current-name presentation strings are post-rename cleanup, not rename blockers.
 
 Rollback condition: if the rename is later executed, do not reuse the old repository name while redirect-based rollback/compatibility is required.
 
@@ -97,7 +99,7 @@ Fresh evidence materially strengthens the need for selective extraction:
 
 Therefore `tools/otbm_atlas/**` cannot be copied wholesale and called complete. The extraction must distinguish Game-owned export/source authority, Atlas-owned transformation/index/render logic, deployment control, provenance-pinned inputs and generated artifacts. `build/**` remains generated output and must not be migrated as source.
 
-No Synology runner, tunnel, deployment, private state, DNS, production environment or secret was mutated by this wave.
+The active Synology path is an extraction/deployment blocker, not an A-G GitHub redirect classification. No Synology runner, tunnel, deployment, private state, DNS, production environment or secret was mutated by this wave.
 
 ## GitHub rename / transfer impact
 
@@ -109,19 +111,21 @@ The cutover plan therefore treats ordinary historical web/git references differe
 
 Canonical machine-readable inventory: `docs/architecture/migration/oteryn-repository-coordinate-inventory.json`.
 
-- **A — MUST_CHANGE_BEFORE_RENAME:** any proven executable dependency that cannot survive rename. None is declared fully proven/closed yet; unresolved external Actions/package evidence prevents GO.
-- **B — MUST_CHANGE_AT_CUTOVER:** external reusable-workflow/action callers if discovered; Atlas deployment/repository ownership coordinates when Atlas is physically extracted.
-- **C — MUST_CHANGE_AFTER_RENAME:** current branding such as `README.md` title and cosmetic `Oteryn-v2` user-agent strings.
-- **D — SAFE_VIA_GITHUB_REDIRECT_TEMPORARILY:** ordinary web/git links that GitHub explicitly redirects, provided the old name is not reused.
+- **A — MUST_CHANGE_BEFORE_RENAME:** no concrete A entry is proven in Wave 1. This does not imply none exist; G entries must be resolved first.
+- **B — MUST_CHANGE_AT_CUTOVER:** no concrete B entry is proven in Wave 1. Any discovered external reusable-workflow/action caller of the old Game coordinate becomes B.
+- **C — MUST_CHANGE_AFTER_RENAME:** current non-historical name/branding claims such as `README.md` after the physical rename.
+- **D — SAFE_VIA_GITHUB_REDIRECT_TEMPORARILY:** no concrete D entry is declared until an exact ordinary web/git reference is enumerated and proven redirect-safe.
 - **E — HISTORICAL_PROVENANCE_DO_NOT_REWRITE:** evidence, archived checkpoints and historical ADR/PR references whose old coordinate is part of provenance.
 - **F — LEGACY_REFERENCE_INTENTIONALLY_PRESERVE:** `blakinio/canary` and `blakinio/otclient` legacy/reference coordinates.
-- **G — UNKNOWN_REQUIRES_EVIDENCE:** GHCR/packages, exhaustive external Actions/reusable-workflow callers, future organization identity/permissions, and path-level Atlas dependency split.
+- **G — UNKNOWN_REQUIRES_EVIDENCE:** future organization/target-owner coordinates, GHCR/packages, exhaustive external Actions/reusable-workflow callers, current ordinary links before exhaustive classification, broader Platform current references, and the Atlas target coordinate.
+
+Dynamic same-repository workflow behavior, Releases state, Atlas generated/reference paths and Synology deployment facts are recorded separately as non-coordinate evidence rather than forced into A-G.
 
 ## CI / GHCR / release impact
 
 | Surface | Current evidence | Readiness |
 | --- | --- | --- |
-| Game repository-local CI/control plane | mostly dynamic via GitHub context/env; no observed self-hosted repo action | positive |
+| Game repository-local CI/control plane | mostly dynamic via GitHub context/env; no repository-hosted `action.yml` observed | positive |
 | external Actions/reusable callers | not exhaustively proven | **BLOCKER** |
 | Game GitHub Releases | no releases returned at inspected baseline | positive, refresh at cutover |
 | Game GHCR/packages | integration denied package inventory (403) | **BLOCKER** |
@@ -154,8 +158,8 @@ None requiring emergency rollback; no physical cutover was attempted.
 
 ### P2
 
-- rename-era branding and cosmetic user-agent cleanup;
-- redirect-safe ordinary links;
+- rename-era branding/current-name cleanup;
+- ordinary links that become class D only after exact enumeration and redirect-safety proof;
 - historical provenance references that should remain unchanged.
 
 ## Intentionally unchanged
