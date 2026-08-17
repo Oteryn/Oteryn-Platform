@@ -1,18 +1,37 @@
 # Execution Resource Hygiene
 
 ```yaml
-execution_resource_hygiene_policy_version: 2
+execution_resource_hygiene_policy_version: 3
 cleanup_default: required_when_no_longer_needed
 shared_host_cleanup_default: exact_ownership_only
 persistent_volume_default: preserve
 blanket_prune_default: forbidden
+execution_channel_discovery_before_blocker: required
+terminal_cleanup_report: required
 ```
 
 ## Purpose
 
-Temporary execution resources are task-owned lifecycle state, not disposable leftovers. Any agent that creates or controls containers, Compose projects, helper services, temporary deployments, networks, disposable volumes, images, runners, test databases, or equivalent scaffolding owns safe cleanup until the resource is intentionally handed off or proven durable.
+Temporary execution resources are task-owned lifecycle state, not disposable leftovers. Any agent that creates, starts, reuses, takes ownership of, or controls containers, Compose projects, helper services, temporary deployments, networks, disposable volumes, images, runners, test databases, worktrees, checkouts, temporary directories, temporary workflows, branches, Draft PRs, or equivalent scaffolding owns safe cleanup until the resource is intentionally handed off or proven durable.
 
 This policy controls resource lifecycle hygiene. It does not expand repository, deployment, production, credential, data, payment, live-capital, protected-environment, or external-system authority.
+
+## Execution-channel discovery before declaring cleanup blocked
+
+Lack of direct SSH or an interactive shell is not by itself evidence that cleanup cannot be performed.
+
+Before declaring access unavailable or cleanup blocked, inspect the execution mechanisms already authorized for the task and repository, including when applicable:
+
+- connected GitHub tools and repository actions;
+- existing GitHub Actions workflows;
+- current workflow runner labels and self-hosted runners;
+- repository-provided maintenance, inventory, hygiene, deployment, or cleanup workflows;
+- for Synology or another persistent host, existing workflows that execute on the matching self-hosted runner label;
+- a narrowly scoped temporary GitHub Actions workflow on the correct self-hosted runner when no existing safe operation can perform the required inventory or cleanup.
+
+A temporary workflow used only as an execution mechanism must remain within the task's existing authority. It must not create new production, secret, deployment, or cross-repository authority. It must use exact ownership-scoped operations, must be removed before terminal closeout, and any temporary execution branch or Draft PR created solely for that mechanism must also receive an intentional terminal disposition.
+
+Do not claim that a host or cleanup target is inaccessible until applicable connector, Actions, runner, and repository execution paths have actually been checked and any safe available path needed for the task has been attempted.
 
 ## Before creating a temporary resource
 
@@ -27,6 +46,35 @@ Establish enough non-secret identity to find the resource without guessing later
 Prefer unique task/run labels and isolated Compose project names for ephemeral work. Do not reuse a shared production/staging project name merely for convenience when an isolated task project is sufficient.
 
 If a resource may contain durable data, secrets, user data, game state, database state, backups, credentials, or reusable caches whose ownership is unclear, classify it as persistent until proven otherwise.
+
+## Inventory before cleanup
+
+Cleanup starts with read-only inspection. Do not begin destructive operations from names remembered from chat, a prior run, or an earlier inspection.
+
+Inventory task-owned or plausibly task-owned resources that may have survived the current or earlier phases of the same task, including as applicable:
+
+- Docker containers and helper/test/research containers;
+- Compose projects and services;
+- task-created networks;
+- disposable volumes whose ownership and non-durable nature can be proven;
+- task-specific images and build cache when ownership is unambiguous;
+- worktrees, checkouts, temporary directories, and generated execution scaffolding;
+- temporary workflows, execution branches, and Draft PRs created solely to perform the task or its cleanup.
+
+For every candidate considered for deletion, establish as much exact identity evidence as is safely available, such as:
+
+- exact resource name and resource/container ID;
+- labels and Compose project/service identity;
+- repository and task/workflow/run identity;
+- creation time;
+- current state;
+- image;
+- working/configuration path;
+- whether an active consumer still exists.
+
+If identity, state, ownership, or disposability changes between inspection and deletion, fail closed, re-inspect, and reassess the candidate before any destructive action.
+
+A resource left by an earlier phase of the same task may be cleaned only when current evidence is sufficient to prove the same task owns it and it is no longer required.
 
 ## Cleanup timing
 
@@ -56,7 +104,7 @@ The following are forbidden by default on shared hosts because they infer owners
 - `docker network prune`;
 - broad image pruning such as `docker image prune -a`;
 - force-removing unknown/running containers;
-- deleting resources only because they are stopped, old, dangling, or unfamiliar.
+- deleting resources only because they are stopped, old, dangling, unhealthy, currently unused, or unfamiliar.
 
 Repository-owner authorization for a specific destructive cleanup can override this default only for the exact stated scope; it does not authorize unrelated resources.
 
@@ -70,9 +118,11 @@ Preserve by default:
 - shared networks;
 - canonical staging/production services;
 - self-hosted runner infrastructure;
+- Home Assistant and home/network infrastructure;
 - secrets/configuration stores;
 - images still referenced by retained services or rollback state;
-- resources belonging to another Compose project, repository, task, or application.
+- resources belonging to another Compose project, repository, task, or application;
+- any resource whose ownership or disposability remains `UNKNOWN`.
 
 Before deleting any persistent/named volume, durable bind-mount content, shared network, or rollback image, require explicit scope and evidence of ownership, disposability, and required backup/rollback handling.
 
@@ -139,7 +189,14 @@ Record only sanitized operational evidence. Useful evidence includes:
 - running/stopped state;
 - cleanup command category and result;
 - post-cleanup absence;
-- health of required retained services.
+- health of required retained services;
+- workflow run/job/log identifiers when Actions performed the cleanup.
+
+After every destructive cleanup operation, re-inspect and prove all of the following:
+
+1. the exact intended resource is absent;
+2. resources that were explicitly outside task ownership still exist or remain healthy when their state was part of the safety check;
+3. the task did not leave a new temporary workflow, branch, Draft PR, worktree, directory, container, network, or other execution artifact behind merely to perform cleanup.
 
 Never publish environment variables, secrets, credentials, database contents, private keys, tokens, full Docker inspect output, or sensitive mounted-file contents merely to prove cleanup.
 
@@ -148,6 +205,7 @@ Never publish environment variables, secrets, credentials, database contents, pr
 If required cleanup cannot be completed because access, permissions, connectivity, environment protection, ownership, or safety classification is unresolved:
 
 - do not silently abandon the resource;
+- exhaust the applicable authorized GitHub connector, Actions, self-hosted runner, and repository-provided execution paths before treating lack of direct shell/SSH as the blocker;
 - record each exact remaining resource or the smallest safe identifying predicate;
 - record why removal is unsafe/unavailable;
 - record the observed state and last verification time;
@@ -155,6 +213,20 @@ If required cleanup cannot be completed because access, permissions, connectivit
 - use `blocked` or `waiting` when cleanup is the remaining terminal requirement.
 
 Do not return `DONE` while an unintended task-owned ephemeral resource remains and the task still owns its cleanup.
+
+## Terminal cleanup report
+
+A task that created, reused, took ownership of, or was instructed to clean execution resources must include a compact cleanup closeout in its terminal report. Do not declare `DONE` until the cleanup state has been reverified.
+
+Use these fields:
+
+- `REMOVED` — exact resources removed, or `none` when verified that no task-owned removal was required;
+- `KEPT` — similar or nearby resources intentionally preserved, with the ownership/safety reason;
+- `VERIFIED` — the exact evidence used to prove cleanup, such as resource IDs, workflow run/job/log identifiers, post-cleanup inventory, or runner-managed teardown evidence;
+- `REMAINING` — only unresolved resources that could not safely be classified or removed;
+- `BLOCKER` — only a real blocker that remains after applicable authorized execution paths were exhausted.
+
+Do not infer cleanup from workflow completion alone when the workflow touched a persistent/self-hosted/external host. Do not report a resource as removed without post-cleanup evidence.
 
 ## Synology / Oteryn staging specialization
 
