@@ -10,7 +10,8 @@ on:
 jobs:
   inspect:
     if: github.event_name == 'workflow_dispatch' || github.head_ref == 'ops/synology-docker-cleanup'
-    runs-on: self-hosted
+    runs-on: oteryn-staging
+    timeout-minutes: 10
     steps:
       - name: Inspect Docker containers only
         shell: bash
