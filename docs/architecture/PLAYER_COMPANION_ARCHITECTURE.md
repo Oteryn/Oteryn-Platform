@@ -4,7 +4,7 @@
 
 **CURRENT — accepted architecture boundary.**
 
-Accepted by ADR 0025. This document owns the focused architecture for player calculators, planning, hunt guidance, session analysis, progression tracking and personalized recommendations inside Oteryn Platform.
+Accepted by ADR 0025 and extended by ADR 0042 for explicitly non-authoritative reference inputs. This document owns the focused architecture for player calculators, planning, hunt guidance, session analysis, progression tracking and personalized recommendations inside Oteryn Platform.
 
 It defines ownership and future delivery constraints. It does not claim that any listed `PLANNED` capability is implemented or production-activated.
 
@@ -26,7 +26,7 @@ It is a bounded application/domain module inside the existing Laravel modular mo
 ## Product principles
 
 1. **Useful before clever** — prioritize common player decisions over speculative AI features.
-2. **Versioned truth** — every formula and recommendation is bound to explicit ruleset/catalog evidence.
+2. **Versioned evidence** — every formula and recommendation is bound to explicit authoritative ruleset/catalog evidence or to an explicitly non-authoritative reference snapshot whose limitations are preserved.
 3. **No hidden assumptions** — unknown or stale data is visible and may disable a calculation.
 4. **Facts differ from advice** — deterministic results, simulations and recommendations are labelled separately.
 5. **Private by default** — character plans, tracking preferences and session logs are not public unless the owner deliberately shares a bounded representation.
@@ -38,9 +38,12 @@ It is a bounded application/domain module inside the existing Laravel modular mo
 
 ```text
 GameCatalog ----------------------+
-  entities, relations, formulas,  |
-  ruleset and snapshot metadata   |
-                                  v
+  authoritative/versioned facts, |
+  relations, formulas, rulesets   |
+                                  |
+ReferenceContent -----------------+  NON_AUTHORITATIVE_REFERENCE only
+  pinned reference facts,         |
+  provenance and limitations      v
 Wiki ----------------------> PlayerCompanion <---------------- PublicGameData
   explanations, guides,       |   |   |                         public/authorized
   editorial recommendations   |   |   |                         character/world views
@@ -54,6 +57,8 @@ GameAnalytics --------------------+   +------------------------- LiveOps
                       Web UI / future PlatformAPI
                       / approved client consumers
 ```
+
+`ReferenceContent` is never an authority fallback for `GameCatalog`. It is an opt-in evidence source governed by ADR 0042 and `NON_NATIVE_REFERENCE_CONTENT_CONTRACT.md`.
 
 ## Module ownership
 
@@ -69,11 +74,12 @@ GameAnalytics --------------------+   +------------------------- LiveOps
 - owner-private tracked-entity/routine/subscription preferences and derived change/progress signals;
 - recommendation orchestration and explanation metadata;
 - user preferences specific to companion workflows;
-- calculator/recommendation/tracking freshness and compatibility presentation.
+- calculator/recommendation/tracking freshness, evidence-authority and compatibility presentation.
 
 ### Must not own
 
 - canonical item, creature, spell, vocation, quest, NPC, achievement or ruleset definitions;
+- `ReferenceContent` source snapshots, extractor/provenance authority or raw source archives merely because a tool consumes them;
 - arbitrary editorial articles or Wiki publication lifecycle;
 - raw Canary schema access from UI/controllers;
 - game-runtime mutations;
@@ -108,7 +114,8 @@ Rules:
 - formula version and source snapshot are stored with persisted results;
 - output declares units, rounding and precision;
 - incompatible ruleset data fails closed;
-- currency inputs distinguish configured NPC price, observed market price and user override.
+- currency inputs distinguish configured NPC price, observed market price and user override;
+- a material gameplay parameter supported only by `NON_AUTHORITATIVE_REFERENCE` evidence cannot be presented as current authoritative deterministic Oteryn truth; obtain authoritative evidence or downgrade the workflow to an explicitly limited simulation/reference/recommendation.
 
 ### `BuildPlanner`
 
@@ -122,7 +129,9 @@ Candidate tools:
 - build comparison;
 - shareable builds.
 
-A build reference stores stable IDs and versions rather than copied display text. Rendering resolves current localized names through `GameCatalog` while preserving the originally pinned snapshot for reproducibility.
+An authoritative build reference stores stable IDs and versions rather than copied display text. Rendering resolves current localized names through `GameCatalog` while preserving the originally pinned snapshot for reproducibility.
+
+A reference-only planning workspace may additionally retain `ReferenceContent` source-local identities, but those identities cannot be serialized or displayed as native IDs unless an independently verified authority crosswalk supplies the native identity. Such a workspace remains visibly reference-scoped until reconciled.
 
 ### `HuntAdvisor`
 
@@ -142,9 +151,10 @@ Hunt rankings may combine:
 - deterministic eligibility;
 - editorial recommendations;
 - measured Game Analytics aggregates;
-- user preferences.
+- user preferences;
+- explicitly labelled non-authoritative reference evidence where the selected slice permits it.
 
-The UI must explain which inputs affected ranking and must not present a sparse or biased sample as universal truth.
+The UI must explain which inputs affected ranking and must not present a sparse, biased or reference-only sample as universal/current truth.
 
 ### `SessionAnalysis`
 
@@ -181,7 +191,7 @@ Completion state may be:
 - manually confirmed by the player;
 - inferred with a visible confidence label.
 
-Inferred state must never silently become authoritative game state.
+Inferred state must never silently become authoritative game state. Reference-only quest/access/bestiary definitions may support planning candidates, but cannot establish that a character has access, completed a quest or that content is currently reachable.
 
 #### Tracking, routines and change signals
 
@@ -198,10 +208,11 @@ Candidate tracked subjects include only explicitly supported identifiers/facts, 
 Rules:
 
 - follow/subscription preference is Platform-owned owner-private state by default;
-- the source fact remains owned by `PublicGameData`, `LiveOps`, `GameAnalytics`, `GameCatalog` or another accepted producer;
+- the source fact remains owned by `PublicGameData`, `LiveOps`, `GameAnalytics`, `GameCatalog`, `ReferenceContent` or another accepted producer boundary;
 - `Notifications` owns delivery attempts/channels only; it does not decide what is tracked, whether a source changed or whether a threshold was crossed;
 - a signal records source identity/revision, observation/freshness and the comparison/threshold rule that produced it;
 - missing/stale source evidence never becomes a false “no change”, “offline”, “completed” or reset signal;
+- `ReferenceContent` cannot produce authoritative current-world change signals because it has no runtime observation authority;
 - refresh/poll cadence is bounded and source-aware rather than one unbounded per-user loop;
 - tracking cannot bypass privacy or expose fields that the underlying public/authorized projection would hide;
 - public stalking graphs, “who follows whom” and social comparison are not implied;
@@ -242,9 +253,12 @@ Each recommendation records:
 
 ```text
 recommendation_type
-basis: editorial | deterministic | analytics | personalized
+basis: editorial | deterministic | analytics | personalized | reference
+game_profile
 ruleset_version
-catalog_snapshot
+catalog_snapshot or null
+reference_snapshot_id or null
+source_evidence_class
 input_summary
 confidence
 freshness
@@ -252,15 +266,15 @@ explanation_key
 limitations
 ```
 
-Generative AI may later help explain results, but it must not invent formulas, game entities, account state or unsupported recommendations. Deterministic and retrieved evidence remains authoritative.
+Generative AI may later help explain results, but it must not invent formulas, game entities, account state or unsupported recommendations. Deterministic and retrieved evidence remains authoritative within its own source class; `NON_AUTHORITATIVE_REFERENCE` evidence never upgrades itself into authoritative game truth.
 
 ## Result classification
 
-Every output is one of:
+Every calculation/advice output remains one of:
 
 ### `DETERMINISTIC`
 
-A reproducible result computed from pinned rules and exact inputs.
+A reproducible result computed from pinned **authoritative** rules and exact inputs when presented as current Oteryn gameplay truth.
 
 Examples:
 
@@ -268,6 +282,8 @@ Examples:
 - shared-experience eligibility;
 - configured imbuement cost;
 - expected training duration under an accepted formula.
+
+A reproducible computation over reference-only gameplay parameters is not sufficient for this current-authoritative claim; it must be presented as a bounded reference/simulation workflow unless independently re-grounded in authoritative evidence.
 
 ### `SIMULATION`
 
@@ -277,11 +293,12 @@ Examples:
 
 - forge expected cost;
 - survivability range;
-- projected time to complete a bestiary set.
+- projected time to complete a bestiary set;
+- a what-if computation using a pinned `ReferenceContent` snapshot whose Oteryn applicability is unknown.
 
 ### `RECOMMENDATION`
 
-Advice that depends on priorities, editorial judgement, measured data or personalization.
+Advice that depends on priorities, editorial judgement, measured data, personalization or explicitly limited reference evidence.
 
 Examples:
 
@@ -293,6 +310,12 @@ The UI must not visually collapse these classifications into one certainty level
 
 A tracked-source `SIGNAL` is not a fourth certainty class for calculations. It is a state-change/threshold observation over an already classified source. The UI must show its source and freshness and must not present an inferred signal as authoritative game state.
 
+### Source-evidence authority is a separate dimension
+
+Result certainty and source authority are orthogonal. A persisted/displayed result records an evidence class such as authoritative catalog/observed source, editorial/analytics evidence or `NON_AUTHORITATIVE_REFERENCE` where applicable.
+
+When `NON_AUTHORITATIVE_REFERENCE` materially influences the result, the UI and serialized representation retain the exact `reference_snapshot_id`, profile/fact-family scope, assumptions and limitations. Hiding that dimension is a contract violation.
+
 ## Version and applicability contract
 
 Every persisted plan, calculation or recommendation carries applicable dimensions:
@@ -300,7 +323,9 @@ Every persisted plan, calculation or recommendation carries applicable dimension
 ```text
 game_profile
 ruleset_version
-catalog_snapshot_id
+catalog_snapshot_id or null
+reference_snapshot_id or null
+source_evidence_class
 world_id or null
 season_id or null
 effective_from
@@ -313,13 +338,15 @@ Tracked routines/signals additionally retain the relevant source revision/observ
 
 Supported source statuses:
 
-- `CURRENT` — compatible with the active ruleset and required sources;
+- `CURRENT` — compatible with the active ruleset and required authoritative sources;
 - `STALE` — previously valid but superseded or beyond its freshness policy;
 - `EXPERIMENTAL` — available with incomplete validation or intentionally limited evidence;
 - `DEPRECATED` — retained for historical reproducibility but unavailable for new plans;
 - `UNAVAILABLE` — required source missing or incompatible.
 
-Ruleset activation must invalidate or reclassify affected cached outputs. Silent reuse of a prior-balance formula is forbidden.
+A reference snapshot whose applicability to current Oteryn is unproven cannot be labelled `CURRENT` merely because it is validated/reproducible. It normally remains `EXPERIMENTAL` or `UNAVAILABLE` for a consumer that requires authoritative current truth.
+
+Ruleset activation must invalidate or reclassify affected cached outputs. Silent reuse of a prior-balance formula or reference snapshot as current is forbidden.
 
 ## Data ownership
 
@@ -341,13 +368,14 @@ These records reference trusted Platform Identity and immutable ready account/ch
 
 ### External/read data
 
-- `GameCatalog` owns game entities, relations, rules and source snapshots;
+- `GameCatalog` owns authoritative/compatibility game entities, relations, rules and source snapshots within its accepted contracts;
+- `ReferenceContent` owns provenance-pinned `NON_AUTHORITATIVE_REFERENCE` snapshots, source-local identity, extraction/review state and bounded reference projections under ADR 0042;
 - `Wiki` owns editorial explanation and guide publication;
 - `PublicGameData` owns public and contract-approved character/world projections;
 - `GameAnalytics` owns measured aggregate evidence and confidence;
 - `LiveOps` owns current operational schedules/runtime-state projections.
 
-PlayerCompanion consumes bounded application interfaces or versioned projections. It must not bypass them with ad hoc raw table queries. Persisting a track/subscription does not copy source ownership into PlayerCompanion.
+PlayerCompanion consumes bounded application interfaces or versioned projections. It must not bypass them with ad hoc raw table queries or parse source archives directly. Persisting a track/subscription or plan does not copy source ownership into PlayerCompanion.
 
 ## Privacy and security
 
@@ -376,7 +404,7 @@ A shared build or summary must:
 - support revocation and expiry when linked to private persisted data;
 - avoid Platform Identity IDs, Canary account IDs, sessions, emails and raw logs;
 - be size-bounded and schema-validated when encoded in a URL;
-- declare its ruleset/catalog version;
+- declare its ruleset/catalog version and any material `ReferenceContent` snapshot/evidence class;
 - fail safely when referenced entities no longer exist or are incompatible.
 
 Tracking lists and alert destinations are not shareable merely because their underlying source data is public.
@@ -408,18 +436,19 @@ Formula implementations should be reusable domain services with:
 - stable calculator identifier;
 - semantic formula version;
 - typed input and output contracts;
-- supported game-profile/ruleset range;
+- supported game-profile/ruleset range or explicit reference-only applicability;
 - deterministic rounding policy;
-- source references;
+- source references and evidence class;
 - fixtures and boundary cases;
 - migration/reclassification rules for saved calculations;
 - optional client-safe representation only when exact parity can be proven.
 
-Do not duplicate business formulas independently in Blade templates, browser JavaScript, Platform API and the Rust client. Interactive frontends may preview results, but the server remains the authoritative calculator unless a separately versioned shared library and parity contract is adopted.
+Do not duplicate business formulas independently in Blade templates, browser JavaScript, Platform API and the Rust client. Interactive frontends may preview results, but the server remains the authoritative calculator implementation for accepted formulas unless a separately versioned shared library and parity contract is adopted. A reference-only input never changes the source-authority label of the underlying gameplay fact.
 
 ## Cache and freshness
 
 - immutable catalog snapshots may be cached by snapshot identity;
+- immutable reference snapshots may be cached only by exact reference snapshot identity and never behind an authority-bearing active-profile alias;
 - active ruleset aliases require deterministic invalidation;
 - LiveOps/runtime state keeps its own short freshness boundary and must not inherit long page-cache TTLs;
 - Game Analytics aggregates declare observation window and sample size;
@@ -447,7 +476,8 @@ A tool declares whether it is:
 - world-specific because prices, PvP type or availability differ;
 - season-specific because progression or systems reset;
 - character-specific;
-- party-specific.
+- party-specific;
+- reference-only with current Oteryn applicability explicitly unknown where the source cannot prove it.
 
 The initial product may expose only one world, but schemas, cache keys, URLs and saved plans must not rely on an irreversible single-world assumption.
 
@@ -465,7 +495,7 @@ Candidate API capabilities:
 - read/update owner tracking/routine preferences and current bounded signal summaries where adopted;
 - resolve shareable builds;
 - fetch compatible recommendation summaries;
-- receive version/freshness metadata.
+- receive version/freshness/evidence-authority metadata.
 
 Requirements:
 
@@ -475,6 +505,7 @@ Requirements:
 - no raw database model serialization;
 - no formula duplication;
 - explicit compatibility with client/game profile;
+- explicit `NON_AUTHORITATIVE_REFERENCE` provenance where applicable;
 - graceful unsupported-version behavior.
 
 ## Observability
@@ -483,6 +514,7 @@ Record bounded metrics for:
 
 - calculator success/failure and latency by calculator ID/version;
 - stale/incompatible source rejection;
+- reference-source admission/rejection by bounded source/fact-family class, never raw paths as labels;
 - parser failure class without raw input;
 - recommendation source availability;
 - tracked-signal evaluation/delivery handoff outcomes without tracked IDs as unbounded labels;
@@ -491,7 +523,7 @@ Record bounded metrics for:
 - expensive simulation limits;
 - dependency failure and recovery.
 
-Never log credentials, session identifiers, raw session logs, complete private build contents, private tracking lists/notification destinations, private cache keys containing raw principal identifiers, or unredacted party data.
+Never log credentials, session identifiers, raw session logs, complete private build contents, private tracking lists/notification destinations, private cache keys containing raw principal identifiers, raw reference archive contents/host paths, or unredacted party data.
 
 ## Delivery priorities
 
@@ -499,7 +531,7 @@ Never log credentials, session identifiers, raw session logs, complete private b
 
 1. Loot Split and private Session Analyzer.
 2. Hunt Finder with versioned eligibility and editorial evidence.
-3. Equipment Explorer/Comparison using Game Catalog.
+3. Equipment Explorer/Comparison using authoritative Game Catalog when available, with a separately labelled reference-only mode only under ADR 0042.
 4. Character Build Planner.
 5. Charm/Perk/Proficiency Planner.
 6. Quest and Access Tracker.
@@ -528,23 +560,23 @@ Never log credentials, session identifiers, raw session logs, complete private b
 6. Community contribution workflows, including community-submitted hunt evidence.
 7. Public/social tracking graphs or comparisons.
 
-P2 capabilities require separate architecture, content provenance, moderation, privacy and operational decisions where applicable. Community-submitted hunt evidence must never silently mix with authoritative or private-session facts; any aggregate requires explicit provenance, observation window, sample size/confidence and anti-manipulation policy.
+P2 capabilities require separate architecture, content provenance, moderation, privacy and operational decisions where applicable. Community-submitted hunt evidence must never silently mix with authoritative, reference-only or private-session facts; any aggregate requires explicit provenance, observation window, sample size/confidence and anti-manipulation policy.
 
 ## Vertical-slice implementation rule
 
 Each capability must ship as a bounded complete slice:
 
-1. accepted input/output and source contract;
+1. accepted input/output and source contract, including evidence-authority class;
 2. persistence only when required;
 3. domain implementation;
 4. authorization, validation and abuse limits;
 5. real reachable UI;
-6. current/stale/unavailable/invalid/empty states;
+6. current/stale/unavailable/invalid/empty/reference-only states as applicable;
 7. localization;
 8. responsive and accessible behavior;
 9. focused and integration tests;
 10. real E2E on the exact head;
-11. version/freshness evidence;
+11. version/freshness/provenance evidence;
 12. documentation and module-catalog update.
 
 A formula library, endpoint or dormant view alone is not a delivered player tool.
@@ -559,19 +591,20 @@ A formula library, endpoint or dormant view alone is not a delivered player tool
 - public stalking/social graphs as an implication of private tracking;
 - financial settlement or bank transfer execution;
 - unversioned formulas;
-- claiming an editorial recommendation is objectively optimal;
+- hiding `NON_AUTHORITATIVE_REFERENCE` provenance or treating reference data as an authority fallback;
+- claiming an editorial or reference-backed recommendation is objectively current/optimal without the required evidence;
 - microservice extraction without measured need.
 
 ## Completion criteria for the architecture programme
 
-The PlayerCompanion architecture is defined by this document and ADR 0025. Product delivery remains incomplete until the owner-approved capability inventory has an explicit implementation/defer/reject disposition and each implemented slice passes repository delivery gates.
+The PlayerCompanion architecture is defined by this document and ADR 0025, with ADR 0042 governing non-native reference inputs. Product delivery remains incomplete until the owner-approved capability inventory has an explicit implementation/defer/reject disposition and each implemented slice passes repository delivery gates.
 
 A later architecture review may consider the boundary mature when:
 
 - P0 scope is explicitly selected;
-- required Game Catalog entities/formulas and source inventories exist;
+- required authoritative Game Catalog entities/formulas and accepted reference inventories exist for the exact selected modes;
 - privacy/retention policy is accepted, including tracking/subscription and private representation/cache semantics when adopted;
-- first vertical slices prove the boundary works without domain duplication;
+- first vertical slices prove the boundary works without domain duplication or authority confusion;
 - API/client reuse is tested where adopted;
 - version transition behavior is exercised across at least one ruleset change;
 - Game Analytics recommendations, if enabled, declare evidence and confidence.
