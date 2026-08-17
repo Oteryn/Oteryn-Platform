@@ -25,13 +25,13 @@ Persist the owner-requested high-reasoning Oteryn ecosystem repository-migration
 
 - [x] Fresh protected `main` and prompt/governance contracts were read before mutation.
 - [x] No open PR or active task was found owning the new prompt/short-command routing scope.
-- [ ] `docs/agents/prompts/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_PROGRAM.md` contains the complete bounded role, live-state, migration, safety, validation and final-response contract.
-- [ ] `docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md` gives the alias a durable live-state entry point without caching transient SHAs as authority.
-- [ ] `docs/agents/SHORT_PROGRAM_INVOCATIONS.md` registers `OTERYN-REPO-MIGRATION` and its canonical prompt/programme state.
-- [ ] The prompt evaluation matrix records positive, negative, boundary, stale-state, injection, authority, Atlas-extraction and owner-funded-AI cases and explicitly does not claim automated model evaluation.
-- [ ] Final changed paths are limited to the five declared documentation/governance paths.
+- [x] `docs/agents/prompts/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_PROGRAM.md` contains the complete bounded role, live-state, migration, safety, validation and final-response contract.
+- [x] `docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md` gives the alias a durable live-state entry point without caching transient SHAs as authority.
+- [x] `docs/agents/SHORT_PROGRAM_INVOCATIONS.md` registers `OTERYN-REPO-MIGRATION` and its canonical prompt/programme state.
+- [x] The prompt evaluation matrix records positive, negative, boundary, stale-state, injection, authority, Atlas-extraction and owner-funded-AI cases and explicitly does not claim automated model evaluation.
+- [x] Final changed paths are limited to the five declared documentation/governance paths.
 - [ ] Exact-head documentation/governance CI and whole-diff self-review pass before merge eligibility.
-- [ ] No Draft->Ready transition or other action consumes owner-funded Codex/OpenAI quota without exact separate authorization.
+- [x] No Draft->Ready transition or other action consumes owner-funded Codex/OpenAI quota without exact separate authorization.
 
 ## Ownership
 
@@ -58,11 +58,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-17T08:55:00Z
+updated_at: 2026-08-17T09:04:00Z
 head: UNKNOWN
 branch: docs/oteryn-ecosystem-repository-migration-prompt
-pr: none
-status: implementing
+pr: 1124
+status: validating
 context_routes:
   - agent-governance
 owned_paths:
@@ -76,30 +76,41 @@ proven:
   - Root AGENTS forbids owner-funded AI without exact use authorization and requires substantial work to use a task branch and task record.
   - PROMPTING_STANDARD v2.1 requires substantial autonomous prompts to declare run scope, live-state/trust, scope, acceptance, execution, outcome verification, closeout and stop conditions.
   - PROMPT_EVAL_STANDARD permits a documented manual scenario matrix when executable prompt-eval infrastructure is unavailable, but it must not be described as automated proof.
-  - No active task record owns prompt/short-command routing paths at admission.
+  - No active task record owned prompt/short-command routing paths at admission.
   - No open PR matching docs/agents/prompts or SHORT_PROGRAM_INVOCATIONS.md was found at admission.
+  - Draft PR 1124 owns exactly the five declared documentation/governance paths.
+  - Exact-head Agent Governance run 32013184009 failed only because the first checkpoint omitted the newly created PR identity; all earlier checkpoint, policy-consistency and prompt-contract validation steps in that job passed.
 derived:
   - OTERYN-REPO-MIGRATION is a sufficiently short unique owner alias while the full programme ID remains OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.
 unknown:
-  - Final exact branch head and PR number until the coherent documentation commit and Draft PR are created.
-  - Whether repository automatic Codex review remains enabled at final Ready transition; no such transition is authorized by this task.
+  - Final exact branch head after this checkpoint-only repair and its fresh CI result.
+  - Whether repository automatic Codex review remains enabled at any future Ready transition; no such transition is authorized by this task.
 conflicts: []
 first_failure:
-  marker: premature-pr-create
-  evidence: Two initial PR-create attempts against a not-yet-created branch returned GitHub 422 invalid head and made no repository change; branch creation then succeeded normally.
+  marker: branch_pr_identity_omitted
+  evidence: Agent Governance run 32013184009 job 95336962038 reported that the claimed branch already had Draft PR 1124 and the task had to record that PR identity.
 rejected_hypotheses:
   - Direct main write was rejected because root AGENTS requires the task-branch/PR workflow after bootstrap.
-changed_paths: []
+  - The first Agent Governance failure was not a prompt-policy failure; the policy-consistency suite and prompt-contract suite both passed before live task liveness rejected the omitted PR identity.
+changed_paths:
+  - docs/agents/prompts/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_PROGRAM.md
+  - docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md
+  - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
+  - docs/agents/evidence/OTERYN-20260817-ecosystem-repository-migration-prompt-eval.md
+  - docs/agents/tasks/active/OTERYN-20260817-ecosystem-repository-migration-prompt.md
 validation:
   - command: repository path/ownership preflight
     result: PASS
     evidence: live main, AGENTS, routing, prompt standard, prompt eval standard, active tasks and open PR overlap were inspected
+  - command: Agent Governance run 32013184009 pre-liveness checks
+    result: PASS
+    evidence: checkpoint tests, source-branch tests, liveness tests, Control Room tests, policy-consistency tests, prompt evaluator tests, prompt contract suite and checkpoint schema validation all passed before the live PR-identity failure
   - command: runtime/component/browser E2E
     result: NOT_APPLICABLE
     evidence: prompt/programme/task/registry documentation only; no executable product/runtime behaviour changes
 blockers:
   - none
-next_action: Create one coherent five-path documentation commit, open a Draft PR, then inspect exact-head CI and whole diff without triggering owner-funded AI review.
+next_action: Verify fresh exact-head Agent Governance and CI after the PR-identity checkpoint repair, then perform whole-diff self-review without triggering a Ready transition.
 ```
 
 ## Source branch closeout
