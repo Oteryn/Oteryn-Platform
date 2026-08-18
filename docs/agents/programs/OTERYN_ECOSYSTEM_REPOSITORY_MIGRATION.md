@@ -21,7 +21,7 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-18T11:34:00Z
+updated_at: 2026-08-18T12:47:00Z
 status: ready
 active_task: null
 issue: null
@@ -193,12 +193,52 @@ platform_transfer_readiness_evidence:
   verdict: PREPARED_NOT_READY
   target_collision: false
   physical_transfer_performed: false
-  pre_cutover_blockers:
-    - owner-scoped GHCR publish/deploy/preflight references require owner-neutral hardening
-    - repository-level Synology runner coordinate requires pre-transfer configurability and post-transfer live verification
-    - live GHCR package objects permissions and repository links remain unobserved
-    - connected GitHub action surface exposes no repository-transfer operation
-  next_transaction: owner-neutral Platform GHCR/package and Synology runner coordinate hardening
+
+platform_owner_neutral_hardening_evidence:
+  source_repository: blakinio/Oteryn-Platform
+  target_repository: Oteryn/Oteryn-Platform
+  implementation_pr: 1153
+  final_head: 43f7649b32eefc50e8e8bdc669d44bf4e5de7338
+  merge: 6a3b92cae0099b36d4b58048657fbfa8aea7b9bf
+  final_agent_governance_run: 32137944890
+  final_ci_run: 32137944800
+  required_checks:
+    - classify-changes
+    - test
+  affected_workflow_runs:
+    character_bazaar: 32137944744
+    liquid20: 32137944776
+    synology_rollback: 32137944930
+    synology_preflight: 32137944818
+    synology_image_build: 32137944703
+    edge_security: 32137944714
+    platform_db_outage: 32137944713
+    phase7: 32137944771
+    game_auth_concurrency: 32137944724
+  reviews: 0
+  inline_threads: 0
+  comments: 0
+  source_branch_deleted: true
+  runtime_e2e: NOT_APPLICABLE
+  package_publication_performed: false
+  runner_registration_performed: false
+  staging_or_production_operation_performed: false
+  physical_transfer_performed: false
+  repository_hardening:
+    owner_neutral_ghcr: PASS
+    owner_neutral_runner_configuration: PASS
+    owner_neutral_runtime_preflight: PASS
+    character_bazaar_platform_images: PASS
+    liquid20_platform_package: PASS
+    automatic_live_side_effect_guard: PASS
+    adr_cross_repository_successor_validation: PASS
+  remaining_cutover_evidence:
+    - live GHCR package object ownership permissions and repository links
+    - existing repository-level Synology runner attachment behavior after owner transfer
+    - target organization branch/ruleset result after transfer
+    - transfer-capable GitHub mutation surface
+  verdict: PREPARED_NOT_READY
+  archived_task: docs/agents/tasks/archive/OTERYN-20260818-platform-transfer-owner-neutral-hardening.md
 
 observed_target_coordinates:
   Oteryn:
@@ -217,8 +257,9 @@ observed_target_coordinates:
   Oteryn-Platform:
     target_repository: Oteryn/Oteryn-Platform
     current_repository: blakinio/Oteryn-Platform
-    state: PENDING_PRE_CUTOVER_HARDENING
+    state: PENDING_LIVE_CUTOVER_EVIDENCE
     readiness_merge: b39f8ac31e17f0edb07827c178140867a7e5c04f
+    owner_neutral_hardening_merge: 6a3b92cae0099b36d4b58048657fbfa8aea7b9bf
   Oteryn-Game:
     target_repository: Oteryn/Oteryn-Game
     current_repository: blakinio/Oteryn-v2
@@ -297,16 +338,18 @@ proven:
   - META main protection remains truthfully pending because the connected GitHub action surface cannot mutate branch protection or rulesets; Issue 3 tracks the exact administrative follow-up.
   - Platform PR 1147 exact final head f8d0ee8cbaa6678184e33fbd83a9265e27d7f105 passed Agent Governance 32117192282 and CI 32117192288, then squash-merged as bac880386e962224a730aac6952f1c3498e78200.
   - Platform ADR 0041 status-only reconciliation PR 1149 final head 351da55fe0c118725482dcb44b0d81599785f0c7 passed Agent Governance 32118404764 and CI 32118404842 and squash-merged as 77914c8c2fab016273ee32cb1df0799370206e80.
-  - Platform main ADR 0041 now records its exact canonical META successor while its historical Context and Decision content remains unchanged.
-  - Platform transfer-readiness PR 1151 exact final head 66e51536c42fd07a2d18d4643dcfce66d71bfe89 passed Agent Governance 32132111526 and CI 32132111609 with required classify-changes and test jobs successful, then squash-merged as b39f8ac31e17f0edb07827c178140867a7e5c04f.
-  - Platform main remains protected with required classify-changes and test after readiness merge b39f8ac31e17f0edb07827c178140867a7e5c04f; the implementation source branch was deleted.
-  - No server/game repository was accessed or mutated during the META CI or Platform transfer-readiness work in this invocation.
+  - Platform main ADR 0041 records its exact canonical META successor while its historical Context and Decision content remains unchanged.
+  - Platform transfer-readiness PR 1151 exact final head 66e51536c42fd07a2d18d4643dcfce66d71bfe89 passed Agent Governance 32132111526 and CI 32132111609, then squash-merged as b39f8ac31e17f0edb07827c178140867a7e5c04f.
+  - Platform owner-neutral hardening PR 1153 exact final head 43f7649b32eefc50e8e8bdc669d44bf4e5de7338 passed required and affected CI, had clean review hygiene and squash-merged as 6a3b92cae0099b36d4b58048657fbfa8aea7b9bf.
+  - Platform main remains protected with required classify-changes and test after hardening merge 6a3b92cae0099b36d4b58048657fbfa8aea7b9bf; the implementation source branch was deleted.
+  - No package publication runner registration staging/production repository transfer or server/game repository access/mutation occurred in the owner-neutral hardening task.
 
 derived:
   - The META create and authority-handoff transaction remains fully reconciled and terminal.
-  - Oteryn/Oteryn is the sole neutral ecosystem topology authority while provider repositories retain provider implementation/schema authority.
-  - Platform organization destination readiness is resolved, but physical transfer is not CUTOVER_READY until owner-neutral GHCR/package and runner-coordinate hardening is delivered and live package/runner state is revalidated.
-  - Game cutover and Atlas extraction remain independently fail-closed and are not made ready by META or Platform readiness completion.
+  - Oteryn/Oteryn is the neutral ecosystem topology authority while provider repositories retain provider implementation/schema authority.
+  - Platform repository-side owner-coordinate hardening is complete.
+  - Platform physical transfer is still not CUTOVER_READY because live GHCR package ownership/linkage and existing runner cutover behavior remain unobserved and the connected GitHub action surface cannot perform the transfer.
+  - Game cutover and Atlas extraction remain independently fail-closed and are not made ready by META or Platform preparation.
 
 unknown:
   - Live GHCR package objects, permissions and repository links for current Platform-owned images.
@@ -324,12 +367,12 @@ cleanup_debt:
   - Oteryn/Oteryn main remains unprotected after META CI bootstrap; Issue 3 records the exact required administrative protection settings.
 
 blockers:
-  - Platform physical transfer is blocked on owner-neutral GHCR/package and Synology runner coordinate hardening plus live package/runner cutover evidence.
-  - The current connected GitHub action surface cannot perform the physical repository transfer or configure META branch protection/rulesets.
+  - Platform physical transfer is blocked on live GHCR package ownership/linkage evidence, live self-hosted-runner cutover evidence and an authorized transfer-capable GitHub mutation surface.
+  - The current connected GitHub action surface cannot perform the physical Platform repository transfer or configure META branch protection/rulesets.
   - Game-specific package/caller evidence remains unresolved for any future Oteryn-v2/Oteryn-Game physical cutover and server/game access was not authorized in this invocation.
   - Atlas extraction remains separately coupled to source ownership/deployment evidence.
 
-next_action: Implement one bounded owner-neutral Platform GHCR/package and Synology runner coordinate-hardening task, then refresh the Platform transfer transaction from live source/package/runner state before any physical repository transfer.
+next_action: Resolve live Platform GHCR package ownership/linkage and repository-level Synology runner cutover evidence and obtain an authorized transfer-capable GitHub surface; only then refresh the Platform transaction for READY_TO_EXECUTE and perform the single physical transfer.
 ```
 
 ## Programme rules
@@ -338,6 +381,6 @@ next_action: Implement one bounded owner-neutral Platform GHCR/package and Synol
 - Do not cache transient main SHAs here as future authority.
 - Do not let Game- or Atlas-specific evidence gaps block unrelated repository migration work without a proven dependency.
 - Do not create empty target repositories merely to satisfy the target diagram.
-- META ADR 0001 now owns ecosystem topology authority; provider repositories retain provider implementation/schema authority.
+- META ADR 0001 owns ecosystem topology authority; provider repositories retain provider implementation/schema authority.
 - Every remaining physical migration step requires exact preflight, rollback and post-cutover verification.
 - Keep exactly one `next_action` while the programme is not terminal.

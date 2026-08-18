@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "transaction_id": "OTERYN-PLATFORM-TRANSFER-20260818",
-  "observed_at": "2026-08-18T11:24:34Z",
+  "observed_at": "2026-08-18T12:46:00Z",
   "source_repository": {
     "coordinate": "blakinio/Oteryn-Platform",
     "repository_id": 1305155726,
-    "main_sha": "132cc41d5c722911bdb4f3e30c200c5d8b47f1ec",
+    "main_sha": "6a3b92cae0099b36d4b58048657fbfa8aea7b9bf",
     "visibility": "public",
     "admin_access": true,
     "branch_protection": {
@@ -18,78 +18,121 @@
   },
   "target_repository": {
     "coordinate": "Oteryn/Oteryn-Platform",
-    "collision_observed": false,
+    "collision_observed_at_last_check": false,
+    "collision_must_refresh_before_mutation": true,
     "physical_transfer_performed": false
+  },
+  "hardening_delivery": {
+    "pull_request": 1153,
+    "final_head": "43f7649b32eefc50e8e8bdc669d44bf4e5de7338",
+    "merge": "6a3b92cae0099b36d4b58048657fbfa8aea7b9bf",
+    "result": "PASS_REPOSITORY_PRE_CUTOVER_HARDENING",
+    "package_publication_performed": false,
+    "runner_registration_performed": false,
+    "staging_or_production_operation_performed": false
   },
   "entries": [
     {
+      "path": "deploy/synology/scripts/repository-ghcr-image.sh",
+      "surface": "shared Platform-owned GHCR coordinate resolver",
+      "coordinate": "ghcr.io/<validated-lowercase-current-repository-owner>/<package>",
+      "classification": "PASS_PRE_CUTOVER_HARDENING",
+      "reason": "Platform-owned package consumers and publishers derive the package owner from repository context instead of embedding the personal source owner."
+    },
+    {
       "path": ".github/workflows/build-synology-staging-images.yml",
-      "surface": "GHCR publisher",
-      "coordinate": "ghcr.io/blakinio/{oteryn-platform,oteryn-game-gateway,oteryn-deploy-runner}",
-      "classification": "MUST_CHANGE_BEFORE_TRANSFER",
-      "reason": "GITHUB_TOKEN publication after owner transfer must not depend on personal-account package scope or old repository linkage."
+      "surface": "GHCR publisher and PR image validator",
+      "coordinate": "current repository owner via repository-ghcr-image.sh",
+      "classification": "PASS_REPOSITORY_HARDENING_LIVE_PACKAGE_EVIDENCE_PENDING",
+      "reason": "Platform, Gateway and deploy-runner image names are owner-neutral; privileged deploy-runner publication requires explicit workflow_dispatch and repository-only hardening no longer auto-publishes on main push."
     },
     {
       "path": ".github/workflows/deploy-synology-staging.yml",
-      "surface": "GHCR consumer/digest resolver",
-      "coordinate": "ghcr.io/blakinio/{oteryn-platform,oteryn-game-gateway}",
-      "classification": "MUST_CHANGE_BEFORE_TRANSFER",
-      "reason": "Deployment resolves exact tags/digests from the personal namespace and would not automatically follow a repository transfer."
+      "surface": "GHCR consumer and immutable digest resolver",
+      "coordinate": "current repository owner via repository-ghcr-image.sh",
+      "classification": "PASS_REPOSITORY_HARDENING_LIVE_PACKAGE_EVIDENCE_PENDING",
+      "reason": "Deployment resolves Platform/Gateway tags and digests from the current owner while preserving exact release SHA and OCI revision gates."
+    },
+    {
+      "path": ".github/workflows/character-bazaar-staging-control.yml",
+      "surface": "Platform/Gateway staging image consumer",
+      "coordinate": "current Platform repository owner; external Canary digest remains pinned",
+      "classification": "PASS_REPOSITORY_HARDENING_EXTERNAL_DEPENDENCY_PRESERVED",
+      "reason": "Platform-owned images follow the Platform repository owner; the external pinned Canary image remains historical/compatibility provenance rather than being rewritten."
+    },
+    {
+      "path": ".github/workflows/liquid20-synology-control.yml",
+      "surface": "Liquid20 GHCR publisher/consumer",
+      "coordinate": "current Platform repository owner for package; blakinio/freqtrade remains pinned external source",
+      "classification": "PASS_REPOSITORY_HARDENING_EXTERNAL_SOURCE_PRESERVED",
+      "reason": "The Platform-owned package follows the repository owner while the external Freqtrade source coordinate and exact revision remain unchanged."
     },
     {
       "path": "deploy/synology/scripts/production-target-preflight.sh",
       "surface": "runtime image provenance gate",
-      "coordinate": "ghcr.io/blakinio/{oteryn-platform,oteryn-game-gateway}@sha256:*",
-      "classification": "MUST_CHANGE_BEFORE_TRANSFER",
-      "reason": "The staging preflight hard-codes the old image owner and would reject organization-scoped immutable images."
+      "coordinate": "current Platform repository owner via repository-ghcr-image.sh @ sha256 digest",
+      "classification": "PASS_REPOSITORY_HARDENING_POST_TRANSFER_RUNTIME_EVIDENCE_REQUIRED",
+      "reason": "The preflight validates immutable Platform/Gateway image identities against the current owner and no longer rejects a legitimate organization-scoped package solely because ownership changed."
     },
     {
       "path": "tests/ci/test_synology_deploy_release_identity.py",
-      "surface": "CI contract for runtime image provenance",
-      "coordinate": "ghcr.io/blakinio/oteryn-platform",
-      "classification": "MUST_CHANGE_WITH_PROVIDER_GATE",
-      "reason": "The regression test intentionally binds the preflight to the old personal GHCR namespace and must move atomically with the preflight contract."
+      "surface": "CI contract for transfer-sensitive package/runner behavior",
+      "coordinate": "owner-neutral Platform package contract",
+      "classification": "PASS_REGRESSION_COVERAGE",
+      "reason": "Focused tests reject reintroduction of old Platform package/repository coordinates and verify merge-side-effect guards."
     },
     {
       "path": "deploy/synology/runner/compose.yml",
-      "surface": "repository-level self-hosted runner registration and runner image",
-      "coordinate": "https://github.com/blakinio/Oteryn-Platform; ghcr.io/blakinio/oteryn-deploy-runner:main",
-      "classification": "MUST_PREPARE_BEFORE_TRANSFER_AND_VERIFY_AT_CUTOVER",
-      "reason": "The Compose contract pins the old repository URL and old package namespace; live runner registration semantics after transfer remain to be observed."
+      "surface": "repository-level self-hosted runner image and registration contract",
+      "coordinate": "explicit RUNNER_IMAGE and RUNNER_URL",
+      "classification": "PASS_PRE_CUTOVER_PREPARATION_VERIFY_LIVE_AT_CUTOVER",
+      "reason": "No source repository URL or personal-owner deploy-runner image fallback remains; live runner attachment after transfer is still environment evidence."
     },
     {
       "path": "deploy/synology/runner/entrypoint.sh",
-      "surface": "self-hosted runner registration fallback",
-      "coordinate": "https://github.com/blakinio/Oteryn-Platform",
-      "classification": "MUST_PREPARE_BEFORE_TRANSFER_AND_VERIFY_AT_CUTOVER",
-      "reason": "New/replacement runner registration defaults to the old repository coordinate."
+      "surface": "self-hosted runner first-registration contract",
+      "coordinate": "explicit exact GitHub owner/repository URL when .runner is absent",
+      "classification": "PASS_PRE_CUTOVER_PREPARATION_VERIFY_LIVE_AT_CUTOVER",
+      "reason": "First registration fails closed without an exact RUNNER_URL while an existing persistent .runner registration remains restart-safe."
     },
     {
       "path": "deploy/synology/runner/.env.example",
-      "surface": "runner image setup default",
-      "coordinate": "ghcr.io/blakinio/oteryn-deploy-runner:main",
-      "classification": "MUST_CHANGE_AT_CUTOVER_OR_BE_EXPLICITLY_OVERRIDDEN",
-      "reason": "New runner setup would pull the old personal package namespace."
+      "surface": "runner setup contract",
+      "coordinate": "explicit lowercase owner and repository URL",
+      "classification": "PASS_PRE_CUTOVER_PREPARATION",
+      "reason": "New/replacement runner setup must choose the current repository owner and exact repository URL deliberately."
     },
     {
       "path": "deploy/synology/.env.example",
-      "surface": "staging image defaults",
-      "coordinate": "ghcr.io/blakinio/{oteryn-platform,oteryn-game-gateway}:main",
-      "classification": "MUST_CHANGE_AT_CUTOVER_OR_BE_EXPLICITLY_OVERRIDDEN",
-      "reason": "New staging environment rendering defaults to the old personal package namespace."
+      "surface": "staging image example",
+      "coordinate": "ghcr.io/${OTERYN_GHCR_OWNER}/{oteryn-platform,oteryn-game-gateway}:main",
+      "classification": "PASS_PRE_CUTOVER_PREPARATION",
+      "reason": "Manual/local staging configuration now exposes the owner as an explicit transfer-sensitive setting instead of embedding the source owner."
+    },
+    {
+      "path": "tools/validation/adr_registry.py; tools/validation/test_adr_registry.py",
+      "surface": "architecture registry compatibility gate",
+      "coordinate": "bounded cross-repository successor plus exact merge provenance",
+      "classification": "PASS_LATENT_CI_REPAIR",
+      "reason": "The validator accepts the already-canonical META successor form used by unchanged ADR 0041 only with exact fail-closed merge provenance and retains local successor existence validation."
     },
     {
       "path": "docs/**; docs/agents/tasks/archive/**; historical ADR/PR/Issue references",
       "surface": "historical provenance and ordinary documentation",
       "coordinate": "blakinio/Oteryn-Platform",
       "classification": "MIXED_CURRENT_DOCS_AND_HISTORICAL_PROVENANCE",
-      "reason": "Current setup documentation may need post-transfer cleanup; historical evidence must not be globally rewritten because the old coordinate is truthful provenance."
+      "reason": "Current setup documentation may need post-transfer cleanup; historical evidence remains truthful provenance and must not be globally rewritten."
     }
   ],
-  "unknowns": [
-    "live GHCR package object ownership, permissions and repository links",
-    "whether the existing repository-level Synology runner remains registered/online after owner transfer without re-registration",
+  "remaining_unknowns": [
+    "live GHCR package object ownership permissions and repository links",
+    "whether the existing repository-level Synology runner remains attached and online immediately after owner transfer without re-registration",
     "target organization ruleset/protection outcome until post-transfer observation"
   ],
-  "next_action": "Implement and merge owner-neutral GHCR/package and Synology runner coordinate hardening before attempting physical transfer."
+  "remaining_blockers": [
+    "live GHCR package cutover evidence",
+    "live self-hosted runner cutover evidence",
+    "repository-transfer operation unavailable in the connected GitHub action surface"
+  ],
+  "next_action": "Resolve live GHCR package ownership/linkage and runner cutover evidence and obtain an authorized transfer-capable GitHub surface before attempting physical transfer."
 }
