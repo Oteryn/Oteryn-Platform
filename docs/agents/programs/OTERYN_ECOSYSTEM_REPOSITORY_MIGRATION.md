@@ -21,12 +21,12 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-18T08:30:00Z
+updated_at: 2026-08-18T08:38:00Z
 status: ready
-active_task: OTERYN-20260818-meta-post-create-bootstrap
+active_task: null
 issue: null
-branch: docs/oteryn-20260818-meta-post-create-bootstrap
-pull_request: 1147
+branch: null
+pull_request: null
 
 ecosystem_topology_authority:
   repository: Oteryn/Oteryn
@@ -102,7 +102,7 @@ meta_create_and_bootstrap_evidence:
     readme_initialization: MISSING_REPAIRABLE
   readme_anchor_repair:
     commit: ef9a8ee8ba16ee6618eecb2511905f1566dec58c
-    reason: owner-created repository was empty; intended README anchor was required before governed branching
+    reason: owner-created repository was empty and the intended README anchor was required before governed branching
   target_bootstrap:
     branch: bootstrap/meta-authority-0001
     pull_request: 1
@@ -122,6 +122,17 @@ meta_create_and_bootstrap_evidence:
     inline_threads: 0
     comments: 0
     source_branch_cleanup: PENDING_CONNECTOR_LACKS_DELETE_REF
+  platform_post_create_reconciliation:
+    implementation_pr: 1147
+    final_head: f8d0ee8cbaa6678184e33fbd83a9265e27d7f105
+    merge: bac880386e962224a730aac6952f1c3498e78200
+    final_agent_governance_run: 32117192282
+    final_ci_run: 32117192288
+    reviews: 0
+    inline_threads: 0
+    comments: 0
+    source_branch_deleted: true
+    archived_task: docs/agents/tasks/archive/OTERYN-20260818-meta-post-create-bootstrap.md
 
 observed_target_coordinates:
   Oteryn:
@@ -195,7 +206,6 @@ migration_transaction:
     pre_authority_feasibility: PROVEN
     pre_authority_window: CLOSED
     deletion_authority_after_handover: NOT_GRANTED_BY_PREVIOUS_ROLLBACK_PROOF
-    note: the owner deletion confirmation applied only to a fresh repository before META authority handover
   post_mutation_validation:
     exact_repository_identity: PASS
     public_visibility: PASS
@@ -210,19 +220,18 @@ migration_transaction:
     platform_adr_supersession_ordering: PASS_META_FIRST_PLATFORM_RECONCILIATION_PENDING
 
 proven:
-  - Oteryn/Oteryn now exists as public repository ID 1338152366 and installation 154585379 exposes admin/write access.
-  - The owner create action produced an empty repository rather than the planned README-only anchor; the missing README was repaired as the first bootstrap commit before any branchable authority content.
-  - The create replay guard prevented any second repository-create attempt after the exact target object became observable.
-  - Oteryn/Oteryn PR 1 exact changed paths were AGENTS.md, META ADR 0001 and ecosystem/repositories.json; deterministic JSON parsing and full exact-diff self-review passed.
-  - Oteryn/Oteryn had no workflows or required status checks during initial bootstrap; CI is recorded as NOT_CONFIGURED rather than falsely PASS.
-  - Oteryn/Oteryn PR 1 had zero reviews, zero inline threads and zero comments at merge gate and squash-merged as a2672baac544ada81c526e92f0517903865a9ad0.
-  - META ADR 0001 is now canonical and explicitly supersedes Platform ADR 0041 for ecosystem repository-topology/META coordination authority.
+  - Oteryn/Oteryn exists as public repository ID 1338152366 with GitHub App admin/write access.
+  - The missing README was repaired before authority handover without replaying repository creation.
+  - Target PR 1 exact diff and JSON validation passed and the PR squash-merged as a2672baac544ada81c526e92f0517903865a9ad0 with clean review hygiene.
+  - META ADR 0001 is canonical and explicitly supersedes Platform ADR 0041 for ecosystem repository-topology/META coordination authority.
+  - Platform PR 1147 exact final head f8d0ee8cbaa6678184e33fbd83a9265e27d7f105 passed Agent Governance 32117192282 and CI 32117192288, then squash-merged as bac880386e962224a730aac6952f1c3498e78200.
+  - Platform PR 1147 source branch is absent after merge.
   - No server/game repository was accessed or mutated during the META create/bootstrap transaction.
 
 derived:
-  - The META create transaction is complete; no owner create action remains.
-  - Oteryn/Oteryn is now the neutral ecosystem topology authority while provider repositories retain provider implementation/schema authority.
-  - Platform ADR 0041 requires a narrow historical-status reconciliation now that the META-first supersession ordering has been satisfied.
+  - The META create transaction is terminally complete and no owner create action remains.
+  - Oteryn/Oteryn is the neutral ecosystem topology authority while provider repositories retain provider implementation/schema authority.
+  - Platform ADR 0041 now requires only a narrow historical-status reconciliation because META-first authority handover is already canonical.
   - Game cutover and Atlas extraction remain independently fail-closed and are not made ready by META completion.
 
 unknown:
@@ -231,14 +240,16 @@ unknown:
   - Complete path-level Atlas ownership split needed for selective extraction.
 
 conflicts:
-  - Platform ADR 0041 still carries its pre-handover Accepted status text until the required narrow Platform reconciliation is merged; META ADR 0001 is already canonical and controls ecosystem topology scope.
+  - Platform ADR 0041 still carries its pre-handover Accepted status until the narrow Platform reconciliation merges; META ADR 0001 already controls ecosystem topology scope.
+
+cleanup_debt:
+  - Oteryn/Oteryn branch bootstrap/meta-authority-0001 remains after merged PR 1 because the current connector exposes no delete-ref operation; no unmerged authority remains on it.
 
 blockers:
   - Game-specific package/caller evidence remains unresolved for any future Oteryn-v2/Oteryn-Game physical cutover.
   - Atlas extraction remains separately coupled to source ownership/deployment evidence.
-  - Target bootstrap source branch remains present because the current GitHub connector exposes no delete-ref operation; it contains no unmerged authority and its PR is terminal.
 
-next_action: Finish Platform PR 1147 with exact-head task/programme evidence and lifecycle closeout; then run one narrow Platform ADR 0041 status reconciliation task if the invocation budget permits.
+next_action: Admit one narrow Platform task to mark ADR 0041 superseded for ecosystem repository-topology and META coordination scope without rewriting its historical decision content.
 ```
 
 ## Programme rules
