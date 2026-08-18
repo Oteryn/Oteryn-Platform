@@ -14,20 +14,29 @@ This document prepares exactly one physical repository-creation transaction. It 
 - ADR 0041 defines `Oteryn` as the thin ecosystem coordination/META plane and records real workload: ecosystem topology, cross-repository ADRs, repository/release manifests, compatibility matrices and cross-repository orchestration.
 - The `Oteryn` GitHub organization is reachable through GitHub App installation `154585379`.
 - `Oteryn/Oteryn-Atlas` is already an organization repository reachable through the integration with administrative/write access.
-- `Oteryn/Oteryn` was refreshed as `404 Not Found` during this transaction preparation. This is an expiring evidence lease and must be refreshed immediately before creation.
+- `Oteryn/Oteryn` was refreshed as `404 Not Found` during this transaction preparation and remained absent immediately before the visibility decision was persisted. This is an expiring evidence lease and must be refreshed immediately before creation.
 - The current ChatGPT GitHub connector exposes no repository-create operation.
 - GitHub's current web flow requires choosing the owner, repository name and visibility; for a new non-import repository it can optionally initialize a README and select applicable GitHub Apps.
 - GitHub documents repository deletion as available to organization owners or repository admins, but organization/enterprise policy can restrict deletion. Therefore the current Oteryn rollback permission is not proven solely from general GitHub behavior.
+- On 2026-08-18 the repository owner explicitly selected **PUBLIC** visibility for `Oteryn/Oteryn` for the current migration transaction.
 
 ### UNKNOWN
 
-- The owner's intended visibility for `Oteryn/Oteryn` is not yet explicitly recorded.
 - Whether Oteryn organization/enterprise policy permits the intended owner to delete a freshly created `Oteryn/Oteryn` repository as rollback is not directly observable through the current connector.
 - Whether installation `154585379` is `all repositories` or `selected repositories` for an owner-created repository is not exposed by the current connector result. Post-create access must therefore be proven rather than assumed.
 
-### RECOMMENDATION
+## Visibility decision
 
-Use **public** visibility unless the owner has a reason to keep ecosystem governance private. The current Platform and Atlas target repositories are public, while the META bootstrap is intentionally limited to public architecture/governance/compatibility metadata and must contain no secrets. This is a recommendation only; it is not authority to select visibility.
+```yaml
+target_visibility:
+  value: PUBLIC
+  decided_by: repository owner
+  decided_at: 2026-08-18
+  scope: OTERYN-META-CREATE-20260818 / Oteryn/Oteryn
+  recheck: before physical creation if the owner changes the decision
+```
+
+No secret, credential, private deployment state or proprietary runtime source belongs in the META bootstrap. Future sensitive material, if ever required, must use an appropriate secret/private system rather than changing this bootstrap decision silently.
 
 ## Minimal non-ceremonial bootstrap
 
@@ -64,21 +73,21 @@ After the repository exists and integration access is proven, bootstrap only the
 
 1. Refresh `Oteryn/Oteryn` and prove it is still absent.
 2. Refresh organization installation/access evidence and overlapping migration ownership.
-3. Resolve target visibility explicitly.
+3. Confirm the frozen visibility remains `PUBLIC`.
 4. Prove rollback permission for a freshly created organization repository. General GitHub documentation is insufficient if an organization/enterprise policy could forbid deletion.
 5. Freeze the canonical transaction record and merge the Platform preparation PR so the create instructions/rollback are durable before mutation.
 6. Owner performs one GitHub web creation flow:
    - Owner: `Oteryn`
    - Repository name: `Oteryn`
    - Description: `Oteryn ecosystem coordination, compatibility and release authority.`
-   - Visibility: exact owner-approved value
+   - Visibility: **Public**
    - Initialize with README: **yes**
    - `.gitignore`: none
    - License: none during bootstrap
    - Select the ChatGPT/OpenAI GitHub App if the creation UI offers it for this organization
    - Create repository
 7. Do not repeat the create operation if the UI/session result is ambiguous. Immediately inspect `Oteryn/Oteryn` first.
-8. Verify exact owner/name, visibility, archived state, default branch, repository identity and connector permissions.
+8. Verify exact owner/name, `public` visibility, archived state, default branch, repository identity and connector permissions.
 9. Verify installation access. If the app cannot access the new repository, stop before bootstrap and add `Oteryn/Oteryn` to the installed app's selected repositories (or switch the installation to all repositories), then re-read access.
 10. Create a dedicated bootstrap branch in `Oteryn/Oteryn`; install the minimal bootstrap package above; open a Draft PR; re-read the new `AGENTS.md`; run proportionate exact-head validation/self-review; merge only when target-local gates pass.
 11. Only after META ADR 0001 is canonical may a separate Platform reconciliation mark ADR 0041 superseded for ecosystem scope.
@@ -137,7 +146,7 @@ GitHub documents that organization owners or repository admins can delete an org
 The create transaction is not complete when the UI reports success. Verify:
 
 - exact coordinate is `Oteryn/Oteryn` and repository identity is new/expected;
-- visibility equals the approved value;
+- visibility is `public`;
 - repository is not archived/disabled;
 - default branch exists after README initialization;
 - connector has at least pull/push access required for bootstrap;
