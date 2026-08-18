@@ -30,28 +30,29 @@ optional_reads: []
 
 ## Goal
 
-Harden the canonical `OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION` programme while preserving PR #1135's canonical-programme plus thin-Ultra-overlay composition. Limit the change to the canonical programme, the Ultra evaluation, the minimum Ultra delta and this controlled task record.
+Harden the canonical `OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION` programme while preserving PR #1135's canonical-programme plus thin-Ultra-overlay composition. Resolve the post-green critical-review findings without widening the four-path scope or performing any physical repository/runtime mutation.
 
-Trusted-base reconstruction: `blakinio/Oteryn-Platform@fcafc20bc9705ca92256fdddc7433bcc3d191c40` (`main`, observed 2026-08-17).
+Trusted-base reconstruction: `blakinio/Oteryn-Platform@fcafc20bc9705ca92256fdddc7433bcc3d191c40` (`main`).
 
 Branch: `docs/oteryn-20260817-repository-migration-programme-hardening`.
 PR: `#1138`.
 
 ## Acceptance criteria
 
-- [x] Current root and `docs/agents` governance was read from the trusted base.
-- [x] Live `main`, active tasks, open PRs and branch ownership were reconstructed before editing.
-- [x] No active task or open PR owns the four changed paths at preflight.
-- [x] The canonical programme remains the sole migration authority.
-- [x] The Ultra file remains a thin execution overlay rather than a replacement mega-prompt.
-- [x] Hardening covers authority narrowing, evidence leases, target collision, bounded risk acceptance, single-mutation transactions, rollback-versus-redirect, drift invalidation and docs-only completion semantics.
-- [x] The Ultra evaluation covers positive, negative, boundary, drift, collision, rollback, unavailable-tooling and unreproduced-review cases.
-- [x] The controlled branch exists from the verified `main` base.
-- [x] Exactly one PR is open for this task: #1138.
-- [x] Current PR diff is restricted to exactly the four owned paths.
-- [x] Full exact-head self-review before checkpoint-schema repair found zero remaining material content findings.
-- [ ] Repository-required Agent Governance and CI checks pass on the unchanged final PR head.
-- [ ] Review-thread hygiene and source-branch lifecycle gates are terminal.
+- [x] Current root and `docs/agents` governance read from the trusted base.
+- [x] Live `main`, active tasks, open PRs and branch ownership reconstructed before editing.
+- [x] Exactly one PR exists for this task: #1138.
+- [x] Current PR changes only the four owned paths.
+- [x] Canonical programme remains the sole migration authority.
+- [x] Ultra remains a thin execution overlay and no longer defines a competing Tier-2 gate schema.
+- [x] `READY_TO_EXECUTE` is separated from public `CUTOVER_READY` semantics.
+- [x] Canonical transaction includes interruption recovery, replay guard, cutover lock, pre/post state and rollback-feasibility proof.
+- [x] Evidence precedence and recovered/reproduced V2 concerns are recorded without treating chat/history as authority.
+- [x] First compatibility exercise is dry-run/Tier-0/1 only; absent stochastic harness is not a behavioural PASS.
+- [ ] Full exact-head self-review on the repaired final diff has zero unresolved material findings.
+- [ ] Repository-required Agent Governance and CI pass on the repaired unchanged final head.
+- [ ] Review-thread hygiene is terminal.
+- [ ] Source-branch lifecycle and task archival are terminal after merge/closeout.
 
 ## Ownership
 
@@ -76,11 +77,11 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-17T21:30:00Z
-head: a8c5852460608f27c44070b71681cf99de1ee6fb
+updated_at: 2026-08-18T04:30:00Z
+head: 5f2a0f09b51e94637adc1294cfa3fdd0a3c9d645
 branch: docs/oteryn-20260817-repository-migration-programme-hardening
 pr: 1138
-status: validating
+status: implementing
 context_routes:
   - agent-governance
   - prompt-as-code
@@ -91,61 +92,86 @@ owned_paths:
   - docs/agents/evidence/OTERYN-20260817-repository-migration-ultra-prompt-eval.md
   - docs/agents/tasks/active/OTERYN-20260817-repository-migration-programme-hardening.md
 proven:
-  - Live main remained fcafc20bc9705ca92256fdddc7433bcc3d191c40 through the pre-gate drift check.
+  - Live main remained fcafc20bc9705ca92256fdddc7433bcc3d191c40 through the latest pre-repair drift check.
   - PR #1135 established the canonical-programme plus thin-Ultra-overlay model.
-  - The active tasks and open PRs inspected at preflight did not own any of the four candidate paths.
-  - The remote task branch was created from the verified main head.
-  - Exactly one draft PR exists for this task: #1138.
-  - GitHub compare and PR metadata confirm exactly four changed files, matching the owned-path allowlist.
-  - Full-diff audit found one material wording defect in the canonical programme (`stronger_only`); it was repaired on the same branch and the repaired PROGRAM patch was re-inspected.
-  - Full per-file PR patch review found no remaining material content finding before this checkpoint-schema repair.
-  - No physical repository coordinate, production runtime, deployment, credential, secret or live-game mutation is part of this hardening.
+  - PR #1138 exact head 5f2a0f09b51e94637adc1294cfa3fdd0a3c9d645 passed Agent Governance run 32071180188 (#7073) and CI run 32071180184 (#7450).
+  - Review inspection on PR #1138 returned zero submitted reviews and zero inline review threads before this repair cycle.
+  - Post-green critical review found semantic issues not exercised by deterministic CI: executable readiness versus CUTOVER_READY, duplicated transaction gates, mutation-interruption recovery, compatibility dry-run and stale task evidence.
+  - The repaired candidate keeps exactly the same four owned paths and performs no physical repository coordinate, runtime, deployment, credential, secret or live-game mutation.
+  - File-library search did not surface an exact standalone V2 review artifact; recovered prior-review concerns were independently reproduced before incorporation.
 derived:
-  - This increment is documentation and prompt-governance only, so executable migration E2E is not applicable.
+  - Documentation/prompt-governance E2E remains NOT_APPLICABLE because no executable repository/control-plane effect is changed by this PR.
+  - The prior green exact-head gates become historical evidence only after the repaired candidate changes head; fresh gates are required.
 unknown:
-  - The exact external critical-review V2 artifact is unavailable in this execution context; no unreproduced review claim is promoted into canonical authority.
-  - Final exact-head CI, review-thread and merge/readiness state remain unresolved until repository-required gates run on the checkpoint-repaired PR head.
+  - Stochastic model/runtime adherence for the repaired candidate remains unmeasured because no executable repeated-trial harness exists for this prompt surface.
 conflicts: []
 first_failure:
-  marker: agent-governance-active-task-checkpoint
-  evidence: Agent Governance run 32071051481 failed at Validate active task checkpoints because this new task did not conform to shared checkpoint contract version 1; prior governance and prompt-contract steps passed.
+  marker: post-green-semantic-review-findings
+  evidence: Exact-head CI/Governance were green on 5f2a0f09..., but critical review identified contract-level ambiguities outside the deterministic text/checkpoint gate coverage.
 rejected_hypotheses:
-  - The canonical programme or thin Ultra composition caused the first Agent Governance failure; the failing step was the active-task checkpoint validator.
-  - The failure requires widening changed paths; the repair is isolated to this already-owned task file.
-  - The failed exact head may be declared complete; a new head requires affected gates to rerun.
+  - Green CI proves the 31+ behavioural scenarios; the repository evaluator explicitly performs deterministic text checks with zero model trials.
+  - CUTOVER_READY can be an intermediate executable state; canonical semantics reserve it for exactly one unsupported or owner-only physical action.
+  - Ultra should maintain a second cutover_gate schema; the canonical migration_transaction must be the single source of truth.
+  - A timed-out physical mutation can be safely retried without resulting-state inspection; non-idempotent replay is fail-closed.
 changed_paths:
   - docs/agents/prompts/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_PROGRAM.md
   - docs/agents/prompts/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_ULTRA.md
   - docs/agents/evidence/OTERYN-20260817-repository-migration-ultra-prompt-eval.md
   - docs/agents/tasks/active/OTERYN-20260817-repository-migration-programme-hardening.md
 validation:
-  - command: GitHub compare base fcafc20bc9705ca92256fdddc7433bcc3d191c40 to PR #1138 head
+  - command: Agent Governance run 32071180188 on 5f2a0f09b51e94637adc1294cfa3fdd0a3c9d645
     result: PASS
-    evidence: exactly four changed files, all in the owned-path allowlist.
-  - command: full per-file PR patch self-review before checkpoint-schema repair
+    evidence: historical pre-repair exact head passed; superseded for repaired candidate once head changes.
+  - command: CI run 32071180184 on 5f2a0f09b51e94637adc1294cfa3fdd0a3c9d645
     result: PASS
-    evidence: repaired PROGRAM, thin Ultra overlay, evaluation matrix and task content had zero remaining material content findings.
+    evidence: historical pre-repair exact head passed; superseded for repaired candidate once head changes.
   - command: executable migration E2E
     result: NOT_APPLICABLE
     evidence: documentation and prompt-governance hardening only; no executable repository/control-plane effect changed.
-  - command: Agent Governance run 32071051481 on a8c5852460608f27c44070b71681cf99de1ee6fb
-    result: FAIL
-    evidence: Validate active task checkpoints failed; preceding governance, policy-consistency and prompt-contract validation steps passed.
-  - command: exact-head Agent Governance and CI after checkpoint-schema repair
+  - command: repaired exact-diff structural/self-review
     result: NOT_RUN
-    evidence: new branch head must be selected by pull_request workflows before a result can be claimed.
+    evidence: candidate must be persisted first, then exact changed paths and full diff re-inspected.
+  - command: repaired exact-head Agent Governance and CI
+    result: NOT_RUN
+    evidence: fresh pull_request runs are required after the repair commit changes the head.
 blockers: []
-next_action: Re-inspect the task-only checkpoint repair on PR #1138, then observe Agent Governance and CI on the new exact head without changing it unless a material finding requires repair.
+next_action: Persist the four-path repair to PR #1138, inspect the exact new diff, then run/observe Agent Governance and CI on the unchanged repaired head.
 ```
+
+## Self-review
+
+```yaml
+self_review:
+  result: FAIL
+  exact_head: 5f2a0f09b51e94637adc1294cfa3fdd0a3c9d645
+  acceptance_checked: true
+  full_diff_checked: true
+  negative_paths_checked: true
+  rollback_checked: true
+  compatibility_checked: true
+  related_prs_checked: true
+  findings:
+    - executable readiness and CUTOVER_READY semantics were conflated
+    - Ultra duplicated canonical Tier-2 gate state
+    - transaction interruption/replay recovery was underspecified
+    - behavioural evaluation evidence was not distinguished strongly enough from deterministic CI
+    - task checkpoint/PR narrative lagged the actual green exact-head runs
+  evidence:
+    - PR #1138 exact diff and per-file patch inspection
+    - Agent Governance #7073 PASS and CI #7450 PASS on 5f2a0f09...
+    - repository PROMPT_EVAL_STANDARD and deterministic prompt_eval.py limitations
+```
+
+This self-review remains `FAIL` until the repaired exact head is persisted and re-reviewed; do not carry the previous PASS across the material prompt change.
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: branch is active for PR #1138 and must remain until PR lifecycle is terminal
+source_branch_reason: branch is active for PR #1138 and remains under repair/validation
 source_branch_evidence: docs/oteryn-20260817-repository-migration-programme-hardening
 ```
 
 ## Notes
 
-The candidate intentionally does not edit `docs/agents/SHORT_PROGRAM_INVOCATIONS.md`, programme runtime state, architecture ADRs or any non-Platform repository. The exact external V2 review text was unavailable, so only findings independently reproduced against current canonical files were incorporated.
+The candidate intentionally does not edit `docs/agents/SHORT_PROGRAM_INVOCATIONS.md`, programme runtime state, architecture ADRs or any non-Platform repository. Recovered V2 findings are treated only as review leads and are incorporated only where independently reproducible against current canonical files.

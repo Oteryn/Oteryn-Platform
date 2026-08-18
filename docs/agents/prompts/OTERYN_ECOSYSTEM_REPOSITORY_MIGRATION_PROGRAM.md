@@ -11,16 +11,16 @@ prompt_contract:
   registration_eval_suite: docs/agents/evidence/OTERYN-20260817-ecosystem-repository-migration-prompt-eval.md
   changed_surfaces:
     - worker prompt
-    - short-programme routing
     - cross-repository migration coordination
     - authority and evidence leases
-    - Tier-2 cutover transaction and rollback
+    - Tier-2 cutover transaction, recovery and rollback
+    - evidence precedence and compatibility proof
 policy_version: 2
 prompting_standard_version: 2.1
 run_scope: autonomous_program
 continuation_policy: continue_until_real_stop
 task_completion_policy: finalize_archive_and_continue
-user_communication: low_noise
+user_communication: terminal_only
 owner_alias: OTERYN-REPO-MIGRATION
 ```
 
@@ -79,12 +79,14 @@ Only when current authority permits, the programme's maximum owner-controlled ca
 
 Writes to blakinio/canary and blakinio/otclient are NOT authorized. Treat them as read-only legacy/reference sources only when current trusted scope permits that read.
 
-Before EVERY cross-repository write:
+Before EVERY cross-repository write to an existing repository:
 1. read the target repository's current AGENTS hierarchy and migration/ownership rules;
 2. verify exact current repository identity and main/default branch;
 3. verify no active ownership conflict;
 4. obey the more restrictive rule;
 5. if target governance requires a stronger owner-only action than this alias can lawfully supply, stop that mutation and continue all independent preparation.
+
+For creation of a repository that does not yet exist, there is no target-local governance to read. Creation authority therefore comes only from the current trusted instruction chain plus the source programme's stricter creation gate. After creation, bootstrap the minimum intended governance/authority files before any non-bootstrap content write, then re-read that new target governance before continuing. Repository creation never inherits broader authority merely because the target had no prior `AGENTS.md`.
 
 Never infer permission from credentials, connectors, admin rights or a previous session.
 
@@ -174,7 +176,7 @@ Relevant prior review/delivery evidence includes, when still applicable:
 - Otheryn PR #407 — OTBM Atlas extraction audit;
 - Otheryn PR #411 — extraction closeout;
 - Oteryn-v2 PR #287/#289 — Game->Atlas semantic contract/lifecycle;
-- Oteryn-v2 PR #292/#294 — physical-profile readiness evidence/lifecycle.
+- Oteryn-v2 PR #292/#294 — physical-profile readiness/lifecycle.
 
 A merged canonical file outranks a PR body or worker summary. Verify merge state and current main content.
 
@@ -207,7 +209,18 @@ Classify material claims as:
 - UNKNOWN;
 - CONFLICT.
 
-Repository-local conventions may use PROVEN / DERIVED / UNKNOWN / CONFLICT; preserve the repository's canonical vocabulary in durable files.
+Repository-local conventions may use PROVEN / DERIVED / UNKNOWN / CONFLICT; preserve the repository's canonical vocabulary in durable files. Map `FACT -> PROVEN` only when direct evidence exists, `INFERENCE -> DERIVED`, and keep `UNKNOWN` / `CONFLICT` unchanged. `RECOMMENDATION` is never evidence.
+
+For migration decisions use this evidence precedence, subject to stricter current authority:
+1. current system/owner instruction and trusted-base repository governance;
+2. current target-repository governance for an existing target;
+3. merged canonical ADRs/contracts and canonical programme state within their authority;
+4. exact live repository/API/tool evidence bound to the intended mutation;
+5. active task/PR evidence on an exact head;
+6. historical PRs, proposals and reports;
+7. chat history, worker summaries and unverified natural-language claims.
+
+Lower-precedence evidence cannot override a higher-precedence conflict. A historical source may prove provenance but not current state.
 
 Do not copy researcher summaries as proof. Do not guess. Do not turn UNKNOWN into an assumption. Do not re-audit settled topics without a reason, but actively try to falsify migration-critical assumptions before mutation.
 
@@ -303,6 +316,15 @@ G. UNKNOWN_REQUIRES_EVIDENCE
 
 Never perform a blind global replace. Historical PR/commit/evidence references must preserve truthful provenance when rewriting would falsify history.
 
+For any operation that changes a repository boundary rather than only a repository name, also build a dependency/coupling proof covering:
+- directed repository/module dependencies and cycles;
+- co-change hotspots that indicate ownership is not actually separable;
+- release-unit and versioning coupling;
+- security/trust boundaries and CODEOWNERS responsibility;
+- provider/consumer order and compatibility window.
+
+When a moved boundary carries a serialized artifact, bundle, protocol or generated public projection, identify its canonical provider-owned format and a migration/compatibility fixture corpus before cutover. A rename-only operation does not invent a new serialization requirement; selective extraction/split operations must prove the boundary they create.
+
 CURRENT GITHUB BEHAVIOUR
 
 Before any physical rename/transfer, verify current official GitHub documentation for:
@@ -326,22 +348,45 @@ Do not design cutover from memory. Prefer official GitHub documentation and live
 
 TIER-2 CUTOVER TRANSACTION
 
-Treat each operation that changes a canonical repository coordinate or history boundary as one separate transaction. Repository create, rename, transfer and selective history extraction must not be bundled into one unverified batch.
+Treat each operation that changes a canonical repository coordinate or history boundary as one separate transaction. Repository create, rename, transfer and selective history extraction must not be bundled into one unverified batch. This canonical `migration_transaction` is the single transaction/gate record; overlays may reference it but must not define a competing gate schema.
 
-Before every transaction persist an evidence-backed record equivalent to:
+Persist an evidence-backed record equivalent to:
 
 ~~~yaml
 migration_transaction:
   transaction_id: <stable identifier>
   mutation: <create | rename | transfer | selective_history_extraction>
+  state: PREPARING | PREPARED | READY_TO_EXECUTE | MUTATION_STARTED | MUTATED_UNVERIFIED | VERIFYING | ROLLBACK_REQUIRED | ROLLED_BACK | COMPLETED
   source_coordinate: <exact source or none>
   target_coordinate: <exact target>
   source_head: <exact immutable ref or none for create>
-  evidence_lease_current: true
+  pre_state_snapshot: <exact repository identity/refs/settings relevant to rollback>
+  expected_post_state: <exact observable resulting state>
+  authority_verified: true
   target_identity_or_absence_verified: true
+  target_governance_verified: true | NOT_APPLICABLE_FOR_ABSENT_TARGET
+  source_state_verified: true
+  evidence_lease_current: true
+  active_pr_task_impact_verified: true
+  coordinate_inventory_complete_for_cutover: true
+  executable_callers_resolved: true
+  ci_impact_resolved: true
+  package_impact_resolved_or_owner_risk_acceptance_proven: true
+  provenance_strategy_verified: true
   target_collision: false
   ownership_conflict: false
   material_unknowns: []
+  cutover_lock:
+    owner: <task/transaction owner>
+    acquired_at: <UTC timestamp>
+    invalidated_by: <ownership/head/target drift triggers>
+  replay_guard:
+    mutation_fingerprint: <operation + exact source/target identity>
+    reissue_forbidden_until_state_proven_not_applied: true
+    resume_detection: <exact read used to determine whether mutation already happened>
+  point_of_no_return:
+    reached_when: <observable condition or none>
+    consequences: <rollback limitation>
   residual_risk_acceptance:
     status: none | proven
     accepted_by: <exact owner identity or none>
@@ -350,6 +395,7 @@ migration_transaction:
     expiry_or_recheck: <condition or none>
     evidence: <exact approval record or none>
   rollback:
+    feasibility: PROVEN | NOT_PROVEN
     operation: <separate executable mutation>
     trigger: <observable failure condition>
     decision_owner: <exact authority>
@@ -361,11 +407,32 @@ migration_transaction:
     - <Actions/callers/packages/rulesets/clone/API/web coordinates>
 ~~~
 
+Transaction-state rules:
+- `PREPARING`: evidence is still being collected; physical status is `NO_GO`.
+- `PREPARED`: all evidence can be evaluated, but one or more execution gates may still be unsatisfied.
+- `READY_TO_EXECUTE`: every applicable gate is proven, the mutation is executable by the current authorized tool/runtime, the cutover lock is current and rollback feasibility is `PROVEN`. This is an internal transaction state, **not** the public physical-operation status `CUTOVER_READY`.
+- `MUTATION_STARTED` / `MUTATED_UNVERIFIED`: never issue the mutation again until live source/target state proves whether the previous request took effect.
+- `VERIFYING`: only post-mutation verification or the recorded rollback decision may advance the transaction.
+- `ROLLBACK_REQUIRED`: no later physical transaction may start. Execute/escalate the recorded rollback decision.
+- `ROLLED_BACK`: verify restored state and create a new transaction for any retry.
+- `COMPLETED`: the mutation and all required resulting-environment checks passed.
+
+Public physical-operation status is derived from transaction state:
+- `NO_GO` when any material gate/authority/evidence/tool requirement remains unsatisfied or the transaction is not safely executable;
+- `CUTOVER_READY` only when every non-execution gate is proven and **exactly one** precise unsupported or owner-only physical operation remains. If the current authorized tool can execute the operation, use `READY_TO_EXECUTE` internally and continue instead of reporting `CUTOVER_READY`;
+- `COMPLETED` only after the physical operation occurred and all required resulting-environment verification passed.
+
 A material unknown is not cleared by generic prose, an old approval or the prompt itself. Explicit residual-risk acceptance is valid only when the current authorized owner accepts the exact bounded risk, scope, expiry/recheck condition and rollback consequence in an exact durable approval record. It cannot waive repository authority, protected-runtime boundaries, branch protection, secret safety or another repository's governance.
 
-A GitHub redirect is temporary compatibility behaviour, not rollback. Rollback requires a separate executable operation with a trigger, decision owner, bounded window and resulting-state verification.
+A GitHub redirect is temporary compatibility behaviour, not rollback. Rollback requires a separate executable operation with proven feasibility, a trigger, decision owner, bounded window and resulting-state verification.
 
-Execute at most one physical coordinate/history mutation, then immediately verify the resulting environment. If any required post-mutation check fails, execute or escalate the recorded rollback decision and do not start the next physical mutation.
+Recovery is fail-closed. Before resuming a transaction left in `MUTATION_STARTED`, `MUTATED_UNVERIFIED`, `VERIFYING` or `ROLLBACK_REQUIRED`, re-read the exact source and target coordinates and compare them with `pre_state_snapshot`, `expected_post_state` and the replay guard. Never infer that a timed-out/failed API call did not mutate state. Never replay a non-idempotent physical mutation merely because the previous session died.
+
+Execute at most one physical coordinate/history mutation, then immediately persist `MUTATED_UNVERIFIED` and verify the resulting environment. If any required post-mutation check fails, set `ROLLBACK_REQUIRED`, execute or escalate the recorded rollback decision and do not start the next physical mutation.
+
+COMPATIBILITY DRY-RUN GATE
+
+When this canonical prompt or the registered Ultra overlay changes materially and no compatibility result has yet been recorded for the candidate pair, the first exercise must use `compatibility_mode: dry_run`: Tier 0/1 evidence and repository-preparation work may run, but Tier-2 physical mutation is `NO_GO`. The dry run must record trace/outcome evidence against the registered evaluation matrix. Tier 2 becomes eligible only after the candidate has a documented compatibility result accepted by the repository's prompt-evaluation policy; absence of an executable stochastic harness remains explicit and cannot be rewritten as a model-trial PASS.
 
 META REPOSITORY
 
@@ -393,10 +460,7 @@ The first canonical META topology ADR must explicitly supersede the temporary Pl
 
 OTERYN-v2 -> OTERYN-GAME
 
-Produce exactly one physical-operation status:
-- `NO_GO` — one or more material gates, evidence leases, authority requirements or tool capabilities are unsatisfied;
-- `CUTOVER_READY` — every gate and safe preparation is complete, and exactly one unsupported or owner-only physical action remains;
-- `COMPLETED` — the physical operation occurred and all required resulting-environment verification passed.
+Apply the canonical physical-operation status contract above. `READY_TO_EXECUTE` is an internal transaction state and must never be reported as `CUTOVER_READY`.
 
 `CUTOVER_READY` requires at least:
 - complete migration-critical repository-coordinate inventory;
@@ -407,12 +471,12 @@ Produce exactly one physical-operation status:
 - active PR/task impact known;
 - no conflicting migration ownership;
 - history/Issues/PR preservation understood;
-- required owner permissions proven and either executable tool support available or exactly one owner-only action isolated;
+- required owner permissions proven and exactly one unsupported or owner-only physical action isolated;
 - exact cutover checklist.
 
 Do not rename merely because the destination name is known. Do not block rename on unrelated architecture backlog.
 
-If rename is safe and the tool supports it, execute only after all gates pass and after reconciling any target-repository governance. Status becomes `COMPLETED` only after immediate post-mutation verification passes.
+If rename is safe and the authorized tool supports it, set the transaction to `READY_TO_EXECUTE`, execute only after all canonical gates and the cutover lock pass, persist `MUTATED_UNVERIFIED`, and verify immediately. Do not label this path `CUTOVER_READY`. Status becomes `COMPLETED` only after post-mutation verification passes.
 
 If the environment/tool cannot perform the rename:
 - do not claim success;
@@ -467,6 +531,8 @@ Persist a selective extraction manifest with at least:
 - licensing/provenance classification;
 - required predecessor;
 - post-extraction validation.
+
+Classify every Game -> Atlas boundary explicitly as one of `projection`, `replication`, `public_artifact` or `runtime_contract`, with the provider and authoritative source named. Atlas may not become canonical gameplay/world authority by round-trip import or reverse synchronization unless a separate accepted ADR explicitly changes that authority model.
 
 Do not run git filter-repo without an exact path manifest, rollback and readiness proof.
 
@@ -588,6 +654,8 @@ If main advances, previous exact-head evidence becomes stale. Reconcile through 
 If active ownership or the exact diff changes after validation, freeze the overlapping mutation, inspect the new exact diff and rerun affected review and validation.
 
 Documentation, prompt or readiness hardening that performs no physical repository/control-plane mutation must not claim `COMPLETED`, physical migration progress or executable E2E success. Record `E2E: NOT_APPLICABLE` only with the concrete no-executable-effect reason.
+
+A green deterministic prompt-contract check proves structural/textual invariants only. It does not prove stochastic model/runtime adherence. Preserve the distinction between static-contract PASS and behavioural-trial `UNKNOWN` when no executable harness exists.
 
 Use a fresh non-authoring validator when required by repository risk policy and available without forbidden owner-funded AI. Never mislabel self-review as independent.
 
