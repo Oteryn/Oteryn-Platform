@@ -42,9 +42,9 @@ Prepare one canonical, fail-closed Tier-2 transaction for creating the real `Ote
 - [x] Draft PR #1145 owns exactly the three declared Platform preparation paths.
 - [x] Initial three-file semantic review corrected rollback from assumed `PROVEN` to `NOT_PROVEN`.
 - [x] Owner explicitly selected `PUBLIC` visibility for `Oteryn/Oteryn` on 2026-08-18.
-- [x] Programme and bootstrap runbook now freeze `PUBLIC` visibility and keep physical state `PREPARED/NO_GO`.
+- [x] Programme and bootstrap runbook freeze `PUBLIC` visibility and keep physical state `PREPARED/NO_GO`.
 - [x] Exact-head Agent Governance and CI passed on pre-decision checkpoint head `d7fb9dda72e2a0ebe83d0f2bec4c43c72d50c817`.
-- [x] Full three-file exact diff self-review on visibility-decision content head `b548b887f1e060b9639724dfbe0537cd53126af4` found zero material findings.
+- [x] Full three-file exact diff self-review on PUBLIC-decision content head `7e81d0212230f6044dafdbc9df4aa25ed48279ed` found zero material findings.
 - [ ] Current Oteryn rollback capability is proven; generic GitHub deletion support does not satisfy the gate when organization/enterprise policy can restrict deletion.
 - [ ] Canonical `migration_transaction` advances from `PREPARED/NO_GO` only after rollback capability is proven and exact leases are refreshed.
 
@@ -76,10 +76,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-18T07:49:30Z
+updated_at: 2026-08-18T07:50:00Z
 invocation_started_at: 2026-08-18T07:24:00Z
-last_progress_at: 2026-08-18T07:49:30Z
-head: b548b887f1e060b9639724dfbe0537cd53126af4
+last_progress_at: 2026-08-18T07:50:00Z
+head: 7e81d0212230f6044dafdbc9df4aa25ed48279ed
 branch: docs/oteryn-20260818-meta-repository-bootstrap
 pr: 1145
 status: blocked
@@ -130,7 +130,7 @@ proven:
   - Agent Governance run 32112973133 on semantic head f20eb8abbf0c12cbc6497a48ef2f427397ca79cf failed only because the active task still recorded `pr: none`; the liveness log explicitly reported `branch_pr_identity_omitted` for Draft PR 1145.
   - Checkpoint head d7fb9dda72e2a0ebe83d0f2bec4c43c72d50c817 passed Agent Governance run 32113083310 and CI run 32113083262.
   - The owner explicitly selected PUBLIC visibility for Oteryn/Oteryn in the current invocation on 2026-08-18.
-  - Visibility-decision content head b548b887f1e060b9639724dfbe0537cd53126af4 preserves PREPARED/NO_GO, sets expected visibility PUBLIC, and retains rollback.feasibility=NOT_PROVEN.
+  - PUBLIC-decision content head 7e81d0212230f6044dafdbc9df4aa25ed48279ed preserves PREPARED/NO_GO, sets expected visibility PUBLIC, and retains rollback.feasibility=NOT_PROVEN.
 derived:
   - Target visibility is frozen to PUBLIC for this transaction unless the owner explicitly changes it before creation.
   - The physical create cannot be executed by the current connector and will require one precise owner GitHub web flow only after rollback feasibility is proven and the preparation state is canonical/current.
@@ -162,7 +162,7 @@ validation:
   - command: owner target-visibility decision
     result: PASS
     evidence: owner selected PUBLIC in the current invocation on 2026-08-18
-  - command: full three-file exact diff self-review on visibility-decision content head b548b887f1e060b9639724dfbe0537cd53126af4
+  - command: full three-file exact diff self-review on PUBLIC-decision content head 7e81d0212230f6044dafdbc9df4aa25ed48279ed
     result: PASS
     evidence: visibility is PUBLIC, rollback remains NOT_PROVEN, transaction remains PREPARED/NO_GO, authority handover remains ordered, and no physical/server-game mutation is included
   - command: physical repository creation E2E
@@ -178,7 +178,7 @@ next_action: Owner confirms fresh-repository deletion capability; then refresh t
 ```yaml
 self_review:
   result: PASS
-  exact_semantic_content_head: b548b887f1e060b9639724dfbe0537cd53126af4
+  exact_semantic_content_head: 7e81d0212230f6044dafdbc9df4aa25ed48279ed
   acceptance_checked: true
   full_diff_checked: true
   negative_paths_checked: true
@@ -190,7 +190,7 @@ self_review:
   open_material_findings: []
 ```
 
-This checkpoint update records the reviewed PUBLIC visibility state. It does not advance physical migration state because rollback feasibility remains unproven.
+This checkpoint commit records the reviewed PUBLIC visibility state. It changes no physical migration state and leaves rollback capability as the sole META-create gate.
 
 ## Source branch closeout
 
