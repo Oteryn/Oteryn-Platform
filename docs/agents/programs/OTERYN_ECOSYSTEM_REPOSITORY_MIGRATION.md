@@ -21,12 +21,12 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-18T08:49:00Z
+updated_at: 2026-08-18T08:52:00Z
 status: ready
-active_task: OTERYN-20260818-platform-adr0041-supersession-reconciliation
+active_task: null
 issue: null
-branch: docs/oteryn-20260818-adr0041-supersession
-pull_request: 1149
+branch: null
+pull_request: null
 
 ecosystem_topology_authority:
   repository: Oteryn/Oteryn
@@ -37,7 +37,9 @@ ecosystem_topology_authority:
     repository: blakinio/Oteryn-Platform
     path: docs/architecture/adr/0041-ecosystem-repository-authority-contracts-and-atlas-integration.md
     scope: ecosystem repository topology and META coordination authority
-    platform_reconciliation: IN_PROGRESS_PENDING_CANONICAL_PR_MERGE
+    platform_reconciliation: COMPLETE
+    platform_reconciliation_pr: 1149
+    platform_reconciliation_merge: 77914c8c2fab016273ee32cb1df0799370206e80
 
 target_topology:
   - Oteryn
@@ -133,6 +135,18 @@ meta_create_and_bootstrap_evidence:
     comments: 0
     source_branch_deleted: true
     archived_task: docs/agents/tasks/archive/OTERYN-20260818-meta-post-create-bootstrap.md
+  platform_adr0041_supersession_reconciliation:
+    implementation_pr: 1149
+    final_head: 351da55fe0c118725482dcb44b0d81599785f0c7
+    merge: 77914c8c2fab016273ee32cb1df0799370206e80
+    final_agent_governance_run: 32118404764
+    final_ci_run: 32118404842
+    adr_body_preservation: PASS_STATUS_BLOCK_ONLY
+    reviews: 0
+    inline_threads: 0
+    comments: 0
+    source_branch_deleted: true
+    archived_task: docs/agents/tasks/archive/OTERYN-20260818-platform-adr0041-supersession-reconciliation.md
 
 observed_target_coordinates:
   Oteryn:
@@ -217,7 +231,7 @@ migration_transaction:
     target_governance: PASS
     meta_adr_canonical: PASS
     repository_manifest_canonical: PASS
-    platform_adr_supersession_ordering: PASS_META_FIRST_PLATFORM_RECONCILIATION_PENDING
+    platform_adr_supersession_ordering: PASS_COMPLETE
 
 proven:
   - Oteryn/Oteryn exists as public repository ID 1338152366 with GitHub App admin/write access.
@@ -225,13 +239,13 @@ proven:
   - Target PR 1 exact diff and JSON validation passed and the PR squash-merged as a2672baac544ada81c526e92f0517903865a9ad0 with clean review hygiene.
   - META ADR 0001 is canonical and explicitly supersedes Platform ADR 0041 for ecosystem repository-topology/META coordination authority.
   - Platform PR 1147 exact final head f8d0ee8cbaa6678184e33fbd83a9265e27d7f105 passed Agent Governance 32117192282 and CI 32117192288, then squash-merged as bac880386e962224a730aac6952f1c3498e78200.
-  - Platform PR 1147 source branch is absent after merge.
-  - No server/game repository was accessed or mutated during the META create/bootstrap transaction.
+  - Platform ADR 0041 status-only reconciliation PR 1149 final head 351da55fe0c118725482dcb44b0d81599785f0c7 passed Agent Governance 32118404764 and CI 32118404842 and squash-merged as 77914c8c2fab016273ee32cb1df0799370206e80.
+  - Platform main ADR 0041 now records its exact canonical META successor while its historical Context and Decision content remains unchanged.
+  - No server/game repository was accessed or mutated during the META create/bootstrap and authority-reconciliation work.
 
 derived:
-  - The META create transaction is terminally complete and no owner create action remains.
-  - Oteryn/Oteryn is the neutral ecosystem topology authority while provider repositories retain provider implementation/schema authority.
-  - Platform ADR 0041 status reconciliation is in progress on PR 1149 and remains non-canonical until that PR merges.
+  - The META create and authority-handoff transaction is fully reconciled and terminal.
+  - Oteryn/Oteryn is the sole neutral ecosystem topology authority while provider repositories retain provider implementation/schema authority.
   - Game cutover and Atlas extraction remain independently fail-closed and are not made ready by META completion.
 
 unknown:
@@ -239,8 +253,7 @@ unknown:
   - Exact Oteryn-v2 GHCR/package names, links, permissions and consumers.
   - Complete path-level Atlas ownership split needed for selective extraction.
 
-conflicts:
-  - Platform ADR 0041 main still carries pre-handover Accepted status until PR 1149 merges; META ADR 0001 already controls ecosystem topology scope.
+conflicts: []
 
 cleanup_debt:
   - Oteryn/Oteryn branch bootstrap/meta-authority-0001 remains after merged PR 1 because the current connector exposes no delete-ref operation; no unmerged authority remains on it.
@@ -249,7 +262,7 @@ blockers:
   - Game-specific package/caller evidence remains unresolved for any future Oteryn-v2/Oteryn-Game physical cutover.
   - Atlas extraction remains separately coupled to source ownership/deployment evidence.
 
-next_action: Complete PR 1149 exact-head checks and lifecycle closeout without changing historical ADR body content.
+next_action: In a future separately authorized invocation, select one independent remaining migration-readiness transaction for Game or Atlas; do not infer either ready from META completion.
 ```
 
 ## Programme rules
