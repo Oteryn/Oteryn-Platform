@@ -21,24 +21,25 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-18T12:47:00Z
-status: ready
-active_task: null
+updated_at: 2026-08-18T15:48:00Z
+status: blocked
+active_task: docs/agents/tasks/active/OTERYN-20260818-repository-migration-live-reconciliation.md
 issue: null
-branch: null
-pull_request: null
+branch: docs/reconcile-repository-migration-live-state-20260818
+pull_request: 1158
 
 ecosystem_topology_authority:
   repository: Oteryn/Oteryn
+  repository_id: 1338152366
   path: docs/architecture/adr/0001-ecosystem-topology-authority.md
   status: CANONICAL
-  canonical_merge: a2672baac544ada81c526e92f0517903865a9ad0
+  authority_merge: a2672baac544ada81c526e92f0517903865a9ad0
+  live_state_reconciliation_merge: 20f87798d6429555031fa4e63e0a115db83adffb
+  live_state_reconciliation_pr: 4
   supersedes:
     repository: blakinio/Oteryn-Platform
     path: docs/architecture/adr/0041-ecosystem-repository-authority-contracts-and-atlas-integration.md
     scope: ecosystem repository topology and META coordination authority
-    platform_reconciliation: COMPLETE
-    platform_reconciliation_pr: 1149
     platform_reconciliation_merge: 77914c8c2fab016273ee32cb1df0799370206e80
 
 target_topology:
@@ -47,340 +48,211 @@ target_topology:
   - Oteryn-Platform
   - Oteryn-Atlas
 
-known_migration_sources:
-  - blakinio/Oteryn-v2
-  - blakinio/Oteryn-Platform
-  - blakinio/Otheryn
-
-legacy_read_only_sources:
-  - blakinio/canary
-  - blakinio/otclient
-
-wave_1_evidence:
-  implementation_pr: 1131
-  implementation_merge: 43ceb7d17054787698c879a0797718e4a1cb1c28
-  readiness_report: docs/architecture/migration/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_READINESS.md
-  coordinate_inventory: docs/architecture/migration/oteryn-repository-coordinate-inventory.json
-  atlas_extraction_manifest: docs/architecture/migration/oteryn-atlas-extraction-manifest.json
-  archived_task: docs/agents/tasks/archive/OTERYN-20260817-ecosystem-repository-migration-wave1.md
-
-organization_access_evidence:
-  implementation_pr: 1143
-  implementation_merge: 36774bbf2c820572b1f4272dd373c24491d71d96
-  closeout_merge: fae1127f081a12ef6bc7c85951b819a3031138a6
-  archived_task: docs/agents/tasks/archive/OTERYN-20260818-repository-migration-org-access.md
-  connector_installation:
-    installation_id: 154585379
-    account_login: Oteryn
-    account_type: Organization
-  classification: PROVEN_ORGANIZATION_INTEGRATION_ACCESS
-
-meta_preparation_evidence:
-  implementation_pr: 1145
-  implementation_final_head: 20b8a73487e74a0b66924662a1d7e2b9f8b1e3e0
-  implementation_merge: 860273ba7eb56fd4f6f3b1e1f8cbb765b2c094fe
-  closeout_pr: 1146
-  closeout_merge: 648cb5edd64d80d3002b19ef6d007d125de1593e
-  final_agent_governance_run: 32114183914
-  final_ci_run: 32114183887
-  archived_task: docs/agents/tasks/archive/OTERYN-20260818-meta-repository-bootstrap.md
-
-meta_create_and_bootstrap_evidence:
-  target_repository: Oteryn/Oteryn
-  repository_id: 1338152366
-  visibility: public
-  archived: false
-  default_branch: main
-  connector_permissions:
-    admin: true
-    maintain: true
-    push: true
-    pull: true
-    triage: true
-  owner_create_result:
-    identity: PASS
-    visibility: PASS
-    integration_access: PASS
-    readme_initialization: MISSING_REPAIRABLE
-  readme_anchor_repair:
-    commit: ef9a8ee8ba16ee6618eecb2511905f1566dec58c
-    reason: owner-created repository was empty and the intended README anchor was required before governed branching
-  target_bootstrap:
-    branch: bootstrap/meta-authority-0001
-    pull_request: 1
-    final_head: 08a72bc7a9826ff62e2758411a8d31d70d661849
-    merge: a2672baac544ada81c526e92f0517903865a9ad0
-    changed_paths:
-      - AGENTS.md
-      - docs/architecture/adr/0001-ecosystem-topology-authority.md
-      - ecosystem/repositories.json
-    json_validation: PASS
-    exact_diff_self_review: PASS
-    runtime_e2e: NOT_APPLICABLE
-    ci: NOT_CONFIGURED
-    main_branch_protection: disabled
-    required_status_checks: []
-    reviews: 0
-    inline_threads: 0
-    comments: 0
-    source_branch_cleanup: PENDING_CONNECTOR_LACKS_DELETE_REF
-  platform_post_create_reconciliation:
-    implementation_pr: 1147
-    final_head: f8d0ee8cbaa6678184e33fbd83a9265e27d7f105
-    merge: bac880386e962224a730aac6952f1c3498e78200
-    final_agent_governance_run: 32117192282
-    final_ci_run: 32117192288
-    reviews: 0
-    inline_threads: 0
-    comments: 0
-    source_branch_deleted: true
-    archived_task: docs/agents/tasks/archive/OTERYN-20260818-meta-post-create-bootstrap.md
-  platform_adr0041_supersession_reconciliation:
-    implementation_pr: 1149
-    final_head: 351da55fe0c118725482dcb44b0d81599785f0c7
-    merge: 77914c8c2fab016273ee32cb1df0799370206e80
-    final_agent_governance_run: 32118404764
-    final_ci_run: 32118404842
-    adr_body_preservation: PASS_STATUS_BLOCK_ONLY
-    reviews: 0
-    inline_threads: 0
-    comments: 0
-    source_branch_deleted: true
-    archived_task: docs/agents/tasks/archive/OTERYN-20260818-platform-adr0041-supersession-reconciliation.md
-
-meta_ci_hardening_evidence:
-  target_repository: Oteryn/Oteryn
-  pull_request: 2
-  final_head: 0712d34e886b593f6b264091730e46dbf3ec8e5b
-  merge: 2351e40aa831458f6c579e182f2968d0b33db99e
-  meta_gate_run: 32131316265
-  meta_gate_result: PASS
-  stable_required_check_candidate: meta-gate
-  changed_surfaces:
-    - META CI
-    - ecosystem compatibility schema
-    - ecosystem test strategy
-    - release coordination
-    - contribution and security guidance
-  runtime_e2e: NOT_APPLICABLE
-  reviews: 0
-  inline_threads: 0
-  comments: 0
-  main_branch_protection: PENDING_ADMIN_FOLLOWUP
-  protection_issue: 3
-  protection_blocker: connected GitHub action surface exposes no branch-protection or ruleset mutation operation
-  source_branch_cleanup: PENDING_CONNECTOR_LACKS_DELETE_REF
-
-platform_transfer_readiness_evidence:
-  source_repository: blakinio/Oteryn-Platform
-  target_repository: Oteryn/Oteryn-Platform
-  source_repository_id: 1305155726
-  readiness_report: docs/architecture/migration/OTERYN_PLATFORM_TRANSFER_READINESS.md
-  coordinate_inventory: docs/architecture/migration/oteryn-platform-transfer-inventory.json
-  implementation_pr: 1151
-  final_head: 66e51536c42fd07a2d18d4643dcfce66d71bfe89
-  merge: b39f8ac31e17f0edb07827c178140867a7e5c04f
-  final_agent_governance_run: 32132111526
-  final_ci_run: 32132111609
-  required_checks:
-    - classify-changes
-    - test
-  reviews: 0
-  inline_threads: 0
-  comments: 0
-  source_branch_deleted: true
-  runtime_e2e: NOT_APPLICABLE
-  verdict: PREPARED_NOT_READY
-  target_collision: false
-  physical_transfer_performed: false
-
-platform_owner_neutral_hardening_evidence:
-  source_repository: blakinio/Oteryn-Platform
-  target_repository: Oteryn/Oteryn-Platform
-  implementation_pr: 1153
-  final_head: 43f7649b32eefc50e8e8bdc669d44bf4e5de7338
-  merge: 6a3b92cae0099b36d4b58048657fbfa8aea7b9bf
-  final_agent_governance_run: 32137944890
-  final_ci_run: 32137944800
-  required_checks:
-    - classify-changes
-    - test
-  affected_workflow_runs:
-    character_bazaar: 32137944744
-    liquid20: 32137944776
-    synology_rollback: 32137944930
-    synology_preflight: 32137944818
-    synology_image_build: 32137944703
-    edge_security: 32137944714
-    platform_db_outage: 32137944713
-    phase7: 32137944771
-    game_auth_concurrency: 32137944724
-  reviews: 0
-  inline_threads: 0
-  comments: 0
-  source_branch_deleted: true
-  runtime_e2e: NOT_APPLICABLE
-  package_publication_performed: false
-  runner_registration_performed: false
-  staging_or_production_operation_performed: false
-  physical_transfer_performed: false
-  repository_hardening:
-    owner_neutral_ghcr: PASS
-    owner_neutral_runner_configuration: PASS
-    owner_neutral_runtime_preflight: PASS
-    character_bazaar_platform_images: PASS
-    liquid20_platform_package: PASS
-    automatic_live_side_effect_guard: PASS
-    adr_cross_repository_successor_validation: PASS
-  remaining_cutover_evidence:
-    - live GHCR package object ownership permissions and repository links
-    - existing repository-level Synology runner attachment behavior after owner transfer
-    - target organization branch/ruleset result after transfer
-    - transfer-capable GitHub mutation surface
-  verdict: PREPARED_NOT_READY
-  archived_task: docs/agents/tasks/archive/OTERYN-20260818-platform-transfer-owner-neutral-hardening.md
+completed_transactions:
+  meta_create:
+    transaction_id: OTERYN-META-CREATE-20260818
+    state: COMPLETED
+    target_repository: Oteryn/Oteryn
+    repository_id: 1338152366
+    authority_merge: a2672baac544ada81c526e92f0517903865a9ad0
+    meta_ci_merge: 2351e40aa831458f6c579e182f2968d0b33db99e
+  game_history_migration:
+    transaction_class: history_preserving_copy
+    source_repository: blakinio/Oteryn-v2
+    source_repository_id: 1323412342
+    preserved_source_main: 16afdf31a15bd49d454cdbcdd98fa7ec72213ef9
+    target_repository: Oteryn/Oteryn-Game
+    target_repository_id: 1338291140
+    reconciliation_pr: 4
+    reconciliation_merge: d85a5a075aaf72ec88cf2f4167f1aab2ab2ba3a9
+    administration_reconciliation_pr: 6
+    administration_closeout_pr: 7
+    state: COMPLETED
+    source_retention: READ_ONLY_LEGACY_MIGRATION_PROVENANCE
 
 observed_target_coordinates:
   Oteryn:
     repository: Oteryn/Oteryn
     repository_id: 1338152366
-    state: EXISTS_BOOTSTRAPPED_WITH_META_CI
+    state: ACTIVE_CANONICAL_META
     visibility: public
-    authority_merge: a2672baac544ada81c526e92f0517903865a9ad0
-    meta_ci_merge: 2351e40aa831458f6c579e182f2968d0b33db99e
     main_branch_protection: PENDING_ADMIN_FOLLOWUP
+    protection_issue: 3
+  Oteryn-Game:
+    repository: Oteryn/Oteryn-Game
+    repository_id: 1338291140
+    current_repository: Oteryn/Oteryn-Game
+    migration_source: blakinio/Oteryn-v2
+    state: HISTORY_PRESERVING_MIGRATION_COMPLETE
+    visibility: public
   Oteryn-Atlas:
     repository: Oteryn/Oteryn-Atlas
-    state: EXISTS
+    repository_id: 1337995824
+    current_repository: Oteryn/Oteryn-Atlas
+    state: ACTIVE_REPOSITORY_CONTENT_MIGRATION_INDEPENDENTLY_GATED
     visibility: public
-    content_migration_state: PENDING_INDEPENDENT_EVIDENCE
+    active_task: docs/agents/tasks/active/DYN-ATLAS-001-semantic-thais-z7-proof.md
   Oteryn-Platform:
-    target_repository: Oteryn/Oteryn-Platform
+    intended_target_repository: Oteryn/Oteryn-Platform
+    observed_bootstrap_repository: Oteryn/Oteryn-platform
+    observed_bootstrap_repository_id: 1338405017
     current_repository: blakinio/Oteryn-Platform
-    state: PENDING_LIVE_CUTOVER_EVIDENCE
-    readiness_merge: b39f8ac31e17f0edb07827c178140867a7e5c04f
-    owner_neutral_hardening_merge: 6a3b92cae0099b36d4b58048657fbfa8aea7b9bf
-  Oteryn-Game:
-    target_repository: Oteryn/Oteryn-Game
-    current_repository: blakinio/Oteryn-v2
-    state: PENDING_PHYSICAL_MIGRATION
-    evidence_note: current coordinate carried from accepted prior authority; no server/game repository inspection in this invocation
+    source_repository_id: 1305155726
+    source_main_sha: 77fa480a3f4e847dac98f76e05b6acd27cca4a57
+    bootstrap_main_sha: db381488697eee315bdf5840ab0d4f8807f7bfb0
+    state: TARGET_COORDINATE_OCCUPIED_BY_BOOTSTRAP_ONLY_REPOSITORY_TRANSFER_PENDING
+
+platform_preparation_evidence:
+  readiness_report: docs/architecture/migration/OTERYN_PLATFORM_TRANSFER_READINESS.md
+  coordinate_inventory: docs/architecture/migration/oteryn-platform-transfer-inventory.json
+  readiness_merge: b39f8ac31e17f0edb07827c178140867a7e5c04f
+  owner_neutral_hardening_merge: 6a3b92cae0099b36d4b58048657fbfa8aea7b9bf
+  owner_neutral_repository_code: PASS
+  source_main_advanced_after_hardening: true
+  source_main_current: 77fa480a3f4e847dac98f76e05b6acd27cca4a57
+  transfer_capable_connected_surface: false
+
+platform_bootstrap_target_evidence:
+  repository: Oteryn/Oteryn-platform
+  repository_id: 1338405017
+  visibility: public
+  default_branch: main
+  repository_content_classification: MIGRATION_BOOTSTRAP_ONLY
+  bootstrap_pull_request: 1
+  bootstrap_pull_request_state: OPEN_DRAFT_DO_NOT_MERGE
+  seed_workflow: .github/workflows/one-off-platform-history-seed.yml
+  seed_workflow_run: 32140478830
+  seed_source_main: c567da9d9ae444110262774f8febf5a5abab2a90
+  seed_git_fsck: PASS
+  seed_bundle_verify: PASS
+  seed_backup_artifact_id: 9325658054
+  seed_head_push_rc: 1
+  seed_tag_push_rc: 0
+  head_push_result: REJECTED_WORKFLOW_PERMISSION
+  source_main_drift_after_seed: 77fa480a3f4e847dac98f76e05b6acd27cca4a57
 
 migration_transaction:
-  transaction_id: OTERYN-META-CREATE-20260818
-  mutation: create
-  state: COMPLETED
-  public_status: COMPLETED
-  source_coordinate: none
-  target_coordinate: Oteryn/Oteryn
-  canonical_preparation_merge: 860273ba7eb56fd4f6f3b1e1f8cbb765b2c094fe
-  physical_repository_id: 1338152366
+  transaction_id: OTERYN-PLATFORM-TRANSFER-20260818
+  mutation: transfer
+  state: PREPARED
+  public_status: NO_GO
+  source_coordinate: blakinio/Oteryn-Platform
+  target_coordinate: Oteryn/Oteryn-Platform
+  source_head: 77fa480a3f4e847dac98f76e05b6acd27cca4a57
+  source_repository_id: 1305155726
+  pre_state_snapshot:
+    source_repository: blakinio/Oteryn-Platform
+    source_repository_id: 1305155726
+    source_main: 77fa480a3f4e847dac98f76e05b6acd27cca4a57
+    source_visibility: public
+    source_archived: false
+    intended_target_observed_repository: Oteryn/Oteryn-platform
+    intended_target_repository_id: 1338405017
+    intended_target_main: db381488697eee315bdf5840ab0d4f8807f7bfb0
+    intended_target_content: migration_bootstrap_only
   expected_post_state:
-    repository: Oteryn/Oteryn
+    repository: Oteryn/Oteryn-Platform
+    repository_id: 1305155726
     owner: Oteryn
-    archived: false
-    visibility: PUBLIC
-    governed_bootstrap: CANONICAL
-  actual_post_state:
-    repository: Oteryn/Oteryn
-    owner: Oteryn
-    archived: false
-    visibility: PUBLIC
-    connector_access: PROVEN_ADMIN_WRITE
-    initial_readme: repaired_after_owner_create
-    meta_adr: CANONICAL
-    repository_manifest: CANONICAL
-    target_governance: CANONICAL
+    main_head_continuity: exact_source_head
+    history_provenance: preserved
+    connector_admin_write_access: required
+    branch_protection_and_required_checks: required_revalidation
+    package_and_runner_cutover: required_revalidation
   authority_verified: true
-  target_identity_verified: true
-  target_governance_verified: true
+  target_identity_or_absence_verified: true
+  target_governance_verified: false
   source_state_verified: true
+  evidence_lease_current: false
   active_pr_task_impact_verified: true
-  coordinate_inventory_complete_for_cutover: true
-  executable_callers_resolved: true
-  ci_impact_resolved: true
-  package_impact_resolved_or_owner_risk_acceptance_proven: true
+  coordinate_inventory_complete_for_cutover: false
+  executable_callers_resolved: false
+  ci_impact_resolved: false
+  package_impact_resolved_or_owner_risk_acceptance_proven: false
   provenance_strategy_verified: true
-  target_collision: false
+  target_collision: true
   ownership_conflict: false
-  material_unknowns: []
+  material_unknowns:
+    - live GHCR Platform package objects permissions and repository links at the current owner and intended target owner
+    - repository-level Synology runner attachment and online behavior immediately after a future owner transfer
+    - target organization ruleset and branch-protection result after transfer
+  cutover_lock:
+    owner: none
+    acquired_at: none
+    invalidated_by: target collision source-head drift unresolved live package or runner evidence
   replay_guard:
-    mutation_fingerprint: create_repository:Oteryn/Oteryn
-    create_reissue_forbidden: true
-    resolved_repository_id: 1338152366
+    mutation_fingerprint: transfer_repository:1305155726:Oteryn/Oteryn-Platform
+    reissue_forbidden_until_state_proven_not_applied: true
+    resume_detection: verify repository ID 1305155726 owner and exact target coordinate before any transfer request
   point_of_no_return:
-    reached: true
-    authority_handover_reached: true
-    authority_handover_merge: a2672baac544ada81c526e92f0517903865a9ad0
+    reached_when: successful GitHub repository owner transfer of repository ID 1305155726
+    consequences: target repository identity settings packages runners and redirects require immediate verification before further migration work
+  residual_risk_acceptance:
+    status: none
+    accepted_by: none
+    accepted_at: none
+    exact_scope: none
+    expiry_or_recheck: none
+    evidence: none
   rollback:
-    pre_authority_feasibility: PROVEN
-    pre_authority_window: CLOSED
-    deletion_authority_after_handover: NOT_GRANTED_BY_PREVIOUS_ROLLBACK_PROOF
+    feasibility: NOT_PROVEN
+    operation: owner transfer back to blakinio only if GitHub permits and the old coordinate remains recoverable
+    trigger: material post-transfer identity history CI package or runner verification failure
+    decision_owner: repository owner
+    execution_window: must be proven immediately before READY_TO_EXECUTE
+    verification: exact repository ID owner main head rulesets packages runners and redirect state
   post_mutation_validation:
-    exact_repository_identity: PASS
-    public_visibility: PASS
-    archived_false: PASS
-    default_branch_anchor: PASS_REPAIRED
-    connector_admin_write_access: PASS
-    unexpected_template_or_runtime_content: PASS_NONE_FOUND
-    dedicated_bootstrap_pr: PASS
-    target_governance: PASS
-    meta_adr_canonical: PASS
-    repository_manifest_canonical: PASS
-    platform_adr_supersession_ordering: PASS_COMPLETE
+    - exact repository ID owner coordinate visibility default branch and main head
+    - history branches tags Issues PRs releases and redirects
+    - GitHub App admin/write access branch protection and required checks
+    - repository secrets and environments existence without reading values
+    - GitHub-hosted Actions package publication/read/linkage and self-hosted runner state
 
 proven:
-  - Oteryn/Oteryn exists as public repository ID 1338152366 with GitHub App admin/write access.
-  - The missing README was repaired before authority handover without replaying repository creation.
-  - Target PR 1 exact diff and JSON validation passed and the PR squash-merged as a2672baac544ada81c526e92f0517903865a9ad0 with clean review hygiene.
-  - META ADR 0001 is canonical and explicitly supersedes Platform ADR 0041 for ecosystem repository-topology/META coordination authority.
-  - META PR 2 established stable meta-gate CI and ecosystem compatibility/release/test governance; exact head 0712d34e886b593f6b264091730e46dbf3ec8e5b passed run 32131316265 and squash-merged as 2351e40aa831458f6c579e182f2968d0b33db99e.
-  - META main protection remains truthfully pending because the connected GitHub action surface cannot mutate branch protection or rulesets; Issue 3 tracks the exact administrative follow-up.
-  - Platform PR 1147 exact final head f8d0ee8cbaa6678184e33fbd83a9265e27d7f105 passed Agent Governance 32117192282 and CI 32117192288, then squash-merged as bac880386e962224a730aac6952f1c3498e78200.
-  - Platform ADR 0041 status-only reconciliation PR 1149 final head 351da55fe0c118725482dcb44b0d81599785f0c7 passed Agent Governance 32118404764 and CI 32118404842 and squash-merged as 77914c8c2fab016273ee32cb1df0799370206e80.
-  - Platform main ADR 0041 records its exact canonical META successor while its historical Context and Decision content remains unchanged.
-  - Platform transfer-readiness PR 1151 exact final head 66e51536c42fd07a2d18d4643dcfce66d71bfe89 passed Agent Governance 32132111526 and CI 32132111609, then squash-merged as b39f8ac31e17f0edb07827c178140867a7e5c04f.
-  - Platform owner-neutral hardening PR 1153 exact final head 43f7649b32eefc50e8e8bdc669d44bf4e5de7338 passed required and affected CI, had clean review hygiene and squash-merged as 6a3b92cae0099b36d4b58048657fbfa8aea7b9bf.
-  - Platform main remains protected with required classify-changes and test after hardening merge 6a3b92cae0099b36d4b58048657fbfa8aea7b9bf; the implementation source branch was deleted.
-  - No package publication runner registration staging/production repository transfer or server/game repository access/mutation occurred in the owner-neutral hardening task.
+  - Oteryn/Oteryn is the canonical META authority and its live repository manifest was reconciled by PR 4 merge 20f87798d6429555031fa4e63e0a115db83adffb after meta-gate PASS.
+  - Oteryn/Oteryn-Game completed the history-preserving migration from blakinio/Oteryn-v2 and later repository-administration reconciliation; the source remains legacy migration provenance.
+  - Oteryn/Oteryn-Atlas exists with repository-local governance CI and active DYN-ATLAS-001 work; the stale Platform repository-absence blocker PR 1141 is closed without merge.
+  - blakinio/Oteryn-Platform remains the canonical Platform implementation at repository ID 1305155726 and current main 77fa480a3f4e847dac98f76e05b6acd27cca4a57.
+  - Oteryn/Oteryn-platform exists at repository ID 1338405017 as bootstrap-only migration scaffolding and therefore occupies the intended transfer coordinate.
+  - Platform seed workflow run 32140478830 proved git fsck and full-bundle verification but did not migrate branch refs; head_push_rc was 1 because workflow-bearing refs were rejected without workflows permission.
+  - The connected GitHub action surface exposes no repository-transfer operation and no META branch-protection/ruleset mutation operation.
 
 derived:
-  - The META create and authority-handoff transaction remains fully reconciled and terminal.
-  - Oteryn/Oteryn is the neutral ecosystem topology authority while provider repositories retain provider implementation/schema authority.
-  - Platform repository-side owner-coordinate hardening is complete.
-  - Platform physical transfer is still not CUTOVER_READY because live GHCR package ownership/linkage and existing runner cutover behavior remain unobserved and the connected GitHub action surface cannot perform the transfer.
-  - Game cutover and Atlas extraction remain independently fail-closed and are not made ready by META or Platform preparation.
+  - Game repository migration is terminal and must not remain in the pending migration queue.
+  - Atlas repository creation is terminal; Atlas content/history separation remains an independent gated workstream rather than a repository-existence blocker.
+  - Platform is not READY_TO_EXECUTE and not CUTOVER_READY because multiple material gates remain unsatisfied.
+  - Force-pushing a copied Platform history into the bootstrap target would be a different migration operation and would violate the accepted native-transfer transaction/provenance model.
 
 unknown:
-  - Live GHCR package objects, permissions and repository links for current Platform-owned images.
-  - Repository-level Synology runner behavior immediately after a future Platform owner transfer without re-registration.
-  - Target organization Platform branch/ruleset state until the transferred repository is observed.
-  - Exhaustive external Actions/reusable-workflow callers of Oteryn-v2.
-  - Exact Oteryn-v2 GHCR/package names, links, permissions and consumers.
-  - Complete path-level Atlas ownership split needed for selective extraction.
+  - Live GHCR package object ownership permissions and repository links required for Platform owner transfer.
+  - Repository-level Synology runner behavior immediately after Platform owner transfer.
+  - Exact post-transfer organization ruleset/protection result.
+  - Final bounded Atlas selective history/content extraction closeout state.
 
-conflicts: []
+conflicts:
+  - The intended Platform target coordinate is already occupied by bootstrap repository ID 1338405017 while the canonical transfer transaction requires repository ID 1305155726 to become Oteryn/Oteryn-Platform.
 
 cleanup_debt:
-  - Oteryn/Oteryn branch bootstrap/meta-authority-0001 remains after merged PR 1 because the current connector exposes no delete-ref operation; no unmerged authority remains on it.
-  - Oteryn/Oteryn branch ci/meta-governance-hardening remains after merged PR 2 because the current connector exposes no delete-ref operation; all canonical META CI content is merged.
-  - Oteryn/Oteryn main remains unprotected after META CI bootstrap; Issue 3 records the exact required administrative protection settings.
+  - Oteryn/Oteryn main protection remains pending under META Issue 3 because the current connector cannot configure branch protection or rulesets.
+  - Oteryn/Oteryn-platform bootstrap PR 1 and its one-off workflow remain migration scaffolding and must not be mistaken for canonical Platform implementation.
 
 blockers:
-  - Platform physical transfer is blocked on live GHCR package ownership/linkage evidence, live self-hosted-runner cutover evidence and an authorized transfer-capable GitHub mutation surface.
-  - The current connected GitHub action surface cannot perform the physical Platform repository transfer or configure META branch protection/rulesets.
-  - Game-specific package/caller evidence remains unresolved for any future Oteryn-v2/Oteryn-Game physical cutover and server/game access was not authorized in this invocation.
-  - Atlas extraction remains separately coupled to source ownership/deployment evidence.
+  - TARGET_COORDINATE_COLLISION: Oteryn/Oteryn-platform repository ID 1338405017 occupies the intended same-name transfer coordinate.
+  - TRANSFER_OPERATION_UNAVAILABLE: the connected GitHub action surface cannot perform repository owner transfer.
+  - GHCR_LIVE_EVIDENCE_UNAVAILABLE: current package object ownership permissions and repository linkage remain unresolved.
+  - SELF_HOSTED_RUNNER_CUTOVER_UNPROVEN: repository-level Synology runner behavior after transfer remains unresolved.
 
-next_action: Resolve live Platform GHCR package ownership/linkage and repository-level Synology runner cutover evidence and obtain an authorized transfer-capable GitHub surface; only then refresh the Platform transaction for READY_TO_EXECUTE and perform the single physical transfer.
+next_action: Owner/admin must first free the intended Oteryn/Oteryn-Platform coordinate by an owner-approved rename of the bootstrap-only Oteryn/Oteryn-platform repository while preserving its migration backup evidence; then rerun the Platform transfer preflight from live state.
 ```
 
 ## Programme rules
 
 - Live repository state outranks this file when newer.
 - Do not cache transient main SHAs here as future authority.
+- The canonical prompt owns Tier-2 transaction states and gates; this durable state must not invent alternate executable semantics.
+- Do not create, copy or force-push a competing Platform repository as a substitute for the accepted repository-transfer transaction.
+- Do not let completed Game migration or active Atlas work be reclassified as pending merely because an older checkpoint said so.
 - Do not let Game- or Atlas-specific evidence gaps block unrelated repository migration work without a proven dependency.
-- Do not create empty target repositories merely to satisfy the target diagram.
 - META ADR 0001 owns ecosystem topology authority; provider repositories retain provider implementation/schema authority.
-- Every remaining physical migration step requires exact preflight, rollback and post-cutover verification.
+- Every remaining physical migration step requires exact preflight, a current evidence lease, proven rollback and immediate post-cutover verification.
 - Keep exactly one `next_action` while the programme is not terminal.
