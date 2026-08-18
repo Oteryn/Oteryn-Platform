@@ -32,6 +32,7 @@ Resume `OTERYN-REPO-MIGRATION-ULTRA` from the Wave-1 blocker after the owner rep
 - [x] Owner report that `https://github.com/Oteryn/` was created is recorded without treating it as connector permission evidence.
 - [x] Authenticated GitHub organization membership and GitHub App installation visibility are checked live.
 - [x] No repository create/rename/transfer is attempted while authenticated organization visibility is absent.
+- [x] A dedicated task branch and draft PR persist the blocker and exact next action.
 - [ ] `Oteryn` is visible to the authenticated GitHub integration with sufficient permission for the next bounded operation.
 - [ ] The next canonical migration transaction or preparation phase is selected from fresh evidence.
 
@@ -58,12 +59,12 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-18T05:11:00Z
+updated_at: 2026-08-18T05:14:18Z
 invocation_started_at: 2026-08-18T05:11:00Z
-last_progress_at: 2026-08-18T05:11:00Z
-head: UNKNOWN_AFTER_INITIAL_CHECKPOINT_COMMIT
+last_progress_at: 2026-08-18T05:14:18Z
+head: 7282eff8c82e5f6582c7ae3e9114e06ef495a059
 branch: docs/oteryn-20260818-repository-migration-org-access
-pr: none
+pr: 1143
 status: blocked
 phase: investigate
 session_id: chat-github-20260818-repo-migration-org-access
@@ -105,6 +106,7 @@ proven:
   - Authenticated GitHub `list_user_org_memberships` returned an empty organization list.
   - Authenticated GitHub `list_installations` returned only installation 78758924 for account `blakinio`; no `Oteryn` installation was exposed.
   - The current owner message reports that the `Oteryn` organization has been created.
+  - Draft PR 1143 owns exactly this task record and the migration programme state checkpoint.
 derived:
   - Organization creation alone does not prove that the current GitHub integration can inspect or mutate organization-owned repositories.
   - META bootstrap and every Tier-2 create/rename/transfer under `Oteryn` remain NO_GO until authenticated organization visibility/permission is proven.
@@ -121,6 +123,7 @@ rejected_hypotheses:
   - Existing admin rights on blakinio/Oteryn-Platform authorize blind Tier-2 writes to a newly created organization.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260818-repository-migration-org-access.md
+  - docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md
 validation:
   - command: GitHub live main/active-task/open-PR/branch preflight
     result: PASS
@@ -128,6 +131,9 @@ validation:
   - command: GitHub authenticated organization visibility checks
     result: BLOCKED
     evidence: list_user_orgs=[], list_user_org_memberships=[], list_installations contains only blakinio installation 78758924
+  - command: PR 1143 changed-file scope
+    result: PASS
+    evidence: PR creation snapshot reports exactly 2 changed files, matching owned paths
   - command: physical repository migration E2E
     result: NOT_APPLICABLE
     evidence: Tier-2 mutation is intentionally not attempted while the organization-access gate is unsatisfied
@@ -140,8 +146,8 @@ next_action: Install or authorize the ChatGPT GitHub integration for the `Oteryn
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: task remains blocked on organization integration visibility
-source_branch_evidence: branch docs/oteryn-20260818-repository-migration-org-access
+source_branch_reason: active blocked migration task must remain resumable until organization integration visibility is established
+source_branch_evidence: PR #1143 / branch docs/oteryn-20260818-repository-migration-org-access
 ```
 
 ## Notes
