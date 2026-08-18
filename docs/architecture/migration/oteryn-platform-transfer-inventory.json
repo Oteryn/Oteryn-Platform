@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "transaction_id": "OTERYN-PLATFORM-TRANSFER-20260818",
-  "observed_at": "2026-08-18T12:46:00Z",
+  "observed_at": "2026-08-18T16:15:00Z",
   "source_repository": {
     "coordinate": "blakinio/Oteryn-Platform",
     "repository_id": 1305155726,
-    "main_sha": "6a3b92cae0099b36d4b58048657fbfa8aea7b9bf",
+    "main_sha": "ac39722ab348c71748e915395787195d2ea20ebb",
     "visibility": "public",
     "admin_access": true,
     "branch_protection": {
@@ -18,9 +18,24 @@
   },
   "target_repository": {
     "coordinate": "Oteryn/Oteryn-Platform",
-    "collision_observed_at_last_check": false,
-    "collision_must_refresh_before_mutation": true,
+    "collision_observed_at_current_check": false,
+    "collision_evidence": "live Oteryn organization repository inventory contains no current repository named Oteryn-Platform",
     "physical_transfer_performed": false
+  },
+  "migration_backup_repository": {
+    "coordinate": "Oteryn/Oteryn-Platform-Migration-Backup-20260818",
+    "repository_id": 1338405017,
+    "visibility": "public",
+    "archived": false,
+    "default_branch": "main",
+    "classification": "MIGRATION_BOOTSTRAP_BACKUP_NOT_CANONICAL_PLATFORM",
+    "bootstrap_pull_request": 1,
+    "bootstrap_pull_request_state": "CLOSED_WITHOUT_MERGE",
+    "seed_workflow_run": 32140478830,
+    "seed_backup_artifact_id": 9325658054,
+    "seed_git_fsck": "PASS",
+    "seed_bundle_verify": "PASS",
+    "seed_head_push_rc": 1
   },
   "hardening_delivery": {
     "pull_request": 1153,
@@ -30,6 +45,18 @@
     "package_publication_performed": false,
     "runner_registration_performed": false,
     "staging_or_production_operation_performed": false
+  },
+  "post_hardening_drift": {
+    "liquid20_scope_removal_merge": "88e1661bbd13ddb36b064d411d54702075f64852",
+    "liquid20_scope_closeout_merge": "77fa480a3f4e847dac98f76e05b6acd27cca4a57",
+    "last_pre_rename_preflight_main": "77fa480a3f4e847dac98f76e05b6acd27cca4a57",
+    "current_main": "ac39722ab348c71748e915395787195d2ea20ebb",
+    "current_main_delta_from_last_preflight": "DOCUMENTATION_GOVERNANCE_ONLY",
+    "current_main_delta_files": [
+      "docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md",
+      "docs/agents/tasks/archive/OTERYN-20260818-repository-migration-live-reconciliation.md",
+      "docs/architecture/migration/OTERYN_PLATFORM_TRANSFER_READINESS.md"
+    ]
   },
   "entries": [
     {
@@ -100,7 +127,7 @@
       "surface": "staging image example",
       "coordinate": "ghcr.io/${OTERYN_GHCR_OWNER}/{oteryn-platform,oteryn-game-gateway}:main",
       "classification": "PASS_PRE_CUTOVER_PREPARATION",
-      "reason": "Manual/local staging configuration now exposes the owner as an explicit transfer-sensitive setting instead of embedding the source owner."
+      "reason": "Manual/local staging configuration exposes the owner as an explicit transfer-sensitive setting instead of embedding the source owner."
     },
     {
       "path": "tools/validation/adr_registry.py; tools/validation/test_adr_registry.py",
@@ -110,6 +137,13 @@
       "reason": "The validator accepts the already-canonical META successor form used by unchanged ADR 0041 only with exact fail-closed merge provenance and retains local successor existence validation."
     },
     {
+      "path": "Liquid20/Freqtrade operational surfaces",
+      "surface": "out-of-scope historical references only",
+      "coordinate": "none in active Platform runtime/control workflows",
+      "classification": "REMOVED_FROM_PLATFORM_SCOPE",
+      "reason": "PR #1156 / merge 88e1661bbd13ddb36b064d411d54702075f64852 removed Liquid20/Freqtrade operational workflow and Synology control assets; remaining search hits are governance/history/tests."
+    },
+    {
       "path": "docs/**; docs/agents/tasks/archive/**; historical ADR/PR/Issue references",
       "surface": "historical provenance and ordinary documentation",
       "coordinate": "blakinio/Oteryn-Platform",
@@ -117,15 +151,28 @@
       "reason": "Current setup documentation may need post-transfer cleanup; historical evidence remains truthful provenance and must not be globally rewritten."
     }
   ],
+  "official_github_transfer_semantics": {
+    "target_same_name_repository_must_be_absent": true,
+    "source_admin_required": true,
+    "target_organization_create_permission_required": true,
+    "transfer_api_supported_fine_grained_token_type": "GitHub App user access token",
+    "transfer_api_required_repository_permission": "Administration write",
+    "connected_transfer_mutation_available": false,
+    "granular_package_links_removed_on_cross_owner_repository_transfer": true
+  },
   "remaining_unknowns": [
     "live GHCR package object ownership permissions and repository links",
     "whether the existing repository-level Synology runner remains attached and online immediately after owner transfer without re-registration",
     "target organization ruleset/protection outcome until post-transfer observation"
   ],
   "remaining_blockers": [
-    "live GHCR package cutover evidence",
+    "live GHCR package cutover evidence or exact bounded owner risk acceptance allowed by the canonical programme",
     "live self-hosted runner cutover evidence",
-    "repository-transfer operation unavailable in the connected GitHub action surface"
+    "repository-transfer operation unavailable in the connected GitHub action surface",
+    "rollback feasibility not yet proven for the exact live cutover state"
   ],
-  "next_action": "Resolve live GHCR package ownership/linkage and runner cutover evidence and obtain an authorized transfer-capable GitHub surface before attempting physical transfer."
+  "resolved_blockers": [
+    "target-coordinate collision resolved by preserving repository ID 1338405017 under Oteryn/Oteryn-Platform-Migration-Backup-20260818"
+  ],
+  "next_action": "Resolve live GHCR package linkage and self-hosted runner cutover evidence and prove rollback feasibility; if exactly the transfer operation remains afterward, hand off the single owner-only GitHub repository transfer and immediately verify repository ID 1305155726 at Oteryn/Oteryn-Platform."
 }
