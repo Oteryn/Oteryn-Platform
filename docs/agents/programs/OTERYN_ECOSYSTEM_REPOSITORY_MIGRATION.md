@@ -21,12 +21,12 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-18T05:11:00Z
+updated_at: 2026-08-18T05:14:18Z
 status: blocked
 active_task: OTERYN-20260818-repository-migration-org-access
 issue: null
 branch: docs/oteryn-20260818-repository-migration-org-access
-pull_request: null
+pull_request: 1143
 temporary_topology_authority:
   repository: blakinio/Oteryn-Platform
   path: docs/architecture/adr/0041-ecosystem-repository-authority-contracts-and-atlas-integration.md
@@ -71,6 +71,7 @@ proven:
   - Current Otheryn Atlas automation included an active private Synology deployment path and mixed build/deployment ownership at the Wave 1 observation baseline.
   - The owner reports that the intended GitHub organization is now `Oteryn` and has been created.
   - On 2026-08-18 the current authenticated GitHub connector still returned no user organizations, no organization memberships and only installation 78758924 for account `blakinio`.
+  - Draft PR 1143 is the current durable task/branch checkpoint for organization-access recovery.
 derived:
   - The accepted four-repository architecture remains valid.
   - Organization creation resolves the naming/owner-choice part of the prior blocker but does not prove current connector access or organization repository permissions.
