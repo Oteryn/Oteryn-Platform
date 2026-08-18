@@ -27,6 +27,16 @@ SUPERSEDED_BY_PATTERN = re.compile(
     r"\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*\.md)`?\s*$",
     re.MULTILINE,
 )
+CROSS_REPOSITORY_SUCCESSOR_PATTERN = re.compile(
+    r"^- Successor:\s*`(?P<repository>"
+    r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9][A-Za-z0-9._-]{0,99})`\s+"
+    r"ADR\s+(?P<adr>\d{4})\b(?:\s+[—-]\s+[^\n]+)?$",
+    re.MULTILINE,
+)
+SUCCESSOR_MERGE_PATTERN = re.compile(
+    r"^- Successor merge:\s*`(?P<sha>[0-9a-f]{40})`\s*$",
+    re.MULTILINE,
+)
 INVENTORY_ENTRY_PATTERN = re.compile(r"^- `(?P<filename>[^`]+)`\s*$")
 
 LEGACY_DUPLICATE_PATHS: dict[str, tuple[str, ...]] = {
@@ -151,19 +161,41 @@ def validate_repository(
             continue
 
         status = statuses[0]
-        supersession_matches = list(SUPERSEDED_BY_PATTERN.finditer(content))
+        local_supersession_matches = list(SUPERSEDED_BY_PATTERN.finditer(content))
+        cross_repository_successor_matches = list(
+            CROSS_REPOSITORY_SUCCESSOR_PATTERN.finditer(content)
+        )
+        successor_merge_matches = list(SUCCESSOR_MERGE_PATTERN.finditer(content))
+        supersession_count = (
+            len(local_supersession_matches) + len(cross_repository_successor_matches)
+        )
 
-        if status == "Superseded" and len(supersession_matches) != 1:
+        if status == "Superseded" and supersession_count != 1:
             errors.append(
-                f"{path.name}: Superseded ADR must declare exactly one "
-                "'- Superseded by:' path"
+                f"{path.name}: Superseded ADR must declare exactly one local "
+                "'- Superseded by:' path or one cross-repository '- Successor:' ADR"
             )
-        elif status != "Superseded" and supersession_matches:
+        elif status != "Superseded" and supersession_count:
             errors.append(
-                f"{path.name}: declares '- Superseded by:' but status is {status}"
+                f"{path.name}: declares a supersession successor but status is {status}"
             )
 
-        for match in supersession_matches:
+        if cross_repository_successor_matches:
+            if len(cross_repository_successor_matches) != 1:
+                errors.append(
+                    f"{path.name}: cross-repository successor declaration is ambiguous"
+                )
+            if len(successor_merge_matches) != 1:
+                errors.append(
+                    f"{path.name}: cross-repository successor must declare exactly one "
+                    "'- Successor merge:' 40-hex commit"
+                )
+        elif successor_merge_matches:
+            errors.append(
+                f"{path.name}: declares '- Successor merge:' without a cross-repository successor"
+            )
+
+        for match in local_supersession_matches:
             target = Path(match.group("target")).name
             if target not in actual_names:
                 errors.append(

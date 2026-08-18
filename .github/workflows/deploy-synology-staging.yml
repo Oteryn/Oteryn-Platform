@@ -247,8 +247,10 @@ jobs:
         run: |
           set -euo pipefail
           release_tag="sha-${RELEASE_SHA}"
-          platform_tag="ghcr.io/blakinio/oteryn-platform:${release_tag}"
-          gateway_tag="ghcr.io/blakinio/oteryn-game-gateway:${release_tag}"
+          platform_repo="$(bash deploy/synology/scripts/repository-ghcr-image.sh oteryn-platform)"
+          gateway_repo="$(bash deploy/synology/scripts/repository-ghcr-image.sh oteryn-game-gateway)"
+          platform_tag="${platform_repo}:${release_tag}"
+          gateway_tag="${gateway_repo}:${release_tag}"
 
           docker pull "$platform_tag" >/dev/null
           docker pull "$gateway_tag" >/dev/null
@@ -296,8 +298,8 @@ jobs:
             exit 1
           fi
 
-          platform_ref="$(resolve_expected_digest_ref "$platform_tag" 'ghcr.io/blakinio/oteryn-platform')"
-          gateway_ref="$(resolve_expected_digest_ref "$gateway_tag" 'ghcr.io/blakinio/oteryn-game-gateway')"
+          platform_ref="$(resolve_expected_digest_ref "$platform_tag" "$platform_repo")"
+          gateway_ref="$(resolve_expected_digest_ref "$gateway_tag" "$gateway_repo")"
           canary_ref="$(resolve_any_digest_ref "$CANARY_IMAGE_INPUT")"
 
           {
