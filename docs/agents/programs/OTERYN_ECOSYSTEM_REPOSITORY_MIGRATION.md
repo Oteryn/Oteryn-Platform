@@ -21,7 +21,7 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-18T07:46:00Z
+updated_at: 2026-08-18T07:48:00Z
 status: blocked
 active_task: OTERYN-20260818-meta-repository-bootstrap
 issue: null
@@ -79,7 +79,7 @@ observed_target_coordinates:
   Oteryn:
     repository: Oteryn/Oteryn
     state: ABSENT_404
-    refreshed_at: 2026-08-18T07:41:00Z
+    refreshed_at: 2026-08-18T07:48:00Z
   Oteryn-Atlas:
     repository: Oteryn/Oteryn-Atlas
     state: EXISTS
@@ -106,7 +106,7 @@ migration_transaction:
     owner: Oteryn
     archived: false
     initial_content: README_ONLY
-    visibility: UNKNOWN_OWNER_DECISION
+    visibility: PUBLIC
     connector_access: MUST_BE_PROVEN_AFTER_CREATE
     bootstrap_authority: NOT_CANONICAL_UNTIL_BOOTSTRAP_PR_MERGES
   authority_verified: true
@@ -123,7 +123,6 @@ migration_transaction:
   target_collision: false
   ownership_conflict: false
   material_unknowns:
-    - target_visibility
     - current_oteryn_repository_deletion_policy_or_owner_rollback_capability
   cutover_lock:
     owner: OTERYN-20260818-meta-repository-bootstrap
@@ -158,7 +157,7 @@ migration_transaction:
     missing_proof: current Oteryn organization or enterprise policy permits the owner to delete the fresh repository
   post_mutation_validation:
     - exact repository owner/name/id and created state
-    - approved visibility and archived=false
+    - PUBLIC visibility and archived=false
     - default branch/README initialization
     - connector pull/push/admin capability required for bootstrap
     - no unexpected template/import/history or product runtime content
@@ -169,6 +168,8 @@ migration_transaction:
 
 meta_bootstrap_plan:
   document: docs/architecture/migration/OTERYN_META_REPOSITORY_BOOTSTRAP.md
+  target_visibility: PUBLIC
+  target_visibility_decision_source: owner current invocation 2026-08-18
   initial_files:
     - README.md
     - AGENTS.md
@@ -189,16 +190,18 @@ proven:
   - Official GitHub documentation confirms installed GitHub App repository access may be all repositories or selected repositories; post-create app access must be verified rather than assumed.
   - Official GitHub documentation confirms repository deletion can be restricted by organization or enterprise policy; generic deletion support therefore does not prove this transaction's rollback capability.
   - The current GitHub connector exposes no repository-create operation.
+  - PR 1145 repaired its live task identity and exact checkpoint head d7fb9dda72e2a0ebe83d0f2bec4c43c72d50c817 passed Agent Governance 32113083310 and CI 32113083262.
+  - The owner explicitly selected PUBLIC visibility for Oteryn/Oteryn in the current invocation on 2026-08-18.
   - Oteryn-v2 package/caller evidence was not refreshed because the current trusted Platform invocation does not authorize server/game repository inspection and those blockers do not block independent META creation preparation.
 
 derived:
   - The accepted four-repository architecture remains valid.
-  - META creation is architecture-ready and non-ceremonial, but physical creation is `NO_GO` until visibility and rollback capability are explicit/proven.
-  - If target visibility and rollback capability are proven and the preparation PR becomes canonical with all other leases current, the transaction may become public `CUTOVER_READY` because the current connector cannot execute repository creation and one precise owner web creation flow will remain.
+  - META visibility is frozen to PUBLIC for this transaction unless the owner explicitly changes it before creation.
+  - META creation is architecture-ready and non-ceremonial, but physical creation is `NO_GO` until rollback capability is proven.
+  - If rollback capability is proven and the preparation PR becomes canonical with all other leases current, the transaction may become public `CUTOVER_READY` because the current connector cannot execute repository creation and one precise owner web creation flow will remain.
   - Game cutover and Atlas extraction remain independently fail-closed and are not bundled with META creation.
 
 unknown:
-  - Exact intended visibility of Oteryn/Oteryn.
   - Current Oteryn organization/enterprise repository-deletion policy or equivalent owner rollback capability for a freshly created repository.
   - Whether installation 154585379 uses all-repositories or selected-repositories mode for an owner-created new repository; resulting-state access must be verified immediately after creation.
   - Exhaustive external Actions/reusable-workflow callers of Oteryn-v2.
@@ -208,12 +211,11 @@ unknown:
 conflicts: []
 
 blockers:
-  - Owner has not yet explicitly selected public or private visibility for Oteryn/Oteryn.
   - Rollback feasibility is NOT_PROVEN until current Oteryn organization/enterprise policy or owner capability to delete the fresh repository is confirmed.
   - Game-specific package/caller evidence remains unresolved for any future Oteryn-v2/Oteryn-Game physical cutover.
   - Atlas extraction remains separately coupled to source ownership/deployment evidence and must not be inferred ready from the existence of Oteryn/Oteryn-Atlas.
 
-next_action: Owner selects PUBLIC or PRIVATE visibility for Oteryn/Oteryn and confirms that, as Oteryn organization owner, repository deletion is permitted for the fresh repository; then freeze those facts, revalidate exact transaction leases, complete preparation PR gates and advance to CUTOVER_READY only if the single remaining action is the owner GitHub web create flow.
+next_action: Owner confirms that, as Oteryn organization owner, repository deletion is permitted for a fresh Oteryn/Oteryn before authority handover; then freeze that fact, revalidate exact transaction leases, complete preparation PR gates and advance to CUTOVER_READY only if the single remaining action is the owner GitHub web create flow.
 ```
 
 ## Programme rules
