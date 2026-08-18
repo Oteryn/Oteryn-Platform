@@ -21,12 +21,12 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-18T07:24:00Z
+updated_at: 2026-08-18T07:30:30Z
 status: ready
-active_task: OTERYN-20260818-repository-migration-org-access
+active_task: null
 issue: null
-branch: docs/oteryn-20260818-repository-migration-org-access
-pull_request: 1143
+branch: null
+pull_request: null
 temporary_topology_authority:
   repository: blakinio/Oteryn-Platform
   path: docs/architecture/adr/0041-ecosystem-repository-authority-contracts-and-atlas-integration.md
@@ -51,6 +51,9 @@ wave_1_evidence:
   atlas_extraction_manifest: docs/architecture/migration/oteryn-atlas-extraction-manifest.json
   archived_task: docs/agents/tasks/archive/OTERYN-20260817-ecosystem-repository-migration-wave1.md
 organization_access_evidence:
+  implementation_pr: 1143
+  implementation_merge: 36774bbf2c820572b1f4272dd373c24491d71d96
+  archived_task: docs/agents/tasks/archive/OTERYN-20260818-repository-migration-org-access.md
   owner_reported_target: Oteryn
   owner_reported_url: https://github.com/Oteryn/
   owner_reported_state: CREATED
@@ -87,11 +90,11 @@ proven:
   - The programme alias is OTERYN-REPO-MIGRATION and resolves to the canonical prompt in this repository.
   - Wave 1 reconstructed live source/target state and implementation PR 1131 squash-merged through protected main as 43ceb7d17054787698c879a0797718e4a1cb1c28.
   - The owner reports that the intended GitHub organization is `Oteryn` and has been created.
-  - The authenticated GitHub integration now exposes installation 154585379 for organization `Oteryn`.
+  - The authenticated GitHub integration exposes installation 154585379 for organization `Oteryn`.
   - Existing organization repository `Oteryn/Oteryn-Atlas` is visible through that integration with admin/maintain/push/pull/triage permission.
-  - The intended META coordinate `Oteryn/Oteryn` currently returns 404 Not Found.
-  - Existing `Oteryn/Oteryn-Atlas` is a live target repository and is disjoint from the independent META-creation transaction.
-  - PR 1143 is the current durable organization-access task/branch checkpoint.
+  - The intended META coordinate `Oteryn/Oteryn` returned 404 Not Found at the organization-access recovery observation.
+  - PR 1143 exact final head 212f57307ea99eb8ba4985434660926ea585f9a6 passed Agent Governance 32111620794 and CI 32111620800 and squash-merged as 36774bbf2c820572b1f4272dd373c24491d71d96.
+  - PR 1143 source branch was verified absent after merge and the organization-access task is terminally archived.
   - Oteryn-v2 package inventory and exhaustive external Actions/reusable-workflow caller evidence remain unresolved Game-specific blockers and were not refreshed because the current trusted Platform invocation does not authorize server/game repository inspection.
 derived:
   - The accepted four-repository architecture remains valid.
@@ -100,7 +103,7 @@ derived:
   - Game cutover and Atlas extraction remain independently fail-closed on their own blockers and must not be bundled with META creation.
 unknown:
   - Whether installation 154585379 is configured for all repositories or selected repositories; resulting-state access must be verified after any new repository creation.
-  - Exact organization-level repository-creation policy as exposed to this connector; the available GitHub tool set currently exposes no create-repository action.
+  - Exact organization-level repository-creation policy as exposed to this connector; the available GitHub tool set exposes no create-repository action.
   - Exhaustive external Actions/reusable-workflow callers of Oteryn-v2.
   - Exact Oteryn-v2 GHCR/package names, links, permissions and consumers.
   - Complete path-level Atlas ownership split needed for selective extraction.
@@ -108,7 +111,7 @@ conflicts: []
 blockers:
   - Game-specific package/caller evidence remains unresolved for any future Oteryn-v2/Oteryn-Game physical cutover.
   - Atlas extraction remains separately coupled to source ownership/deployment evidence and must not be inferred ready from the existence of Oteryn/Oteryn-Atlas.
-next_action: Complete PR 1143 organization-access closeout, then create one bounded META creation/bootstrap preparation task for Oteryn/Oteryn without accessing server/game repositories.
+next_action: Create one bounded active task for the Oteryn/Oteryn META repository creation/bootstrap transaction; prepare exact pre-state, minimal bootstrap, rollback and post-create verification without accessing server/game repositories.
 ```
 
 ## Programme rules
