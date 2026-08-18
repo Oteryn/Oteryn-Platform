@@ -21,8 +21,8 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-18T05:14:18Z
-status: blocked
+updated_at: 2026-08-18T07:24:00Z
+status: ready
 active_task: OTERYN-20260818-repository-migration-org-access
 issue: null
 branch: docs/oteryn-20260818-repository-migration-org-access
@@ -60,36 +60,55 @@ organization_access_evidence:
     - installation_id: 78758924
       account_login: blakinio
       account_type: User
-  connector_oteryn_visible: false
-  classification: BLOCKED_ON_INTEGRATION_VISIBILITY
+    - installation_id: 154585379
+      account_login: Oteryn
+      account_type: Organization
+  connector_oteryn_visible: true
+  organization_repository_probe:
+    repository: Oteryn/Oteryn-Atlas
+    visibility: public
+    permissions:
+      admin: true
+      maintain: true
+      push: true
+      pull: true
+      triage: true
+  classification: PROVEN_ORGANIZATION_INTEGRATION_ACCESS
+observed_target_coordinates:
+  Oteryn:
+    repository: Oteryn/Oteryn
+    state: ABSENT_404
+  Oteryn-Atlas:
+    repository: Oteryn/Oteryn-Atlas
+    state: EXISTS
+    visibility: public
+    size: 0
 proven:
   - The programme alias is OTERYN-REPO-MIGRATION and resolves to the canonical prompt in this repository.
-  - Wave 1 reconstructed live source/target state and found no current target repositories at the inspected same-user names.
-  - Wave 1 implementation PR 1131 passed exact-head repository-selected validation and squash-merged through protected main as 43ceb7d17054787698c879a0797718e4a1cb1c28.
-  - The authenticated GitHub account exposed no organization membership to the connector during Wave 1.
-  - Game repository-local control-plane inspection was mostly rename-dynamic, but package inventory remained inaccessible and external Actions/reusable-workflow callers were not exhaustively proven.
-  - Current Otheryn Atlas automation included an active private Synology deployment path and mixed build/deployment ownership at the Wave 1 observation baseline.
-  - The owner reports that the intended GitHub organization is now `Oteryn` and has been created.
-  - On 2026-08-18 the current authenticated GitHub connector still returned no user organizations, no organization memberships and only installation 78758924 for account `blakinio`.
-  - Draft PR 1143 is the current durable task/branch checkpoint for organization-access recovery.
+  - Wave 1 reconstructed live source/target state and implementation PR 1131 squash-merged through protected main as 43ceb7d17054787698c879a0797718e4a1cb1c28.
+  - The owner reports that the intended GitHub organization is `Oteryn` and has been created.
+  - The authenticated GitHub integration now exposes installation 154585379 for organization `Oteryn`.
+  - Existing organization repository `Oteryn/Oteryn-Atlas` is visible through that integration with admin/maintain/push/pull/triage permission.
+  - The intended META coordinate `Oteryn/Oteryn` currently returns 404 Not Found.
+  - Existing `Oteryn/Oteryn-Atlas` is a live target repository and is disjoint from the independent META-creation transaction.
+  - PR 1143 is the current durable organization-access task/branch checkpoint.
+  - Oteryn-v2 package inventory and exhaustive external Actions/reusable-workflow caller evidence remain unresolved Game-specific blockers and were not refreshed because the current trusted Platform invocation does not authorize server/game repository inspection.
 derived:
   - The accepted four-repository architecture remains valid.
-  - Organization creation resolves the naming/owner-choice part of the prior blocker but does not prove current connector access or organization repository permissions.
-  - Physical META bootstrap, Game cutover and Atlas extraction remain fail-closed until their independent blockers are resolved.
+  - The organization naming/access blocker is resolved; empty membership-list endpoints do not override direct installation and repository-permission proof.
+  - A separate META repository-creation/bootstrap transaction for `Oteryn/Oteryn` is now the highest-value disjoint READY phase.
+  - Game cutover and Atlas extraction remain independently fail-closed on their own blockers and must not be bundled with META creation.
 unknown:
-  - Whether the current authenticated GitHub identity is a member/owner of `Oteryn` from the connector perspective.
-  - Whether the ChatGPT GitHub App is installed/authorized for `Oteryn`.
-  - Exact organization-level repository creation/transfer permissions exposed after connector authorization.
+  - Whether installation 154585379 is configured for all repositories or selected repositories; resulting-state access must be verified after any new repository creation.
+  - Exact organization-level repository-creation policy as exposed to this connector; the available GitHub tool set currently exposes no create-repository action.
   - Exhaustive external Actions/reusable-workflow callers of Oteryn-v2.
   - Exact Oteryn-v2 GHCR/package names, links, permissions and consumers.
   - Complete path-level Atlas ownership split needed for selective extraction.
 conflicts: []
 blockers:
-  - `Oteryn` is not visible to the current authenticated GitHub integration: organization and membership lists are empty and no Oteryn app installation is exposed.
-  - Oteryn-v2 GHCR/package inventory is unavailable through the current integration.
-  - External Actions/reusable-workflow caller inventory is not exhaustive and GitHub rename redirects do not protect this execution path.
-  - Otheryn Atlas remains coupled to active private Synology deployment and mixed path ownership.
-next_action: Install or authorize the ChatGPT GitHub integration for the `Oteryn` organization, then rerun organization membership/installation visibility before any repository creation, transfer or rename.
+  - Game-specific package/caller evidence remains unresolved for any future Oteryn-v2/Oteryn-Game physical cutover.
+  - Atlas extraction remains separately coupled to source ownership/deployment evidence and must not be inferred ready from the existence of Oteryn/Oteryn-Atlas.
+next_action: Complete PR 1143 organization-access closeout, then create one bounded META creation/bootstrap preparation task for Oteryn/Oteryn without accessing server/game repositories.
 ```
 
 ## Programme rules
