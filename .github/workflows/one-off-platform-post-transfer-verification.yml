@@ -6,13 +6,18 @@ on:
       - chore/platform-post-transfer-verification-20260818
     paths:
       - .github/workflows/one-off-platform-post-transfer-verification.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/one-off-platform-post-transfer-verification.yml
 
 permissions:
   contents: read
   packages: write
 
 concurrency:
-  group: one-off-platform-post-transfer-verification-${{ github.ref }}
+  group: one-off-platform-post-transfer-verification-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
