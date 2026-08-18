@@ -21,12 +21,12 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-18T15:48:00Z
+updated_at: 2026-08-18T15:59:00Z
 status: blocked
-active_task: docs/agents/tasks/active/OTERYN-20260818-repository-migration-live-reconciliation.md
+active_task: null
 issue: null
-branch: docs/reconcile-repository-migration-live-state-20260818
-pull_request: 1158
+branch: null
+pull_request: null
 
 ecosystem_topology_authority:
   repository: Oteryn/Oteryn
@@ -70,6 +70,16 @@ completed_transactions:
     state: COMPLETED
     source_retention: READ_ONLY_LEGACY_MIGRATION_PROVENANCE
 
+live_state_reconciliation_evidence:
+  task: docs/agents/tasks/archive/OTERYN-20260818-repository-migration-live-reconciliation.md
+  delivery_pr: 1158
+  delivery_final_head: 3ee42f97d444aa0d3e1ac3ef7829b803f95f7952
+  delivery_merge: 239d86491a3fc397d50952ff2588aaa6633fe7b3
+  agent_governance_run: 32157381009
+  ci_run: 32157381123
+  delivery_branch_deleted: true
+  classification: COMPLETED_RECONCILIATION_NO_PHYSICAL_PLATFORM_MUTATION
+
 observed_target_coordinates:
   Oteryn:
     repository: Oteryn/Oteryn
@@ -98,7 +108,8 @@ observed_target_coordinates:
     observed_bootstrap_repository_id: 1338405017
     current_repository: blakinio/Oteryn-Platform
     source_repository_id: 1305155726
-    source_main_sha: 77fa480a3f4e847dac98f76e05b6acd27cca4a57
+    source_main_last_cutover_preflight: 77fa480a3f4e847dac98f76e05b6acd27cca4a57
+    source_main_after_reconciliation_delivery: 239d86491a3fc397d50952ff2588aaa6633fe7b3
     bootstrap_main_sha: db381488697eee315bdf5840ab0d4f8807f7bfb0
     state: TARGET_COORDINATE_OCCUPIED_BY_BOOTSTRAP_ONLY_REPOSITORY_TRANSFER_PENDING
 
@@ -109,7 +120,7 @@ platform_preparation_evidence:
   owner_neutral_hardening_merge: 6a3b92cae0099b36d4b58048657fbfa8aea7b9bf
   owner_neutral_repository_code: PASS
   source_main_advanced_after_hardening: true
-  source_main_current: 77fa480a3f4e847dac98f76e05b6acd27cca4a57
+  source_main_last_cutover_preflight: 77fa480a3f4e847dac98f76e05b6acd27cca4a57
   transfer_capable_connected_surface: false
 
 platform_bootstrap_target_evidence:
@@ -129,7 +140,7 @@ platform_bootstrap_target_evidence:
   seed_head_push_rc: 1
   seed_tag_push_rc: 0
   head_push_result: REJECTED_WORKFLOW_PERMISSION
-  source_main_drift_after_seed: 77fa480a3f4e847dac98f76e05b6acd27cca4a57
+  source_main_drift_after_seed: PROVEN
 
 migration_transaction:
   transaction_id: OTERYN-PLATFORM-TRANSFER-20260818
@@ -154,7 +165,7 @@ migration_transaction:
     repository: Oteryn/Oteryn-Platform
     repository_id: 1305155726
     owner: Oteryn
-    main_head_continuity: exact_source_head
+    main_head_continuity: exact_source_head_at_fresh_cutover_preflight
     history_provenance: preserved
     connector_admin_write_access: required
     branch_protection_and_required_checks: required_revalidation
@@ -211,8 +222,9 @@ migration_transaction:
 proven:
   - Oteryn/Oteryn is the canonical META authority and its live repository manifest was reconciled by PR 4 merge 20f87798d6429555031fa4e63e0a115db83adffb after meta-gate PASS.
   - Oteryn/Oteryn-Game completed the history-preserving migration from blakinio/Oteryn-v2 and later repository-administration reconciliation; the source remains legacy migration provenance.
-  - Oteryn/Oteryn-Atlas exists with repository-local governance CI and active DYN-ATLAS-001 work; the stale Platform repository-absence blocker PR 1141 is closed without merge.
-  - blakinio/Oteryn-Platform remains the canonical Platform implementation at repository ID 1305155726 and current main 77fa480a3f4e847dac98f76e05b6acd27cca4a57.
+  - Oteryn/Oteryn-Atlas exists with repository-local governance CI and active DYN-ATLAS-001 work; stale Platform repository-absence blocker PR 1141 is closed without merge.
+  - blakinio/Oteryn-Platform remains the canonical Platform implementation at repository ID 1305155726.
+  - The exact Platform source main observed at the final cutover preflight before reconciliation delivery was 77fa480a3f4e847dac98f76e05b6acd27cca4a57; delivery PR 1158 later advanced main to 239d86491a3fc397d50952ff2588aaa6633fe7b3 with documentation/governance changes only, so the transaction evidence lease is intentionally false.
   - Oteryn/Oteryn-platform exists at repository ID 1338405017 as bootstrap-only migration scaffolding and therefore occupies the intended transfer coordinate.
   - Platform seed workflow run 32140478830 proved git fsck and full-bundle verification but did not migrate branch refs; head_push_rc was 1 because workflow-bearing refs were rejected without workflows permission.
   - The connected GitHub action surface exposes no repository-transfer operation and no META branch-protection/ruleset mutation operation.
