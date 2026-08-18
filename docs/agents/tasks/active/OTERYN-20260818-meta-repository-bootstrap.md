@@ -32,21 +32,22 @@ Prepare one canonical, fail-closed Tier-2 transaction for creating the real `Ote
 ## Acceptance criteria
 
 - [x] Entry-task closeout is terminal and its source branch is absent.
-- [x] Protected `main` is re-read after closeout.
-- [x] No overlapping open migration/META PR or active migration task exists at admission.
+- [x] Protected `main` is re-read after closeout and remains `fae1127f081a12ef6bc7c85951b819a3031138a6` through final preparation.
+- [x] No overlapping open migration/META PR or active migration task exists at admission; PR #1145 remains the sole matching migration/META PR.
 - [x] Current `Oteryn` organization integration access remains proven by installation/repository evidence.
-- [x] `Oteryn/Oteryn` absence was refreshed for this transaction and remains an expiring evidence lease.
+- [x] `Oteryn/Oteryn` absence was refreshed at `2026-08-18T07:55:00Z` and remains an expiring evidence lease.
 - [x] ADR 0041 and Wave-1 readiness prove real META workload; the repository is not created merely to satisfy a diagram.
-- [x] Minimal bootstrap scope, authority handover sequence, replay guard, rollback candidate and post-create verification are documented.
+- [x] Minimal bootstrap scope, authority handover sequence, replay guard, rollback and post-create verification are documented.
 - [x] Current GitHub repository-creation, GitHub App repository-access and repository-deletion behavior are verified from official GitHub documentation.
 - [x] Draft PR #1145 owns exactly the three declared Platform preparation paths.
-- [x] Initial three-file semantic review corrected rollback from assumed `PROVEN` to `NOT_PROVEN`.
+- [x] Initial three-file semantic review corrected rollback from assumed `PROVEN` to `NOT_PROVEN` until owner-specific evidence existed.
 - [x] Owner explicitly selected `PUBLIC` visibility for `Oteryn/Oteryn` on 2026-08-18.
-- [x] Programme and bootstrap runbook freeze `PUBLIC` visibility and keep physical state `PREPARED/NO_GO`.
-- [x] Exact-head Agent Governance and CI passed on pre-decision checkpoint head `d7fb9dda72e2a0ebe83d0f2bec4c43c72d50c817`.
-- [x] Full three-file exact diff self-review on final PUBLIC-decision content head `30f4d93a3554e047fa883fda7e9cd20ec00cb1a8` found zero material findings.
-- [ ] Current Oteryn rollback capability is proven; generic GitHub deletion support does not satisfy the gate when organization/enterprise policy can restrict deletion.
-- [ ] Canonical `migration_transaction` advances from `PREPARED/NO_GO` only after rollback capability is proven and exact leases are refreshed.
+- [x] Owner explicitly confirmed fresh-repository deletion capability for rollback before authority handover on 2026-08-18.
+- [x] Canonical transaction now has zero material unknowns and `rollback.feasibility=PROVEN` for the bounded fresh pre-authority window.
+- [x] Transaction deliberately remains `PREPARED/NO_GO` until this preparation PR is canonical; it does not claim `CUTOVER_READY` from an unmerged branch.
+- [x] Full three-file exact diff self-review on rollback-proof content head `4f31ca02a5ae59b220dd1f46b2c8edd100ad4b6c` found zero material findings.
+- [ ] This checkpoint-only final head passes repository-selected checks, review hygiene remains clean and PR #1145 squash-merges.
+- [ ] Required lifecycle closeout archives this preparation task and advances the merged durable transaction to `CUTOVER_READY` only after one final target/access lease refresh.
 
 ## Ownership
 
@@ -66,7 +67,7 @@ dependencies:
   - ADR 0041
   - organization-access recovery PR 1143 / closeout PR 1144
 blockers:
-  - rollback feasibility is NOT_PROVEN until current Oteryn organization/enterprise policy or equivalent owner deletion capability is confirmed
+  - none
 cross_repository_tasks:
   - none
 ```
@@ -76,14 +77,14 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-18T07:50:30Z
+updated_at: 2026-08-18T07:56:00Z
 invocation_started_at: 2026-08-18T07:24:00Z
-last_progress_at: 2026-08-18T07:50:30Z
-head: 30f4d93a3554e047fa883fda7e9cd20ec00cb1a8
+last_progress_at: 2026-08-18T07:56:00Z
+head: 4f31ca02a5ae59b220dd1f46b2c8edd100ad4b6c
 branch: docs/oteryn-20260818-meta-repository-bootstrap
 pr: 1145
-status: blocked
-phase: validate
+status: ready
+phase: close
 session_id: chat-github-20260818-meta-repository-bootstrap
 session_role: coordinator
 execution_mode: github
@@ -99,7 +100,7 @@ decomposition_decision: single
 decomposition_reason: one isolated META create transaction with owner-specific creation inputs and one post-create bootstrap sequence
 execution_budget: large
 execution_budget_reason: canonical Ultra migration profile; physical repository creation requires exact authority, rollback and resulting-state evidence
-ci_checks_for_current_head: 1
+ci_checks_for_current_head: 0
 ci_check_generation: draft
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
@@ -117,60 +118,60 @@ owned_paths:
   - docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md
   - docs/architecture/migration/OTERYN_META_REPOSITORY_BOOTSTRAP.md
 proven:
-  - Protected main at admission is fae1127f081a12ef6bc7c85951b819a3031138a6.
+  - Protected main at admission and final preparation remains fae1127f081a12ef6bc7c85951b819a3031138a6.
   - PR 1144 merged the required entry-task closeout and its source branch is absent.
-  - Active task inventory had no repository-migration task at admission; open migration/META PR search returned none.
-  - Oteryn organization installation 154585379 currently enumerates Oteryn/Oteryn-Atlas with write/admin-capable access.
-  - Oteryn/Oteryn was refreshed as 404/absent during this transaction preparation and remained absent immediately before recording the visibility decision.
+  - Active task inventory had no repository-migration task at admission; PR 1145 is the sole open migration/META PR matching this transaction.
+  - Oteryn organization installation 154585379 currently exists and enumerates Oteryn/Oteryn-Atlas with write/admin-capable access.
+  - Oteryn/Oteryn returned 404/absent at 2026-08-18T07:55:00Z.
+  - PR 1145 changed-file inventory is exactly the three owned paths.
   - ADR 0041 states that META has real topology, manifest, compatibility, release and cross-repository coordination workload and is architecture-ready for demand-triggered creation.
   - Current GitHub connector actions expose no repository-create operation.
   - Official GitHub documentation requires an explicit visibility choice for repository creation and permits README/GitHub App selection for a new non-import repository.
-  - Official GitHub documentation permits organization-repository deletion for owners/admins but states organization/enterprise policy can restrict it; current Oteryn rollback capability is therefore not proven by generic documentation.
-  - PR 1145 is the sole migration/META PR created for this additional task and owns exactly the declared three paths.
-  - Agent Governance run 32112973133 on semantic head f20eb8abbf0c12cbc6497a48ef2f427397ca79cf failed only because the active task still recorded `pr: none`; the liveness log explicitly reported `branch_pr_identity_omitted` for Draft PR 1145.
-  - Checkpoint head d7fb9dda72e2a0ebe83d0f2bec4c43c72d50c817 passed Agent Governance run 32113083310 and CI run 32113083262.
+  - PR 1145 initial Agent Governance failure 32112973133 was solely `branch_pr_identity_omitted`; checkpoint head d7fb9dda72e2a0ebe83d0f2bec4c43c72d50c817 then passed Agent Governance 32113083310 and CI 32113083262.
   - The owner explicitly selected PUBLIC visibility for Oteryn/Oteryn in the current invocation on 2026-08-18.
-  - Final PUBLIC-decision content head 30f4d93a3554e047fa883fda7e9cd20ec00cb1a8 preserves PREPARED/NO_GO, sets expected visibility PUBLIC, and retains rollback.feasibility=NOT_PROVEN.
+  - The owner explicitly confirmed that, as Oteryn organization owner, they can delete the fresh Oteryn/Oteryn repository if rollback is required before authority handover.
+  - Rollback-proof content head 4f31ca02a5ae59b220dd1f46b2c8edd100ad4b6c records `rollback.feasibility=PROVEN`, zero material transaction unknowns, and preserves PREPARED/NO_GO until preparation merge.
 derived:
   - Target visibility is frozen to PUBLIC for this transaction unless the owner explicitly changes it before creation.
-  - The physical create cannot be executed by the current connector and will require one precise owner GitHub web flow only after rollback feasibility is proven and the preparation state is canonical/current.
+  - All material non-execution evidence gates for the create mutation are proven.
+  - The physical create cannot be executed by the current connector and will require exactly one owner GitHub web creation flow after the preparation becomes canonical and final leases remain current.
   - Initializing the new META with a README is appropriate because this is a new authority repository rather than an import and creates an immediate default-branch anchor for governed bootstrap.
 unknown:
-  - Current Oteryn organization/enterprise repository-deletion policy or equivalent owner rollback capability for a fresh repository.
-  - Whether installation 154585379 uses all-repositories or selected-repositories mode for an owner-created repository; post-create access must be verified.
+  - Whether installation 154585379 uses all-repositories or selected-repositories mode for an owner-created repository; post-create access must be verified and is not a pre-create blocker.
 conflicts: []
 first_failure:
   marker: branch_pr_identity_omitted
   evidence: Agent Governance 32112973133 / job 95636247858 reported active task branch has Draft PR 1145 but checkpoint recorded pr:none; repaired on d7fb9dda72e2a0ebe83d0f2bec4c43c72d50c817
 rejected_hypotheses:
-  - General GitHub deletion documentation proves current Oteryn rollback capability; organization/enterprise policy may restrict deletion.
+  - General GitHub deletion documentation alone proves current Oteryn rollback capability; owner-specific evidence was required and is now recorded.
   - The existing Oteryn-Atlas repository means the META repository already exists.
   - Empty membership-list endpoints invalidate direct installation/repository access evidence.
-  - An inferred public/private choice is safe enough for Tier-2 creation; owner has explicitly selected PUBLIC.
+  - An inferred public/private choice is safe enough for Tier-2 creation; owner explicitly selected PUBLIC.
+  - A CUTOVER_READY claim may be made before the preparation PR becomes canonical; the branch remains PREPARED/NO_GO until merge/closeout.
   - Game repository evidence is required to create the independent META coordination plane.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260818-meta-repository-bootstrap.md
   - docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md
   - docs/architecture/migration/OTERYN_META_REPOSITORY_BOOTSTRAP.md
 validation:
-  - command: live main/active-task/open-migration-PR admission preflight
+  - command: final live target/main/org/PR ownership lease refresh
     result: PASS
-    evidence: main fae1127f081a12ef6bc7c85951b819a3031138a6; no overlapping active migration task; no open migration/META PR at admission
-  - command: Agent Governance and CI on repaired checkpoint head d7fb9dda72e2a0ebe83d0f2bec4c43c72d50c817
-    result: PASS
-    evidence: Agent Governance 32113083310 success; CI 32113083262 success
+    evidence: Oteryn/Oteryn=404; Platform main=fae1127f081a12ef6bc7c85951b819a3031138a6; installation 154585379 still present; Oteryn/Oteryn-Atlas accessible; PR 1145 sole matching open migration/META PR; exactly three owned changed paths
   - command: owner target-visibility decision
     result: PASS
     evidence: owner selected PUBLIC in the current invocation on 2026-08-18
-  - command: full three-file exact diff self-review on final PUBLIC-decision content head 30f4d93a3554e047fa883fda7e9cd20ec00cb1a8
+  - command: owner rollback capability proof
     result: PASS
-    evidence: visibility is PUBLIC, rollback remains NOT_PROVEN, transaction remains PREPARED/NO_GO, authority handover remains ordered, and no physical/server-game mutation is included
+    evidence: owner confirmed fresh Oteryn/Oteryn deletion capability before authority handover in the current invocation on 2026-08-18
+  - command: full three-file exact diff self-review on rollback-proof content head 4f31ca02a5ae59b220dd1f46b2c8edd100ad4b6c
+    result: PASS
+    evidence: zero material unknowns; rollback PROVEN narrowly; transaction PREPARED/NO_GO until canonical; authority handover ordered; no physical/server-game mutation
   - command: physical repository creation E2E
     result: NOT_APPLICABLE
-    evidence: physical creation remains NO_GO while rollback capability is unresolved
+    evidence: preparation-only PR; physical creation is intentionally deferred until merged durable state becomes CUTOVER_READY
 blockers:
-  - owner must confirm rollback permission/capability for deleting a fresh Oteryn/Oteryn repository if post-create verification fails before authority handover
-next_action: Owner confirms fresh-repository deletion capability; then refresh transaction leases, set rollback PROVEN only with that evidence, run exact-head checks and advance to CUTOVER_READY only if one owner create flow remains.
+  - none
+next_action: Verify repository-selected checks on this checkpoint-only head and PR review hygiene, then mark PR 1145 Ready and squash-merge only if exact-head gates pass; afterwards complete lifecycle closeout and final lease refresh before declaring CUTOVER_READY.
 ```
 
 ## Self-review
@@ -178,7 +179,7 @@ next_action: Owner confirms fresh-repository deletion capability; then refresh t
 ```yaml
 self_review:
   result: PASS
-  exact_semantic_content_head: 30f4d93a3554e047fa883fda7e9cd20ec00cb1a8
+  exact_semantic_content_head: 4f31ca02a5ae59b220dd1f46b2c8edd100ad4b6c
   acceptance_checked: true
   full_diff_checked: true
   negative_paths_checked: true
@@ -186,18 +187,18 @@ self_review:
   compatibility_checked: true
   related_prs_checked: true
   findings_repaired:
-    - initial generic-deletion evidence was insufficient to prove current Oteryn rollback capability; transaction corrected to rollback.feasibility=NOT_PROVEN
+    - initial generic-deletion evidence was insufficient to prove current Oteryn rollback capability; owner-specific rollback proof is now recorded
   open_material_findings: []
 ```
 
-This checkpoint commit records the reviewed PUBLIC visibility state. It changes no physical migration state and leaves rollback capability as the sole META-create gate.
+This checkpoint commit records readiness after the owner-specific rollback proof. It changes no physical repository state and must receive its own repository-selected checks before merge.
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: retain
-source_branch_reason: active transaction branch must remain resumable while rollback capability remains unresolved
-source_branch_evidence: Draft PR #1145 / branch docs/oteryn-20260818-meta-repository-bootstrap
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: preparation branch has no purpose after canonical merge and lifecycle closeout; the physical create remains a separate owner-only transaction step
+source_branch_evidence: PR #1145 / branch docs/oteryn-20260818-meta-repository-bootstrap
 ```
 
 ## Notes
