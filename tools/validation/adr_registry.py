@@ -293,17 +293,16 @@ def main() -> int:
     }
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True))
+    elif errors:
+        print("ADR registry validation failed:")
+        for error in errors:
+            print(f"- {error}")
     else:
-        if errors:
-            print("ADR registry validation failed:")
-            for error in errors:
-                print(f"- {error}")
-        else:
-            print(
-                "ADR registry validation passed "
-                f"({count} ADR files; legacy duplicates: "
-                f"{', '.join(sorted(LEGACY_DUPLICATE_PATHS)) or 'none'})."
-            )
+        print(
+            "ADR registry validation passed: "
+            f"{count} ADRs, {len(LEGACY_DUPLICATE_PATHS)} preserved "
+            "legacy duplicate prefixes."
+        )
     return 0 if not errors else 1
 
 
