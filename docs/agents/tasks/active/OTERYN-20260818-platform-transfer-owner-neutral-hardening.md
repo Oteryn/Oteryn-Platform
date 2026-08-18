@@ -20,19 +20,21 @@ optional_reads: []
 
 ## Goal
 
-Remove Platform-owned personal-owner repository/GHCR assumptions from the pre-cutover build, deployment, Synology runner and staging-preflight paths while preserving current `blakinio/Oteryn-Platform` behavior before transfer and making the same code valid after transfer to `Oteryn/Oteryn-Platform`.
+Remove Platform-owned personal-owner repository/GHCR assumptions from pre-cutover build, deployment, Synology runner and staging-preflight paths while preserving current behavior before transfer and making the same repository code valid after transfer to `Oteryn/Oteryn-Platform`.
 
 ## Acceptance criteria
 
 - [x] Platform-owned GHCR publish/deploy paths derive a lowercase namespace from the current repository owner rather than hard-code `blakinio`.
-- [x] Character Bazaar staging control uses the same current repository-owner namespace for Platform/Gateway images while preserving the separately pinned Canary dependency.
-- [x] Liquid20 publication derives its image namespace from the current repository owner while preserving the pinned external Freqtrade source coordinate.
+- [x] Character Bazaar uses the current repository-owner namespace for Platform/Gateway images while preserving the separately pinned Canary dependency.
+- [x] Liquid20 uses the current repository-owner namespace for its package while preserving the pinned external Freqtrade source coordinate.
 - [x] Synology runner image and repository registration URL are explicit/configurable with no hard-coded source repository fallback; an already registered persistent runner remains restart-safe.
-- [x] Production-target preflight validates Platform/Gateway immutable images against the current repository owner without hard-coded `blakinio`.
-- [x] Focused CI tests fail if source-owner coordinates are reintroduced into transfer-sensitive Platform paths.
-- [x] Latent ADR-registry validation is repaired to support the already-canonical cross-repository META successor with exact merge provenance rather than weakening the superseded-state gate.
-- [ ] Exact-head required CI, affected workflow lanes and review hygiene pass before merge.
-- [x] No package, runner, secret, staging/production, repository-transfer or Game/server mutation is performed.
+- [x] Production-target preflight validates Platform/Gateway immutable images against the current repository owner.
+- [x] Focused tests fail if old Platform-owner coordinates are reintroduced.
+- [x] The latent ADR-registry validation gap supports the already-canonical cross-repository META successor only with exact merge provenance.
+- [x] PR validation remains broad while a repository-only hardening merge cannot automatically publish the privileged deploy-runner image or bootstrap Liquid20 on Synology.
+- [x] Full exact-head diff/self-review found no open material implementation finding before final CI.
+- [ ] Exact-head required CI and affected workflow lanes pass and review hygiene remains clean before merge.
+- [x] No package, runner, secret, staging/production, repository-transfer or Game/server mutation was performed by this task.
 
 ## Ownership
 
@@ -72,11 +74,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-18T12:29:00Z
-head: ba4b2ff23211fb0e59384edc73215cff0c383545
+updated_at: 2026-08-18T12:39:00Z
+head: ba4fb432f562198109d3551a95a91133b3b350e3
 branch: ci/platform-transfer-owner-neutral-hardening
 pr: 1153
-status: implementing
+status: ready
 context_routes:
   - agent-governance
   - testing
@@ -100,39 +102,38 @@ owned_paths:
   - docs/architecture/migration/OTERYN_PLATFORM_TRANSFER_READINESS.md
   - docs/agents/tasks/active/OTERYN-20260818-platform-transfer-owner-neutral-hardening.md
 proven:
-  - current Platform base main is ed3a79a0ffe3b0b72e6faec941bab050f513a6d2 and is protected with required classify-changes and test checks
-  - active durable tasks own no path in this hardening set; public-domain repair owns only deploy/synology/scripts/health-check.sh among Synology runtime paths and native-auth production verification owns only its task record
-  - no open PR was found matching Synology staging GHCR transfer runner hardening intent before task claim
+  - Platform base main at task start was ed3a79a0ffe3b0b72e6faec941bab050f513a6d2 with required classify-changes and test protection
+  - no active task or open PR owned the implementation paths before task claim
   - Draft PR 1153 owns branch ci/platform-transfer-owner-neutral-hardening
-  - primary Synology build and deploy workflows resolve Platform-owned package coordinates through repository-ghcr-image.sh
-  - Character Bazaar resolves Platform and Gateway images through the helper while preserving the exact pinned Canary digest and without inspecting the Game/server repository
-  - Liquid20 resolves its package namespace through the helper while preserving the pinned external blakinio/freqtrade source coordinate
-  - runner Compose and entrypoint no longer contain a source-repository URL fallback; first registration requires an explicit RUNNER_URL while an existing persistent .runner configuration remains restart-safe
-  - production-target preflight resolves expected Platform and Gateway repositories through the same helper and validates immutable digest references against those current-owner coordinates
-  - first implementation head ba4b2ff23211fb0e59384edc73215cff0c383545 passed Agent Governance, Synology Production Target Preflight, Character Bazaar validation, Liquid20 validation, Synology rollback validation and Build Synology Staging Images
-  - main CI run 32136239455 failed only in AdrRegistryValidationTest because ADR 0041 is already Superseded with a cross-repository META successor while the registry validator accepted only local '- Superseded by:' paths
-  - ADR 0041 bytes are identical on main and ba4b2ff23211fb0e59384edc73215cff0c383545 at blob 4d9d2b3d33242fdb199d5c402a256f2088229764; the failing ADR was not changed by this task
-  - current ADR 0041 already records exact cross-repository successor Oteryn/Oteryn ADR 0001 and exact successor merge a2672baac544ada81c526e92f0517903865a9ad0
-  - validator repair preserves fail-closed local successor existence checks and additionally permits exactly one bounded cross-repository '- Successor:' ADR only when exactly one 40-hex '- Successor merge:' is present
-  - no package runner secret staging production repository-transfer or Game/server mutation has occurred
-  - container/local clone execution is unavailable because this environment cannot resolve github.com; GitHub Actions provides exact-head executable validation
+  - repository-ghcr-image.sh lowercases and validates the current GitHub repository owner before constructing Platform-owned GHCR coordinates
+  - Synology build deploy Character Bazaar Liquid20 and production-target preflight consume owner-neutral Platform package coordinates
+  - the pinned Canary digest and pinned external blakinio/freqtrade source remain intentionally unchanged provenance/dependency coordinates
+  - runner first registration requires explicit RUNNER_URL while persistent registered runners can restart without a source-coordinate fallback
+  - first implementation head ba4b2ff23211fb0e59384edc73215cff0c383545 passed Agent Governance Synology Production Target Preflight Character Bazaar Liquid20 Synology rollback and Build Synology Staging Images
+  - first-head main CI run 32136239455 failed only in AdrRegistryValidationTest because the validator supported only local supersession targets while ADR 0041 already records a cross-repository META successor
+  - ADR 0041 blob 4d9d2b3d33242fdb199d5c402a256f2088229764 is identical on main and the failing head and already records Oteryn/Oteryn ADR 0001 plus exact successor merge a2672baac544ada81c526e92f0517903865a9ad0
+  - ADR validator now preserves local-target existence checks and accepts exactly one bounded cross-repository successor only with exactly one lowercase 40-hex successor merge; dedicated positive and negative fixtures were added
+  - self-review found that the original main-push triggers could cause package publication and Liquid20 Synology bootstrap merely from merging repository-only hardening
+  - build main-push paths are now limited to product/image source inputs; deploy-runner publication requires explicit workflow_dispatch while PR validation still builds it
+  - Liquid20 pull requests still validate workflow/helper changes but main-push bootstrap is limited to deploy/liquid20 source changes
+  - Character Bazaar main-push control remains additionally guarded by the existing explicit commit marker
+  - no package publication runner registration secret environment staging production repository transfer or Game/server operation was performed
 derived:
-  - repository code preserves present blakinio behavior through GITHUB_REPOSITORY_OWNER while automatically resolving the lowercase Oteryn owner after a future transfer
-  - the first main-CI failure is a latent base validation-contract gap exposed because this runtime-affecting CI lane ran full PHPUnit whereas recent documentation-only migration closeouts skipped runtime-tests
-  - live package permissions repository links and runner attachment remain separate cutover evidence and are not proven by repository hardening
+  - the repository change preserves current blakinio package resolution before transfer and will resolve lowercase oteryn package coordinates after owner transfer
+  - live package permissions links and existing runner attachment remain separate cutover evidence and are not implied by this repository hardening
 unknown:
-  - live GHCR package objects permissions and repository links remain unobserved and are intentionally deferred to cutover verification
-  - existing repository-level Synology runner binding behavior after physical transfer remains unknown and must be observed after transfer
+  - live GHCR package objects permissions and repository links remain unobserved until the physical cutover transaction
+  - existing repository-level Synology runner behavior immediately after physical owner transfer remains unknown until observed
 conflicts: []
 first_failure:
   marker: adr_registry_cross_repository_successor_not_supported
-  evidence: CI run 32136239455 runtime-tests job 95708164496 artifact 9324137637 reports only Tests Unit Architecture AdrRegistryValidationTest failing on ADR 0041 Superseded successor metadata; main and branch ADR blobs are identical
+  evidence: CI run 32136239455 runtime-tests job 95708164496 artifact 9324137637 contained one JUnit failure in AdrRegistryValidationTest for ADR 0041; branch and main ADR blobs were identical
 rejected_hypotheses:
-  - hardening only build-synology-staging-images.yml and deploy-synology-staging.yml is sufficient
-  - preserving a hard-coded old RUNNER_URL fallback is necessary for an already registered persistent runner
-  - the historical pinned Canary package coordinate or external Freqtrade source coordinate should be rewritten merely because Platform owner changes
-  - current owner-neutral implementation changed ADR 0041 or caused the ADR lifecycle state itself
-  - weakening ADR 0041 back to Accepted is an acceptable way to obtain green CI
+  - hardening only the primary build and deploy workflows is sufficient
+  - preserving a hard-coded old RUNNER_URL fallback is necessary for persistent runner restart
+  - pinned Canary or Freqtrade dependency coordinates should be rewritten with the Platform owner
+  - changing ADR 0041 back to Accepted or weakening supersession validation is an acceptable CI repair
+  - merging repository-only hardening may safely trigger package publication or Synology bootstrap without separate live-operation authority
 changed_paths:
   - .github/workflows/build-synology-staging-images.yml
   - .github/workflows/deploy-synology-staging.yml
@@ -150,29 +151,52 @@ changed_paths:
   - tools/validation/test_adr_registry.py
   - docs/agents/tasks/active/OTERYN-20260818-platform-transfer-owner-neutral-hardening.md
 validation:
-  - command: exact GitHub live-state and path ownership preflight
+  - command: live-state path ownership and PR preflight
     result: PASS
-    evidence: current main active tasks open PR search and executable owner-coordinate inventory refreshed before implementation
-  - command: first-head affected workflow validation on ba4b2ff23211fb0e59384edc73215cff0c383545
+    evidence: no conflicting owner/PR found before implementation
+  - command: first-head affected workflow validation
     result: PASS
-    evidence: Agent Governance Synology Production Target Preflight Character Bazaar Liquid20 Synology rollback and Build Synology Staging Images all completed successfully
-  - command: first-head main CI on ba4b2ff23211fb0e59384edc73215cff0c383545
+    evidence: ba4b2ff23211fb0e59384edc73215cff0c383545 passed Agent Governance Synology Production Target Preflight Character Bazaar Liquid20 Synology rollback and Build Synology Staging Images
+  - command: first-head main CI
     result: FAIL
-    evidence: run 32136239455 runtime-tests job 95708164496; sole JUnit failure is latent ADR registry cross-repository successor support
-  - command: focused ADR registry repair fixtures
+    evidence: run 32136239455 isolated the latent ADR registry cross-repository successor contract gap
+  - command: exact full PR diff self-review after ADR and no-live-side-effect repairs
+    result: PASS
+    evidence: 15 declared paths; no unrelated product runtime data secret deployment or Game/server change; validator output contract restored after self-review caught an accidental formatting drift
+  - command: final exact-head required and affected GitHub Actions
     result: NOT_RUN
-    evidence: repair candidate will run through repository validation after push
+    evidence: final ready-state checkpoint commit will trigger the exact-head generation
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
-    evidence: repository build deployment runner and validation contracts only; this task performs no staging or production operation and does not alter a user-facing application path
+    evidence: repository CI package-coordinate runner and validation contracts only; no user-facing runtime or live environment operation is executed
 blockers: []
-next_action: Push the bounded ADR registry validation repair with the owner-neutral implementation, then rerun exact-head required and affected workflow validation without weakening any gate.
+next_action: Observe one final exact-head required/affected workflow generation, then mark PR 1153 Ready and squash-merge only if all required gates and review hygiene remain clean.
+```
+
+## Self-review
+
+```yaml
+self_review:
+  result: PASS
+  exact_head_reviewed: ba4fb432f562198109d3551a95a91133b3b350e3
+  acceptance_checked: true
+  full_diff_checked: true
+  negative_paths_checked: true
+  rollback_checked: true
+  compatibility_checked: true
+  related_prs_checked: true
+  findings:
+    - original main-push side-effect risk repaired before readiness
+    - accidental ADR validator output formatting drift repaired before readiness
+  evidence:
+    - PR 1153 changed-file list and per-file patches
+    - first-head workflow results and JUnit failure artifact
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: PR 1153 implementation is repairing an evidence-backed exact-head CI failure
+source_branch_reason: PR 1153 is ready for final exact-head validation and merge gate
 source_branch_evidence: pending
 ```
