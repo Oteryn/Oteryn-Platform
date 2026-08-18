@@ -55,10 +55,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-18T16:17:00Z
-head: bff218e94440ee30bd4f6c922b1db8428908b474
+updated_at: 2026-08-18T16:20:00Z
+head: e3b2046d25ef686dd12ce5267194da895b60aab6
 branch: docs/platform-transfer-post-rename-preflight-20260818
-pr: none
+pr: 1160
 status: validating
 context_routes:
   - agent-governance
@@ -119,7 +119,7 @@ blockers:
   - repository-transfer mutation unavailable in connected GitHub tool surface
   - live package and runner cutover evidence unavailable
   - rollback feasibility not yet proven
-next_action: open the draft PR, inspect exact changed paths/diff and exact-head CI; merge only if applicable governance checks pass and review hygiene is clean
+next_action: inspect PR 1160 exact changed paths/diff and exact-head CI; merge only if applicable governance checks pass and review hygiene is clean
 ```
 
 ## Source branch closeout
