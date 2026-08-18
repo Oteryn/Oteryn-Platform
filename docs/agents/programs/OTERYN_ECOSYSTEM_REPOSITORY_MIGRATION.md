@@ -21,12 +21,12 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-18T08:38:00Z
+updated_at: 2026-08-18T08:49:00Z
 status: ready
-active_task: null
+active_task: OTERYN-20260818-platform-adr0041-supersession-reconciliation
 issue: null
-branch: null
-pull_request: null
+branch: docs/oteryn-20260818-adr0041-supersession
+pull_request: 1149
 
 ecosystem_topology_authority:
   repository: Oteryn/Oteryn
@@ -37,7 +37,7 @@ ecosystem_topology_authority:
     repository: blakinio/Oteryn-Platform
     path: docs/architecture/adr/0041-ecosystem-repository-authority-contracts-and-atlas-integration.md
     scope: ecosystem repository topology and META coordination authority
-    platform_reconciliation: PENDING
+    platform_reconciliation: IN_PROGRESS_PENDING_CANONICAL_PR_MERGE
 
 target_topology:
   - Oteryn
@@ -231,7 +231,7 @@ proven:
 derived:
   - The META create transaction is terminally complete and no owner create action remains.
   - Oteryn/Oteryn is the neutral ecosystem topology authority while provider repositories retain provider implementation/schema authority.
-  - Platform ADR 0041 now requires only a narrow historical-status reconciliation because META-first authority handover is already canonical.
+  - Platform ADR 0041 status reconciliation is in progress on PR 1149 and remains non-canonical until that PR merges.
   - Game cutover and Atlas extraction remain independently fail-closed and are not made ready by META completion.
 
 unknown:
@@ -240,7 +240,7 @@ unknown:
   - Complete path-level Atlas ownership split needed for selective extraction.
 
 conflicts:
-  - Platform ADR 0041 still carries its pre-handover Accepted status until the narrow Platform reconciliation merges; META ADR 0001 already controls ecosystem topology scope.
+  - Platform ADR 0041 main still carries pre-handover Accepted status until PR 1149 merges; META ADR 0001 already controls ecosystem topology scope.
 
 cleanup_debt:
   - Oteryn/Oteryn branch bootstrap/meta-authority-0001 remains after merged PR 1 because the current connector exposes no delete-ref operation; no unmerged authority remains on it.
@@ -249,7 +249,7 @@ blockers:
   - Game-specific package/caller evidence remains unresolved for any future Oteryn-v2/Oteryn-Game physical cutover.
   - Atlas extraction remains separately coupled to source ownership/deployment evidence.
 
-next_action: Admit one narrow Platform task to mark ADR 0041 superseded for ecosystem repository-topology and META coordination scope without rewriting its historical decision content.
+next_action: Complete PR 1149 exact-head checks and lifecycle closeout without changing historical ADR body content.
 ```
 
 ## Programme rules
