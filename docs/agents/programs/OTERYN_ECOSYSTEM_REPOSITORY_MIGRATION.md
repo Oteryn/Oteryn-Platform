@@ -21,8 +21,8 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-18T07:49:30Z
-status: blocked
+updated_at: 2026-08-18T07:55:00Z
+status: ready
 active_task: OTERYN-20260818-meta-repository-bootstrap
 issue: null
 branch: docs/oteryn-20260818-meta-repository-bootstrap
@@ -79,7 +79,7 @@ observed_target_coordinates:
   Oteryn:
     repository: Oteryn/Oteryn
     state: ABSENT_404
-    refreshed_at: 2026-08-18T07:48:00Z
+    refreshed_at: 2026-08-18T07:55:00Z
   Oteryn-Atlas:
     repository: Oteryn/Oteryn-Atlas
     state: EXISTS
@@ -122,8 +122,8 @@ migration_transaction:
   provenance_strategy_verified: true
   target_collision: false
   ownership_conflict: false
-  material_unknowns:
-    - current_oteryn_repository_deletion_policy_or_owner_rollback_capability
+  material_unknowns: []
+  preparation_state: AWAITING_CANONICAL_PR_MERGE
   cutover_lock:
     owner: OTERYN-20260818-meta-repository-bootstrap
     acquired_at: 2026-08-18T07:41:00Z
@@ -148,13 +148,13 @@ migration_transaction:
     expiry_or_recheck: none
     evidence: none
   rollback:
-    feasibility: NOT_PROVEN
-    operation: candidate owner deletion of exact fresh-bootstrap Oteryn/Oteryn repository through GitHub settings
+    feasibility: PROVEN
+    operation: owner deletes exact fresh-bootstrap Oteryn/Oteryn repository through GitHub repository settings
     trigger: wrong create result or inability to bring the fresh repository under required integration/governance before any authority handover
     decision_owner: Oteryn organization owner
     execution_window: before META ADR becomes canonical, before external dependents/releases, and before unique history exists
     verification: Oteryn/Oteryn returns 404 and no canonical manifest/ADR points to the deleted repository
-    missing_proof: current Oteryn organization or enterprise policy permits the owner to delete the fresh repository
+    evidence: owner explicitly confirmed current fresh-repository deletion capability in the 2026-08-18T07:55:00Z invocation before authority handover
   post_mutation_validation:
     - exact repository owner/name/id and created state
     - PUBLIC visibility and archived=false
@@ -184,25 +184,26 @@ proven:
   - Wave 1 implementation PR 1131 squash-merged through protected main as 43ceb7d17054787698c879a0797718e4a1cb1c28.
   - Organization-access PR 1143 exact final head passed required checks and squash-merged as 36774bbf2c820572b1f4272dd373c24491d71d96; lifecycle closeout PR 1144 merged as fae1127f081a12ef6bc7c85951b819a3031138a6.
   - GitHub App installation 154585379 targets organization Oteryn and currently enumerates Oteryn/Oteryn-Atlas with write/admin-capable access.
-  - Oteryn/Oteryn was refreshed as 404/absent for this transaction.
+  - Oteryn/Oteryn was refreshed as 404/absent for the current transaction lease at 2026-08-18T07:55:00Z.
+  - Protected Platform main remains fae1127f081a12ef6bc7c85951b819a3031138a6 while the preparation PR is open.
+  - PR 1145 remains the only open migration/META PR matching this transaction and owns exactly the three declared paths.
   - ADR 0041 proves that the thin META has real topology, compatibility, release-manifest and cross-repository coordination workload.
   - Official GitHub documentation confirms organization repository creation requires sufficient permission and an explicit visibility choice, and can optionally initialize a README/select GitHub Apps.
   - Official GitHub documentation confirms installed GitHub App repository access may be all repositories or selected repositories; post-create app access must be verified rather than assumed.
-  - Official GitHub documentation confirms repository deletion can be restricted by organization or enterprise policy; generic deletion support therefore does not prove this transaction's rollback capability.
   - The current GitHub connector exposes no repository-create operation.
   - PR 1145 repaired its live task identity and exact checkpoint head d7fb9dda72e2a0ebe83d0f2bec4c43c72d50c817 passed Agent Governance 32113083310 and CI 32113083262.
   - The owner explicitly selected PUBLIC visibility for Oteryn/Oteryn in the current invocation on 2026-08-18.
+  - The owner explicitly confirmed that, as Oteryn organization owner, a fresh Oteryn/Oteryn repository can be deleted if rollback is required before authority handover.
   - Oteryn-v2 package/caller evidence was not refreshed because the current trusted Platform invocation does not authorize server/game repository inspection and those blockers do not block independent META creation preparation.
 
 derived:
   - The accepted four-repository architecture remains valid.
   - META visibility is frozen to PUBLIC for this transaction unless the owner explicitly changes it before creation.
-  - META creation is architecture-ready and non-ceremonial, but physical creation is `NO_GO` until rollback capability is proven.
-  - If rollback capability is proven and the preparation PR becomes canonical with all other leases current, the transaction may become public `CUTOVER_READY` because the current connector cannot execute repository creation and one precise owner web creation flow will remain.
+  - All material non-execution evidence gates for the create mutation are now proven.
+  - The transaction remains public NO_GO only until the preparation PR is canonical; after lawful merge/closeout and a final lease refresh it can become CUTOVER_READY because exactly one unsupported owner GitHub web creation flow remains.
   - Game cutover and Atlas extraction remain independently fail-closed and are not bundled with META creation.
 
 unknown:
-  - Current Oteryn organization/enterprise repository-deletion policy or equivalent owner rollback capability for a freshly created repository.
   - Whether installation 154585379 uses all-repositories or selected-repositories mode for an owner-created new repository; resulting-state access must be verified immediately after creation.
   - Exhaustive external Actions/reusable-workflow callers of Oteryn-v2.
   - Exact Oteryn-v2 GHCR/package names, links, permissions and consumers.
@@ -211,11 +212,10 @@ unknown:
 conflicts: []
 
 blockers:
-  - Rollback feasibility is NOT_PROVEN until current Oteryn organization/enterprise policy or owner capability to delete the fresh repository is confirmed.
   - Game-specific package/caller evidence remains unresolved for any future Oteryn-v2/Oteryn-Game physical cutover.
   - Atlas extraction remains separately coupled to source ownership/deployment evidence and must not be inferred ready from the existence of Oteryn/Oteryn-Atlas.
 
-next_action: Owner confirms that, as Oteryn organization owner, repository deletion is permitted for a fresh Oteryn/Oteryn before authority handover; then freeze that fact, revalidate exact transaction leases, complete preparation PR gates and advance to CUTOVER_READY only if the single remaining action is the owner GitHub web create flow.
+next_action: Run exact-head validation and review hygiene for PR 1145, merge the canonical preparation if green, then archive the preparation task and advance the durable transaction to CUTOVER_READY only after one final target/access lease refresh.
 ```
 
 ## Programme rules
