@@ -21,12 +21,12 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-17T12:58:00Z
-status: blocked
-active_task: null
+updated_at: 2026-08-18T07:24:00Z
+status: ready
+active_task: OTERYN-20260818-repository-migration-org-access
 issue: null
-branch: null
-pull_request: null
+branch: docs/oteryn-20260818-repository-migration-org-access
+pull_request: 1143
 temporary_topology_authority:
   repository: blakinio/Oteryn-Platform
   path: docs/architecture/adr/0041-ecosystem-repository-authority-contracts-and-atlas-integration.md
@@ -50,28 +50,65 @@ wave_1_evidence:
   coordinate_inventory: docs/architecture/migration/oteryn-repository-coordinate-inventory.json
   atlas_extraction_manifest: docs/architecture/migration/oteryn-atlas-extraction-manifest.json
   archived_task: docs/agents/tasks/archive/OTERYN-20260817-ecosystem-repository-migration-wave1.md
+organization_access_evidence:
+  owner_reported_target: Oteryn
+  owner_reported_url: https://github.com/Oteryn/
+  owner_reported_state: CREATED
+  connector_user_orgs: []
+  connector_org_memberships: []
+  connector_installations:
+    - installation_id: 78758924
+      account_login: blakinio
+      account_type: User
+    - installation_id: 154585379
+      account_login: Oteryn
+      account_type: Organization
+  connector_oteryn_visible: true
+  organization_repository_probe:
+    repository: Oteryn/Oteryn-Atlas
+    visibility: public
+    permissions:
+      admin: true
+      maintain: true
+      push: true
+      pull: true
+      triage: true
+  classification: PROVEN_ORGANIZATION_INTEGRATION_ACCESS
+observed_target_coordinates:
+  Oteryn:
+    repository: Oteryn/Oteryn
+    state: ABSENT_404
+  Oteryn-Atlas:
+    repository: Oteryn/Oteryn-Atlas
+    state: EXISTS
+    visibility: public
+    size: 0
 proven:
   - The programme alias is OTERYN-REPO-MIGRATION and resolves to the canonical prompt in this repository.
-  - Wave 1 reconstructed live source/target state and found no current target repositories at the inspected same-user names.
-  - Wave 1 implementation PR 1131 passed exact-head repository-selected validation and squash-merged through protected main as 43ceb7d17054787698c879a0797718e4a1cb1c28.
-  - The authenticated GitHub account exposed no organization membership to the connector during Wave 1.
-  - Game repository-local control-plane inspection was mostly rename-dynamic, but package inventory remained inaccessible and external Actions/reusable-workflow callers were not exhaustively proven.
-  - Current Otheryn Atlas automation included an active private Synology deployment path and mixed build/deployment ownership at the Wave 1 observation baseline.
+  - Wave 1 reconstructed live source/target state and implementation PR 1131 squash-merged through protected main as 43ceb7d17054787698c879a0797718e4a1cb1c28.
+  - The owner reports that the intended GitHub organization is `Oteryn` and has been created.
+  - The authenticated GitHub integration now exposes installation 154585379 for organization `Oteryn`.
+  - Existing organization repository `Oteryn/Oteryn-Atlas` is visible through that integration with admin/maintain/push/pull/triage permission.
+  - The intended META coordinate `Oteryn/Oteryn` currently returns 404 Not Found.
+  - Existing `Oteryn/Oteryn-Atlas` is a live target repository and is disjoint from the independent META-creation transaction.
+  - PR 1143 is the current durable organization-access task/branch checkpoint.
+  - Oteryn-v2 package inventory and exhaustive external Actions/reusable-workflow caller evidence remain unresolved Game-specific blockers and were not refreshed because the current trusted Platform invocation does not authorize server/game repository inspection.
 derived:
   - The accepted four-repository architecture remains valid.
-  - Physical META bootstrap, Game cutover and Atlas extraction remain fail-closed until the Wave 1 blockers are resolved.
+  - The organization naming/access blocker is resolved; empty membership-list endpoints do not override direct installation and repository-permission proof.
+  - A separate META repository-creation/bootstrap transaction for `Oteryn/Oteryn` is now the highest-value disjoint READY phase.
+  - Game cutover and Atlas extraction remain independently fail-closed on their own blockers and must not be bundled with META creation.
 unknown:
-  - Exact future Oteryn GitHub organization identity/permissions.
+  - Whether installation 154585379 is configured for all repositories or selected repositories; resulting-state access must be verified after any new repository creation.
+  - Exact organization-level repository-creation policy as exposed to this connector; the available GitHub tool set currently exposes no create-repository action.
   - Exhaustive external Actions/reusable-workflow callers of Oteryn-v2.
   - Exact Oteryn-v2 GHCR/package names, links, permissions and consumers.
   - Complete path-level Atlas ownership split needed for selective extraction.
 conflicts: []
 blockers:
-  - Future Oteryn GitHub organization is not visible/available to the authenticated account.
-  - Oteryn-v2 GHCR/package inventory is unavailable through the current integration.
-  - External Actions/reusable-workflow caller inventory is not exhaustive and GitHub rename redirects do not protect this execution path.
-  - Otheryn Atlas remains coupled to active private Synology deployment and mixed path ownership.
-next_action: Create or identify the intended future Oteryn GitHub organization and make it visible to the authenticated GitHub account.
+  - Game-specific package/caller evidence remains unresolved for any future Oteryn-v2/Oteryn-Game physical cutover.
+  - Atlas extraction remains separately coupled to source ownership/deployment evidence and must not be inferred ready from the existence of Oteryn/Oteryn-Atlas.
+next_action: Complete PR 1143 organization-access closeout, then create one bounded META creation/bootstrap preparation task for Oteryn/Oteryn without accessing server/game repositories.
 ```
 
 ## Programme rules
