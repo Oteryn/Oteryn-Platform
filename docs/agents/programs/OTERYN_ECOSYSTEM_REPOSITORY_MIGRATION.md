@@ -21,16 +21,23 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-18T08:02:30Z
-status: waiting
-active_task: null
+updated_at: 2026-08-18T08:30:00Z
+status: ready
+active_task: OTERYN-20260818-meta-post-create-bootstrap
 issue: null
-branch: null
-pull_request: null
-temporary_topology_authority:
-  repository: blakinio/Oteryn-Platform
-  path: docs/architecture/adr/0041-ecosystem-repository-authority-contracts-and-atlas-integration.md
-  status: VERIFIED_LIVE_PENDING_META_AUTHORITY
+branch: docs/oteryn-20260818-meta-post-create-bootstrap
+pull_request: 1147
+
+ecosystem_topology_authority:
+  repository: Oteryn/Oteryn
+  path: docs/architecture/adr/0001-ecosystem-topology-authority.md
+  status: CANONICAL
+  canonical_merge: a2672baac544ada81c526e92f0517903865a9ad0
+  supersedes:
+    repository: blakinio/Oteryn-Platform
+    path: docs/architecture/adr/0041-ecosystem-repository-authority-contracts-and-atlas-integration.md
+    scope: ecosystem repository topology and META coordination authority
+    platform_reconciliation: PENDING
 
 target_topology:
   - Oteryn
@@ -58,72 +65,115 @@ wave_1_evidence:
 organization_access_evidence:
   implementation_pr: 1143
   implementation_merge: 36774bbf2c820572b1f4272dd373c24491d71d96
+  closeout_merge: fae1127f081a12ef6bc7c85951b819a3031138a6
   archived_task: docs/agents/tasks/archive/OTERYN-20260818-repository-migration-org-access.md
   connector_installation:
     installation_id: 154585379
     account_login: Oteryn
     account_type: Organization
-  connector_oteryn_visible: true
-  organization_repository_probe:
-    repository: Oteryn/Oteryn-Atlas
-    visibility: public
-    permissions:
-      admin: true
-      maintain: true
-      push: true
-      pull: true
-      triage: true
   classification: PROVEN_ORGANIZATION_INTEGRATION_ACCESS
 
 meta_preparation_evidence:
   implementation_pr: 1145
   implementation_final_head: 20b8a73487e74a0b66924662a1d7e2b9f8b1e3e0
   implementation_merge: 860273ba7eb56fd4f6f3b1e1f8cbb765b2c094fe
+  closeout_pr: 1146
+  closeout_merge: 648cb5edd64d80d3002b19ef6d007d125de1593e
   final_agent_governance_run: 32114183914
   final_ci_run: 32114183887
   archived_task: docs/agents/tasks/archive/OTERYN-20260818-meta-repository-bootstrap.md
-  source_branch_deleted: true
+
+meta_create_and_bootstrap_evidence:
+  target_repository: Oteryn/Oteryn
+  repository_id: 1338152366
+  visibility: public
+  archived: false
+  default_branch: main
+  connector_permissions:
+    admin: true
+    maintain: true
+    push: true
+    pull: true
+    triage: true
+  owner_create_result:
+    identity: PASS
+    visibility: PASS
+    integration_access: PASS
+    readme_initialization: MISSING_REPAIRABLE
+  readme_anchor_repair:
+    commit: ef9a8ee8ba16ee6618eecb2511905f1566dec58c
+    reason: owner-created repository was empty; intended README anchor was required before governed branching
+  target_bootstrap:
+    branch: bootstrap/meta-authority-0001
+    pull_request: 1
+    final_head: 08a72bc7a9826ff62e2758411a8d31d70d661849
+    merge: a2672baac544ada81c526e92f0517903865a9ad0
+    changed_paths:
+      - AGENTS.md
+      - docs/architecture/adr/0001-ecosystem-topology-authority.md
+      - ecosystem/repositories.json
+    json_validation: PASS
+    exact_diff_self_review: PASS
+    runtime_e2e: NOT_APPLICABLE
+    ci: NOT_CONFIGURED
+    main_branch_protection: disabled
+    required_status_checks: []
+    reviews: 0
+    inline_threads: 0
+    comments: 0
+    source_branch_cleanup: PENDING_CONNECTOR_LACKS_DELETE_REF
 
 observed_target_coordinates:
   Oteryn:
     repository: Oteryn/Oteryn
-    state: ABSENT_404
-    refreshed_after_preparation_merge: 860273ba7eb56fd4f6f3b1e1f8cbb765b2c094fe
+    repository_id: 1338152366
+    state: EXISTS_BOOTSTRAPPED
+    visibility: public
+    authority_merge: a2672baac544ada81c526e92f0517903865a9ad0
   Oteryn-Atlas:
     repository: Oteryn/Oteryn-Atlas
     state: EXISTS
     visibility: public
-    size: 0
+    content_migration_state: PENDING_INDEPENDENT_EVIDENCE
+  Oteryn-Platform:
+    target_repository: Oteryn/Oteryn-Platform
+    current_repository: blakinio/Oteryn-Platform
+    state: PENDING_PHYSICAL_MIGRATION
+  Oteryn-Game:
+    target_repository: Oteryn/Oteryn-Game
+    current_repository: blakinio/Oteryn-v2
+    state: PENDING_PHYSICAL_MIGRATION
+    evidence_note: current coordinate carried from accepted prior authority; no server/game repository inspection in this invocation
 
 migration_transaction:
   transaction_id: OTERYN-META-CREATE-20260818
   mutation: create
-  state: PREPARED
-  public_status: CUTOVER_READY
+  state: COMPLETED
+  public_status: COMPLETED
   source_coordinate: none
   target_coordinate: Oteryn/Oteryn
-  source_head: none
   canonical_preparation_merge: 860273ba7eb56fd4f6f3b1e1f8cbb765b2c094fe
-  pre_state_snapshot:
-    target_repository: ABSENT_404
-    organization: Oteryn
-    organization_installation_id: 154585379
-    accessible_organization_repositories:
-      - Oteryn/Oteryn-Atlas
-    platform_authority_head: 860273ba7eb56fd4f6f3b1e1f8cbb765b2c094fe
+  physical_repository_id: 1338152366
   expected_post_state:
     repository: Oteryn/Oteryn
     owner: Oteryn
     archived: false
-    initial_content: README_ONLY
     visibility: PUBLIC
-    connector_access: MUST_BE_PROVEN_AFTER_CREATE
-    bootstrap_authority: NOT_CANONICAL_UNTIL_BOOTSTRAP_PR_MERGES
+    governed_bootstrap: CANONICAL
+  actual_post_state:
+    repository: Oteryn/Oteryn
+    owner: Oteryn
+    archived: false
+    visibility: PUBLIC
+    connector_access: PROVEN_ADMIN_WRITE
+    initial_readme: repaired_after_owner_create
+    meta_adr: CANONICAL
+    repository_manifest: CANONICAL
+    target_governance: CANONICAL
   authority_verified: true
-  target_identity_or_absence_verified: true
-  target_governance_verified: NOT_APPLICABLE_FOR_ABSENT_TARGET
+  target_identity_verified: true
+  target_governance_verified: true
   source_state_verified: true
-  evidence_lease_current: true
   active_pr_task_impact_verified: true
   coordinate_inventory_complete_for_cutover: true
   executable_callers_resolved: true
@@ -133,102 +183,70 @@ migration_transaction:
   target_collision: false
   ownership_conflict: false
   material_unknowns: []
-  preparation_state: CANONICAL
-  cutover_lock:
-    owner: OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION
-    transferred_after_preparation_merge: 860273ba7eb56fd4f6f3b1e1f8cbb765b2c094fe
-    invalidated_by:
-      - Oteryn/Oteryn starts existing before the intended owner create action
-      - Oteryn organization installation/access changes
-      - Platform topology authority changes materially
-      - overlapping META migration task or PR appears
-      - owner changes target visibility or target coordinate
   replay_guard:
     mutation_fingerprint: create_repository:Oteryn/Oteryn
-    reissue_forbidden_until_state_proven_not_applied: true
-    resume_detection: exact live GET of Oteryn/Oteryn before any create retry
+    create_reissue_forbidden: true
+    resolved_repository_id: 1338152366
   point_of_no_return:
-    reached_when: GitHub exposes a repository object at Oteryn/Oteryn
-    consequences: target namespace is occupied and rollback requires a separate destructive repository-deletion operation
-  residual_risk_acceptance:
-    status: none
-    accepted_by: none
-    accepted_at: none
-    exact_scope: none
-    expiry_or_recheck: none
-    evidence: none
+    reached: true
+    authority_handover_reached: true
+    authority_handover_merge: a2672baac544ada81c526e92f0517903865a9ad0
   rollback:
-    feasibility: PROVEN
-    operation: owner deletes exact fresh-bootstrap Oteryn/Oteryn repository through GitHub settings
-    trigger: wrong create result or inability to bring the fresh repository under required integration/governance before any authority handover
-    decision_owner: Oteryn organization owner
-    execution_window: before META ADR becomes canonical, before external dependents/releases, and before unique history exists
-    verification: Oteryn/Oteryn returns 404 and no canonical manifest/ADR points to the deleted repository
-    evidence: Oteryn organization owner explicitly confirmed fresh-repository deletion capability before authority handover
+    pre_authority_feasibility: PROVEN
+    pre_authority_window: CLOSED
+    deletion_authority_after_handover: NOT_GRANTED_BY_PREVIOUS_ROLLBACK_PROOF
+    note: the owner deletion confirmation applied only to a fresh repository before META authority handover
   post_mutation_validation:
-    - exact repository owner/name/id and created state
-    - PUBLIC visibility and archived=false
-    - default branch/README initialization
-    - connector pull/push/admin capability required for bootstrap
-    - no unexpected template/import/history or product runtime content
-    - installation repository access after owner-created repository creation
-    - dedicated bootstrap branch and Draft PR before non-bootstrap content
-    - META ADR not canonical until bootstrap PR merge
-    - Platform ADR 0041 not superseded before canonical META authority exists
-
-meta_bootstrap_plan:
-  document: docs/architecture/migration/OTERYN_META_REPOSITORY_BOOTSTRAP.md
-  target_visibility: PUBLIC
-  target_visibility_decision_source: owner current invocation 2026-08-18
-  initial_files:
-    - README.md
-    - AGENTS.md
-    - docs/architecture/adr/0001-ecosystem-topology-authority.md
-    - ecosystem/repositories.json
-  authority_handover_rule: Platform ADR 0041 remains canonical until the META topology ADR is accepted and merged in Oteryn/Oteryn
-  physical_creation_tool: OWNER_GITHUB_WEB_UI_REQUIRED
-  connector_repository_create_operation: unavailable
+    exact_repository_identity: PASS
+    public_visibility: PASS
+    archived_false: PASS
+    default_branch_anchor: PASS_REPAIRED
+    connector_admin_write_access: PASS
+    unexpected_template_or_runtime_content: PASS_NONE_FOUND
+    dedicated_bootstrap_pr: PASS
+    target_governance: PASS
+    meta_adr_canonical: PASS
+    repository_manifest_canonical: PASS
+    platform_adr_supersession_ordering: PASS_META_FIRST_PLATFORM_RECONCILIATION_PENDING
 
 proven:
-  - The programme alias is OTERYN-REPO-MIGRATION and resolves to the canonical prompt in this repository.
-  - Wave 1 implementation PR 1131 squash-merged through protected main as 43ceb7d17054787698c879a0797718e4a1cb1c28.
-  - Organization-access PR 1143 squash-merged as 36774bbf2c820572b1f4272dd373c24491d71d96 and closeout PR 1144 merged as fae1127f081a12ef6bc7c85951b819a3031138a6.
-  - GitHub App installation 154585379 targets organization Oteryn and continues to expose Oteryn/Oteryn-Atlas with admin/push/pull capability.
-  - The owner explicitly selected PUBLIC visibility for Oteryn/Oteryn.
-  - The owner explicitly confirmed fresh Oteryn/Oteryn deletion capability for rollback before authority handover.
-  - PR 1145 exact final head 20b8a73487e74a0b66924662a1d7e2b9f8b1e3e0 passed Agent Governance 32114183914 and CI 32114183887 with zero reviews, threads or comments.
-  - PR 1145 squash-merged as 860273ba7eb56fd4f6f3b1e1f8cbb765b2c094fe and its source branch is absent.
-  - Oteryn/Oteryn remained 404/absent in the final post-merge lease refresh.
-  - The current GitHub connector exposes no repository-create operation.
-  - Oteryn-v2 package/caller evidence was not refreshed because the current trusted Platform invocation does not authorize server/game repository inspection and those blockers do not block the independent META create transaction.
+  - Oteryn/Oteryn now exists as public repository ID 1338152366 and installation 154585379 exposes admin/write access.
+  - The owner create action produced an empty repository rather than the planned README-only anchor; the missing README was repaired as the first bootstrap commit before any branchable authority content.
+  - The create replay guard prevented any second repository-create attempt after the exact target object became observable.
+  - Oteryn/Oteryn PR 1 exact changed paths were AGENTS.md, META ADR 0001 and ecosystem/repositories.json; deterministic JSON parsing and full exact-diff self-review passed.
+  - Oteryn/Oteryn had no workflows or required status checks during initial bootstrap; CI is recorded as NOT_CONFIGURED rather than falsely PASS.
+  - Oteryn/Oteryn PR 1 had zero reviews, zero inline threads and zero comments at merge gate and squash-merged as a2672baac544ada81c526e92f0517903865a9ad0.
+  - META ADR 0001 is now canonical and explicitly supersedes Platform ADR 0041 for ecosystem repository-topology/META coordination authority.
+  - No server/game repository was accessed or mutated during the META create/bootstrap transaction.
 
 derived:
-  - The accepted four-repository architecture remains valid.
-  - All material non-execution gates for `OTERYN-META-CREATE-20260818` are proven and canonical.
-  - Exactly one precise unsupported owner-only operation remains: create public `Oteryn/Oteryn` in the GitHub web UI with README initialization.
-  - Game cutover and Atlas extraction remain independently fail-closed and are not bundled with META creation.
+  - The META create transaction is complete; no owner create action remains.
+  - Oteryn/Oteryn is now the neutral ecosystem topology authority while provider repositories retain provider implementation/schema authority.
+  - Platform ADR 0041 requires a narrow historical-status reconciliation now that the META-first supersession ordering has been satisfied.
+  - Game cutover and Atlas extraction remain independently fail-closed and are not made ready by META completion.
 
 unknown:
-  - Whether installation 154585379 automatically includes an owner-created new repository; this is a required immediate post-create verification item, not a pre-create blocker.
   - Exhaustive external Actions/reusable-workflow callers of Oteryn-v2.
   - Exact Oteryn-v2 GHCR/package names, links, permissions and consumers.
   - Complete path-level Atlas ownership split needed for selective extraction.
 
-conflicts: []
+conflicts:
+  - Platform ADR 0041 still carries its pre-handover Accepted status text until the required narrow Platform reconciliation is merged; META ADR 0001 is already canonical and controls ecosystem topology scope.
 
 blockers:
   - Game-specific package/caller evidence remains unresolved for any future Oteryn-v2/Oteryn-Game physical cutover.
-  - Atlas extraction remains separately coupled to source ownership/deployment evidence and must not be inferred ready from the existence of Oteryn/Oteryn-Atlas.
+  - Atlas extraction remains separately coupled to source ownership/deployment evidence.
+  - Target bootstrap source branch remains present because the current GitHub connector exposes no delete-ref operation; it contains no unmerged authority and its PR is terminal.
 
-next_action: Owner performs the exact public Oteryn/Oteryn GitHub web creation flow from the canonical bootstrap plan; if the create result is ambiguous, do not retry and first inspect the exact target coordinate.
+next_action: Finish Platform PR 1147 with exact-head task/programme evidence and lifecycle closeout; then run one narrow Platform ADR 0041 status reconciliation task if the invocation budget permits.
 ```
 
 ## Programme rules
 
 - Live repository state outranks this file when newer.
 - Do not cache transient main SHAs here as future authority.
-- Do not let the Game->Atlas spatial-profile evidence gap block unrelated repository migration work without a proven dependency.
+- Do not let Game- or Atlas-specific evidence gaps block unrelated repository migration work without a proven dependency.
 - Do not create empty target repositories merely to satisfy the target diagram.
-- META authority supersedes Platform ADR 0041 only after the META authority is actually canonical.
-- Every physical migration step requires exact preflight, rollback and post-cutover verification.
+- META ADR 0001 now owns ecosystem topology authority; provider repositories retain provider implementation/schema authority.
+- Every remaining physical migration step requires exact preflight, rollback and post-cutover verification.
 - Keep exactly one `next_action` while the programme is not terminal.
