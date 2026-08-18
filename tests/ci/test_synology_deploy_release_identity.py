@@ -106,12 +106,29 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
             "ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f",
             self.character_workflow,
         )
+        self.assertIn("contains(github.event.head_commit.message, '[character-bazaar-staging]')", self.character_workflow)
 
     def test_liquid20_package_uses_current_repository_owner_while_source_pin_remains_external(self) -> None:
         self.assertIn("repository-ghcr-image.sh liquid20-collector", self.liquid20_workflow)
         self.assertNotIn("ghcr.io/blakinio/liquid20-collector", self.liquid20_workflow)
         self.assertIn("repository: blakinio/freqtrade", self.liquid20_workflow)
         self.assertIn("c00a091c5adc67cf75c46db5805e358ffc72fad7", self.liquid20_workflow)
+
+    def test_repository_only_hardening_does_not_auto_publish_or_bootstrap_on_main_push(self) -> None:
+        build_push = self.build_workflow.split("  push:\n", 1)[1].split("  workflow_dispatch:\n", 1)[0]
+        self.assertIn("deploy/synology/docker/**", build_push)
+        self.assertNotIn(".github/workflows/", build_push)
+        self.assertNotIn("deploy/synology/runner/", build_push)
+        self.assertNotIn("repository-ghcr-image.sh", build_push)
+        self.assertIn(
+            "github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && matrix.name != 'deploy-runner')",
+            self.build_workflow,
+        )
+
+        liquid20_push = self.liquid20_workflow.split("  push:\n", 1)[1].split("  schedule:\n", 1)[0]
+        self.assertIn("deploy/liquid20/**", liquid20_push)
+        self.assertNotIn(".github/workflows/", liquid20_push)
+        self.assertNotIn("repository-ghcr-image.sh", liquid20_push)
 
     def test_production_target_preflight_accepts_current_owner_exact_digest_runtime_refs(self) -> None:
         self.assertIn("repository-ghcr-image.sh", self.preflight)

@@ -34,11 +34,7 @@ on:
       - resources/**
       - routes/**
       - services/game-gateway/**
-      - deploy/synology/**
-      - tests/ci/test_synology_rollback_contract.py
-      - tests/ci/test_synology_deploy_release_identity.py
-      - .github/workflows/build-synology-staging-images.yml
-      - .github/workflows/deploy-synology-staging.yml
+      - deploy/synology/docker/**
   workflow_dispatch:
 
 permissions:
@@ -252,7 +248,7 @@ jobs:
             type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Log in to GHCR
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && (github.event_name == 'workflow_dispatch' || matrix.name != 'deploy-runner')
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
@@ -264,7 +260,7 @@ jobs:
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && matrix.name != 'deploy-runner') }}
           load: ${{ github.event_name == 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
