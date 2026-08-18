@@ -12,7 +12,6 @@ ROOT = Path(__file__).resolve().parents[2]
 BUILD_WORKFLOW = ROOT / ".github/workflows/build-synology-staging-images.yml"
 DEPLOY_WORKFLOW = ROOT / ".github/workflows/deploy-synology-staging.yml"
 CHARACTER_WORKFLOW = ROOT / ".github/workflows/character-bazaar-staging-control.yml"
-LIQUID20_WORKFLOW = ROOT / ".github/workflows/liquid20-synology-control.yml"
 PREFLIGHT_WORKFLOW = ROOT / ".github/workflows/synology-production-target-preflight.yml"
 PREFLIGHT = ROOT / "deploy/synology/scripts/production-target-preflight.sh"
 GHCR_HELPER = ROOT / "deploy/synology/scripts/repository-ghcr-image.sh"
@@ -28,7 +27,6 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
         cls.build_workflow = BUILD_WORKFLOW.read_text(encoding="utf-8")
         cls.workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
         cls.character_workflow = CHARACTER_WORKFLOW.read_text(encoding="utf-8")
-        cls.liquid20_workflow = LIQUID20_WORKFLOW.read_text(encoding="utf-8")
         cls.preflight_workflow = PREFLIGHT_WORKFLOW.read_text(encoding="utf-8")
         cls.preflight = PREFLIGHT.read_text(encoding="utf-8")
         cls.helper = GHCR_HELPER.read_text(encoding="utf-8")
@@ -50,6 +48,14 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
             stderr=subprocess.PIPE,
             check=False,
         )
+
+    def test_out_of_scope_operational_assets_are_absent(self) -> None:
+        forbidden = (
+            ROOT / ".github/workflows/liquid20-synology-control.yml",
+            ROOT / "deploy/liquid20",
+        )
+        existing = [path.relative_to(ROOT).as_posix() for path in forbidden if path.exists()]
+        self.assertEqual(existing, [], f"out-of-scope operational assets present: {existing}")
 
     def test_repository_ghcr_helper_lowercases_current_owner(self) -> None:
         result = self.run_helper("Oteryn")
@@ -108,13 +114,7 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
         )
         self.assertIn("contains(github.event.head_commit.message, '[character-bazaar-staging]')", self.character_workflow)
 
-    def test_liquid20_package_uses_current_repository_owner_while_source_pin_remains_external(self) -> None:
-        self.assertIn("repository-ghcr-image.sh liquid20-collector", self.liquid20_workflow)
-        self.assertNotIn("ghcr.io/blakinio/liquid20-collector", self.liquid20_workflow)
-        self.assertIn("repository: blakinio/freqtrade", self.liquid20_workflow)
-        self.assertIn("c00a091c5adc67cf75c46db5805e358ffc72fad7", self.liquid20_workflow)
-
-    def test_repository_only_hardening_does_not_auto_publish_or_bootstrap_on_main_push(self) -> None:
+    def test_repository_only_hardening_does_not_auto_publish_privileged_runner_on_main_push(self) -> None:
         build_push = self.build_workflow.split("  push:\n", 1)[1].split("  workflow_dispatch:\n", 1)[0]
         self.assertIn("deploy/synology/docker/**", build_push)
         self.assertNotIn(".github/workflows/", build_push)
@@ -124,11 +124,6 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
             "github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && matrix.name != 'deploy-runner')",
             self.build_workflow,
         )
-
-        liquid20_push = self.liquid20_workflow.split("  push:\n", 1)[1].split("  schedule:\n", 1)[0]
-        self.assertIn("deploy/liquid20/**", liquid20_push)
-        self.assertNotIn(".github/workflows/", liquid20_push)
-        self.assertNotIn("repository-ghcr-image.sh", liquid20_push)
 
     def test_production_target_preflight_accepts_current_owner_exact_digest_runtime_refs(self) -> None:
         self.assertIn("repository-ghcr-image.sh", self.preflight)
@@ -168,7 +163,6 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
             "build": self.build_workflow,
             "deploy": self.workflow,
             "character": self.character_workflow,
-            "liquid20": self.liquid20_workflow,
             "preflight": self.preflight,
             "runtime-env": self.runtime_env,
             "runner-env": self.runner_env,
@@ -179,7 +173,6 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
             "ghcr.io/blakinio/oteryn-platform",
             "ghcr.io/blakinio/oteryn-game-gateway",
             "ghcr.io/blakinio/oteryn-deploy-runner",
-            "ghcr.io/blakinio/liquid20-collector",
             "https://github.com/blakinio/Oteryn-Platform",
         )
         failures = [
