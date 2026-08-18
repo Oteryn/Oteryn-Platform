@@ -54,8 +54,8 @@ The first PR head failed only governance metadata because the new active task ha
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: deleted
-source_branch_reason: PR 1156 squash-merged and GitHub removed the implementation branch
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1156 squash-merged with repository auto-delete behavior and GitHub removed the implementation branch
 source_branch_evidence: branch fix/remove-liquid20-from-platform-scope absent after merge 88e1661bbd13ddb36b064d411d54702075f64852
 ```
 
