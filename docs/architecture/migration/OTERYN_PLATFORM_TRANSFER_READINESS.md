@@ -9,7 +9,7 @@ Target: `Oteryn/Oteryn-Platform`
 
 **Verdict: `PREPARED_NOT_READY` for physical transfer.**
 
-The repository-side pre-cutover owner-coordinate hardening is now complete. PR #1153 made Platform-owned GHCR, Synology runner, Character Bazaar, Liquid20 and staging-preflight coordinates owner-neutral and passed all required and affected exact-head validation before squash merge `6a3b92cae0099b36d4b58048657fbfa8aea7b9bf`.
+The repository-side pre-cutover owner-coordinate hardening is now complete for Platform-owned components. PR #1153 made Platform-owned GHCR, Synology runner, Character Bazaar and staging-preflight coordinates owner-neutral and passed all required and affected exact-head validation before squash merge `6a3b92cae0099b36d4b58048657fbfa8aea7b9bf`.
 
 The transfer remains fail-closed because repository code cannot prove the live GitHub Package objects/permissions/repository links or the behavior of the currently registered repository-level Synology runner after owner transfer. The connected GitHub action surface also still exposes no repository-transfer operation.
 
@@ -48,7 +48,6 @@ This is consumed by:
 - Synology Platform/Gateway/deploy-runner image build validation;
 - Synology Platform/Gateway deployment digest resolution;
 - Character Bazaar Platform/Gateway image resolution;
-- Liquid20 package publication/observation;
 - Synology production-target immutable-image preflight.
 
 The current source owner therefore resolves to `ghcr.io/blakinio/...`; after a successful repository owner transfer the same code is designed to resolve `ghcr.io/oteryn/...`.
@@ -83,21 +82,18 @@ The final PR head passed `Synology Production Target Preflight` run `32137944818
 
 ### Dependent package paths — repository gate complete
 
-Character Bazaar now resolves Platform/Gateway images through the same owner-neutral package contract while preserving its exact pinned Canary dependency as external provenance.
+Character Bazaar resolves Platform/Gateway images through the same owner-neutral package contract while preserving its exact pinned Canary dependency as external provenance.
 
-Liquid20 now resolves its Platform-owned GHCR package through the repository owner while preserving its pinned external `blakinio/freqtrade` source revision.
-
-These external dependency coordinates were deliberately not rewritten merely because Platform ownership is changing.
+That external dependency coordinate was deliberately not rewritten merely because Platform ownership is changing.
 
 ## Live-side-effect guard
 
-Self-review found that repository-only hardening could otherwise have triggered package publication or a Liquid20 Synology bootstrap simply by merging workflow/helper changes to `main`.
+Self-review found that repository-only hardening could otherwise have triggered package publication merely from merging workflow/helper changes to `main`.
 
 The merged change preserves broad PR validation while narrowing automatic main-push side effects:
 
 - deploy-runner package publication requires explicit `workflow_dispatch`;
 - repository-only Synology workflow/helper/runner hardening does not match automatic package-publication push paths;
-- Liquid20 workflow/helper-only hardening does not match the automatic Liquid20 bootstrap push path;
 - Character Bazaar's push control remains additionally guarded by its existing explicit commit marker.
 
 The squash merge message for PR #1153 did not contain the Character Bazaar trigger marker.
@@ -112,7 +108,6 @@ Exact final head: `43f7649b32eefc50e8e8bdc669d44bf4e5de7338`.
   - `runtime-tests` job `95713599239` — PASS.
   - `test` job `95714103528` — PASS.
 - Character Bazaar Staging Validation `32137944744` — PASS.
-- Liquid20 Synology Control `32137944776` — PASS.
 - Synology Rollback Contract `32137944930` — PASS.
 - Synology Production Target Preflight `32137944818` — PASS.
 - Build Synology Staging Images `32137944703` — PASS.
