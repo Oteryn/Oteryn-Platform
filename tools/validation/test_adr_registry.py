@@ -185,6 +185,56 @@ class AdrRegistryValidatorTest(unittest.TestCase):
 
         self.assertEqual([], errors)
 
+    def test_accepts_cross_repository_successor_with_exact_merge(self) -> None:
+        self.write_adr(
+            "0001-alpha.md",
+            status="Superseded",
+            extra=(
+                "- Successor: `Oteryn/Oteryn` ADR 0001 — Ecosystem topology authority\n"
+                "- Successor merge: `0123456789abcdef0123456789abcdef01234567`"
+            ),
+        )
+        self.write_inventory(["0001-alpha.md"])
+
+        errors = adr_registry.validate_repository(
+            self.root, legacy_duplicates={}
+        )
+
+        self.assertEqual([], errors)
+
+    def test_rejects_cross_repository_successor_without_exact_merge(self) -> None:
+        self.write_adr(
+            "0001-alpha.md",
+            status="Superseded",
+            extra="- Successor: `Oteryn/Oteryn` ADR 0001 — Ecosystem topology authority",
+        )
+        self.write_inventory(["0001-alpha.md"])
+
+        errors = adr_registry.validate_repository(
+            self.root, legacy_duplicates={}
+        )
+
+        self.assert_error_contains(
+            errors, "cross-repository successor must declare exactly one"
+        )
+
+    def test_rejects_successor_declaration_for_non_superseded_adr(self) -> None:
+        self.write_adr(
+            "0001-alpha.md",
+            status="Accepted",
+            extra=(
+                "- Successor: `Oteryn/Oteryn` ADR 0001 — Ecosystem topology authority\n"
+                "- Successor merge: `0123456789abcdef0123456789abcdef01234567`"
+            ),
+        )
+        self.write_inventory(["0001-alpha.md"])
+
+        errors = adr_registry.validate_repository(
+            self.root, legacy_duplicates={}
+        )
+
+        self.assert_error_contains(errors, "status is Accepted")
+
     def test_rejects_invalid_filename(self) -> None:
         filename = "ADR-1-invalid.md"
         self.write_adr(filename)
