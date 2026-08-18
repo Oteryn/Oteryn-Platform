@@ -1,207 +1,230 @@
 # Oteryn Platform Repository Transfer Readiness
 
 Date: 2026-08-18
-Transaction candidate: `OTERYN-PLATFORM-TRANSFER-20260818`
+Transaction: `OTERYN-PLATFORM-TRANSFER-20260818`
 Source: `blakinio/Oteryn-Platform`
-Target: `Oteryn/Oteryn-Platform`
+Intended target: `Oteryn/Oteryn-Platform`
+Observed bootstrap target: `Oteryn/Oteryn-platform`
 
 ## Decision
 
-**Verdict: `PREPARED_NOT_READY` for physical transfer.**
+**Verdict: `NO_GO` for physical transfer. Canonical transaction state: `PREPARED`.**
 
-The repository-side pre-cutover owner-coordinate hardening is now complete for Platform-owned components. PR #1153 made Platform-owned GHCR, Synology runner, Character Bazaar and staging-preflight coordinates owner-neutral and passed all required and affected exact-head validation before squash merge `6a3b92cae0099b36d4b58048657fbfa8aea7b9bf`.
+The repository-side owner-neutral hardening remains valid evidence, but the live transfer state changed materially after that work. The intended target coordinate is now occupied by a bootstrap-only repository, the Platform source `main` advanced after the previous transfer-readiness checkpoint, and the connected GitHub action surface still exposes no repository-transfer operation.
 
-The transfer remains fail-closed because repository code cannot prove the live GitHub Package objects/permissions/repository links or the behavior of the currently registered repository-level Synology runner after owner transfer. The connected GitHub action surface also still exposes no repository-transfer operation.
+This report therefore does not claim `READY_TO_EXECUTE` or `CUTOVER_READY` and does not substitute a history copy/force-push for the accepted repository-transfer transaction.
 
-## Current source baseline
+## Current live repository identities
 
-### FACT / PROVEN
+### Source — PROVEN
 
-- Source repository: `blakinio/Oteryn-Platform`, repository ID `1305155726`, public and not archived.
-- Connected GitHub integration has source admin/write access.
-- Default branch: `main`.
-- Exact observed post-hardening `main`: `6a3b92cae0099b36d4b58048657fbfa8aea7b9bf`.
-- `main` protection remains enabled with required `classify-changes` and `test` contexts.
-- Target `Oteryn/Oteryn-Platform` was absent at the last bounded target-collision observation; this must be refreshed immediately before any physical mutation.
-- Platform owner-coordinate hardening PR #1153 exact final head `43f7649b32eefc50e8e8bdc669d44bf4e5de7338` passed all required and affected workflow lanes and squash-merged as `6a3b92cae0099b36d4b58048657fbfa8aea7b9bf`.
-- The implementation source branch was deleted after merge.
-- No physical repository transfer, package publication/relinking/deletion, runner re-registration, secret/environment mutation, staging/production operation or Game/server repository access occurred in the hardening task.
+- repository: `blakinio/Oteryn-Platform`;
+- repository ID: `1305155726`;
+- visibility: public;
+- archived: false;
+- default branch: `main`;
+- current observed `main`: `77fa480a3f4e847dac98f76e05b6acd27cca4a57`;
+- connected GitHub integration: admin/write access proven.
 
-## Repository-side hardening result
+The previous owner-neutral hardening merge remains:
 
-### GHCR namespace — repository gate complete
+`6a3b92cae0099b36d4b58048657fbfa8aea7b9bf`
 
-Platform-owned package coordinates no longer embed the personal owner in transfer-sensitive runtime paths. The shared helper:
+The source has advanced since that merge. The current source head therefore invalidates any evidence lease that assumed `6a3b92...` or the later seed baseline `c567da9...` was still the cutover head.
 
-```text
-deploy/synology/scripts/repository-ghcr-image.sh
-```
+### Intended target coordinate — CONFLICT
 
-resolves a validated lowercase owner from the current repository context and constructs:
+The intended canonical target is:
 
-```text
-ghcr.io/<current-owner>/<package>
-```
+`Oteryn/Oteryn-Platform`
 
-This is consumed by:
+GitHub currently resolves that same case-insensitive repository coordinate to the existing organization repository displayed as:
 
-- Synology Platform/Gateway/deploy-runner image build validation;
-- Synology Platform/Gateway deployment digest resolution;
-- Character Bazaar Platform/Gateway image resolution;
-- Synology production-target immutable-image preflight.
+`Oteryn/Oteryn-platform`
 
-The current source owner therefore resolves to `ghcr.io/blakinio/...`; after a successful repository owner transfer the same code is designed to resolve `ghcr.io/oteryn/...`.
+Observed target facts:
 
-**Repository classification:** `PASS_PRE_CUTOVER_HARDENING`.
+- repository ID: `1338405017`;
+- visibility: public;
+- archived: false;
+- default branch: `main`;
+- current observed `main`: `db381488697eee315bdf5840ab0d4f8807f7bfb0`;
+- current content classification: migration bootstrap/backup scaffolding only;
+- repository-local Platform governance/runtime source is absent because canonical Platform implementation still lives at the source repository.
 
-**Remaining live classification:** `MUST_VERIFY_AT_CUTOVER` because GitHub Package object ownership, granular permissions and repository linkage are not observable through the currently available integration.
+This is an intended migration bootstrap repository, not evidence that the Platform product itself was migrated. Its existence still blocks a native same-name owner transfer of source repository ID `1305155726` until the target coordinate is deliberately freed.
 
-### Synology repository-level runner — repository gate complete
+## Bootstrap history-seed evidence
 
-The runner contract no longer hard-codes:
+Target PR #1 is an open Draft bootstrap PR whose own contract says not to merge it into canonical imported history.
 
-```text
-https://github.com/blakinio/Oteryn-Platform
-```
+The one-off workflow:
 
-or a personal-owner deploy-runner image default.
+`.github/workflows/one-off-platform-history-seed.yml`
 
-- first registration requires an explicit exact `RUNNER_URL`;
-- `RUNNER_IMAGE` is explicit and owner-scoped through environment configuration;
-- an already registered persistent runner can restart from its `.runner` state without a source-coordinate fallback.
+ran against source baseline:
 
-**Repository classification:** `PASS_PRE_CUTOVER_HARDENING`.
+`c567da9d9ae444110262774f8febf5a5abab2a90`
 
-**Remaining live classification:** `MUST_VERIFY_AT_CUTOVER` because the existing repository-level runner's attachment/online behavior after GitHub owner transfer remains unobserved. If the transferred repository no longer sees that runner, obtain a new one-time registration token and re-register exactly that runner without exposing the token in Git or logs.
+Workflow run `32140478830`, job `95721679043`, proved:
 
-### Production-target preflight — repository gate complete
+- mirror clone: PASS;
+- `git fsck --full`: PASS;
+- full Git bundle creation and verification: PASS;
+- backup artifact upload: PASS;
+- backup artifact ID: `9325658054`;
+- tag push return code: `0` with no tags to migrate;
+- head push return code: `1`.
 
-`deploy/synology/scripts/production-target-preflight.sh` now resolves the expected Platform/Gateway package repositories from the current repository owner and still requires immutable digest references plus matching OCI revision metadata.
+The head push failed because the Actions `GITHUB_TOKEN` was not permitted to create/update workflow-bearing refs. GitHub rejected the source branches with the workflow-permission error. Therefore the successful workflow conclusion is **backup evidence only**, not proof that Platform refs/history were installed as canonical target refs.
 
-The final PR head passed `Synology Production Target Preflight` run `32137944818`. No live/manual preflight was executed by this migration task.
+The source has since advanced to `77fa480a3f4e847dac98f76e05b6acd27cca4a57`, so rerunning the stale seed unchanged would correctly fail its exact-source-main guard before any push attempt.
 
-### Dependent package paths — repository gate complete
+## Repository-side hardening evidence retained
 
-Character Bazaar resolves Platform/Gateway images through the same owner-neutral package contract while preserving its exact pinned Canary dependency as external provenance.
+PR #1153 / merge `6a3b92cae0099b36d4b58048657fbfa8aea7b9bf` established owner-neutral repository code for the transfer-sensitive Platform surfaces, including:
 
-That external dependency coordinate was deliberately not rewritten merely because Platform ownership is changing.
+- owner-neutral GHCR image coordinate construction;
+- owner-neutral repository-level runner registration configuration;
+- owner-neutral production-target preflight expectations;
+- Character Bazaar Platform/Gateway package resolution;
+- automatic live-side-effect guards for repository-only hardening changes.
 
-## Live-side-effect guard
+That repository-side preparation remains useful, but it does **not** prove the live package objects, live runner attachment, target rulesets, or the physical transfer operation.
 
-Self-review found that repository-only hardening could otherwise have triggered package publication merely from merging workflow/helper changes to `main`.
+## Current material gates
 
-The merged change preserves broad PR validation while narrowing automatic main-push side effects:
+### 1. Target-coordinate collision — FAIL
 
-- deploy-runner package publication requires explicit `workflow_dispatch`;
-- repository-only Synology workflow/helper/runner hardening does not match automatic package-publication push paths;
-- Character Bazaar's push control remains additionally guarded by its existing explicit commit marker.
+`Oteryn/Oteryn-platform` repository ID `1338405017` occupies the intended target coordinate.
 
-The squash merge message for PR #1153 did not contain the Character Bazaar trigger marker.
+The canonical transfer transaction requires the existing source repository ID `1305155726` to become `Oteryn/Oteryn-Platform`; it must not be replaced by a copied repository with a different identity.
 
-## Validation evidence
+Before the transfer can become executable, the bootstrap-only target must be moved out of the intended coordinate through a separately authorized owner/admin repository rename or another explicitly accepted target-resolution operation. Preserve the migration backup evidence before any destructive cleanup.
 
-Exact final head: `43f7649b32eefc50e8e8bdc669d44bf4e5de7338`.
+### 2. Physical repository-transfer operation — FAIL
 
-- Agent Governance `32137944890` — PASS.
-- CI `32137944800` — PASS.
-  - `classify-changes` job `95713558651` — PASS.
-  - `runtime-tests` job `95713599239` — PASS.
-  - `test` job `95714103528` — PASS.
-- Character Bazaar Staging Validation `32137944744` — PASS.
-- Synology Rollback Contract `32137944930` — PASS.
-- Synology Production Target Preflight `32137944818` — PASS.
-- Build Synology Staging Images `32137944703` — PASS.
-- Edge Security Emulation `32137944714` — PASS.
-- Platform DB Outage Validation `32137944713` — PASS.
-- Phase 7 Production-Like Validation `32137944771` — PASS.
-- Game Auth Ticket Concurrency `32137944724` — PASS.
-- reviews: `0`; inline review threads: `0`; PR comments: `0` at merge gate.
+The connected GitHub action surface exposes repository reads/writes, refs, PRs, Issues and workflow operations, but no repository owner-transfer mutation.
 
-The first implementation head exposed a pre-existing ADR-registry contract mismatch because Platform ADR 0041 already used the canonical cross-repository META successor form. The validator was repaired fail-closed to accept one bounded cross-repository successor only with one exact lowercase 40-hex successor merge; ADR 0041 itself was not changed by that repair.
+Tool availability is a canonical gate. Lack of a transfer action cannot be reinterpreted as permission to perform a different operation such as force-pushing a mirror into the bootstrap target.
 
-## Remaining pre-cutover evidence
+### 3. Live GHCR package ownership/linkage — UNKNOWN
 
-The following remain material and prevent `READY_TO_EXECUTE` / `CUTOVER_READY`:
+Repository code is owner-neutral, but current live GitHub Package objects, granular permissions, linked repositories and target-organization publication/read behavior are not observable through the available connector.
 
-1. **Live GHCR Packages:** exact Platform-owned package objects, current account scope, granular permissions, linked repository state and target organization publication/read behavior are `UNKNOWN` to the available connector.
-2. **Existing self-hosted runner:** whether the current repository-level `oteryn-staging` runner remains attached and online immediately after owner transfer is `UNKNOWN` until observed.
-3. **Target repository state:** collision, organization defaults, rulesets/protection and GitHub App access must be refreshed immediately before and after the physical mutation.
-4. **Physical transfer capability:** the connected GitHub action surface currently exposes no repository-transfer mutation.
+This remains a material cutover unknown unless the repository owner supplies an exact bounded risk acceptance permitted by the canonical programme or a live administrative surface proves the required package state.
 
-These are cutover evidence/operation gaps, not reasons to copy the repository into a fresh competing target or weaken CI/provenance.
+### 4. Existing repository-level self-hosted runner — UNKNOWN
 
-## Physical cutover sequence when remaining evidence is available
+Repository-side runner configuration is owner-neutral, but whether the currently registered repository-level Synology runner remains attached and online after a GitHub owner transfer is unproven.
 
-Before mutation:
+The transfer must not be used to trigger protected staging work until the resulting runner state is verified or the runner is deliberately re-registered through an authorized non-secret-bearing process.
 
-1. refresh exact source repository ID, `main` SHA, admin access and required checks;
-2. refresh target-coordinate collision and organization access;
-3. verify no active ownership/PR conflict with the transfer;
-4. obtain live package ownership/linkage evidence and establish the exact old/new package retention/publication plan without deleting rollback provenance;
-5. capture current repository-level runner identity/label/online state without exposing credentials;
-6. prove an authorized GitHub surface can perform the actual repository transfer;
-7. persist the canonical transaction as `READY_TO_EXECUTE` only when every other required gate is proven.
+### 5. Target organization protection/rulesets — MUST REVALIDATE
 
-Immediately after the single transfer mutation:
+The resulting `main` protection/ruleset state cannot be inferred from the bootstrap target or from the source's previous protection state. Required checks and protection must be read back after the actual transfer.
 
-1. verify repository ID and exact `main` commit continuity at `Oteryn/Oteryn-Platform`;
-2. verify Issues/PRs/releases and GitHub App admin/write access;
-3. verify `main` rulesets/protection and required `classify-changes`/`test` gates;
-4. verify repository secrets/environments exist without reading secret values;
-5. verify ordinary GitHub-hosted Actions;
-6. verify or deliberately re-register the repository-level Synology runner before any protected staging job;
-7. verify target-owner GHCR publication/read/linkage with immutable digest identities;
-8. only under separate staging authority run the smallest required protected staging validation.
-
-## Rollback and provenance discipline
-
-- Do not create a new repository at `blakinio/Oteryn-Platform` while redirect/rollback compatibility is required.
-- Do not delete or repurpose old user-scoped package objects until target package behavior is proven and the rollback window is closed.
-- Historical ADR/task/PR/Issue links remain truthful provenance and are not globally rewritten.
-- If target CI/protection/package/runner verification fails after transfer, stop protected deployments and follow the canonical migration transaction rollback decision instead of weakening checks.
-- Repository merge authority is not production or staging mutation authority.
-
-## Migration transaction
+## Canonical transaction
 
 ```yaml
 migration_transaction:
   transaction_id: OTERYN-PLATFORM-TRANSFER-20260818
   mutation: transfer
-  state: PREPARED_NOT_READY
-  public_status: PREPARED_NOT_READY
+  state: PREPARED
+  public_status: NO_GO
   source_coordinate: blakinio/Oteryn-Platform
   target_coordinate: Oteryn/Oteryn-Platform
+  source_head: 77fa480a3f4e847dac98f76e05b6acd27cca4a57
   source_repository_id: 1305155726
-  source_main_sha: 6a3b92cae0099b36d4b58048657fbfa8aea7b9bf
-  target_collision: MUST_REFRESH_BEFORE_MUTATION
-  source_admin_access: true
-  source_branch_protection:
-    enabled: true
-    required_checks:
-      - classify-changes
-      - test
-  gates:
-    destination_identity: PASS_LAST_OBSERVATION_REFRESH_REQUIRED
-    target_name_available: PASS_LAST_OBSERVATION_REFRESH_REQUIRED
-    source_identity_and_admin: PASS
-    repository_history_preservation_model: PASS
-    executable_coordinate_inventory: PASS_BOUNDED_PLATFORM_SCOPE
-    owner_neutral_repository_hardening: PASS
-    owner_neutral_hardening_merge: 6a3b92cae0099b36d4b58048657fbfa8aea7b9bf
-    ghcr_repository_code_cutover: PASS
-    ghcr_live_package_cutover: UNKNOWN_REQUIRES_LIVE_EVIDENCE
-    self_hosted_runner_repository_preparation: PASS
-    self_hosted_runner_live_cutover: UNKNOWN_REQUIRES_POST_TRANSFER_EVIDENCE
-    branch_protection_post_transfer: MUST_REVALIDATE
-    physical_transfer_tool_available: false
+  pre_state_snapshot:
+    source_repository: blakinio/Oteryn-Platform
+    source_repository_id: 1305155726
+    source_main: 77fa480a3f4e847dac98f76e05b6acd27cca4a57
+    observed_target_repository: Oteryn/Oteryn-platform
+    observed_target_repository_id: 1338405017
+    observed_target_main: db381488697eee315bdf5840ab0d4f8807f7bfb0
+    target_content_classification: migration_bootstrap_only
+  expected_post_state:
+    repository: Oteryn/Oteryn-Platform
+    repository_id: 1305155726
+    owner: Oteryn
+    main_head: exact_source_head_at_cutover
+    history_provenance: preserved
+    connector_admin_write_access: PASS_REQUIRED
+    branch_protection_and_required_checks: PASS_REQUIRED
+    package_and_runner_cutover: PASS_REQUIRED
+  authority_verified: true
+  target_identity_or_absence_verified: true
+  target_governance_verified: false
+  source_state_verified: true
+  evidence_lease_current: false
+  active_pr_task_impact_verified: true
+  coordinate_inventory_complete_for_cutover: false
+  executable_callers_resolved: false
+  ci_impact_resolved: false
+  package_impact_resolved_or_owner_risk_acceptance_proven: false
+  provenance_strategy_verified: true
+  target_collision: true
+  ownership_conflict: false
   material_unknowns:
-    - live GHCR package objects permissions and repository links
+    - live GHCR package object ownership permissions and repository links
     - repository-level Synology runner behavior immediately after owner transfer
-    - target organization ruleset/protection result until transferred repository observation
-  physical_mutation_performed: false
-  next_action: resolve live GHCR package ownership/linkage and runner cutover evidence and obtain an authorized transfer-capable GitHub surface before attempting physical transfer
+    - target organization branch/ruleset result after owner transfer
+  cutover_lock:
+    owner: none
+    acquired_at: none
+    invalidated_by: target collision source-head drift package evidence runner evidence or repository-state drift
+  replay_guard:
+    mutation_fingerprint: transfer_repository:1305155726:Oteryn/Oteryn-Platform
+    reissue_forbidden_until_state_proven_not_applied: true
+    resume_detection: read repository ID 1305155726 owner and intended target coordinate before any transfer request
+  point_of_no_return:
+    reached_when: GitHub reports repository ID 1305155726 owned by Oteryn at the intended coordinate
+    consequences: immediate resulting-state verification is mandatory before any later migration or protected runtime action
+  residual_risk_acceptance:
+    status: none
+    accepted_by: none
+    accepted_at: none
+    exact_scope: none
+    expiry_or_recheck: none
+    evidence: none
+  rollback:
+    feasibility: NOT_PROVEN
+    operation: transfer repository ID 1305155726 back to blakinio if GitHub permits and the rollback coordinate remains recoverable
+    trigger: material post-transfer identity history CI package or runner verification failure
+    decision_owner: repository owner
+    execution_window: must be proven immediately before READY_TO_EXECUTE
+    verification: exact repository ID owner main head protection packages runners and redirect state
+  post_mutation_validation:
+    - exact repository ID owner coordinate visibility default branch and main head
+    - branches tags Issues PRs releases and history provenance
+    - GitHub App admin/write access protection rulesets and required checks
+    - repository secrets and environments existence without reading secret values
+    - GitHub-hosted Actions GHCR publication/read/linkage and self-hosted runner state
 ```
 
-## Physical transfer operation
+## Why copy/force-push is not the cutover
 
-The current connected GitHub action set has no repository-transfer operation. This report therefore does not simulate transfer by copying files, creating a competing repository, force-pushing history or weakening provenance.
+A mirror copy into repository ID `1338405017` would create a different canonical repository identity from the accepted transfer of repository ID `1305155726`. It would also leave Issues, PR identity, repository settings, packages, runners and other repository-attached state on a different object unless separately reconstructed.
+
+The successful Game history migration used a history-preserving copy under Game-specific accepted governance. That precedent does not silently change the Platform transaction from `transfer` to `copy`.
+
+Changing the Platform operation class requires a new accepted transaction with its own dependency, provenance, CI/package/runner and rollback proof. This report does not make that architecture change.
+
+## Resulting preflight sequence after the first blocker is resolved
+
+After the bootstrap target no longer occupies the intended coordinate:
+
+1. refresh source repository ID, exact `main`, visibility, archived state, admin access, open PR/task ownership and required checks;
+2. prove target coordinate absence and organization ownership/access;
+3. refresh executable repository-coordinate callers and CI/release/package inventory against the new source head;
+4. resolve live GHCR package/linkage evidence or obtain an exact allowed owner risk acceptance;
+5. capture the current self-hosted runner identity/label/online state without reading or exposing registration secrets;
+6. prove a currently authorized surface can execute the actual repository transfer;
+7. prove rollback feasibility;
+8. only then transition the canonical transaction to `READY_TO_EXECUTE` if the current authorized tool can perform the mutation, or to public `CUTOVER_READY` only if exactly one owner-only physical operation remains;
+9. perform at most the single transfer and immediately enter post-mutation verification.
+
+## Current next action
+
+Owner/admin must first free the intended `Oteryn/Oteryn-Platform` coordinate by an owner-approved rename of the bootstrap-only `Oteryn/Oteryn-platform` repository while preserving its migration backup evidence. After that action, rerun this preflight from live state; do not reuse cached source/target SHAs as authority.
