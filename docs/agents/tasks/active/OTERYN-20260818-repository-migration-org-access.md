@@ -37,8 +37,9 @@ Resume `OTERYN-REPO-MIGRATION-ULTRA` from the Wave-1 organization blocker after 
 - [x] Existing organization repository `Oteryn/Oteryn-Atlas` is visible with `admin/push/pull` permissions, proving write-capable organization-repository access for the installed integration.
 - [x] Intended META coordinate `Oteryn/Oteryn` is currently absent (`404 Not Found`).
 - [x] The next canonical migration phase is selected: prepare one META repository-creation/bootstrap transaction, without accessing server/game repositories.
-- [ ] Exact final-head repository-selected checks and full-diff self-review pass.
-- [ ] PR reaches intentional merge/closeout state and the task is archived.
+- [x] Semantic-content head `183d951aef853b94dea6da836625b4c97dc6b723` passed exact-diff self-review, Agent Governance and CI.
+- [ ] This checkpoint-only final head passes repository-selected checks and PR reaches intentional merge/closeout state.
+- [ ] Task is archived after merge.
 
 ## Ownership
 
@@ -63,14 +64,14 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-18T07:24:00Z
+updated_at: 2026-08-18T07:28:30Z
 invocation_started_at: 2026-08-18T07:24:00Z
-last_progress_at: 2026-08-18T07:24:00Z
-head: PENDING_THIS_COMMIT
+last_progress_at: 2026-08-18T07:28:30Z
+head: 183d951aef853b94dea6da836625b4c97dc6b723
 branch: docs/oteryn-20260818-repository-migration-org-access
 pr: 1143
-status: validating
-phase: validate
+status: ready
+phase: close
 session_id: chat-github-20260818-repo-migration-org-access-resume
 session_role: coordinator
 execution_mode: github
@@ -86,7 +87,7 @@ decomposition_decision: single
 decomposition_reason: organization-access recovery is one bounded prerequisite before a separate META creation/bootstrap transaction
 execution_budget: large
 execution_budget_reason: canonical Ultra migration profile requires live authority, hidden-dependency and rollback evidence before physical repository mutations
-ci_checks_for_current_head: 0
+ci_checks_for_current_head: 1
 ci_check_generation: draft
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
@@ -111,15 +112,17 @@ proven:
   - `Oteryn/Oteryn-Atlas` resolves live as a public organization repository with admin, maintain, push, pull and triage permission available through the connector.
   - Installation `154585379` currently enumerates `Oteryn/Oteryn-Atlas` as an accessible organization repository.
   - `Oteryn/Oteryn` returns `404 Not Found` and is therefore absent at the inspected coordinate.
-  - PR 1143 prior exact head 42c3d51793eebb1609754b1ab1f88e6affd53bc0 passed Agent Governance run 32102212442 and CI run 32102212441.
+  - Semantic-content head 183d951aef853b94dea6da836625b4c97dc6b723 passed Agent Governance run 32111530218 and CI run 32111530234.
+  - Full two-file diff self-review on semantic-content head 183d951aef853b94dea6da836625b4c97dc6b723 is PASS with zero material findings.
+  - PR 1143 has zero submitted reviews, zero inline review threads and zero PR comments at the readiness checkpoint.
 derived:
   - The organization integration visibility blocker is resolved despite empty membership-list endpoints because the organization installation and write-capable organization repository are directly observable.
-  - Existing `Oteryn/Oteryn-Atlas` is no longer treated as an expected-absent target; its live identity is proven and it is disjoint from the META-creation transaction.
+  - Existing `Oteryn/Oteryn-Atlas` is a proven existing target and is disjoint from the META-creation transaction.
   - The next safe programme frontier is a separate META repository-creation/bootstrap transaction for `Oteryn/Oteryn`.
   - No Game repository access is needed to complete this organization-access task or to prepare the independent META creation transaction.
 unknown:
   - Whether the GitHub App installation is configured for `all repositories` or selected repositories; this must be verified by resulting-state access after a new repository exists.
-  - Whether the current connector exposes a repository-creation operation; discovery shows no `create repository` action in the available GitHub tool set.
+  - The current GitHub connector exposes no repository-creation action; physical creation therefore requires another supported execution channel or one owner UI action in the next transaction.
 conflicts: []
 first_failure:
   marker: oteryn-org-not-visible-to-github-integration
@@ -144,16 +147,48 @@ validation:
   - command: intended META target identity probe
     result: PASS
     evidence: Oteryn/Oteryn returns 404 Not Found
-  - command: prior exact-head repository-selected validation
+  - command: Agent Governance run 32111530218 on semantic-content head 183d951aef853b94dea6da836625b4c97dc6b723
     result: PASS
-    evidence: head 42c3d51793eebb1609754b1ab1f88e6affd53bc0 passed Agent Governance 32102212442 and CI 32102212441; final head still requires its own checks
+    evidence: completed success
+  - command: CI run 32111530234 on semantic-content head 183d951aef853b94dea6da836625b4c97dc6b723
+    result: PASS
+    evidence: completed success
+  - command: full two-file exact diff self-review
+    result: PASS
+    evidence: organization access evidence is consistent, no authority expansion, no physical mutation, no server/game repository access, and next transaction remains separately gated
+  - command: PR review/thread/comment hygiene
+    result: PASS
+    evidence: zero reviews, zero inline threads and zero comments
   - command: physical repository migration E2E
     result: NOT_APPLICABLE
     evidence: this task only proves organization access and selects the next transaction; no Tier-2 mutation is executed in this PR
 blockers:
   - none
-next_action: Validate this exact final PR head, mark PR 1143 Ready only if review/AI safety remains satisfied, squash-merge it, archive the task, then start one bounded META creation/bootstrap preparation task if execution budget permits.
+next_action: Verify repository-selected checks on this checkpoint-only head, then transition PR 1143 to Ready only if the no-owner-funded-AI safety condition remains satisfied and squash-merge after exact-head gates pass.
 ```
+
+## Self-review
+
+```yaml
+self_review:
+  result: PASS
+  exact_semantic_content_head: 183d951aef853b94dea6da836625b4c97dc6b723
+  acceptance_checked: true
+  full_diff_checked: true
+  negative_paths_checked: true
+  rollback_checked: true
+  compatibility_checked: true
+  related_prs_checked: true
+  findings: []
+  evidence:
+    - exact PR diff contains only the task record and programme state
+    - current organization installation and repository-permission probes
+    - Agent Governance 32111530218 PASS
+    - CI 32111530234 PASS
+    - zero reviews, threads and comments
+```
+
+This commit changes only the task checkpoint after the reviewed semantic-content head. It must receive its own repository-selected checks before merge.
 
 ## Source branch closeout
 
