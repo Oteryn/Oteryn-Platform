@@ -10,6 +10,7 @@ on:
       - 'database/provisioning/canary-character-transfer.sql.template'
       - 'deploy/synology/compose.marketplace.yml'
       - 'deploy/synology/scripts/marketplace-staging.sh'
+      - 'deploy/synology/scripts/repository-ghcr-image.sh'
   workflow_dispatch:
     inputs:
       action:
@@ -94,6 +95,13 @@ jobs:
           echo "action=$action" >> "$GITHUB_OUTPUT"
           echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve current repository GHCR images
+        id: images
+        run: |
+          set -euo pipefail
+          echo "platform=$(bash deploy/synology/scripts/repository-ghcr-image.sh oteryn-platform)" >> "$GITHUB_OUTPUT"
+          echo "gateway=$(bash deploy/synology/scripts/repository-ghcr-image.sh oteryn-game-gateway)" >> "$GITHUB_OUTPUT"
+
       - name: Validate staging runner tools
         run: |
           set -euo pipefail
@@ -112,6 +120,8 @@ jobs:
         if: steps.control.outputs.action == 'deploy-enable'
         env:
           RELEASE_TAG: ${{ steps.control.outputs.release_tag }}
+          PLATFORM_REPO: ${{ steps.images.outputs.platform }}
+          GATEWAY_REPO: ${{ steps.images.outputs.gateway }}
         run: |
           set -euo pipefail
           wait_for_image() {
@@ -127,13 +137,15 @@ jobs:
             echo "Timed out waiting for exact image tag." >&2
             return 1
           }
-          wait_for_image "ghcr.io/blakinio/oteryn-platform:${RELEASE_TAG}"
-          wait_for_image "ghcr.io/blakinio/oteryn-game-gateway:${RELEASE_TAG}"
+          wait_for_image "${PLATFORM_REPO}:${RELEASE_TAG}"
+          wait_for_image "${GATEWAY_REPO}:${RELEASE_TAG}"
 
       - name: Render ephemeral staging control environment
         env:
           CONTROL_ACTION: ${{ steps.control.outputs.action }}
           RELEASE_TAG: ${{ steps.control.outputs.release_tag }}
+          PLATFORM_REPO: ${{ steps.images.outputs.platform }}
+          GATEWAY_REPO: ${{ steps.images.outputs.gateway }}
           OTERYN_STATE_DIR_INPUT: ${{ vars.OTERYN_STAGING_STATE_DIR }}
           APP_URL_INPUT: ${{ vars.OTERYN_STAGING_APP_URL }}
         run: |
@@ -165,8 +177,8 @@ jobs:
           fi
 
           if [[ "$CONTROL_ACTION" == 'deploy-enable' ]]; then
-            platform_image="ghcr.io/blakinio/oteryn-platform:${RELEASE_TAG}"
-            gateway_image="ghcr.io/blakinio/oteryn-game-gateway:${RELEASE_TAG}"
+            platform_image="${PLATFORM_REPO}:${RELEASE_TAG}"
+            gateway_image="${GATEWAY_REPO}:${RELEASE_TAG}"
             canary_image='ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f'
           else
             resolve_image() {

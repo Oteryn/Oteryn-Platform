@@ -9,6 +9,7 @@ run_restore_drill="${OTERYN_RUN_RESTORE_DRILL:-true}"
 platform_db="${OTERYN_PLATFORM_DB_NAME:-oteryn_platform}"
 canary_db="${OTERYN_CANARY_DB_NAME:-canary}"
 work_dir="${OTERYN_PREFLIGHT_WORK_DIR:-/tmp/oteryn-synology-production-target-preflight}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 mariadb_root_password="${MARIADB_ROOT_PASSWORD:-}"
 redis_password="${REDIS_PASSWORD:-}"
@@ -31,6 +32,11 @@ trap cleanup EXIT
 for command in docker python3 stat date grep tail; do
     command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
 done
+
+platform_repo="$(bash "$script_dir/repository-ghcr-image.sh" oteryn-platform)" \
+    || fail "unable to resolve current repository Platform GHCR coordinate"
+gateway_repo="$(bash "$script_dir/repository-ghcr-image.sh" oteryn-game-gateway)" \
+    || fail "unable to resolve current repository Gateway GHCR coordinate"
 
 [[ "$project_name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]] \
     || fail "OTERYN_COMPOSE_PROJECT_NAME is not a bounded Compose project name"
@@ -164,12 +170,22 @@ platform_image="$(docker inspect --format '{{.Config.Image}}' "${containers[plat
 gateway_image="$(docker inspect --format '{{.Config.Image}}' "${containers[gateway]}")"
 canary_image="$(docker inspect --format '{{.Config.Image}}' "${containers[canary]}")"
 
-[[ "$platform_image" =~ ^ghcr\.io/blakinio/oteryn-platform@sha256:([a-f0-9]{64})$ ]] \
-    || fail "Platform is not deployed by immutable digest"
-platform_digest="sha256:${BASH_REMATCH[1]}"
-[[ "$gateway_image" =~ ^ghcr\.io/blakinio/oteryn-game-gateway@sha256:([a-f0-9]{64})$ ]] \
-    || fail "Gateway is not deployed by immutable digest"
-gateway_digest="sha256:${BASH_REMATCH[1]}"
+platform_prefix="${platform_repo}@sha256:"
+[[ "$platform_image" == "$platform_prefix"* ]] \
+    || fail "Platform is not deployed by immutable digest from the current repository owner"
+platform_digest_hex="${platform_image#"$platform_prefix"}"
+[[ "$platform_digest_hex" =~ ^[a-f0-9]{64}$ ]] \
+    || fail "Platform immutable image digest is malformed"
+platform_digest="sha256:${platform_digest_hex}"
+
+gateway_prefix="${gateway_repo}@sha256:"
+[[ "$gateway_image" == "$gateway_prefix"* ]] \
+    || fail "Gateway is not deployed by immutable digest from the current repository owner"
+gateway_digest_hex="${gateway_image#"$gateway_prefix"}"
+[[ "$gateway_digest_hex" =~ ^[a-f0-9]{64}$ ]] \
+    || fail "Gateway immutable image digest is malformed"
+gateway_digest="sha256:${gateway_digest_hex}"
+
 [[ "$canary_image" =~ @sha256:([a-f0-9]{64})$ ]] \
     || fail "Canary is not deployed by immutable digest"
 canary_digest="sha256:${BASH_REMATCH[1]}"
@@ -465,6 +481,8 @@ cat > "$evidence_path" <<EOF
   "target": "local-synology",
   "compose_project": "$project_name",
   "deployed_release_sha": "$deployed_release_sha",
+  "platform_ghcr_repository": "$platform_repo",
+  "gateway_ghcr_repository": "$gateway_repo",
   "platform_image": "$platform_image",
   "gateway_image": "$gateway_image",
   "canary_image_digest": "$canary_digest",

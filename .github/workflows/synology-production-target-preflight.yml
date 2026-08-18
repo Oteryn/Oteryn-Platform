@@ -7,6 +7,8 @@ on:
     paths:
       - .github/workflows/synology-production-target-preflight.yml
       - deploy/synology/scripts/production-target-preflight.sh
+      - deploy/synology/scripts/repository-ghcr-image.sh
+      - tests/ci/test_synology_deploy_release_identity.py
       - deploy/synology/README.md
       - docs/operations/SYNOLOGY_PRODUCTION_TARGET_PREFLIGHT_EVIDENCE.md
       - docs/agents/ACTIVE_WORK.md
@@ -46,6 +48,8 @@ jobs:
         run: |
           set -euo pipefail
           bash -n deploy/synology/scripts/production-target-preflight.sh
+          bash -n deploy/synology/scripts/repository-ghcr-image.sh
+          python3 tests/ci/test_synology_deploy_release_identity.py
 
           active_checkpoint="docs/agents/tasks/active/OTERYN-20260727-synology-production-target-preflight.md"
           archived_checkpoint="docs/agents/tasks/archive/OTERYN-20260727-synology-production-target-preflight.md"
@@ -84,6 +88,7 @@ jobs:
               'database_restore_drill',
               'remaining_public_production_gaps',
               'DROP DATABASE IF EXISTS',
+              'repository-ghcr-image.sh',
           ]
           missing = [marker for marker in required if marker not in script]
           if missing:
@@ -97,6 +102,7 @@ jobs:
     timeout-minutes: 60
     env:
       VALIDATION_SHA: ${{ github.sha }}
+      OTERYN_GHCR_OWNER: ${{ github.repository_owner }}
       MARIADB_ROOT_PASSWORD: ${{ secrets.OTERYN_STAGING_MARIADB_ROOT_PASSWORD }}
       REDIS_PASSWORD: ${{ secrets.OTERYN_STAGING_REDIS_PASSWORD }}
       CANARY_RUNTIME_REDIS_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_RUNTIME_REDIS_PASSWORD }}

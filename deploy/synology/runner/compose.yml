@@ -2,12 +2,12 @@ name: oteryn-deploy-runner
 
 services:
   runner:
-    image: ${RUNNER_IMAGE:-ghcr.io/blakinio/oteryn-deploy-runner:main}
+    image: ${RUNNER_IMAGE:?RUNNER_IMAGE must be set explicitly}
     restart: always
     user: "0:0"
     environment:
       RUNNER_ALLOW_RUNASROOT: "1"
-      RUNNER_URL: https://github.com/blakinio/Oteryn-Platform
+      RUNNER_URL: ${RUNNER_URL:-}
       RUNNER_NAME: ${RUNNER_NAME:-oteryn-synology-staging}
       RUNNER_LABELS: oteryn-staging
       RUNNER_TOKEN: ${RUNNER_TOKEN:-}
