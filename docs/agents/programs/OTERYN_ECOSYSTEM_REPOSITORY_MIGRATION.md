@@ -248,6 +248,7 @@ next_action: Owner/admin must first free the intended Oteryn/Oteryn-Platform coo
 ## Programme rules
 
 - Live repository state outranks this file when newer.
+- Do not cache transient main SHAs here as future authority.
 - The canonical prompt owns Tier-2 transaction states and gates; this durable state must not invent alternate executable semantics.
 - Do not create, copy or force-push a competing Platform repository as a substitute for the accepted repository-transfer transaction.
 - Do not let completed Game migration or active Atlas work be reclassified as pending merely because an older checkpoint said so.
