@@ -18,7 +18,7 @@ This document prepares exactly one physical repository-creation transaction. It 
 - The current ChatGPT GitHub connector exposes no repository-create operation.
 - GitHub's current web flow requires choosing the owner, repository name and visibility; for a new non-import repository it can optionally initialize a README and select applicable GitHub Apps.
 - GitHub documents repository deletion as available to organization owners or repository admins, but organization/enterprise policy can restrict deletion. Therefore the current Oteryn rollback permission is not proven solely from general GitHub behavior.
-- On 2026-08-18 the repository owner explicitly selected **PUBLIC** visibility for `Oteryn/Oteryn` for the current migration transaction.
+- On 2026-08-18 the repository owner explicitly selected **PUBLIC** visibility for `Oteryn/Oteryn` for transaction `OTERYN-META-CREATE-20260818`.
 
 ### UNKNOWN
 
