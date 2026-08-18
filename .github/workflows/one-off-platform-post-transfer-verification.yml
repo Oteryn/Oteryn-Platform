@@ -20,6 +20,9 @@ concurrency:
   group: one-off-platform-post-transfer-verification-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  TRANSFERRED_MAIN: 42f6741deacbd3ba9e1c4f609bb1073ebe0cff7b
+
 jobs:
   repository-identity:
     name: Verify transferred repository identity
@@ -33,10 +36,12 @@ jobs:
           test "$GITHUB_REPOSITORY" = "Oteryn/Oteryn-Platform"
           test "$GITHUB_REPOSITORY_OWNER" = "Oteryn"
           echo "repository=$GITHUB_REPOSITORY"
-          echo "sha=$GITHUB_SHA"
+          echo "transferred_main=$TRANSFERRED_MAIN"
 
-      - name: Checkout exact verification head
+      - name: Checkout exact transferred main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TRANSFERRED_MAIN }}
 
       - name: Assert owner-neutral GHCR resolution
         shell: bash
@@ -46,8 +51,8 @@ jobs:
           test "$(bash deploy/synology/scripts/repository-ghcr-image.sh oteryn-game-gateway)" = "ghcr.io/oteryn/oteryn-game-gateway"
           test "$(bash deploy/synology/scripts/repository-ghcr-image.sh oteryn-deploy-runner)" = "ghcr.io/oteryn/oteryn-deploy-runner"
 
-  ghcr-target-verification:
-    name: Verify GHCR target ${{ matrix.name }}
+  ghcr-main-cutover:
+    name: Publish transferred main ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -64,13 +69,15 @@ jobs:
             package: oteryn-deploy-runner
             dockerfile: deploy/synology/runner/Dockerfile
     steps:
-      - name: Checkout exact verification head
+      - name: Checkout exact transferred main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TRANSFERRED_MAIN }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
-      - name: Resolve target image and bounded verification tag
+      - name: Resolve exact target image
         id: image
         shell: bash
         env:
@@ -79,9 +86,7 @@ jobs:
           set -euo pipefail
           image="$(bash deploy/synology/scripts/repository-ghcr-image.sh "$PACKAGE_NAME")"
           test "$image" = "ghcr.io/oteryn/$PACKAGE_NAME"
-          tag="transfer-verify-${GITHUB_SHA}"
           echo "image=$image" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Log in to target GHCR namespace
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -90,7 +95,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and publish bounded verification image
+      - name: Build and publish exact transferred main
         id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
@@ -98,23 +103,22 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           provenance: false
-          tags: ${{ steps.image.outputs.image }}:${{ steps.image.outputs.tag }}
+          tags: ${{ steps.image.outputs.image }}:main
           labels: |
             org.opencontainers.image.source=https://github.com/Oteryn/Oteryn-Platform
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ env.TRANSFERRED_MAIN }}
 
-      - name: Read back exact published digest
+      - name: Read back exact main digest
         shell: bash
         env:
           IMAGE: ${{ steps.image.outputs.image }}
-          TAG: ${{ steps.image.outputs.tag }}
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           set -euo pipefail
           test -n "$DIGEST"
           docker buildx imagetools inspect "$IMAGE@$DIGEST"
-          docker pull "$IMAGE:$TAG"
-          echo "verified=$IMAGE@$DIGEST"
+          docker pull "$IMAGE:main"
+          echo "main_verified=$IMAGE@$DIGEST"
 
   self-hosted-runner-attachment:
     name: Verify transferred self-hosted runner attachment
