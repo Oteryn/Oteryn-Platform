@@ -59,10 +59,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-18T05:14:18Z
+updated_at: 2026-08-18T05:15:00Z
 invocation_started_at: 2026-08-18T05:11:00Z
-last_progress_at: 2026-08-18T05:14:18Z
-head: 7282eff8c82e5f6582c7ae3e9114e06ef495a059
+last_progress_at: 2026-08-18T05:15:00Z
+head: 2c46ace1c4f56fcc5d50df1c5028b3d2843412c0
 branch: docs/oteryn-20260818-repository-migration-org-access
 pr: 1143
 status: blocked
@@ -82,7 +82,7 @@ decomposition_decision: single
 decomposition_reason: one bounded organization-access gate precedes any physical migration transaction
 execution_budget: large
 execution_budget_reason: canonical Ultra migration profile requires live authority, hidden-dependency and rollback evidence before physical repository mutations
-ci_checks_for_current_head: 0
+ci_checks_for_current_head: 1
 ci_check_generation: draft
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
@@ -107,6 +107,7 @@ proven:
   - Authenticated GitHub `list_installations` returned only installation 78758924 for account `blakinio`; no `Oteryn` installation was exposed.
   - The current owner message reports that the `Oteryn` organization has been created.
   - Draft PR 1143 owns exactly this task record and the migration programme state checkpoint.
+  - PR 1143 exact semantic-content head 2c46ace1c4f56fcc5d50df1c5028b3d2843412c0 has exactly two changed files and is mergeable while remaining Draft.
 derived:
   - Organization creation alone does not prove that the current GitHub integration can inspect or mutate organization-owned repositories.
   - META bootstrap and every Tier-2 create/rename/transfer under `Oteryn` remain NO_GO until authenticated organization visibility/permission is proven.
@@ -131,9 +132,15 @@ validation:
   - command: GitHub authenticated organization visibility checks
     result: BLOCKED
     evidence: list_user_orgs=[], list_user_org_memberships=[], list_installations contains only blakinio installation 78758924
-  - command: PR 1143 changed-file scope
+  - command: PR 1143 exact diff self-review at semantic-content head 2c46ace1c4f56fcc5d50df1c5028b3d2843412c0
     result: PASS
-    evidence: PR creation snapshot reports exactly 2 changed files, matching owned paths
+    evidence: exactly two owned documentation/state paths; no physical repository or runtime mutation
+  - command: Agent Governance run 32102165511 on semantic-content head 2c46ace1c4f56fcc5d50df1c5028b3d2843412c0
+    result: NOT_RUN
+    evidence: workflow was in_progress at the single ordinary CI observation; CI is not the current blocker
+  - command: CI run 32102165390 on semantic-content head 2c46ace1c4f56fcc5d50df1c5028b3d2843412c0
+    result: NOT_RUN
+    evidence: workflow was in_progress at the single ordinary CI observation; CI is not the current blocker
   - command: physical repository migration E2E
     result: NOT_APPLICABLE
     evidence: Tier-2 mutation is intentionally not attempted while the organization-access gate is unsatisfied
@@ -153,3 +160,5 @@ source_branch_evidence: PR #1143 / branch docs/oteryn-20260818-repository-migrat
 ## Notes
 
 The current Platform invocation does not separately authorize reading or operating on server/game repositories. No `Oteryn-v2`, Canary or otclient inspection was performed in this continuation. No repository coordinate, runtime, deployment, secret, production or live-game mutation was attempted.
+
+The checkpoint-recording commit itself advances the branch after semantic-content head `2c46ace1c4f56fcc5d50df1c5028b3d2843412c0`; a continuation must re-read the live PR head before acting, as required by root governance.
