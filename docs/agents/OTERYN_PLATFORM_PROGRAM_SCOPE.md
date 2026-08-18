@@ -33,9 +33,12 @@ The programmes must not perform work for or mutate:
 
 - `blakinio/Otheryn`, `blakinio/otclient`, Canary or Crystal Server repositories;
 - Freqtrade, Quant Platform, GitHub Projects control or any other repository/product programme;
+- Liquid20, liquidation collectors/monitors, Freqtrade-derived deployment or package publication, or their operational control plane;
 - external login-server, game-server or client runtime code;
 - repository settings, Issues, PRs, branches, commits, tags, releases, workflows, deployments or project boards outside `blakinio/Oteryn-Platform`;
 - production systems, infrastructure consoles, live data, credentials or protected environments.
+
+A shared Synology host, self-hosted runner, package registry, historical workflow or former Platform path does **not** convert an excluded product workload into Platform scope.
 
 They must not create an external Issue or PR as a convenience handoff. The durable handoff remains a Platform Issue, Platform contract or Platform task that names the external dependency and exact owner.
 
