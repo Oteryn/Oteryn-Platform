@@ -21,12 +21,12 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-18T16:22:00Z
+updated_at: 2026-08-18T16:27:00Z
 status: blocked
-active_task: docs/agents/tasks/active/OTERYN-20260818-platform-transfer-post-rename-preflight.md
+active_task: null
 issue: null
-branch: docs/platform-transfer-post-rename-preflight-20260818
-pull_request: 1160
+branch: null
+pull_request: null
 
 ecosystem_topology_authority:
   repository: Oteryn/Oteryn
@@ -82,6 +82,17 @@ live_state_reconciliation_evidence:
   delivery_branch_deleted: true
   classification: COMPLETED_RECONCILIATION_NO_PHYSICAL_PLATFORM_MUTATION
 
+platform_post_rename_preflight_evidence:
+  task: docs/agents/tasks/archive/OTERYN-20260818-platform-transfer-post-rename-preflight.md
+  delivery_pr: 1160
+  delivery_final_head: 31486e49705294a86d182bce810548b6c4e68db8
+  delivery_merge: 7ea7dfcd11d4c2d94095f6d93516858f7f4c383a
+  agent_governance_run: 32159946833
+  ci_run: 32159946881
+  delivery_branch_deleted: true
+  target_collision_resolution: PASS
+  classification: COMPLETED_POST_RENAME_PREFLIGHT_NO_PHYSICAL_TRANSFER
+
 observed_target_coordinates:
   Oteryn:
     repository: Oteryn/Oteryn
@@ -108,7 +119,8 @@ observed_target_coordinates:
     intended_target_repository: Oteryn/Oteryn-Platform
     current_repository: blakinio/Oteryn-Platform
     source_repository_id: 1305155726
-    source_main: ac39722ab348c71748e915395787195d2ea20ebb
+    source_main_last_preflight: ac39722ab348c71748e915395787195d2ea20ebb
+    source_main_after_preflight_delivery: 7ea7dfcd11d4c2d94095f6d93516858f7f4c383a
     source_main_protected: true
     source_required_checks:
       - classify-changes
@@ -126,9 +138,10 @@ platform_preparation_evidence:
   liquid20_scope_removal_merge: 88e1661bbd13ddb36b064d411d54702075f64852
   liquid20_scope_closeout_merge: 77fa480a3f4e847dac98f76e05b6acd27cca4a57
   owner_neutral_repository_code: PASS
-  source_main_current: ac39722ab348c71748e915395787195d2ea20ebb
-  drift_after_last_pre_rename_preflight: DOCUMENTATION_GOVERNANCE_ONLY
-  branch_protection_current: PASS
+  source_main_last_preflight: ac39722ab348c71748e915395787195d2ea20ebb
+  source_main_after_preflight_delivery: 7ea7dfcd11d4c2d94095f6d93516858f7f4c383a
+  drift_after_last_runtime_sensitive_preflight: DOCUMENTATION_GOVERNANCE_ONLY
+  branch_protection_last_verified: PASS
   transfer_capable_connected_surface: false
 
 platform_backup_evidence:
@@ -235,15 +248,15 @@ proven:
   - Oteryn/Oteryn is the canonical META authority and its live repository manifest was reconciled by PR 4 merge 20f87798d6429555031fa4e63e0a115db83adffb after meta-gate PASS.
   - Oteryn/Oteryn-Game completed the history-preserving migration from blakinio/Oteryn-v2 and later repository-administration reconciliation; the source remains legacy migration provenance.
   - Oteryn/Oteryn-Atlas exists with repository-local governance CI and active DYN-ATLAS-001 work; stale Platform repository-absence blocker PR 1141 is closed without merge.
-  - blakinio/Oteryn-Platform remains the canonical Platform implementation at repository ID 1305155726 and current main ac39722ab348c71748e915395787195d2ea20ebb.
-  - source main is protected with required classify-changes and test contexts.
-  - compare 77fa480a3f4e847dac98f76e05b6acd27cca4a57..ac39722ab348c71748e915395787195d2ea20ebb is documentation/governance-only.
+  - blakinio/Oteryn-Platform remains the canonical Platform implementation at repository ID 1305155726.
+  - source main was ac39722ab348c71748e915395787195d2ea20ebb at the post-rename preflight and was protected with required classify-changes and test contexts.
   - bootstrap repository ID 1338405017 survived the owner/admin rename and now exists at Oteryn/Oteryn-Platform-Migration-Backup-20260818.
-  - the live Oteryn organization repository inventory contains no current repository named Oteryn-Platform, so the target-coordinate collision is resolved.
+  - the live Oteryn organization repository inventory contained no current repository named Oteryn-Platform at the post-rename preflight, so the target-coordinate collision is resolved.
   - Platform seed workflow run 32140478830 proved git fsck and full-bundle verification but did not migrate branch refs; head_push_rc was 1 because workflow-bearing refs were rejected without workflows permission.
-  - current official GitHub transfer documentation requires source admin access, target-organization creation permission and an absent same-name target; these repository/coordinate preconditions are now proven except for the physical transfer operation itself.
+  - current official GitHub transfer documentation requires source admin access, target-organization creation permission and an absent same-name target; repository/coordinate preconditions were proven in PR 1160.
   - current official GitHub REST documentation states the Transfer a repository endpoint supports GitHub App user access tokens with Administration write; the connected GitHub action surface exposes no such transfer mutation.
   - current official GitHub Packages documentation states granular-permission package links are removed when a linked repository transfers to another owner, so GHCR linkage remains a material cutover verification gate.
+  - post-rename preflight PR 1160 passed exact-head Agent Governance and CI and squash-merged as 7ea7dfcd11d4c2d94095f6d93516858f7f4c383a.
 
 derived:
   - Game repository migration is terminal and must not remain in the pending migration queue.
@@ -262,7 +275,7 @@ conflicts: []
 
 cleanup_debt:
   - Oteryn/Oteryn main protection remains pending under META Issue 3 because the current connector cannot configure branch protection or rulesets.
-  - Oteryn/Oteryn META repository manifest still describes the pre-rename bootstrap target state and requires a separate bounded META reconciliation after this source preflight is merged or after physical Platform transfer.
+  - Oteryn/Oteryn META repository manifest still describes the pre-rename bootstrap target state and requires a separate bounded META reconciliation after this closeout.
 
 blockers:
   - TRANSFER_OPERATION_UNAVAILABLE: the connected GitHub action surface cannot perform repository owner transfer; official REST transfer requires a user-authorized transfer surface.
