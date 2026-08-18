@@ -2,11 +2,16 @@
 
 ## Status
 
-Accepted — 2026-08-15
+Superseded for ecosystem repository-topology and META coordination authority — 2026-08-18
 
+- Previous status: Accepted — 2026-08-15
+- Successor: `Oteryn/Oteryn` ADR 0001 — Oteryn ecosystem repository topology authority
+- Successor merge: `a2672baac544ada81c526e92f0517903865a9ad0`
+- Superseded scope: ecosystem repository topology and META coordination authority
+- Preserved historical value: provider ownership boundaries, migration safety constraints, review evidence and sequencing rationale remain provenance and continue to be referenced where the successor preserves them
 - Decision owner: repository owner
 - Supersedes: ADR 0040 — Oteryn ecosystem repository topology and Atlas extraction boundary
-- Applies to: target Oteryn repository topology, cross-repository authority, provider/consumer contract ownership, Game/Atlas data flow, Atlas browser/deployment trust, release independence, migration sequencing and legacy-source classification
+- Applies historically to: target Oteryn repository topology, cross-repository authority, provider/consumer contract ownership, Game/Atlas data flow, Atlas browser/deployment trust, release independence, migration sequencing and legacy-source classification
 - Does not authorize: creating or transferring repositories, changing the GitHub organization, moving Git history, changing runtime code, changing CI/CD, deploying Atlas, changing Synology, changing DNS, changing authentication behavior, production activation or deleting legacy repositories
 
 ## Context
