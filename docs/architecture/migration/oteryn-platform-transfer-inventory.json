@@ -130,6 +130,13 @@
       "reason": "Manual/local staging configuration exposes the owner as an explicit transfer-sensitive setting instead of embedding the source owner."
     },
     {
+      "path": "tools/validation/adr_registry.py; tools/validation/test_adr_registry.py",
+      "surface": "architecture registry compatibility gate",
+      "coordinate": "bounded cross-repository successor plus exact merge provenance",
+      "classification": "PASS_LATENT_CI_REPAIR",
+      "reason": "The validator accepts the already-canonical META successor form used by unchanged ADR 0041 only with exact fail-closed merge provenance and retains local successor existence validation."
+    },
+    {
       "path": "Liquid20/Freqtrade operational surfaces",
       "surface": "out-of-scope historical references only",
       "coordinate": "none in active Platform runtime/control workflows",
