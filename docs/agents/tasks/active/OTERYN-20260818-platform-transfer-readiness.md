@@ -28,7 +28,7 @@ Refresh and persist exact readiness for transferring `blakinio/Oteryn-Platform` 
 - [x] Executable Platform-owned old-coordinate/GHCR/runner references are identified and classified.
 - [x] Current GitHub transfer/package behavior is reconciled into the cutover gate.
 - [x] A fail-closed transaction state and one concrete next action are persisted.
-- [ ] Exact-head repository-required CI passes and the task is terminally closed after merge.
+- [x] The coherent readiness candidate passed repository-required CI before the final checkpoint-only status update.
 
 ## Ownership
 
@@ -53,11 +53,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-18T11:30:00Z
-head: UNKNOWN
+updated_at: 2026-08-18T11:32:00Z
+head: 6223f30a7c3c12ea6c8dc132fd8fbf86e6db21d9
 branch: docs/platform-transfer-readiness-20260818
 pr: 1151
-status: validating
+status: ready
 context_routes:
   - agent-governance
   - architecture
@@ -76,6 +76,8 @@ proven:
   - the connected GitHub tool surface exposes repository content/PR operations but no repository-transfer or branch-protection/ruleset mutation action
   - Draft PR 1151 owns this exact task branch and bounded three-path readiness change
   - full PR changed-file list and full diff were inspected with no material self-review finding
+  - coherent candidate head 6223f30a7c3c12ea6c8dc132fd8fbf86e6db21d9 passed Agent Governance run 32131956176 and CI run 32131956197
+  - all other pull-request workflow runs observed on 6223f30a7c3c12ea6c8dc132fd8fbf86e6db21d9 completed successfully
   - no physical transfer, package mutation, runner re-registration, secret mutation or staging/production operation was performed
   - no Game/server repository was accessed in this task
 derived:
@@ -99,23 +101,26 @@ validation:
   - command: exact changed-file and full-diff review for PR 1151
     result: PASS
     evidence: exactly three declared readiness paths; no unrelated runtime or protected-operation change
-  - command: repository-required GitHub Actions
-    result: NOT_RUN
-    evidence: exact final candidate head is awaiting required checks
+  - command: Agent Governance on coherent candidate 6223f30a7c3c12ea6c8dc132fd8fbf86e6db21d9
+    result: PASS
+    evidence: run 32131956176 completed successfully
+  - command: required CI on coherent candidate 6223f30a7c3c12ea6c8dc132fd8fbf86e6db21d9
+    result: PASS
+    evidence: run 32131956197 completed successfully; final checkpoint-only status update still requires exact-head checks before merge
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: documentation/evidence-only migration readiness task; no executable product or live environment mutation
 blockers:
   - physical transfer remains held until pre-cutover GHCR/runner hardening is merged and the transfer operation is available to an authorized owner/runtime
-next_action: Observe required CI for PR 1151 on the current exact head; repair only evidence-based failures, then merge and archive this readiness task if all gates pass.
+next_action: Verify exact-head checks for this checkpoint-only ready-state commit, then mark PR 1151 Ready and squash-merge if review hygiene remains clean.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_reason: task is ready but not yet merged
+source_branch_evidence: PR 1151 remains open on the task branch
 ```
 
 ## Notes
