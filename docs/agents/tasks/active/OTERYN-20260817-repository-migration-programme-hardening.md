@@ -30,9 +30,9 @@ optional_reads: []
 
 ## Goal
 
-Harden the canonical `OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION` programme while preserving PR #1135's canonical-programme plus thin-Ultra-overlay composition. Resolve the post-green critical-review findings without widening the four-path scope or performing any physical repository/runtime mutation.
+Harden the canonical `OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION` programme while preserving PR #1135's canonical-programme plus thin-Ultra-overlay composition. Resolve the post-green semantic review findings without widening the four-path delivery scope or performing a physical repository/runtime migration.
 
-Trusted-base reconstruction: `blakinio/Oteryn-Platform@fcafc20bc9705ca92256fdddc7433bcc3d191c40` (`main`).
+Current reconciled base: `blakinio/Oteryn-Platform@7798f4e8eb5453287444b7685b4e9fdd0e7eab20` (`main`).
 
 Branch: `docs/oteryn-20260817-repository-migration-programme-hardening`.
 PR: `#1138`.
@@ -40,19 +40,22 @@ PR: `#1138`.
 ## Acceptance criteria
 
 - [x] Current root and `docs/agents` governance read from the trusted base.
-- [x] Live `main`, active tasks, open PRs and branch ownership reconstructed before editing.
-- [x] Exactly one PR exists for this task: #1138.
-- [x] Current PR changes only the four owned paths.
+- [x] Active tasks/open PRs checked for overlapping ownership.
+- [x] Exactly one implementation PR exists for this hardening: #1138.
+- [x] PR diff contains exactly the four owned paths.
 - [x] Canonical programme remains the sole migration authority.
-- [x] Ultra remains a thin execution overlay and no longer defines a competing Tier-2 gate schema.
-- [x] `READY_TO_EXECUTE` is separated from public `CUTOVER_READY` semantics.
-- [x] Canonical transaction includes interruption recovery, replay guard, cutover lock, pre/post state and rollback-feasibility proof.
-- [x] Evidence precedence and recovered/reproduced V2 concerns are recorded without treating chat/history as authority.
-- [x] First compatibility exercise is dry-run/Tier-0/1 only; absent stochastic harness is not a behavioural PASS.
-- [ ] Full exact-head self-review on the repaired final diff has zero unresolved material findings.
-- [ ] Repository-required Agent Governance and CI pass on the repaired unchanged final head.
-- [ ] Review-thread hygiene is terminal.
-- [ ] Source-branch lifecycle and task archival are terminal after merge/closeout.
+- [x] Ultra is reduced to a thin execution overlay and no longer defines a competing Tier-2 gate schema.
+- [x] Internal `READY_TO_EXECUTE` is separated from public `CUTOVER_READY`.
+- [x] Canonical transaction records pre/post state, cutover lock, replay guard, interruption recovery, point-of-no-return and rollback feasibility.
+- [x] Evidence precedence and reproduced V2 concerns are recorded without promoting chat/history to authority.
+- [x] First compatibility exercise is dry-run/Tier-0/1 only; unavailable stochastic trials remain `UNKNOWN`.
+- [x] Main drift through Dynamic Semantic Atlas #1139/#1140 was reconciled; the new architecture is disjoint and preserves Game canonical authority / Atlas derived projection semantics.
+- [x] Full four-file exact-diff self-review on reviewed content head `aafc7eebaabb5b90103a55187d4b94313bca3663` found zero unresolved material findings.
+- [x] Agent Governance #7081 and CI #7458 passed on reviewed content head `aafc7eebaabb5b90103a55187d4b94313bca3663`.
+- [x] Review submissions, inline threads and PR comments were empty at the final pre-readiness inspection.
+- [ ] Final checkpoint-only recording commit has repository-selected checks green.
+- [ ] PR reaches an intentional merge/closeout state and source branch lifecycle is reconciled.
+- [ ] Task is archived after merge without violating the owner's one-implementation-PR scope.
 
 ## Ownership
 
@@ -68,7 +71,7 @@ modules:
   - repository-migration-programme
 dependencies:
   - PR #1135 merged canonical-programme plus thin-Ultra-overlay model
-  - trusted main fcafc20bc9705ca92256fdddc7433bcc3d191c40
+  - main 7798f4e8eb5453287444b7685b4e9fdd0e7eab20
 blockers: []
 cross_repository_tasks: []
 ```
@@ -77,11 +80,11 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-18T04:30:00Z
-head: 5f2a0f09b51e94637adc1294cfa3fdd0a3c9d645
+updated_at: 2026-08-18T04:55:00Z
+head: aafc7eebaabb5b90103a55187d4b94313bca3663
 branch: docs/oteryn-20260817-repository-migration-programme-hardening
 pr: 1138
-status: implementing
+status: ready
 context_routes:
   - agent-governance
   - prompt-as-code
@@ -92,84 +95,89 @@ owned_paths:
   - docs/agents/evidence/OTERYN-20260817-repository-migration-ultra-prompt-eval.md
   - docs/agents/tasks/active/OTERYN-20260817-repository-migration-programme-hardening.md
 proven:
-  - Live main remained fcafc20bc9705ca92256fdddc7433bcc3d191c40 through the latest pre-repair drift check.
   - PR #1135 established the canonical-programme plus thin-Ultra-overlay model.
-  - PR #1138 exact head 5f2a0f09b51e94637adc1294cfa3fdd0a3c9d645 passed Agent Governance run 32071180188 (#7073) and CI run 32071180184 (#7450).
-  - Review inspection on PR #1138 returned zero submitted reviews and zero inline review threads before this repair cycle.
-  - Post-green critical review found semantic issues not exercised by deterministic CI: executable readiness versus CUTOVER_READY, duplicated transaction gates, mutation-interruption recovery, compatibility dry-run and stale task evidence.
-  - The repaired candidate keeps exactly the same four owned paths and performs no physical repository coordinate, runtime, deployment, credential, secret or live-game mutation.
-  - File-library search did not surface an exact standalone V2 review artifact; recovered prior-review concerns were independently reproduced before incorporation.
+  - Post-green review findings were repaired in the canonical programme, thin overlay and evaluation record without adding changed paths.
+  - Main advanced from fcafc20bc9705ca92256fdddc7433bcc3d191c40 to 7798f4e8eb5453287444b7685b4e9fdd0e7eab20 through Dynamic Semantic Atlas documentation; that drift changed none of the four owned paths and preserves Game canonical World/Content plus Atlas derived-projection authority.
+  - Branch head aafc7eebaabb5b90103a55187d4b94313bca3663 contains current main as a parent and compares against current main with exactly the four owned paths.
+  - Agent Governance run 32100538937 (#7081) and CI run 32100538888 (#7458) passed on aafc7eebaabb5b90103a55187d4b94313bca3663.
+  - PR #1138 had zero submitted reviews, zero inline review threads and zero comments at final pre-readiness inspection.
+  - No physical repository coordinate, runtime, deployment, credential, secret, production or live-game mutation is part of this PR.
+  - The repository deterministic prompt evaluator does not execute an LLM; stochastic model/runtime adherence remains separately classified.
 derived:
-  - Documentation/prompt-governance E2E remains NOT_APPLICABLE because no executable repository/control-plane effect is changed by this PR.
-  - The prior green exact-head gates become historical evidence only after the repaired candidate changes head; fresh gates are required.
+  - Runtime/migration E2E is NOT_APPLICABLE for this documentation/prompt-governance increment.
+  - A checkpoint-only recording commit after aafc7eeb... does not change PROGRAM, Ultra or eval bytes but must still receive the path-selected exact-head checks before merge.
 unknown:
-  - Stochastic model/runtime adherence for the repaired candidate remains unmeasured because no executable repeated-trial harness exists for this prompt surface.
+  - Stochastic model/runtime adherence for the candidate remains unmeasured because no executable repeated-trial harness is available; first candidate exercise is fail-closed dry-run with Tier 2 disabled.
 conflicts: []
 first_failure:
   marker: post-green-semantic-review-findings
-  evidence: Exact-head CI/Governance were green on 5f2a0f09..., but critical review identified contract-level ambiguities outside the deterministic text/checkpoint gate coverage.
+  evidence: Earlier green deterministic checks did not cover executable-readiness/CUTOVER_READY ambiguity, duplicated transaction gates, interruption replay recovery or behavioural-eval limitations; the repaired candidate now addresses these findings.
 rejected_hypotheses:
-  - Green CI proves the 31+ behavioural scenarios; the repository evaluator explicitly performs deterministic text checks with zero model trials.
-  - CUTOVER_READY can be an intermediate executable state; canonical semantics reserve it for exactly one unsupported or owner-only physical action.
-  - Ultra should maintain a second cutover_gate schema; the canonical migration_transaction must be the single source of truth.
-  - A timed-out physical mutation can be safely retried without resulting-state inspection; non-idempotent replay is fail-closed.
+  - Green deterministic CI proves stochastic behaviour; prompt_eval.py reports zero model trials.
+  - CUTOVER_READY is an intermediate executable state; executable readiness is internal READY_TO_EXECUTE.
+  - Ultra should define a second cutover gate schema; migration_transaction is canonical and singular.
+  - A timed-out rename/transfer may be retried without state proof; replay is fail-closed.
+  - Main drift required reauthoring this task; the two main commits were disjoint and their Atlas authority semantics are compatible with this candidate.
 changed_paths:
   - docs/agents/prompts/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_PROGRAM.md
   - docs/agents/prompts/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_ULTRA.md
   - docs/agents/evidence/OTERYN-20260817-repository-migration-ultra-prompt-eval.md
   - docs/agents/tasks/active/OTERYN-20260817-repository-migration-programme-hardening.md
 validation:
-  - command: Agent Governance run 32071180188 on 5f2a0f09b51e94637adc1294cfa3fdd0a3c9d645
+  - command: GitHub compare main@7798f4e8eb5453287444b7685b4e9fdd0e7eab20 to aafc7eebaabb5b90103a55187d4b94313bca3663
     result: PASS
-    evidence: historical pre-repair exact head passed; superseded for repaired candidate once head changes.
-  - command: CI run 32071180184 on 5f2a0f09b51e94637adc1294cfa3fdd0a3c9d645
+    evidence: exactly four changed files, all in the owned-path allowlist; branch contains current main as parent.
+  - command: full exact PR patch review of PROGRAM, Ultra, eval and task candidate
     result: PASS
-    evidence: historical pre-repair exact head passed; superseded for repaired candidate once head changes.
+    evidence: canonical transaction/status/recovery semantics are singular and fail-closed; Ultra is thin; eval distinguishes static PASS from behavioural UNKNOWN.
+  - command: Dynamic Semantic Atlas main-drift authority reconciliation
+    result: PASS
+    evidence: main documentation keeps Oteryn-Game/current Oteryn-v2 canonical World/Content and Atlas as a derived semantic projection; no owned-path conflict.
+  - command: Agent Governance run 32100538937 (#7081) on aafc7eebaabb5b90103a55187d4b94313bca3663
+    result: PASS
+    evidence: exact reviewed content head passed repository governance validation.
+  - command: CI run 32100538888 (#7458) on aafc7eebaabb5b90103a55187d4b94313bca3663
+    result: PASS
+    evidence: exact reviewed content head passed repository CI.
   - command: executable migration E2E
     result: NOT_APPLICABLE
-    evidence: documentation and prompt-governance hardening only; no executable repository/control-plane effect changed.
-  - command: repaired exact-diff structural/self-review
-    result: NOT_RUN
-    evidence: candidate must be persisted first, then exact changed paths and full diff re-inspected.
-  - command: repaired exact-head Agent Governance and CI
-    result: NOT_RUN
-    evidence: fresh pull_request runs are required after the repair commit changes the head.
+    evidence: documentation and prompt-governance hardening only; no executable repository/control-plane mutation occurred.
+  - command: PR review/thread/comment hygiene
+    result: PASS
+    evidence: zero reviews, zero inline review threads and zero PR comments at final pre-readiness inspection.
 blockers: []
-next_action: Persist the four-path repair to PR #1138, inspect the exact new diff, then run/observe Agent Governance and CI on the unchanged repaired head.
+next_action: Persist this checkpoint-only readiness record, verify its exact-head Agent Governance and CI, then transition PR #1138 to Ready only if the no-owner-funded-AI safety check remains satisfied.
 ```
 
 ## Self-review
 
 ```yaml
 self_review:
-  result: FAIL
-  exact_head: 5f2a0f09b51e94637adc1294cfa3fdd0a3c9d645
+  result: PASS
+  exact_head: aafc7eebaabb5b90103a55187d4b94313bca3663
   acceptance_checked: true
   full_diff_checked: true
   negative_paths_checked: true
   rollback_checked: true
   compatibility_checked: true
   related_prs_checked: true
-  findings:
-    - executable readiness and CUTOVER_READY semantics were conflated
-    - Ultra duplicated canonical Tier-2 gate state
-    - transaction interruption/replay recovery was underspecified
-    - behavioural evaluation evidence was not distinguished strongly enough from deterministic CI
-    - task checkpoint/PR narrative lagged the actual green exact-head runs
+  findings: []
   evidence:
-    - PR #1138 exact diff and per-file patch inspection
-    - Agent Governance #7073 PASS and CI #7450 PASS on 5f2a0f09...
-    - repository PROMPT_EVAL_STANDARD and deterministic prompt_eval.py limitations
+    - exact per-file PR patches for all four owned paths
+    - current-main compare and Dynamic Semantic Atlas authority reconciliation
+    - Agent Governance #7081 PASS
+    - CI #7458 PASS
+    - zero PR reviews, threads and comments
 ```
 
-This self-review remains `FAIL` until the repaired exact head is persisted and re-reviewed; do not carry the previous PASS across the material prompt change.
+The only following branch change is this checkpoint/readiness recording itself; it changes no programme/overlay/evaluation bytes and must still pass its own repository-selected checks before merge.
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: branch is active for PR #1138 and remains under repair/validation
-source_branch_evidence: docs/oteryn-20260817-repository-migration-programme-hardening
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository documentation/governance task; delete source branch after successful squash merge
+source_branch_evidence: PR #1138 branch docs/oteryn-20260817-repository-migration-programme-hardening
 ```
 
 ## Notes
