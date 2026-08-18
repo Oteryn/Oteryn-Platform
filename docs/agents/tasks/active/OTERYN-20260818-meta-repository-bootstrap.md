@@ -41,10 +41,10 @@ Prepare one canonical, fail-closed Tier-2 transaction for creating the real `Ote
 - [x] Current GitHub repository-creation, GitHub App repository-access and repository-deletion behavior are verified from official GitHub documentation.
 - [x] Draft PR #1145 owns exactly the three declared Platform preparation paths.
 - [x] Full three-file semantic-content diff self-review on `f20eb8abbf0c12cbc6497a48ef2f427397ca79cf` found zero material content findings after rollback was corrected from assumed `PROVEN` to `NOT_PROVEN`.
-- [ ] Target visibility is explicitly decided by the owner; no physical create occurs from an inferred visibility.
+- [x] Owner explicitly selected `PUBLIC` visibility for `Oteryn/Oteryn` on 2026-08-18.
+- [x] Exact-head Agent Governance and CI passed on checkpoint head `d7fb9dda72e2a0ebe83d0f2bec4c43c72d50c817` before the visibility-decision update.
 - [ ] Current Oteryn rollback capability is proven; generic GitHub deletion support does not satisfy the gate when organization/enterprise policy can restrict deletion.
-- [ ] Canonical `migration_transaction` advances from `PREPARED/NO_GO` only after the two owner-specific gates above are resolved and exact leases are refreshed.
-- [ ] Exact-head repository-selected checks pass after checkpoint repair.
+- [ ] Canonical `migration_transaction` advances from `PREPARED/NO_GO` only after rollback capability is proven and exact leases are refreshed.
 
 ## Ownership
 
@@ -64,7 +64,6 @@ dependencies:
   - ADR 0041
   - organization-access recovery PR 1143 / closeout PR 1144
 blockers:
-  - exact target visibility is not explicitly selected by the owner
   - rollback feasibility is NOT_PROVEN until current Oteryn organization/enterprise policy or equivalent owner deletion capability is confirmed
 cross_repository_tasks:
   - none
@@ -75,10 +74,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-18T07:49:00Z
+updated_at: 2026-08-18T07:48:00Z
 invocation_started_at: 2026-08-18T07:24:00Z
-last_progress_at: 2026-08-18T07:49:00Z
-head: f20eb8abbf0c12cbc6497a48ef2f427397ca79cf
+last_progress_at: 2026-08-18T07:48:00Z
+head: d7fb9dda72e2a0ebe83d0f2bec4c43c72d50c817
 branch: docs/oteryn-20260818-meta-repository-bootstrap
 pr: 1145
 status: blocked
@@ -120,30 +119,31 @@ proven:
   - PR 1144 merged the required entry-task closeout and its source branch is absent.
   - Active task inventory had no repository-migration task at admission; open migration/META PR search returned none.
   - Oteryn organization installation 154585379 currently enumerates Oteryn/Oteryn-Atlas with write/admin-capable access.
-  - Oteryn/Oteryn was refreshed as 404/absent during this transaction preparation.
+  - Oteryn/Oteryn was refreshed as 404/absent during this transaction preparation and again remained absent immediately before recording the visibility decision.
   - ADR 0041 states that META has real topology, manifest, compatibility, release and cross-repository coordination workload and is architecture-ready for demand-triggered creation.
   - Current GitHub connector actions expose no repository-create operation.
   - Official GitHub documentation requires an explicit visibility choice for repository creation and permits README/GitHub App selection for a new non-import repository.
   - Official GitHub documentation permits organization-repository deletion for owners/admins but states organization/enterprise policy can restrict it; current Oteryn rollback capability is therefore not proven by generic documentation.
   - PR 1145 is the sole migration/META PR created for this additional task and owns exactly the declared three paths.
   - Agent Governance run 32112973133 on semantic head f20eb8abbf0c12cbc6497a48ef2f427397ca79cf failed only because the active task still recorded `pr: none`; the liveness log explicitly reported `branch_pr_identity_omitted` for Draft PR 1145.
+  - Checkpoint head d7fb9dda72e2a0ebe83d0f2bec4c43c72d50c817 passed Agent Governance run 32113083310 and CI run 32113083262.
+  - The owner explicitly selected PUBLIC visibility for Oteryn/Oteryn in the current invocation on 2026-08-18.
 derived:
-  - The physical create cannot be executed by the current connector and will require one precise owner GitHub web flow only after visibility and rollback feasibility are proven and the preparation state is canonical/current.
+  - Target visibility is now frozen to PUBLIC for this transaction unless the owner explicitly changes it before creation.
+  - The physical create cannot be executed by the current connector and will require one precise owner GitHub web flow only after rollback feasibility is proven and the preparation state is canonical/current.
   - Initializing the new META with a README is appropriate because this is a new authority repository rather than an import and creates an immediate default-branch anchor for governed bootstrap.
-  - Public visibility is the current recommendation because Platform and Atlas targets are public and META contains public architecture/compatibility metadata, but this is not authority to choose visibility.
 unknown:
-  - Exact intended visibility of Oteryn/Oteryn.
   - Current Oteryn organization/enterprise repository-deletion policy or equivalent owner rollback capability for a fresh repository.
   - Whether installation 154585379 uses all-repositories or selected-repositories mode for an owner-created repository; post-create access must be verified.
 conflicts: []
 first_failure:
   marker: branch_pr_identity_omitted
-  evidence: Agent Governance 32112973133 / job 95636247858 reported active task branch has Draft PR 1145 but checkpoint recorded pr:none
+  evidence: Agent Governance 32112973133 / job 95636247858 reported active task branch has Draft PR 1145 but checkpoint recorded pr:none; repaired on d7fb9dda72e2a0ebe83d0f2bec4c43c72d50c817
 rejected_hypotheses:
   - General GitHub deletion documentation proves current Oteryn rollback capability; organization/enterprise policy may restrict deletion.
   - The existing Oteryn-Atlas repository means the META repository already exists.
   - Empty membership-list endpoints invalidate direct installation/repository access evidence.
-  - An inferred public/private choice is safe enough for Tier-2 creation.
+  - An inferred public/private choice is safe enough for Tier-2 creation; owner has now explicitly selected PUBLIC.
   - Game repository evidence is required to create the independent META coordination plane.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260818-meta-repository-bootstrap.md
@@ -156,16 +156,18 @@ validation:
   - command: full three-file semantic-content exact diff review on f20eb8abbf0c12cbc6497a48ef2f427397ca79cf
     result: PASS
     evidence: transaction remains PREPARED/NO_GO, rollback is NOT_PROVEN, authority handover remains ordered, and no server/game or physical mutation is included
-  - command: Agent Governance 32112973133 on f20eb8abbf0c12cbc6497a48ef2f427397ca79cf
-    result: FAIL
-    evidence: branch_pr_identity_omitted only; checkpoint repair in this commit records pr:1145
+  - command: Agent Governance and CI on repaired checkpoint head d7fb9dda72e2a0ebe83d0f2bec4c43c72d50c817
+    result: PASS
+    evidence: Agent Governance 32113083310 success; CI 32113083262 success
+  - command: owner target-visibility decision
+    result: PASS
+    evidence: owner selected PUBLIC in the current invocation on 2026-08-18
   - command: physical repository creation E2E
     result: NOT_APPLICABLE
-    evidence: physical creation remains NO_GO while owner visibility and rollback gates are unresolved
+    evidence: physical creation remains NO_GO while rollback capability is unresolved
 blockers:
-  - owner must select PUBLIC or PRIVATE visibility for Oteryn/Oteryn
   - owner must confirm rollback permission/capability for deleting a fresh Oteryn/Oteryn repository if post-create verification fails before authority handover
-next_action: Owner provides the exact visibility and confirms fresh-repository deletion capability; then refresh transaction leases, set rollback PROVEN only with that evidence, run exact-head checks and advance to CUTOVER_READY only if one owner create flow remains.
+next_action: Owner confirms fresh-repository deletion capability; then refresh transaction leases, set rollback PROVEN only with that evidence, run exact-head checks and advance to CUTOVER_READY only if one owner create flow remains.
 ```
 
 ## Self-review
@@ -185,13 +187,13 @@ self_review:
   open_material_findings: []
 ```
 
-This checkpoint commit repairs the live PR identity required by Agent Governance and records the two real owner-specific blockers. It changes no physical migration state.
+This checkpoint update records the owner-approved PUBLIC visibility. It does not advance physical migration state because rollback feasibility remains unproven.
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: retain
-source_branch_reason: active transaction branch must remain resumable while owner-specific visibility and rollback gates are unresolved
+source_branch_reason: active transaction branch must remain resumable while rollback capability remains unresolved
 source_branch_evidence: Draft PR #1145 / branch docs/oteryn-20260818-meta-repository-bootstrap
 ```
 
