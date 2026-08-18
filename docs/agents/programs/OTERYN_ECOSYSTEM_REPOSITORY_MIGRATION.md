@@ -21,12 +21,12 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-18T07:41:00Z
+updated_at: 2026-08-18T07:46:00Z
 status: blocked
 active_task: OTERYN-20260818-meta-repository-bootstrap
 issue: null
 branch: docs/oteryn-20260818-meta-repository-bootstrap
-pull_request: null
+pull_request: 1145
 temporary_topology_authority:
   repository: blakinio/Oteryn-Platform
   path: docs/architecture/adr/0041-ecosystem-repository-authority-contracts-and-atlas-integration.md
@@ -124,6 +124,7 @@ migration_transaction:
   ownership_conflict: false
   material_unknowns:
     - target_visibility
+    - current_oteryn_repository_deletion_policy_or_owner_rollback_capability
   cutover_lock:
     owner: OTERYN-20260818-meta-repository-bootstrap
     acquired_at: 2026-08-18T07:41:00Z
@@ -148,12 +149,13 @@ migration_transaction:
     expiry_or_recheck: none
     evidence: none
   rollback:
-    feasibility: PROVEN
-    operation: owner deletes exact fresh-bootstrap repository Oteryn/Oteryn through GitHub settings before authority handover or unique dependents exist
+    feasibility: NOT_PROVEN
+    operation: candidate owner deletion of exact fresh-bootstrap Oteryn/Oteryn repository through GitHub settings
     trigger: wrong create result or inability to bring the fresh repository under required integration/governance before any authority handover
     decision_owner: Oteryn organization owner
     execution_window: before META ADR becomes canonical, before external dependents/releases, and before unique history exists
     verification: Oteryn/Oteryn returns 404 and no canonical manifest/ADR points to the deleted repository
+    missing_proof: current Oteryn organization or enterprise policy permits the owner to delete the fresh repository
   post_mutation_validation:
     - exact repository owner/name/id and created state
     - approved visibility and archived=false
@@ -183,19 +185,21 @@ proven:
   - GitHub App installation 154585379 targets organization Oteryn and currently enumerates Oteryn/Oteryn-Atlas with write/admin-capable access.
   - Oteryn/Oteryn was refreshed as 404/absent for this transaction.
   - ADR 0041 proves that the thin META has real topology, compatibility, release-manifest and cross-repository coordination workload.
-  - Official GitHub documentation confirms that organization repository creation requires sufficient permission and an explicit visibility choice, and can optionally initialize a README/select GitHub Apps.
-  - Official GitHub documentation confirms installed GitHub App repository access may be all repositories or selected repositories; therefore post-create app access is verified rather than assumed.
+  - Official GitHub documentation confirms organization repository creation requires sufficient permission and an explicit visibility choice, and can optionally initialize a README/select GitHub Apps.
+  - Official GitHub documentation confirms installed GitHub App repository access may be all repositories or selected repositories; post-create app access must be verified rather than assumed.
+  - Official GitHub documentation confirms repository deletion can be restricted by organization or enterprise policy; generic deletion support therefore does not prove this transaction's rollback capability.
   - The current GitHub connector exposes no repository-create operation.
   - Oteryn-v2 package/caller evidence was not refreshed because the current trusted Platform invocation does not authorize server/game repository inspection and those blockers do not block independent META creation preparation.
 
 derived:
   - The accepted four-repository architecture remains valid.
-  - META creation is architecture-ready and non-ceremonial, but physical creation is `NO_GO` until visibility is explicit.
-  - Once target visibility is explicit and the preparation PR is canonical with all other gates current, the transaction may become public `CUTOVER_READY` because the current connector cannot execute repository creation and one precise owner web action will remain.
+  - META creation is architecture-ready and non-ceremonial, but physical creation is `NO_GO` until visibility and rollback capability are explicit/proven.
+  - If target visibility and rollback capability are proven and the preparation PR becomes canonical with all other leases current, the transaction may become public `CUTOVER_READY` because the current connector cannot execute repository creation and one precise owner web creation flow will remain.
   - Game cutover and Atlas extraction remain independently fail-closed and are not bundled with META creation.
 
 unknown:
   - Exact intended visibility of Oteryn/Oteryn.
+  - Current Oteryn organization/enterprise repository-deletion policy or equivalent owner rollback capability for a freshly created repository.
   - Whether installation 154585379 uses all-repositories or selected-repositories mode for an owner-created new repository; resulting-state access must be verified immediately after creation.
   - Exhaustive external Actions/reusable-workflow callers of Oteryn-v2.
   - Exact Oteryn-v2 GHCR/package names, links, permissions and consumers.
@@ -205,10 +209,11 @@ conflicts: []
 
 blockers:
   - Owner has not yet explicitly selected public or private visibility for Oteryn/Oteryn.
+  - Rollback feasibility is NOT_PROVEN until current Oteryn organization/enterprise policy or owner capability to delete the fresh repository is confirmed.
   - Game-specific package/caller evidence remains unresolved for any future Oteryn-v2/Oteryn-Game physical cutover.
   - Atlas extraction remains separately coupled to source ownership/deployment evidence and must not be inferred ready from the existence of Oteryn/Oteryn-Atlas.
 
-next_action: Owner selects PUBLIC or PRIVATE visibility for Oteryn/Oteryn; then freeze that value, revalidate exact transaction leases, complete preparation PR gates and advance to CUTOVER_READY only if the single remaining action is the owner GitHub web create flow.
+next_action: Owner selects PUBLIC or PRIVATE visibility for Oteryn/Oteryn and confirms that, as Oteryn organization owner, repository deletion is permitted for the fresh repository; then freeze those facts, revalidate exact transaction leases, complete preparation PR gates and advance to CUTOVER_READY only if the single remaining action is the owner GitHub web create flow.
 ```
 
 ## Programme rules
