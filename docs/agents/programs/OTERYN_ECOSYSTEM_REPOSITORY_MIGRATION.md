@@ -21,11 +21,11 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-17T12:58:00Z
+updated_at: 2026-08-18T05:11:00Z
 status: blocked
-active_task: null
+active_task: OTERYN-20260818-repository-migration-org-access
 issue: null
-branch: null
+branch: docs/oteryn-20260818-repository-migration-org-access
 pull_request: null
 temporary_topology_authority:
   repository: blakinio/Oteryn-Platform
@@ -50,6 +50,18 @@ wave_1_evidence:
   coordinate_inventory: docs/architecture/migration/oteryn-repository-coordinate-inventory.json
   atlas_extraction_manifest: docs/architecture/migration/oteryn-atlas-extraction-manifest.json
   archived_task: docs/agents/tasks/archive/OTERYN-20260817-ecosystem-repository-migration-wave1.md
+organization_access_evidence:
+  owner_reported_target: Oteryn
+  owner_reported_url: https://github.com/Oteryn/
+  owner_reported_state: CREATED
+  connector_user_orgs: []
+  connector_org_memberships: []
+  connector_installations:
+    - installation_id: 78758924
+      account_login: blakinio
+      account_type: User
+  connector_oteryn_visible: false
+  classification: BLOCKED_ON_INTEGRATION_VISIBILITY
 proven:
   - The programme alias is OTERYN-REPO-MIGRATION and resolves to the canonical prompt in this repository.
   - Wave 1 reconstructed live source/target state and found no current target repositories at the inspected same-user names.
@@ -57,21 +69,26 @@ proven:
   - The authenticated GitHub account exposed no organization membership to the connector during Wave 1.
   - Game repository-local control-plane inspection was mostly rename-dynamic, but package inventory remained inaccessible and external Actions/reusable-workflow callers were not exhaustively proven.
   - Current Otheryn Atlas automation included an active private Synology deployment path and mixed build/deployment ownership at the Wave 1 observation baseline.
+  - The owner reports that the intended GitHub organization is now `Oteryn` and has been created.
+  - On 2026-08-18 the current authenticated GitHub connector still returned no user organizations, no organization memberships and only installation 78758924 for account `blakinio`.
 derived:
   - The accepted four-repository architecture remains valid.
-  - Physical META bootstrap, Game cutover and Atlas extraction remain fail-closed until the Wave 1 blockers are resolved.
+  - Organization creation resolves the naming/owner-choice part of the prior blocker but does not prove current connector access or organization repository permissions.
+  - Physical META bootstrap, Game cutover and Atlas extraction remain fail-closed until their independent blockers are resolved.
 unknown:
-  - Exact future Oteryn GitHub organization identity/permissions.
+  - Whether the current authenticated GitHub identity is a member/owner of `Oteryn` from the connector perspective.
+  - Whether the ChatGPT GitHub App is installed/authorized for `Oteryn`.
+  - Exact organization-level repository creation/transfer permissions exposed after connector authorization.
   - Exhaustive external Actions/reusable-workflow callers of Oteryn-v2.
   - Exact Oteryn-v2 GHCR/package names, links, permissions and consumers.
   - Complete path-level Atlas ownership split needed for selective extraction.
 conflicts: []
 blockers:
-  - Future Oteryn GitHub organization is not visible/available to the authenticated account.
+  - `Oteryn` is not visible to the current authenticated GitHub integration: organization and membership lists are empty and no Oteryn app installation is exposed.
   - Oteryn-v2 GHCR/package inventory is unavailable through the current integration.
   - External Actions/reusable-workflow caller inventory is not exhaustive and GitHub rename redirects do not protect this execution path.
   - Otheryn Atlas remains coupled to active private Synology deployment and mixed path ownership.
-next_action: Create or identify the intended future Oteryn GitHub organization and make it visible to the authenticated GitHub account.
+next_action: Install or authorize the ChatGPT GitHub integration for the `Oteryn` organization, then rerun organization membership/installation visibility before any repository creation, transfer or rename.
 ```
 
 ## Programme rules
