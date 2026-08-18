@@ -21,12 +21,12 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-18T16:16:00Z
+updated_at: 2026-08-18T16:22:00Z
 status: blocked
 active_task: docs/agents/tasks/active/OTERYN-20260818-platform-transfer-post-rename-preflight.md
 issue: null
 branch: docs/platform-transfer-post-rename-preflight-20260818
-pull_request: null
+pull_request: 1160
 
 ecosystem_topology_authority:
   repository: Oteryn/Oteryn
