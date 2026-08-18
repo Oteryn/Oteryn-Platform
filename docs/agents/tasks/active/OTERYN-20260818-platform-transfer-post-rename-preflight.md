@@ -25,8 +25,8 @@ Refresh the canonical Platform transfer transaction after owner/admin renamed th
 - [x] Verify the organization repository inventory contains no repository currently named `Oteryn-Platform`.
 - [x] Refresh source repository ID, exact current `main`, visibility, admin access and branch protection.
 - [x] Verify source drift since the last preflight is documentation/governance-only.
-- [ ] Refresh the Platform transfer inventory, readiness report and durable programme state to the post-rename live state.
-- [ ] Record exact remaining transfer/package/runner/rollback gates without inventing evidence.
+- [x] Refresh the Platform transfer inventory, readiness report and durable programme state to the post-rename live state.
+- [x] Record exact remaining transfer/package/runner/rollback gates without inventing evidence.
 - [ ] Pass exact-head documentation/governance validation and merge through the normal PR gate.
 
 ## Ownership
@@ -55,11 +55,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-18T16:14:00Z
-head: ac39722ab348c71748e915395787195d2ea20ebb
+updated_at: 2026-08-18T16:17:00Z
+head: bff218e94440ee30bd4f6c922b1db8428908b474
 branch: docs/platform-transfer-post-rename-preflight-20260818
 pr: none
-status: implementing
+status: validating
 context_routes:
   - agent-governance
   - architecture
@@ -78,9 +78,12 @@ proven:
   - current official GitHub transfer documentation requires source admin access, permission to create in the target organization and no same-name target repository; the target-name collision is now resolved
   - current official GitHub REST transfer endpoint supports GitHub App user access tokens with Administration write, while the connected tool exposes no transfer mutation
   - current official GitHub Packages documentation states granular-permission package links are removed when a repository is transferred to another owner, so GHCR linkage remains a real cutover verification gate
+  - refreshed transfer inventory records current source main, protected checks, preserved backup repository identity, target absence and the accepted owner-neutral runtime surfaces
+  - refreshed readiness/programme state records target_collision false while retaining PREPARED plus public NO_GO
+  - Liquid20/Freqtrade operational workflows are absent from current Platform runtime/control scope and only historical/governance/test references remain
 derived:
-  - the target-coordinate collision blocker is resolved
-  - repository-side owner-neutral hardening remains applicable because all post-hardening runtime-sensitive source drift was removed or documentation-only; Liquid20 is now historical/out-of-scope only
+  - the target-coordinate collision blocker is resolved and must not be requested again
+  - repository-side owner-neutral hardening remains applicable because all post-hardening runtime-sensitive source drift was removed or documentation-only
   - the transaction still cannot become READY_TO_EXECUTE because the physical transfer tool, live package linkage, runner cutover behavior and rollback feasibility are not all proven
 unknown:
   - live GHCR package objects permissions and repository links for Platform-owned images
@@ -96,6 +99,9 @@ rejected_hypotheses:
   - Treat repository-side owner-neutral code as proof of live GHCR package linkage or runner behavior.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260818-platform-transfer-post-rename-preflight.md
+  - docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md
+  - docs/architecture/migration/OTERYN_PLATFORM_TRANSFER_READINESS.md
+  - docs/architecture/migration/oteryn-platform-transfer-inventory.json
 validation:
   - command: live GitHub repository inventory and source branch readback
     result: PASS
@@ -103,6 +109,9 @@ validation:
   - command: compare 77fa480a3f4e847dac98f76e05b6acd27cca4a57..ac39722ab348c71748e915395787195d2ea20ebb
     result: PASS
     evidence: only migration documentation/governance paths changed
+  - command: current official GitHub transfer and package semantics review
+    result: PASS
+    evidence: target absence requirement and granular-package unlink behavior incorporated without weakening gates
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: preflight documentation/evidence only; no runtime or protected environment changed
@@ -110,7 +119,7 @@ blockers:
   - repository-transfer mutation unavailable in connected GitHub tool surface
   - live package and runner cutover evidence unavailable
   - rollback feasibility not yet proven
-next_action: refresh the canonical programme, readiness report and transfer inventory to the verified post-rename live state, then open the exact-head PR
+next_action: open the draft PR, inspect exact changed paths/diff and exact-head CI; merge only if applicable governance checks pass and review hygiene is clean
 ```
 
 ## Source branch closeout
