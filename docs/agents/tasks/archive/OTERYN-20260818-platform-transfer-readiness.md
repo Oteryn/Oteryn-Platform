@@ -59,7 +59,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-18T11:34:00Z
+updated_at: 2026-08-18T11:36:00Z
 head: b39f8ac31e17f0edb07827c178140867a7e5c04f
 branch: none
 pr: 1151
@@ -98,8 +98,8 @@ unknown:
   - target organization ruleset/protection state after transfer until observed
 conflicts: []
 first_failure:
-  marker: branch_pr_identity_omitted_prevention
-  evidence: task checkpoint was proactively updated to record PR 1151 before final governance validation; no live liveness failure remained on final head
+  marker: none
+  evidence: none; the task checkpoint was proactively bound to PR 1151 before final governance validation
 rejected_hypotheses:
   - ordinary GitHub repository redirects are sufficient for GHCR package ownership and runner registration
   - physical transfer should be simulated by copying the repository into a fresh target repository
