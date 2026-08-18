@@ -61,13 +61,6 @@
       "reason": "Platform-owned images follow the Platform repository owner; the external pinned Canary image remains historical/compatibility provenance rather than being rewritten."
     },
     {
-      "path": ".github/workflows/liquid20-synology-control.yml",
-      "surface": "Liquid20 GHCR publisher/consumer",
-      "coordinate": "current Platform repository owner for package; blakinio/freqtrade remains pinned external source",
-      "classification": "PASS_REPOSITORY_HARDENING_EXTERNAL_SOURCE_PRESERVED",
-      "reason": "The Platform-owned package follows the repository owner while the external Freqtrade source coordinate and exact revision remain unchanged."
-    },
-    {
       "path": "deploy/synology/scripts/production-target-preflight.sh",
       "surface": "runtime image provenance gate",
       "coordinate": "current Platform repository owner via repository-ghcr-image.sh @ sha256 digest",
