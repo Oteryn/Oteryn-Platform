@@ -29,31 +29,23 @@ Verify the owner-executed physical creation of `Oteryn/Oteryn`, repair the bound
 - [x] Repository ID is `1338152366`, owner/name is `Oteryn/Oteryn`, visibility is `public`, archived is `false`, and default branch is `main`.
 - [x] GitHub App installation `154585379` exposes `Oteryn/Oteryn` with admin/maintain/push/pull/triage capability.
 - [x] Replay guard is satisfied: the create operation was not reissued after the target became observable.
-- [x] Post-create validation found one bounded mismatch: the repository was empty and `README.md` was absent even though the canonical create plan expected README initialization.
-- [x] The README mismatch was repaired as the first bootstrap anchor commit `ef9a8ee8ba16ee6618eecb2511905f1566dec58c` before authority handover.
-- [x] Dedicated target branch `bootstrap/meta-authority-0001` installed `AGENTS.md` before any additional META authority content.
-- [x] Target-local `AGENTS.md` was re-read before continuing target writes.
+- [x] The missing README initialization was repaired as bootstrap anchor commit `ef9a8ee8ba16ee6618eecb2511905f1566dec58c` before authority handover.
+- [x] Dedicated target branch `bootstrap/meta-authority-0001` installed and re-read `AGENTS.md` before additional META authority content.
 - [x] META ADR 0001 and `ecosystem/repositories.json` were added with truthful transition state and no provider-schema duplication.
-- [x] Target Draft PR #1 exact changed paths/full diff were reviewed; JSON parsing passed; no target CI/workflows or required checks existed; review hygiene was clean.
+- [x] Target PR #1 exact changed paths/full diff were reviewed; deterministic JSON parsing passed; target CI was truthfully recorded as not configured; review hygiene was clean.
 - [x] Target bootstrap PR #1 squash-merged as `a2672baac544ada81c526e92f0517903865a9ad0`.
-- [x] META ADR 0001 is canonical and now supersedes Platform ADR 0041 for ecosystem-topology/META coordination scope.
+- [x] META ADR 0001 is canonical and supersedes Platform ADR 0041 for ecosystem-topology/META coordination scope.
 - [x] Platform migration transaction is reconciled to `COMPLETED` on this branch after target bootstrap became canonical.
-- [x] Target PR is terminal and its source branch contains no unmerged authority; branch deletion is a non-semantic cleanup item blocked only by the current connector lacking delete-ref.
-- [ ] Platform PR #1147 passes exact-head repository checks/self-review/review hygiene and squash-merges.
+- [x] Target PR #1 is terminal; its retained source branch contains no unmerged authority and is cleanup debt caused only by missing delete-ref connector capability.
+- [ ] Platform PR #1147 passes exact-head repository checks, self-review and review hygiene and squash-merges.
 - [ ] Required Platform lifecycle closeout archives this task and releases ownership.
 
 ## Ownership
 
 ```yaml
 owned_paths:
-  platform:
-    - docs/agents/tasks/active/OTERYN-20260818-meta-post-create-bootstrap.md
-    - docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md
-  meta_target:
-    - README.md
-    - AGENTS.md
-    - docs/architecture/adr/0001-ecosystem-topology-authority.md
-    - ecosystem/repositories.json
+  - docs/agents/tasks/active/OTERYN-20260818-meta-post-create-bootstrap.md
+  - docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md
 modules:
   - agent-governance
   - ecosystem-repository-migration
@@ -66,7 +58,7 @@ dependencies:
   - Platform PR 1145 / merge 860273ba7eb56fd4f6f3b1e1f8cbb765b2c094fe
   - Platform closeout PR 1146 / merge 648cb5edd64d80d3002b19ef6d007d125de1593e
 blockers:
-  - none material to transaction completion
+  - none material to the META create transaction
 cross_repository_tasks:
   - repository: Oteryn/Oteryn
     scope: bounded META bootstrap only
@@ -78,87 +70,71 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-policy_version: 2
-invocation_started_at: 2026-08-18T08:21:00Z
-last_progress_at: 2026-08-18T08:31:00Z
-head: 1529f84c73f897c072f177bd39720b6b3ca1ba37
+updated_at: 2026-08-18T08:35:00Z
+head: 0c49e55b9f3117414f9f735d4b4d1d2e0f6df681
 branch: docs/oteryn-20260818-meta-post-create-bootstrap
 pr: 1147
 status: validating
-phase: platform_reconcile_and_close
-session_id: chat-github-20260818-meta-post-create-bootstrap
-session_role: coordinator
-execution_mode: github
-project_lane: oteryn-platform-core
-task_kind: implementation
-implementation_authorized: bounded OTERYN-REPO-MIGRATION-ULTRA META bootstrap continuation
-execution_budget: large
-execution_budget_reason: cross-repository META bootstrap requires target governance bootstrap, target PR validation/merge, and Platform transaction reconciliation
-ci_checks_for_current_head: 0
-ci_check_generation: draft
-terminal_ci_wait_started_at: null
-terminal_ci_checks_for_current_generation: 0
-unchanged_state_checks: 0
-identical_failure_retries: 0
-repair_cycles_for_current_gate: 0
-context_reconstruction_attempts: 0
-stall_warnings: 0
+context_routes:
+  - agent-governance
+  - ecosystem-repository-migration
+  - architecture-migration
+owned_paths:
+  - docs/agents/tasks/active/OTERYN-20260818-meta-post-create-bootstrap.md
+  - docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md
 proven:
-  - Platform main at invocation entry is 648cb5edd64d80d3002b19ef6d007d125de1593e.
-  - No open Platform PR matched the META migration transaction at entry and no active migration task existed.
-  - Oteryn/Oteryn exists with repository ID 1338152366, owner Oteryn, public visibility, archived=false and integration admin/write access.
-  - Owner creation omitted README initialization; README bootstrap anchor was repaired as ef9a8ee8ba16ee6618eecb2511905f1566dec58c before branchable authority content.
-  - Target AGENTS.md was created first on bootstrap/meta-authority-0001 and re-read before ADR/manifest writes.
-  - Oteryn/Oteryn PR 1 exact final head 08a72bc7a9826ff62e2758411a8d31d70d661849 changed exactly AGENTS.md, ADR 0001 and ecosystem/repositories.json.
-  - ecosystem/repositories.json parsed deterministically with schema_version=1 and four product entries.
-  - Target main had no branch protection or required status checks and no .github/workflows; exact-head CI is NOT_CONFIGURED rather than claimed PASS.
-  - Target PR 1 had zero reviews, zero inline threads and zero comments and squash-merged as a2672baac544ada81c526e92f0517903865a9ad0.
-  - Target ADR 0001 is now canonical on main and explicitly supersedes Platform ADR 0041 for ecosystem topology/META coordination scope.
-  - Target bootstrap branch remains present only because the current GitHub connector exposes no delete-ref operation; PR 1 is merged and no authority remains unmerged.
+  - Platform main at invocation entry was 648cb5edd64d80d3002b19ef6d007d125de1593e.
+  - Oteryn/Oteryn exists as public repository ID 1338152366 with integration admin and write access.
+  - README bootstrap anchor repair committed as ef9a8ee8ba16ee6618eecb2511905f1566dec58c before authority handover.
+  - Oteryn/Oteryn PR 1 exact final head 08a72bc7a9826ff62e2758411a8d31d70d661849 changed exactly AGENTS.md, META ADR 0001 and ecosystem/repositories.json.
+  - Target repository had no workflows or required checks during bootstrap, so CI was recorded as not configured rather than passed.
+  - Oteryn/Oteryn PR 1 had zero reviews, zero inline threads and zero comments at merge gate and squash-merged as a2672baac544ada81c526e92f0517903865a9ad0.
+  - META ADR 0001 is canonical on Oteryn/Oteryn main and explicitly supersedes Platform ADR 0041 for ecosystem topology and META coordination scope.
+  - The target bootstrap source branch remains only because the current connector has no delete-ref operation; its PR is merged and it contains no unmerged authority.
 derived:
-  - Transaction OTERYN-META-CREATE-20260818 is COMPLETED after governed bootstrap and authority handover.
-  - The previous owner deletion rollback proof no longer authorizes deletion because its explicit pre-authority window closed when META ADR 0001 became canonical.
-  - Platform ADR 0041 now needs a narrow historical-status reconciliation; this is separate from completing the META create transaction.
+  - OTERYN-META-CREATE-20260818 is complete after governed bootstrap and authority handover.
+  - The owner deletion proof applied only before authority handover and does not authorize deletion now.
+  - Platform ADR 0041 requires a narrow historical-status reconciliation after this entry task closes.
 unknown:
-  - exhaustive external Actions/reusable-workflow callers of Oteryn-v2
-  - exact Oteryn-v2 GHCR/package names/permissions/consumers
-  - complete path-level Atlas ownership split needed for selective extraction
+  - Exhaustive external Actions and reusable-workflow callers of Oteryn-v2 remain unknown for the future Game migration.
+  - Exact Oteryn-v2 GHCR package names permissions and consumers remain unknown for the future Game migration.
+  - Complete path-level Atlas ownership split remains unknown for the future selective extraction.
 conflicts:
-  - Platform ADR 0041 still displays pre-handover Accepted status until a narrow follow-up reconciliation marks it superseded; canonical META ADR 0001 already controls ecosystem topology scope
+  - Platform ADR 0041 still displays its pre-handover Accepted status until a narrow follow-up reconciliation marks it superseded; canonical META ADR 0001 already controls ecosystem topology scope.
+first_failure:
+  marker: invalid_list_item_under_changed_paths
+  evidence: Agent Governance run 32116957197 and CI run 32116957206 failed because the checkpoint used nested mappings under changed_paths; the checkpoint contract requires a flat YAML list.
+rejected_hypotheses:
+  - The missing README required recreating the repository; the correct repository identity and integration were intact and a bounded bootstrap repair was sufficient.
+  - Target CI could be called PASS despite no workflows; it is explicitly recorded as not configured.
+  - The retained merged target branch means META authority is unmerged; PR 1 is merged and main contains the canonical ADR and manifest.
 changed_paths:
-  platform:
-    - docs/agents/tasks/active/OTERYN-20260818-meta-post-create-bootstrap.md
-    - docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md
-  meta_target:
-    - README.md
-    - AGENTS.md
-    - docs/architecture/adr/0001-ecosystem-topology-authority.md
-    - ecosystem/repositories.json
+  - docs/agents/tasks/active/OTERYN-20260818-meta-post-create-bootstrap.md
+  - docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md
 validation:
   - command: exact owner-created target resulting-state verification
-    result: PASS_WITH_REPAIR
-    evidence: identity/visibility/access correct; missing README repaired before authority handover
+    result: PASS
+    evidence: owner name visibility repository ID and integration access passed; the missing README was repaired before authority handover.
   - command: physical create replay guard
     result: PASS
-    evidence: exact target repository ID 1338152366 exists and no second create attempt occurred
-  - command: target bootstrap exact diff and JSON validation
+    evidence: exact target repository ID 1338152366 exists and no second create attempt occurred.
+  - command: target bootstrap exact diff and deterministic JSON validation
     result: PASS
-    evidence: three intended PR paths; deterministic JSON parse; zero material self-review findings
+    evidence: three intended PR paths parsed and reviewed with zero material findings.
   - command: target repository-required CI
-    result: NOT_CONFIGURED
-    evidence: .github/workflows absent; main unprotected; no required checks; exact head had no workflow runs
-  - command: target PR review hygiene
+    result: NOT_APPLICABLE
+    evidence: target had no .github workflows no required status checks and an unprotected main during initial bootstrap; no CI pass is claimed.
+  - command: target PR review hygiene and merge
     result: PASS
-    evidence: zero reviews, zero inline threads and zero comments at merge gate
-  - command: target bootstrap merge
-    result: PASS
-    evidence: PR 1 squash-merged as a2672baac544ada81c526e92f0517903865a9ad0
+    evidence: zero reviews zero inline threads zero comments and PR 1 squash-merged as a2672baac544ada81c526e92f0517903865a9ad0.
   - command: runtime E2E
     result: NOT_APPLICABLE
-    evidence: repository creation/governance/metadata-only bootstrap; no runtime producer-consumer path
-blockers:
-  - none material to current transaction
-next_action: Run exact-head validation and review hygiene for Platform PR 1147, mark Ready and squash-merge when green, then complete required lifecycle archival/ownership release for this entry task.
+    evidence: repository creation governance and metadata bootstrap has no runtime producer-consumer path.
+  - command: Platform exact-head validation on 0c49e55b9f3117414f9f735d4b4d1d2e0f6df681
+    result: FAIL
+    evidence: both required workflows failed only after active-task checkpoint validation rejected nested changed_paths; this commit repairs that schema error.
+blockers: []
+next_action: Validate the repaired Platform PR 1147 exact head, confirm clean review hygiene, then mark Ready and squash-merge if required checks pass.
 ```
 
 ## Self-review
@@ -168,8 +144,10 @@ self_review:
   result: PASS
   target_bootstrap_exact_head: 08a72bc7a9826ff62e2758411a8d31d70d661849
   target_bootstrap_merge: a2672baac544ada81c526e92f0517903865a9ad0
+  platform_content_reviewed_through: 0c49e55b9f3117414f9f735d4b4d1d2e0f6df681
   acceptance_checked: true
   full_target_diff_checked: true
+  full_platform_diff_checked: true
   negative_paths_checked: true
   rollback_window_checked: true
   compatibility_checked: true
