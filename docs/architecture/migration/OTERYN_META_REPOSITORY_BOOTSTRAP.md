@@ -14,15 +14,14 @@ This document prepares exactly one physical repository-creation transaction. It 
 - ADR 0041 defines `Oteryn` as the thin ecosystem coordination/META plane and records real workload: ecosystem topology, cross-repository ADRs, repository/release manifests, compatibility matrices and cross-repository orchestration.
 - The `Oteryn` GitHub organization is reachable through GitHub App installation `154585379`.
 - `Oteryn/Oteryn-Atlas` is already an organization repository reachable through the integration with administrative/write access.
-- `Oteryn/Oteryn` was refreshed as `404 Not Found` during this transaction preparation and remained absent immediately before the visibility decision was persisted. This is an expiring evidence lease and must be refreshed immediately before creation.
+- `Oteryn/Oteryn` was refreshed as `404 Not Found` at `2026-08-18T07:55:00Z`. This is an expiring evidence lease and must be refreshed immediately before creation.
 - The current ChatGPT GitHub connector exposes no repository-create operation.
 - GitHub's current web flow requires choosing the owner, repository name and visibility; for a new non-import repository it can optionally initialize a README and select applicable GitHub Apps.
-- GitHub documents repository deletion as available to organization owners or repository admins, but organization/enterprise policy can restrict deletion. Therefore the current Oteryn rollback permission is not proven solely from general GitHub behavior.
 - On 2026-08-18 the repository owner explicitly selected **PUBLIC** visibility for `Oteryn/Oteryn` for transaction `OTERYN-META-CREATE-20260818`.
+- On 2026-08-18 the repository owner explicitly confirmed that, as owner of the `Oteryn` organization, they can delete a freshly created `Oteryn/Oteryn` repository if rollback is required before META authority handover.
 
 ### UNKNOWN
 
-- Whether Oteryn organization/enterprise policy permits the intended owner to delete a freshly created `Oteryn/Oteryn` repository as rollback is not directly observable through the current connector.
 - Whether installation `154585379` is `all repositories` or `selected repositories` for an owner-created repository is not exposed by the current connector result. Post-create access must therefore be proven rather than assumed.
 
 ## Visibility decision
@@ -74,9 +73,10 @@ After the repository exists and integration access is proven, bootstrap only the
 1. Refresh `Oteryn/Oteryn` and prove it is still absent.
 2. Refresh organization installation/access evidence and overlapping migration ownership.
 3. Confirm the frozen visibility remains `PUBLIC`.
-4. Prove rollback permission for a freshly created organization repository. General GitHub documentation is insufficient if an organization/enterprise policy could forbid deletion.
+4. Confirm the rollback proof remains current: the Oteryn organization owner can delete the fresh repository before authority handover if post-create verification fails.
 5. Freeze the canonical transaction record and merge the Platform preparation PR so the create instructions/rollback are durable before mutation.
-6. Owner performs one GitHub web creation flow:
+6. After the preparation task is archived, refresh target/access leases one final time. Only then may the durable programme status become `CUTOVER_READY`.
+7. Owner performs one GitHub web creation flow:
    - Owner: `Oteryn`
    - Repository name: `Oteryn`
    - Description: `Oteryn ecosystem coordination, compatibility and release authority.`
@@ -86,11 +86,11 @@ After the repository exists and integration access is proven, bootstrap only the
    - License: none during bootstrap
    - Select the ChatGPT/OpenAI GitHub App if the creation UI offers it for this organization
    - Create repository
-7. Do not repeat the create operation if the UI/session result is ambiguous. Immediately inspect `Oteryn/Oteryn` first.
-8. Verify exact owner/name, `public` visibility, archived state, default branch, repository identity and connector permissions.
-9. Verify installation access. If the app cannot access the new repository, stop before bootstrap and add `Oteryn/Oteryn` to the installed app's selected repositories (or switch the installation to all repositories), then re-read access.
-10. Create a dedicated bootstrap branch in `Oteryn/Oteryn`; install the minimal bootstrap package above; open a Draft PR; re-read the new `AGENTS.md`; run proportionate exact-head validation/self-review; merge only when target-local gates pass.
-11. Only after META ADR 0001 is canonical may a separate Platform reconciliation mark ADR 0041 superseded for ecosystem scope.
+8. Do not repeat the create operation if the UI/session result is ambiguous. Immediately inspect `Oteryn/Oteryn` first.
+9. Verify exact owner/name, `public` visibility, archived state, default branch, repository identity and connector permissions.
+10. Verify installation access. If the app cannot access the new repository, stop before bootstrap and add `Oteryn/Oteryn` to the installed app's selected repositories (or switch the installation to all repositories), then re-read access.
+11. Create a dedicated bootstrap branch in `Oteryn/Oteryn`; install the minimal bootstrap package above; open a Draft PR; re-read the new `AGENTS.md`; run proportionate exact-head validation/self-review; merge only when target-local gates pass.
+12. Only after META ADR 0001 is canonical may a separate Platform reconciliation mark ADR 0041 superseded for ecosystem scope.
 
 ## Fail-closed replay guard
 
@@ -118,16 +118,16 @@ point_of_no_return:
     - rollback requires a separate destructive repository-deletion operation
 ```
 
-## Rollback candidate — not yet proven for Oteryn policy
+## Rollback — proven for the fresh pre-authority window
 
 Creation rollback is allowed only before the new META becomes a dependency/authority for product repositories and only after proving that the target contains no unique work that must be preserved.
 
 ```yaml
 rollback:
-  feasibility: NOT_PROVEN
-  candidate_operation: owner deletes exact repository Oteryn/Oteryn through GitHub repository settings
-  missing_proof:
-    - current Oteryn organization/enterprise policy permits the owner to delete the fresh repository
+  feasibility: PROVEN
+  operation: owner deletes exact repository Oteryn/Oteryn through GitHub repository settings
+  proof:
+    - Oteryn organization owner explicitly confirmed fresh-repository deletion capability on 2026-08-18 before authority handover
   trigger:
     - wrong owner/name/visibility that cannot safely be corrected inside the same transaction
     - creation result violates organization policy or cannot be brought under required integration/governance before authority handover
@@ -139,7 +139,7 @@ rollback:
     - no dependent manifest/ADR has been marked canonical against the deleted repository
 ```
 
-GitHub documents that organization owners or repository admins can delete an organization repository subject to organization/enterprise policy; deletion permanently removes team permissions, and some deleted repositories can be restored within 90 days. The generic capability and recovery window are supporting safety evidence only. The canonical transaction must remain `NO_GO` until current Oteryn policy/owner rollback capability is explicitly proven.
+This proof is intentionally narrow. It does not authorize deletion after META authority handover, after unique history exists, or after other repositories depend on the target.
 
 ## Post-create validation
 
