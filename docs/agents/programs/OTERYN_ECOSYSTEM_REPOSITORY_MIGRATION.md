@@ -21,12 +21,12 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-18T08:44:00Z
+updated_at: 2026-08-18T08:49:00Z
 status: ready
 active_task: OTERYN-20260818-platform-adr0041-supersession-reconciliation
 issue: null
 branch: docs/oteryn-20260818-adr0041-supersession
-pull_request: null
+pull_request: 1149
 
 ecosystem_topology_authority:
   repository: Oteryn/Oteryn
@@ -231,7 +231,7 @@ proven:
 derived:
   - The META create transaction is terminally complete and no owner create action remains.
   - Oteryn/Oteryn is the neutral ecosystem topology authority while provider repositories retain provider implementation/schema authority.
-  - Platform ADR 0041 status reconciliation is in progress on the active narrow task and remains non-canonical until its PR merges.
+  - Platform ADR 0041 status reconciliation is in progress on PR 1149 and remains non-canonical until that PR merges.
   - Game cutover and Atlas extraction remain independently fail-closed and are not made ready by META completion.
 
 unknown:
@@ -240,7 +240,7 @@ unknown:
   - Complete path-level Atlas ownership split needed for selective extraction.
 
 conflicts:
-  - Platform ADR 0041 main still carries pre-handover Accepted status until the active reconciliation PR merges; META ADR 0001 already controls ecosystem topology scope.
+  - Platform ADR 0041 main still carries pre-handover Accepted status until PR 1149 merges; META ADR 0001 already controls ecosystem topology scope.
 
 cleanup_debt:
   - Oteryn/Oteryn branch bootstrap/meta-authority-0001 remains after merged PR 1 because the current connector exposes no delete-ref operation; no unmerged authority remains on it.
@@ -249,7 +249,7 @@ blockers:
   - Game-specific package/caller evidence remains unresolved for any future Oteryn-v2/Oteryn-Game physical cutover.
   - Atlas extraction remains separately coupled to source ownership/deployment evidence.
 
-next_action: Complete the active Platform ADR 0041 supersession-status reconciliation through exact-head checks, merge and lifecycle closeout without changing historical ADR body content.
+next_action: Complete PR 1149 exact-head checks and lifecycle closeout without changing historical ADR body content.
 ```
 
 ## Programme rules
