@@ -104,10 +104,10 @@ No Semantic Thais Z7 implementation bytes are created in Platform or Otheryn und
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-18T04:58:00Z
-head: none
+updated_at: 2026-08-18T04:59:00Z
+head: 6149c319a02503f9138c7b568f207a7c201fcc77
 branch: docs/oteryn-20260818-dyn-atlas-001-preflight-blocker
-pr: none
+pr: 1141
 status: blocked
 context_routes:
   - agent-governance
@@ -161,9 +161,9 @@ next_action: create or expose the intended future Oteryn GitHub organization and
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: blocker checkpoint PR has not yet merged
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository blocker-checkpoint PR; after merge the task remains active only as an external blocked record
+source_branch_evidence: pending PR #1141 merge and ref verification
 ```
 
 ## Notes
