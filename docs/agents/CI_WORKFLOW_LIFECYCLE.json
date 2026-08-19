@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "workflow_budget": 52,
+  "workflow_budget": 53,
   "registered_workflows": [
     "acceptance-soak.yml",
     "acceptance-stability.yml",
@@ -12,6 +12,7 @@
     "character-bazaar-staging-control.yml",
     "character-bazaar-staging-validation.yml",
     "ci.yml",
+    "codeql.yml",
     "cloudflare-oteryn-edge-audit.yml",
     "cloudflare-oteryn-endpoint-main-operation.yml",
     "cloudflare-oteryn-endpoints.yml",
