@@ -6,6 +6,11 @@ on:
       - governance/issue-1165-safe-authority
     paths:
       - .github/workflows/one-off-governance-authority-migration.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/one-off-governance-authority-migration.yml
 
 permissions:
   contents: write
