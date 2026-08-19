@@ -47,7 +47,7 @@ Squash merge: `3d07ac95c69250eea15095976e08e083ae66abcb`.
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-19T23:47:00+02:00
+updated_at: 2026-08-19T23:52:00+02:00
 head: 3d07ac95c69250eea15095976e08e083ae66abcb
 branch: none
 pr: 1174
@@ -88,4 +88,12 @@ validation:
     evidence: live protected-runner mutation was outside this repository repair task and remains owned by PR 1164 / Issue 1155
 blockers: []
 next_action: No action for this archived task; ownership is released and live cutover continues under PR 1164 / Issue 1155.
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: The implementation branch for PR 1174 has no continuing authority or provenance role after the squash merge; the archive carrier branch is likewise disposable after PR 1175 merges.
+source_branch_evidence: PR 1174 merged as 3d07ac95c69250eea15095976e08e083ae66abcb, all task ownership is released in this terminal record, and PR 1175 declares Branch-Disposition delete after merge for the lifecycle-only archive branch.
 ```
