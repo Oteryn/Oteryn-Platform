@@ -1,11 +1,11 @@
 ---
 task_id: OTERYN-20260819-platform-runner-default-labels
-status: implementing
+status: validating
 project_lane: oteryn-platform-core
 task_kind: implementation
 implementation_authorized: true
 policy_version: 2
-phase: implement
+phase: validate
 session_id: chatgpt-20260819-platform-runner-default-labels
 session_role: implementer
 execution_mode: chat-github
@@ -22,11 +22,12 @@ session_rotation_count: 0
 stale_takeover_count: 0
 human_interruptions: 0
 issue: 1155
+pull_request: 1174
 branch: fix/platform-runner-default-labels-20260819
 base_sha: 2b9637e813e9431c91656b9982032e43e9b8160a
 owned_paths:
   - deploy/synology/runner/entrypoint.sh
-  - tests/ci/test_synology_deploy_release_identity.py
+  - tests/ci/test_synology_runner_registration_labels.py
   - docs/agents/tasks/active/OTERYN-20260819-platform-runner-default-labels.md
 ---
 
@@ -39,8 +40,8 @@ Restore the GitHub-hosted default self-hosted-runner labels while retaining the 
 ## Verified defect
 
 - live repository runner ID `21`, name `oteryn-synology-staging`, is online/idle but exposes only `oteryn-staging` and reports OS `unknown`;
-- `deploy/synology/runner/entrypoint.sh` registers with `--labels "$RUNNER_LABELS" --no-default-labels`;
-- PR #1164 intentionally requires `[self-hosted, oteryn-staging]`, so the queued verification job cannot select the current registration;
+- `deploy/synology/runner/entrypoint.sh` registered with `--labels "$RUNNER_LABELS" --no-default-labels` on the trusted base;
+- PR #1164 intentionally requires `[self-hosted, oteryn-staging]`, so its queued verification job cannot select the current registration;
 - the Synology runner Compose still points at the historical-owner deploy-runner image; runtime cutover is a later privileged operation and is not performed by this repository repair.
 
 ## Acceptance
@@ -64,10 +65,10 @@ Repository implementation E2E is `NOT_APPLICABLE`: merging this repair does not 
 ## Context checkpoint
 
 ```yaml
-updated_at: 2026-08-19T23:15:00+02:00
-status: implementing
-phase: implement
-last_completed_step: verified live runner label mismatch and traced it to --no-default-labels on current main
+updated_at: 2026-08-19T23:32:00+02:00
+status: validating
+phase: validate
+last_completed_step: removed --no-default-labels and added focused regression contract on PR #1174
 blockers: []
-next_action: remove --no-default-labels and add focused regression assertion
+next_action: verify exact-head focused tests, required CI and full-diff self-review
 ```
