@@ -153,10 +153,10 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
         self.assertIn("if [[ ! -f .runner ]]; then", self.runner_entrypoint)
         self.assertIn("Provide the exact repository RUNNER_URL before first registration", self.runner_entrypoint)
 
-    def test_runner_registration_preserves_github_default_labels(self) -> None:
+    def test_runner_registration_isolated_to_repository_scoped_custom_label(self) -> None:
         self.assertIn('RUNNER_LABELS="${RUNNER_LABELS:-oteryn-staging}"', self.runner_entrypoint)
         self.assertIn('--labels "$RUNNER_LABELS"', self.runner_entrypoint)
-        self.assertNotIn("--no-default-labels", self.runner_entrypoint)
+        self.assertIn("--no-default-labels", self.runner_entrypoint)
 
     def test_runtime_example_is_owner_neutral(self) -> None:
         self.assertIn("OTERYN_GHCR_OWNER=REQUIRED_REPOSITORY_OWNER_LOWERCASE", self.runtime_env)
