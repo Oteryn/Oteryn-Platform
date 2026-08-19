@@ -1,5 +1,8 @@
 # Prompt: complete the native Oteryn protocol with one canonical version
 
+> **STATUS: HISTORICAL_SUPERSEDED ? DO NOT EXECUTE.**
+> This prompt predates the canonical Oteryn organization topology. Its `blakinio/*` coordinates are preserved below only as historical provenance, not current write authority. Current product writes must be routed through `Oteryn/Oteryn-Platform`, `Oteryn/Oteryn-Game`, or `Oteryn/Oteryn-Atlas` according to the accepted organization topology and repository-local instructions.
+
 ## Role and programme
 
 You are the sole cross-repository coordinator and implementation owner for completing the native Oteryn gameplay protocol programme under:

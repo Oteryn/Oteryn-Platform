@@ -1,5 +1,8 @@
 # Prompt: automatic native selection and integrated E2E
 
+> **STATUS: HISTORICAL_SUPERSEDED ? DO NOT EXECUTE.**
+> This prompt predates the canonical Oteryn organization topology. Its `blakinio/*` coordinates are preserved below only as historical provenance, not current write authority. Current product writes must be routed through `Oteryn/Oteryn-Platform`, `Oteryn/Oteryn-Game`, or `Oteryn/Oteryn-Atlas` according to the accepted organization topology and repository-local instructions.
+
 ## Role and phase
 
 You are the sole cross-repository integration coordinator for automatic protocol selection and exact native gameplay E2E under coordination ID `OTS-20260804-native-protocol-selection`.

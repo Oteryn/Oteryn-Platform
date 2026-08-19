@@ -7,7 +7,7 @@ required_reads:
   - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
   - docs/agents/PROMPTING_STANDARD.md
   - docs/agents/PROMPT_EVAL_STANDARD.md
-repository: blakinio/Oteryn-Platform
+repository: Oteryn/Oteryn-Platform
 owner_alias: OTERYN-REPO-MIGRATION
 ---
 
@@ -37,7 +37,7 @@ ecosystem_topology_authority:
   live_state_reconciliation_merge: 20f87798d6429555031fa4e63e0a115db83adffb
   live_state_reconciliation_pr: 4
   supersedes:
-    repository: blakinio/Oteryn-Platform
+    repository: Oteryn/Oteryn-Platform
     path: docs/architecture/adr/0041-ecosystem-repository-authority-contracts-and-atlas-integration.md
     scope: ecosystem repository topology and META coordination authority
     platform_reconciliation_merge: 77914c8c2fab016273ee32cb1df0799370206e80
@@ -117,7 +117,7 @@ observed_target_coordinates:
     active_task: docs/agents/tasks/active/DYN-ATLAS-001-semantic-thais-z7-proof.md
   Oteryn-Platform:
     intended_target_repository: Oteryn/Oteryn-Platform
-    current_repository: blakinio/Oteryn-Platform
+    current_repository: Oteryn/Oteryn-Platform
     source_repository_id: 1305155726
     source_main_last_preflight: ac39722ab348c71748e915395787195d2ea20ebb
     source_main_after_preflight_delivery: 7ea7dfcd11d4c2d94095f6d93516858f7f4c383a
@@ -248,7 +248,7 @@ proven:
   - Oteryn/Oteryn is the canonical META authority and its live repository manifest was reconciled by PR 4 merge 20f87798d6429555031fa4e63e0a115db83adffb after meta-gate PASS.
   - Oteryn/Oteryn-Game completed the history-preserving migration from blakinio/Oteryn-v2 and later repository-administration reconciliation; the source remains legacy migration provenance.
   - Oteryn/Oteryn-Atlas exists with repository-local governance CI and active DYN-ATLAS-001 work; stale Platform repository-absence blocker PR 1141 is closed without merge.
-  - blakinio/Oteryn-Platform remains the canonical Platform implementation at repository ID 1305155726.
+  - Oteryn/Oteryn-Platform is the canonical Platform implementation at stable repository ID 1305155726; blakinio/Oteryn-Platform is historical pre-transfer provenance.
   - source main was ac39722ab348c71748e915395787195d2ea20ebb at the post-rename preflight and was protected with required classify-changes and test contexts.
   - bootstrap repository ID 1338405017 survived the owner/admin rename and now exists at Oteryn/Oteryn-Platform-Migration-Backup-20260818.
   - the live Oteryn organization repository inventory contained no current repository named Oteryn-Platform at the post-rename preflight, so the target-coordinate collision is resolved.
