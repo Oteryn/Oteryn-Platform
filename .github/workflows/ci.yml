@@ -275,3 +275,22 @@ jobs:
           --ci-required "$CI_REQUIRED"
           --runtime-tests-result "$RUNTIME_TESTS_RESULT"
           --summary "$GITHUB_STEP_SUMMARY"
+
+  platform_gate:
+    name: platform-gate
+    if: ${{ always() }}
+    needs:
+      - classify_changes
+      - test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require existing Platform aggregate gates
+        shell: bash
+        env:
+          CLASSIFY_CHANGES_RESULT: ${{ needs.classify_changes.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+        run: |
+          set -euo pipefail
+          test "$CLASSIFY_CHANGES_RESULT" = success
+          test "$TEST_RESULT" = success
