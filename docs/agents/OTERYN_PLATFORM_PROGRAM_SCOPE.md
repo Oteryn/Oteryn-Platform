@@ -31,7 +31,7 @@ A path, Issue or requested change is eligible only when its required mutation be
 
 The programmes must not perform work for or mutate:
 
-- `blakinio/Otheryn`, `blakinio/otclient`, Canary or Crystal Server repositories;
+- `Oteryn/Oteryn-Game`, `Oteryn/Oteryn-Atlas`, historical `blakinio/Otheryn`, `blakinio/otclient`, Canary or Crystal Server repositories;
 - Freqtrade, Quant Platform, GitHub Projects control or any other repository/product programme;
 - Liquid20, liquidation collectors/monitors, Freqtrade-derived deployment or package publication, or their operational control plane;
 - external login-server, game-server or client runtime code;

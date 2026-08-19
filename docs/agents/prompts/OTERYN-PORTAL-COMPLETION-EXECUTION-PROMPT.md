@@ -78,7 +78,7 @@ After live ownership is established, you may inspect and modify the smallest coh
 
 This prompt does **not** authorize:
 
-- inspection, search, writes or operations in `blakinio/Oteryn-v2`, Canary or any external/server repository;
+- inspection, search, writes or operations in `Oteryn/Oteryn-Game`, Canary or any external/server repository;
 - production deployment, protected-environment approval, Cloudflare/DNS/Synology/live-data mutation;
 - production secrets/credentials or payment-provider access;
 - payment/refund/chargeback or commercial-entitlement activation;

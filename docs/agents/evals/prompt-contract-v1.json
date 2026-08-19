@@ -223,7 +223,7 @@
       "safety_critical": true,
       "source": "docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md",
       "must_contain": [
-        "inspection, search, writes or operations in `blakinio/Oteryn-v2`, Canary or any external/server repository",
+        "inspection, search, writes or operations in `Oteryn/Oteryn-Game`, Canary or any external/server repository",
         "Codex, OpenAI API or another owner-funded AI/model invocation without explicit owner permission for that exact use/task.",
         "production_authority: false",
         "protected_environment_authority: false",
