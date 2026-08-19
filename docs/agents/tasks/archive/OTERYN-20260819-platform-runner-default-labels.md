@@ -86,7 +86,7 @@ next_action: No action for this archived task; post-transfer closeout continues 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: delete_after_closeout_merge
-source_branch_reason: PR 1176 is merged and the task has no continuing write ownership.
-source_branch_evidence: squash merge 14aa7b312cb5dabc13f2ba42c54bb46e79ccd167 plus this terminal archive record.
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1176 is merged and the task has no continuing write ownership; this archive-only PR branch is also disposable after merge.
+source_branch_evidence: squash merge 14aa7b312cb5dabc13f2ba42c54bb46e79ccd167 plus this terminal archive record and PR 1177 lifecycle closeout.
 ```
