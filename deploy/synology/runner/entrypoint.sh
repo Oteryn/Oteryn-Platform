@@ -40,7 +40,6 @@ if [[ ! -f .runner ]]; then
         --token "$token" \
         --name "$RUNNER_NAME" \
         --labels "$RUNNER_LABELS" \
-        --no-default-labels \
         --work "$RUNNER_WORKDIR" \
         --unattended \
         --replace
