@@ -57,50 +57,75 @@ cross_repository_tasks:
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 1
-updated_at: 2026-08-18T16:53:00Z
-head: 42f6741deacbd3ba9e1c4f609bb1073ebe0cff7b
+checkpoint_version: 2
+policy_version: 2
+updated_at: 2026-08-19T21:40:14Z
+phase: validate
+session_id: chatgpt-20260819-platform-post-transfer-closeout
+session_role: implementer-validator
+execution_mode: github_cli
+execution_reason: exact repository state, Actions evidence and a bounded workflow repair are available through the authorized GitHub surface
+project_lane: oteryn-platform-core
+status: validating
+head: 1e46d0dcd32b24750db43bb808640d17d058712e
 branch: chore/platform-post-transfer-verification-20260818
-pr: none
-status: implementing
-context_routes:
-  - agent-governance
-  - testing
-owned_paths:
-  - docs/agents/tasks/active/OTERYN-20260818-platform-post-transfer-verification.md
-  - docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md
-  - docs/architecture/migration/OTERYN_PLATFORM_TRANSFER_READINESS.md
-  - docs/architecture/migration/oteryn-platform-transfer-inventory.json
-  - .github/workflows/one-off-platform-post-transfer-verification.yml
+pr: 1164
+context_pressure: high
+context_growth: stable
+decomposition_decision: phased
+validation_level: focused
+last_completed_step: proved transferred repository identity, target GHCR publication/readback and exact repository runner attachment; detected that the existing proof used canonical :main instead of the required bounded verification tag
+heavy_validation_runs: 1
+ci_checks_for_current_head: 1
+ci_check_generation: draft
+terminal_ci_wait_started_at: null
+terminal_ci_checks_for_current_generation: 0
+unchanged_state_checks: 0
+identical_failure_retries: 0
+repair_cycles_for_current_gate: 2
+context_reconstruction_attempts: 0
+stall_warnings: 0
 proven:
-  - repository ID 1305155726 resolves to Oteryn/Oteryn-Platform after the owner transfer
-  - connected GitHub integration has admin access to the transferred repository
-  - transferred main is exactly 42f6741deacbd3ba9e1c4f609bb1073ebe0cff7b matching the pre-cutover head
-  - transferred main remains protected with required classify-changes and test checks
-  - PR 1161 is preserved at the new coordinate with the same merge SHA 42f6741deacbd3ba9e1c4f609bb1073ebe0cff7b
-  - pre-existing open PRs are visible at the new coordinate
-  - migration backup repository ID 1338405017 remains separate at Oteryn/Oteryn-Platform-Migration-Backup-20260818
+  - repository ID 1305155726 resolves to Oteryn/Oteryn-Platform with admin access
+  - transferred main 42f6741deacbd3ba9e1c4f609bb1073ebe0cff7b survived the owner transfer exactly
+  - current main 2b9637e813e9431c91656b9982032e43e9b8160a differs from transferred main only in .github/workflows/ci.yml
+  - main remains protected with required classify-changes and test contexts
+  - historical PR 1161 remains preserved at the new coordinate
+  - workflow run 32304196836 proved repository identity, runner oteryn-synology-staging and target GHCR publication/readback for all three Platform-owned images
+  - runner ID 21 is online, idle, and intentionally exposes only the custom oteryn-staging label because canonical registration uses --no-default-labels
+  - old coordinate blakinio/Oteryn-Platform resolves to the transferred repository ID 1305155726 at Oteryn/Oteryn-Platform
 derived:
-  - physical owner transfer and core repository identity/history continuity succeeded
+  - physical owner transfer and core repository identity/protection continuity are proven
+  - the runner cutover gate is proven without protected staging execution
 unknown:
-  - target GHCR package publication/read/link behavior after owner transfer
-  - repository-level self-hosted runner attachment/online behavior after owner transfer
-conflicts: []
-first_failure: null
-rejected_hypotheses:
-  - Treat the owner operation as a copy into a new repository identity.
-  - Mark the migration COMPLETED before package and runner cutover verification.
-changed_paths:
-  - docs/agents/tasks/active/OTERYN-20260818-platform-post-transfer-verification.md
-validation:
-  - command: live repository ID and transferred main/protection readback
-    result: PASS
-    evidence: repository ID 1305155726 at Oteryn/Oteryn-Platform and exact main 42f6741deacbd3ba9e1c4f609bb1073ebe0cff7b
-  - command: transferred historical PR readback
-    result: PASS
-    evidence: PR 1161 retained number state merge SHA and body at the new coordinate
-blockers: []
-next_action: open the Draft PR, then add a task-specific branch-only verification workflow to prove GHCR target publication/readback and self-hosted runner attachment
+  - GitHub package repository-link metadata; operational target publication/readback is proven but package-link metadata is not readable through the current token
+  - GitHub App installation metadata through the user-token endpoint; connector admin access itself is proven
+conflicts:
+  - the successful existing proof published canonical :main tags although the task contract required bounded verification tags; current runtime source is equivalent because post-transfer main drift is CI-workflow-only, but bounded proof must still be rerun rather than weakening acceptance
+first_failure: existing verification workflow used :main instead of a bounded verification tag
+next_action: push the bounded verify-transfer-<TRANSFERRED_MAIN> workflow repair, run it once, then persist exact evidence and remove the temporary workflow before final PR validation
+recovery:
+  policy_version: 1
+  generation: 1
+  session_id: chatgpt-20260819-platform-post-transfer-closeout
+  session_started_at: 2026-08-19T21:29:00Z
+  checkpointed_at: 2026-08-19T21:40:14Z
+  last_progress_at: 2026-08-19T21:40:14Z
+  phase: validate
+  exact_head: 1e46d0dcd32b24750db43bb808640d17d058712e
+  pull_request: 1164
+  active_operation: bounded verification-tag workflow repair and next generated Actions run
+  external_run_ids:
+    - 32304196836
+    - 32304204549
+  operation_started_at: null
+  wait_deadline_at: null
+  check_generation: bounded-verification-tag-repair
+  checks_used: 1
+  status: ready
+  safe_to_resume: true
+  resume_condition: branch contains the bounded verification-tag repair and GitHub has generated the corresponding workflow run
+  next_action: inspect the one generated bounded verification run; on success persist evidence and delete the temporary workflow
 ```
 
 ## Source branch closeout

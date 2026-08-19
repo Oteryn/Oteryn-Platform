@@ -103,7 +103,7 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           provenance: false
-          tags: ${{ steps.image.outputs.image }}:main
+          tags: ${{ steps.image.outputs.image }}:verify-transfer-${{ env.TRANSFERRED_MAIN }}
           labels: |
             org.opencontainers.image.source=https://github.com/Oteryn/Oteryn-Platform
             org.opencontainers.image.revision=${{ env.TRANSFERRED_MAIN }}
@@ -117,8 +117,10 @@ jobs:
           set -euo pipefail
           test -n "$DIGEST"
           docker buildx imagetools inspect "$IMAGE@$DIGEST"
-          docker pull "$IMAGE:main"
-          echo "main_verified=$IMAGE@$DIGEST"
+          verification_tag="verify-transfer-$TRANSFERRED_MAIN"
+          docker pull "$IMAGE:$verification_tag"
+          echo "verification_verified=$IMAGE@$DIGEST"
+          echo "verification_tag=$IMAGE:$verification_tag"
 
   self-hosted-runner-attachment:
     name: Verify transferred self-hosted runner attachment
