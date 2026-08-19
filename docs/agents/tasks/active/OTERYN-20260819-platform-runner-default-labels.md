@@ -17,7 +17,7 @@ estimate_confidence: high
 decomposition_decision: single
 decomposition_reason: one runner registration defect and its focused regression contract
 validation_level: focused
-heavy_validation_runs: 0
+heavy_validation_runs: 1
 session_rotation_count: 0
 stale_takeover_count: 0
 human_interruptions: 0
@@ -27,7 +27,7 @@ branch: fix/platform-runner-default-labels-20260819
 base_sha: 2b9637e813e9431c91656b9982032e43e9b8160a
 owned_paths:
   - deploy/synology/runner/entrypoint.sh
-  - tests/ci/test_synology_runner_registration_labels.py
+  - tests/ci/test_synology_deploy_release_identity.py
   - docs/agents/tasks/active/OTERYN-20260819-platform-runner-default-labels.md
 ---
 
@@ -48,7 +48,7 @@ Restore the GitHub-hosted default self-hosted-runner labels while retaining the 
 
 - remove `--no-default-labels` from the repository-owned first-registration path;
 - keep the custom `RUNNER_LABELS` contract unchanged;
-- focused regression test proves the entrypoint supplies `--labels` and does not suppress GitHub default labels;
+- required Synology release-identity CI proves the entrypoint supplies `--labels` and does not suppress GitHub default labels;
 - exact-head required CI passes;
 - full exact-head self-review has no material finding;
 - repository-only repair is merged before any privileged Synology re-registration;
@@ -65,10 +65,49 @@ Repository implementation E2E is `NOT_APPLICABLE`: merging this repair does not 
 ## Context checkpoint
 
 ```yaml
-updated_at: 2026-08-19T23:32:00+02:00
+checkpoint_version: 1
+updated_at: 2026-08-19T23:39:00+02:00
+head: 7615798c12237f14906dfd15bb2370ab8646e9c6
+branch: fix/platform-runner-default-labels-20260819
+pr: 1174
 status: validating
-phase: validate
-last_completed_step: removed --no-default-labels and added focused regression contract on PR #1174
+context_routes:
+  - agent-governance
+  - deployment-operations
+  - testing
+owned_paths:
+  - deploy/synology/runner/entrypoint.sh
+  - tests/ci/test_synology_deploy_release_identity.py
+  - docs/agents/tasks/active/OTERYN-20260819-platform-runner-default-labels.md
+proven:
+  - Live repository runner 21 is online and idle with only the oteryn-staging label and OS unknown.
+  - Trusted-base entrypoint suppressed GitHub default runner labels with --no-default-labels.
+  - PR 1164 requires both self-hosted and oteryn-staging labels and its runner jobs remain queued.
+  - The implementation removed only --no-default-labels while retaining the custom --labels argument.
+derived:
+  - A future first registration or re-registration with the repaired entrypoint will retain oteryn-staging while allowing GitHub standard default labels.
+unknown:
+  - Live runner labels and scheduling state after the later privileged Synology re-registration.
+conflicts: []
+first_failure:
+  marker: incomplete-checkpoint-schema
+  evidence: checkpoint-validation job 96233584560 rejected the initial task checkpoint because mandatory version-1 fields were absent.
+rejected_hypotheses:
+  - Weakening PR 1164 to custom-label-only scheduling is an acceptable repair.
+changed_paths:
+  - deploy/synology/runner/entrypoint.sh
+  - tests/ci/test_synology_deploy_release_identity.py
+  - docs/agents/tasks/active/OTERYN-20260819-platform-runner-default-labels.md
+validation:
+  - command: initial PR 1174 classify-changes validation
+    result: FAIL
+    evidence: checkpoint schema failure only; existing Synology release-identity tests passed 15 of 15.
+  - command: required Synology runner-label regression on repaired head
+    result: NOT_RUN
+    evidence: assertion was folded into the existing required test suite after the first CI attempt.
+  - command: live Synology re-registration and PR 1164 runner verification
+    result: NOT_APPLICABLE
+    evidence: this repository-only PR does not authorize or perform a protected self-hosted-runner restart or re-registration.
 blockers: []
-next_action: verify exact-head focused tests, required CI and full-diff self-review
+next_action: Run exact-head required CI, inspect the full diff and merge only if all applicable gates pass with no material self-review finding.
 ```
