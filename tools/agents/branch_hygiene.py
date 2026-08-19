@@ -25,6 +25,9 @@ PREFERRED_TASK_BRANCH_RE = re.compile(
     r"^(?:feat|fix|refactor|docs|ops|research|test|chore|repair|audit)/"
     r"issue-[1-9][0-9]*-[a-z0-9][a-z0-9._-]*$"
 )
+ISSUE_BRANCH_RE = re.compile(
+    r"^\s*branch:\s*`?([^`\s#]+)`?\s*$", re.IGNORECASE | re.MULTILINE
+)
 EXPECTED_REPOSITORY_SETTINGS = {
     "default_branch": "main",
     "allow_squash_merge": True,
@@ -87,6 +90,40 @@ def open_pr_numbers_by_branch(client: GitHubClient) -> dict[str, list[int]]:
         branch, number = parsed
         grouped.setdefault(branch, set()).add(number)
     return {branch: sorted(numbers) for branch, numbers in sorted(grouped.items())}
+
+
+def open_issue_claims_by_branch(client: GitHubClient) -> dict[str, list[str]]:
+    """Return explicit branch claims from open GitHub Issues.
+
+    Issues are the lifecycle authority. Pull requests are excluded because
+    open PR ownership is accounted for separately. A branch claim is accepted
+    only from an exact ``branch: <ref>`` line in the Issue body.
+    """
+
+    raw = client.paginate(f"/repos/{client.repo}/issues?state=open&per_page=100")
+    grouped: dict[str, set[str]] = {}
+    for issue in raw:
+        if not isinstance(issue, dict) or "pull_request" in issue:
+            continue
+        number = issue.get("number")
+        body = issue.get("body")
+        if not isinstance(number, int) or isinstance(number, bool) or not isinstance(body, str):
+            continue
+        claim = f"issue:#{number}"
+        for match in ISSUE_BRANCH_RE.finditer(body):
+            branch = match.group(1).strip()
+            if branch.casefold() in audit.PLACEHOLDER_BRANCHES:
+                continue
+            grouped.setdefault(branch, set()).add(claim)
+    return {branch: sorted(claims) for branch, claims in sorted(grouped.items())}
+
+
+def merge_claim_maps(*maps: dict[str, list[str]]) -> dict[str, list[str]]:
+    grouped: dict[str, set[str]] = {}
+    for claims in maps:
+        for branch, sources in claims.items():
+            grouped.setdefault(branch, set()).update(sources)
+    return {branch: sorted(sources) for branch, sources in sorted(grouped.items())}
 
 
 def repository_settings(client: GitHubClient) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -340,7 +377,10 @@ def build_report(
     validate_scope(client.repo, default_branch)
     branches = audit.list_live_branches(client)
     open_prs = open_pr_numbers_by_branch(client)
-    active_claims = audit.active_task_branches(root)
+    active_claims = merge_claim_maps(
+        audit.active_task_branches(root),
+        open_issue_claims_by_branch(client),
+    )
     settings, settings_findings = repository_settings(client)
     return evaluate_snapshot(
         branches=branches,

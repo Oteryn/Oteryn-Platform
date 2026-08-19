@@ -112,6 +112,44 @@ def test_naming_is_advisory_and_bots_are_exempt():
     assert bot["advisory_count"] == 0
 
 
+
+def test_open_issue_branch_claims_are_lifecycle_authority():
+    class Client:
+        repo = "Oteryn/Oteryn-Platform"
+
+        def paginate(self, path):
+            assert path == "/repos/Oteryn/Oteryn-Platform/issues?state=open&per_page=100"
+            return [
+                {
+                    "number": 1173,
+                    "body": "branch: ops/retained-unique\nbranch: `support/retained-two`\n",
+                },
+                {
+                    "number": 1174,
+                    "body": "branch: ops/retained-unique\n",
+                },
+                {
+                    "number": 1175,
+                    "body": "branch: ignored-pr\n",
+                    "pull_request": {"url": "https://example.invalid"},
+                },
+            ]
+
+    claims = m.open_issue_claims_by_branch(Client())
+    assert claims == {
+        "ops/retained-unique": ["issue:#1173", "issue:#1174"],
+        "support/retained-two": ["issue:#1173"],
+    }
+    merged = m.merge_claim_maps(
+        {"ops/retained-unique": ["docs/agents/tasks/active/legacy.md"]},
+        claims,
+    )
+    assert merged["ops/retained-unique"] == [
+        "docs/agents/tasks/active/legacy.md",
+        "issue:#1173",
+        "issue:#1174",
+    ]
+
 def test_repository_setting_drift_fails():
     observed = good_settings()
     assert m.repository_setting_findings(observed) == []
