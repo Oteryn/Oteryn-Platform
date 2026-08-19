@@ -1,0 +1,123 @@
+name: One-off Safe Governance Authority Migration
+
+on:
+  push:
+    branches:
+      - governance/issue-1165-safe-authority
+    paths:
+      - .github/workflows/one-off-governance-authority-migration.yml
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact task branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: governance/issue-1165-safe-authority
+
+      - name: Apply asserted byte-preserving policy migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          OLD = "blakinio/Oteryn-Platform"
+          NEW = "Oteryn/Oteryn-Platform"
+          BOOTSTRAP = "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md"
+
+          def read(path: str) -> str:
+              return Path(path).read_text(encoding="utf-8")
+
+          def write(path: str, text: str) -> None:
+              target = Path(path)
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(text, encoding="utf-8")
+
+          agents = read("AGENTS.md")
+          if agents.count(OLD) < 2:
+              raise SystemExit("AGENTS.md no longer contains the expected pre-transfer authority markers")
+          agents = agents.replace(OLD, NEW)
+
+          instruction_old = """## Instruction order\n\n1. This root `AGENTS.md`.\n2. The nearest nested `AGENTS.md`, when present.\n3. `docs/agents/REPOSITORY_MAP.md` and `docs/agents/CONTEXT_ROUTING.md`.\n4. The active task checkpoint and live PR for the current task, when present.\n5. Only the task-routed documentation and source evidence required for the task.\n"""
+          instruction_new = """## Instruction order\n\n1. This root `AGENTS.md`.\n2. `docs/agents/PLATFORM_AGENT_BOOTSTRAP.md`, which preserves the mandatory bootstrap, scope, budget and closeout fences formerly auto-loaded from the root override.\n3. The nearest nested `AGENTS.md`, when present.\n4. `docs/agents/REPOSITORY_MAP.md` and `docs/agents/CONTEXT_ROUTING.md`.\n5. The active task checkpoint and live PR for the current task, when present.\n6. Only the task-routed documentation and source evidence required for the task.\n"""
+          if agents.count(instruction_old) != 1:
+              raise SystemExit("AGENTS.md instruction-order block drifted; refusing non-deterministic migration")
+          agents = agents.replace(instruction_old, instruction_new, 1)
+
+          startup_old = """1. Read this file.\n2. Read `docs/agents/REPOSITORY_MAP.md` and `docs/agents/CONTEXT_ROUTING.md`.\n3. If continuing existing work, read its active task `## Context checkpoint` and current live PR/head before broad discovery.\n4. Classify the task using routes from `CONTEXT_ROUTING.md` and load only matching context.\n5. Search active tasks and open PRs narrowly for overlapping paths, modules, identifiers or contracts.\n6. Search the repository for reusable code before designing a new reusable abstraction.\n7. When a local checkout exists, verify Git branch, working tree, remotes and worktrees before editing.\n8. Record uncertainty instead of inventing repository, deployment, database or cross-repository state.\n"""
+          startup_new = """1. Read this file.\n2. Read `docs/agents/PLATFORM_AGENT_BOOTSTRAP.md` before any substantial work.\n3. Read `docs/agents/REPOSITORY_MAP.md` and `docs/agents/CONTEXT_ROUTING.md`.\n4. If continuing existing work, read its active task `## Context checkpoint` and current live PR/head before broad discovery.\n5. Classify the task using routes from `CONTEXT_ROUTING.md` and load only matching context.\n6. Search active tasks and open PRs narrowly for overlapping paths, modules, identifiers or contracts.\n7. Search the repository for reusable code before designing a new reusable abstraction.\n8. When a local checkout exists, verify Git branch, working tree, remotes and worktrees before editing.\n9. Record uncertainty instead of inventing repository, deployment, database or cross-repository state.\n"""
+          if agents.count(startup_old) != 1:
+              raise SystemExit("AGENTS.md startup block drifted; refusing non-deterministic migration")
+          agents = agents.replace(startup_old, startup_new, 1)
+          write("AGENTS.md", agents)
+
+          override_path = Path("AGENTS.override.md")
+          override = override_path.read_text(encoding="utf-8")
+          if OLD not in override:
+              raise SystemExit("AGENTS.override.md lacks expected pre-transfer coordinate")
+          override = override.replace(OLD, NEW)
+          bootstrap_header = """<!-- Canonical durable bootstrap policy. Moved byte-for-byte from the former root AGENTS.override.md except for the post-transfer repository-coordinate substitution. Root AGENTS.md requires this file explicitly. -->\n\n"""
+          write(BOOTSTRAP, bootstrap_header + override)
+          override_path.unlink()
+
+          replacements = {
+              "tools/agents/policy_consistency.py": [(OLD, NEW), ("AGENTS.override.md", BOOTSTRAP)],
+              "tools/agents/test_policy_consistency.py": [("AGENTS.override.md", BOOTSTRAP)],
+              "scripts/ci/classify_changes.py": [("AGENTS.override.md", BOOTSTRAP)],
+              "tests/ci/test_workflow_trigger_economy.py": [("AGENTS.override.md", BOOTSTRAP)],
+              ".github/workflows/agent-governance.yml": [("- AGENTS.override.md", f"- {BOOTSTRAP}")],
+          }
+          for path, pairs in replacements.items():
+              text = read(path)
+              for old, new in pairs:
+                  if old not in text:
+                      raise SystemExit(f"{path}: expected token missing: {old}")
+                  text = text.replace(old, new)
+              write(path, text)
+
+          active_refs = subprocess.check_output(
+              [
+                  "git", "grep", "-l", "AGENTS.override.md", "--",
+                  ":(exclude)docs/agents/tasks/archive/**",
+                  ":(exclude)docs/evidence/**",
+                  ":(exclude).github/workflows/one-off-governance-authority-migration.yml",
+              ],
+              text=True,
+          ).splitlines()
+          unexpected = [path for path in active_refs if path]
+          if unexpected:
+              raise SystemExit(f"unexpected active AGENTS.override.md references remain: {unexpected}")
+
+          if OLD in read("AGENTS.md") or OLD in read(BOOTSTRAP):
+              raise SystemExit("pre-transfer Platform coordinate remains in current agent authority")
+          PY
+
+      - name: Run preserved fail-closed governance regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/agents/test_policy_consistency.py
+          python tools/agents/policy_consistency.py
+          python tests/ci/test_workflow_trigger_economy.py
+          python tools/agents/test_checkpoint.py
+          python tools/agents/test_task_liveness.py
+          git diff --check
+
+      - name: Commit exact mechanical migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "chore(governance): preserve policy while canonicalizing authority"
+          git push origin HEAD:governance/issue-1165-safe-authority
