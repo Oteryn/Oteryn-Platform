@@ -3,7 +3,7 @@
 ```yaml
 remediation_risk_gate_version: 2
 legacy_path_name: REMEDIATION_AUDIT_RISK_GATE.md
-repository: blakinio/Oteryn-Platform
+repository: Oteryn/Oteryn-Platform
 one_issue_one_owner: true
 external_repair_auditor_required: false
 ```

@@ -1,6 +1,6 @@
 ---
 task_id: OTERYN-20260805-native-auth-production-verification
-repository: blakinio/Oteryn-Platform
+repository: Oteryn/Oteryn-Platform
 execution_mode: verification_only
 branch: none
 pull_request: none

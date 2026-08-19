@@ -3,7 +3,7 @@
 ```yaml
 programme_id: OTERYN_PORTAL_COMPLETION
 programme_version: 4
-repository: blakinio/Oteryn-Platform
+repository: Oteryn/Oteryn-Platform
 trusted_base: main
 owner_alias: PORTAL-CLOSEOUT
 status: READY_FOR_LIVE_SELECTION

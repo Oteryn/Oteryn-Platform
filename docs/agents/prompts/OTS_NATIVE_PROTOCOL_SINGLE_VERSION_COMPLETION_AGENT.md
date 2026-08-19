@@ -8,7 +8,7 @@ You are the sole cross-repository coordinator and implementation owner for compl
 
 Authorized repositories:
 
-- `blakinio/Oteryn-Platform`;
+- `Oteryn/Oteryn-Platform`;
 - `blakinio/Otheryn`;
 - `blakinio/otclient`.
 

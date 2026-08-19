@@ -2,7 +2,7 @@
 
 ```yaml
 lifecycle_closeout_batching_version: 2
-repository: blakinio/Oteryn-Platform
+repository: Oteryn/Oteryn-Platform
 applies_to:
   - OTERYN_PLATFORM_CONTINUOUS_AUDIT
   - OTERYN_PLATFORM_REMEDIATION

@@ -72,7 +72,7 @@ Effective authority is the intersection of:
 A current trusted invocation may narrow the candidate scope, including prohibiting even read/search access to a repository named by the programme. Never inspect or mutate an excluded repository merely because the alias, credentials, connector or an earlier session names it.
 
 Only when current authority permits, the programme's maximum owner-controlled candidate scope is:
-- blakinio/Oteryn-Platform;
+- Oteryn/Oteryn-Platform;
 - blakinio/Oteryn-v2;
 - blakinio/Otheryn;
 - the future target repositories Oteryn, Oteryn-Game and Oteryn-Atlas if their creation/rename/transfer becomes proven safe and the available tool actually supports it.
@@ -149,7 +149,7 @@ KNOWN STARTING HYPOTHESIS — VERIFY, DO NOT TRUST
 
 Previous evidence indicated that these existed:
 - blakinio/Oteryn-v2;
-- blakinio/Oteryn-Platform;
+- Oteryn/Oteryn-Platform;
 - blakinio/Otheryn as legacy/migration source;
 - blakinio/canary and blakinio/otclient as legacy/reference.
 
@@ -165,7 +165,7 @@ IMPORTANT EXISTING ARCHITECTURE EVIDENCE
 Find and read the live merged/canonical forms before using them.
 
 Temporary ecosystem topology authority previously lived in:
-  blakinio/Oteryn-Platform
+  Oteryn/Oteryn-Platform
   docs/architecture/adr/0041-ecosystem-repository-authority-contracts-and-atlas-integration.md
 
 Relevant prior review/delivery evidence includes, when still applicable:

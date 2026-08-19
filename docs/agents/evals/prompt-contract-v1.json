@@ -137,7 +137,7 @@
       "must_contain": [
         "prompt_contract:",
         "run_scope: autonomous_program",
-        "blakinio/Oteryn-Platform",
+        "Oteryn/Oteryn-Platform",
         "self_review:",
         "applicable E2E",
         "repository-required exact-head CI",
@@ -337,7 +337,7 @@
       "source": "docs/agents/programs/GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM.md",
       "must_contain": [
         "**It grants no cross-repository access or mutation authority.**",
-        "default authorized repository scope is `blakinio/Oteryn-Platform` only;",
+        "default authorized repository scope is `Oteryn/Oteryn-Platform` only;",
         "must not be read, searched, fetched, inspected, audited, branched, edited, reviewed or merged unless the repository owner explicitly authorizes that exact repository scope for the current task;"
       ],
       "must_not_contain": [

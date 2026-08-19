@@ -79,7 +79,7 @@ def pr_payload(
     merged=False,
     draft=False,
     ref="repair/live",
-    repo="blakinio/Oteryn-Platform",
+    repo="Oteryn/Oteryn-Platform",
     sha="b" * 40,
     number=12,
     merged_at=None,
@@ -139,7 +139,7 @@ class LivenessTests(unittest.TestCase):
         report = live.evaluate_tasks(
             self.active,
             self.archive,
-            repository="blakinio/Oteryn-Platform",
+            repository="Oteryn/Oteryn-Platform",
             client=self.client,
             policy=POLICY,
         )

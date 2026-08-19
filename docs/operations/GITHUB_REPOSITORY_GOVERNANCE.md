@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines the desired GitHub-side controls for `blakinio/Oteryn-Platform`. The machine-readable source is `docs/operations/github-repository-policy.json`.
+This document defines the desired GitHub-side controls for `Oteryn/Oteryn-Platform`. The machine-readable source is `docs/operations/github-repository-policy.json`.
 
 Repository documents describe policy; GitHub settings enforce it. A control is not considered active until live API state verifies it.
 

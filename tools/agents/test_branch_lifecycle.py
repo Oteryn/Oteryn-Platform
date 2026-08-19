@@ -67,10 +67,10 @@ class BranchLifecycleTest(unittest.TestCase):
         return {
             "head": {
                 "ref": branch,
-                "repo": {"full_name": "blakinio/Oteryn-Platform"},
+                "repo": {"full_name": "Oteryn/Oteryn-Platform"},
                 "sha": sha,
             },
-            "html_url": f"https://github.com/blakinio/Oteryn-Platform/pull/{number}",
+            "html_url": f"https://github.com/Oteryn/Oteryn-Platform/pull/{number}",
             "merged_at": merged_at,
             "number": number,
             "state": state,
@@ -98,7 +98,7 @@ class BranchLifecycleTest(unittest.TestCase):
                 self.pull(11, "docs/merged", "c" * 40),
                 self.pull(12, "feature/moved", "0" * 40),
             ],
-            "repository": "blakinio/Oteryn-Platform",
+            "repository": "Oteryn/Oteryn-Platform",
         }
 
     def classify(self, snapshot: dict | None = None) -> dict:
@@ -122,7 +122,7 @@ class BranchLifecycleTest(unittest.TestCase):
         default_sha = report["default_branch_sha"]
 
         class FakeApplyClient:
-            repo = "blakinio/Oteryn-Platform"
+            repo = "Oteryn/Oteryn-Platform"
 
             def __init__(client_self) -> None:
                 client_self.refs = {
@@ -431,7 +431,7 @@ class BranchLifecycleTest(unittest.TestCase):
     def test_github_client_delete_branch_guards_expected_sha(self) -> None:
         class GuardClient(branch_lifecycle.GitHubClient):
             def __init__(client_self) -> None:
-                client_self.repo = "blakinio/Oteryn-Platform"
+                client_self.repo = "Oteryn/Oteryn-Platform"
                 client_self.current_sha = "a" * 40
                 client_self.leases: list[tuple[str, str]] = []
 
@@ -451,7 +451,7 @@ class BranchLifecycleTest(unittest.TestCase):
     def test_github_client_delete_without_expected_sha_leases_observed_sha(self) -> None:
         class RecoveryClient(branch_lifecycle.GitHubClient):
             def __init__(client_self) -> None:
-                client_self.repo = "blakinio/Oteryn-Platform"
+                client_self.repo = "Oteryn/Oteryn-Platform"
                 client_self.leases: list[tuple[str, str]] = []
 
             def get_ref(client_self, branch: str) -> dict | None:
@@ -465,28 +465,28 @@ class BranchLifecycleTest(unittest.TestCase):
         self.assertEqual([("recovery-test/example", "a" * 40)], client.leases)
 
     def test_github_remote_normalization_accepts_supported_forms(self) -> None:
-        expected = "blakinio/Oteryn-Platform"
+        expected = "Oteryn/Oteryn-Platform"
         for remote in (
-            "https://github.com/blakinio/Oteryn-Platform.git",
-            "git@github.com:blakinio/Oteryn-Platform.git",
-            "ssh://git@github.com/blakinio/Oteryn-Platform.git",
+            "https://github.com/Oteryn/Oteryn-Platform.git",
+            "git@github.com:Oteryn/Oteryn-Platform.git",
+            "ssh://git@github.com/Oteryn/Oteryn-Platform.git",
         ):
             with self.subTest(remote=remote):
                 self.assertEqual(
                     expected, branch_lifecycle._github_repository_from_remote(remote)
                 )
         for remote in (
-            "https://gitlab.com/blakinio/Oteryn-Platform.git",
+            "https://gitlab.com/Oteryn/Oteryn-Platform.git",
             "file:///tmp/Oteryn-Platform",
-            "https://github.com/blakinio/Oteryn-Platform/extra",
-            "https://token@github.com/blakinio/Oteryn-Platform.git",
+            "https://github.com/Oteryn/Oteryn-Platform/extra",
+            "https://token@github.com/Oteryn/Oteryn-Platform.git",
         ):
             with self.subTest(remote=remote):
                 self.assertIsNone(branch_lifecycle._github_repository_from_remote(remote))
 
     def test_github_client_atomic_delete_uses_exact_remote_lease_without_token(self) -> None:
         client = branch_lifecycle.GitHubClient(
-            "blakinio/Oteryn-Platform", "super-secret-token", root=self.root
+            "Oteryn/Oteryn-Platform", "super-secret-token", root=self.root
         )
         expected_sha = "a" * 40
         client.get_ref = lambda branch: {"object": {"sha": expected_sha}}
@@ -500,7 +500,7 @@ class BranchLifecycleTest(unittest.TestCase):
                 return branch_lifecycle.subprocess.CompletedProcess(
                     args=command,
                     returncode=0,
-                    stdout="git@github.com:blakinio/Oteryn-Platform.git\n",
+                    stdout="git@github.com:Oteryn/Oteryn-Platform.git\n",
                     stderr="",
                 )
             if command[:2] == ["git", "push"]:
@@ -536,7 +536,7 @@ class BranchLifecycleTest(unittest.TestCase):
 
     def test_github_client_atomic_delete_rejects_foreign_remote_before_push(self) -> None:
         client = branch_lifecycle.GitHubClient(
-            "blakinio/Oteryn-Platform", "token", root=self.root
+            "Oteryn/Oteryn-Platform", "token", root=self.root
         )
         expected_sha = "a" * 40
         client.get_ref = lambda branch: {"object": {"sha": expected_sha}}
@@ -566,7 +566,7 @@ class BranchLifecycleTest(unittest.TestCase):
 
     def test_github_client_atomic_delete_rejects_wrong_git_root_before_remote(self) -> None:
         client = branch_lifecycle.GitHubClient(
-            "blakinio/Oteryn-Platform", "token", root=self.root
+            "Oteryn/Oteryn-Platform", "token", root=self.root
         )
         expected_sha = "a" * 40
         client.get_ref = lambda branch: {"object": {"sha": expected_sha}}
@@ -589,7 +589,7 @@ class BranchLifecycleTest(unittest.TestCase):
 
     def test_github_client_atomic_delete_rejects_ambiguous_push_urls(self) -> None:
         client = branch_lifecycle.GitHubClient(
-            "blakinio/Oteryn-Platform", "token", root=self.root
+            "Oteryn/Oteryn-Platform", "token", root=self.root
         )
         expected_sha = "a" * 40
         client.get_ref = lambda branch: {"object": {"sha": expected_sha}}
@@ -604,8 +604,8 @@ class BranchLifecycleTest(unittest.TestCase):
                     args=command,
                     returncode=0,
                     stdout=(
-                        "https://github.com/blakinio/Oteryn-Platform.git\n"
-                        "git@github.com:blakinio/Oteryn-Platform.git\n"
+                        "https://github.com/Oteryn/Oteryn-Platform.git\n"
+                        "git@github.com:Oteryn/Oteryn-Platform.git\n"
                     ),
                     stderr="",
                 )
@@ -622,7 +622,7 @@ class BranchLifecycleTest(unittest.TestCase):
 
     def test_github_client_atomic_delete_rejects_last_instruction_race(self) -> None:
         client = branch_lifecycle.GitHubClient(
-            "blakinio/Oteryn-Platform", "super-secret-token", root=self.root
+            "Oteryn/Oteryn-Platform", "super-secret-token", root=self.root
         )
         expected_sha = "a" * 40
         advanced_sha = "b" * 40
@@ -640,7 +640,7 @@ class BranchLifecycleTest(unittest.TestCase):
                 return branch_lifecycle.subprocess.CompletedProcess(
                     args=command,
                     returncode=0,
-                    stdout="git@github.com:blakinio/Oteryn-Platform.git\n",
+                    stdout="git@github.com:Oteryn/Oteryn-Platform.git\n",
                     stderr="",
                 )
             self.assertIn(

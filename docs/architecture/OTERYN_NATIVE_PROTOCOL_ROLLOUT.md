@@ -28,7 +28,7 @@ Canonical contract: `../contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md`
 
 ## Safe merge order for the contract task
 
-1. merge the canonical `blakinio/Oteryn-Platform` contract PR;
+1. merge the canonical `Oteryn/Oteryn-Platform` contract PR;
 2. refresh exact canonical revision links in `blakinio/Otheryn` and merge the producer correspondence PR;
 3. refresh exact canonical and Otheryn revisions in `blakinio/otclient` and merge the client correspondence PR;
 4. archive all three tasks and release ownership.

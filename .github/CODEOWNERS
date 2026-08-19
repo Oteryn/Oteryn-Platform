@@ -9,7 +9,6 @@
 
 # Agent governance and durable architecture/contracts.
 /AGENTS.md @blakinio
-/AGENTS.override.md @blakinio
 /docs/agents/ @blakinio
 /docs/architecture/ @blakinio
 /docs/contracts/ @blakinio

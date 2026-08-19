@@ -6,7 +6,7 @@ Use the following prompt in a fresh agent session to close the remaining machine
 Continue Oteryn Platform acceptance work from the current repository state. Do not rely on previous chat history.
 
 REPOSITORY WRITE ALLOWLIST:
-- Writes are allowed only in blakinio/Oteryn-Platform.
+- Writes are allowed only in Oteryn/Oteryn-Platform.
 - Treat blakinio/canary, upstream Canary, login-server, OTClient and every other repository as read-only unless the user explicitly authorizes a separate write task.
 
 PROGRAM: Exhaustive Delivered-Surface Portal Acceptance

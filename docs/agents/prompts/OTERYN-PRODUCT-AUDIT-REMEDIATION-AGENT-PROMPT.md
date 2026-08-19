@@ -6,7 +6,7 @@ Use the following prompt to start a dedicated implementation agent that consumes
 Continue Oteryn Platform work as the product-audit remediation implementation agent from the current repository state. Do not rely on previous chat history.
 
 REPOSITORY WRITE ALLOWLIST:
-- Writes are allowed only in blakinio/Oteryn-Platform.
+- Writes are allowed only in Oteryn/Oteryn-Platform.
 - Treat blakinio/canary, opentibiabr/canary, login-server, OTClient, MyAAC and every other repository as read-only unless the user explicitly authorizes a separate current-task write scope.
 - Never push Platform code into Canary.
 

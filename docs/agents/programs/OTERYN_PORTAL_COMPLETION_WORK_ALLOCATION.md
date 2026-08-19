@@ -3,7 +3,7 @@
 ```yaml
 project_id: OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION
 programme: OTERYN_PORTAL_COMPLETION
-repository: blakinio/Oteryn-Platform
+repository: Oteryn/Oteryn-Platform
 trusted_base: main
 status: ACTIVE
 live_state_required: true

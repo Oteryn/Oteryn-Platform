@@ -8,7 +8,7 @@ Continue the Versioned Oteryn Game Catalog programme from repository state.
 AUTHORIZED REPOSITORIES
 
 Writes are authorized only in:
-- blakinio/Oteryn-Platform
+- Oteryn/Oteryn-Platform
 - blakinio/canary
 
 Never write to opentibiabr/canary or another external repository. Use a separate branch, task record, worktree and PR in each repository. Never push directly to main.

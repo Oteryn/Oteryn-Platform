@@ -8,7 +8,7 @@ required_reads:
   - docs/agents/AUDIT_REMEDIATION_ISSUE_TAXONOMY.md
   - docs/agents/REMEDIATION_WORK_CLAIM_PROTOCOL.md
   - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
-repository: blakinio/Oteryn-Platform
+repository: Oteryn/Oteryn-Platform
 ---
 
 # Oteryn Platform Continuous Audit — Programme State
@@ -90,8 +90,8 @@ live_queue:
   open_material_findings: unknown
   ready_remediation_issues: unknown
   blocked_findings: unknown
-  ready_query: 'repo:blakinio/Oteryn-Platform is:issue is:open label:programme:platform label:programme:audit-repair label:agent:ready'
-  blocked_query: 'repo:blakinio/Oteryn-Platform is:issue is:open label:programme:platform label:programme:audit-repair label:state:blocked'
+  ready_query: 'repo:Oteryn/Oteryn-Platform is:issue is:open label:programme:platform label:programme:audit-repair label:agent:ready'
+  blocked_query: 'repo:Oteryn/Oteryn-Platform is:issue is:open label:programme:platform label:programme:audit-repair label:state:blocked'
   active_task_path: docs/agents/tasks/active/
   reason: The finding ledger preserves stable identities only. Current open, ready, blocked and owned disposition must always be recomputed from live repository state.
 proven:

@@ -10,7 +10,7 @@ required_reads:
   - docs/agents/AUDIT_REMEDIATION_ISSUE_TAXONOMY.md
   - docs/agents/REMEDIATION_WORK_CLAIM_PROTOCOL.md
   - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
-repository: blakinio/Oteryn-Platform
+repository: Oteryn/Oteryn-Platform
 ownership_model: one_issue_one_owner_end_to_end
 external_repair_audit: disabled
 ---

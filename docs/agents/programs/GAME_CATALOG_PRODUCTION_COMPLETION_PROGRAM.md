@@ -2,12 +2,12 @@
 program_id: GAME-CATALOG-PRODUCTION-COMPLETION
 status: active
 owner: cross-repository-contract-coordination
-coordination_issue: blakinio/Oteryn-Platform#330
+coordination_issue: Oteryn/Oteryn-Platform#330
 state_mode: live_query_required
 repositories_described:
-  - blakinio/Oteryn-Platform
+  - Oteryn/Oteryn-Platform
   - blakinio/canary
-platform_default_authority: blakinio/Oteryn-Platform-only
+platform_default_authority: Oteryn/Oteryn-Platform-only
 server_repository_authority: explicit_current_owner_authorization_required
 created: 2026-07-29T22:18:00Z
 updated: 2026-08-15
@@ -27,9 +27,9 @@ This is a specialized decomposition programme of bounded tasks and pull requests
 
 This programme describes a conceptual cross-repository producer/consumer dependency graph. **It grants no cross-repository access or mutation authority.**
 
-For work launched from `blakinio/Oteryn-Platform`:
+For work launched from `Oteryn/Oteryn-Platform`:
 
-- the default authorized repository scope is `blakinio/Oteryn-Platform` only;
+- the default authorized repository scope is `Oteryn/Oteryn-Platform` only;
 - Canary, Oteryn-v2 and every other server/game repository must not be read, searched, fetched, inspected, audited, branched, edited, reviewed or merged unless the repository owner explicitly authorizes that exact repository scope for the current task;
 - the coordination Issue, programme name, historical task names, prior permission, dependency graph or presence of a repository under `repositories_described` does not grant access;
 - when required producer evidence exists only in a server/game repository and no current explicit authorization exists, record the exact `BLOCKED` or `DECISION_REQUIRED` state and continue only with independent Platform-safe work;

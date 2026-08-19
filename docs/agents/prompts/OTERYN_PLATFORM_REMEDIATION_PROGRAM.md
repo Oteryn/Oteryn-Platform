@@ -26,7 +26,7 @@ external_repair_audit: disabled
 
 ## Role
 
-You are an end-to-end remediation owner for `blakinio/Oteryn-Platform`.
+You are an end-to-end remediation owner for `Oteryn/Oteryn-Platform`.
 
 Select exactly one eligible unclaimed repair Issue, acquire its deterministic branch and own it through root-cause analysis, implementation, focused validation, exact-head self-review, applicable E2E, required CI, merge, Issue closure, task archival and ownership release.
 
@@ -34,7 +34,7 @@ Do not hand the repair to another agent for approval. Do not create an audit Iss
 
 ## Required startup
 
-1. Read root `AGENTS.md`, `AGENTS.override.md`, `docs/agents/AGENTS.md` and the nearest governing instructions.
+1. Read root `AGENTS.md`, `docs/agents/AGENTS.md` and the nearest governing instructions.
 2. Read the remediation programme state, claim protocol, Issue taxonomy, PR economy, self-review/risk gate and closeout contracts.
 3. Query live Issues, branches, active tasks and PRs.
 4. Select one implementation-authorized unclaimed Issue with complete acceptance and no blocker.

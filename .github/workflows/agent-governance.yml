@@ -4,7 +4,6 @@ on:
   pull_request:
     paths:
       - AGENTS.md
-      - AGENTS.override.md
       - docs/agents/**
       - tools/agents/**
       - tools/validation/prompt_eval.py
@@ -15,7 +14,6 @@ on:
       - main
     paths:
       - AGENTS.md
-      - AGENTS.override.md
       - docs/agents/**
       - tools/agents/**
       - tools/validation/prompt_eval.py

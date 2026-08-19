@@ -60,7 +60,7 @@ Establish durable current-state evidence, target architecture, threat model and 
 
 ### Writes
 
-Only `blakinio/Oteryn-Platform` documentation/contracts.
+Only `Oteryn/Oteryn-Platform` documentation/contracts.
 
 ### Exit gate
 

@@ -5,7 +5,7 @@ canonical_prompt: docs/agents/prompts/OTERYN_PLATFORM_ARCHITECTURE_REVIEW_PROGRA
 required_reads:
   - docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md
   - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
-repository: blakinio/Oteryn-Platform
+repository: Oteryn/Oteryn-Platform
 ---
 
 # Oteryn Platform Architecture, Structure and CI Review — Programme State
@@ -76,7 +76,7 @@ proven:
   - Repository owner selected Option A for the merged source-branch lifecycle policy; PR 653 merged ADR 0024.
   - Repository owner selected Option A for repository licensing; PR 690 merged ADR 0026 and the proprietary/no-permission policy.
   - Repository owner selected Option A for confidential vulnerability disclosure.
-  - GitHub Private Vulnerability Reporting is enabled for blakinio/Oteryn-Platform.
+  - GitHub Private Vulnerability Reporting is enabled for Oteryn/Oteryn-Platform.
   - PR 702 merged ADR 0027, canonical SECURITY.md routing, public-Issue diversion and the empty active decision backlog as ab6ac645595813653618d91574c717fb4d9c7edd after all eight exact-head workflows and independent audit passed.
   - The completed review at docs/agents/reports/OTERYN-20260806-game-auth-topology-current-state-review.md proved the game-auth documentation drift and preserved exact evidence classification.
   - PR 731 merged the canonical game-auth reconciliation as 3c806583d2a0c12d5698f7c30755c22c48da60a4 with exactly five effective documentation/task paths and zero unresolved review threads.

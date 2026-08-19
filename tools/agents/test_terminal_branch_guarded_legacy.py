@@ -9,7 +9,7 @@ import terminal_branch_cleanup as guarded
 
 
 class FakeClient:
-    repo = "blakinio/Oteryn-Platform"
+    repo = "Oteryn/Oteryn-Platform"
 
     def __init__(self, body: str):
         self.body = body
@@ -154,7 +154,7 @@ class TerminalBranchRetentionGuardTest(unittest.TestCase):
             report = {
                 "default_branch": "main",
                 "default_branch_sha": "a" * 40,
-                "repository": "blakinio/Oteryn-Platform",
+                "repository": "Oteryn/Oteryn-Platform",
             }
             entry = {
                 "branch": "closed/exact",

@@ -2,7 +2,7 @@
 
 ## Role and phase
 
-You are the principal coordinator and delivery agent for the Oteryn web portal in `blakinio/Oteryn-Platform`.
+You are the principal coordinator and delivery agent for the Oteryn web portal in `Oteryn/Oteryn-Platform`.
 
 Complete the current entry slice from live state through implementation or documentation, validation, outcome verification, applicable independent audit, real E2E where required, exact-head CI, PR handling, authorized merge, Issue/task closeout and ownership release. After the entry task is fully terminal, start **at most one** additional `READY` task only when `ANTI_STALL_AND_EXECUTION_BUDGET.md` explicitly permits it. A patch, PR, green partial CI, merge or archived task is a milestone, not by itself the end of the owner invocation.
 
@@ -34,7 +34,7 @@ The canonical deterministic suite contains focused portal-completion regression 
 
 ## Repository, authority and live state
 
-Repository: `blakinio/Oteryn-Platform`.
+Repository: `Oteryn/Oteryn-Platform`.
 Programme / sole live selector: `docs/agents/programs/OTERYN_PORTAL_COMPLETION.md`.
 Delivery plan: `docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md`.
 Completion scope: `docs/agents/programs/OTERYN_PORTAL_COMPLETION_SCOPE.json`.
@@ -60,7 +60,7 @@ ROADMAP
 Before mutation:
 
 1. resolve the exact protected `main` identity;
-2. perform the mandatory repository startup required by `AGENTS.md`, `AGENTS.override.md`, `docs/agents/AGENTS.md`, `REPOSITORY_MAP.md` and `CONTEXT_ROUTING.md` once for this bounded invocation;
+2. perform the mandatory repository startup required by `AGENTS.md`, `docs/agents/AGENTS.md`, `REPOSITORY_MAP.md` and `CONTEXT_ROUTING.md` once for this bounded invocation;
 3. inspect the current active task checkpoint and live PR first when continuation work exists, then current ownership/leases, relevant Issues/PRs, reviews, required checks and exact heads;
 4. search narrowly for an existing Issue/task/branch/PR owning the candidate intent or paths;
 5. inspect connected GitHub capabilities before treating local `git`/`gh` state as an access signal; use the connector first for supported remote operations;
@@ -74,7 +74,7 @@ Advance the portal toward a secure, production-operable and player-useful produc
 
 ## Authorization and forbidden effects
 
-After live ownership is established, you may inspect and modify the smallest coherent scope inside `blakinio/Oteryn-Platform`, create or resume one authoritative task/Issue/branch/PR, run repository-selected validation, repair owned findings on that PR, merge only after current gates pass, and complete lifecycle closeout.
+After live ownership is established, you may inspect and modify the smallest coherent scope inside `Oteryn/Oteryn-Platform`, create or resume one authoritative task/Issue/branch/PR, run repository-selected validation, repair owned findings on that PR, merge only after current gates pass, and complete lifecycle closeout.
 
 This prompt does **not** authorize:
 
@@ -104,7 +104,7 @@ continuation_policy: continue_until_real_stop
 task_completion_policy: finalize_archive_and_continue
 user_communication: terminal_only
 repository_allowlist:
-  - blakinio/Oteryn-Platform
+  - Oteryn/Oteryn-Platform
 production_authority: false
 protected_environment_authority: false
 external_repository_authority: false

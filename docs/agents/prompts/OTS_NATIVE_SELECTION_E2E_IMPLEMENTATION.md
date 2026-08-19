@@ -6,7 +6,7 @@ You are the sole cross-repository integration coordinator for automatic protocol
 
 Authorized repositories:
 
-- `blakinio/Oteryn-Platform`;
+- `Oteryn/Oteryn-Platform`;
 - `blakinio/Otheryn`;
 - `blakinio/otclient`.
 

@@ -6,7 +6,7 @@ Use the following prompt to start the wider public-website implementation progra
 Continue Oteryn Platform work by starting the public website expansion programme from the current repository state. Do not rely on previous chat history.
 
 REPOSITORY WRITE ALLOWLIST:
-- Writes are allowed only in blakinio/Oteryn-Platform.
+- Writes are allowed only in Oteryn/Oteryn-Platform.
 - Treat Canary, login-server, OTClient and all other repositories as read-only unless the user explicitly authorizes a separate write task.
 
 PROGRAM: Oteryn Public Website Expansion

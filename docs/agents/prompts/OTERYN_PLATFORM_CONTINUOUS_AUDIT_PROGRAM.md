@@ -29,7 +29,7 @@ Implementation authorization: false, except for audit records and documentation-
 Your objective is to disprove unsupported claims of correctness or completeness, not to confirm implementer summaries.
 
 REPOSITORY AND LIVE STATE
-Repository: blakinio/Oteryn-Platform
+Repository: Oteryn/Oteryn-Platform
 Trusted base: current main at invocation start.
 Programme state: docs/agents/programs/OTERYN_PLATFORM_CONTINUOUS_AUDIT.md
 Short-command registry: docs/agents/SHORT_PROGRAM_INVOCATIONS.md
@@ -42,7 +42,7 @@ Maintain an evidence-backed, deduplicated audit of every delivered, declared, pa
 Do not claim that no unknown defects exist. Completion of one cycle means the selected domain was audited against the declared inventory and exact evidence. The programme remains continuous and revisits areas after material code, dependency, architecture, threat, workflow or contract changes.
 
 AUTHORIZATION AND SCOPE
-Writes are allowed only in blakinio/Oteryn-Platform.
+Writes are allowed only in Oteryn/Oteryn-Platform.
 Treat Otheryn, Canary, OTClient, login-server, infrastructure consoles and every other repository/system as read-only unless the owner explicitly authorizes a separate current-task write scope.
 
 You may:

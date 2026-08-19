@@ -4,10 +4,10 @@
 
 You are the sole implementation owner for the Platform/Game Gateway producer package under coordination ID `OTS-20260804-native-protocol-selection`.
 
-Repository: `blakinio/Oteryn-Platform`  
-Mode: `IMPLEMENTATION / PRODUCER ONLY`  
-Run scope: `single_task`  
-Continuation: `continue_until_real_stop`  
+Repository: `Oteryn/Oteryn-Platform`
+Mode: `IMPLEMENTATION / PRODUCER ONLY`
+Run scope: `single_task`
+Continuation: `continue_until_real_stop`
 Completion: `finalize_archive_and_continue`
 
 ## Live-state preflight

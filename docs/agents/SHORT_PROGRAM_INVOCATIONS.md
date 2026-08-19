@@ -2,7 +2,7 @@
 
 ```yaml
 registry_version: 1.9
-repository: blakinio/Oteryn-Platform
+repository: Oteryn/Oteryn-Platform
 trusted_base: main
 scope_contract: docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md
 repair_delivery_contract: docs/agents/REPAIR_PR_ECONOMY.md
@@ -15,7 +15,7 @@ repair_external_audit_command_status: retired
 
 The owner's established short commands remain valid unless explicitly retired below. Resolve work from canonical prompts, immutable scope, current repair/lifecycle contracts, programme state, active tasks, Issues, deterministic branches, PRs, reviews, CI and live ownership.
 
-No command authorizes hidden background execution, production operations, secrets, protected-environment approval or live-data mutation. Commands also do not authorize writes outside `blakinio/Oteryn-Platform` except the explicitly scoped repository-migration aliases `OTERYN-REPO-MIGRATION` and `OTERYN-REPO-MIGRATION-ULTRA` below. Both resolve to the same bounded canonical repository-migration authorization; the Ultra alias adds only its registered execution overlay. Both remain subordinate to every target repository's stricter current `AGENTS.md` hierarchy and never authorize writes to `blakinio/canary` or `blakinio/otclient`.
+No command authorizes hidden background execution, production operations, secrets, protected-environment approval or live-data mutation. Commands also do not authorize writes outside `Oteryn/Oteryn-Platform` except the explicitly scoped repository-migration aliases `OTERYN-REPO-MIGRATION` and `OTERYN-REPO-MIGRATION-ULTRA` below. Both resolve to the same bounded canonical repository-migration authorization; the Ultra alias adds only its registered execution overlay. Both remain subordinate to every target repository's stricter current `AGENTS.md` hierarchy and never authorize writes to `blakinio/canary` or `blakinio/otclient`.
 
 ## Ecosystem repository migration
 

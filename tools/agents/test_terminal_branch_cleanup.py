@@ -57,15 +57,15 @@ class TerminalBranchCleanupTest(unittest.TestCase):
     @staticmethod
     def pull(number: int, branch: str, sha: str, *, state: str = "closed", merged_at=None, closed_at="2026-08-10T10:00:00Z") -> dict:
         return {
-            "base": {"repo": {"full_name": "blakinio/Oteryn-Platform"}},
+            "base": {"repo": {"full_name": "Oteryn/Oteryn-Platform"}},
             "body": "",
             "closed_at": closed_at,
             "head": {
                 "ref": branch,
-                "repo": {"full_name": "blakinio/Oteryn-Platform"},
+                "repo": {"full_name": "Oteryn/Oteryn-Platform"},
                 "sha": sha,
             },
-            "html_url": f"https://github.com/blakinio/Oteryn-Platform/pull/{number}",
+            "html_url": f"https://github.com/Oteryn/Oteryn-Platform/pull/{number}",
             "merged": merged_at is not None,
             "merged_at": merged_at,
             "number": number,
@@ -95,7 +95,7 @@ class TerminalBranchCleanupTest(unittest.TestCase):
                 self.pull(14, "backup/history", "f" * 40),
                 self.pull(15, "docs/merged", "1" * 40, merged_at="2026-08-11T10:00:00Z"),
             ],
-            "repository": "blakinio/Oteryn-Platform",
+            "repository": "Oteryn/Oteryn-Platform",
         }
 
     def classify(self, snapshot=None) -> dict:

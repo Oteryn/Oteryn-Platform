@@ -173,7 +173,7 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
             "ghcr.io/blakinio/oteryn-platform",
             "ghcr.io/blakinio/oteryn-game-gateway",
             "ghcr.io/blakinio/oteryn-deploy-runner",
-            "https://github.com/blakinio/Oteryn-Platform",
+            "https://github.com/Oteryn/Oteryn-Platform",
         )
         failures = [
             f"{name}: {marker}"

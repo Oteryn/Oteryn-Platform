@@ -88,10 +88,10 @@ def validate(value: dict, *, safe: bool = False, reachable=True) -> None:
 
 
 def test_repository_scope_is_hard_bound():
-    m.validate_repository_scope("blakinio/Oteryn-Platform", "main")
-    m.validate_repository_scope("BLAKINIO/OTERYN-PLATFORM", "main")
+    m.validate_repository_scope("Oteryn/Oteryn-Platform", "main")
+    m.validate_repository_scope("OTERYN/OTERYN-PLATFORM", "main")
     fail(lambda: m.validate_repository_scope("blakinio/Oteryn-v2", "main"), "may mutate only")
-    fail(lambda: m.validate_repository_scope("blakinio/Oteryn-Platform", "release"), "protected main")
+    fail(lambda: m.validate_repository_scope("Oteryn/Oteryn-Platform", "release"), "protected main")
 
 
 def test_reviewed_implementation_binding():

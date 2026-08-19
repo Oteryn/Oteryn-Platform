@@ -114,7 +114,7 @@ class ControlRoomLivenessTests(unittest.TestCase):
             },
         )[0]
         config = {
-            "repository": "blakinio/Oteryn-Platform",
+            "repository": "Oteryn/Oteryn-Platform",
             "lanes": [{"id": "oteryn-platform-core"}],
             "rollout": {"enforcement_mode": "advisory"},
         }

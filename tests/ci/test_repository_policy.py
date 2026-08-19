@@ -22,7 +22,7 @@ spec.loader.exec_module(repository_policy)
 class RepositoryPolicyTest(unittest.TestCase):
     def policy(self) -> dict[str, object]:
         return {
-            "repository": "blakinio/Oteryn-Platform",
+            "repository": "Oteryn/Oteryn-Platform",
             "default_branch": "main",
             "repository_settings": {
                 "allow_squash_merge": True,

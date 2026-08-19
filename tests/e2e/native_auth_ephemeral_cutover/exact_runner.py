@@ -217,8 +217,8 @@ def update_retained_evidence() -> None:
         "canary_source_build_run": required("CANARY_BUILD_RUN"),
     }
     revisions["components"] = {
-        "platform": {"repository": "blakinio/Oteryn-Platform", "source_sha": required("PLATFORM_REF")},
-        "gateway": {"repository": "blakinio/Oteryn-Platform", "source_sha": required("GATEWAY_REF")},
+        "platform": {"repository": "Oteryn/Oteryn-Platform", "source_sha": required("PLATFORM_REF")},
+        "gateway": {"repository": "Oteryn/Oteryn-Platform", "source_sha": required("GATEWAY_REF")},
         "canary": {"repository": "blakinio/canary", "source_sha": required("CANARY_REF"), "runtime_auth_type": "session"},
         "otclient": {"repository": "blakinio/otclient", "source_sha": required("OTCLIENT_REF")},
         "canary_harness": {"repository": "blakinio/canary", "source_sha": required("CANARY_HARNESS_REF")},

@@ -12,7 +12,7 @@ from typing import Any
 import historical_branch_audit as audit
 from branch_lifecycle import ApiError, GitHubClient, ValidationError
 
-ALLOWED_REPOSITORY = "blakinio/Oteryn-Platform"
+ALLOWED_REPOSITORY = "Oteryn/Oteryn-Platform"
 DEFAULT_BRANCH = "main"
 FORBIDDEN_ACTIVE_TOP_LEVEL = {"archive", "backup", "recovery", "rollback", "tmp"}
 BOT_OR_SYSTEM_PREFIXES = (

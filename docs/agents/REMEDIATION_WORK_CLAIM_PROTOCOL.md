@@ -2,7 +2,7 @@
 
 ```yaml
 claim_protocol_version: 5
-repository: blakinio/Oteryn-Platform
+repository: Oteryn/Oteryn-Platform
 applies_to:
   - OTERYN_PLATFORM_REMEDIATION
   - audit-created implementation Issues

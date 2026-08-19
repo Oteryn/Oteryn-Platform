@@ -13,7 +13,7 @@ class BranchRefConsistencyTest(unittest.TestCase):
     def client(self) -> tuple[branch_lifecycle.GitHubClient, str]:
         root = Path(tempfile.mkdtemp())
         client = branch_lifecycle.GitHubClient(
-            "blakinio/Oteryn-Platform", "test-token", root=root
+            "Oteryn/Oteryn-Platform", "test-token", root=root
         )
         sha = "a" * 40
 
