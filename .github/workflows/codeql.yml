@@ -4,9 +4,39 @@ on:
   push:
     branches:
       - main
+    paths:
+      - '.github/workflows/**'
+      - '**/*.js'
+      - '**/*.mjs'
+      - '**/*.cjs'
+      - '**/*.ts'
+      - '**/*.tsx'
+      - '**/*.py'
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'pyproject.toml'
+      - 'requirements*.txt'
   pull_request:
     branches:
       - main
+    paths:
+      - '.github/workflows/**'
+      - '**/*.js'
+      - '**/*.mjs'
+      - '**/*.cjs'
+      - '**/*.ts'
+      - '**/*.tsx'
+      - '**/*.py'
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'pyproject.toml'
+      - 'requirements*.txt'
   schedule:
     - cron: '23 3 * * 1'
   workflow_dispatch:
