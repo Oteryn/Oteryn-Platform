@@ -7,7 +7,6 @@ pull_request: none
 status: blocked
 required_reads:
   - AGENTS.md
-  - AGENTS.override.md
   - docs/agents/AGENTS.md
   - docs/agents/SESSION_RECOVERY_AND_ORPHANED_EXECUTION.md
   - docs/agents/TASK_CLOSEOUT_AUDIT_E2E.md

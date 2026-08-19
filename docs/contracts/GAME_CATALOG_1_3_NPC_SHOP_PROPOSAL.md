@@ -4,7 +4,7 @@ Status: architecture proposal only
 Contract: `oteryn.game-catalog`  
 Proposed version: `1.3.0`  
 Producer: `blakinio/canary`  
-Consumer: `Oteryn/Oteryn-Platform`
+Consumer: `blakinio/Oteryn-Platform`
 
 ## Decision
 

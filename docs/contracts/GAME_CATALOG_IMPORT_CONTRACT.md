@@ -5,7 +5,7 @@ Contract ID: `oteryn.game-catalog`
 Initial schema version: `1.0.0`  
 Current additive schema version: `1.2.0`
 Producer: `blakinio/canary`  
-Consumer: `Oteryn/Oteryn-Platform`
+Consumer: `blakinio/Oteryn-Platform`
 
 ## 1. Purpose
 

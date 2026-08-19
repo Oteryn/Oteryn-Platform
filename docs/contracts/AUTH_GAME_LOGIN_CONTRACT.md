@@ -59,7 +59,7 @@ No repository document may infer global MFA, email-verification, password-migrat
 
 ### Oteryn Platform
 
-- Repository: `Oteryn/Oteryn-Platform`
+- Repository: `blakinio/Oteryn-Platform`
 - Base revision at discovery start: `f968681732ec3e0688ff29426108b49dce79af16`
 - Current state: Platform-owned web Identity is implemented for registration, framework-hashed credentials, login/logout, revocable web sessions, password recovery/change and opt-in web MFA. It is authoritative for the delivered Oteryn Game Gateway path, but it is not yet the sole global game-login credential authority while native Canary, external login-server and other legacy password/session paths may remain reachable.
 

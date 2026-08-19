@@ -70,7 +70,6 @@ Use just-in-time retrieval. Preserve provenance. Keep UNKNOWN and CONFLICT expli
 MANDATORY READS
 At programme start or after a material governance revision:
 - AGENTS.md
-- AGENTS.override.md
 - docs/agents/AGENTS.md
 - docs/agents/REPOSITORY_MAP.md
 - docs/agents/CONTEXT_ROUTING.md

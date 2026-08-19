@@ -4,7 +4,7 @@
 
 Accepted on 2026-08-05 through the repository-owner decision recorded in Issue #548. ADR 0022 records the durable decision.
 
-This document is the canonical entry point for architecture authority and routing in `Oteryn/Oteryn-Platform`. It does not duplicate the detailed contents of focused architecture documents.
+This document is the canonical entry point for architecture authority and routing in `blakinio/Oteryn-Platform`. It does not duplicate the detailed contents of focused architecture documents.
 
 ## Scope
 
