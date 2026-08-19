@@ -122,8 +122,10 @@ jobs:
 
   self-hosted-runner-attachment:
     name: Verify transferred self-hosted runner attachment
+    # The deployment runner is intentionally registered with --no-default-labels
+    # so generic `self-hosted` jobs cannot land on this Docker-socket-capable host.
+    # Route by the repository-scoped custom label and assert the exact runner name.
     runs-on:
-      - self-hosted
       - oteryn-staging
     timeout-minutes: 5
     steps:
@@ -132,6 +134,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = "Oteryn/Oteryn-Platform"
+          test "${{ runner.name }}" = "oteryn-synology-staging"
           echo "runner_name=${{ runner.name }}"
           echo "runner_os=${{ runner.os }}"
           echo "runner_arch=${{ runner.arch }}"
