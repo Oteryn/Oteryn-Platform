@@ -132,4 +132,4 @@ migration_transaction:
 
 ## Next action
 
-Remove the temporary verification workflow, finish exact provider programme/inventory reconciliation, pass final clean-head repository gates, merge provider closeout, then reconcile META only to the level proven. Do not mark the whole ecosystem migration complete until the remaining governance and temporary-backup gates are terminal.
+Pass final clean-head repository gates, merge provider closeout, then reconcile META only to the level proven. Do not mark the whole ecosystem migration complete until the remaining governance and temporary-backup gates are terminal.

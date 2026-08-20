@@ -136,21 +136,21 @@ observed_target_coordinates:
     visibility: public
     active_task: docs/agents/tasks/active/DYN-ATLAS-001-semantic-thais-z7-proof.md
   Oteryn-Platform:
-  repository: Oteryn/Oteryn-Platform
-  repository_id: 1305155726
-  original_source_repository: blakinio/Oteryn-Platform
-  exact_transferred_main: 42f6741deacbd3ba9e1c4f609bb1073ebe0cff7b
-  current_repository: Oteryn/Oteryn-Platform
-  source_main_protected: true
-  source_required_checks:
-    - classify-changes
-    - test
-  transfer_state: POST_TRANSFER_VERIFIED
-  bounded_ghcr_cutover: PASS
-  repository_runner_attachment: PASS
-  migration_backup_repository: Oteryn/Oteryn-Platform-Migration-Backup-20260818
-  migration_backup_repository_id: 1338405017
-  governance_coordinate_reconciliation: PENDING_SEPARATE_GATE
+    repository: Oteryn/Oteryn-Platform
+    repository_id: 1305155726
+    original_source_repository: blakinio/Oteryn-Platform
+    exact_transferred_main: 42f6741deacbd3ba9e1c4f609bb1073ebe0cff7b
+    current_repository: Oteryn/Oteryn-Platform
+    target_main_protected: true
+    target_required_checks:
+      - classify-changes
+      - test
+    transfer_state: POST_TRANSFER_VERIFIED
+    bounded_ghcr_cutover: PASS
+    repository_runner_attachment: PASS
+    migration_backup_repository: Oteryn/Oteryn-Platform-Migration-Backup-20260818
+    migration_backup_repository_id: 1338405017
+    governance_coordinate_reconciliation: PENDING_SEPARATE_GATE
 
 platform_preparation_evidence:
   readiness_report: docs/architecture/migration/OTERYN_PLATFORM_TRANSFER_READINESS.md
@@ -259,7 +259,7 @@ blockers:
   - META_TERMINAL_RECONCILIATION_PENDING: META may be updated only after provider closeout is merged and exact residual gates are known.
   - MIGRATION_BACKUP_TERMINAL_DISPOSITION_PENDING: backup repository remains until recovery/evidence obligations are explicitly resolved.
 
-next_action: Remove temporary verification scaffolding, pass exact clean-head provider gates and merge PR 1164; then continue independently gated governance, META and migration-backup closeout without re-running the completed physical transfer.
+next_action: Pass exact clean-head provider gates and merge PR 1164; then continue independently gated governance, META and migration-backup closeout without re-running the completed physical transfer.
 ```
 
 ## Programme rules
