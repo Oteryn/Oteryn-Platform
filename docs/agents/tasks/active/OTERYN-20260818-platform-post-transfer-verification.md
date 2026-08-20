@@ -58,63 +58,55 @@ cross_repository_tasks:
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 2
-policy_version: 2
-updated_at: 2026-08-20T06:42:00Z
-phase: validate
-session_id: chatgpt-20260820-platform-post-transfer-closeout
-session_role: implementer-validator
-execution_mode: github_connector
-execution_reason: exact repository state and Actions evidence are available through the authorized GitHub surface
-project_lane: oteryn-platform-core
-status: ready_for_final_validation
-head: 0b7d7daf2b756d1c21dae8e4cd875cf02743fb21
+checkpoint_version: 1
+updated_at: 2026-08-20T06:44:00Z
+head: d208d4839e37ffb7acd959928fdb36f1f1539867
 branch: chore/platform-post-transfer-verification-20260818
 pr: 1164
-context_pressure: low
-context_growth: stable
-decomposition_decision: phased
-validation_level: focused
-last_completed_step: final Agent Governance rejected one unsupported checkpoint list key; semantic policy tests remained PASS and this checkpoint removes only that schema-invalid key
-heavy_validation_runs: 2
-ci_checks_for_current_head: 1
-ci_check_generation: final-clean-head-repair
-terminal_ci_wait_started_at: null
-terminal_ci_checks_for_current_generation: 0
-unchanged_state_checks: 0
-identical_failure_retries: 0
-repair_cycles_for_current_gate: 4
-context_reconstruction_attempts: 0
-stall_warnings: 0
+status: ready
+context_routes:
+  - agent-governance
+  - repository-migration
+  - ci-verification
+  - synology-runner-contract
+owned_paths:
+  - docs/agents/tasks/active/OTERYN-20260818-platform-post-transfer-verification.md
+  - docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md
+  - docs/architecture/migration/OTERYN_PLATFORM_TRANSFER_READINESS.md
+  - docs/architecture/migration/oteryn-platform-transfer-inventory.json
 proven:
-  - repository ID 1305155726 resolves to Oteryn/Oteryn-Platform with admin access
-  - exact transferred main 42f6741deacbd3ba9e1c4f609bb1073ebe0cff7b survived the owner transfer
-  - main remains protected with required classify-changes and test contexts
-  - historical PR 1161 remains preserved at the new coordinate
-  - bounded workflow run 32309057579 passed target publication/readback for ghcr.io/oteryn/oteryn-game-gateway at sha256:323fd66336b3de62f82fda69c4c299c78444dfe93481d26420bbc65b1c9b90f7
-  - bounded workflow run 32309057579 passed target publication/readback for ghcr.io/oteryn/oteryn-platform at sha256:1d1e8f367a2006d117224577cc678a60aee4ed08aae304a49f78b4e7097f07c2
-  - bounded workflow run 32309057579 passed target publication/readback for ghcr.io/oteryn/oteryn-deploy-runner at sha256:1eb10741adf42262834825e8e2c50dec4edf8e0f2791935727e75a798f83b520
-  - run 32309057579 job 96248074731 executed successfully on runner oteryn-synology-staging using custom label oteryn-staging only
-  - generic self-hosted exposure is intentionally absent because canonical runner registration uses --no-default-labels
-  - hosted runner-registry diagnostic was inconclusive with token-permission 403, but actual scheduler execution on the exact runner passed
-  - provider readiness and inventory now record POST_TRANSFER_VERIFIED without asserting ecosystem completion
-  - a one-off asserted programme reconciler completed successfully and wrote only current migration-state reconciliation
-  - both temporary workflows were removed before final validation
+  - Repository ID 1305155726 resolves to Oteryn/Oteryn-Platform with admin access.
+  - Exact transferred main 42f6741deacbd3ba9e1c4f609bb1073ebe0cff7b survived the owner transfer.
+  - Main remains protected with required classify-changes and test contexts.
+  - Historical PR 1161 remains preserved at the new coordinate.
+  - Bounded run 32309057579 passed target publication/readback for ghcr.io/oteryn/oteryn-game-gateway at sha256:323fd66336b3de62f82fda69c4c299c78444dfe93481d26420bbc65b1c9b90f7.
+  - Bounded run 32309057579 passed target publication/readback for ghcr.io/oteryn/oteryn-platform at sha256:1d1e8f367a2006d117224577cc678a60aee4ed08aae304a49f78b4e7097f07c2.
+  - Bounded run 32309057579 passed target publication/readback for ghcr.io/oteryn/oteryn-deploy-runner at sha256:1eb10741adf42262834825e8e2c50dec4edf8e0f2791935727e75a798f83b520.
+  - Run 32309057579 job 96248074731 executed successfully on runner oteryn-synology-staging using custom label oteryn-staging only.
+  - Generic self-hosted exposure is intentionally absent because canonical runner registration uses --no-default-labels.
+  - Hosted runner-registry diagnostic was inconclusive with token-permission 403, but actual scheduler execution on the exact runner passed.
+  - Provider readiness and inventory record POST_TRANSFER_VERIFIED without asserting ecosystem completion.
+  - The asserted programme reconciler completed successfully and both temporary workflows were removed before final validation.
 derived:
-  - physical owner transfer and core provider identity/protection/GHCR/runner cutover are terminally proven
-  - package repository-link metadata and GitHub App user-token installation metadata remain UNKNOWN but are not evidence against the proven operational provider cutover
-  - ecosystem migration completion remains independently gated by provider governance/stale-coordinate reconciliation, META reconciliation and migration-backup terminal disposition
+  - Physical owner transfer and core provider identity, protection, GHCR and runner cutover are terminally proven.
+  - Package repository-link metadata and GitHub App user-token installation metadata remain UNKNOWN but do not contradict the proven operational provider cutover.
+  - Ecosystem migration completion remains independently gated by provider governance/stale-coordinate reconciliation, META reconciliation and migration-backup terminal disposition.
 unknown:
   - package repository-link metadata unavailable through the current token
   - GitHub App user-token installation metadata unavailable through the current connector surface
 conflicts: []
 first_failure:
-  marker: checkpoint schema rejected changed_paths_expected list
-  evidence: Agent Governance run 32340546540 failed only at active-checkpoint parsing after policy consistency and all policy regression tests passed
+  marker: checkpoint schema rejected unsupported nested fields during final closeout
+  evidence: Agent Governance runs 32340546540 and 32340636119 passed policy regressions and consistency but rejected non-canonical checkpoint fields; this revision returns the checkpoint to the proven version-1 schema used by current repository tasks.
 rejected_hypotheses:
   - the custom-label-only runner is broken because it lacks the generic self-hosted label
   - hosted registry API 403 proves the actual runner is unavailable
   - successful physical transfer alone permits ecosystem MIGRATION_COMPLETE=YES
+changed_paths:
+  - docs/agents/tasks/active/OTERYN-20260818-platform-post-transfer-verification.md
+  - docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md
+  - docs/architecture/migration/OTERYN_PLATFORM_TRANSFER_READINESS.md
+  - docs/architecture/migration/oteryn-platform-transfer-inventory.json
 validation:
   - command: bounded post-transfer verification run 32309057579
     result: PASS_WITH_NON_BLOCKING_DIAGNOSTIC_403
@@ -125,34 +117,11 @@ validation:
   - command: temporary workflow cleanup
     result: PASS
     evidence: both one-off workflow files deleted from delivery branch before final validation
-  - command: Agent Governance run 32340546540
-    result: FAIL_SCHEMA_ONLY
-    evidence: all policy tests and policy consistency passed; active checkpoint parser rejected one unsupported nested list key which this revision removes
+  - command: final pre-repair Agent Governance
+    result: POLICY_PASS_CHECKPOINT_SCHEMA_FAIL
+    evidence: policy tests, policy consistency, prompt contract and task liveness passed; only non-canonical checkpoint fields failed parsing
 blockers: []
-next_action: use only checks generated for this repaired exact head; if required CI and governance pass, verify full diff/review hygiene and squash-merge provider closeout, then reconcile META separately.
-recovery:
-  policy_version: 1
-  generation: 3
-  session_id: chatgpt-20260820-platform-post-transfer-closeout
-  session_started_at: 2026-08-20T06:28:00Z
-  checkpointed_at: 2026-08-20T06:42:00Z
-  last_progress_at: 2026-08-20T06:42:00Z
-  phase: validate
-  exact_head_before_checkpoint_commit: 0b7d7daf2b756d1c21dae8e4cd875cf02743fb21
-  pull_request: 1164
-  active_operation: final clean-head validation after checkpoint-schema-only repair
-  external_run_ids:
-    - 32309057579
-    - 32340271626
-    - 32340546540
-  operation_started_at: null
-  wait_deadline_at: null
-  check_generation: final-clean-head-repair
-  checks_used: 1
-  status: ready
-  safe_to_resume: true
-  resume_condition: task branch contains only durable provider evidence/programme reconciliation and no one-off workflows
-  next_action: refresh exact head checks and merge only if the new generation is green
+next_action: Use only checks generated for this exact repaired head; if required CI and governance pass, verify full diff and review hygiene, then squash-merge provider closeout and reconcile META separately.
 ```
 
 ## Source branch closeout
