@@ -8,14 +8,14 @@ on:
       - .github/workflows/one-off-governance-authority-migration.yml
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: one-off-governance-workflow-delivery-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  export-verified-workflows:
+  stage-verified-commit:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -66,23 +66,34 @@ jobs:
           python tools/agents/test_task_liveness.py
           git diff --check
 
-      - name: Stage verified workflow artifact
+      - name: Build exact workflow-only commit
+        id: build
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/verified-workflows/.github/workflows"
-          cp .github/workflows/agent-governance.yml "$RUNNER_TEMP/verified-workflows/.github/workflows/"
-          cp .github/workflows/edge-security-emulation.yml "$RUNNER_TEMP/verified-workflows/.github/workflows/"
-          cp .github/workflows/game-auth-ticket-concurrency.yml "$RUNNER_TEMP/verified-workflows/.github/workflows/"
-          cp .github/workflows/phase7-production-like-validation.yml "$RUNNER_TEMP/verified-workflows/.github/workflows/"
-          cp .github/workflows/platform-db-outage-validation.yml "$RUNNER_TEMP/verified-workflows/.github/workflows/"
-          sha256sum "$RUNNER_TEMP"/verified-workflows/.github/workflows/*.yml | sort | tee "$RUNNER_TEMP/verified-workflows/SHA256SUMS"
+          find . -type d -name __pycache__ -prune -exec rm -rf {} +
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            .github/workflows/agent-governance.yml \
+            .github/workflows/edge-security-emulation.yml \
+            .github/workflows/game-auth-ticket-concurrency.yml \
+            .github/workflows/phase7-production-like-validation.yml \
+            .github/workflows/platform-db-outage-validation.yml
+          test "$(git diff --cached --name-only | wc -l)" -eq 5
+          git diff --cached --check
+          git commit -m "ci(governance): route workflows to durable bootstrap"
+          sha="$(git rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Verified workflow-only commit: \`$sha\`" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload verified workflow artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: safe-governance-workflow-delivery-${{ github.event.pull_request.head.sha }}
-          path: ${{ runner.temp }}/verified-workflows
-          include-hidden-files: true
-          retention-days: 1
-          if-no-files-found: error
+      - name: Publish commit only through bounded temporary tag
+        shell: bash
+        env:
+          COMMIT_SHA: ${{ steps.build.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$COMMIT_SHA"
+          tag="refs/tags/tmp-safe-governance-workflows-${COMMIT_SHA}"
+          git push origin "$COMMIT_SHA:$tag"
+          echo "Temporary staging tag: \`$tag\`" >> "$GITHUB_STEP_SUMMARY"
