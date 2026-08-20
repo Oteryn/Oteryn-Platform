@@ -83,5 +83,6 @@ jobs:
         with:
           name: safe-governance-workflow-delivery-${{ github.event.pull_request.head.sha }}
           path: ${{ runner.temp }}/verified-workflows
+          include-hidden-files: true
           retention-days: 1
           if-no-files-found: error
