@@ -10,7 +10,9 @@ on:
       - deploy/synology/runner/compose.yml
   workflow_dispatch:
 
-permissions: {}
+permissions:
+  contents: read
+  issues: write
 
 concurrency:
   group: oteryn-synology-autostart-repair
@@ -70,3 +72,265 @@ jobs:
             esac
             printf '%s policy=%s state=%s\n' "$name" "$policy" "$state"
           done
+
+  atlas-mobile-preview:
+    name: Deploy Atlas mobile preview once
+    if: github.event_name == 'push'
+    needs: repair
+    runs-on: oteryn-staging
+    timeout-minutes: 20
+    env:
+      NEW_REV: e462396a931652a62f61ca4e32c2402dfad9504a
+      EXPECTED_OLD_REV: eee941de6d8b9b0d2217556a7a87f76ba67b602e
+      PREVIEW_CONTAINER: oteryn-atlas-fullworld-preview
+      PREVIEW_URL: http://192.168.1.2:8097
+      EXPECTED_IMAGE: ghcr.io/nginx/nginx-unprivileged:1.31.3-alpine3.24-slim@sha256:22f839c5fb4007dc24d203a170a9e03fc185d660bfefc34ac6823a7aef085cbc
+      PUBLICATION_ROOT: sha256:9d0d2f3bb16a5a90f9b51a21366e4ed42963f5cb12366c404a20d9502ec4857f
+      SEMANTIC_ROOT: sha256:27d7a83a7d9f498ea614b440ab4216cae5e6d11ea0527482410e40948cade5a9
+      PIXEL_ROOT: sha256:8b8228fcc4574903e547cb7d65b96f3d45e5a9e67045091c1bceb6e54d3690ad
+      OVERVIEW_ROOT: sha256:17683912d6758796d80a5b1647e2d0031f6849e51c40ae5264da6cfce3f9d6db
+      RUNTIME_ROOT: sha256:fa30ae5fc47f0ca8a6d482ed87b5db2cd74f32f7f523df16187ca719b8e04f08
+      PIXEL_BUCKET_ROOT: sha256:99cf23b01a0d652ff670a994a2b80cbef8d17036f514522d47f1aa98352d3116
+
+    steps:
+      - name: Fetch exact merged Atlas revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init atlas
+          git -C atlas remote add origin https://github.com/Oteryn/Oteryn-Atlas.git
+          git -C atlas fetch --depth=1 origin "$NEW_REV"
+          git -C atlas checkout --detach FETCH_HEAD
+          test "$(git -C atlas rev-parse HEAD)" = "$NEW_REV"
+          if find atlas -type f \( -name '*.otbm' -o -name '*.otb' -o -name '*.spr' -o -name '*.dat' \) -print -quit | grep -q .; then
+            echo 'Forbidden raw legacy input found in Atlas deployment checkout.' >&2
+            exit 1
+          fi
+
+      - name: Inspect preview and stage exact revision
+        id: stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          C="$PREVIEW_CONTAINER"
+          docker version >/dev/null
+          curl --version >/dev/null
+          test "$(docker inspect --format '{{.State.Running}}' "$C")" = true
+
+          CURRENT_REV="$(docker inspect --format '{{ index .Config.Labels "org.oteryn.revision" }}' "$C")"
+          OLD_ROOT="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/srv/atlas"}}{{.Source}}{{end}}{{end}}' "$C")"
+          OLD_CONFIG="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/etc/nginx/conf.d/default.conf"}}{{.Source}}{{end}}{{end}}' "$C")"
+          DATA_ROOT="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/srv/atlas/data"}}{{.Source}}{{end}}{{end}}' "$C")"
+          OLD_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$C")"
+          HELPER_IMAGE="$(docker inspect --format '{{.Image}}' "$C")"
+          OLD_PUB="$(docker inspect --format '{{ index .Config.Labels "org.oteryn.publication-root" }}' "$C")"
+          OLD_RUNTIME="$(docker inspect --format '{{ index .Config.Labels "org.oteryn.runtime-index-root" }}' "$C")"
+
+          test "$CURRENT_REV" = "$EXPECTED_OLD_REV" || test "$CURRENT_REV" = "$NEW_REV"
+          test "$OLD_IMAGE" = "$EXPECTED_IMAGE"
+          test "$OLD_PUB" = "$PUBLICATION_ROOT"
+          test "$OLD_RUNTIME" = "$RUNTIME_ROOT"
+          test -n "$OLD_ROOT"
+          test -n "$OLD_CONFIG"
+          test -n "$HELPER_IMAGE"
+          docker port "$C" 8080/tcp | grep -Fx '192.168.1.2:8097' >/dev/null
+
+          if [[ -z "$DATA_ROOT" ]]; then
+            DATA_ROOT="$OLD_ROOT/data"
+          fi
+          REVISIONS="$(dirname "$OLD_ROOT")"
+          NEW_ROOT="$REVISIONS/$NEW_REV"
+
+          docker run --rm --user 0:0 --entrypoint sh \
+            -v "$DATA_ROOT:/data:ro" "$HELPER_IMAGE" -c '
+              set -eu
+              test -s /data/fullworld-publication-v0-final/publication.json
+              test -s /data/fullworld-publication-v0-final/semantic/world.json
+              test -s /data/fullworld-publication-v0-final/pixels/manifest.json
+              test -s /data/fullworld-runtime-index-v2-worldchunk/world.json
+              test -s /data/fullworld-layers-v0/overview/world.json
+              test -s /data/fullworld-pixel-buckets-v2/manifest.json
+            '
+
+          if [[ "$CURRENT_REV" != "$NEW_REV" ]]; then
+            users="$(for id in $(docker ps -aq); do docker inspect --format '{{.Name}} {{range .Mounts}}{{.Source}} {{end}}' "$id"; done | grep -F "$NEW_ROOT" || true)"
+            test -z "$users"
+
+            tar --exclude=.git -C atlas -cf - . | docker run --rm -i --user 0:0 --entrypoint sh \
+              -e REV="$NEW_REV" -v "$REVISIONS:/revisions" "$HELPER_IMAGE" -c '
+                set -eu
+                root="/revisions/$REV"
+                rm -rf "$root"
+                mkdir -p "$root/repo" "$root/data" "$root/fullworld"
+                tar -xf - -C "$root/repo"
+                printf "%s\n" "$REV" > "$root/ATLAS_REVISION"
+                ln -s repo/src "$root/src"
+                ln -s repo/web "$root/web"
+                ln -s ../data/fullworld-publication-v0-final "$root/fullworld/publication"
+                ln -s ../data/fullworld-layers-v0/overview "$root/fullworld/overview"
+                ln -s ../data/fullworld-runtime-index-v2-worldchunk "$root/fullworld/runtime-index"
+                ln -s ../data/fullworld-pixel-buckets-v2 "$root/fullworld/pixel-buckets"
+              '
+
+            docker run --rm --user 0:0 --entrypoint sh \
+              -e OLD_REV="$CURRENT_REV" -e NEW_REV="$NEW_REV" \
+              -v "$OLD_CONFIG:/old.conf:ro" -v "$REVISIONS:/revisions" "$HELPER_IMAGE" -c '
+                set -eu
+                grep -F "$OLD_REV" /old.conf >/dev/null
+                sed "s/$OLD_REV/$NEW_REV/g" /old.conf > "/revisions/$NEW_REV/nginx.conf"
+                chmod 0644 "/revisions/$NEW_REV/nginx.conf"
+              '
+          fi
+
+          {
+            echo "current_rev=$CURRENT_REV"
+            echo "old_root=$OLD_ROOT"
+            echo "old_config=$OLD_CONFIG"
+            echo "old_image=$OLD_IMAGE"
+            echo "data_root=$DATA_ROOT"
+            echo "new_root=$NEW_ROOT"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Cut over preview with exact rollback
+        if: steps.stage.outputs.current_rev != env.NEW_REV
+        shell: bash
+        env:
+          OLD_REV: ${{ steps.stage.outputs.current_rev }}
+          OLD_ROOT: ${{ steps.stage.outputs.old_root }}
+          OLD_CONFIG: ${{ steps.stage.outputs.old_config }}
+          OLD_IMAGE: ${{ steps.stage.outputs.old_image }}
+          DATA_ROOT: ${{ steps.stage.outputs.data_root }}
+          NEW_ROOT: ${{ steps.stage.outputs.new_root }}
+        run: |
+          set -euo pipefail
+          C="$PREVIEW_CONTAINER"
+          CUTOVER=0
+          rollback() {
+            rc=$?
+            set +e
+            if [[ "$CUTOVER" = 1 ]]; then
+              docker rm -f "$C" >/dev/null 2>&1 || true
+              docker run -d \
+                --name "$C" \
+                --restart unless-stopped \
+                --label org.oteryn.preview=fullworld-atlas \
+                --label "org.oteryn.revision=$OLD_REV" \
+                --label "org.oteryn.publication-root=$PUBLICATION_ROOT" \
+                --label "org.oteryn.runtime-index-root=$RUNTIME_ROOT" \
+                -p 192.168.1.2:8097:8080 \
+                -v "$OLD_ROOT:/srv/atlas:ro" \
+                -v "$OLD_CONFIG:/etc/nginx/conf.d/default.conf:ro" \
+                "$OLD_IMAGE" >/dev/null || true
+            fi
+            exit "$rc"
+          }
+          trap rollback ERR
+
+          docker rm -f "$C" >/dev/null
+          CUTOVER=1
+          docker run -d \
+            --name "$C" \
+            --restart unless-stopped \
+            --label org.oteryn.preview=fullworld-atlas \
+            --label "org.oteryn.revision=$NEW_REV" \
+            --label "org.oteryn.data-revision=$OLD_REV" \
+            --label "org.oteryn.publication-root=$PUBLICATION_ROOT" \
+            --label "org.oteryn.runtime-index-root=$RUNTIME_ROOT" \
+            -p 192.168.1.2:8097:8080 \
+            -v "$NEW_ROOT:/srv/atlas:ro" \
+            -v "$DATA_ROOT:/srv/atlas/data:ro" \
+            -v "$NEW_ROOT/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
+            "$OLD_IMAGE" >/dev/null
+
+          ready=0
+          for _ in $(seq 1 60); do
+            if curl -fsS "$PREVIEW_URL/healthz" >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = 1
+          trap - ERR
+          CUTOVER=0
+
+      - name: Verify exact deployed revision and data invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          C="$PREVIEW_CONTAINER"
+          test "$(docker inspect --format '{{.State.Running}}' "$C")" = true
+          test "$(docker inspect --format '{{ index .Config.Labels "org.oteryn.revision" }}' "$C")" = "$NEW_REV"
+          test "$(docker inspect --format '{{ index .Config.Labels "org.oteryn.publication-root" }}' "$C")" = "$PUBLICATION_ROOT"
+          test "$(docker inspect --format '{{ index .Config.Labels "org.oteryn.runtime-index-root" }}' "$C")" = "$RUNTIME_ROOT"
+          test "$(docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' "$C")" = unless-stopped
+          docker port "$C" 8080/tcp | grep -Fx '192.168.1.2:8097' >/dev/null
+
+          curl -fsS -D /tmp/atlas-html.headers "$PREVIEW_URL/web/fullworld.html" -o /tmp/atlas-live.html
+          grep -q 'HTTP/1.1 200' /tmp/atlas-html.headers
+          grep -qi "^X-Oteryn-Atlas-Revision: $NEW_REV" /tmp/atlas-html.headers
+          cmp atlas/web/fullworld.html /tmp/atlas-live.html
+          curl -fsS "$PREVIEW_URL/web/fullworld.css" -o /tmp/atlas-live.css
+          cmp atlas/web/fullworld.css /tmp/atlas-live.css
+          curl -fsS "$PREVIEW_URL/web/fullworld-mobile.mjs" -o /tmp/atlas-live-mobile.mjs
+          cmp atlas/web/fullworld-mobile.mjs /tmp/atlas-live-mobile.mjs
+          curl -fsS "$PREVIEW_URL/tests/fullworld-mobile-layout-proof.html" -o /tmp/atlas-live-proof.html
+          cmp atlas/tests/fullworld-mobile-layout-proof.html /tmp/atlas-live-proof.html
+
+          curl -fsS -D /tmp/atlas-range.headers \
+            -H 'Range: bytes=100-199' \
+            "$PREVIEW_URL/fullworld/publication/semantic/chunks/fm000007_rxp000126_ryp000125.jsonl" \
+            -o /tmp/atlas-range.bin
+          grep -q 'HTTP/1.1 206' /tmp/atlas-range.headers
+          grep -qi '^Content-Range: bytes 100-199/72681462' /tmp/atlas-range.headers
+          test "$(stat -c '%s' /tmp/atlas-range.bin)" = 100
+
+          curl -fsS "$PREVIEW_URL/fullworld/publication/publication.json" -o /tmp/atlas-publication.json
+          curl -fsS "$PREVIEW_URL/fullworld/publication/semantic/world.json" -o /tmp/atlas-semantic-world.json
+          curl -fsS "$PREVIEW_URL/fullworld/publication/pixels/manifest.json" -o /tmp/atlas-pixels.json
+          curl -fsS "$PREVIEW_URL/fullworld/overview/world.json" -o /tmp/atlas-overview.json
+          curl -fsS "$PREVIEW_URL/fullworld/runtime-index/world.json" -o /tmp/atlas-runtime.json
+          curl -fsS "$PREVIEW_URL/fullworld/pixel-buckets/manifest.json" -o /tmp/atlas-buckets.json
+          grep -F "$PUBLICATION_ROOT" /tmp/atlas-publication.json >/dev/null
+          grep -F "$SEMANTIC_ROOT" /tmp/atlas-semantic-world.json >/dev/null
+          grep -F "$PIXEL_ROOT" /tmp/atlas-pixels.json >/dev/null
+          grep -F "$OVERVIEW_ROOT" /tmp/atlas-overview.json >/dev/null
+          grep -F "$RUNTIME_ROOT" /tmp/atlas-runtime.json >/dev/null
+          grep -F "$PIXEL_BUCKET_ROOT" /tmp/atlas-buckets.json >/dev/null
+
+          CHROME="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)"
+          if [[ -n "$CHROME" ]]; then
+            rm -rf /tmp/atlas-mobile-live-chrome
+            "$CHROME" --headless=new --no-sandbox --disable-dev-shm-usage \
+              --force-device-scale-factor=1 --window-size=390,844 \
+              --virtual-time-budget=15000 --user-data-dir=/tmp/atlas-mobile-live-chrome \
+              --dump-dom "$PREVIEW_URL/tests/fullworld-mobile-layout-proof.html" \
+              > /tmp/atlas-mobile-live.html
+            grep -q 'data-status="PASS"' /tmp/atlas-mobile-live.html
+            grep -q '"status":"PASS"' /tmp/atlas-mobile-live.html
+            echo 'LIVE_MOBILE_CHROME=PASS'
+          else
+            echo 'LIVE_MOBILE_CHROME=UNAVAILABLE_ON_SYNOLOGY_RUNNER; deployed bytes match exact merged Atlas head already proven by Mobile layout run 32379326469'
+          fi
+
+          echo "DEPLOYMENT_PASS revision=$NEW_REV endpoint=$PREVIEW_URL/web/fullworld.html"
+
+      - name: Report Atlas deployment result
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -u
+          body="Atlas mobile preview deploy run $GITHUB_RUN_ID: **$JOB_STATUS**. Platform execution SHA: $GITHUB_SHA. Atlas revision: $NEW_REV. Endpoint: $PREVIEW_URL/web/fullworld.html."
+          payload="$(python3 -c 'import json,os; print(json.dumps({"body": os.environ["REPORT_BODY"]}))' REPORT_BODY="$body" 2>/dev/null || true)"
+          if [[ -z "$payload" ]]; then
+            payload="$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.dumps({"body": sys.stdin.read()}))')"
+          fi
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            https://api.github.com/repos/Oteryn/Oteryn-Platform/issues/1183/comments \
+            -d "$payload" >/dev/null || echo 'WARNING: deployment result comment could not be posted'
