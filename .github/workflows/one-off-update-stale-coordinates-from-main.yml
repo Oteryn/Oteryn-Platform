@@ -1,0 +1,45 @@
+name: One-off Update Stale Coordinates From Main
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/one-off-update-stale-coordinates-from-main.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-off-update-stale-coordinates-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  merge-main:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out exact task branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: migration/issue-1171-stale-coordinates
+          fetch-depth: 0
+
+      - name: Merge current protected main without force
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          before="$(git rev-parse HEAD)"
+          main="$(git rev-parse origin/main)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git merge --no-ff --no-edit origin/main
+          after="$(git rev-parse HEAD)"
+          test "$after" != "$before"
+          test "$(git rev-parse HEAD^2)" = "$main"
+          git diff --check "$before..$after"
+          echo "MERGE_COMMIT_SHA=$after"
+          echo "MERGED_MAIN_SHA=$main"
+          git push origin HEAD:migration/issue-1171-stale-coordinates
