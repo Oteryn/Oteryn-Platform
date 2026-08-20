@@ -15,6 +15,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: one-off-governance-authority-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   migrate:
     runs-on: ubuntu-latest
@@ -89,15 +93,12 @@ jobs:
                   text = text.replace(old, new)
               write(path, text)
 
-          # Migrate every remaining current reference to the durable bootstrap.
-          # Historical task/evidence records stay byte-for-byte truthful provenance.
           grep = subprocess.run(
               [
                   "git", "grep", "-l", OLD_BOOTSTRAP, "--",
                   ":(exclude)docs/agents/tasks/archive/**",
                   ":(exclude)docs/evidence/**",
                   ":(exclude).github/workflows/one-off-governance-authority-migration.yml",
-                  ":(exclude).github/workflows/one-off-governance-workflow-repair.yml",
               ],
               text=True,
               capture_output=True,
@@ -118,7 +119,6 @@ jobs:
                   ":(exclude)docs/agents/tasks/archive/**",
                   ":(exclude)docs/evidence/**",
                   ":(exclude).github/workflows/one-off-governance-authority-migration.yml",
-                  ":(exclude).github/workflows/one-off-governance-workflow-repair.yml",
               ],
               text=True,
               capture_output=True,
