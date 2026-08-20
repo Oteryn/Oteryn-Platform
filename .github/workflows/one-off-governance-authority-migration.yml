@@ -76,7 +76,7 @@ jobs:
 
           replacements = {
               "tools/agents/policy_consistency.py": [(OLD, NEW), (OLD_BOOTSTRAP, BOOTSTRAP)],
-              "tools/agents/test_policy_consistency.py": [(OLD_BOOTSTRAP, BOOTSTRAP)],
+              "tools/agents/test_policy_consistency.py": [(OLD, NEW), (OLD_BOOTSTRAP, BOOTSTRAP)],
               "scripts/ci/classify_changes.py": [(OLD_BOOTSTRAP, BOOTSTRAP)],
               "tests/ci/test_workflow_trigger_economy.py": [(OLD_BOOTSTRAP, BOOTSTRAP)],
               ".github/workflows/agent-governance.yml": [("- AGENTS.override.md", f"- {BOOTSTRAP}")],
@@ -89,7 +89,7 @@ jobs:
                   text = text.replace(old, new)
               write(path, text)
 
-          # Migrate every remaining *current* reference to the durable bootstrap.
+          # Migrate every remaining current reference to the durable bootstrap.
           # Historical task/evidence records stay byte-for-byte truthful provenance.
           grep = subprocess.run(
               [
