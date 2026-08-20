@@ -82,7 +82,7 @@ def classify_path(raw_path: str) -> PathClassification:
         path,
         (
             "AGENTS.md",
-            "AGENTS.override.md",
+            "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md",
             "docs/agents/**",
             "tools/agents/**",
             ".github/ISSUE_TEMPLATE/**",

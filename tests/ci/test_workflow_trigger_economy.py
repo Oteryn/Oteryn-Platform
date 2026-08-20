@@ -17,7 +17,7 @@ HEAVY_WORKFLOWS = (
 
 REQUIRED_IGNORES = (
     "'AGENTS.md'",
-    "'AGENTS.override.md'",
+    "'docs/agents/PLATFORM_AGENT_BOOTSTRAP.md'",
     "'docs/agents/**'",
     "'.github/ISSUE_TEMPLATE/**'",
     "'.github/PULL_REQUEST_TEMPLATE.md'",

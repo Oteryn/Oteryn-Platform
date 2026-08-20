@@ -26,7 +26,7 @@ branch: governance/issue-1165-safe-authority
 base_sha: 256f27ba97f4b103320c186211583ea7c13dcf33
 owned_paths:
   - AGENTS.md
-  - AGENTS.override.md
+  - docs/agents/PLATFORM_AGENT_BOOTSTRAP.md
   - docs/agents/PLATFORM_AGENT_BOOTSTRAP.md
   - tools/agents/policy_consistency.py
   - tools/agents/test_policy_consistency.py
@@ -69,7 +69,7 @@ context_routes:
   - testing
 owned_paths:
   - AGENTS.md
-  - AGENTS.override.md
+  - docs/agents/PLATFORM_AGENT_BOOTSTRAP.md
   - docs/agents/PLATFORM_AGENT_BOOTSTRAP.md
   - tools/agents/policy_consistency.py
   - tools/agents/test_policy_consistency.py

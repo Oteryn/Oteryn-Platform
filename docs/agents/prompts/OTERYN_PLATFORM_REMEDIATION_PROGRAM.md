@@ -34,7 +34,7 @@ Do not hand the repair to another agent for approval. Do not create an audit Iss
 
 ## Required startup
 
-1. Read root `AGENTS.md`, `AGENTS.override.md`, `docs/agents/AGENTS.md` and the nearest governing instructions.
+1. Read root `AGENTS.md`, `docs/agents/PLATFORM_AGENT_BOOTSTRAP.md`, `docs/agents/AGENTS.md` and the nearest governing instructions.
 2. Read the remediation programme state, claim protocol, Issue taxonomy, PR economy, self-review/risk gate and closeout contracts.
 3. Query live Issues, branches, active tasks and PRs.
 4. Select one implementation-authorized unclaimed Issue with complete acceptance and no blocker.
