@@ -51,10 +51,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-20T15:33:00Z
-head: 9727d8df8eba2023cca3d4ddcf106e5ad58f5957
+updated_at: 2026-08-20T15:37:00Z
+head: f12430d6e4ee5fbbf28aa48b223b4c5fecb9ffe0
 branch: ops/atlas-22-mobile-preview-cleanup
-pr: none
+pr: 1185
 status: validating
 context_routes:
   - synology-staging
@@ -69,6 +69,7 @@ proven:
   - failed deployment job 96482452523 stopped at Fetch exact merged Atlas revision because the persistent self-hosted workspace still contained the task-owned atlas checkout with an existing origin remote
   - existing Synology preview therefore remains on the pre-cutover verified revision because inspect, stage and cutover steps were skipped
   - retry workflow removes only the exact task-owned atlas workspace path before reinitializing it and removes that path again in the always-run reporting step
+  - retry PR 1185 is open on branch ops/atlas-22-mobile-preview-cleanup
 derived:
   - the failure is runner-workspace residue rather than Atlas code, data-root, Docker or preview-runtime failure
 unknown: []
@@ -94,12 +95,12 @@ validation:
   - command: trusted-main Synology deploy run 32386517537
     result: FAIL
     evidence: job 96482452523 failed before mutation because task-owned atlas directory retained an existing origin remote
-  - command: retry exact-head Platform checks
+  - command: retry PR 1185 exact-head Platform checks
     result: NOT_RUN
-    evidence: retry PR not yet opened on current head
+    evidence: new checkpoint commit requires a fresh exact-head check generation
 blockers:
   - none
-next_action: Open the retry PR on the current exact head, pass required checks, merge it, then verify the resulting trusted-main Synology deployment run to terminal success.
+next_action: Require retry PR 1185 exact-head checks to pass, squash-merge it, then verify the resulting trusted-main Synology deployment run to terminal success.
 ```
 
 ## Source branch closeout
