@@ -37,6 +37,7 @@ jobs:
           OLD = "blakinio/Oteryn-Platform"
           NEW = "Oteryn/Oteryn-Platform"
           BOOTSTRAP = "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md"
+          OLD_BOOTSTRAP = "AGENTS.override.md"
 
           def read(path: str) -> str:
               return Path(path).read_text(encoding="utf-8")
@@ -64,7 +65,7 @@ jobs:
           agents = agents.replace(startup_old, startup_new, 1)
           write("AGENTS.md", agents)
 
-          override_path = Path("AGENTS.override.md")
+          override_path = Path(OLD_BOOTSTRAP)
           override = override_path.read_text(encoding="utf-8")
           if OLD not in override:
               raise SystemExit("AGENTS.override.md lacks expected pre-transfer coordinate")
@@ -74,10 +75,10 @@ jobs:
           override_path.unlink()
 
           replacements = {
-              "tools/agents/policy_consistency.py": [(OLD, NEW), ("AGENTS.override.md", BOOTSTRAP)],
-              "tools/agents/test_policy_consistency.py": [("AGENTS.override.md", BOOTSTRAP)],
-              "scripts/ci/classify_changes.py": [("AGENTS.override.md", BOOTSTRAP)],
-              "tests/ci/test_workflow_trigger_economy.py": [("AGENTS.override.md", BOOTSTRAP)],
+              "tools/agents/policy_consistency.py": [(OLD, NEW), (OLD_BOOTSTRAP, BOOTSTRAP)],
+              "tools/agents/test_policy_consistency.py": [(OLD_BOOTSTRAP, BOOTSTRAP)],
+              "scripts/ci/classify_changes.py": [(OLD_BOOTSTRAP, BOOTSTRAP)],
+              "tests/ci/test_workflow_trigger_economy.py": [(OLD_BOOTSTRAP, BOOTSTRAP)],
               ".github/workflows/agent-governance.yml": [("- AGENTS.override.md", f"- {BOOTSTRAP}")],
           }
           for path, pairs in replacements.items():
@@ -88,21 +89,49 @@ jobs:
                   text = text.replace(old, new)
               write(path, text)
 
-          active_refs = subprocess.check_output(
+          # Migrate every remaining *current* reference to the durable bootstrap.
+          # Historical task/evidence records stay byte-for-byte truthful provenance.
+          grep = subprocess.run(
               [
-                  "git", "grep", "-l", "AGENTS.override.md", "--",
+                  "git", "grep", "-l", OLD_BOOTSTRAP, "--",
                   ":(exclude)docs/agents/tasks/archive/**",
                   ":(exclude)docs/evidence/**",
                   ":(exclude).github/workflows/one-off-governance-authority-migration.yml",
               ],
               text=True,
-          ).splitlines()
-          unexpected = [path for path in active_refs if path]
-          if unexpected:
-              raise SystemExit(f"unexpected active AGENTS.override.md references remain: {unexpected}")
+              capture_output=True,
+          )
+          if grep.returncode not in (0, 1):
+              raise SystemExit(f"git grep failed: {grep.stderr}")
+          active_refs = [item for item in grep.stdout.splitlines() if item]
+          for path in active_refs:
+              text = read(path)
+              count = text.count(OLD_BOOTSTRAP)
+              if count < 1:
+                  raise SystemExit(f"{path}: expected active bootstrap reference disappeared")
+              write(path, text.replace(OLD_BOOTSTRAP, BOOTSTRAP))
+
+          verify = subprocess.run(
+              [
+                  "git", "grep", "-l", OLD_BOOTSTRAP, "--",
+                  ":(exclude)docs/agents/tasks/archive/**",
+                  ":(exclude)docs/evidence/**",
+                  ":(exclude).github/workflows/one-off-governance-authority-migration.yml",
+              ],
+              text=True,
+              capture_output=True,
+          )
+          if verify.returncode == 0 and verify.stdout.strip():
+              raise SystemExit(f"active bootstrap references remain: {verify.stdout.splitlines()}")
+          if verify.returncode not in (0, 1):
+              raise SystemExit(f"verification grep failed: {verify.stderr}")
 
           if OLD in read("AGENTS.md") or OLD in read(BOOTSTRAP):
               raise SystemExit("pre-transfer Platform coordinate remains in current agent authority")
+
+          print(f"migrated_additional_current_bootstrap_refs={len(active_refs)}")
+          for path in active_refs:
+              print(f"migrated_current_ref={path}")
           PY
 
       - name: Run preserved fail-closed governance regression suite
