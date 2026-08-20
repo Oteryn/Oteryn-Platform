@@ -8,20 +8,17 @@ on:
       - .github/workflows/one-off-governance-authority-migration.yml
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: one-off-governance-workflow-delivery-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  build-verified-commit:
+  export-verified-workflows:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      API_TOKEN: ${{ github.token }}
-      REPOSITORY: ${{ github.repository }}
     steps:
       - name: Check out exact task branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -69,66 +66,22 @@ jobs:
           python tools/agents/test_task_liveness.py
           git diff --check
 
-      - name: Create verified server commit object without moving any ref
+      - name: Stage verified workflow artifact
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import json
-          import os
-          import subprocess
-          import urllib.request
+          mkdir -p "$RUNNER_TEMP/verified-workflows/.github/workflows"
+          cp .github/workflows/agent-governance.yml "$RUNNER_TEMP/verified-workflows/.github/workflows/"
+          cp .github/workflows/edge-security-emulation.yml "$RUNNER_TEMP/verified-workflows/.github/workflows/"
+          cp .github/workflows/game-auth-ticket-concurrency.yml "$RUNNER_TEMP/verified-workflows/.github/workflows/"
+          cp .github/workflows/phase7-production-like-validation.yml "$RUNNER_TEMP/verified-workflows/.github/workflows/"
+          cp .github/workflows/platform-db-outage-validation.yml "$RUNNER_TEMP/verified-workflows/.github/workflows/"
+          sha256sum "$RUNNER_TEMP"/verified-workflows/.github/workflows/*.yml | sort | tee "$RUNNER_TEMP/verified-workflows/SHA256SUMS"
 
-          repository = os.environ["REPOSITORY"]
-          token = os.environ["API_TOKEN"]
-          api = f"https://api.github.com/repos/{repository}/git"
-          paths = [
-              ".github/workflows/agent-governance.yml",
-              ".github/workflows/edge-security-emulation.yml",
-              ".github/workflows/game-auth-ticket-concurrency.yml",
-              ".github/workflows/phase7-production-like-validation.yml",
-              ".github/workflows/platform-db-outage-validation.yml",
-          ]
-
-          def post(url, payload):
-              data = json.dumps(payload).encode("utf-8")
-              req = urllib.request.Request(
-                  url,
-                  data=data,
-                  method="POST",
-                  headers={
-                      "Authorization": f"Bearer {token}",
-                      "Accept": "application/vnd.github+json",
-                      "X-GitHub-Api-Version": "2022-11-28",
-                      "Content-Type": "application/json",
-                  },
-              )
-              with urllib.request.urlopen(req, timeout=30) as response:
-                  return json.load(response)
-
-          parent = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-          base_tree = subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], text=True).strip()
-          entries = []
-          for path in paths:
-              text = Path(path).read_text(encoding="utf-8")
-              blob = post(f"{api}/blobs", {"content": text, "encoding": "utf-8"})
-              entries.append({"path": path, "mode": "100644", "type": "blob", "sha": blob["sha"]})
-
-          tree = post(f"{api}/trees", {"base_tree": base_tree, "tree": entries})
-          commit = post(
-              f"{api}/commits",
-              {
-                  "message": "ci(governance): route workflows to durable bootstrap",
-                  "tree": tree["sha"],
-                  "parents": [parent],
-              },
-          )
-          sha = commit["sha"]
-          print(f"SERVER_COMMIT_SHA={sha}")
-          print(f"SERVER_COMMIT_PARENT={parent}")
-          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
-              summary.write(f"Verified workflow-only commit object: `{sha}`\n")
-              summary.write(f"Parent branch head: `{parent}`\n")
-              summary.write("Ref intentionally not moved by this workflow.\n")
-          PY
+      - name: Upload verified workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: safe-governance-workflow-delivery-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/verified-workflows
+          retention-days: 1
+          if-no-files-found: error
