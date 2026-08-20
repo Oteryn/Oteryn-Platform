@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: atlas-22-mobile-preview-deploy
@@ -247,3 +248,13 @@ jobs:
           fi
 
           echo "DEPLOYMENT_PASS revision=$NEW_REV endpoint=$PREVIEW_URL/web/fullworld.html"
+
+      - name: Report execution result
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          gh issue comment 1183 --repo Oteryn/Oteryn-Platform --body "Atlas mobile preview deploy run \`$GITHUB_RUN_ID\`: **$JOB_STATUS**. Source execution head: \`$GITHUB_SHA\`. Target Atlas revision: \`$NEW_REV\`. Endpoint: \`$PREVIEW_URL/web/fullworld.html\`."
