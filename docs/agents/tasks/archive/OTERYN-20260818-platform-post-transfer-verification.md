@@ -30,13 +30,14 @@ Verify the completed physical owner transfer of canonical Platform repository ID
 - [x] Runner `oteryn-synology-staging`, intentionally custom-label-only, accepted and completed a no-side-effect repository job after transfer.
 - [x] Task-specific verification and programme-reconciliation workflows were removed before terminal delivery.
 - [x] Provider programme, readiness report and machine-readable inventory were reconciled with exact post-transfer evidence.
-- [x] META reconciliation is explicitly deferred until this provider closeout merges; no premature ecosystem `MIGRATION_COMPLETE=YES` is asserted.
+- [x] PR #1164 passed exact up-to-date required checks and merged without bypass.
+- [x] Resulting `main` was verified at the merge commit.
 
 ## Ownership
 
 ```yaml
 owned_paths:
-  - docs/agents/tasks/active/OTERYN-20260818-platform-post-transfer-verification.md
+  - docs/agents/tasks/archive/OTERYN-20260818-platform-post-transfer-verification.md
   - docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md
   - docs/architecture/migration/OTERYN_PLATFORM_TRANSFER_READINESS.md
   - docs/architecture/migration/oteryn-platform-transfer-inventory.json
@@ -59,18 +60,18 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-20T06:47:00Z
-head: 0aba4b445e4f31930bb02a95a5a49485caa3535d
-branch: chore/platform-post-transfer-verification-20260818
+updated_at: 2026-08-20T07:25:00Z
+head: d617f2a6f5ba1a173056221bf303dea82c5b67ff
+branch: none
 pr: 1164
-status: ready
+status: completed
 context_routes:
   - agent-governance
   - repository-migration
   - ci-verification
   - synology-runner-contract
 owned_paths:
-  - docs/agents/tasks/active/OTERYN-20260818-platform-post-transfer-verification.md
+  - docs/agents/tasks/archive/OTERYN-20260818-platform-post-transfer-verification.md
   - docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md
   - docs/architecture/migration/OTERYN_PLATFORM_TRANSFER_READINESS.md
   - docs/architecture/migration/oteryn-platform-transfer-inventory.json
@@ -84,41 +85,40 @@ proven:
   - Bounded run 32309057579 passed target publication/readback for ghcr.io/oteryn/oteryn-deploy-runner at sha256:1eb10741adf42262834825e8e2c50dec4edf8e0f2791935727e75a798f83b520.
   - Run 32309057579 job 96248074731 executed successfully on runner oteryn-synology-staging using custom label oteryn-staging only.
   - Generic self-hosted exposure is intentionally absent because canonical runner registration uses --no-default-labels.
-  - Hosted runner-registry diagnostic was inconclusive with token-permission 403, but actual scheduler execution on the exact runner passed.
   - Provider readiness and inventory record POST_TRANSFER_VERIFIED without asserting ecosystem completion.
-  - The asserted programme reconciler completed successfully and both temporary workflows were removed before final validation.
+  - All temporary verification, reconciliation and repair workflows were removed before terminal delivery.
+  - Final delivery branch was updated with current main through merge commit d617f2a6f5ba1a173056221bf303dea82c5b67ff without force push.
+  - Required classify-changes and test contexts plus Agent Governance, Phase 7, DB Outage, Edge Security, Game Auth Concurrency and both native-protocol workflows passed on exact up-to-date head d617f2a6f5ba1a173056221bf303dea82c5b67ff.
+  - PR 1164 squash-merged as a621a94d727be35ab73afe7d59f0e182cfd61356.
+  - Resulting Platform main is a621a94d727be35ab73afe7d59f0e182cfd61356 and remains protected.
 derived:
   - Physical owner transfer and core provider identity, protection, GHCR and runner cutover are terminally proven.
-  - Package repository-link metadata and GitHub App user-token installation metadata remain UNKNOWN but do not contradict the proven operational provider cutover.
   - Ecosystem migration completion remains independently gated by provider governance/stale-coordinate reconciliation, META reconciliation and migration-backup terminal disposition.
 unknown:
   - package repository-link metadata unavailable through the current token
   - GitHub App user-token installation metadata unavailable through the current connector surface
 conflicts: []
 first_failure:
-  marker: final checkpoint metadata used non-canonical schema/result values
-  evidence: Agent Governance runs 32340546540, 32340636119 and 32340908265 passed policy regressions and consistency but rejected non-canonical checkpoint structure or result enums; this revision uses the proven version-1 schema and canonical validation result vocabulary.
+  marker: none-terminal
+  evidence: historical checkpoint-schema and self-review findings were repaired before the final up-to-date green generation and merge
 rejected_hypotheses:
   - the custom-label-only runner is broken because it lacks the generic self-hosted label
   - hosted registry API 403 proves the actual runner is unavailable
   - successful physical transfer alone permits ecosystem MIGRATION_COMPLETE=YES
 changed_paths:
-  - docs/agents/tasks/active/OTERYN-20260818-platform-post-transfer-verification.md
-  - docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md
-  - docs/architecture/migration/OTERYN_PLATFORM_TRANSFER_READINESS.md
-  - docs/architecture/migration/oteryn-platform-transfer-inventory.json
+  - docs/agents/tasks/archive/OTERYN-20260818-platform-post-transfer-verification.md
 validation:
   - command: bounded post-transfer verification run 32309057579
     result: PASS
-    evidence: repository identity, all three GHCR publish/readbacks and exact runner execution passed; hosted runner-registry enumeration alone returned non-blocking token-permission 403
-  - command: one-off asserted programme reconciliation
+    evidence: repository identity, all three GHCR publish/readbacks and exact runner execution passed
+  - command: exact up-to-date final PR head validation
     result: PASS
-    evidence: programme current-state transformations completed and committed; temporary reconciler subsequently removed
-  - command: temporary workflow cleanup
+    evidence: required classify-changes and test plus all applicable governance/security/runtime lanes passed on d617f2a6f5ba1a173056221bf303dea82c5b67ff
+  - command: PR merge
     result: PASS
-    evidence: both one-off workflow files deleted from delivery branch before final validation
+    evidence: PR 1164 squash-merged without bypass as a621a94d727be35ab73afe7d59f0e182cfd61356
 blockers: []
-next_action: Use only checks generated for this exact repaired head; if required CI and governance pass, verify full diff and review hygiene, then squash-merge provider closeout and reconcile META separately.
+next_action: Continue the separately gated post-transfer governance/stale-coordinate reconciliation; do not re-run the completed physical transfer.
 ```
 
 ## Source branch closeout
@@ -126,9 +126,26 @@ next_action: Use only checks generated for this exact repaired head; if required
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: bounded post-transfer verification and provider migration-state reconciliation are terminal after merge
-source_branch_evidence: pending final merge and branch cleanup
+source_branch_evidence: PR 1164 squash-merged as a621a94d727be35ab73afe7d59f0e182cfd61356; implementation branch has no continuing authority
+```
+
+## Terminal evidence
+
+```yaml
+implementation_pr: 1164
+implementation_final_head: d617f2a6f5ba1a173056221bf303dea82c5b67ff
+implementation_merge: a621a94d727be35ab73afe7d59f0e182cfd61356
+bounded_verification_run: 32309057579
+self_hosted_runner_job: 96248074731
+required_checks:
+  - classify-changes
+  - test
+provider_transfer_verdict: POST_TRANSFER_VERIFIED
+ecosystem_migration_complete: false
+runtime_e2e: NOT_APPLICABLE_FOR_PROTECTED_ENVIRONMENT
+protected_staging_or_production_operation_performed: false
 ```
 
 ## Notes
 
-The bounded verification workflow and one-off programme reconciler were temporary evidence scaffolding and are no longer present on the delivery branch. No protected staging or production operation was used for this task. Cross-repository META reconciliation begins only after this provider PR is terminally merged.
+The provider physical-transfer transaction is terminal. This archived task is evidence, not continuing write authority. Remaining provider governance/coordinate cleanup, META reconciliation and temporary migration-backup disposition are separate tasks and must remain independently gated.
