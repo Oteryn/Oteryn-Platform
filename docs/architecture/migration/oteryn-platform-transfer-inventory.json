@@ -1,12 +1,18 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "transaction_id": "OTERYN-PLATFORM-TRANSFER-20260818",
-  "observed_at": "2026-08-18T16:15:00Z",
-  "source_repository": {
-    "coordinate": "blakinio/Oteryn-Platform",
+  "observed_at": "2026-08-20T06:28:00Z",
+  "transaction_state": "POST_TRANSFER_VERIFIED",
+  "provider_transfer_complete": true,
+  "ecosystem_migration_complete": false,
+  "repository": {
+    "coordinate": "Oteryn/Oteryn-Platform",
     "repository_id": 1305155726,
-    "main_sha": "ac39722ab348c71748e915395787195d2ea20ebb",
+    "owner": "Oteryn",
     "visibility": "public",
+    "default_branch": "main",
+    "exact_transferred_main": "42f6741deacbd3ba9e1c4f609bb1073ebe0cff7b",
+    "current_main_observed": "256f27ba97f4b103320c186211583ea7c13dcf33",
     "admin_access": true,
     "branch_protection": {
       "enabled": true,
@@ -14,165 +20,242 @@
         "classify-changes",
         "test"
       ]
+    },
+    "historical_pr_continuity": {
+      "pull_request": 1161,
+      "result": "PASS"
     }
   },
-  "target_repository": {
-    "coordinate": "Oteryn/Oteryn-Platform",
-    "collision_observed_at_current_check": false,
-    "collision_evidence": "live Oteryn organization repository inventory contains no current repository named Oteryn-Platform",
-    "physical_transfer_performed": false
+  "original_source": {
+    "coordinate": "blakinio/Oteryn-Platform",
+    "repository_id": 1305155726,
+    "classification": "HISTORICAL_PRE_TRANSFER_COORDINATE"
   },
   "migration_backup_repository": {
     "coordinate": "Oteryn/Oteryn-Platform-Migration-Backup-20260818",
     "repository_id": 1338405017,
     "visibility": "public",
     "archived": false,
-    "default_branch": "main",
-    "classification": "MIGRATION_BOOTSTRAP_BACKUP_NOT_CANONICAL_PLATFORM",
-    "bootstrap_pull_request": 1,
-    "bootstrap_pull_request_state": "CLOSED_WITHOUT_MERGE",
-    "seed_workflow_run": 32140478830,
-    "seed_backup_artifact_id": 9325658054,
-    "seed_git_fsck": "PASS",
-    "seed_bundle_verify": "PASS",
-    "seed_head_push_rc": 1
+    "classification": "TEMPORARY_MIGRATION_EVIDENCE_ROLLBACK_MATERIAL",
+    "terminal_disposition": "PENDING_SEPARATE_GATE"
   },
-  "hardening_delivery": {
-    "pull_request": 1153,
-    "final_head": "43f7649b32eefc50e8e8bdc669d44bf4e5de7338",
-    "merge": "6a3b92cae0099b36d4b58048657fbfa8aea7b9bf",
-    "result": "PASS_REPOSITORY_PRE_CUTOVER_HARDENING",
-    "package_publication_performed": false,
-    "runner_registration_performed": false,
-    "staging_or_production_operation_performed": false
-  },
-  "post_hardening_drift": {
-    "liquid20_scope_removal_merge": "88e1661bbd13ddb36b064d411d54702075f64852",
-    "liquid20_scope_closeout_merge": "77fa480a3f4e847dac98f76e05b6acd27cca4a57",
-    "last_pre_rename_preflight_main": "77fa480a3f4e847dac98f76e05b6acd27cca4a57",
-    "current_main": "ac39722ab348c71748e915395787195d2ea20ebb",
-    "current_main_delta_from_last_preflight": "DOCUMENTATION_GOVERNANCE_ONLY",
-    "current_main_delta_files": [
-      "docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md",
-      "docs/agents/tasks/archive/OTERYN-20260818-repository-migration-live-reconciliation.md",
-      "docs/architecture/migration/OTERYN_PLATFORM_TRANSFER_READINESS.md"
-    ]
-  },
-  "entries": [
-    {
-      "path": "deploy/synology/scripts/repository-ghcr-image.sh",
-      "surface": "shared Platform-owned GHCR coordinate resolver",
-      "coordinate": "ghcr.io/<validated-lowercase-current-repository-owner>/<package>",
-      "classification": "PASS_PRE_CUTOVER_HARDENING",
-      "reason": "Platform-owned package consumers and publishers derive the package owner from repository context instead of embedding the personal source owner."
+  "post_transfer_verification": {
+    "pull_request": 1164,
+    "workflow_run": 32309057579,
+    "transferred_main": "42f6741deacbd3ba9e1c4f609bb1073ebe0cff7b",
+    "repository_identity": "PASS",
+    "branch_protection": "PASS",
+    "protected_staging_or_production_operation_performed": false,
+    "ghcr": {
+      "result": "PASS",
+      "verification_tag": "verify-transfer-42f6741deacbd3ba9e1c4f609bb1073ebe0cff7b",
+      "images": [
+        {
+          "name": "ghcr.io/oteryn/oteryn-game-gateway",
+          "digest": "sha256:323fd66336b3de62f82fda69c4c299c78444dfe93481d26420bbc65b1c9b90f7",
+          "build_push": "PASS",
+          "digest_inspect": "PASS",
+          "pull_readback": "PASS"
+        },
+        {
+          "name": "ghcr.io/oteryn/oteryn-platform",
+          "digest": "sha256:1d1e8f367a2006d117224577cc678a60aee4ed08aae304a49f78b4e7097f07c2",
+          "build_push": "PASS",
+          "digest_inspect": "PASS",
+          "pull_readback": "PASS"
+        },
+        {
+          "name": "ghcr.io/oteryn/oteryn-deploy-runner",
+          "digest": "sha256:1eb10741adf42262834825e8e2c50dec4edf8e0f2791935727e75a798f83b520",
+          "build_push": "PASS",
+          "digest_inspect": "PASS",
+          "pull_readback": "PASS"
+        }
+      ]
     },
-    {
-      "path": ".github/workflows/build-synology-staging-images.yml",
-      "surface": "GHCR publisher and PR image validator",
-      "coordinate": "current repository owner via repository-ghcr-image.sh",
-      "classification": "PASS_REPOSITORY_HARDENING_LIVE_PACKAGE_EVIDENCE_PENDING",
-      "reason": "Platform, Gateway and deploy-runner image names are owner-neutral; privileged deploy-runner publication requires explicit workflow_dispatch and repository-only hardening no longer auto-publishes on main push."
+    "self_hosted_runner": {
+      "result": "PASS",
+      "job_id": 96248074731,
+      "runner_name": "oteryn-synology-staging",
+      "routing_label": "oteryn-staging",
+      "generic_self_hosted_label_expected": false,
+      "registration_isolation": "--no-default-labels",
+      "job_class": "NO_SIDE_EFFECT_REPOSITORY_ATTACHMENT_PROOF"
     },
-    {
-      "path": ".github/workflows/deploy-synology-staging.yml",
-      "surface": "GHCR consumer and immutable digest resolver",
-      "coordinate": "current repository owner via repository-ghcr-image.sh",
-      "classification": "PASS_REPOSITORY_HARDENING_LIVE_PACKAGE_EVIDENCE_PENDING",
-      "reason": "Deployment resolves Platform/Gateway tags and digests from the current owner while preserving exact release SHA and OCI revision gates."
-    },
-    {
-      "path": ".github/workflows/character-bazaar-staging-control.yml",
-      "surface": "Platform/Gateway staging image consumer",
-      "coordinate": "current Platform repository owner; external Canary digest remains pinned",
-      "classification": "PASS_REPOSITORY_HARDENING_EXTERNAL_DEPENDENCY_PRESERVED",
-      "reason": "Platform-owned images follow the Platform repository owner; the external pinned Canary image remains historical/compatibility provenance rather than being rewritten."
-    },
-    {
-      "path": "deploy/synology/scripts/production-target-preflight.sh",
-      "surface": "runtime image provenance gate",
-      "coordinate": "current Platform repository owner via repository-ghcr-image.sh @ sha256 digest",
-      "classification": "PASS_REPOSITORY_HARDENING_POST_TRANSFER_RUNTIME_EVIDENCE_REQUIRED",
-      "reason": "The preflight validates immutable Platform/Gateway image identities against the current owner and no longer rejects a legitimate organization-scoped package solely because ownership changed."
-    },
-    {
-      "path": "tests/ci/test_synology_deploy_release_identity.py",
-      "surface": "CI contract for transfer-sensitive package/runner behavior",
-      "coordinate": "owner-neutral Platform package contract",
-      "classification": "PASS_REGRESSION_COVERAGE",
-      "reason": "Focused tests reject reintroduction of old Platform package/repository coordinates and verify merge-side-effect guards."
-    },
-    {
-      "path": "deploy/synology/runner/compose.yml",
-      "surface": "repository-level self-hosted runner image and registration contract",
-      "coordinate": "explicit RUNNER_IMAGE and RUNNER_URL",
-      "classification": "PASS_PRE_CUTOVER_PREPARATION_VERIFY_LIVE_AT_CUTOVER",
-      "reason": "No source repository URL or personal-owner deploy-runner image fallback remains; live runner attachment after transfer is still environment evidence."
-    },
-    {
-      "path": "deploy/synology/runner/entrypoint.sh",
-      "surface": "self-hosted runner first-registration contract",
-      "coordinate": "explicit exact GitHub owner/repository URL when .runner is absent",
-      "classification": "PASS_PRE_CUTOVER_PREPARATION_VERIFY_LIVE_AT_CUTOVER",
-      "reason": "First registration fails closed without an exact RUNNER_URL while an existing persistent .runner registration remains restart-safe."
-    },
-    {
-      "path": "deploy/synology/runner/.env.example",
-      "surface": "runner setup contract",
-      "coordinate": "explicit lowercase owner and repository URL",
-      "classification": "PASS_PRE_CUTOVER_PREPARATION",
-      "reason": "New/replacement runner setup must choose the current repository owner and exact repository URL deliberately."
-    },
-    {
-      "path": "deploy/synology/.env.example",
-      "surface": "staging image example",
-      "coordinate": "ghcr.io/${OTERYN_GHCR_OWNER}/{oteryn-platform,oteryn-game-gateway}:main",
-      "classification": "PASS_PRE_CUTOVER_PREPARATION",
-      "reason": "Manual/local staging configuration exposes the owner as an explicit transfer-sensitive setting instead of embedding the source owner."
-    },
-    {
-      "path": "tools/validation/adr_registry.py; tools/validation/test_adr_registry.py",
-      "surface": "architecture registry compatibility gate",
-      "coordinate": "bounded cross-repository successor plus exact merge provenance",
-      "classification": "PASS_LATENT_CI_REPAIR",
-      "reason": "The validator accepts the already-canonical META successor form used by unchanged ADR 0041 only with exact fail-closed merge provenance and retains local successor existence validation."
-    },
-    {
-      "path": "Liquid20/Freqtrade operational surfaces",
-      "surface": "out-of-scope historical references only",
-      "coordinate": "none in active Platform runtime/control workflows",
-      "classification": "REMOVED_FROM_PLATFORM_SCOPE",
-      "reason": "PR #1156 / merge 88e1661bbd13ddb36b064d411d54702075f64852 removed Liquid20/Freqtrade operational workflow and Synology control assets; remaining search hits are governance/history/tests."
-    },
-    {
-      "path": "docs/**; docs/agents/tasks/archive/**; historical ADR/PR/Issue references",
-      "surface": "historical provenance and ordinary documentation",
-      "coordinate": "blakinio/Oteryn-Platform",
-      "classification": "MIXED_CURRENT_DOCS_AND_HISTORICAL_PROVENANCE",
-      "reason": "Current setup documentation may need post-transfer cleanup; historical evidence remains truthful provenance and must not be globally rewritten."
+    "runner_registry_diagnostic": {
+      "result": "INCONCLUSIVE_TOKEN_PERMISSION_403",
+      "blocking": false,
+      "reason": "PR GITHUB_TOKEN cannot enumerate repository runners; actual scheduler execution on the exact repository runner succeeded"
     }
-  ],
-  "official_github_transfer_semantics": {
-    "target_same_name_repository_must_be_absent": true,
-    "source_admin_required": true,
-    "target_organization_create_permission_required": true,
-    "transfer_api_supported_fine_grained_token_type": "GitHub App user access token",
-    "transfer_api_required_repository_permission": "Administration write",
-    "connected_transfer_mutation_available": false,
-    "granular_package_links_removed_on_cross_owner_repository_transfer": true
+  },
+  "owner_neutral_hardening": {
+    "pull_request": 1153,
+    "merge": "6a3b92cae0099b36d4b58048657fbfa8aea7b9bf",
+    "result": "PASS"
   },
   "remaining_unknowns": [
-    "live GHCR package object ownership permissions and repository links",
-    "whether the existing repository-level Synology runner remains attached and online immediately after owner transfer without re-registration",
-    "target organization ruleset/protection outcome until post-transfer observation"
+    "GitHub package repository-link metadata unavailable through current token",
+    "GitHub App installation metadata through a user-token endpoint unavailable through current connector surface"
   ],
-  "remaining_blockers": [
-    "live GHCR package cutover evidence or exact bounded owner risk acceptance allowed by the canonical programme",
-    "live self-hosted runner cutover evidence",
-    "repository-transfer operation unavailable in the connected GitHub action surface",
-    "rollback feasibility not yet proven for the exact live cutover state"
+  "remaining_provider_gates": [
+    "reconcile current governance and stale repository coordinates without weakening fail-closed policy validation"
+  ],
+  "remaining_ecosystem_gates": [
+    "META reconciliation after provider closeout",
+    "temporary migration-backup terminal disposition after recovery/evidence obligations are resolved"
   ],
   "resolved_blockers": [
-    "target-coordinate collision resolved by preserving repository ID 1338405017 under Oteryn/Oteryn-Platform-Migration-Backup-20260818"
+    "physical repository owner transfer",
+    "repository identity and exact transferred-main continuity",
+    "target branch protection required checks",
+    "target GHCR publish/readback for all three Platform-owned images",
+    "repository-scoped Synology runner attachment after transfer",
+    "target-coordinate collision"
   ],
-  "next_action": "Resolve live GHCR package linkage and self-hosted runner cutover evidence and prove rollback feasibility; if exactly the transfer operation remains afterward, hand off the single owner-only GitHub repository transfer and immediately verify repository ID 1305155726 at Oteryn/Oteryn-Platform."
+  "next_action": "Pass exact clean-head provider gates and merge PR 1164; then continue independently gated governance, META and migration-backup closeout.",
+  "pre_transfer_evidence": {
+    "source_repository": {
+      "coordinate": "blakinio/Oteryn-Platform",
+      "repository_id": 1305155726,
+      "main_sha": "ac39722ab348c71748e915395787195d2ea20ebb",
+      "visibility": "public",
+      "admin_access": true,
+      "branch_protection": {
+        "enabled": true,
+        "required_checks": [
+          "classify-changes",
+          "test"
+        ]
+      }
+    },
+    "target_repository": {
+      "coordinate": "Oteryn/Oteryn-Platform",
+      "collision_observed_at_current_check": false,
+      "collision_evidence": "live Oteryn organization repository inventory contains no current repository named Oteryn-Platform",
+      "physical_transfer_performed": false
+    },
+    "hardening_delivery": {
+      "pull_request": 1153,
+      "final_head": "43f7649b32eefc50e8e8bdc669d44bf4e5de7338",
+      "merge": "6a3b92cae0099b36d4b58048657fbfa8aea7b9bf",
+      "result": "PASS_REPOSITORY_PRE_CUTOVER_HARDENING",
+      "package_publication_performed": false,
+      "runner_registration_performed": false,
+      "staging_or_production_operation_performed": false
+    },
+    "post_hardening_drift": {
+      "liquid20_scope_removal_merge": "88e1661bbd13ddb36b064d411d54702075f64852",
+      "liquid20_scope_closeout_merge": "77fa480a3f4e847dac98f76e05b6acd27cca4a57",
+      "last_pre_rename_preflight_main": "77fa480a3f4e847dac98f76e05b6acd27cca4a57",
+      "current_main": "ac39722ab348c71748e915395787195d2ea20ebb",
+      "current_main_delta_from_last_preflight": "DOCUMENTATION_GOVERNANCE_ONLY",
+      "current_main_delta_files": [
+        "docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md",
+        "docs/agents/tasks/archive/OTERYN-20260818-repository-migration-live-reconciliation.md",
+        "docs/architecture/migration/OTERYN_PLATFORM_TRANSFER_READINESS.md"
+      ]
+    },
+    "entries": [
+      {
+        "path": "deploy/synology/scripts/repository-ghcr-image.sh",
+        "surface": "shared Platform-owned GHCR coordinate resolver",
+        "coordinate": "ghcr.io/<validated-lowercase-current-repository-owner>/<package>",
+        "classification": "PASS_PRE_CUTOVER_HARDENING",
+        "reason": "Platform-owned package consumers and publishers derive the package owner from repository context instead of embedding the personal source owner."
+      },
+      {
+        "path": ".github/workflows/build-synology-staging-images.yml",
+        "surface": "GHCR publisher and PR image validator",
+        "coordinate": "current repository owner via repository-ghcr-image.sh",
+        "classification": "PASS_REPOSITORY_HARDENING_LIVE_PACKAGE_EVIDENCE_PENDING",
+        "reason": "Platform, Gateway and deploy-runner image names are owner-neutral; privileged deploy-runner publication requires explicit workflow_dispatch and repository-only hardening no longer auto-publishes on main push."
+      },
+      {
+        "path": ".github/workflows/deploy-synology-staging.yml",
+        "surface": "GHCR consumer and immutable digest resolver",
+        "coordinate": "current repository owner via repository-ghcr-image.sh",
+        "classification": "PASS_REPOSITORY_HARDENING_LIVE_PACKAGE_EVIDENCE_PENDING",
+        "reason": "Deployment resolves Platform/Gateway tags and digests from the current owner while preserving exact release SHA and OCI revision gates."
+      },
+      {
+        "path": ".github/workflows/character-bazaar-staging-control.yml",
+        "surface": "Platform/Gateway staging image consumer",
+        "coordinate": "current Platform repository owner; external Canary digest remains pinned",
+        "classification": "PASS_REPOSITORY_HARDENING_EXTERNAL_DEPENDENCY_PRESERVED",
+        "reason": "Platform-owned images follow the Platform repository owner; the external pinned Canary image remains historical/compatibility provenance rather than being rewritten."
+      },
+      {
+        "path": "deploy/synology/scripts/production-target-preflight.sh",
+        "surface": "runtime image provenance gate",
+        "coordinate": "current Platform repository owner via repository-ghcr-image.sh @ sha256 digest",
+        "classification": "PASS_REPOSITORY_HARDENING_POST_TRANSFER_RUNTIME_EVIDENCE_REQUIRED",
+        "reason": "The preflight validates immutable Platform/Gateway image identities against the current owner and no longer rejects a legitimate organization-scoped package solely because ownership changed."
+      },
+      {
+        "path": "tests/ci/test_synology_deploy_release_identity.py",
+        "surface": "CI contract for transfer-sensitive package/runner behavior",
+        "coordinate": "owner-neutral Platform package contract",
+        "classification": "PASS_REGRESSION_COVERAGE",
+        "reason": "Focused tests reject reintroduction of old Platform package/repository coordinates and verify merge-side-effect guards."
+      },
+      {
+        "path": "deploy/synology/runner/compose.yml",
+        "surface": "repository-level self-hosted runner image and registration contract",
+        "coordinate": "explicit RUNNER_IMAGE and RUNNER_URL",
+        "classification": "PASS_PRE_CUTOVER_PREPARATION_VERIFY_LIVE_AT_CUTOVER",
+        "reason": "No source repository URL or personal-owner deploy-runner image fallback remains; live runner attachment after transfer is still environment evidence."
+      },
+      {
+        "path": "deploy/synology/runner/entrypoint.sh",
+        "surface": "self-hosted runner first-registration contract",
+        "coordinate": "explicit exact GitHub owner/repository URL when .runner is absent",
+        "classification": "PASS_PRE_CUTOVER_PREPARATION_VERIFY_LIVE_AT_CUTOVER",
+        "reason": "First registration fails closed without an exact RUNNER_URL while an existing persistent .runner registration remains restart-safe."
+      },
+      {
+        "path": "deploy/synology/runner/.env.example",
+        "surface": "runner setup contract",
+        "coordinate": "explicit lowercase owner and repository URL",
+        "classification": "PASS_PRE_CUTOVER_PREPARATION",
+        "reason": "New/replacement runner setup must choose the current repository owner and exact repository URL deliberately."
+      },
+      {
+        "path": "deploy/synology/.env.example",
+        "surface": "staging image example",
+        "coordinate": "ghcr.io/${OTERYN_GHCR_OWNER}/{oteryn-platform,oteryn-game-gateway}:main",
+        "classification": "PASS_PRE_CUTOVER_PREPARATION",
+        "reason": "Manual/local staging configuration exposes the owner as an explicit transfer-sensitive setting instead of embedding the source owner."
+      },
+      {
+        "path": "tools/validation/adr_registry.py; tools/validation/test_adr_registry.py",
+        "surface": "architecture registry compatibility gate",
+        "coordinate": "bounded cross-repository successor plus exact merge provenance",
+        "classification": "PASS_LATENT_CI_REPAIR",
+        "reason": "The validator accepts the already-canonical META successor form used by unchanged ADR 0041 only with exact fail-closed merge provenance and retains local successor existence validation."
+      },
+      {
+        "path": "Liquid20/Freqtrade operational surfaces",
+        "surface": "out-of-scope historical references only",
+        "coordinate": "none in active Platform runtime/control workflows",
+        "classification": "REMOVED_FROM_PLATFORM_SCOPE",
+        "reason": "PR #1156 / merge 88e1661bbd13ddb36b064d411d54702075f64852 removed Liquid20/Freqtrade operational workflow and Synology control assets; remaining search hits are governance/history/tests."
+      },
+      {
+        "path": "docs/**; docs/agents/tasks/archive/**; historical ADR/PR/Issue references",
+        "surface": "historical provenance and ordinary documentation",
+        "coordinate": "blakinio/Oteryn-Platform",
+        "classification": "MIXED_CURRENT_DOCS_AND_HISTORICAL_PROVENANCE",
+        "reason": "Current setup documentation may need post-transfer cleanup; historical evidence remains truthful provenance and must not be globally rewritten."
+      }
+    ],
+    "official_github_transfer_semantics": {
+      "target_same_name_repository_must_be_absent": true,
+      "source_admin_required": true,
+      "target_organization_create_permission_required": true,
+      "transfer_api_supported_fine_grained_token_type": "GitHub App user access token",
+      "transfer_api_required_repository_permission": "Administration write",
+      "connected_transfer_mutation_available": false,
+      "granular_package_links_removed_on_cross_owner_repository_transfer": true
+    }
+  }
 }
