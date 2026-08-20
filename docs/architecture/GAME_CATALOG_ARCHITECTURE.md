@@ -2,7 +2,7 @@
 
 Status: Proposed  
 Contract: `oteryn.game-catalog/v1`  
-Repositories: `blakinio/Oteryn-Platform`, `blakinio/canary`
+Repositories: `Oteryn/Oteryn-Platform`, `blakinio/canary`
 
 > Compatibility scope: this document describes the delivered/planned Legacy Canary Compatibility catalogue. ADR 0034 and `docs/contracts/OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md` own the separate native Oteryn-v2 target and supersede any implication that Canary schemas or identifiers define native content authority.
 
