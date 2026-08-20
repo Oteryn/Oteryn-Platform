@@ -7,7 +7,7 @@ required_reads:
   - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
   - docs/agents/PROMPTING_STANDARD.md
   - docs/agents/PROMPT_EVAL_STANDARD.md
-repository: blakinio/Oteryn-Platform
+repository: Oteryn/Oteryn-Platform
 owner_alias: OTERYN-REPO-MIGRATION
 ---
 
@@ -21,12 +21,12 @@ Move the accepted Oteryn ecosystem topology from logical ownership to verified, 
 
 ```yaml
 programme_state_version: 1
-updated_at: 2026-08-20T06:28:00Z
+updated_at: 2026-08-20T08:15:00Z
 status: active
-active_task: docs/agents/tasks/active/OTERYN-20260818-platform-post-transfer-verification.md
-issue: 7
-branch: chore/platform-post-transfer-verification-20260818
-pull_request: 1164
+active_task: docs/agents/tasks/active/OTERYN-20260820-platform-stale-coordinate-terminal-reconciliation.md
+issue: 1171
+branch: migration/issue-1171-terminal-reconciliation
+pull_request: 1181
 
 ecosystem_topology_authority:
   repository: Oteryn/Oteryn
@@ -37,7 +37,7 @@ ecosystem_topology_authority:
   live_state_reconciliation_merge: 20f87798d6429555031fa4e63e0a115db83adffb
   live_state_reconciliation_pr: 4
   supersedes:
-    repository: blakinio/Oteryn-Platform
+    repository: Oteryn/Oteryn-Platform
     path: docs/architecture/adr/0041-ecosystem-repository-authority-contracts-and-atlas-integration.md
     scope: ecosystem repository topology and META coordination authority
     platform_reconciliation_merge: 77914c8c2fab016273ee32cb1df0799370206e80
@@ -64,7 +64,6 @@ platform_post_transfer_verification_evidence:
   protected_staging_or_production_operation_performed: false
   package_repository_link_metadata: UNKNOWN_NON_BLOCKING_FOR_PROVIDER_CUTOVER
   remaining_ecosystem_gates:
-    - provider governance and stale-coordinate reconciliation
     - META reconciliation
     - temporary migration-backup terminal disposition
 
@@ -150,7 +149,7 @@ observed_target_coordinates:
     repository_runner_attachment: PASS
     migration_backup_repository: Oteryn/Oteryn-Platform-Migration-Backup-20260818
     migration_backup_repository_id: 1338405017
-    governance_coordinate_reconciliation: PENDING_SEPARATE_GATE
+    governance_coordinate_reconciliation: PASS
 
 platform_preparation_evidence:
   readiness_report: docs/architecture/migration/OTERYN_PLATFORM_TRANSFER_READINESS.md
@@ -217,7 +216,6 @@ migration_transaction:
     - package repository-link metadata unavailable through current token
     - GitHub App user-token installation metadata unavailable through current connector surface
   remaining_ecosystem_gates:
-    - provider governance and stale-coordinate reconciliation
     - cross-repository META reconciliation
     - temporary migration-backup terminal disposition
 
@@ -240,7 +238,7 @@ derived:
   - Atlas repository creation is terminal; Atlas content/history separation remains independently gated.
   - Platform physical owner transfer is terminally proven at the provider level and must not be re-requested.
   - Platform target GHCR publication/readback and repository-scoped Synology runner attachment are terminally proven for the transfer transaction.
-  - Ecosystem MIGRATION_COMPLETE=YES is still forbidden until provider governance/stale-coordinate reconciliation, META reconciliation and temporary migration-backup disposition are terminal.
+  - Ecosystem MIGRATION_COMPLETE=YES is still forbidden until META reconciliation and temporary migration-backup disposition are terminal.
 
 unknown:
   - GitHub package repository-link metadata unavailable through the current token; operational target publication/readback is proven.
@@ -250,16 +248,14 @@ unknown:
 conflicts: []
 
 cleanup_debt:
-  - Provider root/current governance still contains pre-transfer repository-coordinate material; reconcile it through the separately gated fail-closed governance task before ecosystem completion.
-  - Oteryn/Oteryn main protection remains pending under META Issue 3 because the current connector cannot configure branch protection or rulesets.
+  - Oteryn/Oteryn terminal desired-state protection remains under META Issue 3; current protection has `meta-gate`, while reusable `ai-review-gate` enforcement remains independently gated by META PR #15.
   - Oteryn/Oteryn META repository manifest still describes the pre-rename bootstrap target state and requires a separate bounded META reconciliation after this closeout.
 
 blockers:
-  - PROVIDER_GOVERNANCE_RECONCILIATION_PENDING: current instruction/policy coordinates must be reconciled without weakening fail-closed validation.
   - META_TERMINAL_RECONCILIATION_PENDING: META may be updated only after provider closeout is merged and exact residual gates are known.
   - MIGRATION_BACKUP_TERMINAL_DISPOSITION_PENDING: backup repository remains until recovery/evidence obligations are explicitly resolved.
 
-next_action: Pass exact clean-head provider gates and merge PR 1164; then continue independently gated governance, META and migration-backup closeout without re-running the completed physical transfer.
+next_action: After this provider coordinate closeout merges, reconcile the META manifest/desired state to the terminal provider facts, then resolve the temporary migration-backup disposition without re-running the completed physical transfer.
 ```
 
 ## Programme rules
