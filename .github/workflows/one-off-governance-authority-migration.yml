@@ -147,13 +147,32 @@ jobs:
           python tools/agents/test_task_liveness.py
           git diff --check
 
-      - name: Commit exact mechanical migration
+      - name: Commit non-workflow migration; workflow files are delivered by authorized connector
         shell: bash
         run: |
           set -euo pipefail
+          find . -type d -name __pycache__ -prune -exec rm -rf {} +
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
+          git restore --staged \
+            .github/workflows/agent-governance.yml \
+            .github/workflows/edge-security-emulation.yml \
+            .github/workflows/game-auth-ticket-concurrency.yml \
+            .github/workflows/phase7-production-like-validation.yml \
+            .github/workflows/platform-db-outage-validation.yml
+          if git diff --cached --quiet; then
+            echo "Expected non-workflow governance migration produced no staged diff" >&2
+            exit 1
+          fi
           git diff --cached --check
+          if git diff --cached --name-only | grep -E '^\.github/workflows/'; then
+            echo "Workflow file unexpectedly staged for bot push" >&2
+            exit 1
+          fi
+          if git diff --cached --name-only | grep -E '(^|/)__pycache__/|\.pyc$'; then
+            echo "Python cache unexpectedly staged" >&2
+            exit 1
+          fi
           git commit -m "chore(governance): preserve policy while canonicalizing authority"
           git push origin HEAD:governance/issue-1165-safe-authority
