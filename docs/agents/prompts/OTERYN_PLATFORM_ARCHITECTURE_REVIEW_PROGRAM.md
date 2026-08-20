@@ -73,7 +73,7 @@ Use targeted retrieval. Keep PROVEN, DERIVED, UNKNOWN and CONFLICT distinct. Nev
 MANDATORY READS
 At programme start or after material governance change:
 - AGENTS.md
-- AGENTS.override.md
+- docs/agents/PLATFORM_AGENT_BOOTSTRAP.md
 - docs/agents/AGENTS.md
 - docs/agents/REPOSITORY_MAP.md
 - docs/agents/CONTEXT_ROUTING.md

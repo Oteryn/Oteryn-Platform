@@ -60,7 +60,7 @@ ROADMAP
 Before mutation:
 
 1. resolve the exact protected `main` identity;
-2. perform the mandatory repository startup required by `AGENTS.md`, `AGENTS.override.md`, `docs/agents/AGENTS.md`, `REPOSITORY_MAP.md` and `CONTEXT_ROUTING.md` once for this bounded invocation;
+2. perform the mandatory repository startup required by `AGENTS.md`, `docs/agents/PLATFORM_AGENT_BOOTSTRAP.md`, `docs/agents/AGENTS.md`, `REPOSITORY_MAP.md` and `CONTEXT_ROUTING.md` once for this bounded invocation;
 3. inspect the current active task checkpoint and live PR first when continuation work exists, then current ownership/leases, relevant Issues/PRs, reviews, required checks and exact heads;
 4. search narrowly for an existing Issue/task/branch/PR owning the candidate intent or paths;
 5. inspect connected GitHub capabilities before treating local `git`/`gh` state as an access signal; use the connector first for supported remote operations;

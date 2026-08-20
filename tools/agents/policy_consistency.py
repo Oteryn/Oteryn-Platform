@@ -8,12 +8,12 @@ import re
 import sys
 from pathlib import Path
 
-REPOSITORY_FULL_NAME = "blakinio/Oteryn-Platform"
+REPOSITORY_FULL_NAME = "Oteryn/Oteryn-Platform"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 CHECKED_PATHS = (
     "AGENTS.md",
-    "AGENTS.override.md",
+    "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md",
     "docs/agents/AGENTS.md",
     "docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md",
     "docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md",
@@ -530,7 +530,7 @@ def validate_policy(root: Path = REPO_ROOT) -> list[str]:
     errors: list[str] = []
     try:
         root_agents = _read_text(root, "AGENTS.md")
-        override = _read_text(root, "AGENTS.override.md")
+        override = _read_text(root, "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md")
         docs_agents = _read_text(root, "docs/agents/AGENTS.md")
         anti_stall = _read_text(root, "docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md")
         delivery = _read_text(root, "docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md")
@@ -557,8 +557,8 @@ def validate_policy(root: Path = REPO_ROOT) -> list[str]:
 
         _require_all_declarations(errors, "docs/agents/AGENTS.md", _text_contract_declarations(docs_agents, "Use these checkpoint task statuses only:"), canonical_statuses, "checkpoint task statuses")
         _require_all_declarations(errors, "docs/agents/AGENTS.md", _text_contract_declarations(docs_agents, "Use these terminal invocation results only:"), canonical_terminal, "terminal invocation results")
-        _require_all_declarations(errors, "AGENTS.override.md", _inline_backtick_declarations(override, "checkpoint task status:"), canonical_statuses, "checkpoint task statuses")
-        _require_all_declarations(errors, "AGENTS.override.md", _inline_backtick_declarations(override, "terminal invocation result:"), canonical_terminal, "terminal invocation results")
+        _require_all_declarations(errors, "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md", _inline_backtick_declarations(override, "checkpoint task status:"), canonical_statuses, "checkpoint task statuses")
+        _require_all_declarations(errors, "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md", _inline_backtick_declarations(override, "terminal invocation result:"), canonical_terminal, "terminal invocation results")
 
         budget_keys = {key: _yaml_int(anti_stall, key) for key in (
             "normal_foreground_runtime_minutes", "large_foreground_runtime_minutes", "no_progress_minutes",
@@ -574,48 +574,48 @@ def validate_policy(root: Path = REPO_ROOT) -> list[str]:
             (r"permits at most (?P<value>\d+) checks per materially new required-check generation", "max_terminal_ci_state_checks_per_check_generation"),
             (r"only when at least (?P<value>\d+) minutes remains", "minimum_remaining_minutes_to_start_additional_task"),
         ):
-            _require_regex_value(errors, "AGENTS.override.md", override, pattern, budget_keys[key], key)
+            _require_regex_value(errors, "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md", override, pattern, budget_keys[key], key)
 
         ordinary_checks = budget_keys["max_ci_state_checks_per_exact_head"]
         external_checks = budget_keys["max_unchanged_external_state_checks"]
         if ordinary_checks != external_checks:
             errors.append("ANTI_STALL_AND_EXECUTION_BUDGET.md: root bootstrap combines ordinary CI and external checks, but their canonical limits differ")
         elif ordinary_checks != 2 or "at most twice per exact head" not in override:
-            errors.append(f"AGENTS.override.md: ordinary CI/external-state check limit drift; canonical={ordinary_checks}, duplicate marker='at most twice per exact head'")
+            errors.append(f"docs/agents/PLATFORM_AGENT_BOOTSTRAP.md: ordinary CI/external-state check limit drift; canonical={ordinary_checks}, duplicate marker='at most twice per exact head'")
 
         poll_minutes = budget_keys["terminal_ci_minimum_poll_interval_minutes"]
         poll_word = NUMBER_WORDS.get(poll_minutes)
         if poll_word is None or f"requires at least {poll_word} minutes between unchanged checks" not in override:
-            errors.append(f"AGENTS.override.md: terminal CI poll interval drift; canonical={poll_minutes} minutes")
+            errors.append(f"docs/agents/PLATFORM_AGENT_BOOTSTRAP.md: terminal CI poll interval drift; canonical={poll_minutes} minutes")
 
         additional_tasks = budget_keys["max_additional_tasks_after_terminal_entry_task"]
         additional_word = NUMBER_WORDS.get(additional_tasks)
         if additional_word is None or f"at most {additional_word} additional task may be started" not in override:
-            errors.append(f"AGENTS.override.md: additional-task limit drift; canonical={additional_tasks}")
+            errors.append(f"docs/agents/PLATFORM_AGENT_BOOTSTRAP.md: additional-task limit drift; canonical={additional_tasks}")
 
         scope_markers = {
             "AGENTS.md": [
                 f"The only repository where autonomous write operations are allowed by this file is `{REPOSITORY_FULL_NAME}`.",
                 f"verify that `repository_full_name` is exactly `{REPOSITORY_FULL_NAME}`",
             ],
-            "AGENTS.override.md": [
+            "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md": [
                 f"default authorization for work launched from `{REPOSITORY_FULL_NAME}` is **WWW Platform only**",
                 "must **not be accessed, read, inspected, searched, fetched, branched, edited, reviewed, audited, merged or otherwise operated on unless the project owner explicitly grants separate permission",
             ],
         }
-        source_text = {"AGENTS.md": root_agents, "AGENTS.override.md": override}
+        source_text = {"AGENTS.md": root_agents, "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md": override}
         for source, markers in scope_markers.items():
             for marker in markers:
                 _require_marker(errors, source, source_text[source], marker)
         _reject_contradictory_repository_mutation_grants(errors, "AGENTS.md", root_agents)
-        _reject_contradictory_repository_mutation_grants(errors, "AGENTS.override.md", override)
+        _reject_contradictory_repository_mutation_grants(errors, "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md", override)
 
         completion_markers = {
-            "AGENTS.override.md": ("exact-head self-review", "real E2E", "required CI on the exact final head", "zero unresolved review threads", "terminal task record", "released ownership"),
+            "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md": ("exact-head self-review", "real E2E", "required CI on the exact final head", "zero unresolved review threads", "terminal task record", "released ownership"),
             "docs/agents/AGENTS.md": ("exact-head full-diff self-review", "real E2E", "zero unresolved material findings", "task archival", "ownership release"),
             "docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md": ("## Mandatory self-review", "## E2E", "## Exact-head CI and Actions economy", "## Related PR hygiene", "## Terminal closeout"),
         }
-        completion_source_text = {"AGENTS.override.md": override, "docs/agents/AGENTS.md": docs_agents, "docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md": delivery}
+        completion_source_text = {"docs/agents/PLATFORM_AGENT_BOOTSTRAP.md": override, "docs/agents/AGENTS.md": docs_agents, "docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md": delivery}
         for source, markers in completion_markers.items():
             for marker in markers:
                 _require_marker(errors, source, completion_source_text[source], marker)

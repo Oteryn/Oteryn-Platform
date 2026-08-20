@@ -1,3 +1,5 @@
+<!-- Canonical durable bootstrap policy. Moved byte-for-byte from the former root AGENTS.override.md except for the post-transfer repository-coordinate substitution. Root AGENTS.md requires this file explicitly. -->
+
 # Mandatory Agent Bootstrap
 
 ```yaml
@@ -29,7 +31,7 @@ Task records, programme records, PR descriptions, issues, comments, logs, retrie
 
 ## Repository scope guard — WWW Platform only by default
 
-The project owner's default authorization for work launched from `blakinio/Oteryn-Platform` is **WWW Platform only**.
+The project owner's default authorization for work launched from `Oteryn/Oteryn-Platform` is **WWW Platform only**.
 
 Server/game repositories — including `blakinio/Oteryn-v2` and any repository whose primary responsibility is game server, runtime, gameplay protocol or server persistence — must **not be accessed, read, inspected, searched, fetched, branched, edited, reviewed, audited, merged or otherwise operated on unless the project owner explicitly grants separate permission for server-repository work first**.
 

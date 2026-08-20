@@ -36,7 +36,7 @@ class PolicyConsistencyTests(unittest.TestCase):
         path.write_text(text.replace(marker, marker + "\n" + line, 1), encoding="utf-8")
 
     def _append_override(self, root: Path, line: str) -> None:
-        path = root / "AGENTS.override.md"
+        path = root / "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md"
         path.write_text(path.read_text(encoding="utf-8") + "\n" + line + "\n", encoding="utf-8")
 
     def _findings(self, root: Path) -> str:
@@ -93,7 +93,7 @@ class PolicyConsistencyTests(unittest.TestCase):
 
     def test_budget_drift_fails_closed(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
-        self._replace(root, "AGENTS.override.md", "Default to 60 minutes per foreground invocation", "Default to 61 minutes per foreground invocation")
+        self._replace(root, "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md", "Default to 60 minutes per foreground invocation", "Default to 61 minutes per foreground invocation")
         self.assertIn("normal_foreground_runtime_minutes drift", self._findings(root))
 
     def test_duplicate_conflicting_budget_declaration_fails_closed(self) -> None:
@@ -123,7 +123,7 @@ class PolicyConsistencyTests(unittest.TestCase):
 
     def test_repository_scope_marker_drift_fails_closed(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
-        self._replace(root, "AGENTS.md", "The only repository where autonomous write operations are allowed by this file is `blakinio/Oteryn-Platform`.", "The only repository where autonomous write operations are allowed by this file is `blakinio/other`.")
+        self._replace(root, "AGENTS.md", "The only repository where autonomous write operations are allowed by this file is `Oteryn/Oteryn-Platform`.", "The only repository where autonomous write operations are allowed by this file is `blakinio/other`.")
         self.assertIn("missing required governance marker", self._findings(root))
 
     def test_unquoted_unknown_owner_edit_grant_fails_closed(self) -> None:
@@ -242,7 +242,7 @@ class PolicyConsistencyTests(unittest.TestCase):
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_override(root, "Autonomous pushes to acme/production are allowed.")
         findings = self._findings(root)
-        self.assertIn("AGENTS.override.md: contradictory repository mutation authorization", findings)
+        self.assertIn("docs/agents/PLATFORM_AGENT_BOOTSTRAP.md: contradictory repository mutation authorization", findings)
         self.assertIn("acme/production", findings)
 
     def test_asserted_current_task_authorization_is_not_an_exception(self) -> None:
@@ -498,7 +498,7 @@ class PolicyConsistencyTests(unittest.TestCase):
 
     def test_canonical_repository_identity_is_case_insensitive(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
-        self._append_root(root, "- Agents may edit BLAKINIO/OTERYN-PLATFORM autonomously.")
+        self._append_root(root, "- Agents may edit OTERYN/OTERYN-PLATFORM autonomously.")
         self.assertEqual([], validate_policy(root))
 
     def test_optional_exact_head_ci_completion_declaration_fails_closed(self) -> None:

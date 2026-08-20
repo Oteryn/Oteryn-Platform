@@ -23,18 +23,19 @@
 ## Instruction order
 
 1. This root `AGENTS.md`.
-2. The nearest nested `AGENTS.md`, when present.
-3. `docs/agents/REPOSITORY_MAP.md` and `docs/agents/CONTEXT_ROUTING.md`.
-4. The active task checkpoint and live PR for the current task, when present.
-5. Only the task-routed documentation and source evidence required for the task.
+2. `docs/agents/PLATFORM_AGENT_BOOTSTRAP.md`, which preserves the mandatory bootstrap, scope, budget and closeout fences formerly auto-loaded from the root override.
+3. The nearest nested `AGENTS.md`, when present.
+4. `docs/agents/REPOSITORY_MAP.md` and `docs/agents/CONTEXT_ROUTING.md`.
+5. The active task checkpoint and live PR for the current task, when present.
+6. Only the task-routed documentation and source evidence required for the task.
 
 When rules conflict, follow the more restrictive safety rule.
 
 ## Repository allowlist — highest priority
 
-- The only repository where autonomous write operations are allowed by this file is `blakinio/Oteryn-Platform`.
+- The only repository where autonomous write operations are allowed by this file is `Oteryn/Oteryn-Platform`.
 - Treat `blakinio/canary`, `opentibiabr/canary`, MyAAC repositories and all other repositories as read-only unless the user explicitly authorizes a write task for that repository.
-- Before every GitHub write operation, verify that `repository_full_name` is exactly `blakinio/Oteryn-Platform`, unless the user explicitly authorized another repository in the current task.
+- Before every GitHub write operation, verify that `repository_full_name` is exactly `Oteryn/Oteryn-Platform`, unless the user explicitly authorized another repository in the current task.
 - Do not push Oteryn Platform code into the Canary repository.
 - Cross-repository compatibility work must be documented as a contract; do not silently change both sides.
 
@@ -55,13 +56,14 @@ When rules conflict, follow the more restrictive safety rule.
 Before substantial implementation:
 
 1. Read this file.
-2. Read `docs/agents/REPOSITORY_MAP.md` and `docs/agents/CONTEXT_ROUTING.md`.
-3. If continuing existing work, read its active task `## Context checkpoint` and current live PR/head before broad discovery.
-4. Classify the task using routes from `CONTEXT_ROUTING.md` and load only matching context.
-5. Search active tasks and open PRs narrowly for overlapping paths, modules, identifiers or contracts.
-6. Search the repository for reusable code before designing a new reusable abstraction.
-7. When a local checkout exists, verify Git branch, working tree, remotes and worktrees before editing.
-8. Record uncertainty instead of inventing repository, deployment, database or cross-repository state.
+2. Read `docs/agents/PLATFORM_AGENT_BOOTSTRAP.md` before any substantial work.
+3. Read `docs/agents/REPOSITORY_MAP.md` and `docs/agents/CONTEXT_ROUTING.md`.
+4. If continuing existing work, read its active task `## Context checkpoint` and current live PR/head before broad discovery.
+5. Classify the task using routes from `CONTEXT_ROUTING.md` and load only matching context.
+6. Search active tasks and open PRs narrowly for overlapping paths, modules, identifiers or contracts.
+7. Search the repository for reusable code before designing a new reusable abstraction.
+8. When a local checkout exists, verify Git branch, working tree, remotes and worktrees before editing.
+9. Record uncertainty instead of inventing repository, deployment, database or cross-repository state.
 
 Do not recursively load unrelated documentation.
 
