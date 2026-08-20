@@ -76,7 +76,7 @@ jobs:
 
           replacements = {
               "tools/agents/policy_consistency.py": [(OLD, NEW), (OLD_BOOTSTRAP, BOOTSTRAP)],
-              "tools/agents/test_policy_consistency.py": [(OLD, NEW), (OLD_BOOTSTRAP, BOOTSTRAP)],
+              "tools/agents/test_policy_consistency.py": [(OLD, NEW), ("BLAKINIO/OTERYN-PLATFORM", "OTERYN/OTERYN-PLATFORM"), (OLD_BOOTSTRAP, BOOTSTRAP)],
               "scripts/ci/classify_changes.py": [(OLD_BOOTSTRAP, BOOTSTRAP)],
               "tests/ci/test_workflow_trigger_economy.py": [(OLD_BOOTSTRAP, BOOTSTRAP)],
               ".github/workflows/agent-governance.yml": [("- AGENTS.override.md", f"- {BOOTSTRAP}")],
@@ -97,6 +97,7 @@ jobs:
                   ":(exclude)docs/agents/tasks/archive/**",
                   ":(exclude)docs/evidence/**",
                   ":(exclude).github/workflows/one-off-governance-authority-migration.yml",
+                  ":(exclude).github/workflows/one-off-governance-workflow-repair.yml",
               ],
               text=True,
               capture_output=True,
@@ -117,6 +118,7 @@ jobs:
                   ":(exclude)docs/agents/tasks/archive/**",
                   ":(exclude)docs/evidence/**",
                   ":(exclude).github/workflows/one-off-governance-authority-migration.yml",
+                  ":(exclude).github/workflows/one-off-governance-workflow-repair.yml",
               ],
               text=True,
               capture_output=True,
