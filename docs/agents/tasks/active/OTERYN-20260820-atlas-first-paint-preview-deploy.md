@@ -51,11 +51,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-20T16:48:00Z
-head: 3e8e03242374530a20a13a012efb9caa7d1681b4
+updated_at: 2026-08-20T16:50:00Z
+head: fd194d67f6acf289e226541bd8a4266639ab5185
 branch: ops/atlas-24-first-paint-preview-deploy
-pr: none
-status: implementing
+pr: 1189
+status: validating
 context_routes:
   - synology-staging
   - github-only-execution
@@ -66,6 +66,7 @@ proven:
   - Atlas Issue 24 is closed by PR 25 merged as f99605a69981d9a1d2bca523aec3dff67a31e175 after CI, Extraction Provenance, CodeQL, atlas-gate and real-Chrome WebGL proof passed on exact head 542c44e2a5d1080be011c4c86f8183424417a2d6
   - existing Synology preview currently serves Atlas e462396a931652a62f61ca4e32c2402dfad9504a at 192.168.1.2:8097
   - previous bounded Platform deployment lifecycle proved the existing repair-synology-autostart workflow can safely execute on runner oteryn-staging and was restored to blob f3959e6bea09d39920db0e5515770a1ec77114ca
+  - PR 1189 is open with a push-only deployment job that preserves verified roots, uses exact rollback and removes its task-owned runner checkout
 derived:
   - reuse of the already-registered Synology workflow is the narrowest compliant execution path because the workflow budget is fixed and prior task-specific workflow creation exceeded it
 unknown: []
@@ -75,14 +76,18 @@ first_failure:
   evidence: none
 rejected_hypotheses: []
 changed_paths:
+  - .github/workflows/repair-synology-autostart.yml
   - docs/agents/tasks/active/OTERYN-20260820-atlas-first-paint-preview-deploy.md
 validation:
   - command: Atlas PR 25 exact-head workflow suite
     result: PASS
     evidence: CI 32393691856, Extraction Provenance 32393691917, CodeQL 32393691930
+  - command: Platform PR 1189 exact-head required checks
+    result: NOT_RUN
+    evidence: final checkpoint commit requires a fresh exact-head check generation
 blockers:
   - none
-next_action: Add one push-only bounded Atlas deployment job to the existing registered Synology workflow, open the PR, pass exact-head checks and merge so trusted main performs the cutover.
+next_action: Require PR 1189 exact-head checks to pass, squash-merge it, then verify the resulting trusted-main Synology deployment run to terminal success.
 ```
 
 ## Source branch closeout
