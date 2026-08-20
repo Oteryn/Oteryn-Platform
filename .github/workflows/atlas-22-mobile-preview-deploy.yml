@@ -2,15 +2,14 @@ name: Atlas 22 mobile preview deploy
 
 on:
   push:
-    branches:
-      - ops/atlas-22-mobile-preview-deploy
-  pull_request:
     branches: [main]
+    paths:
+      - .github/workflows/atlas-22-mobile-preview-deploy.yml
 
 permissions:
-  contents: write
+  actions: write
+  contents: read
   issues: write
-  pull-requests: write
 
 concurrency:
   group: atlas-22-mobile-preview-deploy
@@ -18,7 +17,6 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.event_name == 'push' || github.head_ref == 'ops/atlas-22-mobile-preview-deploy'
     runs-on: oteryn-staging
     timeout-minutes: 20
     env:
@@ -35,6 +33,35 @@ jobs:
       PIXEL_BUCKET_ROOT: sha256:99cf23b01a0d652ff670a994a2b80cbef8d17036f514522d47f1aa98352d3116
 
     steps:
+      - name: Reconcile superseded execution-branch runs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          branch='ops/atlas-22-mobile-preview-deploy'
+          workflow_name='Atlas 22 mobile preview deploy'
+
+          mapfile -t queued < <(
+            gh api "repos/$repo/actions/runs?branch=$branch&event=push&status=queued&per_page=100" \
+              --jq ".workflow_runs[] | select(.name == \"$workflow_name\") | .id"
+          )
+          for run_id in "${queued[@]}"; do
+            [[ -n "$run_id" ]] || continue
+            gh api --method POST "repos/$repo/actions/runs/$run_id/cancel" >/dev/null || true
+          done
+
+          for _ in $(seq 1 36); do
+            active="$(gh api "repos/$repo/actions/runs?branch=$branch&event=push&status=in_progress&per_page=100" \
+              --jq "[.workflow_runs[] | select(.name == \"$workflow_name\")] | length")"
+            [[ "$active" = 0 ]] && break
+            sleep 5
+          done
+          active="$(gh api "repos/$repo/actions/runs?branch=$branch&event=push&status=in_progress&per_page=100" \
+            --jq "[.workflow_runs[] | select(.name == \"$workflow_name\")] | length")"
+          test "$active" = 0
+
       - name: Fetch exact merged Atlas revision
         shell: bash
         run: |
@@ -246,7 +273,7 @@ jobs:
             grep -q '"status":"PASS"' /tmp/atlas-mobile-live.html
             echo 'LIVE_MOBILE_CHROME=PASS'
           else
-            echo 'LIVE_MOBILE_CHROME=UNAVAILABLE_ON_SYNOLOGY_RUNNER; exact deployed bytes match the exact merged head already proven by Mobile layout run 32379326469'
+            echo 'LIVE_MOBILE_CHROME=UNAVAILABLE_ON_SYNOLOGY_RUNNER; exact deployed bytes match exact merged head already proven by Mobile layout run 32379326469'
           fi
 
           echo "DEPLOYMENT_PASS revision=$NEW_REV endpoint=$PREVIEW_URL/web/fullworld.html"
@@ -259,15 +286,4 @@ jobs:
           JOB_STATUS: ${{ job.status }}
         run: |
           set -euo pipefail
-          gh issue comment 1183 --repo Oteryn/Oteryn-Platform --body "Atlas mobile preview deploy run \`$GITHUB_RUN_ID\`: **$JOB_STATUS**. Source execution head: \`$GITHUB_SHA\`. Target Atlas revision: \`$NEW_REV\`. Endpoint: \`$PREVIEW_URL/web/fullworld.html\`."
-
-      - name: Close execution PR and delete temporary branch
-        if: success() && github.event_name == 'pull_request'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          gh pr close "$PR_NUMBER" --repo Oteryn/Oteryn-Platform --comment 'Atlas mobile preview deployment completed and verified; closing execution-only PR without merge.'
-          gh api --method DELETE repos/Oteryn/Oteryn-Platform/git/refs/heads/ops/atlas-22-mobile-preview-deploy
+          gh issue comment 1183 --repo Oteryn/Oteryn-Platform --body "Atlas mobile preview trusted-main deploy run \`$GITHUB_RUN_ID\`: **$JOB_STATUS**. Execution commit: \`$GITHUB_SHA\`. Target Atlas revision: \`$NEW_REV\`. Endpoint: \`$PREVIEW_URL/web/fullworld.html\`."
