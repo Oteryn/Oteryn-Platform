@@ -1,0 +1,163 @@
+name: One-off Terminal Coordinate Reconciliation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/one-off-terminal-coordinate-reconciliation.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-off-terminal-coordinate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  reconcile:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact reconciliation branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: migration/issue-1171-terminal-reconciliation
+          fetch-depth: 0
+
+      - name: Apply asserted current-coordinate reconciliation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path: str, old: str, new: str, expected: int = 1) -> None:
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              actual = text.count(old)
+              if actual != expected:
+                  raise SystemExit(f'{path}: expected {expected} occurrences of {old!r}, found {actual}')
+              p.write_text(text.replace(old, new), encoding='utf-8')
+
+          def prepend_historical(path: str) -> None:
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              marker = '> **STATUS: HISTORICAL_SUPERSEDED — DO NOT EXECUTE.**'
+              if marker in text:
+                  raise SystemExit(f'{path}: historical marker already present; refusing duplicate mutation')
+              first, rest = text.split('\n', 1)
+              notice = (
+                  '\n\n' + marker + '\n'
+                  '> This prompt predates the canonical Oteryn organization topology. Its `blakinio/*` coordinates are preserved below only as historical provenance, not current write authority. Current product writes must be routed through `Oteryn/Oteryn-Platform`, `Oteryn/Oteryn-Game`, or `Oteryn/Oteryn-Atlas` according to the accepted organization topology and repository-local instructions.\n'
+              )
+              p.write_text(first + notice + rest, encoding='utf-8')
+
+          # Current mutable architecture/contracts only.
+          replace_exact('docs/architecture/ARCHITECTURE_AUTHORITY.md',
+                        'canonical entry point for architecture authority and routing in `blakinio/Oteryn-Platform`',
+                        'canonical entry point for architecture authority and routing in `Oteryn/Oteryn-Platform`')
+          replace_exact('docs/architecture/GAME_AUTH_ROLLOUT_PLAN.md',
+                        'Only `blakinio/Oteryn-Platform` documentation/contracts.',
+                        'Only `Oteryn/Oteryn-Platform` documentation/contracts.')
+          replace_exact('docs/architecture/GAME_CATALOG_ARCHITECTURE.md',
+                        'Repositories: `blakinio/Oteryn-Platform`, `blakinio/canary`',
+                        'Repositories: `Oteryn/Oteryn-Platform`, `blakinio/canary`')
+          replace_exact('docs/architecture/OTERYN_NATIVE_PROTOCOL_ROLLOUT.md',
+                        '1. merge the canonical `blakinio/Oteryn-Platform` contract PR;\n2. refresh exact canonical revision links in `blakinio/Otheryn` and merge the producer correspondence PR;',
+                        '1. merge the canonical `Oteryn/Oteryn-Platform` contract PR;\n2. refresh exact canonical revision links in `Oteryn/Oteryn-Game` and merge the producer correspondence PR;')
+          replace_exact('docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md',
+                        '- Repository: `blakinio/Oteryn-Platform`',
+                        '- Repository: `Oteryn/Oteryn-Platform`')
+          replace_exact('docs/contracts/GAME_CATALOG_1_3_NPC_SHOP_PROPOSAL.md',
+                        'Consumer: `blakinio/Oteryn-Platform`',
+                        'Consumer: `Oteryn/Oteryn-Platform`')
+          replace_exact('docs/contracts/GAME_CATALOG_IMPORT_CONTRACT.md',
+                        'Consumer: `blakinio/Oteryn-Platform`',
+                        'Consumer: `Oteryn/Oteryn-Platform`')
+
+          for prompt in (
+              'docs/agents/prompts/OTS_NATIVE_PROTOCOL_SINGLE_VERSION_COMPLETION_AGENT.md',
+              'docs/agents/prompts/OTS_NATIVE_SELECTION_E2E_IMPLEMENTATION.md',
+              'docs/agents/prompts/OTS_OTHERYN_NATIVE_PROTOCOL_IMPLEMENTATION.md',
+          ):
+              prepend_historical(prompt)
+
+          programme = 'docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md'
+          replace_exact(programme, 'repository: blakinio/Oteryn-Platform\nowner_alias: OTERYN-REPO-MIGRATION',
+                        'repository: Oteryn/Oteryn-Platform\nowner_alias: OTERYN-REPO-MIGRATION')
+          replace_exact(programme,
+                        'updated_at: 2026-08-20T06:28:00Z\nstatus: active\nactive_task: docs/agents/tasks/active/OTERYN-20260818-platform-post-transfer-verification.md\nissue: 7\nbranch: chore/platform-post-transfer-verification-20260818\npull_request: 1164',
+                        'updated_at: 2026-08-20T08:15:00Z\nstatus: active\nactive_task: docs/agents/tasks/active/OTERYN-20260820-platform-stale-coordinate-terminal-reconciliation.md\nissue: 1171\nbranch: migration/issue-1171-terminal-reconciliation\npull_request: 1181')
+          replace_exact(programme,
+                        '  supersedes:\n    repository: blakinio/Oteryn-Platform\n    path: docs/architecture/adr/0041-ecosystem-repository-authority-contracts-and-atlas-integration.md',
+                        '  supersedes:\n    repository: Oteryn/Oteryn-Platform\n    path: docs/architecture/adr/0041-ecosystem-repository-authority-contracts-and-atlas-integration.md')
+          replace_exact(programme, '    governance_coordinate_reconciliation: PENDING_SEPARATE_GATE',
+                        '    governance_coordinate_reconciliation: PASS')
+          replace_exact(programme, '    - provider governance and stale-coordinate reconciliation\n', '', expected=2)
+          replace_exact(programme,
+                        '  - Ecosystem MIGRATION_COMPLETE=YES is still forbidden until provider governance/stale-coordinate reconciliation, META reconciliation and temporary migration-backup disposition are terminal.',
+                        '  - Ecosystem MIGRATION_COMPLETE=YES is still forbidden until META reconciliation and temporary migration-backup disposition are terminal.')
+          replace_exact(programme,
+                        '  - Provider root/current governance still contains pre-transfer repository-coordinate material; reconcile it through the separately gated fail-closed governance task before ecosystem completion.\n',
+                        '')
+          replace_exact(programme,
+                        '  - Oteryn/Oteryn main protection remains pending under META Issue 3 because the current connector cannot configure branch protection or rulesets.',
+                        '  - Oteryn/Oteryn terminal desired-state protection remains under META Issue 3; current protection has `meta-gate`, while reusable `ai-review-gate` enforcement remains independently gated by META PR #15.')
+          replace_exact(programme,
+                        '  - PROVIDER_GOVERNANCE_RECONCILIATION_PENDING: current instruction/policy coordinates must be reconciled without weakening fail-closed validation.\n',
+                        '')
+          replace_exact(programme,
+                        'next_action: Pass exact clean-head provider gates and merge PR 1164; then continue independently gated governance, META and migration-backup closeout without re-running the completed physical transfer.',
+                        'next_action: After this provider coordinate closeout merges, reconcile the META manifest/desired state to the terminal provider facts, then resolve the temporary migration-backup disposition without re-running the completed physical transfer.')
+
+          # Fail closed if current mutable target paths still retain the old Platform coordinate.
+          for path in (
+              'docs/architecture/ARCHITECTURE_AUTHORITY.md',
+              'docs/architecture/GAME_AUTH_ROLLOUT_PLAN.md',
+              'docs/architecture/GAME_CATALOG_ARCHITECTURE.md',
+              'docs/architecture/OTERYN_NATIVE_PROTOCOL_ROLLOUT.md',
+              'docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md',
+              'docs/contracts/GAME_CATALOG_1_3_NPC_SHOP_PROPOSAL.md',
+              'docs/contracts/GAME_CATALOG_IMPORT_CONTRACT.md',
+          ):
+              if 'blakinio/Oteryn-Platform' in Path(path).read_text(encoding='utf-8'):
+                  raise SystemExit(f'{path}: stale mutable Platform coordinate remains')
+          PY
+          git diff --check
+
+      - name: Validate governance and native-protocol boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/agents/test_policy_consistency.py
+          python tools/agents/policy_consistency.py
+          python tools/agents/test_checkpoint.py
+          python tools/agents/test_task_liveness.py
+          python scripts/validate_native_protocol_contract.py
+          python scripts/validate_native_protocol_change_boundary.py --base-ref origin/main
+          git diff --check
+
+      - name: Commit bounded reconciliation
+        shell: bash
+        run: |
+          set -euo pipefail
+          find . -type d -name __pycache__ -prune -exec rm -rf {} +
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md \
+            docs/agents/prompts/OTS_NATIVE_PROTOCOL_SINGLE_VERSION_COMPLETION_AGENT.md \
+            docs/agents/prompts/OTS_NATIVE_SELECTION_E2E_IMPLEMENTATION.md \
+            docs/agents/prompts/OTS_OTHERYN_NATIVE_PROTOCOL_IMPLEMENTATION.md \
+            docs/architecture/ARCHITECTURE_AUTHORITY.md \
+            docs/architecture/GAME_AUTH_ROLLOUT_PLAN.md \
+            docs/architecture/GAME_CATALOG_ARCHITECTURE.md \
+            docs/architecture/OTERYN_NATIVE_PROTOCOL_ROLLOUT.md \
+            docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md \
+            docs/contracts/GAME_CATALOG_1_3_NPC_SHOP_PROPOSAL.md \
+            docs/contracts/GAME_CATALOG_IMPORT_CONTRACT.md
+          git diff --cached --check
+          test "$(git diff --cached --name-only | wc -l)" -eq 11
+          git commit -m "docs(migration): reconcile terminal provider coordinates"
+          git push origin HEAD:migration/issue-1171-terminal-reconciliation
