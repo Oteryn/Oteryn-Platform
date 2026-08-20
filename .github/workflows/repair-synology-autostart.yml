@@ -113,6 +113,23 @@ jobs:
         run: |
           set -euo pipefail
           C="$PREVIEW_CONTAINER"
+          STAGED=0
+          REVISIONS=''
+          NEW_ROOT=''
+          HELPER_IMAGE=''
+          cleanup_stage() {
+            rc=$?
+            set +e
+            if [[ "$STAGED" = 1 && -n "$REVISIONS" && -n "$NEW_ROOT" && -n "$HELPER_IMAGE" ]]; then
+              name="$(basename "$NEW_ROOT")"
+              docker run --rm --user 0:0 --entrypoint sh \
+                -e NAME="$name" -v "$REVISIONS:/revisions" "$HELPER_IMAGE" \
+                -c 'rm -rf "/revisions/$NAME"' >/dev/null 2>&1 || true
+            fi
+            exit "$rc"
+          }
+          trap cleanup_stage ERR
+
           docker version >/dev/null
           curl --version >/dev/null
           test "$(docker inspect --format '{{.State.Running}}' "$C")" = true
@@ -155,6 +172,7 @@ jobs:
           if [[ "$CURRENT_REV" != "$NEW_REV" ]]; then
             users="$(for id in $(docker ps -aq); do docker inspect --format '{{.Name}} {{range .Mounts}}{{.Source}} {{end}}' "$id"; done | grep -F "$NEW_ROOT" || true)"
             test -z "$users"
+            STAGED=1
 
             tar --exclude=.git -C atlas -cf - . | docker run --rm -i --user 0:0 --entrypoint sh \
               -e REV="$NEW_REV" -v "$REVISIONS:/revisions" "$HELPER_IMAGE" -c '
@@ -182,24 +200,29 @@ jobs:
               '
           fi
 
+          trap - ERR
+          STAGED=0
           {
             echo "current_rev=$CURRENT_REV"
             echo "old_root=$OLD_ROOT"
             echo "old_config=$OLD_CONFIG"
             echo "old_image=$OLD_IMAGE"
+            echo "helper_image=$HELPER_IMAGE"
             echo "data_root=$DATA_ROOT"
+            echo "revisions=$REVISIONS"
             echo "new_root=$NEW_ROOT"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Cut over preview with exact rollback
-        if: steps.stage.outputs.current_rev != env.NEW_REV
+      - name: Cut over and verify with exact rollback
         shell: bash
         env:
-          OLD_REV: ${{ steps.stage.outputs.current_rev }}
+          CURRENT_REV: ${{ steps.stage.outputs.current_rev }}
           OLD_ROOT: ${{ steps.stage.outputs.old_root }}
           OLD_CONFIG: ${{ steps.stage.outputs.old_config }}
           OLD_IMAGE: ${{ steps.stage.outputs.old_image }}
+          HELPER_IMAGE: ${{ steps.stage.outputs.helper_image }}
           DATA_ROOT: ${{ steps.stage.outputs.data_root }}
+          REVISIONS: ${{ steps.stage.outputs.revisions }}
           NEW_ROOT: ${{ steps.stage.outputs.new_root }}
         run: |
           set -euo pipefail
@@ -214,33 +237,39 @@ jobs:
                 --name "$C" \
                 --restart unless-stopped \
                 --label org.oteryn.preview=fullworld-atlas \
-                --label "org.oteryn.revision=$OLD_REV" \
+                --label "org.oteryn.revision=$CURRENT_REV" \
                 --label "org.oteryn.publication-root=$PUBLICATION_ROOT" \
                 --label "org.oteryn.runtime-index-root=$RUNTIME_ROOT" \
                 -p 192.168.1.2:8097:8080 \
                 -v "$OLD_ROOT:/srv/atlas:ro" \
                 -v "$OLD_CONFIG:/etc/nginx/conf.d/default.conf:ro" \
                 "$OLD_IMAGE" >/dev/null || true
+              name="$(basename "$NEW_ROOT")"
+              docker run --rm --user 0:0 --entrypoint sh \
+                -e NAME="$name" -v "$REVISIONS:/revisions" "$HELPER_IMAGE" \
+                -c 'rm -rf "/revisions/$NAME"' >/dev/null 2>&1 || true
             fi
             exit "$rc"
           }
           trap rollback ERR
 
-          docker rm -f "$C" >/dev/null
-          CUTOVER=1
-          docker run -d \
-            --name "$C" \
-            --restart unless-stopped \
-            --label org.oteryn.preview=fullworld-atlas \
-            --label "org.oteryn.revision=$NEW_REV" \
-            --label "org.oteryn.data-revision=$OLD_REV" \
-            --label "org.oteryn.publication-root=$PUBLICATION_ROOT" \
-            --label "org.oteryn.runtime-index-root=$RUNTIME_ROOT" \
-            -p 192.168.1.2:8097:8080 \
-            -v "$NEW_ROOT:/srv/atlas:ro" \
-            -v "$DATA_ROOT:/srv/atlas/data:ro" \
-            -v "$NEW_ROOT/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
-            "$OLD_IMAGE" >/dev/null
+          if [[ "$CURRENT_REV" != "$NEW_REV" ]]; then
+            docker rm -f "$C" >/dev/null
+            CUTOVER=1
+            docker run -d \
+              --name "$C" \
+              --restart unless-stopped \
+              --label org.oteryn.preview=fullworld-atlas \
+              --label "org.oteryn.revision=$NEW_REV" \
+              --label "org.oteryn.data-revision=$CURRENT_REV" \
+              --label "org.oteryn.publication-root=$PUBLICATION_ROOT" \
+              --label "org.oteryn.runtime-index-root=$RUNTIME_ROOT" \
+              -p 192.168.1.2:8097:8080 \
+              -v "$NEW_ROOT:/srv/atlas:ro" \
+              -v "$DATA_ROOT:/srv/atlas/data:ro" \
+              -v "$NEW_ROOT/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
+              "$OLD_IMAGE" >/dev/null
+          fi
 
           ready=0
           for _ in $(seq 1 60); do
@@ -251,14 +280,6 @@ jobs:
             sleep 1
           done
           test "$ready" = 1
-          trap - ERR
-          CUTOVER=0
-
-      - name: Verify exact deployed revision and data invariants
-        shell: bash
-        run: |
-          set -euo pipefail
-          C="$PREVIEW_CONTAINER"
           test "$(docker inspect --format '{{.State.Running}}' "$C")" = true
           test "$(docker inspect --format '{{ index .Config.Labels "org.oteryn.revision" }}' "$C")" = "$NEW_REV"
           test "$(docker inspect --format '{{ index .Config.Labels "org.oteryn.publication-root" }}' "$C")" = "$PUBLICATION_ROOT"
@@ -313,6 +334,8 @@ jobs:
             echo 'LIVE_MOBILE_CHROME=UNAVAILABLE_ON_SYNOLOGY_RUNNER; deployed bytes match exact merged Atlas head already proven by Mobile layout run 32379326469'
           fi
 
+          trap - ERR
+          CUTOVER=0
           echo "DEPLOYMENT_PASS revision=$NEW_REV endpoint=$PREVIEW_URL/web/fullworld.html"
 
       - name: Report Atlas deployment result
@@ -324,10 +347,7 @@ jobs:
         run: |
           set -u
           body="Atlas mobile preview deploy run $GITHUB_RUN_ID: **$JOB_STATUS**. Platform execution SHA: $GITHUB_SHA. Atlas revision: $NEW_REV. Endpoint: $PREVIEW_URL/web/fullworld.html."
-          payload="$(python3 -c 'import json,os; print(json.dumps({"body": os.environ["REPORT_BODY"]}))' REPORT_BODY="$body" 2>/dev/null || true)"
-          if [[ -z "$payload" ]]; then
-            payload="$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.dumps({"body": sys.stdin.read()}))')"
-          fi
+          payload="$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.dumps({"body": sys.stdin.read()}))')"
           curl -fsS -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H 'Accept: application/vnd.github+json' \
