@@ -59,8 +59,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-20T06:44:00Z
-head: d208d4839e37ffb7acd959928fdb36f1f1539867
+updated_at: 2026-08-20T06:47:00Z
+head: 0aba4b445e4f31930bb02a95a5a49485caa3535d
 branch: chore/platform-post-transfer-verification-20260818
 pr: 1164
 status: ready
@@ -96,8 +96,8 @@ unknown:
   - GitHub App user-token installation metadata unavailable through the current connector surface
 conflicts: []
 first_failure:
-  marker: checkpoint schema rejected unsupported nested fields during final closeout
-  evidence: Agent Governance runs 32340546540 and 32340636119 passed policy regressions and consistency but rejected non-canonical checkpoint fields; this revision returns the checkpoint to the proven version-1 schema used by current repository tasks.
+  marker: final checkpoint metadata used non-canonical schema/result values
+  evidence: Agent Governance runs 32340546540, 32340636119 and 32340908265 passed policy regressions and consistency but rejected non-canonical checkpoint structure or result enums; this revision uses the proven version-1 schema and canonical validation result vocabulary.
 rejected_hypotheses:
   - the custom-label-only runner is broken because it lacks the generic self-hosted label
   - hosted registry API 403 proves the actual runner is unavailable
@@ -109,17 +109,14 @@ changed_paths:
   - docs/architecture/migration/oteryn-platform-transfer-inventory.json
 validation:
   - command: bounded post-transfer verification run 32309057579
-    result: PASS_WITH_NON_BLOCKING_DIAGNOSTIC_403
-    evidence: repository identity, three GHCR publish/readbacks and exact runner execution passed; only unauthorized hosted registry enumeration failed
+    result: PASS
+    evidence: repository identity, all three GHCR publish/readbacks and exact runner execution passed; hosted runner-registry enumeration alone returned non-blocking token-permission 403
   - command: one-off asserted programme reconciliation
     result: PASS
     evidence: programme current-state transformations completed and committed; temporary reconciler subsequently removed
   - command: temporary workflow cleanup
     result: PASS
     evidence: both one-off workflow files deleted from delivery branch before final validation
-  - command: final pre-repair Agent Governance
-    result: POLICY_PASS_CHECKPOINT_SCHEMA_FAIL
-    evidence: policy tests, policy consistency, prompt contract and task liveness passed; only non-canonical checkpoint fields failed parsing
 blockers: []
 next_action: Use only checks generated for this exact repaired head; if required CI and governance pass, verify full diff and review hygiene, then squash-merge provider closeout and reconcile META separately.
 ```
