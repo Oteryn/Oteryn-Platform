@@ -1,0 +1,91 @@
+name: One-off Platform Closeout Self-Review Repair
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/one-off-platform-closeout-self-review-repair.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact PR branch with main history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: chore/platform-post-transfer-verification-20260818
+          fetch-depth: 0
+
+      - name: Repair current-state structure without dropping pre-transfer evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          import subprocess
+
+          programme_path = Path('docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md')
+          text = programme_path.read_text(encoding='utf-8')
+          malformed = '''  Oteryn-Platform:\n  repository: Oteryn/Oteryn-Platform\n  repository_id: 1305155726\n  original_source_repository: blakinio/Oteryn-Platform\n  exact_transferred_main: 42f6741deacbd3ba9e1c4f609bb1073ebe0cff7b\n  current_repository: Oteryn/Oteryn-Platform\n  source_main_protected: true\n  source_required_checks:\n    - classify-changes\n    - test\n  transfer_state: POST_TRANSFER_VERIFIED\n  bounded_ghcr_cutover: PASS\n  repository_runner_attachment: PASS\n  migration_backup_repository: Oteryn/Oteryn-Platform-Migration-Backup-20260818\n  migration_backup_repository_id: 1338405017\n  governance_coordinate_reconciliation: PENDING_SEPARATE_GATE\n'''
+          corrected = '''  Oteryn-Platform:\n    repository: Oteryn/Oteryn-Platform\n    repository_id: 1305155726\n    original_source_repository: blakinio/Oteryn-Platform\n    exact_transferred_main: 42f6741deacbd3ba9e1c4f609bb1073ebe0cff7b\n    current_repository: Oteryn/Oteryn-Platform\n    target_main_protected: true\n    target_required_checks:\n      - classify-changes\n      - test\n    transfer_state: POST_TRANSFER_VERIFIED\n    bounded_ghcr_cutover: PASS\n    repository_runner_attachment: PASS\n    migration_backup_repository: Oteryn/Oteryn-Platform-Migration-Backup-20260818\n    migration_backup_repository_id: 1338405017\n    governance_coordinate_reconciliation: PENDING_SEPARATE_GATE\n'''
+          if text.count(malformed) != 1:
+              raise SystemExit('expected malformed Oteryn-Platform current-state block not found exactly once')
+          text = text.replace(malformed, corrected, 1)
+          stale_next = 'next_action: Remove temporary verification scaffolding, pass exact clean-head provider gates and merge PR 1164; then continue independently gated governance, META and migration-backup closeout without re-running the completed physical transfer.'
+          fresh_next = 'next_action: Pass exact clean-head provider gates and merge PR 1164; then continue independently gated governance, META and migration-backup closeout without re-running the completed physical transfer.'
+          if text.count(stale_next) != 1:
+              raise SystemExit('expected stale programme next_action not found exactly once')
+          text = text.replace(stale_next, fresh_next, 1)
+          programme_path.write_text(text, encoding='utf-8')
+
+          current_path = Path('docs/architecture/migration/oteryn-platform-transfer-inventory.json')
+          current = json.loads(current_path.read_text(encoding='utf-8'))
+          old_bytes = subprocess.check_output(['git', 'show', 'origin/main:docs/architecture/migration/oteryn-platform-transfer-inventory.json'])
+          old = json.loads(old_bytes.decode('utf-8'))
+          preserve_keys = [
+              'source_repository',
+              'target_repository',
+              'hardening_delivery',
+              'post_hardening_drift',
+              'entries',
+              'official_github_transfer_semantics',
+          ]
+          missing = [key for key in preserve_keys if key not in old]
+          if missing:
+              raise SystemExit(f'pre-transfer inventory missing expected evidence keys: {missing}')
+          if 'pre_transfer_evidence' in current:
+              raise SystemExit('pre_transfer_evidence already exists; refusing ambiguous rewrite')
+          current['pre_transfer_evidence'] = {key: old[key] for key in preserve_keys}
+          current['next_action'] = 'Pass exact clean-head provider gates and merge PR 1164; then continue independently gated governance, META and migration-backup closeout.'
+          current_path.write_text(json.dumps(current, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+
+          readiness_path = Path('docs/architecture/migration/OTERYN_PLATFORM_TRANSFER_READINESS.md')
+          readiness = readiness_path.read_text(encoding='utf-8')
+          old_sentence = 'Remove the temporary verification workflow, finish exact provider programme/inventory reconciliation, pass final clean-head repository gates, merge provider closeout, then reconcile META only to the level proven.'
+          new_sentence = 'Pass final clean-head repository gates, merge provider closeout, then reconcile META only to the level proven.'
+          if readiness.count(old_sentence) != 1:
+              raise SystemExit('expected stale readiness next-action sentence not found exactly once')
+          readiness_path.write_text(readiness.replace(old_sentence, new_sentence, 1), encoding='utf-8')
+          PY
+
+          python -m json.tool docs/architecture/migration/oteryn-platform-transfer-inventory.json >/dev/null
+          git diff --check
+          git diff -- docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md docs/architecture/migration/OTERYN_PLATFORM_TRANSFER_READINESS.md docs/architecture/migration/oteryn-platform-transfer-inventory.json
+
+      - name: Commit exact self-review repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md docs/architecture/migration/OTERYN_PLATFORM_TRANSFER_READINESS.md docs/architecture/migration/oteryn-platform-transfer-inventory.json
+          git diff --cached --check
+          git commit -m "docs(migration): preserve transfer provenance in closeout"
+          git push origin HEAD:chore/platform-post-transfer-verification-20260818
