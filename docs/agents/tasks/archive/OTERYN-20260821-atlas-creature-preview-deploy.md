@@ -36,6 +36,14 @@ The Atlas static-creature product and its desktop/mobile global-search acceptanc
 - Temporary `deploy/ci/playwright-chromium.Dockerfile` removed.
 - Atlas host-local ownership now resides in `Oteryn/Oteryn-Atlas`; the Platform repair workflow returns to Platform-only restart-policy enforcement.
 
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: terminal Platform cleanup PR #1212 releases the completed Atlas preview execution ownership
+source_branch_evidence: Atlas replacement route passed run 32526864123 and repository auto-delete applies after the exact-head squash merge
+```
+
 ## Self-review
 
 Full cleanup diff is intentionally bounded to the temporary Atlas execution scaffold plus these task archival records. No product runtime, database, authentication, payment, secret, or production configuration is changed by the Platform cleanup candidate.
