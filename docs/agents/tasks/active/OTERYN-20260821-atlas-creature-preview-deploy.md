@@ -54,10 +54,10 @@ blockers:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-21T16:12:00Z
+updated_at: 2026-08-21T16:13:00Z
 head: 0a2efbd1ddcac1fe8893c604d64de715b2257323
 branch: ops/atlas-30-live-revision-conflict
-pr: pending-blocker-checkpoint
+pr: 1204
 status: blocked
 context_routes:
   - synology-staging
@@ -127,7 +127,7 @@ self_review:
 ```yaml
 source_branch_disposition: retain_until_blocker_reconciled
 source_branch_reason: durable blocker checkpoint for the shared live preview conflict
-source_branch_evidence: pending
+source_branch_evidence: PR 1204 records the blocker without live mutation
 ```
 
 ## Notes
