@@ -1,16 +1,19 @@
 name: oteryn-organization-runners
 
-# Prepared target estate. Runner groups must already exist and be restricted to the
-# exact selected repository before these services are first registered.
+# Organization-managed product-isolated runner estate. Runner groups must already
+# exist and be restricted to the exact selected repository before first registration.
 #
 # Raw /var/run/docker.sock is host-equivalent privilege. It is retained here only for
 # Platform and Atlas because their current proven Synology workloads require host
-# Docker control. Game intentionally starts without that mount and without root; add
-# host privilege only if Oteryn/Oteryn-Game#34 proves an unavoidable requirement.
+# Docker control. Game intentionally runs as UID/GID 1001 without Docker or root.
+# `game-volume-init` is a bounded one-shot root initializer with no network and no
+# host bind mounts; it only fixes ownership of the two Game named volumes, then exits.
 #
-# One-time registration tokens are mounted as Compose secrets from local files. After
-# first registration, blank the corresponding host token file and force-recreate that
-# service so no usable registration token remains mounted in the steady-state runner.
+# One-time registration tokens are mounted as Compose secrets from local files. Since
+# Docker Compose file-backed secrets retain host ownership, the Game token file must
+# be owned by UID/GID 1001 and readable only by that identity for first registration.
+# After registration, blank each host token file and force-recreate the corresponding
+# runner so steady state relies only on the persistent `/runner` registration state.
 
 services:
   platform:
@@ -58,10 +61,28 @@ services:
       - atlas_runner_work:/work
       - /var/run/docker.sock:/var/run/docker.sock
 
+  game-volume-init:
+    image: ${RUNNER_IMAGE:?RUNNER_IMAGE must be an immutable canonical digest}
+    restart: "no"
+    user: "0:0"
+    network_mode: none
+    read_only: true
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+        chown -R 1001:1001 /runner /work
+        chmod 0700 /runner /work
+    volumes:
+      - game_runner_config:/runner
+      - game_runner_work:/work
+
   game:
     image: ${RUNNER_IMAGE:?RUNNER_IMAGE must be an immutable canonical digest}
     restart: always
     user: "1001:1001"
+    depends_on:
+      game-volume-init:
+        condition: service_completed_successfully
     environment:
       RUNNER_SCOPE: organization
       RUNNER_URL: ${RUNNER_ORG_URL:-https://github.com/Oteryn}
@@ -84,7 +105,7 @@ secrets:
   atlas_runner_token:
     file: ${ATLAS_RUNNER_TOKEN_FILE:?ATLAS_RUNNER_TOKEN_FILE must point to a local one-time token file}
   game_runner_token:
-    file: ${GAME_RUNNER_TOKEN_FILE:?GAME_RUNNER_TOKEN_FILE must point to a local one-time token file}
+    file: ${GAME_RUNNER_TOKEN_FILE:?GAME_RUNNER_TOKEN_FILE must point to a local one-time token file owned by UID/GID 1001}
 
 volumes:
   platform_runner_config:
