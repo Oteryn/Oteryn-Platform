@@ -67,11 +67,11 @@ session_id: atlas-creature-preview-20260821-001
 session_role: integrator
 execution_mode: github-only
 execution_reason: the registered Synology self-hosted runner is the narrow trusted execution path for the LAN-only preview; no workstation dependency is required
-updated_at: 2026-08-21T06:10:00Z
-lease_expires_at: 2026-08-21T06:55:00Z
-head: 6feb2bab30964cc4cc7db04fef04d6a2ce1d8418
+updated_at: 2026-08-21T06:18:00Z
+lease_expires_at: 2026-08-21T07:03:00Z
+head: 7ffeba1b89589e8a2cc2b6143cbbfda4042ac824
 branch: ops/atlas-30-creature-preview-deploy
-pr: none
+pr: 1192
 status: validating
 task_kind: e2e
 context_pressure: medium
@@ -81,7 +81,7 @@ estimate_confidence: high
 decomposition_decision: phased
 decomposition_reason: one cross-repository producer-consumer-deployment acceptance flow with shared immutable revisions and one live preview
 validation_level: full
-last_completed_step: pinned final Atlas merge and implemented trusted-main Game export, deterministic Atlas publication, rollback, live HTTP and desktop/mobile Chromium acceptance executor
+last_completed_step: opened exact Platform implementation PR 1192 and reconciled predecessor terminal-PR liveness as archive-pending
 session_rotation_count: 0
 heavy_validation_runs: 1
 stale_takeover_count: 1
@@ -103,7 +103,8 @@ proven:
   - Atlas PR 33 squash-merged as ffb09ad6e78487fe6be5fa2f0c3a18a9a3cefc92
   - existing Platform trusted-main deployment scaffold successfully deployed prior Atlas revision f99605a69981d9a1d2bca523aec3dff67a31e175 in run 32394546737
   - predecessor cleanup PR 1190 was intentionally closed unmerged with Branch-Disposition delete because Issue 1191 reuses the retained scaffold before final restoration
-  - predecessor active task released workflow ownership explicitly to this task
+  - predecessor active task released workflow ownership and now records merged PR 1189 with terminal_pr_policy archive_pending
+  - Platform PR 1192 targets main from the owned deployment branch and contains only the bounded workflow extension, temporary browser acceptance script and two task-record reconciliations
 derived:
   - reusing repair-synology-autostart.yml on oteryn-staging is the narrowest compliant GitHub-only route and avoids a second live execution mechanism
   - deployment build can reconstruct the normalized creature export from exact Game + pinned legacy evidence, delete raw evidence before Atlas publication, and prove deterministic output before cutover
@@ -111,8 +112,8 @@ unknown:
   - exact live pre-cutover Atlas revision; executor will accept only the explicit known revision set and record the observed value for rollback
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: agent-governance run 32453591054
+  evidence: predecessor terminal PR lacked archive-pending policy and this task lacked open PR identity; both task records were corrected on the same owned branch
 rejected_hypotheses:
   - direct workstation execution is unnecessary and intentionally not used
 changed_paths:
@@ -133,8 +134,11 @@ validation:
   - command: Atlas PR 33 CodeQL
     result: PASS
     evidence: run 32452804539
+  - command: Platform PR 1192 first Agent Governance exact-head attempt
+    result: FAIL
+    evidence: run 32453591054 exposed only the two live task-liveness record mismatches now repaired
 blockers: []
-next_action: Open Platform Issue 1191 implementation PR, require exact-head Platform checks, then squash-merge so the push-only oteryn-staging deployment executor can perform live cutover and Chromium E2E.
+next_action: Require fresh exact-head Platform PR 1192 governance/CI checks to pass, then squash-merge so the trusted main push executes the Synology deployment and live Chromium E2E.
 ```
 
 ## Source branch closeout
