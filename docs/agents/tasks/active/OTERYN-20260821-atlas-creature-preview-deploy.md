@@ -52,41 +52,50 @@ blockers: []
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 2
-phase: validate
-session_id: atlas-creature-preview-20260821-repair-003
-session_role: integrator
-execution_mode: github-plus-synology-runner
-updated_at: 2026-08-21T15:35:00Z
+checkpoint_version: 1
+updated_at: 2026-08-21T15:55:00Z
+head: 590d412d3336ed4b15132a40888c91f56b1879f2
 branch: fix/atlas-30-prebuilt-playwright-runtime
 pr: 1203
 status: validating
-task_kind: e2e
-validation_level: full
-last_completed_step: replaced runtime browser installation with an official prebuilt Playwright 1.62.1 Chromium image pinned to the linux-amd64 manifest and removed active PR 1200 path overlap
+context_routes:
+  - synology-staging
+  - atlas-fullworld-preview
+owned_paths:
+  - deploy/ci/playwright-chromium.Dockerfile
+  - deploy/synology/compose.yml
+  - docs/agents/tasks/active/OTERYN-20260821-atlas-creature-preview-deploy.md
 proven:
-  - Atlas target revision ffb09ad6e78487fe6be5fa2f0c3a18a9a3cefc92 is already merged upstream
-  - Platform PR 1193 merged as f664d8d82b5421a47856b54dc75a5a68d27fd9fc
-  - trusted-main run 32488861824 completed Game export/index, then was cancelled in browser-runtime preparation; stage/cutover/live E2E were skipped and cleanup passed
-  - live preview remained healthy on revision 95c02ded6b8793b68effacb995f206fa462b42f9 after the cancelled run
-  - cancelled runtime failure was inside playwright install --with-deps chromium / apt-dpkg on Synology
-  - Microsoft Playwright v1.62.1-noble publishes linux-amd64 manifest sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac
-  - PR 1203 removes playwright browser/dependency installation from the Synology Docker build and uses matching @playwright/test 1.62.1 without browser download
-  - earlier bounded prebuilt-image smoke with Playwright 1.62.0 launched Chromium 151.0.7922.34 successfully; exact temporary custom image/context were removed
+  - Atlas target revision ffb09ad6e78487fe6be5fa2f0c3a18a9a3cefc92 is merged upstream
+  - trusted-main run 32488861824 completed Game export/index and was cancelled before stage/cutover/live E2E
+  - live preview remained on revision 95c02ded6b8793b68effacb995f206fa462b42f9 after the cancelled run
+  - Playwright 1.62.1 prebuilt runtime smoke launched Chromium 151.0.7922.34 headless on Synology and the exact smoke image/context were removed
+  - PR 1203 removes runtime playwright install --with-deps chromium and uses Microsoft Playwright v1.62.1 noble linux-amd64 manifest sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac
+derived:
+  - a corrected checkpoint-only commit should regenerate protected checks without invalidating the already-proven bounded browser runtime smoke
+unknown:
+  - protected exact-head CI result after checkpoint repair
+  - trusted-main deployment result after eventual merge
+  - final live desktop and mobile E2E result
 conflicts: []
+first_failure:
+  marker: checkpoint-validation failed on exact head 590d412d3336ed4b15132a40888c91f56b1879f2
+  evidence: Agent Governance run 32499399999 job 96825346447 reported missing required checkpoint fields, checkpoint_version mismatch, and validation item 1 missing evidence
+rejected_hypotheses:
+  - browser runtime repair itself caused the current protected CI failure; current first failure is checkpoint schema validation
+changed_paths:
+  - deploy/ci/playwright-chromium.Dockerfile
+  - deploy/synology/compose.yml
+  - docs/agents/tasks/active/OTERYN-20260821-atlas-creature-preview-deploy.md
 validation:
-  - command: trusted-main run 32488861824 Game export/index
+  - command: Synology prebuilt Playwright 1.62.1 bounded smoke
     result: PASS
-  - command: trusted-main run 32488861824 deploy/E2E
+    evidence: Chromium 151.0.7922.34 launched headless and exact task smoke image/context were removed
+  - command: Agent Governance run 32499399999 checkpoint-validation job 96825346447
     result: FAIL
-    evidence: cancelled before stage/cutover; cleanup PASS
-  - command: PR 1203 full diff self-review
-    result: PASS
-    evidence: only prebuilt browser runtime plus comment-only trusted-main trigger; active PR 1200 overlap removed from net diff
-  - command: Synology prebuilt Playwright bounded smoke
-    result: PASS
-    evidence: Chromium 151.0.7922.34 launched headless; task-owned smoke image/context removed
-next_action: complete exact Playwright 1.62.1 smoke and protected CI on PR 1203, then squash merge and verify the resulting trusted-main cutover plus desktop/mobile E2E before terminal restoration/issue closeout
+    evidence: validator reported checkpoint_version must be 1 plus missing blockers changed_paths context_routes derived first_failure head owned_paths rejected_hypotheses unknown and validation evidence
+blockers: []
+next_action: verify fresh protected CI on the new exact head, inspect the first relevant failed job if any, and continue toward squash merge only after all exact-head gates pass
 ```
 
 ## Self-review
@@ -94,7 +103,7 @@ next_action: complete exact Playwright 1.62.1 smoke and protected CI on PR 1203,
 ```yaml
 self_review:
   result: PASS
-  exact_head_runtime_change: 1597c978c7800c25f401752c39dafe977a1b09ef
+  exact_head_runtime_change: 590d412d3336ed4b15132a40888c91f56b1879f2
   acceptance_checked: true
   full_diff_checked: true
   negative_paths_checked: true
@@ -103,8 +112,8 @@ self_review:
   related_prs_checked: true
   findings: []
   evidence:
-    - PR 1203 net diff contains deploy/ci/playwright-chromium.Dockerfile and comment-only deploy/synology/compose.yml trigger
-    - PR 1200 overlap on deploy/synology/runner/compose.yml was reverted before readiness
+    - PR 1203 net diff contains the prebuilt browser runtime, comment-only trusted-main trigger, and active task checkpoint
+    - PR 1200 overlap on deploy/synology/runner/compose.yml is absent from the net diff
 ```
 
 ## Source branch closeout
