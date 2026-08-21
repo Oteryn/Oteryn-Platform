@@ -239,34 +239,30 @@ jobs:
           test "$(git -C platform-runtime rev-parse HEAD)" = "$GITHUB_SHA"
           test -s platform-runtime/scripts/acceptance/atlas-creature-preview-e2e.cjs
 
-          BASE_IMAGE='oteryn-playwright-php85'
+          rm -rf -- browser-runtime-context
+          mkdir -p browser-runtime-context
+          cp platform-runtime/deploy/ci/playwright-chromium.Dockerfile browser-runtime-context/Dockerfile
+          cp platform-runtime/scripts/acceptance/package.json browser-runtime-context/package.json
+
           TASK_IMAGE="oteryn-atlas-creature-e2e:${GITHUB_RUN_ID}"
-          image=''
-          owned=false
-          if docker image inspect "$BASE_IMAGE" >/dev/null 2>&1; then
-            if docker run --rm --ipc host --shm-size 1g \
-              -e OTERYN_REQUIRE_VENDOR=0 \
-              -v "$PWD/platform-runtime:/workspace" \
-              -w /workspace \
-              "$BASE_IMAGE" --runtime-smoke >/tmp/atlas-playwright-smoke.log 2>&1; then
-              image="$BASE_IMAGE"
-            fi
-          fi
-          if [[ -z "$image" ]]; then
-            docker build \
-              -f platform-runtime/deploy/ci/playwright-php.Dockerfile \
-              -t "$TASK_IMAGE" \
-              platform-runtime
-            docker run --rm --ipc host --shm-size 1g \
-              -e OTERYN_REQUIRE_VENDOR=0 \
-              -v "$PWD/platform-runtime:/workspace" \
-              -w /workspace \
-              "$TASK_IMAGE" --runtime-smoke
-            image="$TASK_IMAGE"
-            owned=true
-          fi
-          printf 'image=%s\nowned=%s\n' "$image" "$owned" >> "$GITHUB_OUTPUT"
-          echo "playwright-runtime=PASS image=$image owned=$owned"
+          DOCKER_BUILDKIT=0 docker build \
+            -t "$TASK_IMAGE" \
+            browser-runtime-context
+          docker run --rm --ipc host --shm-size 1g \
+            --entrypoint node \
+            "$TASK_IMAGE" -e '
+              const { chromium } = require("/opt/oteryn-playwright/node_modules/@playwright/test");
+              (async () => {
+                const browser = await chromium.launch({
+                  headless: true,
+                  args: ["--no-sandbox", "--disable-dev-shm-usage"],
+                });
+                console.log(`chromium-runtime=${browser.version()}`);
+                await browser.close();
+              })().catch((error) => { console.error(error); process.exit(1); });
+            '
+          printf 'image=%s\nowned=true\n' "$TASK_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "playwright-runtime=PASS image=$TASK_IMAGE owned=true chromium-only=true"
 
       - name: Inspect live preview and stage exact Atlas revision
         id: stage
@@ -673,7 +669,7 @@ jobs:
           fi
 
           rm -rf -- \
-            atlas game legacy platform-runtime \
+            atlas game legacy platform-runtime browser-runtime-context \
             creature-export.json creature-index-a creature-index-b \
             e2e-targets.json atlas-nginx.conf
           echo 'cleanup=PASS'
