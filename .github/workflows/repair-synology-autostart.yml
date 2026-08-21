@@ -88,18 +88,29 @@ jobs:
           git -C atlas-source checkout --detach --quiet FETCH_HEAD
           test "$(git -C atlas-source rev-parse HEAD)" = "$ATLAS_REV"
 
-          code="$(curl -fsS -w '%{http_code}' -D /tmp/atlas-current.headers "$PREVIEW_URL/web/fullworld.html" -o /tmp/atlas-current.html)"
+          fetch200() {
+            local name="$1"
+            local url="$2"
+            local out="$3"
+            local code
+            code="$(curl -sS -w '%{http_code}' "$url" -o "$out" || true)"
+            echo "${name}-http=${code}"
+            test "$code" = 200
+          }
+
+          code="$(curl -sS -w '%{http_code}' -D /tmp/atlas-current.headers "$PREVIEW_URL/web/fullworld.html" -o /tmp/atlas-current.html || true)"
+          echo "fullworld-html-http=$code"
           test "$code" = 200
           grep -qi "^X-Oteryn-Atlas-Revision: $ATLAS_REV" /tmp/atlas-current.headers
           cmp atlas-source/web/fullworld.html /tmp/atlas-current.html
 
-          for file in fullworld-creatures.mjs fullworld-search.mjs; do
-            curl -fsS "$PREVIEW_URL/web/$file" -o "/tmp/$file"
-            cmp "atlas-source/web/$file" "/tmp/$file"
-          done
+          fetch200 fullworld-creatures "$PREVIEW_URL/web/fullworld-creatures.mjs" /tmp/fullworld-creatures.mjs
+          cmp atlas-source/web/fullworld-creatures.mjs /tmp/fullworld-creatures.mjs
+          fetch200 fullworld-search "$PREVIEW_URL/web/fullworld-search.mjs" /tmp/fullworld-search.mjs
+          cmp atlas-source/web/fullworld-search.mjs /tmp/fullworld-search.mjs
+          fetch200 creature-index "$PREVIEW_URL/data/creatures/index.json" /tmp/atlas-current-index.json
+          fetch200 creature-search "$PREVIEW_URL/data/creatures/search.json" /tmp/atlas-current-search.json
 
-          curl -fsS "$PREVIEW_URL/data/creatures/index.json" -o /tmp/atlas-current-index.json
-          curl -fsS "$PREVIEW_URL/data/creatures/search.json" -o /tmp/atlas-current-search.json
           python3 - <<'PY'
           import hashlib, json
           from pathlib import Path
@@ -114,9 +125,15 @@ jobs:
           assert index['search_digest'] == 'sha256:' + hashlib.sha256(search_raw).hexdigest()
           records = search['records']
           assert len(records) == 1945
+          by_id = {record['record_id']: record for record in records}
+          wanted = {
+              'npc': 'npc:473280040fcebbf2bc1bad9e3717d7a9',
+              'monster': 'monster:83f049b79b2988bccdfb22f9a46a739d',
+          }
           targets = {}
-          for kind in ('npc', 'monster'):
-              item = next(record for record in records if record['kind'] == kind)
+          for kind, record_id in wanted.items():
+              item = by_id[record_id]
+              assert item['kind'] == kind
               targets[kind] = {
                   'kind': kind,
                   'label': item['label'],
@@ -127,10 +144,11 @@ jobs:
           print('current-live-creature-product=PASS')
           PY
 
-          curl -fsS -D /tmp/atlas-range.headers -H 'Range: bytes=100-199' \
-            "$PREVIEW_URL/fullworld/publication/semantic/world.json" -o /tmp/atlas-range.bin
-          grep -q '^HTTP/1.1 206' /tmp/atlas-range.headers
-          grep -qi '^Content-Range: bytes 100-199/' /tmp/atlas-range.headers
+          range_url="$PREVIEW_URL/fullworld/publication/semantic/chunks/fm000007_rxp000126_ryp000125.jsonl"
+          range_code="$(curl -sS -w '%{http_code}' -D /tmp/atlas-range.headers -H 'Range: bytes=100-199' "$range_url" -o /tmp/atlas-range.bin || true)"
+          echo "semantic-range-http=$range_code"
+          test "$range_code" = 206
+          grep -qi '^Content-Range: bytes 100-199/72681462' /tmp/atlas-range.headers
           test "$(wc -c < /tmp/atlas-range.bin)" -eq 100
           echo 'live-http-and-bytes=PASS'
 

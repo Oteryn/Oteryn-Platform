@@ -15,19 +15,19 @@ optional_reads: []
 
 ## Goal
 
-Qualify the current merged `Oteryn/Oteryn-Atlas@71e2aca1ac49692751f5d6c59a7126835fe1896a` already served by the LAN-only Synology FullWorld preview at `192.168.1.2:8097`, prove static NPC/monster behavior with real desktop/mobile Chromium without any downgrade or cutover, then restore temporary execution scaffolding and close Platform #1191 plus Atlas #30.
+Qualify current merged `Oteryn/Oteryn-Atlas@71e2aca1ac49692751f5d6c59a7126835fe1896a` on the LAN-only Synology FullWorld preview at `192.168.1.2:8097`, prove static NPC/monster behavior with real desktop/mobile Chromium without downgrade, then restore temporary execution scaffolding and close Platform #1191 plus Atlas #30.
 
 ## Acceptance criteria
 
 - [x] Live preview was observed serving Atlas `71e2aca1ac49692751f5d6c59a7126835fe1896a`.
 - [x] Historical exact Game producer evidence proves 1,068 NPC + 87,565 monster/spawn = 88,633 placements with semantic digest `sha256:01921968a6cb4f6ecea237820a053fc5052aaa1da556851f2c2a60d99890b5e1`.
 - [x] Deterministic creature product contract is 5,746 shards and 1,945 search records.
-- [ ] Current live revision header and exact served Atlas HTML/creature/search module bytes match `71e2aca1ac49692751f5d6c59a7126835fe1896a`.
-- [ ] Current live creature product matches the expected counts, search digest and semantic digest.
-- [ ] HTTP Range returns 206 with exact Content-Range and byte count.
-- [ ] Real Chromium desktop and mobile E2E pass against `192.168.1.2:8097` with no cutover/downgrade.
-- [ ] Browser evidence artifact is retained for 30 days.
-- [ ] Task-owned ephemeral execution resources are removed with ownership-scoped cleanup.
+- [ ] Current live revision header and exact served Atlas HTML/modules match `71e2aca1ac49692751f5d6c59a7126835fe1896a`.
+- [ ] Current live creature product matches expected counts/search digest/semantic digest.
+- [ ] HTTP Range 206 and exact Content-Range/byte count pass.
+- [ ] Real Chromium desktop and mobile E2E pass without downgrade.
+- [ ] Browser evidence is retained for 30 days.
+- [x] Failed-run task-owned resources are removed by ownership-scoped cleanup.
 - [ ] Temporary deployment/E2E scaffolding is restored after successful live acceptance.
 - [ ] Task records are archived and Platform #1191 plus Atlas #30 are closed only after verified live PASS.
 
@@ -52,10 +52,10 @@ blockers: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-21T16:40:00Z
-head: 1b798b95bd36a04b48219bd7bb97de9410c8b5cf
-branch: ops/atlas-30-live-revision-conflict
-pr: 1204
+updated_at: 2026-08-21T16:57:00Z
+head: 60820c6ca4bc1310821d12f960eeab75d168158c
+branch: fix/atlas-current-live-acceptance-404
+pr: 1205
 status: validating
 context_routes:
   - synology-staging
@@ -64,42 +64,42 @@ owned_paths:
   - .github/workflows/repair-synology-autostart.yml
   - docs/agents/tasks/active/OTERYN-20260821-atlas-creature-preview-deploy.md
 proven:
-  - Platform PR 1203 merged as 0a2efbd1ddcac1fe8893c604d64de715b2257323 after protected exact-head checks passed
-  - trusted-main run 32500594332 proved exact historical Game creature export counts and digest plus deterministic 5746-chunk 1945-search-record index
-  - trusted-main run 32500594332 proved the prebuilt Playwright 1.62.1 Chromium 151.0.7922.34 runtime and ownership-scoped cleanup
-  - run 32500594332 observed live Atlas 71e2aca1ac49692751f5d6c59a7126835fe1896a and failed closed before any downgrade to historical ffb09ad6e78487fe6be5fa2f0c3a18a9a3cefc92
-  - Atlas 71e2aca1ac49692751f5d6c59a7126835fe1896a is merged PR 37 and is two commits ahead of historical ffb09ad6e78487fe6be5fa2f0c3a18a9a3cefc92
-  - owner explicitly instructed continuation on the newer Atlas rather than downgrade
-  - the repository workflow budget is 53 so current-live acceptance is integrated into existing repair-synology-autostart.yml rather than adding a workflow
+  - Platform PR 1204 exact head 34eceb53da317af21f9b185052cdae2a2e8283ee passed Agent Governance CI CodeQL DB outage Game Auth Edge Security and Phase 7 then squash-merged as b70f08ea71d70cd020f5dc8a2ae5a5e16d8d9f2a
+  - trusted-main current-live acceptance run 32504909145 executed on oteryn-synology-staging and preserved the live preview without cutover
+  - run 32504909145 cleanup succeeded
+  - run 32504909145 failed during live resource verification before browser-runtime build; E2E was skipped
+  - the failed verification emitted HTTP 404 from one required live resource, but the previous implementation did not identify which URL
+  - historical trusted-main run 32500594332 already proved exact Game creature export/index and Playwright 1.62.1 Chromium 151.0.7922.34 runtime
+  - PR 1205 is the bounded URL-labelled diagnostic repair for this first current-live 404
 derived:
-  - because the selected Atlas revision is already live, the safe next operation is qualification only and the current workflow contains no preview cutover path
-  - the existing creature E2E remains compatible because current fullworld-creatures.mjs still injects creature-search and creature-results alongside the newer global semantic search
+  - the current blocker is a live resource path/content availability issue, not Atlas revision selection, protected CI, Playwright installation, or runner availability
+  - the next run must identify each required URL explicitly before any further repair is chosen
 unknown:
-  - exact-head protected CI result for the reconciled PR 1204 candidate
-  - trusted-main current-live desktop/mobile E2E result after merge
+  - which required live resource returned HTTP 404 in run 32504909145
+  - whether the current live creature product is complete enough for Chromium E2E
 conflicts: []
 first_failure:
-  marker: prior PR 1204 candidate 85920e63026eab91be5d2751e4ef8345420c21f6 failed repository admission
-  evidence: Agent Governance rejected unsupported checkpoint result PASS_PARTIAL and CI rejected a 54th unregistered workflow above the budget of 53; both causes are removed in the current candidate
+  marker: trusted-main run 32504909145 Verify current live revision product and exact served bytes
+  evidence: job 96842985122 returned curl HTTP 404 before browser runtime build; E2E skipped; cleanup PASS
 rejected_hypotheses:
-  - a downgrade to ffb09ad6e78487fe6be5fa2f0c3a18a9a3cefc92 is required; owner explicitly selected current newer Atlas
-  - Playwright runtime preparation remains blocked; run 32500594332 launched Chromium 151.0.7922.34 successfully
-  - a separate workflow is required for current-live acceptance; existing repair-synology-autostart.yml is already the trusted Synology execution channel and stays within the workflow budget
+  - current live acceptance requires a downgrade; owner selected newer Atlas and run 32504909145 performed no cutover
+  - the workflow budget is still exceeded; PR 1204 removed the extra workflow and exact-head CI passed
+  - checkpoint schema is still invalid; PR 1204 Agent Governance passed
 changed_paths:
   - .github/workflows/repair-synology-autostart.yml
   - docs/agents/tasks/active/OTERYN-20260821-atlas-creature-preview-deploy.md
 validation:
-  - command: Atlas PR 37 exact candidate 3ed63890b42a1f7f530a474e8e7d4b6f0a5e1ca8 protected workflows
+  - command: PR 1204 exact-head protected workflows at 34eceb53da317af21f9b185052cdae2a2e8283ee
     result: PASS
-    evidence: CI 32495168029 Creature overlays 32495168086 Extraction Provenance 32495168098 CodeQL 32495168023 and Semantic search 32495168026 all succeeded before merge 71e2aca1ac49692751f5d6c59a7126835fe1896a
-  - command: trusted-main historical deployment attempt 32500594332
+    evidence: Agent Governance 32504637058 CI 32504637282 CodeQL 32504637146 DB outage 32504637052 Game Auth 32504637059 Edge Security 32504637074 Phase 7 32504637051 all succeeded
+  - command: trusted-main current-live acceptance run 32504909145
     result: FAIL
-    evidence: export index and browser runtime passed but stage intentionally failed closed on newer live Atlas 71e2aca1ac49692751f5d6c59a7126835fe1896a before mutation; cleanup passed
-  - command: reconciled PR 1204 exact-head protected checks
+    evidence: job 96842985122 failed with HTTP 404 in resource verification before E2E; cleanup succeeded and no cutover occurred
+  - command: PR 1205 exact-head protected checks
     result: NOT_RUN
-    evidence: pending fresh checks after workflow-budget and checkpoint-contract repair
+    evidence: pending fresh checks after binding checkpoint to PR 1205
 blockers: []
-next_action: verify fresh exact-head checks for PR 1204, merge only after all required gates pass, then inspect the trusted-main current-live acceptance run and continue to terminal scaffold restoration and issue closeout only after live PASS
+next_action: pass protected checks for PR 1205, merge, use the resulting trusted-main log to either complete E2E or repair only the specifically proven missing live product
 ```
 
 ## Self-review
@@ -107,7 +107,7 @@ next_action: verify fresh exact-head checks for PR 1204, merge only after all re
 ```yaml
 self_review:
   result: PASS
-  exact_head_runtime_change: 1b798b95bd36a04b48219bd7bb97de9410c8b5cf
+  exact_head_runtime_change: efc21204e3fc5fa67a8943f5e7721cc3766592df
   acceptance_checked: true
   full_diff_checked: true
   negative_paths_checked: true
@@ -116,20 +116,20 @@ self_review:
   related_prs_checked: true
   findings: []
   evidence:
-    - current candidate preserves the existing persistent Synology restart-policy repair job
-    - Atlas acceptance is read-only toward the live preview and performs no docker rm/run cutover of oteryn-atlas-fullworld-preview
-    - task-owned browser image and temporary checkout/context are removed in the always-run cleanup step
-    - no new workflow file remains in the net diff
+    - correction remains read-only toward the live preview
+    - every required HTTP resource now prints a named status before fail-closed evaluation
+    - semantic Range target is restored to the previously proven exact chunk path and Content-Range
+    - no new workflow is added and workflow budget remains unchanged
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: bounded terminal current-live qualification branch
-source_branch_evidence: pending
+source_branch_reason: bounded current-live acceptance diagnosis/repair branch
+source_branch_evidence: PR 1205
 ```
 
 ## Notes
 
-Platform Issue #1191 remains lifecycle authority. The current live Atlas `71e2aca1ac49692751f5d6c59a7126835fe1896a` is the selected acceptance target. Historical `ffb09ad6...` remains provenance for the original creature delivery and must not replace the newer live revision.
+No downgrade is authorized or implemented. The next trusted-main run remains read-only toward `oteryn-atlas-fullworld-preview`; any live mutation requires specific evidence that a required creature product is missing and must retain exact rollback semantics.
