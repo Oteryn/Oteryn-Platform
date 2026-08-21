@@ -13,10 +13,18 @@ require dirname(__DIR__, 2).'/vendor/autoload.php';
 $app = require dirname(__DIR__, 2).'/bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
 
+$email = 'community-acceptance@example.test';
+$password = 'acceptance-community-not-a-user-password';
+$existingIdentity = Identity::query()->where('email', $email)->first();
+$passwordHash = $existingIdentity !== null
+    && Hash::check($password, (string) $existingIdentity->password)
+        ? (string) $existingIdentity->password
+        : Hash::make($password);
+
 $identity = Identity::query()->updateOrCreate(
-    ['email' => 'community-acceptance@example.test'],
+    ['email' => $email],
     [
-        'password' => Hash::make('acceptance-community-not-a-user-password'),
+        'password' => $passwordHash,
         'public_account_association' => true,
         'public_status_visible' => true,
     ],
