@@ -21,16 +21,18 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.head_ref == 'infra/issue-1199-organization-runner-bootstrap' &&
       github.actor == 'blakinio'
-    runs-on: oteryn-staging
+    runs-on:
+      group: platform-runners
+      labels: oteryn-platform
     timeout-minutes: 5
     steps:
-      - name: Guard legacy diagnostic path
+      - name: Guard Platform diagnostic path
         shell: bash
         run: |
           set -Eeuo pipefail
-          test '${{ runner.name }}' = 'oteryn-synology-staging'
+          test '${{ runner.name }}' = 'oteryn-synology-platform'
           test -S /var/run/docker.sock
-          echo 'legacy-diagnostic-path=PASS'
+          echo 'platform-diagnostic-route=PASS'
 
       - name: Inspect exact Game container without mutation
         shell: bash
