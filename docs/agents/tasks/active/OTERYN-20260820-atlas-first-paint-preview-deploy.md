@@ -21,28 +21,25 @@ Deploy exact merged `Oteryn/Oteryn-Atlas@f99605a69981d9a1d2bca523aec3dff67a31e17
 
 ## Acceptance criteria
 
-- [ ] Exact Atlas revision `f99605a69981d9a1d2bca523aec3dff67a31e175` is served by `oteryn-atlas-fullworld-preview`.
-- [ ] Publication, semantic, pixel, overview, runtime-index and pixel-bucket roots are unchanged.
-- [ ] HTTP 200, exact revision header, HTTP 206 and exact Content-Range are verified after cutover.
-- [ ] Deployed first-paint/runtime files match the exact Atlas revision byte-for-byte.
-- [ ] Cutover is fail-closed with rollback to `e462396a931652a62f61ca4e32c2402dfad9504a`.
-- [ ] Temporary Platform workflow extension and runner checkout are removed after success.
-- [ ] Task branch/PR/task record are terminally cleaned up.
+- [x] Exact Atlas revision `f99605a69981d9a1d2bca523aec3dff67a31e175` was served by `oteryn-atlas-fullworld-preview`.
+- [x] Publication, semantic, pixel, overview, runtime-index and pixel-bucket roots remained unchanged.
+- [x] HTTP 200, exact revision header, HTTP 206 and exact Content-Range were verified after cutover.
+- [x] Deployed first-paint/runtime files matched the exact Atlas revision byte-for-byte.
+- [x] Cutover used exact rollback semantics.
+- [ ] Temporary Platform workflow extension is removed after the successor Atlas creature deployment reuses it.
+- [ ] Task record and predecessor lifecycle are archived/closed after successor Issue #1191 terminal cleanup.
 
 ## Ownership
 
 ```yaml
 owned_paths:
-  - .github/workflows/repair-synology-autostart.yml
   - docs/agents/tasks/active/OTERYN-20260820-atlas-first-paint-preview-deploy.md
 modules:
-  - synology-staging-runner
-  - atlas-fullworld-preview
+  - atlas-fullworld-preview-history
 dependencies:
-  - Oteryn/Oteryn-Atlas#25 merged as f99605a69981d9a1d2bca523aec3dff67a31e175
-  - existing oteryn-staging self-hosted runner
+  - Oteryn/Oteryn-Platform#1191 owns the retained workflow scaffold until terminal restoration
 blockers:
-  - none
+  - successor deployment/cleanup #1191 must finish before this historical task can archive
 cross_repository_tasks:
   - Oteryn/Oteryn-Atlas#24
 ```
@@ -51,24 +48,46 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-20T16:50:00Z
-head: fd194d67f6acf289e226541bd8a4266639ab5185
+policy_version: 2
+phase: close
+session_id: atlas-creature-preview-20260821-001
+session_role: takeover-integrator
+execution_mode: github-only
+execution_reason: stale predecessor lifecycle is being reconciled by the successor deployment task that owns the retained scaffold
+updated_at: 2026-08-21T06:16:00Z
+lease_expires_at: null
+head: a806d4f70e8cbddc5e7a6f0130ed669ae62651b4
 branch: ops/atlas-24-first-paint-preview-deploy
 pr: 1189
 status: validating
+terminal_pr_policy: archive_pending
+task_kind: e2e
+context_pressure: low
+context_growth: stable
+context_score: 3
+estimate_confidence: high
+decomposition_decision: single
+decomposition_reason: historical deployment is complete; only terminal scaffold restoration and archive remain
+validation_level: full
+last_completed_step: live first-paint deployment completed successfully on trusted main; terminal PR identity reconciled as archive-pending
+session_rotation_count: 1
+heavy_validation_runs: 1
+stale_takeover_count: 1
+human_interruptions: 0
 context_routes:
   - synology-staging
   - github-only-execution
 owned_paths:
-  - .github/workflows/repair-synology-autostart.yml
   - docs/agents/tasks/active/OTERYN-20260820-atlas-first-paint-preview-deploy.md
 proven:
-  - Atlas Issue 24 is closed by PR 25 merged as f99605a69981d9a1d2bca523aec3dff67a31e175 after CI, Extraction Provenance, CodeQL, atlas-gate and real-Chrome WebGL proof passed on exact head 542c44e2a5d1080be011c4c86f8183424417a2d6
-  - existing Synology preview currently serves Atlas e462396a931652a62f61ca4e32c2402dfad9504a at 192.168.1.2:8097
-  - previous bounded Platform deployment lifecycle proved the existing repair-synology-autostart workflow can safely execute on runner oteryn-staging and was restored to blob f3959e6bea09d39920db0e5515770a1ec77114ca
-  - PR 1189 is open with a push-only deployment job that preserves verified roots, uses exact rollback and removes its task-owned runner checkout
+  - PR 1189 merged as a806d4f70e8cbddc5e7a6f0130ed669ae62651b4
+  - Synology deployment run 32394546737 completed SUCCESS and served Atlas f99605a69981d9a1d2bca523aec3dff67a31e175 on 192.168.1.2:8097
+  - HTTP 200, exact revision header, HTTP 206 and exact served-byte checks passed in that run
+  - owner-browser acceptance for the first-paint repair was recorded PASS on Issue 1188
+  - cleanup PR 1190 was closed unmerged with Branch-Disposition delete because its sole workflow restoration is intentionally deferred to successor Issue 1191
+  - merged terminal PR 1189 is explicitly represented by terminal_pr_policy archive_pending until the successor cleanup archives this record
 derived:
-  - reuse of the already-registered Synology workflow is the narrowest compliant execution path because the workflow budget is fixed and prior task-specific workflow creation exceeded it
+  - this record no longer owns .github/workflows/repair-synology-autostart.yml; successor task OTERYN-20260821-atlas-creature-preview-deploy owns it until final restoration
 unknown: []
 conflicts: []
 first_failure:
@@ -76,28 +95,24 @@ first_failure:
   evidence: none
 rejected_hypotheses: []
 changed_paths:
-  - .github/workflows/repair-synology-autostart.yml
   - docs/agents/tasks/active/OTERYN-20260820-atlas-first-paint-preview-deploy.md
 validation:
-  - command: Atlas PR 25 exact-head workflow suite
+  - command: trusted-main deployment run 32394546737
     result: PASS
-    evidence: CI 32393691856, Extraction Provenance 32393691917, CodeQL 32393691930
-  - command: Platform PR 1189 exact-head required checks
-    result: NOT_RUN
-    evidence: final checkpoint commit requires a fresh exact-head check generation
+    evidence: exact f99605a deployment and endpoint verification succeeded
 blockers:
-  - none
-next_action: Require PR 1189 exact-head checks to pass, squash-merge it, then verify the resulting trusted-main Synology deployment run to terminal success.
+  - successor Issue 1191 must restore the workflow scaffold and archive this task
+next_action: Archive this record and close Issue 1188 in the terminal cleanup PR after Issue 1191 live acceptance succeeds.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: this branch is a bounded trusted-main deployment executor and must be removed after merge
-source_branch_evidence: repository auto-delete is expected after merge and will be live-verified
+source_branch_reason: original deployment executor branch was merged through PR 1189
+source_branch_evidence: final branch/ref verification is delegated to successor Issue 1191 closeout
 ```
 
 ## Notes
 
-Issue #1188 is the Platform execution record. The retained deliverable is the existing Atlas preview container serving the repaired Atlas revision; Platform product behavior is not changed.
+Issue #1188 is historical deployment evidence. Operational ownership of `.github/workflows/repair-synology-autostart.yml` is transferred explicitly to `OTERYN-20260821-atlas-creature-preview-deploy` / Issue #1191 until the final restoration commit is merged.
