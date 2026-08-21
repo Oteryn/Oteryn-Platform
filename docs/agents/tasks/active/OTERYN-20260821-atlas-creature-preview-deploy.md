@@ -41,6 +41,8 @@ Deploy exact terminal merged `Oteryn/Oteryn-Atlas@ffb09ad6e78487fe6be5fa2f0c3a18
 ```yaml
 owned_paths:
   - .github/workflows/repair-synology-autostart.yml
+  - .github/workflows/atlas-playwright-cache-repair.yml
+  - deploy/ci/atlas-playwright-cache-repair.Dockerfile
   - scripts/acceptance/atlas-creature-preview-e2e.cjs
   - docs/agents/tasks/active/OTERYN-20260821-atlas-creature-preview-deploy.md
   - docs/agents/tasks/active/OTERYN-20260820-atlas-first-paint-preview-deploy.md
@@ -67,12 +69,13 @@ session_id: atlas-creature-preview-20260821-001
 session_role: integrator
 execution_mode: github-only
 execution_reason: the registered Synology self-hosted runner is the narrow trusted execution path for the LAN-only preview; no workstation dependency is required
-updated_at: 2026-08-21T06:18:00Z
-lease_expires_at: 2026-08-21T07:03:00Z
-head: 7ffeba1b89589e8a2cc2b6143cbbfda4042ac824
+updated_at: 2026-08-21T12:45:00Z
+lease_expires_at: 2026-08-21T13:30:00Z
+head: 29cc31f29d71a0b75f879d0d2048327c1f65548a
 branch: ops/atlas-30-creature-preview-deploy
 pr: 1192
 status: validating
+terminal_pr_policy: archive_pending
 task_kind: e2e
 context_pressure: medium
 context_growth: stable
@@ -81,9 +84,9 @@ estimate_confidence: high
 decomposition_decision: phased
 decomposition_reason: one cross-repository producer-consumer-deployment acceptance flow with shared immutable revisions and one live preview
 validation_level: full
-last_completed_step: opened exact Platform implementation PR 1192 and reconciled predecessor terminal-PR liveness as archive-pending
+last_completed_step: PR 1201 exact-head Agent Governance passed after the terminal PR was reconciled to archive_pending; cache-repair candidate is under exact-head CI
 session_rotation_count: 0
-heavy_validation_runs: 1
+heavy_validation_runs: 3
 stale_takeover_count: 1
 human_interruptions: 0
 context_routes:
@@ -92,6 +95,8 @@ context_routes:
   - atlas-fullworld-preview
 owned_paths:
   - .github/workflows/repair-synology-autostart.yml
+  - .github/workflows/atlas-playwright-cache-repair.yml
+  - deploy/ci/atlas-playwright-cache-repair.Dockerfile
   - scripts/acceptance/atlas-creature-preview-e2e.cjs
   - docs/agents/tasks/active/OTERYN-20260821-atlas-creature-preview-deploy.md
   - docs/agents/tasks/active/OTERYN-20260820-atlas-first-paint-preview-deploy.md
@@ -103,21 +108,30 @@ proven:
   - Atlas PR 33 squash-merged as ffb09ad6e78487fe6be5fa2f0c3a18a9a3cefc92
   - existing Platform trusted-main deployment scaffold successfully deployed prior Atlas revision f99605a69981d9a1d2bca523aec3dff67a31e175 in run 32394546737
   - predecessor cleanup PR 1190 was intentionally closed unmerged with Branch-Disposition delete because Issue 1191 reuses the retained scaffold before final restoration
-  - predecessor active task released workflow ownership and now records merged PR 1189 with terminal_pr_policy archive_pending
-  - Platform PR 1192 targets main from the owned deployment branch and contains only the bounded workflow extension, temporary browser acceptance script and two task-record reconciliations
+  - predecessor active task released workflow ownership and records merged PR 1189 with terminal_pr_policy archive_pending
+  - Platform PR 1192 squash-merged to main as 3f1a0eeb42a777106bef466dbcb4150d8a1bb818 and is now terminal
+  - trusted-main deployment run 32454899481 attempt 1 was cancelled before inspect/stage/cutover and its cleanup passed
+  - trusted-main deployment run 32454899481 attempt 2 rebuilt the exact Game export and Atlas index successfully, then failed in Chromium runtime preparation before inspect/stage/cutover; cleanup passed
+  - attempt 2 runtime preparation tried to install Chromium Firefox and WebKit dependencies in the generic Playwright image, pulling 322 packages before the Docker build received SIGTERM exit 143
+  - neither deployment attempt changed the live Atlas preview because all stage and cutover steps were skipped
+  - PR 1201 Agent Governance run 32483326254 passed live task liveness after terminal_pr_policy archive_pending replaced the stale merge action
+  - the live deployment failure is isolated to test-runtime preparation and does not invalidate the already-proven Atlas/Game product artifacts
 derived:
-  - reusing repair-synology-autostart.yml on oteryn-staging is the narrowest compliant GitHub-only route and avoids a second live execution mechanism
-  - deployment build can reconstruct the normalized creature export from exact Game + pinned legacy evidence, delete raw evidence before Atlas publication, and prove deterministic output before cutover
+  - the cache repair can safely derive from the existing PHP 8.5 image, refresh exact Playwright/browser binaries without reinstalling system dependencies, and retag only after full runtime smoke
+  - reusing repair-synology-autostart.yml on oteryn-staging remains the narrowest compliant GitHub-only route and avoids a second live deployment mechanism
 unknown:
   - exact live pre-cutover Atlas revision; executor will accept only the explicit known revision set and record the observed value for rollback
 conflicts: []
 first_failure:
-  marker: agent-governance run 32453591054
-  evidence: predecessor terminal PR lacked archive-pending policy and this task lacked open PR identity; both task records were corrected on the same owned branch
+  marker: trusted-main deployment run 32454899481 attempt 2 Chromium runtime preparation
+  evidence: Docker Playwright dependency installation reached 322 packages and exited 143 before stage/cutover; cleanup PASS
 rejected_hypotheses:
   - direct workstation execution is unnecessary and intentionally not used
+  - repeating the same full three-browser Playwright rebuild is not a valid repair after the identical runtime-preparation failure
 changed_paths:
   - .github/workflows/repair-synology-autostart.yml
+  - .github/workflows/atlas-playwright-cache-repair.yml
+  - deploy/ci/atlas-playwright-cache-repair.Dockerfile
   - scripts/acceptance/atlas-creature-preview-e2e.cjs
   - docs/agents/tasks/active/OTERYN-20260821-atlas-creature-preview-deploy.md
   - docs/agents/tasks/active/OTERYN-20260820-atlas-first-paint-preview-deploy.md
@@ -134,11 +148,18 @@ validation:
   - command: Atlas PR 33 CodeQL
     result: PASS
     evidence: run 32452804539
-  - command: Platform PR 1192 first Agent Governance exact-head attempt
+  - command: trusted-main Atlas deployment attempt 1
     result: FAIL
-    evidence: run 32453591054 exposed only the two live task-liveness record mismatches now repaired
-blockers: []
-next_action: Require fresh exact-head Platform PR 1192 governance/CI checks to pass, then squash-merge so the trusted main push executes the Synology deployment and live Chromium E2E.
+    evidence: run 32454899481 attempt 1 cancelled before stage/cutover; cleanup PASS
+  - command: trusted-main Atlas deployment attempt 2
+    result: FAIL
+    evidence: run 32454899481 attempt 2 failed only in Chromium runtime preparation with exit 143; stage/cutover skipped and cleanup PASS
+  - command: PR 1201 Agent Governance
+    result: PASS
+    evidence: run 32483326254
+blockers:
+  - Chromium acceptance runtime preparation must be repaired before another trusted-main deployment attempt
+next_action: Complete PR 1201 exact-head checks, activate its trusted-main cache repair, complete live desktop/mobile E2E, then archive this task through terminal cleanup PR 1193.
 ```
 
 ## Source branch closeout
@@ -146,7 +167,7 @@ next_action: Require fresh exact-head Platform PR 1192 governance/CI checks to p
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: bounded trusted-main deployment executor; final cleanup is performed by a separate terminal restoration commit/PR after live acceptance
-source_branch_evidence: pending
+source_branch_evidence: PR 1192 merged to main as 3f1a0eeb42a777106bef466dbcb4150d8a1bb818; final task archival remains pending live deployment acceptance and PR 1193
 ```
 
 ## Notes
