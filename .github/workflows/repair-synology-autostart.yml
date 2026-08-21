@@ -378,14 +378,41 @@ jobs:
           set -Eeuo pipefail
           rm -rf -- e2e-evidence
           mkdir -p e2e-evidence
+
+          mapfile -t runner_containers < <(
+            docker ps -q \
+              --filter 'label=com.docker.compose.project=oteryn-deploy-runner' \
+              --filter 'label=com.docker.compose.service=runner'
+          )
+          if [[ "${#runner_containers[@]}" -ne 1 ]]; then
+            echo "Expected exactly one deploy runner container, found ${#runner_containers[@]}" >&2
+            exit 1
+          fi
+          runner_work_host="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/work"}}{{.Source}}{{end}}{{end}}' "${runner_containers[0]}")"
+          test -n "$runner_work_host"
+          case "$PWD" in
+            /work/*) workspace_rel="${PWD#/work/}" ;;
+            *) echo "Unexpected runner workspace path: $PWD" >&2; exit 1 ;;
+          esac
+          host_workspace="$runner_work_host/$workspace_rel"
+          echo "runner-host-workspace=$host_workspace"
+
+          docker run --rm --entrypoint sh \
+            -v "$host_workspace:/host-workspace:ro" \
+            "$BROWSER_IMAGE" -c '
+              test -s /host-workspace/scripts/acceptance/atlas-creature-preview-e2e.cjs
+              test -s /host-workspace/e2e-targets.json
+              test -d /host-workspace/e2e-evidence
+            '
+
           docker run --rm --network host --ipc host --shm-size 1g \
             --entrypoint node \
             -e "PREVIEW_URL=$PREVIEW_URL" \
             -e "ATLAS_REV=$ATLAS_REV" \
             -e "CREATURE_SEMANTIC_DIGEST=$CREATURE_SEMANTIC_DIGEST" \
-            -v "$PWD/scripts/acceptance/atlas-creature-preview-e2e.cjs:/e2e.cjs:ro" \
-            -v "$PWD/e2e-targets.json:/targets.json:ro" \
-            -v "$PWD/e2e-evidence:/evidence" \
+            -v "$host_workspace/scripts/acceptance/atlas-creature-preview-e2e.cjs:/e2e.cjs:ro" \
+            -v "$host_workspace/e2e-targets.json:/targets.json:ro" \
+            -v "$host_workspace/e2e-evidence:/evidence" \
             "$BROWSER_IMAGE" /e2e.cjs | tee e2e-evidence/browser.log
           grep -Fx 'desktop=PASS' e2e-evidence/browser.log
           grep -Fx 'mobile=PASS' e2e-evidence/browser.log
