@@ -1,0 +1,223 @@
+name: Organization Runner Platform Seal
+
+on:
+  pull_request:
+    branches: [main]
+    types: [synchronize]
+    paths:
+      - .github/workflows/organization-runner-platform-seal.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: organization-runner-platform-seal
+  cancel-in-progress: false
+
+jobs:
+  seal-platform:
+    name: Seal registered Platform runner
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'infra/issue-1199-organization-runner-bootstrap' &&
+      github.actor == 'blakinio'
+    runs-on: oteryn-staging
+    timeout-minutes: 15
+    env:
+      ORG_ADMIN_TOKEN: ${{ secrets.OTERYN_ORG_RUNNER_ADMIN_TOKEN }}
+      ORG: Oteryn
+      COMPOSE_PROJECT: oteryn-organization-runners
+      COMPOSE_FILE: deploy/synology/runner/compose.organization.example.yml
+      STATE_HOST_ROOT: /volume1/docker/oteryn/state
+      STATE_RUNNER_ROOT: /var/lib/oteryn-staging-state
+
+    steps:
+      - name: Guard exact legacy control route
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test '${{ runner.name }}' = 'oteryn-synology-staging'
+          test -S /var/run/docker.sock
+          test -d "$STATE_RUNNER_ROOT"
+          test -n "$ORG_ADMIN_TOKEN"
+          echo 'legacy-control-route=PASS'
+
+      - name: Checkout exact seal head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Force-recreate Platform with blank steady-state token
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          API=https://api.github.com
+          API_VERSION=2026-03-10
+          STEADY_RUNNER_DIR="$STATE_RUNNER_ROOT/.organization-runner-tokens"
+          STEADY_HOST_DIR="$STATE_HOST_ROOT/.organization-runner-tokens"
+          PLATFORM=oteryn-organization-runners-platform-1
+          GAME=oteryn-organization-runners-game-1
+          ATLAS=oteryn-organization-runners-atlas-1
+
+          api() {
+            curl --fail --silent --show-error --location \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer $ORG_ADMIN_TOKEN" \
+              -H "X-GitHub-Api-Version: $API_VERSION" "$@"
+          }
+
+          wait_helper() {
+            local helper="$1"
+            local i state code
+            for i in $(seq 1 60); do
+              state="$(docker inspect --format '{{.State.Status}}' "$helper")"
+              if [[ "$state" == exited ]]; then
+                code="$(docker inspect --format '{{.State.ExitCode}}' "$helper")"
+                test "$code" = 0
+                return 0
+              fi
+              [[ "$state" == running || "$state" == created ]] || return 1
+              sleep 1
+            done
+            echo "helper-timeout=$helper" >&2
+            return 1
+          }
+
+          check_runner_files() {
+            local volume="$1"
+            local image="$2"
+            local tag="$3"
+            local helper="oteryn-runner-check-${tag}-${GITHUB_RUN_ID}"
+            docker rm -f "$helper" >/dev/null 2>&1 || true
+            docker create --name "$helper" --user 0:0 --network none --read-only \
+              --mount "type=volume,src=$volume,dst=/runner,readonly" \
+              --entrypoint /bin/bash "$image" -ec \
+              'test -r /runner/.runner && test -s /runner/.runner && test -r /runner/.credentials && test -s /runner/.credentials' >/dev/null
+            docker start "$helper" >/dev/null
+            wait_helper "$helper"
+            docker rm "$helper" >/dev/null
+          }
+
+          verify_runner() {
+            local group="$1"
+            local repo="$2"
+            local name="$3"
+            local label="$4"
+            local groups runners gid runner_count runner in_group selected
+            groups="$(api "$API/orgs/$ORG/actions/runner-groups?per_page=100")"
+            runners="$(api "$API/orgs/$ORG/actions/runners?per_page=100")"
+            runner_count="$(jq -r --arg name "$name" '[.runners[] | select(.name == $name)] | length' <<< "$runners")"
+            test "$runner_count" = 1
+            gid="$(jq -er --arg group "$group" '.runner_groups[] | select(.name == $group) | .id' <<< "$groups")"
+            runner="$(jq -cer --arg name "$name" '.runners[] | select(.name == $name)' <<< "$runners")"
+            jq -e --arg label "$label" '.status == "online" and (.labels | length == 1) and (.labels[0].name == $label)' <<< "$runner" >/dev/null
+            in_group="$(api "$API/orgs/$ORG/actions/runner-groups/$gid/runners?per_page=100" | jq -r --arg name "$name" '[.runners[]? | select(.name == $name)] | length')"
+            test "$in_group" = 1
+            selected="$(api "$API/orgs/$ORG/actions/runner-groups/$gid/repositories?per_page=100")"
+            test "$(jq -r '.total_count' <<< "$selected")" = 1
+            test "$(jq -er '.repositories[0].full_name' <<< "$selected")" = "$repo"
+            echo "runner=$name group=$group label=$label status=online selected_repo=$repo"
+          }
+
+          wait_online() {
+            local name="$1"
+            local i status
+            for i in $(seq 1 120); do
+              status="$(api "$API/orgs/$ORG/actions/runners?per_page=100" | jq -r --arg name "$name" '.runners[]? | select(.name == $name) | .status' | head -n1)"
+              [[ "$status" == online ]] && return 0
+              sleep 3
+            done
+            echo "runner-online-timeout=$name" >&2
+            return 1
+          }
+
+          docker inspect "$PLATFORM" >/dev/null
+          test "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$PLATFORM")" = "$COMPOSE_PROJECT"
+          test "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.service"}}' "$PLATFORM")" = platform
+          test "$(docker inspect --format '{{.State.Running}}' "$PLATFORM")" = true
+          test "$(docker inspect --format '{{.Config.User}}' "$PLATFORM")" = '0:0'
+
+          IMAGE="$(docker inspect --format '{{.Config.Image}}' "$PLATFORM")"
+          case "$IMAGE" in ghcr.io/oteryn/oteryn-deploy-runner@sha256:*) ;; *) echo 'unexpected-platform-image' >&2; exit 1 ;; esac
+          test "$(docker inspect --format '{{.Config.Image}}' "$GAME")" = "$IMAGE"
+          test "$(docker inspect --format '{{.Config.Image}}' "$ATLAS")" = "$IMAGE"
+
+          platform_config="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/runner"}}{{.Name}}{{end}}{{end}}' "$PLATFORM")"
+          test -n "$platform_config"
+          old_platform_token="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/run/secrets/runner_token"}}{{.Source}}{{end}}{{end}}' "$PLATFORM")"
+
+          test -f "$STEADY_RUNNER_DIR/platform.token"
+          test ! -s "$STEADY_RUNNER_DIR/platform.token"
+          test "$(stat -c '%u:%g:%a' "$STEADY_RUNNER_DIR/platform.token")" = '0:0:600'
+          test -f "$STEADY_RUNNER_DIR/atlas.token" && test ! -s "$STEADY_RUNNER_DIR/atlas.token"
+          test -f "$STEADY_RUNNER_DIR/game.token" && test ! -s "$STEADY_RUNNER_DIR/game.token"
+
+          check_runner_files "$platform_config" "$IMAGE" platform-current
+          verify_runner platform-runners Oteryn/Oteryn-Platform oteryn-synology-platform oteryn-platform
+          verify_runner atlas-runners Oteryn/Oteryn-Atlas oteryn-synology-atlas oteryn-atlas
+          verify_runner game-runners Oteryn/Oteryn-Game oteryn-synology-game oteryn-game
+          echo 'pre-platform-seal-estate=PASS'
+
+          export RUNNER_IMAGE="$IMAGE"
+          export RUNNER_ORG_URL=https://github.com/Oteryn
+          export PLATFORM_STATE_HOST_PATH="$STATE_HOST_ROOT"
+          export PLATFORM_RUNNER_TOKEN_FILE="$STEADY_HOST_DIR/platform.token"
+          export ATLAS_RUNNER_TOKEN_FILE="$STEADY_HOST_DIR/atlas.token"
+          export GAME_RUNNER_TOKEN_FILE="$STEADY_HOST_DIR/game.token"
+          docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" config --quiet
+
+          platform_before="$(docker inspect --format '{{.Id}}' "$PLATFORM")"
+          docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" up -d --no-deps --force-recreate platform
+          platform_after="$(docker inspect --format '{{.Id}}' "$PLATFORM")"
+          test "$platform_after" != "$platform_before"
+          wait_online oteryn-synology-platform
+          sleep 15
+          verify_runner platform-runners Oteryn/Oteryn-Platform oteryn-synology-platform oteryn-platform
+          check_runner_files "$platform_config" "$IMAGE" platform-blank
+          test "$(docker inspect --format '{{.State.Running}}' "$PLATFORM")" = true
+          test "$(docker inspect --format '{{.Config.User}}' "$PLATFORM")" = '0:0'
+          test "$(docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' "$PLATFORM")" = always
+          platform_mounts="$(docker inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "$PLATFORM")"
+          grep -Fx '/var/run/docker.sock' <<< "$platform_mounts" >/dev/null
+          grep -Fx '/var/lib/oteryn-staging-state' <<< "$platform_mounts" >/dev/null
+          test "$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/run/secrets/runner_token"}}{{.Source}}{{end}}{{end}}' "$PLATFORM")" = "$STEADY_HOST_DIR/platform.token"
+          echo 'platform-blank-token-force-recreate=PASS'
+
+          if [[ "$old_platform_token" != "$STEADY_HOST_DIR/platform.token" ]]; then
+            case "$old_platform_token" in
+              "$STATE_HOST_ROOT"/.runner-bootstrap/*/platform.token)
+                rel="${old_platform_token#"$STATE_HOST_ROOT"/}"
+                old_local="$STATE_RUNNER_ROOT/$rel"
+                if [[ -f "$old_local" ]]; then
+                  : > "$old_local"
+                  rm -f "$old_local"
+                  rmdir "$(dirname "$old_local")" 2>/dev/null || true
+                fi
+                ;;
+              *) echo 'unexpected-platform-old-token-source' >&2; exit 1 ;;
+            esac
+          fi
+
+          if [[ -d "$STATE_RUNNER_ROOT/.runner-bootstrap" ]]; then
+            while IFS= read -r old_local; do
+              case "$old_local" in
+                "$STATE_RUNNER_ROOT"/.runner-bootstrap/*/platform.token)
+                  : > "$old_local"
+                  rm -f "$old_local"
+                  ;;
+                *) echo 'unexpected-transient-platform-token-path' >&2; exit 1 ;;
+              esac
+            done < <(find "$STATE_RUNNER_ROOT/.runner-bootstrap" -mindepth 2 -maxdepth 2 -type f -name platform.token -print)
+            find "$STATE_RUNNER_ROOT/.runner-bootstrap" -mindepth 1 -maxdepth 1 -type d -empty -delete
+          fi
+
+          verify_runner platform-runners Oteryn/Oteryn-Platform oteryn-synology-platform oteryn-platform
+          verify_runner atlas-runners Oteryn/Oteryn-Atlas oteryn-synology-atlas oteryn-atlas
+          verify_runner game-runners Oteryn/Oteryn-Game oteryn-synology-game oteryn-game
+          test ! -s "$STEADY_RUNNER_DIR/platform.token"
+          test ! -s "$STEADY_RUNNER_DIR/atlas.token"
+          test ! -s "$STEADY_RUNNER_DIR/game.token"
+          echo 'organization-runner-estate=PASS'
+          echo 'legacy-runner-control-path=PASS'
