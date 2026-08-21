@@ -1,0 +1,164 @@
+name: Organization Runner Repair
+
+on:
+  pull_request:
+    branches: [main]
+    types: [synchronize]
+    paths:
+      - .github/workflows/organization-runner-repair.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: organization-runner-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    name: Recover existing product-isolated runners
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'infra/issue-1199-organization-runner-bootstrap' &&
+      github.actor == 'blakinio'
+    runs-on: oteryn-staging
+    timeout-minutes: 15
+    env:
+      ORG_ADMIN_TOKEN: ${{ secrets.OTERYN_ORG_RUNNER_ADMIN_TOKEN }}
+      ORG: Oteryn
+      COMPOSE_PROJECT: oteryn-organization-runners
+
+    steps:
+      - name: Guard legacy recovery path
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test '${{ runner.name }}' = 'oteryn-synology-staging'
+          test -n "$ORG_ADMIN_TOKEN"
+          test -S /var/run/docker.sock
+          echo 'legacy-runner-preserved=PASS'
+
+      - name: Inventory and recover existing registrations
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          API=https://api.github.com
+          API_VERSION=2026-03-10
+
+          api() {
+            curl --fail --silent --show-error --location \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer $ORG_ADMIN_TOKEN" \
+              -H "X-GitHub-Api-Version: $API_VERSION" "$@"
+          }
+
+          container_for() {
+            printf '%s-%s-1\n' "$COMPOSE_PROJECT" "$1"
+          }
+
+          assert_container_identity() {
+            local service="$1" container project_label service_label
+            container="$(container_for "$service")"
+            docker inspect "$container" >/dev/null
+            project_label="$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$container")"
+            service_label="$(docker inspect --format '{{index .Config.Labels "com.docker.compose.service"}}' "$container")"
+            test "$project_label" = "$COMPOSE_PROJECT"
+            test "$service_label" = "$service"
+            printf 'container=%s service=%s state=%s restart_count=%s\n' \
+              "$container" "$service" \
+              "$(docker inspect --format '{{.State.Status}}' "$container")" \
+              "$(docker inspect --format '{{.RestartCount}}' "$container")"
+          }
+
+          for service in platform atlas game; do
+            assert_container_identity "$service"
+          done
+
+          groups="$(api "$API/orgs/$ORG/actions/runner-groups?per_page=100")"
+          runners="$(api "$API/orgs/$ORG/actions/runners?per_page=100")"
+
+          status_for() {
+            local name="$1"
+            jq -er --arg name "$name" '.runners[] | select(.name == $name) | .status' <<< "$runners"
+          }
+
+          recover_if_offline() {
+            local service="$1" name="$2" status container
+            status="$(status_for "$name")"
+            container="$(container_for "$service")"
+            printf 'pre-repair runner=%s status=%s\n' "$name" "$status"
+            if [[ "$status" != online ]]; then
+              echo "recovering-existing-registration service=$service runner=$name"
+              docker restart -t 20 "$container" >/dev/null
+            fi
+          }
+
+          recover_if_offline platform oteryn-synology-platform
+          recover_if_offline atlas oteryn-synology-atlas
+          recover_if_offline game oteryn-synology-game
+
+          wait_online() {
+            local name="$1" i status
+            for i in $(seq 1 120); do
+              status="$(api "$API/orgs/$ORG/actions/runners?per_page=100" | jq -er --arg name "$name" '.runners[] | select(.name == $name) | .status')"
+              if [[ "$status" == online ]]; then
+                return 0
+              fi
+              sleep 3
+            done
+            echo "runner-online-timeout=$name" >&2
+            return 1
+          }
+
+          wait_online oteryn-synology-platform
+          wait_online oteryn-synology-atlas
+          wait_online oteryn-synology-game
+
+          sleep 15
+          groups="$(api "$API/orgs/$ORG/actions/runner-groups?per_page=100")"
+          runners="$(api "$API/orgs/$ORG/actions/runners?per_page=100")"
+
+          verify_runner() {
+            local group="$1" repo="$2" name="$3" label="$4" gid runner in_group selected_count selected_name
+            gid="$(jq -er --arg group "$group" '.runner_groups[] | select(.name == $group) | .id' <<< "$groups")"
+            runner="$(jq -cer --arg name "$name" '.runners[] | select(.name == $name)' <<< "$runners")"
+            jq -e --arg label "$label" '.status == "online" and (.labels | length == 1) and (.labels[0].name == $label)' <<< "$runner" >/dev/null
+            in_group="$(api "$API/orgs/$ORG/actions/runner-groups/$gid/runners?per_page=100" | jq -r --arg name "$name" '[.runners[]? | select(.name == $name)] | length')"
+            test "$in_group" = 1
+            selected_count="$(api "$API/orgs/$ORG/actions/runner-groups/$gid/repositories?per_page=100" | jq -r '.total_count')"
+            selected_name="$(api "$API/orgs/$ORG/actions/runner-groups/$gid/repositories?per_page=100" | jq -er '.repositories[0].full_name')"
+            test "$selected_count" = 1
+            test "$selected_name" = "$repo"
+            printf 'runner=%s group=%s label=%s status=online selected_repo=%s\n' "$name" "$group" "$label" "$repo"
+          }
+
+          verify_runner platform-runners Oteryn/Oteryn-Platform oteryn-synology-platform oteryn-platform
+          verify_runner atlas-runners Oteryn/Oteryn-Atlas oteryn-synology-atlas oteryn-atlas
+          verify_runner game-runners Oteryn/Oteryn-Game oteryn-synology-game oteryn-game
+
+          for service in platform atlas game; do
+            container="$(container_for "$service")"
+            test "$(docker inspect --format '{{.State.Running}}' "$container")" = true
+            docker exec "$container" test -s /runner/.runner
+            docker exec "$container" test ! -s /run/secrets/runner_token
+          done
+
+          platform_container="$(container_for platform)"
+          atlas_container="$(container_for atlas)"
+          game_container="$(container_for game)"
+
+          platform_mounts="$(docker inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "$platform_container")"
+          atlas_mounts="$(docker inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "$atlas_container")"
+          game_mounts="$(docker inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "$game_container")"
+
+          grep -Fx '/var/run/docker.sock' <<< "$platform_mounts" >/dev/null
+          grep -Fx '/var/lib/oteryn-staging-state' <<< "$platform_mounts" >/dev/null
+          grep -Fx '/var/run/docker.sock' <<< "$atlas_mounts" >/dev/null
+          ! grep -Fx '/var/lib/oteryn-staging-state' <<< "$atlas_mounts" >/dev/null
+          ! grep -Fx '/var/run/docker.sock' <<< "$game_mounts" >/dev/null
+          ! grep -Fx '/var/lib/oteryn-staging-state' <<< "$game_mounts" >/dev/null
+          test "$(docker inspect --format '{{.Config.User}}' "$game_container")" = '1001:1001'
+
+          echo 'organization-runner-recovery=PASS'
+          echo 'blank-token-restart=PASS'
+          echo 'legacy-runner-preserved=PASS'
