@@ -1,0 +1,62 @@
+name: Atlas deploy observer
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/atlas-deploy-observer.yml
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+jobs:
+  observe:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Query exact trusted-main deployment run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PLATFORM_SHA: 3f1a0eeb42a777106bef466dbcb4150d8a1bb818
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          repository = os.environ['REPOSITORY']
+          sha = os.environ['PLATFORM_SHA']
+          token = os.environ['GH_TOKEN']
+          request = urllib.request.Request(
+              f'https://api.github.com/repos/{repository}/actions/runs?head_sha={sha}&per_page=100',
+              headers={
+                  'Accept': 'application/vnd.github+json',
+                  'Authorization': f'Bearer {token}',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'User-Agent': 'Oteryn-Atlas-deploy-observer',
+              },
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              payload = json.load(response)
+          candidates = [
+              run for run in payload.get('workflow_runs', [])
+              if run.get('event') == 'push'
+              and run.get('head_sha') == sha
+              and run.get('path') == '.github/workflows/repair-synology-autostart.yml'
+          ]
+          if len(candidates) != 1:
+              print(json.dumps({'matching_runs': candidates, 'total_count': payload.get('total_count')}, indent=2))
+              raise SystemExit(f'expected exactly one repair-synology-autostart push run for {sha}; found {len(candidates)}')
+          run = candidates[0]
+          print('RUN_ID=' + str(run['id']))
+          print('RUN_NUMBER=' + str(run['run_number']))
+          print('STATUS=' + str(run['status']))
+          print('CONCLUSION=' + str(run.get('conclusion')))
+          print('CREATED_AT=' + str(run.get('created_at')))
+          print('UPDATED_AT=' + str(run.get('updated_at')))
+          print('HTML_URL=' + str(run.get('html_url')))
+          PY
