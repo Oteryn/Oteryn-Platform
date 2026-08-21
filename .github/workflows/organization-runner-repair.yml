@@ -16,17 +16,20 @@ concurrency:
 
 jobs:
   repair:
-    name: Recover existing product-isolated runners
+    name: Recreate registered runners with blank steady-state tokens
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.head_ref == 'infra/issue-1199-organization-runner-bootstrap' &&
       github.actor == 'blakinio'
     runs-on: oteryn-staging
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       ORG_ADMIN_TOKEN: ${{ secrets.OTERYN_ORG_RUNNER_ADMIN_TOKEN }}
       ORG: Oteryn
       COMPOSE_PROJECT: oteryn-organization-runners
+      COMPOSE_FILE: deploy/synology/runner/compose.organization.example.yml
+      STATE_HOST_ROOT: /volume1/docker/oteryn/state
+      STATE_RUNNER_ROOT: /var/lib/oteryn-staging-state
 
     steps:
       - name: Guard legacy recovery path
@@ -36,14 +39,24 @@ jobs:
           test '${{ runner.name }}' = 'oteryn-synology-staging'
           test -n "$ORG_ADMIN_TOKEN"
           test -S /var/run/docker.sock
+          test -d "$STATE_RUNNER_ROOT"
           echo 'legacy-runner-preserved=PASS'
 
-      - name: Inventory and recover existing registrations
+      - name: Checkout exact owned head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Recover registration state and force-recreate with blank tokens
         shell: bash
         run: |
           set -Eeuo pipefail
           API=https://api.github.com
           API_VERSION=2026-03-10
+          STEADY_RUNNER_DIR="$STATE_RUNNER_ROOT/.organization-runner-tokens"
+          STEADY_HOST_DIR="$STATE_HOST_ROOT/.organization-runner-tokens"
 
           api() {
             curl --fail --silent --show-error --location \
@@ -56,7 +69,7 @@ jobs:
             printf '%s-%s-1\n' "$COMPOSE_PROJECT" "$1"
           }
 
-          assert_container_identity() {
+          verify_container_identity() {
             local service="$1" container project_label service_label
             container="$(container_for "$service")"
             docker inspect "$container" >/dev/null
@@ -64,101 +77,210 @@ jobs:
             service_label="$(docker inspect --format '{{index .Config.Labels "com.docker.compose.service"}}' "$container")"
             test "$project_label" = "$COMPOSE_PROJECT"
             test "$service_label" = "$service"
-            printf 'container=%s service=%s state=%s restart_count=%s\n' \
-              "$container" "$service" \
-              "$(docker inspect --format '{{.State.Status}}' "$container")" \
-              "$(docker inspect --format '{{.RestartCount}}' "$container")"
           }
+
+          declare -A names=(
+            [platform]=oteryn-synology-platform
+            [atlas]=oteryn-synology-atlas
+            [game]=oteryn-synology-game
+          )
+          declare -A labels=(
+            [platform]=oteryn-platform
+            [atlas]=oteryn-atlas
+            [game]=oteryn-game
+          )
+          declare -A groups=(
+            [platform]=platform-runners
+            [atlas]=atlas-runners
+            [game]=game-runners
+          )
+          declare -A repos=(
+            [platform]=Oteryn/Oteryn-Platform
+            [atlas]=Oteryn/Oteryn-Atlas
+            [game]=Oteryn/Oteryn-Game
+          )
 
           for service in platform atlas game; do
-            assert_container_identity "$service"
+            verify_container_identity "$service"
+            container="$(container_for "$service")"
+            state="$(docker inspect --format '{{.State.Status}}' "$container")"
+            echo "pre-recreate container=$container state=$state restart_count=$(docker inspect --format '{{.RestartCount}}' "$container")"
+            if [[ "$(docker inspect --format '{{.State.Running}}' "$container")" != true ]]; then
+              docker start "$container" >/dev/null
+            fi
           done
 
-          groups="$(api "$API/orgs/$ORG/actions/runner-groups?per_page=100")"
-          runners="$(api "$API/orgs/$ORG/actions/runners?per_page=100")"
-
-          status_for() {
-            local name="$1"
-            jq -er --arg name "$name" '.runners[] | select(.name == $name) | .status' <<< "$runners"
-          }
-
-          recover_if_offline() {
-            local service="$1" name="$2" status container
-            status="$(status_for "$name")"
-            container="$(container_for "$service")"
-            printf 'pre-repair runner=%s status=%s\n' "$name" "$status"
-            if [[ "$status" != online ]]; then
-              echo "recovering-existing-registration service=$service runner=$name"
-              docker restart -t 20 "$container" >/dev/null
-            fi
-          }
-
-          recover_if_offline platform oteryn-synology-platform
-          recover_if_offline atlas oteryn-synology-atlas
-          recover_if_offline game oteryn-synology-game
-
-          wait_online() {
-            local name="$1" i status
-            for i in $(seq 1 120); do
-              status="$(api "$API/orgs/$ORG/actions/runners?per_page=100" | jq -er --arg name "$name" '.runners[] | select(.name == $name) | .status')"
-              if [[ "$status" == online ]]; then
-                return 0
+          ready=false
+          for i in $(seq 1 120); do
+            runners="$(api "$API/orgs/$ORG/actions/runners?per_page=100")"
+            ready=true
+            for service in platform atlas game; do
+              container="$(container_for "$service")"
+              if [[ "$(docker inspect --format '{{.State.Running}}' "$container")" != true ]]; then
+                ready=false
+                continue
               fi
-              sleep 3
+              if ! docker exec "$container" test -s /runner/.runner; then
+                ready=false
+                continue
+              fi
+              status="$(jq -r --arg name "${names[$service]}" '.runners[]? | select(.name == $name) | .status' <<< "$runners" | head -n1)"
+              if [[ "$status" != online ]]; then
+                ready=false
+              fi
             done
-            echo "runner-online-timeout=$name" >&2
-            return 1
-          }
-
-          wait_online oteryn-synology-platform
-          wait_online oteryn-synology-atlas
-          wait_online oteryn-synology-game
-
-          sleep 15
-          groups="$(api "$API/orgs/$ORG/actions/runner-groups?per_page=100")"
-          runners="$(api "$API/orgs/$ORG/actions/runners?per_page=100")"
+            [[ "$ready" == true ]] && break
+            sleep 3
+          done
+          test "$ready" = true
+          echo 'registered-config-before-recreate=PASS'
 
           verify_runner() {
-            local group="$1" repo="$2" name="$3" label="$4" gid runner in_group selected_count selected_name
-            gid="$(jq -er --arg group "$group" '.runner_groups[] | select(.name == $group) | .id' <<< "$groups")"
-            runner="$(jq -cer --arg name "$name" '.runners[] | select(.name == $name)' <<< "$runners")"
+            local service="$1" gid runner in_group selected_json
+            local group="${groups[$service]}" repo="${repos[$service]}" name="${names[$service]}" label="${labels[$service]}"
+            local group_json runners_json
+            group_json="$(api "$API/orgs/$ORG/actions/runner-groups?per_page=100")"
+            runners_json="$(api "$API/orgs/$ORG/actions/runners?per_page=100")"
+            gid="$(jq -er --arg group "$group" '.runner_groups[] | select(.name == $group) | .id' <<< "$group_json")"
+            runner="$(jq -cer --arg name "$name" '.runners[] | select(.name == $name)' <<< "$runners_json")"
             jq -e --arg label "$label" '.status == "online" and (.labels | length == 1) and (.labels[0].name == $label)' <<< "$runner" >/dev/null
             in_group="$(api "$API/orgs/$ORG/actions/runner-groups/$gid/runners?per_page=100" | jq -r --arg name "$name" '[.runners[]? | select(.name == $name)] | length')"
             test "$in_group" = 1
-            selected_count="$(api "$API/orgs/$ORG/actions/runner-groups/$gid/repositories?per_page=100" | jq -r '.total_count')"
-            selected_name="$(api "$API/orgs/$ORG/actions/runner-groups/$gid/repositories?per_page=100" | jq -er '.repositories[0].full_name')"
-            test "$selected_count" = 1
-            test "$selected_name" = "$repo"
-            printf 'runner=%s group=%s label=%s status=online selected_repo=%s\n' "$name" "$group" "$label" "$repo"
+            selected_json="$(api "$API/orgs/$ORG/actions/runner-groups/$gid/repositories?per_page=100")"
+            test "$(jq -r '.total_count' <<< "$selected_json")" = 1
+            test "$(jq -er '.repositories[0].full_name' <<< "$selected_json")" = "$repo"
+            echo "runner=$name group=$group label=$label status=online selected_repo=$repo"
           }
 
-          verify_runner platform-runners Oteryn/Oteryn-Platform oteryn-synology-platform oteryn-platform
-          verify_runner atlas-runners Oteryn/Oteryn-Atlas oteryn-synology-atlas oteryn-atlas
-          verify_runner game-runners Oteryn/Oteryn-Game oteryn-synology-game oteryn-game
+          for service in platform atlas game; do
+            verify_runner "$service"
+          done
+
+          declare -A old_sources
+          declare -A before_ids
+          for service in platform atlas game; do
+            container="$(container_for "$service")"
+            source="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/run/secrets/runner_token"}}{{.Source}}{{end}}{{end}}' "$container")"
+            test -n "$source"
+            case "$source" in
+              "$STATE_HOST_ROOT"/.runner-bootstrap/*/"$service".token|"$STEADY_HOST_DIR"/"$service".token) ;;
+              *) echo "unexpected-token-source service=$service" >&2; exit 1 ;;
+            esac
+            old_sources[$service]="$source"
+            before_ids[$service]="$(docker inspect --format '{{.Id}}' "$container")"
+          done
+
+          install -d -m 0700 "$STEADY_RUNNER_DIR"
+          for service in platform atlas game; do
+            : > "$STEADY_RUNNER_DIR/$service.token"
+            chmod 0600 "$STEADY_RUNNER_DIR/$service.token"
+          done
+
+          RUNNER_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$(container_for platform)")"
+          case "$RUNNER_IMAGE" in
+            ghcr.io/oteryn/oteryn-deploy-runner@sha256:*) ;;
+            *) echo 'runner-image-is-not-an-immutable-canonical-digest' >&2; exit 1 ;;
+          esac
+          for service in atlas game; do
+            test "$(docker inspect --format '{{.Config.Image}}' "$(container_for "$service")")" = "$RUNNER_IMAGE"
+          done
+
+          export RUNNER_IMAGE
+          export RUNNER_ORG_URL=https://github.com/Oteryn
+          export PLATFORM_STATE_HOST_PATH="$STATE_HOST_ROOT"
+          export PLATFORM_RUNNER_TOKEN_FILE="$STEADY_HOST_DIR/platform.token"
+          export ATLAS_RUNNER_TOKEN_FILE="$STEADY_HOST_DIR/atlas.token"
+          export GAME_RUNNER_TOKEN_FILE="$STEADY_HOST_DIR/game.token"
+
+          docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" config --quiet
+          docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" up -d --force-recreate --remove-orphans
 
           for service in platform atlas game; do
             container="$(container_for "$service")"
+            after_id="$(docker inspect --format '{{.Id}}' "$container")"
+            test "$after_id" != "${before_ids[$service]}"
+            test "$(docker inspect --format '{{.State.Running}}' "$container")" = true
+          done
+          echo 'container-force-recreate=PASS'
+
+          ready=false
+          for i in $(seq 1 120); do
+            runners="$(api "$API/orgs/$ORG/actions/runners?per_page=100")"
+            ready=true
+            for service in platform atlas game; do
+              container="$(container_for "$service")"
+              if [[ "$(docker inspect --format '{{.State.Running}}' "$container")" != true ]]; then
+                ready=false
+                continue
+              fi
+              if ! docker exec "$container" test -s /runner/.runner; then
+                ready=false
+                continue
+              fi
+              if ! docker exec "$container" test -e /run/secrets/runner_token || ! docker exec "$container" test ! -s /run/secrets/runner_token; then
+                ready=false
+                continue
+              fi
+              status="$(jq -r --arg name "${names[$service]}" '.runners[]? | select(.name == $name) | .status' <<< "$runners" | head -n1)"
+              if [[ "$status" != online ]]; then
+                ready=false
+              fi
+            done
+            [[ "$ready" == true ]] && break
+            sleep 3
+          done
+          test "$ready" = true
+
+          sleep 30
+          for service in platform atlas game; do
+            verify_runner "$service"
+            container="$(container_for "$service")"
             test "$(docker inspect --format '{{.State.Running}}' "$container")" = true
             docker exec "$container" test -s /runner/.runner
+            docker exec "$container" test -e /run/secrets/runner_token
             docker exec "$container" test ! -s /run/secrets/runner_token
+            source="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/run/secrets/runner_token"}}{{.Source}}{{end}}{{end}}' "$container")"
+            test "$source" = "$STEADY_HOST_DIR/$service.token"
           done
 
-          platform_container="$(container_for platform)"
-          atlas_container="$(container_for atlas)"
-          game_container="$(container_for game)"
-
-          platform_mounts="$(docker inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "$platform_container")"
-          atlas_mounts="$(docker inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "$atlas_container")"
-          game_mounts="$(docker inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "$game_container")"
-
+          platform_mounts="$(docker inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "$(container_for platform)")"
+          atlas_mounts="$(docker inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "$(container_for atlas)")"
+          game_mounts="$(docker inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "$(container_for game)")"
           grep -Fx '/var/run/docker.sock' <<< "$platform_mounts" >/dev/null
           grep -Fx '/var/lib/oteryn-staging-state' <<< "$platform_mounts" >/dev/null
           grep -Fx '/var/run/docker.sock' <<< "$atlas_mounts" >/dev/null
           ! grep -Fx '/var/lib/oteryn-staging-state' <<< "$atlas_mounts" >/dev/null
           ! grep -Fx '/var/run/docker.sock' <<< "$game_mounts" >/dev/null
           ! grep -Fx '/var/lib/oteryn-staging-state' <<< "$game_mounts" >/dev/null
-          test "$(docker inspect --format '{{.Config.User}}' "$game_container")" = '1001:1001'
+          test "$(docker inspect --format '{{.Config.User}}' "$(container_for game)")" = '1001:1001'
+
+          declare -A parents=()
+          for service in platform atlas game; do
+            source="${old_sources[$service]}"
+            if [[ "$source" == "$STEADY_HOST_DIR/$service.token" ]]; then
+              continue
+            fi
+            rel="${source#"$STATE_HOST_ROOT"/}"
+            local_source="$STATE_RUNNER_ROOT/$rel"
+            case "$local_source" in
+              "$STATE_RUNNER_ROOT"/.runner-bootstrap/*/"$service".token) ;;
+              *) echo "unexpected-local-token-source service=$service" >&2; exit 1 ;;
+            esac
+            test -f "$local_source"
+            : > "$local_source"
+            rm -f "$local_source"
+            parents["$(dirname "$local_source")"]=1
+          done
+          for parent in "${!parents[@]}"; do
+            rmdir "$parent" 2>/dev/null || true
+          done
+
+          for service in platform atlas game; do
+            test -e "$STEADY_RUNNER_DIR/$service.token"
+            test ! -s "$STEADY_RUNNER_DIR/$service.token"
+          done
 
           echo 'organization-runner-recovery=PASS'
-          echo 'blank-token-restart=PASS'
+          echo 'blank-token-force-recreate=PASS'
+          echo 'selected-repository-boundaries=PASS'
           echo 'legacy-runner-preserved=PASS'

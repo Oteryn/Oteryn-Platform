@@ -6,8 +6,10 @@ required_reads:
   - docs/agents/AGENTS.md
   - docs/agents/REPOSITORY_MAP.md
   - docs/agents/CONTEXT_ROUTING.md
-  - docs/agents/DELIVERY_COMPLEENESS_AND_CLOSEOUT.md
+  - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
   - docs/agents/GITHUB_ONLY_EXECUTION.md
+  - docs/agents/EXECUTION_RESOURCE_HYGIENE.md
+  - docs/agents/REMEDIATION_AUDIT_RISK_GATE.md
   - docs/operations/SYNOLOGY_ORGANIZATION_RUNNERS.md
 search_first:
   - deploy/synology/runner
@@ -37,8 +39,8 @@ Prepare and activate the organization-managed, product-isolated Synology runner 
 - [x] Create/normalize `platform-runners`, `atlas-runners`, and `game-runners` as selected-repository organization runner groups.
 - [x] Register `oteryn-synology-platform`, `oteryn-synology-atlas`, and `oteryn-synology-game` with their exact group + custom label.
 - [ ] Recreate replacement runner containers after first registration with blank one-time token files and prove they return online.
-- [ ] Preserve the current `oteryn-synology-staging` runner online and unchanged during bootstrap.
-- [ ] Record sanitized live evidence without printing PATs, registration tokens, `.credentials`, or environment dumps.
+- [x] Preserve the current `oteryn-synology-staging` runner online and unchanged during bootstrap/recovery execution.
+- [ ] Record sanitized terminal live evidence without printing PATs, registration tokens, `.credentials`, or environment dumps.
 
 ## Ownership
 
@@ -69,21 +71,22 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 2
-updated_at: 2026-08-21T19:02:40+02:00
-head: 8b416c7898d4befdcadeeb03fde60e1ff5d57f9c
+updated_at: 2026-08-21T19:13:00+02:00
+head_before_checkpoint: dc878739b01bbb6eadd787013d1ed3229dce5eb1
 branch: infra/issue-1199-organization-runner-bootstrap
 pr: 1200
 status: implementing
-phase: runner-restart-repair
+phase: blank-token-force-recreate
 session_id: chatgpt-20260821T190240+0200
 session_role: implementation-owner
 execution_mode: github-actions-on-existing-synology-runner
-execution_reason: direct synology MCP probe currently returns HTTP 404, while the existing repository-scoped Synology Actions runner is a proven authorized execution path
+execution_reason: direct synology MCP probe returns HTTP 404; existing oteryn-synology-staging Actions runner remains the authorized live Synology execution path
 project_lane: oteryn-platform-core
 task_kind: implementation
 context_pressure: medium
 context_growth: stable
 decomposition_decision: phased
+repair_cycles_for_current_gate: 2
 validation_gate:
   version: 2
   intensity: HEIGHTENED
@@ -94,73 +97,54 @@ validation_gate:
     - credentials
     - rollback
   unknown_or_conflict: []
-  rationale: live self-hosted runner control and organization runner registration require rollback-safe, secret-safe verification
-owned_paths:
-  - deploy/synology/runner/**
-  - .github/workflows/organization-runner-bootstrap.yml
-  - .github/workflows/organization-runner-verify.yml
-  - .github/workflows/organization-runner-repair.yml
-  - docs/operations/SYNOLOGY_ORGANIZATION_RUNNERS.md
-  - docs/agents/tasks/active/OTERYN-20260821-organization-runner-bootstrap.md
+  rationale: live self-hosted runner control and organization runner registration require rollback-safe, secret-safe exact-state verification
 proven:
-  - live bootstrap run 32491656685 executed on legacy runner oteryn-synology-staging using Actions Runner 2.336.0
-  - organization runner admin credential was accepted by the required organization runner-group and registration-token APIs without disclosure
-  - bootstrap run 32491656685 created/normalized runner groups platform-runners=3, atlas-runners=4 and game-runners=5
-  - bootstrap run 32491656685 pulled the immutable deploy-runner digest and created the oteryn-organization-runners Compose network, six distinct config/work volumes and three service containers
-  - bootstrap run 32491656685 reached first-registration=PASS for all three replacement runners before token-file truncation and forced recreation
-  - one-time token files were truncated before the forced recreation step
-  - live hosted verification rerun 32491656769 job 96845414025 at 2026-08-21T16:59Z found all three registrations in the expected groups with the expected labels
-  - that verification found oteryn-synology-platform offline, oteryn-synology-atlas offline and oteryn-synology-game online
-  - PR 1200 has no review submissions, review threads or comments claiming current concurrent branch ownership
-  - the previous task checkpoint and branch update exceeded the repository stale threshold before this recovery session
-  - existing oteryn-staging is retained as the rollback execution path; no deletion or re-registration has been performed
-  - official Actions Runner 2.336.0 Linux x64 release checksum is 04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d
-  - current organization Compose target gives Platform and Atlas distinct config/work volumes and Docker access while Game remains non-root without Docker socket
+  - runner groups platform-runners=3, atlas-runners=4 and game-runners=5 exist with selected-repository policies
+  - first controlled bootstrap run 32491656685 reached first-registration=PASS for all three replacement runners
+  - hosted verification run 32491656769 job 96845414025 proved all three registrations, exact groups and custom labels; Platform and Atlas were then offline and Game reported online
+  - recovery run 32506277679 executed on legacy oteryn-synology-staging, proving the rollback runner is still online and schedulable
+  - recovery run 32506277679 restarted existing Platform and Atlas containers and then proved Platform, Atlas and Game all reported online
+  - recovery run 32506277679 proved each runner belongs to its exact group and each group exposes exactly one selected repository: Platform, Atlas and Game respectively
+  - no registration token value, PAT, `.credentials` content or environment dump was persisted in task evidence
+  - temporary full bootstrap runs 32506192656 and 32506277688 were cancelled after an unintended PR-synchronize retrigger was detected
+  - the temporary organization-runner-bootstrap workflow was removed at dc878739b01bbb6eadd787013d1ed3229dce5eb1 so future synchronizations cannot perform full registration again
+  - cancelled bootstrap run 32506192656 created fresh organization-runner Compose volumes and containers before cancellation; cancellation occurred before its token-truncation/recreate phase
+  - recovery run 32506277679 observed all three replacement containers as exact oteryn-organization-runners services; Platform and Atlas were recovered from Docker/API offline state without deleting persistent volumes
+  - PR 1200 has no review submissions, review threads or comments claiming concurrent branch ownership
 derived:
-  - the activation is partial rather than failed-before-mutation: organization groups, registrations and persistent runner volumes exist live
-  - successful first registration plus post-recreate Platform/Atlas offline state isolates the remaining defect to restart/session/runtime behavior rather than group/token creation
-  - current organization-runner-verify workflow is insufficient because it reports status but does not fail when a runner is offline
-  - repeating the full registration bootstrap before inventory would be unsafe and unnecessary
+  - the remaining failure is credential-lifecycle cleanup, not group authorization or runner connectivity: recovery reached all-three-online + exact selected-repository proof before failing the blank-token assertion
+  - the cancelled bootstrap left nonblank one-time token source files mounted into at least the first verified replacement container; those files must be replaced by durable zero-byte placeholders before terminal success
+  - GitHub runner status alone can be stale during Docker start/recreate, so terminal proof must combine exact container identity/state, persisted `.runner`, changed container IDs, blank token mounts and a delayed organization API observation
+  - future repair must not generate new registration tokens or delete the six config/work volumes
 unknown:
-  - exact Docker state/restart count of the Platform and Atlas replacement containers after the cancelled bootstrap run
-  - whether a bounded restart of the existing registered Platform and Atlas containers is sufficient to recover them without re-registration
-  - current live online state of the legacy repository-scoped oteryn-synology-staging runner after the earlier bootstrap run
+  - whether Game completed first registration into its newly-created config volume before recovery run 32506277679; the next repair must start the exact container and wait for `.runner` before blank-token recreation
 conflicts: []
 first_failure:
-  marker: post-recreate runner recovery did not converge
-  evidence: bootstrap job 96809723750 emitted `unable to upgrade to tcp, received 409` after the three force-recreated services started, then the workflow timed out/cancelled; later verification shows Platform and Atlas offline while Game is online
+  marker: replacement runner token lifecycle remained non-terminal after cancelled bootstrap recreation
+  evidence: recovery job 96847044180 proved all three API routes online and exact selected repositories, then exited 1 at the first post-route container/token assertion; preceding bootstrap job 96846777755 had been cancelled after creating/starting containers and before token truncation
 rejected_hypotheses:
   - organization runner groups were not created
-  - organization runner registration token API is unavailable
-  - none of the replacement runners registered successfully
-  - labels alone provide the organization authorization boundary
-  - separate containers sharing raw Docker socket create a hard host security boundary
+  - selected-repository authorization is wrong
+  - the organization admin API credential is unavailable
+  - Platform and Atlas cannot reconnect after restart
+  - labels alone are the authorization boundary
   - Remote Desktop is required for activation
-changed_paths:
-  - deploy/synology/runner/entrypoint.sh
-  - deploy/synology/runner/Dockerfile
-  - deploy/synology/runner/test-entrypoint.sh
-  - deploy/synology/runner/compose.yml
-  - deploy/synology/runner/.env.example
-  - deploy/synology/runner/organization.env.example
-  - deploy/synology/runner/compose.organization.example.yml
-  - docs/operations/SYNOLOGY_ORGANIZATION_RUNNERS.md
-  - docs/agents/tasks/active/OTERYN-20260821-organization-runner-bootstrap.md
-  - .github/workflows/organization-runner-bootstrap.yml
-  - .github/workflows/organization-runner-verify.yml
 validation:
-  - command: Build Synology Staging Images on current PR head
+  - command: Build Synology Staging Images on pre-recovery PR head
     result: PASS
     evidence: run 32491656692
-  - command: controlled organization runner activation
+  - command: organization runner activation
     result: PARTIAL
-    evidence: run 32491656685 / job 96809723750; groups + first registration PASS, post-recreate convergence timed out
-  - command: hosted organization runner verification rerun
+    evidence: run 32491656685 / job 96809723750; groups + first registration PASS, post-recreate convergence cancelled
+  - command: hosted organization runner verification
     result: FAIL_SEMANTIC
-    evidence: run 32491656769 / job 96845414025; workflow conclusion SUCCESS but Platform and Atlas status are offline
+    evidence: run 32491656769 / job 96845414025; workflow conclusion SUCCESS but Platform and Atlas were offline
+  - command: bounded existing-registration recovery
+    result: PARTIAL
+    evidence: run 32506277679 / job 96847044180; all three routes online + exact selected repositories PASS, blank-token assertion FAIL
 blockers:
   - none
-next_action: create one bounded temporary repair workflow on legacy oteryn-staging that inventories only the exact oteryn-organization-runners services, restarts only existing offline Platform/Atlas runner containers without deleting volumes or re-registering them, verifies all three organization runners online through the organization API, and verifies legacy runner preservation
+next_action: execute one bounded force-recreate using only persisted `.runner` state and zero-byte steady-state token files; prove new container IDs, all three delayed online routes, exact selected-repository boundaries, Game least privilege, empty token mounts, old task-owned token cleanup and legacy runner preservation
 ```
 
 ## Recovery checkpoint
@@ -168,26 +152,28 @@ next_action: create one bounded temporary repair workflow on legacy oteryn-stagi
 ```yaml
 recovery:
   policy_version: 1
-  generation: 2
+  generation: 3
   session_id: chatgpt-20260821T190240+0200
   session_started_at: 2026-08-21T19:02:40+02:00
-  checkpointed_at: 2026-08-21T19:02:40+02:00
-  last_progress_at: 2026-08-21T18:59:12+02:00
-  phase: runner-restart-repair
-  exact_head: 8b416c7898d4befdcadeeb03fde60e1ff5d57f9c
+  checkpointed_at: 2026-08-21T19:13:00+02:00
+  last_progress_at: 2026-08-21T19:12:03+02:00
+  phase: blank-token-force-recreate
+  exact_head: dc878739b01bbb6eadd787013d1ed3229dce5eb1
   pull_request: 1200
-  active_operation: none
+  active_operation: Organization Runner Repair V2 will start from the checkpoint commit synchronize event
   external_run_ids:
     - 32491656685
     - 32491656769
+    - 32506192656
+    - 32506277679
   operation_started_at: null
   wait_deadline_at: null
-  check_generation: live-runner-recovery-1
-  checks_used: 1
+  check_generation: live-runner-recovery-2
+  checks_used: 0
   status: ready
   safe_to_resume: true
-  resume_condition: PR 1200 branch identity is unchanged and no conflicting worker owns the same branch or runner estate
-  next_action: create and execute the bounded existing-registration repair probe described by the task checkpoint; do not rerun full registration first
+  resume_condition: PR 1200 branch remains owned by this task and legacy oteryn-synology-staging remains schedulable
+  next_action: observe the single V2 repair run created by this checkpoint commit; inspect its first actionable failure only if it does not PASS
 ```
 
 ## Source branch closeout
@@ -200,4 +186,4 @@ source_branch_evidence: pending
 
 ## Notes
 
-The temporary activation/repair workflows must be removed from the terminal diff after live evidence is captured. Never print or persist the organization PAT or generated registration token values. Preserve every runner config/work volume and all product persistent data unless a later exact cleanup action is separately proven safe.
+Temporary activation, token-envelope, repair and branch-specific verification workflows must be removed from the terminal diff after live evidence is captured. Never print or persist the organization PAT, generated registration token values, `.credentials`, or unrestricted Docker inspection. Preserve all six runner config/work volumes and every unrelated Synology runtime resource. The steady-state empty token placeholder files are an intentional durable operational input for future Compose recreation; they contain no credential value.
