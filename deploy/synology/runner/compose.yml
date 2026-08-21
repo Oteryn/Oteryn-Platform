@@ -1,4 +1,4 @@
-# Atlas creature trusted-main retrigger; no runtime semantics changed.
+# Atlas creature trusted-main retrigger after prebuilt Playwright runtime repair; no runner semantics changed.
 name: oteryn-deploy-runner
 
 services:
