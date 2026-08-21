@@ -52,10 +52,10 @@ blockers: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-21T16:55:00Z
-head: efc21204e3fc5fa67a8943f5e7721cc3766592df
+updated_at: 2026-08-21T16:57:00Z
+head: 60820c6ca4bc1310821d12f960eeab75d168158c
 branch: fix/atlas-current-live-acceptance-404
-pr: pending
+pr: 1205
 status: validating
 context_routes:
   - synology-staging
@@ -70,6 +70,7 @@ proven:
   - run 32504909145 failed during live resource verification before browser-runtime build; E2E was skipped
   - the failed verification emitted HTTP 404 from one required live resource, but the previous implementation did not identify which URL
   - historical trusted-main run 32500594332 already proved exact Game creature export/index and Playwright 1.62.1 Chromium 151.0.7922.34 runtime
+  - PR 1205 is the bounded URL-labelled diagnostic repair for this first current-live 404
 derived:
   - the current blocker is a live resource path/content availability issue, not Atlas revision selection, protected CI, Playwright installation, or runner availability
   - the next run must identify each required URL explicitly before any further repair is chosen
@@ -94,11 +95,11 @@ validation:
   - command: trusted-main current-live acceptance run 32504909145
     result: FAIL
     evidence: job 96842985122 failed with HTTP 404 in resource verification before E2E; cleanup succeeded and no cutover occurred
-  - command: corrected URL-labelled current-live acceptance candidate
+  - command: PR 1205 exact-head protected checks
     result: NOT_RUN
-    evidence: pending protected PR and trusted-main execution
+    evidence: pending fresh checks after binding checkpoint to PR 1205
 blockers: []
-next_action: pass protected checks for the URL-labelled acceptance repair, merge, use the resulting trusted-main log to either complete E2E or repair only the specifically proven missing live product
+next_action: pass protected checks for PR 1205, merge, use the resulting trusted-main log to either complete E2E or repair only the specifically proven missing live product
 ```
 
 ## Self-review
@@ -126,7 +127,7 @@ self_review:
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: bounded current-live acceptance diagnosis/repair branch
-source_branch_evidence: pending
+source_branch_evidence: PR 1205
 ```
 
 ## Notes
