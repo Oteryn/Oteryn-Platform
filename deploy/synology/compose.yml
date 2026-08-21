@@ -1,3 +1,4 @@
+# Atlas creature trusted-main retrigger after prebuilt Playwright runtime repair; no Compose semantics changed.
 name: ${COMPOSE_PROJECT_NAME:-oteryn-staging}
 
 services:
