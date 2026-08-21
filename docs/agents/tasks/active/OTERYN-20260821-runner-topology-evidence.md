@@ -51,7 +51,8 @@ dependencies:
 follow_ups:
   - Oteryn/Oteryn-Platform#1199
 blockers:
-  - none
+  - Oteryn/Oteryn-Platform#1191
+  - Oteryn/Oteryn-Platform#1193
 cross_repository_tasks:
   - Oteryn/Oteryn#32
 ```
@@ -66,7 +67,7 @@ cross_repository_tasks:
 - Do not migrate the current privileged Platform runner to organization scope now.
 - Revisit organization runner groups only if another repository later proves a real host-local workload.
 
-Canonical detailed evidence: `docs/agents/reports/OTERYN-20260821-runner-topology-evidence.md`.
+Canonical detailed evidence candidate: `docs/agents/reports/OTERYN-20260821-runner-topology-evidence.md` in PR #1198.
 Hardening follow-up: #1199 (`RUNNER-001` and `RUNNER-002`).
 
 ## Context checkpoint
@@ -74,11 +75,11 @@ Hardening follow-up: #1199 (`RUNNER-001` and `RUNNER-002`).
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-21T07:55:00Z
-head: 59c8bd6fd2e6ae537b10a864b07b241f42e7d07b
+updated_at: 2026-08-21T07:57:00Z
+head: 1185ff0faec374cf4c2dfbe4ad081663b689f9a2
 branch: audit/issue-1194-runner-topology-evidence
 pr: 1198
-status: completed
+status: validating
 phase: closeout
 task_kind: audit
 implementation_authorized: false
@@ -104,6 +105,7 @@ proven:
   - no retained self-hosted routing was found in META, Game or Atlas.
   - permanent Platform pull-request paths do not execute on the privileged Synology runner; live jobs are manual/trusted-main/environment bounded.
   - temporary probe workflow and temporary retained-workflow extension are absent from the final branch diff.
+  - exact-head checkpoint syntax was repaired after CI identified invalid local vocabulary.
 derived:
   - runner 2.336.0 satisfies the >=2.327.1 Node.js 24 Actions prerequisite.
   - sharing the root/Docker-socket runner organization-wide would broaden trust without demonstrated need.
@@ -112,8 +114,8 @@ unknown:
   - current connector exposes no organization runner/group/registration-token mutation action; this is not needed by the chosen desired state.
 conflicts: []
 first_failure:
-  marker: optional .runner JSON parse in probe
-  evidence: run 32460223728 job 96705516889 failed on UTF-8 BOM after all required live host/container evidence had already been emitted
+  marker: unrelated live task liveness on current Platform main
+  evidence: Agent Governance run 32460833633 reports OTERYN-20260821-atlas-creature-preview-deploy / terminal PR 1192 remains active with stale merge next action; cleanup is already owned by Issue 1191 / PR 1193
 rejected_hypotheses:
   - runner_group_name Default proves organization scope.
   - one self-hosted runner per permanent repository is required.
@@ -129,13 +131,16 @@ validation:
     evidence: required live facts were emitted completely; later UTF-8 BOM failure affected only non-required selected .runner JSON fields
   - command: compare main 3f1a0eeb42a777106bef466dbcb4150d8a1bb818 to cleaned audit branch before report finalization
     result: PASS
-    evidence: temporary workflow changes absent; final intended diff is audit task/report only
+    evidence: temporary workflow changes absent; intended diff is audit task/report only
   - command: publish organization verdict to Oteryn/Oteryn#32
     result: PASS
     evidence: META Issue #32 comment 5366930246
+  - command: exact-head Agent Governance 32460833633
+    result: BLOCKED
+    evidence: own checkpoint validator passes after vocabulary repair is pending fresh head; repository-wide live-liveness failure is an unrelated predecessor closeout owned by #1191/#1193
 blockers:
-  - none
-next_action: Run exact-final-head repository checks for PR 1198, merge the audit evidence when policy gates permit, then archive this task and close #1194.
+  - exact protected merge/terminal archival waits for the already-owned Atlas deployment lifecycle cleanup in #1191/#1193 to remove the unrelated live-liveness failure from main
+next_action: Re-run exact-head repository checks; if own checks pass and only #1191/#1193 live-liveness remains, keep PR #1198 draft until that owner lands cleanup, then refresh and merge without bypass.
 ```
 
 ## Recovery checkpoint
@@ -143,26 +148,27 @@ next_action: Run exact-final-head repository checks for PR 1198, merge the audit
 ```yaml
 recovery:
   policy_version: 1
-  generation: 5
+  generation: 6
   session_id: runner-topology-20260821-001
   session_started_at: 2026-08-21T07:40:00Z
-  checkpointed_at: 2026-08-21T07:55:00Z
-  last_progress_at: 2026-08-21T07:55:00Z
+  checkpointed_at: 2026-08-21T07:57:00Z
+  last_progress_at: 2026-08-21T07:57:00Z
   phase: closeout
   exact_head: pending-this-commit
   pull_request: 1198
-  active_operation: exact-final-head validation and protected merge of audit-only evidence
+  active_operation: exact-head validation; protected merge held behind unrelated Atlas lifecycle cleanup
   external_run_ids:
     - 32454899481
     - 32460223728
-  operation_started_at: 2026-08-21T07:55:00Z
+    - 32460833633
+  operation_started_at: 2026-08-21T07:57:00Z
   wait_deadline_at: null
-  check_generation: final-audit-docs-v2
+  check_generation: final-audit-docs-v3
   checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: PR 1198 remains open on the audit branch and its exact-head checks are inspected
-  next_action: validate final head, merge if allowed, then perform lifecycle archive closeout
+  resume_condition: PR 1198 remains open and #1191/#1193 cleanup state is refreshed before merge
+  next_action: inspect exact-head own checks; preserve draft if unrelated current-main liveness remains invalid
 ```
 
 ## Source branch closeout
@@ -170,5 +176,5 @@ recovery:
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: bounded audit evidence branch; repository delete_branch_on_merge owns terminal deletion
-source_branch_evidence: pending protected merge
+source_branch_evidence: pending protected merge after #1191/#1193 cleanup
 ```
