@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.62.0-noble@sha256:02bbb2155cd7109e3e9c741941097ed1608cf8b6fa44ee2595896da2bdc1f471
+ARG PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.62.1-noble@sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac
 FROM ${PLAYWRIGHT_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -11,8 +11,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
 WORKDIR /opt/oteryn-playwright
 COPY package.json ./package.json
 
-RUN npm install --no-audit --no-fund --package-lock=false --ignore-scripts --save-exact @playwright/test@1.62.0 \
-    && node -e 'const installed = require("./node_modules/@playwright/test/package.json").version; if (installed !== "1.62.0") { console.error(`Playwright version mismatch: installed ${installed}, expected 1.62.0`); process.exit(1); }' \
+RUN npm install --no-audit --no-fund --package-lock=false --ignore-scripts \
+    && node -e 'const installed = require("./node_modules/@playwright/test/package.json").version; const expected = require("./package.json").devDependencies["@playwright/test"]; if (installed !== expected) { console.error(`Playwright version mismatch: installed ${installed}, expected ${expected}`); process.exit(1); }' \
     && npx playwright --version \
     && chmod -R a+rX /opt/oteryn-playwright "$PLAYWRIGHT_BROWSERS_PATH" \
     && npm cache clean --force
