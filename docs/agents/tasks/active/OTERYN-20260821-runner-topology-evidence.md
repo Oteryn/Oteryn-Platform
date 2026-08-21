@@ -41,7 +41,7 @@ Provide the live Platform/Synology evidence required by `Oteryn/Oteryn#32` to de
 ```yaml
 owned_paths:
   - .github/workflows/runner-topology-probe.yml
-  - .github/workflows/synology-container-hygiene.yml
+  - .github/workflows/synology-production-target-preflight.yml
   - docs/agents/tasks/active/OTERYN-20260821-runner-topology-evidence.md
   - docs/agents/tasks/archive/OTERYN-20260821-runner-topology-evidence.md
   - docs/agents/reports/OTERYN-20260821-runner-topology-evidence.md
@@ -61,8 +61,8 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-21T07:47:00Z
-head: 7d4acbe843504941cd86d35c7d53cc21a37c91b0
+updated_at: 2026-08-21T07:49:00Z
+head: a3fc4bc1caf0a14fc635260c603364c5994928ac
 branch: audit/issue-1194-runner-topology-evidence
 pr: 1198
 status: validating
@@ -79,7 +79,7 @@ context_routes:
   - ci-repair
 owned_paths:
   - .github/workflows/runner-topology-probe.yml
-  - .github/workflows/synology-container-hygiene.yml
+  - .github/workflows/synology-production-target-preflight.yml
   - docs/agents/tasks/active/OTERYN-20260821-runner-topology-evidence.md
   - docs/agents/tasks/archive/OTERYN-20260821-runner-topology-evidence.md
   - docs/agents/reports/OTERYN-20260821-runner-topology-evidence.md
@@ -98,7 +98,7 @@ unknown:
 conflicts: []
 first_failure:
   marker: standalone new workflow on feature branch did not surface as a discoverable pull_request run
-  evidence: exact head 7d4acbe843504941cd86d35c7d53cc21a37c91b0 had no workflow runs because a newly introduced workflow is not an existing base pull_request trigger
+  evidence: newly introduced workflow is not an existing default-branch pull_request trigger
 rejected_hypotheses:
   - runner_group_name Default alone proves organization scope; prior transfer evidence and registration source explicitly identify repository scope.
 changed_paths:
@@ -110,7 +110,7 @@ validation:
     evidence: runner oteryn-synology-staging, group display Default, version 2.336.0, run 32454899481
 blockers:
   - none
-next_action: Temporarily extend retained pull_request workflow synology-container-hygiene.yml with one internal-PR-only read-only probe, inspect that exact run, then restore the file and delete runner-topology-probe.yml.
+next_action: Temporarily extend retained pull_request workflow synology-production-target-preflight.yml with one internal-PR-only read-only probe, inspect that exact run, then restore the file and delete runner-topology-probe.yml.
 ```
 
 ## Recovery checkpoint
@@ -118,23 +118,23 @@ next_action: Temporarily extend retained pull_request workflow synology-containe
 ```yaml
 recovery:
   policy_version: 1
-  generation: 2
+  generation: 3
   session_id: runner-topology-20260821-001
   session_started_at: 2026-08-21T07:40:00Z
-  checkpointed_at: 2026-08-21T07:47:00Z
-  last_progress_at: 2026-08-21T07:47:00Z
+  checkpointed_at: 2026-08-21T07:49:00Z
+  last_progress_at: 2026-08-21T07:49:00Z
   phase: validate
-  exact_head: 7d4acbe843504941cd86d35c7d53cc21a37c91b0
+  exact_head: a3fc4bc1caf0a14fc635260c603364c5994928ac
   pull_request: 1198
-  active_operation: temporarily extend retained synology-container-hygiene pull_request workflow with internal-PR-only read-only runner probe
+  active_operation: temporarily extend retained synology-production-target-preflight pull_request workflow with internal-PR-only read-only runner probe
   external_run_ids: []
   operation_started_at: null
-  wait_deadline_at: 2026-08-21T08:07:00Z
-  check_generation: runner-topology-probe-v2
+  wait_deadline_at: 2026-08-21T08:09:00Z
+  check_generation: runner-topology-probe-v3
   checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: retained hygiene workflow generates an exact-head PR job for the internal task branch
+  resume_condition: retained preflight workflow generates an exact-head PR job for the internal task branch
   next_action: inspect the resulting probe job once, record bounded evidence, then restore/remove all temporary workflow changes
 ```
 
