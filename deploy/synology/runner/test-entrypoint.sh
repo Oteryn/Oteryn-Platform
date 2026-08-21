@@ -141,6 +141,11 @@ expect_registration_failure malformed-label \
     RUNNER_SCOPE=organization RUNNER_URL=https://github.com/Oteryn \
     RUNNER_GROUP=atlas-runners RUNNER_NAME=oteryn-synology-atlas \
     'RUNNER_LABELS=oteryn-atlas,bad label' RUNNER_TOKEN=test-token
+expect_registration_failure reserved-default-label \
+    'RUNNER_LABELS must not recreate GitHub default self-hosted labels' \
+    RUNNER_SCOPE=organization RUNNER_URL=https://github.com/Oteryn \
+    RUNNER_GROUP=atlas-runners RUNNER_NAME=oteryn-synology-atlas \
+    'RUNNER_LABELS=oteryn-atlas,self-hosted' RUNNER_TOKEN=test-token
 expect_registration_failure repo-with-group \
     'RUNNER_GROUP is not valid for repository-scoped registration' \
     RUNNER_SCOPE=repository RUNNER_URL=https://github.com/Oteryn/Oteryn-Platform \
