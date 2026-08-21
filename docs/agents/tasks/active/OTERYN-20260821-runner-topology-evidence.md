@@ -60,12 +60,12 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-21T07:42:00Z
-head: 3f1a0eeb42a777106bef466dbcb4150d8a1bb818
+updated_at: 2026-08-21T07:43:00Z
+head: 59ddc57bf6611bced636ac8ad621415a4c462908
 branch: audit/issue-1194-runner-topology-evidence
-pr: none
-status: investigating
-phase: investigate
+pr: 1198
+status: validating
+phase: validate
 task_kind: audit
 implementation_authorized: false
 session_id: runner-topology-20260821-001
@@ -106,7 +106,7 @@ validation:
     evidence: runner oteryn-synology-staging, group display Default, version 2.336.0, run 32454899481
 blockers:
   - none
-next_action: Open the task PR, then add one temporary read-only branch probe to collect only the remaining sanitized live runner/container facts.
+next_action: Add the temporary read-only runner-topology probe workflow; inspect its single resulting runner job and then remove the workflow.
 ```
 
 ## Recovery checkpoint
@@ -117,21 +117,21 @@ recovery:
   generation: 1
   session_id: runner-topology-20260821-001
   session_started_at: 2026-08-21T07:40:00Z
-  checkpointed_at: 2026-08-21T07:42:00Z
-  last_progress_at: 2026-08-21T07:42:00Z
-  phase: investigate
-  exact_head: pending-task-commit
-  pull_request: none
-  active_operation: none
+  checkpointed_at: 2026-08-21T07:43:00Z
+  last_progress_at: 2026-08-21T07:43:00Z
+  phase: validate
+  exact_head: 59ddc57bf6611bced636ac8ad621415a4c462908
+  pull_request: 1198
+  active_operation: create one temporary read-only runner-topology probe workflow on the owned branch
   external_run_ids: []
   operation_started_at: null
-  wait_deadline_at: null
-  check_generation: null
+  wait_deadline_at: 2026-08-21T08:03:00Z
+  check_generation: runner-topology-probe
   checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: branch and Issue 1194 remain current with no overlapping path owner
-  next_action: open the task PR, then add the temporary read-only runner-topology probe workflow
+  resume_condition: probe job is created or completed for the exact branch head
+  next_action: inspect the probe run once, record sanitized evidence, then remove the temporary workflow
 ```
 
 ## Source branch closeout
