@@ -194,6 +194,7 @@ jobs:
           set -Eeuo pipefail
           C="$PREVIEW_CONTAINER"
           PUBLISHED=0
+          PARENT_CREATED=0
           ROOT=''
           HELPER_IMAGE=''
           TMP_NAME=".creatures-${GITHUB_RUN_ID}"
@@ -202,30 +203,48 @@ jobs:
             set +e
             if [[ -n "$ROOT" && -n "$HELPER_IMAGE" ]]; then
               docker run --rm --user 0:0 --entrypoint sh \
-                -e TMP="$TMP_NAME" -e PUBLISHED="$PUBLISHED" \
-                -v "$ROOT/repo/data:/target" "$HELPER_IMAGE" -c '
-                  rm -rf "/target/$TMP"
-                  if test "$PUBLISHED" = 1; then rm -rf /target/creatures; fi
+                -e TMP="$TMP_NAME" -e PUBLISHED="$PUBLISHED" -e PARENT_CREATED="$PARENT_CREATED" \
+                -v "$ROOT/repo:/repo" "$HELPER_IMAGE" -c '
+                  rm -rf "/repo/data/$TMP"
+                  if test "$PUBLISHED" = 1; then rm -rf /repo/data/creatures; fi
+                  if test "$PARENT_CREATED" = 1; then rmdir /repo/data 2>/dev/null || true; fi
                 ' >/dev/null 2>&1 || true
             fi
             exit "$rc"
           }
           trap rollback_product ERR INT TERM
 
-          test "$(docker inspect --format '{{.State.Running}}' "$C")" = true
-          test "$(docker inspect --format '{{ index .Config.Labels "org.oteryn.revision" }}' "$C")" = "$ATLAS_REV"
-          docker port "$C" 8080/tcp | grep -Fx '192.168.1.2:8097' >/dev/null
+          running="$(docker inspect --format '{{.State.Running}}' "$C")"
+          revision="$(docker inspect --format '{{ index .Config.Labels "org.oteryn.revision" }}' "$C")"
+          port="$(docker port "$C" 8080/tcp)"
           ROOT="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/srv/atlas"}}{{.Source}}{{end}}{{end}}' "$C")"
           HELPER_IMAGE="$(docker inspect --format '{{.Image}}' "$C")"
+          mounts="$(docker inspect --format '{{range .Mounts}}{{printf "%s=>%s " .Source .Destination}}{{end}}' "$C")"
+          echo "live-running=$running"
+          echo "live-revision=$revision"
+          echo "live-port=$port"
+          echo "live-root=$ROOT"
+          echo "live-mounts=$mounts"
+          test "$running" = true
+          test "$revision" = "$ATLAS_REV"
+          test "$port" = '192.168.1.2:8097'
           test -n "$ROOT"
           test -n "$HELPER_IMAGE"
-          docker run --rm --user 0:0 --entrypoint sh \
-            -v "$ROOT:/atlas:ro" "$HELPER_IMAGE" \
-            -c 'test -d /atlas/repo/data'
+
+          root_shape="$(docker run --rm --user 0:0 --entrypoint sh -v "$ROOT:/atlas:ro" "$HELPER_IMAGE" -c '
+            if test -s /atlas/repo/web/fullworld.html; then printf repo-root; else printf invalid; fi
+          ')"
+          data_parent="$(docker run --rm --user 0:0 --entrypoint sh -v "$ROOT:/atlas:ro" "$HELPER_IMAGE" -c '
+            if test -d /atlas/repo/data; then printf present; else printf absent; fi
+          ')"
+          echo "live-root-shape=$root_shape"
+          echo "creature-data-parent=$data_parent"
+          test "$root_shape" = repo-root
           {
             echo "root=$ROOT"
             echo "helper_image=$HELPER_IMAGE"
             echo "published=false"
+            echo "parent_created=false"
           } >> "$GITHUB_OUTPUT"
 
           fetch_code() {
@@ -253,19 +272,30 @@ jobs:
           echo "creature-search-prepublish-http=$search_code"
 
           if [[ "$index_code" = 404 && "$search_code" = 404 ]]; then
-            docker run --rm --user 0:0 --entrypoint sh \
-              -v "$ROOT/repo/data:/target:ro" "$HELPER_IMAGE" \
-              -c 'test ! -e /target/creatures'
+            if [[ "$data_parent" = absent ]]; then
+              docker run --rm --user 0:0 --entrypoint sh \
+                -v "$ROOT/repo:/repo" "$HELPER_IMAGE" \
+                -c 'test ! -e /repo/data; mkdir /repo/data'
+              PARENT_CREATED=1
+              echo "parent_created=true" >> "$GITHUB_OUTPUT"
+              echo 'creature-data-parent-create=PASS'
+            else
+              docker run --rm --user 0:0 --entrypoint sh \
+                -v "$ROOT/repo:/repo:ro" "$HELPER_IMAGE" \
+                -c 'test -d /repo/data; test ! -e /repo/data/creatures'
+            fi
+
             tar -C creature-index-a -cf - . | docker run --rm -i --user 0:0 --entrypoint sh \
-              -e TMP="$TMP_NAME" -v "$ROOT/repo/data:/target" "$HELPER_IMAGE" -c '
+              -e TMP="$TMP_NAME" -v "$ROOT/repo:/repo" "$HELPER_IMAGE" -c '
                 set -eu
-                test ! -e /target/creatures
-                rm -rf "/target/$TMP"
-                mkdir "/target/$TMP"
-                tar -xf - -C "/target/$TMP"
-                test -s "/target/$TMP/index.json"
-                test -s "/target/$TMP/search.json"
-                mv "/target/$TMP" /target/creatures
+                test -d /repo/data
+                test ! -e /repo/data/creatures
+                rm -rf "/repo/data/$TMP"
+                mkdir "/repo/data/$TMP"
+                tar -xf - -C "/repo/data/$TMP"
+                test -s "/repo/data/$TMP/index.json"
+                test -s "/repo/data/$TMP/search.json"
+                mv "/repo/data/$TMP" /repo/data/creatures
               '
             PUBLISHED=1
             echo "published=true" >> "$GITHUB_OUTPUT"
@@ -370,6 +400,7 @@ jobs:
         env:
           BROWSER_IMAGE: ${{ steps.browser.outputs.image }}
           PRODUCT_PUBLISHED: ${{ steps.product.outputs.published }}
+          PRODUCT_PARENT_CREATED: ${{ steps.product.outputs.parent_created }}
           PRODUCT_ROOT: ${{ steps.product.outputs.root }}
           HELPER_IMAGE: ${{ steps.product.outputs.helper_image }}
           E2E_OUTCOME: ${{ steps.e2e.outcome }}
@@ -379,8 +410,12 @@ jobs:
             test -n "$PRODUCT_ROOT"
             test -n "$HELPER_IMAGE"
             docker run --rm --user 0:0 --entrypoint sh \
-              -v "$PRODUCT_ROOT/repo/data:/target" "$HELPER_IMAGE" \
-              -c 'test -s /target/creatures/index.json; rm -rf /target/creatures'
+              -e PARENT_CREATED="$PRODUCT_PARENT_CREATED" \
+              -v "$PRODUCT_ROOT/repo:/repo" "$HELPER_IMAGE" -c '
+                test -s /repo/data/creatures/index.json
+                rm -rf /repo/data/creatures
+                if test "$PARENT_CREATED" = true; then rmdir /repo/data; fi
+              '
             code="$(curl -sS -w '%{http_code}' "$PREVIEW_URL/data/creatures/index.json" -o /tmp/atlas-after-rollback.json || true)"
             test "$code" = 404
             echo 'creature-product-rollback=PASS'
