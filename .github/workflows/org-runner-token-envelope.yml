@@ -1,0 +1,70 @@
+name: Organization Runner Token Envelope
+
+on:
+  pull_request:
+    branches: [main]
+    types: [synchronize]
+    paths:
+      - .github/workflows/org-runner-token-envelope.yml
+
+permissions:
+  contents: read
+
+jobs:
+  envelope:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'infra/issue-1199-organization-runner-bootstrap' &&
+      github.actor == 'blakinio'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ORG_ADMIN_TOKEN: ${{ secrets.OTERYN_ORG_RUNNER_ADMIN_TOKEN }}
+    steps:
+      - name: Generate encrypted one-time registration envelopes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$ORG_ADMIN_TOKEN"
+          cat > /tmp/oteryn-runner-public.pem <<'PEM'
+          -----BEGIN PUBLIC KEY-----
+          MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAsu4mG27aKiF/OsuoZvM7
+          wBeipFuQmG1qdoXoS5UdiunFzf2lnjFh0XAN6aUAVNBUDo10/6WgabouUIm1U740
+          4eFx/Nn6XT40iU5nCMvyD/pG7fDV5Recro+fRP+LAdPmXcTZK6a4D4qAFbrEFVCZ
+          38DAO86nBgZO9xArASxB2IMFNPQy8DmXL3na84jZ0XSISgMhfHBhNGTS8EURANC2
+          qpQP2FLf7KqFPscwH27qAl3noob0BBVRTB84TnlNqzDFZ5lQRDgRvI80WFJPy+dd
+          a5vPqYx0OghagBFh5GaKBbRbseIiaCTzPsdQmg2FBVDI9DN84QLpgaQwBfYQTnXv
+          R+wdhJuEelRI/KDRMxUy8rIWQvddQii0ebACnAlMYvLE8frfLZSWffyZGSdsmLql
+          JcsmcJ3Cj2QdMlrR5iRyz8YsEhSKp7O4Y4dwFNs7b4BfQY+zmdwbdkApPii1rS9P
+          /DX5jHONJCcmWErJF+nhuZ147fQUTFWaJzA2fL3/+4LLAgMBAAE=
+          -----END PUBLIC KEY-----
+          PEM
+          chmod 0600 /tmp/oteryn-runner-public.pem
+
+          token() {
+            curl --fail --silent --show-error --location -X POST \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer $ORG_ADMIN_TOKEN" \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              https://api.github.com/orgs/Oteryn/actions/runners/registration-token | jq -er '.token'
+          }
+
+          envelope() {
+            local name="$1" t
+            t="$(token)"
+            printf '%s' "$t" | openssl pkeyutl -encrypt -pubin \
+              -inkey /tmp/oteryn-runner-public.pem \
+              -pkeyopt rsa_padding_mode:oaep \
+              -pkeyopt rsa_oaep_md:sha256 \
+              -pkeyopt rsa_mgf1_md:sha256 | base64 -w0 > "/tmp/$name.b64"
+            unset t
+            printf '%s=' "$name"
+            cat "/tmp/$name.b64"
+            printf '\n'
+          }
+
+          envelope PLATFORM_ENVELOPE
+          envelope ATLAS_ENVELOPE
+          envelope GAME_ENVELOPE
+          rm -f /tmp/*_ENVELOPE.b64 /tmp/oteryn-runner-public.pem
+          echo 'encrypted-registration-envelopes=PASS'
