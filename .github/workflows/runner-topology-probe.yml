@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: runner-topology-probe
@@ -21,9 +22,12 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Collect sanitized live runner topology
+        id: probe
         shell: bash
         run: |
           set -Eeuo pipefail
+          evidence="$RUNNER_TEMP/runner-topology-evidence.txt"
+          : > "$evidence"
 
           docker version >/dev/null
           docker compose version >/dev/null
@@ -40,25 +44,27 @@ jobs:
           fi
           runner_id="${matches[0]}"
 
-          echo "RUNNER_CONTEXT_NAME=${RUNNER_NAME:-unknown}"
-          echo "RUNNER_CONTEXT_OS=${RUNNER_OS:-unknown}"
-          echo "RUNNER_CONTEXT_ARCH=${RUNNER_ARCH:-unknown}"
-          echo "RUNNER_CONTAINER_NAME=$(docker inspect --format '{{.Name}}' "$runner_id" | sed 's#^/##')"
-          echo "RUNNER_CONTAINER_USER=$(docker inspect --format '{{.Config.User}}' "$runner_id")"
-          echo "RUNNER_CONTAINER_STATE=$(docker inspect --format '{{.State.Status}}' "$runner_id")"
-          echo "RUNNER_RESTART_POLICY=$(docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' "$runner_id")"
-          echo "RUNNER_IMAGE_REF=$(docker inspect --format '{{.Config.Image}}' "$runner_id")"
-          echo "RUNNER_IMAGE_ID=$(docker inspect --format '{{.Image}}' "$runner_id")"
-          echo "RUNNER_LISTENER_VERSION=$(docker exec "$runner_id" /runner/bin/Runner.Listener --version | tr -d '\r')"
-          echo "DOCKER_CLIENT_VERSION=$(docker version --format '{{.Client.Version}}')"
-          echo "DOCKER_SERVER_VERSION=$(docker version --format '{{.Server.Version}}')"
-          echo "DOCKER_COMPOSE_VERSION=$(docker compose version --short)"
+          {
+            echo "RUNNER_CONTEXT_NAME=${RUNNER_NAME:-unknown}"
+            echo "RUNNER_CONTEXT_OS=${RUNNER_OS:-unknown}"
+            echo "RUNNER_CONTEXT_ARCH=${RUNNER_ARCH:-unknown}"
+            echo "RUNNER_CONTAINER_NAME=$(docker inspect --format '{{.Name}}' "$runner_id" | sed 's#^/##')"
+            echo "RUNNER_CONTAINER_USER=$(docker inspect --format '{{.Config.User}}' "$runner_id")"
+            echo "RUNNER_CONTAINER_STATE=$(docker inspect --format '{{.State.Status}}' "$runner_id")"
+            echo "RUNNER_RESTART_POLICY=$(docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' "$runner_id")"
+            echo "RUNNER_IMAGE_REF=$(docker inspect --format '{{.Config.Image}}' "$runner_id")"
+            echo "RUNNER_IMAGE_ID=$(docker inspect --format '{{.Image}}' "$runner_id")"
+            echo "RUNNER_LISTENER_VERSION=$(docker exec "$runner_id" /runner/bin/Runner.Listener --version | tr -d '\r')"
+            echo "DOCKER_CLIENT_VERSION=$(docker version --format '{{.Client.Version}}')"
+            echo "DOCKER_SERVER_VERSION=$(docker version --format '{{.Server.Version}}')"
+            echo "DOCKER_COMPOSE_VERSION=$(docker compose version --short)"
+          } >> "$evidence"
 
           docker inspect --format '{{range .Mounts}}{{println .Destination "|" .Type "|rw=" .RW}}{{end}}' "$runner_id" \
             | sort \
-            | sed 's/^/RUNNER_MOUNT=/'
+            | sed 's/^/RUNNER_MOUNT=/' >> "$evidence"
 
-          docker exec "$runner_id" stat -c 'RUNNER_METADATA_MODE=%a owner=%u:%g' /runner/.runner
+          docker exec "$runner_id" stat -c 'RUNNER_METADATA_MODE=%a owner=%u:%g' /runner/.runner >> "$evidence"
           docker exec "$runner_id" cat /runner/.runner | python3 -c '
           import json, sys
           data = json.load(sys.stdin)
@@ -66,7 +72,35 @@ jobs:
           for key in allowed:
               value = data.get(key, "MISSING")
               print(f"RUNNER_METADATA_{key.upper()}={value}")
-          '
+          ' >> "$evidence"
 
           test "$(docker inspect --format '{{.State.Running}}' "$runner_id")" = true
-          echo 'PROBE_RESULT=PASS'
+          echo 'PROBE_RESULT=PASS' >> "$evidence"
+          cat "$evidence"
+
+      - name: Publish bounded evidence to audit issue
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          evidence="$RUNNER_TEMP/runner-topology-evidence.txt"
+          python3 - <<'PY' > "$RUNNER_TEMP/comment.json"
+          import json, os
+          from pathlib import Path
+          text = (Path(os.environ['RUNNER_TEMP']) / 'runner-topology-evidence.txt').read_text(encoding='utf-8')
+          body = (
+              f"Runner topology probe run `{os.environ['GITHUB_RUN_ID']}` on `{os.environ['GITHUB_SHA']}`: **PASS**\n\n"
+              "```text\n" + text + "```\n\n"
+              "Evidence is intentionally bounded: no environment dump, credentials, secret values, application data, Docker inspect payload, or host file content was published."
+          )
+          print(json.dumps({'body': body}))
+          PY
+          curl --fail --silent --show-error \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/1194/comments" \
+            --data-binary @"$RUNNER_TEMP/comment.json" >/dev/null
