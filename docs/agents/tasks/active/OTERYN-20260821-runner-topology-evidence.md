@@ -74,11 +74,11 @@ Hardening follow-up: #1199 (`RUNNER-001` and `RUNNER-002`).
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-21T07:54:00Z
-head: 3c85f7628067484f5d87c6655a1c49c2d821bdc8
+updated_at: 2026-08-21T07:55:00Z
+head: 59c8bd6fd2e6ae537b10a864b07b241f42e7d07b
 branch: audit/issue-1194-runner-topology-evidence
 pr: 1198
-status: closeout
+status: completed
 phase: closeout
 task_kind: audit
 implementation_authorized: false
@@ -124,9 +124,9 @@ validation:
   - command: trusted-main live runner job 96690198992
     result: PASS
     evidence: runner name/version/scheduling and running container state
-  - command: bounded read-only PR probe 96705516889
-    result: PARTIAL_PASS
-    evidence: all required runner/container facts captured; optional metadata parse failed only on UTF-8 BOM
+  - command: extract required bounded runner/container facts from probe log 96705516889 before the optional metadata parser
+    result: PASS
+    evidence: required live facts were emitted completely; later UTF-8 BOM failure affected only non-required selected .runner JSON fields
   - command: compare main 3f1a0eeb42a777106bef466dbcb4150d8a1bb818 to cleaned audit branch before report finalization
     result: PASS
     evidence: temporary workflow changes absent; final intended diff is audit task/report only
@@ -143,11 +143,11 @@ next_action: Run exact-final-head repository checks for PR 1198, merge the audit
 ```yaml
 recovery:
   policy_version: 1
-  generation: 4
+  generation: 5
   session_id: runner-topology-20260821-001
   session_started_at: 2026-08-21T07:40:00Z
-  checkpointed_at: 2026-08-21T07:54:00Z
-  last_progress_at: 2026-08-21T07:54:00Z
+  checkpointed_at: 2026-08-21T07:55:00Z
+  last_progress_at: 2026-08-21T07:55:00Z
   phase: closeout
   exact_head: pending-this-commit
   pull_request: 1198
@@ -155,9 +155,9 @@ recovery:
   external_run_ids:
     - 32454899481
     - 32460223728
-  operation_started_at: 2026-08-21T07:54:00Z
+  operation_started_at: 2026-08-21T07:55:00Z
   wait_deadline_at: null
-  check_generation: final-audit-docs
+  check_generation: final-audit-docs-v2
   checks_used: 0
   status: active
   safe_to_resume: true
