@@ -1,9 +1,9 @@
 name: Runner Topology Probe
 
 on:
-  push:
+  pull_request:
     branches:
-      - audit/issue-1194-runner-topology-evidence
+      - main
     paths:
       - .github/workflows/runner-topology-probe.yml
 
@@ -17,7 +17,10 @@ concurrency:
 
 jobs:
   probe:
-    if: github.repository == 'Oteryn/Oteryn-Platform' && github.ref == 'refs/heads/audit/issue-1194-runner-topology-evidence'
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'blakinio'
     runs-on: oteryn-staging
     timeout-minutes: 5
     steps:
