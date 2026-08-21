@@ -20,7 +20,7 @@ optional_reads: []
 
 ## Goal
 
-Prepare the Platform-owned generic runner image/bootstrap and no-secret three-runner Compose target required by `Oteryn/Oteryn#34`, without mutating the live runner registration or Synology runtime during preparation.
+Prepare and activate the organization-managed, product-isolated Synology runner estate required by `Oteryn/Oteryn#34`, while preserving the existing `oteryn-staging` runner as rollback until replacement registration and scheduling are proven.
 
 ## Acceptance criteria
 
@@ -34,13 +34,18 @@ Prepare the Platform-owned generic runner image/bootstrap and no-secret three-ru
 - [x] Platform state is not mounted into Atlas/Game.
 - [x] Game does not receive raw Docker socket or root by default.
 - [x] Activation runbook preserves current `oteryn-staging` as rollback until all provider routes pass.
-- [x] No live runner, Docker resource, product state, secret, runner group or registration token is mutated by this preparation PR.
+- [ ] Create/normalize `platform-runners`, `atlas-runners`, and `game-runners` as selected-repository organization runner groups.
+- [ ] Register `oteryn-synology-platform`, `oteryn-synology-atlas`, and `oteryn-synology-game` with their exact group + custom label.
+- [ ] Recreate replacement runner containers after first registration with blank one-time token files and prove they return online.
+- [ ] Preserve the current `oteryn-synology-staging` runner online and unchanged during bootstrap.
+- [ ] Record sanitized live evidence without printing PATs, registration tokens, `.credentials`, or environment dumps.
 
 ## Ownership
 
 ```yaml
 owned_paths:
   - deploy/synology/runner/**
+  - .github/workflows/organization-runner-bootstrap.yml
   - docs/operations/SYNOLOGY_ORGANIZATION_RUNNERS.md
   - docs/agents/tasks/active/OTERYN-20260821-organization-runner-bootstrap.md
   - docs/agents/tasks/archive/OTERYN-20260821-organization-runner-bootstrap.md
@@ -52,7 +57,7 @@ dependencies:
   - Oteryn/Oteryn#32
   - Oteryn/Oteryn-Platform#1194
 blockers:
-  - organization runner groups and registration token surface are intentionally not required for preparation
+  - none
 cross_repository_tasks:
   - Oteryn/Oteryn-Atlas#35
   - Oteryn/Oteryn-Game#34
@@ -62,17 +67,19 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-21T08:42:00Z
-head: c7ea1270b227cf6f4a69562d4ddccc63b2f50b35
+updated_at: 2026-08-21T09:12:00Z
+head: 41eb8b6761e205ccd136ece7454444cce249d1ad
 branch: infra/issue-1199-organization-runner-bootstrap
 pr: 1200
-status: validating
+status: implementing
 context_routes:
   - agent-governance
   - architecture
   - testing
+  - ci-repair
 owned_paths:
   - deploy/synology/runner/**
+  - .github/workflows/organization-runner-bootstrap.yml
   - docs/operations/SYNOLOGY_ORGANIZATION_RUNNERS.md
   - docs/agents/tasks/active/OTERYN-20260821-organization-runner-bootstrap.md
 proven:
@@ -80,29 +87,25 @@ proven:
   - current runner is root with RW Docker socket and Platform staging-state access
   - corrected organization audit requires product-owned groups for Platform, Atlas and Game
   - GitHub supports --runnergroup for organization runner registration and workflow group+label routing
+  - fine-grained organization Self-hosted runners write permission is sufficient for runner-group and organization registration-token APIs
+  - owner placed the bounded organization runner admin credential in repository Actions secret OTERYN_ORG_RUNNER_ADMIN_TOKEN and explicitly requested autonomous execution
   - official Actions Runner 2.336.0 Linux x64 release checksum is 04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d
-  - official 2.336.0 release tarball includes Node 24 while the published actions-runner 2.336.0 container has a reported Node 24 packaging gap
-  - Draft PR 1200 owns this preparation branch
-  - Synology Rollback Contract runs 32463861583 and 32464070075 passed
-  - fresh Agent Governance run 32464070104 proves this task's PR identity repair passed live ownership validation; only the unrelated stale Atlas deployment lifecycle record for merged PR 1192 remains
-  - full-diff self-review found and this candidate repairs three runner-bootstrap-owned hardening gaps: overridable runner distribution build args, organization registration tokens in container environment metadata, and incomplete negative routing validation
-  - organization token values are now file-backed Compose secrets and Game defaults to non-root without Docker socket
-  - preparation has not mutated a live runner, Docker resource, organization runner group, registration token, product state or protected setting
+  - Draft PR 1200 owns this branch and exact-head runner image build has passed previously
+  - current organization Compose target uses file-backed one-time registration tokens and Game defaults to non-root without Docker socket
 derived:
-  - source-fixed runner version/checksum plus pinned base manifests close the mutable runner-build input path for ordinary reviewed builds
-  - organization-group registration can be prepared without altering the current repository-scoped runner because an existing .runner file bypasses first-registration logic
+  - a bounded same-repository PR workflow guarded to this exact internal branch can use the existing privileged runner as bootstrap without exposing token values
+  - runner-group selected-repository access is the authorization boundary; labels remain routing only
 unknown:
-  - exact organization runner groups do not yet exist
-  - organization registration token mutation is not exposed by the current connected GitHub surface
-  - Build Synology Staging Images and required CI terminal results for this hardening generation are not yet observed
+  - whether the newly supplied fine-grained PAT is accepted by all required organization runner APIs
+  - whether the three replacement runner containers register and return online on first live attempt
 conflicts: []
 first_failure:
-  marker: Agent Governance run 32463861627
-  evidence: own branch_pr_identity_omitted was repaired; fresh run 32464070104 leaves only unrelated PR 1192 lifecycle drift
+  marker: none
+  evidence: activation has not run yet
 rejected_hypotheses:
   - labels alone provide the organization authorization boundary
   - separate containers sharing raw Docker socket create a hard host security boundary
-  - Agent Governance failure proves a runner-bootstrap implementation defect
+  - Remote Desktop is required for activation
 changed_paths:
   - deploy/synology/runner/entrypoint.sh
   - deploy/synology/runner/Dockerfile
@@ -113,29 +116,27 @@ changed_paths:
   - deploy/synology/runner/compose.organization.example.yml
   - docs/operations/SYNOLOGY_ORGANIZATION_RUNNERS.md
   - docs/agents/tasks/active/OTERYN-20260821-organization-runner-bootstrap.md
+  - .github/workflows/organization-runner-bootstrap.yml
 validation:
-  - command: Synology Rollback Contract 32464070075
+  - command: prior Build Synology Staging Images exact-head candidate
     result: PASS
-    evidence: exact-head c7ea1270 generation completed successfully before self-review hardening
-  - command: Agent Governance 32464070104
-    result: FAIL
-    evidence: task-owned live ownership validation passed; only unrelated stale PR 1192 lifecycle state remains
-  - command: full exact PR diff self-review
-    result: PASS
-    evidence: hardening gaps isolated and repaired in the next coherent candidate; exact-head CI pending
+    evidence: deploy-runner image and Synology package validation passed before activation
+  - command: controlled organization runner activation
+    result: NOT_RUN
+    evidence: temporary guarded workflow will perform first live activation
 blockers:
-  - repository-wide Agent Governance remains red from the pre-existing Atlas deployment lifecycle defect owned by Platform 1191/PR 1193; do not repair that unrelated task in this branch
-next_action: validate the hardened exact head with Build Synology Staging Images and CI; repair only runner-bootstrap-owned failures and keep Draft while unrelated lifecycle state remains invalid
+  - none
+next_action: add the guarded temporary organization-runner bootstrap workflow and inspect its live result; rollback only task-owned replacement runners on task-owned failure
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: bounded Platform provider preparation branch
+source_branch_reason: bounded Platform provider preparation/activation branch
 source_branch_evidence: pending
 ```
 
 ## Notes
 
-Activation is a later controlled rollout. This task prepares code/config/runbook only and must not consume or expose one-time registration tokens.
+The temporary activation workflow must be removed from the terminal diff after live evidence is captured. Never print or persist the organization PAT or generated registration token values.
