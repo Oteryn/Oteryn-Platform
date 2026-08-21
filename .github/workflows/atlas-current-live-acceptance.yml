@@ -1,0 +1,118 @@
+name: Atlas Current Live Acceptance
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/atlas-current-live-acceptance.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oteryn-atlas-current-live-acceptance
+  cancel-in-progress: false
+
+jobs:
+  live-acceptance:
+    name: Qualify current Atlas on Synology
+    runs-on: oteryn-staging
+    timeout-minutes: 30
+    env:
+      ATLAS_REV: 71e2aca1ac49692751f5d6c59a7126835fe1896a
+      PREVIEW_URL: http://192.168.1.2:8097
+      CREATURE_SEMANTIC_DIGEST: sha256:01921968a6cb4f6ecea237820a053fc5052aaa1da556851f2c2a60d99890b5e1
+    steps:
+      - name: Check out exact Platform acceptance runtime
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify current live revision and creature product
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf -- e2e-evidence browser-runtime-context e2e-targets.json
+          curl -fsS -D /tmp/atlas-current.headers "$PREVIEW_URL/web/fullworld.html" -o /tmp/atlas-current.html
+          grep -q 'HTTP/1.1 200' /tmp/atlas-current.headers
+          grep -qi "^X-Oteryn-Atlas-Revision: $ATLAS_REV" /tmp/atlas-current.headers
+          curl -fsS "$PREVIEW_URL/data/creatures/index.json" -o /tmp/atlas-current-index.json
+          curl -fsS "$PREVIEW_URL/data/creatures/search.json" -o /tmp/atlas-current-search.json
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          index = json.loads(Path('/tmp/atlas-current-index.json').read_text())
+          search_raw = Path('/tmp/atlas-current-search.json').read_bytes()
+          search = json.loads(search_raw)
+          assert index['counts'] == {'records': 88633, 'chunks': 5746, 'search_records': 1945}
+          assert index['source']['semantic_digest'] == 'sha256:01921968a6cb4f6ecea237820a053fc5052aaa1da556851f2c2a60d99890b5e1'
+          assert index['search_bytes'] == len(search_raw)
+          assert index['search_digest'] == 'sha256:' + hashlib.sha256(search_raw).hexdigest()
+          by_id = {r['record_id']: r for r in search['records']}
+          wanted = {
+            'npc': 'npc:473280040fcebbf2bc1bad9e3717d7a9',
+            'monster': 'monster:83f049b79b2988bccdfb22f9a46a739d',
+          }
+          targets = {}
+          for kind, record_id in wanted.items():
+              r = by_id[record_id]
+              assert r['kind'] == kind
+              targets[kind] = {'kind': kind, 'label': r['label'], 'record_id': record_id, 'position': r['position']}
+          Path('e2e-targets.json').write_text(json.dumps(targets, indent=2, sort_keys=True) + '\n')
+          print('current-live-product=PASS')
+          PY
+
+      - name: Build bounded prebuilt Chromium runtime
+        id: browser
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p browser-runtime-context
+          cp deploy/ci/playwright-chromium.Dockerfile browser-runtime-context/Dockerfile
+          cp scripts/acceptance/package.json browser-runtime-context/package.json
+          image="oteryn-atlas-current-e2e:${GITHUB_RUN_ID}"
+          DOCKER_BUILDKIT=0 docker build -t "$image" browser-runtime-context
+          printf 'image=%s\n' "$image" >> "$GITHUB_OUTPUT"
+
+      - name: Run live desktop and mobile Chromium E2E
+        shell: bash
+        env:
+          BROWSER_IMAGE: ${{ steps.browser.outputs.image }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p e2e-evidence
+          docker run --rm --network host --ipc host --shm-size 1g \
+            --entrypoint node \
+            -e "PREVIEW_URL=$PREVIEW_URL" \
+            -e "ATLAS_REV=$ATLAS_REV" \
+            -e "CREATURE_SEMANTIC_DIGEST=$CREATURE_SEMANTIC_DIGEST" \
+            -v "$PWD/scripts/acceptance/atlas-creature-preview-e2e.cjs:/e2e.cjs:ro" \
+            -v "$PWD/e2e-targets.json:/targets.json:ro" \
+            -v "$PWD/e2e-evidence:/evidence" \
+            "$BROWSER_IMAGE" /e2e.cjs | tee e2e-evidence/browser.log
+          grep -Fx 'desktop=PASS' e2e-evidence/browser.log
+          grep -Fx 'mobile=PASS' e2e-evidence/browser.log
+          grep -F '"status": "PASS"' e2e-evidence/result.json
+
+      - name: Publish browser evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: atlas-current-live-e2e-${{ github.run_id }}
+          path: e2e-evidence/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Cleanup task-owned runtime
+        if: always()
+        shell: bash
+        env:
+          BROWSER_IMAGE: ${{ steps.browser.outputs.image }}
+        run: |
+          set -Eeuo pipefail
+          if [[ -n "$BROWSER_IMAGE" ]]; then docker image rm -f "$BROWSER_IMAGE" >/dev/null 2>&1 || true; fi
+          rm -rf -- browser-runtime-context e2e-targets.json
+          echo 'cleanup=PASS'
