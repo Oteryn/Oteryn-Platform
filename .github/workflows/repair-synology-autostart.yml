@@ -195,16 +195,17 @@ jobs:
           C="$PREVIEW_CONTAINER"
           PUBLISHED=0
           PARENT_CREATED=0
-          ROOT=''
+          REPO_ROOT=''
+          SHARED_DATA_ROOT=''
           HELPER_IMAGE=''
           TMP_NAME=".creatures-${GITHUB_RUN_ID}"
           rollback_product() {
             rc=$?
             set +e
-            if [[ -n "$ROOT" && -n "$HELPER_IMAGE" ]]; then
+            if [[ -n "$REPO_ROOT" && -n "$HELPER_IMAGE" ]]; then
               docker run --rm --user 0:0 --entrypoint sh \
                 -e TMP="$TMP_NAME" -e PUBLISHED="$PUBLISHED" -e PARENT_CREATED="$PARENT_CREATED" \
-                -v "$ROOT/repo:/repo" "$HELPER_IMAGE" -c '
+                -v "$REPO_ROOT:/repo" "$HELPER_IMAGE" -c '
                   rm -rf "/repo/data/$TMP"
                   if test "$PUBLISHED" = 1; then rm -rf /repo/data/creatures; fi
                   if test "$PARENT_CREATED" = 1; then rmdir /repo/data 2>/dev/null || true; fi
@@ -217,31 +218,41 @@ jobs:
           running="$(docker inspect --format '{{.State.Running}}' "$C")"
           revision="$(docker inspect --format '{{ index .Config.Labels "org.oteryn.revision" }}' "$C")"
           port="$(docker port "$C" 8080/tcp)"
-          ROOT="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/srv/atlas"}}{{.Source}}{{end}}{{end}}' "$C")"
+          REPO_ROOT="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/srv/atlas/repo"}}{{.Source}}{{end}}{{end}}' "$C")"
+          SHARED_DATA_ROOT="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/srv/atlas/data"}}{{.Source}}{{end}}{{end}}' "$C")"
           HELPER_IMAGE="$(docker inspect --format '{{.Image}}' "$C")"
           mounts="$(docker inspect --format '{{range .Mounts}}{{printf "%s=>%s " .Source .Destination}}{{end}}' "$C")"
           echo "live-running=$running"
           echo "live-revision=$revision"
           echo "live-port=$port"
-          echo "live-root=$ROOT"
+          echo "live-repo-root=$REPO_ROOT"
+          echo "live-shared-data-root=$SHARED_DATA_ROOT"
           echo "live-mounts=$mounts"
           test "$running" = true
           test "$revision" = "$ATLAS_REV"
           test "$port" = '192.168.1.2:8097'
-          test -n "$ROOT"
+          test -n "$REPO_ROOT"
+          test -n "$SHARED_DATA_ROOT"
           test -n "$HELPER_IMAGE"
+          test "$REPO_ROOT" != "$SHARED_DATA_ROOT"
 
-          root_shape="$(docker run --rm --user 0:0 --entrypoint sh -v "$ROOT:/atlas:ro" "$HELPER_IMAGE" -c '
-            if test -s /atlas/repo/web/fullworld.html; then printf repo-root; else printf invalid; fi
+          root_shape="$(docker run --rm --user 0:0 --entrypoint sh -v "$REPO_ROOT:/repo:ro" "$HELPER_IMAGE" -c '
+            if test -s /repo/web/fullworld.html; then printf repo-root; else printf invalid; fi
           ')"
-          data_parent="$(docker run --rm --user 0:0 --entrypoint sh -v "$ROOT:/atlas:ro" "$HELPER_IMAGE" -c '
-            if test -d /atlas/repo/data; then printf present; else printf absent; fi
+          data_parent="$(docker run --rm --user 0:0 --entrypoint sh -v "$REPO_ROOT:/repo:ro" "$HELPER_IMAGE" -c '
+            if test -d /repo/data; then printf present; else printf absent; fi
+          ')"
+          shared_shape="$(docker run --rm --user 0:0 --entrypoint sh -v "$SHARED_DATA_ROOT:/shared:ro" "$HELPER_IMAGE" -c '
+            if test -s /shared/fullworld-publication-v0-final/publication.json; then printf fullworld-data; else printf invalid; fi
           ')"
           echo "live-root-shape=$root_shape"
           echo "creature-data-parent=$data_parent"
+          echo "shared-data-shape=$shared_shape"
           test "$root_shape" = repo-root
+          test "$shared_shape" = fullworld-data
           {
-            echo "root=$ROOT"
+            echo "repo_root=$REPO_ROOT"
+            echo "shared_data_root=$SHARED_DATA_ROOT"
             echo "helper_image=$HELPER_IMAGE"
             echo "published=false"
             echo "parent_created=false"
@@ -274,19 +285,19 @@ jobs:
           if [[ "$index_code" = 404 && "$search_code" = 404 ]]; then
             if [[ "$data_parent" = absent ]]; then
               docker run --rm --user 0:0 --entrypoint sh \
-                -v "$ROOT/repo:/repo" "$HELPER_IMAGE" \
+                -v "$REPO_ROOT:/repo" "$HELPER_IMAGE" \
                 -c 'test ! -e /repo/data; mkdir /repo/data'
               PARENT_CREATED=1
               echo "parent_created=true" >> "$GITHUB_OUTPUT"
               echo 'creature-data-parent-create=PASS'
             else
               docker run --rm --user 0:0 --entrypoint sh \
-                -v "$ROOT/repo:/repo:ro" "$HELPER_IMAGE" \
+                -v "$REPO_ROOT:/repo:ro" "$HELPER_IMAGE" \
                 -c 'test -d /repo/data; test ! -e /repo/data/creatures'
             fi
 
             tar -C creature-index-a -cf - . | docker run --rm -i --user 0:0 --entrypoint sh \
-              -e TMP="$TMP_NAME" -v "$ROOT/repo:/repo" "$HELPER_IMAGE" -c '
+              -e TMP="$TMP_NAME" -v "$REPO_ROOT:/repo" "$HELPER_IMAGE" -c '
                 set -eu
                 test -d /repo/data
                 test ! -e /repo/data/creatures
@@ -401,17 +412,17 @@ jobs:
           BROWSER_IMAGE: ${{ steps.browser.outputs.image }}
           PRODUCT_PUBLISHED: ${{ steps.product.outputs.published }}
           PRODUCT_PARENT_CREATED: ${{ steps.product.outputs.parent_created }}
-          PRODUCT_ROOT: ${{ steps.product.outputs.root }}
+          PRODUCT_REPO_ROOT: ${{ steps.product.outputs.repo_root }}
           HELPER_IMAGE: ${{ steps.product.outputs.helper_image }}
           E2E_OUTCOME: ${{ steps.e2e.outcome }}
         run: |
           set -Eeuo pipefail
           if [[ "$PRODUCT_PUBLISHED" = true && "$E2E_OUTCOME" != success ]]; then
-            test -n "$PRODUCT_ROOT"
+            test -n "$PRODUCT_REPO_ROOT"
             test -n "$HELPER_IMAGE"
             docker run --rm --user 0:0 --entrypoint sh \
               -e PARENT_CREATED="$PRODUCT_PARENT_CREATED" \
-              -v "$PRODUCT_ROOT/repo:/repo" "$HELPER_IMAGE" -c '
+              -v "$PRODUCT_REPO_ROOT:/repo" "$HELPER_IMAGE" -c '
                 test -s /repo/data/creatures/index.json
                 rm -rf /repo/data/creatures
                 if test "$PARENT_CREATED" = true; then rmdir /repo/data; fi
