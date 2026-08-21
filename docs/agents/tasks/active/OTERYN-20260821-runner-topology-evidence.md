@@ -27,21 +27,19 @@ Provide the live Platform/Synology evidence required by `Oteryn/Oteryn#32` to de
 
 ## Acceptance criteria
 
-- [ ] Exact live runner version/name/group display and scheduling evidence recorded.
-- [ ] Repository-scoped/custom-label-only contract reconciled with current source and prior transfer evidence.
-- [ ] Safe live container facts prove Docker-socket, runtime user and persistent runner/work boundaries without secret disclosure.
-- [ ] Existing `oteryn-staging` workflow triggers are classified for public-repository trust exposure.
-- [ ] Node.js 24 / Actions Runner >=2.327.1 compatibility is decided from live version evidence.
-- [ ] No self-hosted use outside Platform is found or every exception is recorded.
-- [ ] Organization-vs-repository desired state and migration blocker/capability are recorded back to META #32.
-- [ ] Temporary probe changes are removed before terminal merge/closeout.
+- [x] Exact live runner version/name/group display and scheduling evidence recorded.
+- [x] Repository-scoped/custom-label-only contract reconciled with current source and prior transfer evidence.
+- [x] Safe live container facts prove Docker-socket, runtime user and persistent runner/work boundaries without secret disclosure.
+- [x] Existing `oteryn-staging` workflow triggers are classified for public-repository trust exposure.
+- [x] Node.js 24 / Actions Runner >=2.327.1 compatibility is decided from live version evidence.
+- [x] No self-hosted use outside Platform is found.
+- [x] Organization-vs-repository desired state and migration capability are recorded back to META #32.
+- [x] Temporary probe workflow/retained-workflow changes are removed from the terminal diff.
 
 ## Ownership
 
 ```yaml
 owned_paths:
-  - .github/workflows/runner-topology-probe.yml
-  - .github/workflows/synology-production-target-preflight.yml
   - docs/agents/tasks/active/OTERYN-20260821-runner-topology-evidence.md
   - docs/agents/tasks/archive/OTERYN-20260821-runner-topology-evidence.md
   - docs/agents/reports/OTERYN-20260821-runner-topology-evidence.md
@@ -50,67 +48,94 @@ modules:
   - github-actions-runner-routing
 dependencies:
   - Oteryn/Oteryn#32
+follow_ups:
+  - Oteryn/Oteryn-Platform#1199
 blockers:
   - none
 cross_repository_tasks:
   - Oteryn/Oteryn#32
 ```
 
+## Terminal audit verdict
+
+`KEEP_REPOSITORY_SCOPED_PLATFORM_RUNNER`
+
+- META, Game and Atlas remain GitHub-hosted only.
+- Platform keeps the repository-scoped `oteryn-synology-staging` runner for trusted Synology/staging operations only.
+- Do not create Game/Atlas self-hosted runners now.
+- Do not migrate the current privileged Platform runner to organization scope now.
+- Revisit organization runner groups only if another repository later proves a real host-local workload.
+
+Canonical detailed evidence: `docs/agents/reports/OTERYN-20260821-runner-topology-evidence.md`.
+Hardening follow-up: #1199 (`RUNNER-001` and `RUNNER-002`).
+
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-21T07:49:00Z
-head: a3fc4bc1caf0a14fc635260c603364c5994928ac
+updated_at: 2026-08-21T07:54:00Z
+head: 3c85f7628067484f5d87c6655a1c49c2d821bdc8
 branch: audit/issue-1194-runner-topology-evidence
 pr: 1198
-status: validating
-phase: validate
+status: closeout
+phase: closeout
 task_kind: audit
 implementation_authorized: false
 session_id: runner-topology-20260821-001
 session_role: auditor
 execution_mode: github-only
-execution_reason: local/Remote Desktop access is unavailable; trusted GitHub Actions and existing repository evidence provide the bounded read-only execution path
+execution_reason: trusted GitHub Actions plus repository evidence supplied the bounded live read-only execution path
 context_routes:
   - agent-governance
   - testing
   - ci-repair
 owned_paths:
-  - .github/workflows/runner-topology-probe.yml
-  - .github/workflows/synology-production-target-preflight.yml
   - docs/agents/tasks/active/OTERYN-20260821-runner-topology-evidence.md
   - docs/agents/tasks/archive/OTERYN-20260821-runner-topology-evidence.md
   - docs/agents/reports/OTERYN-20260821-runner-topology-evidence.md
 proven:
-  - Platform PR 1164 verified a repository-scoped Synology runner named oteryn-synology-staging using custom label oteryn-staging.
-  - PR 1176 restored --no-default-labels and explicitly excludes generic self-hosted eligibility.
-  - trusted-main run 32454899481 scheduled oteryn-synology-staging and logged runner version 2.336.0.
-  - current runner compose mounts /var/run/docker.sock plus persistent /runner and /work and the staging-state path.
-  - current runner entrypoint accepts only exact repository RUNNER_URL values and has no organization URL/runner-group registration path.
-  - only Platform contains retained oteryn-staging/self-hosted routing; META, Game and Atlas searches found none.
+  - Platform PR 1164 established repository-scoped runner attachment after transfer.
+  - PR 1176 established custom-label-only scheduling with --no-default-labels.
+  - trusted-main run 32454899481 job 96690198992 reports runner oteryn-synology-staging version 2.336.0.
+  - bounded live probe run 32460223728 job 96705516889 reports Linux/X64, root container user, running/always state, Docker client 29.6.2, Docker server 24.0.2, Compose 5.3.1, and RW /runner, /work, Docker socket and staging-state mounts.
+  - live runner image is ghcr.io/blakinio/oteryn-deploy-runner:main with image ID sha256:bad8dc119e39553f5a9d958834562a44add4978e16f9a46df7c89507c06c24b8.
+  - current runner entrypoint accepts repository-shaped RUNNER_URL and has no organization/runner-group registration path.
+  - no retained self-hosted routing was found in META, Game or Atlas.
+  - permanent Platform pull-request paths do not execute on the privileged Synology runner; live jobs are manual/trusted-main/environment bounded.
+  - temporary probe workflow and temporary retained-workflow extension are absent from the final branch diff.
 derived:
-  - live runner version 2.336.0 satisfies the >=2.327.1 prerequisite for Node.js 24 based Actions.
+  - runner 2.336.0 satisfies the >=2.327.1 Node.js 24 Actions prerequisite.
+  - sharing the root/Docker-socket runner organization-wide would broaden trust without demonstrated need.
 unknown:
-  - exact live runner container user/mount realization and sanitized .runner registration metadata on the current Synology container.
-  - whether the connected GitHub App has organization Self-hosted runners write permission; no runner administration action is exposed by the current connector surface.
+  - live .credentials permission metadata was intentionally not captured; secret contents were never read.
+  - current connector exposes no organization runner/group/registration-token mutation action; this is not needed by the chosen desired state.
 conflicts: []
 first_failure:
-  marker: standalone new workflow on feature branch did not surface as a discoverable pull_request run
-  evidence: newly introduced workflow is not an existing default-branch pull_request trigger
+  marker: optional .runner JSON parse in probe
+  evidence: run 32460223728 job 96705516889 failed on UTF-8 BOM after all required live host/container evidence had already been emitted
 rejected_hypotheses:
-  - runner_group_name Default alone proves organization scope; prior transfer evidence and registration source explicitly identify repository scope.
+  - runner_group_name Default proves organization scope.
+  - one self-hosted runner per permanent repository is required.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260821-runner-topology-evidence.md
-  - .github/workflows/runner-topology-probe.yml
+  - docs/agents/reports/OTERYN-20260821-runner-topology-evidence.md
 validation:
-  - command: inspect trusted-main job log 96690198992
+  - command: trusted-main live runner job 96690198992
     result: PASS
-    evidence: runner oteryn-synology-staging, group display Default, version 2.336.0, run 32454899481
+    evidence: runner name/version/scheduling and running container state
+  - command: bounded read-only PR probe 96705516889
+    result: PARTIAL_PASS
+    evidence: all required runner/container facts captured; optional metadata parse failed only on UTF-8 BOM
+  - command: compare main 3f1a0eeb42a777106bef466dbcb4150d8a1bb818 to cleaned audit branch before report finalization
+    result: PASS
+    evidence: temporary workflow changes absent; final intended diff is audit task/report only
+  - command: publish organization verdict to Oteryn/Oteryn#32
+    result: PASS
+    evidence: META Issue #32 comment 5366930246
 blockers:
   - none
-next_action: Temporarily extend retained pull_request workflow synology-production-target-preflight.yml with one internal-PR-only read-only probe, inspect that exact run, then restore the file and delete runner-topology-probe.yml.
+next_action: Run exact-final-head repository checks for PR 1198, merge the audit evidence when policy gates permit, then archive this task and close #1194.
 ```
 
 ## Recovery checkpoint
@@ -118,30 +143,32 @@ next_action: Temporarily extend retained pull_request workflow synology-producti
 ```yaml
 recovery:
   policy_version: 1
-  generation: 3
+  generation: 4
   session_id: runner-topology-20260821-001
   session_started_at: 2026-08-21T07:40:00Z
-  checkpointed_at: 2026-08-21T07:49:00Z
-  last_progress_at: 2026-08-21T07:49:00Z
-  phase: validate
-  exact_head: a3fc4bc1caf0a14fc635260c603364c5994928ac
+  checkpointed_at: 2026-08-21T07:54:00Z
+  last_progress_at: 2026-08-21T07:54:00Z
+  phase: closeout
+  exact_head: pending-this-commit
   pull_request: 1198
-  active_operation: temporarily extend retained synology-production-target-preflight pull_request workflow with internal-PR-only read-only runner probe
-  external_run_ids: []
-  operation_started_at: null
-  wait_deadline_at: 2026-08-21T08:09:00Z
-  check_generation: runner-topology-probe-v3
+  active_operation: exact-final-head validation and protected merge of audit-only evidence
+  external_run_ids:
+    - 32454899481
+    - 32460223728
+  operation_started_at: 2026-08-21T07:54:00Z
+  wait_deadline_at: null
+  check_generation: final-audit-docs
   checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: retained preflight workflow generates an exact-head PR job for the internal task branch
-  next_action: inspect the resulting probe job once, record bounded evidence, then restore/remove all temporary workflow changes
+  resume_condition: PR 1198 remains open on the audit branch and its exact-head checks are inspected
+  next_action: validate final head, merge if allowed, then perform lifecycle archive closeout
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: audit evidence branch; temporary probe changes must be absent from terminal merge
-source_branch_evidence: pending
+source_branch_reason: bounded audit evidence branch; repository delete_branch_on_merge owns terminal deletion
+source_branch_evidence: pending protected merge
 ```
