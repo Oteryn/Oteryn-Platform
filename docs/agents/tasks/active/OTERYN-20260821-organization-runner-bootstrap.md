@@ -121,7 +121,7 @@ validation:
     result: FAIL
     evidence: task-owned live ownership validation passed; only unrelated stale PR 1192 lifecycle state remains
   - command: full exact PR diff self-review
-    result: PASS_AFTER_REPAIR
+    result: PASS
     evidence: hardening gaps isolated and repaired in the next coherent candidate; exact-head CI pending
 blockers:
   - repository-wide Agent Governance remains red from the pre-existing Atlas deployment lifecycle defect owned by Platform 1191/PR 1193; do not repair that unrelated task in this branch
