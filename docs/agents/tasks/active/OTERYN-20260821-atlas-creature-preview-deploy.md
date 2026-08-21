@@ -42,6 +42,7 @@ Deploy exact terminal merged `Oteryn/Oteryn-Atlas@ffb09ad6e78487fe6be5fa2f0c3a18
 owned_paths:
   - .github/workflows/repair-synology-autostart.yml
   - scripts/acceptance/atlas-creature-preview-e2e.cjs
+  - deploy/ci/playwright-chromium.Dockerfile
   - docs/agents/tasks/active/OTERYN-20260821-atlas-creature-preview-deploy.md
   - docs/agents/tasks/active/OTERYN-20260820-atlas-first-paint-preview-deploy.md
 modules:
@@ -67,11 +68,11 @@ session_id: atlas-creature-preview-20260821-001
 session_role: integrator
 execution_mode: github-only
 execution_reason: the registered Synology self-hosted runner is the narrow trusted execution path for the LAN-only preview; no workstation dependency is required
-updated_at: 2026-08-21T06:18:00Z
-lease_expires_at: 2026-08-21T07:03:00Z
-head: 7ffeba1b89589e8a2cc2b6143cbbfda4042ac824
-branch: ops/atlas-30-creature-preview-deploy
-pr: 1192
+updated_at: 2026-08-21T12:49:53Z
+lease_expires_at: 2026-08-21T13:34:53Z
+head: 8f5a0b634f16ca85bd8a4a3d8b7fefaff33f7301
+branch: ops/atlas-30-creature-preview-cleanup
+pr: 1193
 status: validating
 task_kind: e2e
 context_pressure: medium
@@ -81,11 +82,22 @@ estimate_confidence: high
 decomposition_decision: phased
 decomposition_reason: one cross-repository producer-consumer-deployment acceptance flow with shared immutable revisions and one live preview
 validation_level: full
-last_completed_step: opened exact Platform implementation PR 1192 and reconciled predecessor terminal-PR liveness as archive-pending
+last_completed_step: built the Chromium-only image on Synology with DOCKER_BUILDKIT=0, launched Chromium 151.0.7922.34 successfully, and removed the exact smoke image/context
 session_rotation_count: 0
 heavy_validation_runs: 1
 stale_takeover_count: 1
 human_interruptions: 0
+invocation_started_at: 2026-08-21T11:47:00Z
+last_progress_at: 2026-08-21T12:49:53Z
+ci_checks_for_current_head: 0
+ci_check_generation: draft
+terminal_ci_wait_started_at: null
+terminal_ci_checks_for_current_generation: 0
+unchanged_state_checks: 0
+identical_failure_retries: 0
+repair_cycles_for_current_gate: 1
+context_reconstruction_attempts: 1
+stall_warnings: 0
 context_routes:
   - synology-staging
   - github-only-execution
@@ -93,6 +105,7 @@ context_routes:
 owned_paths:
   - .github/workflows/repair-synology-autostart.yml
   - scripts/acceptance/atlas-creature-preview-e2e.cjs
+  - deploy/ci/playwright-chromium.Dockerfile
   - docs/agents/tasks/active/OTERYN-20260821-atlas-creature-preview-deploy.md
   - docs/agents/tasks/active/OTERYN-20260820-atlas-first-paint-preview-deploy.md
 proven:
@@ -104,13 +117,19 @@ proven:
   - existing Platform trusted-main deployment scaffold successfully deployed prior Atlas revision f99605a69981d9a1d2bca523aec3dff67a31e175 in run 32394546737
   - predecessor cleanup PR 1190 was intentionally closed unmerged with Branch-Disposition delete because Issue 1191 reuses the retained scaffold before final restoration
   - predecessor active task released workflow ownership and now records merged PR 1189 with terminal_pr_policy archive_pending
-  - Platform PR 1192 targets main from the owned deployment branch and contains only the bounded workflow extension, temporary browser acceptance script and two task-record reconciliations
+  - Platform main 3f1a0eeb42a777106bef466dbcb4150d8a1bb818 contains the bounded deployment scaffold from merged PR 1192
+  - trusted-main run 32454899481 generated the exact Game export/index successfully but was cancelled during the heavy browser-runtime step; deploy/E2E were skipped and workflow cleanup reported success
+  - Synology inspection found the cancelled run still owned live docker build/docker-buildx processes for image oteryn-atlas-creature-e2e:32454899481; those exact orphaned PIDs were terminated without pruning or touching retained services
+  - BuildKit on the Synology runner stalled even with a bounded approximately 8 KiB context; the same Chromium-only image build succeeds with DOCKER_BUILDKIT=0
+  - Synology cold smoke built image sha256:311540338bb96e7164e579eaa29425d467352b543731f7ae4babd46bff878ac4, Playwright 1.62.1 and Chromium 151.0.7922.34; direct headless Chromium launch returned chromium-smoke=PASS and the exact smoke image/context were then removed
 derived:
   - reusing repair-synology-autostart.yml on oteryn-staging is the narrowest compliant GitHub-only route and avoids a second live execution mechanism
+  - the deployment retry must use a dedicated Node + Chromium-only runtime and explicitly disable BuildKit on this runner until the stuck builder is separately repaired
   - deployment build can reconstruct the normalized creature export from exact Game + pinned legacy evidence, delete raw evidence before Atlas publication, and prove deterministic output before cutover
 unknown:
   - exact live pre-cutover Atlas revision; executor will accept only the explicit known revision set and record the observed value for rollback
-conflicts: []
+conflicts:
+  - PR 1193 head moved concurrently from 2eaa439b15fe6e3349529552c1002e903511c9c3 through premature cleanup commits while live deploy/E2E was still unproven; no force update is allowed, and PR comment 5369848636 records the do-not-merge correction
 first_failure:
   marker: agent-governance run 32453591054
   evidence: predecessor terminal PR lacked archive-pending policy and this task lacked open PR identity; both task records were corrected on the same owned branch
@@ -119,6 +138,7 @@ rejected_hypotheses:
 changed_paths:
   - .github/workflows/repair-synology-autostart.yml
   - scripts/acceptance/atlas-creature-preview-e2e.cjs
+  - deploy/ci/playwright-chromium.Dockerfile
   - docs/agents/tasks/active/OTERYN-20260821-atlas-creature-preview-deploy.md
   - docs/agents/tasks/active/OTERYN-20260820-atlas-first-paint-preview-deploy.md
 validation:
@@ -137,8 +157,43 @@ validation:
   - command: Platform PR 1192 first Agent Governance exact-head attempt
     result: FAIL
     evidence: run 32453591054 exposed only the two live task-liveness record mismatches now repaired
+  - command: Platform trusted-main Atlas creature preview run
+    result: FAIL
+    evidence: run 32454899481 cancelled while preparing the heavy PHP + Chromium + Firefox + WebKit browser runtime; Game export/index PASS, deploy/E2E skipped, cleanup PASS
+  - command: local focused Platform CI contracts on Chromium-only repair
+    result: PASS
+    evidence: test_workflow_trigger_economy.py, test_classify_changes.py, test_push_change_routing.py, test_required_test_gate.py and git diff --check
+  - command: Synology Chromium-only cold smoke
+    result: PASS
+    evidence: DOCKER_BUILDKIT=0 build image sha256:311540338bb96e7164e579eaa29425d467352b543731f7ae4babd46bff878ac4; Playwright 1.62.1; chromium-smoke=PASS version=151.0.7922.34; exact image/context cleanup PASS
 blockers: []
-next_action: Require fresh exact-head Platform PR 1192 governance/CI checks to pass, then squash-merge so the trusted main push executes the Synology deployment and live Chromium E2E.
+next_action: Publish the reconciled repair as a non-force fast-forward on PR 1193, then require fresh exact-head protected CI before squash merge and trusted-main deployment.
+```
+
+## Recovery checkpoint
+
+```yaml
+recovery:
+  policy_version: 1
+  generation: 2
+  session_id: atlas-creature-preview-20260821-repair-002
+  session_started_at: 2026-08-21T11:47:00Z
+  checkpointed_at: 2026-08-21T12:49:53Z
+  last_progress_at: 2026-08-21T12:49:53Z
+  phase: publish-repair
+  exact_head: 8f5a0b634f16ca85bd8a4a3d8b7fefaff33f7301
+  pull_request: 1193
+  active_operation: publish reconciled Chromium-only repair to the stabilized PR head using a non-force fast-forward
+  external_run_ids:
+    - 32454899481
+  operation_started_at: 2026-08-21T12:49:53Z
+  wait_deadline_at: 2026-08-21T13:34:53Z
+  check_generation: repair-publish
+  checks_used: 0
+  status: active
+  safe_to_resume: true
+  resume_condition: PR 1193 head still equals 8f5a0b634f16ca85bd8a4a3d8b7fefaff33f7301 before update_ref
+  next_action: Publish one coherent repair commit by non-force fast-forward and verify the resulting exact PR head/diff before protected CI.
 ```
 
 ## Source branch closeout
