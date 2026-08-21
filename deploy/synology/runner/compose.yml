@@ -7,10 +7,13 @@ services:
     user: "0:0"
     environment:
       RUNNER_ALLOW_RUNASROOT: "1"
+      RUNNER_SCOPE: ${RUNNER_SCOPE:-repository}
       RUNNER_URL: ${RUNNER_URL:-}
+      RUNNER_GROUP: ${RUNNER_GROUP:-}
       RUNNER_NAME: ${RUNNER_NAME:-oteryn-synology-staging}
-      RUNNER_LABELS: oteryn-staging
+      RUNNER_LABELS: ${RUNNER_LABELS:-oteryn-staging}
       RUNNER_TOKEN: ${RUNNER_TOKEN:-}
+      RUNNER_TOKEN_FILE: ${RUNNER_TOKEN_FILE:-}
       RUNNER_WORKDIR: /work
       RUNNER_CONFIG_DIR: /runner
     volumes:

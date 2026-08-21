@@ -1,0 +1,75 @@
+name: oteryn-organization-runners
+
+# Prepared target estate. Runner groups must already exist and be restricted to the
+# exact selected repository before these services are first registered.
+#
+# Raw /var/run/docker.sock is host-equivalent privilege. It is retained here only for
+# Platform and Atlas because their current proven Synology workloads require host
+# Docker control. Game intentionally starts without that mount; add it only if
+# Oteryn/Oteryn-Game#34 proves an unavoidable host-Docker requirement.
+
+services:
+  platform:
+    image: ${RUNNER_IMAGE:?RUNNER_IMAGE must be an immutable canonical digest}
+    restart: always
+    user: "0:0"
+    environment:
+      RUNNER_ALLOW_RUNASROOT: "1"
+      RUNNER_SCOPE: organization
+      RUNNER_URL: ${RUNNER_ORG_URL:-https://github.com/Oteryn}
+      RUNNER_GROUP: platform-runners
+      RUNNER_NAME: oteryn-synology-platform
+      RUNNER_LABELS: oteryn-platform
+      RUNNER_TOKEN: ${PLATFORM_RUNNER_TOKEN:-}
+      RUNNER_WORKDIR: /work
+      RUNNER_CONFIG_DIR: /runner
+    volumes:
+      - platform_runner_config:/runner
+      - platform_runner_work:/work
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${PLATFORM_STATE_HOST_PATH:-/volume1/docker/oteryn/state}:/var/lib/oteryn-staging-state
+
+  atlas:
+    image: ${RUNNER_IMAGE:?RUNNER_IMAGE must be an immutable canonical digest}
+    restart: always
+    user: "0:0"
+    environment:
+      RUNNER_ALLOW_RUNASROOT: "1"
+      RUNNER_SCOPE: organization
+      RUNNER_URL: ${RUNNER_ORG_URL:-https://github.com/Oteryn}
+      RUNNER_GROUP: atlas-runners
+      RUNNER_NAME: oteryn-synology-atlas
+      RUNNER_LABELS: oteryn-atlas
+      RUNNER_TOKEN: ${ATLAS_RUNNER_TOKEN:-}
+      RUNNER_WORKDIR: /work
+      RUNNER_CONFIG_DIR: /runner
+    volumes:
+      - atlas_runner_config:/runner
+      - atlas_runner_work:/work
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  game:
+    image: ${RUNNER_IMAGE:?RUNNER_IMAGE must be an immutable canonical digest}
+    restart: always
+    user: "0:0"
+    environment:
+      RUNNER_ALLOW_RUNASROOT: "1"
+      RUNNER_SCOPE: organization
+      RUNNER_URL: ${RUNNER_ORG_URL:-https://github.com/Oteryn}
+      RUNNER_GROUP: game-runners
+      RUNNER_NAME: oteryn-synology-game
+      RUNNER_LABELS: oteryn-game
+      RUNNER_TOKEN: ${GAME_RUNNER_TOKEN:-}
+      RUNNER_WORKDIR: /work
+      RUNNER_CONFIG_DIR: /runner
+    volumes:
+      - game_runner_config:/runner
+      - game_runner_work:/work
+
+volumes:
+  platform_runner_config:
+  platform_runner_work:
+  atlas_runner_config:
+  atlas_runner_work:
+  game_runner_config:
+  game_runner_work:
