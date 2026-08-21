@@ -29,13 +29,13 @@ All current product repositories are public. Organization runner-group access to
 
 The deploy-runner image is built from the official Actions Runner release tarball rather than `ghcr.io/actions/actions-runner:latest`.
 
-Pinned preparation inputs:
+Pinned preparation inputs are source constants, not build arguments:
 
 - Actions Runner `2.336.0`;
 - Linux x64 release SHA-256 `04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d`;
 - pinned Ubuntu 24.04 amd64 base manifest;
 - pinned Docker CLI 29.6.2 amd64 image manifest;
-- build fails if the runner package does not contain `externals/node24/bin/node`.
+- build fails if the runner package does not contain `externals/node24/bin/node` or reports a different runner version.
 
 The release tarball path is intentional: the published `ghcr.io/actions/actions-runner:2.336.0` container has a reported Node 24 packaging gap while the official 2.336.0 Linux release tarball contains Node 24.
 
@@ -50,7 +50,7 @@ The currently connected repository GitHub surface does not expose organization r
 3. Repeat for `atlas-runners` -> `Oteryn/Oteryn-Atlas` only.
 4. Repeat for `game-runners` -> `Oteryn/Oteryn-Game` only.
 5. Under `Oteryn -> Settings -> Actions -> Runners`, generate organization-level one-time registration token(s).
-6. Never paste a registration token into Git, an Issue, PR, task record or workflow log.
+6. Write each token to its own local file outside Git, set mode `0600`, and never paste a token into Git, an Issue, PR, task record, workflow log or Compose environment value.
 
 The configuration script will fail closed if an expected runner group does not exist.
 
@@ -58,12 +58,12 @@ The configuration script will fail closed if an expected runner group does not e
 
 Use:
 
-- `deploy/synology/runner/organization.env.example` as the no-secret environment template;
+- `deploy/synology/runner/organization.env.example` as the no-secret environment template containing only token **file paths**;
 - `deploy/synology/runner/compose.organization.example.yml` as the target three-runner Compose definition.
 
 Each runner has a distinct persistent config volume and work volume. Do not reuse the current `runner_config` volume between new runners.
 
-Platform retains the raw Docker socket and Platform staging-state mount because those are proven current Platform control-plane requirements. Atlas retains raw Docker socket access during the first migration because current FullWorld preview cutover/rollback requires host Docker control. Game starts without raw Docker socket; `Oteryn/Oteryn-Game#34` must prove a real requirement before that privilege is added.
+Platform retains the raw Docker socket and Platform staging-state mount because those are proven current Platform control-plane requirements. Atlas retains raw Docker socket access during the first migration because current FullWorld preview cutover/rollback requires host Docker control. Game starts as UID/GID `1001:1001` without raw Docker socket; `Oteryn/Oteryn-Game#34` must prove a real host-Docker/root requirement before either privilege is added.
 
 A raw Docker socket means host-equivalent Docker privilege. Separate runner containers/groups improve scheduling and repository authority isolation, but they do not create a hard host security boundary when multiple runners have the same raw Docker daemon. A future stronger isolation phase should replace raw Docker control with product-bounded execution adapters or separate Docker/VM trust domains where justified.
 
@@ -72,9 +72,9 @@ A raw Docker socket means host-equivalent Docker privilege. Separate runner cont
 Create a local, untracked activation env from the example and set:
 
 - exact `RUNNER_IMAGE` digest;
-- transient `PLATFORM_RUNNER_TOKEN`;
-- transient `ATLAS_RUNNER_TOKEN`;
-- transient `GAME_RUNNER_TOKEN`.
+- `PLATFORM_RUNNER_TOKEN_FILE` to a mode-0600 file containing only the transient Platform token;
+- `ATLAS_RUNNER_TOKEN_FILE` to a mode-0600 file containing only the transient Atlas token;
+- `GAME_RUNNER_TOKEN_FILE` to a mode-0600 file containing only the transient Game token.
 
 Start one replacement at a time. Do not start all three blindly.
 
@@ -84,7 +84,15 @@ Recommended order:
 2. Atlas replacement;
 3. Game replacement.
 
-After a runner appears online in its expected group, clear its registration token from the local activation configuration. The persistent `*_runner_config` volume is then the registration state for normal restarts.
+For each product:
+
+1. start only that service with its token file present;
+2. verify the runner appears online in the expected selected-repository group with only the expected custom label;
+3. truncate the host token file to zero bytes;
+4. force-recreate that service with the same persistent config/work volumes;
+5. verify it restarts from `.runner` without registration input and that `/run/secrets/runner_token` is empty.
+
+This removes a usable one-time token from the steady-state container while preserving restartable runner registration.
 
 ## Workflow routing contract
 
@@ -126,7 +134,7 @@ Move a bounded Atlas-owned FullWorld local path into Atlas. Prove exact preview 
 
 ### Game
 
-Identify the smallest Game-owned local runtime/integration path. Prove it through `game-runners + oteryn-game`. Keep ordinary deterministic Game build/export checks GitHub-hosted. Add host Docker privilege only when the provider task proves it is unavoidable.
+Identify the smallest Game-owned local runtime/integration path. Prove it through `game-runners + oteryn-game`. Keep ordinary deterministic Game build/export checks GitHub-hosted. Add host Docker or root privilege only when the provider task proves it is unavoidable.
 
 ## Rollback
 

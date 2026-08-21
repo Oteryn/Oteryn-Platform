@@ -5,8 +5,12 @@ name: oteryn-organization-runners
 #
 # Raw /var/run/docker.sock is host-equivalent privilege. It is retained here only for
 # Platform and Atlas because their current proven Synology workloads require host
-# Docker control. Game intentionally starts without that mount; add it only if
-# Oteryn/Oteryn-Game#34 proves an unavoidable host-Docker requirement.
+# Docker control. Game intentionally starts without that mount and without root; add
+# host privilege only if Oteryn/Oteryn-Game#34 proves an unavoidable requirement.
+#
+# One-time registration tokens are mounted as Compose secrets from local files. After
+# first registration, blank the corresponding host token file and force-recreate that
+# service so no usable registration token remains mounted in the steady-state runner.
 
 services:
   platform:
@@ -20,9 +24,12 @@ services:
       RUNNER_GROUP: platform-runners
       RUNNER_NAME: oteryn-synology-platform
       RUNNER_LABELS: oteryn-platform
-      RUNNER_TOKEN: ${PLATFORM_RUNNER_TOKEN:-}
+      RUNNER_TOKEN_FILE: /run/secrets/runner_token
       RUNNER_WORKDIR: /work
       RUNNER_CONFIG_DIR: /runner
+    secrets:
+      - source: platform_runner_token
+        target: runner_token
     volumes:
       - platform_runner_config:/runner
       - platform_runner_work:/work
@@ -40,9 +47,12 @@ services:
       RUNNER_GROUP: atlas-runners
       RUNNER_NAME: oteryn-synology-atlas
       RUNNER_LABELS: oteryn-atlas
-      RUNNER_TOKEN: ${ATLAS_RUNNER_TOKEN:-}
+      RUNNER_TOKEN_FILE: /run/secrets/runner_token
       RUNNER_WORKDIR: /work
       RUNNER_CONFIG_DIR: /runner
+    secrets:
+      - source: atlas_runner_token
+        target: runner_token
     volumes:
       - atlas_runner_config:/runner
       - atlas_runner_work:/work
@@ -51,20 +61,30 @@ services:
   game:
     image: ${RUNNER_IMAGE:?RUNNER_IMAGE must be an immutable canonical digest}
     restart: always
-    user: "0:0"
+    user: "1001:1001"
     environment:
-      RUNNER_ALLOW_RUNASROOT: "1"
       RUNNER_SCOPE: organization
       RUNNER_URL: ${RUNNER_ORG_URL:-https://github.com/Oteryn}
       RUNNER_GROUP: game-runners
       RUNNER_NAME: oteryn-synology-game
       RUNNER_LABELS: oteryn-game
-      RUNNER_TOKEN: ${GAME_RUNNER_TOKEN:-}
+      RUNNER_TOKEN_FILE: /run/secrets/runner_token
       RUNNER_WORKDIR: /work
       RUNNER_CONFIG_DIR: /runner
+    secrets:
+      - source: game_runner_token
+        target: runner_token
     volumes:
       - game_runner_config:/runner
       - game_runner_work:/work
+
+secrets:
+  platform_runner_token:
+    file: ${PLATFORM_RUNNER_TOKEN_FILE:?PLATFORM_RUNNER_TOKEN_FILE must point to a local one-time token file}
+  atlas_runner_token:
+    file: ${ATLAS_RUNNER_TOKEN_FILE:?ATLAS_RUNNER_TOKEN_FILE must point to a local one-time token file}
+  game_runner_token:
+    file: ${GAME_RUNNER_TOKEN_FILE:?GAME_RUNNER_TOKEN_FILE must point to a local one-time token file}
 
 volumes:
   platform_runner_config:

@@ -2,9 +2,9 @@ FROM docker:29.6.2-cli@sha256:feb2d49bd65f274b3e4b4620beabe2f4691e5287e496da9fbc
 
 FROM ubuntu:24.04@sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467
 
-ARG RUNNER_VERSION=2.336.0
-ARG RUNNER_SHA256=04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d
-ENV DEBIAN_FRONTEND=noninteractive
+ENV RUNNER_VERSION=2.336.0 \
+    RUNNER_SHA256=04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d \
+    DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates coreutils curl git gzip jq sudo tar \

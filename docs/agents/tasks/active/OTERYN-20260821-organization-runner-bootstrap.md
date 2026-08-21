@@ -24,17 +24,17 @@ Prepare the Platform-owned generic runner image/bootstrap and no-secret three-ru
 
 ## Acceptance criteria
 
-- [ ] Bootstrap supports explicit repository and organization registration modes.
-- [ ] Organization mode requires organization URL, explicit runner group and strict custom labels.
-- [ ] Existing registered runner restarts without a token/re-registration.
-- [ ] Default labels remain disabled.
-- [ ] Actions Runner distribution and Docker/base image inputs are immutable/pinned and Node 24 presence is verified at image build.
-- [ ] Entrypoint contract self-test runs during image build.
-- [ ] Organization target has separate Platform/Atlas/Game config and work volumes.
-- [ ] Platform state is not mounted into Atlas/Game.
-- [ ] Game does not receive raw Docker socket by default.
-- [ ] Activation runbook preserves current `oteryn-staging` as rollback until all provider routes pass.
-- [ ] No live runner, Docker resource, product state, secret, runner group or registration token is mutated by this preparation PR.
+- [x] Bootstrap supports explicit repository and organization registration modes.
+- [x] Organization mode requires organization URL, explicit runner group, runner name and strict custom labels.
+- [x] Existing registered runner restarts without a token/re-registration.
+- [x] Default labels remain disabled.
+- [x] Actions Runner distribution and Docker/base image inputs are immutable/pinned and Node 24 presence is verified at image build.
+- [x] Entrypoint contract self-test runs during image build.
+- [x] Organization target has separate Platform/Atlas/Game config and work volumes.
+- [x] Platform state is not mounted into Atlas/Game.
+- [x] Game does not receive raw Docker socket or root by default.
+- [x] Activation runbook preserves current `oteryn-staging` as rollback until all provider routes pass.
+- [x] No live runner, Docker resource, product state, secret, runner group or registration token is mutated by this preparation PR.
 
 ## Ownership
 
@@ -62,8 +62,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-21T08:37:00Z
-head: 0f979806501126dc265765797bc39659147ffb74
+updated_at: 2026-08-21T08:42:00Z
+head: c7ea1270b227cf6f4a69562d4ddccc63b2f50b35
 branch: infra/issue-1199-organization-runner-bootstrap
 pr: 1200
 status: validating
@@ -82,25 +82,27 @@ proven:
   - GitHub supports --runnergroup for organization runner registration and workflow group+label routing
   - official Actions Runner 2.336.0 Linux x64 release checksum is 04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d
   - official 2.336.0 release tarball includes Node 24 while the published actions-runner 2.336.0 container has a reported Node 24 packaging gap
-  - Draft PR 1200 owns this exact preparation branch
-  - Synology Rollback Contract exact-head run 32463861583 passed
-  - Agent Governance run 32463861627 passed checkpoint syntax and source-branch closeout validation before live-liveness enforcement
-  - Agent Governance run 32463861627 identified this task's omitted PR identity and a separate pre-existing stale Atlas deployment lifecycle record for merged PR 1192
+  - Draft PR 1200 owns this preparation branch
+  - Synology Rollback Contract runs 32463861583 and 32464070075 passed
+  - fresh Agent Governance run 32464070104 proves this task's PR identity repair passed live ownership validation; only the unrelated stale Atlas deployment lifecycle record for merged PR 1192 remains
+  - full-diff self-review found and this candidate repairs three runner-bootstrap-owned hardening gaps: overridable runner distribution build args, organization registration tokens in container environment metadata, and incomplete negative routing validation
+  - organization token values are now file-backed Compose secrets and Game defaults to non-root without Docker socket
+  - preparation has not mutated a live runner, Docker resource, organization runner group, registration token, product state or protected setting
 derived:
-  - building the Oteryn runner from the checksum-pinned official release tarball avoids the known container packaging gap and removes the mutable actions-runner:latest base
+  - source-fixed runner version/checksum plus pinned base manifests close the mutable runner-build input path for ordinary reviewed builds
   - organization-group registration can be prepared without altering the current repository-scoped runner because an existing .runner file bypasses first-registration logic
 unknown:
   - exact organization runner groups do not yet exist
   - organization registration token mutation is not exposed by the current connected GitHub surface
-  - Game host-Docker requirement remains provider-owned and is therefore omitted from the prepared default
-  - Build Synology Staging Images and required CI terminal results for the implementation candidate are not yet observed
+  - Build Synology Staging Images and required CI terminal results for this hardening generation are not yet observed
 conflicts: []
 first_failure:
   marker: Agent Governance run 32463861627
-  evidence: own branch_pr_identity_omitted for PR 1200 plus unrelated stale lifecycle state for merged Atlas deployment PR 1192; this commit repairs the owned PR identity only
+  evidence: own branch_pr_identity_omitted was repaired; fresh run 32464070104 leaves only unrelated PR 1192 lifecycle drift
 rejected_hypotheses:
   - labels alone provide the organization authorization boundary
   - separate containers sharing raw Docker socket create a hard host security boundary
+  - Agent Governance failure proves a runner-bootstrap implementation defect
 changed_paths:
   - deploy/synology/runner/entrypoint.sh
   - deploy/synology/runner/Dockerfile
@@ -112,18 +114,18 @@ changed_paths:
   - docs/operations/SYNOLOGY_ORGANIZATION_RUNNERS.md
   - docs/agents/tasks/active/OTERYN-20260821-organization-runner-bootstrap.md
 validation:
-  - command: Synology Rollback Contract 32463861583
+  - command: Synology Rollback Contract 32464070075
     result: PASS
-    evidence: exact-head run completed successfully
-  - command: Agent Governance 32463861627
+    evidence: exact-head c7ea1270 generation completed successfully before self-review hardening
+  - command: Agent Governance 32464070104
     result: FAIL
-    evidence: owned failure was omitted PR identity and is repaired here; an unrelated stale PR 1192 lifecycle defect remains owned by Platform 1191/1193
-  - command: Build Synology Staging Images 32463861550
-    result: NOT_RUN
-    evidence: run started for the implementation candidate; terminal result not yet observed
+    evidence: task-owned live ownership validation passed; only unrelated stale PR 1192 lifecycle state remains
+  - command: full exact PR diff self-review
+    result: PASS_AFTER_REPAIR
+    evidence: hardening gaps isolated and repaired in the next coherent candidate; exact-head CI pending
 blockers:
-  - repository-wide Agent Governance may remain red from the pre-existing Atlas deployment lifecycle defect owned by Platform 1191/PR 1193; do not repair that unrelated task in this branch
-next_action: inspect fresh exact-head Build Synology Staging Images and CI after this checkpoint repair; fix only runner-bootstrap-owned failures and preserve Draft while unrelated lifecycle state remains invalid
+  - repository-wide Agent Governance remains red from the pre-existing Atlas deployment lifecycle defect owned by Platform 1191/PR 1193; do not repair that unrelated task in this branch
+next_action: validate the hardened exact head with Build Synology Staging Images and CI; repair only runner-bootstrap-owned failures and keep Draft while unrelated lifecycle state remains invalid
 ```
 
 ## Source branch closeout

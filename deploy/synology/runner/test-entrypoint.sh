@@ -29,6 +29,25 @@ assert_line() {
     grep -Fx -- "$expected" "$path" >/dev/null
 }
 
+expect_registration_failure() {
+    local name="$1"
+    local expected="$2"
+    shift 2
+    local root="$TMP/$name"
+    make_dist "$root/dist"
+    if env \
+        CAPTURE_PATH="$root/args" \
+        RUNNER_DIST_DIR="$root/dist" \
+        RUNNER_CONFIG_DIR="$root/config" \
+        RUNNER_WORKDIR="$root/work" \
+        "$@" \
+        "$ENTRYPOINT" > "$root/out" 2> "$root/err"; then
+        echo "$name unexpectedly passed" >&2
+        exit 1
+    fi
+    grep -F -- "$expected" "$root/err" >/dev/null
+}
+
 # Organization registration must bind both group and strict custom label.
 org="$TMP/org"
 make_dist "$org/dist"
@@ -59,34 +78,78 @@ RUNNER_CONFIG_DIR="$repo/config" \
 RUNNER_WORKDIR="$repo/work" \
 RUNNER_SCOPE=repository \
 RUNNER_URL=https://github.com/Oteryn/Oteryn-Platform \
-RUNNER_NAME=oteryn-synology-staging \
-RUNNER_LABELS=oteryn-staging \
 RUNNER_TOKEN=test-token \
 "$ENTRYPOINT" > "$repo/out"
 if grep -Fx -- --runnergroup "$repo/args" >/dev/null; then
     echo 'repository registration unexpectedly received --runnergroup' >&2
     exit 1
 fi
+assert_line oteryn-synology-staging "$repo/args"
 assert_line oteryn-staging "$repo/args"
 assert_line RUN_OK "$repo/out"
 
-# Organization registration fails closed without a group.
-bad="$TMP/bad"
-make_dist "$bad/dist"
-if CAPTURE_PATH="$bad/args" \
-   RUNNER_DIST_DIR="$bad/dist" \
-   RUNNER_CONFIG_DIR="$bad/config" \
-   RUNNER_WORKDIR="$bad/work" \
-   RUNNER_SCOPE=organization \
-   RUNNER_URL=https://github.com/Oteryn \
-   RUNNER_NAME=oteryn-synology-atlas \
-   RUNNER_LABELS=oteryn-atlas \
-   RUNNER_TOKEN=test-token \
-   "$ENTRYPOINT" > "$bad/out" 2> "$bad/err"; then
-    echo 'organization registration without RUNNER_GROUP unexpectedly passed' >&2
-    exit 1
-fi
-grep -F 'RUNNER_GROUP is required for organization scope' "$bad/err" >/dev/null
+# Token-file registration keeps the token out of the runner process environment.
+token_file="$TMP/one-time-token"
+printf 'file-token\n' > "$token_file"
+chmod 0600 "$token_file"
+filemode="$TMP/filemode"
+make_dist "$filemode/dist"
+CAPTURE_PATH="$filemode/args" \
+RUNNER_DIST_DIR="$filemode/dist" \
+RUNNER_CONFIG_DIR="$filemode/config" \
+RUNNER_WORKDIR="$filemode/work" \
+RUNNER_SCOPE=organization \
+RUNNER_URL=https://github.com/Oteryn \
+RUNNER_GROUP=game-runners \
+RUNNER_NAME=oteryn-synology-game \
+RUNNER_LABELS=oteryn-game \
+RUNNER_TOKEN_FILE="$token_file" \
+"$ENTRYPOINT" > "$filemode/out"
+assert_line file-token "$filemode/args"
+assert_line RUN_OK "$filemode/out"
+
+# Fail closed on malformed routing or registration identity.
+expect_registration_failure bad-scope \
+    'RUNNER_SCOPE must be exactly repository or organization' \
+    RUNNER_SCOPE=team RUNNER_URL=https://github.com/Oteryn \
+    RUNNER_GROUP=atlas-runners RUNNER_NAME=oteryn-synology-atlas \
+    RUNNER_LABELS=oteryn-atlas RUNNER_TOKEN=test-token
+expect_registration_failure org-repo-url \
+    'RUNNER_URL must be an exact github.com organization URL for organization scope' \
+    RUNNER_SCOPE=organization RUNNER_URL=https://github.com/Oteryn/Oteryn-Atlas \
+    RUNNER_GROUP=atlas-runners RUNNER_NAME=oteryn-synology-atlas \
+    RUNNER_LABELS=oteryn-atlas RUNNER_TOKEN=test-token
+expect_registration_failure repo-org-url \
+    'RUNNER_URL must be an exact github.com owner/repository URL for repository scope' \
+    RUNNER_SCOPE=repository RUNNER_URL=https://github.com/Oteryn \
+    RUNNER_TOKEN=test-token
+expect_registration_failure org-missing-group \
+    'RUNNER_GROUP is required for organization scope' \
+    RUNNER_SCOPE=organization RUNNER_URL=https://github.com/Oteryn \
+    RUNNER_NAME=oteryn-synology-atlas RUNNER_LABELS=oteryn-atlas RUNNER_TOKEN=test-token
+expect_registration_failure org-missing-name \
+    'RUNNER_NAME is required for organization scope' \
+    RUNNER_SCOPE=organization RUNNER_URL=https://github.com/Oteryn \
+    RUNNER_GROUP=atlas-runners RUNNER_LABELS=oteryn-atlas RUNNER_TOKEN=test-token
+expect_registration_failure org-missing-label \
+    'RUNNER_LABELS is required for organization scope' \
+    RUNNER_SCOPE=organization RUNNER_URL=https://github.com/Oteryn \
+    RUNNER_GROUP=atlas-runners RUNNER_NAME=oteryn-synology-atlas RUNNER_LABELS= \
+    RUNNER_TOKEN=test-token
+expect_registration_failure malformed-label \
+    'RUNNER_LABELS must be a non-empty comma-separated list of strict custom labels' \
+    RUNNER_SCOPE=organization RUNNER_URL=https://github.com/Oteryn \
+    RUNNER_GROUP=atlas-runners RUNNER_NAME=oteryn-synology-atlas \
+    'RUNNER_LABELS=oteryn-atlas,bad label' RUNNER_TOKEN=test-token
+expect_registration_failure repo-with-group \
+    'RUNNER_GROUP is not valid for repository-scoped registration' \
+    RUNNER_SCOPE=repository RUNNER_URL=https://github.com/Oteryn/Oteryn-Platform \
+    RUNNER_GROUP=platform-runners RUNNER_TOKEN=test-token
+expect_registration_failure missing-token-file \
+    'RUNNER_TOKEN_FILE must reference a readable one-time registration token file' \
+    RUNNER_SCOPE=organization RUNNER_URL=https://github.com/Oteryn \
+    RUNNER_GROUP=atlas-runners RUNNER_NAME=oteryn-synology-atlas \
+    RUNNER_LABELS=oteryn-atlas RUNNER_TOKEN_FILE="$TMP/does-not-exist"
 
 # A registered persistent config restarts without URL/token/re-registration.
 restart="$TMP/restart"
