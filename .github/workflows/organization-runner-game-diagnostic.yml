@@ -1,0 +1,98 @@
+name: Organization Runner Game Diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+    types: [synchronize]
+    paths:
+      - .github/workflows/organization-runner-game-diagnostic.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: organization-runner-game-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    name: Inspect exact Game runner restart loop
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'infra/issue-1199-organization-runner-bootstrap' &&
+      github.actor == 'blakinio'
+    runs-on: oteryn-staging
+    timeout-minutes: 5
+    steps:
+      - name: Guard legacy diagnostic path
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test '${{ runner.name }}' = 'oteryn-synology-staging'
+          test -S /var/run/docker.sock
+          echo 'legacy-diagnostic-path=PASS'
+
+      - name: Inspect exact Game container without mutation
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          container=oteryn-organization-runners-game-1
+          expected_project=oteryn-organization-runners
+          expected_service=game
+
+          docker inspect "$container" >/dev/null
+          test "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$container")" = "$expected_project"
+          test "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.service"}}' "$container")" = "$expected_service"
+
+          echo "container=$container"
+          docker inspect --format 'state={{.State.Status}} running={{.State.Running}} restarting={{.State.Restarting}} exit_code={{.State.ExitCode}} oom={{.State.OOMKilled}} restart_count={{.RestartCount}} user={{.Config.User}} image={{.Config.Image}} restart_policy={{.HostConfig.RestartPolicy.Name}} error={{printf "%q" .State.Error}}' "$container"
+
+          runner_volume="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/runner"}}{{.Name}}{{end}}{{end}}' "$container")"
+          token_source="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/run/secrets/runner_token"}}{{.Source}}{{end}}{{end}}' "$container")"
+          test -n "$runner_volume"
+          test -n "$token_source"
+          echo "runner_volume=$runner_volume"
+          case "$token_source" in
+            /volume1/docker/oteryn/state/.runner-bootstrap/*/game.token|/volume1/docker/oteryn/state/.organization-runner-tokens/game.token)
+              echo 'token_source=task-owned'
+              ;;
+            *)
+              echo 'token_source=unexpected' >&2
+              exit 1
+              ;;
+          esac
+
+          image="$(docker inspect --format '{{.Config.Image}}' "$container")"
+          case "$image" in
+            ghcr.io/oteryn/oteryn-deploy-runner@sha256:*) ;;
+            *) echo 'image=unexpected' >&2; exit 1 ;;
+          esac
+
+          docker run --rm --user 1001:1001 \
+            --mount "type=volume,src=$runner_volume,dst=/check,readonly" \
+            --entrypoint /bin/bash "$image" -ec '
+              for f in .runner .credentials .credentials_rsaparams; do
+                if [[ -e "/check/$f" ]]; then
+                  stat -c "runner_file=%n mode=%a uid=%u gid=%g size=%s" "/check/$f"
+                else
+                  echo "runner_file=/check/$f missing"
+                fi
+              done
+              test -r /check/.runner && echo runner_config_readable_as_game=yes || echo runner_config_readable_as_game=no
+              test -w /check && echo runner_dir_writable_as_game=yes || echo runner_dir_writable_as_game=no
+            '
+
+          docker run --rm --user 1001:1001 \
+            --mount "type=bind,src=$token_source,dst=/checktoken,readonly" \
+            --entrypoint /bin/bash "$image" -ec '
+              stat -c "token_file=present mode=%a uid=%u gid=%g size=%s" /checktoken
+              test -r /checktoken && echo token_readable_as_game=yes || echo token_readable_as_game=no
+            '
+
+          echo 'filtered_container_log_begin'
+          docker logs --tail 120 "$container" 2>&1 \
+            | grep -Ei 'permission denied|missing registration token|already configured|cannot|error|fatal|not found|no such file|could not|failed|runner listener|runner successfully added|http response code|access denied|must not run' \
+            | sed -E 's/(Authorization:|token=)[^[:space:]]+/\1[REDACTED]/Ig' \
+            | tail -n 60 || true
+          echo 'filtered_container_log_end'
+          echo 'game-runner-diagnostic=PASS'
