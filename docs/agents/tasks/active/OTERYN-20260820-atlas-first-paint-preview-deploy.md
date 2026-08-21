@@ -54,12 +54,13 @@ session_id: atlas-creature-preview-20260821-001
 session_role: takeover-integrator
 execution_mode: github-only
 execution_reason: stale predecessor lifecycle is being reconciled by the successor deployment task that owns the retained scaffold
-updated_at: 2026-08-21T06:03:00Z
+updated_at: 2026-08-21T06:16:00Z
 lease_expires_at: null
 head: a806d4f70e8cbddc5e7a6f0130ed669ae62651b4
 branch: ops/atlas-24-first-paint-preview-deploy
 pr: 1189
-status: waiting
+status: validating
+terminal_pr_policy: archive_pending
 task_kind: e2e
 context_pressure: low
 context_growth: stable
@@ -68,7 +69,7 @@ estimate_confidence: high
 decomposition_decision: single
 decomposition_reason: historical deployment is complete; only terminal scaffold restoration and archive remain
 validation_level: full
-last_completed_step: live first-paint deployment completed successfully on trusted main
+last_completed_step: live first-paint deployment completed successfully on trusted main; terminal PR identity reconciled as archive-pending
 session_rotation_count: 1
 heavy_validation_runs: 1
 stale_takeover_count: 1
@@ -84,8 +85,9 @@ proven:
   - HTTP 200, exact revision header, HTTP 206 and exact served-byte checks passed in that run
   - owner-browser acceptance for the first-paint repair was recorded PASS on Issue 1188
   - cleanup PR 1190 was closed unmerged with Branch-Disposition delete because its sole workflow restoration is intentionally deferred to successor Issue 1191
+  - merged terminal PR 1189 is explicitly represented by terminal_pr_policy archive_pending until the successor cleanup archives this record
 derived:
-  - this record must no longer own .github/workflows/repair-synology-autostart.yml; successor task OTERYN-20260821-atlas-creature-preview-deploy owns it until final restoration
+  - this record no longer owns .github/workflows/repair-synology-autostart.yml; successor task OTERYN-20260821-atlas-creature-preview-deploy owns it until final restoration
 unknown: []
 conflicts: []
 first_failure:
