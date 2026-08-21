@@ -75,6 +75,16 @@ if [[ ! -f .runner ]]; then
         exit 1
     fi
 
+    IFS=',' read -r -a runner_labels <<< "$RUNNER_LABELS"
+    for label in "${runner_labels[@]}"; do
+        case "${label,,}" in
+            self-hosted|linux|windows|macos|x64|arm|arm64)
+                echo "RUNNER_LABELS must not recreate GitHub default self-hosted labels." >&2
+                exit 1
+                ;;
+        esac
+    done
+
     token="${RUNNER_TOKEN:-}"
     if [[ -n "$RUNNER_TOKEN_FILE" ]]; then
         if [[ ! -f "$RUNNER_TOKEN_FILE" || ! -r "$RUNNER_TOKEN_FILE" ]]; then
