@@ -1,0 +1,243 @@
+name: Organization Runner Bootstrap
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - synchronize
+    paths:
+      - .github/workflows/organization-runner-bootstrap.yml
+      - deploy/synology/runner/**
+      - docs/agents/tasks/active/OTERYN-20260821-organization-runner-bootstrap.md
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: organization-runner-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    name: Bootstrap product-isolated organization runners
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'infra/issue-1199-organization-runner-bootstrap' &&
+      github.actor == 'blakinio'
+    runs-on: oteryn-staging
+    timeout-minutes: 45
+    env:
+      ORG_ADMIN_TOKEN: ${{ secrets.OTERYN_ORG_RUNNER_ADMIN_TOKEN }}
+      GH_JOB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+      ORG: Oteryn
+      PLATFORM_REPO_ID: '1305155726'
+      ATLAS_REPO_ID: '1337995824'
+      GAME_REPO_ID: '1338291140'
+      COMPOSE_PROJECT_NAME: oteryn-organization-runners
+
+    steps:
+      - name: Guard trusted bootstrap context
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test '${{ runner.name }}' = 'oteryn-synology-staging'
+          test -n "$ORG_ADMIN_TOKEN"
+          test -n "$GH_JOB_TOKEN"
+          test "$SOURCE_SHA" != ''
+          case "$SOURCE_SHA" in
+            *[!0-9a-f]*|'') echo 'Unexpected source SHA.' >&2; exit 1 ;;
+          esac
+          test "${#SOURCE_SHA}" -eq 40
+          echo 'trusted-bootstrap-context=PASS'
+
+      - name: Checkout exact owned head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - name: Create runner groups and replacement runners
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+
+          if ! command -v jq >/dev/null 2>&1; then
+            apt-get update >/dev/null
+            apt-get install -y --no-install-recommends jq >/dev/null
+          fi
+
+          API=https://api.github.com
+          API_VERSION=2026-03-10
+          COMPOSE=deploy/synology/runner/compose.organization.example.yml
+          TOKEN_DIR="/tmp/oteryn-runner-bootstrap-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          IMAGE_TAG="ghcr.io/oteryn/oteryn-deploy-runner:sha-${SOURCE_SHA}"
+          mkdir -p "$TOKEN_DIR"
+          chmod 0700 "$TOKEN_DIR"
+
+          auth_curl() {
+            curl --fail --silent --show-error --location \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer $ORG_ADMIN_TOKEN" \
+              -H "X-GitHub-Api-Version: $API_VERSION" \
+              "$@"
+          }
+
+          list_org_runners() {
+            auth_curl "$API/orgs/$ORG/actions/runners?per_page=100"
+          }
+
+          delete_replacement_runner_by_name() {
+            local name="$1"
+            local data id
+            data="$(list_org_runners 2>/dev/null || true)"
+            id="$(printf '%s' "$data" | jq -r --arg name "$name" '.runners[]? | select(.name == $name) | .id' | head -n1)"
+            if [[ -n "$id" && "$id" != null ]]; then
+              auth_curl -X DELETE "$API/orgs/$ORG/actions/runners/$id" >/dev/null 2>&1 || true
+            fi
+          }
+
+          rollback() {
+            rc=$?
+            set +e
+            export RUNNER_IMAGE="${RUNNER_IMAGE:-$IMAGE_TAG}"
+            export PLATFORM_RUNNER_TOKEN_FILE="$TOKEN_DIR/platform.token"
+            export ATLAS_RUNNER_TOKEN_FILE="$TOKEN_DIR/atlas.token"
+            export GAME_RUNNER_TOKEN_FILE="$TOKEN_DIR/game.token"
+            docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE" down --remove-orphans >/dev/null 2>&1 || true
+            delete_replacement_runner_by_name oteryn-synology-platform
+            delete_replacement_runner_by_name oteryn-synology-atlas
+            delete_replacement_runner_by_name oteryn-synology-game
+            docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE" down -v --remove-orphans >/dev/null 2>&1 || true
+            docker image rm "$IMAGE_TAG" >/dev/null 2>&1 || true
+            docker logout ghcr.io >/dev/null 2>&1 || true
+            rm -rf "$TOKEN_DIR"
+            exit "$rc"
+          }
+          trap rollback ERR
+
+          # Prove the bounded admin token before any mutation. Do not print the response.
+          auth_curl "$API/orgs/$ORG/actions/runner-groups?per_page=100" >/tmp/oteryn-runner-groups.json
+          echo 'organization-runner-admin-token=PASS'
+
+          ensure_group() {
+            local name="$1" repo_id="$2" current id payload
+            current="$(auth_curl "$API/orgs/$ORG/actions/runner-groups?per_page=100")"
+            id="$(printf '%s' "$current" | jq -r --arg name "$name" '.runner_groups[]? | select(.name == $name) | .id' | head -n1)"
+            payload="$(jq -cn --arg name "$name" --argjson repo_id "$repo_id" '{name:$name,visibility:"selected",allows_public_repositories:true,restricted_to_workflows:false,selected_repository_ids:[$repo_id]}')"
+            if [[ -z "$id" || "$id" == null ]]; then
+              id="$(auth_curl -X POST "$API/orgs/$ORG/actions/runner-groups" -d "$payload" | jq -r '.id')"
+            else
+              auth_curl -X PATCH "$API/orgs/$ORG/actions/runner-groups/$id" \
+                -d "$(jq -cn --arg name "$name" '{name:$name,visibility:"selected",allows_public_repositories:true,restricted_to_workflows:false}')" >/dev/null
+              auth_curl -X PUT "$API/orgs/$ORG/actions/runner-groups/$id/repositories" \
+                -d "$(jq -cn --argjson repo_id "$repo_id" '{selected_repository_ids:[$repo_id]}')" >/dev/null
+            fi
+            [[ "$id" =~ ^[0-9]+$ ]]
+            printf '%s\n' "$id"
+          }
+
+          PLATFORM_GROUP_ID="$(ensure_group platform-runners "$PLATFORM_REPO_ID")"
+          ATLAS_GROUP_ID="$(ensure_group atlas-runners "$ATLAS_REPO_ID")"
+          GAME_GROUP_ID="$(ensure_group game-runners "$GAME_REPO_ID")"
+          printf 'runner-groups=PASS platform=%s atlas=%s game=%s\n' "$PLATFORM_GROUP_ID" "$ATLAS_GROUP_ID" "$GAME_GROUP_ID"
+
+          registration_token() {
+            auth_curl -X POST "$API/orgs/$ORG/actions/runners/registration-token" | jq -r '.token'
+          }
+
+          PLATFORM_REG_TOKEN="$(registration_token)"
+          ATLAS_REG_TOKEN="$(registration_token)"
+          GAME_REG_TOKEN="$(registration_token)"
+          test -n "$PLATFORM_REG_TOKEN"
+          test -n "$ATLAS_REG_TOKEN"
+          test -n "$GAME_REG_TOKEN"
+          echo "::add-mask::$PLATFORM_REG_TOKEN"
+          echo "::add-mask::$ATLAS_REG_TOKEN"
+          echo "::add-mask::$GAME_REG_TOKEN"
+          printf '%s' "$PLATFORM_REG_TOKEN" > "$TOKEN_DIR/platform.token"
+          printf '%s' "$ATLAS_REG_TOKEN" > "$TOKEN_DIR/atlas.token"
+          printf '%s' "$GAME_REG_TOKEN" > "$TOKEN_DIR/game.token"
+          chmod 0600 "$TOKEN_DIR"/*.token
+          unset PLATFORM_REG_TOKEN ATLAS_REG_TOKEN GAME_REG_TOKEN
+
+          # Build and publish the exact reviewed runner bytes to the canonical organization package.
+          docker build --pull -f deploy/synology/runner/Dockerfile -t "$IMAGE_TAG" .
+          printf '%s' "$GH_JOB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin >/dev/null
+          push_log="$TOKEN_DIR/push.log"
+          docker push "$IMAGE_TAG" | tee "$push_log"
+          DIGEST="$(awk '/digest: sha256:/{print $3}' "$push_log" | tail -n1)"
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          RUNNER_IMAGE="ghcr.io/oteryn/oteryn-deploy-runner@$DIGEST"
+          export RUNNER_IMAGE
+          echo "runner-image-digest=$DIGEST"
+
+          export PLATFORM_RUNNER_TOKEN_FILE="$TOKEN_DIR/platform.token"
+          export ATLAS_RUNNER_TOKEN_FILE="$TOKEN_DIR/atlas.token"
+          export GAME_RUNNER_TOKEN_FILE="$TOKEN_DIR/game.token"
+          export PLATFORM_STATE_HOST_PATH=/volume1/docker/oteryn/state
+          export RUNNER_ORG_URL=https://github.com/Oteryn
+
+          docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE" config --quiet
+          docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE" pull
+          docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE" up -d --remove-orphans
+
+          wait_runner() {
+            local name="$1" label="$2" group_id="$3"
+            local i data runner group_data
+            for i in $(seq 1 60); do
+              data="$(list_org_runners)"
+              runner="$(printf '%s' "$data" | jq -c --arg name "$name" '.runners[]? | select(.name == $name)' | head -n1)"
+              if [[ -n "$runner" ]] && \
+                 printf '%s' "$runner" | jq -e --arg label "$label" '.status == "online" and (.labels | map(.name) | index($label) != null)' >/dev/null; then
+                group_data="$(auth_curl "$API/orgs/$ORG/actions/runner-groups/$group_id/runners?per_page=100")"
+                if printf '%s' "$group_data" | jq -e --arg name "$name" '.runners[]? | select(.name == $name)' >/dev/null; then
+                  return 0
+                fi
+              fi
+              sleep 2
+            done
+            echo "Runner $name did not become online in the expected group." >&2
+            return 1
+          }
+
+          wait_runner oteryn-synology-platform oteryn-platform "$PLATFORM_GROUP_ID"
+          wait_runner oteryn-synology-atlas oteryn-atlas "$ATLAS_GROUP_ID"
+          wait_runner oteryn-synology-game oteryn-game "$GAME_GROUP_ID"
+          echo 'first-registration=PASS'
+
+          # Make the token mounts unusable and recreate containers from persistent registration volumes.
+          : > "$TOKEN_DIR/platform.token"
+          : > "$TOKEN_DIR/atlas.token"
+          : > "$TOKEN_DIR/game.token"
+          docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE" up -d --force-recreate --remove-orphans
+
+          wait_runner oteryn-synology-platform oteryn-platform "$PLATFORM_GROUP_ID"
+          wait_runner oteryn-synology-atlas oteryn-atlas "$ATLAS_GROUP_ID"
+          wait_runner oteryn-synology-game oteryn-game "$GAME_GROUP_ID"
+
+          for service in platform atlas game; do
+            cid="$(docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE" ps -q "$service")"
+            test -n "$cid"
+            test "$(docker inspect --format '{{.State.Running}}' "$cid")" = true
+            docker exec "$cid" test ! -s /run/secrets/runner_token
+          done
+
+          # Product isolation assertions on the live replacement containers.
+          platform_cid="$(docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE" ps -q platform)"
+          atlas_cid="$(docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE" ps -q atlas)"
+          game_cid="$(docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE" ps -q game)"
+          docker inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "$platform_cid" | grep -Fx '/var/lib/oteryn-staging-state' >/dev/null
+          ! docker inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "$atlas_cid" | grep -Fx '/var/lib/oteryn-staging-state' >/dev/null
+          ! docker inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "$game_cid" | grep -Fx '/var/lib/oteryn-staging-state' >/dev/null
+          ! docker inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "$game_cid" | grep -Fx '/var/run/docker.sock' >/dev/null
+          test "$(docker inspect --format '{{.Config.User}}' "$game_cid")" = '1001:1001'
+
+          trap - ERR
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          rm -rf "$TOKEN_DIR"
+          echo 'organization-runner-bootstrap=PASS'
+          echo 'legacy-runner-preserved=PASS current-job-still-on-oteryn-synology-staging'
