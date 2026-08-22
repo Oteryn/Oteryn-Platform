@@ -35,6 +35,7 @@ proven:
   - Platform diagnostics run 32567509732 job 97018190282 succeeded on the replacement route.
   - Repository runner API returned total_count 0 after deleting legacy runner id 21.
   - Legacy Synology container is absent while both named volumes and Platform state remain preserved.
+  - Branch hygiene closeout reports 10 ordinary branches, zero unexplained branches and zero findings; three unique historical heads are retained under refs/oteryn-recovery/20260822/*.
 derived: []
 unknown: []
 conflicts: []
@@ -43,7 +44,8 @@ first_failure:
   evidence: eight Platform workflows targeted oteryn-staging before PR 1221.
 rejected_hypotheses:
   - Compose project identifier oteryn-staging needed renaming; it remains application state identity, not runner routing.
-changed_paths: []
+changed_paths:
+  - docs/agents/reports/OTERYN-20260822-runner-closeout-managed-recovery.json
 validation:
   - command: exact legacy runner selector scan on merged main
     result: PASS
@@ -54,6 +56,9 @@ validation:
   - command: post-retirement Synology and GitHub runner audit
     result: PASS
     evidence: three organization runners Up; legacy container absent; repo runner count zero; rollback volumes/state preserved
+  - command: branch hygiene and managed recovery verification
+    result: PASS
+    evidence: zero unexplained ordinary branches; three exact recovery refs match recorded source SHAs
 blockers: []
 next_action: No action; task archived and parent runner split may close.
 ```

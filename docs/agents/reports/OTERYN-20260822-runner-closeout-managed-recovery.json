@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-22T10:53:00Z",
+  "owner": "Oteryn/Oteryn-Platform",
+  "purpose": "Preserve exact Git reachability for three ownerless branches with unique unmerged history discovered during runner closeout branch-hygiene enforcement.",
+  "workflow_safety_verdict": "SAFE",
+  "workflow_safety_evidence": "Recovery refs use refs/oteryn-recovery/* rather than refs/heads/* or refs/tags/*; ordinary branch-triggered workflows cannot match them.",
+  "review_due_at": "2026-11-22T00:00:00Z",
+  "review_trigger": "Review at due date or before deleting any recovery ref; canonicalize valuable content first if still needed.",
+  "entries": [
+    {
+      "source_branch": "noop",
+      "source_head_sha": "40734455f45c1acafef9f2a6f4a74b567348e619",
+      "retention_ref": "refs/oteryn-recovery/20260822/noop-organization-runner-bootstrap",
+      "purpose": "Preserve unique organization-runner bootstrap history not independently represented by a PR.",
+      "restore_procedure": "git fetch origin refs/oteryn-recovery/20260822/noop-organization-runner-bootstrap && git branch recovery/noop FETCH_HEAD"
+    },
+    {
+      "source_branch": "ops/atlas-synology-runtime-bridge-20260816",
+      "source_head_sha": "8e2f072fcbdb1994e969827347dc553d6b8935be",
+      "retention_ref": "refs/oteryn-recovery/20260822/atlas-synology-runtime-bridge",
+      "purpose": "Preserve unique Atlas/Synology runtime-bridge investigation history pending any future content canonicalization.",
+      "restore_procedure": "git fetch origin refs/oteryn-recovery/20260822/atlas-synology-runtime-bridge && git branch recovery/atlas-runtime-bridge FETCH_HEAD"
+    },
+    {
+      "source_branch": "support/p0-sanitized-disasm-20260816",
+      "source_head_sha": "0a54b22645ef76964f17f1c41ac769398172761f",
+      "retention_ref": "refs/oteryn-recovery/20260822/p0-sanitized-disasm",
+      "purpose": "Preserve unique sanitized Tibia client-analysis/disassembly history pending any future content canonicalization.",
+      "restore_procedure": "git fetch origin refs/oteryn-recovery/20260822/p0-sanitized-disasm && git branch recovery/p0-sanitized-disasm FETCH_HEAD"
+    }
+  ],
+  "post_reconciliation": {
+    "ordinary_branch_count": 10,
+    "new_unexplained_branches": 0,
+    "branch_hygiene_findings": 0,
+    "managed_recovery_ref_count": 3
+  }
+}
