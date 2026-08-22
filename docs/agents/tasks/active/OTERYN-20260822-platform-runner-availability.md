@@ -44,8 +44,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-22T08:20:00Z
-head: 62d134a71fa5b480249ffbffbb81079aede4be34
+updated_at: 2026-08-22T09:59:30Z
+head: 4154c0eb241ac3ddb3287062427c07f6748e00a6
 branch: infra/issue-1217-platform-runner-recovery
 pr: 1218
 status: validating
@@ -75,7 +75,7 @@ validation:
     evidence: Docker Engine recovered; acceptance workflow repair pending exact-head validation
 blockers:
   - none
-next_action: Re-run bounded recovery on legacy and verify Platform organization runner becomes online.
+next_action: Validate PR #1218 exact head, then rerun trusted-main Synology diagnostics.
 ```
 
 ## Source branch closeout
