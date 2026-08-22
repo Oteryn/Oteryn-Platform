@@ -15,15 +15,16 @@ optional_reads: []
 
 ## Goal
 
-Promote the existing Platform terminal branch lifecycle into a reusable organization capability and roll it out to META, Game and Atlas with repository-local deletion authority.
+Publish the existing Platform terminal branch lifecycle as a reusable organization capability and hand off repository-local adoption to the explicitly created META, Game and Atlas lifecycle issues.
 
 ## Acceptance criteria
 
 - [x] Platform exposes a tested reusable lifecycle workflow.
 - [x] Reusable workflow uses caller-local tokens and immutable Platform source pinning.
-- [ ] META, Game and Atlas adopt thin pinned wrappers plus local policies/ADRs.
-- [ ] Exact-head required CI passes before every merge.
-- [ ] Provider rollout is verified on merged main without heuristic historical deletion.
+- [x] Organization caller contract documents read, close and reviewed-apply boundaries.
+- [x] META #51, Game #65 and Atlas #93 own repository-local adoption from the exact merged Platform SHA.
+- [x] Exact-head Platform CI, Agent Governance and Terminal Branch Lifecycle validation pass on the implementation candidate.
+- [ ] Archive this Platform task record after PR #1232 reaches terminal state; parent Issue #1230 remains open until provider rollout is verified.
 
 ## Ownership
 
@@ -45,20 +46,21 @@ dependencies:
 blockers:
   - none
 cross_repository_tasks:
-  - Oteryn/Oteryn adoption
-  - Oteryn/Oteryn-Game adoption
-  - Oteryn/Oteryn-Atlas adoption
+  - Oteryn/Oteryn#51
+  - Oteryn/Oteryn-Game#65
+  - Oteryn/Oteryn-Atlas#93
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-22T22:51:00Z
-head: 48f535035b12e919ec49dbdb874526a0cadfa990
+updated_at: 2026-08-22T22:55:00Z
+head: 1691e3fde02dc17054a6c38940bb246aad050e84
 branch: ci/org-terminal-branch-lifecycle
 pr: 1232
-status: validating
+status: ready
+terminal_pr_policy: archive_pending
 context_routes:
   - agent-governance
   - testing
@@ -78,11 +80,15 @@ proven:
   - RED 2: lifecycle-CI integration contract failed because the existing workflow did not execute/track the reusable contract test.
   - GREEN 2: reusable contract 4/4 PASS; cleanup 7/7 PASS; guarded 8/8 PASS; approval 10/10 PASS; git diff --check PASS.
   - exact-head PR CI exposed the repository workflow lifecycle registry/budget guard; the reusable workflow is now explicitly registered and the reviewed workflow budget is 54.
+  - exact-head CI run 32603550450 completed classify-changes, runtime-tests, test and platform-gate successfully.
+  - exact-head Agent Governance run 32603550526 succeeded.
+  - exact-head Terminal Branch Lifecycle run 32603550431 succeeded.
   - reusable workflow uses caller GITHUB_TOKEN and a credential-free pinned Platform tool checkout; destructive git validation remains rooted at caller GITHUB_WORKSPACE.
+  - caller adoption issues exist as META #51, Game #65 and Atlas #93.
 derived:
   - repository-local GITHUB_TOKEN execution avoids an organization-wide destructive credential.
 unknown:
-  - exact merged Platform SHA callers will pin after Platform PR closeout.
+  - exact squash-merged Platform SHA callers will pin after PR #1232 reaches terminal state.
 conflicts: []
 first_failure:
   marker: reusable workflow missing
@@ -101,38 +107,44 @@ changed_paths:
 validation:
   - command: python3 tools/agents/test_terminal_branch_reusable.py
     result: PASS
-    evidence: 4 tests, 0 failures on implementation head 5fe0033759dbde940ce8d60ebe731c0d3aaaa68d
+    evidence: 4 tests, 0 failures on implementation candidate
   - command: python3 tools/agents/test_terminal_branch_cleanup.py
     result: PASS
-    evidence: 7 tests, 0 failures on implementation head 5fe0033759dbde940ce8d60ebe731c0d3aaaa68d
+    evidence: 7 tests, 0 failures on implementation candidate
   - command: python3 tools/agents/test_terminal_branch_guarded.py
     result: PASS
-    evidence: 8 tests, 0 failures on implementation head 5fe0033759dbde940ce8d60ebe731c0d3aaaa68d
+    evidence: 8 tests, 0 failures on implementation candidate
   - command: python3 tools/agents/test_terminal_branch_approval.py
     result: PASS
-    evidence: 10 tests, 0 failures on implementation head 5fe0033759dbde940ce8d60ebe731c0d3aaaa68d
+    evidence: 10 tests, 0 failures on implementation candidate
+  - command: python3 tools/validation/test_workflow_inventory.py && python3 tools/validation/workflow_inventory.py
+    result: PASS
+    evidence: 18 tests, 54 registered workflows within reviewed budget 54
   - command: git diff --check origin/main...HEAD
     result: PASS
-    evidence: no output on implementation head 5fe0033759dbde940ce8d60ebe731c0d3aaaa68d
-  - command: GitHub Actions CI run 32603455418
-    result: FAIL
-    evidence: workflow inventory correctly rejected the new unregistered workflow and budget 53; policy updated in 48f535035b12e919ec49dbdb874526a0cadfa990
-  - command: GitHub Actions Agent Governance run 32603455444
-    result: FAIL
-    evidence: our task omitted exact PR identity; PR 1232 is now recorded. The same run also reported an unrelated concurrent payments-foundation task liveness defect that is outside this task ownership.
+    evidence: no whitespace errors on implementation candidate
+  - command: GitHub Actions CI run 32603550450
+    result: PASS
+    evidence: classify-changes, runtime-tests, test and platform-gate all SUCCESS
+  - command: GitHub Actions Agent Governance run 32603550526
+    result: PASS
+    evidence: checkpoint-validation SUCCESS
+  - command: GitHub Actions Terminal Branch Lifecycle run 32603550431
+    result: PASS
+    evidence: validate and live dry-run SUCCESS
 blockers:
   - none
-next_action: requalify the updated PR head and inspect only failures attributable to this task; do not modify unrelated concurrent task ownership
+next_action: archive this Platform task record after PR #1232 reaches terminal state; continue repository adoption under META #51, Game #65 and Atlas #93
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: task is still active through provider rollout
+source_branch_reason: PR #1232 is not terminal yet; repository lifecycle will classify the source ref after terminalization
 source_branch_evidence: pending
 ```
 
 ## Notes
 
-Lifecycle authority: GitHub Issue #1230. Cross-repository writes for META, Game and Atlas are explicitly authorized by the owner for this rollout.
+Lifecycle authority for the organization rollout remains GitHub Issue #1230. Cross-repository writes for META, Game and Atlas are explicitly authorized by the owner for this rollout.
