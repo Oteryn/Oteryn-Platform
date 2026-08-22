@@ -19,7 +19,9 @@ concurrency:
 jobs:
   repair:
     name: Enforce Docker restart policies
-    runs-on: oteryn-staging
+    runs-on:
+      group: platform-runners
+      labels: oteryn-platform
     timeout-minutes: 10
 
     steps:
