@@ -1,6 +1,6 @@
 @extends('game.layout')
 
-@section('title', $result->page?->title ?? $key->label())
+@section('title', $result->page?->title ?? __('public.editorial.labels.'.$key->value))
 
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
@@ -53,7 +53,7 @@
     @else
         <article>
             <p class="eyebrow">{{ __('public.editorial.content') }}</p>
-            <h1>{{ __($key->label()) }}</h1>
+            <h1>{{ __('public.editorial.labels.'.$key->value) }}</h1>
 
             <div class="empty-state">
                 @if ($result->state === \App\Cms\Editorial\EditorialPageState::Missing)

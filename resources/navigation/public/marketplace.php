@@ -11,7 +11,7 @@ return [
     'footer' => [
         [
             'key' => 'community',
-            'label' => 'Community',
+            'label' => 'public.game.community',
             'priority' => 30,
             'items' => [
                 ['label' => 'Character Bazaar', 'route' => 'marketplace.index', 'active' => 'marketplace.*', 'priority' => 25],

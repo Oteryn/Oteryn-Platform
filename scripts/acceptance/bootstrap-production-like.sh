@@ -13,6 +13,11 @@ set -euo pipefail
 : "${CANARY_RUNTIME_REDIS_USERNAME:?CANARY_RUNTIME_REDIS_USERNAME is required}"
 : "${CANARY_RUNTIME_REDIS_PASSWORD:?CANARY_RUNTIME_REDIS_PASSWORD is required}"
 
+db_admin_host="${ACCEPTANCE_DB_ADMIN_HOST:-${DB_HOST:-127.0.0.1}}"
+db_admin_port="${ACCEPTANCE_DB_ADMIN_PORT:-${DB_PORT:-3306}}"
+redis_admin_host="${ACCEPTANCE_REDIS_ADMIN_HOST:-${CANARY_RUNTIME_REDIS_HOST:-127.0.0.1}}"
+redis_admin_port="${ACCEPTANCE_REDIS_ADMIN_PORT:-${CANARY_RUNTIME_REDIS_PORT:-6379}}"
+
 bootstrap_stage="preflight"
 bootstrap_diagnostic_file="${ACCEPTANCE_BOOTSTRAP_DIAGNOSTIC_FILE:-artifacts/acceptance/bootstrap-production-like.json}"
 
@@ -50,14 +55,14 @@ fi
 
 bootstrap_stage="mariadb-readiness"
 for attempt in $(seq 1 30); do
-    if mariadb --protocol=tcp -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" -e 'SELECT 1' >/dev/null 2>&1; then
+    if mariadb --protocol=tcp -h"$db_admin_host" -P"$db_admin_port" -uroot -p"$MARIADB_ROOT_PASSWORD" -e 'SELECT 1' >/dev/null 2>&1; then
         break
     fi
     sleep 1
 done
 
 bootstrap_stage="platform-and-canary-schema"
-mariadb --protocol=tcp -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" <<SQL
+mariadb --protocol=tcp -h"$db_admin_host" -P"$db_admin_port" -uroot -p"$MARIADB_ROOT_PASSWORD" <<SQL
 DROP DATABASE IF EXISTS \`$DB_DATABASE\`;
 CREATE DATABASE \`$DB_DATABASE\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 DROP DATABASE IF EXISTS \`$CANARY_DB_DATABASE\`;
@@ -238,7 +243,7 @@ sed \
     -e "s|{{OTERYN_CANARY_DB_PASSWORD}}|$CANARY_DB_PASSWORD|g" \
     -e "s|{{CANARY_DB_NAME}}|$CANARY_DB_DATABASE|g" \
     database/provisioning/canary-readonly.sql.template \
-    | mariadb --protocol=tcp -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" >/dev/null
+    | mariadb --protocol=tcp -h"$db_admin_host" -P"$db_admin_port" -uroot -p"$MARIADB_ROOT_PASSWORD" >/dev/null
 
 bootstrap_stage="canary-provisioning-principal"
 sed \
@@ -247,7 +252,7 @@ sed \
     -e "s|{{OTERYN_CANARY_PROVISIONING_DB_PASSWORD}}|$CANARY_PROVISIONING_DB_PASSWORD|g" \
     -e "s|{{CANARY_DB_NAME}}|$CANARY_DB_DATABASE|g" \
     database/provisioning/canary-provisioning.sql.template \
-    | mariadb --protocol=tcp -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" >/dev/null
+    | mariadb --protocol=tcp -h"$db_admin_host" -P"$db_admin_port" -uroot -p"$MARIADB_ROOT_PASSWORD" >/dev/null
 
 bootstrap_stage="canary-character-create-principal"
 sed \
@@ -256,12 +261,12 @@ sed \
     -e "s|{{OTERYN_CANARY_CHARACTER_CREATE_DB_PASSWORD}}|$CANARY_CHARACTER_CREATE_DB_PASSWORD|g" \
     -e "s|{{CANARY_DB_NAME}}|$CANARY_DB_DATABASE|g" \
     database/provisioning/canary-character-create.sql.template \
-    | mariadb --protocol=tcp -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" >/dev/null
+    | mariadb --protocol=tcp -h"$db_admin_host" -P"$db_admin_port" -uroot -p"$MARIADB_ROOT_PASSWORD" >/dev/null
 
 bootstrap_stage="canary-runtime-redis"
-redis-cli ACL SETUSER "$CANARY_RUNTIME_REDIS_USERNAME" reset on ">$CANARY_RUNTIME_REDIS_PASSWORD" resetkeys '~cluster:channel:*:runtime' -@all +hmget +pttl +ping +select >/dev/null
-redis-cli HSET cluster:channel:1:runtime channel_id 1 status ONLINE players_online 1 >/dev/null
-redis-cli PEXPIRE cluster:channel:1:runtime 3600000 >/dev/null
+redis-cli -h "$redis_admin_host" -p "$redis_admin_port" ACL SETUSER "$CANARY_RUNTIME_REDIS_USERNAME" reset on ">$CANARY_RUNTIME_REDIS_PASSWORD" resetkeys '~cluster:channel:*:runtime' -@all +hmget +pttl +ping +select >/dev/null
+redis-cli -h "$redis_admin_host" -p "$redis_admin_port" HSET cluster:channel:1:runtime channel_id 1 status ONLINE players_online 1 >/dev/null
+redis-cli -h "$redis_admin_host" -p "$redis_admin_port" PEXPIRE cluster:channel:1:runtime 3600000 >/dev/null
 
 bootstrap_stage="laravel-config-clear"
 php artisan config:clear --no-interaction

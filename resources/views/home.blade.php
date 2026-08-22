@@ -213,7 +213,7 @@
                 <span>{{ __('public.home.guilds_help') }}</span>
             </a>
             <a class="card" href="{{ route('support.index') }}">
-                <strong>{{ __('Support') }}</strong>
+                <strong>{{ __('support.nav.support_center') }}</strong>
                 <span>{{ __('public.home.support_help') }}</span>
             </a>
         </div>

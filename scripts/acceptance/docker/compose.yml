@@ -1,0 +1,107 @@
+name: ${COMPOSE_PROJECT_NAME:-oteryn-portal-e2e-1219}
+
+services:
+  mariadb:
+    image: mariadb:11.8
+    environment:
+      MARIADB_ROOT_PASSWORD: acceptance-docker-root-not-a-secret
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    tmpfs:
+      - /var/lib/mysql
+
+  redis:
+    image: redis:7.4-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    tmpfs:
+      - /data
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+
+  portal-e2e:
+    build:
+      context: ../../..
+      dockerfile: deploy/ci/playwright-php.Dockerfile
+    init: true
+    working_dir: /workspace
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+    environment:
+      APP_ENV: acceptance
+      APP_DEBUG: "false"
+      APP_URL: http://127.0.0.1:8080
+      LOG_CHANNEL: stderr_json
+      LOG_LEVEL: info
+      DB_CONNECTION: mysql
+      DB_HOST: mariadb
+      DB_PORT: "3306"
+      DB_DATABASE: oteryn_platform_acceptance
+      DB_USERNAME: root
+      DB_PASSWORD: acceptance-docker-root-not-a-secret
+      CANARY_DB_HOST: mariadb
+      CANARY_DB_PORT: "3306"
+      CANARY_DB_DATABASE: canary_acceptance
+      CANARY_DB_USERNAME: oteryn_acceptance_readonly
+      CANARY_DB_PASSWORD: acceptance-docker-readonly-not-a-secret
+      CANARY_PROVISIONING_DB_HOST: mariadb
+      CANARY_PROVISIONING_DB_PORT: "3306"
+      CANARY_PROVISIONING_DB_DATABASE: canary_acceptance
+      CANARY_PROVISIONING_DB_USERNAME: oteryn_acceptance_provisioning
+      CANARY_PROVISIONING_DB_PASSWORD: acceptance-docker-provisioning-not-a-secret
+      CANARY_CHARACTER_CREATE_DB_HOST: mariadb
+      CANARY_CHARACTER_CREATE_DB_PORT: "3306"
+      CANARY_CHARACTER_CREATE_DB_DATABASE: canary_acceptance
+      CANARY_CHARACTER_CREATE_DB_USERNAME: oteryn_acceptance_character_create
+      CANARY_CHARACTER_CREATE_DB_PASSWORD: acceptance-docker-character-not-a-secret
+      CANARY_RUNTIME_REDIS_CLIENT: phpredis
+      CANARY_RUNTIME_REDIS_SCHEME: tcp
+      CANARY_RUNTIME_REDIS_HOST: redis
+      CANARY_RUNTIME_REDIS_PORT: "6379"
+      CANARY_RUNTIME_REDIS_DB: "0"
+      CANARY_RUNTIME_REDIS_USERNAME: oteryn_acceptance_runtime
+      CANARY_RUNTIME_REDIS_PASSWORD: acceptance-docker-runtime-not-a-secret
+      SESSION_DRIVER: file
+      SESSION_SECURE_COOKIE: "false"
+      SESSION_HTTP_ONLY: "true"
+      CACHE_STORE: file
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: smtp
+      MAIL_HOST: mailhog
+      MAIL_PORT: "1025"
+      MAIL_ENCRYPTION: ""
+      MAIL_FROM_ADDRESS: acceptance@staging.oteryn
+      MAIL_FROM_NAME: Oteryn Acceptance
+      MARIADB_ROOT_PASSWORD: acceptance-docker-root-not-a-secret
+      ACCEPTANCE_BASE_URL: http://127.0.0.1:8080
+      ACCEPTANCE_MAILHOG_URL: http://mailhog:8025
+      ACCEPTANCE_OUTPUT_DIR: /workspace/artifacts/docker-portal-e2e/test-results
+      ACCEPTANCE_SHA: ${OTERYN_E2E_SHA:-local-unknown}
+      VALIDATION_SHA: ${OTERYN_E2E_SHA:-local-unknown}
+      ACCEPTANCE_RUN_SUFFIX: docker-${PORTAL_E2E_PROFILE:-smoke}
+      ACCEPTANCE_ZERO_RETRIES: "1"
+      PORTAL_E2E_PROFILE: ${PORTAL_E2E_PROFILE:-smoke}
+      OTERYN_REPO_ROOT: /workspace
+    volumes:
+      - ../../..:/workspace
+      - portal_vendor:/workspace/vendor
+      - portal_storage:/workspace/storage
+      - portal_bootstrap_cache:/workspace/bootstrap/cache
+    command: ["bash", "scripts/acceptance/docker/run.sh"]
+
+volumes:
+  portal_vendor:
+  portal_storage:
+  portal_bootstrap_cache:
