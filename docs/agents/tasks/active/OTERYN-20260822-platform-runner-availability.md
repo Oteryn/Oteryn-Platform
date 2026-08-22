@@ -1,4 +1,4 @@
-﻿---
+---
 task_id: OTERYN-20260822-platform-runner-availability
 required_reads:
   - AGENTS.md
@@ -28,7 +28,7 @@ Restore the existing organization-scoped Platform Synology runner to a schedulab
 
 ```yaml
 owned_paths:
-  - .github/workflows/organization-runner-platform-recovery.yml
+  - .github/workflows/synology-diagnostics.yml
   - docs/agents/tasks/active/OTERYN-20260822-platform-runner-availability.md
 modules:
   - ci-runner-control
@@ -53,7 +53,7 @@ context_routes:
   - ci-repair
   - testing
 owned_paths:
-  - .github/workflows/organization-runner-platform-recovery.yml
+  - .github/workflows/synology-diagnostics.yml
   - docs/agents/tasks/active/OTERYN-20260822-platform-runner-availability.md
 proven:
   - Platform main Synology Diagnostics run 32548013556 job 96969892573 has remained queued with no assigned runner.
@@ -72,7 +72,7 @@ changed_paths: []
 validation:
   - command: not-run
     result: NOT_RUN
-    evidence: repair workflow not yet executed
+    evidence: Docker Engine recovered; acceptance workflow repair pending exact-head validation
 blockers:
   - none
 next_action: Re-run bounded recovery on legacy and verify Platform organization runner becomes online.

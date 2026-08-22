@@ -47,18 +47,11 @@ jobs:
           docker version >/dev/null
           docker info >/dev/null
 
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-
-          state = json.loads(Path('/runner/.runner').read_text(encoding='utf-8'))
-          if state.get('agentName') != 'oteryn-synology-platform':
-              raise SystemExit('unexpected persistent runner agentName')
-          if state.get('gitHubUrl') != 'https://github.com/Oteryn':
-              raise SystemExit('unexpected persistent runner organization URL')
-          if state.get('workFolder') not in {'/work', '_work'}:
-              raise SystemExit('unexpected persistent runner workFolder')
-          PY
+          jq -e '
+            .agentName == "oteryn-synology-platform" and
+            .gitHubUrl == "https://github.com/Oteryn" and
+            (.workFolder == "/work" or .workFolder == "_work")
+          ' /runner/.runner >/dev/null
 
           expected='mariadb redis platform canary gateway'
           for service in $expected; do
