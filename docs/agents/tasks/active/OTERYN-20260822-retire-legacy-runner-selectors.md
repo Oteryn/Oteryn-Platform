@@ -44,11 +44,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-22T10:05:00Z
+updated_at: 2026-08-22T10:09:30Z
 head: df8078a10a757d03e64aa4f0c26767bc5ec496cc
 branch: ci/issue-1220-retire-legacy-selectors
-pr: none
-status: implementing
+pr: 1221
+status: validating
 context_routes:
   - ci-repair
   - testing
@@ -88,7 +88,7 @@ validation:
     evidence: NO_LEGACY_RUNS_ON=PASS on task branch
 blockers:
   - none
-next_action: Commit and open the Issue #1220 implementation PR, then validate exact head and Platform trusted-main acceptance.
+next_action: Validate PR #1221 exact head, merge normally, then retire legacy only after trusted-main proof remains green.
 ```
 
 ## Source branch closeout
