@@ -13,8 +13,10 @@ return new class extends Migration
     {
         Schema::create('payment_reconciliation_resolutions', function (Blueprint $table): void {
             $table->id();
-            $table->foreignId('payment_reconciliation_entry_id')
-                ->constrained('payment_reconciliation_entries')
+            $table->foreignId('payment_reconciliation_entry_id');
+            $table->foreign('payment_reconciliation_entry_id', 'payment_recon_resolution_entry_fk')
+                ->references('id')
+                ->on('payment_reconciliation_entries')
                 ->restrictOnDelete();
             $table->foreignId('actor_identity_id')
                 ->constrained('identities')
