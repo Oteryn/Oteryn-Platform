@@ -53,7 +53,8 @@ updated_at: 2026-08-22T02:58:00Z
 head: UNKNOWN
 branch: ops/issue-1215-platform-runner-acceptance
 pr: 1216
-status: validating`nterminal_pr_policy: archive_pending
+status: validating
+terminal_pr_policy: archive_pending
 context_routes:
   - deployment-operations
 owned_paths:
