@@ -5,6 +5,7 @@ on:
     paths:
       - ".github/workflows/terminal-branch-lifecycle.yml"
       - ".github/workflows/terminal-branch-lifecycle-reusable.yml"
+      - ".github/workflows/terminal-branch-lifecycle-read-reusable.yml"
       - "docs/agents/BRANCH_LIFECYCLE_POLICY.json"
       - "docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json"
       - "tools/agents/branch_lifecycle.py"
@@ -26,6 +27,7 @@ on:
     paths:
       - ".github/workflows/terminal-branch-lifecycle.yml"
       - ".github/workflows/terminal-branch-lifecycle-reusable.yml"
+      - ".github/workflows/terminal-branch-lifecycle-read-reusable.yml"
       - "docs/agents/BRANCH_LIFECYCLE_POLICY.json"
       - "docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json"
       - "tools/agents/branch_lifecycle.py"

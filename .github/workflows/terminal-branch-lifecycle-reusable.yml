@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       operation:
-        description: read, close, or apply
+        description: close or apply
         required: true
         type: string
       platform_ref:
@@ -41,84 +41,12 @@ jobs:
         shell: bash
         run: |
           case "$OPERATION" in
-            read|close|apply) ;;
+            close|apply) ;;
             *)
-              echo "Unsupported lifecycle operation: $OPERATION" >&2
+              echo "Unsupported write-capable lifecycle operation: $OPERATION" >&2
               exit 1
               ;;
           esac
-
-  read:
-    if: inputs.operation == 'read'
-    name: read-only-inventory
-    needs: validate-operation
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      issues: read
-      pull-requests: read
-    steps:
-      - name: Check out caller repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Check out pinned lifecycle implementation
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: Oteryn/Oteryn-Platform
-          ref: ${{ inputs.platform_ref }}
-          path: .oteryn-branch-lifecycle
-          persist-credentials: false
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-
-      - name: Validate caller lifecycle policy
-        shell: bash
-        run: |
-          python3 .oteryn-branch-lifecycle/tools/agents/branch_lifecycle.py \
-            --mode validate-policy \
-            --root "$GITHUB_WORKSPACE" \
-            --policy "${{ inputs.policy_path }}"
-
-      - name: Build fail-closed live inventory
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          python3 .oteryn-branch-lifecycle/tools/agents/terminal_branch_cleanup.py \
-            --mode inventory \
-            --root "$GITHUB_WORKSPACE" \
-            --policy "${{ inputs.policy_path }}" \
-            --output terminal-branch-report.json \
-            --generate-manifest terminal-branch-deletion-manifest.generated.json
-
-      - name: Validate reviewed historical candidate digest when present
-        shell: bash
-        run: |
-          if [[ -f "${{ inputs.approval_path }}" ]]; then
-            python3 .oteryn-branch-lifecycle/tools/agents/terminal_branch_approval.py \
-              --approval "${{ inputs.approval_path }}" \
-              --manifest terminal-branch-deletion-manifest.generated.json \
-              --report terminal-branch-report.json \
-              --output terminal-branch-approval-validation.json
-          else
-            echo "No reviewed historical deletion approval is present; validation is NOT_APPLICABLE."
-          fi
-
-      - name: Publish read-only lifecycle evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: terminal-branch-lifecycle-read-${{ github.repository_id }}-${{ github.run_id }}
-          path: |
-            terminal-branch-report.json
-            terminal-branch-deletion-manifest.generated.json
-            terminal-branch-approval-validation.json
-          if-no-files-found: warn
-          retention-days: 30
 
   close:
     if: >-
