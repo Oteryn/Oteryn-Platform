@@ -87,7 +87,7 @@ final class NativeCatalogEnvelopeValidator
 
         try {
             $stat = fstat($handle);
-            if (! is_array($stat) || ! isset($stat['size']) || ! is_int($stat['size'])) {
+            if ($stat === false) {
                 $this->fail('native.input.stat_failed', 'Native Game Catalog artifact size is unavailable.', '$');
             }
             if ($stat['size'] > $this->maximumFileBytes) {
@@ -434,10 +434,12 @@ final class NativeCatalogEnvelopeValidator
         $integrityPayload = clone $payload;
         unset($integrityPayload->snapshot_id, $integrityPayload->payload_digest);
         $expected = 'sha256:'.hash('sha256', $this->canonicalJson($integrityPayload));
-        if (! hash_equals($expected, $payload->payload_digest)) {
+        $payloadDigest = $this->assertDigest($payload->payload_digest, '$.payload_digest');
+        $snapshotId = $this->assertDigest($payload->snapshot_id, '$.snapshot_id');
+        if (! hash_equals($expected, $payloadDigest)) {
             $this->fail('native.digest.mismatch', 'Native Game Catalog payload digest does not match canonical content.', '$.payload_digest');
         }
-        if (! hash_equals($expected, $payload->snapshot_id)) {
+        if (! hash_equals($expected, $snapshotId)) {
             $this->fail('native.digest.snapshot_id_mismatch', 'Native Game Catalog snapshot_id must equal the canonical payload digest.', '$.snapshot_id');
         }
     }
@@ -580,8 +582,7 @@ final class NativeCatalogEnvelopeValidator
         }
     }
 
-    /** @return array<string, mixed>|list<mixed>|bool|float|int|string|null */
-    private function toArray(mixed $value): array|bool|float|int|string|null
+    private function toArray(mixed $value): mixed
     {
         if ($value instanceof stdClass) {
             $result = [];
