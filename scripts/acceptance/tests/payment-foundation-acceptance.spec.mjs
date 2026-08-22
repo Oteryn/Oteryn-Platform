@@ -122,7 +122,7 @@ test('@portal-payments-account owner history browser return and signed test-prov
   });
 
   await page.goto(returnUrl);
-  await expect(page.getByText('Succeeded', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Succeeded', exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Back to payment history' }).click();
   await expect(page.getByText(orderPublicId, { exact: true })).toBeVisible();
   await expect(page.getByText('12.34 PLN', { exact: true })).toBeVisible();
