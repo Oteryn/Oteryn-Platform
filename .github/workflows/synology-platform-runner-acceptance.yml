@@ -1,0 +1,107 @@
+name: Synology Platform Runner Acceptance
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/synology-platform-runner-acceptance.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: synology-platform-runner-acceptance
+  cancel-in-progress: false
+
+jobs:
+  qualify-platform-runner:
+    name: Qualify Platform runner and staging boundary
+    timeout-minutes: 10
+    runs-on:
+      group: platform-runners
+      labels: oteryn-platform
+    env:
+      EXPECTED_RUNNER_NAME: oteryn-synology-platform
+      EXPECTED_ORG_URL: https://github.com/Oteryn
+      EXPECTED_COMPOSE_PROJECT: oteryn-staging
+      EXPECTED_STATE_DIR: /var/lib/oteryn-staging-state
+    steps:
+      - name: Verify exact Platform runner identity
+        env:
+          ACTUAL_RUNNER_NAME: ${{ runner.name }}
+          ACTUAL_RUNNER_OS: ${{ runner.os }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$ACTUAL_RUNNER_NAME" = "$EXPECTED_RUNNER_NAME"
+          test "$ACTUAL_RUNNER_OS" = "Linux"
+          test "$(id -u)" = "0"
+          test "$(id -g)" = "0"
+          test -d /runner
+          test -d /work
+
+      - name: Verify persistent organization registration identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          state = json.loads(Path('/runner/.runner').read_text(encoding='utf-8'))
+          if state.get('agentName') != 'oteryn-synology-platform':
+              raise SystemExit('unexpected persistent runner agentName')
+          if state.get('gitHubUrl') != 'https://github.com/Oteryn':
+              raise SystemExit('unexpected persistent runner organization URL')
+          if state.get('workFolder') not in {'/work', '_work'}:
+              raise SystemExit('unexpected persistent runner workFolder')
+          PY
+
+      - name: Verify expected read-only host capabilities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -S /var/run/docker.sock
+          docker version >/dev/null
+          docker info >/dev/null
+          test -d "$EXPECTED_STATE_DIR"
+          test -r "$EXPECTED_STATE_DIR"
+          test "$(stat -c '%F' "$EXPECTED_STATE_DIR")" = "directory"
+
+      - name: Observe existing trusted staging services without mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='mariadb redis platform canary gateway'
+          for service in $expected; do
+            ids="$(docker ps -q \
+              --filter "label=com.docker.compose.project=$EXPECTED_COMPOSE_PROJECT" \
+              --filter "label=com.docker.compose.service=$service")"
+            test -n "$ids"
+            test "$(printf '%s\n' "$ids" | sed '/^$/d' | wc -l)" -eq 1
+            test "$(docker inspect "$ids" --format '{{.State.Running}}')" = "true"
+          done
+
+          mariadb_id="$(docker ps -q \
+            --filter "label=com.docker.compose.project=$EXPECTED_COMPOSE_PROJECT" \
+            --filter 'label=com.docker.compose.service=mariadb')"
+          test "$(docker inspect "$mariadb_id" --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}')" = "healthy"
+
+      - name: Record sanitized acceptance evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo 'PLATFORM_RUNNER_ACCEPTANCE=PASS'
+            echo "RUNNER_NAME=${{ runner.name }}"
+            echo 'RUNNER_ROUTE=platform-runners/oteryn-platform'
+            echo 'RUNNER_SCOPE=organization'
+            echo 'DOCKER_HOST_CONTROL=READ_ONLY_PROOF_PASS'
+            echo 'PLATFORM_STAGING_STATE=READABLE'
+            echo 'STAGING_RUNTIME=OBSERVED_RUNNING'
+            echo 'MARIADB_HEALTH=healthy'
+            echo 'RUNTIME_MUTATION=NONE'
+            echo 'ENVIRONMENT_VALUES_EXPOSED=NONE'
+          } >> "$GITHUB_STEP_SUMMARY"
