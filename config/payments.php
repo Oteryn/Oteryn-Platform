@@ -23,5 +23,8 @@ return [
         'signature_tolerance_seconds' => (int) env('PAYMENTS_WEBHOOK_SIGNATURE_TOLERANCE_SECONDS', 300),
         'test_secret' => env('PAYMENTS_TEST_SECRET'),
     ],
+    'test_surface' => [
+        'amount_minor' => 1_234,
+    ],
     'test_adapter_class' => DeterministicTestPaymentProvider::class,
 ];

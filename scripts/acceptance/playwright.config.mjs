@@ -56,6 +56,7 @@ const responsiveMatches = [
   '**/public-game-catalog-acceptance.spec.mjs',
   '**/admin-game-catalog-acceptance.spec.mjs',
   '**/homepage-navigation-seo.spec.mjs',
+  '**/payment-foundation-acceptance.spec.mjs',
 ];
 
 const accessibilityMatches = [

@@ -122,6 +122,21 @@
       "rationale": "Administrator wallet adjustment, ledger and recovery surfaces render privileged textual data and controls without managed media."
     },
     {
+      "id": "payments.account-history-and-return",
+      "classification": "not_applicable",
+      "rationale": "Payment history and checkout-return presentation render bounded financial state, identifiers and controls without repository-managed media."
+    },
+    {
+      "id": "payments.admin-reconciliation",
+      "classification": "not_applicable",
+      "rationale": "Payment reconciliation administration renders bounded provider-state codes, identifiers and controls without repository-managed media."
+    },
+    {
+      "id": "payments.test-provider-ingress",
+      "classification": "supporting_endpoint",
+      "rationale": "The deterministic test-provider ingress is a JSON transport endpoint and has no rendered managed-media state."
+    },
+    {
       "id": "support.moderation-lifecycle",
       "classification": "not_applicable",
       "rationale": "Support cases, moderation actions, private notes, appeals and notifications render text and controls without repository-managed images."
