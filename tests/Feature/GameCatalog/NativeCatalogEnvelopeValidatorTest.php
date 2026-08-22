@@ -4,11 +4,16 @@ namespace Tests\Feature\GameCatalog;
 
 use App\GameCatalog\Application\Import\Native\NativeCatalogContract;
 use App\GameCatalog\Application\Import\Native\NativeCatalogEnvelopeValidator;
+use App\GameCatalog\Application\Import\Native\ValidatedNativeCatalogSnapshot;
 use App\GameCatalog\Domain\Exceptions\CatalogValidationException;
 use JsonException;
 use RuntimeException;
 use Tests\TestCase;
 
+/**
+ * @phpstan-import-type NativeCatalogPayload from ValidatedNativeCatalogSnapshot
+ * @phpstan-import-type NativeEntity from ValidatedNativeCatalogSnapshot
+ */
 final class NativeCatalogEnvelopeValidatorTest extends TestCase
 {
     public function test_locked_game_fixture_validates_without_persistence_or_activation(): void
@@ -215,7 +220,7 @@ final class NativeCatalogEnvelopeValidatorTest extends TestCase
         }
     }
 
-    /** @param callable(array<string, mixed>&): void $mutate */
+    /** @param callable(NativeCatalogPayload&): void $mutate */
     private function temporarySnapshot(callable $mutate): string
     {
         try {
@@ -227,6 +232,7 @@ final class NativeCatalogEnvelopeValidatorTest extends TestCase
             if (! is_array($payload) || array_is_list($payload)) {
                 throw new RuntimeException('Native Game Catalog fixture root is invalid.');
             }
+            /** @var NativeCatalogPayload $payload */
             $mutate($payload);
             $encoded = json_encode(
                 $payload,
@@ -243,7 +249,10 @@ final class NativeCatalogEnvelopeValidatorTest extends TestCase
         return $path;
     }
 
-    /** @param array<string, mixed> $payload */
+    /**
+     * @param NativeCatalogPayload $payload
+     * @param 'complete'|'partial'|'unknown' $state
+     */
     private function support(array &$payload, string $capabilityId, string $state): void
     {
         foreach ($payload['capability_manifest'] as &$capability) {
@@ -261,7 +270,7 @@ final class NativeCatalogEnvelopeValidatorTest extends TestCase
         unset($capability);
     }
 
-    /** @return array<string, mixed> */
+    /** @return NativeEntity */
     private function entity(string $key): array
     {
         return [

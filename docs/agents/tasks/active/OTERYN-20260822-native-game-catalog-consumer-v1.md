@@ -1,4 +1,4 @@
-﻿---
+---
 task_id: OTERYN-20260822-native-game-catalog-consumer-v1
 required_reads:
   - AGENTS.md
@@ -19,13 +19,13 @@ Implement the first bounded Platform-side inactive consumer for the locked nativ
 
 ## Acceptance criteria
 
-- [ ] Pin the merged Game contract `96ea673839f1d93190a40c17ae8036ac82096ded` and SHA-256 `9bc87fba5b565e5c7d4d3f6ca7a9bd75d45d8110de64a2a50f8f74d9ba181cad`.
-- [ ] TDD RED precedes implementation of native envelope validation.
-- [ ] Verify file/artifact integrity, fixed contract/schema/authority identity and canonical payload digest.
-- [ ] Fail closed on unknown capability, duplicate identity, non-canonical order, dangling relation, invalid tombstone completeness and out-of-bound nested data.
-- [ ] Preserve unsupported/partial/unknown capability semantics without persistence or authoritative absence.
-- [ ] Validate an exact cross-repository fixture produced by the merged Game producer.
-- [ ] Add no route, public/admin UI, import persistence, activation, deployment or production mutation.
+- [x] Pin the merged Game contract `96ea673839f1d93190a40c17ae8036ac82096ded` and SHA-256 `9bc87fba5b565e5c7d4d3f6ca7a9bd75d45d8110de64a2a50f8f74d9ba181cad`.
+- [x] TDD RED precedes implementation of native envelope validation.
+- [x] Verify file/artifact integrity, fixed contract/schema/authority identity and canonical payload digest.
+- [x] Fail closed on unknown capability, duplicate identity, non-canonical order, dangling relation, invalid tombstone completeness and out-of-bound nested data.
+- [x] Preserve unsupported/partial/unknown capability semantics without persistence or authoritative absence.
+- [x] Validate an exact cross-repository fixture produced by the merged Game producer.
+- [x] Add no route, public/admin UI, import persistence, activation, deployment or production mutation.
 - [ ] Focused tests, static/style checks and required exact-head CI pass.
 - [ ] Whole-diff review has zero unresolved material findings.
 
@@ -51,11 +51,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-22T20:35:00Z
+updated_at: 2026-08-22T20:55:00Z
 head: 20f8aac95ae1b890ec6ebe8a705dda7dfb6674d4
 branch: feat/native-game-catalog-consumer-v1
-pr: none
-status: implementing
+pr: 1229
+status: validating
 context_routes:
   - game-catalog
 owned_paths:
@@ -73,19 +73,28 @@ unknown:
   - native capability-specific payload contracts remain absent for broad content families
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: tdd-red-missing-native-consumer-classes
+  evidence: Game Catalog Contract run 32597729513 / static-analysis job 97091220173
 rejected_hypotheses:
   - reuse legacy schema 1.0.0 registry entry for native envelope; payload authority and shape differ
 changed_paths:
+  - app/GameCatalog/Application/Import/Native/NativeCatalogContract.php
+  - app/GameCatalog/Application/Import/Native/NativeCatalogEnvelopeValidator.php
+  - app/GameCatalog/Application/Import/Native/ValidatedNativeCatalogSnapshot.php
+  - tests/Feature/GameCatalog/NativeCatalogEnvelopeValidatorTest.php
+  - tests/Fixtures/GameCatalog/native-v1/unsupported-snapshot.json
+  - tests/Fixtures/GameCatalog/native-v1/unsupported-snapshot.json.sha256
   - docs/agents/tasks/active/OTERYN-20260822-native-game-catalog-consumer-v1.md
 validation:
-  - command: not-run
-    result: NOT_RUN
-    evidence: implementation not started
+  - command: Game Catalog Contract run 32597729513
+    result: FAIL
+    evidence: expected TDD RED on missing NativeCatalogEnvelopeValidator and NativeCatalogContract
+  - command: Docker PHP 8.5 syntax check
+    result: PASS
+    evidence: all native consumer production/test PHP files parse cleanly
 blockers:
   - none
-next_action: add native envelope behavior test and observe RED before production code
+next_action: commit the GREEN implementation generation and inspect exact-head Game Catalog/CI results
 ```
 
 ## Source branch closeout
