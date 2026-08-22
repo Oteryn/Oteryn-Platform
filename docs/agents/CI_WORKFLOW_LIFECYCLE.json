@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "workflow_budget": 53,
+  "workflow_budget": 54,
   "registered_workflows": [
     "acceptance-soak.yml",
     "acceptance-stability.yml",
@@ -52,6 +52,7 @@
     "synology-diagnostics.yml",
     "synology-production-target-preflight.yml",
     "synology-rollback-contract.yml",
+    "terminal-branch-lifecycle-reusable.yml",
     "terminal-branch-lifecycle.yml",
     "tibia-linux-live-reference.yml",
     "wiki-reconciliation-acceptance.yml"

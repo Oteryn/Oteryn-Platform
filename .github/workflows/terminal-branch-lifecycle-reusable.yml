@@ -1,0 +1,274 @@
+name: Oteryn Terminal Branch Lifecycle Reusable
+
+on:
+  workflow_call:
+    inputs:
+      operation:
+        description: read, close, or apply
+        required: true
+        type: string
+      platform_ref:
+        description: Immutable Oteryn-Platform commit SHA used for lifecycle tooling
+        required: true
+        type: string
+      policy_path:
+        description: Caller-local branch lifecycle policy path
+        required: false
+        default: docs/agents/BRANCH_LIFECYCLE_POLICY.json
+        type: string
+      approval_path:
+        description: Caller-local reviewed historical deletion approval path
+        required: false
+        default: docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json
+        type: string
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  validate-operation:
+    name: validate-operation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Validate requested operation
+        env:
+          OPERATION: ${{ inputs.operation }}
+        shell: bash
+        run: |
+          case "$OPERATION" in
+            read|close|apply) ;;
+            *)
+              echo "Unsupported lifecycle operation: $OPERATION" >&2
+              exit 1
+              ;;
+          esac
+
+  read:
+    if: inputs.operation == 'read'
+    name: read-only-inventory
+    needs: validate-operation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Check out caller repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check out pinned lifecycle implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Oteryn/Oteryn-Platform
+          ref: ${{ inputs.platform_ref }}
+          path: .oteryn-branch-lifecycle
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Validate caller lifecycle policy
+        shell: bash
+        run: |
+          python3 .oteryn-branch-lifecycle/tools/agents/branch_lifecycle.py \
+            --mode validate-policy \
+            --root "$GITHUB_WORKSPACE" \
+            --policy "${{ inputs.policy_path }}"
+
+      - name: Build fail-closed live inventory
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 .oteryn-branch-lifecycle/tools/agents/terminal_branch_cleanup.py \
+            --mode inventory \
+            --root "$GITHUB_WORKSPACE" \
+            --policy "${{ inputs.policy_path }}" \
+            --output terminal-branch-report.json \
+            --generate-manifest terminal-branch-deletion-manifest.generated.json
+
+      - name: Validate reviewed historical candidate digest when present
+        shell: bash
+        run: |
+          if [[ -f "${{ inputs.approval_path }}" ]]; then
+            python3 .oteryn-branch-lifecycle/tools/agents/terminal_branch_approval.py \
+              --approval "${{ inputs.approval_path }}" \
+              --manifest terminal-branch-deletion-manifest.generated.json \
+              --report terminal-branch-report.json \
+              --output terminal-branch-approval-validation.json
+          else
+            echo "No reviewed historical deletion approval is present; validation is NOT_APPLICABLE."
+          fi
+
+      - name: Publish read-only lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: terminal-branch-lifecycle-read-${{ github.repository_id }}-${{ github.run_id }}
+          path: |
+            terminal-branch-report.json
+            terminal-branch-deletion-manifest.generated.json
+            terminal-branch-approval-validation.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  close:
+    if: >-
+      inputs.operation == 'close' &&
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    name: close-event-cleanup
+    needs: validate-operation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Check out caller protected main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+
+      - name: Check out pinned lifecycle implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Oteryn/Oteryn-Platform
+          ref: ${{ inputs.platform_ref }}
+          path: .oteryn-branch-lifecycle
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Process explicit closed-PR branch disposition
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 .oteryn-branch-lifecycle/tools/agents/terminal_branch_cleanup.py \
+            --mode event \
+            --root "$GITHUB_WORKSPACE" \
+            --policy "${{ inputs.policy_path }}" \
+            --event "$GITHUB_EVENT_PATH" \
+            --output terminal-branch-close-event-report.json \
+            --evidence terminal-branch-close-event-evidence.json
+
+      - name: Publish close-event evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: terminal-branch-lifecycle-close-${{ github.repository_id }}-${{ github.run_id }}
+          path: |
+            terminal-branch-close-event-report.json
+            terminal-branch-close-event-evidence.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  apply:
+    if: >-
+      inputs.operation == 'apply' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main'
+    name: apply-reviewed-manifest
+    needs: validate-operation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Check out caller protected main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+
+      - name: Check out pinned lifecycle implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Oteryn/Oteryn-Platform
+          ref: ${{ inputs.platform_ref }}
+          path: .oteryn-branch-lifecycle
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Detect reviewed terminal candidate digest
+        id: approval
+        shell: bash
+        run: |
+          if [[ -f "${{ inputs.approval_path }}" ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "No reviewed terminal candidate digest is present; apply is NOT_APPLICABLE."
+          fi
+
+      - name: Rebuild live candidate set and materialize exact runtime manifest
+        if: steps.approval.outputs.exists == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 .oteryn-branch-lifecycle/tools/agents/terminal_branch_cleanup.py \
+            --mode inventory \
+            --root "$GITHUB_WORKSPACE" \
+            --policy "${{ inputs.policy_path }}" \
+            --output terminal-branch-apply-report.json \
+            --generate-manifest terminal-branch-deletion-manifest.runtime.generated.json
+          python3 .oteryn-branch-lifecycle/tools/agents/terminal_branch_approval.py \
+            --approval "${{ inputs.approval_path }}" \
+            --manifest terminal-branch-deletion-manifest.runtime.generated.json \
+            --report terminal-branch-apply-report.json \
+            --output terminal-branch-approval-apply-validation.json \
+            --materialize terminal-branch-deletion-manifest.runtime.json \
+            --require-apply
+
+      - name: Apply exact reviewed terminal manifest
+        if: steps.approval.outputs.exists == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 .oteryn-branch-lifecycle/tools/agents/terminal_branch_cleanup.py \
+            --mode apply \
+            --root "$GITHUB_WORKSPACE" \
+            --policy "${{ inputs.policy_path }}" \
+            --manifest terminal-branch-deletion-manifest.runtime.json \
+            --event-name push \
+            --ref-name main \
+            --output terminal-branch-apply-report.json \
+            --evidence terminal-branch-deletion-evidence.json \
+            --recovery-evidence terminal-branch-recovery-evidence.json
+
+      - name: Publish apply evidence
+        if: always() && steps.approval.outputs.exists == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: terminal-branch-lifecycle-apply-${{ github.repository_id }}-${{ github.run_id }}
+          path: |
+            terminal-branch-apply-report.json
+            terminal-branch-deletion-manifest.runtime.generated.json
+            terminal-branch-deletion-manifest.runtime.json
+            terminal-branch-approval-apply-validation.json
+            terminal-branch-deletion-evidence.json
+            terminal-branch-recovery-evidence.json
+          if-no-files-found: warn
+          retention-days: 90
