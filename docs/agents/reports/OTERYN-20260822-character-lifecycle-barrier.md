@@ -107,7 +107,8 @@ The missing facts are therefore not a Platform architecture ambiguity that this 
 - protected `main` baseline is `8e609f05278816102a08fcbeb9d102642c8380a0`;
 - #317, #319 and #320 are open and blocked;
 - their current comments already acknowledge the terminal shared #919/#920 contract and preserve product-specific/runtime blockers;
-- no open PR was found for the exact character lifecycle barrier or Issues #317/#319/#320;
+- no other open PR references #317, #319 or #320 after excluding this task's PR #1226;
+- branch search for `character-lifecycle` finds only this task branch;
 - the active-work index exposes no overlapping character-lifecycle task owner;
 - ADR 0029, ADR 0030, ADR 0031, the focused native lifecycle authority guide and the shared command contract agree on the authority split summarized above;
 - no repository search result proves a later accepted player-selectable world/channel-transfer product decision.
@@ -140,5 +141,5 @@ This task changes documentation and task state only.
 
 - application/runtime tests: `NOT_APPLICABLE` — no executable code, schema, endpoint, command adapter or UI changes;
 - browser E2E: `NOT_APPLICABLE` — no user-facing executable lifecycle path is introduced;
-- cross-repository integration: `BLOCKED / NOT RUN` by current repository access authority and intentionally not substituted with guesses;
+- cross-repository integration: `NOT_APPLICABLE` — this bounded task deliberately delivers no producer/consumer implementation, and server/game repository access is outside current invocation authority;
 - required final proof: full exact-head diff self-review plus repository-selected documentation/governance CI on the final PR head.
