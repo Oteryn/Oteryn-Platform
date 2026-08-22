@@ -1,6 +1,11 @@
 name: Synology Diagnostics
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/synology-diagnostics.yml
   workflow_dispatch:
 
 permissions:
@@ -12,17 +17,63 @@ concurrency:
 
 jobs:
   diagnose:
-    name: Read-only Synology diagnostics
-    runs-on: oteryn-staging
+    name: Read-only Platform Synology diagnostics
+    runs-on:
+      group: platform-runners
+      labels: oteryn-platform
     timeout-minutes: 10
+    env:
+      EXPECTED_RUNNER_NAME: oteryn-synology-platform
+      EXPECTED_COMPOSE_PROJECT: oteryn-staging
+      EXPECTED_STATE_DIR: /var/lib/oteryn-staging-state
 
     steps:
-      - name: Validate diagnostic access
+      - name: Validate replacement route and diagnostic access
+        env:
+          ACTUAL_RUNNER_NAME: ${{ runner.name }}
+          ACTUAL_RUNNER_OS: ${{ runner.os }}
         shell: bash
         run: |
           set -euo pipefail
+          test "$ACTUAL_RUNNER_NAME" = "$EXPECTED_RUNNER_NAME"
+          test "$ACTUAL_RUNNER_OS" = "Linux"
+          test "$(id -u)" = "0"
+          test "$(id -g)" = "0"
+          test -d /runner
+          test -d /work
+          test -S /var/run/docker.sock
+          test -d "$EXPECTED_STATE_DIR"
+          test -r "$EXPECTED_STATE_DIR"
           docker version >/dev/null
           docker info >/dev/null
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          state = json.loads(Path('/runner/.runner').read_text(encoding='utf-8'))
+          if state.get('agentName') != 'oteryn-synology-platform':
+              raise SystemExit('unexpected persistent runner agentName')
+          if state.get('gitHubUrl') != 'https://github.com/Oteryn':
+              raise SystemExit('unexpected persistent runner organization URL')
+          if state.get('workFolder') not in {'/work', '_work'}:
+              raise SystemExit('unexpected persistent runner workFolder')
+          PY
+
+          expected='mariadb redis platform canary gateway'
+          for service in $expected; do
+            ids="$(docker ps -q \
+              --filter "label=com.docker.compose.project=$EXPECTED_COMPOSE_PROJECT" \
+              --filter "label=com.docker.compose.service=$service")"
+            test -n "$ids"
+            test "$(printf '%s\n' "$ids" | sed '/^$/d' | wc -l)" -eq 1
+            test "$(docker inspect "$ids" --format '{{.State.Running}}')" = "true"
+          done
+
+          mariadb_id="$(docker ps -q \
+            --filter "label=com.docker.compose.project=$EXPECTED_COMPOSE_PROJECT" \
+            --filter 'label=com.docker.compose.service=mariadb')"
+          test "$(docker inspect "$mariadb_id" --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}')" = "healthy"
 
       - name: Collect read-only diagnostics
         shell: bash
@@ -70,19 +121,29 @@ jobs:
           echo
 
           echo "## Oteryn state mount filesystem"
-          df -h /var/lib/oteryn-staging-state || true
+          df -h "$EXPECTED_STATE_DIR" || true
 
           echo "::${command_token}::"
 
-      - name: Publish usage note
+      - name: Publish usage note and sanitized acceptance evidence
         shell: bash
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
           ## Synology diagnostics
 
-          This workflow performs read-only Docker Engine and runner-container queries on the `oteryn-staging` self-hosted runner.
+          `PLATFORM_RUNNER_ACCEPTANCE=PASS`
 
-          It does **not** print container environment variables, Docker inspect payloads, file contents, secrets, or application data. It does not create, stop, restart, remove, prune, or modify Docker resources.
+          - runner: `oteryn-synology-platform`
+          - route: `platform-runners / oteryn-platform`
+          - registration scope: organization `https://github.com/Oteryn`
+          - Docker host access: read-only proof passed
+          - Platform staging-state: readable
+          - trusted staging services: observed running
+          - MariaDB health: healthy
+          - runtime mutation: none
+          - environment values exposed: none
 
-          Review the `Collect read-only diagnostics` step log for the diagnostic output.
+          This workflow performs read-only Docker Engine and runner-container queries. It does **not** print container environment variables, Docker inspect payloads, file contents, secrets, or application data. It does not create, stop, restart, remove, prune, or modify Docker resources.
+
+          Review the `Collect read-only diagnostics` step log for the bounded diagnostic output.
           EOF
