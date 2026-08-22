@@ -54,6 +54,7 @@ head: UNKNOWN
 branch: ops/issue-1215-platform-runner-acceptance
 pr: 1216
 status: validating
+terminal_pr_policy: archive_pending
 context_routes:
   - deployment-operations
 owned_paths:
@@ -87,7 +88,7 @@ validation:
     evidence: repaired current head not yet validated
 blockers:
   - none
-next_action: validate repaired PR #1216 exact head and repair any remaining material failure
+next_action: Archive this implementation record after successor PR #1218 completes trusted-main acceptance.
 ```
 
 ## Source branch closeout
