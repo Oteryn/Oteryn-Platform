@@ -7,7 +7,6 @@ use App\GameCatalog\Application\Import\CatalogImportService;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
-use RuntimeException;
 
 require __DIR__.'/../../vendor/autoload.php';
 
