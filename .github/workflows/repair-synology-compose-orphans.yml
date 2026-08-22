@@ -14,7 +14,9 @@ concurrency:
 jobs:
   repair:
     if: github.ref == 'refs/heads/main'
-    runs-on: oteryn-staging
+    runs-on:
+      group: platform-runners
+      labels: oteryn-platform
     timeout-minutes: 10
     steps:
       - name: Checkout trusted main

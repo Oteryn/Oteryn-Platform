@@ -18,7 +18,9 @@ concurrency:
 jobs:
   recover:
     if: github.ref == 'refs/heads/main'
-    runs-on: oteryn-staging
+    runs-on:
+      group: platform-runners
+      labels: oteryn-platform
     environment: synology-staging
     timeout-minutes: 30
     env:

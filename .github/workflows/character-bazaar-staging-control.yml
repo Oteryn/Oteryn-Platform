@@ -41,7 +41,9 @@ concurrency:
 jobs:
   control:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[character-bazaar-staging]')
-    runs-on: oteryn-staging
+    runs-on:
+      group: platform-runners
+      labels: oteryn-platform
     environment: synology-staging
     timeout-minutes: 60
     env:

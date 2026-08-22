@@ -102,7 +102,9 @@ jobs:
           echo
 
           echo "## Docker disk usage"
-          docker system df
+          if ! timeout 20 docker system df; then
+            echo 'Docker disk usage query timed out; continuing bounded diagnostics'
+          fi
           echo
 
           echo "## Networks"
