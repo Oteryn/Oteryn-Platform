@@ -42,7 +42,7 @@ This task does not implement deletion, rename or world/channel transfer runtime 
 - [x] No Canary compatibility behavior or stale historical record is promoted into native game authority.
 - [x] No runtime implementation is started while a material game-owned contract or product decision is `UNKNOWN`.
 - [x] The smallest durable Platform-side barrier result and one concrete unblock action are recorded.
-- [ ] Exact-head documentation/governance validation, full-diff self-review and PR hygiene pass before merge.
+- [ ] Final checkpoint-only exact-head CI, merge and terminal archive closeout remain.
 
 ## Ownership
 
@@ -53,7 +53,7 @@ implementation_authorized: false
 execution_mode: github
 execution_reason: repository-only architecture and dependency classification with no permitted game-repository access
 policy_version: 2
-phase: validate
+phase: close
 context_pressure: medium
 context_growth: stable
 context_score: 7
@@ -73,7 +73,7 @@ dependencies:
   - docs/contracts/OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md
   - Issues #317 #319 #320
 blockers:
-  - none for the bounded barrier classification
+  - none for the bounded barrier classification and closeout
 cross_repository_tasks:
   - none
 ```
@@ -82,11 +82,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-22T17:14:00Z
-head: e8c180861c8ad43384c5eda383c889a3355f7758
+updated_at: 2026-08-22T17:18:00Z
+head: db5dfa44a8fbc257065dc951820892c902acd432
 branch: agent/oteryn-20260822-character-lifecycle-barrier
 pr: 1226
-status: validating
+status: ready
 context_routes:
   - agent-governance
   - architecture
@@ -109,6 +109,10 @@ proven:
   - the shared command contract keeps world/channel transfer capability-gated rather than product-approved
   - Character Bazaar ownership transfer remains a separate higher-risk saga in which authoritative ownership transfer precedes wallet settlement
   - docs/agents/reports/OTERYN-20260822-character-lifecycle-barrier.md records the three-operation dependency matrix and smallest unblock handoff
+  - full PR diff self-review and fresh documentation audit passed on db5dfa44a8fbc257065dc951820892c902acd432 with zero material findings
+  - CI run 32586986482 completed successfully on db5dfa44a8fbc257065dc951820892c902acd432 with required jobs classify-changes and test successful
+  - Agent Governance run 32586986474 completed successfully on db5dfa44a8fbc257065dc951820892c902acd432 including active checkpoint and branch-closeout validation
+  - repository setting delete_branch_on_merge is true
 derived:
   - the previously missing generic operation identity idempotency typed-outcome ambiguity and reconciliation baseline is no longer the shared blocker
   - no truthful independent Platform-only runtime slice can currently unblock #317 #319 or #320 without inventing missing producer or product semantics
@@ -140,20 +144,23 @@ validation:
   - command: cross-repository integration
     result: NOT_APPLICABLE
     evidence: no producer/consumer implementation is delivered by this bounded Platform-only task and server/game repository access is outside current invocation authority
-  - command: exact-head documentation/governance validation
-    result: NOT_RUN
-    evidence: full-diff self-review and final PR readiness still pending
+  - command: CI run 32586986482 on db5dfa44a8fbc257065dc951820892c902acd432
+    result: PASS
+    evidence: classify-changes success; test success; platform-gate success; runtime-tests and php-coverage-report correctly skipped for docs-only scope
+  - command: Agent Governance run 32586986474 on db5dfa44a8fbc257065dc951820892c902acd432
+    result: PASS
+    evidence: checkpoint-validation success including active checkpoint and source-branch closeout validation
 blockers:
   - none for completing this bounded barrier task
-next_action: Perform full PR #1226 diff self-review and PR hygiene, then freeze the final head for required exact-head documentation/governance validation.
+next_action: Verify required checks on the new checkpoint-only head of PR #1226 and squash-merge it if the head is unchanged and all merge gates remain satisfied.
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: PR #1226 is still active and has not passed terminal merge gates
-source_branch_evidence: pending
+source_branch_disposition: delete-after-merge
+source_branch_reason: same-repository task branch is terminal after PR #1226 and repository delete_branch_on_merge is enabled
+source_branch_evidence: repository metadata on 2026-08-22 reports delete_branch_on_merge=true; verify the ref is absent after merge
 ```
 
 ## Notes
