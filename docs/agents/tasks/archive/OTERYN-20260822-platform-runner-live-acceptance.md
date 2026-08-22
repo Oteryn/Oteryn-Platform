@@ -43,3 +43,11 @@ validation:
 blockers: []
 next_action: No action; task archived after successor recovery and final proof.
 ```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: terminal acceptance record archived after successor recovery proof
+source_branch_evidence: PR 1216 merge 62d134a71fa5b480249ffbffbb81079aede4be34 and final run 32567509732
+```
