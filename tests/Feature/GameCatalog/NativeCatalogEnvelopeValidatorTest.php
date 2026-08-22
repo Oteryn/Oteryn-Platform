@@ -150,7 +150,7 @@ final class NativeCatalogEnvelopeValidatorTest extends TestCase
                 'capability_id' => 'item',
                 'source' => 'oteryn:item.training_sword',
                 'target' => 'oteryn:item.missing',
-                'data' => [],
+                'data' => ['fixture' => null],
             ]];
         });
 
@@ -197,6 +197,32 @@ final class NativeCatalogEnvelopeValidatorTest extends TestCase
         try {
             $this->assertFailsWithCode(
                 'native.data.float_forbidden',
+                fn () => $this->validator()->validate($path),
+            );
+        } finally {
+            @unlink($path);
+        }
+    }
+
+    public function test_nested_data_beyond_locked_depth_fails_closed(): void
+    {
+        $path = $this->temporarySnapshot(function (array &$payload): void {
+            $this->support($payload, 'item', 'partial');
+            $entity = $this->entity('oteryn:item.deep_fixture');
+            $data = [];
+            $cursor = &$data;
+            for ($depth = 0; $depth < 18; $depth++) {
+                $cursor['next'] = [];
+                $cursor = &$cursor['next'];
+            }
+            unset($cursor);
+            $entity['data'] = $data;
+            $payload['entities'] = [$entity];
+        });
+
+        try {
+            $this->assertFailsWithCode(
+                'native.data.depth',
                 fn () => $this->validator()->validate($path),
             );
         } finally {
@@ -277,7 +303,7 @@ final class NativeCatalogEnvelopeValidatorTest extends TestCase
             'type' => 'item',
             'content_key' => $key,
             'capability_id' => 'item',
-            'data' => [],
+            'data' => ['fixture' => null],
         ];
     }
 
