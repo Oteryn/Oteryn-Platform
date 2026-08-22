@@ -100,14 +100,14 @@ test('@portal-payments-account owner history browser return and signed test-prov
   await page.getByLabel('Test currency').selectOption('PLN');
   await page.getByRole('button', { name: 'Create synthetic checkout' }).click();
   await expect(page.getByRole('heading', { name: 'Payment status' })).toBeVisible();
-  await expect(page.getByText('Checkout created / awaiting provider evidence', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Checkout created / awaiting provider evidence', exact: true })).toBeVisible();
 
   const returnUrl = page.url();
   const orderPublicId = new URL(returnUrl).pathname.split('/').filter(Boolean).at(-1);
   expect(orderPublicId).toMatch(/^[0-9a-f-]{36}$/u);
 
   await page.goto(`${returnUrl}?provider_return=succeeded`);
-  await expect(page.getByText('Checkout created / awaiting provider evidence', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Checkout created / awaiting provider evidence', exact: true })).toBeVisible();
   await expect(page.getByText('Succeeded', { exact: true })).toHaveCount(0);
   const successPayload = providerPayload(
     crypto.randomUUID(),
