@@ -62,10 +62,10 @@ owned_paths:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-22T14:32:00+02:00
-head: f3cd484a94e59311b7a9537f29b11d05a281565f
+updated_at: 2026-08-22T14:54:00+02:00
+head: e79d998b1ad37fbc578b9757bc406a5dec2e91f1
 branch: test/portal-docker-e2e
-pr: none
+pr: 1223
 status: ready
 context_routes:
   - testing
@@ -141,7 +141,7 @@ validation:
     result: PASS
     evidence: result-critical.json records PASS for f3cd484a94e59311b7a9537f29b11d05a281565f in 564 seconds
 blockers: []
-next_action: Create the delivery PR, verify exact-head required CI, then merge and close out Issue #1219.
+next_action: Verify required exact-head CI for PR #1223, then merge and close out Issue #1219.
 ```
 
 ## Validation gate
@@ -159,7 +159,7 @@ validation_gate:
   rationale: Docker acceptance infrastructure plus repairs to public rendering paths require full browser and negative-path evidence.
   self_review:
     result: PASS
-    exact_head: f3cd484a94e59311b7a9537f29b11d05a281565f
+    exact_head: e79d998b1ad37fbc578b9757bc406a5dec2e91f1
     evidence:
       - full diff from origin/main inspected; git diff --check passed
       - negative paths covered by resilience 8/8 and critical profile
@@ -171,7 +171,7 @@ validation_gate:
 
 ```yaml
 recovery_checkpoint_version: 1
-generation: 1
+generation: 2
 invocation_id: terminal-session-20260822-1254
 session_role: implementation-owner
 status: ready
@@ -180,7 +180,7 @@ exact_head: f3cd484a94e59311b7a9537f29b11d05a281565f
 safe_to_resume: true
 operation_started_at: null
 last_completed_operation: final exact-head Docker critical passed and full diff self-review completed
-next_operation: create delivery PR and verify required CI
+next_operation: verify required exact-head CI for PR #1223
 resource_cleanup_required: true
 ```
 
