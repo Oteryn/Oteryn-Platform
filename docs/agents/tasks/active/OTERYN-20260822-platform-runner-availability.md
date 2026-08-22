@@ -49,6 +49,7 @@ head: 4154c0eb241ac3ddb3287062427c07f6748e00a6
 branch: infra/issue-1217-platform-runner-recovery
 pr: 1218
 status: validating
+terminal_pr_policy: archive_pending
 context_routes:
   - ci-repair
   - testing
@@ -75,7 +76,7 @@ validation:
     evidence: Docker Engine recovered; acceptance workflow repair pending exact-head validation
 blockers:
   - none
-next_action: Validate PR #1218 exact head, then rerun trusted-main Synology diagnostics.
+next_action: Archive this recovery record after successor PR #1221 completes final trusted-main Platform acceptance and legacy retirement.
 ```
 
 ## Source branch closeout
