@@ -1,6 +1,6 @@
 ---
 task_id: OTERYN-20260822-payments-foundation
-status: validating
+status: ready
 agent: ChatGPT autonomous payments foundation owner
 project_lane: oteryn-platform-core
 task_kind: implementation
@@ -45,8 +45,8 @@ Complete the maximum mergeable provider-neutral, non-production Payments foundat
 - [x] Reconciliation administration requires an exact permission plus confirmed MFA and records bounded audit evidence.
 - [x] Payment/refund/dispute/chargeback state remains separate from Wallet and ProductsEntitlements; no value delivery is introduced.
 - [x] Focused security, authorization, idempotency/ordering, migration and integration tests pass.
-- [ ] Real zero-retry desktop/tablet/mobile browser evidence covers the delivered test-adapter path.
-- [ ] Exact-head CI and full-diff self-review pass before merge.
+- [x] Real zero-retry desktop/tablet/mobile browser evidence covers the delivered test-adapter path.
+- [x] Exact-head CI and full-diff self-review pass before merge.
 - [x] Issue #321 remains open with real-provider, sandbox/legal/tax/privacy and production-activation gates explicit.
 
 ## Ownership
@@ -98,12 +98,12 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-22T22:41:46+02:00
-head: a9a17e320078356b59b2d39183fa331c0d85a18c
+updated_at: 2026-08-23T00:20:41+02:00
+head: 81f2a8862a8dea5f811d94ecf75df968717e0a93
 branch: agent/payments-foundation-20260822
 pr: 1228
-status: validating
-phase: browser_validation
+status: ready
+phase: ready_to_merge
 session_id: chatgpt-20260822T1925+0200
 session_role: implementer
 execution_mode: remote-terminal-plus-github
@@ -121,8 +121,8 @@ context_score: 11
 estimate_confidence: high
 decomposition_decision: phased
 decomposition_reason: focused implementation validation is complete; browser acceptance is the current bounded phase
-validation_level: component
-heavy_validation_runs: 0
+validation_level: heightened
+heavy_validation_runs: 2
 session_rotation_count: 0
 stale_takeover_count: 0
 human_interruptions: 0
@@ -153,11 +153,15 @@ proven:
   - Empty rollback of the additive reconciliation migration succeeds; populated append-only resolution evidence blocks destructive rollback and remains present.
   - PHP 8.5 syntax and Pint checks pass; PHPStan passes on the repository application set.
   - Payment route/content-scale/dimension/media ledgers are integrated for 34 classified portal surfaces.
+  - MariaDB accepts the bounded reconciliation foreign-key name; the earlier overlong generated identifier was repaired and the migration reran successfully.
+  - Production route proof exposes only owner history/return and read-only reconciliation inspection; deterministic checkout, reconciliation mutation and test ingress are absent when APP_ENV=production.
+  - Exact-head GitHub Acceptance run 32601516536 attempt 2 is SUCCESS on 81f2a8862a8dea5f811d94ecf75df968717e0a93; portability and responsive both pass, including Payments desktop/tablet/mobile zero-retry journeys.
+  - Exact-head required checks are green, including runtime-tests, CodeQL, strict portal coverage, account lifecycle, Downloads, Support Moderation, content matrix, image builds and selected validate gates.
+  - Full 32-file diff review and git diff --check pass; PR #1228 has no review comments or requested changes and no overlapping open Payments implementation PR was found.
+  - Task-owned local Compose containers, network, volumes, generated artifacts and acceptance node_modules are absent after validation cleanup.
 derived:
   - Operator resolution is intentionally limited to acknowledging deterministic test evidence without changing payment, Wallet or entitlement state.
-unknown:
-  - Exact-head Docker responsive browser acceptance and final coverage-strict results.
-  - Exact-head GitHub required-check and review results.
+unknown: []
 conflicts: []
 first_failure:
   marker: php-syntax-resolve-payment-reconciliation
@@ -193,9 +197,43 @@ validation:
   - command: composer analyse
     result: PASS
     evidence: PHPStan PASS across 779 files
+  - command: exact-head GitHub Acceptance E2E and Visual UX
+    result: PASS
+    evidence: run 32601516536 attempt 2, job 97101119225, exact head 81f2a8862a8dea5f811d94ecf75df968717e0a93; responsive and portability PASS
+  - command: exact-head GitHub required-check aggregate
+    result: PASS
+    evidence: all applicable PR #1228 checks green on 81f2a8862a8dea5f811d94ecf75df968717e0a93
+  - command: production payment route inventory
+    result: PASS
+    evidence: APP_ENV=production exposes three read-only payment routes and no deterministic test mutation/ingress routes
+  - command: full diff and related-PR review
+    result: PASS
+    evidence: git diff --check PASS; 32 changed files inspected; no review comments/requested changes; no overlapping open Payments implementation PR
 blockers:
   - none
-next_action: Run task-owned exact-head local Docker coverage-strict and responsive Playwright profiles, verify cleanup, then record browser evidence and perform full-diff self-review.
+next_action: Mark PR #1228 ready and squash-merge exact reviewed head after this documentation-only readiness checkpoint passes its selected checks.
+```
+
+
+## Self-review
+
+```yaml
+self_review:
+  result: PASS
+  exact_head: 81f2a8862a8dea5f811d94ecf75df968717e0a93
+  acceptance_checked: true
+  full_diff_checked: true
+  negative_paths_checked: true
+  rollback_checked: true
+  compatibility_checked: true
+  related_prs_checked: true
+  findings: []
+  evidence:
+    - GitHub Acceptance run 32601516536 attempt 2 PASS on exact head, including responsive desktop/tablet/mobile and portability.
+    - runtime-tests, CodeQL, strict portal coverage, account lifecycle and all other applicable PR checks PASS.
+    - focused Payments suite 22 tests / 198 assertions PASS; migration rollback protection PASS.
+    - production route inventory removes all deterministic test mutation and ingress routes.
+    - full 32-file diff reviewed; git diff --check PASS; no unresolved PR comments or change requests.
 ```
 
 ## Recovery checkpoint
@@ -203,24 +241,24 @@ next_action: Run task-owned exact-head local Docker coverage-strict and responsi
 ```yaml
 recovery:
   policy_version: 1
-  generation: 3
+  generation: 4
   session_id: chatgpt-20260822T1925+0200
   session_started_at: 2026-08-22T19:25:00+02:00
-  checkpointed_at: 2026-08-22T22:41:46+02:00
-  last_progress_at: 2026-08-22T22:41:46+02:00
-  phase: browser_validation
-  exact_head: a9a17e320078356b59b2d39183fa331c0d85a18c
+  checkpointed_at: 2026-08-23T00:20:41+02:00
+  last_progress_at: 2026-08-23T00:20:41+02:00
+  phase: ready_to_merge
+  exact_head: 81f2a8862a8dea5f811d94ecf75df968717e0a93
   pull_request: 1228
-  active_operation: exact-head local Docker coverage-strict then responsive Playwright acceptance
-  external_run_ids: []
-  operation_started_at: 2026-08-22T22:41:46+02:00
-  wait_deadline_at: 2026-08-22T23:26:46+02:00
-  check_generation: local-browser-1
+  active_operation: documentation-only readiness checkpoint before squash merge
+  external_run_ids: [32601516536]
+  operation_started_at: 2026-08-23T00:20:41+02:00
+  wait_deadline_at: 2026-08-23T00:40:41+02:00
+  check_generation: ready-checkpoint-1
   checks_used: 0
-  status: active
+  status: ready
   safe_to_resume: true
   resume_condition: branch agent/payments-foundation-20260822 and draft PR #1228 retain the declared payment ownership without overlap
-  next_action: Run task-owned exact-head local Docker coverage-strict and responsive Playwright profiles, verify cleanup, then record browser evidence and perform full-diff self-review.
+  next_action: Mark PR #1228 ready and squash-merge after the documentation-only checkpoint checks pass; then archive this task in a lifecycle-only closeout.
 ```
 
 ## Source branch closeout
