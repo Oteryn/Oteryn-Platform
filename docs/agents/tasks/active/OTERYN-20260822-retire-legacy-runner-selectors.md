@@ -63,7 +63,7 @@ proven:
 derived:
   - Legacy retirement is unsafe until these selectors move to the Platform organization runner route.
 unknown:
-  - Final Platform trusted-main diagnostics result for run 32566600702.
+  - Final Platform trusted-main diagnostics result after bounded docker-system-df repair.
 conflicts: []
 first_failure:
   marker: retained-legacy-selectors
@@ -79,6 +79,7 @@ changed_paths:
   - .github/workflows/repair-synology-compose-orphans.yml
   - .github/workflows/synology-container-hygiene.yml
   - .github/workflows/synology-production-target-preflight.yml
+  - .github/workflows/synology-diagnostics.yml
 validation:
   - command: python tools/validation/workflow_inventory.py
     result: PASS
@@ -88,7 +89,7 @@ validation:
     evidence: NO_LEGACY_RUNS_ON=PASS on task branch
 blockers:
   - none
-next_action: Validate PR #1221 exact head, merge normally, then retire legacy only after trusted-main proof remains green.
+next_action: Validate PR #1221 exact head with bounded diagnostics, merge normally, then rerun trusted-main proof and retire legacy if green.
 ```
 
 ## Source branch closeout
