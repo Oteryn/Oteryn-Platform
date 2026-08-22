@@ -1,4 +1,4 @@
----
+﻿---
 task_id: OTERYN-20260822-platform-runner-availability
 required_reads:
   - AGENTS.md
@@ -47,8 +47,8 @@ checkpoint_version: 1
 updated_at: 2026-08-22T08:20:00Z
 head: 62d134a71fa5b480249ffbffbb81079aede4be34
 branch: infra/issue-1217-platform-runner-recovery
-pr: none
-status: implementing
+pr: 1218
+status: validating
 context_routes:
   - ci-repair
   - testing
@@ -75,7 +75,7 @@ validation:
     evidence: repair workflow not yet executed
 blockers:
   - none
-next_action: Push the guarded recovery workflow and observe its exact legacy-runner execution.
+next_action: Re-run bounded recovery on legacy and verify Platform organization runner becomes online.
 ```
 
 ## Source branch closeout
@@ -89,3 +89,4 @@ source_branch_evidence: pending
 ## Notes
 
 Issue: `Oteryn/Oteryn-Platform#1217`. The recovery workflow may inspect and restart only the existing Platform organization-runner container. Product application containers and persistent data are out of scope.
+

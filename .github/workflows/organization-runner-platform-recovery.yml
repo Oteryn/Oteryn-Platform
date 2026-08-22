@@ -47,7 +47,11 @@ jobs:
           running_before="$(docker inspect --format '{{.State.Running}}' "$container")"
           restart_before="$(docker inspect --format '{{.RestartCount}}' "$container")"
           echo "platform-runner-before running=$running_before restart_count=$restart_before"
-          docker restart --time 10 "$container" >/dev/null
+          if ! timeout 20s docker stop --time 5 "$container" >/dev/null 2>&1; then
+            echo 'bounded-stop-timeout; forcing runner-container kill only'
+            timeout 15s docker kill "$container" >/dev/null
+          fi
+          timeout 20s docker start "$container" >/dev/null
           for i in $(seq 1 30); do
             if [[ "$(docker inspect --format '{{.State.Running}}' "$container")" == true ]]; then
               break
