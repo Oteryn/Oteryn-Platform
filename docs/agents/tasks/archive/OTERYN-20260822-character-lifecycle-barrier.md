@@ -172,9 +172,9 @@ next_action: Retain this archived barrier as evidence and resume character-lifec
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: deleted-after-merge
-source_branch_reason: same-repository implementation branch was terminal after PR #1226 merged and repository delete_branch_on_merge removed it
-source_branch_evidence: branch search after merge returned no agent/oteryn-20260822-character-lifecycle-barrier ref
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: same-repository implementation branch was terminal after PR #1226 merged and repository auto-delete policy applies
+source_branch_evidence: repository delete_branch_on_merge is enabled and post-merge branch search confirmed agent/oteryn-20260822-character-lifecycle-barrier is absent
 ```
 
 ## Notes
