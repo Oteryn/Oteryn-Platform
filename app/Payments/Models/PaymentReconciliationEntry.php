@@ -3,6 +3,8 @@
 namespace App\Payments\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -33,6 +35,25 @@ final class PaymentReconciliationEntry extends Model
         'created_at',
         'resolved_at',
     ];
+
+    /** @return BelongsTo<PaymentOrder, $this> */
+    public function paymentOrder(): BelongsTo
+    {
+        return $this->belongsTo(PaymentOrder::class);
+    }
+
+    /** @return BelongsTo<PaymentProviderEvent, $this> */
+    public function providerEvent(): BelongsTo
+    {
+        return $this->belongsTo(PaymentProviderEvent::class, 'payment_provider_event_id');
+    }
+
+    /** @return HasMany<PaymentReconciliationResolution, $this> */
+    public function resolutions(): HasMany
+    {
+        return $this->hasMany(PaymentReconciliationResolution::class)
+            ->orderBy('id');
+    }
 
     /** @return array<string, string> */
     protected function casts(): array

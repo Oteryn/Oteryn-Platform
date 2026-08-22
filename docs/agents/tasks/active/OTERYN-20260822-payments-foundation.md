@@ -56,12 +56,24 @@ Complete the maximum mergeable provider-neutral, non-production Payments foundat
 
 ```yaml
 owned_paths:
+  - app/Admin/AdminPermission.php
   - app/Payments/**
-  - app/Http/Controllers/Payments/**
+  - config/payments.php
+  - database/migrations/2026_08_22_173500_add_payment_reconciliation_operator_foundation.php
+  - routes/api.php
   - routes/modules/payments.php
+  - resources/views/identity/layout.blade.php
+  - resources/views/admin/layout.blade.php
+  - resources/views/admin/payments/**
   - resources/views/payments/**
+  - lang/en/payments.php
+  - lang/pl/payments.php
   - tests/Feature/Payments/**
-  - tests/Browser/Payments/**
+  - scripts/acceptance/tests/payment-foundation-acceptance.spec.mjs
+  - scripts/acceptance/coverage/surfaces/payments.json
+  - scripts/acceptance/coverage/portal-coverage-manifest.json
+  - scripts/acceptance/playwright.config.mjs
+  - docs/testing/PAYMENTS_FOUNDATION_E2E_EVIDENCE.md
   - docs/agents/tasks/active/OTERYN-20260822-payments-foundation.md
 modules:
   - Payments
@@ -82,16 +94,16 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-22T19:25:00+02:00
-head: 20f8aac95ae1b890ec6ebe8a705dda7dfb6674d4
+updated_at: 2026-08-22T20:14:42+02:00
+head: d6eb3161f102a06eb476d79b9a0a1f95c457e72b
 branch: agent/payments-foundation-20260822
-pr: none
+pr: 1228
 status: implementing
-phase: investigate
+phase: focused_validation
 session_id: chatgpt-20260822T1925+0200
 session_role: implementer
 execution_mode: remote-terminal-plus-github
-execution_reason: multi-file Laravel/UI/test work needs an isolated checkout and focused test loop; GitHub remains authoritative for PR/CI state
+execution_reason: isolated checkout and disposable repository CI image provide deterministic PHP validation while GitHub remains authoritative for PR/CI state
 project_lane: oteryn-platform-core
 context_routes:
   - payments
@@ -101,44 +113,71 @@ context_routes:
   - testing
 context_pressure: medium
 context_growth: stable
-context_score: 9
-estimate_confidence: medium
+context_score: 10
+estimate_confidence: high
 decomposition_decision: phased
-decomposition_reason: one cohesive Payments vertical slice reusing the existing core; implementation and browser validation may require separate bounded phases
+decomposition_reason: cohesive Payments vertical slice reusing the existing core; browser acceptance remains the next bounded phase after focused tests
 validation_level: focused
 heavy_validation_runs: 0
 session_rotation_count: 0
 stale_takeover_count: 0
 human_interruptions: 0
 owned_paths:
+  - app/Admin/AdminPermission.php
   - app/Payments/**
-  - app/Http/Controllers/Payments/**
+  - config/payments.php
+  - database/migrations/2026_08_22_173500_add_payment_reconciliation_operator_foundation.php
+  - routes/api.php
   - routes/modules/payments.php
+  - resources/views/identity/layout.blade.php
+  - resources/views/admin/layout.blade.php
+  - resources/views/admin/payments/**
   - resources/views/payments/**
+  - lang/en/payments.php
+  - lang/pl/payments.php
   - tests/Feature/Payments/**
-  - tests/Browser/Payments/**
+  - scripts/acceptance/tests/payment-foundation-acceptance.spec.mjs
+  - scripts/acceptance/coverage/surfaces/payments.json
+  - scripts/acceptance/coverage/portal-coverage-manifest.json
+  - scripts/acceptance/playwright.config.mjs
+  - docs/testing/PAYMENTS_FOUNDATION_E2E_EVIDENCE.md
+  - docs/agents/tasks/active/OTERYN-20260822-payments-foundation.md
 proven:
   - Issue #321 remains open and authorizes repository/test-adapter work only, not real charges or production webhooks.
-  - ADR 0021 and merged payment core already provide provider-neutral orders, checkout abstraction, signed deterministic test events, idempotency, reconciliation and refund-integrity evidence.
-  - No payment task exists in docs/agents/tasks/active on protected main at invocation start.
+  - ADR 0021 and merged payment core are reused for provider-neutral orders, signed test events, replay/idempotency, reconciliation and refund-integrity evidence.
+  - No overlapping payment task or open payment PR existed on protected main at invocation start.
+  - Customer history/return, deterministic non-production test ingress, and exact-permission confirmed-MFA reconciliation surfaces are implemented in the isolated checkout.
+  - All changed/new PHP files pass PHP 8.5 syntax validation in the repository CI image.
 derived:
-  - The remaining safe foundation is primarily customer/admin/integration/E2E completion around the existing core, not a replacement payment domain.
+  - The delivered operator resolution is intentionally bounded to reviewing deterministic test evidence without changing payment, Wallet or entitlement state.
 unknown:
-  - Exact frontend/acceptance-harness paths that must be extended after local discovery.
+  - Focused Laravel test, migration rollback, static-analysis and real browser acceptance results are not yet proven.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: php-syntax-resolve-payment-reconciliation
+  evidence: initial PHP lint found a missing closing brace after idempotency validation; repaired before checkpoint
 rejected_hypotheses: []
 changed_paths:
-  - docs/agents/tasks/active/OTERYN-20260822-payments-foundation.md
+  - app/Admin/AdminPermission.php
+  - app/Payments/**
+  - config/payments.php
+  - database/migrations/2026_08_22_173500_add_payment_reconciliation_operator_foundation.php
+  - routes/api.php
+  - routes/modules/payments.php
+  - resources/views/identity/layout.blade.php
+  - resources/views/admin/layout.blade.php
+  - resources/views/admin/payments/**
+  - resources/views/payments/**
+  - lang/en/payments.php
+  - lang/pl/payments.php
+  - tests/Feature/Payments/PaymentFoundationSurfaceTest.php
 validation:
-  - command: repository discovery
+  - command: PHP 8.5 syntax validation for every changed/new PHP file
     result: PASS
-    evidence: protected main, Issue #321/#278, payment ADR/core paths, active tasks and open payment PR search inspected
+    evidence: docker image oteryn-portal-e2e-1219-portal-e2e:latest reported no syntax errors after repair
 blockers:
   - none
-next_action: Inspect the isolated checkout for current Payments, Admin/Audit, localization and browser-acceptance conventions, then implement the smallest complete non-production vertical slice.
+next_action: Install locked dependencies in the disposable PHP 8.5 CI image and run focused Payments feature/security tests plus migration rollback evidence.
 ```
 
 ## Recovery checkpoint
@@ -146,24 +185,24 @@ next_action: Inspect the isolated checkout for current Payments, Admin/Audit, lo
 ```yaml
 recovery:
   policy_version: 1
-  generation: 1
+  generation: 2
   session_id: chatgpt-20260822T1925+0200
   session_started_at: 2026-08-22T19:25:00+02:00
-  checkpointed_at: 2026-08-22T19:25:00+02:00
-  last_progress_at: 2026-08-22T19:25:00+02:00
-  phase: investigate
-  exact_head: 20f8aac95ae1b890ec6ebe8a705dda7dfb6674d4
-  pull_request: none
-  active_operation: isolated checkout discovery
+  checkpointed_at: 2026-08-22T20:14:42+02:00
+  last_progress_at: 2026-08-22T20:14:42+02:00
+  phase: focused_validation
+  exact_head: d6eb3161f102a06eb476d79b9a0a1f95c457e72b
+  pull_request: 1228
+  active_operation: locked dependency bootstrap and focused Payments validation
   external_run_ids: []
-  operation_started_at: null
-  wait_deadline_at: null
-  check_generation: null
+  operation_started_at: 2026-08-22T20:14:42+02:00
+  wait_deadline_at: 2026-08-22T20:44:42+02:00
+  check_generation: local-focused-1
   checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: branch agent/payments-foundation-20260822 still owns the declared payment paths without overlap
-  next_action: Inspect the isolated checkout for current Payments, Admin/Audit, localization and browser-acceptance conventions, then implement the smallest complete non-production vertical slice.
+  resume_condition: branch agent/payments-foundation-20260822 and draft PR #1228 retain the declared payment ownership without overlap
+  next_action: Install locked dependencies in the disposable PHP 8.5 CI image and run focused Payments feature/security tests plus migration rollback evidence.
 ```
 
 ## Source branch closeout
