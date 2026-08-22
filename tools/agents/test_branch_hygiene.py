@@ -48,8 +48,8 @@ def codes(value: dict) -> set[str]:
 
 
 def test_scope_is_hard_bound():
-    m.validate_scope("blakinio/Oteryn-Platform", "main")
-    m.validate_scope("BLAKINIO/OTERYN-PLATFORM", "main")
+    m.validate_scope("Oteryn/Oteryn-Platform", "main")
+    m.validate_scope("OTERYN/OTERYN-PLATFORM", "main")
     try:
         m.validate_scope("blakinio/Oteryn-v2", "main")
     except ValidationError as exc:
@@ -124,7 +124,7 @@ def test_repository_setting_drift_fails():
 
 def test_repository_settings_graphql_fallback():
     class Client:
-        repo = "blakinio/Oteryn-Platform"
+        repo = "Oteryn/Oteryn-Platform"
 
         def __init__(self):
             self.calls = []
@@ -151,7 +151,7 @@ def test_repository_settings_graphql_fallback():
     assert observed == good_settings()
     assert findings == []
     assert client.calls == [
-        ("GET", "/repos/blakinio/Oteryn-Platform"),
+        ("GET", "/repos/Oteryn/Oteryn-Platform"),
         ("POST", "/graphql"),
     ]
 
