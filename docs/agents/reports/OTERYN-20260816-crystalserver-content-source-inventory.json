@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-16T19:58:00+02:00",
+  "source": {
+    "kind": "owner_supplied_archive",
+    "file_name": "crystalserver-main.zip",
+    "sha256": "920a59e15175a5f53721f60b17f4bb37370bf0b61cd91abb4c909bf0d85e5f26",
+    "archive_entries": 9486,
+    "regular_files": 8819,
+    "root_license_observed": "GNU GPL v2",
+    "default_datapack_observed": "data-global",
+    "alternate_datapack_observed": "data-crystal",
+    "authority_class": "UNTRUSTED_SOURCE_MATERIAL"
+  },
+  "datapacks": {
+    "data-global": {
+      "monster_lua_files": 1802,
+      "npc_lua_files": 1112,
+      "quest_lua_files": 1061,
+      "quest_top_level_families": 119
+    },
+    "data-crystal": {
+      "monster_lua_files": 1665,
+      "npc_lua_files": 33,
+      "quest_lua_files": 48,
+      "note": "Alternative datapack; do not mix with data-global without explicit profile semantics."
+    }
+  },
+  "families": [
+    {
+      "id": "items",
+      "paths": ["data/items/items.xml"],
+      "observed": {"xml_item_elements": 17571, "expanded_unique_server_ids": 38059},
+      "classification": "DIRECT_STRUCTURED",
+      "platform_targets": ["GameCatalog", "WikiReference", "PlayerCompanion.Equipment"],
+      "notes": ["Strong overlap with current Game Catalog v1.2 item fields.", "Availability/native-authority claims require accepted product/source semantics."]
+    },
+    {
+      "id": "creatures_loot_bestiary",
+      "paths": ["data-global/monster/**/*.lua"],
+      "observed": {"monster_lua_files": 1802, "files_with_monster_loot_assignment": 1754, "files_with_bestiary_markers": 799, "files_with_location_markers": 796},
+      "classification": "TRANSFORM_REQUIRED",
+      "platform_targets": ["GameCatalog", "WikiReference", "PlayerCompanion.Hunt", "PlayerCompanion.BestiaryCharm"],
+      "notes": ["Creature definitions contain health/experience/combat/element and Bestiary-like facts in many files.", "Lua parsing must not be treated as final native runtime registry authority without an accepted architecture decision."]
+    },
+    {
+      "id": "npcs_shops_locations",
+      "paths": ["data-global/npc/**/*.lua", "data-global/world/world-npc.xml"],
+      "observed": {"npc_lua_files": 1112, "npc_files_with_structured_npcConfig_shop_rows": 290, "structured_shop_rows_with_buy_or_sell": 10907, "world_npc_xml_entries": 1043},
+      "classification": "TRANSFORM_REQUIRED",
+      "platform_targets": ["GameCatalog", "WikiReference", "PlayerCompanion.TradeReference"],
+      "notes": ["Draft Platform PR #338 already owns schema 1.3 NPC/shop consumer paths and must not be duplicated.", "Dialogue/prose should not be bulk-published from the source archive."]
+    },
+    {
+      "id": "player_spells",
+      "paths": ["data/scripts/spells/**/*.lua"],
+      "observed": {"lua_files": 218},
+      "classification": "TRANSFORM_REQUIRED",
+      "platform_targets": ["GameCatalog", "WikiReference", "PlayerCompanion.SpellVocation"],
+      "notes": ["Metadata such as words, level, mana, cooldown and vocation is often directly extractable.", "Executable formulas/mechanics require task-specific semantic review."]
+    },
+    {
+      "id": "achievements",
+      "paths": ["data/scripts/lib/register_achievements.lua"],
+      "observed": {"achievement_table_entries": 558},
+      "classification": "DIRECT_STRUCTURED",
+      "platform_targets": ["GameCatalog", "WikiReference", "PlayerCompanion.AchievementTracker"],
+      "notes": ["IDs/names/grade/points/secret flags are structured.", "Long descriptions are prose and need separate publication-rights/provenance review."]
+    },
+    {
+      "id": "quests",
+      "paths": ["data-global/scripts/quests/**/*.lua"],
+      "observed": {"lua_files": 1061, "top_level_families": 119},
+      "classification": "PARTIAL_SEMANTICS",
+      "platform_targets": ["GameCatalog", "Wiki", "PlayerCompanion.QuestAccess"],
+      "notes": ["File/folder presence is useful inventory evidence but not automatically a canonical quest/mission/reward model.", "Do not auto-generate walkthrough claims from script names alone."]
+    },
+    {"id": "imbuements", "paths": ["data/XML/imbuements.xml"], "observed": {"imbuement_elements": 72}, "classification": "DIRECT_STRUCTURED", "platform_targets": ["GameCatalog", "WikiReference", "PlayerCompanion.ImbuementPlanner"]},
+    {"id": "mounts", "paths": ["data/XML/mounts.xml"], "observed": {"mount_elements": 250}, "classification": "DIRECT_STRUCTURED", "platform_targets": ["GameCatalog", "WikiReference", "PlayerCompanion.CollectionTracker"]},
+    {"id": "outfits", "paths": ["data/XML/outfits.xml"], "observed": {"outfit_elements": 260}, "classification": "DIRECT_STRUCTURED", "platform_targets": ["GameCatalog", "WikiReference", "PlayerCompanion.CollectionTracker"]},
+    {"id": "vocations", "paths": ["data/XML/vocations.xml"], "observed": {"vocation_elements": 11}, "classification": "DIRECT_STRUCTURED", "platform_targets": ["GameCatalog", "WikiReference", "PlayerCompanion.SpellVocation"]},
+    {"id": "bestiary_charms", "paths": ["data/scripts/lib/register_bestiary_charm.lua", "data/scripts/systems/bestiary_charms.lua"], "classification": "TRANSFORM_REQUIRED", "platform_targets": ["WikiReference", "PlayerCompanion.BestiaryCharm"]},
+    {
+      "id": "wheel",
+      "paths": ["src/creatures/players/wheel/player_wheel.cpp", "src/creatures/players/wheel/player_wheel.hpp", "src/creatures/players/wheel/wheel_definitions.hpp", "src/creatures/players/wheel/wheel_gems.cpp", "src/creatures/players/wheel/wheel_gems.hpp"],
+      "observed": {"source_files": 5},
+      "classification": "PARTIAL_SEMANTICS",
+      "platform_targets": ["PlayerCompanion.BuildPlanner"],
+      "notes": ["Needs explicit product/ruleset authority before becoming a stable public calculator contract."]
+    }
+  ],
+  "global_guards": [
+    "Do not treat this inventory as native Oteryn authority.",
+    "Do not access CrystalServer/Oteryn-v2/Canary repositories from a Platform task without separate owner authorization.",
+    "Do not bulk-copy third-party prose/assets merely because they are present in the archive.",
+    "Keep data-global and data-crystal profile semantics separate.",
+    "Revalidate all counts from the exact archive SHA before using them as implementation acceptance."
+  ]
+}
