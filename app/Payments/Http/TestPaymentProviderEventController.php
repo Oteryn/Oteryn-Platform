@@ -21,7 +21,7 @@ final class TestPaymentProviderEventController
             $this->testSurface->ensureAvailable();
             $event = $this->processEvent->execute(
                 $request->getContent(),
-                $request->headers->all(),
+                $this->normalizedHeaders($request),
             );
         } catch (PaymentException $exception) {
             $status = in_array($exception->reason, ['invalid_signature', 'expired_signature'], true)
@@ -38,5 +38,20 @@ final class TestPaymentProviderEventController
             'status' => $event->processing_state,
             'reconciliation_reason' => $event->failure_code,
         ], 202);
+    }
+
+    /** @return array<string, list<string>> */
+    private function normalizedHeaders(Request $request): array
+    {
+        $headers = [];
+
+        foreach ($request->headers->all() as $name => $values) {
+            $headers[$name] = array_values(array_filter(
+                $values,
+                static fn (mixed $value): bool => is_string($value),
+            ));
+        }
+
+        return $headers;
     }
 }
