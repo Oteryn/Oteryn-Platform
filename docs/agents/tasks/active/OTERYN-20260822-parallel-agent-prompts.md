@@ -58,10 +58,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-08-22T15:40:00Z
-head: 8b307a1e5ba2dea02d644147dc1841059588cd7c
+head: 0291b95acb8d7de01952878aa002a9fe6e7d3d91
 branch: docs/parallel-agent-prompts-20260822
-pr: none
-status: validating
+pr: 1224
+status: ready
 context_routes:
   - agent-governance
 owned_paths:
@@ -110,7 +110,27 @@ validation:
     evidence: documentation and agent-routing only; no executable product behavior changed
 blockers:
   - none
-next_action: commit the validated prompt package and open its documentation PR
+next_action: verify exact-head PR #1224 CI and merge only after all required gates pass
+```
+
+## Validation gate
+
+```yaml
+self_review:
+  result: PASS
+  exact_head: 0291b95acb8d7de01952878aa002a9fe6e7d3d91
+  acceptance_checked: true
+  full_diff_checked: true
+  negative_paths_checked: true
+  rollback_checked: true
+  compatibility_checked: true
+  related_prs_checked: true
+  findings: []
+  evidence:
+    - seven task-owned changed paths only
+    - no external-repository or production authority expansion
+    - PR #338 hold preserved
+    - payment test adapter remains non-production and #321 remains open on provider gates
 ```
 
 ## Source branch closeout
