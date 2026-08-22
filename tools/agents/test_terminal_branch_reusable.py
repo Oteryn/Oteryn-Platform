@@ -4,6 +4,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/terminal-branch-lifecycle-reusable.yml"
+LOCAL_WORKFLOW = ROOT / ".github/workflows/terminal-branch-lifecycle.yml"
 
 
 class ReusableTerminalBranchWorkflowTests(unittest.TestCase):
@@ -51,6 +52,12 @@ class ReusableTerminalBranchWorkflowTests(unittest.TestCase):
         self.assertIn("--event \"$GITHUB_EVENT_PATH\"", text)
         self.assertIn("--event-name push", text)
         self.assertIn("--ref-name main", text)
+
+    def test_platform_validation_executes_reusable_contract_test(self) -> None:
+        text = LOCAL_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('".github/workflows/terminal-branch-lifecycle-reusable.yml"', text)
+        self.assertIn('"tools/agents/test_terminal_branch_reusable.py"', text)
+        self.assertIn("python3 tools/agents/test_terminal_branch_reusable.py", text)
 
 
 if __name__ == "__main__":
