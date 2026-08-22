@@ -1,7 +1,7 @@
 # Oteryn Platform Short Programme Invocation Registry
 
 ```yaml
-registry_version: 1.9
+registry_version: 2.0
 repository: blakinio/Oteryn-Platform
 trusted_base: main
 scope_contract: docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md
@@ -128,6 +128,34 @@ delivery_plan: docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md
 
 The programme selects or resumes one bounded highest-priority portal-completion slice and owns it through validation and terminal closeout. Existing implementation-authorized audit findings continue through `OTERYN_PLATFORM_REMEDIATION`; the portal-completion programme must reuse that Issue-owned workflow rather than create duplicate repair ownership. The alias grants no production, protected-environment, payment, live-data or external-repository authority.
 
+## Platform parallel completion wave
+
+These aliases are intentionally separate sibling roles. Start the three product/dependency workers first; start the coordinator after their ownership is visible when running them concurrently.
+
+```text
+OTERYN-CHARACTER-LIFECYCLE-BARRIER
+OTERYN-GAME-CATALOG-COMPLETION
+OTERYN-PAYMENTS-FOUNDATION
+OTERYN-PLATFORM-WAVE-COORD
+```
+
+```yaml
+OTERYN-CHARACTER-LIFECYCLE-BARRIER:
+  canonical_prompt: docs/agents/prompts/OTERYN-CHARACTER-LIFECYCLE-BARRIER-AGENT.md
+  scope: Platform-only shared dependency barrier for Issues #317/#319/#320
+OTERYN-GAME-CATALOG-COMPLETION:
+  canonical_prompt: docs/agents/prompts/OTERYN-GAME-CATALOG-COMPLETION-AGENT.md
+  scope: Platform-side Issue #301 and compatible Game Catalog consumer work
+OTERYN-PAYMENTS-FOUNDATION:
+  canonical_prompt: docs/agents/prompts/OTERYN-PAYMENTS-FOUNDATION-AGENT.md
+  scope: provider-neutral non-production Issue #321 foundation
+OTERYN-PLATFORM-WAVE-COORD:
+  canonical_prompt: docs/agents/prompts/OTERYN-PLATFORM-PARALLEL-WAVE-COORDINATOR.md
+  scope: coordination-only sibling supervision and barrier integration
+prompt_eval: docs/agents/evals/oteryn-platform-parallel-wave-prompts-v1.json
+```
+
+All four aliases resolve from live state and grant writes only within current `Oteryn/Oteryn-Platform` task ownership. They do not authorize server/game repository access, production/protected-environment mutation, payment-provider access, live payments, credentials, secrets or owner-funded AI/model use. The coordinator must not claim the three sibling product families.
 ## Parallel remediation
 
 ```text
