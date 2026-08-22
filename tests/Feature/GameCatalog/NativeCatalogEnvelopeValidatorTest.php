@@ -250,8 +250,8 @@ final class NativeCatalogEnvelopeValidatorTest extends TestCase
     }
 
     /**
-     * @param NativeCatalogPayload $payload
-     * @param 'complete'|'partial'|'unknown' $state
+     * @param  NativeCatalogPayload  $payload
+     * @param  'complete'|'partial'|'unknown'  $state
      */
     private function support(array &$payload, string $capabilityId, string $state): void
     {

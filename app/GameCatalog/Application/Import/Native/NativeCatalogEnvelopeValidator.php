@@ -264,7 +264,7 @@ final class NativeCatalogEnvelopeValidator
     }
 
     /**
-     * @param array<string, 'supported'|'unsupported'> $support
+     * @param  array<string, 'supported'|'unsupported'>  $support
      * @return array<string, true>
      */
     private function validateEntities(mixed $value, array $support): array
@@ -298,8 +298,8 @@ final class NativeCatalogEnvelopeValidator
     }
 
     /**
-     * @param array<string, 'supported'|'unsupported'> $support
-     * @param array<string, true> $entityKeys
+     * @param  array<string, 'supported'|'unsupported'>  $support
+     * @param  array<string, true>  $entityKeys
      */
     private function validateRelations(mixed $value, array $support, array $entityKeys): void
     {
@@ -345,9 +345,9 @@ final class NativeCatalogEnvelopeValidator
     }
 
     /**
-     * @param array<string, 'supported'|'unsupported'> $support
-     * @param array<string, 'complete'|'partial'|'unknown'> $completeness
-     * @param array<string, true> $entityKeys
+     * @param  array<string, 'supported'|'unsupported'>  $support
+     * @param  array<string, 'complete'|'partial'|'unknown'>  $completeness
+     * @param  array<string, true>  $entityKeys
      */
     private function validateTombstones(mixed $value, array $support, array $completeness, array $entityKeys): void
     {
@@ -462,7 +462,7 @@ final class NativeCatalogEnvelopeValidator
         if ($value instanceof stdClass) {
             $properties = get_object_vars($value);
             ksort($properties, SORT_STRING);
-            $object = new stdClass();
+            $object = new stdClass;
             foreach ($properties as $key => $child) {
                 $object->{$key} = $this->canonicalize($child);
             }
@@ -504,6 +504,7 @@ final class NativeCatalogEnvelopeValidator
 
         return $value;
     }
+
     private function assertObject(mixed $value, string $path): stdClass
     {
         if (! $value instanceof stdClass) {
@@ -537,6 +538,7 @@ final class NativeCatalogEnvelopeValidator
     {
         return $this->assertString($value, $path, '/^[a-z][a-z0-9_.-]*:[a-z][a-z0-9_.-]*$/D');
     }
+
     private function assertDigest(mixed $value, string $path): string
     {
         return $this->assertString($value, $path, '/^sha256:[0-9a-f]{64}$/D');

@@ -26,7 +26,7 @@ namespace App\GameCatalog\Application\Import\Native;
  *   tombstones: list<NativeTombstone>,
  *   payload_digest: string
  * }
- */final readonly class ValidatedNativeCatalogSnapshot
+ */ final readonly class ValidatedNativeCatalogSnapshot
 {
     /** @param NativeCatalogPayload $payload */
     public function __construct(
