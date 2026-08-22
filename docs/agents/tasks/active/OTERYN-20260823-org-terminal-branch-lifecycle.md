@@ -31,6 +31,7 @@ Promote the existing Platform terminal branch lifecycle into a reusable organiza
 owned_paths:
   - .github/workflows/terminal-branch-lifecycle-reusable.yml
   - .github/workflows/terminal-branch-lifecycle.yml
+  - docs/agents/CI_WORKFLOW_LIFECYCLE.json
   - tools/agents/test_terminal_branch_reusable.py
   - docs/contracts/ORGANIZATION_TERMINAL_BRANCH_LIFECYCLE.md
   - docs/superpowers/specs/2026-08-23-organization-terminal-branch-lifecycle-design.md
@@ -53,10 +54,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-22T22:48:00Z
-head: 5fe0033759dbde940ce8d60ebe731c0d3aaaa68d
+updated_at: 2026-08-22T22:51:00Z
+head: 48f535035b12e919ec49dbdb874526a0cadfa990
 branch: ci/org-terminal-branch-lifecycle
-pr: pending
+pr: 1232
 status: validating
 context_routes:
   - agent-governance
@@ -64,6 +65,7 @@ context_routes:
 owned_paths:
   - .github/workflows/terminal-branch-lifecycle-reusable.yml
   - .github/workflows/terminal-branch-lifecycle.yml
+  - docs/agents/CI_WORKFLOW_LIFECYCLE.json
   - tools/agents/test_terminal_branch_reusable.py
   - docs/contracts/ORGANIZATION_TERMINAL_BRANCH_LIFECYCLE.md
   - docs/superpowers/specs/2026-08-23-organization-terminal-branch-lifecycle-design.md
@@ -75,6 +77,7 @@ proven:
   - GREEN 1: reusable workflow contract 3/3 PASS; existing cleanup 7/7 PASS; guarded 8/8 PASS; approval 10/10 PASS.
   - RED 2: lifecycle-CI integration contract failed because the existing workflow did not execute/track the reusable contract test.
   - GREEN 2: reusable contract 4/4 PASS; cleanup 7/7 PASS; guarded 8/8 PASS; approval 10/10 PASS; git diff --check PASS.
+  - exact-head PR CI exposed the repository workflow lifecycle registry/budget guard; the reusable workflow is now explicitly registered and the reviewed workflow budget is 54.
   - reusable workflow uses caller GITHUB_TOKEN and a credential-free pinned Platform tool checkout; destructive git validation remains rooted at caller GITHUB_WORKSPACE.
 derived:
   - repository-local GITHUB_TOKEN execution avoids an organization-wide destructive credential.
@@ -89,6 +92,7 @@ rejected_hypotheses:
 changed_paths:
   - .github/workflows/terminal-branch-lifecycle-reusable.yml
   - .github/workflows/terminal-branch-lifecycle.yml
+  - docs/agents/CI_WORKFLOW_LIFECYCLE.json
   - docs/agents/tasks/active/OTERYN-20260823-org-terminal-branch-lifecycle.md
   - docs/contracts/ORGANIZATION_TERMINAL_BRANCH_LIFECYCLE.md
   - docs/superpowers/specs/2026-08-23-organization-terminal-branch-lifecycle-design.md
@@ -97,22 +101,28 @@ changed_paths:
 validation:
   - command: python3 tools/agents/test_terminal_branch_reusable.py
     result: PASS
-    evidence: 4 tests, 0 failures on head 5fe0033759dbde940ce8d60ebe731c0d3aaaa68d
+    evidence: 4 tests, 0 failures on implementation head 5fe0033759dbde940ce8d60ebe731c0d3aaaa68d
   - command: python3 tools/agents/test_terminal_branch_cleanup.py
     result: PASS
-    evidence: 7 tests, 0 failures on head 5fe0033759dbde940ce8d60ebe731c0d3aaaa68d
+    evidence: 7 tests, 0 failures on implementation head 5fe0033759dbde940ce8d60ebe731c0d3aaaa68d
   - command: python3 tools/agents/test_terminal_branch_guarded.py
     result: PASS
-    evidence: 8 tests, 0 failures on head 5fe0033759dbde940ce8d60ebe731c0d3aaaa68d
+    evidence: 8 tests, 0 failures on implementation head 5fe0033759dbde940ce8d60ebe731c0d3aaaa68d
   - command: python3 tools/agents/test_terminal_branch_approval.py
     result: PASS
-    evidence: 10 tests, 0 failures on head 5fe0033759dbde940ce8d60ebe731c0d3aaaa68d
+    evidence: 10 tests, 0 failures on implementation head 5fe0033759dbde940ce8d60ebe731c0d3aaaa68d
   - command: git diff --check origin/main...HEAD
     result: PASS
-    evidence: no output on head 5fe0033759dbde940ce8d60ebe731c0d3aaaa68d
+    evidence: no output on implementation head 5fe0033759dbde940ce8d60ebe731c0d3aaaa68d
+  - command: GitHub Actions CI run 32603455418
+    result: FAIL
+    evidence: workflow inventory correctly rejected the new unregistered workflow and budget 53; policy updated in 48f535035b12e919ec49dbdb874526a0cadfa990
+  - command: GitHub Actions Agent Governance run 32603455444
+    result: FAIL
+    evidence: our task omitted exact PR identity; PR 1232 is now recorded. The same run also reported an unrelated concurrent payments-foundation task liveness defect that is outside this task ownership.
 blockers:
   - none
-next_action: open the Platform PR and qualify the exact current head through required CI before merge
+next_action: requalify the updated PR head and inspect only failures attributable to this task; do not modify unrelated concurrent task ownership
 ```
 
 ## Source branch closeout
