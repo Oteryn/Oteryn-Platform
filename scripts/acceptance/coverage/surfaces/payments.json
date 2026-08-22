@@ -1,0 +1,157 @@
+[
+  {
+    "id": "payments.account-history-and-return",
+    "owner": "Payments / Identity",
+    "status": "covered",
+    "route_names": [
+      "payments.account.index",
+      "payments.account.test-checkout.store",
+      "payments.account.return"
+    ],
+    "roles": [
+      "guest",
+      "authenticated-owner",
+      "authenticated-foreign-owner"
+    ],
+    "states": [
+      "guest-redirect",
+      "empty-history",
+      "synthetic-checkout",
+      "browser-return-not-settlement-proof",
+      "verified-success",
+      "foreign-order-denied",
+      "localized-en",
+      "localized-pl"
+    ],
+    "viewports": [
+      "desktop-1440x1000",
+      "tablet-820x1180",
+      "mobile-390x844"
+    ],
+    "browsers": [
+      "chromium-primary"
+    ],
+    "evidence_layers": [
+      "feature",
+      "playwright",
+      "responsive",
+      "accessibility",
+      "localization",
+      "security"
+    ],
+    "evidence": [
+      {
+        "file": "tests/Feature/Payments/PaymentFoundationSurfaceTest.php",
+        "markers": [
+          "test_customer_history_and_return_are_owner_scoped_localized_and_ignore_browser_claims"
+        ]
+      },
+      {
+        "file": "scripts/acceptance/tests/payment-foundation-acceptance.spec.mjs",
+        "markers": [
+          "@portal-payments-account owner history browser return and signed test-provider truth"
+        ]
+      }
+    ],
+    "gaps": []
+  },
+  {
+    "id": "payments.admin-reconciliation",
+    "owner": "Payments / Admin / Audit",
+    "status": "covered",
+    "route_names": [
+      "admin.payments.reconciliation.index",
+      "admin.payments.reconciliation.resolve"
+    ],
+    "roles": [
+      "guest",
+      "authenticated-no-mfa",
+      "mfa-confirmed-no-permission",
+      "payments-reconciler"
+    ],
+    "states": [
+      "authorization-denied",
+      "open-reconciliation",
+      "reviewed-without-payment-state-change",
+      "localized-en",
+      "localized-pl",
+      "responsive"
+    ],
+    "viewports": [
+      "desktop-1440x1000",
+      "tablet-820x1180",
+      "mobile-390x844"
+    ],
+    "browsers": [
+      "chromium-primary"
+    ],
+    "evidence_layers": [
+      "feature",
+      "playwright",
+      "responsive",
+      "accessibility",
+      "security",
+      "audit"
+    ],
+    "evidence": [
+      {
+        "file": "tests/Feature/Payments/PaymentFoundationSurfaceTest.php",
+        "markers": [
+          "test_reconciliation_admin_requires_exact_permission_and_mfa_and_records_append_only_resolution_audit"
+        ]
+      },
+      {
+        "file": "scripts/acceptance/tests/payment-foundation-acceptance.spec.mjs",
+        "markers": [
+          "@portal-payments-admin exact permission MFA reconciliation review never changes payment state"
+        ]
+      }
+    ],
+    "gaps": []
+  },
+  {
+    "id": "payments.test-provider-ingress",
+    "owner": "Payments",
+    "status": "supporting_endpoint",
+    "route_names": [
+      "payments.test-provider.events"
+    ],
+    "roles": [
+      "deterministic-test-provider"
+    ],
+    "states": [
+      "invalid-signature-rejected",
+      "expired-signature-rejected",
+      "verified-event-processed",
+      "verified-event-reconciled"
+    ],
+    "viewports": [
+      "resource-endpoint"
+    ],
+    "browsers": [
+      "http-contract"
+    ],
+    "evidence_layers": [
+      "feature",
+      "security",
+      "playwright-consumer"
+    ],
+    "evidence": [
+      {
+        "file": "tests/Feature/Payments/PaymentEventCoreTest.php",
+        "markers": [
+          "test_invalid_signature_is_rejected_before_malformed_payload_parsing",
+          "test_expired_signature_is_rejected_without_persistence"
+        ]
+      },
+      {
+        "file": "scripts/acceptance/tests/payment-foundation-acceptance.spec.mjs",
+        "markers": [
+          "@portal-payments-account owner history browser return and signed test-provider truth",
+          "@portal-payments-admin exact permission MFA reconciliation review never changes payment state"
+        ]
+      }
+    ],
+    "gaps": []
+  }
+]
