@@ -41,6 +41,8 @@ owned_paths:
   - docs/agents/evals/oteryn-platform-parallel-wave-prompts-v1.json
   - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
   - docs/agents/tasks/active/OTERYN-20260822-parallel-agent-prompts.md
+  - docs/agents/tasks/active/OTERYN-20260822-portal-docker-e2e.md
+  - docs/agents/tasks/archive/OTERYN-20260822-portal-docker-e2e.md
 modules:
   - agent-governance
   - prompt-routing
@@ -72,17 +74,20 @@ owned_paths:
   - docs/agents/evals/oteryn-platform-parallel-wave-prompts-v1.json
   - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
   - docs/agents/tasks/active/OTERYN-20260822-parallel-agent-prompts.md
+  - docs/agents/tasks/active/OTERYN-20260822-portal-docker-e2e.md
+  - docs/agents/tasks/archive/OTERYN-20260822-portal-docker-e2e.md
 proven:
   - PR #1223 merged to main as 8b307a1e5ba2dea02d644147dc1841059588cd7c before prompt construction.
   - No active task record currently claims Issues #301, #317, #319, #320, #321 or #322.
   - Open PR #338 owns the inactive Game Catalog schema 1.3 NPC/shop consumer and remains held on producer compatibility.
+  - PR #1223 merged and Issue #1219 closed; its source branch is absent, but the active task record was not archived.
 derived:
   - The prior Portal Closeout worker prompt would be stale as a dedicated implementation lane; the wave needs a coordination-only post-merge role instead.
 unknown: []
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: Agent Governance live task liveness failure
+  evidence: terminal PR #1223 remained in active task state with stale next action token merge
 rejected_hypotheses: []
 changed_paths:
   - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
@@ -92,6 +97,8 @@ changed_paths:
   - docs/agents/prompts/OTERYN-GAME-CATALOG-COMPLETION-AGENT.md
   - docs/agents/prompts/OTERYN-PAYMENTS-FOUNDATION-AGENT.md
   - docs/agents/tasks/active/OTERYN-20260822-parallel-agent-prompts.md
+  - docs/agents/tasks/active/OTERYN-20260822-portal-docker-e2e.md
+  - docs/agents/tasks/archive/OTERYN-20260822-portal-docker-e2e.md
 validation:
   - command: python tools/validation/prompt_eval.py --suite docs/agents/evals/oteryn-platform-parallel-wave-prompts-v1.json
     result: PASS
@@ -110,7 +117,7 @@ validation:
     evidence: documentation and agent-routing only; no executable product behavior changed
 blockers:
   - none
-next_action: verify exact-head PR #1224 CI and merge only after all required gates pass
+next_action: validate archived #1223 lifecycle repair, push a new exact head, then rerun PR #1224 governance
 ```
 
 ## Validation gate
