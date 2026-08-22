@@ -62,8 +62,8 @@ owned_paths:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-22T14:20:03+02:00
-head: 3e000825641fdacb249fe97a8505733a3bc008c3
+updated_at: 2026-08-22T14:32:00+02:00
+head: f3cd484a94e59311b7a9537f29b11d05a281565f
 branch: test/portal-docker-e2e
 pr: none
 status: ready
@@ -90,7 +90,7 @@ context_pressure: high
 context_growth: rising
 decomposition_decision: phased
 validation_level: full
-last_completed_step: full responsive profile passed 45/45 after targeted resilience passed 8/8
+last_completed_step: exact-head Docker critical passed on f3cd484a94e59311b7a9537f29b11d05a281565f
 heavy_validation_runs: 2
 context_reconstruction_attempts: 1
 stall_warnings: 0
@@ -107,7 +107,7 @@ proven:
   - Docker responsive passed 45/45 on the latest focused full rerun.
   - Bootstrap localhost defaults remain intact outside the Docker opt-in environment.
 derived:
-  - The remaining gate is a fresh exact-committed-head critical run, followed by PR/CI/merge closeout.
+  - Exact-head runtime acceptance is complete; remaining gates are PR CI, merge and closeout.
 unknown: []
 conflicts: []
 first_failure:
@@ -138,10 +138,10 @@ validation:
     result: PASS
     evidence: 45/45 Playwright responsive tests passed on latest rerun
   - command: final exact-head critical
-    result: NOT_RUN
-    evidence: must run after coherent commit on rebased task head
+    result: PASS
+    evidence: result-critical.json records PASS for f3cd484a94e59311b7a9537f29b11d05a281565f in 564 seconds
 blockers: []
-next_action: Commit and push the coherent candidate, then run one fresh Docker critical profile on that exact runtime head.
+next_action: Create the delivery PR, verify exact-head required CI, then merge and close out Issue #1219.
 ```
 
 ## Validation gate
@@ -158,11 +158,13 @@ validation_gate:
   unknown_or_conflict: []
   rationale: Docker acceptance infrastructure plus repairs to public rendering paths require full browser and negative-path evidence.
   self_review:
-    result: PENDING
-    exact_head: none
+    result: PASS
+    exact_head: f3cd484a94e59311b7a9537f29b11d05a281565f
     evidence:
-      - full diff review required after commit
-      - final exact-head critical required
+      - full diff from origin/main inspected; git diff --check passed
+      - negative paths covered by resilience 8/8 and critical profile
+      - final exact-head critical PASS; zero open material findings
+      - related PR search returned none before delivery PR creation
 ```
 
 ## Recovery checkpoint
@@ -174,11 +176,11 @@ invocation_id: terminal-session-20260822-1254
 session_role: implementation-owner
 status: ready
 saved_at: 2026-08-22T14:29:04.6988626+02:00
-exact_head: 3e000825641fdacb249fe97a8505733a3bc008c3
+exact_head: f3cd484a94e59311b7a9537f29b11d05a281565f
 safe_to_resume: true
 operation_started_at: null
-last_completed_operation: coherent implementation candidate committed and focused Docker validation preserved
-next_operation: run final exact-head critical against committed runtime candidate
+last_completed_operation: final exact-head Docker critical passed and full diff self-review completed
+next_operation: create delivery PR and verify required CI
 resource_cleanup_required: true
 ```
 
