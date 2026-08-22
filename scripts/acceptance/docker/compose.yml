@@ -43,6 +43,10 @@ services:
       APP_ENV: acceptance
       APP_DEBUG: "false"
       APP_URL: http://127.0.0.1:8080
+      PAYMENTS_ENABLED: "true"
+      PAYMENTS_PROVIDER: test
+      PAYMENTS_ALLOWED_CURRENCIES: PLN,EUR
+      PAYMENTS_TEST_SECRET: acceptance-payments-test-secret-not-a-secret
       LOG_CHANNEL: stderr_json
       LOG_LEVEL: info
       DB_CONNECTION: mysql

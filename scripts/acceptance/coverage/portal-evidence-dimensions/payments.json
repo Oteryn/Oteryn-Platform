@@ -1,0 +1,61 @@
+{
+  "surfaces": [
+    {
+      "id": "payments.account-history-and-return",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [
+        {
+          "id": "e1",
+          "file": "scripts/acceptance/tests/payment-foundation-acceptance.spec.mjs",
+          "markers": [
+            "@portal-payments-account owner history browser return and signed test-provider truth"
+          ]
+        }
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "standard-responsive", "project": "responsive-desktop", "mode": "project", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "standard-responsive", "project": "responsive-tablet", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "standard-responsive", "project": "responsive-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {
+        "chromium-primary": {"profile": "standard-responsive", "projects": ["responsive-desktop"], "evidence": "e1"}
+      },
+      "portability": {
+        "status": "excluded",
+        "rationale": "The delivered foundation is a deterministic non-production authenticated payment exercise. Blocking zero-retry Chromium covers desktop, tablet and mobile; provider settlement integrity remains primarily proven by focused feature and concurrency tests rather than multiplying synthetic payment mutations across engines."
+      }
+    },
+    {
+      "id": "payments.admin-reconciliation",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [
+        {
+          "id": "e1",
+          "file": "scripts/acceptance/tests/payment-foundation-acceptance.spec.mjs",
+          "markers": [
+            "@portal-payments-admin exact permission MFA reconciliation review never changes payment state"
+          ]
+        }
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "standard-responsive", "project": "responsive-desktop", "mode": "project", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "standard-responsive", "project": "responsive-tablet", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "standard-responsive", "project": "responsive-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {
+        "chromium-primary": {"profile": "standard-responsive", "projects": ["responsive-desktop"], "evidence": "e1"}
+      },
+      "portability": {
+        "status": "excluded",
+        "rationale": "Payment reconciliation is an exact-permission confirmed-MFA privileged workflow. Blocking zero-retry Chromium covers the responsive administrator journey while authorization, audit, idempotency and settlement non-mutation are proven below the browser layer."
+      }
+    },
+    {
+      "id": "payments.test-provider-ingress",
+      "kind": "supporting_endpoint",
+      "rationale": "The signed deterministic test-provider HTTP endpoint is transport evidence only. It is verified through payment feature/security tests and the rendered account/admin Chromium consumers, not as a standalone viewport page."
+    }
+  ]
+}
