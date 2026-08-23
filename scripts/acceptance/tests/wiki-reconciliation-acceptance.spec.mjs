@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import {
   allowExpectedHttpFailure,
   assertAccessibilitySmoke,
+  assertNoUnexpectedRuntimeFailures,
   attachDiagnostics,
   completeMfaChallenge,
   evidenceScreenshot,
@@ -198,7 +199,7 @@ test('@portal-wiki-public route-complete empty, read, search, invalid, not-found
   await evidenceScreenshot(page, `wiki-public-reconciliation-${test.info().project.name}`);
 
   expect(page.__acceptanceDiagnostics.pageErrors).toEqual([]);
-  expect(page.__acceptanceDiagnostics.serverErrors).toEqual([]);
+  assertNoUnexpectedRuntimeFailures(page.__acceptanceDiagnostics);
 });
 
 test('@portal-wiki-admin guest, MFA and exact Wiki permission boundaries fail closed', async ({ page }) => {
