@@ -49,6 +49,7 @@
             <a href="{{ route('admin.moderation.enforcement.index', ['locale' => app()->getLocale()]) }}" @if(request()->routeIs('admin.moderation.enforcement.*')) aria-current="page" @endif>{{ __('support.nav.admin_enforcement') }}</a>
             <p class="admin-nav-group">Operations</p>
             <a href="{{ route('admin.game-catalog.index') }}" @if(request()->routeIs('admin.game-catalog.*')) aria-current="page" @endif>Game Catalog</a>
+            <a href="{{ route('admin.payments.reconciliation.index') }}" @if(request()->routeIs('admin.payments.*')) aria-current="page" @endif>{{ __('payments.nav.admin') }}</a>
             @if (config('marketplace.enabled'))
                 <a href="{{ route('admin.marketplace.index') }}" @if(request()->routeIs('admin.marketplace.*')) aria-current="page" @endif>Character Bazaar</a>
             @endif
@@ -70,6 +71,7 @@
                 <a href="{{ route('admin.moderation.reports.index', ['locale' => app()->getLocale()]) }}" @if(request()->routeIs('admin.moderation.reports.*')) aria-current="page" @endif>{{ __('support.nav.admin_reports') }}</a>
                 <a href="{{ route('admin.moderation.enforcement.index', ['locale' => app()->getLocale()]) }}" @if(request()->routeIs('admin.moderation.enforcement.*')) aria-current="page" @endif>{{ __('support.nav.admin_enforcement') }}</a>
                 <a href="{{ route('admin.game-catalog.index') }}" @if(request()->routeIs('admin.game-catalog.*')) aria-current="page" @endif>Game Catalog</a>
+                <a href="{{ route('admin.payments.reconciliation.index') }}" @if(request()->routeIs('admin.payments.*')) aria-current="page" @endif>{{ __('payments.nav.admin') }}</a>
                 @if (config('marketplace.enabled'))
                     <a href="{{ route('admin.marketplace.index') }}" @if(request()->routeIs('admin.marketplace.*')) aria-current="page" @endif>Character Bazaar</a>
                 @endif

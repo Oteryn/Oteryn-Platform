@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - ".github/workflows/terminal-branch-lifecycle.yml"
+      - ".github/workflows/terminal-branch-lifecycle-reusable.yml"
+      - ".github/workflows/terminal-branch-lifecycle-read-reusable.yml"
       - "docs/agents/BRANCH_LIFECYCLE_POLICY.json"
       - "docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json"
       - "tools/agents/branch_lifecycle.py"
@@ -15,6 +17,7 @@ on:
       - "tools/agents/test_terminal_branch_guarded.py"
       - "tools/agents/test_terminal_branch_guarded_legacy.py"
       - "tools/agents/test_terminal_branch_approval.py"
+      - "tools/agents/test_terminal_branch_reusable.py"
   pull_request_target:
     types:
       - closed
@@ -23,6 +26,8 @@ on:
       - main
     paths:
       - ".github/workflows/terminal-branch-lifecycle.yml"
+      - ".github/workflows/terminal-branch-lifecycle-reusable.yml"
+      - ".github/workflows/terminal-branch-lifecycle-read-reusable.yml"
       - "docs/agents/BRANCH_LIFECYCLE_POLICY.json"
       - "docs/agents/TERMINAL_BRANCH_DELETION_APPROVAL.json"
       - "tools/agents/branch_lifecycle.py"
@@ -34,6 +39,7 @@ on:
       - "tools/agents/test_terminal_branch_guarded.py"
       - "tools/agents/test_terminal_branch_guarded_legacy.py"
       - "tools/agents/test_terminal_branch_approval.py"
+      - "tools/agents/test_terminal_branch_reusable.py"
   workflow_dispatch:
 
 permissions:
@@ -65,6 +71,7 @@ jobs:
           python3 tools/agents/test_terminal_branch_cleanup.py
           python3 tools/agents/test_terminal_branch_guarded.py
           python3 tools/agents/test_terminal_branch_approval.py
+          python3 tools/agents/test_terminal_branch_reusable.py
 
       - name: Validate base branch lifecycle policy
         run: python3 tools/agents/branch_lifecycle.py --mode validate-policy
