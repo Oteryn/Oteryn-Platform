@@ -49,12 +49,12 @@ cross_repository_tasks:
 ```
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-23T11:06:16Z
-head: 0ccbcdc48401e28360f6f814386319cf2c6e7f5d
+updated_at: 2026-08-23T11:09:06Z
+head: c6a02e33823aa782672f0750db377b4e6d69085d
 branch: test/runtime-diagnostics-hardening-20260823
-pr: none
-status: investigating
-phase: investigate
+pr: 1242
+status: implementing
+phase: implement
 task_kind: implementation
 execution_mode: local-terminal
 execution_reason: bounded multi-file acceptance harness change with required test loop
@@ -90,14 +90,14 @@ validation:
 blockers:
   - none
 invocation_started_at: 2026-08-23T11:06:16Z
-last_progress_at: 2026-08-23T11:06:16Z
+last_progress_at: 2026-08-23T11:09:06Z
 ci_checks_for_current_head: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
 repair_cycles_for_current_gate: 0
 context_reconstruction_attempts: 0
 stall_warnings: 0
-next_action: inventory intentional runtime failures, then add a failing diagnostics regression test
+next_action: install acceptance dependencies and run the focused RED diagnostics regression test
 ```
 `
 ## Recovery checkpoint
@@ -108,21 +108,21 @@ recovery:
   generation: 1
   session_id: runtime-diagnostics-20260823
   session_started_at: 2026-08-23T11:06:16Z
-  checkpointed_at: 2026-08-23T11:06:16Z
-  last_progress_at: 2026-08-23T11:06:16Z
-  phase: investigate
-  exact_head: 0ccbcdc48401e28360f6f814386319cf2c6e7f5d
-  pull_request: none
-  active_operation: none
+  checkpointed_at: 2026-08-23T11:09:06Z
+  last_progress_at: 2026-08-23T11:09:06Z
+  phase: implement
+  exact_head: c6a02e33823aa782672f0750db377b4e6d69085d
+  pull_request: 1242
+  active_operation: npm ci --prefix scripts/acceptance
   external_run_ids: []
-  operation_started_at: null
+  operation_started_at: 2026-08-23T11:09:06Z
   wait_deadline_at: null
   check_generation: null
   checks_used: 0
   status: active
   safe_to_resume: true
   resume_condition: dedicated branch remains unowned and based on current main
-  next_action: inventory intentional runtime failures, then add a failing diagnostics regression test
+  next_action: complete dependency install, then run the focused RED diagnostics regression test
 ```
 `
 ## Source branch closeout
