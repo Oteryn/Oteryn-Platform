@@ -32,7 +32,8 @@ Make unexpected browser/runtime failures fail Platform Playwright acceptance wit
 owned_paths:
   - scripts/acceptance/tests/helpers.mjs
   - scripts/acceptance/tests/*acceptance*.spec.mjs
-  - scripts/acceptance/tests/runtime-diagnostics.test.mjs
+  - scripts/acceptance/runtime-diagnostics.mjs
+  - scripts/acceptance/unit/runtime-diagnostics.test.mjs
   - scripts/acceptance/package.json
   - docs/agents/tasks/active/OTERYN-20260823-runtime-diagnostics-hardening.md
 modules:
@@ -49,12 +50,12 @@ cross_repository_tasks:
 ```
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-23T11:09:06Z
-head: c6a02e33823aa782672f0750db377b4e6d69085d
+updated_at: 2026-08-23T11:51:26Z
+head: 70baf60891194196ecd740e21c731b8c14a9a886
 branch: test/runtime-diagnostics-hardening-20260823
 pr: 1242
-status: implementing
-phase: implement
+status: validating
+phase: validate
 task_kind: implementation
 execution_mode: local-terminal
 execution_reason: bounded multi-file acceptance harness change with required test loop
@@ -64,17 +65,20 @@ context_routes:
 owned_paths:
   - scripts/acceptance/tests/helpers.mjs
   - scripts/acceptance/tests/*acceptance*.spec.mjs
-  - scripts/acceptance/tests/runtime-diagnostics.test.mjs
+  - scripts/acceptance/runtime-diagnostics.mjs
+  - scripts/acceptance/unit/runtime-diagnostics.test.mjs
   - scripts/acceptance/package.json
   - docs/agents/tasks/active/OTERYN-20260823-runtime-diagnostics-hardening.md
 proven:
-  - Platform diagnostics currently collect runtime failures but attachDiagnostics does not fail the test.
+  - Base SHA 0ccbcdc48401e28360f6f814386319cf2c6e7f5d collected runtime failures but attachDiagnostics did not fail the test.
   - Existing resilience and error-state scenarios intentionally create HTTP 5xx and must retain explicit exception handling.
   - Existing Platform visual acceptance already collects UI screenshots/evidence; Atlas WebGL/canvas pixel oracles are out of scope.
+  - Unexpected console/page/request/5xx diagnostics now fail after secret-safe attachments are written.
+  - All current intentional HTTP 5xx acceptance paths are explicitly bounded by status, pathname and occurrence count.
+  - Browser navigation net::ERR_ABORTED remains non-fatal; other request failures remain fatal.
 derived:
   - The smallest useful port is a strict unexpected-runtime-failure gate with explicit expected-failure consumption.
-unknown:
-  - exact set of intentional failure scenarios requiring consumption helpers
+unknown: []
 conflicts: []
 first_failure:
   marker: none
@@ -82,22 +86,45 @@ first_failure:
 rejected_hypotheses:
   - importing Atlas map/WebGL/canvas/geometry visual tests
 changed_paths:
+  - scripts/acceptance/package.json
+  - scripts/acceptance/runtime-diagnostics.mjs
+  - scripts/acceptance/unit/runtime-diagnostics.test.mjs
+  - scripts/acceptance/tests/helpers.mjs
+  - scripts/acceptance/tests/community-data-acceptance.spec.mjs
+  - scripts/acceptance/tests/editorial-media-acceptance.spec.mjs
+  - scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs
+  - scripts/acceptance/tests/error-state-acceptance.spec.mjs
+  - scripts/acceptance/tests/full-acceptance.spec.mjs
+  - scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs
+  - scripts/acceptance/tests/public-game-data-acceptance.spec.mjs
+  - scripts/acceptance/tests/resilience-critical.spec.mjs
+  - scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs
+  - scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs
   - docs/agents/tasks/active/OTERYN-20260823-runtime-diagnostics-hardening.md
 validation:
-  - command: not-run
-    result: NOT_RUN
-    evidence: implementation not started
+  - command: npm --prefix scripts/acceptance run test:runtime-diagnostics
+    result: PASS
+    evidence: 4 Node regression tests pass, including bounded expected 5xx and real request-failure behavior
+  - command: node --check changed acceptance .mjs files
+    result: PASS
+    evidence: all changed executable JavaScript parsed successfully
+  - command: npx --prefix scripts/acceptance playwright test --config=scripts/acceptance/playwright.config.mjs --list
+    result: PASS
+    evidence: Playwright enumerated the suite successfully
+  - command: git diff --check
+    result: PASS
+    evidence: no whitespace errors
 blockers:
   - none
 invocation_started_at: 2026-08-23T11:06:16Z
-last_progress_at: 2026-08-23T11:09:06Z
+last_progress_at: 2026-08-23T11:51:26Z
 ci_checks_for_current_head: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
 repair_cycles_for_current_gate: 0
 context_reconstruction_attempts: 0
 stall_warnings: 0
-next_action: install acceptance dependencies and run the focused RED diagnostics regression test
+next_action: push the coherent candidate and inspect aggregate PR #1242 required checks
 ```
 `
 ## Recovery checkpoint
@@ -108,21 +135,21 @@ recovery:
   generation: 1
   session_id: runtime-diagnostics-20260823
   session_started_at: 2026-08-23T11:06:16Z
-  checkpointed_at: 2026-08-23T11:09:06Z
-  last_progress_at: 2026-08-23T11:09:06Z
-  phase: implement
-  exact_head: c6a02e33823aa782672f0750db377b4e6d69085d
+  checkpointed_at: 2026-08-23T11:51:26Z
+  last_progress_at: 2026-08-23T11:51:26Z
+  phase: validate
+  exact_head: 70baf60891194196ecd740e21c731b8c14a9a886
   pull_request: 1242
-  active_operation: npm ci --prefix scripts/acceptance
+  active_operation: push candidate and inspect PR #1242 required checks
   external_run_ids: []
-  operation_started_at: 2026-08-23T11:09:06Z
+  operation_started_at: 2026-08-23T11:51:26Z
   wait_deadline_at: null
   check_generation: null
   checks_used: 0
   status: active
   safe_to_resume: true
   resume_condition: dedicated branch remains unowned and based on current main
-  next_action: complete dependency install, then run the focused RED diagnostics regression test
+  next_action: push the coherent candidate and inspect aggregate PR #1242 required checks
 ```
 `
 ## Source branch closeout
