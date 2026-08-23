@@ -53,7 +53,7 @@ checkpoint_version: 1
 updated_at: 2026-08-23T12:46:36Z
 head: 0ccbcdc48401e28360f6f814386319cf2c6e7f5d
 branch: migration/issue-1155-terminal-coordinate-reconciliation
-pr: none
+pr: 1243
 status: validating
 context_routes:
   - governance
@@ -84,7 +84,7 @@ validation:
     evidence: expected TDD RED; 14 active authority offenders
 blockers:
   - none
-next_action: commit and push the coherent migration reconciliation candidate, then open the draft PR and observe exact-head CI
+next_action: push the task-identity repair, then re-observe exact-head Agent Governance and required CI
 ```
 
 ## Source branch closeout
