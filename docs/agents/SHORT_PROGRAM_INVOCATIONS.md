@@ -148,14 +148,17 @@ OTERYN-GAME-CATALOG-COMPLETION:
   scope: Platform-side Issue #301 and compatible Game Catalog consumer work
 OTERYN-PAYMENTS-FOUNDATION:
   canonical_prompt: docs/agents/prompts/OTERYN-PAYMENTS-FOUNDATION-AGENT.md
-  scope: provider-neutral non-production Issue #321 foundation
+  lifecycle: TERMINAL_DO_NOT_RUN
+  terminal_issue: 321
+  successor_issue: 1236
+  scope: terminal provider-neutral non-production foundation; repeated invocation reports status and never starts provider integration
 OTERYN-PLATFORM-WAVE-COORD:
   canonical_prompt: docs/agents/prompts/OTERYN-PLATFORM-PARALLEL-WAVE-COORDINATOR.md
   scope: coordination-only sibling supervision and barrier integration
 prompt_eval: docs/agents/evals/oteryn-platform-parallel-wave-prompts-v1.json
 ```
 
-All four aliases resolve from live state and grant writes only within current `Oteryn/Oteryn-Platform` task ownership. They do not authorize server/game repository access, production/protected-environment mutation, payment-provider access, live payments, credentials, secrets or owner-funded AI/model use. The coordinator must not claim the three sibling product families.
+The Character Lifecycle, Game Catalog and coordinator aliases resolve from live state. `OTERYN-PAYMENTS-FOUNDATION` is terminal and resolves only to status/terminal evidence; real-provider work is separately tracked by Issue #1236. All aliases grant writes only within current `Oteryn/Oteryn-Platform` task ownership. They do not authorize server/game repository access, production/protected-environment mutation, payment-provider access, live payments, credentials, secrets or owner-funded AI/model use. The coordinator must not claim the three sibling product families.
 ## Parallel remediation
 
 ```text

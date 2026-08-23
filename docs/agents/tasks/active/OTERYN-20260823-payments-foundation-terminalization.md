@@ -1,0 +1,152 @@
+---
+task_id: OTERYN-20260823-payments-foundation-terminalization
+status: validating
+agent: ChatGPT autonomous payments foundation owner
+project_lane: oteryn-platform-core
+task_kind: implementation
+product_issue: 321
+successor_issue: 1236
+risk: medium
+completion_claim: lifecycle_reconciliation
+created: 2026-08-23T09:31:50+02:00
+required_reads:
+  - AGENTS.md
+  - docs/agents/PLATFORM_AGENT_BOOTSTRAP.md
+  - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
+  - docs/architecture/adr/0021-provider-neutral-payment-security-core.md
+  - docs/operations/PAYMENTS_SECURITY_FOUNDATION.md
+---
+
+# Payments foundation terminalization
+
+## Goal
+
+Reconcile the now-delivered provider-neutral Payments foundation with live routing and product ownership: make `OTERYN-PAYMENTS-FOUNDATION` terminal, move real-provider/sandbox/production work to Issue #1236, and close Issue #321 only after exact-head documentation/governance validation passes.
+
+## Acceptance criteria
+
+- [x] Canonical foundation prompt cannot start another implementation of completed #321 work.
+- [x] Issue #1236 is the explicit successor for real-provider, sandbox, legal/compliance, operational and production-activation gates.
+- [x] Canonical project/active-work/ADR/operations documentation distinguishes terminal foundation from blocked real-provider completion.
+- [x] Historical foundation evidence remains truthful and points forward without rewriting past state.
+- [x] Prompt contract/eval coverage rejects re-execution and preserves payment safety boundaries.
+- [x] `git diff --check`, checkpoint validation and applicable docs/governance tests pass.
+- [ ] Exact-head required GitHub checks pass with zero unresolved review findings.
+- [ ] PR is squash-merged, #321 is closed completed, task is archived and source branches are removed.
+
+## Ownership
+
+```yaml
+owned_paths:
+  - docs/agents/prompts/OTERYN-PAYMENTS-FOUNDATION-AGENT.md
+  - docs/agents/evals/oteryn-platform-parallel-wave-prompts-v1.json
+  - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
+  - docs/agents/PROJECT_STATE.md
+  - docs/agents/ACTIVE_WORK.md
+  - docs/architecture/adr/0021-provider-neutral-payment-security-core.md
+  - docs/operations/PAYMENTS_SECURITY_FOUNDATION.md
+  - docs/agents/tasks/archive/OTERYN-20260822-payments-foundation.md
+  - docs/agents/tasks/active/OTERYN-20260823-payments-foundation-terminalization.md
+modules:
+  - Payments
+  - AgentGovernance
+dependencies:
+  - PR #1228 merge 788f58c031bf575396231a95b6a9d28afbadb67c
+  - PR #1231 closeout 47c626a5e9295dd2a12e8f295d2b57bc0a53f0f9
+  - successor Issue #1236
+blockers:
+  - none
+cross_repository_tasks:
+  - none
+```
+## Context checkpoint
+
+```yaml
+checkpoint_version: 1
+policy_version: 2
+updated_at: 2026-08-23T09:38:43+02:00
+head: d2fd6af3104e9e40e29263c19cf4f78beb1037d0
+branch: docs/payments-foundation-terminal-1236
+pr: none
+status: validating
+phase: focused_documentation_validation
+session_id: chatgpt-20260823T0923+0200
+session_role: implementer
+execution_mode: remote-terminal-plus-github
+execution_reason: isolated clean worktree permits narrow documentation/governance reconciliation while GitHub remains authoritative for Issue and PR state
+context_routes:
+  - payments
+  - agent-governance
+  - architecture
+context_pressure: medium
+context_growth: stable
+context_score: 7
+estimate_confidence: high
+decomposition_decision: single
+validation_level: component
+owned_paths:
+  - docs/agents/prompts/OTERYN-PAYMENTS-FOUNDATION-AGENT.md
+  - docs/agents/evals/oteryn-platform-parallel-wave-prompts-v1.json
+  - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
+  - docs/agents/PROJECT_STATE.md
+  - docs/agents/ACTIVE_WORK.md
+  - docs/architecture/adr/0021-provider-neutral-payment-security-core.md
+  - docs/operations/PAYMENTS_SECURITY_FOUNDATION.md
+  - docs/agents/tasks/archive/OTERYN-20260822-payments-foundation.md
+  - docs/agents/tasks/active/OTERYN-20260823-payments-foundation-terminalization.md
+proven:
+  - PR #1228 and closeout PR #1231 are merged and the previous foundation task is archived.
+  - Issue #1236 exists and owns the unresolved real-provider/sandbox/production gate.
+  - No active Payments task or open Payments implementation PR overlaps this reconciliation.
+  - Current protected main is d2fd6af3104e9e40e29263c19cf4f78beb1037d0.
+derived:
+  - Re-running the foundation alias would duplicate terminal work; it should become a tombstone/status route rather than redirecting into provider integration.
+unknown: []
+conflicts: []
+first_failure:
+  marker: none
+  evidence: none
+rejected_hypotheses:
+  - Issue #321 must remain the permanent owner of real-provider work after the repository foundation is terminal.
+changed_paths:
+  - docs/agents/prompts/OTERYN-PAYMENTS-FOUNDATION-AGENT.md
+  - docs/agents/evals/oteryn-platform-parallel-wave-prompts-v1.json
+  - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
+  - docs/agents/PROJECT_STATE.md
+  - docs/agents/ACTIVE_WORK.md
+  - docs/architecture/adr/0021-provider-neutral-payment-security-core.md
+  - docs/operations/PAYMENTS_SECURITY_FOUNDATION.md
+  - docs/agents/tasks/archive/OTERYN-20260822-payments-foundation.md
+  - docs/agents/tasks/active/OTERYN-20260823-payments-foundation-terminalization.md
+validation:
+  - command: python tools/validation/prompt_eval.py --suite docs/agents/evals/oteryn-platform-parallel-wave-prompts-v1.json
+    result: PASS
+    evidence: 11 cases / 11 categories / 4 safety-critical cases; deterministic contract only
+  - command: python tools/validation/test_prompt_eval.py
+    result: PASS
+    evidence: 8 tests passed
+  - command: python tools/validation/adr_registry.py
+    result: PASS
+    evidence: 49 ADRs; preserved legacy duplicate prefixes accepted
+  - command: python tools/agents/checkpoint.py current-task --require-checkpoint
+    result: PASS
+    evidence: context checkpoint validated against contract v1
+  - command: git diff --check
+    result: PASS
+    evidence: no whitespace errors
+blockers:
+  - none
+next_action: Commit and push the coherent terminalization package, open a draft PR, then perform exact-head self-review and required GitHub validation.
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: pending
+source_branch_reason: task is active
+source_branch_evidence: pending
+```
+
+## Notes
+
+This task changes no payment runtime, schema, provider integration, production configuration, secrets or customer financial behavior. E2E is `NOT_APPLICABLE` because the delivered browser/payment behavior is unchanged; this task reconciles routing, durable state and Issue ownership only.

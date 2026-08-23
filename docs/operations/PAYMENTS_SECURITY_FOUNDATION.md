@@ -2,22 +2,22 @@
 
 ## Current classification
 
-`REPOSITORY_PROVEN_ONLY` after Issue #470 completes.
+`REPOSITORY_PROVEN_ONLY` after the event core (#470) and full non-production foundation (PR #1228).
 
-This runbook covers the provider-neutral event core and deterministic test adapter. It does not authorize or describe live payment activation.
+This runbook covers the provider-neutral event core, deterministic test adapter, customer test-path history/return surface and bounded administrator reconciliation review. Real-provider sandbox and production gates are owned by Issue #1236. It does not authorize live payment activation.
 
 ## Hard production gates
 
 Payments must remain disabled unless all conditions are satisfied:
 
-- a real provider is selected through a separate product/legal/security decision;
+- a real provider and exact Poland/EU launch scope are explicitly approved under Issue #1236 through the required product/legal/security decision;
 - the configured provider is not `test`;
 - provider adapter and webhook verifier classes are explicitly configured;
 - provider verification is recorded for the exact release and sandbox profile;
 - secrets are injected outside Git and have an owner/rotation procedure;
 - the public webhook path, size limit, rate limit and edge policy are separately reviewed;
 - provider sandbox checkout, signed webhook, replay, delayed/out-of-order, repeated/concurrent refund and dispute evidence passes;
-- customer checkout/history UI and Products/Entitlements integration have independent audit and E2E;
+- provider-specific customer checkout integration and Products/Entitlements delivery have independent audit and E2E;
 - production activation receives separate authorization.
 
 `production:verify-configuration` fails closed when payments are enabled without these prerequisites or when the deterministic test adapter is selected.
@@ -81,7 +81,7 @@ Permitted durable evidence is limited to public/bounded identifiers, event type,
 
 ## Alerts required before activation
 
-A future real-provider rollout must alert on:
+Issue #1236 owns implementation and proof of these provider-specific operational signals. A future real-provider rollout must alert on:
 
 - signature verification failures;
 - repeated event-ID conflicts;
@@ -99,7 +99,7 @@ A future real-provider rollout must alert on:
 
 - Disable payment ingress and checkout creation before repair.
 - Do not edit order state, provider-event rows or refund-value history directly.
-- Reconcile using a future audited operator action with exact permission and confirmed MFA.
+- Use the delivered exact-permission, confirmed-MFA reconciliation review only to acknowledge bounded evidence without changing payment state. Any provider-side financial resolution or production recovery procedure remains provider-specific work under Issue #1236.
 - Preserve append-oriented records.
 - Application behavior may be rolled back while payments remain disabled, but populated authenticated refund-value columns are forward-only financial evidence and must not be dropped.
 - Wallet and entitlement state require no action for this producer slice because it performs no delivery.

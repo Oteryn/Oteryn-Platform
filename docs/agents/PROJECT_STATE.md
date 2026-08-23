@@ -29,7 +29,7 @@ These phase statements do not claim benchmark product completeness. Issue #268 a
 
 - **Production Readiness: STAGING_PROVEN for documented boundaries**
 - **Delivered Portal Route Contract: COMPLETE AND MACHINE ENFORCED**
-- **Benchmark Product Completeness: NOT COMPLETE; REQUIRED CHARACTER GAPS #317/#319 REMAIN, AND #321/#322 ARE MANDATORY BEFORE COMMERCE**
+- **Benchmark Product Completeness: NOT COMPLETE; REQUIRED CHARACTER GAPS #317/#319 REMAIN; PAYMENT FOUNDATION #321 IS TERMINAL, WHILE REAL-PROVIDER GATE #1236 AND PRODUCTS/ENTITLEMENTS #322 REMAIN MANDATORY BEFORE COMMERCE**
 - **Backend–Frontend Promotion Enforcement: COMPLETE IN #340 / PR #341**
 - **Viewport/Browser Evidence Linkage: COMPLETE IN #347 / PR #349**
 - **Public Game-Data Stress/500 Slice: COMPLETE IN #350 / PR #351**
@@ -86,7 +86,7 @@ PR #298 merged the approved read-only community-data boundary as `7533b12b1e1c6d
 
 PR #351 completed Issue #350 as merge `923933222050999fec368bc2db1be6e546f13c12`. Its zero-retry Chromium desktop/tablet/mobile scenario proves long externally sourced values, more than one 50-row result page, a genuine non-debug Laravel `500` without sensitive disclosure and deterministic recovery for the public game-data surface. This is one bounded #326 state slice, not universal state completeness.
 
-PR #308 completed owner-editable Platform comments, character-level privacy and optional main-character selection. Still not benchmark-complete: deletion/restore remains #317, rename remains #319, controlled world/channel transfer remains #320, and selected achievements depend on #301/#323. Customer commerce remains #321/#322 under parent #278. Structured authoritative spell/NPC/quest/achievement catalogues remain #301, while optional map/hunt/discovery decisions remain #302.
+PR #308 completed owner-editable Platform comments, character-level privacy and optional main-character selection. Still not benchmark-complete: deletion/restore remains #317, rename remains #319, controlled world/channel transfer remains #320, and selected achievements depend on #301/#323. The provider-neutral payment foundation #321 is terminal; real-provider/sandbox/production proof remains #1236 and paid products/value delivery remains #322 under parent #278. Structured authoritative spell/NPC/quest/achievement catalogues remain #301, while optional map/hunt/discovery decisions remain #302.
 
 ### CMS and community publishing
 
@@ -124,7 +124,7 @@ Delivered boundaries:
 - MFA/permission/audit-protected administrator wallet adjustment and recovery queue;
 - desktop/tablet/mobile Chromium acceptance, accessibility and real-MariaDB concurrency evidence.
 
-The wallet is not a payment system. Customer coin purchase, premium/VIP, products, signed provider events, refunds and chargebacks are split into #321 and #322 under parent #278. Canary tournament coins are not used.
+The wallet is not a payment system. Provider-neutral payment truth is delivered under terminal #321; real-provider/sandbox/production integration remains #1236, while customer coin purchase, premium/VIP, products and entitlement delivery remain #322 under parent #278. Canary tournament coins are not used.
 
 ## Delivered-surface acceptance contract
 
@@ -194,7 +194,7 @@ Open focused backlog:
 - #320 — controlled world/channel transfer product decision and service;
 - #323 — authoritative achievement selection, dependent on #301;
 - #278 parent — commerce;
-- #321 — provider-neutral payment security foundation;
+- #321 — provider-neutral payment security foundation, TERMINAL via PR #1228; successor real-provider/sandbox/production gate is #1236;
 - #322 — products, entitlements, vouchers and histories;
 - #301 — authoritative spell/NPC/quest/achievement catalogue expansion;
 - #302 — optional maps, hunt tools and server-specific discovery planning;
