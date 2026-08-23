@@ -26,8 +26,8 @@ Implement the first bounded Platform-side inactive consumer for the locked nativ
 - [x] Preserve unsupported/partial/unknown capability semantics without persistence or authoritative absence.
 - [x] Validate an exact cross-repository fixture produced by the merged Game producer.
 - [x] Add no route, public/admin UI, import persistence, activation, deployment or production mutation.
-- [ ] Focused tests, static/style checks and required exact-head CI pass.
-- [ ] Whole-diff review has zero unresolved material findings.
+- [x] Focused tests, static/style checks and required exact-head CI pass.
+- [x] Whole-diff review has zero unresolved material findings.
 
 ## Ownership
 
@@ -51,11 +51,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-22T20:55:00Z
-head: 20f8aac95ae1b890ec6ebe8a705dda7dfb6674d4
+updated_at: 2026-08-23T07:23:00Z
+head: 8df3f86f429f28c78481b9938e5de5c24948bc72
 branch: feat/native-game-catalog-consumer-v1
 pr: 1229
-status: validating
+status: ready
 context_routes:
   - game-catalog
 owned_paths:
@@ -66,7 +66,8 @@ owned_paths:
 proven:
   - Game producer contract is LOCKED at Game merge 96ea673839f1d93190a40c17ae8036ac82096ded
   - legacy PR #338 owns different existing GameCatalog paths and remains held
-  - canonical Platform main is 20f8aac95ae1b890ec6ebe8a705dda7dfb6674d4
+  - canonical Platform main remained 20f8aac95ae1b890ec6ebe8a705dda7dfb6674d4 through final implementation validation
+  - exact implementation head 8df3f86f429f28c78481b9938e5de5c24948bc72 passed Game Catalog Contract 32601058239 and CI 32601058243
 derived:
   - first mergeable Platform slice is native envelope validation only, not content persistence
 unknown:
@@ -92,16 +93,28 @@ validation:
   - command: Docker PHP 8.5 syntax check
     result: PASS
     evidence: all native consumer production/test PHP files parse cleanly
+  - command: focused PHPUnit NativeCatalogEnvelopeValidatorTest
+    result: PASS
+    evidence: 14 tests, 58 assertions
+  - command: Game Catalog Contract run 32601058239
+    result: PASS
+    evidence: Pint, PHPStan and contract validation all passed
+  - command: CI run 32601058243
+    result: PASS
+    evidence: classify-changes, runtime-tests, required test and platform-gate all passed
+  - command: whole-diff review
+    result: PASS
+    evidence: zero unresolved material findings after depth-bound and synthetic-object fixture repairs
 blockers:
   - none
-next_action: commit the GREEN implementation generation and inspect exact-head Game Catalog/CI results
+next_action: merge PR #1229 after required branch-protection checks rerun on this terminal checkpoint commit
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository feature branch after terminal PR merge
+source_branch_evidence: PR #1229 body declares Branch-Disposition: auto-delete after merge
 ```
 
