@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "repository": "blakinio/Oteryn-Platform",
+  "repository": "Oteryn/Oteryn-Platform",
   "default_branch": "main",
   "repository_settings": {
     "description": "Oteryn web/application platform and game gateway.",

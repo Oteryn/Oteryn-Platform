@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "repository": "blakinio/Oteryn-Platform",
+  "repository": "Oteryn/Oteryn-Platform",
   "default_lane": "oteryn-platform-core",
   "task_globs": [
     "docs/agents/tasks/active/*.md",
