@@ -4,8 +4,11 @@
   "version": "1.0.0",
   "type": "commonjs",
   "scripts": {
+    "pretest": "npm run test:runtime-diagnostics",
     "test": "playwright test --project=chromium-primary --grep-invert \"Flow 3 — password recovery uses real test SMTP, revokes old sessions and rejects token replay|Password change — authenticated change revokes all existing sessions and requires the new password|Flow 5 — character validation, reserved/duplicate/quota/ownership/idempotency boundaries|Flow 6 — public game data, pagination, empty and controlled dependency-failure states\"",
+    "pretest:smoke": "npm run test:runtime-diagnostics",
     "test:smoke": "playwright test --project=chromium-primary --grep @smoke",
+    "test:runtime-diagnostics": "node --test unit/runtime-diagnostics.test.mjs",
     "test:account-lifecycle": "playwright test --project=chromium-primary --grep @portal-account --workers=1",
     "test:community-data": "playwright test --config=playwright.community-data.config.mjs",
     "test:content-scale": "playwright test --config=playwright.content-scale.config.mjs",

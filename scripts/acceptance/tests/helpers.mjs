@@ -4,6 +4,13 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 import { expect } from '@playwright/test';
+import {
+  allowExpectedHttpFailure,
+  assertNoUnexpectedRuntimeFailures,
+  attachRuntimeDiagnostics,
+} from '../runtime-diagnostics.mjs';
+
+export { allowExpectedHttpFailure, assertNoUnexpectedRuntimeFailures };
 
 export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 export const testedSha = process.env.ACCEPTANCE_SHA ?? 'local-unknown';
@@ -28,6 +35,7 @@ export function installDiagnostics(page) {
     pageErrors: [],
     failedRequests: [],
     serverErrors: [],
+    expectedHttpFailures: [],
   };
 
   page.on('console', (message) => {
@@ -64,14 +72,7 @@ export function installDiagnostics(page) {
 }
 
 export async function attachDiagnostics(testInfo, diagnostics) {
-  await testInfo.attach('exact-tested-sha', {
-    body: Buffer.from(`${testedSha}\n`, 'utf8'),
-    contentType: 'text/plain',
-  });
-  await testInfo.attach('browser-diagnostics', {
-    body: Buffer.from(JSON.stringify(diagnostics, null, 2), 'utf8'),
-    contentType: 'application/json',
-  });
+  await attachRuntimeDiagnostics(testInfo, diagnostics, testedSha);
 }
 
 export function runPhpState(...args) {

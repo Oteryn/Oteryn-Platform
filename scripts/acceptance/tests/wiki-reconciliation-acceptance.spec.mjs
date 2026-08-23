@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   assertAccessibilitySmoke,
   attachDiagnostics,
   completeMfaChallenge,
@@ -180,9 +181,9 @@ test('@portal-wiki-public route-complete empty, read, search, invalid, not-found
   try {
     response = await page.goto('/en/wiki');
     expect(response?.status()).toBe(503);
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: '/en/wiki' });
     await expect(page.getByText('Wiki is temporarily unavailable.')).toBeVisible();
     expect(page.__acceptanceDiagnostics.serverErrors.some((entry) => entry.status === 503)).toBe(true);
-    page.__acceptanceDiagnostics.serverErrors = [];
   } finally {
     wikiFixture('restore-public');
   }

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   attachDiagnostics,
   installDiagnostics,
   runBinary,
@@ -67,6 +68,7 @@ test('Flow 6b — public game data, pagination, empty and controlled dependency-
   try {
     const response = await page.goto('/online');
     expect(response?.status()).toBe(503);
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: '/online' });
     await expect(page.locator('body')).not.toContainText('SQLSTATE');
     await expect(page.locator('body')).not.toContainText(rootPassword);
   } finally {

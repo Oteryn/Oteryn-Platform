@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   attachDiagnostics,
   completeMfaChallenge,
   installDiagnostics,
@@ -82,7 +83,7 @@ test(`${evidenceMarker}`, async ({ page }) => {
     restoreWikiAdminAvailability();
   }
 
-  page.__acceptanceDiagnostics.serverErrors = [];
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: '/admin/wiki' });
   response = await page.goto('/admin/wiki');
   expect(response?.status()).toBe(200);
   await expect(page.getByRole('heading', { name: 'Wiki administration' })).toBeVisible();

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   assertAccessibilitySmoke,
   attachDiagnostics,
   completeMfaChallenge,
@@ -120,7 +121,7 @@ async function expectServerFailureRecovery(page, surface, path) {
     runArtisan('cache:clear');
   }
 
-  page.__acceptanceDiagnostics.serverErrors = [];
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: path });
   response = await page.goto(path);
   expect(response?.status(), `Expected recovered surface for ${surface}`).toBe(200);
   await assertNoOverflow(page);
@@ -188,7 +189,7 @@ async function expectHomepageTemplateFailureRecovery(page) {
     portalFixture('restore', surface);
   }
 
-  page.__acceptanceDiagnostics.serverErrors = [];
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: '/admin/portal/homepage/active' });
   response = await page.goto(path);
   expect(response?.status(), `Expected recovered surface for ${surface}`).toBe(200);
   await assertNoOverflow(page);
@@ -368,7 +369,7 @@ test(supportMarker, async ({ page }) => {
     portalFixture('restore', 'support.moderation-lifecycle');
   }
 
-  page.__acceptanceDiagnostics.serverErrors = [];
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: '/support/tickets' });
   response = await page.goto('/support/tickets');
   expect(response?.status()).toBe(200);
   await assertNoOverflow(page);

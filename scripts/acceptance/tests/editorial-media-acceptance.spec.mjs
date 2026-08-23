@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   assertAccessibilitySmoke,
   attachDiagnostics,
   completeMfaChallenge,
@@ -215,4 +216,9 @@ test('@portal-editorial-media missing and integrity-failed stored objects render
     entry.status === 500
     && entry.url.endsWith(`/admin/media/${corrupt.media_id}/thumbnail`)
   ))).toBe(true);
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, {
+    status: 500,
+    pathname: `/admin/media/${corrupt.media_id}/thumbnail`,
+    count: page.__acceptanceDiagnostics.serverErrors.length,
+  });
 });

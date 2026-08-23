@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   attachDiagnostics,
   installDiagnostics,
   repoRoot,
@@ -207,6 +208,7 @@ async function prove500(page, locale) {
 
     const response = await page.goto(`/${locale}/highscores`, { waitUntil: 'domcontentloaded' });
     await expectErrorSurface(page, response, 500, locale);
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: `/${locale}/highscores` });
 
     const body = await page.locator('body').innerText();
     for (const forbidden of [

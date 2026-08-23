@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   attachDiagnostics,
   completeMfaChallenge,
   installDiagnostics,
@@ -78,7 +79,7 @@ test(`${evidenceMarker}`, async ({ page }) => {
     restoreEditorialMediaAvailability();
   }
 
-  page.__acceptanceDiagnostics.serverErrors = [];
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: '/admin/media' });
   response = await page.goto('/admin/media');
   expect(response?.status()).toBe(200);
   await expect(page.getByRole('heading', { name: 'Editorial image library' })).toBeVisible();
