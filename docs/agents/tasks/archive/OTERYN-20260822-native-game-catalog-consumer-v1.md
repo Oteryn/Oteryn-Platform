@@ -36,7 +36,7 @@ owned_paths:
   - app/GameCatalog/Application/Import/Native/**
   - tests/Feature/GameCatalog/NativeCatalogEnvelopeValidatorTest.php
   - tests/Fixtures/GameCatalog/native-v1/**
-  - docs/agents/tasks/active/OTERYN-20260822-native-game-catalog-consumer-v1.md
+  - docs/agents/tasks/archive/OTERYN-20260822-native-game-catalog-consumer-v1.md
 modules:
   - GameCatalog
 dependencies:
@@ -51,23 +51,25 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-23T07:23:00Z
-head: 8df3f86f429f28c78481b9938e5de5c24948bc72
+updated_at: 2026-08-23T07:36:08Z
+head: 095017ba031bace2794865275c717422d11d82bc
 branch: feat/native-game-catalog-consumer-v1
 pr: 1229
-status: ready
+status: completed
 context_routes:
   - game-catalog
 owned_paths:
   - app/GameCatalog/Application/Import/Native/**
   - tests/Feature/GameCatalog/NativeCatalogEnvelopeValidatorTest.php
   - tests/Fixtures/GameCatalog/native-v1/**
-  - docs/agents/tasks/active/OTERYN-20260822-native-game-catalog-consumer-v1.md
+  - docs/agents/tasks/archive/OTERYN-20260822-native-game-catalog-consumer-v1.md
 proven:
   - Game producer contract is LOCKED at Game merge 96ea673839f1d93190a40c17ae8036ac82096ded
   - legacy PR #338 owns different existing GameCatalog paths and remains held
-  - canonical Platform main remained 20f8aac95ae1b890ec6ebe8a705dda7dfb6674d4 through final implementation validation
-  - exact implementation head 8df3f86f429f28c78481b9938e5de5c24948bc72 passed Game Catalog Contract 32601058239 and CI 32601058243
+  - final PR generation was rebased/merged onto canonical Platform main d2fd6af3104e9e40e29263c19cf4f78beb1037d0 before exact-head validation
+  - exact implementation head 70bec44bf936c34be226303ee112a1ddb131bef3 passed Agent Governance 32625852864, Game Catalog Contract 32625852883 and CI 32625852854
+  - PR #1229 squash-merged as 095017ba031bace2794865275c717422d11d82bc at 2026-08-23T07:36:08Z
+  - source branch feat/native-game-catalog-consumer-v1 is absent from canonical remote after merge
 derived:
   - first mergeable Platform slice is native envelope validation only, not content persistence
 unknown:
@@ -85,7 +87,7 @@ changed_paths:
   - tests/Feature/GameCatalog/NativeCatalogEnvelopeValidatorTest.php
   - tests/Fixtures/GameCatalog/native-v1/unsupported-snapshot.json
   - tests/Fixtures/GameCatalog/native-v1/unsupported-snapshot.json.sha256
-  - docs/agents/tasks/active/OTERYN-20260822-native-game-catalog-consumer-v1.md
+  - docs/agents/tasks/archive/OTERYN-20260822-native-game-catalog-consumer-v1.md
 validation:
   - command: Game Catalog Contract run 32597729513
     result: FAIL
@@ -96,18 +98,27 @@ validation:
   - command: focused PHPUnit NativeCatalogEnvelopeValidatorTest
     result: PASS
     evidence: 14 tests, 58 assertions
-  - command: Game Catalog Contract run 32601058239
+  - command: Game Catalog Contract run 32625852883
     result: PASS
-    evidence: Pint, PHPStan and contract validation all passed
-  - command: CI run 32601058243
+    evidence: final-head Pint, PHPStan and contract validation all passed
+  - command: Agent Governance run 32625852864
     result: PASS
-    evidence: classify-changes, runtime-tests, required test and platform-gate all passed
+    evidence: final-head task/governance checks passed
+  - command: CI run 32625852854
+    result: PASS
+    evidence: final-head classify-changes, runtime-tests, required test and platform-gate all passed
+  - command: Phase 7 Production-Like Validation run 32625852843
+    result: PASS
+    evidence: final-head production-like validation passed without activation
+  - command: Portal Acceptance Contract run 32625852857
+    result: PASS
+    evidence: final-head portal contract validation passed
   - command: whole-diff review
     result: PASS
     evidence: zero unresolved material findings after depth-bound and synthetic-object fixture repairs
 blockers:
   - none
-next_action: merge PR #1229 after required branch-protection checks rerun on this terminal checkpoint commit
+next_action: continue programme #330 only with capability adapters backed by canonical Game authority; legacy PR #338 remains held
 ```
 
 ## Source branch closeout
@@ -115,5 +126,13 @@ next_action: merge PR #1229 after required branch-protection checks rerun on thi
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository feature branch after terminal PR merge
-source_branch_evidence: PR #1229 body declares Branch-Disposition: auto-delete after merge
+source_branch_evidence: PR #1229 merged as 095017ba031bace2794865275c717422d11d82bc and canonical remote no longer lists feat/native-game-catalog-consumer-v1
 ```
+
+## Terminal closeout
+
+- PR #1229 merged: `095017ba031bace2794865275c717422d11d82bc`.
+- Final PR head: `70bec44bf936c34be226303ee112a1ddb131bef3`.
+- Producer contract remains locked to Game merge `96ea673839f1d93190a40c17ae8036ac82096ded`.
+- Completion claim remains `partial_consumer`; no native content family, persistence, activation or production publication is claimed.
+- Legacy Canary PR #338 remains independently held.
