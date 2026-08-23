@@ -8,7 +8,7 @@ body:
       value: |
         **Do not use this public form for security vulnerabilities, credentials, personal data or exploit details.**
 
-        Report security vulnerabilities privately at https://github.com/blakinio/Oteryn-Platform/security/advisories/new.
+        Report security vulnerabilities privately at https://github.com/Oteryn/Oteryn-Platform/security/advisories/new.
   - type: checkboxes
     id: security_boundary
     attributes:

@@ -2,7 +2,7 @@
 
 ```yaml
 taxonomy_version: 1.5
-repository: blakinio/Oteryn-Platform
+repository: Oteryn/Oteryn-Platform
 programmes:
   audit: OTERYN_PLATFORM_CONTINUOUS_AUDIT
   remediation: OTERYN_PLATFORM_REMEDIATION
@@ -100,7 +100,7 @@ oteryn_work_item:
   schema_version: 5
   finding_id: OPA-<DOMAIN>-NNNN
   source_programme: OTERYN_PLATFORM_CONTINUOUS_AUDIT
-  repository: blakinio/Oteryn-Platform
+  repository: Oteryn/Oteryn-Platform
   workstream: <allowed workstream>
   secondary_workstreams: []
   finding_type: defect | missing_capability | incomplete_vertical_slice | architecture_gap | ci_gap | operability_gap | documentation_drift
