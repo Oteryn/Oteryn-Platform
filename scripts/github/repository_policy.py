@@ -341,15 +341,21 @@ def collect_state(
         "dependabot_security_updates": "/automated-security-fixes",
     }
     for feature, endpoint in feature_endpoints.items():
-        status, _ = client.request("GET", endpoint)
-        if status not in (204, 404):
+        status, payload = client.request("GET", endpoint)
+        if status == 204:
+            actual_enabled = True
+        elif status == 404:
+            actual_enabled = False
+        elif status == 200 and isinstance(payload, dict) and isinstance(payload.get("enabled"), bool):
+            actual_enabled = payload["enabled"]
+        else:
             errors.append(f"Unable to read {feature} state (HTTP {status}).")
             continue
         append_drift(
             drift,
             f"security_features.{feature}",
             bool(policy["security_features"].get(feature, False)),
-            status == 204,
+            actual_enabled,
         )
 
     status, private_reporting = client.request("GET", "/private-vulnerability-reporting")
