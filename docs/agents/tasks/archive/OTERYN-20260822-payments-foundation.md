@@ -121,3 +121,7 @@ Issue #321 intentionally remains open for:
 - a separate explicit production activation decision.
 
 No terminal task evidence in this archive should be read as closing those gates.
+
+## Post-closeout scope reconciliation — 2026-08-23
+
+The historical checkpoint above truthfully records that Issue #321 was open when this task closed. A later canonical reconciliation created successor Issue #1236 for real-provider selection, sandbox, compliance/operations and production activation so the completed foundation can become terminal without losing those gates. Closing #321 after that reconciliation does not upgrade the foundation to `PRODUCTION_PROVEN`; #1236 and #322 remain independent commerce blockers.

@@ -121,12 +121,14 @@
       "safety_critical": true,
       "source": "docs/agents/prompts/OTERYN-PAYMENTS-FOUNDATION-AGENT.md",
       "must_contain": [
-        "The test adapter cannot be enabled as a real production operator.",
-        "#321 remains open while provider/legal/sandbox gates are unresolved.",
-        "report `RESULT` as a non-production foundation"
+        "TERMINAL_DO_NOT_RUN",
+        "Issue #1236 now owns the unresolved real-provider",
+        "Do not create a new Payments implementation task, branch or PR",
+        "The test adapter cannot be enabled as a real production operator."
       ],
       "must_not_contain": [
-        "production payments complete"
+        "production payments complete",
+        "#321 remains open while provider/legal/sandbox gates are unresolved."
       ]
     }
   ]

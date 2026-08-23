@@ -1,8 +1,9 @@
 # ADR 0021: Provider-neutral payment security core
 
-- Status: Accepted for repository producer implementation
+- Status: Accepted; repository foundation delivered by PR #1228
 - Date: 2026-08-02
 - Parent: Issues #321 and #470
+- Successor real-provider gate: Issue #1236
 - Production activation: Not authorized
 
 ## Context
@@ -73,12 +74,12 @@ Introduce a Platform-owned payment event core with these boundaries:
 | Test adapter used in production | Adapter runtime refusal and production configuration violation. |
 | Direct wallet/entitlement mutation | No dependency on Wallet or Products/Entitlements in this core. |
 | Concurrent transition race | Database transaction, payment-order row lock, unique event key and monotonic order version; refund accumulation occurs inside that same serialized boundary. |
-| Operator/admin abuse | No privileged mutation UI is introduced; future reconciliation UI requires exact permission, confirmed MFA and audit. |
+| Operator/admin abuse | The delivered bounded reconciliation UI requires exact `payments.reconcile` permission, confirmed MFA and audit; its review action records evidence without changing payment, Wallet or entitlement truth. |
 
 ## Consequences
 
 - Issue #470 may reach `producer_complete` after database, focused security, concurrency, audit and exact-head validation.
-- Issue #321 remains incomplete until a real provider decision, sandbox adapter, signed public ingress, customer frontend and provider-specific operational evidence exist.
+- Issue #321 is the terminal provider-neutral foundation after PR #1228; real provider selection, provider sandbox, signed public ingress, provider-specific operations/compliance and production activation are successor Issue #1236. The delivered deterministic customer/history surface is test-path evidence, not real-provider proof.
 - Issue #322 remains the owner of product, entitlement, coin-delivery and service-history behavior.
 - Production and customer charging remain disabled.
 - The test adapter is not evidence of provider sandbox or production correctness.

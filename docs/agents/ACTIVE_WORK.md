@@ -77,7 +77,7 @@ Repository and staging evidence remains valid only for its documented boundaries
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
 - **Portal Completeness: COMPLETE AGAINST THE VERSIONED DELIVERED-SURFACE CONTRACT (Issue #240 closed)**
-- **Product Completeness Audit: MERGED IN PR #315; REQUIRED GAPS #317/#319, PLANNED CHARACTER WORK #320/#323, COMMERCE #321/#322 AND KNOWLEDGE #301/#302 REMAIN**
+- **Product Completeness Audit: MERGED IN PR #315; REQUIRED GAPS #317/#319, PLANNED CHARACTER WORK #320/#323, REAL-PROVIDER COMMERCE GATE #1236 / PRODUCTS-ENTITLEMENTS #322 AND KNOWLEDGE #301/#302 REMAIN; PAYMENT FOUNDATION #321 IS TERMINAL**
 - **Benchmark Product Completeness: NOT YET ACHIEVED**
 - **Functional Acceptance: exact-final-head CI, strict route/product ledgers and zero-retry account lifecycle passed on PR #315 head `92935a76e559d8716773ebec5d1a04264051cfa1`**
 - **Visual / UX Acceptance: broad integrated backend/frontend evidence is recorded; exhaustive every-screen/state closure remains #326**
