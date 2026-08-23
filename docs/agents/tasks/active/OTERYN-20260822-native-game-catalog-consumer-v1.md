@@ -117,4 +117,3 @@ source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository feature branch after terminal PR merge
 source_branch_evidence: PR #1229 body declares Branch-Disposition: auto-delete after merge
 ```
-
