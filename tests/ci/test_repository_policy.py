@@ -48,11 +48,14 @@ class RepositoryPolicyTest(unittest.TestCase):
                 "block_creations": False,
                 "required_conversation_resolution": True,
                 "lock_branch": False,
-                "allow_fork_syncing": True,
+                "allow_fork_syncing": False,
             },
             "security_features": {
                 "secret_scanning": True,
                 "secret_scanning_push_protection": True,
+                "dependabot_alerts": True,
+                "dependabot_security_updates": True,
+                "private_vulnerability_reporting": True,
             },
             "environments": {},
         }
@@ -110,7 +113,7 @@ class RepositoryPolicyTest(unittest.TestCase):
                 "block_creations": {"enabled": False},
                 "required_conversation_resolution": {"enabled": True},
                 "lock_branch": {"enabled": False},
-                "allow_fork_syncing": {"enabled": True},
+                "allow_fork_syncing": {"enabled": False},
             },
         )
 
@@ -154,6 +157,48 @@ class RepositoryPolicyTest(unittest.TestCase):
         )
 
         self.assertEqual([], drift)
+
+    def test_collect_state_accepts_current_automated_security_fixes_shape(self) -> None:
+        policy = self.policy()
+        responses = {
+            "": (200, {
+                "allow_squash_merge": True, "allow_merge_commit": False,
+                "delete_branch_on_merge": True,
+                "security_and_analysis": {
+                    "secret_scanning": {"status": "enabled"},
+                    "secret_scanning_push_protection": {"status": "enabled"},
+                },
+            }),
+            "/branches/main/protection": (200, {
+                "required_status_checks": {"strict": True, "contexts": ["test", "classify-changes"]},
+                "enforce_admins": {"enabled": True},
+                "required_pull_request_reviews": {
+                    "dismiss_stale_reviews": True, "require_code_owner_reviews": False,
+                    "required_approving_review_count": 0, "require_last_push_approval": False,
+                },
+                "restrictions": None, "required_linear_history": {"enabled": True},
+                "allow_force_pushes": {"enabled": False}, "allow_deletions": {"enabled": False},
+                "block_creations": {"enabled": False}, "required_conversation_resolution": {"enabled": True},
+                "lock_branch": {"enabled": False}, "allow_fork_syncing": {"enabled": False},
+            }),
+            "/vulnerability-alerts": (204, None),
+            "/automated-security-fixes": (200, {"enabled": True, "paused": False}),
+            "/private-vulnerability-reporting": (200, {"enabled": True}),
+        }
+
+        class FakeClient:
+            def request(self, method, path, body=None):
+                return responses[path]
+
+        drift, errors = repository_policy.collect_state(FakeClient(), policy)
+        self.assertEqual([], errors)
+        self.assertEqual([], drift)
+
+    def test_canonical_policy_does_not_enable_fork_syncing_on_non_fork_repo(self) -> None:
+        policy = repository_policy.load_policy(
+            REPOSITORY_ROOT / "docs/operations/github-repository-policy.json"
+        )
+        self.assertFalse(policy["branch_protection"]["allow_fork_syncing"])
 
     def test_load_policy_rejects_missing_required_keys(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
