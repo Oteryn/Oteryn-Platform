@@ -65,7 +65,7 @@ cross_repository_tasks:
 checkpoint_version: 1
 policy_version: 2
 updated_at: 2026-08-23T09:42:46+02:00
-head: 0dbc2097771540c6d74cef6670aabf30a9eb666a
+head: 0d3be3c70979f257b00360a3fbd0f3c2a8e64622
 branch: docs/payments-foundation-terminal-1236
 pr: 1238
 status: ready
@@ -98,7 +98,7 @@ proven:
   - PR #1228 and closeout PR #1231 are merged and the previous foundation task is archived.
   - Issue #1236 exists and owns the unresolved real-provider/sandbox/production gate.
   - No active Payments task or open Payments implementation PR overlaps this reconciliation.
-  - Protected main advanced to 095017ba031bace2794865275c717422d11d82bc with only Native Game Catalog paths; the task branch was rebased with zero path overlap.
+  - Protected main advanced first to 095017ba031bace2794865275c717422d11d82bc and then b5635f262ff2ab859155c8c62af47d05a11f6c6 with only Native Game Catalog task paths; the task branch was rebased after each advance with zero path overlap.
   - PR #1238 is the sole terminalization PR and has zero review submissions and zero review threads.
   - Accidental placeholder Issue #1237 was immediately closed `not_planned` and grants no authority or work ownership.
 derived:
@@ -152,7 +152,7 @@ next_action: Push the documentation-only readiness checkpoint, mark PR #1238 rea
 ```yaml
 self_review:
   result: PASS
-  exact_head: 0dbc2097771540c6d74cef6670aabf30a9eb666a
+  exact_head: 0d3be3c70979f257b00360a3fbd0f3c2a8e64622
   acceptance_checked: true
   full_diff_checked: true
   negative_paths_checked: true
@@ -185,22 +185,22 @@ This task changes no payment runtime, schema, provider integration, production c
 ```yaml
 recovery:
   policy_version: 1
-  generation: 1
+  generation: 2
   session_id: chatgpt-20260823T0923+0200
   session_started_at: 2026-08-23T09:23:00+02:00
-  checkpointed_at: 2026-08-23T09:45:11+02:00
-  last_progress_at: 2026-08-23T09:44:41+02:00
+  checkpointed_at: 2026-08-23T09:51:59+02:00
+  last_progress_at: 2026-08-23T09:51:59+02:00
   phase: final_exact_head_ci
-  exact_head: 57b04939fc02f4f08d5d632ee6f8e0736f5e6f87
+  exact_head: 0d3be3c70979f257b00360a3fbd0f3c2a8e64622
   pull_request: 1238
   active_operation: required exact-head GitHub CI and resulting authorized squash merge
   external_run_ids:
     - 32626367827
     - 32626367707
-  operation_started_at: 2026-08-23T09:44:41+02:00
+  operation_started_at: 2026-08-23T09:51:59+02:00
   wait_deadline_at: 2026-08-23T10:30:11+02:00
-  check_generation: ready-1
-  checks_used: 1
+  check_generation: current-base-2
+  checks_used: 0
   status: waiting
   safe_to_resume: true
   resume_condition: PR #1238 exact-head required checks complete without material findings
