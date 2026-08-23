@@ -179,3 +179,30 @@ source_branch_evidence: pending
 ## Notes
 
 This task changes no payment runtime, schema, provider integration, production configuration, secrets or customer financial behavior. E2E is `NOT_APPLICABLE` because the delivered browser/payment behavior is unchanged; this task reconciles routing, durable state and Issue ownership only.
+
+## Recovery checkpoint
+
+```yaml
+recovery:
+  policy_version: 1
+  generation: 1
+  session_id: chatgpt-20260823T0923+0200
+  session_started_at: 2026-08-23T09:23:00+02:00
+  checkpointed_at: 2026-08-23T09:45:11+02:00
+  last_progress_at: 2026-08-23T09:44:41+02:00
+  phase: final_exact_head_ci
+  exact_head: 57b04939fc02f4f08d5d632ee6f8e0736f5e6f87
+  pull_request: 1238
+  active_operation: required exact-head GitHub CI and resulting authorized squash merge
+  external_run_ids:
+    - 32626367827
+    - 32626367707
+  operation_started_at: 2026-08-23T09:44:41+02:00
+  wait_deadline_at: 2026-08-23T10:30:11+02:00
+  check_generation: ready-1
+  checks_used: 1
+  status: waiting
+  safe_to_resume: true
+  resume_condition: PR #1238 exact-head required checks complete without material findings
+  next_action: Observe the aggregate required-check state after the minimum terminal-CI interval; repair any failure, otherwise squash-merge exact head and complete Issue/task closeout.
+```
