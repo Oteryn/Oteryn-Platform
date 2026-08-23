@@ -50,8 +50,8 @@ cross_repository_tasks:
 ```
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-23T11:51:26Z
-head: 70baf60891194196ecd740e21c731b8c14a9a886
+updated_at: 2026-08-23T12:02:31Z
+head: 822a516c049bbd519ec903d1d060538806976752
 branch: test/runtime-diagnostics-hardening-20260823
 pr: 1242
 status: validating
@@ -76,13 +76,14 @@ proven:
   - Unexpected console/page/request/5xx diagnostics now fail after secret-safe attachments are written.
   - All current intentional HTTP 5xx acceptance paths are explicitly bounded by status, pathname and occurrence count.
   - Browser navigation net::ERR_ABORTED remains non-fatal; other request failures remain fatal.
+  - Exact-head self-review found and repaired the stale Wiki raw-serverErrors assertion without clearing expected evidence.
 derived:
   - The smallest useful port is a strict unexpected-runtime-failure gate with explicit expected-failure consumption.
 unknown: []
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: SELF-REVIEW-001 repaired
+  evidence: wiki public reconciliation retained the expected 503 in diagnostics but still asserted raw serverErrors == []; repaired by 822a516c049bbd519ec903d1d060538806976752
 rejected_hypotheses:
   - importing Atlas map/WebGL/canvas/geometry visual tests
 changed_paths:
@@ -117,14 +118,14 @@ validation:
 blockers:
   - none
 invocation_started_at: 2026-08-23T11:06:16Z
-last_progress_at: 2026-08-23T11:51:26Z
+last_progress_at: 2026-08-23T12:02:31Z
 ci_checks_for_current_head: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
 repair_cycles_for_current_gate: 0
 context_reconstruction_attempts: 0
 stall_warnings: 0
-next_action: push the coherent candidate and inspect aggregate PR #1242 required checks
+next_action: push the repaired candidate and inspect aggregate PR #1242 required checks
 ```
 `
 ## Recovery checkpoint
@@ -135,21 +136,21 @@ recovery:
   generation: 1
   session_id: runtime-diagnostics-20260823
   session_started_at: 2026-08-23T11:06:16Z
-  checkpointed_at: 2026-08-23T11:51:26Z
-  last_progress_at: 2026-08-23T11:51:26Z
+  checkpointed_at: 2026-08-23T12:02:31Z
+  last_progress_at: 2026-08-23T12:02:31Z
   phase: validate
-  exact_head: 70baf60891194196ecd740e21c731b8c14a9a886
+  exact_head: 822a516c049bbd519ec903d1d060538806976752
   pull_request: 1242
   active_operation: push candidate and inspect PR #1242 required checks
   external_run_ids: []
-  operation_started_at: 2026-08-23T11:51:26Z
+  operation_started_at: 2026-08-23T12:02:31Z
   wait_deadline_at: null
   check_generation: null
   checks_used: 0
   status: active
   safe_to_resume: true
   resume_condition: dedicated branch remains unowned and based on current main
-  next_action: push the coherent candidate and inspect aggregate PR #1242 required checks
+  next_action: push the repaired candidate and inspect aggregate PR #1242 required checks
 ```
 `
 ## Source branch closeout
