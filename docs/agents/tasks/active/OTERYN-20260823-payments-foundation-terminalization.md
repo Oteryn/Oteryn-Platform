@@ -1,6 +1,6 @@
 ---
 task_id: OTERYN-20260823-payments-foundation-terminalization
-status: validating
+status: ready
 agent: ChatGPT autonomous payments foundation owner
 project_lane: oteryn-platform-core
 task_kind: implementation
@@ -64,12 +64,12 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-23T09:38:43+02:00
-head: d2fd6af3104e9e40e29263c19cf4f78beb1037d0
+updated_at: 2026-08-23T09:42:46+02:00
+head: 0dbc2097771540c6d74cef6670aabf30a9eb666a
 branch: docs/payments-foundation-terminal-1236
-pr: none
-status: validating
-phase: focused_documentation_validation
+pr: 1238
+status: ready
+phase: final_exact_head_ci
 session_id: chatgpt-20260823T0923+0200
 session_role: implementer
 execution_mode: remote-terminal-plus-github
@@ -83,7 +83,7 @@ context_growth: stable
 context_score: 7
 estimate_confidence: high
 decomposition_decision: single
-validation_level: component
+validation_level: full
 owned_paths:
   - docs/agents/prompts/OTERYN-PAYMENTS-FOUNDATION-AGENT.md
   - docs/agents/evals/oteryn-platform-parallel-wave-prompts-v1.json
@@ -98,7 +98,9 @@ proven:
   - PR #1228 and closeout PR #1231 are merged and the previous foundation task is archived.
   - Issue #1236 exists and owns the unresolved real-provider/sandbox/production gate.
   - No active Payments task or open Payments implementation PR overlaps this reconciliation.
-  - Current protected main is d2fd6af3104e9e40e29263c19cf4f78beb1037d0.
+  - Protected main advanced to 095017ba031bace2794865275c717422d11d82bc with only Native Game Catalog paths; the task branch was rebased with zero path overlap.
+  - PR #1238 is the sole terminalization PR and has zero review submissions and zero review threads.
+  - Accidental placeholder Issue #1237 was immediately closed `not_planned` and grants no authority or work ownership.
 derived:
   - Re-running the foundation alias would duplicate terminal work; it should become a tombstone/status route rather than redirecting into provider integration.
 unknown: []
@@ -133,10 +135,37 @@ validation:
     evidence: context checkpoint validated against contract v1
   - command: git diff --check
     result: PASS
-    evidence: no whitespace errors
+    evidence: no whitespace errors on exact content head 0dbc2097771540c6d74cef6670aabf30a9eb666a
+  - command: canonical stale #321 scan
+    result: PASS
+    evidence: no stale #321-open/incomplete routing markers remain in canonical prompt, registry, state, ADR or operations files
+  - command: browser/runtime E2E
+    result: NOT_APPLICABLE
+    evidence: documentation, governance and architecture-state reconciliation only; no executable Payments behavior changed from PR #1228
 blockers:
   - none
-next_action: Commit and push the coherent terminalization package, open a draft PR, then perform exact-head self-review and required GitHub validation.
+next_action: Push the documentation-only readiness checkpoint, mark PR #1238 ready, then verify required exact-head GitHub checks before squash merge.
+```
+
+## Self-review
+
+```yaml
+self_review:
+  result: PASS
+  exact_head: 0dbc2097771540c6d74cef6670aabf30a9eb666a
+  acceptance_checked: true
+  full_diff_checked: true
+  negative_paths_checked: true
+  rollback_checked: true
+  compatibility_checked: true
+  related_prs_checked: true
+  findings: []
+  evidence:
+    - exact 9-path diff inspected after rebase onto main@095017ba031bace2794865275c717422d11d82bc
+    - prompt safety contract, prompt evaluator tests, ADR registry, checkpoint validator and diff check PASS
+    - canonical stale-routing scan PASS; Issue #1236 exists and remains the explicit blocked successor
+    - PR #1238 has zero review submissions and zero review threads
+    - rollback is a documentation-only revert to the prior routing state; no runtime or financial data changes
 ```
 
 ## Source branch closeout
