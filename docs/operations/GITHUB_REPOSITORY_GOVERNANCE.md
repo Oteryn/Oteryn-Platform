@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines the desired GitHub-side controls for `blakinio/Oteryn-Platform`. The machine-readable source is `docs/operations/github-repository-policy.json`.
+This document defines the desired GitHub-side controls for `Oteryn/Oteryn-Platform`. The machine-readable source is `docs/operations/github-repository-policy.json`.
 
 Repository documents describe policy; GitHub settings enforce it. A control is not considered active until live API state verifies it.
 
@@ -39,8 +39,7 @@ Pull-request titles and final squash commits use Conventional Commit form.
 
 Initial required contexts are:
 
-- `classify-changes`;
-- `test`.
+- `platform-gate` (stable fan-in over `classify-changes` + `test`).
 
 These are always emitted by the current CI workflow, including a skipped terminal result when the change classifier determines the application suite is not applicable. Conditional workflows must not be globally required because a check that is never emitted can deadlock pull requests.
 

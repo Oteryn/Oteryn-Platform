@@ -2,7 +2,7 @@
 
 ```yaml
 repair_pr_economy_version: 3
-repository: blakinio/Oteryn-Platform
+repository: Oteryn/Oteryn-Platform
 default_delivery: one_issue_one_owner_one_pr
 mandatory_external_repair_audit: false
 validation_gate: docs/agents/REMEDIATION_AUDIT_RISK_GATE.md

@@ -10,7 +10,7 @@ Do not disclose suspected vulnerabilities, credentials, personal data, exploit d
 
 Use the canonical GitHub Private Vulnerability Reporting form:
 
-**https://github.com/blakinio/Oteryn-Platform/security/advisories/new**
+**https://github.com/Oteryn/Oteryn-Platform/security/advisories/new**
 
 GitHub Private Vulnerability Reporting is enabled for this repository. The role-based contact is the Oteryn Platform repository security maintainers and administrators who can access private vulnerability reports. The repository owner is accountable for ensuring that at least one authorized maintainer monitors GitHub security notifications and that access is transferred or revoked when responsibilities change.
 
@@ -48,7 +48,7 @@ Timelines depend on severity, reproducibility and maintainer availability. This 
 
 Security-sensitive Oteryn Platform areas include authentication, sessions, MFA, recovery, authorization, administrator actions, uploads, webhooks, payments, wallet or currency state, cross-repository game contracts, deployment automation, public-edge controls and secrets handling.
 
-This policy governs findings in `blakinio/Oteryn-Platform` and repository-owned deployment or integration behavior documented here. Findings whose root cause belongs exclusively to another Oteryn repository, an upstream dependency or a third-party service may be confidentially redirected to the responsible owner. Sensitive details must not be copied into public records during that handoff.
+This policy governs findings in `Oteryn/Oteryn-Platform` and repository-owned deployment or integration behavior documented here. Findings whose root cause belongs exclusively to another Oteryn repository, an upstream dependency or a third-party service may be confidentially redirected to the responsible owner. Sensitive details must not be copied into public records during that handoff.
 
 ## Good-faith research and safe harbor
 

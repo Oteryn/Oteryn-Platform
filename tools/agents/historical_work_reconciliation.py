@@ -16,7 +16,7 @@ import historical_branch_audit as audit
 from branch_lifecycle import ApiError, GitHubClient, ValidationError
 
 ISSUE_NUMBER = 1072
-ALLOWED_REPOSITORY = "blakinio/Oteryn-Platform"
+ALLOWED_REPOSITORY = "Oteryn/Oteryn-Platform"
 ALLOWED_DEFAULT_BRANCH = "main"
 REGISTRY = Path("docs/agents/HISTORICAL_WORK_RECONCILIATION_REGISTRY.json")
 REVIEWED_IMPLEMENTATION_PATHS = (
