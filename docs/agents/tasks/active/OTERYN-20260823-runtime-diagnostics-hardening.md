@@ -65,8 +65,8 @@ cross_repository_tasks:
 ```
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-24T07:10:27Z
-head: e5e95d5e9a7867e0921ba851108e8870dbee1928
+updated_at: 2026-08-24T08:41:38Z
+head: 137e7b685c13568b6ce0d52560a6fa7c2e6228ca
 branch: test/runtime-diagnostics-hardening-20260823
 pr: 1242
 status: validating
@@ -99,6 +99,14 @@ owned_paths:
   - tests/Feature/PlayerCompanion/SessionAnalysisFeatureTest.php
   - tests/Feature/Wiki/AdminWikiAdministrationTest.php
   - docs/agents/tasks/active/OTERYN-20260823-runtime-diagnostics-hardening.md
+  - scripts/acceptance/tests/community-data-acceptance.spec.mjs
+  - scripts/acceptance/tests/full-acceptance.spec.mjs
+  - scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs
+  - scripts/acceptance/tests/public-game-data-acceptance.spec.mjs
+  - scripts/acceptance/tests/resilience-critical.spec.mjs
+  - lang/en/errors.php
+  - lang/pl/errors.php
+  - resources/views/errors/409.blade.php
 proven:
   - GitHub main d0ffc93855cba744ca5dc654651f528c962970aa was integrated without conflicts before the candidate.
   - PR #1242 remains the task PR and no overlapping active owner was found for the changed runtime-diagnostics or frontend paths.
@@ -107,11 +115,13 @@ proven:
   - Chromium net::ERR_ABORTED, Firefox NS_BINDING_ABORTED and WebKit Load request cancelled are the only added navigation-cancellation signatures; ordinary request failures remain fatal.
   - Wiki stable-key/content-type HTML patterns escape the hyphen for current HTML pattern v-mode semantics.
   - Player Companion delete confirmation no longer uses an inline event handler and is implemented through external same-origin JavaScript.
+  - Wiki stale-write conflicts render through a CSP-safe localized 409 error view without inline style.
+  - Focused PHP feature tests pass in isolated PHP 8.5 Docker: Wiki stale conflict 32 assertions; Player Companion owner/delete 13 assertions.
   - Node runtime-diagnostics regression suite passes 21 tests, including expected 403/404/409/419/422/429/500/503, bounded consumption, surplus/wrong status/path, cancellation signatures, ordinary failures, CSP fatality and Wiki v-mode pattern semantics.
 derived:
   - CSP errors on ordinary screenshot-bearing pages are consistent with Playwright screenshot caret styling under strict style-src; the harness now preserves caret styling instead of weakening CSP.
 unknown:
-  - Exact-head PHP feature tests and real browser E2E remain to be proven by GitHub CI because PHP and bundled Playwright browsers are unavailable on the local Windows execution plane.
+  - Real browser E2E on the exact pushed head remains to be proven by GitHub CI.
 conflicts: []
 first_failure:
   marker: CI-OLD-HEAD-runtime-taxonomy repaired in candidate
@@ -140,6 +150,14 @@ changed_paths:
   - tests/Feature/PlayerCompanion/SessionAnalysisFeatureTest.php
   - tests/Feature/Wiki/AdminWikiAdministrationTest.php
   - docs/agents/tasks/active/OTERYN-20260823-runtime-diagnostics-hardening.md
+  - scripts/acceptance/tests/community-data-acceptance.spec.mjs
+  - scripts/acceptance/tests/full-acceptance.spec.mjs
+  - scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs
+  - scripts/acceptance/tests/public-game-data-acceptance.spec.mjs
+  - scripts/acceptance/tests/resilience-critical.spec.mjs
+  - lang/en/errors.php
+  - lang/pl/errors.php
+  - resources/views/errors/409.blade.php
 validation:
   - command: npm --prefix scripts/acceptance run test:runtime-diagnostics
     result: PASS
@@ -153,13 +171,13 @@ validation:
   - command: git diff --check and git diff --cached --check
     result: PASS
     evidence: no whitespace errors
-  - command: focused PHP feature tests
-    result: BLOCKED
-    evidence: local Windows and WSL execution planes do not provide PHP; exact-head CI is the proving path
+  - command: isolated PHP 8.5 Docker focused feature tests
+    result: PASS
+    evidence: Wiki stale-conflict test exit 0 with 32 assertions; Player Companion owner/delete test exit 0 with 13 assertions; language PHP lint PASS
 blockers:
   - none
 invocation_started_at: 2026-08-24T06:50:00Z
-last_progress_at: 2026-08-24T07:10:27Z
+last_progress_at: 2026-08-24T08:41:38Z
 ci_checks_for_current_head: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
@@ -177,10 +195,10 @@ recovery:
   generation: 2
   session_id: runtime-diagnostics-20260824-resume
   session_started_at: 2026-08-24T06:50:00Z
-  checkpointed_at: 2026-08-24T07:10:27Z
-  last_progress_at: 2026-08-24T07:10:27Z
+  checkpointed_at: 2026-08-24T08:41:38Z
+  last_progress_at: 2026-08-24T08:42:20Z
   phase: validate
-  exact_head: e5e95d5e9a7867e0921ba851108e8870dbee1928
+  exact_head: 137e7b685c13568b6ce0d52560a6fa7c2e6228ca
   pull_request: 1242
   active_operation: push coherent candidate and inspect exact-head CI
   external_run_ids: []
