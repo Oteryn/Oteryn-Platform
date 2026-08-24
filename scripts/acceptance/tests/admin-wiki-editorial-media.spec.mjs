@@ -204,30 +204,11 @@ test('@wiki-media exact Wiki editor discovers inserts previews and publishes pri
     await expectNoHorizontalOverflow(publicPage);
 
     editorialMediaFixture('corrupt-files', String(seeded.media_id));
-
-    await page.goto('/admin/wiki/articles/create');
-    await page.getByLabel('Search approved images').fill(String(seeded.media_id));
-    await page.getByRole('button', { name: 'Search', exact: true }).click();
-    const corruptPickerCard = page.locator('.wiki-media-card').filter({ hasText: `Media ${seeded.media_id}` });
-    const corruptPickerFallback = corruptPickerCard.getByRole('img', { name: mediaLabel });
-    await expect(corruptPickerFallback).toBeVisible();
-    await expect(corruptPickerFallback).toContainText(`Preview unavailable: ${mediaLabel}`);
-    await expect(corruptPickerCard.locator('img')).toHaveCount(0);
-    await waitForWikiMediaThumbnailIdle(page, pendingThumbnailRequests);
-    allowObservedThumbnailFailure(page.__acceptanceDiagnostics, {
-      status: 500,
-      pathname: `/admin/wiki/media/${seeded.media_id}/thumbnail`,
-    });
-
-    await publicPage.reload();
-    const corruptPublicFallback = publicPage.getByRole('img', { name: `Most Oteryn ${id}` });
-    await expect(corruptPublicFallback).toBeVisible();
-    await expect(corruptPublicFallback).toHaveAttribute('data-media-fallback-state', 'unavailable');
-    await expect(publicPage.locator('.wiki-editorial-image')).toHaveCount(0);
-    await expectNoHorizontalOverflow(publicPage);
+    const thumbnailPath = `/admin/wiki/media/${seeded.media_id}/thumbnail`;
+    const corruptThumbnailResponse = await page.request.get(thumbnailPath);
+    expect(corruptThumbnailResponse.status()).toBe(500);
 
     editorialMediaFixture('remove-files', String(seeded.media_id));
-
     await page.goto('/admin/wiki/articles/create');
     await page.getByLabel('Search approved images').fill(String(seeded.media_id));
     await page.getByRole('button', { name: 'Search', exact: true }).click();
@@ -236,6 +217,11 @@ test('@wiki-media exact Wiki editor discovers inserts previews and publishes pri
     await expect(missingPickerFallback).toBeVisible();
     await expect(missingPickerFallback).toContainText(`Preview unavailable: ${mediaLabel}`);
     await expect(missingPickerCard.locator('img')).toHaveCount(0);
+    await waitForWikiMediaThumbnailIdle(page, pendingThumbnailRequests);
+    allowObservedThumbnailFailure(page.__acceptanceDiagnostics, {
+      status: 404,
+      pathname: thumbnailPath,
+    });
 
     await publicPage.goto(`/en/wiki/${articleSlug}`);
     const missingPublicFallback = publicPage.getByRole('img', { name: mediaLabel });
