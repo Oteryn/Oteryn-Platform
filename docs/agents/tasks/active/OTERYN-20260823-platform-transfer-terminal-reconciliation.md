@@ -50,11 +50,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-23T12:46:36Z
+updated_at: 2026-08-24T08:50:17Z
 head: 0ccbcdc48401e28360f6f814386319cf2c6e7f5d
 branch: migration/issue-1155-terminal-coordinate-reconciliation
 pr: 1243
 status: validating
+terminal_pr_policy: archive_pending
 context_routes:
   - governance
   - migration
@@ -64,6 +65,8 @@ proven:
   - repository ID 1305155726 resolves at Oteryn/Oteryn-Platform
   - historical blakinio/Oteryn-Platform URL resolves to the same repository ID
   - current-owner GHCR publish run 32625997593 succeeded
+  - PR #1243 merged as bbd5fec996b661678cbda23376ed7967839c1feb and its source branch is absent.
+  - This terminal record relinquishes active ownership through the required archive_pending transition while Issue #1155 remains open.
   - regression is RED on fourteen current authority files
 derived:
   - package metadata API visibility is not required to prove the already-observed current-owner publish identity
@@ -84,7 +87,7 @@ validation:
     evidence: expected TDD RED; 14 active authority offenders
 blockers:
   - none
-next_action: push the task-identity repair, then re-observe exact-head Agent Governance and required CI
+next_action: archive this terminal task record; Issue #1155 remains open for successor work that still requires GHCR package-settings metadata
 ```
 
 ## Source branch closeout

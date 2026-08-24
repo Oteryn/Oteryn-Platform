@@ -107,7 +107,9 @@ owned_paths:
   - lang/en/errors.php
   - lang/pl/errors.php
   - resources/views/errors/409.blade.php
+  - docs/agents/tasks/active/OTERYN-20260823-platform-transfer-terminal-reconciliation.md
 proven:
+  - Exact-head CI exposed terminal PR #1243 as a global governance blocker; its task has no live ownership and is transitioned to archive_pending without changing Issue #1155 state.
   - GitHub main d0ffc93855cba744ca5dc654651f528c962970aa was integrated without conflicts before the candidate.
   - PR #1242 remains the task PR and no overlapping active owner was found for the changed runtime-diagnostics or frontend paths.
   - Previous exact-head CI failures were classified as invalid Wiki HTML pattern, explicit expected HTTP outcomes, browser navigation cancellation noise, CSP violations, or real request failures.
@@ -158,6 +160,7 @@ changed_paths:
   - lang/en/errors.php
   - lang/pl/errors.php
   - resources/views/errors/409.blade.php
+  - docs/agents/tasks/active/OTERYN-20260823-platform-transfer-terminal-reconciliation.md
 validation:
   - command: npm --prefix scripts/acceptance run test:runtime-diagnostics
     result: PASS
@@ -177,7 +180,7 @@ validation:
 blockers:
   - none
 invocation_started_at: 2026-08-24T06:50:00Z
-last_progress_at: 2026-08-24T08:41:38Z
+last_progress_at: 2026-08-24T08:50:17Z
 ci_checks_for_current_head: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
