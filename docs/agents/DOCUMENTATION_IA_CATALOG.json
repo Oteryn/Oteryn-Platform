@@ -21,6 +21,18 @@
   "lifecycle_authority": "docs/agents/DOCUMENTATION_IA_LIFECYCLE.md",
   "prompts": [
     {
+      "id": "OTERYN-RUNTIME-DIAGNOSTICS-CLOSEOUT",
+      "path": "docs/agents/prompts/OTERYN-RUNTIME-DIAGNOSTICS-CLOSEOUT-AGENT-PROMPT.md",
+      "version": "1.0",
+      "classification": "one_shot_historical",
+      "status": "historical_do_not_run",
+      "owner": "OTERYN-RUNTIME-DIAGNOSTICS-CLOSEOUT",
+      "scope": "One-time continuation and closeout handoff for OTERYN-20260823 runtime diagnostics hardening",
+      "executable": false,
+      "supersession": {"target": "issue:1262", "reason": "Task-specific closeout prompt; live Issue #1262 and the task packet are canonical authority, so this handoff must not be replayed after terminal closeout."},
+      "provenance": ["issue:1262", "docs/agents/tasks/active/OTERYN-20260823-runtime-diagnostics-hardening.md"]
+    },
+    {
       "id": "OTERYN_PLATFORM_REMEDIATION",
       "path": "docs/agents/prompts/OTERYN_PLATFORM_REMEDIATION_PROGRAM.md",
       "version": "1.3.0",
