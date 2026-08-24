@@ -23,11 +23,11 @@ Make unexpected browser/runtime failures fail Platform Playwright acceptance wit
 ```
 ## Acceptance criteria
 ```
-- [ ] Unexpected console errors, page errors, failed requests and HTTP 5xx are rejected by acceptance diagnostics.
-- [ ] Intentional resilience/error-state failures can be explicitly consumed/allowed without weakening unrelated diagnostics.
-- [ ] Existing secret-safe diagnostic attachments remain available before a diagnostic gate fails.
-- [ ] Focused regression tests prove clean, unexpected-failure and expected-failure behavior.
-- [ ] No Atlas-specific rendering or map test subsystem is introduced.
+- [x] Unexpected console errors, page errors, failed requests and HTTP 5xx are rejected by acceptance diagnostics.
+- [x] Intentional resilience/error-state failures can be explicitly consumed/allowed without weakening unrelated diagnostics.
+- [x] Existing secret-safe diagnostic attachments remain available before a diagnostic gate fails.
+- [x] Focused regression tests prove clean, unexpected-failure and expected-failure behavior.
+- [x] No Atlas-specific rendering or map test subsystem is introduced.
 ```
 ## Ownership
 ```
@@ -72,12 +72,12 @@ cross_repository_tasks:
 ```
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-24T19:50:07Z
-head: e3aed908d7559ee1e16d67d38ae4ebcdebac3c81
+updated_at: 2026-08-24T21:47:20Z
+head: f5158feeeef1d100474c2ee3922317dd9548dc52
 branch: test/runtime-diagnostics-hardening-20260823
 pr: 1242
-status: validating
-phase: validate
+status: completed
+phase: closeout
 task_kind: implementation
 execution_mode: local-terminal
 execution_reason: resumed existing worktree; bounded acceptance diagnostics and directly exposed frontend repairs
@@ -110,6 +110,8 @@ owned_paths:
   - docs/agents/prompts/OTERYN-RUNTIME-DIAGNOSTICS-CLOSEOUT-AGENT-PROMPT.md
   - docs/superpowers/plans/2026-08-24-runtime-diagnostics-closeout.md
   - docs/agents/tasks/active/OTERYN-20260823-runtime-diagnostics-hardening.md
+  - docs/agents/tasks/archive/OTERYN-20260823-runtime-diagnostics-hardening.md
+  - docs/agents/DOCUMENTATION_IA_CATALOG.json
   - scripts/acceptance/tests/payment-foundation-acceptance.spec.mjs
   - tests/Feature/Wiki/WikiEditorialMediaServingTest.php
   - docs/testing/PORTAL_MEDIA_STATE_EVIDENCE.json
@@ -141,10 +143,13 @@ proven:
   - Node runtime-diagnostics regression suite passes 23 tests, including expected 403/404/409/419/422/429/500/503, bounded consumption, surplus/wrong status/path, cancellation signatures, ordinary failures, CSP fatality, Wiki v-mode pattern semantics and the WebKit evidence regression.
   - Playwright 1.62.1 WebKit screenshot behavior was traced to a temporary inline style mutation; local commit 740ec45 avoids that screenshot operation for WebKit while preserving fail-closed CSP diagnostics and explicit evidence.
   - Wiki media focused feature test proves missing stored media returns 404 while corrupt/integrity-failed media remains 500; exit 0 with 10 assertions on the current WIP.
+  - Final PR head ef47abc4338ce449c33685665f779ab41409a1eb completed all 18 exact-head workflows successfully, including CI, Agent Governance, Portal Acceptance Contract, Wiki Reconciliation, Editorial Media, Error State, Playwright PHP 8.5, Phase 7 and Acceptance E2E and Visual UX.
+  - Protected platform-gate passed on final PR head ef47abc4338ce449c33685665f779ab41409a1eb.
+  - PR #1242 was squash-merged through branch protection as f5158feeeef1d100474c2ee3922317dd9548dc52.
+  - Protected main was verified at exactly f5158feeeef1d100474c2ee3922317dd9548dc52 after the merge.
 derived:
   - Cross-browser Wiki media behavior now uses missing-file 404 for the browser fallback and explicit authenticated request-context 500 assertion for corruption so generic Firefox request failures remain fatal rather than suppressed.
-unknown:
-  - Exact-head GitHub Actions have not yet run on the final pushed closeout candidate; branch push and exact-head CI inspection are the next action.
+unknown: []
 conflicts: []
 first_failure:
   marker: Editorial Media exact-head CI repeated-identical-allowance bug repaired
@@ -226,17 +231,25 @@ validation:
   - command: node --check admin-wiki-editorial-media.spec.mjs plus git diff --check and PHP 8.5 php -l on current WIP PHP files
     result: PASS
     evidence: current handoff WIP parses cleanly and has no whitespace errors
-blockers:
-  - none
+  - command: exact-head GitHub Actions on ef47abc4338ce449c33685665f779ab41409a1eb
+    result: PASS
+    evidence: 18/18 workflows completed success; Acceptance E2E and Visual UX run 32779165907 and CI run 32779165819 passed
+  - command: protected platform-gate on ef47abc4338ce449c33685665f779ab41409a1eb
+    result: PASS
+    evidence: CI job 97597796204 completed success
+  - command: squash merge PR #1242 and verify protected main
+    result: PASS
+    evidence: merge commit f5158feeeef1d100474c2ee3922317dd9548dc52 is the current protected main commit
+blockers: []
 invocation_started_at: 2026-08-24T06:50:00Z
-last_progress_at: 2026-08-24T19:50:07Z
-ci_checks_for_current_head: 0
+last_progress_at: 2026-08-24T21:47:20Z
+ci_checks_for_current_head: 4
 unchanged_state_checks: 0
 identical_failure_retries: 0
 repair_cycles_for_current_gate: 3
 context_reconstruction_attempts: 1
 stall_warnings: 0
-next_action: commit this reconciled checkpoint, push the existing branch, verify PR #1242 exact head, and inspect exact-head CI
+next_action: none
 ```
 `
 ## Recovery checkpoint
@@ -247,29 +260,47 @@ recovery:
   generation: 2
   session_id: runtime-diagnostics-20260824-resume
   session_started_at: 2026-08-24T06:50:00Z
-  checkpointed_at: 2026-08-24T19:50:07Z
-  last_progress_at: 2026-08-24T19:50:07Z
-  phase: validate
-  exact_head: e3aed908d7559ee1e16d67d38ae4ebcdebac3c81
+  checkpointed_at: 2026-08-24T21:47:20Z
+  last_progress_at: 2026-08-24T21:47:20Z
+  phase: closeout
+  exact_head: f5158feeeef1d100474c2ee3922317dd9548dc52
   pull_request: 1242
-  active_operation: final pre-push candidate validated; checkpoint and exact-head CI remain
-  external_run_ids: []
+  active_operation: none
+  external_run_ids: [32779165819, 32779165907, 32779165847, 32779165841]
   operation_started_at: null
   wait_deadline_at: null
-  check_generation: draft
-  checks_used: 0
-  status: active
-  safe_to_resume: true
-  resume_condition: dedicated branch remains owned by this task and PR #1242 remains open
-  next_action: commit this reconciled checkpoint, push the existing branch, verify PR #1242 exact head, and inspect exact-head CI
+  check_generation: terminal
+  checks_used: 4
+  status: completed
+  safe_to_resume: false
+  resume_condition: none
+  next_action: none
 ```
 `
+## Terminal closeout
+```yaml
+implementation_pr: 1242
+final_pr_head: ef47abc4338ce449c33685665f779ab41409a1eb
+implementation_merge_commit: f5158feeeef1d100474c2ee3922317dd9548dc52
+main_verified_at_merge_commit: true
+platform_gate: PASS
+exact_head_workflows: PASS
+review_threads: 0
+requested_reviewers: 0
+governing_issue: 1262
+issue_reconciliation: close after this archive-only PR lands
+ownership_release: terminal with archive merge
+task_owned_cleanup: containers, vendor volume, temporary .env, acceptance node_modules and artifacts removed before archive PR
+retained_shared_resource: oteryn-php85-gd-validation:local retained because pre-task container oteryn-wiki-full-0fdca21 (created 2026-07-26) still references it
+worktree_cleanup: remove task worktree immediately after archive PR merge
+```
+
 ## Source branch closeout
 ```
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is active
-source_branch_evidence: pending
+source_branch_disposition: deleted_after_merge
+source_branch_reason: implementation PR #1242 squash-merged and the dedicated source ref has no retention purpose
+source_branch_evidence: GitHub branch search after merge returned no test/runtime-diagnostics-hardening-20260823 ref
 ```
 `
 ## Notes
