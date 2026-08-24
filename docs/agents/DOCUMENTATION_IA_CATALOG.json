@@ -30,7 +30,7 @@
       "scope": "One-time continuation and closeout handoff for OTERYN-20260823 runtime diagnostics hardening",
       "executable": false,
       "supersession": {"target": "issue:1262", "reason": "Task-specific closeout prompt; live Issue #1262 and the task packet are canonical authority, so this handoff must not be replayed after terminal closeout."},
-      "provenance": ["issue:1262", "docs/agents/tasks/active/OTERYN-20260823-runtime-diagnostics-hardening.md"]
+      "provenance": ["issue:1262", "docs/agents/tasks/archive/OTERYN-20260823-runtime-diagnostics-hardening.md"]
     },
     {
       "id": "OTERYN_PLATFORM_REMEDIATION",
