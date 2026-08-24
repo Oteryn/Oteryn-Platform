@@ -95,6 +95,7 @@ test('@portal-downloads complete public, administrator, localization and recover
 
   await page.goto('/admin/downloads');
   await expect(page).toHaveURL(/\/login$/u);
+  await page.context().clearCookies();
 
   const adminEmail = uniqueEmail('downloads-admin');
   const adminPassword = 'AcceptanceDownloadsAdmin!234';

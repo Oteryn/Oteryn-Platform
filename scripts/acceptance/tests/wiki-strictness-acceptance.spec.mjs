@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   attachDiagnostics,
   completeMfaChallenge,
   installDiagnostics,
@@ -63,6 +64,7 @@ test(`${evidenceMarker}`, async ({ page }) => {
   const publisher = seedPublisher();
   await signIn(page, publisher);
 
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: '/admin/wiki/articles/999999999/edit' });
   let response = await page.goto('/admin/wiki/articles/999999999/edit');
   expect(response?.status()).toBe(404);
 
@@ -75,6 +77,7 @@ test(`${evidenceMarker}`, async ({ page }) => {
 
   try {
     wikiFixture('set-admin-unavailable');
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: '/admin/wiki' });
     response = await page.goto('/admin/wiki', { waitUntil: 'domcontentloaded' });
     expect(response?.status()).toBe(500);
     await expect(page.locator('.error-code')).toHaveText('500');
@@ -82,7 +85,6 @@ test(`${evidenceMarker}`, async ({ page }) => {
     restoreWikiAdminAvailability();
   }
 
-  page.__acceptanceDiagnostics.serverErrors = [];
   response = await page.goto('/admin/wiki');
   expect(response?.status()).toBe(200);
   await expect(page.getByRole('heading', { name: 'Wiki administration' })).toBeVisible();

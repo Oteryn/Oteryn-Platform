@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   attachDiagnostics,
   installDiagnostics,
   login,
@@ -254,6 +255,7 @@ test('@portal-community complete rankings, privacy-aware profile, deaths, guild 
   ]);
 
   try {
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: '/pl/deaths' });
     const response = await page.goto('/pl/deaths');
     expect(response?.status()).toBe(503);
     await expect(page.getByRole('heading', { name: 'Dane społeczności są tymczasowo niedostępne' })).toBeVisible();
@@ -371,6 +373,7 @@ test('@portal-community-stress long values, multi-page results, internal 500 con
     viewMoved = true;
     runArtisan('view:clear');
 
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: '/highscores' });
     const failedResponse = await page.goto('/highscores', { waitUntil: 'domcontentloaded' });
     expect(failedResponse?.status()).toBe(500);
 

@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   assertAccessibilitySmoke,
   attachDiagnostics,
   completeMfaChallenge,
@@ -190,6 +191,8 @@ test('@portal-payments-admin exact permission MFA reconciliation review never ch
   await page.goto('/admin/payments/reconciliation?locale=pl');
   await expect(page.getByRole('heading', { name: 'Uzgadnianie płatności', exact: true })).toBeVisible();
 
+  const foreignReturnPath = new URL(returnUrl).pathname;
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: foreignReturnPath });
   const foreignReturn = await page.goto(returnUrl);
   expect(foreignReturn?.status()).toBe(404);
 });

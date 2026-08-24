@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   attachDiagnostics,
   installDiagnostics,
   repoRoot,
@@ -109,7 +110,9 @@ async function expectErrorSurface(page, response, status, locale) {
 }
 
 async function prove404(page, locale, projectSlug) {
-  const response = await page.goto(`/${locale}/acceptance-missing-${projectSlug}`);
+  const pathname = `/${locale}/acceptance-missing-${projectSlug}`;
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname });
+  const response = await page.goto(pathname);
   await expectErrorSurface(page, response, 404, locale);
 }
 
@@ -117,6 +120,7 @@ async function prove419(page, locale) {
   const target = new URL(`/register?locale=${encodeURIComponent(locale)}`, appBaseURL).toString();
   await page.goto('data:text/html,<title>Cross-site CSRF acceptance probe</title>');
 
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 419, pathname: '/register' });
   const responsePromise = page.waitForResponse((response) => {
     const url = new URL(response.url());
     return response.request().method() === 'POST'
@@ -156,6 +160,7 @@ async function prove429(page, locale, projectSlug) {
   let limitedResponse = null;
 
   try {
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 429, pathname: '/login' });
     await page.goto(`/login?locale=${locale}`);
 
     for (let attempt = 1; attempt <= 6; attempt += 1) {
@@ -205,6 +210,7 @@ async function prove500(page, locale) {
     viewMoved = true;
     runArtisan('view:clear');
 
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: `/${locale}/highscores` });
     const response = await page.goto(`/${locale}/highscores`, { waitUntil: 'domcontentloaded' });
     await expectErrorSurface(page, response, 500, locale);
 

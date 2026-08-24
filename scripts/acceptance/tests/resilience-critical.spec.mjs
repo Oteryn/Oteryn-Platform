@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   attachDiagnostics,
   installDiagnostics,
   runBinary,
@@ -60,6 +61,7 @@ test('@resilience Canary public read fails closed and recovers after grant resto
   try {
     mariadbRoot(`REVOKE SELECT ON \`${database}\`.cluster_sessions FROM '${username}'@'%';`);
 
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: '/online' });
     const failed = await page.goto('/online');
     expect(failed?.status()).toBe(503);
     await expect(page.locator('body')).not.toContainText('SQLSTATE');

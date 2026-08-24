@@ -124,7 +124,7 @@ final class WikiEditorialMediaServingTest extends WikiEditorialMediaTestCase
         Storage::disk('editorial_media')->put($media->storage_path, $original);
         Storage::disk('editorial_media')->delete($media->storage_path);
         $missing = $this->get($url);
-        $missing->assertStatus(503)->assertDontSee($media->storage_path);
+        $missing->assertNotFound()->assertDontSee($media->storage_path);
     }
 
     public function test_signed_authenticated_preview_media_has_no_anonymous_or_unsigned_draft_route(): void

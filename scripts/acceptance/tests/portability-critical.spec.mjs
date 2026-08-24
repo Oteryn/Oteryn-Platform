@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   attachDiagnostics,
   completeMfaChallenge,
   enrollMfa,
@@ -110,6 +111,7 @@ test('@portability MFA-confirmed user without administrator permission is denied
   await expect(page).toHaveURL(/\/$/u);
   await enrollMfa(page, regularPassword);
 
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 403, pathname: '/admin' });
   const denied = await page.goto('/admin');
   expect(denied?.status()).toBe(403);
   await expect(page.getByRole('heading', { name: 'You do not have access to this page' })).toBeVisible();

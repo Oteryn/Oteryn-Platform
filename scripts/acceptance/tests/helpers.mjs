@@ -4,6 +4,13 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 import { expect } from '@playwright/test';
+import {
+  allowExpectedHttpFailure,
+  assertNoUnexpectedRuntimeFailures,
+  attachRuntimeDiagnostics,
+} from '../runtime-diagnostics.mjs';
+
+export { allowExpectedHttpFailure, assertNoUnexpectedRuntimeFailures };
 
 export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 export const testedSha = process.env.ACCEPTANCE_SHA ?? 'local-unknown';
@@ -27,7 +34,9 @@ export function installDiagnostics(page) {
     consoleErrors: [],
     pageErrors: [],
     failedRequests: [],
+    httpErrors: [],
     serverErrors: [],
+    expectedHttpFailures: [],
   };
 
   page.on('console', (message) => {
@@ -52,6 +61,12 @@ export function installDiagnostics(page) {
   });
 
   page.on('response', (response) => {
+    if (response.status() >= 400) {
+      diagnostics.httpErrors.push({
+        status: response.status(),
+        url: sanitizeUrl(response.url()),
+      });
+    }
     if (response.status() >= 500) {
       diagnostics.serverErrors.push({
         status: response.status(),
@@ -64,14 +79,7 @@ export function installDiagnostics(page) {
 }
 
 export async function attachDiagnostics(testInfo, diagnostics) {
-  await testInfo.attach('exact-tested-sha', {
-    body: Buffer.from(`${testedSha}\n`, 'utf8'),
-    contentType: 'text/plain',
-  });
-  await testInfo.attach('browser-diagnostics', {
-    body: Buffer.from(JSON.stringify(diagnostics, null, 2), 'utf8'),
-    contentType: 'application/json',
-  });
+  await attachRuntimeDiagnostics(testInfo, diagnostics, testedSha);
 }
 
 export function runPhpState(...args) {
@@ -337,5 +345,20 @@ export async function assertAccessibilitySmoke(page) {
 export async function evidenceScreenshot(page, name) {
   const directory = path.join(repoRoot, 'artifacts', 'acceptance', 'screenshots');
   fs.mkdirSync(directory, { recursive: true });
-  await page.screenshot({ path: path.join(directory, `${name}.png`), fullPage: true });
+  const browserName = page.context().browser()?.browserType().name() ?? 'unknown';
+
+  if (browserName === 'webkit') {
+    // Playwright 1.62.1 WebKit inserts a temporary inline <style> to sync animations
+    // before every screenshot. Under Platform's strict style-src this is browser-harness
+    // noise, so do not invoke that incompatible evidence operation. Runtime diagnostics
+    // on the real page remain strict and continue to fail genuine CSP violations.
+    fs.writeFileSync(
+      path.join(directory, `${name}.json`),
+      `${JSON.stringify({ browser: browserName, screenshot: 'skipped-playwright-csp-mutation' }, null, 2)}\n`,
+      'utf8',
+    );
+    return;
+  }
+
+  await page.screenshot({ path: path.join(directory, `${name}.png`), fullPage: true, caret: 'initial' });
 }

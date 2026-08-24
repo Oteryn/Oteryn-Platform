@@ -7,6 +7,7 @@ use App\Wiki\Infrastructure\Models\WikiArticle;
 use App\Wiki\Infrastructure\Models\WikiArticleTranslation;
 use App\Wiki\Infrastructure\Models\WikiRevision;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 final class WikiEditorialMediaReferenceSyncTest extends WikiEditorialMediaTestCase
@@ -89,6 +90,21 @@ final class WikiEditorialMediaReferenceSyncTest extends WikiEditorialMediaTestCa
         $this->assertDatabaseCount('editorial_media_references', 0);
         app(DeleteEditorialImage::class)->execute($actor, $media->refresh());
         $this->assertDatabaseMissing('editorial_media', ['id' => $media->id]);
+    }
+
+    public function test_wiki_thumbnail_distinguishes_missing_storage_from_integrity_failure(): void
+    {
+        $actor = $this->createIdentity('wiki-media-failure-states@example.test');
+        $this->grantWikiPermissions($actor, ['wiki.access', 'wiki.articles.manage']);
+        $missing = $this->uploadThroughAction($actor, 'missing.png');
+        $corrupt = $this->uploadThroughAction($actor, 'corrupt.png');
+        $this->actingAsCurrent($actor);
+
+        Storage::disk($missing->disk)->delete($missing->storage_path);
+        $this->get(route('admin.wiki.media.thumbnail', $missing))->assertNotFound();
+
+        Storage::disk($corrupt->disk)->put($corrupt->storage_path, 'corrupt-wiki-thumbnail');
+        $this->get(route('admin.wiki.media.thumbnail', $corrupt))->assertStatus(500);
     }
 
     public function test_unknown_media_rejects_and_rolls_back_the_complete_create_transaction(): void

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   attachDiagnostics,
   installDiagnostics,
   runBinary,
@@ -65,6 +66,7 @@ test('Flow 6b — public game data, pagination, empty and controlled dependency-
     '-e', `REVOKE SELECT ON \`${canaryDb}\`.cluster_sessions FROM '${readonlyUser}'@'%';`,
   ]);
   try {
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: '/online' });
     const response = await page.goto('/online');
     expect(response?.status()).toBe(503);
     await expect(page.locator('body')).not.toContainText('SQLSTATE');

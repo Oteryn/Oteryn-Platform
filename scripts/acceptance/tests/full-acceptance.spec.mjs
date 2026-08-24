@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   assertAccessibilitySmoke,
   attachDiagnostics,
   completeMfaChallenge,
@@ -321,6 +322,7 @@ test.describe('full production-like acceptance', () => {
       '-e', `REVOKE SELECT ON \`${canaryDb}\`.cluster_sessions FROM '${readonlyUser}'@'%';`,
     ]);
     try {
+      allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: '/online' });
       const response = await page.goto('/online');
       expect(response?.status()).toBe(503);
       await expect(page.locator('body')).not.toContainText('SQLSTATE');

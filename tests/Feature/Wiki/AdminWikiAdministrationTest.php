@@ -47,6 +47,14 @@ final class AdminWikiAdministrationTest extends TestCase
         ]);
         $this->actingAsCurrent($actor);
 
+        $validPattern = 'pattern="[a-z0-9]+([._\\-][a-z0-9]+)*"';
+        $this->get(route('admin.wiki.categories.create'))
+            ->assertOk()
+            ->assertSee($validPattern, false);
+        $this->get(route('admin.wiki.articles.create'))
+            ->assertOk()
+            ->assertSee($validPattern, false);
+
         $this->post(route('admin.wiki.categories.store'), $this->categoryPayload())
             ->assertRedirect()
             ->assertSessionHasNoErrors();
@@ -114,7 +122,12 @@ final class AdminWikiAdministrationTest extends TestCase
 
         $stalePayload = $this->articlePayload([$category->id]);
         $stalePayload['lock_version'] = $originalVersion;
-        $this->put(route('admin.wiki.articles.update', $article), $stalePayload)->assertStatus(409);
+        $conflictResponse = $this->put(route('admin.wiki.articles.update', $article), $stalePayload)
+            ->assertStatus(409);
+        $content = $conflictResponse->getContent();
+        self::assertIsString($content);
+        self::assertStringNotContainsString('<style', $content);
+        self::assertStringNotContainsString('style=', $content);
 
         $invalidPayload = $this->articlePayload([$category->id]);
         $invalidPayload['lock_version'] = $article->lock_version;

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   assertAccessibilitySmoke,
   attachDiagnostics,
   installDiagnostics,
@@ -57,6 +58,7 @@ test('@localization canonical English and Polish public shells remain truthful a
   await expectVisibleLink(page, /English/i);
   await assertAccessibilitySmoke(page);
 
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: '/pl/brakujaca-strona' });
   const missingResponse = await page.goto('/pl/brakujaca-strona');
   expect(missingResponse?.status()).toBe(404);
   await expect(page.locator('html')).toHaveAttribute('lang', 'pl');

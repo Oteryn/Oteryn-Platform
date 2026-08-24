@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   assertAccessibilitySmoke,
   attachDiagnostics,
   completeMfaChallenge,
@@ -83,18 +84,21 @@ test('@portal-support-moderation guest, MFA, exact-permission and object-ownersh
 
   await page.goto('/admin/support/tickets');
   await expect(page).toHaveURL(/\/login/u);
+  await page.context().clearCookies();
 
   const noMfa = seedIdentity('support-moderation-no-mfa', {
     confirmedMfa: false,
     permissions: ['support.tickets.manage', 'support.reports.manage', 'support.enforcement.manage'],
   });
   await signIn(page, noMfa);
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 403, pathname: '/admin/support/tickets' });
   let response = await page.goto('/admin/support/tickets');
   expect(response?.status()).toBe(403);
   await logout(page);
 
   const noPermission = seedIdentity('support-moderation-no-permission', { confirmedMfa: true });
   await signIn(page, noPermission);
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 403, pathname: '/admin/moderation/reports' });
   response = await page.goto('/admin/moderation/reports');
   expect(response?.status()).toBe(403);
   await logout(page);
@@ -111,6 +115,7 @@ test('@portal-support-moderation guest, MFA, exact-permission and object-ownersh
 
   const other = seedIdentity('support-moderation-other');
   await signIn(page, other);
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: ownerTicketPath });
   response = await page.goto(ownerTicketPath);
   expect(response?.status()).toBe(404);
 

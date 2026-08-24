@@ -6,6 +6,7 @@ use App\EditorialMedia\Infrastructure\Models\EditorialMedia;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
 
 final class WikiEditorialMediaFileResponse
@@ -87,11 +88,13 @@ final class WikiEditorialMediaFileResponse
         try {
             $filesystem = Storage::disk($media->disk);
             if (! $filesystem->exists($path)) {
-                throw new WikiEditorialMediaUnavailable('Editorial image storage is unavailable.');
+                abort(404);
             }
 
             $bytes = $filesystem->get($path);
         } catch (WikiEditorialMediaUnavailable $exception) {
+            throw $exception;
+        } catch (HttpExceptionInterface $exception) {
             throw $exception;
         } catch (Throwable $exception) {
             throw new WikiEditorialMediaUnavailable(
