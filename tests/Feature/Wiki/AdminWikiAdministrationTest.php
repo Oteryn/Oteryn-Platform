@@ -124,8 +124,10 @@ final class AdminWikiAdministrationTest extends TestCase
         $stalePayload['lock_version'] = $originalVersion;
         $conflictResponse = $this->put(route('admin.wiki.articles.update', $article), $stalePayload)
             ->assertStatus(409);
-        self::assertStringNotContainsString('<style', $conflictResponse->getContent());
-        self::assertStringNotContainsString('style=', $conflictResponse->getContent());
+        $content = $conflictResponse->getContent();
+        self::assertIsString($content);
+        self::assertStringNotContainsString('<style', $content);
+        self::assertStringNotContainsString('style=', $content);
 
         $invalidPayload = $this->articlePayload([$category->id]);
         $invalidPayload['lock_version'] = $article->lock_version;

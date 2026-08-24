@@ -100,11 +100,9 @@ final class WikiEditorialMediaReferenceSyncTest extends WikiEditorialMediaTestCa
         $corrupt = $this->uploadThroughAction($actor, 'corrupt.png');
         $this->actingAsCurrent($actor);
 
-        self::assertIsString($missing->storage_path);
         Storage::disk($missing->disk)->delete($missing->storage_path);
         $this->get(route('admin.wiki.media.thumbnail', $missing))->assertNotFound();
 
-        self::assertIsString($corrupt->storage_path);
         Storage::disk($corrupt->disk)->put($corrupt->storage_path, 'corrupt-wiki-thumbnail');
         $this->get(route('admin.wiki.media.thumbnail', $corrupt))->assertStatus(500);
     }
