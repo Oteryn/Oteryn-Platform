@@ -190,3 +190,25 @@ test('separate identical expected HTTP allowances each consume one response', ()
   helpers.allowExpectedHttpFailure(state, { status: 403, pathname: '/admin/media' });
   assert.doesNotThrow(() => helpers.assertNoUnexpectedRuntimeFailures(state));
 });
+
+
+test('WebKit evidence capture avoids Playwright screenshot CSP mutation', async () => {
+  const acceptanceHelpers = await import('../tests/helpers.mjs');
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  let screenshotCalls = 0;
+  const marker = path.join(acceptanceHelpers.repoRoot, 'artifacts', 'acceptance', 'screenshots', 'unit-webkit-csp.json');
+  fs.rmSync(marker, { force: true });
+
+  const page = {
+    context: () => ({ browser: () => ({ browserType: () => ({ name: () => 'webkit' }) }) }),
+    screenshot: async () => { screenshotCalls += 1; },
+  };
+
+  await acceptanceHelpers.evidenceScreenshot(page, 'unit-webkit-csp');
+  assert.equal(screenshotCalls, 0);
+  const evidence = JSON.parse(fs.readFileSync(marker, 'utf8'));
+  assert.equal(evidence.browser, 'webkit');
+  assert.equal(evidence.screenshot, 'skipped-playwright-csp-mutation');
+  fs.rmSync(marker, { force: true });
+});
