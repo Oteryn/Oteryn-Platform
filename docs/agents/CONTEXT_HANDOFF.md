@@ -12,11 +12,11 @@ A continuation agent must be able to resume without reading the previous convers
 
 The machine-readable marker is `docs/agents/GOVERNANCE_CONTRACT.json`.
 
-Current shared checkpoint structure: **version 1**. Current policy revision: **2**.
+Current shared checkpoint structure: **version 1**. Current policy revision: **4**.
 
-Policy revision 2 is backward-compatible: it adds accepted task statuses `waiting` and `completed`, adds validation result `NOT_APPLICABLE`, and formally separates checkpoint task status from terminal invocation result. Existing valid version 1 checkpoints remain valid and do not require bulk migration.
+Policy revision 4 is backward-compatible with checkpoint structure version 1. Revision 2 added accepted task statuses `waiting` and `completed`, validation result `NOT_APPLICABLE`, and separated checkpoint task status from terminal invocation result. Revision 3 added fail-closed live PR/branch/archive liveness. Revision 4 adds a required active-task `governing_issue` frontmatter identity plus fail-closed live governing-Issue validation. Existing valid version 1 checkpoints remain structurally valid and do not require bulk migration.
 
-The shared contract covers required checkpoint fields, supported task statuses, evidence-state fields (`PROVEN`, `DERIVED`, `UNKNOWN`, `CONFLICT`), supported validation results, one top-level concrete `next_action`, and the rule that the same normalized fact cannot occupy multiple evidence-state lists.
+The shared contract covers required checkpoint fields, supported task statuses, evidence-state fields (`PROVEN`, `DERIVED`, `UNKNOWN`, `CONFLICT`), supported validation results, one top-level concrete `next_action`, and the rule that the same normalized fact cannot occupy multiple evidence-state lists. Repository-specific live-state policy additionally requires every active task to name a numeric governing Issue whose live state is open.
 
 Checkpoint task statuses are:
 
@@ -34,7 +34,7 @@ DONE | WAITING | BLOCKED | ROTATE
 
 `blakinio/canary` is a read-only compatibility reference for shared checkpoint semantics. Oteryn Platform allowlists, delivery policy, architecture routing, Laravel, database, security, and other repository-specific governance remain independent and must not be mechanically synchronized.
 
-A structural version upgrade is required only for an incompatible checkpoint change, such as adding or removing a required field, changing a field type, removing an accepted value, or invalidating an existing valid checkpoint. Backward-compatible additive values use a synchronized policy revision instead.
+A structural version upgrade is required only for an incompatible checkpoint change, such as adding or removing a required field, changing a field type, removing an accepted value, or invalidating an existing valid checkpoint. Backward-compatible additive values and repository-specific live-state invariants use a synchronized policy revision instead.
 
 ## When to checkpoint
 
@@ -44,7 +44,7 @@ Update the active task record when:
 - a hypothesis is rejected by evidence;
 - files are materially modified;
 - validation or CI changes task state;
-- branch, head, or PR state changes;
+- branch, head, PR, or governing Issue state changes;
 - review feedback changes required work;
 - context becomes large, repetitive, or unreliable;
 - before session replacement or context exhaustion.
@@ -99,6 +99,14 @@ next_action: <one concrete next step>
 
 Use `waiting` when an external event is pending and no worker should remain active. Use `blocked` for a real decision, permission, safety, resource, or exhausted-repair barrier. Use `ready` when another session can execute `next_action`. Use `completed` only after repository closeout gates are satisfied. Checkpoint `status`, `head`, `branch` and `pr` fields are durable mirrors for continuation; reconcile them to the governing live GitHub Issue/PR whenever live state is newer.
 
+The active task frontmatter must also contain:
+
+```yaml
+governing_issue: <positive GitHub Issue number>
+```
+
+The governing Issue must be live and open while the packet remains under `docs/agents/tasks/active/`. Closing the Issue requires the packet to leave the active directory in the same bounded closeout flow.
+
 Omit irrelevant historical detail. Preserve only what a new agent needs to continue correctly.
 
 Validate one checkpoint locally with:
@@ -117,9 +125,13 @@ Run validator tests with:
 
 ```sh
 python tools/agents/test_checkpoint.py
+python tools/agents/test_task_liveness.py
+python tools/agents/test_task_issue_liveness.py
 ```
 
-The validator checks deterministic structure only. It does not verify that head, branch, PR state, CI status, evidence references, or repository state are currently true; agents must perform live verification.
+In Agent Governance, `task_liveness.py` validates live PR/branch/archive identity and `task_issue_liveness.py` validates the live governing Issue. Both fail closed when their required GitHub state cannot be established.
+
+The checkpoint validator checks deterministic structure only. It does not verify that head, branch, PR state, CI status, evidence references, or repository state are currently true; agents must perform live verification.
 
 ## Starting a continuation agent
 
