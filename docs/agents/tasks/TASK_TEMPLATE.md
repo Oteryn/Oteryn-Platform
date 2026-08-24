@@ -1,9 +1,8 @@
 ---
 task_id: OTERYN-YYYYMMDD-short-slug
-required_reads:
-  - AGENTS.md
-  - docs/agents/CONTEXT_HANDOFF.md
-  # Add task-specific architecture, contract, security, or program files here.
+required_reads: []
+# Governing AGENTS/bootstrap instructions are loaded by the bounded bootstrap.
+# Add only task-routed architecture, contract, security, programme, validation or handoff files not already required by higher-priority instructions.
 search_first: []
 optional_reads: []
 ---
@@ -11,6 +10,8 @@ optional_reads: []
 # OTERYN-YYYYMMDD-short-slug
 
 ## Goal
+
+Governing GitHub Issue: <number/url> — canonical lifecycle authority for this task.
 
 <bounded task goal>
 
@@ -36,6 +37,8 @@ cross_repository_tasks:
 ## Context checkpoint
 
 `checkpoint_version` remains structural version 1. Policy revision 2 adds accepted statuses `waiting` and `completed` and validation result `NOT_APPLICABLE` without invalidating existing checkpoints. Validate the completed checkpoint with `python tools/agents/checkpoint.py <task-path> --require-checkpoint`.
+
+The checkpoint is a durable context/evidence/ownership/handoff mirror. Its lifecycle and PR fields must be reconciled to the governing live GitHub Issue and live PR when those are newer; it is not an independent competing mutable lifecycle authority.
 
 `ROTATE` is a terminal invocation result, never a task status. Before returning `ROTATE`, persist `ready`, `waiting` or `blocked` with one concrete `next_action`.
 
