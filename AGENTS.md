@@ -20,20 +20,24 @@
 - If the central controller posts a P0/P1 finding before merge, treat it as an unresolved material review finding: address or explicitly disposition it under the repository's normal review rules, then rerun any validation invalidated by the resulting change.
 - `no-spark-review` opts a PR out of the central controller. `spark-review` may force consideration of an otherwise ignored path class, but it never bypasses draft, fork, bot, CI, exact-head, size, model, or safety fences.
 
-## Instruction order
+## Bounded instruction loading
 
-1. This root `AGENTS.md`.
-2. `docs/agents/PLATFORM_AGENT_BOOTSTRAP.md`, which preserves the mandatory bootstrap, scope, budget and closeout fences formerly auto-loaded from the root override.
-3. The nearest nested `AGENTS.md`, when present.
-4. `docs/agents/REPOSITORY_MAP.md` and `docs/agents/CONTEXT_ROUTING.md`.
-5. The active task checkpoint and live PR for the current task, when present.
-6. Only the task-routed documentation and source evidence required for the task.
+Root `AGENTS.md` is the repository entry point. Mandatory bootstrap loading is bounded to:
+
+1. this root `AGENTS.md`;
+2. `docs/agents/PLATFORM_AGENT_BOOTSTRAP.md`;
+3. the nearest nested `AGENTS.md` governing each path that may be touched, when present;
+4. the governing live GitHub Issue/task and live PR state for the current task, when present.
+
+After that bootstrap, consult `docs/agents/CONTEXT_ROUTING.md` once to select only task-relevant context. `docs/agents/REPOSITORY_MAP.md`, project-state snapshots, build/test references, architecture/contracts and other documentation are task-routed or optional/reference material unless a governing instruction or the selected route explicitly requires them.
+
+Do not recursively follow documentation links or reload a higher-priority rule merely because a lower-priority document references it. A referenced document is mandatory only when this root/bootstrap, the nearest governing `AGENTS.md`, the selected task route or an explicit safety/validation trigger requires it.
 
 When rules conflict, follow the more restrictive safety rule.
 
 ## GitHub-first execution gate — mandatory
 
-GitHub is the authoritative repository control plane for repository identity, `main`, Issue/task status, PR, task branch, exact remote SHA, checks, reviews and merge state.
+GitHub is the authoritative repository control plane for repository identity, `main`, Issue/task status, PR, task branch, exact remote SHA, checks, reviews and merge state. The governing live GitHub Issue/task is the canonical authority for task lifecycle state. The live GitHub PR is authoritative for PR head/base/check/review/merge state. Repository task/context documents preserve durable context, evidence, ownership, handoff, next action and history; they are not an independent competing mutable lifecycle authority, and stale document fields never override newer live Issue/PR state.
 
 Before any local/remote repository mutation, including work through Remote Desktop/Desktop Commander, Synology, WSL, Docker or a local worktree, the agent MUST first resolve from GitHub the exact repository, current `main` SHA, governing Issue/task (or explicit `NOT_APPLICABLE` for bounded trivial/read-only work), active PR/task branch, exact base/head SHAs and material overlapping work.
 
@@ -62,26 +66,25 @@ Local-only work receives no completion credit until the durable result exists on
 - Treat chat history as disposable. Keep durable task/handoff state compact and leave exactly one concrete next action when handing work off.
 - When the next action is safe and autonomous, continue without waiting for acknowledgement.
 
-## Mandatory lean startup protocol
+## Lean startup protocol
 
-Before substantial implementation:
+After the bounded instruction loading above and before substantial implementation:
 
-1. Read this file.
-2. Read `docs/agents/PLATFORM_AGENT_BOOTSTRAP.md` before any substantial work.
-3. Read `docs/agents/REPOSITORY_MAP.md` and `docs/agents/CONTEXT_ROUTING.md`.
-4. If continuing existing work, read its active task `## Context checkpoint` and current live PR/head before broad discovery.
-5. Classify the task using routes from `CONTEXT_ROUTING.md` and load only matching context.
-6. Search active tasks and open PRs narrowly for overlapping paths, modules, identifiers or contracts.
-7. Search the repository for reusable code before designing a new reusable abstraction.
-8. When a local checkout exists, verify Git branch, working tree, remotes and worktrees before editing.
-9. Record uncertainty instead of inventing repository, deployment, database or cross-repository state.
+1. Resolve the governing live GitHub Issue/task, current `main`, current live PR/head when present, and material overlapping work.
+2. Consult `docs/agents/CONTEXT_ROUTING.md` once, classify the task, and load only the matching task-routed context.
+3. If continuing existing work, read its active task `## Context checkpoint` as durable context/evidence and reconcile stale lifecycle or PR fields against live GitHub before acting.
+4. Search active tasks, Issues and open PRs narrowly for overlapping paths, modules, identifiers or contracts.
+5. Search the repository for reusable code before designing a new reusable abstraction.
+6. When a local checkout exists, verify Git branch, working tree, remotes and worktrees before editing.
+7. Record uncertainty instead of inventing repository, deployment, database or cross-repository state.
 
-Do not recursively load unrelated documentation.
+Do not recursively load unrelated documentation or preload optional/reference material.
 
 ## Durable context and continuation — mandatory
 
 - Chat history is disposable and never authoritative project state.
-- Git state, active task records, live PRs and deterministic evidence are authoritative.
+- The governing live GitHub Issue/task is canonical for task lifecycle state, and the live GitHub PR is authoritative for PR head/base/check/review/merge state.
+- Repository task/context records and deterministic evidence are durable context and proof, not an independent competing mutable lifecycle authority; reconcile stale lifecycle or PR fields to newer live GitHub state.
 - Follow `docs/agents/CONTEXT_HANDOFF.md` when context grows materially, work is interrupted or another agent must continue.
 - Maintain a compact `## Context checkpoint` in every substantial active task.
 - Update the checkpoint after material discoveries, patches, validation changes, review changes, head changes, blockers and before session exhaustion.
@@ -97,7 +100,7 @@ For substantial work:
 - declare `owned_paths`, modules, dependencies, blockers and cross-repository dependencies;
 - use one task branch per substantial task;
 - open a draft PR early when GitHub PR workflow is available;
-- treat the task record and live PR as the source of truth;
+- treat the governing live GitHub Issue/task as canonical lifecycle authority and the live PR as PR-state authority; keep the task record as a durable context/evidence/ownership/handoff mirror that is reconciled when stale;
 - move completed task records to `docs/agents/tasks/archive/` after merge/completion;
 - create an ADR under `docs/architecture/adr/` for architectural decisions expected to outlive one task;
 - document public integration contracts under `docs/contracts/`.

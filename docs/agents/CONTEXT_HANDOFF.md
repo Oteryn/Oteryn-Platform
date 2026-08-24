@@ -2,9 +2,11 @@
 
 ## Principle
 
-Chat history is disposable. Git state, the active task record, the live PR, and deterministic evidence are durable project state.
+Chat history is disposable and never authoritative. The governing live GitHub Issue/task is canonical for task lifecycle state. The live GitHub PR is authoritative for PR head/base/check/review/merge state.
 
-A continuation agent must be able to resume without reading the previous conversation.
+Repository task/context records and deterministic evidence are durable context, evidence, ownership, handoff, next-action and historical records, not an independent competing mutable lifecycle authority. Stale record fields do not override newer live Issue/PR state. Local filesystem/worktree state is an execution/cache plane and does not override GitHub control-plane state.
+
+A continuation agent must be able to resume without reading the previous conversation and must reconcile durable records against live GitHub before acting.
 
 ## Governance contract version
 
@@ -50,8 +52,8 @@ Update the active task record when:
 ## Context pressure protocol
 
 1. Stop broad exploration.
-2. Verify current branch, head, PR, and working-tree state.
-3. Update the active task `## Context checkpoint`.
+2. Verify the governing live GitHub Issue lifecycle state and live branch, head and PR state, then verify the working-tree state.
+3. Update the active task `## Context checkpoint` as durable context/evidence without allowing stale lifecycle or PR fields to override GitHub.
 4. Preserve only coherent work; otherwise record uncommitted paths.
 5. Record exact validation evidence.
 6. Leave exactly one concrete `next_action`.
@@ -95,7 +97,7 @@ blockers:
 next_action: <one concrete next step>
 ```
 
-Use `waiting` when an external event is pending and no worker should remain active. Use `blocked` for a real decision, permission, safety, resource, or exhausted-repair barrier. Use `ready` when another session can execute `next_action`. Use `completed` only after repository closeout gates are satisfied.
+Use `waiting` when an external event is pending and no worker should remain active. Use `blocked` for a real decision, permission, safety, resource, or exhausted-repair barrier. Use `ready` when another session can execute `next_action`. Use `completed` only after repository closeout gates are satisfied. Checkpoint `status`, `head`, `branch` and `pr` fields are durable mirrors for continuation; reconcile them to the governing live GitHub Issue/PR whenever live state is newer.
 
 Omit irrelevant historical detail. Preserve only what a new agent needs to continue correctly.
 
@@ -121,13 +123,13 @@ The validator checks deterministic structure only. It does not verify that head,
 
 ## Starting a continuation agent
 
-Generate the compact continuation prompt from durable state:
+Resolve the governing live GitHub Issue/task and live PR first, then generate the compact continuation prompt from durable task context:
 
 ```sh
 python tools/agents/resume.py --task docs/agents/tasks/active/<task>.md
 ```
 
-The continuation agent verifies only live state that can invalidate the next action, does not rediscover `PROVEN` facts unless evidence changed, and does not reconstruct state from previous chat.
+The continuation agent reconciles any stale lifecycle/PR fields, verifies only live state that can invalidate the next action, does not rediscover `PROVEN` facts unless evidence changed, and does not reconstruct state from previous chat.
 
 If no checkpoint exists, `resume.py` should produce a checkpoint-recovery action before substantive implementation.
 
@@ -154,7 +156,7 @@ Never copy secrets into task records, PRs, logs, or handoffs.
 
 A handoff is incomplete if the next agent cannot answer:
 
-- Which branch, PR, and head are current?
+- What is the governing live GitHub Issue lifecycle state, and which branch, PR, and head are current?
 - What is proven versus derived, unknown, or conflicting?
 - What failed first, if anything?
 - Which files changed?
