@@ -49,6 +49,10 @@ owned_paths:
   - public/js/form-confirmations.js
   - tests/Feature/PlayerCompanion/SessionAnalysisFeatureTest.php
   - tests/Feature/Wiki/AdminWikiAdministrationTest.php
+  - app/EditorialMedia/Application/WikiEditorialMediaFileResponse.php
+  - tests/Feature/Wiki/WikiEditorialMediaReferenceSyncTest.php
+  - docs/agents/prompts/OTERYN-RUNTIME-DIAGNOSTICS-CLOSEOUT-AGENT-PROMPT.md
+  - docs/superpowers/plans/2026-08-24-runtime-diagnostics-closeout.md
   - docs/agents/tasks/active/OTERYN-20260823-runtime-diagnostics-hardening.md
 modules:
   - acceptance test infrastructure
@@ -65,8 +69,8 @@ cross_repository_tasks:
 ```
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-24T08:56:16Z
-head: ef235fc3d73f3b5de1397ee0bbd18785e5dc3adb
+updated_at: 2026-08-24T10:17:59Z
+head: da9aec28e23970a0835ea7d39a0b33d5b00d2665
 branch: test/runtime-diagnostics-hardening-20260823
 pr: 1242
 status: validating
@@ -98,6 +102,10 @@ owned_paths:
   - public/js/form-confirmations.js
   - tests/Feature/PlayerCompanion/SessionAnalysisFeatureTest.php
   - tests/Feature/Wiki/AdminWikiAdministrationTest.php
+  - app/EditorialMedia/Application/WikiEditorialMediaFileResponse.php
+  - tests/Feature/Wiki/WikiEditorialMediaReferenceSyncTest.php
+  - docs/agents/prompts/OTERYN-RUNTIME-DIAGNOSTICS-CLOSEOUT-AGENT-PROMPT.md
+  - docs/superpowers/plans/2026-08-24-runtime-diagnostics-closeout.md
   - docs/agents/tasks/active/OTERYN-20260823-runtime-diagnostics-hardening.md
   - scripts/acceptance/tests/community-data-acceptance.spec.mjs
   - scripts/acceptance/tests/full-acceptance.spec.mjs
@@ -120,11 +128,14 @@ proven:
   - Player Companion delete confirmation no longer uses an inline event handler and is implemented through external same-origin JavaScript.
   - Wiki stale-write conflicts render through a CSP-safe localized 409 error view without inline style.
   - Focused PHP feature tests pass in isolated PHP 8.5 Docker: Wiki stale conflict 32 assertions; Player Companion owner/delete 13 assertions.
-  - Node runtime-diagnostics regression suite passes 22 tests, including expected 403/404/409/419/422/429/500/503, bounded consumption, surplus/wrong status/path, cancellation signatures, ordinary failures, CSP fatality and Wiki v-mode pattern semantics.
+  - Node runtime-diagnostics regression suite passes 23 tests, including expected 403/404/409/419/422/429/500/503, bounded consumption, surplus/wrong status/path, cancellation signatures, ordinary failures, CSP fatality, Wiki v-mode pattern semantics and the WebKit evidence regression.
+  - Playwright 1.62.1 WebKit screenshot behavior was traced to a temporary inline style mutation; local commit 740ec45 avoids that screenshot operation for WebKit while preserving fail-closed CSP diagnostics and explicit evidence.
+  - Wiki media focused feature test proves missing stored media returns 404 while corrupt/integrity-failed media remains 500; exit 0 with 10 assertions on the current WIP.
 derived:
-  - CSP errors on ordinary screenshot-bearing pages are consistent with Playwright screenshot caret styling under strict style-src; the harness now preserves caret styling instead of weakening CSP.
+  - Remaining cross-browser Wiki media work should use missing-file 404 for the browser fallback and explicit request-context 500 assertion for corruption so generic Firefox request failures remain fatal rather than suppressed.
 unknown:
-  - Real browser E2E on the exact pushed head remains to be proven by GitHub CI.
+  - Exact-head CI has not yet run on local commits 740ec45 plus da9aec2 and the handoff docs.
+  - PHPStan still requires the known AdminWikiAdministrationTest getContent() string|false normalization before the final candidate can be called green.
 conflicts: []
 first_failure:
   marker: Editorial Media exact-head CI repeated-identical-allowance bug repaired
@@ -152,6 +163,10 @@ changed_paths:
   - scripts/acceptance/unit/runtime-diagnostics.test.mjs
   - tests/Feature/PlayerCompanion/SessionAnalysisFeatureTest.php
   - tests/Feature/Wiki/AdminWikiAdministrationTest.php
+  - app/EditorialMedia/Application/WikiEditorialMediaFileResponse.php
+  - tests/Feature/Wiki/WikiEditorialMediaReferenceSyncTest.php
+  - docs/agents/prompts/OTERYN-RUNTIME-DIAGNOSTICS-CLOSEOUT-AGENT-PROMPT.md
+  - docs/superpowers/plans/2026-08-24-runtime-diagnostics-closeout.md
   - docs/agents/tasks/active/OTERYN-20260823-runtime-diagnostics-hardening.md
   - scripts/acceptance/tests/community-data-acceptance.spec.mjs
   - scripts/acceptance/tests/full-acceptance.spec.mjs
@@ -168,7 +183,7 @@ validation:
     evidence: 22/22 tests; dedicated regression was RED before the fix and GREEN after selecting an unexhausted identical allowance
   - command: npm --prefix scripts/acceptance run test:runtime-diagnostics
     result: PASS
-    evidence: 22/22 Node tests pass on candidate implementation
+    evidence: 23/23 Node tests pass after the WebKit screenshot evidence regression
   - command: node --check changed acceptance MJS and public/js/form-confirmations.js
     result: PASS
     evidence: changed JavaScript parses successfully
@@ -181,17 +196,23 @@ validation:
   - command: isolated PHP 8.5 Docker focused feature tests
     result: PASS
     evidence: Wiki stale-conflict test exit 0 with 32 assertions; Player Companion owner/delete test exit 0 with 13 assertions; language PHP lint PASS
+  - command: isolated PHP 8.5 Docker Wiki media missing-vs-corrupt feature test
+    result: PASS
+    evidence: exit 0 with 10 assertions; missing storage is 404 and corrupt/integrity failure remains 500
+  - command: node --check admin-wiki-editorial-media.spec.mjs plus git diff --check and PHP 8.5 php -l on current WIP PHP files
+    result: PASS
+    evidence: current handoff WIP parses cleanly and has no whitespace errors
 blockers:
   - none
 invocation_started_at: 2026-08-24T06:50:00Z
-last_progress_at: 2026-08-24T08:56:16Z
+last_progress_at: 2026-08-24T10:17:59Z
 ci_checks_for_current_head: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 2
+repair_cycles_for_current_gate: 3
 context_reconstruction_attempts: 1
 stall_warnings: 0
-next_action: push repeated-allowance repair to PR #1242 and inspect exact-head Editorial Media plus required CI
+next_action: resume from the closeout prompt/plan, fix the known PHPStan string|false assertion, re-run focused validation, push the final cycle-3 candidate, then inspect exact-head CI and close out PR #1242
 ```
 `
 ## Recovery checkpoint
@@ -202,12 +223,12 @@ recovery:
   generation: 2
   session_id: runtime-diagnostics-20260824-resume
   session_started_at: 2026-08-24T06:50:00Z
-  checkpointed_at: 2026-08-24T08:56:16Z
-  last_progress_at: 2026-08-24T08:42:20Z
+  checkpointed_at: 2026-08-24T10:17:59Z
+  last_progress_at: 2026-08-24T10:17:59Z
   phase: validate
-  exact_head: ef235fc3d73f3b5de1397ee0bbd18785e5dc3adb
+  exact_head: da9aec28e23970a0835ea7d39a0b33d5b00d2665
   pull_request: 1242
-  active_operation: push repeated-allowance repair and inspect exact-head CI
+  active_operation: handoff to closeout agent from saved WIP checkpoint
   external_run_ids: []
   operation_started_at: null
   wait_deadline_at: null
@@ -216,7 +237,7 @@ recovery:
   status: active
   safe_to_resume: true
   resume_condition: dedicated branch remains owned by this task and PR #1242 remains open
-  next_action: push repeated-allowance repair to PR #1242 and inspect exact-head Editorial Media plus required CI
+  next_action: resume from the closeout prompt/plan, fix the known PHPStan string|false assertion, re-run focused validation, push the final cycle-3 candidate, then inspect exact-head CI and close out PR #1242
 ```
 `
 ## Source branch closeout
