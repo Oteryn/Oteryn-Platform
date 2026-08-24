@@ -72,8 +72,8 @@ cross_repository_tasks:
 ```
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-24T17:01:02Z
-head: 84a1c6b0e289b76ff9b6d1536bc40411394b4be7
+updated_at: 2026-08-24T19:50:07Z
+head: e3aed908d7559ee1e16d67d38ae4ebcdebac3c81
 branch: test/runtime-diagnostics-hardening-20260823
 pr: 1242
 status: validating
@@ -123,6 +123,8 @@ owned_paths:
   - resources/views/errors/409.blade.php
   - docs/agents/tasks/active/OTERYN-20260823-platform-transfer-terminal-reconciliation.md
 proven:
+  - Current pre-push candidate e3aed908d7559ee1e16d67d38ae4ebcdebac3c81 integrates origin/main a4f786afc04703161731546590bc9b9d62e1e77c without conflicts and carries governing Issue #1262 required by policy revision 4.
+  - Fresh closeout validation passes runtime diagnostics 23/23, PHP 8.5 focused PHPUnit 22 tests / 295 assertions, PHPStan 712/712, strict portal coverage with STRICT_EXIT=0, and Playwright enumeration 192 + 20 + 12.
   - Fresh closeout validation on candidate 84a1c6b0e289b76ff9b6d1536bc40411394b4be7 passes runtime diagnostics 23/23, changed-JS syntax, git diff --check, PHP 8.5 syntax, three focused PHPUnit scenarios with --fail-on-warning, PHPStan 712/712 with zero errors, and Playwright enumeration for primary/Wiki/Editorial Media configs.
   - Latest origin/main was integrated into the task branch without force-push; the only merge conflict was the already-archived platform-transfer task, resolved by preserving main archive state.
   - Exact-head Editorial Media run 32708438620 isolated a classifier bug for repeated identical expected 403 /admin/media outcomes; no product/runtime suppression was added.
@@ -188,6 +190,9 @@ changed_paths:
   - resources/views/errors/409.blade.php
   - docs/agents/tasks/active/OTERYN-20260823-platform-transfer-terminal-reconciliation.md
 validation:
+  - command: current candidate full deterministic closeout gate
+    result: PASS
+    evidence: runtime diagnostics 23/23; focused PHPUnit 22 tests / 295 assertions; PHPStan 712/712; strict portal coverage STRICT_EXIT=0; Playwright --list 192 + 20 + 12
   - command: composer analyse in oteryn-php85-gd-validation:local with task vendor volume
     result: PASS
     evidence: PHPStan analysed 712 files with [OK] No errors on candidate 84a1c6b0e289b76ff9b6d1536bc40411394b4be7
@@ -224,14 +229,14 @@ validation:
 blockers:
   - none
 invocation_started_at: 2026-08-24T06:50:00Z
-last_progress_at: 2026-08-24T17:01:02Z
+last_progress_at: 2026-08-24T19:50:07Z
 ci_checks_for_current_head: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
 repair_cycles_for_current_gate: 3
 context_reconstruction_attempts: 1
 stall_warnings: 0
-next_action: commit this fresh checkpoint, push the existing branch, verify PR #1242 exact head, then inspect exact-head CI and close out only if all required gates are green
+next_action: commit this reconciled checkpoint, push the existing branch, verify PR #1242 exact head, and inspect exact-head CI
 ```
 `
 ## Recovery checkpoint
@@ -242,12 +247,12 @@ recovery:
   generation: 2
   session_id: runtime-diagnostics-20260824-resume
   session_started_at: 2026-08-24T06:50:00Z
-  checkpointed_at: 2026-08-24T17:01:02Z
-  last_progress_at: 2026-08-24T17:01:02Z
+  checkpointed_at: 2026-08-24T19:50:07Z
+  last_progress_at: 2026-08-24T19:50:07Z
   phase: validate
-  exact_head: 84a1c6b0e289b76ff9b6d1536bc40411394b4be7
+  exact_head: e3aed908d7559ee1e16d67d38ae4ebcdebac3c81
   pull_request: 1242
-  active_operation: handoff to closeout agent from saved WIP checkpoint
+  active_operation: final pre-push candidate validated; checkpoint and exact-head CI remain
   external_run_ids: []
   operation_started_at: null
   wait_deadline_at: null
@@ -256,7 +261,7 @@ recovery:
   status: active
   safe_to_resume: true
   resume_condition: dedicated branch remains owned by this task and PR #1242 remains open
-  next_action: commit this fresh checkpoint, push the existing branch, verify PR #1242 exact head, then inspect exact-head CI and close out only if all required gates are green
+  next_action: commit this reconciled checkpoint, push the existing branch, verify PR #1242 exact head, and inspect exact-head CI
 ```
 `
 ## Source branch closeout
