@@ -1,4 +1,4 @@
----
+﻿---
 task_id: OTERYN-20260823-runtime-diagnostics-hardening
 governing_issue: 1262
 required_reads:
@@ -298,7 +298,7 @@ worktree_cleanup: remove task worktree immediately after archive PR merge
 ## Source branch closeout
 ```
 ```yaml
-source_branch_disposition: deleted_after_merge
+source_branch_disposition: auto_delete_after_merge
 source_branch_reason: implementation PR #1242 squash-merged and the dedicated source ref has no retention purpose
 source_branch_evidence: GitHub branch search after merge returned no test/runtime-diagnostics-hardening-20260823 ref
 ```
