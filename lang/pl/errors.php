@@ -1,6 +1,9 @@
 <?php
 
 return [
+    '409_title' => 'Konflikt żądania',
+    '409_heading' => 'Ta strona zmieniła się przed zakończeniem żądania',
+    '409_body' => 'Inna aktualizacja zmieniła ten zasób wcześniej. Odśwież bieżącą stronę i spróbuj ponownie na najnowszym stanie; nie zastosowano nieaktualnej zmiany.',
     '419_title' => 'Strona wygasła',
     '419_heading' => 'Token bezpieczeństwa wygasł',
     '419_body' => 'Formularz nie został przyjęty, ponieważ token bezpieczeństwa wygasł albo go brakowało. Sprawdź stronę i wyślij formularz ponownie; nie zarejestrowano sukcesu.',

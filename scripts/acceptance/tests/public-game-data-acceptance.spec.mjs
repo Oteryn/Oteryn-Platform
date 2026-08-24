@@ -66,9 +66,9 @@ test('Flow 6b — public game data, pagination, empty and controlled dependency-
     '-e', `REVOKE SELECT ON \`${canaryDb}\`.cluster_sessions FROM '${readonlyUser}'@'%';`,
   ]);
   try {
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: '/online' });
     const response = await page.goto('/online');
     expect(response?.status()).toBe(503);
-    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: '/online' });
     await expect(page.locator('body')).not.toContainText('SQLSTATE');
     await expect(page.locator('body')).not.toContainText(rootPassword);
   } finally {

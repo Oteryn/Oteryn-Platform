@@ -1,6 +1,9 @@
 <?php
 
 return [
+    '409_title' => 'Request conflict',
+    '409_heading' => 'This page changed before your request completed',
+    '409_body' => 'Another update changed this resource first. Reload the current page and retry from the latest state; the stale change was not applied.',
     '419_title' => 'Page expired',
     '419_heading' => 'The security token expired',
     '419_body' => 'This form could not be accepted because its security token expired or was missing. Review the page and submit it again; no success was recorded.',

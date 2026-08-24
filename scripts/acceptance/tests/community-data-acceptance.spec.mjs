@@ -255,9 +255,9 @@ test('@portal-community complete rankings, privacy-aware profile, deaths, guild 
   ]);
 
   try {
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: '/pl/deaths' });
     const response = await page.goto('/pl/deaths');
     expect(response?.status()).toBe(503);
-    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: '/pl/deaths' });
     await expect(page.getByRole('heading', { name: 'Dane społeczności są tymczasowo niedostępne' })).toBeVisible();
     await expect(page.locator('body')).not.toContainText('SQLSTATE');
     await expect(page.locator('body')).not.toContainText(rootPassword);
@@ -373,9 +373,9 @@ test('@portal-community-stress long values, multi-page results, internal 500 con
     viewMoved = true;
     runArtisan('view:clear');
 
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: '/highscores' });
     const failedResponse = await page.goto('/highscores', { waitUntil: 'domcontentloaded' });
     expect(failedResponse?.status()).toBe(500);
-    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: '/highscores' });
 
     const errorBody = await page.locator('body').innerText();
     expect(errorBody.trim()).not.toBe('');

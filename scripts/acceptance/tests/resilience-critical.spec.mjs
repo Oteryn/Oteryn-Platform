@@ -61,9 +61,9 @@ test('@resilience Canary public read fails closed and recovers after grant resto
   try {
     mariadbRoot(`REVOKE SELECT ON \`${database}\`.cluster_sessions FROM '${username}'@'%';`);
 
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: '/online' });
     const failed = await page.goto('/online');
     expect(failed?.status()).toBe(503);
-    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: '/online' });
     await expect(page.locator('body')).not.toContainText('SQLSTATE');
     await expect(page.locator('body')).not.toContainText(requireEnvironment('MARIADB_ROOT_PASSWORD', mariadbRootPassword));
   } finally {

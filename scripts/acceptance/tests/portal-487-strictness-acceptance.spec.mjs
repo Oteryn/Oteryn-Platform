@@ -114,6 +114,7 @@ async function expectServerFailureRecovery(page, surface, path) {
   try {
     portalFixture('make-unavailable', surface);
     runArtisan('cache:clear');
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: path });
     response = await page.goto(path, { waitUntil: 'domcontentloaded' });
     expect(response?.status(), `Expected injected server failure for ${surface}`).toBe(500);
   } finally {
@@ -121,7 +122,6 @@ async function expectServerFailureRecovery(page, surface, path) {
     runArtisan('cache:clear');
   }
 
-  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: path });
   response = await page.goto(path);
   expect(response?.status(), `Expected recovered surface for ${surface}`).toBe(200);
   await assertNoOverflow(page);
@@ -166,6 +166,7 @@ async function expectHomepageTemplateFailureRecovery(page) {
 
   try {
     portalFixture('make-unavailable', surface);
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: '/admin/portal/homepage/active' });
     const status = await page.evaluate(async ({ csrfToken, templateKey, expectedVersion }) => {
       const body = new URLSearchParams({
         _token: csrfToken,
@@ -189,7 +190,6 @@ async function expectHomepageTemplateFailureRecovery(page) {
     portalFixture('restore', surface);
   }
 
-  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: '/admin/portal/homepage/active' });
   response = await page.goto(path);
   expect(response?.status(), `Expected recovered surface for ${surface}`).toBe(200);
   await assertNoOverflow(page);
@@ -231,6 +231,7 @@ test(adminMarker, async ({ page }) => {
   ];
 
   for (const path of notFoundPaths) {
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: path });
     const response = await page.goto(path, { waitUntil: 'domcontentloaded' });
     expect(response?.status(), `Expected exact-surface 404 at ${path}`).toBe(404);
   }
@@ -261,6 +262,7 @@ test(adminMarker, async ({ page }) => {
   ];
 
   for (const [path, method] of csrfProbes) {
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 419, pathname: path });
     expect(await csrfStatus(page, path, method), `Expected CSRF expiry response for ${method} ${path}`).toBe(419);
   }
 });
@@ -301,6 +303,7 @@ test(publicMarker, async ({ page }) => {
     await assertNoOverflow(page);
   }
 
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: '/support' });
   const missingSupportResponse = await page.goto('/support');
   expect(missingSupportResponse?.status(), 'Expected unconfigured support editorial state').toBe(404);
   await expect(page.locator('main')).toContainText('has not been configured');
@@ -308,16 +311,23 @@ test(publicMarker, async ({ page }) => {
 
   const accessibilityPaths = ['/download', '/events', '/highscores', '/en', '/news', '/support'];
   for (const path of accessibilityPaths) {
+    if (path === '/support') {
+      allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: path });
+    }
     await page.goto(path);
     await assertAccessibilitySmoke(page);
   }
 
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: '/not-a-real-portal-487-route' });
   let response = await page.goto('/not-a-real-portal-487-route', { waitUntil: 'domcontentloaded' });
   expect(response?.status()).toBe(404);
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: '/news/not-a-real-portal-487-article' });
   response = await page.goto('/news/not-a-real-portal-487-article', { waitUntil: 'domcontentloaded' });
   expect(response?.status()).toBe(404);
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: '/characters/not-a-real-portal-487-character' });
   response = await page.goto('/characters/not-a-real-portal-487-character', { waitUntil: 'domcontentloaded' });
   expect(response?.status()).toBe(404);
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: '/guilds/not-a-real-portal-487-guild' });
   response = await page.goto('/guilds/not-a-real-portal-487-guild', { waitUntil: 'domcontentloaded' });
   expect(response?.status()).toBe(404);
 });
@@ -328,6 +338,7 @@ test(supportMarker, async ({ page }) => {
   await login(page, owner.email, owner.password);
   await page.waitForURL((url) => url.pathname !== '/login');
 
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: '/support/tickets/999999999' });
   let response = await page.goto('/support/tickets/999999999', { waitUntil: 'domcontentloaded' });
   expect(response?.status()).toBe(404);
 
@@ -336,6 +347,7 @@ test(supportMarker, async ({ page }) => {
   expect(csrfToken).toBeTruthy();
 
   const statuses = [];
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 429, pathname: '/support/tickets' });
   for (let attempt = 1; attempt <= 7; attempt += 1) {
     const status = await page.evaluate(async ({ token, sequence }) => {
       const form = new URLSearchParams({
@@ -363,16 +375,17 @@ test(supportMarker, async ({ page }) => {
 
   try {
     portalFixture('make-unavailable', 'support.moderation-lifecycle');
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: '/support/tickets' });
     response = await page.goto('/support/tickets', { waitUntil: 'domcontentloaded' });
     expect(response?.status()).toBe(500);
   } finally {
     portalFixture('restore', 'support.moderation-lifecycle');
   }
 
-  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: '/support/tickets' });
   response = await page.goto('/support/tickets');
   expect(response?.status()).toBe(200);
   await assertNoOverflow(page);
 
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 419, pathname: '/support/tickets' });
   expect(await csrfStatus(page, '/support/tickets', 'POST')).toBe(419);
 });
