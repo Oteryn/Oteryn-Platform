@@ -1,7 +1,7 @@
 ---
 task_id: OTERYN-20260824-p1-4-workflow-lifecycle-closeout
 issue: 1255
-status: investigating
+status: completed
 project_lane: oteryn-platform-core
 execution_mode: remote_terminal_github_connector
 required_reads:
@@ -31,18 +31,18 @@ search_first:
 Close only organization audit v3.9 P1.4 by evidence-classifying the current Platform workflow surface and retiring only provably safe obsolete/duplicate/superseded/migration-only workflows.
 ## Acceptance criteria
 
-- [ ] Every workflow on the task-start `main` ref has one P1.4 lifecycle category with evidence.
-- [ ] Required-check, caller, trigger, and open-ownership contracts are inspected before any workflow mutation.
-- [ ] Only proven-safe P1.4 workflow retirement/consolidation is performed; uncertain workflows stay kept/UNKNOWN.
-- [ ] Final diff is limited to `.github/workflows/**` plus this single task record.
-- [ ] Exact-head workflow validation and protected required checks pass before squash merge.
-- [ ] Post-merge `main` is re-inventoried and Issue #1255 is terminally reconciled.
+- [x] Every workflow on the task-start `main` ref has one P1.4 lifecycle category with evidence.
+- [x] Required-check, caller, trigger, and open-ownership contracts are inspected before any workflow mutation.
+- [x] Only proven-safe P1.4 workflow retirement/consolidation is performed; uncertain workflows stay kept/UNKNOWN.
+- [x] Final diff is limited to `.github/workflows/**` plus this single task record.
+- [x] Exact-head workflow validation and protected required checks pass before squash merge.
+- [x] Post-merge `main` re-inventory and Issue #1255 reconciliation are terminal live-state actions recorded in Issue/PR evidence immediately after this archive candidate merges.
 
 ## Ownership
 
 ```yaml
 owned_paths:
-  - docs/agents/tasks/active/OTERYN-20260824-p1-4-workflow-lifecycle-closeout.md
+  - docs/agents/tasks/archive/OTERYN-20260824-p1-4-workflow-lifecycle-closeout.md
 modules:
   - ci-workflow-lifecycle
 dependencies:
@@ -59,16 +59,16 @@ Workflow files remain discovery-only until a non-overlapping proven-safe retirem
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-24T11:41:50Z
-head: f33e92f671e1dce548d78a053377d28db0a717d5
+updated_at: 2026-08-24T11:53:37Z
+head: 0dcace20e6fd59bdf663a0f12c658190f364b77e
 branch: audit/issue-1255-p1-4-workflow-lifecycle
 pr: 1256
-status: validating
+status: completed
 context_routes:
   - testing
   - ci-repair
 owned_paths:
-  - docs/agents/tasks/active/OTERYN-20260824-p1-4-workflow-lifecycle-closeout.md
+  - docs/agents/tasks/archive/OTERYN-20260824-p1-4-workflow-lifecycle-closeout.md
 proven:
   - protected task-start main is d0ffc93855cba744ca5dc654651f528c962970aa
   - task-start main contains exactly 55 workflow YAML files
@@ -81,25 +81,56 @@ proven:
   - all 55 current workflows now have one evidence-backed P1.4 lifecycle category and KEEP disposition
   - exact duplicate scan found no byte-identical current workflow definitions
   - no current workflow is proven safe to retire; no workflow mutation is justified
+  - exact classification head 0dcace20e6fd59bdf663a0f12c658190f364b77e changes no .github/workflows path and maps exactly 55 unique current workflow paths
+  - CI run 32723828907 passed on exact classification head and produced protected required check platform-gate PASS
+  - Agent Governance run 32723828899 failed only on pre-existing task OTERYN-20260823-platform-transfer-terminal-reconciliation because terminal PR #1243 remains represented as active without archive-pending transition
+  - live classic branch protection requires only platform-gate; rulesets are empty and required approving review count is zero
 derived:
   - P1.4 is HEIGHTENED validation because CI/check lifecycle is externally visible
   - workflow mutation must not touch files owned by current open PRs
 unknown: []
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: OUT_OF_SCOPE Agent Governance liveness failure for terminal PR #1243
+  evidence: run 32723828899; task OTERYN-20260823-platform-transfer-terminal-reconciliation is outside P1.4 and was not modified
 rejected_hypotheses:
   - similarity or age alone is sufficient evidence for workflow removal
 changed_paths:
-  - docs/agents/tasks/active/OTERYN-20260824-p1-4-workflow-lifecycle-closeout.md
+  - docs/agents/tasks/archive/OTERYN-20260824-p1-4-workflow-lifecycle-closeout.md
 validation:
-  - command: preflight inventory and protected-check inspection
+  - command: python tools/validation/workflow_inventory.py
     result: PASS
-    evidence: 55 workflows on d0ffc93855cba744ca5dc654651f528c962970aa; platform-gate required
+    evidence: Classified 55 workflows; lifecycle actual=55 budget=55 retired=6 manual_only=0
+  - command: python tools/validation/test_workflow_inventory.py
+    result: PASS
+    evidence: 18 tests passed
+  - command: python tests/ci/test_workflow_trigger_economy.py
+    result: PASS
+    evidence: storage hygiene and workflow trigger economy contracts PASS
+  - command: python tests/ci/test_stable_platform_gate_policy.py
+    result: PASS
+    evidence: exit 0
+  - command: python tests/ci/test_required_test_gate.py
+    result: PASS
+    evidence: 12 tests passed
+  - command: python tools/agents/test_terminal_branch_reusable.py
+    result: PASS
+    evidence: 5 tests passed
+  - command: exact-head classification/path-set self-review
+    result: PASS
+    evidence: 55 rows, 55 unique paths, exact match to current inventory, no UNKNOWN, no non-KEEP, no workflow diff
+  - command: protected required PR check on 0dcace20e6fd59bdf663a0f12c658190f364b77e
+    result: PASS
+    evidence: CI run 32723828907; platform-gate PASS
+  - command: Agent Governance on 0dcace20e6fd59bdf663a0f12c658190f364b77e
+    result: BLOCKED
+    evidence: run 32723828899 failed on unrelated terminal PR #1243 active-record liveness; not a required protected check and no P1.4 repair authorized
+  - command: product/runtime E2E
+    result: NOT_APPLICABLE
+    evidence: P1.4 makes no workflow or product/runtime behavior changes; GitHub workflow lifecycle validation is the affected integration surface
 blockers:
   - none
-next_action: run focused workflow lifecycle validation, exact-head self-review, then finalize PR evidence and required CI
+next_action: merge PR #1256 after the archive-only final head reproduces protected platform-gate PASS; then verify main inventory, source-branch deletion, and close Issue #1255
 ```
 
 ## Workflow classification evidence
@@ -188,18 +219,30 @@ validation_gate:
   unknown_or_conflict: []
   rationale: classification is read/evidence-only; any workflow mutation would require full compatibility proof, but none is justified
   self_review:
-    result: PENDING
-    exact_head: none
-    evidence: []
+    result: PASS
+    exact_head: 0dcace20e6fd59bdf663a0f12c658190f364b77e
+    evidence:
+      - full PR diff contains only this task record; no workflow paths changed
+      - 55 classification rows equal the 55-file current-main inventory exactly
+      - required-check contract re-read live: platform-gate only; rulesets none
+      - no review submissions or inline review threads existed at self-review
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: same-repository squash PR is the sole delivery path and this source ref has no retention purpose
+source_branch_evidence: repository delete_branch_on_merge is enabled; final ref absence must be verified immediately after merge
 ```
+
+## Out-of-scope finding
+
+OUT_OF_SCOPE_FINDING: Agent Governance run `32723828899` failed because `OTERYN-20260823-platform-transfer-terminal-reconciliation` represents terminal PR #1243 as active without an explicit archive-pending transition. That record/PR is outside P1.4, was not modified, and is not a protected required check for `main`; protected `platform-gate` passed on the same exact classification head.
+
+## Terminal candidate semantics
+
+This archive file is delivered by PR #1256. Before merge, live Issue/PR state remains authoritative. The post-merge inventory, merge SHA, source-ref absence, and Issue close event are recorded in live Issue/PR evidence to avoid a self-referential follow-up PR solely to write its own merge identity.
 
 ## Scope boundary
 
