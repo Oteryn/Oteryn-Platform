@@ -22,9 +22,9 @@ Navigation map for autonomous agents. This is not an exhaustive inventory. Confi
 
 | Area | Path | Purpose |
 |---|---|---|
-| Current project state | `docs/agents/PROJECT_STATE.md` | Compact authoritative entry point for current phase, capabilities, unknowns and next work. |
-| Active work index | `docs/agents/ACTIVE_WORK.md` | Convenience index; verify individual task and PR. |
-| Active tasks | `docs/agents/tasks/active/**` | Authoritative task checkpoint/ownership records. |
+| Current project state | `docs/agents/PROJECT_STATE.md` | Compact context snapshot for current phase, capabilities, unknowns and next work; newer live GitHub Issue/PR/`main` state supersedes it. |
+| Active work index | `docs/agents/ACTIVE_WORK.md` | Convenience index; verify the governing GitHub Issue, individual task context and live PR. |
+| Active tasks | `docs/agents/tasks/active/**` | Durable context/checkpoint/ownership/handoff records; they mirror lifecycle state but do not override the governing live GitHub Issue or PR. |
 | Archived tasks | `docs/agents/tasks/archive/**` | Completed historical task records. |
 | Architecture authority | `docs/architecture/ARCHITECTURE_AUTHORITY.md` | Canonical entry point for architecture precedence, focused ownership and conflict handling. Read this first for architecture-wide work. |
 | System architecture | `docs/architecture/SYSTEM_ARCHITECTURE.md` | Current system context, trust boundaries and high-level dependency rules; explicitly labelled historical sections are context only. |

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Load the smallest authoritative context required for the current task. Do not preload broad repository documentation when targeted search can identify the relevant records.
+Load the smallest required context for the current task. Do not preload broad repository documentation when targeted search can identify the relevant records.
 
 ## Governance contract boundary
 
@@ -11,19 +11,13 @@ Load the smallest authoritative context required for the current task. Do not pr
 - This routing document is repository-specific. It is not required to match Canary routing content or Canary's machine-readable router.
 - A change to shared checkpoint/handoff structure must follow the upgrade process in `GOVERNANCE_CONTRACT.json`; repository-specific routing changes do not by themselves require a shared contract version bump.
 
-## Core startup context
+## Bounded startup and task routing
 
-Every agent starts with:
+Mandatory bootstrap context is defined by root `AGENTS.md`: root instructions, `PLATFORM_AGENT_BOOTSTRAP.md`, the nearest nested `AGENTS.md` for paths that may be touched, and the governing live GitHub Issue/task plus live PR state when present.
 
-1. root `AGENTS.md`;
-2. `docs/agents/REPOSITORY_MAP.md`;
-3. `docs/agents/PROJECT_STATE.md`;
-4. `docs/agents/BUILD_TEST_MATRIX.md`;
-5. the active task record, when one exists;
-6. the live PR for that task, when one exists;
-7. the nearest nested `AGENTS.md`, when present.
+Consult this routing document once, classify the task, and then load only the matching route context. The active task record is durable context/evidence/ownership/handoff, not a competing lifecycle authority; reconcile stale lifecycle or PR fields against live GitHub before acting.
 
-Then classify the task and load only the matching context.
+`REPOSITORY_MAP.md`, `PROJECT_STATE.md`, `BUILD_TEST_MATRIX.md` and other references are task-routed or optional/reference context unless the selected route or an explicit safety/validation trigger requires them. Do not recursively follow links merely because a loaded document mentions another document.
 
 ## Routing table
 
@@ -68,7 +62,7 @@ Implementation evidence proves delivered state but does not silently supersede a
 
 Before creating a new abstraction or integration point, search:
 
-1. active task records and open PRs for overlapping paths or intent;
+1. governing or related GitHub Issues, active task context records and open PRs for overlapping paths or intent;
 2. `ARCHITECTURE_AUTHORITY.md` for the focused canonical owner;
 3. `MODULE_CATALOG.md` for an existing module owner;
 4. repository source/tests for existing implementations;
@@ -89,8 +83,8 @@ Expand context only when:
 
 Keep the active working set limited to:
 
-- current task goal and acceptance criteria;
-- branch/head/PR state;
+- current task goal and acceptance criteria from the governing live GitHub Issue/task;
+- live branch/head/PR state;
 - affected paths and ownership;
 - `PROVEN`, `DERIVED`, `UNKNOWN`, `CONFLICT` facts;
 - relevant source excerpts;
