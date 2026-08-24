@@ -130,7 +130,7 @@ next_action: none
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: deleted_after_merge
+source_branch_disposition: auto_delete_after_merge
 source_branch_reason: bounded migration reconciliation branch had no retention purpose after terminal squash merge
 source_branch_evidence: migration/issue-1155-package-linkage-closeout absent after merge ae0735bcc02b78c8398971f7b404b175764c147d
 ```
