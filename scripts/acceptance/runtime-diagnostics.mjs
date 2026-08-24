@@ -51,8 +51,10 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
 
   for (const entry of observedHttpErrors) {
     const pathname = diagnosticPath(entry.url);
-    const matchingAllowance = allowances.find((candidate) => matchesAllowance(candidate, entry));
-    if (matchingAllowance?.responseRemaining > 0) {
+    const matchingAllowance = allowances.find((candidate) => (
+      matchesAllowance(candidate, entry) && candidate.responseRemaining > 0
+    ));
+    if (matchingAllowance) {
       matchingAllowance.responseRemaining -= 1;
       matchingAllowance.matchedResponses += 1;
       continue;

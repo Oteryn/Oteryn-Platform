@@ -174,3 +174,19 @@ test('Wiki stable-key pattern remains valid under HTML pattern v-mode semantics'
     assert.equal(pattern.test(value), false, value);
   }
 });
+
+test('separate identical expected HTTP allowances each consume one response', () => {
+  const state = diagnostics({
+    httpErrors: [
+      { status: 403, url: 'http://127.0.0.1:8080/admin/media' },
+      { status: 403, url: 'http://127.0.0.1:8080/admin/media' },
+    ],
+    consoleErrors: [
+      { text: 'Failed to load resource: the server responded with a status of 403', url: 'http://127.0.0.1:8080/admin/media' },
+      { text: 'Failed to load resource: the server responded with a status of 403', url: 'http://127.0.0.1:8080/admin/media' },
+    ],
+  });
+  helpers.allowExpectedHttpFailure(state, { status: 403, pathname: '/admin/media' });
+  helpers.allowExpectedHttpFailure(state, { status: 403, pathname: '/admin/media' });
+  assert.doesNotThrow(() => helpers.assertNoUnexpectedRuntimeFailures(state));
+});
