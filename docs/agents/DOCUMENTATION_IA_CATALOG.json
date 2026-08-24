@@ -1,0 +1,317 @@
+{
+  "schema_version": 1,
+  "catalog_id": "OTERYN_PLATFORM_DOCUMENTATION_IA",
+  "inventory_head": "b930d2782e1d2fe01f66cde5c28b1c2486541cec",
+  "inventory_scope": {
+    "prompt_root": "docs/agents/prompts",
+    "handover_root": "docs/agents/handovers",
+    "instruction_chain": {
+      "effective_paths": [
+        "AGENTS.md",
+        "docs/agents/AGENTS.md"
+      ],
+      "measured_absent_overrides": [
+        "docs/agents/prompts/AGENTS.md",
+        "docs/agents/handovers/AGENTS.md",
+        "tools/agents/AGENTS.md",
+        ".github/AGENTS.md"
+      ]
+    }
+  },
+  "lifecycle_authority": "docs/agents/DOCUMENTATION_IA_LIFECYCLE.md",
+  "prompts": [
+    {
+      "id": "OTERYN_PLATFORM_REMEDIATION",
+      "path": "docs/agents/prompts/OTERYN_PLATFORM_REMEDIATION_PROGRAM.md",
+      "version": "1.3.0",
+      "classification": "reusable",
+      "status": "active_reusable",
+      "owner": "OTERYN_PLATFORM_REMEDIATION",
+      "scope": "Platform end-to-end remediation of one eligible live Issue under current governance",
+      "executable": true,
+      "supersession": {"target": null, "reason": "Canonical short-program prompt; live state is resolved at invocation."},
+      "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md"]
+    },
+    {
+      "id": "OTERYN-GAME-CATALOG-COMPLETION",
+      "path": "docs/agents/prompts/OTERYN-GAME-CATALOG-COMPLETION-AGENT.md",
+      "version": "1.0",
+      "classification": "reusable",
+      "status": "active_reusable",
+      "owner": "OTERYN-GAME-CATALOG-COMPLETION",
+      "scope": "Platform-side Game Catalog completion/barrier work resolved from live Issues and producer authority",
+      "executable": true,
+      "supersession": {"target": null, "reason": "Registered current parallel-wave role; live state overrides embedded examples."},
+      "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md"]
+    },
+    {
+      "id": "OTERYN-CHARACTER-LIFECYCLE-BARRIER",
+      "path": "docs/agents/prompts/OTERYN-CHARACTER-LIFECYCLE-BARRIER-AGENT.md",
+      "version": "1.0",
+      "classification": "reusable",
+      "status": "active_reusable",
+      "owner": "OTERYN-CHARACTER-LIFECYCLE-BARRIER",
+      "scope": "Platform Character Lifecycle dependency/barrier discovery for current live authority",
+      "executable": true,
+      "supersession": {"target": null, "reason": "Registered current parallel-wave role; live state is required before work."},
+      "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md"]
+    },
+    {
+      "id": "OTERYN_PLATFORM_CONTINUOUS_AUDIT",
+      "path": "docs/agents/prompts/OTERYN_PLATFORM_CONTINUOUS_AUDIT_PROGRAM.md",
+      "version": "1.0.0",
+      "classification": "reusable",
+      "status": "active_reusable",
+      "owner": "OTERYN_PLATFORM_CONTINUOUS_AUDIT",
+      "scope": "Continuous Platform audit and finding creation without product repair ownership",
+      "executable": true,
+      "supersession": {"target": null, "reason": "Canonical short-program prompt."},
+      "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md"]
+    },
+    {
+      "id": "OTERYN-PLATFORM-WAVE-COORD",
+      "path": "docs/agents/prompts/OTERYN-PLATFORM-PARALLEL-WAVE-COORDINATOR.md",
+      "version": "1.0",
+      "classification": "reusable",
+      "status": "active_reusable",
+      "owner": "OTERYN-PLATFORM-WAVE-COORD",
+      "scope": "Coordination-only Platform parallel completion wave resolved from current live state",
+      "executable": true,
+      "supersession": {"target": null, "reason": "Registered current coordination role; embedded wave facts are examples only."},
+      "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md"]
+    },
+    {
+      "id": "OTERYN_PORTAL_COMPLETION",
+      "path": "docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md",
+      "version": "1.3",
+      "classification": "reusable",
+      "status": "active_reusable",
+      "owner": "PORTAL-CLOSEOUT",
+      "scope": "Canonical bounded Portal Completion selector/execution programme",
+      "executable": true,
+      "supersession": {"target": null, "reason": "Canonical short-program prompt."},
+      "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md"]
+    },
+    {
+      "id": "OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_ULTRA",
+      "path": "docs/agents/prompts/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_ULTRA.md",
+      "version": "1.0.1",
+      "classification": "reusable",
+      "status": "active_reusable",
+      "owner": "OTERYN-REPO-MIGRATION-ULTRA",
+      "scope": "Execution overlay for the canonical repository-migration programme",
+      "executable": true,
+      "supersession": {"target": null, "reason": "Still registered as a current short-program overlay; this IA closeout does not execute migration work."},
+      "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md", "docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md"]
+    },
+    {
+      "id": "OTERYN_PLATFORM_ARCHITECTURE_REVIEW",
+      "path": "docs/agents/prompts/OTERYN_PLATFORM_ARCHITECTURE_REVIEW_PROGRAM.md",
+      "version": "1.0.0",
+      "classification": "reusable",
+      "status": "active_reusable",
+      "owner": "OTERYN_PLATFORM_ARCHITECTURE_REVIEW",
+      "scope": "Continuous Platform architecture/structure/CI review and durable decision handoff",
+      "executable": true,
+      "supersession": {"target": null, "reason": "Canonical short-program prompt."},
+      "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md"]
+    },
+    {
+      "id": "OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION",
+      "path": "docs/agents/prompts/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_PROGRAM.md",
+      "version": "1.1.0",
+      "classification": "reusable",
+      "status": "active_reusable",
+      "owner": "OTERYN-REPO-MIGRATION",
+      "scope": "Canonical bounded ecosystem repository-migration programme",
+      "executable": true,
+      "supersession": {"target": null, "reason": "Still registered as a current short program; migration execution is outside this IA closeout."},
+      "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md", "docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md"]
+    },
+    {
+      "id": "OTERYN-PORTAL-COMPLETION-PARALLEL",
+      "path": "docs/agents/prompts/OTERYN-PORTAL-COMPLETION-PARALLEL-COORDINATOR-PROMPT.md",
+      "version": "1.1",
+      "classification": "reusable",
+      "status": "active_reusable",
+      "owner": "OTERYN-PORTAL-COMPLETION-PARALLEL",
+      "scope": "Standalone parallel coordinator/integrator for current Portal Completion lanes",
+      "executable": true,
+      "supersession": {"target": null, "reason": "Standalone operator prompt subordinate to the canonical Portal Completion selector."},
+      "provenance": ["docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md"]
+    },
+    {
+      "id": "OTERYN-PAYMENTS-FOUNDATION",
+      "path": "docs/agents/prompts/OTERYN-PAYMENTS-FOUNDATION-AGENT.md",
+      "version": "1.1",
+      "classification": "one_shot_historical",
+      "status": "historical_do_not_run",
+      "owner": "OTERYN-PAYMENTS-FOUNDATION",
+      "scope": "Completed provider-neutral payment foundation lane",
+      "executable": false,
+      "supersession": {"target": "issue:1236", "reason": "Terminal Issue #321 foundation is complete; provider work has separate live authority."},
+      "provenance": ["issue:321", "docs/agents/SHORT_PROGRAM_INVOCATIONS.md"]
+    },
+    {
+      "id": "OTERYN-HISTORICAL-WORK-RECONCILIATION",
+      "path": "docs/agents/prompts/OTERYN-HISTORICAL-WORK-RECONCILIATION.md",
+      "version": "2.0-terminal",
+      "classification": "one_shot_historical",
+      "status": "historical_do_not_run",
+      "owner": "OTERYN-HISTORICAL-WORK-RECONCILIATION",
+      "scope": "Completed one-time historical branch/work reconciliation",
+      "executable": false,
+      "supersession": {"target": "steady-state branch hygiene governance", "reason": "Issue #1072 is terminal; future branch findings use current governance."},
+      "provenance": ["issue:1072", "docs/agents/HISTORICAL_WORK_RECONCILIATION_REGISTRY.json"]
+    },
+    {
+      "id": "OTS-RUST-NATIVE-PROTOCOL-IMPLEMENTATION",
+      "path": "docs/agents/prompts/OTS_RUST_NATIVE_PROTOCOL_IMPLEMENTATION.md",
+      "version": "legacy-unversioned",
+      "classification": "one_shot_historical",
+      "status": "historical_do_not_run",
+      "owner": "OTS-20260804-native-protocol-selection",
+      "scope": "Legacy Rust protocol-oteryn adapter package under pre-canonical repository topology",
+      "executable": false,
+      "supersession": {"target": "current Oteryn organization topology and repository-local native protocol governance", "reason": "Targets legacy blakinio/otclient authority and is not a current Platform execution route."},
+      "provenance": ["coordination:OTS-20260804-native-protocol-selection"]
+    },
+    {
+      "id": "OTERYN-WIKI-IMPLEMENTATION-LEGACY",
+      "path": "docs/agents/prompts/OTERYN-WIKI-IMPLEMENTATION-AGENT-PROMPT.md",
+      "version": "legacy-unversioned",
+      "classification": "one_shot_historical",
+      "status": "historical_do_not_run",
+      "owner": "legacy-wiki-implementation",
+      "scope": "Legacy first-slice Wiki implementation starter",
+      "executable": false,
+      "supersession": {"target": "OTERYN_PORTAL_COMPLETION", "reason": "Not registered as a current short program; new Wiki work must enter through live Issue/task governance."},
+      "provenance": ["docs/architecture/WIKI_IMPLEMENTATION_PLAN.md"]
+    },
+    {
+      "id": "OTS-NATIVE-SELECTION-E2E",
+      "path": "docs/agents/prompts/OTS_NATIVE_SELECTION_E2E_IMPLEMENTATION.md",
+      "version": "legacy-unversioned",
+      "classification": "one_shot_historical",
+      "status": "historical_do_not_run",
+      "owner": "OTS-20260804-native-protocol-selection",
+      "scope": "Legacy cross-repository native selection/E2E integration",
+      "executable": false,
+      "supersession": {"target": "current Oteryn organization topology and repository-local native protocol governance", "reason": "File explicitly declares HISTORICAL_SUPERSEDED / DO NOT EXECUTE."},
+      "provenance": ["coordination:OTS-20260804-native-protocol-selection"]
+    },
+    {
+      "id": "OTERYN-GAME-CATALOG-IMPLEMENTATION-LEGACY",
+      "path": "docs/agents/prompts/OTERYN_GAME_CATALOG_IMPLEMENTATION_PROMPT.md",
+      "version": "legacy-unversioned",
+      "classification": "one_shot_historical",
+      "status": "historical_do_not_run",
+      "owner": "legacy-game-catalog-implementation",
+      "scope": "Legacy cross-repository first Game Catalog vertical-slice prompt",
+      "executable": false,
+      "supersession": {"target": "OTERYN-GAME-CATALOG-COMPLETION", "reason": "Superseded by the current Platform-only Game Catalog completion role and live producer authority."},
+      "provenance": ["docs/agents/prompts/OTERYN-GAME-CATALOG-COMPLETION-AGENT.md"]
+    },
+    {
+      "id": "OTS-OTHERYN-NATIVE-PROTOCOL-IMPLEMENTATION",
+      "path": "docs/agents/prompts/OTS_OTHERYN_NATIVE_PROTOCOL_IMPLEMENTATION.md",
+      "version": "legacy-unversioned",
+      "classification": "one_shot_historical",
+      "status": "historical_do_not_run",
+      "owner": "OTS-20260804-native-protocol-selection",
+      "scope": "Legacy Otheryn native gameplay producer/session package",
+      "executable": false,
+      "supersession": {"target": "current Oteryn organization topology and repository-local native protocol governance", "reason": "File explicitly declares HISTORICAL_SUPERSEDED / DO NOT EXECUTE."},
+      "provenance": ["coordination:OTS-20260804-native-protocol-selection"]
+    },
+    {
+      "id": "OTERYN-PRODUCT-AUDIT-REMEDIATION-LEGACY",
+      "path": "docs/agents/prompts/OTERYN-PRODUCT-AUDIT-REMEDIATION-AGENT-PROMPT.md",
+      "version": "legacy-unversioned",
+      "classification": "one_shot_historical",
+      "status": "historical_do_not_run",
+      "owner": "legacy-product-audit-remediation",
+      "scope": "Legacy audit-backlog implementation programme pinned to old PR/Issue state",
+      "executable": false,
+      "supersession": {"target": "OTERYN_PLATFORM_REMEDIATION", "reason": "Current remediation programme owns live Issue selection and end-to-end repair."},
+      "provenance": ["docs/agents/prompts/OTERYN_PLATFORM_REMEDIATION_PROGRAM.md"]
+    },
+    {
+      "id": "OTERYN-EXHAUSTIVE-PORTAL-ACCEPTANCE-LEGACY",
+      "path": "docs/agents/prompts/OTERYN-EXHAUSTIVE-PORTAL-ACCEPTANCE-AGENT-PROMPT.md",
+      "version": "legacy-unversioned",
+      "classification": "one_shot_historical",
+      "status": "historical_do_not_run",
+      "owner": "legacy-exhaustive-portal-acceptance",
+      "scope": "Legacy one-time portal coverage closure prompt",
+      "executable": false,
+      "supersession": {"target": "OTERYN_PORTAL_COMPLETION", "reason": "Future acceptance gaps route through current Portal Completion or live remediation authority."},
+      "provenance": ["docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md"]
+    },
+    {
+      "id": "OTERYN-PUBLIC-WEBSITE-IMPLEMENTATION-LEGACY",
+      "path": "docs/agents/prompts/OTERYN-PUBLIC-WEBSITE-IMPLEMENTATION-AGENT-PROMPT.md",
+      "version": "legacy-unversioned",
+      "classification": "one_shot_historical",
+      "status": "historical_do_not_run",
+      "owner": "legacy-public-website-implementation",
+      "scope": "Legacy first-slice public website implementation starter",
+      "executable": false,
+      "supersession": {"target": "OTERYN_PORTAL_COMPLETION", "reason": "Not a current short-program route; public portal work is selected from current live Portal Completion state."},
+      "provenance": ["docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md"]
+    },
+    {
+      "id": "OTS-NATIVE-PROTOCOL-SINGLE-VERSION-COMPLETION",
+      "path": "docs/agents/prompts/OTS_NATIVE_PROTOCOL_SINGLE_VERSION_COMPLETION_AGENT.md",
+      "version": "legacy-unversioned",
+      "classification": "one_shot_historical",
+      "status": "historical_do_not_run",
+      "owner": "OTS-20260804-native-protocol-selection",
+      "scope": "Legacy cross-repository native protocol completion programme",
+      "executable": false,
+      "supersession": {"target": "current Oteryn organization topology and repository-local native protocol governance", "reason": "File explicitly declares HISTORICAL_SUPERSEDED / DO NOT EXECUTE."},
+      "provenance": ["coordination:OTS-20260804-native-protocol-selection"]
+    },
+    {
+      "id": "OTS-PLATFORM-GATEWAY-NATIVE-PROTOCOL-IMPLEMENTATION",
+      "path": "docs/agents/prompts/OTS_PLATFORM_GATEWAY_NATIVE_PROTOCOL_IMPLEMENTATION.md",
+      "version": "legacy-unversioned",
+      "classification": "one_shot_historical",
+      "status": "historical_do_not_run",
+      "owner": "OTS-20260804-native-protocol-selection",
+      "scope": "Legacy Platform/Game Gateway native protocol producer package",
+      "executable": false,
+      "supersession": {"target": "current Oteryn organization topology and repository-local native protocol governance", "reason": "Pinned to legacy coordination and pre-cutover native authority; not a current registered execution route."},
+      "provenance": ["coordination:OTS-20260804-native-protocol-selection"]
+    }
+  ],
+  "handovers": [
+    {
+      "id": "OTERYN-20260720-phase6-handover",
+      "path": "docs/agents/handovers/OTERYN-20260720-phase6-handover.md",
+      "status": "historical_snapshot",
+      "authoritative": false,
+      "lifecycle": "expired",
+      "superseded_by": "live GitHub Issue/PR/task state and current protected-main governance",
+      "provenance": ["phase:6", "date:2026-07-20"]
+    },
+    {
+      "id": "OTERYN-20260720-phase7-handover",
+      "path": "docs/agents/handovers/OTERYN-20260720-phase7-handover.md",
+      "status": "historical_snapshot",
+      "authoritative": false,
+      "lifecycle": "expired",
+      "superseded_by": "live GitHub Issue/PR/task state and current protected-main governance",
+      "provenance": ["phase:7", "date:2026-07-20"]
+    },
+    {
+      "id": "OTERYN-20260816-content-audit-to-coordinator",
+      "path": "docs/agents/handovers/OTERYN-20260816-content-audit-to-coordinator.md",
+      "status": "frozen_evidence_handoff",
+      "authoritative": false,
+      "lifecycle": "supersede_on_live_transition",
+      "superseded_by": "newer live state for parent Issue #1115, PR #1117, owned tasks/PRs, or current coordinator state",
+      "provenance": ["issue:1115", "pr:1117", "date:2026-08-16"]
+    }
+  ]
+}
