@@ -194,8 +194,8 @@
             "file": "scripts/acceptance/tests/admin-wiki-editorial-media.spec.mjs",
             "markers": [
               "editorialMediaFixture('corrupt-files', String(seeded.media_id));",
-              "const corruptPublicFallback = publicPage.getByRole('img', { name: `Most Oteryn ${id}` });",
-              "await expect(corruptPublicFallback).toHaveAttribute('data-media-fallback-state', 'unavailable');"
+              "const corruptPublicResponse = await publicPage.request.get(publicImageSrc);",
+              "expect(corruptPublicResponse.status()).toBe(503);"
             ],
             "profile": "standard-responsive",
             "projects": [
@@ -267,9 +267,9 @@
           "evidence": {
             "file": "scripts/acceptance/tests/admin-wiki-editorial-media.spec.mjs",
             "markers": [
-              "const corruptPickerFallback = corruptPickerCard.getByRole('img', { name: mediaLabel });",
-              "await expect(corruptPickerFallback).toContainText(`Preview unavailable: ${mediaLabel}`);",
-              "await expect(corruptPickerCard.locator('img')).toHaveCount(0);"
+              "editorialMediaFixture('corrupt-files', String(seeded.media_id));",
+              "const corruptThumbnailResponse = await page.request.get(thumbnailPath);",
+              "expect(corruptThumbnailResponse.status()).toBe(500);"
             ],
             "profile": "standard-responsive",
             "projects": [

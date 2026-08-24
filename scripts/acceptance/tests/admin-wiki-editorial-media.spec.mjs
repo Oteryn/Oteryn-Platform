@@ -192,7 +192,9 @@ test('@wiki-media exact Wiki editor discovers inserts previews and publishes pri
     const publicImage = publicPage.getByRole('img', { name: mediaLabel });
     await expect(publicImage).toBeVisible();
     expect(await publicImage.evaluate((image) => image.naturalWidth)).toBeGreaterThan(0);
-    const imageResponse = await publicPage.request.get(await publicImage.getAttribute('src'));
+    const publicImageSrc = await publicImage.getAttribute('src');
+    expect(publicImageSrc).not.toBeNull();
+    const imageResponse = await publicPage.request.get(publicImageSrc);
     expect(imageResponse.status()).toBe(200);
     expect(imageResponse.headers()['x-content-type-options']).toBe('nosniff');
     expect(imageResponse.headers()['cache-control']).toContain('must-revalidate');
@@ -204,6 +206,8 @@ test('@wiki-media exact Wiki editor discovers inserts previews and publishes pri
     await expectNoHorizontalOverflow(publicPage);
 
     editorialMediaFixture('corrupt-files', String(seeded.media_id));
+    const corruptPublicResponse = await publicPage.request.get(publicImageSrc);
+    expect(corruptPublicResponse.status()).toBe(503);
     const thumbnailPath = `/admin/wiki/media/${seeded.media_id}/thumbnail`;
     const corruptThumbnailResponse = await page.request.get(thumbnailPath);
     expect(corruptThumbnailResponse.status()).toBe(500);

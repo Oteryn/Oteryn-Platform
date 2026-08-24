@@ -1,5 +1,6 @@
 ---
 task_id: OTERYN-20260823-runtime-diagnostics-hardening
+governing_issue: 1262
 required_reads:
   - AGENTS.md
   - docs/agents/PLATFORM_AGENT_BOOTSTRAP.md
@@ -16,6 +17,8 @@ optional_reads: []
 ```
 ## Goal
 ```
+Governing GitHub Issue: #1262 - canonical lifecycle authority for this existing task and PR #1242.
+
 Make unexpected browser/runtime failures fail Platform Playwright acceptance without importing Atlas-specific WebGL, canvas, map, geometry or pixel-oracle behavior.
 ```
 ## Acceptance criteria
@@ -107,6 +110,9 @@ owned_paths:
   - docs/agents/prompts/OTERYN-RUNTIME-DIAGNOSTICS-CLOSEOUT-AGENT-PROMPT.md
   - docs/superpowers/plans/2026-08-24-runtime-diagnostics-closeout.md
   - docs/agents/tasks/active/OTERYN-20260823-runtime-diagnostics-hardening.md
+  - scripts/acceptance/tests/payment-foundation-acceptance.spec.mjs
+  - tests/Feature/Wiki/WikiEditorialMediaServingTest.php
+  - docs/testing/PORTAL_MEDIA_STATE_EVIDENCE.json
   - scripts/acceptance/tests/community-data-acceptance.spec.mjs
   - scripts/acceptance/tests/full-acceptance.spec.mjs
   - scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs
@@ -169,6 +175,9 @@ changed_paths:
   - docs/agents/prompts/OTERYN-RUNTIME-DIAGNOSTICS-CLOSEOUT-AGENT-PROMPT.md
   - docs/superpowers/plans/2026-08-24-runtime-diagnostics-closeout.md
   - docs/agents/tasks/active/OTERYN-20260823-runtime-diagnostics-hardening.md
+  - scripts/acceptance/tests/payment-foundation-acceptance.spec.mjs
+  - tests/Feature/Wiki/WikiEditorialMediaServingTest.php
+  - docs/testing/PORTAL_MEDIA_STATE_EVIDENCE.json
   - scripts/acceptance/tests/community-data-acceptance.spec.mjs
   - scripts/acceptance/tests/full-acceptance.spec.mjs
   - scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs
