@@ -1,15 +1,15 @@
 {
   "schema_version": 2,
-  "policy_revision": 3,
+  "policy_revision": 4,
   "contract_name": "oteryn-checkpoint-handoff",
-  "compatibility": "backward-compatible additive revision of checkpoint version 1 with fail-closed live task liveness policy",
+  "compatibility": "backward-compatible additive revision of checkpoint version 1 with fail-closed live governing-Issue and PR/branch task liveness policy",
   "shared_checkpoint_contract": {
     "version": 1,
     "reference": {
       "repository": "blakinio/canary",
       "observed_at_canary_commit": "c1c0d10ed1e758cb72728be5fe22458cd9d9e61a",
       "checkpoint_version": 1,
-      "note": "The structural checkpoint version remains 1; policy revision 3 adds live-state validation without invalidating existing checkpoint structure."
+      "note": "The structural checkpoint version remains 1; policy revision 4 adds governing-Issue liveness without invalidating existing checkpoint structure."
     },
     "required_fields": [
       "checkpoint_version",
@@ -94,11 +94,19 @@
     ],
     "report_schema_version": 1
   },
+  "live_issue_liveness": {
+    "schema_version": 1,
+    "governing_issue_field": "governing_issue",
+    "allowed_issue_states": [
+      "open"
+    ],
+    "report_schema_version": 1
+  },
   "repository_specific_scope": [
     "Repository allowlists and write permissions.",
     "Oteryn Platform context routes and architecture or documentation routing.",
     "Delivery, merge, security, Laravel, database, and cross-repository policies outside the shared checkpoint structure.",
-    "Active-task live PR, branch, archive identity and terminal-transition reconciliation."
+    "Active-task live governing Issue, PR, branch, archive identity and terminal-transition reconciliation."
   ],
   "upgrade_required_when": [
     "A required checkpoint field is added, removed or changes type.",
@@ -110,7 +118,7 @@
     "Increment policy_revision and synchronize Oteryn Platform documentation, machine-readable contracts, validators and tests.",
     "External compatibility may be observed read-only; adoption in another repository requires separate owner authorization and a separate task in that repository.",
     "Record the distinction between checkpoint task status and terminal invocation result.",
-    "Live-state policy may be added without changing checkpoint_version when it does not change the checkpoint structure."
+    "Live-state policy may add governing-Issue or PR/branch liveness without changing checkpoint_version when it does not change the checkpoint structure."
   ],
   "upgrade_process": [
     "Inspect an external compatibility reference read-only only when it is relevant to the proposed Oteryn Platform change.",

@@ -25,6 +25,7 @@ on:
 
 permissions:
   contents: read
+  issues: read
   pull-requests: read
 
 concurrency:
@@ -54,6 +55,12 @@ jobs:
       - name: Run live task liveness tests
         run: python tools/agents/test_task_liveness.py
 
+      - name: Run governing Issue liveness tests
+        run: python tools/agents/test_task_issue_liveness.py
+
+      - name: Run Documentation/Agent IA tests
+        run: python tools/agents/test_documentation_ia.py
+
       - name: Run Control Room tests
         run: python tools/agents/test_control_room.py
 
@@ -68,6 +75,9 @@ jobs:
 
       - name: Validate prompt contract suite
         run: python tools/validation/prompt_eval.py
+
+      - name: Validate Documentation/Agent IA catalog
+        run: python tools/agents/documentation_ia.py
 
       - name: Validate active task checkpoints
         shell: bash
@@ -88,6 +98,16 @@ jobs:
             args+=(--archive docs/agents/tasks/archive --archive-changed-from "$SOURCE_BRANCH_BASE_SHA")
           fi
           python tools/agents/source_branch_closeout.py "${args[@]}"
+
+      - name: Validate live governing-Issue ownership
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python tools/agents/task_issue_liveness.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --token-env GH_TOKEN \
+            --active docs/agents/tasks/active
 
       - name: Validate live active-task ownership
         if: always()

@@ -1,5 +1,6 @@
 ---
 task_id: OTERYN-20260801-public-domain-repair
+governing_issue: 91
 required_reads:
   - AGENTS.md
   - docs/agents/EXECUTION_PROTOCOL.md

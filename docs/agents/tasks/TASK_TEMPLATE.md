@@ -1,5 +1,6 @@
 ---
 task_id: OTERYN-YYYYMMDD-short-slug
+governing_issue: <positive GitHub Issue number>
 required_reads: []
 # Governing AGENTS/bootstrap instructions are loaded by the bounded bootstrap.
 # Add only task-routed architecture, contract, security, programme, validation or handoff files not already required by higher-priority instructions.
@@ -11,7 +12,7 @@ optional_reads: []
 
 ## Goal
 
-Governing GitHub Issue: <number/url> — canonical lifecycle authority for this task.
+Governing GitHub Issue: <number/url> — canonical lifecycle authority for this task. The top-level `governing_issue` frontmatter field is machine-required while this packet remains active.
 
 <bounded task goal>
 
@@ -36,9 +37,9 @@ cross_repository_tasks:
 
 ## Context checkpoint
 
-`checkpoint_version` remains structural version 1. Policy revision 2 adds accepted statuses `waiting` and `completed` and validation result `NOT_APPLICABLE` without invalidating existing checkpoints. Validate the completed checkpoint with `python tools/agents/checkpoint.py <task-path> --require-checkpoint`.
+`checkpoint_version` remains structural version 1. Policy revision 4 preserves revision 2's accepted statuses `waiting` and `completed` plus validation result `NOT_APPLICABLE`, revision 3's live PR/branch liveness, and adds fail-closed live governing-Issue liveness without invalidating existing checkpoint structure. Validate the completed checkpoint with `python tools/agents/checkpoint.py <task-path> --require-checkpoint`.
 
-The checkpoint is a durable context/evidence/ownership/handoff mirror. Its lifecycle and PR fields must be reconciled to the governing live GitHub Issue and live PR when those are newer; it is not an independent competing mutable lifecycle authority.
+The checkpoint is a durable context/evidence/ownership/handoff mirror. Its lifecycle and PR fields must be reconciled to the governing live GitHub Issue and live PR when those are newer; it is not an independent competing mutable lifecycle authority. The active packet must leave `docs/agents/tasks/active/` when its governing Issue becomes terminal.
 
 `ROTATE` is a terminal invocation result, never a task status. Before returning `ROTATE`, persist `ready`, `waiting` or `blocked` with one concrete `next_action`.
 
@@ -90,4 +91,4 @@ source_branch_evidence: pending
 
 ## Notes
 
-Keep this section concise. Durable continuation state belongs in the checkpoint above. Do not paste secrets, full logs, or full diffs. Structural checkpoint validation does not replace live Git, PR, CI or source-branch closeout verification.
+Keep this section concise. Durable continuation state belongs in the checkpoint above. Do not paste secrets, full logs, or full diffs. Structural checkpoint validation does not replace live GitHub Issue, Git, PR, CI or source-branch closeout verification.
