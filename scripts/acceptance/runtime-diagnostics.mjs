@@ -1,3 +1,9 @@
+const NAVIGATION_CANCELLATION_FAILURES = new Set([
+  'net::ERR_ABORTED',
+  'NS_BINDING_ABORTED',
+  'Load request cancelled',
+]);
+
 function diagnosticPath(rawUrl) {
   try {
     return new URL(rawUrl).pathname;
@@ -6,9 +12,19 @@ function diagnosticPath(rawUrl) {
   }
 }
 
+function matchesAllowance(allowance, entry) {
+  return allowance.status === entry.status
+    && allowance.pathname === diagnosticPath(entry.url);
+}
+
+function failedLoadStatus(entry) {
+  const match = entry.text?.match(/Failed to load resource: the server responded with a status of (\d{3})/u);
+  return match ? Number.parseInt(match[1], 10) : null;
+}
+
 export function allowExpectedHttpFailure(diagnostics, { status, pathname, count = 1 }) {
-  if (!Number.isInteger(status) || status < 500 || status > 599) {
-    throw new TypeError('Expected HTTP failure status must be an integer from 500 through 599.');
+  if (!Number.isInteger(status) || status < 400 || status > 599) {
+    throw new TypeError('Expected HTTP failure status must be an integer from 400 through 599.');
   }
   if (typeof pathname !== 'string' || !pathname.startsWith('/')) {
     throw new TypeError('Expected HTTP failure pathname must start with /.');
@@ -22,47 +38,62 @@ export function allowExpectedHttpFailure(diagnostics, { status, pathname, count 
 }
 
 export function assertNoUnexpectedRuntimeFailures(diagnostics) {
-  const allowances = (diagnostics.expectedHttpFailures ?? []).map((entry) => ({ ...entry, remaining: entry.count }));
-  const consumed = [];
-  const unexpectedServerErrors = [];
+  const allowances = (diagnostics.expectedHttpFailures ?? []).map((entry) => ({
+    ...entry,
+    responseRemaining: entry.count,
+    consoleRemaining: entry.count,
+    matchedResponses: 0,
+  }));
+  const observedHttpErrors = Array.isArray(diagnostics.httpErrors)
+    ? diagnostics.httpErrors
+    : (diagnostics.serverErrors ?? []);
+  const unexpectedHttpErrors = [];
 
-  for (const entry of diagnostics.serverErrors ?? []) {
+  for (const entry of observedHttpErrors) {
     const pathname = diagnosticPath(entry.url);
-    const allowance = allowances.find((candidate) => (
-      candidate.status === entry.status && candidate.pathname === pathname && candidate.remaining > 0
-    ));
-    if (!allowance) {
-      unexpectedServerErrors.push(entry);
+    const matchingAllowance = allowances.find((candidate) => matchesAllowance(candidate, entry));
+    if (matchingAllowance?.responseRemaining > 0) {
+      matchingAllowance.responseRemaining -= 1;
+      matchingAllowance.matchedResponses += 1;
       continue;
     }
-    allowance.remaining -= 1;
-    consumed.push({ status: entry.status, pathname });
+
+    const conflictsWithAllowance = allowances.some((candidate) => (
+      candidate.status === entry.status || candidate.pathname === pathname
+    ));
+    if (entry.status >= 500 || matchingAllowance || conflictsWithAllowance) {
+      unexpectedHttpErrors.push(entry);
+    }
   }
 
-  const expectedConsoleBudget = consumed.map((entry) => ({ ...entry, remaining: 1 }));
   const unexpectedConsoleErrors = [];
   for (const entry of diagnostics.consoleErrors ?? []) {
-    const match = entry.text?.match(/Failed to load resource: the server responded with a status of (\d{3})/u);
+    const status = failedLoadStatus(entry);
     const pathname = diagnosticPath(entry.url);
-    const budget = match ? expectedConsoleBudget.find((candidate) => (
-      candidate.status === Number.parseInt(match[1], 10)
+    const allowance = status === null ? null : allowances.find((candidate) => (
+      candidate.status === status
         && candidate.pathname === pathname
-        && candidate.remaining > 0
-    )) : null;
-    if (budget) {
-      budget.remaining -= 1;
+        && candidate.matchedResponses > 0
+        && candidate.consoleRemaining > 0
+    ));
+
+    if (allowance) {
+      allowance.consoleRemaining -= 1;
     } else {
       unexpectedConsoleErrors.push(entry);
     }
   }
 
-  const missingExpectedHttpFailures = allowances.filter((entry) => entry.remaining > 0);
+  const unexpectedFailedRequests = (diagnostics.failedRequests ?? []).filter((entry) => (
+    !NAVIGATION_CANCELLATION_FAILURES.has(entry.failure)
+  ));
+  const missingExpectedHttpFailures = allowances.filter((entry) => entry.responseRemaining > 0);
   const unexpected = Object.fromEntries(
     [
       ['consoleErrors', unexpectedConsoleErrors],
       ['pageErrors', diagnostics.pageErrors ?? []],
-      ['failedRequests', (diagnostics.failedRequests ?? []).filter((entry) => entry.failure !== 'net::ERR_ABORTED')],
-      ['serverErrors', unexpectedServerErrors],
+      ['failedRequests', unexpectedFailedRequests],
+      ['httpErrors', unexpectedHttpErrors],
       ['missingExpectedHttpFailures', missingExpectedHttpFailures],
     ].filter(([, entries]) => entries.length > 0),
   );

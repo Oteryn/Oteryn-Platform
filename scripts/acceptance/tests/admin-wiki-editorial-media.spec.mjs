@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   assertAccessibilitySmoke,
   attachDiagnostics,
   completeMfaChallenge,
@@ -66,6 +67,15 @@ function trackWikiMediaThumbnailRequests(page) {
   page.on('requestfailed', finish);
 
   return () => pending.size;
+}
+
+function allowObservedThumbnailFailure(diagnostics, { status, pathname, maxCount = 4 }) {
+  const count = (diagnostics.httpErrors ?? []).filter((entry) => (
+    entry.status === status && new URL(entry.url).pathname === pathname
+  )).length;
+  expect(count, `Expected at least one HTTP ${status} for ${pathname}`).toBeGreaterThan(0);
+  expect(count, `Expected at most ${maxCount} HTTP ${status} responses for ${pathname}`).toBeLessThanOrEqual(maxCount);
+  allowExpectedHttpFailure(diagnostics, { status, pathname, count });
 }
 
 async function waitForWikiMediaThumbnailIdle(page, pendingCount) {
@@ -203,6 +213,11 @@ test('@wiki-media exact Wiki editor discovers inserts previews and publishes pri
     await expect(corruptPickerFallback).toBeVisible();
     await expect(corruptPickerFallback).toContainText(`Preview unavailable: ${mediaLabel}`);
     await expect(corruptPickerCard.locator('img')).toHaveCount(0);
+    await waitForWikiMediaThumbnailIdle(page, pendingThumbnailRequests);
+    allowObservedThumbnailFailure(page.__acceptanceDiagnostics, {
+      status: 500,
+      pathname: `/admin/wiki/media/${seeded.media_id}/thumbnail`,
+    });
 
     await publicPage.reload();
     const corruptPublicFallback = publicPage.getByRole('img', { name: `Most Oteryn ${id}` });

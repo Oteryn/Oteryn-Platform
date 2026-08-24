@@ -33,7 +33,7 @@
                 <div class="form-field">
                     <label for="key">Stable key</label>
                     <input id="key" name="key" type="text" maxlength="96" required
-                           pattern="[a-z0-9]+([._-][a-z0-9]+)*"
+                           pattern="[a-z0-9]+([._\-][a-z0-9]+)*"
                            value="{{ old('key', $category?->key) }}">
                 </div>
                 <div class="form-field">

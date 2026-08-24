@@ -140,7 +140,10 @@ final class SessionAnalysisFeatureTest extends TestCase
         $this->actingAs($owner);
         $response = $this->get(route('player-companion.session-analyses.show', $analysis->id))
             ->assertOk()
-            ->assertSeeText('Private hunt');
+            ->assertSeeText('Private hunt')
+            ->assertSee('js/form-confirmations.js', false)
+            ->assertSee('data-confirm-message=', false)
+            ->assertDontSee('onsubmit=', false);
         $cacheControl = $response->headers->get('Cache-Control');
         self::assertNotNull($cacheControl);
         self::assertStringContainsString('private', $cacheControl);

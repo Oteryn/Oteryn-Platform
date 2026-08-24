@@ -169,20 +169,23 @@ test('@portal-wiki-public route-complete empty, read, search, invalid, not-found
   expect(response?.status()).toBe(200);
   await expect(page.getByText('No published articles matched.')).toBeVisible();
 
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 422, pathname: '/en/wiki/search' });
   response = await page.goto('/en/wiki/search?q=x');
   expect(response?.status()).toBe(422);
   await expect(page.getByText('The Wiki search query must contain at least two characters.')).toBeVisible();
 
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: '/en/wiki/category/does-not-exist' });
   response = await page.goto('/en/wiki/category/does-not-exist');
   expect(response?.status()).toBe(404);
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: '/en/wiki/does-not-exist' });
   response = await page.goto('/en/wiki/does-not-exist');
   expect(response?.status()).toBe(404);
 
   wikiFixture('set-public-unavailable');
   try {
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: '/en/wiki' });
     response = await page.goto('/en/wiki');
     expect(response?.status()).toBe(503);
-    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: '/en/wiki' });
     await expect(page.getByText('Wiki is temporarily unavailable.')).toBeVisible();
     expect(page.__acceptanceDiagnostics.serverErrors.some((entry) => entry.status === 503)).toBe(true);
   } finally {
@@ -205,12 +208,14 @@ test('@portal-wiki-public route-complete empty, read, search, invalid, not-found
 test('@portal-wiki-admin guest, MFA and exact Wiki permission boundaries fail closed', async ({ page }) => {
   await page.goto('/admin/wiki');
   await expect(page).toHaveURL(/\/login$/u);
+  await page.context().clearCookies();
 
   const noMfa = seedIdentity('wiki-reconciliation-no-mfa', {
     confirmedMfa: false,
     permissions: ['wiki.access', 'wiki.articles.manage', 'wiki.categories.manage', 'wiki.publish'],
   });
   await signIn(page, noMfa);
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 403, pathname: '/admin/wiki' });
   let response = await page.goto('/admin/wiki');
   expect(response?.status()).toBe(403);
   await expect(page.getByRole('heading', { name: 'You do not have access to this page' })).toBeVisible();
@@ -221,6 +226,7 @@ test('@portal-wiki-admin guest, MFA and exact Wiki permission boundaries fail cl
     permissions: [],
   });
   await signIn(page, noPermission);
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 403, pathname: '/admin/wiki' });
   response = await page.goto('/admin/wiki');
   expect(response?.status()).toBe(403);
   await expect(page.getByRole('heading', { name: 'You do not have access to this page' })).toBeVisible();
@@ -234,8 +240,10 @@ test('@portal-wiki-admin guest, MFA and exact Wiki permission boundaries fail cl
   response = await page.goto('/admin/wiki');
   expect(response?.status()).toBe(200);
   await expect(page.getByRole('heading', { name: 'Wiki administration' })).toBeVisible();
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 403, pathname: '/admin/wiki/articles/create' });
   response = await page.goto('/admin/wiki/articles/create');
   expect(response?.status()).toBe(403);
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 403, pathname: '/admin/wiki/categories/create' });
   response = await page.goto('/admin/wiki/categories/create');
   expect(response?.status()).toBe(403);
 
@@ -286,6 +294,7 @@ test('@portal-wiki-admin complete validation, draft, signed-preview, conflict, r
   const articleId = editUrl.match(/\/admin\/wiki\/articles\/(\d+)\/edit$/u)?.[1];
   expect(articleId).toBeTruthy();
 
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: `/en/wiki/${articleSlug}` });
   let response = await page.goto(`/en/wiki/${articleSlug}`);
   expect(response?.status()).toBe(404);
 
@@ -301,6 +310,7 @@ test('@portal-wiki-admin complete validation, draft, signed-preview, conflict, r
 
   await page.getByLabel('Title').first().fill('Stale edit must not persist');
   wikiFixture('bump-article-lock', articleId);
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 409, pathname: `/admin/wiki/articles/${articleId}` });
   const [conflictResponse] = await Promise.all([
     page.waitForResponse((candidate) => candidate.url().includes(`/admin/wiki/articles/${articleId}`) && candidate.status() === 409),
     page.getByRole('button', { name: 'Save draft' }).click(),
@@ -335,6 +345,7 @@ test('@portal-wiki-admin complete validation, draft, signed-preview, conflict, r
   await page.goto(editUrl);
   await page.getByRole('button', { name: 'Unpublish to draft' }).click();
   await expect(page.getByRole('status')).toContainText('Wiki article unpublished and returned to draft.');
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: `/en/wiki/${articleSlug}` });
   response = await page.goto(`/en/wiki/${articleSlug}`);
   expect(response?.status()).toBe(404);
 
@@ -353,6 +364,7 @@ test('@portal-wiki-admin complete validation, draft, signed-preview, conflict, r
   await page.getByRole('button', { name: 'Archive' }).click();
   await expect(page.getByRole('status')).toContainText('Wiki article archived.');
   await expect(page.locator('.page-header')).toContainText('Status: Archived');
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: `/en/wiki/${articleSlug}` });
   response = await page.goto(`/en/wiki/${articleSlug}`);
   expect(response?.status()).toBe(404);
 

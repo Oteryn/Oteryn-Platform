@@ -4,6 +4,10 @@
 @section('description', __('player_companion.privacy_note'))
 @section('page-class', 'player-companion-page')
 
+@push('head')
+    <script src="{{ asset('js/form-confirmations.js') }}" defer></script>
+@endpush
+
 @section('content')
     <div class="page-header">
         <div>
@@ -13,7 +17,7 @@
         </div>
         <div class="action-row">
             <a class="button button-secondary" href="{{ route('player-companion.session-analyses.index') }}">{{ __('player_companion.back') }}</a>
-            <form method="POST" action="{{ route('player-companion.session-analyses.destroy', $analysis->id) }}" onsubmit="return confirm(@js(__('player_companion.confirm_delete')))">
+            <form method="POST" action="{{ route('player-companion.session-analyses.destroy', $analysis->id) }}" data-confirm-message="{{ __('player_companion.confirm_delete') }}">
                 @csrf
                 @method('DELETE')
                 <button class="button button-secondary" type="submit">{{ __('player_companion.delete') }}</button>

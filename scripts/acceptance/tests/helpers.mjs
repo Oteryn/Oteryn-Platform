@@ -34,6 +34,7 @@ export function installDiagnostics(page) {
     consoleErrors: [],
     pageErrors: [],
     failedRequests: [],
+    httpErrors: [],
     serverErrors: [],
     expectedHttpFailures: [],
   };
@@ -60,6 +61,12 @@ export function installDiagnostics(page) {
   });
 
   page.on('response', (response) => {
+    if (response.status() >= 400) {
+      diagnostics.httpErrors.push({
+        status: response.status(),
+        url: sanitizeUrl(response.url()),
+      });
+    }
     if (response.status() >= 500) {
       diagnostics.serverErrors.push({
         status: response.status(),
@@ -338,5 +345,6 @@ export async function assertAccessibilitySmoke(page) {
 export async function evidenceScreenshot(page, name) {
   const directory = path.join(repoRoot, 'artifacts', 'acceptance', 'screenshots');
   fs.mkdirSync(directory, { recursive: true });
-  await page.screenshot({ path: path.join(directory, `${name}.png`), fullPage: true });
+  // Preserve caret styling so screenshot collection stays compatible with strict style-src CSP.
+  await page.screenshot({ path: path.join(directory, `${name}.png`), fullPage: true, caret: 'initial' });
 }

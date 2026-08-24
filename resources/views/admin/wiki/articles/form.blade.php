@@ -80,7 +80,7 @@
                 <div class="form-field">
                     <label for="content_type">Content type</label>
                     <input id="content_type" name="content_type" type="text" maxlength="64" required
-                           pattern="[a-z0-9]+([._-][a-z0-9]+)*"
+                           pattern="[a-z0-9]+([._\-][a-z0-9]+)*"
                            value="{{ old('content_type', $article?->content_type ?? 'guide') }}">
                     <p class="form-help">Stable lowercase key, for example <code>guide</code>, <code>system</code> or <code>reference</code>.</p>
                 </div>

@@ -67,12 +67,14 @@ test.afterEach(async ({ page }, testInfo) => {
 test('@portal-editorial-media guest, MFA and exact permission boundaries fail closed', async ({ page }) => {
   await page.goto('/admin/media');
   await expect(page).toHaveURL(/\/login$/u);
+  await page.context().clearCookies();
 
   const noMfa = seedIdentity('editorial-media-no-mfa', {
     confirmedMfa: false,
     permissions: ['media.manage'],
   });
   await signIn(page, noMfa);
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 403, pathname: '/admin/media' });
   let response = await page.goto('/admin/media');
   expect(response?.status()).toBe(403);
   await expect(page.getByRole('heading', { name: 'You do not have access to this page' })).toBeVisible();
@@ -83,6 +85,7 @@ test('@portal-editorial-media guest, MFA and exact permission boundaries fail cl
     permissions: [],
   });
   await signIn(page, noPermission);
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 403, pathname: '/admin/media' });
   response = await page.goto('/admin/media');
   expect(response?.status()).toBe(403);
   await expect(page.getByRole('heading', { name: 'You do not have access to this page' })).toBeVisible();
@@ -196,6 +199,10 @@ test('@portal-editorial-media missing and integrity-failed stored objects render
   editorialMediaFixture('corrupt-files', String(corrupt.media_id));
 
   await signIn(page, manager);
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, {
+    status: 404,
+    pathname: `/admin/media/${missing.media_id}/thumbnail`,
+  });
   await page.goto('/admin/media');
 
   for (const altText of [missingAlt, corruptAlt]) {

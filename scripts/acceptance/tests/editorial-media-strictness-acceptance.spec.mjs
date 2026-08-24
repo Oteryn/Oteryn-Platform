@@ -60,6 +60,7 @@ test(`${evidenceMarker}`, async ({ page }) => {
   await login(page, manager.email, manager.password);
   await completeMfaChallenge(page, manager.recoveryCode);
 
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: '/admin/media/999999999/content' });
   let response = await page.goto('/admin/media/999999999/content');
   expect(response?.status()).toBe(404);
 
@@ -72,6 +73,7 @@ test(`${evidenceMarker}`, async ({ page }) => {
 
   try {
     editorialMediaFixture('set-admin-unavailable');
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: '/admin/media' });
     response = await page.goto('/admin/media', { waitUntil: 'domcontentloaded' });
     expect(response?.status()).toBe(500);
     await expect(page.locator('.error-code')).toHaveText('500');
@@ -79,7 +81,6 @@ test(`${evidenceMarker}`, async ({ page }) => {
     restoreEditorialMediaAvailability();
   }
 
-  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: '/admin/media' });
   response = await page.goto('/admin/media');
   expect(response?.status()).toBe(200);
   await expect(page.getByRole('heading', { name: 'Editorial image library' })).toBeVisible();
