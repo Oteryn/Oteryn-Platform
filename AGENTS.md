@@ -112,6 +112,12 @@ Before creating a service, repository abstraction, API client, auth provider, po
 - One agent uses one task branch/worktree.
 - Never share a branch or worktree between active agents.
 - `owned_paths` are advisory locks; resolve overlaps before editing.
+- Keep `admission_main_sha`, `task_head_sha`, and `integration_main_sha` distinct for substantial mutating work: admission is immutable provenance, task head is the current branch head, and integration main is selected only for final reconciliation.
+- If protected `main` advances after admission, classify it as `UPSTREAM_ADVANCED`; that movement alone does not invalidate work and is not a reason to restart, reset, recreate, rebase, force-push, or discard still-applicable implementation.
+- If the upstream delta changes an applicable instruction, safety/security/provenance rule, architecture authority, compatibility contract, or invariant, reload and reconcile that governing authority before further mutation while preserving unaffected work.
+- Preserve published task history by default. At final integration, refresh to current `integration_main_sha` with a normal non-force merge-up, resolve only authorized conflicts, review the resulting diff, and rerun every validation/review layer invalidated by the resulting `task_head_sha`.
+- A lost merge race returns the task to integration/reconciliation, not to implementation from scratch.
+- Invalidate affected work only after verified task cancellation/supersession/rescope, incompatible governing authority, semantic contract/API/schema/invariant conflict, failed authorized reconciliation, or required tests prove prior assumptions no longer hold; textual overlap or a changed filename alone is not sufficient proof.
 - Do not perform unrelated cleanup or broad refactors.
 - Do not edit another active task record except to resolve an explicitly coordinated ownership conflict.
 - Shared indexes and architecture documents must be edited narrowly.
