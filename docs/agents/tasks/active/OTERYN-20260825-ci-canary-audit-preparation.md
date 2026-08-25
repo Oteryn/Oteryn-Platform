@@ -27,6 +27,7 @@ Prepare and durably persist the exact design, execution plan, and Work prompt fo
 - [x] The design defines nine inert canaries, exact branch/PR identities, execution phases, evidence schema, metrics, abort conditions, and findings taxonomy.
 - [x] The implementation plan defines exact serial baseline, supersession, metadata-event, cross-repository burst, cleanup, and reporting tasks.
 - [x] A standalone Work prompt `OTERYN-CI-CANARY-AUDIT-V1` is prepared for later autonomous execution.
+- [x] The Work prompt is registered in the repository Documentation/Agent IA catalog as an active reusable prompt.
 - [x] Preparation documents are durably committed on the dedicated Platform task branch and the remote head is verified.
 - [x] The central coordination PR/task state is persisted without creating any live canary PR.
 
@@ -34,6 +35,7 @@ Prepare and durably persist the exact design, execution plan, and Work prompt fo
 
 ```yaml
 owned_paths:
+  - docs/agents/DOCUMENTATION_IA_CATALOG.json
   - docs/superpowers/specs/2026-08-25-organization-ci-canary-audit-design.md
   - docs/superpowers/plans/2026-08-25-organization-ci-canary-audit.md
   - docs/agents/prompts/OTERYN-CI-CANARY-AUDIT-V1.md
@@ -57,8 +59,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-25T16:21:00Z
-head: fafcbb77cb0be38bb003fef1b22350fdc2366a00
+updated_at: 2026-08-25T16:28:00Z
+head: eed9b0d15328d2e1d4a7f6d55f0d97c7b0deffaa
 branch: test/issue-1268-ci-canary-audit-preparation
 pr: 1269
 status: waiting
@@ -66,6 +68,7 @@ context_routes:
   - agent-governance
   - testing
 owned_paths:
+  - docs/agents/DOCUMENTATION_IA_CATALOG.json
   - docs/superpowers/specs/2026-08-25-organization-ci-canary-audit-design.md
   - docs/superpowers/plans/2026-08-25-organization-ci-canary-audit.md
   - docs/agents/prompts/OTERYN-CI-CANARY-AUDIT-V1.md
@@ -75,40 +78,50 @@ proven:
   - "Game preparation main = 5211cb26b9424925cd353822dd6e6b39b7984f21"
   - "Atlas preparation main = f48edc9170708b341df06339cae6cc113985dce8"
   - "Platform Issue #1268 is open and scoped to preparation before live canaries"
-  - "Preparation commit fafcbb77cb0be38bb003fef1b22350fdc2366a00 is one commit ahead of the verified Platform preparation base and changes exactly four authorized documentation/governance files"
   - "Central coordination PR #1269 is open as Draft from test/issue-1268-ci-canary-audit-preparation to main"
   - "No live P1-P3, G1-G3, or A1-A3 canary PR was created during preparation"
+  - "Preparation docs-only synchronize head eed9b0d15328d2e1d4a7f6d55f0d97c7b0deffaa created Phase 7, DB Outage, Game Auth and Edge workflow runs, but each executed only its classifier job and skipped its heavy validate/concurrency job"
+  - "CI run 32871455122 skipped runtime-tests and php-coverage-report and passed platform-gate"
 derived:
   - "A Work coordinator with read-only per-repository static analysis and one mutating actor best isolates experiment stimuli"
   - "Atlas selector/runner optimization is a material dependency for an unqualified final baseline"
+  - "Platform has measurable trigger-level overhead on docs/governance changes even when heavy internals correctly skip"
 unknown:
   - "Exact live baseline SHAs and complete trigger matrix at the future campaign start"
   - "Terminal/frozen revision boundary of current Atlas verification/test-selection/runner-concurrency work"
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: "Agent Governance run 32871455293 / Validate Documentation/Agent IA catalog"
+  evidence: "New reusable prompt docs/agents/prompts/OTERYN-CI-CANARY-AUDIT-V1.md was initially uncatalogued; the preparation repair registers it in docs/agents/DOCUMENTATION_IA_CATALOG.json."
 rejected_hypotheses:
   - "Cached preparation SHAs are sufficient for the later live baseline"
   - "Static workflow review alone can prove absence of CI amplification or loops"
+  - "The four heavy-named Platform workflow runs executed their heavy validation jobs on the preparation docs-only head"
 changed_paths:
+  - docs/agents/DOCUMENTATION_IA_CATALOG.json
   - docs/agents/prompts/OTERYN-CI-CANARY-AUDIT-V1.md
   - docs/agents/tasks/active/OTERYN-20260825-ci-canary-audit-preparation.md
   - docs/superpowers/plans/2026-08-25-organization-ci-canary-audit.md
   - docs/superpowers/specs/2026-08-25-organization-ci-canary-audit-design.md
 validation:
-  - command: GitHub compare 2ea92ba412fe2a6721b69b021ffb888e3b93d091...fafcbb77cb0be38bb003fef1b22350fdc2366a00
+  - command: GitHub compare 2ea92ba412fe2a6721b69b021ffb888e3b93d091...eed9b0d15328d2e1d4a7f6d55f0d97c7b0deffaa
     result: PASS
-    evidence: ahead_by=1 behind_by=0; exactly four authorized added files; no workflow/runtime/deployment changes
-  - command: design/spec self-review
+    evidence: preparation-only documentation/governance scope; no workflow/runtime/deployment change
+  - command: Platform CI run 32871455122
     result: PASS
-    evidence: preparation design contains explicit scope, nine probes, safety gates, phases, evidence schema and terminal conditions
+    evidence: classify/test/platform-gate passed; runtime-tests and php-coverage-report skipped
+  - command: heavy workflow job inspection for runs 32871455112, 32871456566, 32871455153, 32871455137
+    result: PASS_WITH_TRIGGER_OVERHEAD
+    evidence: each classifier passed; Phase7/DB/Edge validate and Game Auth concurrency-proof skipped
+  - command: Agent Governance run 32871455293
+    result: FAIL_REPAIRING
+    evidence: only material failure is Documentation/Agent IA prompt inventory mismatch for the newly added Work prompt; catalog repair is included in the next preparation commit
   - command: live canary execution
     result: NOT_APPLICABLE
     evidence: Issue #1268 preparation scope explicitly defers live canary PR creation until the execution gate
 blockers:
   - "WAITING: live campaign requires current Atlas verification/test-selection/runner-concurrency work to be terminal or an owner-approved revision boundary to be explicitly frozen"
-next_action: When the Atlas verification/test-selection/runner-concurrency boundary is terminal or explicitly frozen, run OTERYＮ-CI-CANARY-AUDIT-V1 in Work and first refresh all three main SHAs plus the complete frozen workflow matrix before creating any canary PR.
+next_action: When the Atlas verification/test-selection/runner-concurrency boundary is terminal or explicitly frozen, run OTERYN-CI-CANARY-AUDIT-V1 in Work and first refresh all three main SHAs plus the complete frozen workflow matrix before creating any canary PR.
 ```
 
 ## Source branch closeout
