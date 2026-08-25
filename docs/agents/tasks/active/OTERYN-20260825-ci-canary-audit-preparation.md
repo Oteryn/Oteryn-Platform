@@ -59,8 +59,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-25T16:28:00Z
-head: eed9b0d15328d2e1d4a7f6d55f0d97c7b0deffaa
+updated_at: 2026-08-25T16:36:00Z
+head: 85d3019da74690b4ff2d3c584690f7f6a104d678
 branch: test/issue-1268-ci-canary-audit-preparation
 pr: 1269
 status: waiting
@@ -82,6 +82,7 @@ proven:
   - "No live P1-P3, G1-G3, or A1-A3 canary PR was created during preparation"
   - "Preparation docs-only synchronize head eed9b0d15328d2e1d4a7f6d55f0d97c7b0deffaa created Phase 7, DB Outage, Game Auth and Edge workflow runs, but each executed only its classifier job and skipped its heavy validate/concurrency job"
   - "CI run 32871455122 skipped runtime-tests and php-coverage-report and passed platform-gate"
+  - "Documentation/Agent IA catalog validation on head 85d3019da74690b4ff2d3c584690f7f6a104d678 passed with 24 prompts: 11 reusable and 13 historical"
 derived:
   - "A Work coordinator with read-only per-repository static analysis and one mutating actor best isolates experiment stimuli"
   - "Atlas selector/runner optimization is a material dependency for an unqualified final baseline"
@@ -91,12 +92,13 @@ unknown:
   - "Terminal/frozen revision boundary of current Atlas verification/test-selection/runner-concurrency work"
 conflicts: []
 first_failure:
-  marker: "Agent Governance run 32871455293 / Validate Documentation/Agent IA catalog"
-  evidence: "New reusable prompt docs/agents/prompts/OTERYN-CI-CANARY-AUDIT-V1.md was initially uncatalogued; the preparation repair registers it in docs/agents/DOCUMENTATION_IA_CATALOG.json."
+  marker: "CI run 32872539628 and Agent Governance run 32872539998 / active checkpoint validation"
+  evidence: "The checkpoint used two unsupported validation result labels; repository contract accepts only BLOCKED, FAIL, NOT_APPLICABLE, NOT_RUN, PASS. This commit replaces the non-contract labels without changing workflow or product behavior."
 rejected_hypotheses:
   - "Cached preparation SHAs are sufficient for the later live baseline"
   - "Static workflow review alone can prove absence of CI amplification or loops"
   - "The four heavy-named Platform workflow runs executed their heavy validation jobs on the preparation docs-only head"
+  - "The Work prompt remained uncatalogued after the catalog repair"
 changed_paths:
   - docs/agents/DOCUMENTATION_IA_CATALOG.json
   - docs/agents/prompts/OTERYN-CI-CANARY-AUDIT-V1.md
@@ -104,18 +106,18 @@ changed_paths:
   - docs/superpowers/plans/2026-08-25-organization-ci-canary-audit.md
   - docs/superpowers/specs/2026-08-25-organization-ci-canary-audit-design.md
 validation:
-  - command: GitHub compare 2ea92ba412fe2a6721b69b021ffb888e3b93d091...eed9b0d15328d2e1d4a7f6d55f0d97c7b0deffaa
+  - command: GitHub compare 2ea92ba412fe2a6721b69b021ffb888e3b93d091...85d3019da74690b4ff2d3c584690f7f6a104d678
     result: PASS
-    evidence: preparation-only documentation/governance scope; no workflow/runtime/deployment change
+    evidence: exactly five authorized documentation/governance paths; no workflow/runtime/deployment change
   - command: Platform CI run 32871455122
     result: PASS
     evidence: classify/test/platform-gate passed; runtime-tests and php-coverage-report skipped
   - command: heavy workflow job inspection for runs 32871455112, 32871456566, 32871455153, 32871455137
-    result: PASS_WITH_TRIGGER_OVERHEAD
-    evidence: each classifier passed; Phase7/DB/Edge validate and Game Auth concurrency-proof skipped
-  - command: Agent Governance run 32871455293
-    result: FAIL_REPAIRING
-    evidence: only material failure is Documentation/Agent IA prompt inventory mismatch for the newly added Work prompt; catalog repair is included in the next preparation commit
+    result: PASS
+    evidence: trigger-level classifier overhead observed; each classifier passed while Phase7/DB/Edge validate and Game Auth concurrency-proof skipped
+  - command: Documentation/Agent IA validation in Agent Governance run 32872539998
+    result: PASS
+    evidence: validated 24 prompts (11 reusable, 13 historical) and 3 handovers
   - command: live canary execution
     result: NOT_APPLICABLE
     evidence: Issue #1268 preparation scope explicitly defers live canary PR creation until the execution gate
