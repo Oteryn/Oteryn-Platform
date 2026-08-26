@@ -43,6 +43,14 @@ Before any local/remote repository mutation, including work through Remote Deskt
 
 Only after that GitHub preflight may host-local tooling be used for implementation, builds, tests, containers, Playwright, artifacts or other execution. Local clones, filesystems, worktrees, containers, shell history and cached state are execution/cache planes only and MUST NOT be treated as authority or used to bypass GitHub lifecycle.
 
+## META execution-routing policy
+
+The canonical organization policy is [`Oteryn/Oteryn@8fac1d55805fc3372351ea0a55ad7728b3570ebc:ecosystem/agent-execution-routing-policy.json`](https://github.com/Oteryn/Oteryn/blob/8fac1d55805fc3372351ea0a55ad7728b3570ebc/ecosystem/agent-execution-routing-policy.json). Platform adopts it by reference and does not maintain a conflicting local copy.
+
+GitHub state, GitHub Actions or an approved runner, and an isolated worktree are the default execution route. Remote Desktop/Desktop Commander is default-deny and may be used only under a recorded closed exception reason with a recorded least-privilege action. It MUST NOT be used for routine implementation, validation, Git inspection or polling when equivalent CI exists. Resume only after a fresh GitHub preflight for repository, default branch SHA, governing Issue, PR and task-head identities.
+
+Every substantial task record must use parallel-first planning: named independent lanes, exclusive branch/worktree and owned paths, dependencies, shared-resource leases where needed, and an integration order. Serial execution requires a recorded reason.
+
 Before editing locally, verify remote URL, branch/worktree identity, HEAD and working-tree state against the GitHub-resolved task. Preserve unrelated dirty work. After durable local changes, commit on the authorized task branch, push to GitHub, verify the remote head equals the intended commit, update the PR/task when applicable, and use exact-head GitHub CI/review state for readiness and completion.
 
 Local-only work receives no completion credit until the durable result exists on the approved GitHub branch/PR. If GitHub is genuinely unavailable, continue safe read-only analysis/patch preparation but do not start new product mutations merely to bypass the control plane unless the owner explicitly authorizes an emergency exception.
