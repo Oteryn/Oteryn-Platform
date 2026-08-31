@@ -61,7 +61,8 @@ class PushChangeRoutingTest(unittest.TestCase):
         self.assertTrue(fail_closed)
         self.assert_all_gates(result)
 
-    def test_missing_range_fails_closed_without_diff(self) -> None:
+    def test_merge_group_candidate_without_pr_range_fails_closed(self) -> None:
+        """A merge-group event has no pull-request range and must run every gate."""
         with patch.object(push_classifier.classify_changes, "changed_paths") as changed_paths:
             result, fail_closed = push_classifier.classify_push_range("", "b" * 40)
 

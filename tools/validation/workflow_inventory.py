@@ -20,7 +20,7 @@ TOP_LEVEL_PERMISSIONS = re.compile(
 DIRECT_MAPPING_KEY = re.compile(
     r'^  (?:(?P<plain>[A-Za-z0-9_-]+)|"(?P<double>[A-Za-z0-9_-]+)"|\'(?P<single>[A-Za-z0-9_-]+)\'):(?:\s.*)?$'
 )
-DOMAIN_EVENTS = frozenset({"pull_request", "pull_request_target", "push"})
+DOMAIN_EVENTS = frozenset({"merge_group", "pull_request", "pull_request_target", "push"})
 MANUAL_EVENTS = frozenset({"issue_comment", "workflow_dispatch"})
 SUPPORTED_EVENTS = frozenset({*DOMAIN_EVENTS, *MANUAL_EVENTS, "schedule", "workflow_call"})
 
