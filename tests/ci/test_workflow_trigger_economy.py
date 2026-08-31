@@ -229,6 +229,7 @@ assert has_superseded_run_cancellation(agent_governance)
 assert has_stable_pr_concurrency_identity(agent_governance)
 
 ci = (WORKFLOW_ROOT / "ci.yml").read_text(encoding="utf-8")
+ci_trigger = trigger_prefix(ci)
 assert (
     "group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}"
     in ci
@@ -242,6 +243,14 @@ assert "group: ci-${{ github.workflow }}-${{ github.ref }}" not in ci, (
 assert "scripts/ci/classify_changes.py" in ci
 assert "scripts/ci/classify_push_changes.py" in ci
 assert "github.event.pull_request.base.sha || github.event.before || ''" in ci
+assert event_block(ci_trigger, "merge_group").strip() == (
+    "merge_group:\n"
+    "    types:\n"
+    "      - checks_requested"
+), "ci.yml: Merge Queue must request the aggregate gate for each integration candidate"
+assert 'if [[ "$EVENT_NAME" == "pull_request" ]]; then' in ci, (
+    "ci.yml: merge-group candidates must not rely on a pull-request payload"
+)
 assert "python tests/ci/test_push_change_routing.py" in ci
 assert "paths_json: ${{ steps.classify.outputs.paths_json }}" in ci
 assert "contains(needs.classify_changes.outputs.paths_json, '.github/workflows/ci.yml')" in ci

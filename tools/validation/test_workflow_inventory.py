@@ -49,6 +49,7 @@ class WorkflowInventoryTest(unittest.TestCase):
             "weekly-health.yml": ("  schedule:\n    - cron: '0 0 * * 1'\n", "scheduled_validation"),
             "feature-contract.yml": ("  pull_request:\n", "domain_validation"),
             "trusted-pr-validation.yml": ("  pull_request_target:\n", "domain_validation"),
+            "merge-queue-candidate.yml": ("  merge_group:\n", "domain_validation"),
             "manual-audit.yml": ("  workflow_dispatch:\n", "manual_validation"),
             "owner-comment-control.yml": ("  issue_comment:\n", "manual_validation"),
         }
