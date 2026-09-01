@@ -12,7 +12,7 @@ CI = ROOT / ".github/workflows/ci.yml"
 def test_policy_requires_only_stable_platform_gate() -> None:
     policy = json.loads(POLICY.read_text(encoding="utf-8"))
     checks = policy["branch_protection"]["required_status_checks"]
-    assert checks["strict"] is True
+    assert checks["strict"] is False
     assert checks["contexts"] == ["platform-gate"]
 
 
