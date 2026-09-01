@@ -242,15 +242,27 @@ assert "group: ci-${{ github.workflow }}-${{ github.ref }}" not in ci, (
 )
 assert "scripts/ci/classify_changes.py" in ci
 assert "scripts/ci/classify_push_changes.py" in ci
-assert "github.event.pull_request.base.sha || github.event.before || ''" in ci
+assert (
+    "ref: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha || github.sha }}"
+    in ci
+), "ci.yml: classification checkout must bind the exact merge-group candidate"
+assert (
+    "github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.event.before || ''"
+    in ci
+), "ci.yml: merge-group classification must use its protected base SHA"
+assert (
+    "github.event.merge_group.head_sha || github.event.pull_request.head.sha || github.sha"
+    in ci
+), "ci.yml: merge-group classification must use its synthetic head SHA"
 assert event_block(ci_trigger, "merge_group").strip() == (
     "merge_group:\n"
     "    types:\n"
     "      - checks_requested"
 ), "ci.yml: Merge Queue must request the aggregate gate for each integration candidate"
-assert 'if [[ "$EVENT_NAME" == "pull_request" ]]; then' in ci, (
-    "ci.yml: merge-group candidates must not rely on a pull-request payload"
-)
+assert (
+    'if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "merge_group" ]]; then'
+    in ci
+), "ci.yml: merge-group candidates must use exact diff-range classification"
 assert "python tests/ci/test_push_change_routing.py" in ci
 assert "paths_json: ${{ steps.classify.outputs.paths_json }}" in ci
 assert "contains(needs.classify_changes.outputs.paths_json, '.github/workflows/ci.yml')" in ci
@@ -269,7 +281,7 @@ for product_path in ACCEPTANCE_PRODUCT_PATHS:
         f"acceptance-validation.yml: pull_request missing product path {product_path}"
     )
     assert product_path in event_block(acceptance_trigger, "push"), (
-        f"acceptance-validation.yml: push main missing product path {product_path}"
+        f"{path.name}: push main missing product path {product_path}"
     )
 assert (
     "group: acceptance-e2e-${{ github.workflow }}-${{ github.ref }}-${{ inputs.run_suffix || 'direct' }}"
@@ -281,9 +293,9 @@ assert has_stable_pr_concurrency_identity(acceptance)
 portal_acceptance = (
     WORKFLOW_ROOT / "portal-acceptance-contract.yml"
 ).read_text(encoding="utf-8")
-portal_trigger = trigger_prefix(portal_acceptance)
-portal_pr = event_block(portal_trigger, "pull_request")
-portal_push = event_block(portal_trigger, "push")
+portal_acceptance_trigger = trigger_prefix(portal_acceptance)
+portal_pr = event_block(portal_acceptance_trigger, "pull_request")
+portal_push = event_block(portal_acceptance_trigger, "push")
 assert has_path_filter(portal_pr), "Portal Acceptance PR trigger must be path-scoped"
 assert has_path_filter(portal_push), "Portal Acceptance main push must be path-scoped"
 for product_path in PORTAL_ACCEPTANCE_PATHS:
