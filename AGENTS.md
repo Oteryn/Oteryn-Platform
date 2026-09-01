@@ -35,6 +35,14 @@ Do not recursively follow documentation links or reload a higher-priority rule m
 
 When rules conflict, follow the more restrictive safety rule.
 
+## External execution-skill precedence
+
+Repository and user authority govern execution. Agent skills, plugins and workflow frameworks such as Superpowers are subordinate execution aids, not independent task or lifecycle authority.
+
+For an already-authorized Oteryn programme or task with an approved canonical design, implementation plan, checkpoint, or explicit continuation directive, Superpowers workflows MUST NOT introduce additional approval gates, re-brainstorm an approved design, require duplicate planning artifacts, replace canonical authority, or interrupt autonomous continuation solely because the skill's default workflow would do so. Relevant skills MAY still be used internally for implementation, testing, debugging, review, isolation, or verification when they do not conflict with the governing Oteryn authority.
+
+A skill or plugin MUST NOT weaken repository safety, validation, review, GitHub-first, owner-funded AI, or authorization requirements. When a skill workflow conflicts with applicable user instructions, this `AGENTS.md`, repository policy, or canonical task authority, the applicable higher-priority Oteryn authority controls.
+
 ## GitHub-first execution gate — mandatory
 
 GitHub is the authoritative repository control plane for repository identity, `main`, Issue/task status, PR, task branch, exact remote SHA, checks, reviews and merge state. The governing live GitHub Issue/task is the canonical authority for task lifecycle state. The live GitHub PR is authoritative for PR head/base/check/review/merge state. Repository task/context documents preserve durable context, evidence, ownership, handoff, next action and history; they are not an independent competing mutable lifecycle authority, and stale document fields never override newer live Issue/PR state.
