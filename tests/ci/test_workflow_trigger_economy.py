@@ -281,7 +281,7 @@ for product_path in ACCEPTANCE_PRODUCT_PATHS:
         f"acceptance-validation.yml: pull_request missing product path {product_path}"
     )
     assert product_path in event_block(acceptance_trigger, "push"), (
-        f"{path.name}: push main missing product path {product_path}"
+        f"acceptance-validation.yml: push main missing product path {product_path}"
     )
 assert (
     "group: acceptance-e2e-${{ github.workflow }}-${{ github.ref }}-${{ inputs.run_suffix || 'direct' }}"
@@ -293,9 +293,9 @@ assert has_stable_pr_concurrency_identity(acceptance)
 portal_acceptance = (
     WORKFLOW_ROOT / "portal-acceptance-contract.yml"
 ).read_text(encoding="utf-8")
-portal_acceptance_trigger = trigger_prefix(portal_acceptance)
-portal_pr = event_block(portal_acceptance_trigger, "pull_request")
-portal_push = event_block(portal_acceptance_trigger, "push")
+portal_trigger = trigger_prefix(portal_acceptance)
+portal_pr = event_block(portal_trigger, "pull_request")
+portal_push = event_block(portal_trigger, "push")
 assert has_path_filter(portal_pr), "Portal Acceptance PR trigger must be path-scoped"
 assert has_path_filter(portal_push), "Portal Acceptance main push must be path-scoped"
 for product_path in PORTAL_ACCEPTANCE_PATHS:
