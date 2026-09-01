@@ -242,15 +242,27 @@ assert "group: ci-${{ github.workflow }}-${{ github.ref }}" not in ci, (
 )
 assert "scripts/ci/classify_changes.py" in ci
 assert "scripts/ci/classify_push_changes.py" in ci
-assert "github.event.pull_request.base.sha || github.event.before || ''" in ci
+assert (
+    "ref: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha || github.sha }}"
+    in ci
+), "ci.yml: classification checkout must bind the exact merge-group candidate"
+assert (
+    "github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.event.before || ''"
+    in ci
+), "ci.yml: merge-group classification must use its protected base SHA"
+assert (
+    "github.event.merge_group.head_sha || github.event.pull_request.head.sha || github.sha"
+    in ci
+), "ci.yml: merge-group classification must use its synthetic head SHA"
 assert event_block(ci_trigger, "merge_group").strip() == (
     "merge_group:\n"
     "    types:\n"
     "      - checks_requested"
 ), "ci.yml: Merge Queue must request the aggregate gate for each integration candidate"
-assert 'if [[ "$EVENT_NAME" == "pull_request" ]]; then' in ci, (
-    "ci.yml: merge-group candidates must not rely on a pull-request payload"
-)
+assert (
+    'if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "merge_group" ]]; then'
+    in ci
+), "ci.yml: merge-group candidates must use exact diff-range classification"
 assert "python tests/ci/test_push_change_routing.py" in ci
 assert "paths_json: ${{ steps.classify.outputs.paths_json }}" in ci
 assert "contains(needs.classify_changes.outputs.paths_json, '.github/workflows/ci.yml')" in ci
