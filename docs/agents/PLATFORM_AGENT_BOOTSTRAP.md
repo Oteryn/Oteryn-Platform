@@ -45,6 +45,12 @@ Any genuine capability blocker report MUST name the exact operation, tool/connec
 
 Tool availability never grants or broadens authorization. Repository allowlists, owner authorization, safety rules and production/protected-environment boundaries remain controlling.
 
+## Codex GitHub publishing credential compatibility
+
+For an already-authorized GitHub write from Codex, if `GH_TOKEN` and `GITHUB_TOKEN` are unset but agent-visible `GH` is present, the agent MAY pass it transiently as `GH_TOKEN="$GH"` only to the exact authorized `gh` or non-force `git push` command. It MUST NOT print, echo, log, persist, transform, commit, copy into files/configuration/credential helpers, or otherwise expose the credential value.
+
+Credential presence never expands repository, branch, path, task, merge, production, or secret authority. The agent MUST update only the approved task branch/existing PR, MUST NOT force-push, and MUST verify the remote exact head after publication. If no authorized credential is present, report the precise unauthenticated operation after capability discovery instead of generalizing that GitHub is read-only.
+
 ## Repository scope guard — WWW Platform only by default
 
 The project owner's default authorization for work launched from `Oteryn/Oteryn-Platform` is **WWW Platform only**.
@@ -88,7 +94,7 @@ A separate continuous-audit programme may inspect the platform and create new Is
 
 Interpret the command as authorization to execute the foreground coordinator loop until a real stop condition. Continue through bounded phases, implementation, self-review, validation, E2E, exact-head CI, PR closeout, task archival, ownership release, barrier review, and the next safe `READY` task within the execution budget without requesting routine follow-up prompts.
 
-A worker-session end, commit, PR creation, green CI, merge, E2E result, PR cleanup, or task archive is a milestone, not by itself a reason to stop the owner invocation. No work continues after the final response; this instruction does not authorize hidden background execution.
+A worker-session end, commit, PR creation, green CI, merge, E2E result, PR cleanup, task archive is a milestone, not by itself a reason to stop the owner invocation. No work continues after the final response; this instruction does not authorize hidden background execution.
 
 ## Terminal-only communication baseline
 
