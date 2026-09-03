@@ -1,7 +1,7 @@
 # Agent Prompting Standard
 
 ```yaml
-prompting_standard_version: 2.2
+prompting_standard_version: 2.1
 execution_policy_version: 2
 ```
 
