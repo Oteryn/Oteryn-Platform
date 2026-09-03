@@ -94,7 +94,7 @@ A separate continuous-audit programme may inspect the platform and create new Is
 
 Interpret the command as authorization to execute the foreground coordinator loop until a real stop condition. Continue through bounded phases, implementation, self-review, validation, E2E, exact-head CI, PR closeout, task archival, ownership release, barrier review, and the next safe `READY` task within the execution budget without requesting routine follow-up prompts.
 
-A worker-session end, commit, PR creation, green CI, merge, E2E result, PR cleanup, task archive is a milestone, not by itself a reason to stop the owner invocation. No work continues after the final response; this instruction does not authorize hidden background execution.
+A worker-session end, commit, PR creation, green CI, merge, E2E result, PR cleanup, or task archive is a milestone, not by itself a reason to stop the owner invocation. No work continues after the final response; this instruction does not authorize hidden background execution.
 
 ## Terminal-only communication baseline
 
