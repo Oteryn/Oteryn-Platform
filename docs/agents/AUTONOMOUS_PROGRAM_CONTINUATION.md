@@ -1,7 +1,7 @@
 # Autonomous Program Continuation Contract
 
 ```yaml
-autonomous_program_contract_version: 2.3
+autonomous_program_contract_version: 2.4
 ```
 
 ## Purpose
@@ -9,6 +9,18 @@ autonomous_program_contract_version: 2.3
 One short owner command may drive a long, low-noise foreground programme run. The owner should not have to restart every phase, paste worker prompts, request missing consumers after producer-only work, or clean up abandoned PRs and active tasks.
 
 This contract supplements prompting, evaluation, trust, feature-completeness, closeout, execution, and handoff contracts. Stricter repository safety, authorization, production, ownership, merge, and cross-repository rules prevail. `ANTI_STALL_AND_EXECUTION_BUDGET.md` bounds every invocation, including the terminal-CI wait exception.
+
+## META persistent-autonomy mapping
+
+Platform adopts the current protected META continuation contract by reference from `Oteryn/Oteryn:docs/agents/contracts/PERSISTENT_AUTONOMOUS_CONTINUATION_POLICY.md` and `Oteryn/Oteryn:ecosystem/agent-continuation-policy.json`; this document maps that organization contract into Platform's existing continuation surfaces and must not become a competing organization lifecycle or checkpoint schema.
+
+The existing live GitHub Issue/PR state, `CONTEXT_HANDOFF.md`, `ANTI_STALL_AND_EXECUTION_BUDGET.md`, `SESSION_RECOVERY_AND_ORPHANED_EXECUTION.md`, this continuation contract, and each task's existing `## Context checkpoint` remain the Platform-local execution/evidence surfaces. No second checkpoint format, orchestration database, bounded lifecycle, retry budget, candidate-freeze authority, review authority, or merge authority is introduced by this adoption.
+
+When a Platform worker/session/tool or foreground invocation ends but trusted current task authority is nonterminal, preserve and reconcile the existing checkpoint and apply the central worker-disposition/resume semantics instead of treating the whole task as complete. Platform's stricter foreground, no-progress, command, ordinary-CI, terminal-CI, repair-cycle, and recovery limits remain applicable execution limits, but they do not redefine organization whole-task lifetime or permit bounded retry/evidence state to be reset or enlarged.
+
+Persistent continuation must not claim automatic/background continuation unless a concrete resume mechanism is verified live, authorized, bound to the same stable task lineage, and bound to the authoritative next action. When no such mechanism exists, persist the truthful waiting/blocker state and exactly one concrete `next_action`; owner re-invocation remains an explicit fallback rather than fabricated automatic continuation.
+
+This adoption adds no Game/Atlas, production, deployment, secret, protected-environment, authentication/payment, review, or merge authority. Existing Platform controls, `platform-gate`, protection, and Merge Queue remain enforcing.
 
 ## Core distinction
 
