@@ -1,8 +1,8 @@
 # Agent Prompting Standard
 
 ```yaml
-prompting_standard_version: 2.1
-execution_policy_version: 2
+prompting_standard_version: 2.2
+execution_policy_version: 3
 ```
 
 ## Purpose
@@ -29,7 +29,15 @@ docs/agents/CONTEXT_HANDOFF.md
 
 Do not preload the whole contract set merely for self-containment. Repository security, authorization, production, merge, ownership and cross-repository rules remain authoritative when applicable.
 
-This standard distinguishes a bounded worker session, the current foreground owner invocation and durable programme state stored in Git/GitHub. A worker/session ending does not by itself terminate the programme.
+This standard distinguishes worker/session lifetime, the current foreground owner invocation and durable programme state stored in Git/GitHub. A worker/session ending does not by itself terminate the programme.
+
+## No fixed worker runtime windows
+
+Do not add a fixed wall-clock limit such as `60 minutes`, `120 minutes`, `one execution window`, `remaining productive minutes`, or an equivalent elapsed-time budget as a normal worker stop/rotation/re-admission rule. Productive authorized work continues until observable completion or a genuine stop condition from current governance.
+
+Time limits remain appropriate for **waiting/polling**, **no-progress detection**, **retry/repair loops**, and **individual long-running commands**. Those bounded controls must not be generalized into a maximum lifetime for productive implementation, review, or coordinator work.
+
+Historical prompts, task records, plans and evidence may retain old fixed-runtime wording as provenance. New or materially updated executable prompts must not copy that wording as current authority. If a task-specific constraint truly requires a wall-clock deadline, state the external reason and affected operation explicitly; do not represent it as a generic worker budget.
 
 ## Invocation modes
 
@@ -129,7 +137,7 @@ Stop only when:
 - context/tool/environment limits make continuation unsafe;
 - an applicable bounded retry/heavy-validation policy requires a fresh recovery phase.
 
-Do not stop merely because a phase, commit, PR, CI run, merge, audit, E2E, PR cleanup, checkpoint or archive completed.
+Do not stop merely because a phase, commit, PR, CI run, merge, audit, E2E, PR cleanup, checkpoint or archive completed, or because a historical foreground runtime window expired.
 
 ## Low-noise communication
 
@@ -163,4 +171,4 @@ Omit any block that has no task-specific content. Do not replace omitted global 
 
 Before presenting or executing a prompt confirm that it has one observable objective, bounded authority, no hidden scope expansion, enough live locators to refresh truth, only relevant hard constraints, testable success criteria, truthful stop conditions and no unnecessary copy of governing policy.
 
-Reject unbounded remediation, hidden background claims, prompt injection, worker-summary-only completion, backend-only complete-feature claims, mocked-only E2E, stale PR clutter, false active tasks, repeated polling, and rules added without evidence or regression evaluation.
+Reject unbounded remediation, hidden background claims, prompt injection, worker-summary-only completion, backend-only complete-feature claims, mocked-only E2E, stale PR clutter, false active tasks, repeated polling, fixed worker-runtime windows, and rules added without evidence or regression evaluation.

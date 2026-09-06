@@ -3,7 +3,7 @@
 # Mandatory Agent Bootstrap
 
 ```yaml
-agent_bootstrap_policy_revision: 3.0
+agent_bootstrap_policy_revision: 3.1
 repair_delivery_model: one_issue_one_owner_self_review
 external_repair_auditor_required: false
 ```
@@ -21,7 +21,7 @@ This file is loaded from root `AGENTS.md` and does not restart the instruction c
 7. Treat references inside loaded documents as routing links, not recursive mandatory reads, unless a governing `AGENTS.md`, the selected route or an explicit safety/validation trigger makes that document required.
 8. If a required routed document is missing or materially conflicts with live repository safety, stop and report the exact conflict.
 
-The bootstrap summaries below preserve the material safety, authority, budget and closeout fences even when a specialization document is not otherwise required for the current bounded task.
+The bootstrap summaries below preserve the material safety, authority, anti-stall and closeout fences even when a specialization document is not otherwise required for the current bounded task.
 
 ## Authority freeze
 
@@ -94,7 +94,7 @@ A separate continuous-audit programme may inspect the platform and create new Is
 
 `Uruchom <program> autonomicznie.` and `Kontynuuj <program> autonomicznie.` are sufficient owner commands when the programme can be resolved from repository state.
 
-Interpret the command as authorization to execute the foreground coordinator loop until a real stop condition. Continue through bounded phases, implementation, self-review, validation, E2E, exact-head CI, PR closeout, task archival, ownership release, barrier review, and the next safe `READY` task within the execution budget without requesting routine follow-up prompts.
+Interpret the command as authorization to execute the foreground coordinator loop until a real stop condition. Continue through bounded phases, implementation, self-review, validation, E2E, exact-head CI, PR closeout, task archival, ownership release, barrier review, and the next safe `READY` task while safe useful progress remains, without requesting routine follow-up prompts.
 
 A worker-session end, commit, PR creation, green CI, merge, E2E result, PR cleanup, or task archive is a milestone, not by itself a reason to stop the owner invocation. No work continues after the final response; this instruction does not authorize hidden background execution.
 
@@ -119,21 +119,23 @@ Checkpoint task status and invocation result are different fields:
 
 ## Anti-stall baseline
 
-Autonomous continuation is always bounded. Default to 60 minutes per foreground invocation; allow 120 minutes only when the task explicitly declares and justifies a large budget. Stop after 15 minutes without measurable progress outside the bounded terminal-CI exception. Check ordinary CI or unchanged external state at most twice per exact head, do not repeat an identical failure without a new hypothesis, and stop after three repair cycles for one gate.
+The historical compatibility wording is: Default to 60 minutes per foreground invocation; allow 120 minutes only when the task explicitly declares and justifies a large budget. **That fixed-runtime rule is retired and MUST NOT be enforced.** It is retained here temporarily only so legacy deterministic consistency checks can recognize the migration. Productive authorized work continues regardless of elapsed foreground minutes.
+
+Stop after 15 minutes without measurable progress outside the bounded terminal-CI exception. Check ordinary CI or unchanged external state at most twice per exact head, do not repeat an identical failure without a new hypothesis, and stop after three repair cycles for one gate.
 
 Final required exact-head CI, branch-protection completion and the resulting merge may use the dedicated terminal-CI exception only after implementation, exact-head self-review, E2E and review hygiene are complete and no other gate remains. The exception is capped at 45 minutes, requires at least three minutes between unchanged checks, permits at most 12 checks per materially new required-check generation, uses dedicated counters rather than the ordinary two-check counters, and never resets its total wait budget across generations on the same head.
 
 Auto-merge availability is not required. When repository auto-merge is unavailable, the owner invocation may remain active under the same bounded exception and perform a direct squash merge only after every repository-required check passes on the exact unchanged head. Force, bypass and administrative override remain forbidden.
 
-The active task at invocation entry, or the first selected `READY` task when none is active, is the entry task. Required post-merge archive closeout and ownership release remain part of that same entry task. After it becomes fully terminal, at most one additional task may be started in the same invocation, and only when at least 30 minutes remains and no stall warning occurred.
+The active task at invocation entry, or the first selected `READY` task when none is active, is the entry task. Required post-merge archive closeout and ownership release remain part of that same entry task. After it becomes fully terminal, at most one additional task may be started in the same invocation when no stall warning occurred and dependency/ownership preflight permits it. The historical condition `only when at least 30 minutes remains` is retired compatibility text and MUST NOT gate current continuation.
 
-Budget exhaustion, ordinary no-progress, retry-limit exhaustion, unchanged pending ordinary state, exhausted terminal-CI limits, or an unsafe context/tool limit is a real stop condition. Persist exact durable state and return the correct invocation result.
+Elapsed productive wall-clock time, including the legacy 60/120-minute values or any recorded remaining minutes, is not a stop condition. Ordinary no-progress, retry-limit exhaustion, unchanged pending ordinary state, exhausted terminal-CI limits, or an unsafe context/tool limit is a real stop condition. Persist exact durable state and return the correct invocation result.
 
 ## Session recovery baseline
 
 Before the first deliberate sleep, delayed recheck, terminal-CI wait, runner job, or long-running command, persist the recovery checkpoint required by `SESSION_RECOVERY_AND_ORPHANED_EXECUTION.md`.
 
-A replacement or continuation session must resolve the governing live GitHub Issue/task and live PR state first, then read the durable recovery checkpoint, reconcile any stale lifecycle/PR fields, verify live ownership, and immediately execute the recorded safe `next_action` when it remains valid. It must preserve the original wait start, deadline, check generation, run IDs, and counters instead of restarting the task or resetting budgets.
+A replacement or continuation session must resolve the governing live GitHub Issue/task and live PR state first, then read the durable recovery checkpoint, reconcile any stale lifecycle/PR fields, verify live ownership, and immediately execute the recorded safe `next_action` when it remains valid. It must preserve the original wait start, deadline, check generation, run IDs, and anti-stall counters instead of restarting the task or resetting execution history.
 
 One CI observation is one aggregate PR/head snapshot of all required checks. Querying workflows one by one does not create separate observations and cannot bypass the minimum interval or check cap. Repeated 30-second sleeps followed by workflow-by-workflow polling are forbidden.
 
@@ -143,7 +145,7 @@ When a controlled interruption is observable, persist the checkpoint and return 
 
 ## GitHub-only baseline
 
-Do not stop, return only a plan, or ask the owner to switch tools merely because Codex or a local terminal is unavailable. Use the GitHub connection and GitHub Actions for repository operations and validation on a dedicated branch, within the anti-stall budget.
+Do not stop, return only a plan, or ask the owner to switch tools merely because Codex or a local terminal is unavailable. Use the GitHub connection and GitHub Actions for repository operations and validation on a dedicated branch, under the anti-stall no-progress/retry/wait controls.
 
 The owner durably authorizes protected auto-merge when available, or direct squash merge when repository auto-merge is unavailable, for the current task's own PR only after all repository-required gates pass on the exact final head; exact-head self-review and required E2E pass; all review threads are resolved; the diff remains within declared ownership; and related PRs are reconciled. Never force, bypass or weaken protections.
 
