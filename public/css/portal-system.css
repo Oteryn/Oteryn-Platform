@@ -192,8 +192,8 @@
 .portal-error-body .brand-wordmark-art { display: block; width: 16rem; margin-bottom: 2rem; }
 
 @media (min-width: 100rem) {
-    .public-body .primary-nav { gap: 0 .55rem; }
-    .public-body .primary-nav .nav-link { font-size: .875rem; }
+    .public-body .primary-nav { gap: 0 .1rem; justify-content: space-between; }
+    .public-body .primary-nav .nav-link { font-size: .8rem; }
 }
 @media (max-width: 74.99rem) {
     .public-body .desktop-only { display: none !important; }
