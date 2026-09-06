@@ -23,7 +23,7 @@
             <div class="mobile-nav-panel">
                 <nav aria-label="{{ __('public.navigation.mobile') }}">
                     @foreach ($headerItems as $item)
-                        @php($active = request()->routeIs(...explode('|', $item['active'])) || request()->routeIs(...array_map(static fn (string $pattern): string => 'legacy.'.$pattern, explode('|', $item['active']))))
+                        @php($active = request()->routeIs(...explode('|', $item['active'])) || ($item['active'] === 'home' && request()->routeIs('localized.home')) || request()->routeIs(...array_map(static fn (string $pattern): string => 'legacy.'.$pattern, explode('|', $item['active']))))
                         <a class="nav-link" href="{{ $item['url'] }}" @if($active) aria-current="page" @endif>{{ $item['label'] }}</a>
                     @endforeach
                 </nav>
@@ -48,7 +48,7 @@
         </details>
         <nav class="primary-nav desktop-only" aria-label="{{ __('public.navigation.primary') }}">
             @foreach ($headerItems as $item)
-                @php($active = request()->routeIs(...explode('|', $item['active'])) || request()->routeIs(...array_map(static fn (string $pattern): string => 'legacy.'.$pattern, explode('|', $item['active']))))
+                @php($active = request()->routeIs(...explode('|', $item['active'])) || ($item['active'] === 'home' && request()->routeIs('localized.home')) || request()->routeIs(...array_map(static fn (string $pattern): string => 'legacy.'.$pattern, explode('|', $item['active']))))
                 <a class="nav-link" href="{{ $item['url'] }}" @if($active) aria-current="page" @endif>{{ $item['label'] }}</a>
             @endforeach
         </nav>

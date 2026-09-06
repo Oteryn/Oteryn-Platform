@@ -19,7 +19,7 @@
             <div class="preview-hero-copy">
                 <p class="preview-kicker">{{ __('public.home.kicker') }}</p>
                 <h1 id="home-hero-title" aria-label="Oteryn Platform">OTERYN</h1>
-                <p class="preview-hero-tagline">{{ __('public.home.hero_title') }}</p>
+                <h2 class="preview-hero-tagline">{{ __('public.home.hero_title') }}</h2>
                 <p class="preview-hero-lede">{{ __('public.home.hero_lede') }}</p>
 
                 <div class="preview-hero-actions">
