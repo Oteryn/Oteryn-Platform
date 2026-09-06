@@ -2,10 +2,9 @@
 
 @section('title', __('public.home.title'))
 @section('description', __('public.home.hero_lede'))
-@section('page-class', 'preview-home-shell production-home-shell')
+@section('page-class', 'production-home-shell')
 
 @push('styles')
-    <link rel="stylesheet" href="{{ asset('css/home-preview.css') }}">
     <link rel="stylesheet" href="{{ asset('css/home-production.css') }}">
 @endpush
 
@@ -13,47 +12,59 @@
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
     <section class="preview-hero" aria-labelledby="home-hero-title">
         <div class="preview-hero-art" aria-hidden="true">
-            <img src="{{ asset('images/oteryn-hero-citadel.svg') }}" alt="">
+            <img src="{{ asset('images/oteryn-hero-citadel.svg') }}" width="1600" height="820" alt="">
         </div>
 
         <div class="preview-hero-content">
             <div class="preview-hero-copy">
                 <p class="preview-kicker">{{ __('public.home.kicker') }}</p>
-                <h1 id="home-hero-title"><span class="preview-sr-only">Oteryn Platform. </span>{{ __('public.home.hero_title') }}</h1>
+                <h1 id="home-hero-title" aria-label="Oteryn Platform">OTERYN</h1>
+                <p class="preview-hero-tagline">{{ __('public.home.hero_title') }}</p>
                 <p class="preview-hero-lede">{{ __('public.home.hero_lede') }}</p>
 
                 <div class="preview-hero-actions">
                     @guest
-                        <a class="preview-button preview-button-primary" href="{{ route('identity.register.create') }}">{{ __('public.account.create') }}</a>
-                        <a class="preview-button preview-button-secondary" href="{{ route('identity.login.create') }}">{{ __('public.account.sign_in') }}</a>
+                        <a class="button" href="{{ route('identity.register.create') }}">{{ __('public.account.create') }}</a>
+                        <a class="button button-secondary" href="{{ route('identity.login.create') }}">{{ __('public.account.sign_in') }}</a>
                     @else
-                        <a class="preview-button preview-button-primary" href="{{ route('account.overview') }}">{{ __('public.home.open_account') }}</a>
+                        <a class="button" href="{{ route('account.overview') }}">{{ __('public.home.open_account') }}</a>
                     @endguest
-                    <a class="preview-button preview-button-secondary" href="#realm-overview">{{ __('public.home.view_realm') }}</a>
                 </div>
             </div>
+            <aside class="production-hero-world" aria-labelledby="hero-world-heading" data-hero-world-state="{{ $homePage->world->state->value }}">
+                <p class="eyebrow">{{ __('public.home.world_activity') }}</p>
+                <span class="production-state-badge production-state-{{ strtolower($homePage->world->state->value) }}">{{ __('public.states.'.strtolower($homePage->world->state->value)) }}</span>
+                <h2 id="hero-world-heading">
+                    @if ($homePage->world->state === \App\PublicPortal\PublicContentState::AVAILABLE)
+                        {{ trans_choice('public.home.players_online', $homePage->world->playersOnline ?? 0, ['count' => $localeFormatter->number($homePage->world->playersOnline ?? 0)]) }}
+                    @else
+                        {{ __('public.home.world_status') }}
+                    @endif
+                </h2>
+                @if ($homePage->world->state !== \App\PublicPortal\PublicContentState::AVAILABLE)
+                    <p>{{ __('portal.home.summary_'.strtolower($homePage->world->state->value)) }}</p>
+                @endif
+                @if (collect($homePage->world->channels)->contains(static fn ($channel) => $channel->maintenance))
+                    <p class="production-hero-maintenance">{{ __('public.home.maintenance') }}</p>
+                @endif
+                <a href="#realm-overview">{{ __('public.home.view_realm') }} <span aria-hidden="true">↓</span></a>
+            </aside>
         </div>
     </section>
 
     <section id="character-search" class="preview-search-wrap" aria-labelledby="home-character-search-heading">
         <div class="preview-search-card">
-            <div class="preview-ornament" aria-hidden="true">
-                <span></span>
-                <img src="{{ asset('images/oteryn-sigil.svg') }}" alt="">
-                <span></span>
-            </div>
             <h2 id="home-character-search-heading">{{ __('public.home.find_character') }}</h2>
-            <p class="preview-sr-only">{{ __('public.home.search_exact') }}</p>
+            <p class="portal-sr-only">{{ __('public.home.search_exact') }}</p>
 
             <form class="preview-search-form" method="GET" action="{{ route('game.characters.search') }}">
-                <label class="preview-sr-only" for="home-character-name">{{ __('public.home.character_name') }}</label>
-                <span class="preview-search-icon" aria-hidden="true">⌕</span>
-                <input id="home-character-name" name="name" type="search" value="{{ old('name') }}" maxlength="255" autocomplete="off" placeholder="{{ __('public.home.character_placeholder') }}" required>
+                <label class="portal-sr-only" for="home-character-name">{{ __('public.home.character_name') }}</label>
+                <input id="home-character-name" name="name" type="search" value="{{ old('name') }}" maxlength="255" autocomplete="off" placeholder="{{ __('public.home.character_placeholder') }}" required @error('name') aria-invalid="true" aria-describedby="home-character-error" @enderror>
                 <button type="submit">{{ __('public.home.search') }}</button>
             </form>
 
             @error('name')
-                <p class="notice" role="alert">{{ $message }}</p>
+                <p id="home-character-error" class="notice" role="alert">{{ $message }}</p>
             @enderror
         </div>
     </section>
@@ -189,7 +200,6 @@
         <div class="section-heading">
             <p class="eyebrow">{{ __('public.home.discover') }}</p>
             <h2 id="home-discover-title">{{ __('public.home.continue_journey') }}</h2>
-            <p class="muted">{{ __('public.home.continue_journey_help') }}</p>
         </div>
         <div class="production-discover-grid">
             <a class="card" href="{{ route('downloads.index') }}">

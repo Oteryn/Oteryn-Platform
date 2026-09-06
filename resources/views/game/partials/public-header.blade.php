@@ -1,15 +1,8 @@
 <header class="site-header">
     <div class="header-inner">
         <a class="brand portal-brand" href="{{ route('home') }}" aria-label="Oteryn Platform {{ __('public.navigation.home') }}">
-            <img class="brand-wordmark-art" src="{{ asset('images/oteryn-wordmark.svg') }}" alt="" aria-hidden="true">
+            <img class="brand-wordmark-art" src="{{ asset('images/oteryn-wordmark.svg') }}" width="420" height="88" alt="" aria-hidden="true">
         </a>
-
-        <nav class="primary-nav desktop-only" aria-label="{{ __('public.navigation.primary') }}">
-            @foreach ($headerItems as $item)
-                @php($active = request()->routeIs($item['active']) || request()->routeIs('legacy.'.$item['active']))
-                <a class="nav-link" href="{{ $item['url'] }}" @if($active) aria-current="page" @endif>{{ $item['label'] }}</a>
-            @endforeach
-        </nav>
 
         <div class="account-actions desktop-only">
             @include('game.partials.language-switcher')
@@ -30,8 +23,7 @@
             <div class="mobile-nav-panel">
                 <nav aria-label="{{ __('public.navigation.mobile') }}">
                     @foreach ($headerItems as $item)
-                        @php($active = request()->routeIs($item['active']) || request()->routeIs('legacy.'.$item['active']))
-                        <a class="nav-link" href="{{ $item['url'] }}" @if($active) aria-current="page" @endif>{{ $item['label'] }}</a>
+                        @include('game.partials.navigation-link', ['item' => $item, 'linkClass' => 'nav-link'])
                     @endforeach
                 </nav>
 
@@ -53,5 +45,10 @@
                 </div>
             </div>
         </details>
+        <nav class="primary-nav desktop-only" aria-label="{{ __('public.navigation.primary') }}">
+            @foreach ($headerItems as $item)
+                @include('game.partials.navigation-link', ['item' => $item, 'linkClass' => 'nav-link'])
+            @endforeach
+        </nav>
     </div>
 </header>

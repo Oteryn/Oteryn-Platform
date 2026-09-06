@@ -1,18 +1,18 @@
 <footer class="site-footer">
     <div class="site-footer-inner public-footer-grid">
         <div class="public-footer-brand">
-            <img class="brand-wordmark-art" src="{{ asset('images/oteryn-wordmark.svg') }}" alt="Oteryn Platform">
+            <img class="brand-wordmark-art" src="{{ asset('images/oteryn-wordmark.svg') }}" width="420" height="88" alt="Oteryn Platform">
             <p>{{ __('public.footer.description') }}</p>
             <p class="public-footer-status-note">{{ __('public.footer.status') }}</p>
             @include('game.partials.language-switcher')
         </div>
 
+        <div class="public-footer-links">
         @foreach ($footerGroups as $group)
             <nav class="public-footer-group" aria-label="{{ __('public.navigation.group_links', ['group' => $group['label']]) }}">
                 <h2>{{ $group['label'] }}</h2>
                 @foreach ($group['items'] as $item)
-                    @php($active = request()->routeIs($item['active']) || request()->routeIs('legacy.'.$item['active']))
-                    <a href="{{ $item['url'] }}" @if($active) aria-current="page" @endif>{{ $item['label'] }}</a>
+                    @include('game.partials.navigation-link', ['item' => $item, 'linkClass' => null])
                 @endforeach
             </nav>
         @endforeach
@@ -29,6 +29,7 @@
                 <a href="{{ route('identity.password.change.create') }}">{{ __('public.account.change_password') }}</a>
             @endguest
         </nav>
+        </div>
     </div>
 
     <div class="public-footer-meta">

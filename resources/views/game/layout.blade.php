@@ -34,6 +34,8 @@
     <link rel="stylesheet" href="{{ asset('css/marketplace-responsive.css') }}">
     <link rel="stylesheet" href="{{ asset('css/community.css') }}">
     @stack('styles')
+    <link rel="stylesheet" href="{{ asset('css/portal-system.css') }}">
+    <script src="{{ asset('js/portal-navigation.js') }}" defer></script>
 </head>
 <body class="public-body">
 @inject('publicNavigation', 'App\PublicPortal\Navigation\PublicNavigationRegistry')

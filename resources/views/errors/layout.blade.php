@@ -6,12 +6,12 @@
     <meta name="robots" content="noindex, nofollow">
     <title>@yield('title') · {{ config('app.name') }}</title>
     <link rel="stylesheet" href="{{ asset('css/app.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/portal-system.css') }}">
 </head>
-<body class="error-body">
+<body class="error-body portal-error-body">
 <main id="main-content" class="error-panel">
     <a class="brand" href="{{ route('home') }}" aria-label="Oteryn Platform {{ __('public.navigation.home') }}">
-        <span class="brand-mark" aria-hidden="true">OT</span>
-        <span>Oteryn Platform</span>
+        <img class="brand-wordmark-art" src="{{ asset('images/oteryn-wordmark.svg') }}" width="420" height="88" alt="Oteryn Platform">
     </a>
     <div class="page-header">
         <p class="error-code">@yield('code')</p>

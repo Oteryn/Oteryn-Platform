@@ -8,14 +8,14 @@
     <link rel="stylesheet" href="{{ asset('css/app.css') }}">
     <link rel="stylesheet" href="{{ asset('css/mfa.css') }}">
     <link rel="stylesheet" href="{{ asset('css/support.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/portal-system.css') }}">
 </head>
-<body class="identity-body">
+<body class="identity-body @auth identity-authenticated @endauth">
 <a class="skip-link" href="#main-content">{{ __('identity.layout.skip_to_content') }}</a>
 <header class="site-header">
     <div class="header-inner">
         <a class="brand" href="{{ route('home') }}" aria-label="{{ __('identity.layout.home_label') }}">
-            <span class="brand-mark" aria-hidden="true">OT</span>
-            <span class="brand-label">Oteryn Platform</span>
+            <img class="brand-wordmark-art" src="{{ asset('images/oteryn-wordmark.svg') }}" width="420" height="88" alt="Oteryn Platform">
         </a>
         <div class="account-actions">
             <a class="nav-link" href="{{ route('home') }}">{{ __('identity.layout.public_site') }}</a>

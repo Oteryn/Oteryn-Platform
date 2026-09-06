@@ -20,8 +20,8 @@ Governing GitHub Issue: #1297. Implement the owner's premium MMORPG portal redes
 
 ## Acceptance criteria
 
-- [ ] Inventory public/player surfaces, shared primitives, routes, assets, localization and states.
-- [ ] Implement one recognizable Oteryn visual system and first-viewport world context.
+- [x] Inventory public/player surfaces, shared primitives, routes, assets, localization and states.
+- [x] Implement one recognizable Oteryn visual system and first-viewport world context.
 - [ ] Preserve guest/account workflows, navigation and truthful content states.
 - [ ] Inspect actual phone/tablet/desktop/wide renders and repair visual defects.
 - [ ] Pass relevant static/Laravel/browser checks and review the complete diff.
@@ -37,9 +37,12 @@ owned_paths:
   - resources/views/game/layout.blade.php
   - resources/views/game/partials/**
   - resources/views/identity/layout.blade.php
+  - resources/views/identity/partials/locale-switcher.blade.php
+  - resources/views/errors/layout.blade.php
+  - tests/Feature/HomeTest.php
   - resources/views/public/components/**
-  - lang/en/public.php
-  - lang/pl/public.php
+  - lang/en/portal.php
+  - lang/pl/portal.php
   - scripts/acceptance/tests/portal-visual-review.spec.mjs
   - tests/Feature/PublicPortalRedesignTest.php
   - docs/agents/tasks/active/OTERYN-20260906-premium-portal-redesign.md
@@ -59,10 +62,10 @@ Implementation is serial because homepage composition, shared CSS and rendering 
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-06T21:33:02Z
-head: 294e18909b8319695021011ccbeb1386cac32ced
+updated_at: 2026-09-06T21:51:00Z
+head: bb8b0320f458457727c4a5c5a0a9c1ad5beff1bd
 branch: feat/20260906-premium-portal-redesign
-pr: none
+pr: 1298
 status: implementing
 context_routes:
   - web-cms
@@ -75,9 +78,12 @@ owned_paths:
   - resources/views/game/layout.blade.php
   - resources/views/game/partials/**
   - resources/views/identity/layout.blade.php
+  - resources/views/identity/partials/locale-switcher.blade.php
+  - resources/views/errors/layout.blade.php
+  - tests/Feature/HomeTest.php
   - resources/views/public/components/**
-  - lang/en/public.php
-  - lang/pl/public.php
+  - lang/en/portal.php
+  - lang/pl/portal.php
   - scripts/acceptance/tests/portal-visual-review.spec.mjs
   - tests/Feature/PublicPortalRedesignTest.php
   - docs/agents/tasks/active/OTERYN-20260906-premium-portal-redesign.md
@@ -90,21 +96,27 @@ proven:
 derived:
   - Shared public primitives permit portal-wide improvement without changing backend contracts.
 unknown:
-  - Final rendered visual quality and exact candidate validation.
+  - Actual redesigned Blade render, authenticated responsive evidence and exact candidate CI are pending.
 conflicts: []
 first_failure:
-  marker: LOCAL_NETWORK_UNAVAILABLE
-  evidence: sandbox outbound GitHub DNS lookup fails; use permitted GitHub Actions instead
+  marker: BASELINE_FIXTURE_SUPPORT_NOT_PUBLISHED
+  evidence: baseline artifact 9997642456 captured 12 real HTTP pages, then stopped at support 404; reuse existing editorial seed for candidate. Initial PR identity omission also repaired.
 rejected_hypotheses: []
 changed_paths:
   - scripts/acceptance/tests/portal-visual-review.spec.mjs
   - docs/agents/tasks/active/OTERYN-20260906-premium-portal-redesign.md
 validation:
-  - command: baseline visual review via existing acceptance smoke profile
-    result: NOT_RUN
-    evidence: initial evidence harness being published; no redesign result is claimed
+  - command: baseline acceptance run 34061513441
+    result: FAIL
+    evidence: artifact 9997642456; unseeded support editorial returned 404 after 12 desktop captures
+  - command: local CSS and DOM supporting preview at 320, 390, 820, 1440, 1920px
+    result: PASS
+    evidence: no horizontal document overflow; not a substitute for final Laravel HTTP verification
+  - command: node --check and php -l for changed script, tests and locale files
+    result: PASS
+    evidence: local syntax checks; dependency-backed tests run in repository CI
 blockers: []
-next_action: Collect the baseline artifact and implement the shared portal redesign.
+next_action: Render the coherent candidate in existing CI, inspect its actual screenshots and repair findings.
 project_lane: oteryn-platform-core
 admission_main_sha: 294e18909b8319695021011ccbeb1386cac32ced
 policy_version: 2
@@ -122,8 +134,8 @@ session_id: portal-redesign-20260906T212400Z
 session_rotation_count: 0
 heavy_validation_runs: 0
 invocation_started_at: 2026-09-06T21:24:00Z
-last_progress_at: 2026-09-06T21:33:02Z
-ci_checks_for_current_head: 0
+last_progress_at: 2026-09-06T21:51:00Z
+ci_checks_for_current_head: 1
 ci_check_generation: draft
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
@@ -142,12 +154,12 @@ recovery:
   generation: 1
   session_id: portal-redesign-20260906T212400Z
   session_started_at: 2026-09-06T21:24:00Z
-  checkpointed_at: 2026-09-06T21:33:02Z
-  last_progress_at: 2026-09-06T21:33:02Z
-  phase: baseline-render-and-implementation
-  exact_head: 294e18909b8319695021011ccbeb1386cac32ced
-  pull_request: none
-  active_operation: draft PR acceptance baseline
+  checkpointed_at: 2026-09-06T21:51:00Z
+  last_progress_at: 2026-09-06T21:51:00Z
+  phase: candidate-validation
+  exact_head: bb8b0320f458457727c4a5c5a0a9c1ad5beff1bd
+  pull_request: 1298
+  active_operation: candidate acceptance rendering
   external_run_ids: []
   operation_started_at: null
   wait_deadline_at: null
@@ -156,7 +168,7 @@ recovery:
   status: active
   safe_to_resume: true
   resume_condition: verify this branch and its PR before continuing; do not overwrite another writer
-  next_action: Collect the baseline artifact and implement the shared portal redesign.
+  next_action: Render the coherent candidate in existing CI, inspect its actual screenshots and repair findings.
 ```
 
 ## Source branch closeout
@@ -164,9 +176,9 @@ recovery:
 ```yaml
 source_branch_disposition: retain
 source_branch_reason: owner-requested human visual review; task agent retains this branch until review or explicit disposition
-source_branch_evidence: Issue 1297; PR to be linked after creation
+source_branch_evidence: Issue 1297; PR 1298
 ```
 
 ## Execution resources
 
-The existing GitHub-hosted acceptance job and its runner-managed service containers are ephemeral. No self-hosted, desktop, staging or production resources are used. Baseline-only tracked-source export is temporary instrumentation and must be removed before final readiness. Evidence contains only repository source and sanitized synthetic public renders, not environment files, credentials, session dumps or raw authentication traces.
+The existing GitHub-hosted acceptance job and its runner-managed service containers are ephemeral. No self-hosted, desktop, staging or production resources are used. Baseline-only tracked-source export was removed after retrieving artifact 9997642456. Evidence contains only repository source and sanitized synthetic public renders, not environment files, credentials, session dumps or raw authentication traces.
