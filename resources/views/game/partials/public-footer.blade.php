@@ -20,13 +20,13 @@
         <nav class="public-footer-group" aria-label="{{ __('public.account.links') }}">
             <h2>{{ __('public.account.title') }}</h2>
             @guest
-                <a href="{{ route('identity.login.create') }}">{{ __('public.account.sign_in') }}</a>
-                <a href="{{ route('identity.register.create') }}">{{ __('public.account.create') }}</a>
-                <a href="{{ route('password.request') }}">{{ __('public.account.recover_password') }}</a>
+                <a href="{{ route('identity.login.create') }}" @if(request()->routeIs('identity.login.*')) aria-current="page" @endif>{{ __('public.account.sign_in') }}</a>
+                <a href="{{ route('identity.register.create') }}" @if(request()->routeIs('identity.register.*')) aria-current="page" @endif>{{ __('public.account.create') }}</a>
+                <a href="{{ route('password.request') }}" @if(request()->routeIs('password.request')) aria-current="page" @endif>{{ __('public.account.recover_password') }}</a>
             @else
-                <a href="{{ route('account.overview') }}">{{ __('public.account.overview') }}</a>
-                <a href="{{ route('identity.mfa.settings') }}">{{ __('public.account.security') }}</a>
-                <a href="{{ route('identity.password.change.create') }}">{{ __('public.account.change_password') }}</a>
+                <a href="{{ route('account.overview') }}" @if(request()->routeIs('account.overview')) aria-current="page" @endif>{{ __('public.account.overview') }}</a>
+                <a href="{{ route('identity.mfa.settings') }}" @if(request()->routeIs('identity.mfa.settings')) aria-current="page" @endif>{{ __('public.account.security') }}</a>
+                <a href="{{ route('identity.password.change.create') }}" @if(request()->routeIs('identity.password.change.*')) aria-current="page" @endif>{{ __('public.account.change_password') }}</a>
             @endguest
         </nav>
         </div>

@@ -163,6 +163,8 @@
 .identity-body .identity-panel { padding: clamp(1.5rem, 4vw, 3rem); border-top: 2px solid var(--accent-active); }
 .identity-authenticated .identity-shell { max-width: var(--content); }
 .identity-authenticated .identity-panel { max-width: none; }
+.identity-authenticated .identity-panel:has(> .card-grid) { padding: 0; background: none; border: 0; }
+.identity-authenticated .identity-panel:has(> .card-grid) > .panel { padding-inline: 0; border-inline: 0; border-radius: 0; background: none; }
 .identity-body .context-nav { flex-wrap: wrap; gap: .15rem; padding-block: .6rem; }
 .identity-body .context-nav a { font-size: .86rem; min-height: 2.75rem; }
 .identity-body .identity-locale-switcher { gap: .4rem; }
@@ -180,7 +182,7 @@
     padding-block: 3.5rem;
 }
 .public-body .public-footer-brand { max-width: 28rem; }
-.public-body .public-footer-links { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2rem; }
+.public-body .public-footer-links { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, max(9rem, calc((100% - 4rem) / 3))), 1fr)); gap: 2rem; }
 .public-body .public-footer-group { gap: .05rem; }
 .public-body .public-footer-group h2 { margin-bottom: .6rem; font-family: inherit; font-size: .7rem; letter-spacing: .14em; }
 .public-body .public-footer-group a { display: inline-flex; align-items: center; min-height: 2.1rem; font-size: .86rem; }
@@ -204,14 +206,14 @@
     .public-body .portal-brand .brand-wordmark-art,
     .identity-body .brand-wordmark-art { width: 10rem; }
     .public-body .header-inner { padding-block: .85rem; }
-    .public-body .public-footer-links { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.75rem 1rem; }
+    .public-body .public-footer-links { gap: 1.75rem 1rem; }
     .public-body .public-footer-group a { min-height: 2.5rem; }
     .public-body .public-footer-grid { padding-block: 2.5rem; }
     .identity-body .brand-wordmark-art { width: 8rem; }
     .identity-body .header-inner { flex-wrap: wrap; gap: .75rem; }
     .identity-body .account-actions { flex-wrap: wrap; gap: .2rem; }
     .identity-body .account-actions :is(.nav-link, button, .button) { padding-inline: .7rem; font-size: .8rem; }
-    .identity-body .context-nav { flex-wrap: nowrap; }
+    .identity-body .context-nav { flex-wrap: wrap; }
     .identity-body .identity-panel { padding: 1.25rem; }
     :is(.public-body, .identity-body) :is(th, td) { padding: .85rem; }
 }

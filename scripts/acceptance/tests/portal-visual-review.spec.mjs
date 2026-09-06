@@ -33,7 +33,6 @@ async function capture(page, name, status, { guestHtml = false } = {}) {
     .filter((image) => !image.complete || image.naturalWidth === 0).map((image) => image.getAttribute('src')));
   expect(brokenAssets, `${name}: missing image assets`).toEqual([]);
   const dimensions = await page.evaluate(() => ({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth }));
-  expect(dimensions.scrollWidth, `${name}: document overflow`).toBeLessThanOrEqual(dimensions.width + 1);
   await page.screenshot({ path: resolve(output, `${name}.png`), fullPage: true, animations: 'disabled' });
   if (guestHtml) {
     const html = await page.evaluate(() => {
@@ -58,6 +57,7 @@ async function capture(page, name, status, { guestHtml = false } = {}) {
   writeFileSync(resolve(output, 'manifest.json'), JSON.stringify({
     exactHead: testedSha, runtime: 'real Laravel HTTP; isolated synthetic fixtures', records,
   }, null, 2));
+  expect(dimensions.scrollWidth, `${name}: document overflow`).toBeLessThanOrEqual(dimensions.width + 1);
 }
 
 for (const [viewportName, viewport] of viewports) {
@@ -157,6 +157,14 @@ test('@smoke @portal-review empty, unavailable, form error, narrow and reduced-m
     await page.setExtraHTTPHeaders({ 'X-Oteryn-Acceptance-Today-Scenario': scenario });
     const response = await page.goto('/en/today');
     expect(response?.status()).toBe(200);
+    if (scenario === 'empty') {
+      for (const kind of ['announcements', 'events', 'news']) {
+        await expect(page.locator(`[data-today-card="${kind}"]`)).toHaveAttribute('data-content-state', 'empty');
+      }
+    } else {
+      await expect(page.locator('[data-today-state="partial"]')).toBeVisible();
+      await expect(page.locator('[data-today-card="news"]')).toHaveAttribute('data-content-state', 'unavailable');
+    }
     await capture(page, `phone-today-${scenario}`, response.status());
   }
   await page.setExtraHTTPHeaders({});

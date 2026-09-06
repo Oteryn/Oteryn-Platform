@@ -12,6 +12,7 @@ use App\PublicPortal\ViewModels\HomePageViewModel;
 use App\PublicPortal\ViewModels\HomeWorldChannel;
 use App\PublicPortal\ViewModels\HomeWorldSummary;
 use DOMDocument;
+use DOMElement;
 use DOMXPath;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\URL;
@@ -21,6 +22,15 @@ use Tests\TestCase;
 final class PublicPortalRedesignTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        app()->setLocale('en');
+        URL::defaults(['locale' => 'en']);
+        $this->withViewErrors([]);
+    }
 
     /** @return iterable<string, array{string, PublicContentState}> */
     public static function states(): iterable
@@ -72,10 +82,12 @@ final class PublicPortalRedesignTest extends TestCase
     {
         foreach (['en', 'pl'] as $locale) {
             $response = $this->get('/'.$locale)->assertOk();
+            $html = $response->getContent();
+            self::assertIsString($html);
             $document = new DOMDocument;
             $previous = libxml_use_internal_errors(true);
             try {
-                $document->loadHTML($response->getContent());
+                $document->loadHTML($html);
             } finally {
                 libxml_clear_errors();
                 libxml_use_internal_errors($previous);
@@ -84,7 +96,9 @@ final class PublicPortalRedesignTest extends TestCase
             $current = $xpath->query('//nav[contains(@class,"primary-nav")]/a[@aria-current="page"]');
             self::assertNotFalse($current);
             self::assertSame(1, $current->length);
-            self::assertSame(url('/'.$locale), $current->item(0)?->attributes?->getNamedItem('href')?->nodeValue);
+            $activeLink = $current->item(0);
+            self::assertInstanceOf(DOMElement::class, $activeLink);
+            self::assertSame(url('/'.$locale), $activeLink->getAttribute('href'));
             $response->assertSee('/'.$locale.'/guilds', false)
                 ->assertSee('/'.$locale.'/download', false)
                 ->assertSee('/'.$locale.'/wiki', false)

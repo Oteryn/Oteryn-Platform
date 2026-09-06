@@ -62,8 +62,8 @@ Implementation is serial because homepage composition, shared CSS and rendering 
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-06T21:51:00Z
-head: bb8b0320f458457727c4a5c5a0a9c1ad5beff1bd
+updated_at: 2026-09-06T22:18:00Z
+head: 41794acb6f112aa12d78820b35c2cede5bb2de05
 branch: feat/20260906-premium-portal-redesign
 pr: 1298
 status: implementing
@@ -96,11 +96,11 @@ proven:
 derived:
   - Shared public primitives permit portal-wide improvement without changing backend contracts.
 unknown:
-  - Actual redesigned Blade render, authenticated responsive evidence and exact candidate CI are pending.
+  - Repaired responsive candidate and full exact-head validation remain pending.
 conflicts: []
 first_failure:
-  marker: BASELINE_FIXTURE_SUPPORT_NOT_PUBLISHED
-  evidence: baseline artifact 9997642456 captured 12 real HTTP pages, then stopped at support 404; reuse existing editorial seed for candidate. Initial PR identity omission also repaired.
+  marker: CANDIDATE_TEXT_RESIZE_OVERFLOW
+  evidence: acceptance run 34062708959 has 13 of 14 smoke tests passing; at 820px and 200 percent root font the page grew to 868px. Intrinsic wrapping repair prepared. PHPStan DOM typing and independent footer active-link contract repaired without modifying the independent gate.
 rejected_hypotheses: []
 changed_paths:
   - scripts/acceptance/tests/portal-visual-review.spec.mjs
@@ -109,6 +109,15 @@ validation:
   - command: baseline acceptance run 34061513441
     result: FAIL
     evidence: artifact 9997642456; unseeded support editorial returned 404 after 12 desktop captures
+  - command: actual candidate acceptance run 34062708959
+    result: FAIL
+    evidence: artifact 9998000413 contains 61 actual Laravel HTTP screenshots; public routes, login/account, search, language, keyboard and no-JS menu passed; 200 percent text resizing failed
+  - command: candidate CI run 34062708998
+    result: FAIL
+    evidence: Pint and security guards passed; two PHPStan DOM type errors in the new test repaired
+  - command: independent critical suite run 34062708904
+    result: FAIL
+    evidence: 128 of 129 tests passed; footer account active-link semantics restored to satisfy unchanged independent architecture contract
   - command: local CSS and DOM supporting preview at 320, 390, 820, 1440, 1920px
     result: PASS
     evidence: no horizontal document overflow; not a substitute for final Laravel HTTP verification
@@ -134,14 +143,14 @@ session_id: portal-redesign-20260906T212400Z
 session_rotation_count: 0
 heavy_validation_runs: 0
 invocation_started_at: 2026-09-06T21:24:00Z
-last_progress_at: 2026-09-06T21:51:00Z
-ci_checks_for_current_head: 1
+last_progress_at: 2026-09-06T22:18:00Z
+ci_checks_for_current_head: 2
 ci_check_generation: draft
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 0
+repair_cycles_for_current_gate: 1
 context_reconstruction_attempts: 0
 stall_warnings: 0
 ```
@@ -154,12 +163,12 @@ recovery:
   generation: 1
   session_id: portal-redesign-20260906T212400Z
   session_started_at: 2026-09-06T21:24:00Z
-  checkpointed_at: 2026-09-06T21:51:00Z
-  last_progress_at: 2026-09-06T21:51:00Z
+  checkpointed_at: 2026-09-06T22:18:00Z
+  last_progress_at: 2026-09-06T22:18:00Z
   phase: candidate-validation
-  exact_head: bb8b0320f458457727c4a5c5a0a9c1ad5beff1bd
+  exact_head: 41794acb6f112aa12d78820b35c2cede5bb2de05
   pull_request: 1298
-  active_operation: candidate acceptance rendering
+  active_operation: responsive and validation repairs
   external_run_ids: []
   operation_started_at: null
   wait_deadline_at: null
