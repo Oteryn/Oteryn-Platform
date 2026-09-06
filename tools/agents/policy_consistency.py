@@ -25,6 +25,14 @@ NUMBER_WORDS = {
     7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve",
 }
 
+RETIRED_RUNTIME_KEYS = (
+    "normal_foreground_runtime_minutes",
+    "large_foreground_runtime_minutes",
+    "large_budget_requires_explicit_task_declaration",
+    "fixed_foreground_runtime_stop_enforced",
+    "minimum_remaining_minutes_to_start_additional_task",
+)
+
 REPO_TOKEN = re.compile(r"(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?![A-Za-z0-9_.-])")
 QUOTED_REPO_TOKEN = re.compile(r"`([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)`")
 MUTATION_TERM = r"(?:writ(?:e|es|ing|ten)|writable|edit(?:s|ed|ing)?|modif(?:y|ies|ied|ying)|push(?:es|ed|ing)?|commit(?:s|ted|ting)?|merge(?:s|d|ing)?|delet(?:e|es|ed|ing)|remov(?:e|es|ed|ing)|creat(?:e|es|ed|ing|ion|ions)|branch(?:es|ed|ing)?|mutat(?:e|es|ed|ing|ion|ions))"
@@ -526,6 +534,16 @@ def _reject_contradictory_completion_declarations(errors: list[str], source: str
             errors.append(f"{source}: contradictory completion declaration in authoritative policy: {statement}")
 
 
+def _reject_retired_runtime_keys(errors: list[str], anti_stall: str) -> None:
+    authoritative_yaml = "\n".join(_top_level_fenced_blocks(anti_stall, "yaml"))
+    for key in RETIRED_RUNTIME_KEYS:
+        if re.search(rf"(?m)^\s*{re.escape(key)}\s*:", authoritative_yaml):
+            errors.append(
+                "docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md: "
+                f"retired fixed-runtime policy key present: {key}"
+            )
+
+
 def validate_policy(root: Path = REPO_ROOT) -> list[str]:
     errors: list[str] = []
     try:
@@ -560,19 +578,18 @@ def validate_policy(root: Path = REPO_ROOT) -> list[str]:
         _require_all_declarations(errors, "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md", _inline_backtick_declarations(override, "checkpoint task status:"), canonical_statuses, "checkpoint task statuses")
         _require_all_declarations(errors, "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md", _inline_backtick_declarations(override, "terminal invocation result:"), canonical_terminal, "terminal invocation results")
 
+        _reject_retired_runtime_keys(errors, anti_stall)
+
         budget_keys = {key: _yaml_int(anti_stall, key) for key in (
-            "normal_foreground_runtime_minutes", "large_foreground_runtime_minutes", "no_progress_minutes",
+            "no_progress_minutes",
             "max_ci_state_checks_per_exact_head", "max_unchanged_external_state_checks", "terminal_ci_wait_budget_minutes",
             "terminal_ci_minimum_poll_interval_minutes", "max_terminal_ci_state_checks_per_check_generation",
-            "max_additional_tasks_after_terminal_entry_task", "minimum_remaining_minutes_to_start_additional_task",
+            "max_additional_tasks_after_terminal_entry_task",
         )}
         for pattern, key in (
-            (r"Default to (?P<value>\d+) minutes per foreground invocation", "normal_foreground_runtime_minutes"),
-            (r"allow (?P<value>\d+) minutes only when", "large_foreground_runtime_minutes"),
             (r"Stop after (?P<value>\d+) minutes without measurable progress", "no_progress_minutes"),
             (r"exception is capped at (?P<value>\d+) minutes", "terminal_ci_wait_budget_minutes"),
             (r"permits at most (?P<value>\d+) checks per materially new required-check generation", "max_terminal_ci_state_checks_per_check_generation"),
-            (r"only when at least (?P<value>\d+) minutes remains", "minimum_remaining_minutes_to_start_additional_task"),
         ):
             _require_regex_value(errors, "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md", override, pattern, budget_keys[key], key)
 
