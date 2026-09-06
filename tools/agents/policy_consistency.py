@@ -593,6 +593,14 @@ def validate_policy(root: Path = REPO_ROOT) -> list[str]:
         ):
             _require_regex_value(errors, "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md", override, pattern, budget_keys[key], key)
 
+        # Preserve regression coverage for the historical compatibility sentence in
+        # PLATFORM_AGENT_BOOTSTRAP.md without treating those numbers as execution authority.
+        for pattern, expected, label in (
+            (r"Default to (?P<value>\d+) minutes per foreground invocation", 60, "normal_foreground_runtime_minutes"),
+            (r"allow (?P<value>\d+) minutes only when", 120, "large_foreground_runtime_minutes"),
+        ):
+            _require_regex_value(errors, "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md", override, pattern, expected, label)
+
         ordinary_checks = budget_keys["max_ci_state_checks_per_exact_head"]
         external_checks = budget_keys["max_unchanged_external_state_checks"]
         if ordinary_checks != external_checks:
