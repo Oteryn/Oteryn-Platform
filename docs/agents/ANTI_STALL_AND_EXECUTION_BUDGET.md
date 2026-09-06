@@ -1,7 +1,7 @@
 # Anti-Stall and Execution Budget Contract
 
 ```yaml
-anti_stall_policy_version: 2.2
+anti_stall_policy_version: 2.3
 ```
 
 ## Purpose
@@ -37,12 +37,6 @@ Use `waiting` when an external event is pending and no worker should remain acti
 ## Anti-stall limits
 
 ```yaml
-# Deprecated compatibility fields retained temporarily for deterministic legacy-policy parsing only.
-# They MUST NOT be interpreted as worker stop/rotation/re-admission limits.
-normal_foreground_runtime_minutes: 60
-large_foreground_runtime_minutes: 120
-large_budget_requires_explicit_task_declaration: true
-fixed_foreground_runtime_stop_enforced: false
 no_progress_minutes: 15
 max_ci_state_checks_per_exact_head: 2
 max_unchanged_external_state_checks: 2
@@ -53,14 +47,10 @@ max_identical_failure_retries_without_new_hypothesis: 1
 max_repair_cycles_per_gate: 3
 max_context_reconstruction_attempts: 1
 max_additional_tasks_after_terminal_entry_task: 1
-# Deprecated compatibility field; current additional-task eligibility has no remaining-minute threshold.
-minimum_remaining_minutes_to_start_additional_task: 30
 normal_command_timeout_minutes: 20
 heavy_command_timeout_minutes: 45
 heavy_timeout_requires_reason: true
 ```
-
-The `normal_foreground_runtime_minutes`, `large_foreground_runtime_minutes`, `large_budget_requires_explicit_task_declaration`, and `minimum_remaining_minutes_to_start_additional_task` values above are **legacy compatibility fields only**. They exist temporarily because the deterministic policy-consistency checker historically parsed them. They are not current execution authority and MUST NOT cause a productive worker to stop, rotate, checkpoint, discard unused time, request a new grant, or split a task.
 
 The **entry task** is the active task at invocation start or, when none is active, the first `READY` task selected by the coordinator. Required post-merge lifecycle closeout for that entry task, including a repository-mandated archive PR, remains part of the same entry task and is not an additional task. After the entry task becomes fully terminal, at most one additional task may be started in the same invocation under `Starting another task` below.
 
@@ -218,7 +208,7 @@ Do not:
 - interpret silence, pending status, or waiting as productive work;
 - write `ROTATE` as a checkpoint task status;
 - claim autonomous execution justifies production, data, payment, authentication, protocol, asset, live-capital, or protected-configuration mutation without authority;
-- stop or rotate productive authorized work solely because 60, 120, or any other fixed number of foreground minutes elapsed;
+- stop or rotate productive authorized work solely because a fixed amount of foreground time elapsed;
 - require a fresh coordinator grant solely because a historical execution window elapsed;
 - hide no-progress/retry/wait exhaustion by resetting counters, check generations, or labels without a material state change;
 - force, bypass, override, or merge before required exact-head checks pass.
