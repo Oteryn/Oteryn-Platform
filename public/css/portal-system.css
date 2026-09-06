@@ -144,7 +144,7 @@
 :is(.public-body, .identity-body) .table-region { scrollbar-color: var(--border-strong) var(--bg-subtle); }
 :is(.public-body, .identity-body) table { background: transparent; font-variant-numeric: tabular-nums; }
 :is(.public-body, .identity-body) :is(th, td) { padding: 1rem; }
-:is(.public-body, .identity-body) th { background: var(--bg-subtle); font-size: .7rem; letter-spacing: .08em; }
+:is(.public-body, .identity-body) th { background: var(--bg-subtle); font-size: .7rem; letter-spacing: .08em; white-space: nowrap; overflow-wrap: normal; }
 :is(.public-body, .identity-body) tbody tr:hover { background: var(--surface); }
 :is(.public-body, .identity-body) td a { display: inline-block; padding-block: .1rem; font-weight: 600; }
 :is(.public-body, .identity-body) .pagination { padding-top: 1rem; }

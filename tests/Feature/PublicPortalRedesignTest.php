@@ -73,7 +73,7 @@ final class PublicPortalRedesignTest extends TestCase
 
         $this->view('home', ['homePage' => $this->home($world)])
             ->assertSee('class="production-hero-maintenance"', false)
-            ->assertSee('Configured maintenance.')
+            ->assertSee(__('public.home.maintenance'))
             ->assertSee('&lt;script&gt;not markup&lt;/script&gt;', false)
             ->assertDontSee('<script>not markup</script>', false);
     }
@@ -98,7 +98,7 @@ final class PublicPortalRedesignTest extends TestCase
             self::assertSame(1, $current->length);
             $activeLink = $current->item(0);
             self::assertInstanceOf(DOMElement::class, $activeLink);
-            self::assertSame(url('/'.$locale), $activeLink->getAttribute('href'));
+            self::assertSame(route('home'), $activeLink->getAttribute('href'));
             $response->assertSee('/'.$locale.'/guilds', false)
                 ->assertSee('/'.$locale.'/download', false)
                 ->assertSee('/'.$locale.'/wiki', false)
