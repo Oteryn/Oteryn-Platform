@@ -1,33 +1,10 @@
-# Agent documentation instructions
+# Agent-document instructions
 
-These instructions govern `docs/agents/**` and supplement the root bootstrap.
+These instructions apply only under `docs/agents/**`.
 
-## Authoring and routing
-
-Use `META_AGENT_POLICY_BINDING.json` to resolve the immutable organization prompting or evaluation standard when authoring a material prompt or harness. `PROMPTING_STANDARD.md` and `PROMPT_EVAL_STANDARD.md` contain only Platform-specific routing and compatibility notes.
-
-Every retained prompt and handoff must be classified in `DOCUMENTATION_IA_CATALOG.json`. Active reusable prompts are task-specific deltas over current instructions. Historical prompts remain provenance only and must not appear dispatchable.
-
-For a new or resumed task packet:
-
-1. read `EXECUTION_PROTOCOL.md` and `PROJECT_LANES.json`;
-2. preserve the correct project lane and live Issue/PR identity;
-3. use `TASK_TEMPLATE.md` and the checkpoint schema from `GOVERNANCE_CONTRACT.json`;
-4. store one concrete `next_action` and keep detailed evidence outside the checkpoint;
-5. leave `tasks/active/` when the governing Issue becomes terminal.
-
-Load these Platform procedures only when triggered:
-
-- `DELIVERY_COMPLETENESS_AND_CLOSEOUT.md` for substantial implementation, validation or closeout;
-- `REMEDIATION_AUDIT_RISK_GATE.md` for remediation validation intensity;
-- `ANTI_STALL_AND_EXECUTION_BUDGET.md` for long-running, retry, CI-wait or continuation work;
-- `SESSION_RECOVERY_AND_ORPHANED_EXECUTION.md` before a delayed recheck, long-running operation or recovery;
-- `TERMINAL_ONLY_COMMUNICATION.md` for autonomous or scheduled work;
-- `GITHUB_ONLY_EXECUTION.md` only when local execution is unavailable;
-- `AUTONOMOUS_PROGRAM_CONTINUATION.md` for programme start or continuation.
-
-Do not restate organization execution, concurrency, Remote Desktop, AI-review, retry or merge procedures in a task, prompt or handoff. Keep task-specific scope, domain constraints, acceptance evidence and exceptional stop conditions.
-
-## Validation
-
-Changes in this directory must pass the affected checkpoint, liveness, Documentation IA, prompt and central-policy consumer checks. Product runtime E2E is `NOT_APPLICABLE` only when no executable product behavior changed and the task records that reason.
+- Treat root `AGENTS.md` and `docs/agents/META_AGENT_POLICY_BINDING.json` as the instruction entry point. Do not recreate organization-wide execution, review, Remote Desktop, retry, continuation, model or merge policy in this directory.
+- Load only the target document and the source that owns the decision being changed. A link is not a recursive read requirement.
+- When writing a reusable task prompt, use `PROMPTING_STANDARD.md` as the Platform delta and the prompting standard selected by the META binding. Keep the prompt task-specific.
+- When changing a prompt evaluator, keep deterministic contract checks, provider adoption/delivery evidence and runtime/model evidence separate. A text check is not a model trial.
+- When changing a task record, use `tasks/TASK_TEMPLATE.md`, `GOVERNANCE_CONTRACT.json` and the live governing Issue/PR. Never leave a terminal PR represented as active without the contract's explicit archive-pending transition.
+- Preserve historical evidence as history. Historical prompts, plans and task packets do not become current authority merely because they remain in the repository.

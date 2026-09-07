@@ -14,7 +14,7 @@ Load only:
 2. `docs/agents/PLATFORM_AGENT_BOOTSTRAP.md`;
 3. the nearest nested `AGENTS.md` for each path that may be touched;
 4. the governing live GitHub Issue/task and live PR when present;
-5. one route selected from `docs/agents/CONTEXT_ROUTING.md`.
+5. a route from `docs/agents/CONTEXT_ROUTING.md` only when the task domain is not already clear or a concrete trigger requires specialist context.
 
 Do not recursively follow references. Expand context only when the selected route, a governing instruction, or a safety or validation trigger requires it.
 
@@ -22,9 +22,9 @@ Do not recursively follow references. Expand context only when the selected rout
 
 - The only repository where autonomous write operations are allowed by this file is `Oteryn/Oteryn-Platform`.
 - Before every GitHub write operation, verify that `repository_full_name` is exactly `Oteryn/Oteryn-Platform`, unless the user explicitly authorized another repository in the current task.
-- Treat all other repositories as read-only unless the user explicitly authorizes that exact repository and task. Do not push Platform code into a game-server repository.
+- Do not read, search, fetch, inspect, review or change server/game repositories unless the owner explicitly authorizes that exact repository and task. When that authorization covers inspection only, the external repository remains read-only. Do not push Platform code into a game-server repository.
 - GitHub live state is authoritative for repository, default branch, Issue, PR, review, check and merge facts. Refresh a fact before a material decision when it may have changed.
-- Use one dedicated task branch and workspace per active writer. Preserve unrelated changes and resolve path overlap before editing.
+- Use one dedicated task branch and workspace per active writer. Preserve unrelated changes; before editing shared paths, use targeted live Issue/PR and active-task checks to find current owners, then reuse the authorized task or resolve material overlap.
 - Never push task work directly to `main`, force-push, bypass protection, weaken a gate, or mark a failed check successful.
 
 For substantial work, create an active packet from `docs/agents/tasks/TASK_TEMPLATE.md`. The live Issue and PR govern lifecycle; the packet stores ownership, evidence and recovery context. Use the repository's existing task, validation and closeout tools rather than inventing a parallel lifecycle.
