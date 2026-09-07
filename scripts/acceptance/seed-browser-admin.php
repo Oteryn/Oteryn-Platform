@@ -72,6 +72,7 @@ $permissionKeys = [
     AdminPermission::MANAGE_SUPPORT_REPORTS,
     AdminPermission::MANAGE_SUPPORT_ENFORCEMENT,
     AdminPermission::GAME_CATALOG_ACCESS,
+    AdminPermission::VIEW_GAME_CATALOG_SNAPSHOTS,
     AdminPermission::RECONCILE_PAYMENTS,
     AdminPermission::MANAGE_MARKETPLACE,
     AdminPermission::VIEW_AUDIT,
