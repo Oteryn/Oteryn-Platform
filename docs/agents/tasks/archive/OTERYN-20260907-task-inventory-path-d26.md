@@ -10,55 +10,60 @@ optional_reads: []
 
 ## Goal
 
-Issue #1299 / merged PR #1300 repaired instruction-debt finding D26.
+Issue #1299 / PR #1300. Reject missing or non-directory task inventories while preserving a valid existing empty directory. This is the independent D26 correctness repair under META #142, not central-policy adoption.
+
+## Acceptance criteria
+
+- [x] Missing and regular-file paths fail before Issue API evaluation.
+- [x] Empty and README-only directories remain valid without API calls.
+- [x] All ten focused tests, including the CLI error path, pass.
+- [x] Exact-head repository checks, protected integration and readback pass.
+- [x] Archive this packet and close Issue #1299 after verified integration.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-07T08:30:00Z
-head: 3557085c20512d25576d8884cc54471665784b00
-branch: none
+updated_at: 2026-09-07T09:25:00Z
+head: 1d2c8019e09e0d5c98acaab9ba25032eef17a01b
+branch: fix/task-inventory-path-d26-20260907
 pr: 1300
 status: completed
 context_routes:
   - agent-governance
-owned_paths: []
+owned_paths:
+  - tools/agents/task_issue_liveness.py
+  - tools/agents/test_task_issue_liveness.py
+  - docs/agents/tasks/active/OTERYN-20260907-task-inventory-path-d26.md
 proven:
-  - PR #1300 merged to protected main as 3557085c20512d25576d8884cc54471665784b00.
-  - Missing and regular-file inventory paths fail before Issue API evaluation.
-  - Existing empty and README-only directories remain valid without Issue API calls.
-  - The ten focused tests, PR-head platform-gate and PR-head Agent Governance passed.
-  - Protected-main source readback contains the is_dir boundary and five focused regressions.
+  - Five new regressions fail in three cases before repair; all ten tests pass after repair.
+  - Published source and test blobs equal locally executed bytes.
 derived: []
 unknown: []
 conflicts: []
 first_failure:
-  marker: resolved-d26-invalid-inventory-pass
-  evidence: The former exists/glob behavior was replaced by an explicit is_dir boundary.
-rejected_hypotheses:
-  - An extra Issue API read was needed to distinguish an invalid local path.
+  marker: D26-invalid-inventory-passes
+  evidence: The old implementation passes missing and regular-file inputs as empty inventories; three RED tests reproduce it.
+rejected_hypotheses: []
 changed_paths:
   - tools/agents/task_issue_liveness.py
   - tools/agents/test_task_issue_liveness.py
 validation:
   - command: python tools/agents/test_task_issue_liveness.py -v
     result: PASS
-    evidence: Ten focused tests passed on PR head 1d2c8019e09e0d5c98acaab9ba25032eef17a01b.
-  - command: platform-gate at PR head 1d2c8019e09e0d5c98acaab9ba25032eef17a01b
-    result: PASS
-    evidence: GitHub check completed successfully before protected merge.
-  - command: protected-main source readback
-    result: PASS
-    evidence: Main 3557085c20512d25576d8884cc54471665784b00 contains source blob bd78d63e051b32615a81074651dff8c9e1036cb4.
-blockers: []
-next_action: No further Issue #1299 action; it closed externally at 2026-09-07T09:26:20Z before this archive transition reached protected main. Issue #1302 still owns the archive transition.
+    evidence: All 10 tests pass; no network calls in path-boundary cases.
+  - command: user-facing runtime E2E
+    result: NOT_APPLICABLE
+    evidence: Python governance input validation only; affected CLI error path is covered directly.
+blockers:
+  - none
+next_action: none
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: PR #1300 is merged and the ordinary task branch has no remaining owner or purpose.
-source_branch_evidence: GitHub branch search on 2026-09-07 found no retained fix/task-inventory-path-d26-20260907 branch.
+source_branch_reason: PR #1300 merged normally and repository delete-after-merge removed the task branch.
+source_branch_evidence: PR #1300 head 1d2c8019e09e0d5c98acaab9ba25032eef17a01b squash-merged to protected main as 3557085c20512d25576d8884cc54471665784b00; live branch inventory no longer contains fix/task-inventory-path-d26-20260907.
 ```

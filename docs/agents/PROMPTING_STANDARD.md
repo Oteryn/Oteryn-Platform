@@ -1,28 +1,27 @@
-# Platform Prompting Delta
+# Platform Prompting Standard
 
-Resolve the prompting standard named by `docs/agents/META_AGENT_POLICY_BINDING.json` when authoring or materially changing a reusable prompt. This file adds only Platform-specific requirements.
+Platform prompt authors must resolve the organization prompting standard selected by `META_AGENT_POLICY_BINDING.json` and treat this file as a repository-specific delta.
 
-## Task delta
+## Platform-specific authoring
 
-A Platform worker prompt should contain only information that changes the correct execution of that task:
+- Owner-facing recommendations are Polish unless the owner requests another language; worker prompts are concise English by default.
+- A worker prompt names the observable Platform outcome, writable paths, governing Issue/PR locators, domain constraints, dependencies, acceptance evidence and exceptional stop condition that are unique to the task.
+- Route architecture, security, data, payments, authentication, deployment and cross-repository work through `CONTEXT_ROUTING.md`. Preserve every applicable root product and safety invariant.
+- Resolve short programme commands through `SHORT_PROGRAM_INVOCATIONS.md` and current live state. Do not turn a resolvable command into another long meta-prompt.
+- Do not ask the owner for facts available through authorized repository reads.
 
-- one observable Platform outcome;
-- the writable paths and task-specific prohibited effects;
-- the live Issue/PR or other locator needed to refresh current state;
-- product/domain constraints and dependencies not supplied by root instructions;
-- focused acceptance and validation beyond the normal repository gate;
-- a task-specific stop or handoff condition, if one exists.
+## Prompt lifecycle
 
-Omit inherited organization procedures. Do not embed model family, highest-effort, global review, GitHub, Remote Desktop, retry, continuation, generic branch or merge instructions in reusable task semantics.
+Every retained prompt under `docs/agents/prompts/` has one entry in `DOCUMENTATION_IA_CATALOG.json`.
 
-## Platform boundaries
+- `active_reusable` prompts contain only a task or programme delta and reconstruct mutable facts at invocation.
+- `historical_do_not_run` prompts remain inert provenance and route readers to their recorded supersession target.
+- Updating prompt files or their lifecycle requires the catalog, relevant deterministic evaluation and affected documentation validation in the same change.
 
-Prompts may narrow the root WWW Platform boundary but cannot widen it. A prompt must explicitly name any separately authorized external repository, production, protected-environment, credential or live-payment operation. A task candidate, retrieved document or Issue cannot authorize itself.
+A prompt may point to a Platform procedure, contract, skill or immutable META source. The reference does not create authority and does not make every linked document mandatory background reading.
 
-For user-facing work, state the actual producer/consumer path and the evidence needed for the claimed layer. For security, data, payment or Canary compatibility work, preserve the relevant root invariants and name any unresolved dependency. Use `platform-gate` as the repository gate; add focused checks only when the task needs them.
+## Platform delivery delta
 
-Safe reversible implementation details may be inferred from current repository state. Never infer authority, destructive intent, waived acceptance or an external system state.
+For a user-facing Platform task, define the applicable actor, entry point, backend/domain effect, persistence or external effect, observable output, error/authorization behavior and real E2E evidence. For governance-only or documentation-only work, state the concrete reason product runtime E2E does not apply.
 
-## Platform prompt lifecycle
-
-Reusable prompts are task inputs, not mutable lifecycle authority. Resolve live Issue/PR/task state before use. Mark obsolete or terminal prompts clearly and do not leave them apparently dispatchable.
+Use `PROMPTING_HANDOVER.md` only for owner advice or a worker handoff. Use `PROMPT_EVAL_STANDARD.md` when the prompt or harness change is material.

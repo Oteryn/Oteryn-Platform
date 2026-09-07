@@ -10,4 +10,8 @@ Use the bound META organization policy for shared delivery, review and integrati
 - keep related PRs intentional and resolve material findings;
 - after verified integration, archive the task record, close the governing Issue when acceptance is complete and release ownership.
 
+Tasks that create or control containers, services, runners, volumes or other temporary infrastructure must follow `EXECUTION_RESOURCE_HYGIENE.md` for ownership-scoped inventory and cleanup.
+
+For source-branch closeout, follow `tasks/TASK_TEMPLATE.md` and `BRANCH_LIFECYCLE_POLICY.json`; do not infer permission to delete an unowned, protected or moved ref.
+
 A PR, static validator or worker report alone does not prove delivery. Production and protected external operations remain separately authorized.

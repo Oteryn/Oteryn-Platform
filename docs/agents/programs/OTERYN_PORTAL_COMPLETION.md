@@ -2,8 +2,8 @@
 
 ```yaml
 programme_id: OTERYN_PORTAL_COMPLETION
-programme_version: 4
-repository: blakinio/Oteryn-Platform
+programme_version: 5
+repository: Oteryn/Oteryn-Platform
 trusted_base: main
 owner_alias: PORTAL-CLOSEOUT
 status: READY_FOR_LIVE_SELECTION
@@ -18,7 +18,6 @@ communication: terminal_only
 live_state_required: true
 production_authority: false
 external_repository_authority: false
-codex_standing_permission: false
 ```
 
 ## Mission
@@ -53,7 +52,7 @@ Portal delivery uses one explicit hierarchy. Lower layers may add evidence and d
 
 `docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md` is the canonical execution-allocation companion for this programme. It maps accepted portal workstreams to model-agnostic execution roles, optional Codex suitability, dependencies and terminal outcomes **after this programme has selected the live work item**.
 
-The companion is not a second scheduler and must not reorder this programme. Delivery-band labels are non-scheduling metadata. Role assignment never overrides repository authority or live ownership. `IMPLEMENTATION_OWNER` describes bounded responsibility, not a model choice; execution mode is selected separately. A row marked Codex-suitable is **not permission** to invoke Codex, OpenAI API or any owner-funded AI quota. `AGENTS.md` still requires explicit owner authorization for that exact use/task.
+The companion is not a second scheduler and must not reorder this programme. Delivery-band labels are non-scheduling metadata. Role assignment never overrides repository authority or live ownership. `IMPLEMENTATION_OWNER` describes bounded responsibility, not a model choice; execution mode is selected separately. A row marked Codex-suitable does not grant service or model authority; resolve that authority from the bound META policy and current owner instructions.
 
 ## Completion-scope dispositions
 

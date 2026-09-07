@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Run deterministic Platform prompt-contract checks.
+"""Deterministic regression evaluator for durable agent prompt/policy contracts.
 
-This tool validates structural/static evidence only. It never executes a model and
-always reports model_trials_executed=0.
+This validator deliberately does not execute a language model. It verifies that the
+repository retains the textual behavioural invariants declared by a machine-readable
+scenario suite. Material prompt behaviour changes still require repeated model/runtime
+trials when nondeterminism matters, per PROMPT_EVAL_STANDARD.md.
 """
 
 from __future__ import annotations
@@ -12,7 +14,21 @@ import json
 from pathlib import Path
 from typing import Any
 
-DEFAULT_SUITE = Path("docs/agents/evals/prompt-contract-v2.json")
+
+DEFAULT_SUITE = Path("docs/agents/evals/prompt-contract-v1.json")
+REQUIRED_CATEGORIES = {
+    "normal_success",
+    "boundary_refusal",
+    "positive_tool_use",
+    "negative_tool_use",
+    "stale_conflicting_state",
+    "ambiguous_live_state",
+    "autonomous_continuation",
+    "authority_stop",
+    "prompt_injection",
+    "missing_vertical_slice",
+    "closeout",
+}
 
 
 class PromptEvalError(RuntimeError):
@@ -30,13 +46,13 @@ def _read_json(path: Path) -> Any:
         ) from exc
 
 
-def _string(value: object, label: str) -> str:
+def _require_non_empty_string(value: object, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise PromptEvalError(f"{label} must be a non-empty string")
     return value
 
 
-def _strings(value: object, label: str, *, allow_empty: bool = False) -> list[str]:
+def _require_string_list(value: object, label: str, *, allow_empty: bool = False) -> list[str]:
     if not isinstance(value, list) or (not value and not allow_empty):
         raise PromptEvalError(f"{label} must be a {'possibly empty ' if allow_empty else 'non-empty '}string array")
     if any(not isinstance(item, str) or not item for item in value):
@@ -64,92 +80,117 @@ def validate_suite(root: Path, suite_path: Path) -> dict[str, object]:
     suite = _read_json(root / suite_path if not suite_path.is_absolute() else suite_path)
     if not isinstance(suite, dict):
         raise PromptEvalError("prompt eval suite root must be a JSON object")
-    if suite.get("schema_version") != 2:
-        raise PromptEvalError("prompt eval suite schema_version must equal 2")
-    _string(suite.get("id"), "suite id")
-    if suite.get("mode") != "deterministic_contract_only":
-        raise PromptEvalError("suite mode must equal deterministic_contract_only")
-    if suite.get("evidence_class") != "structural_static":
-        raise PromptEvalError("suite evidence_class must equal structural_static")
+    if suite.get("schema_version") != 1:
+        raise PromptEvalError("prompt eval suite schema_version must equal 1")
+    _require_non_empty_string(suite.get("id"), "suite id")
+    if suite.get("mode") != "deterministic_text_contract":
+        raise PromptEvalError("suite mode must equal deterministic_text_contract")
 
-    limitations = _string(suite.get("limitations"), "suite limitations").lower()
-    for marker in ("does not execute an llm", "model_trials_executed=0", "does not prove provider delivery"):
-        if marker not in limitations:
-            raise PromptEvalError(f"suite limitations missing {marker!r}")
+    limitations = _require_non_empty_string(suite.get("limitations"), "suite limitations")
+    lower_limitations = limitations.lower()
+    for marker in ("does not execute an llm", "stochastic", "model/runtime trials"):
+        if marker not in lower_limitations:
+            raise PromptEvalError(f"suite limitations must explicitly state deterministic scope: missing {marker!r}")
 
-    declared = set(_strings(suite.get("required_categories"), "required_categories"))
+    policy = suite.get("eval_policy")
+    if not isinstance(policy, dict):
+        raise PromptEvalError("eval_policy must be a JSON object")
+    minimum_trials = policy.get("minimum_model_trials_when_nondeterminism_matters")
+    deterministic_checks = policy.get("deterministic_checks")
+    max_safety_regression = policy.get("maximum_regression_on_safety_critical_cases")
+    if not isinstance(minimum_trials, int) or isinstance(minimum_trials, bool) or minimum_trials < 3:
+        raise PromptEvalError("minimum_model_trials_when_nondeterminism_matters must be an integer >= 3")
+    if not isinstance(deterministic_checks, int) or isinstance(deterministic_checks, bool) or deterministic_checks != 1:
+        raise PromptEvalError("deterministic_checks must be the integer 1")
+    if not isinstance(max_safety_regression, int) or isinstance(max_safety_regression, bool) or max_safety_regression != 0:
+        raise PromptEvalError("maximum_regression_on_safety_critical_cases must be the integer 0")
+
+    declared_categories = set(_require_string_list(suite.get("required_categories"), "required_categories"))
+    if declared_categories != REQUIRED_CATEGORIES:
+        missing = sorted(REQUIRED_CATEGORIES - declared_categories)
+        extra = sorted(declared_categories - REQUIRED_CATEGORIES)
+        raise PromptEvalError(f"required_categories drift; missing={missing}, extra={extra}")
+
     cases = suite.get("cases")
     if not isinstance(cases, list) or not cases:
         raise PromptEvalError("cases must be a non-empty JSON array")
 
-    seen: set[str] = set()
-    covered: set[str] = set()
+    seen_ids: set[str] = set()
+    covered_categories: set[str] = set()
     safety_cases = 0
     findings: list[str] = []
-    for index, raw in enumerate(cases):
-        if not isinstance(raw, dict):
+
+    for index, raw_case in enumerate(cases):
+        if not isinstance(raw_case, dict):
             findings.append(f"case {index}: expected a JSON object")
             continue
         try:
-            case_id = _string(raw.get("id"), f"case {index} id")
-            category = _string(raw.get("category"), f"{case_id}: category")
-            if case_id in seen:
+            case_id = _require_non_empty_string(raw_case.get("id"), f"case {index} id")
+            category = _require_non_empty_string(raw_case.get("category"), f"{case_id}: category")
+            source_value = _require_non_empty_string(raw_case.get("source"), f"{case_id}: source")
+            must_contain = _require_string_list(raw_case.get("must_contain"), f"{case_id}: must_contain")
+            must_not_contain = _require_string_list(
+                raw_case.get("must_not_contain", []), f"{case_id}: must_not_contain", allow_empty=True
+            )
+            if case_id in seen_ids:
                 raise PromptEvalError(f"duplicate case id: {case_id}")
-            if category not in declared:
-                raise PromptEvalError(f"{case_id}: undeclared category: {category}")
-            seen.add(case_id)
-            covered.add(category)
-            safety = raw.get("safety_critical", False)
-            if not isinstance(safety, bool):
-                raise PromptEvalError(f"{case_id}: safety_critical must be boolean")
-            safety_cases += int(safety)
-            source_value = _string(raw.get("source"), f"{case_id}: source")
+            seen_ids.add(case_id)
+            if category not in REQUIRED_CATEGORIES:
+                raise PromptEvalError(f"{case_id}: unsupported category: {category}")
+            covered_categories.add(category)
+            safety_critical = raw_case.get("safety_critical")
+            if safety_critical is True:
+                safety_cases += 1
+            elif safety_critical is not None and safety_critical is not False:
+                raise PromptEvalError(f"{case_id}: safety_critical must be boolean when present")
+
             source = _safe_source(root, source_value, case_id)
             text = source.read_text(encoding="utf-8")
-            for marker in _strings(raw.get("must_contain"), f"{case_id}: must_contain"):
+            for marker in must_contain:
                 if marker not in text:
                     findings.append(f"{case_id}: {source_value} missing required marker: {marker}")
-            for marker in _strings(raw.get("must_not_contain", []), f"{case_id}: must_not_contain", allow_empty=True):
+            for marker in must_not_contain:
                 if marker in text:
                     findings.append(f"{case_id}: {source_value} contains forbidden marker: {marker}")
         except PromptEvalError as exc:
             findings.append(str(exc))
 
-    if covered != declared:
-        findings.append(
-            f"eval suite category coverage drift; missing={sorted(declared - covered)}, extra={sorted(covered - declared)}"
-        )
+    missing_categories = sorted(REQUIRED_CATEGORIES - covered_categories)
+    if missing_categories:
+        findings.append("eval suite does not cover required categories: " + ", ".join(missing_categories))
     if safety_cases < 3:
         findings.append("eval suite must contain at least three explicit safety_critical cases")
+
     if findings:
         raise PromptEvalError("Prompt contract evaluation failed:\n- " + "\n- ".join(findings))
 
     return {
         "suite_id": suite["id"],
         "mode": suite["mode"],
-        "evidence_class": suite["evidence_class"],
         "cases": len(cases),
-        "categories": len(covered),
+        "categories": len(covered_categories),
         "safety_critical_cases": safety_cases,
         "model_trials_executed": 0,
     }
 
 
-def main(argv: list[str] | None = None) -> int:
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--suite", type=Path, default=DEFAULT_SUITE)
-    args = parser.parse_args(argv)
+    args = parser.parse_args()
+
     try:
         result = validate_suite(args.root, args.suite)
     except PromptEvalError as exc:
         print(str(exc))
         return 1
+
     print(
         "Prompt contract PASS: "
         f"suite={result['suite_id']} cases={result['cases']} categories={result['categories']} "
-        f"safety_critical={result['safety_critical_cases']} evidence_class=structural_static "
-        "model_trials_executed=0. Provider delivery and runtime/model behavior are not claimed."
+        f"safety_critical={result['safety_critical_cases']} model_trials_executed=0. "
+        "Deterministic repository contract only; stochastic model/runtime adherence is not claimed."
     )
     return 0
 

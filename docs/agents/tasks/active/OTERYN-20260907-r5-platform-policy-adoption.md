@@ -2,99 +2,110 @@
 task_id: OTERYN-20260907-r5-platform-policy-adoption
 governing_issue: 1302
 required_reads: []
-search_first: []
+search_first:
+  - docs/agents/tasks/active/OTERYN-20260907-meta-agent-policy-v3-adoption.md
+  - docs/agents/evidence/OTERYN-20260907-meta-agent-policy-v3-adoption.md
 optional_reads: []
 ---
 
-# R5 Platform policy adoption
+# R5 Platform residual instruction remediation
 
 ## Goal
 
-Adopt META organization policy 3.0.0 through one immutable binding, reduce duplicated Platform instruction/prompt surfaces, migrate their validators, and reconcile D26 lifecycle without changing product runtime behavior.
+Issue #1302 owns the bounded Platform residuals from the R5 instruction-debt audit. Protected main now contains the central META policy v3 adoption from PR #1304; preserve that implementation and remove only the remaining duplicated execution/review rules and reproduced routing, authority and ownership gaps.
+
+## Acceptance criteria
+
+- [x] Protected-main PR #1304 binding, trusted consumer, prompt/domain migrations, workflow trust boundary and D26 archive remain unchanged.
+- [x] Retry exhaustion is distinguished from missing authority through the bound META state model.
+- [x] A protected-main policy change can be reconciled without discarding unaffected work or permitting candidate self-authorization.
+- [x] Default instruction loading is bounded to material routes and references.
+- [x] Platform delivery, E2E, security and execution-resource cleanup invariants remain available without duplicated global procedures.
+- [x] Current live ownership overlap is checked before editing shared paths.
+- [ ] Focused validation, exact-head hosted checks and protected integration/closeout are complete.
+
+## Ownership
+
+```yaml
+owned_paths:
+  - AGENTS.md
+  - docs/agents/AGENTS.md
+  - docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
+  - docs/agents/CONTEXT_ROUTING.md
+  - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
+  - docs/agents/PLATFORM_AGENT_BOOTSTRAP.md
+  - docs/agents/tasks/active/OTERYN-20260907-r5-platform-policy-adoption.md
+modules:
+  - agent-governance
+dependencies:
+  - Oteryn/Oteryn#142
+  - Oteryn/Oteryn-Platform#1009
+  - Oteryn/Oteryn-Platform#1304
+blockers:
+  - none
+cross_repository_tasks:
+  - META is read-only policy authority; this task writes Platform only.
+```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-07T09:02:00Z
-head: 3c197b9f513aad2674f2999d0316af4b000cb71e
+updated_at: 2026-09-07T10:20:00Z
+head: 907546f193e91b0bed2f5f077ab5b874771929ef
 branch: docs/r5-platform-policy-adoption-1302
 pr: 1303
-status: validating
+status: implementing
 terminal_pr_policy: archive_pending
 context_routes:
   - agent-governance
 owned_paths:
   - AGENTS.md
-  - README.md
-  - .github/workflows/agent-governance.yml
   - docs/agents/AGENTS.md
-  - docs/agents/README.md
-  - docs/agents/PLATFORM_AGENT_BOOTSTRAP.md
-  - docs/agents/META_AGENT_POLICY_BINDING.json
-  - docs/agents/CONTEXT_ROUTING.md
-  - docs/agents/PROMPTING_HANDOVER.md
-  - docs/agents/PROMPTING_STANDARD.md
-  - docs/agents/PROMPT_EVAL_STANDARD.md
   - docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
-  - docs/agents/AUTONOMOUS_PROGRAM_CONTINUATION.md
+  - docs/agents/CONTEXT_ROUTING.md
   - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
-  - docs/agents/GITHUB_ONLY_EXECUTION.md
-  - docs/agents/TERMINAL_ONLY_COMMUNICATION.md
-  - docs/agents/evals/prompt-contract-v2.json
-  - docs/agents/evidence/OTERYN-20260907-r5-platform-instruction-reduction.md
-  - docs/agents/prompts/OTERYN-HISTORICAL-WORK-RECONCILIATION.md
-  - docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md
+  - docs/agents/PLATFORM_AGENT_BOOTSTRAP.md
   - docs/agents/tasks/active/OTERYN-20260907-r5-platform-policy-adoption.md
-  - docs/agents/tasks/archive/OTERYN-20260907-task-inventory-path-d26.md
-  - tools/agents/policy_consistency.py
-  - tools/agents/test_policy_consistency.py
-  - tools/validation/prompt_eval.py
-  - tools/validation/test_prompt_eval.py
 proven:
-  - Protected admission main is 3557085c20512d25576d8884cc54471665784b00 with required platform-gate.
-  - META policy 3.0.0 is on protected META main 5ed3f14400af450b5875c091e443da70f2d67ab9.
-  - Issue #1302 owns this exact bounded Platform consumer migration and coordinates with broader #1009.
-  - D26 code and focused regressions are integrated through PR #1300; only lifecycle archival remains.
-  - Draft PR #1303 publishes the complete candidate from Issue #1302.
-  - Issue #1299 closed externally at 2026-09-07T09:26:20Z before this candidate integrated; no reopen or repeated close is required.
+  - Protected main 907546f193e91b0bed2f5f077ab5b874771929ef contains merged PR #1304 and tree d844c6c0e568896008ea8053057bcae53fb4b949.
+  - PR #1304 owns the META binding, trusted policy consumer, prompt inventory migration, workflow trust boundary and D26 archive; this task preserves those paths unchanged.
+  - Issue #1302 and draft PR #1303 own this remaining bounded R5 delta and coordinate with #1009.
+  - Issue #1299 closed externally at 2026-09-07T09:26:20Z; this task does not reactivate or re-close it.
 derived:
-  - The provider overlay, binding and consuming validators must change together to avoid retaining prose duplication as a gate.
+  - The remaining Platform retry and delivery documents can delegate global execution semantics while retaining local state compatibility, E2E, layer-completeness and resource-hygiene constraints.
 unknown:
-  - Exact final candidate head after this task-record reconciliation, hosted check results, independent review disposition and integration outcome.
+  - Exact reconciled candidate head, hosted check results and integration outcome.
 conflicts: []
 first_failure:
-  marker: duplicated-platform-operating-policy
-  evidence: Root, bootstrap and nested instructions repeated shared policy while policy_consistency.py required copied status, budget and prose markers.
+  marker: protected-main-overlap
+  evidence: PR #1304 merged after the prior candidate qualified and changed the same policy, prompt and consumer paths; prior exact-head qualification cannot qualify the reconciled candidate.
 rejected_hypotheses:
-  - Shortening root alone would complete adoption while nested/bootstrap consumers still required the copies.
+  - Reapply the pre-#1304 binding, workflow, validator, prompt-eval or D26 changes; protected main already contains equivalent or stronger accepted implementations.
 changed_paths:
-  - .github/workflows/agent-governance.yml
   - AGENTS.md
-  - README.md
-  - docs/agents instruction, prompting, evaluation and lifecycle surfaces listed in owned_paths
-  - tools/agents/policy_consistency.py
-  - tools/agents/test_policy_consistency.py
-  - tools/validation/prompt_eval.py
-  - tools/validation/test_prompt_eval.py
+  - docs/agents/AGENTS.md
+  - docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
+  - docs/agents/CONTEXT_ROUTING.md
+  - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
+  - docs/agents/PLATFORM_AGENT_BOOTSTRAP.md
+  - docs/agents/tasks/active/OTERYN-20260907-r5-platform-policy-adoption.md
 validation:
-  - command: focused Agent Governance unit suites and validators
-    result: PASS
-    evidence: 85 unit tests passed, including malicious-validator pre-import rejection, fixed bound-checkout path coverage and the unchanged Portal Completion scope-manifest contract; prompt contract reported 11 cases, 7 categories, 4 safety-critical cases and model_trials_executed=0; Documentation IA and workflow trigger economy passed.
-  - command: bound META central validator with protected-main resolver evidence
-    result: PASS
-    evidence: META bundle, binding, provider overlay, checkout identity and Platform invariants passed against 5ed3f14400af450b5875c091e443da70f2d67ab9.
+  - command: focused governance and documentation validation
+    result: NOT_RUN
+    evidence: Pending on the reconciled candidate.
   - command: product runtime E2E
     result: NOT_APPLICABLE
-    evidence: This change affects agent instructions, validators and task lifecycle only; it does not modify product runtime behavior.
-blockers: []
-next_action: Finish exact-head validation and review; after any later protected integration, archive this task and close Issue #1302. Do not reactivate or re-close already terminal Issue #1299.
+    evidence: Agent instruction and lifecycle documentation only; no executable product behavior changes.
+blockers:
+  - none
+next_action: Validate and publish the reconciled exact candidate, then run required hosted checks; after protected integration archive this packet and close Issue #1302.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: The task PR is not yet integrated.
-source_branch_evidence: Branch docs/r5-platform-policy-adoption-1302 is the active Issue #1302 candidate.
+source_branch_reason: Draft PR #1303 is not integrated.
+source_branch_evidence: Branch docs/r5-platform-policy-adoption-1302 remains the active Issue #1302 candidate.
 ```

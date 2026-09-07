@@ -35,49 +35,28 @@ concurrency:
 jobs:
   checkpoint-validation:
     runs-on: ubuntu-latest
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
+      - name: Check out bound META policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Oteryn/Oteryn
+          # Keep this independent trust anchor equal to META_AGENT_POLICY_BINDING.json.
+          # The authenticated consumer fails closed if either side changes alone.
+          ref: 5ed3f14400af450b5875c091e443da70f2d67ab9
+          path: .meta-agent-policy
+          persist-credentials: false
+
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
-
-      - name: Validate immutable META policy binding
-        shell: bash
-        run: |
-          python - <<'PY'
-          import json
-
-          path = "docs/agents/META_AGENT_POLICY_BINDING.json"
-          with open(path, encoding="utf-8") as source:
-              binding = json.load(source)
-          expected = {
-              "schema_version": 1,
-              "policy_id": "OTERYN_ORGANIZATION_AGENT_POLICY",
-              "policy_version": "3.0.0",
-              "authority_repository": "Oteryn/Oteryn",
-              "organization_policy_path": "docs/agents/policy/ORGANIZATION_AGENT_POLICY.md",
-              "prompting_standard_path": "docs/agents/policy/PROMPTING_STANDARD.md",
-              "prompt_eval_standard_path": "docs/agents/policy/PROMPT_EVAL_STANDARD.md",
-              "authority_commit": "5ed3f14400af450b5875c091e443da70f2d67ab9",
-          }
-          if not isinstance(binding, dict) or set(binding) != set(expected):
-              raise SystemExit("META binding keys do not match the closed bootstrap schema")
-          if type(binding.get("schema_version")) is not int or binding != expected:
-              raise SystemExit("META binding differs from the approved bootstrap pin")
-          PY
-
-      - name: Check out bound META policy source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: Oteryn/Oteryn
-          ref: 5ed3f14400af450b5875c091e443da70f2d67ab9
-          path: _meta-policy/5ed3f14400af450b5875c091e443da70f2d67ab9
-          persist-credentials: false
 
       - name: Run checkpoint validator tests
         run: python tools/agents/test_checkpoint.py
@@ -98,11 +77,14 @@ jobs:
         run: python tools/agents/test_control_room.py
 
       - name: Run policy consistency tests
+        env:
+          OTERYN_META_POLICY_ROOT: .meta-agent-policy
         run: python tools/agents/test_policy_consistency.py
 
-      - name: Validate cross-document policy consistency
+      - name: Validate Platform central-policy adoption
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          OTERYN_META_POLICY_ROOT: .meta-agent-policy
+          GH_TOKEN: ${{ github.token }}
         run: python tools/agents/policy_consistency.py
 
       - name: Run prompt contract evaluator tests

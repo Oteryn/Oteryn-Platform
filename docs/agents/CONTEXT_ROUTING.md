@@ -23,7 +23,7 @@ When used, classify the task and load only the matching route context. The activ
 
 | Route | Trigger | Load / search |
 |---|---|---|
-| `agent-governance` | `AGENTS.md`, `docs/agents/**`, `tools/agents/**`, ownership or handoff | Read `GOVERNANCE_CONTRACT.json`, relevant governance/handoff records, `TASK_TEMPLATE.md`, `ACTIVE_WORK.md` and overlapping active tasks. |
+| `agent-governance` | `AGENTS.md`, `docs/agents/**`, `tools/agents/**`, ownership or handoff | Read `GOVERNANCE_CONTRACT.json`, relevant governance/handoff records, `tasks/TASK_TEMPLATE.md` and targeted overlapping active tasks. |
 | `architecture` | new module, durable boundary, major dependency, product architecture | Read `ARCHITECTURE_AUTHORITY.md` first, then the focused owner named there, relevant ADRs and contracts. Create or supersede an ADR when a decision outlives one task. |
 | `web-cms` | Blade/views/CMS/news/public pages | Read relevant module catalog section; search affected routes, controllers, views and tests. Check escaping, sanitization, authorization and CSRF boundaries. |
 | `auth-identity` | login, password, sessions, MFA, verification, recovery | Read `SECURITY_ARCHITECTURE.md` and `AUTH_GAME_LOGIN_CONTRACT.md`, then relevant auth config/code/tests. Treat unresolved game-login compatibility as a blocker for global-security claims. |
