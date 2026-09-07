@@ -115,3 +115,14 @@ if 'def test_current_runtime_start_does_not_rewalk_compose_dependencies' not in 
         raise SystemExit('test insertion marker missing')
     test = test.replace(marker, method + marker, 1)
 test_path.write_text(test, encoding='utf-8')
+
+# 4. Keep the rollback/recovery contract aligned with the implementation: the
+# ordering requirement is unchanged, only the Gateway probe implementation is
+# now a published-loopback probe instead of a helper-container probe.
+rollback_path = Path('tests/ci/test_synology_rollback_contract.py')
+rollback = rollback_path.read_text(encoding='utf-8')
+old = '    gateway_ready = health.index(\'probe_url gateway 8080 /ready "Gateway /ready"\')\n'
+new = '    gateway_ready = health.index(\'probe_published_url "$GATEWAY_BIND_ADDRESS" "$GATEWAY_PORT" /ready "Gateway /ready"\')\n'
+if old not in rollback:
+    raise SystemExit('expected legacy rollback readiness probe assertion not found')
+rollback_path.write_text(rollback.replace(old, new, 1), encoding='utf-8')
