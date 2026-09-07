@@ -25,65 +25,71 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, found {count}')
+              return text.replace(old, new, 1)
+
           deploy_path = Path('deploy/synology/scripts/deploy.sh')
           deploy = deploy_path.read_text()
 
-          old_locals = '    local service container_id image_id resolved_image expected_image\n'
-          new_locals = '    local service container_id image_id expected_image expected_image_id\n'
-          if deploy.count(old_locals) != 1:
-              raise SystemExit('unexpected candidate finalizer local-variable shape')
-          deploy = deploy.replace(old_locals, new_locals, 1)
+          deploy = replace_once(
+              deploy,
+              '    local service container_id image_id resolved_image expected_image\n',
+              '    local service container_id image_id expected_image expected_image_id\n',
+              'candidate finalizer local variables',
+          )
 
-          old_identity = '''        image_id="$(docker inspect --format '{{.Image}}' "$container_id")" || return 1
-          resolved_image="$(bash "$SCRIPT_DIR/release-state.sh" resolve-image "$image_id")" || return 1
-          [[ "$resolved_image" == "$expected_image" ]] || {
-              echo "Previous candidate finalization rejected: running $service image does not match candidate recovery identity." >&2
-              return 1
-          }
-          '''
-          new_identity = '''        image_id="$(docker inspect --format '{{.Image}}' "$container_id")" || return 1
-          expected_image_id="$(docker image inspect --format '{{.Id}}' "$expected_image" 2>/dev/null || true)"
-          [[ -n "$expected_image_id" && "$image_id" == "$expected_image_id" ]] || {
-              echo "Previous candidate finalization rejected: running $service image does not match candidate recovery identity." >&2
-              return 1
-          }
-          '''
-          if deploy.count(old_identity) != 1:
-              raise SystemExit('unexpected candidate finalizer image-identity block')
-          deploy = deploy.replace(old_identity, new_identity, 1)
+          old_identity = (
+              "        image_id=\"$(docker inspect --format '{{.Image}}' \"$container_id\")\" || return 1\n"
+              "        resolved_image=\"$(bash \"$SCRIPT_DIR/release-state.sh\" resolve-image \"$image_id\")\" || return 1\n"
+              "        [[ \"$resolved_image\" == \"$expected_image\" ]] || {\n"
+              "            echo \"Previous candidate finalization rejected: running $service image does not match candidate recovery identity.\" >&2\n"
+              "            return 1\n"
+              "        }\n"
+          )
+          new_identity = (
+              "        image_id=\"$(docker inspect --format '{{.Image}}' \"$container_id\")\" || return 1\n"
+              "        expected_image_id=\"$(docker image inspect --format '{{.Id}}' \"$expected_image\" 2>/dev/null || true)\"\n"
+              "        [[ -n \"$expected_image_id\" && \"$image_id\" == \"$expected_image_id\" ]] || {\n"
+              "            echo \"Previous candidate finalization rejected: running $service image does not match candidate recovery identity.\" >&2\n"
+              "            return 1\n"
+              "        }\n"
+          )
+          deploy = replace_once(deploy, old_identity, new_identity, 'candidate image identity')
 
           old_compose = '    candidate_compose=(docker compose --env-file "$candidate_env" -f "$COMPOSE_FILE")\n'
-          new_compose = '''    candidate_compose=(
-              env
-              "PLATFORM_IMAGE=${candidate_state[1]}"
-              "GATEWAY_IMAGE=${candidate_state[2]}"
-              "CANARY_IMAGE=${candidate_state[3]}"
-              "GATEWAY_VERSION=sha-${candidate_sha}"
-              docker compose --env-file "$candidate_env" -f "$COMPOSE_FILE"
+          new_compose = (
+              '    candidate_compose=(\n'
+              '        env\n'
+              '        "PLATFORM_IMAGE=${candidate_state[1]}"\n'
+              '        "GATEWAY_IMAGE=${candidate_state[2]}"\n'
+              '        "CANARY_IMAGE=${candidate_state[3]}"\n'
+              '        "GATEWAY_VERSION=sha-${candidate_sha}"\n'
+              '        docker compose --env-file "$candidate_env" -f "$COMPOSE_FILE"\n'
+              '    )\n'
           )
-          '''
-          if deploy.count(old_compose) != 1:
-              raise SystemExit('unexpected candidate compose construction')
-          deploy = deploy.replace(old_compose, new_compose, 1)
+          deploy = replace_once(deploy, old_compose, new_compose, 'candidate compose environment')
           deploy_path.write_text(deploy)
 
           test_path = Path('tests/ci/test_synology_rollback_recovery_contract.py')
           tests = test_path.read_text()
-          old_assertions = '''    assert "running $service image does not match candidate recovery identity" in body
-              assert 'OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"' in body
-          '''
-          new_assertions = '''    assert "running $service image does not match candidate recovery identity" in body
-              assert 'expected_image_id="$(docker image inspect --format \'{{.Id}}\' "$expected_image" 2>/dev/null || true)"' in body
-              assert 'release-state.sh" resolve-image "$image_id"' not in body
-              assert '"PLATFORM_IMAGE=${candidate_state[1]}"' in body
-              assert '"GATEWAY_IMAGE=${candidate_state[2]}"' in body
-              assert '"CANARY_IMAGE=${candidate_state[3]}"' in body
-              assert '"GATEWAY_VERSION=sha-${candidate_sha}"' in body
-              assert 'OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"' in body
-          '''
-          if tests.count(old_assertions) != 1:
-              raise SystemExit('unexpected candidate finalizer contract assertions')
-          tests = tests.replace(old_assertions, new_assertions, 1)
+          old_assertions = (
+              '    assert "running $service image does not match candidate recovery identity" in body\n'
+              '    assert \'OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"\' in body\n'
+          )
+          new_assertions = (
+              '    assert "running $service image does not match candidate recovery identity" in body\n'
+              '    assert \'expected_image_id="$(docker image inspect --format\' in body\n'
+              '    assert \'release-state.sh" resolve-image "$image_id"\' not in body\n'
+              '    assert \'"PLATFORM_IMAGE=${candidate_state[1]}"\' in body\n'
+              '    assert \'"GATEWAY_IMAGE=${candidate_state[2]}"\' in body\n'
+              '    assert \'"CANARY_IMAGE=${candidate_state[3]}"\' in body\n'
+              '    assert \'"GATEWAY_VERSION=sha-${candidate_sha}"\' in body\n'
+              '    assert \'OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"\' in body\n'
+          )
+          tests = replace_once(tests, old_assertions, new_assertions, 'candidate finalizer contract assertions')
           test_path.write_text(tests)
           PY
 
