@@ -30,6 +30,7 @@ on:
       - deploy/synology/**
       - scripts/ci/classify_synology_builds.py
       - tests/ci/test_synology_rollback_contract.py
+      - tests/ci/test_synology_rollback_recovery_contract.py
       - tests/ci/test_synology_deploy_release_identity.py
       - tests/ci/test_synology_auto_staging_deploy.py
       - .github/workflows/build-synology-staging-images.yml
@@ -87,6 +88,9 @@ jobs:
       deployment_changed: ${{ steps.classify.outputs.deployment_changed }}
       runtime_deployment_changed: ${{ steps.classify.outputs.runtime_deployment_changed }}
       control_plane: ${{ steps.classify.outputs.control_plane }}
+      platform_source_sha: ${{ steps.classify.outputs.platform_source_sha }}
+      gateway_source_sha: ${{ steps.classify.outputs.gateway_source_sha }}
+      runner_source_sha: ${{ steps.classify.outputs.runner_source_sha }}
     steps:
       - name: Checkout exact classification range
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -141,6 +145,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 tests/ci/test_synology_rollback_contract.py
+          python3 tests/ci/test_synology_rollback_recovery_contract.py
           python3 tests/ci/test_synology_deploy_release_identity.py
           python3 tests/ci/test_synology_auto_staging_deploy.py
 
@@ -275,7 +280,7 @@ jobs:
             config --quiet
 
   build:
-    name: ${{ matrix.mode == 'noop' && 'No Synology image build required' || format('{0} {1} image', matrix.mode, matrix.name) }}
+    name: ${{ matrix.mode == 'noop' && 'No Synology image build required' || format('{0} {1} component', matrix.mode, matrix.name) }}
     needs:
       - classify
     runs-on: ubuntu-latest
@@ -298,40 +303,24 @@ jobs:
         if: ${{ matrix.mode != 'noop' }}
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
-      - name: Resolve current repository GHCR image
+      - name: Resolve component image identity
         if: ${{ matrix.mode != 'noop' }}
         id: image
         env:
           PACKAGE_NAME: ${{ matrix.package }}
-        run: |
-          set -euo pipefail
-          image="$(bash deploy/synology/scripts/repository-ghcr-image.sh "$PACKAGE_NAME")"
-          echo "image=$image" >> "$GITHUB_OUTPUT"
-
-      - name: Resolve release identity and image tags
-        if: ${{ matrix.mode != 'noop' }}
-        id: identity
-        env:
-          IMAGE: ${{ steps.image.outputs.image }}
-          RELEASE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           SOURCE_SHA: ${{ matrix.source_sha }}
-          EVENT_NAME: ${{ github.event_name }}
           GIT_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
-          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-
-          tags="${IMAGE}:sha-${RELEASE_SHA}"
-          if [[ "$EVENT_NAME" != pull_request ]]; then
-            tags+=$'\n'"${IMAGE}:source-${SOURCE_SHA}"
-          fi
+          image="$(bash deploy/synology/scripts/repository-ghcr-image.sh "$PACKAGE_NAME")"
+          tags="${image}:source-${SOURCE_SHA}"
           if [[ "$GIT_REF" == refs/heads/main ]]; then
-            tags+=$'\n'"${IMAGE}:main"
+            tags+=$'\n'"${image}:main"
           fi
-
           {
-            echo "release_sha=$RELEASE_SHA"
+            echo "image=$image"
+            echo "source_ref=${image}:source-${SOURCE_SHA}"
             echo "tags<<EOF"
             printf '%s\n' "$tags"
             echo "EOF"
@@ -345,67 +334,45 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Resolve immutable reusable component image
+      - name: Resolve exact reusable component artifact
         if: ${{ matrix.mode == 'reuse' }}
         id: reuse
         env:
           IMAGE: ${{ steps.image.outputs.image }}
+          SOURCE_REF: ${{ steps.image.outputs.source_ref }}
           SOURCE_SHA: ${{ matrix.source_sha }}
         run: |
           set -euo pipefail
-          source_tag="${IMAGE}:source-${SOURCE_SHA}"
-          if ! docker pull "$source_tag" >/dev/null 2>&1; then
-            echo "Reusable source tag $source_tag is unavailable; falling back to a full build."
+          if ! docker pull "$SOURCE_REF" >/dev/null 2>&1; then
+            echo "Reusable source artifact $SOURCE_REF is unavailable; falling back to a full build."
             echo "reusable=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          source_revision="$(docker image inspect --format '{{ index .Config.Labels "io.oteryn.component.source-revision" }}' "$source_tag" 2>/dev/null || true)"
-          if [[ -z "$source_revision" || "$source_revision" == '<no value>' ]]; then
-            source_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$source_tag" 2>/dev/null || true)"
-          fi
-          if [[ "$source_revision" != "$SOURCE_SHA" ]]; then
-            echo "Reusable component provenance mismatch: expected $SOURCE_SHA, found ${source_revision:-UNKNOWN}." >&2
+          revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$SOURCE_REF" 2>/dev/null || true)"
+          if [[ "$revision" != "$SOURCE_SHA" ]]; then
+            echo "Reusable component provenance mismatch: expected $SOURCE_SHA, found ${revision:-UNKNOWN}." >&2
             exit 1
           fi
 
-          base_ref=""
+          digest_ref=""
           while IFS= read -r candidate; do
             [[ "$candidate" == "${IMAGE}@sha256:"* ]] || continue
             digest="${candidate#*@sha256:}"
             if [[ "$digest" =~ ^[0-9a-f]{64}$ ]]; then
-              base_ref="$candidate"
+              digest_ref="$candidate"
               break
             fi
-          done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$source_tag")
+          done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$SOURCE_REF")
+          [[ -n "$digest_ref" ]] || { echo "Reusable source artifact has no immutable repository digest." >&2; exit 1; }
 
-          if [[ -z "$base_ref" ]]; then
-            echo "Reusable source tag does not resolve to an immutable repository digest." >&2
-            exit 1
-          fi
-
-          echo "base_ref=$base_ref" >> "$GITHUB_OUTPUT"
+          docker tag "$SOURCE_REF" "${IMAGE}:main"
+          docker push "${IMAGE}:main" >/dev/null
           echo "reusable=true" >> "$GITHUB_OUTPUT"
-          echo "Reusing immutable component source $base_ref for source SHA $SOURCE_SHA."
+          echo "digest_ref=$digest_ref" >> "$GITHUB_OUTPUT"
+          echo "Reused exact component artifact $digest_ref for source SHA $SOURCE_SHA."
 
-      - name: Build and publish metadata-only reused release image
-        if: ${{ matrix.mode == 'reuse' && steps.reuse.outputs.reusable == 'true' }}
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          file: deploy/synology/docker/reuse-release.Dockerfile
-          push: true
-          tags: ${{ steps.identity.outputs.tags }}
-          labels: |
-            org.opencontainers.image.revision=${{ steps.identity.outputs.release_sha }}
-            io.oteryn.component.source-revision=${{ matrix.source_sha }}
-            io.oteryn.component.reused=true
-          build-args: |
-            BASE_IMAGE=${{ steps.reuse.outputs.base_ref }}
-            RELEASE_SHA=${{ steps.identity.outputs.release_sha }}
-            COMPONENT_SOURCE_SHA=${{ matrix.source_sha }}
-
-      - name: Build changed component or safe fallback
+      - name: Build changed component or safe reuse fallback
         if: ${{ matrix.mode == 'full' || (matrix.mode == 'reuse' && steps.reuse.outputs.reusable != 'true') }}
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
@@ -413,22 +380,23 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: ${{ github.event_name != 'pull_request' }}
           load: ${{ github.event_name == 'pull_request' }}
-          tags: ${{ steps.identity.outputs.tags }}
+          tags: ${{ steps.image.outputs.tags }}
           labels: |
-            org.opencontainers.image.revision=${{ steps.identity.outputs.release_sha }}
+            org.opencontainers.image.revision=${{ matrix.source_sha }}
             io.oteryn.component.source-revision=${{ matrix.source_sha }}
-            io.oteryn.component.reused=false
           cache-from: type=gha,scope=synology-${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=synology-${{ matrix.name }}
 
       - name: Validate locally loaded pull-request image
         if: ${{ github.event_name == 'pull_request' && matrix.mode != 'noop' }}
         env:
-          IMAGE_REF: ${{ steps.image.outputs.image }}:sha-${{ steps.identity.outputs.release_sha }}
+          IMAGE_REF: ${{ steps.image.outputs.source_ref }}
           IMAGE_NAME: ${{ matrix.name }}
+          SOURCE_SHA: ${{ matrix.source_sha }}
         run: |
           set -euo pipefail
-          docker image inspect "$IMAGE_REF" >/dev/null
+          revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE_REF")"
+          [[ "$revision" == "$SOURCE_SHA" ]]
           case "$IMAGE_NAME" in
             platform)
               docker run --rm --entrypoint php "$IMAGE_REF" -v
@@ -442,7 +410,7 @@ jobs:
           esac
 
   deploy-staging:
-    name: Dispatch exact main SHA to Synology staging
+    name: Resolve component digests and dispatch exact main release
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.classify.outputs.release_relevant == 'true' }}
     needs:
       - classify
@@ -453,10 +421,73 @@ jobs:
     permissions:
       actions: write
       contents: read
+      packages: read
     steps:
-      - name: Dispatch guarded exact-SHA Synology staging deployment
+      - name: Checkout exact release tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve immutable component release inputs
+        id: runtime
+        env:
+          PLATFORM_SOURCE_SHA: ${{ needs.classify.outputs.platform_source_sha }}
+          GATEWAY_SOURCE_SHA: ${{ needs.classify.outputs.gateway_source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$PLATFORM_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GATEWAY_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+          platform_repo="$(bash deploy/synology/scripts/repository-ghcr-image.sh oteryn-platform)"
+          gateway_repo="$(bash deploy/synology/scripts/repository-ghcr-image.sh oteryn-game-gateway)"
+
+          resolve_component() {
+            local repo="$1" source_sha="$2" label="$3" tag revision digest_ref candidate digest
+            tag="${repo}:source-${source_sha}"
+            docker pull "$tag" >/dev/null
+            revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$tag" 2>/dev/null || true)"
+            [[ "$revision" == "$source_sha" ]] || {
+              echo "$label OCI revision mismatch: expected $source_sha, found ${revision:-UNKNOWN}." >&2
+              return 1
+            }
+            digest_ref=""
+            while IFS= read -r candidate; do
+              [[ "$candidate" == "${repo}@sha256:"* ]] || continue
+              digest="${candidate#*@sha256:}"
+              if [[ "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+                digest_ref="$candidate"
+                break
+              fi
+            done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$tag")
+            [[ -n "$digest_ref" ]] || { echo "$label source artifact did not resolve to an immutable digest." >&2; return 1; }
+            printf '%s\n' "$digest_ref"
+          }
+
+          platform_ref="$(resolve_component "$platform_repo" "$PLATFORM_SOURCE_SHA" Platform)"
+          gateway_ref="$(resolve_component "$gateway_repo" "$GATEWAY_SOURCE_SHA" Gateway)"
+          {
+            echo "platform_ref=$platform_ref"
+            echo "gateway_ref=$gateway_ref"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Overall release: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Platform source: $PLATFORM_SOURCE_SHA — $platform_ref" >> "$GITHUB_STEP_SUMMARY"
+          echo "Gateway source: $GATEWAY_SOURCE_SHA — $gateway_ref" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dispatch guarded exact-provenance Synology staging deployment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PLATFORM_SOURCE_SHA: ${{ needs.classify.outputs.platform_source_sha }}
+          GATEWAY_SOURCE_SHA: ${{ needs.classify.outputs.gateway_source_sha }}
+          PLATFORM_IMAGE: ${{ steps.runtime.outputs.platform_ref }}
+          GATEWAY_IMAGE: ${{ steps.runtime.outputs.gateway_ref }}
           CANARY_IMAGE_DIGEST: ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f
         run: |
           set -euo pipefail
@@ -473,6 +504,10 @@ jobs:
             -f ref=main \
             -f 'inputs[action]=deploy' \
             -f "inputs[release_sha]=${GITHUB_SHA}" \
+            -f "inputs[platform_source_sha]=${PLATFORM_SOURCE_SHA}" \
+            -f "inputs[platform_image]=${PLATFORM_IMAGE}" \
+            -f "inputs[gateway_source_sha]=${GATEWAY_SOURCE_SHA}" \
+            -f "inputs[gateway_image]=${GATEWAY_IMAGE}" \
             -f "inputs[canary_image]=${CANARY_IMAGE_DIGEST}" \
             -f 'inputs[canary_game_bind_address]=192.168.1.2' \
             -f 'inputs[game_world_id]=1' \
@@ -480,5 +515,5 @@ jobs:
             -f 'inputs[game_world_name]=Oteryn Staging' \
             -f 'inputs[game_world_region]=LAN'
 
-          echo "Synology staging deployment accepted for exact main SHA ${GITHUB_SHA}."
+          echo "Synology staging deployment accepted for exact main release ${GITHUB_SHA}."
           echo "Deployment continues independently in Deploy Synology Staging; image-build completion is not coupled to remote staging duration."
