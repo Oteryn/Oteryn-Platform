@@ -152,6 +152,12 @@ def test_new_release_finalizes_only_a_proven_healthy_previous_candidate() -> Non
     assert "candidate does not accept the proven schema" in body
     assert "staging world identity drifted" in body
     assert "running $service image does not match candidate recovery identity" in body
+    assert 'expected_image_id="$(docker image inspect --format' in body
+    assert 'release-state.sh" resolve-image "$image_id"' not in body
+    assert '"PLATFORM_IMAGE=${candidate_state[1]}"' in body
+    assert '"GATEWAY_IMAGE=${candidate_state[2]}"' in body
+    assert '"CANARY_IMAGE=${candidate_state[3]}"' in body
+    assert '"GATEWAY_VERSION=sha-${candidate_sha}"' in body
     assert 'OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"' in body
     assert 'game-auth:world:ensure' in body
 
