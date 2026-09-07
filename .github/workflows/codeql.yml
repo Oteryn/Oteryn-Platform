@@ -92,7 +92,9 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-          for path in sorted(Path("results").glob("*.sarif")):
+          paths = sorted(Path("results").glob("*.sarif")) + sorted(Path("../results").glob("*.sarif"))
+          print(f"R5 SARIF files: {len(paths)}")
+          for path in paths:
               for run in json.loads(path.read_text()).get("runs", []):
                   for result in run.get("results", []):
                       locations = []
