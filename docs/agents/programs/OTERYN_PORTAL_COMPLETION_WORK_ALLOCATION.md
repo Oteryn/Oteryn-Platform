@@ -3,7 +3,7 @@
 ```yaml
 project_id: OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION
 programme: OTERYN_PORTAL_COMPLETION
-repository: blakinio/Oteryn-Platform
+repository: Oteryn/Oteryn-Platform
 trusted_base: main
 status: ACTIVE
 live_state_required: true
@@ -13,7 +13,6 @@ architecture_authority: docs/architecture/ARCHITECTURE_AUTHORITY.md
 delivery_plan: docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md
 player_companion: docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md
 production_authority: false
-codex_standing_permission: false
 execution_roles_are_model_agnostic: true
 ```
 
@@ -89,7 +88,7 @@ Executes authorized production/protected-environment evidence collection or muta
 
 The `Codex suitability` column is only a technical fit assessment for a bounded task package.
 
-**Suitability is not authorization.** No Codex, OpenAI API or other owner-funded AI invocation is allowed unless the repository owner explicitly approves that exact use/task. Prior approval never becomes standing permission. When permission is absent, the selected task remains valid and must use another genuinely capable permitted mode or record the exact technical blocker.
+**Suitability is not authorization.** Resolve service and model authority from the bound META policy and current owner instructions. When an otherwise valid selected task lacks a permitted execution mode, preserve the task and record the exact technical or authority blocker.
 
 ## Capability maturity and execution matrix
 
@@ -169,7 +168,7 @@ Before assigning a selected item to an `IMPLEMENTATION_OWNER`, the coordinator o
 9. merge and closeout gate;
 10. explicit external-repository, production and owner-funded-service authority boundaries.
 
-If any prerequisite is missing, the implementation package is not canonical `READY`; classify the exact candidate `BLOCKED` or `DECISION_REQUIRED` and continue canonical selection. Codex suitability may be recorded as optional technical fit, but invocation still requires exact owner permission for owner-funded use.
+If any prerequisite is missing, the implementation package is not canonical `READY`; classify the exact candidate `BLOCKED` or `DECISION_REQUIRED` and continue canonical selection. Codex suitability may be recorded as optional technical fit, but invocation still follows the bound service/model authority.
 
 ## Parallelism rules
 
