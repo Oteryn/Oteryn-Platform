@@ -29,7 +29,7 @@ Issue #1301 is the canonical lifecycle authority. Adopt `OTERYN_ORGANIZATION_AGE
 - [x] Agent Governance consumes the central validator and runs focused provider regressions.
 - [x] D26 task-inventory path tests and all affected governance checks pass.
 - [x] Before/after source volume, W4 inventory, representative validation and W6 follow-up opportunities are recorded without a token-savings claim.
-- [ ] Exact-head CI, overlap reconciliation, protected integration/readback and lifecycle closeout complete.
+- [x] Exact-head CI, overlap reconciliation, protected integration/readback and lifecycle closeout complete.
 
 ## Ownership
 
@@ -81,11 +81,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-07T09:40:00Z
-head: 48c19ad5c74ca933e057e705ade7b5b4a1acec12
+updated_at: 2026-09-07T10:02:00Z
+head: e8c0e5ea1d2d9faa469ca1b053698427ecdce692
 branch: governance/meta-agent-policy-v3-1301
 pr: 1304
-status: validating
+status: completed
 context_routes:
   - agent-governance
   - testing
@@ -129,11 +129,11 @@ proven:
   - Published PR #1304 head 48c19ad5c74ca933e057e705ade7b5b4a1acec12 has tree 3934259316b65b251a82710284fa02e15859a62b, byte-identical to reviewed local commit bad2e5a2bcf5193ecb6418a21526d062e49115bc.
   - D26 PR #1300 is merged on protected main as 3557085c20512d25576d8884cc54471665784b00; its terminal Issue #1299 is closed and its stale packet is archived in this lifecycle repair.
   - W5 bounded matched screening accepted all 16/16 baseline/candidate executions across four fresh gpt-5.6-sol medium threads, including three safety repeats per arm and representative remediation-prompt delivery; durable PR evidence is comment 5568582769.
+  - Exact candidate head e8c0e5ea1d2d9faa469ca1b053698427ecdce692 passed Agent Governance, CI, CodeQL and all other selected PR workflows, then #1304 squash-merged through the protected path as main 907546f193e91b0bed2f5f077ab5b874771929ef with tree d844c6c0e568896008ea8053057bcae53fb4b949.
+  - The adoption source ref is absent after merge; terminal canary cleanup was transferred to open Issue #1305 as separate non-adoption work.
 derived:
   - Closed-unmerged PR #1270 was a direct stale AGENTS.md overlap whose intended anti-stall semantics are already represented on later protected main and central policy.
-unknown:
-  - Exact final candidate CI and merge-queue outcome.
-  - Exact-SHA deletion readback for the two terminal validation-canary refs recorded below.
+unknown: []
 conflicts: []
 first_failure:
   marker: hosted-lifecycle-and-codeql
@@ -153,38 +153,20 @@ validation:
     result: NOT_APPLICABLE
     evidence: Governance instructions, validators and CI consumers only; no application, auth, data, payment or deployment behavior changes.
 blockers:
-  - none for central-policy adoption; external canary cleanup remains separately waiting below.
-next_action: Publish the lifecycle, W5 evidence and fixed-trust-anchor repair, then qualify the exact head; pursue the separate reviewed cleanup route recorded below after adoption.
+  - none
+next_action: none
 ```
 
-## Pending external branch cleanup
+## External cleanup handoff
 
-Cleanup state: `WAITING_REVIEWED_CLEANUP_PR`. This cleanup debt is not part of the central-policy adoption acceptance claim. Historical Branch Audit run `34104877215`, job `101687493437`, artifact `10011942363` found two terminal validation-only canary branches and fixed their exact remote heads. A fresh 2026-09-07 branch search confirms both named refs still exist. Each has a closed, unmerged PR whose body says it must not merge. Direct connector deletion and authenticated Git publication are unavailable here, but the existing protected-main `terminal-branch-lifecycle` workflow is an authorized exact-SHA route. These interim active claims keep the refs visible to branch hygiene without classifying them as deleted, merged, or exempt until a separate cleanup PR is reviewed and integrated.
-
-```yaml
-lock_branch: test/codex-native-publish-canary-20260903-platform
-```
-
-- Exact head: `d866d21ca856b925a32a3a5457174906237db199`
-- Closed unmerged PR: #1290
-- Recovery evidence: the commit changes only `CODEX_NATIVE_PUBLISH_CANARY.md` and remains addressable by the recorded SHA.
-
-```yaml
-lock_branch: test/codex-shared-pat-canary-20260903-platform
-```
-
-- Exact head: `65126f2b1d24e0fe497e436be99f524104021033`
-- Closed unmerged PR: #1291
-- Recovery evidence: the commit changes only `CODEX_SHARED_PAT_CANARY.md` and remains addressable by the recorded SHA.
-
-The separate cleanup PR must remove these interim claims, use its PR dry-run artifact to bind the complete live `TERMINAL_CLOSED_UNMERGED` candidate digest in canonical `TERMINAL_BRANCH_DELETION_APPROVAL.json`, and receive normal review before protected integration. The existing main-push workflow then rematerializes the live manifest and refuses active claims, SHA drift, protection, reserved names, open PRs, retention metadata or policy/digest drift before deletion. Absence readback remains required. Ref repointing, merging either canary, changing the controller to force eligibility, or treating this record as a validation exception is forbidden.
+The two terminal validation-canary refs are not adoption acceptance work. Their exact heads, closed-unmerged PR evidence and guarded deletion procedure moved to open Issue #1305 and its dedicated task. No deletion or exemption is claimed here.
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: Dedicated same-repository adoption branch; ordinary delete-after-merge applies.
-source_branch_evidence: Pending protected merge and source-ref readback.
+source_branch_evidence: PR #1304 head e8c0e5ea1d2d9faa469ca1b053698427ecdce692 squash-merged as protected main 907546f193e91b0bed2f5f077ab5b874771929ef; live source-ref readback is absent.
 ```
 
 ## Notes
