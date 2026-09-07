@@ -1,0 +1,108 @@
+name: Temporary Synology Candidate Finalizer Writer
+
+on:
+  push:
+    branches:
+      - fix/20260907-synology-candidate-finalizer-env
+    paths:
+      - .github/workflows/tmp-synology-candidate-finalizer-writer.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout writer branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: fix/20260907-synology-candidate-finalizer-env
+
+      - name: Apply bounded candidate finalizer repair
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          deploy_path = Path('deploy/synology/scripts/deploy.sh')
+          deploy = deploy_path.read_text()
+
+          old_locals = '    local service container_id image_id resolved_image expected_image\n'
+          new_locals = '    local service container_id image_id expected_image expected_image_id\n'
+          if deploy.count(old_locals) != 1:
+              raise SystemExit('unexpected candidate finalizer local-variable shape')
+          deploy = deploy.replace(old_locals, new_locals, 1)
+
+          old_identity = '''        image_id="$(docker inspect --format '{{.Image}}' "$container_id")" || return 1
+          resolved_image="$(bash "$SCRIPT_DIR/release-state.sh" resolve-image "$image_id")" || return 1
+          [[ "$resolved_image" == "$expected_image" ]] || {
+              echo "Previous candidate finalization rejected: running $service image does not match candidate recovery identity." >&2
+              return 1
+          }
+          '''
+          new_identity = '''        image_id="$(docker inspect --format '{{.Image}}' "$container_id")" || return 1
+          expected_image_id="$(docker image inspect --format '{{.Id}}' "$expected_image" 2>/dev/null || true)"
+          [[ -n "$expected_image_id" && "$image_id" == "$expected_image_id" ]] || {
+              echo "Previous candidate finalization rejected: running $service image does not match candidate recovery identity." >&2
+              return 1
+          }
+          '''
+          if deploy.count(old_identity) != 1:
+              raise SystemExit('unexpected candidate finalizer image-identity block')
+          deploy = deploy.replace(old_identity, new_identity, 1)
+
+          old_compose = '    candidate_compose=(docker compose --env-file "$candidate_env" -f "$COMPOSE_FILE")\n'
+          new_compose = '''    candidate_compose=(
+              env
+              "PLATFORM_IMAGE=${candidate_state[1]}"
+              "GATEWAY_IMAGE=${candidate_state[2]}"
+              "CANARY_IMAGE=${candidate_state[3]}"
+              "GATEWAY_VERSION=sha-${candidate_sha}"
+              docker compose --env-file "$candidate_env" -f "$COMPOSE_FILE"
+          )
+          '''
+          if deploy.count(old_compose) != 1:
+              raise SystemExit('unexpected candidate compose construction')
+          deploy = deploy.replace(old_compose, new_compose, 1)
+          deploy_path.write_text(deploy)
+
+          test_path = Path('tests/ci/test_synology_rollback_recovery_contract.py')
+          tests = test_path.read_text()
+          old_assertions = '''    assert "running $service image does not match candidate recovery identity" in body
+              assert 'OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"' in body
+          '''
+          new_assertions = '''    assert "running $service image does not match candidate recovery identity" in body
+              assert 'expected_image_id="$(docker image inspect --format \'{{.Id}}\' "$expected_image" 2>/dev/null || true)"' in body
+              assert 'release-state.sh" resolve-image "$image_id"' not in body
+              assert '"PLATFORM_IMAGE=${candidate_state[1]}"' in body
+              assert '"GATEWAY_IMAGE=${candidate_state[2]}"' in body
+              assert '"CANARY_IMAGE=${candidate_state[3]}"' in body
+              assert '"GATEWAY_VERSION=sha-${candidate_sha}"' in body
+              assert 'OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"' in body
+          '''
+          if tests.count(old_assertions) != 1:
+              raise SystemExit('unexpected candidate finalizer contract assertions')
+          tests = tests.replace(old_assertions, new_assertions, 1)
+          test_path.write_text(tests)
+          PY
+
+      - name: Validate focused repair
+        run: |
+          set -euo pipefail
+          bash -n deploy/synology/scripts/deploy.sh
+          python3 tests/ci/test_synology_rollback_recovery_contract.py
+          python3 tests/ci/test_synology_auto_staging_deploy.py
+
+      - name: Remove temporary writer and publish repair
+        env:
+          BRANCH: fix/20260907-synology-candidate-finalizer-env
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/tmp-synology-candidate-finalizer-writer.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add deploy/synology/scripts/deploy.sh tests/ci/test_synology_rollback_recovery_contract.py .github/workflows/tmp-synology-candidate-finalizer-writer.yml
+          git diff --cached --check
+          git commit -m 'fix(staging): repair candidate finalizer identity'
+          git push origin "HEAD:${BRANCH}"
