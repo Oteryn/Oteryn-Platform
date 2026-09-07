@@ -1,14 +1,12 @@
-# Agent Coordination Entry Point
+# Agent documentation
 
-Use durable repository state instead of previous chat history.
+Root `AGENTS.md`, `PLATFORM_AGENT_BOOTSTRAP.md` and `META_AGENT_POLICY_BINDING.json` form the Platform instruction entry point. The nearest nested `AGENTS.md` applies when a task changes this directory.
 
-Before advising the repository owner or writing a prompt for another agent:
+Load other files on demand:
 
-1. read `docs/agents/PROMPTING_HANDOVER.md` for the coordinator workflow and live-state inspection order;
-2. read `docs/agents/PROMPTING_STANDARD.md` for the normative prompt structure, mode routing, task-shape rules, validation contract, templates, stop conditions, and quality gate.
+- `CONTEXT_ROUTING.md` selects domain context when the governing task and paths do not already make it clear.
+- `PROMPTING_STANDARD.md`, `PROMPTING_HANDOVER.md` and `PROMPT_EVAL_STANDARD.md` are Platform-specific deltas used only for prompt work.
+- `GOVERNANCE_CONTRACT.json`, `TASK_TEMPLATE.md` and the live Issue/PR govern task-record changes.
+- Specialist documents apply only when their named subject is material.
 
-Before resuming substantial work, read `docs/agents/CONTEXT_HANDOFF.md` and the active task checkpoint.
-
-For decomposition, context pressure, session rotation, evidence externalization, and staged validation, read `docs/agents/EXECUTION_PROTOCOL.md`.
-
-When instructions conflict, live Git/PR/CI state and the active durable task record override stale conversational context.
+Do not treat this directory as a mandatory reading list. Historical plans, prompts, reports and archived tasks preserve evidence; they are not current execution authority.

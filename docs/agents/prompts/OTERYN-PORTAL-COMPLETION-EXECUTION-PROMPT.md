@@ -26,7 +26,7 @@ prompt_contract:
     - terminal_response
   objective: execute portal completion from live state with one canonical selector, explicit non-scheduling completion scope, bounded context, correct architecture/remediation routing, safe global parallel ownership, canonical anti-stall closeout reporting and no authority expansion
   baseline_version: portal_closeout_prompt_1.2
-  eval_suite: docs/agents/evals/prompt-contract-v1.json
+  eval_suite: docs/agents/evals/prompt-contract-v2.json
   rollback_version: portal_closeout_prompt_1.2
 ```
 

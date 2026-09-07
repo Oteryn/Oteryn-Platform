@@ -16,7 +16,7 @@ prompt_contract:
     - continuation_rule
   objective: prevent the completed one-time Issue 1072 historical reconciliation from being restarted while preserving durable provenance and routing future branch hygiene through steady-state governance
   baseline_version: historical_work_reconciliation_execution_v1
-  eval_suite: docs/agents/evals/prompt-contract-v1.json
+  eval_suite: docs/agents/evals/prompt-contract-v2.json
   rollback_version: git_history_only_do_not_reactivate_without_owner_decision
 ```
 

@@ -1,0 +1,126 @@
+{
+  "schema_version": 2,
+  "id": "oteryn-platform-provider-delta-v2",
+  "mode": "deterministic_contract_only",
+  "evidence_class": "structural_static",
+  "limitations": "This suite does not execute an LLM and reports model_trials_executed=0. It does not prove provider delivery or runtime/model behavior.",
+  "required_categories": [
+    "binding",
+    "authority",
+    "product_safety",
+    "context_loading",
+    "task_prompt",
+    "evidence_boundary",
+    "lifecycle"
+  ],
+  "cases": [
+    {
+      "id": "root-resolves-immutable-meta-binding",
+      "category": "binding",
+      "source": "AGENTS.md",
+      "must_contain": [
+        "Resolve `docs/agents/META_AGENT_POLICY_BINDING.json` before material mutation.",
+        "one immutable META policy revision"
+      ]
+    },
+    {
+      "id": "platform-write-boundary-remains-local",
+      "category": "authority",
+      "safety_critical": true,
+      "source": "AGENTS.md",
+      "must_contain": [
+        "The only repository writable under this provider policy is `Oteryn/Oteryn-Platform`.",
+        "Production, protected environments, credentials, live payments and irreversible external effects require explicit task-specific authority."
+      ]
+    },
+    {
+      "id": "server-read-boundary-remains-default-deny",
+      "category": "authority",
+      "safety_critical": true,
+      "source": "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md",
+      "must_contain": [
+        "Server/game repositories must not be read, searched, fetched, reviewed or changed without separate explicit owner authorization"
+      ]
+    },
+    {
+      "id": "candidate-cannot-authorize-itself",
+      "category": "authority",
+      "safety_critical": true,
+      "source": "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md",
+      "must_contain": [
+        "The current task candidate cannot authorize itself.",
+        "do not expand that task's authority"
+      ]
+    },
+    {
+      "id": "platform-security-invariants-remain",
+      "category": "product_safety",
+      "safety_critical": true,
+      "source": "AGENTS.md",
+      "must_contain": [
+        "Preserve CSRF protection for browser state changes.",
+        "never concatenate untrusted SQL.",
+        "Rotate or revoke sessions",
+        "Use transactions and appropriate locking",
+        "Use idempotency for payment and webhook operations."
+      ]
+    },
+    {
+      "id": "context-router-is-on-demand",
+      "category": "context_loading",
+      "source": "docs/agents/CONTEXT_ROUTING.md",
+      "must_contain": [
+        "This file is an optional selector",
+        "Do not recursively follow links"
+      ]
+    },
+    {
+      "id": "nested-doc-rules-do-not-preload-contract-set",
+      "category": "context_loading",
+      "source": "docs/agents/AGENTS.md",
+      "must_contain": [
+        "Load only the target document and the source that owns the decision being changed.",
+        "A link is not a recursive read requirement."
+      ]
+    },
+    {
+      "id": "worker-prompts-are-platform-deltas",
+      "category": "task_prompt",
+      "source": "docs/agents/PROMPTING_STANDARD.md",
+      "must_contain": [
+        "A Platform worker prompt should contain only information that changes the correct execution of that task",
+        "Do not embed model family, highest-effort, global review, GitHub, Remote Desktop, retry, continuation, generic branch or merge instructions"
+      ]
+    },
+    {
+      "id": "prompt-eval-separates-evidence-classes",
+      "category": "evidence_boundary",
+      "source": "docs/agents/PROMPT_EVAL_STANDARD.md",
+      "must_contain": [
+        "Structural/static",
+        "Provider adoption/delivery",
+        "Runtime/model behavior",
+        "model_trials_executed: 0",
+        "NOT_EVALUATED"
+      ]
+    },
+    {
+      "id": "terminal-pr-is-not-left-active",
+      "category": "lifecycle",
+      "source": "AGENTS.md",
+      "must_contain": [
+        "A terminal PR must not remain represented as an active task.",
+        "Archive the task record"
+      ]
+    },
+    {
+      "id": "required-platform-gate-remains",
+      "category": "lifecycle",
+      "source": "AGENTS.md",
+      "must_contain": [
+        "`platform-gate` is the required aggregate repository check.",
+        "Never bypass protection, weaken required checks or mark failures successful."
+      ]
+    }
+  ]
+}

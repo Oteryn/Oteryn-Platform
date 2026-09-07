@@ -11,11 +11,11 @@ Load the smallest required context for the current task. Do not preload broad re
 - This routing document is repository-specific. It is not required to match Canary routing content or Canary's machine-readable router.
 - A change to shared checkpoint/handoff structure must follow the upgrade process in `GOVERNANCE_CONTRACT.json`; repository-specific routing changes do not by themselves require a shared contract version bump.
 
-## Bounded startup and task routing
+## On-demand task routing
 
-Mandatory bootstrap context is defined by root `AGENTS.md`: root instructions, `PLATFORM_AGENT_BOOTSTRAP.md`, the nearest nested `AGENTS.md` for paths that may be touched, and the governing live GitHub Issue/task plus live PR state when present.
+Root `AGENTS.md` defines the small mandatory instruction set. This file is an optional selector for a task whose domain context is not already clear from the governing Issue and changed paths.
 
-Consult this routing document once, classify the task, and then load only the matching route context. The active task record is durable context/evidence/ownership/handoff, not a competing lifecycle authority; reconcile stale lifecycle or PR fields against live GitHub before acting.
+When used, classify the task and load only the matching route context. The active task record is durable context/evidence/ownership/handoff, not a competing lifecycle authority; reconcile stale lifecycle or PR fields against live GitHub before acting.
 
 `REPOSITORY_MAP.md`, `PROJECT_STATE.md`, `BUILD_TEST_MATRIX.md` and other references are task-routed or optional/reference context unless the selected route or an explicit safety/validation trigger requires them. Do not recursively follow links merely because a loaded document mentions another document.
 

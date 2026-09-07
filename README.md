@@ -79,7 +79,7 @@ A future source-available, open-source, dual-license or component-specific polic
 
 ## Authoritative project documentation
 
-- `AGENTS.md` and `docs/agents/PLATFORM_AGENT_BOOTSTRAP.md` — mandatory operating rules for agents.
+- `AGENTS.md`, `docs/agents/PLATFORM_AGENT_BOOTSTRAP.md` and `docs/agents/META_AGENT_POLICY_BINDING.json` — the Platform instruction entry point and immutable organization-policy binding.
 - `LICENSE.md` — canonical repository licensing and use boundary.
 - `THIRD_PARTY_NOTICES.md` — third-party rights and unresolved provenance boundary.
 - `docs/agents/PROJECT_STATE.md` — current project phase and next work.

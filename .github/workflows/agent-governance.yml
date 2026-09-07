@@ -46,6 +46,21 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Resolve immutable META policy binding
+        id: meta_binding
+        shell: bash
+        run: |
+          authority_commit="$(python -c 'import json; print(json.load(open("docs/agents/META_AGENT_POLICY_BINDING.json", encoding="utf-8"))["authority_commit"])')"
+          echo "authority_commit=$authority_commit" >> "$GITHUB_OUTPUT"
+
+      - name: Check out bound META policy source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Oteryn/Oteryn
+          ref: ${{ steps.meta_binding.outputs.authority_commit }}
+          path: _meta-policy/${{ steps.meta_binding.outputs.authority_commit }}
+          persist-credentials: false
+
       - name: Run checkpoint validator tests
         run: python tools/agents/test_checkpoint.py
 
@@ -68,7 +83,9 @@ jobs:
         run: python tools/agents/test_policy_consistency.py
 
       - name: Validate cross-document policy consistency
-        run: python tools/agents/policy_consistency.py
+        run: >-
+          python tools/agents/policy_consistency.py
+          --meta-root "_meta-policy/${{ steps.meta_binding.outputs.authority_commit }}"
 
       - name: Run prompt contract evaluator tests
         run: python tools/validation/test_prompt_eval.py
