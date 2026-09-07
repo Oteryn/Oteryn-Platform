@@ -83,31 +83,10 @@ if ! docker compose version >/dev/null 2>&1; then
     echo "Docker Compose v2 plugin is required on the deployment runner." >&2
     exit 1
 fi
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "python3 is required on the deployment runner." >&2
-    exit 1
-fi
-
 validate_ipv4_policy() {
     local address="$1"
     local policy="$2"
-    python3 - "$address" "$policy" <<'PY'
-import ipaddress
-import sys
-
-try:
-    address = ipaddress.ip_address(sys.argv[1])
-except ValueError as exc:
-    raise SystemExit(str(exc)) from exc
-
-policy = sys.argv[2]
-if address.version != 4 or address.is_unspecified or address.is_multicast or address.is_link_local:
-    raise SystemExit('address must be a usable IPv4 address')
-if policy == 'loopback' and str(address) != '127.0.0.1':
-    raise SystemExit('service must remain bound to exact loopback 127.0.0.1')
-if policy == 'private-or-loopback' and not (address.is_private or address.is_loopback):
-    raise SystemExit('game bind must be loopback or an RFC1918 private IPv4 address')
-PY
+    bash "$SCRIPT_DIR/validate-ipv4.sh" "$address" "$policy"
 }
 
 validate_port() {
