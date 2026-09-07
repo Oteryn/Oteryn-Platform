@@ -264,7 +264,7 @@ def test_health_check_proves_each_gateway_dependency_before_aggregate_ready() ->
     canary = health.index('probe_url canary 7180 /health "Canary session issuer /health"')
     platform_tls = health.index('probe_internal_tls "https://platform-internal:8443/health"')
     canary_tls = health.index('probe_internal_tls "https://canary-session-internal:8444/health"')
-    gateway_ready = health.index('probe_url gateway 8080 /ready "Gateway /ready"')
+    gateway_ready = health.index('probe_published_url "$GATEWAY_BIND_ADDRESS" "$GATEWAY_PORT" /ready "Gateway /ready"')
     assert canary < platform_tls < canary_tls < gateway_ready
     assert "ssl.create_default_context(cafile='/etc/oteryn/tls/ca.crt')" in health
     assert 'docker logs --tail 80 "${container_ids[internal-proxy]}"' in health
