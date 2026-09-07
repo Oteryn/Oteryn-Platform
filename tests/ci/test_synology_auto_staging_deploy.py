@@ -129,6 +129,17 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
             with self.subTest(address=address):
                 self.assertNotEqual(self.run_ipv4_helper(address, "loopback").returncode, 0)
 
+    def test_runtime_deploy_avoids_duplicate_full_compose_pull(self) -> None:
+        self.assertNotIn('"${compose[@]}" pull', self.deploy_script)
+        self.assertIn('docker image inspect "$runtime_image"', self.deploy_script)
+
+    def test_runtime_health_names_gateway_dependency_failures_before_ready(self) -> None:
+        health = (ROOT / "deploy/synology/scripts/health-check.sh").read_text(encoding="utf-8")
+        self.assertIn('Canary session issuer /health', health)
+        self.assertIn('Gateway -> Platform', health)
+        self.assertIn('Gateway -> Canary session issuer', health)
+        self.assertIn('Gateway aggregate readiness failed after both internal dependencies passed.', health)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

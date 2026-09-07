@@ -211,9 +211,15 @@ apply_sql_template() {
 snapshot_current_images
 
 "${compose[@]}" config --quiet
-"${compose[@]}" pull
+for runtime_image in "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE"; do
+    docker image inspect "$runtime_image" >/dev/null 2>&1 || {
+        echo "Guarded workflow did not leave a resolved runtime image locally: $runtime_image" >&2
+        exit 1
+    }
+done
 stage_bootstrap_files
-"${compose[@]}" up -d mariadb redis tls-init
+"${compose[@]}" up -d mariadb redis
+"${compose[@]}" up -d --force-recreate tls-init
 
 mariadb_deadline=$((SECONDS + mariadb_ready_timeout_seconds))
 while ! "${compose[@]}" exec -T -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb \

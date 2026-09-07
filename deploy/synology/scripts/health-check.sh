@@ -71,9 +71,57 @@ probe_url() {
     return 1
 }
 
+probe_internal_tls() {
+    local url="$1"
+    local label="$2"
+    local project="${COMPOSE_PROJECT_NAME:-oteryn-staging}"
+    local network="${project}_private"
+    local tls_volume="${project}_internal_tls"
+
+    for _ in $(seq 1 12); do
+        if docker run --rm \
+            --network "$network" \
+            -v "${tls_volume}:/etc/oteryn/tls:ro" \
+            -e SSL_CERT_FILE=/etc/oteryn/tls/ca.crt \
+            python:3.12-alpine \
+            python3 - "$url" <<'PY'
+import ssl
+import sys
+import urllib.request
+
+url = sys.argv[1]
+context = ssl.create_default_context(cafile='/etc/oteryn/tls/ca.crt')
+try:
+    with urllib.request.urlopen(url, timeout=5, context=context) as response:
+        if response.status != 200:
+            raise SystemExit(f'unexpected HTTP status: {response.status}')
+        response.read(8192)
+except Exception as exc:
+    print(f'internal TLS probe failed: {exc}', file=sys.stderr)
+    raise SystemExit(1) from exc
+PY
+        then
+            echo "Verified internal TLS dependency: $label"
+            return 0
+        fi
+        sleep 2
+    done
+
+    echo "Internal TLS dependency failed: $label" >&2
+    docker logs --tail 80 "${container_ids[internal-proxy]}" >&2 || true
+    return 1
+}
+
 probe_url platform 8000 /health "Platform /health"
+probe_url canary 7180 /health "Canary session issuer /health"
+probe_internal_tls "https://platform-internal:8443/health" "Gateway -> Platform"
+probe_internal_tls "https://canary-session-internal:8444/health" "Gateway -> Canary session issuer"
 probe_url gateway 8080 /health "Gateway /health"
-probe_url gateway 8080 /ready "Gateway /ready"
+if ! probe_url gateway 8080 /ready "Gateway /ready"; then
+    echo "Gateway aggregate readiness failed after both internal dependencies passed." >&2
+    docker logs --tail 80 "${container_ids[gateway]}" >&2 || true
+    exit 1
+fi
 probe_url gateway 8080 /version "Gateway /version"
 
 expected_gateway_version="${GATEWAY_VERSION:-synology-staging}"

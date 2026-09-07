@@ -352,11 +352,80 @@ _oteryn_restore_quiesced_consumers_after_migrate() {
     export OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING
 }
 
+_oteryn_resume_candidate_if_safe() {
+    local state_dir="$1" release_sha="$2"
+    local candidate_file="$state_dir/candidate-release.env" schema_file="$state_dir/schema-state.env"
+    local schema_state schema_id schema_target candidate_schema candidate_accepts
+    local -a candidate_runtime
+
+    [[ -f "$candidate_file" ]] || return 1
+    bash "$SCRIPT_DIR/release-state.sh" validate "$candidate_file" || return 1
+    [[ -f "$schema_file" ]] || {
+        echo "Candidate resume rejected: managed schema state is missing." >&2
+        return 1
+    }
+
+    mapfile -t candidate_runtime < <(bash -c '
+        set -euo pipefail
+        source "$1"
+        printf "%s\n" \
+            "$RELEASE_SHA" "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE" \
+            "${GAME_WORLD_ID:-}" "${GAME_WORLD_SLUG:-}" "${GAME_WORLD_NAME:-}" \
+            "${GAME_WORLD_REGION:-}" "${GAME_WORLD_HOST:-}" "${GAME_WORLD_PORT:-}"
+    ' bash "$candidate_file")
+
+    [[ "${candidate_runtime[0]:-}" == "$release_sha" ]] || {
+        echo "Deployment rejected: unresolved candidate release ${candidate_runtime[0]:-UNKNOWN} differs from requested release $release_sha." >&2
+        return 1
+    }
+    [[ "${candidate_runtime[1]:-}" == "$PLATFORM_IMAGE" \
+        && "${candidate_runtime[2]:-}" == "$GATEWAY_IMAGE" \
+        && "${candidate_runtime[3]:-}" == "$CANARY_IMAGE" ]] || {
+        echo "Candidate resume rejected: immutable runtime image identity drifted." >&2
+        return 1
+    }
+    [[ "${candidate_runtime[4]:-}" == "${GAME_WORLD_ID:-}" \
+        && "${candidate_runtime[5]:-}" == "${GAME_WORLD_SLUG:-}" \
+        && "${candidate_runtime[6]:-}" == "${GAME_WORLD_NAME:-}" \
+        && "${candidate_runtime[7]:-}" == "${GAME_WORLD_REGION:-}" \
+        && "${candidate_runtime[8]:-}" == "${GAME_WORLD_HOST:-}" \
+        && "${candidate_runtime[9]:-}" == "${GAME_WORLD_PORT:-}" ]] || {
+        echo "Candidate resume rejected: staged world identity drifted." >&2
+        return 1
+    }
+
+    schema_state="$(_oteryn_read_state_key "$schema_file" SCHEMA_STATE)" || return 1
+    schema_id="$(_oteryn_read_state_key "$schema_file" SCHEMA_COMPATIBILITY_ID)" || return 1
+    schema_target="$(_oteryn_read_state_key "$schema_file" MIGRATION_TARGET_RELEASE_SHA)" || return 1
+    candidate_schema="$(_oteryn_read_state_key "$candidate_file" SCHEMA_COMPATIBILITY_ID)" || return 1
+    candidate_accepts="$(_oteryn_read_state_key "$candidate_file" APP_ACCEPTS_SCHEMA_IDS)" || return 1
+
+    [[ "$schema_state" == known && "$schema_target" == "$release_sha" && "$schema_id" == "$candidate_schema" ]] || {
+        echo "Candidate resume rejected: prior migration is not proven complete for the exact candidate release." >&2
+        return 1
+    }
+    _oteryn_schema_list_contains "$schema_id" "$candidate_accepts" || {
+        echo "Candidate resume rejected: candidate application does not accept the proven schema." >&2
+        return 1
+    }
+
+    OTERYN_SAME_RELEASE_REDEPLOY=1
+    export OTERYN_SAME_RELEASE_REDEPLOY
+    echo "Resuming exact candidate release $release_sha after a previously successful migration; preserving recovery evidence until health checks pass."
+    return 0
+}
+
 _oteryn_before_platform_migrate() {
     local state_dir release_sha backup_dir backup_file backup_meta current_file old_sha old_schema
     state_dir="$(_oteryn_deploy_state_dir)"
-    _oteryn_load_candidate_contract || return 1
     release_sha="$(_oteryn_release_sha)" || return 1
+
+    if [[ -f "$state_dir/candidate-release.env" ]]; then
+        _oteryn_resume_candidate_if_safe "$state_dir" "$release_sha" || return 1
+        return 0
+    fi
+
+    _oteryn_load_candidate_contract || return 1
     mkdir -p "$state_dir/backups"
     chmod 700 "$state_dir" "$state_dir/backups"
 

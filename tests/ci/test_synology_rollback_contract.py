@@ -228,10 +228,47 @@ def test_legacy_bootstrap_uses_immutable_running_image_snapshot() -> None:
     deploy = (SCRIPTS / "deploy.sh").read_text()
     assert "image_id=\"$(docker inspect --format '{{.Image}}' \"$container_id\")\"" in deploy
     assert "release-state.sh\" resolve-image \"$image_id\"" in deploy
-    assert deploy.index("snapshot_current_images") < deploy.index('"${compose[@]}" pull')
+    snapshot_call = deploy.index("\nsnapshot_current_images\n")
+    stage_call = deploy.index("\nstage_bootstrap_files\n", snapshot_call)
+    assert snapshot_call < stage_call
+    assert '"${compose[@]}" pull' not in deploy
     assert "observed_schema=\"observed-${old_sha}\"" in lib
     assert "_oteryn_write_schema_state_known \"$state_dir\" \"$observed_schema\" \"$old_sha\"" in lib
     assert "Legacy running-release snapshot is incomplete; refusing migration." in lib
+
+
+def test_failed_exact_candidate_resume_requires_known_matching_schema_and_identity() -> None:
+    lib = LIB.read_text()
+    baseline = (SCRIPTS / "prepare-fresh-schema-baseline.sh").read_text()
+    assert "_oteryn_resume_candidate_if_safe()" in lib
+    assert '[[ "${candidate_runtime[0]:-}" == "$release_sha" ]]' in lib
+    assert '"${candidate_runtime[1]:-}" == "$PLATFORM_IMAGE"' in lib
+    assert '"${candidate_runtime[2]:-}" == "$GATEWAY_IMAGE"' in lib
+    assert '"${candidate_runtime[3]:-}" == "$CANARY_IMAGE"' in lib
+    assert '[[ "$schema_state" == known && "$schema_target" == "$release_sha" && "$schema_id" == "$candidate_schema" ]]' in lib
+    assert "prior migration is not proven complete" in lib
+    assert "preserving recovery evidence until health checks pass" in lib
+    assert '_oteryn_resume_candidate_if_safe "$state_dir" "$release_sha"' in baseline
+    assert "unresolved candidate release $candidate_sha still owns recovery evidence" not in baseline
+
+
+def test_deploy_does_not_pull_all_images_twice_and_forces_tls_bootstrap_refresh() -> None:
+    deploy = (SCRIPTS / "deploy.sh").read_text()
+    assert '"${compose[@]}" pull' not in deploy
+    assert 'docker image inspect "$runtime_image"' in deploy
+    assert 'up -d --force-recreate tls-init' in deploy
+
+
+def test_health_check_proves_each_gateway_dependency_before_aggregate_ready() -> None:
+    health = (SCRIPTS / "health-check.sh").read_text()
+    canary = health.index('probe_url canary 7180 /health "Canary session issuer /health"')
+    platform_tls = health.index('probe_internal_tls "https://platform-internal:8443/health"')
+    canary_tls = health.index('probe_internal_tls "https://canary-session-internal:8444/health"')
+    gateway_ready = health.index('probe_url gateway 8080 /ready "Gateway /ready"')
+    assert canary < platform_tls < canary_tls < gateway_ready
+    assert "ssl.create_default_context(cafile='/etc/oteryn/tls/ca.crt')" in health
+    assert 'docker logs --tail 80 "${container_ids[internal-proxy]}"' in health
+    assert 'docker logs --tail 80 "${container_ids[gateway]}"' in health
 
 
 def test_legacy_bootstrap_does_not_replace_candidate_image_variables() -> None:
@@ -303,7 +340,7 @@ def test_health_probe_helpers_are_repository_pinned_by_digest() -> None:
     assert "alpine:3.22) args[$i]=\"$OTERYN_HEALTH_ALPINE_IMAGE\"" in lib
     assert "python:3.12-alpine) args[$i]=\"$OTERYN_HEALTH_PYTHON_IMAGE\"" in lib
     assert health.count("alpine:3.22") >= 1
-    assert health.count("python:3.12-alpine") == 1
+    assert health.count("python:3.12-alpine") >= 2
 
 
 def test_migration_ambiguity_fails_closed_before_migrate() -> None:

@@ -16,13 +16,14 @@ legacy_file="$state_dir/last-good.env"
 last_good_file="$state_dir/last-good-release.env"
 candidate_file="$state_dir/candidate-release.env"
 
-# A surviving candidate marks an incomplete prior transition. Refuse before the
-# lib.sh migration hook can rewrite candidate metadata or reuse its backup path.
+# A surviving candidate normally marks an incomplete prior transition. The only
+# resumable case is the same exact immutable candidate after its migration has
+# already been durably proven known. lib.sh re-validates the same boundary before
+# Platform starts and preserves candidate recovery evidence until health passes.
 if [[ -f "$candidate_file" ]]; then
-    bash "$SCRIPT_DIR/release-state.sh" validate "$candidate_file"
-    candidate_sha="$(_oteryn_read_state_key "$candidate_file" RELEASE_SHA)"
-    echo "Deployment rejected: unresolved candidate release $candidate_sha still owns recovery evidence." >&2
-    exit 1
+    release_sha="$(_oteryn_release_sha)" || exit 1
+    _oteryn_resume_candidate_if_safe "$state_dir" "$release_sha" || exit 1
+    exit 0
 fi
 
 # A managed or provable legacy release already owns the pre-migration baseline.
