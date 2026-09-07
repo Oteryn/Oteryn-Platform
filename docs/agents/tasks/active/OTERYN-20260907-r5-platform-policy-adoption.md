@@ -74,10 +74,10 @@ proven:
   - PR #1304 owns the META binding, trusted policy consumer, prompt inventory migration, workflow trust boundary and D26 archive; this task preserves those paths unchanged.
   - Issue #1302 and draft PR #1303 own this remaining bounded R5 delta and coordinate with #1009.
   - Issue #1299 closed externally at 2026-09-07T09:26:20Z; this task does not reactivate or re-close it.
-  - PR #1306 merged its separately owned cleanup task, but the open #1305 packet omitted the archive-pending transition required while protected deletion and closeout remain unfinished; no open successor PR owns that one-line compatibility repair.
+  - PR #1306 merged its separately owned cleanup task, but the open #1305 packet omitted the archive-pending transition required while protected deletion and closeout remain unfinished; no open successor PR owns that bounded transition repair.
 derived:
   - The remaining Platform retry and delivery documents can delegate global execution semantics while retaining local state compatibility, E2E, layer-completeness and resource-hygiene constraints.
-  - Adding only terminal_pr_policy archive_pending to the #1305 packet preserves its truthful nonterminal state and does not claim cleanup, deletion or completion.
+  - Adding terminal_pr_policy archive_pending with a truthful archive-after-readback next action preserves the #1305 packet's nonterminal state and does not claim cleanup, deletion or completion.
 unknown:
   - Exact reconciled candidate head, hosted check results and integration outcome.
 conflicts: []

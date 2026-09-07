@@ -90,7 +90,7 @@ validation:
     evidence: Repository branch metadata cleanup only; no application, auth, data, payment or deployment behavior changes.
 blockers:
   - Exact-head hosted qualification is required before readiness.
-next_action: Publish the independently reviewed exact three-entry approval, then qualify the exact PR head.
+next_action: Archive this task through the separately owned closeout PR only after guarded deletion and live absence are verified; preserve unresolved cleanup evidence.
 ```
 
 ## Authorized targets
