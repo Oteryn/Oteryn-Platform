@@ -17,7 +17,10 @@ final class HomePreviewTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Answer the call of Oteryn');
-        $response->assertSee('css/home-preview.css', false);
+        $response->assertSee('css/portal-system.css', false);
+        $response->assertSee('css/portal-pages.css', false);
+        $response->assertDontSee('css/home-preview.css', false);
+        $response->assertDontSee('css/app.css', false);
         $response->assertSee('css/home-production.css', false);
         $response->assertDontSee('Design preview.');
         $response->assertDontSee('noindex,nofollow', false);

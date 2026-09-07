@@ -2,11 +2,15 @@
 
 namespace Tests\Feature\PublicGameData;
 
+use DOMDocument;
+use DOMElement;
+use DOMXPath;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Redis\Connections\Connection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Testing\TestResponse;
 use Mockery;
 use Mockery\CompositeExpectation;
 use Mockery\MockInterface;
@@ -90,19 +94,22 @@ final class ServerRuntimeAvailabilityTest extends TestCase
             },
         ]);
 
-        $this->get(route('game.servers.index'))
+        $response = $this->get(route('game.servers.index'));
+
+        $response
             ->assertOk()
             ->assertSee('Alpha')
             ->assertSee('Beta')
-            ->assertSee('Runtime:</strong> ONLINE', false)
-            ->assertSee('Players online:</strong> 100', false)
             ->assertSee('Full')
-            ->assertSee('Runtime:</strong> MAINTENANCE', false)
-            ->assertSee('Players online:</strong> 3', false)
             ->assertDontSee('instance_id')
             ->assertDontSee('build_sha')
             ->assertDontSee('map_hash')
             ->assertDontSee('data_hash');
+
+        $this->assertWorldMetrics($response, [
+            'Alpha' => ['Runtime:' => 'ONLINE', 'Players online:' => '100', 'Configured max players:' => '100', 'PvP type:' => 'pvp'],
+            'Beta' => ['Runtime:' => 'MAINTENANCE', 'Players online:' => '3', 'Configured max players:' => '200', 'PvP type:' => 'pvp'],
+        ]);
     }
 
     public function test_missing_or_expired_runtime_key_is_rendered_as_unknown_without_synthetic_count(): void
@@ -117,12 +124,16 @@ final class ServerRuntimeAvailabilityTest extends TestCase
         ], []);
         $this->expectCommandReturns($connection, 'pttl', ['cluster:channel:1:runtime'], -2);
 
-        $this->get(route('game.servers.index'))
+        $response = $this->get(route('game.servers.index'));
+
+        $response
             ->assertOk()
             ->assertSee('Alpha')
-            ->assertSee('Runtime:</strong> Unknown', false)
-            ->assertDontSee('Players online:</strong>', false)
-            ->assertDontSee('Runtime:</strong> OFFLINE', false);
+            ->assertDontSee('OFFLINE');
+
+        $this->assertWorldMetrics($response, [
+            'Alpha' => ['Runtime:' => 'Unknown', 'Players online:' => '—', 'Configured max players:' => '100', 'PvP type:' => 'pvp'],
+        ]);
     }
 
     public function test_runtime_transport_failure_keeps_static_channels_but_marks_runtime_unavailable(): void
@@ -139,14 +150,17 @@ final class ServerRuntimeAvailabilityTest extends TestCase
         ]]);
         $expectation->__call('andThrow', [new RuntimeException('Redis transport unavailable.')]);
 
-        $this->get(route('game.servers.index'))
+        $response = $this->get(route('game.servers.index'));
+
+        $response
             ->assertOk()
             ->assertSee('Alpha')
-            ->assertSee('Configured max players:</strong> 100', false)
             ->assertSee('live player availability is intentionally not shown')
-            ->assertSee('Runtime:</strong> Unavailable', false)
-            ->assertDontSee('Players online:</strong>', false)
-            ->assertDontSee('Runtime:</strong> OFFLINE', false);
+            ->assertDontSee('OFFLINE');
+
+        $this->assertWorldMetrics($response, [
+            'Alpha' => ['Runtime:' => 'Unavailable', 'Players online:' => '—', 'Configured max players:' => '100', 'PvP type:' => 'pvp'],
+        ]);
     }
 
     public function test_failure_after_a_valid_channel_discards_the_entire_runtime_snapshot(): void
@@ -180,12 +194,61 @@ final class ServerRuntimeAvailabilityTest extends TestCase
             },
         ]);
 
-        $this->get(route('game.servers.index'))
+        $response = $this->get(route('game.servers.index'));
+
+        $response
             ->assertOk()
             ->assertSee('Alpha')
             ->assertSee('Beta')
-            ->assertSee('Runtime:</strong> Unavailable', false)
-            ->assertDontSee('Players online:</strong> 25', false);
+            ->assertDontSee('data-world-state="online"', false);
+
+        $this->assertWorldMetrics($response, [
+            'Alpha' => ['Runtime:' => 'Unavailable', 'Players online:' => '—', 'Configured max players:' => '100', 'PvP type:' => 'pvp'],
+            'Beta' => ['Runtime:' => 'Unavailable', 'Players online:' => '—', 'Configured max players:' => '100', 'PvP type:' => 'pvp'],
+        ]);
+    }
+
+    /**
+     * Match each world's labelled metrics, not the old inline <strong> markup.
+     * An absent runtime must remain an em dash, never a fabricated zero/count.
+     *
+     * @param  array<string, array<string, string>>  $expected
+     */
+    private function assertWorldMetrics(TestResponse $response, array $expected): void
+    {
+        $document = new DOMDocument;
+        $previous = libxml_use_internal_errors(true);
+        try {
+            $content = $response->getContent();
+            self::assertIsString($content);
+            self::assertTrue($document->loadHTML('<?xml encoding="utf-8" ?>'.$content));
+        } finally {
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+        }
+
+        $xpath = new DOMXPath($document);
+        $rows = $xpath->query('//article[contains(concat(" ", normalize-space(@class), " "), " world-row ")]');
+        self::assertNotFalse($rows);
+        $actual = [];
+        foreach ($rows as $row) {
+            self::assertInstanceOf(DOMElement::class, $row);
+            $heading = $row->getElementsByTagName('h2')->item(0);
+            self::assertInstanceOf(DOMElement::class, $heading);
+            $name = trim($heading->textContent);
+            $labels = $xpath->query('.//dl/div/dt', $row);
+            self::assertNotFalse($labels);
+            $metrics = [];
+            foreach ($labels as $label) {
+                self::assertInstanceOf(DOMElement::class, $label);
+                $value = $label->nextElementSibling;
+                self::assertInstanceOf(DOMElement::class, $value);
+                self::assertSame('dd', $value->tagName);
+                $metrics[trim($label->textContent)] = trim($value->textContent);
+            }
+            $actual[$name] = $metrics;
+        }
+        self::assertSame($expected, $actual);
     }
 
     /**

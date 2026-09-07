@@ -99,7 +99,7 @@ final class PublicPortalRedesignTest extends TestCase
             self::assertSame(1, $current->length);
             $activeLink = $current->item(0);
             self::assertInstanceOf(DOMElement::class, $activeLink);
-            self::assertSame(route('home'), $activeLink->getAttribute('href'));
+            self::assertSame(route('localized.home', ['locale' => $locale]), $activeLink->getAttribute('href'));
             $groups = $xpath->query('//nav[contains(@class,"primary-nav")]/details/summary');
             self::assertNotFalse($groups);
             self::assertGreaterThanOrEqual(3, $groups->length);

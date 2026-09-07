@@ -67,7 +67,7 @@ final class AccountOverviewTest extends TestCase
         $response = $this->get('/account');
 
         $response->assertOk();
-        $response->assertSee('Your Oteryn account');
+        $response->assertSee('<h1>'.__('portal.account.heading').'</h1>', false);
         $response->assertSee('Ready');
         $response->assertSee('Your game account setup is complete and character creation is available.');
         $response->assertSee('Your characters');

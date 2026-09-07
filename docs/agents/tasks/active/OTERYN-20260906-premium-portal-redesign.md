@@ -14,32 +14,29 @@ optional_reads: []
 
 # Complete Oteryn player portal redesign
 
-## Goal
+## Goal and boundary
 
-Issue #1297; deliver the owner's complete player-facing Laravel/Blade redesign through the existing PR #1298 for human visual review. The expanded owner brief supersedes the earlier conservative presentation. No PR merge, auto-merge, deployment, production access or backend/security contract change.
+Issue #1297; deliver the owner's complete player-facing Laravel/Blade redesign through existing PR #1298 for human visual review. The expanded brief supersedes the earlier conservative presentation. No PR merge, auto-merge, deployment, production access or backend/security contract change.
 
 ## Acceptance criteria
 
-- [x] Preserve the full redesign on the single owned branch and PR.
-- [x] Implement the public design system, grouped navigation, homepage, editorial/world/community/knowledge page families and account/identity presentation.
-- [x] Map application HTML/navigation routes and the additional OAuth consent view in the review ledger.
-- [x] Remove the temporary tracked-source recovery test from the repaired candidate.
-- [ ] Verify guest/authenticated EN/PL journeys, populated and unavailable states on the repaired candidate.
-- [ ] Inspect actual phone/tablet/desktop/wide renders and resolve visual findings.
-- [ ] Pass relevant feature/static/browser checks and repository-required exact-head validation.
-- [ ] Review the complete final diff and publish matching exact-head evidence.
-- [ ] Leave PR #1298 ready for human visual review without merging or deploying.
+- [x] Preserve the full redesign in one owned PR; publish the design system, page families, original artwork and responsive repairs.
+- [x] Map 98 application HTML/navigation entries and additional OAuth consent in the review ledger.
+- [x] Remove the temporary tracked-source recovery test; preserve upstream governance and other work.
+- [ ] Pass repaired exact-head feature/static/browser and required checks.
+- [ ] Complete actual EN/PL guest/account and edge-state review across phone/tablet/desktop/wide.
+- [ ] Publish matching final evidence and leave PR ready for human review, without merge or deployment.
 
 ## Ownership
 
-The sole writer owns public/player Blade presentation, the three portal stylesheets, portal navigation JavaScript, original Oteryn artwork, EN/PL portal translations, focused presentation/browser tests, this task and its review ledger. Admin presentation, controllers, routes, domain/authentication/payment behavior, databases, workflow implementation, protections and deployment configuration are excluded. Existing assertions and the runtime diagnostic guard remain intact. #1294 audit work, #1302/#1309 governance work and inactive catalog consumer #338 are independent.
+One writer owns public/player presentation, original artwork, portal translations, focused presentation/browser test alignment and this task's evidence. Controllers, routes, domain/authentication/payment behavior, databases, admin UI, workflows, protections and deployment are excluded. Independent #1294 audit, governance work and inactive catalog consumer #338 remain untouched. Never suppress a failing test or weaken its security invariant to obtain a green result.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-07T11:58:26Z
-head: 4910e9dd4d54139847e317a5521688f556831942
+updated_at: 2026-09-07T12:35:53Z
+head: 015bfbdfc9f69f9e598896fcc3fc272a884d91c1
 branch: feat/20260906-premium-portal-redesign
 pr: 1298
 status: validating
@@ -61,55 +58,61 @@ owned_paths:
   - lang/pl/portal.php
   - scripts/acceptance/tests/**
   - tests/Feature/HomeTest.php
+  - tests/Feature/HomePreviewTest.php
   - tests/Feature/PublicPortalRedesignTest.php
+  - tests/Feature/Accounts/AccountOverviewTest.php
+  - tests/Feature/Operations/SecurityHeadersTest.php
+  - tests/Feature/PublicGameData/ServerRuntimeAvailabilityTest.php
   - docs/agents/tasks/active/OTERYN-20260906-premium-portal-redesign.md
   - docs/testing/PORTAL_REDESIGN_REVIEW_2026-09-06.md
 proven:
-  - Resume readback found Issue 1297 open and PR 1298 open/draft at 4910e9dd4d54139847e317a5521688f556831942.
-  - Protected main 2c3934fece8e072f23ea33ad82f4b4399fc3b45e adopts META policy 3.0.0 at 5ed3f14400af450b5875c091e443da70f2d67ab9; root, bootstrap, applicable agent-document instructions and task contract were reconciled before mutation.
-  - Current main product subtrees match the fixed main 3557085 source archive; newer root policies, documentation, tools and workflows are preserved unchanged during branch synchronization.
-  - All 22 recovery-package changes were SHA-256 verified against the fixed 4910e9d source and output manifest before editing.
-  - Repaired source removes the temporary tracked-source export; no runtime environment, credentials, database, sessions or key material is included.
+  - Published 015bfbdf synchronizes protected main 721d560c18ef8a6eefbf4ccd685d8302985bbd3d and preserves its policy 3.0.0 binding and independent work.
+  - CI run 34121352649 passed formatting and static analysis; PHPUnit reported 610 tests, eight failures, four skipped and zero errors.
+  - The eight failures are presentation assertions across five files; revised assertions retain CSP, ownership, hidden identifiers and truthful runtime data requirements.
+  - Acceptance run 34121352815 produced 134 real Laravel fixture screenshots with matching 015bfbdf manifest; all captured records have no missing images, unlabelled controls or horizontal document overflow.
+  - Actual contact-sheet inspection covered home, identity, account, knowledge, rankings and downloads on desktop and phone; this is not complete final visual acceptance.
+  - Local syntax checks pass for all five revised PHP files; new per-world metric expectations match all four captured failing public responses.
 derived:
-  - The recovered complete portal is a candidate requiring repaired exact-head validation, not a completed deployment.
+  - The new visual test's read-only ready-state fixture does not provision the underlying Canary account needed for character creation; its worker restart also collides with repeated Bazaar fixture identity.
 unknown:
-  - Final repaired-head CI, browser results and visual acceptance remain unverified until the new publication is tested.
+  - Exact-head results after publication of the five PHP test alignments remain pending.
+  - Browser paths following the interrupted character creation and final production readiness are not proven.
 conflicts: []
 first_failure:
-  marker: INITIAL_FULL_CANDIDATE_REPAIR
-  evidence: Historical run 34104987932 passed 14 smoke and 27 portability cases but found 390px populated Polish payment overflow; its 148 renders do not certify later repairs.
+  marker: EXACT_HEAD_VALIDATION_AND_TOOL_WRITE_BLOCK
+  evidence: CI 34121352649 artifact 10018360866; acceptance 34121352815 artifact 10018380839. Browser smoke has one failed case, one setup error and one skipped case.
 rejected_hypotheses:
-  - The owner Markdown was unreadable; the complete attached brief is available.
+  - The user's Markdown or maintenance freeze prevents preparing the redesign.
 changed_paths:
-  - resources/views/**
-  - public/css/**
-  - public/images/oteryn-citadel.webp
-  - lang/en/portal.php
-  - lang/pl/portal.php
-  - scripts/acceptance/tests/**
+  - tests/Feature/Accounts/AccountOverviewTest.php
+  - tests/Feature/HomePreviewTest.php
+  - tests/Feature/Operations/SecurityHeadersTest.php
+  - tests/Feature/PublicGameData/ServerRuntimeAvailabilityTest.php
   - tests/Feature/PublicPortalRedesignTest.php
-  - docs/testing/PORTAL_REDESIGN_REVIEW_2026-09-06.md
+  - docs/agents/tasks/active/OTERYN-20260906-premium-portal-redesign.md
 validation:
-  - command: PHP and JavaScript syntax checks for 15 changed files
+  - command: php -l on the five changed PHP test files
     result: PASS
-    evidence: Local PHP 8.4 and Node syntax only; Laravel dependencies and required PHP 8.5 runtime are not available locally.
-  - command: python tools/agents/checkpoint.py task-path --require-checkpoint
+    evidence: Local syntax only; uploaded blob identities match these bytes.
+  - command: compare labelled per-world metrics with four captured 015bfbdf Laravel responses
     result: PASS
-    evidence: Recovery checkpoint passed the available structural validator; new candidate requires hosted governance checks.
-  - command: repaired exact-head Laravel and browser acceptance
+    evidence: Exact runtime status, player counts, capacity and PvP labels checked per world; unknown/unavailable counts remain em dashes.
+  - command: repaired exact-head CI and acceptance
     result: NOT_RUN
-    evidence: Use existing isolated GitHub Actions runtime after coherent publication; no local runtime or final visual pass is claimed.
-blockers: []
-next_action: Publish and verify the coherent repaired candidate, inspect its exact-head CI and actual renders, then resolve findings before marking PR 1298 ready for human review.
+    evidence: Pending publication; unchanged blocked browser test is still expected to fail, not skipped or suppressed.
+blockers:
+  - Tool safeguards rejected the visual-review fixture repair write; published portal-visual-review.spec.mjs remains at blob d285807369ad40c73ca5796c451117615aecd2b7.
+  - Earlier tool safeguards rejected proposed payment-foundation and support-legal acceptance test repairs; both retain their original published bytes and enabled execution.
+next_action: Publish and verify the five permitted PHP presentation-test alignments, inspect final exact-head results, and record the remaining tool-write blocker without bypassing it or claiming readiness.
 ```
 
 ## Evidence and execution
 
-`docs/testing/PORTAL_REDESIGN_REVIEW_2026-09-06.md` preserves the route ledger and historical observations. Read the final PR evidence and rendered manifest for the tested head; a checkpoint's predecessor SHA is not a final readiness claim.
+`docs/testing/PORTAL_REDESIGN_REVIEW_2026-09-06.md` preserves route coverage and design scope. The latest PR attestation supersedes historical validation observations. A checkpoint predecessor SHA is not final-head certification.
 
-The repaired candidate restores native download-table semantics and payment scrolling, preserves locale in player-tool navigation, shares the redesigned homepage with the registered compact variant, declares exact expected negative HTTP responses without weakening assertions, and expands populated character/support/MFA coverage. The original decorative citadel is not a gameplay screenshot. Only actual Laravel fixture captures are visual application evidence; secret-bearing enrollment/recovery values are masked.
+Use only the isolated sandbox and existing GitHub-hosted application runtime. Local outbound DNS, Composer dependencies and PHP 8.5 are unavailable. No workstation, Synology, staging/production, live identity or payment operation is authorized. No unsupported subagent or background execution is claimed.
 
-Use the task's isolated sandbox and existing GitHub-hosted acceptance jobs. Local outbound DNS and Composer are unavailable. No workstation, Synology, protected environment, staging, production, payment execution or live identity operation is authorized. One writer owns the branch; no unsupported subagent/model setting or asynchronous continuation is claimed.
+Original citadel artwork is decorative, not a gameplay screenshot. Only actual fixture renders are application evidence. No generated credentials, session exports or authentication traces are published.
 
 ## Source branch closeout
 
