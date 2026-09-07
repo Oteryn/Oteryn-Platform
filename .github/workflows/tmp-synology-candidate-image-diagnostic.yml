@@ -1,0 +1,63 @@
+name: Temporary Synology Candidate Image Diagnostic
+
+on:
+  push:
+    branches:
+      - fix/20260907-synology-candidate-image-resolution
+    paths:
+      - .github/workflows/tmp-synology-candidate-image-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on:
+      group: platform-runners
+      labels: oteryn-platform
+    steps:
+      - name: Checkout diagnostic source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Inspect candidate and running Gateway identities
+        run: |
+          set -euo pipefail
+          state_file=/var/lib/oteryn-staging-state/candidate-release.env
+          test -f "$state_file"
+          bash deploy/synology/scripts/release-state.sh validate "$state_file"
+
+          mapfile -t candidate < <(bash -c '
+            set -euo pipefail
+            source "$1"
+            printf "%s\n%s\n" "$RELEASE_SHA" "$GATEWAY_IMAGE"
+          ' bash "$state_file")
+          candidate_sha="${candidate[0]}"
+          expected_gateway="${candidate[1]}"
+
+          mapfile -t gateway_containers < <(
+            docker ps -q \
+              --filter label=com.docker.compose.project=oteryn-staging \
+              --filter label=com.docker.compose.service=gateway
+          )
+          if (( ${#gateway_containers[@]} != 1 )); then
+            echo "running_gateway_container_count=${#gateway_containers[@]}"
+            exit 1
+          fi
+
+          gateway_container="${gateway_containers[0]}"
+          running_image_id="$(docker inspect --format '{{.Image}}' "$gateway_container")"
+          expected_image_id="$(docker image inspect --format '{{.Id}}' "$expected_gateway" 2>/dev/null || true)"
+
+          echo "candidate_sha=$candidate_sha"
+          echo "expected_gateway_ref=$expected_gateway"
+          echo "running_gateway_image_id=$running_image_id"
+          if [[ -n "$expected_image_id" ]]; then
+            echo "expected_gateway_image_present=true"
+            echo "expected_gateway_image_id=$expected_image_id"
+          else
+            echo "expected_gateway_image_present=false"
+            echo "expected_gateway_image_id=MISSING"
+          fi
+          echo 'running_gateway_repo_digests_begin'
+          docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$running_image_id" || true
+          echo 'running_gateway_repo_digests_end'
