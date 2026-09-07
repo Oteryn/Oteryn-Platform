@@ -60,9 +60,11 @@ class PublicCanonicalUrlTest extends TestCase
             $deploymentWorkflow,
         );
         $this->assertStringContainsString(
-            'app_url="${APP_URL_INPUT:-$CANONICAL_PUBLIC_APP_URL}"',
+            'app_url="$CANONICAL_PUBLIC_APP_URL"',
             $deploymentWorkflow,
         );
+        $this->assertStringNotContainsString('vars.OTERYN_STAGING_APP_URL', $deploymentWorkflow);
+        $this->assertStringNotContainsString('APP_URL_INPUT', $deploymentWorkflow);
         $this->assertStringContainsString('SESSION_SECURE_COOKIE=true', $deploymentWorkflow);
         $this->assertStringContainsString(
             'APP_URL: '.self::CANONICAL_ORIGIN,
