@@ -30,13 +30,16 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         self.assertIn("      - public/**", push_block)
         self.assertIn("      - resources/**", push_block)
 
-    def test_main_push_waits_for_build_before_dispatching_staging(self) -> None:
+    def test_main_push_waits_for_build_then_dispatches_without_waiting_for_remote_deploy(self) -> None:
         self.assertIn("  deploy-staging:\n", self.build_workflow)
         self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main'", self.build_workflow)
         self.assertIn("      - validate-deployment\n      - build", self.build_workflow)
         self.assertIn("actions: write", self.build_workflow)
         self.assertIn("actions/workflows/deploy-synology-staging.yml/dispatches", self.build_workflow)
-        self.assertIn("gh run watch", self.build_workflow)
+        self.assertIn("Dispatch exact main SHA to Synology staging", self.build_workflow)
+        self.assertNotIn("gh run watch", self.build_workflow)
+        self.assertNotIn("Locate and monitor Synology deployment run", self.build_workflow)
+        self.assertIn("Deployment continues independently in Deploy Synology Staging", self.build_workflow)
 
     def test_automatic_deploy_is_exact_sha_and_preserves_approved_staging_identity(self) -> None:
         expected = (
@@ -55,7 +58,6 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         self.assertIn('git/ref/heads/main', self.build_workflow)
         self.assertIn('if [[ "$current_main" != "$GITHUB_SHA" ]]', self.build_workflow)
         self.assertIn("Skipping superseded main deployment", self.build_workflow)
-        self.assertIn("steps.dispatch.outputs.dispatched == 'true'", self.build_workflow)
 
     def test_pull_requests_never_enter_the_staging_dispatch_job(self) -> None:
         self.assertNotIn("pull_request && github.ref == 'refs/heads/main'", self.build_workflow)
