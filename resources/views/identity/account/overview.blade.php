@@ -20,6 +20,14 @@
             'pending', 'recoverable' => 'badge-warning',
             default => 'badge-danger',
         };
+        $charactersMessage = $overview['characters_state'] === 'available'
+            ? __($overview['character_count'] === 1
+                ? '1 of :limit active character slots is in use.'
+                : ':count of :limit active character slots are in use.', [
+                    'count' => $localeFormatter->number($overview['character_count']),
+                    'limit' => $localeFormatter->number($overview['character_limit']),
+                ])
+            : __($overview['characters_message']);
     @endphp
     <section class="account-connection" aria-labelledby="game-account-heading" data-account-state="{{ $overview['state'] }}">
         <div>
@@ -27,8 +35,8 @@
             <h2 id="game-account-heading">{{ __('portal.account.connection') }}</h2>
         </div>
         <div>
-            <span class="badge {{ $badgeClass }}">{{ $overview['label'] }}</span>
-            <p>{{ $overview['message'] }}</p>
+            <span class="badge {{ $badgeClass }}">{{ __($overview['label']) }}</span>
+            <p>{{ __($overview['message']) }}</p>
         </div>
         @if ($overview['retry_allowed'])
             <form method="POST" action="{{ route('account.provisioning.retry', ['locale' => app()->getLocale()]) }}">@csrf<button type="submit">{{ __('portal.account.retry') }}</button></form>
@@ -41,7 +49,7 @@
                 <span class="roster-count">{{ $localeFormatter->number($overview['character_count']) }} / {{ $localeFormatter->number($overview['character_limit']) }}</span>
             @endif
         </div>
-        @if ($overview['characters_state'] !== 'empty')<p class="muted">{{ $overview['characters_message'] }}</p>@endif
+        @if ($overview['characters_state'] !== 'empty')<p class="muted">{{ $charactersMessage }}</p>@endif
         @if ($overview['characters_state'] === 'available')
             <div class="character-roster">
                 @foreach ($overview['characters'] as $character)
@@ -62,7 +70,7 @@
                 @endforeach
             </div>
         @elseif ($overview['characters_state'] === 'empty')
-            <div class="empty-state"><p>{{ $overview['characters_message'] }}</p>
+            <div class="empty-state"><p>{{ $charactersMessage }}</p>
                 @if ($overview['character_creation_allowed'])<a class="button" href="{{ route('account.characters.create', ['locale' => app()->getLocale()]) }}">{{ __('portal.account.first') }}</a>@endif
             </div>
         @elseif ($overview['characters_state'] === 'unavailable')

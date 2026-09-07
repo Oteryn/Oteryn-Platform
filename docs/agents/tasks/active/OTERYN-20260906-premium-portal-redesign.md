@@ -35,8 +35,8 @@ One writer owns public/player presentation, original artwork, portal translation
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-07T12:35:53Z
-head: 015bfbdfc9f69f9e598896fcc3fc272a884d91c1
+updated_at: 2026-09-07T12:49:13Z
+head: 8f529c052f2972c3128651cef182976a931259ec
 branch: feat/20260906-premium-portal-redesign
 pr: 1298
 status: validating
@@ -56,6 +56,7 @@ owned_paths:
   - public/images/oteryn-citadel.webp
   - lang/en/portal.php
   - lang/pl/portal.php
+  - lang/pl.json
   - scripts/acceptance/tests/**
   - tests/Feature/HomeTest.php
   - tests/Feature/HomePreviewTest.php
@@ -66,6 +67,8 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260906-premium-portal-redesign.md
   - docs/testing/PORTAL_REDESIGN_REVIEW_2026-09-06.md
 proven:
+  - CI run 34123528221 at 8f529c05 passed formatting, static analysis, runtime tests and platform-gate after the response generic fix.
+  - Actual phone-account-pl screenshot in the 015bfbdf manifest exposes English setup and character-state messages inside the Polish account shell; the presentation-only repair translates those messages without changing the read model or permissions.
   - Published 015bfbdf synchronizes protected main 721d560c18ef8a6eefbf4ccd685d8302985bbd3d and preserves its policy 3.0.0 binding and independent work.
   - CI run 34121352649 passed formatting and static analysis; PHPUnit reported 610 tests, eight failures, four skipped and zero errors.
   - The eight failures are presentation assertions across five files; revised assertions retain CSP, ownership, hidden identifiers and truthful runtime data requirements.
@@ -75,7 +78,7 @@ proven:
 derived:
   - The new visual test's read-only ready-state fixture does not provision the underlying Canary account needed for character creation; its worker restart also collides with repeated Bazaar fixture identity.
 unknown:
-  - Exact-head results after publication of the five PHP test alignments remain pending.
+  - Exact-head results after publication of the Polish account-message repair and five new localization cases remain pending.
   - Browser paths following the interrupted character creation and final production readiness are not proven.
 conflicts: []
 first_failure:
@@ -84,6 +87,8 @@ first_failure:
 rejected_hypotheses:
   - The user's Markdown or maintenance freeze prevents preparing the redesign.
 changed_paths:
+  - lang/pl.json
+  - resources/views/identity/account/overview.blade.php
   - tests/Feature/Accounts/AccountOverviewTest.php
   - tests/Feature/HomePreviewTest.php
   - tests/Feature/Operations/SecurityHeadersTest.php
@@ -103,7 +108,7 @@ validation:
 blockers:
   - Tool safeguards rejected the visual-review fixture repair write; published portal-visual-review.spec.mjs remains at blob d285807369ad40c73ca5796c451117615aecd2b7.
   - Earlier tool safeguards rejected proposed payment-foundation and support-legal acceptance test repairs; both retain their original published bytes and enabled execution.
-next_action: Publish and verify the five permitted PHP presentation-test alignments, inspect final exact-head results, and record the remaining tool-write blocker without bypassing it or claiming readiness.
+next_action: Verify the published localization candidate with hosted CI and real renders; attach the final matching results and remaining browser-tool blocker without bypassing it or claiming completion.
 ```
 
 ## Evidence and execution

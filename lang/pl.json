@@ -25,5 +25,22 @@
     "Support and legal": "Pomoc i informacje prawne",
     "Account": "Konto",
     "Guilds": "Gildie",
-    "No current download is available for :platform.": "Brak aktualnego pliku do pobrania dla platformy :platform."
+    "No current download is available for :platform.": "Brak aktualnego pliku do pobrania dla platformy :platform.",
+    "Ready": "Gotowe",
+    "Support required": "Wymagana pomoc techniczna",
+    "Setup interrupted": "Konfiguracja przerwana",
+    "Setup in progress": "Konfiguracja w toku",
+    "Your game account setup is complete and character creation is available.": "Konto gry jest skonfigurowane. Możesz tworzyć postacie.",
+    "We cannot complete your game account setup automatically. Contact support for assistance. No replacement account will be created automatically.": "Nie możemy automatycznie dokończyć konfiguracji konta gry. Skontaktuj się z pomocą techniczną. Konto zastępcze nie zostanie utworzone automatycznie.",
+    "Game account setup was interrupted by a temporary service problem. You can safely retry the existing setup request.": "Konfigurację konta gry przerwał chwilowy problem z usługą. Możesz bezpiecznie ponowić istniejące żądanie konfiguracji.",
+    "Your game account setup is still in progress. Character creation will become available after setup completes.": "Trwa konfiguracja konta gry. Tworzenie postaci będzie dostępne po jej zakończeniu.",
+    "We cannot confirm your game account setup right now. Character creation remains unavailable. Contact support if this persists.": "Nie możemy teraz potwierdzić konfiguracji konta gry. Tworzenie postaci pozostaje niedostępne. Jeśli problem się utrzymuje, skontaktuj się z pomocą techniczną.",
+    "We cannot confirm the bound game account identifier. Character creation remains unavailable. Contact support for assistance.": "Nie możemy potwierdzić identyfikatora powiązanego konta gry. Tworzenie postaci pozostaje niedostępne. Skontaktuj się z pomocą techniczną.",
+    "We cannot confirm a valid game account setup state. Character creation remains unavailable. Contact support for assistance.": "Nie możemy potwierdzić prawidłowego stanu konfiguracji konta gry. Tworzenie postaci pozostaje niedostępne. Skontaktuj się z pomocą techniczną.",
+    "Your game account is ready, but the character list is temporarily unavailable.": "Konto gry jest gotowe, ale lista postaci jest chwilowo niedostępna.",
+    "Your game account setup is complete. This account has reached the active character limit.": "Konto gry jest skonfigurowane. Osiągnięto limit aktywnych postaci na tym koncie.",
+    "You do not have any active characters yet.": "Nie masz jeszcze aktywnych postaci.",
+    "Your characters will appear after the game account setup is ready.": "Twoje postacie pojawią się po zakończeniu konfiguracji konta gry.",
+    "1 of :limit active character slots is in use.": "Zajęte miejsca na aktywne postacie: 1 z :limit.",
+    ":count of :limit active character slots are in use.": "Zajęte miejsca na aktywne postacie: :count z :limit."
 }
