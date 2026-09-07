@@ -42,6 +42,7 @@ owned_paths:
   - deploy/synology/scripts/deploy.sh
   - deploy/synology/scripts/health-check.sh
   - tests/ci/test_synology_rollback_contract.py
+  - tests/ci/test_synology_rollback_recovery_contract.py
   - tests/ci/test_synology_auto_staging_deploy.py
   - docs/agents/tasks/active/OTERYN-20260907-auto-synology-staging.md
 modules:
@@ -64,8 +65,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-07T20:18:00Z
-head: 07d87c839dea10613c202685db8f5f02cf0bba7a
+updated_at: 2026-09-07T20:22:00Z
+head: 6e4770b0b9f27cdd6d13c072dd1f25199ee09eec
 branch: fix/20260907-synology-deploy-resume-readiness
 pr: 1321
 status: validating
@@ -78,6 +79,7 @@ owned_paths:
   - deploy/synology/scripts/deploy.sh
   - deploy/synology/scripts/health-check.sh
   - tests/ci/test_synology_rollback_contract.py
+  - tests/ci/test_synology_rollback_recovery_contract.py
   - tests/ci/test_synology_auto_staging_deploy.py
   - docs/agents/tasks/active/OTERYN-20260907-auto-synology-staging.md
 proven:
@@ -87,17 +89,18 @@ proven:
   - Post-merge Build Synology Staging Images run 34155083384 published exact-SHA Platform/Gateway images for bbeb084b0a8da2c4640fa6ad7e2e542f039bf047 and dispatched Deploy Synology Staging run 34155125960.
   - Deploy run 34155125960 first attempt passed runner tools, GHCR login, deployment configuration, immutable runtime digest resolution and staging env creation; it completed the historical Platform migration backlog and reached runtime health validation.
   - That first attempt failed because Gateway /health was available but aggregate Gateway /ready returned HTTP 503 through its full retry window.
-  - The retry of the same run failed earlier with `Deployment rejected: unresolved candidate release bbeb084b0a8da2c4640fa6ad7e2e542f039bf047 still owns recovery evidence.` after the prior migration had completed.
-  - The retry also proved a second full `docker compose pull` was redundant and consumed material deployment time even with runtime images already resolved.
+  - The retry of the same run failed earlier because the exact candidate still owned candidate-release recovery evidence after its migration completed.
   - PR #1321 permits candidate resume only for the exact same release SHA, exact immutable Platform/Gateway/Canary identities, exact staging world identity and schema-state=known for that release; recovery evidence remains until full health success.
   - PR #1321 removes the second full Compose pull, force-refreshes TLS bootstrap, and adds explicit Canary issuer plus internal TLS dependency probes before Gateway aggregate readiness.
-  - Temporary construction run 34158731681 passed Bash syntax checks plus tests/ci/test_synology_rollback_contract.py and tests/ci/test_synology_auto_staging_deploy.py before the final repair commit was published.
+  - Temporary construction run 34158731681 passed Bash syntax checks plus tests/ci/test_synology_rollback_contract.py and tests/ci/test_synology_auto_staging_deploy.py before publication.
+  - Initial repository Synology Rollback Contract run 34158908800 proved the primary rollback suite still passed 29 tests and exposed one stale recovery-contract assertion that treated every surviving candidate as an unconditional stop.
+  - Commit 6e4770b0b9f27cdd6d13c072dd1f25199ee09eec updates the recovery contract to preserve fail-closed behavior for different, drifted or unproven candidates while requiring exact proof before same-candidate resume and requiring candidate deletion only after overall deploy success.
 derived:
   - The remaining deploy defect is not main dispatch, image publication, runner tooling, GHCR authentication or canonical URL validation.
   - Aggregate Gateway readiness needs dependency-level evidence; preserving `/ready` as a blocking gate is required because weakening it could expose broken login/session behavior.
 unknown:
   - Whether the live failing dependency is Gateway -> Platform internal TLS, Gateway -> Canary session issuer internal TLS, or Gateway aggregate behavior after both dependencies are healthy; PR #1321 makes the next live run distinguish these cases.
-  - Exact PR #1321 repository CI and post-merge live deployment result are pending.
+  - Exact final PR #1321 repository CI and post-merge live deployment result are pending.
 conflicts: []
 first_failure:
   marker: GATEWAY_AGGREGATE_READINESS_503
@@ -106,13 +109,15 @@ rejected_hypotheses:
   - Main-to-Synology dispatch is broken; the exact main run dispatched the live workflow successfully.
   - Runtime image identity is missing; exact Platform/Gateway/Canary digest resolution passed.
   - Python or stale APP_URL still blocks deployment; both corresponding validation steps passed after PRs #1317 and #1320.
-  - Re-running the same failed candidate is safe without state proof; existing recovery evidence correctly prevents blind overwrite, so PR #1321 permits only a fully proven exact-candidate resume.
+  - Re-running the same failed candidate is safe without state proof; recovery evidence correctly prevents blind overwrite, so PR #1321 permits only a fully proven exact-candidate resume.
+  - The initial #1321 rollback failure represented runtime regression; its primary rollback suite passed and only the retired unconditional-candidate test assertion failed.
 changed_paths:
   - deploy/synology/scripts/lib.sh
   - deploy/synology/scripts/prepare-fresh-schema-baseline.sh
   - deploy/synology/scripts/deploy.sh
   - deploy/synology/scripts/health-check.sh
   - tests/ci/test_synology_rollback_contract.py
+  - tests/ci/test_synology_rollback_recovery_contract.py
   - tests/ci/test_synology_auto_staging_deploy.py
   - docs/agents/tasks/active/OTERYN-20260907-auto-synology-staging.md
 validation:
@@ -125,12 +130,15 @@ validation:
   - command: Temporary Synology Deploy Repair Writer run 34158731681
     result: PASS
     evidence: Bash syntax plus focused rollback and auto-staging contract suites passed before publication
-  - command: repository-hosted PR #1321 exact-head checks
+  - command: Synology Rollback Contract run 34158908800
+    result: FAIL
+    evidence: primary rollback suite PASS (29 tests); one stale recovery test still required the retired unconditional candidate-stop prose
+  - command: repository-hosted PR #1321 final exact-head checks
     result: NOT_RUN
-    evidence: checks start after this checkpoint publication
+    evidence: checks restart after recovery-contract and checkpoint publication
 blockers:
   - none
-next_action: Validate PR #1321, integrate through protected Merge Queue, run the automatic exact-main Synology deployment, repair any dependency identified by the new direct readiness probes, and archive this task only after the complete live health contract passes.
+next_action: Validate final PR #1321, integrate through protected Merge Queue, use the merged scripts to resume the existing bbeb084b exact candidate safely and identify/fix any real readiness dependency, then deploy the newest exact main SHA and archive only after the complete live health contract passes.
 ```
 
 ## Source branch closeout
