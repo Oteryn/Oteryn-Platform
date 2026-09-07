@@ -1,0 +1,13 @@
+{
+  "apply_on_main": false,
+  "candidate_count": 1,
+  "confirmation": "APPROVE_REVIEWED_TERMINAL_CLOSED_UNMERGED_BRANCHES_ISSUE_1050",
+  "entries_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "issue": 1050,
+  "policy_sha256": "3d646fbd53bd0ae38572dcf80201159d7e05d5562919e55c75f99a83a4031c20",
+  "review_summary": "PROVISIONAL NON-APPLYING PR DRY-RUN TRIGGER FOR ISSUE 1305. This impossible digest is not a reviewed candidate approval and must not merge.",
+  "reviewed_at": "2026-09-07T10:02:00Z",
+  "reviewed_by": "NOT_REVIEWED_PROVISIONAL",
+  "schema_version": 1,
+  "source_artifact": "PENDING_PR_DRY_RUN"
+}
