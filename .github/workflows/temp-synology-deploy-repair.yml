@@ -1,0 +1,47 @@
+name: Temporary Synology Deploy Repair Writer
+
+on:
+  push:
+    branches:
+      - fix/20260907-synology-deploy-resume-readiness
+    paths:
+      - .github/workflows/temp-synology-deploy-repair.yml
+
+permissions:
+  contents: write
+
+jobs:
+  write-repair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repair branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: fix/20260907-synology-deploy-resume-readiness
+          fetch-depth: 0
+
+      - name: Apply bounded repair
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/temp_synology_deploy_repair.py
+          bash -n deploy/synology/scripts/lib.sh
+          bash -n deploy/synology/scripts/prepare-fresh-schema-baseline.sh
+          bash -n deploy/synology/scripts/deploy.sh
+          bash -n deploy/synology/scripts/health-check.sh
+          python3 tests/ci/test_synology_rollback_contract.py
+          python3 tests/ci/test_synology_auto_staging_deploy.py
+
+      - name: Commit non-workflow repair
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add deploy/synology/scripts/lib.sh \
+            deploy/synology/scripts/prepare-fresh-schema-baseline.sh \
+            deploy/synology/scripts/deploy.sh \
+            deploy/synology/scripts/health-check.sh \
+            tests/ci/test_synology_rollback_contract.py \
+            tests/ci/test_synology_auto_staging_deploy.py \
+            .github/scripts/temp_synology_deploy_repair.py
+          git commit -m "fix(staging): resume failed candidates safely"
+          git push origin HEAD:fix/20260907-synology-deploy-resume-readiness
