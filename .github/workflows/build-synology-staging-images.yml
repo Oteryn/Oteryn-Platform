@@ -18,6 +18,7 @@ on:
       - deploy/synology/**
       - tests/ci/test_synology_rollback_contract.py
       - tests/ci/test_synology_deploy_release_identity.py
+      - tests/ci/test_synology_auto_staging_deploy.py
       - .github/workflows/build-synology-staging-images.yml
       - .github/workflows/deploy-synology-staging.yml
   push:
@@ -34,7 +35,9 @@ on:
       - resources/**
       - routes/**
       - services/game-gateway/**
-      - deploy/synology/docker/**
+      - deploy/synology/**
+      - .github/workflows/build-synology-staging-images.yml
+      - .github/workflows/deploy-synology-staging.yml
   workflow_dispatch:
 
 permissions:
@@ -74,6 +77,7 @@ jobs:
           set -euo pipefail
           python3 tests/ci/test_synology_rollback_contract.py
           python3 tests/ci/test_synology_deploy_release_identity.py
+          python3 tests/ci/test_synology_auto_staging_deploy.py
 
       - name: Validate Compose manifests and LAN isolation
         run: |
@@ -286,3 +290,79 @@ jobs:
               docker run --rm --entrypoint /bin/bash "$IMAGE_REF" -ec 'docker --version && docker compose version && test -x /usr/local/bin/oteryn-runner-entrypoint'
               ;;
           esac
+
+  deploy-staging:
+    name: Deploy exact main SHA to Synology staging
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - validate-deployment
+      - build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch guarded exact-SHA Synology staging deployment
+        id: dispatch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CANARY_IMAGE_DIGEST: ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f
+        run: |
+          set -euo pipefail
+          echo 'dispatched=false' >> "$GITHUB_OUTPUT"
+
+          current_main="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          if [[ "$current_main" != "$GITHUB_SHA" ]]; then
+            echo "Skipping superseded main deployment: current main is $current_main, build SHA is $GITHUB_SHA."
+            exit 0
+          fi
+
+          dispatched_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-synology-staging.yml/dispatches" \
+            -f ref=main \
+            -f 'inputs[action]=deploy' \
+            -f "inputs[release_sha]=${GITHUB_SHA}" \
+            -f "inputs[canary_image]=${CANARY_IMAGE_DIGEST}" \
+            -f 'inputs[canary_game_bind_address]=192.168.1.2' \
+            -f 'inputs[game_world_id]=1' \
+            -f 'inputs[game_world_slug]=oteryn-staging' \
+            -f 'inputs[game_world_name]=Oteryn Staging' \
+            -f 'inputs[game_world_region]=LAN'
+
+          echo 'dispatched=true' >> "$GITHUB_OUTPUT"
+          echo "dispatched_at=$dispatched_at" >> "$GITHUB_OUTPUT"
+
+      - name: Locate and monitor Synology deployment run
+        if: steps.dispatch.outputs.dispatched == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPLOY_DISPATCHED_AT: ${{ steps.dispatch.outputs.dispatched_at }}
+        run: |
+          set -euo pipefail
+          deploy_run_id=""
+          for attempt in $(seq 1 60); do
+            deploy_run_id="$(
+              gh api \
+                "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-synology-staging.yml/runs?event=workflow_dispatch&branch=main&per_page=20" \
+                --jq ".workflow_runs | map(select(.created_at >= \"${DEPLOY_DISPATCHED_AT}\")) | sort_by(.created_at) | last | .id // empty"
+            )"
+            if [[ -n "$deploy_run_id" ]]; then
+              break
+            fi
+            echo "Waiting for Deploy Synology Staging run registration (attempt $attempt/60)"
+            sleep 5
+          done
+
+          if [[ -z "$deploy_run_id" ]]; then
+            echo "The deployment dispatch was accepted but no matching workflow run appeared." >&2
+            exit 1
+          fi
+
+          echo "Monitoring Deploy Synology Staging run ${deploy_run_id} for main SHA ${GITHUB_SHA}."
+          gh run watch "$deploy_run_id" \
+            --repo "$GITHUB_REPOSITORY" \
+            --exit-status \
+            --interval 10
