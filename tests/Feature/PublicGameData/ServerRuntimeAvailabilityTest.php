@@ -15,6 +15,7 @@ use Mockery;
 use Mockery\CompositeExpectation;
 use Mockery\MockInterface;
 use RuntimeException;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
 final class ServerRuntimeAvailabilityTest extends TestCase
@@ -212,6 +213,7 @@ final class ServerRuntimeAvailabilityTest extends TestCase
      * Match each world's labelled metrics, not the old inline <strong> markup.
      * An absent runtime must remain an em dash, never a fabricated zero/count.
      *
+     * @param  TestResponse<Response>  $response
      * @param  array<string, array<string, string>>  $expected
      */
     private function assertWorldMetrics(TestResponse $response, array $expected): void
