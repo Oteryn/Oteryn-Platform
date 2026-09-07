@@ -42,7 +42,21 @@ RUN composer install \
     --optimize-autoloader \
     --prefer-dist
 
-COPY . .
+# Keep the application layer cache key bound to real Platform runtime inputs.
+# Repository governance, tests, CI and unrelated deployment assets must not
+# invalidate a production Platform image layer.
+COPY artisan ./artisan
+COPY app/ ./app/
+COPY bootstrap/ ./bootstrap/
+COPY config/ ./config/
+COPY database/ ./database/
+COPY public/ ./public/
+COPY resources/ ./resources/
+COPY routes/ ./routes/
+COPY lang/ ./lang/
+COPY storage/ ./storage/
+COPY deploy/synology/release-contract.env ./deploy/synology/release-contract.env
+
 RUN composer dump-autoload --no-dev --no-interaction --optimize \
     && mkdir -p \
         storage/framework/cache \
