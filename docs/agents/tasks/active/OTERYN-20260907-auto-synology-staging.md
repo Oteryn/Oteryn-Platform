@@ -51,11 +51,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-07T18:05:29Z
-head: 87e584275e492a865bc6c005061126fbec33b7be
+updated_at: 2026-09-07T18:12:00Z
+head: 40aa02e6ffa994ae99313fc9acecbbe47502fcf8
 branch: ci/20260907-auto-synology-staging
-pr: none
-status: implementing
+pr: 1314
+status: validating
 context_routes:
   - testing
   - execution-resources
@@ -69,24 +69,28 @@ proven:
   - Existing Deploy Synology Staging is workflow_dispatch-only, serializes through synology-staging-deployment, validates exact release SHA, resolves immutable image digests, runs the guarded deploy/rollback scripts and removes its ephemeral environment file.
   - Historical trusted-main one-shot deployment used actions:write dispatch plus gh run watch successfully and established LAN game endpoint 192.168.1.2:7172 with world id 1.
   - Approved Canary staging image is ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f.
+  - PR #1314 is the live protected-main integration surface for branch ci/20260907-auto-synology-staging.
 derived:
   - Reusing the existing deploy workflow avoids duplicating secret handling, health checks, rollback and self-hosted cleanup semantics.
 unknown:
-  - Exact candidate CI and post-merge live staging deployment outcome are pending publication and integration.
+  - Exact candidate CI and post-merge live staging deployment outcome are pending.
 conflicts: []
 first_failure:
   marker: none
   evidence: none
 rejected_hypotheses:
   - A new permanent one-shot workflow is required; the existing image-build workflow can own the dispatch job without increasing workflow inventory.
-changed_paths: []
+changed_paths:
+  - .github/workflows/build-synology-staging-images.yml
+  - tests/ci/test_synology_auto_staging_deploy.py
+  - docs/agents/tasks/active/OTERYN-20260907-auto-synology-staging.md
 validation:
-  - command: not-run
+  - command: repository-hosted PR #1314 exact-head checks
     result: NOT_RUN
-    evidence: implementation candidate not yet published
+    evidence: final candidate publication is in progress
 blockers:
   - none
-next_action: Publish the build-workflow automation and focused contract test as one coherent candidate.
+next_action: Inspect PR #1314 exact-head checks and repair the first concrete failure if any.
 ```
 
 ## Source branch closeout
@@ -94,7 +98,7 @@ next_action: Publish the build-workflow automation and focused contract test as 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository protected PR path
-source_branch_evidence: governing Issue #1313 and owner-requested durable staging automation
+source_branch_evidence: governing Issue #1313 and PR #1314
 ```
 
 ## Notes
