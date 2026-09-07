@@ -16,9 +16,10 @@ final class HomePreviewTest extends TestCase
         $response = $this->get('/');
 
         $response->assertOk();
-        $response->assertSee('Answer the call of Oteryn');
+        $response->assertSee('More than a game. A living world.');
         $response->assertSee('css/portal-system.css', false);
         $response->assertSee('css/portal-pages.css', false);
+        $response->assertSee('css/portal-art-direction.css', false);
         $response->assertDontSee('css/home-preview.css', false);
         $response->assertDontSee('css/app.css', false);
         $response->assertSee('css/home-production.css', false);

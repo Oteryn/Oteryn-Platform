@@ -3,6 +3,7 @@ task_id: OTERYN-20260906-premium-portal-redesign
 governing_issue: 1297
 required_reads:
   - docs/architecture/MODULE_CATALOG.md
+  - docs/architecture/SECURITY_ARCHITECTURE.md
   - docs/architecture/TEST_STRATEGY.md
   - docs/agents/BUILD_TEST_MATRIX.md
 search_first:
@@ -12,100 +13,103 @@ search_first:
 optional_reads: []
 ---
 
-# Reference-aligned Oteryn player portal integration
+# Complete Oteryn Platform cinematic redesign
 
-## Goal and boundary
+## Goal and authority
 
-Issue #1297, existing PR #1298. Complete the reference-aligned player-facing Laravel/Blade redesign and integrate through protected main after exact-candidate verification. The owner's current instruction “masz to wdrozyc na main” supersedes the earlier no-merge hold. No production deployment, live credentials/data/payment operation, protection bypass, backend contract change or cross-repository work.
+Issue #1297; existing PR #1298. Finish the owner's complete website redesign against the three supplied cinematic references, prove it in the real Laravel application and integrate through protected main. The latest explicit owner instruction supersedes the earlier no-merge/human-preview-only hold. No production deployment, protected environment, live identity/payment, gate bypass or cross-repository action is authorized.
 
 ## Acceptance criteria
 
-- [x] Preserve the single owned redesign PR and prior functional page-family coverage.
-- [x] Prepare the shared art direction, homepage/news composition, icons, EN/PL and scenery dependencies.
-- [ ] Pass exact-candidate PHP/static and required/browser checks without suppressing failures.
-- [ ] Inspect real EN/PL guest/account/edge-state renders across phone/tablet/desktop/wide.
-- [ ] Integrate through the protected PR route, verify main, archive the terminal task and verify source-branch disposition.
+- [x] Retain the existing functional public/player work and route ledger, rather than start a competing rewrite.
+- [ ] Publish coherent cinematic presentation across public, identity, error and administrator page families.
+- [ ] Pass current-head application/static and required CI checks.
+- [ ] Prove real guest/account/admin navigation and applicable actor-to-result paths, EN/PL and responsive/edge states; inspect actual screenshots and repair findings.
+- [ ] Review the complete exact candidate diff and integrate through repository protections under the owner's instruction.
+- [ ] Record terminal evidence, archive the packet and verify the source-branch disposition.
 
 ## Ownership
 
-One writer owns this task's player-facing presentation, focused test repairs and evidence. Administrator design, controllers, domain/security/payment behavior, routes, databases, workflows and unrelated tasks remain untouched. The former temporary art-direction execution prompt is retired; its history is preserved in Git.
+This single writer owns presentation under resources/views, shared CSS/JS, decorative Oteryn artwork, presentation-only translations, focused PHP/browser tests and this task's evidence. The owner's whole-Platform request now includes administrator presentation; it does not change RBAC, MFA or privileged operation semantics. Controllers, routes, domain/authentication/payment behavior, schemas, workflows/protection and production are excluded. Independent audit #1294 and inactive catalog consumer #338 remain untouched.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: '2026-09-07T14:39:29Z'
+updated_at: 2026-09-07T14:58:20Z
 head: 341e5021499f3b437a4985409e4792436529a504
 branch: feat/20260906-premium-portal-redesign
 pr: 1298
-status: validating
+status: implementing
 context_routes:
   - web-cms
+  - auth-identity
+  - admin-rbac
   - testing
-  - agent-governance
 owned_paths:
   - resources/views/**
-  - public/css/portal-art-direction.css
-  - public/css/home-production.css
-  - public/images/oteryn-vistas.webp
+  - public/css/**
+  - public/js/portal-navigation.js
+  - public/images/oteryn-*.webp
   - lang/en/portal_art.php
   - lang/pl/portal_art.php
   - scripts/acceptance/tests/portal-visual-review.spec.mjs
   - scripts/acceptance/tests/support-legal-acceptance.spec.mjs
-  - tests/Feature/PortalArtDirectionTest.php
-  - docs/testing/PORTAL_ART_DIRECTION_CORRECTION_2026-09-07.md
+  - tests/Feature/HomeTest.php
+  - tests/Feature/HomePreviewTest.php
+  - docs/testing/PORTAL_RENDER_*
   - docs/agents/tasks/active/OTERYN-20260906-premium-portal-redesign.md
-  - docs/agents/prompts/OTERYN-PORTAL-ART-DIRECTED-REDESIGN-ASTRA.md
 proven:
-  - Owner now explicitly authorizes main integration in the current conversation; PR comment records that update. Production and protection bypass remain excluded.
-  - Fresh protected main is 721d560c18ef8a6eefbf4ccd685d8302985bbd3d; original PR head is 341e5021499f3b437a4985409e4792436529a504.
-  - Prepared shared art layer, homepage/news composition, icons, EN/PL copy and decorative source crops form one coherent presentation package.
-  - The exact current visual test blob d285807369ad40c73ca5796c451117615aecd2b7 was reconstructed before two fixture repairs; support test starting blob is f0af2046ab523243972da0594ea1cfcc280c83e6.
-derived:
-  - The registered acceptance identity provides the backing account that the former read-model-only fixture omitted.
+  - Protected main is 721d560c18ef8a6eefbf4ccd685d8302985bbd3d and the open owned PR resumes at 341e5021499f3b437a4985409e4792436529a504.
+  - The owner explicitly requested whole-platform completion and main integration; PR comment 5572165616 records the updated task boundary.
+  - Existing visual evidence at 7b4d03ea is a functional baseline, not acceptance of the newly requested cinematic design.
+  - Source inspection shows the original visual fixture created only a read-model binding, while RegistrationController invokes the genuine isolated provisioning path.
+  - The reconstructed current visual test matches Git blob d285807369ad40c73ca5796c451117615aecd2b7 before the focused fixture repair.
+  - Local JavaScript syntax and presentation translation PHP syntax checks passed.
+derived: []
 unknown:
-  - New exact-candidate hosted PHP/static/browser results and complete visual acceptance are pending.
+  - The prepared candidate has not yet passed current-head Laravel or browser acceptance.
+  - Final whole-platform visual acceptance and protected-main integration remain unverified.
 conflicts: []
 first_failure:
-  marker: PRIOR_BROWSER_FIXTURE_FAILURE
-  evidence: Historical acceptance 34124102942 / artifact 10019441659 fails character creation and worker fixture setup; old results are not new candidate proof.
+  marker: CANDIDATE_PUBLICATION_AND_ACCEPTANCE_PENDING
+  evidence: Prior Acceptance run 34124102942 failed character creation and fixture setup; prior Support Legal run 34124102947 reported undeclared expected negative responses.
 rejected_hypotheses:
-  - A main integration request authorizes production or protection bypass.
+  - Maintenance/deployment restrictions forbid independent presentation implementation.
 changed_paths:
-  - resources/views/**
   - public/css/portal-art-direction.css
   - public/css/home-production.css
-  - public/images/oteryn-vistas.webp
-  - lang/en/portal_art.php
-  - lang/pl/portal_art.php
+  - public/css/portal-admin.css
+  - resources/views/home.blade.php
+  - resources/views/admin/layout.blade.php
+  - resources/views/admin/partials/navigation.blade.php
   - scripts/acceptance/tests/portal-visual-review.spec.mjs
   - scripts/acceptance/tests/support-legal-acceptance.spec.mjs
-  - tests/Feature/PortalArtDirectionTest.php
-  - docs/testing/PORTAL_ART_DIRECTION_CORRECTION_2026-09-07.md
-  - docs/agents/tasks/active/OTERYN-20260906-premium-portal-redesign.md
-  - docs/agents/prompts/OTERYN-PORTAL-ART-DIRECTED-REDESIGN-ASTRA.md
+  - docs/testing/PORTAL_RENDER_ALIGNMENT_2026-09-07.md
 validation:
-  - command: Local CSS parser, JavaScript/PHP syntax, translation/asset dependency and checkpoint checks
+  - command: node --check on the two prepared acceptance tests
     result: PASS
-    evidence: Both CSS files parse; both repaired browser specs pass node --check; both translation files and the new PHP test pass php -l; shared-layout and locale dependencies checked. Local checks are not Laravel/browser acceptance.
-  - command: Existing exact-SHA GitHub Actions PHP/static and real Laravel browser acceptance
+    evidence: Local syntax; no browser outcome implied.
+  - command: php -l on the EN and PL presentation translation files
+    result: PASS
+    evidence: Local PHP 8.4 syntax; required PHP 8.5 application validation remains hosted.
+  - command: exact-candidate Laravel and browser acceptance
     result: NOT_RUN
-    evidence: Run on the published coherent candidate; no old-head pass is reused as current acceptance.
+    evidence: Pending publication of the coherent candidate.
 blockers:
-  - No verified candidate results yet; retain draft until required evidence and visual review are complete.
-next_action: Publish the coherent art-directed candidate, execute existing isolated acceptance and inspect matching screenshots before protected-main integration.
+  - Local DNS and Composer dependencies are unavailable; use the existing repository-hosted runtime.
+  - Historical tool rejections are not treated as resolved until the focused authorized repair is accepted by the current write path.
+next_action: Publish the coherent presentation and focused test candidate, then inspect exact-head hosted test results and actual family renders before protected integration.
 ```
 
-## Evidence and execution
+## Evidence and recovery
 
-`docs/testing/PORTAL_ART_DIRECTION_CORRECTION_2026-09-07.md` records implementation and scenery provenance. `docs/testing/PORTAL_REDESIGN_REVIEW_2026-09-06.md` preserves the full route ledger. Exact-head screenshots are evidence only when their manifest and the PR tested candidate agree. Concept renders and local syntax checks never substitute for actual application acceptance.
-
-Use the existing GitHub-hosted Laravel runtime and isolated synthetic data. No workstation, Synology or staging/production access is authorized. No unsupported subagent or background continuation is claimed.
+`docs/testing/PORTAL_RENDER_ALIGNMENT_2026-09-07.md` records this implementation pass and provenance. The preceding route ledger and PR attestation preserve historical evidence. No background worker, actual deployment or final acceptance is claimed. Preserve all failing assertions and diagnostic guards.
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: Owner authorizes protected-main integration; verify normal source-branch cleanup after actual merge
-source_branch_evidence: Current conversation and live PR 1298
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: owner now requests protected-main integration; verify deletion only after successful accepted merge and terminal closeout
+source_branch_evidence: latest owner instruction; PR 1298 comment 5572165616
 ```

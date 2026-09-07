@@ -1,6 +1,7 @@
 /* Oteryn art direction. Structure and interaction remain in portal-system/pages.
-   This shared visual layer serves public, identity and error layouts, never admin. */
+   Shared visual tokens and controls serve the complete Platform; admin adds its task-focused layout. */
 :root {
+    --display: Georgia, 'Times New Roman', serif;
     --bg: #080e14;
     --bg-subtle: #101923;
     --surface: #14202c;
@@ -107,13 +108,13 @@ button:disabled, .button[aria-disabled="true"] { box-shadow: none; }
 .portal-context-nav a { font-size: .8rem; min-height: 2.75rem; }
 .portal-context-nav a[aria-current="page"] { box-shadow: inset 0 -1px var(--gold); }
 /* Decorative scene strips contain no rendered text or controls. */
-.scene { background-image: url('../images/oteryn-vistas.webp'); background-size: 600% 100%; background-repeat: no-repeat; background-color: #162332; }
-.scene-explore { background-position: 0% center; }
-.scene-fight { background-position: 20% center; }
-.scene-market { background-position: 40% center; }
-.scene-community { background-position: 60% center; }
-.scene-library { background-position: 80% center; }
-.scene-chronicles { background-position: 100% center; }
+.scene { background-image: url('../images/oteryn-explore.webp'); background-size: cover; background-repeat: no-repeat; background-color: #162332; }
+.scene-explore { background-image: url('../images/oteryn-explore.webp'); background-position: center; }
+.scene-fight { background-image: url('../images/oteryn-fight.webp'); background-position: center; }
+.scene-market { background-image: url('../images/oteryn-market.webp'); background-position: center; }
+.scene-community { background-image: url('../images/oteryn-community.webp'); background-position: center; }
+.scene-library { background-image: url('../images/oteryn-library.webp'); background-position: center; }
+.scene-chronicles { background-image: url('../images/oteryn-chronicles.webp'); background-position: center; }
 /* Chronicles: an illustrated lead, smaller stories, and a long-form reading surface. */
 .chronicle-index { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2rem; }
 .chronicle-entry { display: grid; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-fill); }
@@ -293,4 +294,21 @@ tbody tr:hover { background: #d6b4770a; }
     .public-body::before, .identity-authenticated::before, .scene, .reading-world { display: none; }
     button, .button, .notice, .alert, .empty-state, .table-region, .account-sidebar, .chronicle-entry, .world-row, .error-panel { border: 1px solid CanvasText; box-shadow: none; }
     .page-shell > .page-header::after, .page-shell > .bazaar-hero::after { background: CanvasText; }
+}
+
+/* Long translated labels and utility families share the same finishing rules. */
+.realm-icon { display: inline-block; width: 1.6rem; height: 1.6rem; flex: 0 0 auto; color: var(--gold); vertical-align: middle; }
+.portal-context-nav a, .context-nav a, .nav-link { overflow-wrap: anywhere; }
+.identity-panel .page-header h1 { text-wrap: balance; }
+.identity-panel > form, .identity-panel .content-card { min-width: 0; }
+.payment-scroll-region { max-width: 100%; overflow-x: auto; }
+.wiki-article-header, .wiki-hero { border-bottom-color: var(--gold-rule); }
+.wiki-page .page-header h1, .community-page .page-header h1 { font-size: clamp(2.4rem, 4.1vw, 4rem); }
+.wiki-page .card-grid > article { border-top-color: var(--gold-rule); }
+.catalog-description, .catalog-detail, .session-analysis-detail { color: var(--text-muted); }
+.calendar-cover { height: 9rem; margin-block: 1.5rem 2rem; border: 1px solid var(--gold-rule); border-radius: var(--radius-sm); }
+@media (max-width: 39.99rem) {
+    .identity-guest .identity-shell { padding: 1.3rem; }
+    .identity-body .account-actions { max-width: 100%; }
+    .calendar-cover { height: 6rem; }
 }

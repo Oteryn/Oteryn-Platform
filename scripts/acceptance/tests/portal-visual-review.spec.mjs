@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { repoRoot, testedSha, runBinary, login, logout, register, uniqueEmail, uniqueCharacterName, assertAccessibilitySmoke } from './helpers.mjs';
+import { repoRoot, testedSha, runBinary, register, login, logout, completeMfaChallenge, uniqueEmail, uniqueCharacterName, assertAccessibilitySmoke } from './helpers.mjs';
 import { revealPublicNavigationLink } from './portal-navigation.mjs';
 
 const output = resolve(repoRoot, 'artifacts/acceptance/portal-review');
@@ -11,7 +11,7 @@ const viewports = [
   ['tablet', { width: 820, height: 1180 }],
   ['wide', { width: 1920, height: 1080 }],
 ];
-const email = uniqueEmail('portal-review');
+const email = uniqueEmail('portal.review');
 const password = 'Portal-Review-9!Only';
 let auction;
 
@@ -36,12 +36,13 @@ test.beforeAll(() => {
     ['scripts/acceptance/seed-game-catalog.php'],
     ['scripts/acceptance/seed-downloads-state.php', 'seed-portability'],
   ]) runBinary('php', args);
-  auction = JSON.parse(runBinary('php', ['scripts/acceptance/seed-marketplace.php', uniqueEmail('portal-bazaar'), password]));
+  auction = JSON.parse(runBinary('php', ['scripts/acceptance/seed-marketplace.php', uniqueEmail('portal.bazaar'), password]));
 });
 
 async function capture(page, name, status) {
   await page.evaluate(() => document.fonts.ready);
   await expect(page.locator('main')).toBeVisible();
+  await expect(page.locator('link[href$="/css/portal-art-direction.css"]')).toHaveCount(1);
   const defects = await page.evaluate(() => {
     const missing = [...document.images].filter((image) => !image.complete || image.naturalWidth === 0)
       .map((image) => image.getAttribute('src')?.startsWith('data:') ? '[inline image]' : image.getAttribute('src'));
@@ -149,6 +150,7 @@ test('@smoke @portal-review grouped navigation, mobile keyboard, locale, search 
 });
 
 test('@smoke @portal-review actual authenticated hub, characters, support, security and tools', async ({ page }) => {
+  // A read-model binding is not a provisioned game account. Register through Laravel.
   await register(page, email, password);
   await login(page, email, password);
   await page.goto('/account?locale=en');
@@ -256,7 +258,7 @@ test('@smoke @portal-review truthful edge states, phone 320, 200 percent text an
 
 
 test('@smoke @portal-review MFA challenge belongs to the identity system', async ({ page }) => {
-  const mfaEmail = uniqueEmail('portal-mfa-review');
+  const mfaEmail = uniqueEmail('portal.mfa.review');
   runBinary('php', ['scripts/acceptance/seed-browser-events.php', 'seed-identity', mfaEmail, password, 'PORTAL-REVIEW-MFA-01', 'confirmed', '']);
   await page.goto('/login?locale=en');
   await login(page, mfaEmail, password);
@@ -266,4 +268,33 @@ test('@smoke @portal-review MFA challenge belongs to the identity system', async
     await capture(page, `${name}-mfa-challenge`, 200);
     await assertAccessibilitySmoke(page);
   }
+});
+
+
+test('@smoke @portal-review administration and every registered administrator navigation family', async ({ page }) => {
+  const adminEmail = uniqueEmail('portal.admin.review');
+  const recoveryCode = 'PORTAL-ADMIN-REVIEW-01';
+  runBinary('php', ['scripts/acceptance/seed-browser-admin.php', adminEmail, password, recoveryCode]);
+  await login(page, adminEmail, password);
+  await completeMfaChallenge(page, recoveryCode);
+  await page.goto('/admin');
+  const destinations = await page.locator('.admin-sidebar .admin-nav a').evaluateAll((links) =>
+    [...new Set(links.map((link) => new URL(link.href).pathname))]);
+  expect(destinations.length).toBeGreaterThanOrEqual(16);
+  for (const [name, viewport] of viewports.filter(([name]) => ['desktop', 'phone'].includes(name))) {
+    await page.setViewportSize(viewport);
+    for (const path of destinations) {
+      await visit(page, path, `${name}-admin-${path.replace(/^\/admin\/?/u, '').replaceAll('/', '-') || 'dashboard'}`);
+    }
+    for (const path of ['/admin/news/create', '/admin/pages/create', '/admin/events/create', '/admin/announcements/create', '/admin/downloads/create']) {
+      await visit(page, path, `${name}-${path.slice(1).replaceAll('/', '-')}`);
+    }
+  }
+  await page.goto('/admin?locale=pl');
+  await capture(page, 'phone-admin-localized-shell', 200);
+  const menu = page.locator('.admin-mobile-nav');
+  await menu.locator('summary').click();
+  await expect(menu.locator('nav')).toBeVisible();
+  await capture(page, 'phone-admin-menu', 200);
+  await assertAccessibilitySmoke(page);
 });

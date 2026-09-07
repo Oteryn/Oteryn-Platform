@@ -19,7 +19,7 @@
         <div class="realm-hero-copy">
             <p class="eyebrow">{{ __('portal_art.kicker') }}</p>
             <h1 id="home-hero-title" aria-label="Oteryn Platform">OTERYN</h1>
-            <h2 class="realm-hero-tagline">{{ __('public.home.hero_title') }}</h2>
+            <h2 class="realm-hero-tagline">{{ __('portal_art.hero_title') }}</h2>
             <p class="realm-hero-lede">{{ __('public.home.hero_lede') }}</p>
             <div class="realm-hero-actions">
                 @guest
@@ -36,20 +36,20 @@
                 <a href="{{ route('game.guilds.index') }}">@include('game.partials.realm-icon', ['icon' => 'community'])<span>{{ __('portal_art.community') }}</span></a>
             </nav>
         </div>
-    <section class="realm-pulse production-hero-world" data-hero-world-state="{{ $homePage->world->state->value }}" aria-label="{{ __('public.home.world_activity') }}">
-        <div class="realm-pulse-inner">
-            <span class="production-state-badge production-state-{{ strtolower($homePage->world->state->value) }}">{{ __('public.states.'.strtolower($homePage->world->state->value)) }}</span>
-            @if ($homePage->world->state === \App\PublicPortal\PublicContentState::AVAILABLE)
-                <strong>{{ trans_choice('public.home.players_online', $homePage->world->playersOnline ?? 0, ['count' => $localeFormatter->number($homePage->world->playersOnline ?? 0)]) }}</strong>
-            @else
-                <p>{{ __('portal.home.summary_'.strtolower($homePage->world->state->value)) }}</p>
-            @endif
-            @if (collect($homePage->world->channels)->contains(static fn ($channel) => $channel->maintenance))
-                <p class="production-hero-maintenance">{{ __('public.home.maintenance') }}</p>
-            @endif
-            <a href="#realm-overview">{{ __('public.home.view_realm') }} <span aria-hidden="true">↓</span></a>
-        </div>
-    </section>
+        <section class="realm-pulse production-hero-world" data-hero-world-state="{{ $homePage->world->state->value }}" aria-label="{{ __('public.home.world_activity') }}">
+            <div class="realm-pulse-inner">
+                <span class="production-state-badge production-state-{{ strtolower($homePage->world->state->value) }}">{{ __('public.states.'.strtolower($homePage->world->state->value)) }}</span>
+                @if ($homePage->world->state === \App\PublicPortal\PublicContentState::AVAILABLE)
+                    <strong>{{ trans_choice('public.home.players_online', $homePage->world->playersOnline ?? 0, ['count' => $localeFormatter->number($homePage->world->playersOnline ?? 0)]) }}</strong>
+                @else
+                    <p>{{ __('portal.home.summary_'.strtolower($homePage->world->state->value)) }}</p>
+                @endif
+                @if (collect($homePage->world->channels)->contains(static fn ($channel) => $channel->maintenance))
+                    <p class="production-hero-maintenance">{{ __('public.home.maintenance') }}</p>
+                @endif
+                <a href="#realm-overview">{{ __('public.home.view_realm') }} <span aria-hidden="true">↓</span></a>
+            </div>
+        </section>
 
     </section>
 
@@ -66,10 +66,10 @@
                         <article class="journal-story {{ $loop->first ? 'journal-story-lead' : '' }}">
                             <div class="journal-illustration scene scene-{{ ['fight', 'chronicles', 'community'][$loop->index % 3] }}" aria-hidden="true"></div>
                             <div class="journal-copy">
-                            <p class="production-news-date">{{ $post->published_at ? $localeFormatter->date($post->published_at) : '' }}</p>
-                            <h3><a href="{{ route('news.show', ['slug' => $post->slug]) }}">{{ $post->title }}</a></h3>
-                            <p>{{ Str::limit($post->body, $loop->first ? 130 : 80) }}</p>
-                            <a class="realm-text-link" href="{{ route('news.show', ['slug' => $post->slug]) }}">{{ __('public.news.read') }} <span aria-hidden="true">→</span></a>
+                                <p class="production-news-date">{{ $post->published_at ? $localeFormatter->date($post->published_at) : '' }}</p>
+                                <h3><a href="{{ route('news.show', ['slug' => $post->slug]) }}">{{ $post->title }}</a></h3>
+                                <p>{{ Str::limit($post->body, $loop->first ? 130 : 80) }}</p>
+                                <a class="realm-text-link" href="{{ route('news.show', ['slug' => $post->slug]) }}">{{ __('public.news.read') }} <span aria-hidden="true">→</span></a>
                             </div>
                         </article>
                     @endforeach

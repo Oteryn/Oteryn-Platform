@@ -15,7 +15,7 @@
     <div class="chronicle-index">
     @forelse ($posts as $post)
         <article class="card chronicle-entry @if($loop->first && $posts->onFirstPage()) chronicle-entry-lead @endif">
-            <div class="chronicle-illustration scene scene-{{ ['chronicles', 'explore', 'community'][$loop->index % 3] }}" aria-hidden="true"></div>
+            <div class="chronicle-illustration scene scene-{{ ['explore', 'chronicles', 'community'][$loop->index % 3] }}" aria-hidden="true"></div>
             <div class="chronicle-copy">
             <p class="eyebrow">{{ __('public.news.published', ['date' => $post->published_at ? $localeFormatter->dateTime($post->published_at) : '']) }}</p>
             <h2><a href="{{ route('news.show', ['slug' => $post->slug]) }}">{{ $post->title }}</a></h2>

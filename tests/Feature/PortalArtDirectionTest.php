@@ -23,7 +23,7 @@ final class PortalArtDirectionTest extends TestCase
 
     public function test_both_home_locales_resolve_the_new_copy_and_icon_partial(): void
     {
-        foreach (['en' => 'A persistent world awaits', 'pl' => 'Świat przygód czeka'] as $locale => $copy) {
+        foreach (['en' => 'A persistent world awaits', 'pl' => 'Świat pełen przygód czeka'] as $locale => $copy) {
             $this->get('/'.$locale)->assertOk()
                 ->assertSee($copy)
                 ->assertSee('class="realm-icon"', false)
@@ -32,15 +32,19 @@ final class PortalArtDirectionTest extends TestCase
         }
     }
 
-    public function test_all_decorative_art_dependencies_are_shipped_without_replacing_admin_styles(): void
+    public function test_all_decorative_art_dependencies_are_shipped_and_admin_keeps_its_foundation(): void
     {
-        foreach (['css/portal-art-direction.css', 'css/home-production.css', 'images/oteryn-vistas.webp', 'images/oteryn-citadel.webp'] as $path) {
+        foreach (['css/portal-art-direction.css', 'css/home-production.css', 'css/portal-admin.css', 'images/oteryn-vistas.webp', 'images/oteryn-citadel.webp'] as $path) {
             self::assertFileExists(public_path($path));
+        }
+        foreach (['explore', 'fight', 'market', 'community', 'library', 'chronicles'] as $scene) {
+            self::assertFileExists(public_path('images/oteryn-'.$scene.'.webp'));
         }
 
         $adminLayout = file_get_contents(resource_path('views/admin/layout.blade.php'));
         self::assertIsString($adminLayout);
-        self::assertStringNotContainsString('portal-art-direction.css', $adminLayout);
+        self::assertStringContainsString('portal-art-direction.css', $adminLayout);
+        self::assertStringContainsString('portal-admin.css', $adminLayout);
         self::assertStringContainsString('css/app.css', $adminLayout);
     }
 }
