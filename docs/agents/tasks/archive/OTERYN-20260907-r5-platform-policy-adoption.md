@@ -3,7 +3,7 @@ task_id: OTERYN-20260907-r5-platform-policy-adoption
 governing_issue: 1302
 required_reads: []
 search_first:
-  - docs/agents/tasks/active/OTERYN-20260907-meta-agent-policy-v3-adoption.md
+  - docs/agents/tasks/archive/OTERYN-20260907-meta-agent-policy-v3-adoption.md
   - docs/agents/evidence/OTERYN-20260907-meta-agent-policy-v3-adoption.md
 optional_reads: []
 ---
@@ -28,7 +28,7 @@ After PR #1303 integrated the seven-path residual, protected META evidence at `O
 - [x] `GITHUB_ONLY_EXECUTION.md` no longer grants a competing direct-squash fallback.
 - [x] `TERMINAL_ONLY_COMMUNICATION.md` no longer overrides the bound communication policy.
 - [x] `AUTONOMOUS_PROGRAM_CONTINUATION.md` and `PROMPTING_HANDOVER.md` retain only Platform-specific programme and handoff deltas.
-- [ ] Focused validation, exact-head hosted checks and protected integration/closeout are complete.
+- [x] Focused validation, exact-head hosted checks and protected integration are complete; this lifecycle-only carrier archives the packet and closes the Issue.
 
 ## Ownership
 
@@ -44,7 +44,7 @@ owned_paths:
   - docs/agents/PLATFORM_AGENT_BOOTSTRAP.md
   - docs/agents/PROMPTING_HANDOVER.md
   - docs/agents/TERMINAL_ONLY_COMMUNICATION.md
-  - docs/agents/tasks/active/OTERYN-20260907-r5-platform-policy-adoption.md
+  - docs/agents/tasks/archive/OTERYN-20260907-r5-platform-policy-adoption.md
 modules:
   - agent-governance
 dependencies:
@@ -61,11 +61,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-07T11:45:00Z
-head: 421b89231b02a5c20281cc2a0daaf1c3b5c0d9f2
-branch: docs/r5-platform-controller-residue-1302
-pr: 1309
-status: validating
+updated_at: 2026-09-07T11:56:00Z
+head: 796209ead741041e8da943fc8c3846672ac96475
+branch: docs/r5-platform-policy-closeout-1302
+pr: none
+status: completed
 context_routes:
   - agent-governance
 owned_paths:
@@ -79,7 +79,7 @@ owned_paths:
   - docs/agents/PLATFORM_AGENT_BOOTSTRAP.md
   - docs/agents/PROMPTING_HANDOVER.md
   - docs/agents/TERMINAL_ONLY_COMMUNICATION.md
-  - docs/agents/tasks/active/OTERYN-20260907-r5-platform-policy-adoption.md
+  - docs/agents/tasks/archive/OTERYN-20260907-r5-platform-policy-adoption.md
 proven:
   - Protected main b0f268d682b1f9117140168a3a9d9b86c56ba9cc contains the accepted PR #1304 policy adoption and the completed #1305 cleanup closeout from PRs #1306-#1308.
   - PR #1304 owns the META binding, trusted policy consumer, prompt inventory migration, workflow trust boundary and D26 archive; this task preserves those paths unchanged.
@@ -87,11 +87,12 @@ proven:
   - Issue #1299 closed externally at 2026-09-07T09:26:20Z; this task does not reactivate or re-close it.
   - Exact PR #1303 head e711378ce6bb3d1c54ba2c33c56f4fe957f261e9 passed Agent Governance run 34112609317 and CI run 34112609162, then merge-group CI run 34117619196 before protected integration as main 2c3934fece8e072f23ea33ad82f4b4399fc3b45e.
   - The post-integration META report at cee7df confirms PR #1303's reduced deltas but identifies copied global controller residue in four documents that the final seven-path reconciliation did not change.
-  - Draft PR #1309 publishes the bounded four-controller reduction from initial exact head 421b89231b02a5c20281cc2a0daaf1c3b5c0d9f2.
+  - Exact PR #1309 head 4e4ed5fc9ed32890d053cb1f930921cf7bab73bc and tree fab9b51c6b122c415238d755599da6f1ae8667fe passed CI run 34118721849, Agent Governance run 34118721863 attempt 2 and independent complete-diff review.
+  - PR #1309 passed merge-group CI run 34119020095 and integrated normally through Merge Queue as protected main 796209ead741041e8da943fc8c3846672ac96475.
+  - Live exact-ref readback after integration returns no ref for either docs/r5-platform-policy-adoption-1302 or docs/r5-platform-controller-residue-1302.
 derived:
   - The remaining Platform retry and delivery documents can delegate global execution semantics while retaining local state compatibility, E2E, layer-completeness and resource-hygiene constraints.
-unknown:
-  - Exact final follow-up hosted check results and integration outcome.
+unknown: []
 conflicts: []
 first_failure:
   marker: post-integration-specialist-controller-residue
@@ -109,7 +110,7 @@ changed_paths:
   - docs/agents/PLATFORM_AGENT_BOOTSTRAP.md
   - docs/agents/PROMPTING_HANDOVER.md
   - docs/agents/TERMINAL_ONLY_COMMUNICATION.md
-  - docs/agents/tasks/active/OTERYN-20260907-r5-platform-policy-adoption.md
+  - docs/agents/tasks/active/OTERYN-20260907-r5-platform-policy-adoption.md -> docs/agents/tasks/archive/OTERYN-20260907-r5-platform-policy-adoption.md
 validation:
   - command: focused governance and documentation validation
     result: PASS
@@ -117,15 +118,22 @@ validation:
   - command: product runtime E2E
     result: NOT_APPLICABLE
     evidence: Agent instruction and lifecycle documentation only; no executable product behavior changes.
+  - command: exact-head and merge-group hosted qualification
+    result: PASS
+    evidence: PR #1309 CI 34118721849, Agent Governance 34118721863 attempt 2 and merge-group CI 34119020095 passed; required platform-gate jobs 101731607498 and 101732571218 passed on the candidate and merge-group generations.
 blockers:
   - none
-next_action: Run required hosted checks and final review on PR #1309; after protected integration archive this packet and close Issue #1302.
+next_action: Merge this lifecycle-only archive carrier through protected Merge Queue, close Issue #1302 from that repository transition, and verify the carrier source ref is absent.
 ```
+
+## Lifecycle archive carrier
+
+Protected `main` remains authoritative until this lifecycle-only PR merges. The carrier moves the task record from `tasks/active/` to `tasks/archive/` and uses `Closes #1302`; the final merge SHA, terminal Issue state and carrier-ref absence must be recorded in the PR/Issue readback because those post-merge facts cannot truthfully exist in this pre-merge archive commit.
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: The bounded specialist-controller follow-up is not integrated.
-source_branch_evidence: Draft PR #1309 carries the remaining Issue #1302 candidate from initial head 421b89231b02a5c20281cc2a0daaf1c3b5c0d9f2.
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: Dedicated same-repository implementation branches; ordinary delete-after-merge applied after each protected integration.
+source_branch_evidence: PR #1303 head e711378ce6bb3d1c54ba2c33c56f4fe957f261e9 merged as 2c3934fece8e072f23ea33ad82f4b4399fc3b45e and PR #1309 head 4e4ed5fc9ed32890d053cb1f930921cf7bab73bc merged as 796209ead741041e8da943fc8c3846672ac96475; live exact-ref readback is absent for both source branches.
 ```
