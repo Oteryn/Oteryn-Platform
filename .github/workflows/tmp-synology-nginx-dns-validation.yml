@@ -1,0 +1,48 @@
+name: Temporary Synology Nginx DNS Validation
+
+on:
+  push:
+    branches:
+      - fix/20260907-synology-internal-proxy-dns
+    paths:
+      - .github/workflows/tmp-synology-nginx-dns-validation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repair branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate dynamic Docker DNS configuration with Nginx 1.28
+        run: |
+          set -euo pipefail
+          network="oteryn-nginx-dns-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          tls_dir="$(mktemp -d)"
+          cleanup() {
+            docker rm -f platform canary >/dev/null 2>&1 || true
+            docker network rm "$network" >/dev/null 2>&1 || true
+            rm -rf "$tls_dir"
+          }
+          trap cleanup EXIT
+
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -subj '/CN=platform-internal' \
+            -keyout "$tls_dir/platform-internal.key" \
+            -out "$tls_dir/platform-internal.crt" >/dev/null 2>&1
+          cp "$tls_dir/platform-internal.key" "$tls_dir/canary-session-internal.key"
+          cp "$tls_dir/platform-internal.crt" "$tls_dir/canary-session-internal.crt"
+
+          docker network create "$network" >/dev/null
+          docker run -d --rm --name platform --network "$network" alpine:3.22 sleep 300 >/dev/null
+          docker run -d --rm --name canary --network "$network" alpine:3.22 sleep 300 >/dev/null
+          docker run --rm \
+            --network "$network" \
+            -v "$PWD/deploy/synology/nginx/internal.conf:/etc/nginx/nginx.conf:ro" \
+            -v "$tls_dir:/etc/nginx/tls:ro" \
+            nginx:1.28-alpine \
+            nginx -t
