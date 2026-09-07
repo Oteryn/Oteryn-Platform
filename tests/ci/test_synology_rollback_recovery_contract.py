@@ -140,6 +140,42 @@ def test_pending_candidate_resume_is_proven_before_candidate_or_backup_rewrite()
     assert baseline_helper < platform_start
 
 
+
+def test_new_release_finalizes_only_a_proven_healthy_previous_candidate() -> None:
+    deploy = (SCRIPTS / "deploy.sh").read_text()
+    start = deploy.index("finalize_previous_candidate_if_healthy()")
+    end = deploy.index("apply_sql_template()", start)
+    body = deploy[start:end]
+
+    assert '[[ "$candidate_sha" != "$requested_sha" ]] || return 0' in body
+    assert '[[ "$schema_state" == known && "$schema_target" == "$candidate_sha" && "$schema_id" == "$candidate_schema" ]]' in body
+    assert "candidate does not accept the proven schema" in body
+    assert "staging world identity drifted" in body
+    assert "running $service image does not match candidate recovery identity" in body
+    assert 'OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"' in body
+    assert 'game-auth:world:ensure' in body
+
+    health = body.index('OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"')
+    world = body.index('game-auth:world:ensure', health)
+    promote = body.index('cp "$candidate_file" "$current_file.tmp"', world)
+    clear = body.index('rm -f "$candidate_file"', promote)
+    assert health < world < promote < clear
+
+    call = deploy.index("\nfinalize_previous_candidate_if_healthy\n", end)
+    baseline = deploy.index('bash "$SCRIPT_DIR/prepare-fresh-schema-baseline.sh"', call)
+    assert call < baseline
+
+
+def test_previous_candidate_finalizer_never_blindly_discards_recovery_state() -> None:
+    deploy = (SCRIPTS / "deploy.sh").read_text()
+    start = deploy.index("finalize_previous_candidate_if_healthy()")
+    end = deploy.index("apply_sql_template()", start)
+    body = deploy[start:end]
+    clear = body.index('rm -f "$candidate_file"')
+    assert body.index('health-check.sh') < clear
+    assert body.index('game-auth:world:ensure') < clear
+    assert body.index('running $service image does not match candidate recovery identity') < clear
+
 def test_health_probe_helper_pins_are_full_immutable_digests() -> None:
     lib = LIB.read_text()
     alpine = re.search(r"^OTERYN_HEALTH_ALPINE_IMAGE='([^']+)'$", lib, re.MULTILINE)

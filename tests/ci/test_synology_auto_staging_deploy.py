@@ -140,6 +140,14 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         self.assertIn('Gateway -> Canary session issuer', health)
         self.assertIn('Gateway aggregate readiness failed after both internal dependencies passed.', health)
 
+    def test_new_main_can_finalize_a_proven_previous_candidate_before_transition(self) -> None:
+        self.assertIn("finalize_previous_candidate_if_healthy()", self.deploy_script)
+        finalizer_call = self.deploy_script.index("\nfinalize_previous_candidate_if_healthy\n")
+        baseline = self.deploy_script.index('bash "$SCRIPT_DIR/prepare-fresh-schema-baseline.sh"', finalizer_call)
+        self.assertLess(finalizer_call, baseline)
+        self.assertIn('OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"', self.deploy_script)
+        self.assertIn('Finalized previously migrated candidate', self.deploy_script)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
