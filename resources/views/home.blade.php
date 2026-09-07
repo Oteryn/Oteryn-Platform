@@ -21,6 +21,7 @@
             <h1 id="home-hero-title" aria-label="Oteryn Platform">OTERYN</h1>
             <h2 class="realm-hero-tagline">{{ __('portal_art.hero_title') }}</h2>
             <p class="realm-hero-lede">{{ __('public.home.hero_lede') }}</p>
+            <h3 class="eyebrow realm-hero-call">{{ __('public.home.hero_title') }}</h3>
             <div class="realm-hero-actions">
                 @guest
                     <a class="button" href="{{ route('identity.register.create', ['locale' => app()->getLocale()]) }}">{{ __('public.account.create') }} <span aria-hidden="true">↗</span></a>
