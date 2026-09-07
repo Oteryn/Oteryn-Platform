@@ -17,6 +17,15 @@ on:
       - routes/**
       - lang/**
       - storage/**
+      - docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json
+      - docs/architecture/adr/0004-authoritative-platform-account-ownership.md
+      - docs/architecture/adr/0005-character-creation-product-policy.md
+      - docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md
+      - docs/contracts/OTCLIENT_GAME_AUTH_CONTRACT.md
+      - docs/agents/PROJECT_STATE.md
+      - docs/architecture/PUBLIC_WEBSITE_EXPANSION_PLAN.md
+      - docs/architecture/SECURITY_ARCHITECTURE.md
+      - docs/architecture/adr/0013-wiki-administration.md
       - services/game-gateway/**
       - deploy/synology/**
       - scripts/ci/classify_synology_builds.py
@@ -41,6 +50,15 @@ on:
       - routes/**
       - lang/**
       - storage/**
+      - docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json
+      - docs/architecture/adr/0004-authoritative-platform-account-ownership.md
+      - docs/architecture/adr/0005-character-creation-product-policy.md
+      - docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md
+      - docs/contracts/OTCLIENT_GAME_AUTH_CONTRACT.md
+      - docs/agents/PROJECT_STATE.md
+      - docs/architecture/PUBLIC_WEBSITE_EXPANSION_PLAN.md
+      - docs/architecture/SECURITY_ARCHITECTURE.md
+      - docs/architecture/adr/0013-wiki-administration.md
       - services/game-gateway/**
       - deploy/synology/**
       - scripts/ci/classify_synology_builds.py
@@ -67,6 +85,7 @@ jobs:
       gateway_changed: ${{ steps.classify.outputs.gateway_changed }}
       runner_changed: ${{ steps.classify.outputs.runner_changed }}
       deployment_changed: ${{ steps.classify.outputs.deployment_changed }}
+      runtime_deployment_changed: ${{ steps.classify.outputs.runtime_deployment_changed }}
       control_plane: ${{ steps.classify.outputs.control_plane }}
     steps:
       - name: Checkout exact classification range
@@ -267,7 +286,7 @@ jobs:
     steps:
       - name: No image build required
         if: ${{ matrix.mode == 'noop' }}
-        run: echo "No runtime image inputs changed for this pull request."
+        run: echo "No runtime image build is required for this change."
 
       - name: Checkout exact source
         if: ${{ matrix.mode != 'noop' }}
