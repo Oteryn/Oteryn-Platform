@@ -1,664 +1,360 @@
 #!/usr/bin/env python3
-"""Fail-closed consistency checks for duplicated Oteryn agent-governance rules."""
+"""Authenticate and consume the immutable META agent policy for Platform."""
 
 from __future__ import annotations
 
+import argparse
+import base64
+import hashlib
+import importlib.util
 import json
+import os
+from pathlib import Path, PurePosixPath
 import re
+import subprocess
 import sys
-from pathlib import Path
+from types import ModuleType
+from typing import Callable
+import urllib.request
 
-REPOSITORY_FULL_NAME = "Oteryn/Oteryn-Platform"
 REPO_ROOT = Path(__file__).resolve().parents[2]
-
-CHECKED_PATHS = (
-    "AGENTS.md",
-    "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md",
-    "docs/agents/AGENTS.md",
-    "docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md",
-    "docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md",
-    "docs/agents/GOVERNANCE_CONTRACT.json",
-)
-
-NUMBER_WORDS = {
-    0: "zero", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six",
-    7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve",
+PROVIDER = "Oteryn/Oteryn-Platform"
+AUTHORITY_REPOSITORY = "Oteryn/Oteryn"
+POLICY_ID = "OTERYN_ORGANIZATION_AGENT_POLICY"
+POLICY_VERSION = "3.0.0"
+BINDING_PATH = Path("docs/agents/META_AGENT_POLICY_BINDING.json")
+CATALOG_PATH = Path("docs/agents/DOCUMENTATION_IA_CATALOG.json")
+CENTRAL_MODULE_PATH = Path("tools/governance/central_agent_policy.py")
+POLICY_PATH = Path("ecosystem/organization-agent-policy.json")
+SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+EXPECTED_BINDING_KEYS = {
+    "schema_version",
+    "policy_id",
+    "policy_version",
+    "authority_repository",
+    "authority_commit",
+    "organization_policy_path",
+    "prompting_standard_path",
+    "prompt_eval_standard_path",
+}
+EXPECTED_SURFACES = {
+    "organization_policy": "docs/agents/policy/ORGANIZATION_AGENT_POLICY.md",
+    "prompting_standard": "docs/agents/policy/PROMPTING_STANDARD.md",
+    "prompt_eval_standard": "docs/agents/policy/PROMPT_EVAL_STANDARD.md",
 }
 
-RETIRED_RUNTIME_KEYS = (
-    "normal_foreground_runtime_minutes",
-    "large_foreground_runtime_minutes",
-    "large_budget_requires_explicit_task_declaration",
-    "fixed_foreground_runtime_stop_enforced",
-    "minimum_remaining_minutes_to_start_additional_task",
-)
-
-REPO_TOKEN = re.compile(r"(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?![A-Za-z0-9_.-])")
-QUOTED_REPO_TOKEN = re.compile(r"`([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)`")
-MUTATION_TERM = r"(?:writ(?:e|es|ing|ten)|writable|edit(?:s|ed|ing)?|modif(?:y|ies|ied|ying)|push(?:es|ed|ing)?|commit(?:s|ted|ting)?|merge(?:s|d|ing)?|delet(?:e|es|ed|ing)|remov(?:e|es|ed|ing)|creat(?:e|es|ed|ing|ion|ions)|branch(?:es|ed|ing)?|mutat(?:e|es|ed|ing|ion|ions))"
-MUTATION_WORD = re.compile(rf"\b{MUTATION_TERM}\b", re.I)
-NEGATED_MUTATION = re.compile(
-    rf"\b(?:(?:not|never)\s+{MUTATION_TERM}|refrain(?:s|ed|ing)?\s+from\s+{MUTATION_TERM})\b",
-    re.I,
-)
-MODAL_ADVERB_TERM = r"(?:also|additionally|still|now|explicitly|autonomously)"
-WRITE_ACCESS_MODIFIER_TERM = r"(?:explicit|full|unrestricted|direct|autonomous)"
-MANDATORY_MUTATION = re.compile(
-    rf"\b(?:(?:must|shall)\s+(?:{MODAL_ADVERB_TERM}\s+)*(?:be\s+)?{MUTATION_TERM}|"
-    rf"(?:is|are)\s+(?:explicitly\s+)?required\s+to\s+(?:{MODAL_ADVERB_TERM}\s+)*(?:be\s+)?{MUTATION_TERM})\b",
-    re.I,
-)
-POSITIVE_AUTH = re.compile(
-    rf"\b(?:(?:have|has)\s+(?:{WRITE_ACCESS_MODIFIER_TERM}\s+)*(?:permission|write\s+access)|allow|allows|allowed|authorize|authorizes|authorized|permit|permits|permitted|may|can|grant|grants|granted)\b",
-    re.I,
-)
-NEGATIVE_AUTH = re.compile(
-    r"\b(?:not\s+allowed|not\s+authorized|not\s+permitted|may\s+not|must\s+not\s+grant|"
-    r"(?:do|does|did)\s+not\s+(?:grant|allow|authorize|permit)|"
-    r"never\s+(?:grant(?:s|ed)?|allow(?:s|ed)?|authoriz(?:e|es|ed)|permit(?:s|ted)?)|"
-    r"not\s+(?:grant(?:s|ed)?|allow(?:s|ed)?|authoriz(?:e|es|ed)|permit(?:s|ted)?)|"
-    r"cannot|can't|can’t|never\s+allowed|unauthorized)\b",
-    re.I,
-)
+GitHubJson = Callable[[str], object]
 
 
 class PolicyConsistencyError(RuntimeError):
-    """Raised when a governance source cannot be parsed deterministically."""
+    """Raised when a required policy source cannot be consumed safely."""
 
 
-def _read_text(root: Path, relative_path: str) -> str:
+def _read_json(path: Path) -> dict[str, object]:
     try:
-        return (root / relative_path).read_text(encoding="utf-8")
-    except OSError as exc:
-        raise PolicyConsistencyError(f"cannot read {relative_path}: {exc}") from exc
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PolicyConsistencyError(f"cannot read valid JSON from {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise PolicyConsistencyError(f"{path} must contain a JSON object")
+    return value
 
 
-def _read_json(root: Path, relative_path: str) -> dict[str, object]:
+def _git(meta_root: Path, *args: str) -> str:
     try:
-        decoded = json.loads(_read_text(root, relative_path))
-    except json.JSONDecodeError as exc:
-        raise PolicyConsistencyError(f"invalid JSON in {relative_path}: {exc}") from exc
-    if not isinstance(decoded, dict):
-        raise PolicyConsistencyError(f"{relative_path} must contain a JSON object")
-    return decoded
+        return subprocess.run(
+            ["git", *args],
+            cwd=meta_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise PolicyConsistencyError(f"cannot verify META checkout with git {' '.join(args)}") from exc
 
 
-def _normalize_inline_markdown(text: str) -> str:
-    """Strip inline emphasis while preserving repository-token identity exactly."""
-    protected: list[str] = []
+def _github_json_reader(token: str | None) -> GitHubJson:
+    def read(url: str) -> object:
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        request = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=20.0) as response:
+                return json.load(response)
+        except Exception as exc:
+            raise PolicyConsistencyError(f"GitHub authority read failed for {url}: {exc}") from exc
 
-    def protect(match: re.Match[str]) -> str:
-        protected.append(match.group(1))
-        return f"\x00REPO{len(protected) - 1}\x00"
-
-    normalized = REPO_TOKEN.sub(protect, text)
-    normalized = re.sub(r"[*_`]", "", normalized)
-    for index, repository in enumerate(protected):
-        normalized = normalized.replace(f"\x00REPO{index}\x00", repository)
-    return normalized
-
-
-def _fence_delimiter(stripped: str) -> tuple[str, int, str] | None:
-    match = re.match(r"^(`{3,}|~{3,})(.*)$", stripped)
-    if not match:
-        return None
-    token = match.group(1)
-    return token[0], len(token), match.group(2)
+    return read
 
 
-def _markdown_outside_fences(markdown: str) -> str:
-    """Return only authoritative Markdown content outside fenced examples."""
-    lines: list[str] = []
-    active_fence: tuple[str, int] | None = None
-    for raw in markdown.splitlines():
-        delimiter = _fence_delimiter(raw.strip())
-        if active_fence is not None:
-            if delimiter:
-                char, length, remainder = delimiter
-                if char == active_fence[0] and length >= active_fence[1] and not remainder.strip():
-                    active_fence = None
+def _safe_policy_path(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise PolicyConsistencyError(f"{label} must be a non-empty repository path")
+    path = PurePosixPath(value)
+    if path.is_absolute() or ".." in path.parts:
+        raise PolicyConsistencyError(f"{label} must stay inside the META repository")
+    return value
+
+
+def _blob_sha(data: bytes) -> str:
+    return hashlib.sha1(b"blob " + str(len(data)).encode("ascii") + b"\0" + data).hexdigest()
+
+
+def _prevalidate_binding(binding: dict[str, object]) -> str:
+    if set(binding) != EXPECTED_BINDING_KEYS:
+        raise PolicyConsistencyError("provider binding keys must match the closed schema before META code load")
+    if binding.get("schema_version") != 1 or isinstance(binding.get("schema_version"), bool):
+        raise PolicyConsistencyError("provider binding schema_version must be 1 before META code load")
+    if binding.get("policy_id") != POLICY_ID or binding.get("policy_version") != POLICY_VERSION:
+        raise PolicyConsistencyError("provider binding policy identity/version is invalid before META code load")
+    if binding.get("authority_repository") != AUTHORITY_REPOSITORY:
+        raise PolicyConsistencyError("provider binding authority repository is invalid before META code load")
+    commit = binding.get("authority_commit")
+    if not isinstance(commit, str) or SHA_RE.fullmatch(commit) is None:
+        raise PolicyConsistencyError("provider binding authority_commit is invalid before META code load")
+    actual_surfaces = {
+        "organization_policy": binding.get("organization_policy_path"),
+        "prompting_standard": binding.get("prompting_standard_path"),
+        "prompt_eval_standard": binding.get("prompt_eval_standard_path"),
+    }
+    if actual_surfaces != EXPECTED_SURFACES:
+        raise PolicyConsistencyError("provider binding canonical paths are invalid before META code load")
+    return commit
+
+
+def authenticate_meta_checkout(
+    meta_root: Path,
+    binding: dict[str, object],
+    *,
+    github_json: GitHubJson,
+) -> dict[str, object]:
+    """Authenticate exact clean bytes and protected-main ancestry before import."""
+
+    commit = _prevalidate_binding(binding)
+    if _git(meta_root, "rev-parse", "--verify", "HEAD") != commit:
+        raise PolicyConsistencyError("META checkout HEAD does not match authority_commit")
+    if _git(meta_root, "status", "--porcelain", "--untracked-files=all"):
+        raise PolicyConsistencyError("META policy checkout must be clean before loading executable policy code")
+    remote = _git(meta_root, "remote", "get-url", "origin").removesuffix(".git").rstrip("/")
+    if remote not in {"https://github.com/Oteryn/Oteryn", "git@github.com:Oteryn/Oteryn"}:
+        raise PolicyConsistencyError("META checkout origin does not match Oteryn/Oteryn")
+
+    api = "https://api.github.com/repos/Oteryn/Oteryn"
+    commit_payload = github_json(f"{api}/commits/{commit}")
+    branch_payload = github_json(f"{api}/branches/main")
+    if not isinstance(commit_payload, dict) or commit_payload.get("sha") != commit:
+        raise PolicyConsistencyError("authority_commit is not available from GitHub")
+    if not isinstance(branch_payload, dict) or branch_payload.get("protected") is not True:
+        raise PolicyConsistencyError("META main is not authenticated as protected")
+    branch_commit = branch_payload.get("commit")
+    main_sha = branch_commit.get("sha") if isinstance(branch_commit, dict) else None
+    if not isinstance(main_sha, str) or SHA_RE.fullmatch(main_sha) is None:
+        raise PolicyConsistencyError("META protected-main head is invalid")
+    compare = github_json(f"{api}/compare/{commit}...{main_sha}")
+    if not isinstance(compare, dict) or compare.get("status") not in {"ahead", "identical"}:
+        raise PolicyConsistencyError("authority_commit is not an ancestor of protected META main")
+    for key in ("base_commit", "merge_base_commit"):
+        coordinate = compare.get(key)
+        if not isinstance(coordinate, dict) or coordinate.get("sha") != commit:
+            raise PolicyConsistencyError("GitHub ancestry response does not bind the authority commit")
+
+    tree_payload = github_json(f"{api}/git/trees/{commit}?recursive=1")
+    if not isinstance(tree_payload, dict) or tree_payload.get("truncated") is True:
+        raise PolicyConsistencyError("GitHub authority tree is unavailable or truncated")
+    tree = tree_payload.get("tree")
+    if not isinstance(tree, list):
+        raise PolicyConsistencyError("GitHub authority tree is invalid")
+    remote_blobs = {
+        entry.get("path"): entry.get("sha")
+        for entry in tree
+        if isinstance(entry, dict) and entry.get("type") == "blob"
+    }
+
+    fixed_paths = {str(CENTRAL_MODULE_PATH), str(POLICY_PATH), *EXPECTED_SURFACES.values()}
+    for relative in fixed_paths:
+        data = (meta_root / relative).read_bytes()
+        if remote_blobs.get(relative) != _blob_sha(data):
+            raise PolicyConsistencyError(f"META policy source does not match authenticated GitHub blob: {relative}")
+
+    policy = _read_json(meta_root / POLICY_PATH)
+    if (
+        policy.get("policy_id") != POLICY_ID
+        or policy.get("policy_version") != POLICY_VERSION
+        or policy.get("authority_repository") != AUTHORITY_REPOSITORY
+        or policy.get("canonical_human_surfaces") != EXPECTED_SURFACES
+    ):
+        raise PolicyConsistencyError("authenticated META policy identity or canonical surfaces are invalid")
+    machine = policy.get("machine_authorities")
+    if not isinstance(machine, list) or not machine:
+        raise PolicyConsistencyError("authenticated META policy machine_authorities are invalid")
+    consumed_paths = set(fixed_paths)
+    for index, value in enumerate(machine):
+        consumed_paths.add(_safe_policy_path(value, f"machine_authorities[{index}]"))
+    for relative in consumed_paths:
+        try:
+            data = (meta_root / relative).read_bytes()
+        except OSError as exc:
+            raise PolicyConsistencyError(f"cannot read consumed META authority {relative}: {exc}") from exc
+        if remote_blobs.get(relative) != _blob_sha(data):
+            raise PolicyConsistencyError(f"consumed META authority does not match authenticated GitHub blob: {relative}")
+
+    human_surfaces = {
+        relative: (meta_root / relative).read_text(encoding="utf-8")
+        for relative in EXPECTED_SURFACES.values()
+    }
+    return {
+        "repository": AUTHORITY_REPOSITORY,
+        "commit": commit,
+        "merged_to_protected_main": True,
+        "protected_main_sha": main_sha,
+        "branch_protected": True,
+        "policy": policy,
+        "human_surfaces": human_surfaces,
+        "blob_sha256": {
+            relative: hashlib.sha256((meta_root / relative).read_bytes()).hexdigest()
+            for relative in consumed_paths
+        },
+    }
+
+
+def load_central_module(meta_root: Path, authority: dict[str, object]) -> ModuleType:
+    commit = authority.get("commit")
+    if not isinstance(commit, str) or _git(meta_root, "rev-parse", "--verify", "HEAD") != commit:
+        raise PolicyConsistencyError("authenticated META checkout identity changed before code load")
+    if _git(meta_root, "status", "--porcelain", "--untracked-files=all"):
+        raise PolicyConsistencyError("authenticated META checkout changed before code load")
+    digests = authority.get("blob_sha256")
+    module_relative = str(CENTRAL_MODULE_PATH)
+    if not isinstance(digests, dict) or digests.get(module_relative) != hashlib.sha256(
+        (meta_root / CENTRAL_MODULE_PATH).read_bytes()
+    ).hexdigest():
+        raise PolicyConsistencyError("central META validator bytes changed after authentication")
+
+    module_path = meta_root / CENTRAL_MODULE_PATH
+    spec = importlib.util.spec_from_file_location("oteryn_central_agent_policy", module_path)
+    if spec is None or spec.loader is None:
+        raise PolicyConsistencyError(f"cannot load central META validator: {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    previous_bytecode_setting = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(module)
+    except Exception as exc:  # pragma: no cover - defensive loader boundary
+        raise PolicyConsistencyError(f"central META validator failed to load: {exc}") from exc
+    finally:
+        sys.dont_write_bytecode = previous_bytecode_setting
+    for name in (
+        "load_policy",
+        "validate_meta_bundle",
+        "validate_provider_binding",
+        "validate_provider_overlay",
+        "validate_task_prompt_text",
+    ):
+        if not callable(getattr(module, name, None)):
+            raise PolicyConsistencyError(f"central META validator lacks callable {name}")
+    return module
+
+
+def _validate_prompt_inventory(root: Path, module: ModuleType, policy: dict[str, object]) -> list[str]:
+    errors: list[str] = []
+    catalog = _read_json(root / CATALOG_PATH)
+    prompts = catalog.get("prompts")
+    if not isinstance(prompts, list):
+        return [f"{CATALOG_PATH}: prompts must be a list"]
+    seen: set[str] = set()
+    for index, entry in enumerate(prompts):
+        if not isinstance(entry, dict):
+            errors.append(f"{CATALOG_PATH}: prompt entry {index} must be an object")
             continue
-        if delimiter:
-            char, length, _remainder = delimiter
-            active_fence = (char, length)
+        relative = entry.get("path")
+        if not isinstance(relative, str) or not relative.startswith("docs/agents/prompts/"):
+            errors.append(f"{CATALOG_PATH}: prompt entry {index} has invalid path")
             continue
-        lines.append(raw)
-    return "\n".join(lines)
-
-
-def _top_level_fenced_blocks(markdown: str, info: str) -> list[str]:
-    """Collect top-level fenced blocks for one info string, excluding nested examples."""
-    blocks: list[str] = []
-    active_fence: tuple[str, int] | None = None
-    capture = False
-    body: list[str] = []
-
-    for raw in markdown.splitlines():
-        delimiter = _fence_delimiter(raw.strip())
-        if active_fence is None:
-            if not delimiter:
+        if relative in seen:
+            errors.append(f"{CATALOG_PATH}: duplicate prompt path {relative}")
+            continue
+        seen.add(relative)
+        try:
+            text = (root / relative).read_text(encoding="utf-8")
+        except OSError as exc:
+            errors.append(f"{relative}: cannot read catalogued prompt: {exc}")
+            continue
+        executable = entry.get("executable")
+        classification = entry.get("classification")
+        status = entry.get("status")
+        if executable is True:
+            if classification != "reusable" or status != "active_reusable":
+                errors.append(f"{relative}: executable prompt must be reusable/active_reusable")
                 continue
-            char, length, remainder = delimiter
-            active_fence = (char, length)
-            capture = remainder.strip().casefold() == info.casefold()
-            body = []
-            continue
-
-        if delimiter:
-            char, length, remainder = delimiter
-            if char == active_fence[0] and length >= active_fence[1] and not remainder.strip():
-                if capture:
-                    blocks.append("\n".join(body))
-                active_fence = None
-                capture = False
-                body = []
-                continue
-
-        if capture:
-            body.append(raw)
-
-    return blocks
-
-
-def _normalize_marker_line(raw: str) -> str:
-    """Strip line-wide Markdown emphasis from a prospective policy marker."""
-    match = re.match(r"^(?P<indent>\s*)[*_]{1,6}(?P<body>.+?)[*_]{1,6}\s*$", raw)
-    if match:
-        return match.group("indent") + match.group("body")
-    return raw
-
-
-def _normalize_emphasized_marker_lines(markdown: str) -> str:
-    """Strip line-wide Markdown emphasis outside fenced examples."""
-    lines: list[str] = []
-    active_fence: tuple[str, int] | None = None
-    for raw in markdown.splitlines():
-        stripped = raw.strip()
-        delimiter = _fence_delimiter(stripped)
-        if delimiter:
-            char, length, remainder = delimiter
-            if active_fence is None:
-                active_fence = (char, length)
-            elif char == active_fence[0] and length >= active_fence[1] and not remainder.strip():
-                active_fence = None
-            lines.append(raw)
-            continue
-        if active_fence is None:
-            raw = _normalize_marker_line(raw)
-        lines.append(raw)
-    return "\n".join(lines)
-
-
-def _yaml_lists(markdown: str, key: str) -> list[list[str]]:
-    authoritative = "\n".join(_top_level_fenced_blocks(markdown, "yaml"))
-    pattern = re.compile(rf"(?m)^\s*{re.escape(key)}:\s*\n(?P<body>(?:\s+-\s+[^\n]+\n?)+)")
-    declarations: list[list[str]] = []
-    for match in pattern.finditer(authoritative):
-        values = [item.strip().strip("'\"") for item in re.findall(r"(?m)^\s*-\s+([^#\n]+?)\s*$", match.group("body"))]
-        if values:
-            declarations.append(values)
-    if not declarations:
-        raise PolicyConsistencyError(f"cannot parse YAML list {key}")
-    return declarations
-
-
-def _yaml_int(markdown: str, key: str) -> int:
-    authoritative = "\n".join(_top_level_fenced_blocks(markdown, "yaml"))
-    matches = re.findall(rf"(?m)^\s*{re.escape(key)}:\s*(\d+)\s*$", authoritative)
-    if not matches:
-        raise PolicyConsistencyError(f"cannot parse integer policy value {key}")
-    values = {int(value) for value in matches}
-    if len(values) != 1:
-        raise PolicyConsistencyError(f"conflicting integer policy values for {key}: {sorted(values)}")
-    return next(iter(values))
-
-
-def _require_marker(errors: list[str], source: str, text: str, marker: str) -> None:
-    if marker not in text:
-        errors.append(f"{source}: missing required governance marker: {marker}")
-
-
-def _require_regex_value(errors: list[str], source: str, text: str, pattern: str, expected: int, label: str) -> None:
-    authoritative = _markdown_outside_fences(text)
-    matches = list(re.finditer(pattern, _normalize_inline_markdown(authoritative), flags=re.IGNORECASE))
-    if not matches:
-        errors.append(f"{source}: cannot locate duplicated budget marker for {label}")
-        return
-    values = [int(match.group("value")) for match in matches]
-    conflicting = sorted({value for value in values if value != expected})
-    if conflicting:
-        errors.append(f"{source}: {label} drift; canonical={expected}, conflicting declarations={conflicting}")
-
-
-def _text_contract_declarations(markdown: str, marker: str) -> list[list[str]]:
-    """Collect marker-owned text fences while ignoring declarations inside outer examples."""
-    lines = markdown.splitlines()
-    declarations: list[list[str]] = []
-    active_fence: tuple[str, int] | None = None
-    pending_marker = False
-    index = 0
-
-    while index < len(lines):
-        raw = lines[index]
-        stripped = raw.strip()
-        delimiter = _fence_delimiter(stripped)
-
-        if active_fence is not None:
-            if delimiter:
-                char, length, remainder = delimiter
-                if char == active_fence[0] and length >= active_fence[1] and not remainder.strip():
-                    active_fence = None
-            index += 1
-            continue
-
-        normalized_line = _normalize_marker_line(raw).strip()
-        if marker.casefold() in normalized_line.casefold():
-            pending_marker = True
-            index += 1
-            continue
-
-        if pending_marker and not stripped:
-            index += 1
-            continue
-
-        if pending_marker and delimiter:
-            char, length, remainder = delimiter
-            if char == "`" and remainder.strip().casefold() == "text":
-                body: list[str] = []
-                opening = (char, length)
-                index += 1
-                while index < len(lines):
-                    body_raw = lines[index]
-                    body_delimiter = _fence_delimiter(body_raw.strip())
-                    if body_delimiter:
-                        close_char, close_length, close_remainder = body_delimiter
-                        if close_char == opening[0] and close_length >= opening[1] and not close_remainder.strip():
-                            break
-                    body.append(body_raw)
-                    index += 1
-                values = [part.strip() for part in "\n".join(body).strip().split("|") if part.strip()]
-                if values:
-                    declarations.append(values)
-                pending_marker = False
-                index += 1
-                continue
-            pending_marker = False
-
-        if delimiter:
-            char, length, _remainder = delimiter
-            active_fence = (char, length)
-            index += 1
-            continue
-
-        if pending_marker:
-            pending_marker = False
-        index += 1
-
-    return declarations
-
-
-def _inline_backtick_declarations(markdown: str, marker: str) -> list[list[str]]:
-    declarations: list[list[str]] = []
-    for statement in _logical_markdown_statements(markdown):
-        if marker.casefold() in statement.casefold():
-            values = re.findall(r"`([^`]+)`", statement)
-            if values:
-                declarations.append(values)
-    return declarations
-
-
-def _require_all_declarations(errors: list[str], source: str, declarations: list[list[str]], expected: list[str], label: str) -> None:
-    if not declarations:
-        errors.append(f"{source}: cannot locate duplicated declaration for {label}")
-        return
-    conflicting = [decl for decl in declarations if decl != expected]
-    if conflicting:
-        errors.append(f"{source}: {label} drift; canonical={expected}, conflicting declarations={conflicting}")
-
-
-def _logical_markdown_statements(markdown: str) -> list[str]:
-    statements: list[str] = []
-    current: list[str] = []
-    active_fence: tuple[str, int] | None = None
-
-    def flush() -> None:
-        if current:
-            statements.append(" ".join(current))
-            current.clear()
-
-    for raw in markdown.splitlines():
-        stripped = raw.strip()
-        delimiter = _fence_delimiter(stripped)
-        if delimiter:
-            char, length, remainder = delimiter
-            if active_fence is None:
-                flush()
-                active_fence = (char, length)
-            elif char == active_fence[0] and length >= active_fence[1] and not remainder.strip():
-                active_fence = None
-            continue
-        if active_fence is not None:
-            continue
-        if not stripped or stripped.startswith("#"):
-            flush()
-            continue
-        bullet = re.match(r"^\s*[-*+]\s+(.*)$", raw)
-        if bullet:
-            flush()
-            current.append(bullet.group(1).strip())
-        elif current:
-            current.append(stripped)
+            errors.extend(f"{relative}: {error}" for error in module.validate_task_prompt_text(text, policy=policy))
+        elif executable is False:
+            if classification != "one_shot_historical" or status != "historical_do_not_run":
+                errors.append(f"{relative}: inert prompt must be one_shot_historical/historical_do_not_run")
         else:
-            current.append(stripped)
-    flush()
-    return statements
+            errors.append(f"{relative}: executable must be a JSON boolean")
+    return errors
 
 
-def _policy_clauses(statement: str) -> list[str]:
-    """Split independent grant clauses while preserving dependent condition language."""
-    modal_adverb = MODAL_ADVERB_TERM
-    new_grant = (
-        rf"(?:additionally\s+)?(?:(?:the|a|an|any)\s+)?(?:agents?\s+)?"
-        rf"(?:autonomous(?:ly)?\s+)?(?:{MUTATION_TERM}\b|"
-        rf"(?:may|can|must|shall)\s+(?:{modal_adverb}\s+)*(?:be\s+)?{MUTATION_TERM}\b|"
-        rf"(?:is|are)\s+(?:explicitly\s+)?(?:allowed|authorized|permitted|required)\s+to\s+(?:{modal_adverb}\s+)*(?:be\s+)?{MUTATION_TERM}\b|"
-        rf"(?:has|have)\s+(?:(?:{WRITE_ACCESS_MODIFIER_TERM})\s+)*(?:write\s+access\b|permission\s+to\s+(?:{modal_adverb}\s+)*(?:be\s+)?{MUTATION_TERM}\b))"
-    )
-    pattern = (
-        rf"\s*;\s*|(?<=\.)\s+|\s*,?\s+(?:but|however|while)\s+|"
-        rf"\s+and\s+(?={new_grant})"
-    )
-    return [value.strip() for value in re.split(pattern, statement, flags=re.I) if value.strip()]
-
-
-def _has_positive_mutation_grant(clause: str) -> bool:
-    normalized = _normalize_inline_markdown(clause)
-    grant_text = NEGATED_MUTATION.sub("", normalized)
-    if not MUTATION_WORD.search(grant_text):
-        return False
-    positives = list(POSITIVE_AUTH.finditer(grant_text)) + list(MANDATORY_MUTATION.finditer(grant_text))
-    if NEGATIVE_AUTH.search(grant_text):
-        if not positives:
-            return False
-        for match in positives:
-            window = grant_text[max(0, match.start() - 28): match.end() + 28]
-            if not NEGATIVE_AUTH.search(window):
-                return True
-        return False
-    return bool(positives)
-
-
-def _repo_specific_window(clause: str, repository: str, radius: int = 140) -> str:
-    lowered = _normalize_inline_markdown(clause).casefold()
-    index = lowered.find(repository.casefold())
-    if index < 0:
-        return lowered
-    return lowered[max(0, index - radius): index + len(repository) + radius]
-
-
-def _authorization_scope_matches_repository(condition: str, repository: str) -> bool:
-    normalized = _normalize_inline_markdown(condition).casefold()
-    repository_key = repository.casefold()
-    referenced_repositories = {match.group(1).casefold() for match in REPO_TOKEN.finditer(normalized)}
-    if referenced_repositories - {repository_key}:
-        return False
-
-    read_only_scope = re.search(
-        r"\b(?:read(?:-only)?\s+(?:access|permission)|inspect(?:ion)?\s*(?:access|permission)?|view(?:ing)?\s*(?:access|permission)?)\b",
-        normalized,
-    )
-    if read_only_scope and not MUTATION_WORD.search(normalized):
-        return False
-    return True
-
-
-def _repo_has_conditional_user_authorization(clause: str, repository: str) -> bool:
-    window = _repo_specific_window(clause, repository, 220)
-    if "only when" not in window:
-        return False
-    condition = window.split("only when", 1)[1]
-    if not any(value in condition for value in ("current task", "write task", "separate permission")):
-        return False
-
-    repository_reference = re.escape(repository)
-    target_reference = rf"(?:it|that\s+repository|this\s+repository|{repository_reference})"
-    active_authorization = re.search(
-        rf"\b(?:the\s+)?(?:user|project\s+owner|owner)\b.{{0,100}}?"
-        rf"\bexplicitly\s+(?:authoriz(?:e|es|ed)|grant(?:s|ed)?|permit(?:s|ted)?|approve(?:s|d)?)\b"
-        rf".{{0,60}}?(?:\b{target_reference}\b|"
-        rf"\b(?:write\s+(?:access|task|permission|authorization)|separate\s+(?:write\s+)?permission)\b.{{0,60}}?\b{target_reference}\b|"
-        rf"\b{MUTATION_TERM}\b.{{0,60}}?\b{repository_reference}\b)",
-        condition,
-    )
-    passive_authorization = re.search(
-        rf"\bexplicit\s+(?:write\s+)?(?:permission|authorization)\b"
-        rf"(?:\s+(?:to\s+{MUTATION_TERM}(?:\s+[^.;]{{0,60}})?|for\s+(?:a\s+)?write\s+(?:task|access|operation|permission)(?:\s+[^.;]{{0,60}})?))?\s+"
-        r"(?:is|was|has\s+been)\s+(?:granted|given|provided|approved)\b.{0,100}?"
-        r"\bby\s+(?:the\s+)?(?:user|project\s+owner|owner)\b",
-        condition,
-    )
-    if not (active_authorization or passive_authorization):
-        return False
-    return _authorization_scope_matches_repository(condition, repository)
-
-
-def _repo_has_positive_read_only_assertion(clause: str, repository: str) -> bool:
-    if _has_positive_mutation_grant(clause):
-        return False
-    window = _repo_specific_window(clause, repository, 120)
-    if "read-only" not in window:
-        return False
-    if re.search(r"(?:\b(?:not|never|no\s+longer|is\s+not|was\s+not)\s+read-only\b|\b(?:isn't|isn’t|wasn't|wasn’t)\s+read-only\b)", window):
-        return False
-    return bool(re.search(r"\b(?:is|are|as|remain|remains|must\s+remain|treat)\b.*\bread-only\b", window))
-
-
-def _slash_token_is_prose(normalized: str, match: re.Match[str]) -> bool:
-    """Reject slash compounds only when following syntax proves compound-prose usage."""
-    after = normalized[match.end():match.end() + 40]
-    return bool(re.match(r"\s+(?:metadata|creation|mutation|state|status|result|boundary|restriction|rules?|policy|operations?)\b", after, flags=re.I))
-
-
-def _repository_identifiers_in_grant_clause(clause: str) -> list[str]:
-    if not _has_positive_mutation_grant(clause):
-        return []
-    quoted_repositories = {value.casefold() for value in QUOTED_REPO_TOKEN.findall(clause)}
-    normalized = _normalize_inline_markdown(clause)
-    repositories: set[str] = set()
-    for match in REPO_TOKEN.finditer(normalized):
-        repository = match.group(1)
-        before = normalized[max(0, match.start() - 150):match.start()]
-        after = normalized[match.end():match.end() + 100]
-        mutation_match = re.search(
-            rf"\b{MUTATION_TERM}\b"
-            r"(?:\s+(?:the|a|an|any|repository|repo|files?|content|code|changes?|branches?|commits?|metadata|access|operations?)){0,6}"
-            r"(?:\s+(?:in|to|into|of|on|within|for|from))?\s*$",
-            before,
-            flags=re.I,
-        )
-        mutation_before = bool(mutation_match)
-        if mutation_match:
-            prefix = before[max(0, mutation_match.start() - 12):mutation_match.start()]
-            if re.search(r"\b(?:not|never)\s+$", prefix, flags=re.I):
-                mutation_before = False
-        writable_after = bool(re.match(r"\s+(?:is\s+|are\s+)?writable\b", after, flags=re.I))
-        passive_mutation_after = bool(re.match(
-            rf"\s+(?:(?:may|can|must|shall)\s+be\s+{MUTATION_TERM}\b|"
-            rf"(?:is|are)\s+(?:explicitly\s+)?(?:allowed|authorized|permitted|required)\s+to\s+be\s+{MUTATION_TERM}\b)",
-            after,
-            flags=re.I,
-        ))
-        if not (mutation_before or writable_after or passive_mutation_after):
-            continue
-        if repository.casefold() not in quoted_repositories and _slash_token_is_prose(normalized, match):
-            continue
-        local = normalized[max(0, match.start() - 160):match.end() + 180]
-        if POSITIVE_AUTH.search(local) or MANDATORY_MUTATION.search(local):
-            repositories.add(repository)
-    return sorted(repositories)
-
-
-def _reject_contradictory_repository_mutation_grants(errors: list[str], source: str, policy_text: str) -> None:
-    for statement in _logical_markdown_statements(policy_text):
-        for clause in _policy_clauses(statement):
-            for repository in _repository_identifiers_in_grant_clause(clause):
-                if repository.casefold() == REPOSITORY_FULL_NAME.casefold():
-                    continue
-                if _repo_has_positive_read_only_assertion(clause, repository):
-                    continue
-                if _repo_has_conditional_user_authorization(clause, repository):
-                    continue
-                errors.append(f"{source}: contradictory repository mutation authorization in authoritative policy: {repository}")
-
-
-def _reject_contradictory_completion_declarations(errors: list[str], source: str, policy_text: str) -> None:
-    requirement = (
-        r"(?:exact-head(?:\s+full-diff)?\s+self-review|real\s+E2E|"
-        r"required\s+CI\s+on\s+the\s+exact\s+final\s+head|"
-        r"zero\s+unresolved(?:\s+material)?\s+(?:review\s+threads?|findings?)|"
-        r"terminal\s+task\s+record|task\s+archival|released\s+ownership|ownership\s+release)"
-    )
-    patterns = (
-        re.compile(rf"\b{requirement}\b.{{0,80}}\b(?:is|are|be|becomes?)\s+(?:optional|not\s+required)\b", re.I),
-        re.compile(rf"\b(?:may|can)\s+(?:be\s+)?(?:skip(?:ped)?|omit(?:ted)?)\b.{{0,80}}\b{requirement}\b", re.I),
-        re.compile(rf"\b(?:task|work|delivery)\b.{{0,80}}\b(?:may|can)\s+be\s+(?:completed|closed|done)\b.{{0,100}}\bwithout\b.{{0,50}}\b{requirement}\b", re.I),
-        re.compile(r"\b(?:task|work|delivery)\b.{0,80}\b(?:may|can)\s+be\s+(?:completed|closed|done)\b.{0,100}\b(?:with|despite)\b.{0,50}\bunresolved(?:\s+(?:material\s+)?)?(?:review\s+threads?|findings?)\b", re.I),
-        re.compile(rf"\bcompletion\b.{{0,50}}\b(?:does|do)\s+not\s+require\b.{{0,80}}\b{requirement}\b", re.I),
-        re.compile(rf"\b(?:task|work|delivery)\b.{{0,80}}\b(?:may|can)\s+be\s+(?:completed|closed|done)\b.{{0,80}}\bbefore\b.{{0,50}}\b{requirement}\b.{{0,50}}\b(?:has|have)\s+passed\b", re.I),
-        re.compile(r"\b(?:task|work|delivery)\b.{0,80}\b(?:may|can)\s+be\s+(?:completed|closed|done)\b.{0,80}\beven\s+if\b.{0,50}\bunresolved(?:\s+(?:material\s+)?)?(?:review\s+threads?|findings?)\b", re.I),
-        re.compile(rf"\b(?:task|work|delivery)\b.{{0,80}}\b(?:may|can)\s+be\s+(?:completed|closed|done)\b.{{0,80}}\b(?:when|after|if|while|despite|even\s+if)\b.{{0,80}}\b{requirement}\b.{{0,60}}\b(?:(?:has|have|is|are)\s+)?(?:not\s+passed|fail(?:s|ed|ing)?)\b", re.I),
-    )
-    for statement in _logical_markdown_statements(policy_text):
-        normalized = _normalize_inline_markdown(statement)
-        if any(pattern.search(normalized) for pattern in patterns):
-            errors.append(f"{source}: contradictory completion declaration in authoritative policy: {statement}")
-
-
-def _reject_retired_runtime_keys(errors: list[str], anti_stall: str) -> None:
-    authoritative_yaml = "\n".join(_top_level_fenced_blocks(anti_stall, "yaml"))
-    for key in RETIRED_RUNTIME_KEYS:
-        if re.search(rf"(?m)^\s*{re.escape(key)}\s*:", authoritative_yaml):
-            errors.append(
-                "docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md: "
-                f"retired fixed-runtime policy key present: {key}"
-            )
-
-
-def validate_policy(root: Path = REPO_ROOT) -> list[str]:
+def validate_policy(root: Path, meta_root: Path, authority: dict[str, object]) -> list[str]:
     errors: list[str] = []
     try:
-        root_agents = _read_text(root, "AGENTS.md")
-        override = _read_text(root, "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md")
-        docs_agents = _read_text(root, "docs/agents/AGENTS.md")
-        anti_stall = _read_text(root, "docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md")
-        delivery = _read_text(root, "docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md")
-        contract = _read_json(root, "docs/agents/GOVERNANCE_CONTRACT.json")
-
-        shared = contract.get("shared_checkpoint_contract")
-        if not isinstance(shared, dict):
-            raise PolicyConsistencyError("GOVERNANCE_CONTRACT.json lacks shared_checkpoint_contract")
-        statuses = shared.get("allowed_statuses")
-        terminal_results = shared.get("terminal_invocation_results")
-        if not isinstance(statuses, list) or not all(isinstance(value, str) for value in statuses):
-            raise PolicyConsistencyError("shared_checkpoint_contract.allowed_statuses must be a string list")
-        if not isinstance(terminal_results, list) or not all(isinstance(value, str) for value in terminal_results):
-            raise PolicyConsistencyError("shared_checkpoint_contract.terminal_invocation_results must be a string list")
-        canonical_statuses = list(statuses)
-        canonical_terminal = list(terminal_results)
-
-        for duplicate in _yaml_lists(anti_stall, "checkpoint_task_statuses"):
-            if duplicate != canonical_statuses:
-                errors.append(f"docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md: checkpoint task statuses drift; canonical={canonical_statuses}, duplicate={duplicate}")
-        for duplicate in _yaml_lists(anti_stall, "terminal_invocation_results"):
-            if duplicate != canonical_terminal:
-                errors.append(f"docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md: terminal invocation results drift; canonical={canonical_terminal}, duplicate={duplicate}")
-
-        _require_all_declarations(errors, "docs/agents/AGENTS.md", _text_contract_declarations(docs_agents, "Use these checkpoint task statuses only:"), canonical_statuses, "checkpoint task statuses")
-        _require_all_declarations(errors, "docs/agents/AGENTS.md", _text_contract_declarations(docs_agents, "Use these terminal invocation results only:"), canonical_terminal, "terminal invocation results")
-        _require_all_declarations(errors, "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md", _inline_backtick_declarations(override, "checkpoint task status:"), canonical_statuses, "checkpoint task statuses")
-        _require_all_declarations(errors, "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md", _inline_backtick_declarations(override, "terminal invocation result:"), canonical_terminal, "terminal invocation results")
-
-        _reject_retired_runtime_keys(errors, anti_stall)
-
-        budget_keys = {key: _yaml_int(anti_stall, key) for key in (
-            "no_progress_minutes",
-            "max_ci_state_checks_per_exact_head", "max_unchanged_external_state_checks", "terminal_ci_wait_budget_minutes",
-            "terminal_ci_minimum_poll_interval_minutes", "max_terminal_ci_state_checks_per_check_generation",
-            "max_additional_tasks_after_terminal_entry_task",
-        )}
-        for pattern, key in (
-            (r"Stop after (?P<value>\d+) minutes without measurable progress", "no_progress_minutes"),
-            (r"exception is capped at (?P<value>\d+) minutes", "terminal_ci_wait_budget_minutes"),
-            (r"permits at most (?P<value>\d+) checks per materially new required-check generation", "max_terminal_ci_state_checks_per_check_generation"),
-        ):
-            _require_regex_value(errors, "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md", override, pattern, budget_keys[key], key)
-
-        # Preserve regression coverage for the historical compatibility sentence in
-        # PLATFORM_AGENT_BOOTSTRAP.md without treating those numbers as execution authority.
-        for pattern, expected, label in (
-            (r"Default to (?P<value>\d+) minutes per foreground invocation", 60, "normal_foreground_runtime_minutes"),
-            (r"allow (?P<value>\d+) minutes only when", 120, "large_foreground_runtime_minutes"),
-        ):
-            _require_regex_value(errors, "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md", override, pattern, expected, label)
-
-        ordinary_checks = budget_keys["max_ci_state_checks_per_exact_head"]
-        external_checks = budget_keys["max_unchanged_external_state_checks"]
-        if ordinary_checks != external_checks:
-            errors.append("ANTI_STALL_AND_EXECUTION_BUDGET.md: root bootstrap combines ordinary CI and external checks, but their canonical limits differ")
-        elif ordinary_checks != 2 or "at most twice per exact head" not in override:
-            errors.append(f"docs/agents/PLATFORM_AGENT_BOOTSTRAP.md: ordinary CI/external-state check limit drift; canonical={ordinary_checks}, duplicate marker='at most twice per exact head'")
-
-        poll_minutes = budget_keys["terminal_ci_minimum_poll_interval_minutes"]
-        poll_word = NUMBER_WORDS.get(poll_minutes)
-        if poll_word is None or f"requires at least {poll_word} minutes between unchanged checks" not in override:
-            errors.append(f"docs/agents/PLATFORM_AGENT_BOOTSTRAP.md: terminal CI poll interval drift; canonical={poll_minutes} minutes")
-
-        additional_tasks = budget_keys["max_additional_tasks_after_terminal_entry_task"]
-        additional_word = NUMBER_WORDS.get(additional_tasks)
-        if additional_word is None or f"at most {additional_word} additional task may be started" not in override:
-            errors.append(f"docs/agents/PLATFORM_AGENT_BOOTSTRAP.md: additional-task limit drift; canonical={additional_tasks}")
-
-        scope_markers = {
-            "AGENTS.md": [
-                f"The only repository where autonomous write operations are allowed by this file is `{REPOSITORY_FULL_NAME}`.",
-                f"verify that `repository_full_name` is exactly `{REPOSITORY_FULL_NAME}`",
-            ],
-            "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md": [
-                f"default authorization for work launched from `{REPOSITORY_FULL_NAME}` is **WWW Platform only**",
-                "must **not be accessed, read, inspected, searched, fetched, branched, edited, reviewed, audited, merged or otherwise operated on unless the project owner explicitly grants separate permission",
-            ],
-        }
-        source_text = {"AGENTS.md": root_agents, "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md": override}
-        for source, markers in scope_markers.items():
-            for marker in markers:
-                _require_marker(errors, source, source_text[source], marker)
-        _reject_contradictory_repository_mutation_grants(errors, "AGENTS.md", root_agents)
-        _reject_contradictory_repository_mutation_grants(errors, "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md", override)
-
-        completion_markers = {
-            "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md": ("exact-head self-review", "real E2E", "required CI on the exact final head", "zero unresolved review threads", "terminal task record", "released ownership"),
-            "docs/agents/AGENTS.md": ("exact-head full-diff self-review", "real E2E", "zero unresolved material findings", "task archival", "ownership release"),
-            "docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md": ("## Mandatory self-review", "## E2E", "## Exact-head CI and Actions economy", "## Related PR hygiene", "## Terminal closeout"),
-        }
-        completion_source_text = {"docs/agents/PLATFORM_AGENT_BOOTSTRAP.md": override, "docs/agents/AGENTS.md": docs_agents, "docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md": delivery}
-        for source, markers in completion_markers.items():
-            for marker in markers:
-                _require_marker(errors, source, completion_source_text[source], marker)
-        for source, text in completion_source_text.items():
-            _reject_contradictory_completion_declarations(errors, source, text)
-
-    except PolicyConsistencyError as exc:
+        module = load_central_module(meta_root, authority)
+        policy = module.load_policy(meta_root)
+        errors.extend(f"META: {error}" for error in module.validate_meta_bundle(meta_root, policy))
+        binding = _read_json(root / BINDING_PATH)
+        errors.extend(
+            f"{BINDING_PATH}: {error}"
+            for error in module.validate_provider_binding(
+                binding,
+                policy=policy,
+                authority_resolver=lambda repository, commit: authority
+                if repository == authority.get("repository") and commit == authority.get("commit")
+                else None,
+            )
+        )
+        root_agents = (root / "AGENTS.md").read_text(encoding="utf-8")
+        errors.extend(
+            f"AGENTS.md: {error}"
+            for error in module.validate_provider_overlay(PROVIDER, root_agents, policy=policy)
+        )
+        errors.extend(_validate_prompt_inventory(root, module, policy))
+    except (PolicyConsistencyError, OSError, json.JSONDecodeError, ValueError) as exc:
         errors.append(str(exc))
     return errors
 
 
 def main() -> int:
-    errors = validate_policy()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--meta-root",
+        type=Path,
+        default=Path(os.environ.get("OTERYN_META_POLICY_ROOT", ".meta-agent-policy")),
+        help="Exact clean checkout of the META authority commit selected by the binding",
+    )
+    args = parser.parse_args()
+    try:
+        binding = _read_json(REPO_ROOT / BINDING_PATH)
+        token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+        authority = authenticate_meta_checkout(
+            args.meta_root,
+            binding,
+            github_json=_github_json_reader(token),
+        )
+        errors = validate_policy(REPO_ROOT, args.meta_root, authority)
+    except PolicyConsistencyError as exc:
+        errors = [str(exc)]
     if errors:
         for error in errors:
             print(f"policy-consistency: {error}", file=sys.stderr)
         return 1
-    print("Agent governance policy consistency: PASS")
+    print(
+        "Platform central agent policy adoption: PASS "
+        f"(authenticated {authority['commit']} on protected META main {authority['protected_main_sha']})"
+    )
     return 0
 
 

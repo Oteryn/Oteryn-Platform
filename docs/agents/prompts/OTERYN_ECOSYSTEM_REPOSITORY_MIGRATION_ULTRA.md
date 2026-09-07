@@ -2,34 +2,24 @@
 
 ```yaml
 prompt_contract:
-  version: 1.0.1
+  version: 2.0.0
   programme_id: OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION
   overlay_id: OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_ULTRA
   owner_alias: OTERYN-REPO-MIGRATION-ULTRA
-  objective: Maximize verified repository-migration progress per invocation without weakening or duplicating the canonical programme's authority, transaction, rollback, provenance, CI, ownership or closeout requirements.
-  baseline_version: OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_ULTRA@1.0.0
-  canonical_version: OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION@1.1.0
-  rollback_version: OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_ULTRA@1.0.0
-  eval_suite: docs/agents/evidence/OTERYN-20260817-repository-migration-ultra-prompt-eval.md
+  objective: Prioritize migration-critical uncertainty and exact resulting-state verification while remaining subordinate to the canonical migration programme.
+  baseline_version: 1.0.1
+  canonical_version: OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION@2.0.0
+  eval_suite: docs/agents/evals/prompt-contract-v1.json
+  rollback_version: 1.0.1
+  required_invariants:
+    - canonical_transaction_controls
+    - cutover_ready_not_permission
+    - blocked_wave_does_not_block_safe_evidence
   changed_surfaces:
-    - repository-migration execution profile
-    - invocation budget declaration
+    - migration execution profile
     - delta-first continuation
     - blocker decomposition
-    - anti-waste prioritization
-policy_version: 2
-prompting_standard_version: 2.1
-run_scope: autonomous_program
-continuation_policy: continue_until_real_stop
-task_completion_policy: finalize_archive_and_continue
-user_communication: terminal_only
-execution_budget:
-  class: large
-  applies_to: one_foreground_owner_invocation
-  limit_source: docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
-  programme_time_limit: none
-  rotation_policy: checkpoint_and_continue
-  large_budget_reason: Cross-repository physical migration has high blast radius and requires live-state reconstruction, hidden-dependency falsification, cutover readiness, rollback, CI/package/workflow/provenance verification and durable cross-repository evidence.
+    - anti-waste priority
 ```
 
 ## Authority and composition
@@ -40,9 +30,6 @@ Always execute the current canonical programme first:
 
 - canonical programme: `docs/agents/prompts/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_PROGRAM.md`;
 - durable state: `docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md`;
-- anti-stall budget: `docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md`;
-- continuation: `docs/agents/AUTONOMOUS_PROGRAM_CONTINUATION.md`;
-- closeout: `docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md`;
 - current repository and nested `AGENTS.md` hierarchies wherever current trusted scope permits access.
 
 A stricter current rule always wins. The alias is routing only; it cannot widen repository, read, write, production, credential, deployment, secret, payment, live-game, merge or owner-funded-AI authority.
