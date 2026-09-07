@@ -91,7 +91,6 @@ jobs:
           docker version >/dev/null
           docker compose version >/dev/null
           curl --version >/dev/null
-          python3 --version >/dev/null
           sha256sum --version >/dev/null
           timeout --version >/dev/null
 
@@ -135,20 +134,10 @@ jobs:
             exit 1
           fi
 
-          python3 - "$CANARY_GAME_BIND_ADDRESS_INPUT" <<'PY'
-          import ipaddress
-          import sys
-
-          try:
-              address = ipaddress.ip_address(sys.argv[1])
-          except ValueError as exc:
-              raise SystemExit(f'canary_game_bind_address is invalid: {exc}') from exc
-
-          if address.version != 4 or address.is_unspecified or address.is_multicast or address.is_link_local:
-              raise SystemExit('canary_game_bind_address must be a usable IPv4 address')
-          if not (address.is_private or address.is_loopback):
-              raise SystemExit('canary_game_bind_address must be loopback or RFC1918 private IPv4')
-          PY
+          if ! bash deploy/synology/scripts/validate-ipv4.sh "$CANARY_GAME_BIND_ADDRESS_INPUT" private-or-loopback; then
+            echo "canary_game_bind_address must be loopback or RFC1918 private IPv4" >&2
+            exit 1
+          fi
 
           if [[ ! "$GAME_WORLD_ID_INPUT" =~ ^[1-9][0-9]*$ ]]; then
             echo "game_world_id must be a positive integer." >&2
