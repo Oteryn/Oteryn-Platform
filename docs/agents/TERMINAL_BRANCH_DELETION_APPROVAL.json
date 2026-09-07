@@ -1,13 +1,13 @@
 {
-  "apply_on_main": false,
-  "candidate_count": 1,
+  "apply_on_main": true,
+  "candidate_count": 3,
   "confirmation": "APPROVE_REVIEWED_TERMINAL_CLOSED_UNMERGED_BRANCHES_ISSUE_1050",
-  "entries_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "entries_sha256": "1fe4618484ee29b7fd270c25c87961d2bc750c1ff3737b030b5eb25dfb0cd7df",
   "issue": 1050,
   "policy_sha256": "3d646fbd53bd0ae38572dcf80201159d7e05d5562919e55c75f99a83a4031c20",
-  "review_summary": "PROVISIONAL NON-APPLYING PR DRY-RUN TRIGGER FOR ISSUE 1305. This impossible digest is not a reviewed candidate approval and must not merge.",
-  "reviewed_at": "2026-09-07T10:02:00Z",
-  "reviewed_by": "NOT_REVIEWED_PROVISIONAL",
+  "review_summary": "Current authority Oteryn/Oteryn#142 and Platform Issues #1301/#1305 allocates cleanup of the exact three-entry set: superseded closed-unmerged PR #1270 plus validation-only must-not-merge PRs #1290/#1291. Terminal Branch Lifecycle run 34109541884 job 101702364318 independently reported 21 live branches and exactly three eligible candidates after temporary active claims were released. Current live branch listing and unique head-filtered closed-unmerged PR identities reconstruct the same three entries and digest; immutable PR numbers and commit SHAs preserve recovery. Issue #1050 and its confirmation string are schema/mechanism provenance only, not a reopened grant. Any candidate, SHA, PR, claim, protection, retention, reserved-name, policy or digest drift must fail closed before deletion.",
+  "reviewed_at": "2026-09-07T10:19:00Z",
+  "reviewed_by": "programme coordinator independent live-evidence verification under Oteryn/Oteryn#142",
   "schema_version": 1,
-  "source_artifact": "PENDING_PR_DRY_RUN"
+  "source_artifact": "Oteryn/Oteryn#142 comment 5569028250 plus Terminal Branch Lifecycle run 34109541884 job 101702364318; reconstructed live REST evidence, not a downloaded artifact"
 }
