@@ -20,28 +20,21 @@ Governing GitHub Issue: #1313 — make each runtime-affecting protected-main cha
 ## Acceptance criteria
 
 - [x] Runtime-affecting `main` pushes and Synology workflow/package changes build exact-SHA Platform/Gateway images.
-- [x] A successful exact-main image build automatically dispatches the existing `Deploy Synology Staging` workflow and waits for its terminal result.
-- [x] Automatic deploy uses exact `github.sha`, the approved immutable Canary digest, LAN game bind `192.168.1.2`, world id `1`, slug `oteryn-staging`, name `Oteryn Staging`, region `LAN`.
-- [x] Pull requests never deploy to Synology.
-- [x] The privileged deploy-runner image remains non-published on ordinary `main` pushes.
-- [x] Existing manual deploy/rollback remains available and production remains untouched.
-- [x] Pythonless runner repair merged through protected Merge Queue.
-- [x] Canonical public staging origin repair merged through protected Merge Queue.
-- [x] Failed exact candidates can be resumed only after the same SHA/images/world identity and completed schema transition are proven.
-- [x] Deployment no longer performs a redundant second full Compose pull after exact runtime images were already resolved.
-- [x] Gateway readiness diagnostics prove Canary issuer and both internal TLS dependency legs before aggregate `/ready`.
-- [ ] PR #1321 passes repository-required exact-head checks and protected Merge Queue.
-- [ ] The protected merge SHA is built and automatically deployed successfully to Synology staging with the full health contract passing.
+- [x] Successful exact-main image builds automatically dispatch the guarded Synology staging deployment.
+- [x] Automatic deploy uses exact release identity, approved immutable Canary, LAN game bind and canonical staging world identity.
+- [x] Pull requests never deploy and ordinary main pushes do not publish the privileged deploy-runner.
+- [x] Pythonless runner validation, canonical public URL, safe same-candidate resume, duplicate-pull removal and dependency-level readiness diagnostics are integrated.
+- [x] A newer release refuses to overwrite a different unresolved candidate.
+- [x] PR #1322 adds fail-closed finalization of a prior migrated candidate only after exact running-image/world/schema identity and the complete staging health contract pass.
+- [ ] PR #1322 passes repository-required exact-head checks and protected integration.
+- [ ] The resulting protected-main SHA automatically finalizes the old `bbeb084b...` candidate, deploys the newest exact main SHA, and passes the complete Synology staging health contract.
+- [ ] This task is archived only after live proof and Issue #1313 is closed completed afterward.
 
 ## Ownership
 
 ```yaml
 owned_paths:
-  - deploy/synology/scripts/lib.sh
-  - deploy/synology/scripts/prepare-fresh-schema-baseline.sh
   - deploy/synology/scripts/deploy.sh
-  - deploy/synology/scripts/health-check.sh
-  - tests/ci/test_synology_rollback_contract.py
   - tests/ci/test_synology_rollback_recovery_contract.py
   - tests/ci/test_synology_auto_staging_deploy.py
   - docs/agents/tasks/active/OTERYN-20260907-auto-synology-staging.md
@@ -50,11 +43,12 @@ modules:
   - deployment recovery and rollback safety
   - Gateway dependency readiness diagnostics
 dependencies:
-  - protected main automation delivered by PR #1314
-  - Pythonless runtime validation delivered by PR #1317
-  - canonical public origin delivered by PR #1320
-  - approved immutable Canary image digest already used by staging operations
-  - synology-staging GitHub Environment and platform-runners self-hosted execution path
+  - protected-main auto-deploy foundation from PR #1314
+  - Pythonless runtime validation from PR #1317
+  - canonical public origin from PR #1320
+  - resumable/diagnostic deployment from PR #1321
+  - approved immutable Canary staging digest
+  - synology-staging environment and platform-runners execution path
 blockers:
   - none
 cross_repository_tasks:
@@ -65,80 +59,60 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-07T20:22:00Z
-head: 6e4770b0b9f27cdd6d13c072dd1f25199ee09eec
-branch: fix/20260907-synology-deploy-resume-readiness
-pr: 1321
+updated_at: 2026-09-07T20:40:00Z
+head: 5b13770d94ad149c2e30a5a052738cef6080ff82
+branch: fix/20260907-synology-finalize-stale-candidate
+pr: 1322
 status: validating
 context_routes:
   - testing
   - execution-resources
 owned_paths:
-  - deploy/synology/scripts/lib.sh
-  - deploy/synology/scripts/prepare-fresh-schema-baseline.sh
   - deploy/synology/scripts/deploy.sh
-  - deploy/synology/scripts/health-check.sh
-  - tests/ci/test_synology_rollback_contract.py
   - tests/ci/test_synology_rollback_recovery_contract.py
   - tests/ci/test_synology_auto_staging_deploy.py
   - docs/agents/tasks/active/OTERYN-20260907-auto-synology-staging.md
 proven:
-  - PR #1314 merged as c1e516735613a35240114b23d950b4b30aebcab2 and established automatic exact-main image build plus Synology dispatch.
-  - PR #1317 merged as 4be6731b4055e0c535618416f642b75ee11eb5a8 and removed the unnecessary live-runner Python dependency.
-  - PR #1320 passed 8/8 exact-head workflows plus Merge Queue and merged as bbeb084b0a8da2c4640fa6ad7e2e542f039bf047, pinning the canonical public staging origin to https://oteryn.molehill.cloud.
-  - Post-merge Build Synology Staging Images run 34155083384 published exact-SHA Platform/Gateway images for bbeb084b0a8da2c4640fa6ad7e2e542f039bf047 and dispatched Deploy Synology Staging run 34155125960.
-  - Deploy run 34155125960 first attempt passed runner tools, GHCR login, deployment configuration, immutable runtime digest resolution and staging env creation; it completed the historical Platform migration backlog and reached runtime health validation.
-  - That first attempt failed because Gateway /health was available but aggregate Gateway /ready returned HTTP 503 through its full retry window.
-  - The retry of the same run failed earlier because the exact candidate still owned candidate-release recovery evidence after its migration completed.
-  - PR #1321 permits candidate resume only for the exact same release SHA, exact immutable Platform/Gateway/Canary identities, exact staging world identity and schema-state=known for that release; recovery evidence remains until full health success.
-  - PR #1321 removes the second full Compose pull, force-refreshes TLS bootstrap, and adds explicit Canary issuer plus internal TLS dependency probes before Gateway aggregate readiness.
-  - Temporary construction run 34158731681 passed Bash syntax checks plus tests/ci/test_synology_rollback_contract.py and tests/ci/test_synology_auto_staging_deploy.py before publication.
-  - Initial repository Synology Rollback Contract run 34158908800 proved the primary rollback suite still passed 29 tests and exposed one stale recovery-contract assertion that treated every surviving candidate as an unconditional stop.
-  - Commit 6e4770b0b9f27cdd6d13c072dd1f25199ee09eec updates the recovery contract to preserve fail-closed behavior for different, drifted or unproven candidates while requiring exact proof before same-candidate resume and requiring candidate deletion only after overall deploy success.
+  - PR #1321 passed protected integration and is current main SHA febbfde9f9e122fbdf1a835a4ffb563d34b867f1.
+  - Post-integration Build Synology Staging Images run 34159592889 published exact-main Platform/Gateway images and dispatched Deploy Synology Staging run 34159643562.
+  - Deploy run 34159643562 passed runner tools, GHCR login, configuration validation, immutable image resolution and ephemeral env creation.
+  - That live deploy then correctly refused the newer febbfde9 release because migrated-but-unpromoted candidate bbeb084b0a8da2c4640fa6ad7e2e542f039bf047 still owns recovery state.
+  - The surviving bbeb candidate originated from run 34155125960, whose migration completed before its post-migration Gateway readiness failure; recovery state was intentionally preserved.
+  - PR #1322 never blindly deletes that state. It requires schema-state=known for the exact old candidate, exact accepted schema, exact staging world identity and exact running Platform/Gateway/Canary immutable identities.
+  - PR #1322 reconstructs a permission-restricted old-candidate health environment, recreates only internal-proxy/Gateway for that identity, runs the complete current staging health contract, and re-runs idempotent world registration before promotion.
+  - Only after full health success may the old candidate become current, prior current become last-good when distinct, and candidate recovery state be removed; normal newest-main deployment then continues.
+  - Temporary construction run 34160086400 passed shell syntax, rollback, rollback-recovery, auto-staging and fresh-baseline focused suites before publication.
 derived:
-  - The remaining deploy defect is not main dispatch, image publication, runner tooling, GHCR authentication or canonical URL validation.
-  - Aggregate Gateway readiness needs dependency-level evidence; preserving `/ready` as a blocking gate is required because weakening it could expose broken login/session behavior.
+  - Automatic deployment needs a safe candidate-finalization transition, not manual recovery-state deletion, because newer main cannot legitimately take ownership while a different candidate remains unresolved.
 unknown:
-  - Whether the live failing dependency is Gateway -> Platform internal TLS, Gateway -> Canary session issuer internal TLS, or Gateway aggregate behavior after both dependencies are healthy; PR #1321 makes the next live run distinguish these cases.
-  - Exact final PR #1321 repository CI and post-merge live deployment result are pending.
+  - Whether the old bbeb candidate now passes direct Canary issuer, internal TLS and aggregate Gateway readiness after the forced TLS refresh and dependency-level diagnostics from PR #1321.
+  - Exact PR #1322 repository CI and the subsequent live two-stage deployment result are pending.
 conflicts: []
 first_failure:
-  marker: GATEWAY_AGGREGATE_READINESS_503
-  evidence: Deploy Synology Staging run 34155125960 reached full runtime validation and failed because Gateway /ready returned HTTP 503 while Gateway /health responded successfully.
+  marker: DIFFERENT_PROVEN_CANDIDATE_BLOCKS_NEW_MAIN
+  evidence: Deploy Synology Staging run 34159643562 rejected requested febbfde9f9e122fbdf1a835a4ffb563d34b867f1 because unresolved candidate bbeb084b0a8da2c4640fa6ad7e2e542f039bf047 still owns recovery state.
 rejected_hypotheses:
-  - Main-to-Synology dispatch is broken; the exact main run dispatched the live workflow successfully.
-  - Runtime image identity is missing; exact Platform/Gateway/Canary digest resolution passed.
-  - Python or stale APP_URL still blocks deployment; both corresponding validation steps passed after PRs #1317 and #1320.
-  - Re-running the same failed candidate is safe without state proof; recovery evidence correctly prevents blind overwrite, so PR #1321 permits only a fully proven exact-candidate resume.
-  - The initial #1321 rollback failure represented runtime regression; its primary rollback suite passed and only the retired unconditional-candidate test assertion failed.
+  - Delete candidate-release.env manually; rejected because that would discard rollback/recovery ownership without health proof.
+  - Permit a newer SHA to overwrite candidate metadata; rejected because it would destroy exact recovery identity.
+  - Weaken Gateway readiness; rejected because the login/session dependency contract must remain blocking.
 changed_paths:
-  - deploy/synology/scripts/lib.sh
-  - deploy/synology/scripts/prepare-fresh-schema-baseline.sh
   - deploy/synology/scripts/deploy.sh
-  - deploy/synology/scripts/health-check.sh
-  - tests/ci/test_synology_rollback_contract.py
   - tests/ci/test_synology_rollback_recovery_contract.py
   - tests/ci/test_synology_auto_staging_deploy.py
   - docs/agents/tasks/active/OTERYN-20260907-auto-synology-staging.md
 validation:
-  - command: Deploy Synology Staging run 34155125960 first attempt
+  - command: Deploy Synology Staging run 34159643562
     result: FAIL
-    evidence: aggregate Gateway /ready remained HTTP 503 after runtime migration/startup
-  - command: Deploy Synology Staging run 34155125960 retry
-    result: FAIL
-    evidence: exact failed candidate could not resume because surviving recovery evidence was unconditionally rejected
-  - command: Temporary Synology Deploy Repair Writer run 34158731681
+    evidence: fail-closed different-candidate ownership rejection after all pre-deploy identity gates passed
+  - command: Temporary Synology Candidate Finalizer Writer run 34160086400
     result: PASS
-    evidence: Bash syntax plus focused rollback and auto-staging contract suites passed before publication
-  - command: Synology Rollback Contract run 34158908800
-    result: FAIL
-    evidence: primary rollback suite PASS (29 tests); one stale recovery test still required the retired unconditional candidate-stop prose
-  - command: repository-hosted PR #1321 final exact-head checks
+    evidence: Bash syntax plus rollback, recovery, auto-staging and fresh-baseline focused suites passed
+  - command: repository-hosted PR #1322 exact-head checks
     result: NOT_RUN
-    evidence: checks restart after recovery-contract and checkpoint publication
+    evidence: checks start after this checkpoint publication
 blockers:
   - none
-next_action: Validate final PR #1321, integrate through protected Merge Queue, use the merged scripts to resume the existing bbeb084b exact candidate safely and identify/fix any real readiness dependency, then deploy the newest exact main SHA and archive only after the complete live health contract passes.
+next_action: Validate PR #1322. After protected integration, verify the automatic Synology deployment finalizes the prior candidate and passes the newest exact-main health contract; then archive this task packet.
 ```
 
 ## Source branch closeout
@@ -146,9 +120,9 @@ next_action: Validate final PR #1321, integrate through protected Merge Queue, u
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository protected repair PR path
-source_branch_evidence: governing Issue #1313 and PR #1321
+source_branch_evidence: governing Issue #1313 and PR #1322
 ```
 
 ## Notes
 
-Automatic deployment applies to runtime-affecting changes and Synology deployment/workflow package changes. Documentation-only commits do not rebuild or redeploy an unchanged runtime. Production deployment is excluded.
+Automatic deployment applies to runtime-affecting changes and Synology deployment/workflow package changes. Documentation-only commits do not rebuild or redeploy unchanged runtime. Production deployment remains excluded.
