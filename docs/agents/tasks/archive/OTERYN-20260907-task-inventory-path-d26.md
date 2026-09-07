@@ -52,7 +52,7 @@ validation:
     result: PASS
     evidence: Main 3557085c20512d25576d8884cc54471665784b00 contains source blob bd78d63e051b32615a81074651dff8c9e1036cb4.
 blockers: []
-next_action: Close Issue #1299 after this archive transition reaches protected main through Issue #1302.
+next_action: No further Issue #1299 action; it closed externally at 2026-09-07T09:26:20Z before this archive transition reached protected main. Issue #1302 still owns the archive transition.
 ```
 
 ## Source branch closeout

@@ -10,10 +10,10 @@ Counts use UTF-8 file bytes and newline counts. They measure repository source r
 
 | Surface | Before | Candidate | Change |
 | --- | ---: | ---: | ---: |
-| 12 core Platform instruction/prompt documents | 145,815 B / 2,040 lines | 27,078 B / 305 lines | -118,737 B / -1,735 lines |
-| Policy/prompt validator code, tests and active eval suite (5 files) | 116,524 B / 2,238 lines | 59,357 B / 1,345 lines | -57,167 B / -893 lines |
-| Ordinary root task mandatory local sources | 3 files / 52,435 B / 582 lines | 3 files / 10,475 B / 113 lines | -41,960 B / -469 lines |
-| `docs/agents/**` task mandatory local sources | 4 files / 62,316 B / 671 lines | 4 files / 11,671 B / 123 lines | -50,645 B / -548 lines |
+| 12 core Platform instruction/prompt documents | 145,815 B / 2,040 lines | 27,248 B / 306 lines | -118,567 B / -1,734 lines |
+| Policy/prompt validator code, tests and active eval suite (5 files) | 116,524 B / 2,238 lines | 60,798 B / 1,372 lines | -55,726 B / -866 lines |
+| Ordinary root task mandatory local sources | 3 files / 52,435 B / 582 lines | 3 files / 10,645 B / 114 lines | -41,790 B / -468 lines |
+| `docs/agents/**` task mandatory local sources | 4 files / 62,316 B / 671 lines | 4 files / 11,841 B / 124 lines | -50,475 B / -547 lines |
 
 Before ordinary-task sources were root `AGENTS.md`, `PLATFORM_AGENT_BOOTSTRAP.md` and the always-consulted `CONTEXT_ROUTING.md`. Candidate sources are root, the thin bootstrap and `META_AGENT_POLICY_BINDING.json`; context routing is on demand. A `docs/agents/**` task additionally loads the nearest nested `AGENTS.md` in both states.
 
@@ -23,6 +23,7 @@ The core set is root, bootstrap, nested, context routing, prompting handover/sta
 
 - Before importing checkout-owned Python, `policy_consistency.py` validates the closed binding identity and full SHA, verifies exact clean checkout identity, and independently authenticates protected-main ancestry through GitHub. A rejected checkout cannot execute its candidate validator.
 - The executable derives the bound checkout path under its fixed repository root from the validated full SHA; it exposes no command-line repository or policy-checkout path.
+- Agent Governance checks out META with a literal immutable commit pin and fails when the binding differs from that pin, preventing a candidate-controlled checkout from poisoning later workflow steps.
 - After that trust bootstrap, the consumer loads META's own `central_agent_policy.py` from the exact Git checkout, validates the complete META bundle and binding against the already authenticated snapshot, applies META's provider-overlay validator, and separately retains bounded Platform invariants.
 - Local checkpoint and liveness shapes remain in `GOVERNANCE_CONTRACT.json` and their existing focused validators. Status and budget lists are no longer copied into prose for `policy_consistency.py` to parse.
 - The deterministic prompt evaluator checks Platform-owned deltas and reports `model_trials_executed=0`. It does not claim provider delivery or runtime/model behavior.

@@ -55,6 +55,7 @@ class PolicyConsistencyTest(unittest.TestCase):
             policy.BOOTSTRAP_PATH,
             policy.BINDING_PATH,
             policy.GOVERNANCE_CONTRACT_PATH,
+            policy.AGENT_GOVERNANCE_WORKFLOW_PATH,
         ):
             target = self.root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -131,6 +132,17 @@ class PolicyConsistencyTest(unittest.TestCase):
         del contract["live_task_liveness"]
         path.write_text(json.dumps(contract), encoding="utf-8")
         self.assertIn("GOVERNANCE_CONTRACT.json lacks live_task_liveness", self.validate())
+
+    def test_workflow_bootstrap_pin_must_match_binding(self) -> None:
+        self.replace(
+            policy.AGENT_GOVERNANCE_WORKFLOW_PATH,
+            "ref: 5ed3f14400af450b5875c091e443da70f2d67ab9",
+            "ref: 0123456789abcdef0123456789abcdef01234567",
+        )
+        self.assertIn(
+            "agent-governance workflow bootstrap pin does not match the META binding",
+            self.validate(),
+        )
 
     def test_meta_checkout_head_must_match_binding(self) -> None:
         findings = policy.validate_policy(

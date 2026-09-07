@@ -57,6 +57,7 @@ proven:
   - Issue #1302 owns this exact bounded Platform consumer migration and coordinates with broader #1009.
   - D26 code and focused regressions are integrated through PR #1300; only lifecycle archival remains.
   - Draft PR #1303 publishes the complete candidate from Issue #1302.
+  - Issue #1299 closed externally at 2026-09-07T09:26:20Z before this candidate integrated; no reopen or repeated close is required.
 derived:
   - The provider overlay, binding and consuming validators must change together to avoid retaining prose duplication as a gate.
 unknown:
@@ -79,7 +80,7 @@ changed_paths:
 validation:
   - command: focused Agent Governance unit suites and validators
     result: PASS
-    evidence: 85 unit tests passed, including malicious-validator pre-import rejection, fixed bound-checkout path coverage and the unchanged Portal Completion scope-manifest contract; prompt contract reported 11 cases, 7 categories, 4 safety-critical cases and model_trials_executed=0; Documentation IA and workflow trigger economy passed.
+    evidence: 86 unit tests passed, including malicious-validator pre-import rejection, fixed bound-checkout path and workflow-pin coherence coverage, and the unchanged Portal Completion scope-manifest contract; prompt contract reported 11 cases, 7 categories, 4 safety-critical cases and model_trials_executed=0; Documentation IA and workflow trigger economy passed.
   - command: bound META central validator with protected-main resolver evidence
     result: PASS
     evidence: META bundle, binding, provider overlay, checkout identity and Platform invariants passed against 5ed3f14400af450b5875c091e443da70f2d67ab9.
@@ -87,7 +88,7 @@ validation:
     result: NOT_APPLICABLE
     evidence: This change affects agent instructions, validators and task lifecycle only; it does not modify product runtime behavior.
 blockers: []
-next_action: Finish exact-head validation and review; after any later protected integration, archive this task and close Issues #1302 and #1299.
+next_action: Finish exact-head validation and review; after any later protected integration, archive this task and close Issue #1302. Do not reactivate or re-close already terminal Issue #1299.
 ```
 
 ## Source branch closeout

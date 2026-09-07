@@ -25,6 +25,7 @@ BINDING_PATH = Path("docs/agents/META_AGENT_POLICY_BINDING.json")
 ROOT_AGENTS_PATH = Path("AGENTS.md")
 BOOTSTRAP_PATH = Path("docs/agents/PLATFORM_AGENT_BOOTSTRAP.md")
 GOVERNANCE_CONTRACT_PATH = Path("docs/agents/GOVERNANCE_CONTRACT.json")
+AGENT_GOVERNANCE_WORKFLOW_PATH = Path(".github/workflows/agent-governance.yml")
 META_VALIDATOR_PATH = Path("tools/governance/central_agent_policy.py")
 PLATFORM_REPOSITORY = "Oteryn/Oteryn-Platform"
 META_REPOSITORY = "Oteryn/Oteryn"
@@ -57,6 +58,7 @@ PLATFORM_INVARIANTS = {
     "payment_scope": "core account/auth code must not depend on a payment provider.",
     "github_ci_default": "Use GitHub APIs and repository CI as the default control plane",
     "remote_desktop_default_deny": "Remote Desktop access is denied by default and requires explicit owner authorization for the exact invocation.",
+    "shared_path_overlap": "Before editing a shared path, search live Issues, PRs and active tasks for current ownership or overlap",
 }
 
 
@@ -296,6 +298,7 @@ def validate_policy(
         root_agents = _read_text(root, ROOT_AGENTS_PATH)
         bootstrap = _read_text(root, BOOTSTRAP_PATH)
         governance = _read_json(root, GOVERNANCE_CONTRACT_PATH)
+        workflow = _read_text(root, AGENT_GOVERNANCE_WORKFLOW_PATH)
 
         bootstrap_errors, resolved_authority = authenticate_meta_source(
             binding,
@@ -348,6 +351,17 @@ def validate_policy(
         ):
             if marker not in bootstrap:
                 errors.append(f"PLATFORM_AGENT_BOOTSTRAP.md lacks local authority boundary: {marker}")
+
+        if isinstance(binding, dict):
+            commit = binding.get("authority_commit")
+            for marker in (f"ref: {commit}", f"path: _meta-policy/{commit}"):
+                if marker not in workflow:
+                    errors.append(
+                        "agent-governance workflow bootstrap pin does not match the META binding"
+                    )
+                    break
+        if "steps.meta_binding.outputs.authority_commit" in workflow:
+            errors.append("agent-governance workflow must not use a candidate-controlled checkout ref")
 
     except (PolicyConsistencyError, ValueError, TypeError) as exc:
         errors.append(str(exc))

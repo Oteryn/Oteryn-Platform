@@ -30,7 +30,8 @@
       "source": "AGENTS.md",
       "must_contain": [
         "The only repository writable under this provider policy is `Oteryn/Oteryn-Platform`.",
-        "Production, protected environments, credentials, live payments and irreversible external effects require explicit task-specific authority."
+        "Production, protected environments, credentials, live payments and irreversible external effects require explicit task-specific authority.",
+        "Before editing a shared path, search live Issues, PRs and active tasks for current ownership or overlap"
       ]
     },
     {

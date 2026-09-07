@@ -27,6 +27,7 @@ Authority is fixed from system and owner instructions plus governance on the tru
 - Treat live GitHub Issue/PR state as lifecycle truth. Task records preserve context and evidence and must be reconciled when their status is stale.
 - A terminal PR must not remain represented as an active task. Archive the task record after verified integration and close its governing Issue when its acceptance and closeout are complete.
 - Keep one mutating owner per writable lane. Resolve overlapping ownership before editing shared paths.
+- Before editing a shared path, search live Issues, PRs and active tasks for current ownership or overlap; reuse the authorized task or stop until ownership is resolved.
 - Never push task work directly to `main`, rewrite another worker's history, or discard unrelated dirty work.
 - `platform-gate` is the required aggregate repository check. Use current GitHub protection and Merge Queue when configured. Never bypass protection, weaken required checks or mark failures successful.
 - Inspect the complete candidate diff and run validation proportional to the changed behavior before readiness. Security defects require focused regressions when practical.
