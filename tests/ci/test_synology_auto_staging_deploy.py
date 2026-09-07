@@ -158,6 +158,20 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         self.assertIn("grep -q 'mfa-qr-code'", health)
 
 
+    def test_current_runtime_start_does_not_rewalk_compose_dependencies(self) -> None:
+        self.assertIn(
+            '"${compose[@]}" up -d --no-deps --force-recreate internal-proxy gateway',
+            self.deploy_script,
+        )
+        self.assertNotIn('"${compose[@]}" up -d gateway\n', self.deploy_script)
+
+    def test_gateway_readiness_uses_bounded_host_probe_not_container_per_attempt(self) -> None:
+        health = (ROOT / "deploy/synology/scripts/health-check.sh").read_text(encoding="utf-8")
+        self.assertIn('probe_published_url "$GATEWAY_BIND_ADDRESS" "$GATEWAY_PORT" /ready', health)
+        self.assertIn('for attempt in $(seq 1 12)', health)
+        self.assertIn('Gateway aggregate readiness failed after both internal dependencies passed.', health)
+
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

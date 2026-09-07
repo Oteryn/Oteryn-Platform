@@ -71,6 +71,28 @@ probe_url() {
     return 1
 }
 
+probe_published_url() {
+    local address="$1"
+    local port="$2"
+    local path="$3"
+    local label="$4"
+    local attempt status
+
+    for attempt in $(seq 1 12); do
+        status="$(curl --silent --show-error --output /dev/null \
+            --write-out '%{http_code}' --max-time 5 \
+            "http://${address}:${port}${path}" 2>/dev/null || true)"
+        if [[ "$status" == "200" ]]; then
+            return 0
+        fi
+        echo "${label} attempt ${attempt}/12 returned HTTP ${status:-transport-error}" >&2
+        sleep 2
+    done
+
+    echo "Health probe failed: $label" >&2
+    return 1
+}
+
 probe_internal_tls() {
     local url="$1"
     local label="$2"
@@ -116,13 +138,13 @@ probe_url platform 8000 /health "Platform /health"
 probe_url canary 7180 /health "Canary session issuer /health"
 probe_internal_tls "https://platform-internal:8443/health" "Gateway -> Platform"
 probe_internal_tls "https://canary-session-internal:8444/health" "Gateway -> Canary session issuer"
-probe_url gateway 8080 /health "Gateway /health"
-if ! probe_url gateway 8080 /ready "Gateway /ready"; then
+probe_published_url "$GATEWAY_BIND_ADDRESS" "$GATEWAY_PORT" /health "Gateway /health"
+if ! probe_published_url "$GATEWAY_BIND_ADDRESS" "$GATEWAY_PORT" /ready "Gateway /ready"; then
     echo "Gateway aggregate readiness failed after both internal dependencies passed." >&2
     docker logs --tail 80 "${container_ids[gateway]}" >&2 || true
     exit 1
 fi
-probe_url gateway 8080 /version "Gateway /version"
+probe_published_url "$GATEWAY_BIND_ADDRESS" "$GATEWAY_PORT" /version "Gateway /version"
 
 expected_gateway_version="${GATEWAY_VERSION:-synology-staging}"
 docker run --rm \
