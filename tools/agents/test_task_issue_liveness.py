@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import tempfile
+import contextlib
+import io
+from unittest import mock
 import unittest
 from pathlib import Path
 
@@ -83,6 +86,54 @@ class IssueLivenessTests(unittest.TestCase):
         report = self.evaluate(FakeClient(error=live.IssueLivenessError("GitHub Issue state unavailable")))
         self.assertFalse(report["live_valid"])
         self.assertEqual(report["tasks"][0]["findings"][0]["code"], "github_issue_state_unavailable")
+
+
+    def test_missing_inventory_is_not_a_valid_empty_directory(self):
+        self.active.rmdir()
+        client = mock.Mock()
+        with self.assertRaisesRegex(live.IssueLivenessError, "active task inventory must be an existing directory"):
+            self.evaluate(client)
+        client.get_issue.assert_not_called()
+
+    def test_file_inventory_is_not_a_valid_empty_directory(self):
+        self.active.rmdir()
+        self.active.write_text("not a directory", encoding="utf-8")
+        client = mock.Mock()
+        with self.assertRaisesRegex(live.IssueLivenessError, "active task inventory must be an existing directory"):
+            self.evaluate(client)
+        client.get_issue.assert_not_called()
+
+    def test_existing_empty_inventory_needs_no_api_calls(self):
+        client = mock.Mock()
+        report = self.evaluate(client)
+        self.assertTrue(report["live_valid"])
+        self.assertEqual(report["tasks"], [])
+        self.assertEqual(report["errors"], 0)
+        client.get_issue.assert_not_called()
+
+    def test_readme_only_inventory_needs_no_api_calls(self):
+        (self.active / "README.md").write_text("# Active tasks\n", encoding="utf-8")
+        client = mock.Mock()
+        report = self.evaluate(client)
+        self.assertTrue(report["live_valid"])
+        self.assertEqual(report["tasks"], [])
+        client.get_issue.assert_not_called()
+
+    def test_cli_returns_failure_without_success_report_for_invalid_inventory(self):
+        self.active.rmdir()
+        output = Path(self.tmp.name) / "report.json"
+        stderr = io.StringIO()
+        with mock.patch.object(live, "load_policy", return_value=POLICY), \
+                mock.patch.object(live, "GitHubClient") as client, \
+                contextlib.redirect_stderr(stderr):
+            result = live.main([
+                "--repository", "Oteryn/Oteryn-Platform", "--active", str(self.active),
+                "--report-json", str(output),
+            ])
+        self.assertEqual(result, 1)
+        self.assertIn("active task inventory must be an existing directory", stderr.getvalue())
+        self.assertFalse(output.exists())
+        client.return_value.get_issue.assert_not_called()
 
 
 if __name__ == "__main__":
