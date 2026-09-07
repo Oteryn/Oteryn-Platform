@@ -1,0 +1,46 @@
+name: Temporary Synology Candidate Finalizer Writer
+
+on:
+  push:
+    branches:
+      - fix/20260907-synology-finalize-stale-candidate
+    paths:
+      - .github/workflows/temp-synology-finalize-candidate.yml
+
+permissions:
+  contents: write
+
+jobs:
+  write-repair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repair branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: fix/20260907-synology-finalize-stale-candidate
+          fetch-depth: 0
+
+      - name: Apply bounded candidate-finalization repair
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/temp_synology_finalize_candidate.py
+          bash -n deploy/synology/scripts/deploy.sh
+          bash -n deploy/synology/scripts/lib.sh
+          bash -n deploy/synology/scripts/health-check.sh
+          bash -n deploy/synology/scripts/prepare-fresh-schema-baseline.sh
+          python3 tests/ci/test_synology_rollback_contract.py
+          python3 tests/ci/test_synology_rollback_recovery_contract.py
+          python3 tests/ci/test_synology_auto_staging_deploy.py
+          python3 deploy/synology/tests/test_fresh_baseline_contract.py
+
+      - name: Commit bounded repair
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add deploy/synology/scripts/deploy.sh \
+            tests/ci/test_synology_rollback_recovery_contract.py \
+            tests/ci/test_synology_auto_staging_deploy.py \
+            .github/scripts/temp_synology_finalize_candidate.py
+          git commit -m "fix(staging): finalize proven prior candidate"
+          git push origin HEAD:fix/20260907-synology-finalize-stale-candidate
