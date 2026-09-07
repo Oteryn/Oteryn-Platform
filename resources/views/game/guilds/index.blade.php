@@ -3,6 +3,8 @@
 @section('title', __('community.guilds.title'))
 @section('page-class', 'page-shell-wide community-page')
 
+@section('portal-family', 'world-data')
+
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
 
@@ -12,7 +14,7 @@
         <p class="muted">{{ __('community.guilds.description') }}</p>
     </div>
 
-    <form class="card community-filter" method="get" action="{{ route('game.guilds.index') }}" role="search">
+    <form class="community-filter directory-filter" method="get" action="{{ route('game.guilds.index') }}" role="search">
         <label>
             <span>{{ __('community.guilds.search_label') }}</span>
             <input name="q" type="search" maxlength="80" value="{{ $search ?? '' }}" placeholder="{{ __('community.guilds.search_placeholder') }}">
@@ -27,7 +29,7 @@
 
     <div class="card">
         <div class="table-region" tabindex="0" aria-label="{{ __('public.game.guild_directory_table') }}">
-            <table class="table-compact">
+            <table class="table-compact guild-directory-table">
                 <thead>
                 <tr>
                     <th scope="col">{{ __('public.game.guild') }}</th>
@@ -37,7 +39,7 @@
                 <tbody>
                 @forelse ($guilds as $guild)
                     <tr>
-                        <td><a href="{{ route('game.guilds.show', ['name' => $guild->name]) }}">{{ $guild->name }}</a></td>
+                        <td><span class="guild-emblem" aria-hidden="true">{{ mb_substr($guild->name, 0, 1) }}</span><a href="{{ route('game.guilds.show', ['name' => $guild->name]) }}">{{ $guild->name }}</a></td>
                         <td>{{ $localeFormatter->number((int) $guild->active_member_count) }}</td>
                     </tr>
                 @empty

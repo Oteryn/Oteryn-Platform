@@ -20,7 +20,10 @@ final class SecurityHeadersTest extends TestCase
             ->assertHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
             ->assertHeader('Permissions-Policy', 'camera=(), geolocation=(), microphone=(), payment=(), usb=()')
             ->assertHeaderMissing('Strict-Transport-Security')
-            ->assertSee('css/app.css')
+            ->assertSee('href="'.asset('css/portal-system.css').'"', false)
+            ->assertSee('href="'.asset('css/portal-pages.css').'"', false)
+            ->assertSee('href="'.asset('css/home-production.css').'"', false)
+            ->assertDontSee('css/app.css', false)
             ->assertDontSee('<style>', false);
 
         $csp = $response->headers->get('Content-Security-Policy');

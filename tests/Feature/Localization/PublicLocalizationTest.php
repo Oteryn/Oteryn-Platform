@@ -61,7 +61,7 @@ final class PublicLocalizationTest extends TestCase
             ->get('/')
             ->assertOk()
             ->assertHeader('Content-Language', 'pl')
-            ->assertSeeText('Odpowiedz na wezwanie Oteryn');
+            ->assertSeeText('Więcej niż gra. Żyjący świat.');
 
         $this->withCookie('oteryn_locale', 'pl')
             ->withHeader('Accept-Language', 'en')

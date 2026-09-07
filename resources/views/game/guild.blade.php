@@ -3,13 +3,18 @@
 @section('title', $guild->name)
 @section('page-class', 'page-shell-wide community-page')
 
+@section('portal-family', 'world-data')
+
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
 
-    <div class="page-header">
+    <header class="page-header player-masthead">
+        <div class="player-emblem player-emblem-large" aria-hidden="true">{{ mb_substr($guild->name, 0, 1) }}</div>
+        <div class="player-masthead-copy">
         <p class="eyebrow">{{ __('public.game.guild') }}</p>
         <h1>{{ $guild->name }}</h1>
-    </div>
+        </div>
+    </header>
 
     <dl class="card stat-grid">
         <div class="stat">

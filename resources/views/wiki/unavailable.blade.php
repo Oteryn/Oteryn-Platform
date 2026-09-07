@@ -4,9 +4,7 @@
 @section('robots', 'noindex,nofollow')
 @section('page-class', 'wiki-page')
 
-@push('styles')
-    <link rel="stylesheet" href="{{ asset('css/wiki.css') }}">
-@endpush
+@section('portal-family', 'knowledge')
 
 @section('content')
     <div class="empty-state" role="alert">

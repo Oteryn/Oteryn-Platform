@@ -43,7 +43,7 @@ test('@localization canonical English and Polish public shells remain truthful a
   const englishResponse = await page.goto('/en');
   expect(englishResponse?.status()).toBe(200);
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
-  await expect(page.getByRole('heading', { name: 'Answer the call of Oteryn' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'More than a game. A living world.' })).toBeVisible();
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /\/en$/);
   await expect(page.locator('link[rel="alternate"][hreflang="pl"]')).toHaveAttribute('href', /\/pl$/);
   await expectVisibleLink(page, /Polski/i);
@@ -52,7 +52,7 @@ test('@localization canonical English and Polish public shells remain truthful a
   const polishResponse = await page.goto('/pl');
   expect(polishResponse?.status()).toBe(200);
   await expect(page.locator('html')).toHaveAttribute('lang', 'pl');
-  await expect(page.getByRole('heading', { name: 'Odpowiedz na wezwanie Oteryn' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Więcej niż gra. Żyjący świat.' })).toBeVisible();
   await expectVisibleLink(page, 'Aktualności');
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /\/pl$/);
   await expectVisibleLink(page, /English/i);

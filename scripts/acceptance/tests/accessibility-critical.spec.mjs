@@ -94,7 +94,11 @@ test('@accessibility production homepage navigation and character search are key
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Answer the call of Oteryn' })).toBeVisible();
 
-  const newsLink = page.getByRole('navigation', { name: 'Public navigation' }).getByRole('link', { name: 'News' });
+  const navigation = page.getByRole('navigation', { name: 'Public navigation' });
+  const chronicles = navigation.locator('summary').filter({ hasText: 'Chronicles' });
+  await tabTo(page, chronicles, 'Chronicles navigation disclosure');
+  await page.keyboard.press('Enter');
+  const newsLink = navigation.getByRole('link', { name: 'News', exact: true });
   await tabTo(page, newsLink, 'public News navigation link');
 
   const characterName = page.getByLabel('Character name');

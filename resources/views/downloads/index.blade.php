@@ -2,9 +2,11 @@
 
 @section('title', __('public.downloads.page_title'))
 
+@section('portal-family', 'downloads')
+
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
-    <div class="page-header">
+    <div class="page-header download-masthead">
         <p class="eyebrow">{{ __('public.downloads.eyebrow') }}</p>
         <h1>{{ __('public.downloads.title') }}</h1>
         <p class="muted">{{ __('public.downloads.description') }}</p>
@@ -50,7 +52,7 @@
                 $updaterMinimum = $release->getAttribute('updater_minimum_supported_release_sequence');
                 $updaterExpires = $release->getAttribute('updater_metadata_expires_at');
             @endphp
-            <article class="card">
+            <article class="card download-release">
                 <div class="page-header">
                     <p class="eyebrow">{{ __('public.downloads.channel', ['channel' => \App\Downloads\DownloadCatalog::channelLabel($release->channel)]) }}</p>
                     <h2>{{ __('public.downloads.client', ['version' => $release->version]) }}</h2>
@@ -83,7 +85,7 @@
                 </div>
 
                 <div class="table-region" tabindex="0" aria-label="{{ __('public.downloads.artifacts_table') }}">
-                    <table aria-label="{{ __('public.downloads.artifacts_table') }}">
+                    <table class="download-artifacts" aria-label="{{ __('public.downloads.artifacts_table') }}">
                         <thead>
                             <tr>
                                 <th scope="col">{{ __('public.downloads.platform') }}</th>
@@ -97,12 +99,12 @@
                         <tbody>
                             @foreach ($release->artifacts as $artifact)
                                 <tr>
-                                    <td>{{ \App\Downloads\DownloadCatalog::platformLabel($artifact->platform) }}</td>
-                                    <td>{{ \App\Downloads\DownloadCatalog::architectureLabel($artifact->architecture) }}</td>
-                                    <td>{{ $artifact->filename }}</td>
-                                    <td>{{ $localeFormatter->bytes($artifact->size_bytes) }}</td>
-                                    <td><code>{{ $artifact->sha256 }}</code></td>
-                                    <td>
+                                    <td data-label="{{ __('public.downloads.platform') }}">{{ \App\Downloads\DownloadCatalog::platformLabel($artifact->platform) }}</td>
+                                    <td data-label="{{ __('public.downloads.architecture') }}">{{ \App\Downloads\DownloadCatalog::architectureLabel($artifact->architecture) }}</td>
+                                    <td data-label="{{ __('public.downloads.filename') }}">{{ $artifact->filename }}</td>
+                                    <td data-label="{{ __('public.downloads.size') }}">{{ $localeFormatter->bytes($artifact->size_bytes) }}</td>
+                                    <td class="download-checksum" data-label="SHA-256"><code>{{ $artifact->sha256 }}</code></td>
+                                    <td class="download-action" data-label="{{ __('public.downloads.action') }}">
                                         <a class="button" href="{{ $artifact->artifact_url }}" rel="noopener noreferrer">{{ __('public.downloads.download') }}</a>
                                     </td>
                                 </tr>

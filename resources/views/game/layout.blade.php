@@ -26,20 +26,18 @@
         'localizedUrls' => $localizedUrls,
     ])
     @stack('head')
-    <link rel="stylesheet" href="{{ asset('css/app.css') }}">
-    <link rel="stylesheet" href="{{ asset('css/portal.css') }}">
-    <link rel="stylesheet" href="{{ asset('css/brand-art.css') }}">
-    <link rel="stylesheet" href="{{ asset('css/public-shell.css') }}">
-    <link rel="stylesheet" href="{{ asset('css/marketplace.css') }}">
-    <link rel="stylesheet" href="{{ asset('css/marketplace-responsive.css') }}">
-    <link rel="stylesheet" href="{{ asset('css/community.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/portal-system.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/portal-pages.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/portal-art-direction.css') }}">
+    <script src="{{ asset('js/portal-navigation.js') }}" defer></script>
     @stack('styles')
 </head>
-<body class="public-body">
+<body class="public-body" data-portal-family="@yield('portal-family', 'public')">
 @inject('publicNavigation', 'App\PublicPortal\Navigation\PublicNavigationRegistry')
 <a class="skip-link" href="#main-content">{{ __('public.skip_to_content') }}</a>
 @include('game.partials.public-header', ['headerItems' => $publicNavigation->header()])
 <main id="main-content" class="page-shell @yield('page-class')">
+    @include('game.partials.page-context')
     @yield('content')
 </main>
 @include('game.partials.public-footer', ['footerGroups' => $publicNavigation->footer()])

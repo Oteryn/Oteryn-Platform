@@ -2,6 +2,8 @@
 
 @section('title', __('payments.title'))
 
+@section('portal-family', 'payments')
+
 @section('content')
     <header class="page-header">
         <p class="eyebrow">{{ __('payments.eyebrow') }}</p>
@@ -25,7 +27,7 @@
                 <p>{{ __('payments.empty') }}</p>
             </div>
         @else
-            <div class="table-wrap">
+            <div class="table-wrap" role="region" tabindex="0" aria-labelledby="payment-history-heading">
                 <table>
                     <thead>
                     <tr>

@@ -3,11 +3,15 @@
 @section('title', $character['name'])
 @section('page-class', 'page-shell-wide community-page')
 
+@section('portal-family', 'world-data')
+
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
     @inject('characterPresentation', 'App\PublicGameData\CharacterPresentation')
 
-    <header class="page-header">
+    <header class="page-header player-masthead">
+        <div class="player-emblem player-emblem-large" aria-hidden="true">{{ mb_substr($character['name'], 0, 1) }}</div>
+        <div class="player-masthead-copy">
         <p class="eyebrow">{{ __('community.profile.title') }}</p>
         <h1>
             {{ $character['name'] }}
@@ -16,6 +20,7 @@
             @endif
         </h1>
         <p class="muted">{{ __('community.profile.description') }}</p>
+        </div>
     </header>
 
     <section aria-labelledby="character-overview-heading">

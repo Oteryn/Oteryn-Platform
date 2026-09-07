@@ -1,0 +1,322 @@
+/* Oteryn art direction. Structure and interaction remain in portal-system/pages.
+   Shared visual tokens and controls serve the complete Platform; admin adds its task-focused layout. */
+:root {
+    --display: Georgia, 'Times New Roman', serif;
+    --bg: #080e14;
+    --bg-subtle: #101923;
+    --surface: #14202c;
+    --surface-elevated: #1c2a37;
+    --surface-interactive: #253543;
+    --text: #f2eee6;
+    --text-muted: #b2bfcc;
+    --border: #2c3741;
+    --border-strong: #68727b;
+    --accent: #dfbd80;
+    --accent-hover: #f4d9aa;
+    --accent-active: #b38a4d;
+    --gold: #dfbd80;
+    --success: #93e5b0;
+    --warning: #f0ca84;
+    --danger: #f4a9a9;
+    --info: #b3d2f0;
+    --focus: #ffe0a4;
+    --content: 82rem;
+    --content-wide: 88rem;
+    --radius-sm: .22rem;
+    --radius-md: .3rem;
+    --radius-lg: .4rem;
+    --gold-rule: #a17c4259;
+    --gold-surface: linear-gradient(110deg, #d6b477, #eed3a0 48%, #c79d5a);
+    --panel-fill: linear-gradient(135deg, #15202aec, #0b121af5);
+    --panel-shadow: 0 16px 45px #0003, inset 0 1px #ffffff05;
+}
+html { scroll-padding-top: 1.5rem; }
+body { background: var(--bg); }
+.public-body, .identity-body { position: relative; isolation: isolate; }
+.public-body:not([data-portal-family="home"])::before,
+.identity-authenticated::before {
+    content: ''; position: absolute; z-index: -1; inset: 0 0 auto; height: 38rem;
+    background: linear-gradient(180deg, #080e144d, var(--bg) 95%), linear-gradient(90deg, var(--bg) 8%, #080e1499 60%, #080e1466), url('../images/oteryn-citadel.webp') right 32% / auto 100% no-repeat;
+    pointer-events: none;
+}
+h1, h2, .display-title { font-weight: 400; letter-spacing: -.025em; }
+h1 { line-height: 1.13; }
+h2 { line-height: 1.22; }
+p, li { line-height: 1.7; }
+::selection { background: var(--gold); color: #18130b; }
+.eyebrow { font-size: .72rem; font-weight: 500; letter-spacing: .18em; }
+.section-heading > h2 { font-size: clamp(1.55rem, 2.15vw, 2.1rem); }
+.section-heading > .eyebrow { margin-bottom: .2rem; }
+.page-shell { padding-top: 2rem; }
+.page-shell > .page-header, .page-shell > .bazaar-hero {
+    position: relative; min-height: 12rem; align-content: center; padding-block: 1.4rem 2rem; margin-bottom: 2rem;
+}
+.page-shell > .page-header::after, .page-shell > .bazaar-hero::after {
+    content: ''; position: absolute; inset: auto 0 0; height: 1px;
+    background: linear-gradient(90deg, var(--gold), var(--gold-rule) 35%, transparent 88%);
+}
+.page-shell > .page-header h1 { margin-block: .2rem .35rem; font-size: clamp(2.5rem, 4.2vw, 4.1rem); }
+.page-shell > .page-header > p:not(.eyebrow) { max-width: 60ch; font-size: 1rem; }
+.card, .panel, .portal-section { border-top-color: var(--gold-rule); }
+.section-grid, .card-grid { gap: 1.5rem 2rem; }
+/* Controls: gold is an action colour, green is reserved for real positive state. */
+button, .button {
+    color: #1c160d; background: var(--gold-surface); border-color: #d0a66a;
+    font-weight: 650; box-shadow: inset 0 1px #fff5, 0 3px 12px #0002;
+    min-height: 2.9rem; padding-inline: 1.3rem;
+}
+button:hover, .button:hover { color: #17120b; background: #f0d3a0; border-color: #f0d3a0; }
+.button-secondary { color: var(--text); background: #101923b8; border-color: var(--border-strong); box-shadow: inset 0 1px #ffffff08; }
+.button-secondary:hover { color: var(--text); background: var(--surface-elevated); border-color: var(--text-muted); }
+.button-ghost { color: var(--text-muted); background: transparent; border-color: transparent; box-shadow: none; }
+.button-ghost:hover { color: var(--text); background: var(--surface); border-color: transparent; }
+.button-danger, button.danger { color: #301416; background: var(--danger); border-color: var(--danger); }
+.button-danger:hover, button.danger:hover { color: #301416; background: #ffc4c4; border-color: #ffc4c4; }
+input, select, textarea { background: #090f17; border-color: #52606b; box-shadow: inset 0 2px 5px #0002; }
+input::placeholder, textarea::placeholder { color: #a9b8c5; }
+input:hover, select:hover, textarea:hover { border-color: #92a0aa; }
+input:focus-visible, select:focus-visible, textarea:focus-visible { border-color: var(--gold); }
+input[type="checkbox"], input[type="radio"] { box-shadow: none; }
+input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--danger); }
+button:disabled, .button[aria-disabled="true"] { box-shadow: none; }
+.notice, .alert, .empty-state { background: #111b25e8; border-color: var(--border); border-left-color: var(--info); box-shadow: inset 0 1px #ffffff04; }
+.alert-success, .notice-success { border-left-color: var(--success); }
+.alert-warning, .notice-maintenance { border-left-color: var(--warning); }
+.alert-danger, .notice-danger, .notice-error, [role="alert"] { border-left-color: var(--danger); }
+.empty-state { border-left-color: var(--gold-rule); padding: 1.6rem; }
+.badge { background: #111b25; color: var(--text-muted); }
+.badge-success { color: var(--success); border-color: #52735d; }
+.badge-warning { color: var(--warning); border-color: #8d7348; }
+.badge-danger { color: var(--danger); border-color: #885960; }
+/* Shared header and menus retain native details and the no-JavaScript path. */
+.site-header { background: #080f17ed; border-bottom-color: #c7a46830; }
+.header-inner { min-height: 5rem; gap: 1.8rem; }
+.brand-wordmark-art { width: 13.6rem; }
+.primary-nav { gap: .15rem; }
+.nav-link, .nav-group > summary { color: #e0e4e7; font-size: .9rem; font-weight: 400; padding: .85rem .7rem; }
+.nav-link[aria-current="page"] { color: var(--gold); box-shadow: inset 0 -2px var(--gold); }
+.nav-group-links { background: #0e1823; border-color: #9e815250; padding: .6rem; box-shadow: 0 20px 50px #0009; top: calc(100% + .6rem); }
+.nav-group-links .nav-link { font-size: .88rem; }
+.nav-group-links .nav-link:hover { background: #d6b4770e; }
+.account-actions { gap: .65rem; }
+.account-actions .button { font-size: .85rem; min-height: 2.75rem; padding-inline: 1rem; }
+.account-actions .nav-link { font-size: .85rem; }
+.language-switcher__item { font-size: .75rem; min-width: 2rem; }
+.mobile-nav > summary { background: #14202b; border-color: #c7a46859; color: var(--text); }
+.mobile-nav-panel { background: #0d1721; border-color: #c7a46859; }
+.portal-context-nav { gap: .2rem 1.7rem; padding-block: 0 .65rem; margin-bottom: .7rem; border-bottom-color: #c7a46825; }
+.portal-context-nav a { font-size: .8rem; min-height: 2.75rem; }
+.portal-context-nav a[aria-current="page"] { box-shadow: inset 0 -1px var(--gold); }
+/* Decorative scene strips contain no rendered text or controls. */
+.scene { background-image: url('../images/oteryn-explore.webp'); background-size: cover; background-repeat: no-repeat; background-color: #162332; }
+.scene-explore { background-image: url('../images/oteryn-explore.webp'); background-position: center; }
+.scene-fight { background-image: url('../images/oteryn-fight.webp'); background-position: center; }
+.scene-market { background-image: url('../images/oteryn-market.webp'); background-position: center; }
+.scene-community { background-image: url('../images/oteryn-community.webp'); background-position: center; }
+.scene-library { background-image: url('../images/oteryn-library.webp'); background-position: center; }
+.scene-chronicles { background-image: url('../images/oteryn-chronicles.webp'); background-position: center; }
+/* Chronicles: an illustrated lead, smaller stories, and a long-form reading surface. */
+.chronicle-index { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2rem; }
+.chronicle-entry { display: grid; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-fill); }
+.chronicle-illustration { min-height: 11rem; border-bottom: 1px solid var(--gold-rule); }
+.chronicle-copy { min-width: 0; padding: 1.65rem; }
+.chronicle-copy .eyebrow { font-size: .66rem; line-height: 1.8; }
+.chronicle-entry h2 { margin-block: .7rem; font-size: 1.75rem; max-width: 28ch; }
+.chronicle-excerpt { margin-bottom: .9rem; font-size: .95rem; }
+.chronicle-entry-lead { grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr); gap: 0; border-top: 1px solid #b79558; }
+.chronicle-entry-lead .chronicle-illustration { min-height: 19rem; border: 0; }
+.chronicle-entry-lead .chronicle-copy { display: flex; flex-direction: column; justify-content: center; padding: clamp(1.5rem, 3vw, 3rem); }
+.chronicle-entry-lead h2 { font-size: clamp(2rem, 3vw, 3rem); }
+.chronicle-entry-lead .text-link { align-self: start; }
+.reading-article { max-width: 58rem; }
+.reading-masthead { padding-block: 1rem 2rem; border-bottom-color: var(--gold-rule); }
+.reading-masthead h1 { max-width: 24ch; }
+.reading-world { height: clamp(9rem, 20vw, 16rem); margin-block: 1rem 2.4rem; border: 1px solid var(--gold-rule); border-radius: var(--radius-sm); }
+.reading-body { padding: 0; border: 0; }
+.reading-body p, .reading-article > .prose-text { color: #d5dce2; font-size: 1.06rem; line-height: 1.95; }
+.event-timeline-entry { background: linear-gradient(90deg, #dfbd8008, transparent 70%); padding: 1.5rem; border-bottom-color: var(--gold-rule); }
+.event-date { border-right-color: var(--gold-rule); font-size: 1.6rem; }
+.event-timeline-copy h3 { font-size: 1.7rem; }
+.today-stream { gap: 1.5rem 2.5rem; }
+.today-stream > section { padding: 1.5rem; background: var(--panel-fill); border: 1px solid var(--border); }
+/* World families are game ledgers, not dashboard widgets. */
+.community-filter, .catalog-filters, .bazaar-filters { background: #101a25ec; border: 1px solid var(--border); border-top-color: #ac874b7a; border-radius: var(--radius-sm); padding: 1.35rem; }
+.table-region, .table-wrap {
+    position: relative;
+    background: #0c151fe8;
+    border: 0;
+    border-block: 1px solid var(--border);
+    border-top-color: #ac874b7a;
+    border-radius: var(--radius-sm);
+    box-shadow: inset 1px 0 var(--border), inset -1px 0 var(--border);
+}
+th { color: #dac394; background: #15212c; font-size: .72rem; letter-spacing: .08em; padding-block: 1.1rem; }
+td { border-bottom-color: #2c374178; padding-block: 1.1rem; }
+tbody tr:nth-child(even) { background: #19253242; }
+tbody tr:hover { background: #d6b4770a; }
+.rank-cell[data-rank="1"], .rank-cell[data-rank="2"], .rank-cell[data-rank="3"] { color: #f0cc88; font-size: 1.75rem; }
+.world-directory { border: 0; display: grid; gap: 1rem; }
+.world-row { padding: 1.8rem; background: var(--panel-fill); border: 1px solid var(--border); border-left-color: #b7955866; border-radius: var(--radius-sm); }
+.world-identity h2 { color: var(--text); font-size: 2rem; }
+.world-metrics .world-population { color: var(--gold); }
+.online-roster { border: 1px solid var(--border); background: #0e1822c9; }
+.online-row { padding: 1.2rem; }
+.online-row:last-child { border-bottom: 0; }
+.player-emblem, .guild-emblem, .character-monogram, .bazaar-card__portrait, .bazaar-detail-portrait { background: linear-gradient(145deg, #344051, #121c28); border-color: #ac874b8c; box-shadow: inset 0 0 0 4px #0b131755; color: #e8c78d; }
+.player-masthead { padding: 2rem; margin-bottom: 2rem; background: var(--panel-fill); border: 1px solid var(--gold-rule); }
+.community-grid > .card { padding: 1.5rem; background: var(--panel-fill); border: 1px solid var(--border); }
+.community-event-list li, .community-character-list li { border-bottom-color: #2c374180; }
+/* Library and catalog retain search, taxonomy, authentic data and semantic media. */
+.wiki-hero { padding-block: 1.8rem 2.4rem; }
+.wiki-search-form { max-width: 38rem; margin-top: 1.5rem; }
+.knowledge-library { gap: 3rem; }
+.knowledge-library > section { padding: 1.5rem; border: 1px solid var(--border); background: #101a24dc; align-self: start; }
+.knowledge-library .section-heading h2 { font-size: 1.55rem; }
+.knowledge-library .wiki-category-grid .card { padding-inline: 0; background: transparent; }
+.knowledge-stream .card-grid { gap: 1rem; }
+.knowledge-stream .card { padding: 1.5rem; border: 1px solid var(--border); background: var(--panel-fill); border-radius: var(--radius-sm); }
+.wiki-category-grid h3 a { color: var(--gold); }
+.wiki-toc { padding: 1.3rem; background: #101a24ec; border: 1px solid var(--border); border-top-color: var(--gold-rule); }
+.wiki-markdown { color: #d9e0e6; }
+.catalog-grid { gap: 1.2rem; }
+.catalog-card { position: relative; padding: 1.6rem; border: 1px solid var(--border); background: var(--panel-fill); }
+.catalog-card::before { content: ''; width: 1.8rem; height: 2px; background: var(--gold); margin-bottom: .5rem; }
+.catalog-card h2, .catalog-card h3 { font-size: 1.6rem; }
+.catalog-chip { color: #d2bc96; border-bottom-color: var(--gold-rule); }
+/* Releases and support use quiet, purposeful reading/task areas. */
+.download-release { padding: 1.8rem; background: var(--panel-fill); border: 1px solid var(--border); border-top-color: #b79558; border-radius: var(--radius-sm); }
+.download-release > .page-header { gap: .5rem; margin-bottom: 1.5rem; }
+.download-release .table-region { box-shadow: inset 1px 0 var(--border), inset -1px 0 var(--border); }
+.support-entry-paths { gap: 1rem; }
+.support-entry-paths > a { padding: 1.3rem; background: var(--panel-fill); border: 1px solid var(--border); }
+.support-entry-paths > a:hover { border-color: var(--gold-rule); }
+[data-portal-family="support"] .identity-panel > .card { padding: 1.6rem; border: 1px solid var(--border); background: var(--panel-fill); }
+/* Player workspace: atmosphere around information, never behind sensitive input. */
+.identity-workspace { grid-template-columns: 14rem minmax(0, 1fr); gap: 3rem; padding-block: 2.8rem 5rem; }
+.account-sidebar { background: linear-gradient(145deg, #14202bd9, #0d1721e8); padding: 1.3rem .85rem; border: 1px solid var(--border); border-top-color: #b79558; }
+.account-sidebar > .eyebrow { padding-inline: .8rem; margin-bottom: .8rem; }
+.context-nav a { font-size: .87rem; padding-block: .75rem; }
+.context-nav a[aria-current="page"] { background: #d6b47710; border-left-color: var(--gold); color: var(--gold); }
+.context-nav a:hover { background: #d6b4770a; }
+.account-masthead { padding: 1.9rem; min-height: 12rem; background: linear-gradient(90deg, #0e1822fa 22%, #0e1822a6), url('../images/oteryn-citadel.webp') right 45% / auto 220% no-repeat; border: 1px solid var(--gold-rule); }
+.account-masthead h1 { font-size: clamp(2.1rem, 3.5vw, 3.3rem); }
+.account-connection { background: #101b26ed; border: 1px solid var(--border); border-left: 2px solid var(--gold); margin-block: 1.5rem 2.5rem; }
+.account-roster .empty-state { padding-block: 2rem; }
+.character-roster-row { padding: 1.5rem; background: var(--panel-fill); border: 1px solid var(--border); margin-bottom: .8rem; }
+.account-services { gap: 2rem; }
+.account-services > section { padding: 1.5rem; background: var(--panel-fill); border-top: 1px solid var(--gold-rule); }
+.security-section { padding: 1.6rem; background: #101a24d9; border: 1px solid var(--border); margin-bottom: 1.5rem; }
+.security-section h2 { font-size: 1.8rem; }
+.session-row { background: #080f17a3; padding: 1.1rem; }
+.creation-guide { background: linear-gradient(145deg, #17243388, transparent); padding: 1.8rem; border: 1px solid var(--gold-rule); }
+.identity-guest { background: radial-gradient(ellipse at 24% 30%, #1f3041 0, #0b131c 48%, #080e14 85%); }
+.identity-guest .identity-workspace { max-width: 76rem; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 0; padding-block: 3rem 4rem; align-items: stretch; }
+.identity-guest .identity-world { min-height: 35rem; background: #172738; border: 1px solid var(--gold-rule); border-right: 0; padding: 2.4rem; }
+.identity-world img { object-position: 65% center; }
+.identity-world::after { background: linear-gradient(0deg, #0a1118f5 0, #0a111833 66%); }
+.identity-world .identity-world-title { color: #f2d8a7; font-size: 3.1rem; letter-spacing: .12em; }
+.identity-world .identity-world-copy { color: #d3dce5; font-size: 1rem; line-height: 1.8; }
+.identity-guest .identity-shell { max-width: none; padding: 2.5rem; border: 1px solid var(--gold-rule); background: #101922f2; box-shadow: var(--panel-shadow); }
+.identity-guest .identity-panel { padding-block: 0; }
+.identity-guest .identity-panel h1 { font-size: clamp(2.1rem, 3.1vw, 3rem); }
+.identity-guest .identity-panel .page-header { gap: .75rem; }
+.identity-guest .form-stack { gap: 1.2rem; }
+.identity-guest .identity-links { margin-top: 1.6rem; }
+.identity-locale-switcher { gap: .4rem; }
+.identity-locale-switcher .button { box-shadow: none; }
+.secure-information, .recovery-codes li { background: #0a121c; }
+/* Bazaar and private tools stay explicit about prices, ownership and actions. */
+.bazaar-grid { gap: .9rem; }
+.bazaar-card { padding: 1.5rem; border: 1px solid var(--border); background: var(--panel-fill); border-radius: var(--radius-sm); }
+.bazaar-card__heading h2 { font-size: 1.7rem; }
+.bazaar-card__facts dt { font-size: .72rem; }
+.bazaar-card__facts dd { font-size: .85rem; }
+.bazaar-detail-hero { padding: 1.8rem; border: 1px solid var(--gold-rule); background: var(--panel-fill); }
+.bazaar-action-panel { background: #131e29; border: 1px solid var(--border); border-top: 2px solid var(--gold); box-shadow: var(--panel-shadow); }
+.bazaar-wallet { padding: 1.5rem; background: var(--panel-fill); border: 1px solid var(--gold-rule); }
+.stats-grid { gap: 1rem; }
+.stat-card { padding: 1.4rem; border: 1px solid var(--border); background: var(--panel-fill); }
+/* A real navigation directory closes every public page. */
+.site-footer { background: linear-gradient(180deg, #080e14ed, #080e14f5), url('../images/oteryn-citadel.webp') center 55% / cover; border-top-color: #c7a46845; }
+.public-footer-grid { gap: 4rem; padding-block: 3rem; }
+.public-footer-brand .brand-wordmark-art { width: 14rem; }
+.public-footer-brand p { line-height: 1.8; }
+.public-footer-group h2 { font-family: var(--display); font-weight: 400; font-size: .85rem; letter-spacing: .1em; }
+.public-footer-group a { font-size: .83rem; min-height: 2.3rem; }
+.public-footer-meta { border-top-color: #c7a46828; font-size: .75rem; }
+.identity-footer { background: #080e1488; border-top-color: var(--gold-rule); }
+.error-body { background: linear-gradient(90deg, #080e14ed, #080e14b0), url('../images/oteryn-citadel.webp') center / cover; }
+.error-panel { padding: clamp(1.5rem, 5vw, 3.5rem); border: 1px solid var(--gold-rule); background: #0b141deb; box-shadow: var(--panel-shadow); }
+.error-code { font-size: clamp(5rem, 15vw, 8rem); color: var(--gold); }
+/* Responsive compositions are deliberate; tables remain semantic and scrollable. */
+@media (max-width: 79.99rem) {
+    .header-inner { min-height: 4.6rem; }
+    .brand-wordmark-art { width: 12.5rem; }
+    .public-footer-grid { grid-template-columns: minmax(0, 1fr); gap: 2rem; }
+}
+@media (max-width: 59.99rem) {
+    .page-shell > .page-header { min-height: 10rem; }
+    .identity-workspace { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; padding-top: 1.5rem; }
+    .account-sidebar { padding: 1rem; }
+    .account-sidebar > .eyebrow { padding-inline: 0; }
+    .context-nav { border: 0; padding: 0; }
+    .context-nav a[aria-current="page"] { border-bottom-color: var(--gold); }
+    .identity-guest .identity-workspace { grid-template-columns: minmax(0, 1fr); max-width: 36rem; padding-block: 2rem; }
+    .identity-guest .identity-world { display: none; }
+    .identity-guest .identity-shell { padding: 2rem; }
+    .chronicle-entry-lead { grid-template-columns: minmax(0, 1fr); }
+    .chronicle-entry-lead .chronicle-illustration { min-height: 12rem; }
+    .knowledge-library > section { padding: 1.3rem; }
+    .knowledge-library .wiki-category-grid { gap: 0 1.5rem; }
+    .account-masthead, .player-masthead { padding: 1.5rem; }
+    .bazaar-action-panel { position: static; }
+}
+@media (max-width: 39.99rem) {
+    .header-inner { min-height: 4.4rem; gap: .7rem; }
+    .brand-wordmark-art { width: 11.5rem; }
+    .identity-body .brand-wordmark-art { width: 10rem; }
+    .page-shell { padding-top: 1.2rem; }
+    .page-shell > .page-header, .page-shell > .bazaar-hero { min-height: 9rem; padding-block: 1rem 1.5rem; margin-bottom: 1.5rem; }
+    .page-shell > .page-header h1 { font-size: 2.4rem; }
+    .portal-context-nav { gap: .2rem 1rem; }
+    .chronicle-index { grid-template-columns: minmax(0, 1fr); gap: 1.2rem; }
+    .chronicle-copy, .chronicle-entry-lead .chronicle-copy { padding: 1.25rem; }
+    .chronicle-entry h2 { font-size: 1.65rem; }
+    .event-timeline-entry { padding: 1.2rem; }
+    .world-row, .download-release, .bazaar-card, .bazaar-detail-hero, .security-section { padding: 1.2rem; }
+    .world-metrics { gap: 1.2rem; }
+    .player-masthead { gap: 1rem; padding: 1.1rem; }
+    .identity-guest .identity-shell { padding: 1.4rem; }
+    .account-masthead { padding: 1.4rem; }
+    .character-roster-row { padding: 1.15rem; }
+    .account-services > section { padding: 1.2rem; }
+    .support-entry-paths > a { padding: 1rem; }
+    .public-footer-grid { padding-block: 2.5rem; }
+    .public-footer-group a { min-height: 2.75rem; }
+}
+@media (prefers-reduced-motion: no-preference) {
+    .chronicle-entry, .bazaar-card, .support-entry-paths > a { transition: border-color .18s ease, box-shadow .18s ease; }
+    .chronicle-entry:hover, .bazaar-card:hover { border-color: #a7885559; box-shadow: var(--panel-shadow); }
+}
+@media (forced-colors: active) {
+    .public-body::before, .identity-authenticated::before, .scene, .reading-world { display: none; }
+    button, .button, .notice, .alert, .empty-state, .table-region, .account-sidebar, .chronicle-entry, .world-row, .error-panel { border: 1px solid CanvasText; box-shadow: none; }
+    .page-shell > .page-header::after, .page-shell > .bazaar-hero::after { background: CanvasText; }
+}
+
+/* Long translated labels and utility families share the same finishing rules. */
+.realm-icon { display: inline-block; width: 1.6rem; height: 1.6rem; flex: 0 0 auto; color: var(--gold); vertical-align: middle; }
+.portal-context-nav a, .context-nav a, .nav-link { overflow-wrap: anywhere; }
+.identity-panel .page-header h1 { text-wrap: balance; }
+.identity-panel > form, .identity-panel .content-card { min-width: 0; }
+.payment-scroll-region { max-width: 100%; overflow-x: auto; }
+.wiki-article-header, .wiki-hero { border-bottom-color: var(--gold-rule); }
+.wiki-page .page-header h1, .community-page .page-header h1 { font-size: clamp(2.4rem, 4.1vw, 4rem); }
+.wiki-page .card-grid > article { border-top-color: var(--gold-rule); }
+.catalog-description, .catalog-detail, .session-analysis-detail { color: var(--text-muted); }
+.calendar-cover { height: 9rem; margin-block: 1.5rem 2rem; border: 1px solid var(--gold-rule); border-radius: var(--radius-sm); }
+@media (max-width: 39.99rem) {
+    .identity-guest .identity-shell { padding: 1.3rem; }
+    .identity-body .account-actions { max-width: 100%; }
+    .calendar-cover { height: 6rem; }
+}

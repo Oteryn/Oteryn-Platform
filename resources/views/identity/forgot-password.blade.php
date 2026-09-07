@@ -1,26 +1,28 @@
 @extends('identity.layout')
 
-@section('title', 'Forgot Password')
-@section('error-title', 'The reset request could not be completed.')
+@section('title', __('portal.identity.forgot_title'))
+@section('error-title', __('portal.identity.forgot_error'))
+
+@section('portal-family', 'identity')
 
 @section('content')
     <div class="page-header">
-        <p class="eyebrow">Account recovery</p>
-        <h1>Reset your Oteryn Platform password</h1>
-        <p class="muted">Enter your email address. The public response remains the same whether or not an account exists.</p>
+        <p class="eyebrow">{{ __('portal.identity.recovery') }}</p>
+        <h1>{{ __('portal.identity.forgot_heading') }}</h1>
+        <p class="muted">{{ __('portal.identity.forgot_intro') }}</p>
     </div>
 
-    <form class="form-stack" method="POST" action="{{ route('password.email') }}">
+    <form class="form-stack" method="POST" action="{{ route('password.email', ['locale' => app()->getLocale()]) }}">
         @csrf
         <div class="form-field">
-            <label for="email">Email</label>
-            <input id="email" name="email" type="email" value="{{ old('email') }}" autocomplete="email" maxlength="254" required autofocus>
+            <label for="email">{{ __('portal.identity.email') }}</label>
+            <input id="email" name="email" type="email" value="{{ old('email') }}" autocomplete="email" maxlength="254" required autofocus @error('email') aria-invalid="true" aria-describedby="error-email" @enderror>
         </div>
-        <button type="submit">Send reset link</button>
+        <button type="submit">{{ __('portal.identity.send_reset') }}</button>
     </form>
 
-    <nav class="identity-links" aria-label="Password recovery navigation">
-        <a href="{{ route('identity.login.create') }}">Return to sign in</a>
-        <a href="{{ route('identity.register.create') }}">Create an account</a>
+    <nav class="identity-links" aria-label="{{ __('portal.identity.recovery_nav') }}">
+        <a href="{{ route('identity.login.create', ['locale' => app()->getLocale()]) }}">{{ __('portal.identity.return_login') }}</a>
+        <a href="{{ route('identity.register.create', ['locale' => app()->getLocale()]) }}">{{ __('portal.identity.create_account') }}</a>
     </nav>
 @endsection

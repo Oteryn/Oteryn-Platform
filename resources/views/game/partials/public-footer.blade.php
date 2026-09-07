@@ -1,18 +1,18 @@
 <footer class="site-footer">
     <div class="site-footer-inner public-footer-grid">
         <div class="public-footer-brand">
-            <img class="brand-wordmark-art" src="{{ asset('images/oteryn-wordmark.svg') }}" alt="Oteryn Platform">
+            <img class="brand-wordmark-art" src="{{ asset('images/oteryn-wordmark.svg') }}" width="420" height="88" alt="Oteryn Platform">
             <p>{{ __('public.footer.description') }}</p>
             <p class="public-footer-status-note">{{ __('public.footer.status') }}</p>
             @include('game.partials.language-switcher')
         </div>
 
+        <div class="public-footer-links">
         @foreach ($footerGroups as $group)
             <nav class="public-footer-group" aria-label="{{ __('public.navigation.group_links', ['group' => $group['label']]) }}">
                 <h2>{{ $group['label'] }}</h2>
                 @foreach ($group['items'] as $item)
-                    @php($active = request()->routeIs($item['active']) || request()->routeIs('legacy.'.$item['active']))
-                    <a href="{{ $item['url'] }}" @if($active) aria-current="page" @endif>{{ $item['label'] }}</a>
+                    @include('game.partials.navigation-link', ['item' => $item, 'linkClass' => null])
                 @endforeach
             </nav>
         @endforeach
@@ -20,15 +20,16 @@
         <nav class="public-footer-group" aria-label="{{ __('public.account.links') }}">
             <h2>{{ __('public.account.title') }}</h2>
             @guest
-                <a href="{{ route('identity.login.create') }}">{{ __('public.account.sign_in') }}</a>
-                <a href="{{ route('identity.register.create') }}">{{ __('public.account.create') }}</a>
-                <a href="{{ route('password.request') }}">{{ __('public.account.recover_password') }}</a>
+                <a href="{{ route('identity.login.create') }}" @if(request()->routeIs('identity.login.*')) aria-current="page" @endif>{{ __('public.account.sign_in') }}</a>
+                <a href="{{ route('identity.register.create') }}" @if(request()->routeIs('identity.register.*')) aria-current="page" @endif>{{ __('public.account.create') }}</a>
+                <a href="{{ route('password.request') }}" @if(request()->routeIs('password.request')) aria-current="page" @endif>{{ __('public.account.recover_password') }}</a>
             @else
-                <a href="{{ route('account.overview') }}">{{ __('public.account.overview') }}</a>
-                <a href="{{ route('identity.mfa.settings') }}">{{ __('public.account.security') }}</a>
-                <a href="{{ route('identity.password.change.create') }}">{{ __('public.account.change_password') }}</a>
+                <a href="{{ route('account.overview') }}" @if(request()->routeIs('account.overview')) aria-current="page" @endif>{{ __('public.account.overview') }}</a>
+                <a href="{{ route('identity.mfa.settings') }}" @if(request()->routeIs('identity.mfa.settings')) aria-current="page" @endif>{{ __('public.account.security') }}</a>
+                <a href="{{ route('identity.password.change.create') }}" @if(request()->routeIs('identity.password.change.*')) aria-current="page" @endif>{{ __('public.account.change_password') }}</a>
             @endguest
         </nav>
+        </div>
     </div>
 
     <div class="public-footer-meta">

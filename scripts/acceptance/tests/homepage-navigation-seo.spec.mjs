@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { revealPublicNavigationLink } from './portal-navigation.mjs';
 import {
   assertAccessibilitySmoke,
   attachDiagnostics,
@@ -33,16 +34,8 @@ test('@homepage-seo homepage navigation metadata and crawl policy remain respons
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /\/en$/u);
   await expect(page.locator('link[rel="alternate"][hreflang="pl"]')).toHaveAttribute('href', /\/pl$/u);
 
-  const desktopNavigation = page.getByRole('navigation', { name: 'Public navigation' });
-  if (await desktopNavigation.isVisible()) {
-    await expect(desktopNavigation.getByRole('link', { name: 'Guilds', exact: true })).toBeVisible();
-    await expect(desktopNavigation.getByRole('link', { name: 'Download', exact: true })).toBeVisible();
-  } else {
-    await page.getByText('Menu', { exact: true }).click();
-    const mobilePanel = page.locator('.mobile-nav-panel');
-    await expect(mobilePanel.getByRole('link', { name: 'Guilds', exact: true })).toBeVisible();
-    await expect(mobilePanel.getByRole('link', { name: 'Download', exact: true })).toBeVisible();
-  }
+  await expect(await revealPublicNavigationLink(page, 'Guilds')).toBeVisible();
+  await expect(await revealPublicNavigationLink(page, 'Download')).toBeVisible();
 
   const quickDownload = page.locator('.production-discover').getByRole('link', { name: /Download/u });
   await quickDownload.focus();
@@ -83,13 +76,7 @@ test('@portal-today public guest command centre preserves source truth empty par
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /\/en\/today$/u);
   await expect(page.locator('link[rel="alternate"][hreflang="pl"]')).toHaveAttribute('href', /\/pl\/today$/u);
 
-  const todayDesktopNavigation = page.getByRole('navigation', { name: 'Public navigation' });
-  if (await todayDesktopNavigation.isVisible()) {
-    await expect(todayDesktopNavigation.getByRole('link', { name: 'Today', exact: true })).toBeVisible();
-  } else {
-    await page.getByText('Menu', { exact: true }).click();
-    await expect(page.locator('.mobile-nav-panel').getByRole('link', { name: 'Today', exact: true })).toBeVisible();
-  }
+  await expect(await revealPublicNavigationLink(page, 'Today')).toBeVisible();
 
   await assertAccessibilitySmoke(page);
 

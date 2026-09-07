@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   assertAccessibilitySmoke,
   attachDiagnostics,
   evidenceScreenshot,
@@ -75,10 +76,12 @@ test('@portal-events public calendar, detail, locale isolation, empty and not-fo
   await expect(page.getByRole('heading', { name: 'Aktywne wydarzenie akceptacyjne' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Wróć do wydarzeń' })).toBeVisible();
 
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: '/pl/events/acceptance-active-en' });
   response = await page.goto('/pl/events/acceptance-active-en');
   expect(response?.status()).toBe(404);
   await expect(page.locator('body')).not.toContainText('SQLSTATE');
 
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: '/events/acceptance-event-does-not-exist' });
   response = await page.goto('/events/acceptance-event-does-not-exist');
   expect(response?.status()).toBe(404);
   await expect(page.locator('body')).not.toContainText('SQLSTATE');

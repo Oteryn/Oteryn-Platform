@@ -3,6 +3,8 @@
 @section('title', __('community.deaths.title'))
 @section('page-class', 'page-shell-wide community-page')
 
+@section('portal-family', 'world-data')
+
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
 

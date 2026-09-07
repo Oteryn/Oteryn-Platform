@@ -1,80 +1,82 @@
 @extends('identity.layout')
 
-@section('title', 'MFA settings')
-@section('error-title', 'MFA settings could not be updated.')
+@section('title', __('portal.identity.mfa_title'))
+@section('error-title', __('portal.identity.mfa_error'))
+
+@section('portal-family', 'security')
 
 @section('content')
     <div class="page-header">
-        <p class="eyebrow">Account security</p>
-        <h1>Multi-factor authentication</h1>
-        <p class="muted">Protect your Oteryn Platform web sign in with an authenticator app and single-use recovery codes.</p>
+        <p class="eyebrow">{{ __('portal.identity.security') }}</p>
+        <h1>{{ __('portal.identity.mfa_heading') }}</h1>
+        <p class="muted">{{ __('portal.identity.mfa_intro') }}</p>
     </div>
 
     @if ($identity->hasConfirmedMfa())
         <div class="alert alert-success" role="status">
-            <strong>MFA is enabled.</strong> Future Oteryn Platform web sign ins require a second factor.
+            <strong>{{ __('portal.identity.mfa_enabled') }}</strong> {{ __('portal.identity.mfa_signin') }}
         </div>
-        <p class="muted">Disabling MFA signs out every Platform web session.</p>
+        <p class="muted">{{ __('portal.identity.mfa_disable_note') }}</p>
 
-        <form class="form-stack" method="POST" action="{{ route('identity.mfa.destroy') }}">
+        <form class="form-stack" method="POST" action="{{ route('identity.mfa.destroy', ['locale' => app()->getLocale()]) }}">
             @csrf
             @method('DELETE')
             <div class="form-field">
-                <label for="current_password">Current password</label>
-                <input id="current_password" name="current_password" type="password" autocomplete="current-password" maxlength="1024" required>
+                <label for="current_password">{{ __('portal.identity.current_password') }}</label>
+                <input id="current_password" name="current_password" type="password" autocomplete="current-password" maxlength="1024" required @error('current_password') aria-invalid="true" aria-describedby="error-current-password" @enderror>
             </div>
             <div class="form-field">
-                <label for="code">Fresh authenticator or recovery code</label>
-                <input id="code" name="code" type="text" autocomplete="one-time-code" maxlength="64" required>
+                <label for="code">{{ __('portal.identity.mfa_fresh') }}</label>
+                <input id="code" name="code" type="text" autocomplete="one-time-code" maxlength="64" required @error('code') aria-invalid="true" aria-describedby="error-code" @enderror>
             </div>
-            <button class="danger" type="submit">Disable MFA and sign out everywhere</button>
+            <button class="danger" type="submit">{{ __('portal.identity.mfa_disable') }}</button>
         </form>
     @elseif (is_string($identity->two_factor_secret))
         <div class="alert alert-warning">
-            <strong>Enrollment is not active yet.</strong> Scan the QR code, then confirm a fresh six-digit code below.
+            <strong>{{ __('portal.identity.mfa_pending') }}</strong> {{ __('portal.identity.mfa_scan_confirm') }}
         </div>
 
         @if (is_string($qrCodeDataUri))
             <section class="mfa-qr-panel" aria-labelledby="mfa-qr-heading">
-                <h2 id="mfa-qr-heading">Scan with your authenticator app</h2>
-                <p class="muted">In Google Authenticator, tap the plus button and choose <strong>Scan a QR code</strong>.</p>
+                <h2 id="mfa-qr-heading">{{ __('portal.identity.mfa_scan') }}</h2>
+                <p class="muted">{{ __('portal.identity.mfa_google') }} <strong>{{ __('portal.identity.mfa_qr_action') }}</strong>.</p>
                 <img
                     class="mfa-qr-code"
                     src="{{ $qrCodeDataUri }}"
                     width="280"
                     height="280"
-                    alt="QR code for adding this Oteryn account to an authenticator app"
+                    alt="{{ __('portal.identity.mfa_qr_alt') }}"
                 >
             </section>
         @endif
 
         <details class="secure-information mfa-manual-setup">
-            <summary>Cannot scan the QR code?</summary>
+            <summary>{{ __('portal.identity.mfa_cannot_scan') }}</summary>
             <div>
-                <p class="muted">Choose manual key entry in your authenticator app and use a time-based key.</p>
-                <p><strong>Manual secret:</strong> <code>{{ $identity->two_factor_secret }}</code></p>
+                <p class="muted">{{ __('portal.identity.mfa_manual_help') }}</p>
+                <p><strong>{{ __('portal.identity.mfa_secret') }}</strong> <code>{{ $identity->two_factor_secret }}</code></p>
             </div>
         </details>
 
-        <form class="form-stack" method="POST" action="{{ route('identity.mfa.confirm') }}">
+        <form class="form-stack" method="POST" action="{{ route('identity.mfa.confirm', ['locale' => app()->getLocale()]) }}">
             @csrf
             <div class="form-field">
-                <label for="current_password">Current password</label>
-                <input id="current_password" name="current_password" type="password" autocomplete="current-password" maxlength="1024" required>
+                <label for="current_password">{{ __('portal.identity.current_password') }}</label>
+                <input id="current_password" name="current_password" type="password" autocomplete="current-password" maxlength="1024" required @error('current_password') aria-invalid="true" aria-describedby="error-current-password" @enderror>
             </div>
             <div class="form-field">
-                <label for="code">Six-digit authenticator code</label>
-                <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+                <label for="code">{{ __('portal.identity.mfa_six') }}</label>
+                <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required @error('code') aria-invalid="true" aria-describedby="error-code" @enderror>
             </div>
-            <button type="submit">Confirm and enable MFA</button>
+            <button type="submit">{{ __('portal.identity.mfa_enable') }}</button>
         </form>
     @else
         <div class="panel">
-            <h2>MFA is not enabled</h2>
-            <p class="muted">Enabling MFA will require a second factor for future Oteryn Platform web sign ins.</p>
-            <form method="POST" action="{{ route('identity.mfa.enroll') }}">
+            <h2>{{ __('portal.identity.mfa_disabled') }}</h2>
+            <p class="muted">{{ __('portal.identity.mfa_enroll_help') }}</p>
+            <form method="POST" action="{{ route('identity.mfa.enroll', ['locale' => app()->getLocale()]) }}">
                 @csrf
-                <button type="submit">Start MFA enrollment</button>
+                <button type="submit">{{ __('portal.identity.mfa_start') }}</button>
             </form>
         </div>
     @endif

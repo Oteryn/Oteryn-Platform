@@ -1,0 +1,54 @@
+/* Administration shares Oteryn materials, with a calm, task-first density. */
+html:has(.admin-body) { overflow-x: visible; }
+.admin-body { background: var(--bg); line-height: 1.6; }
+.admin-topbar { background: #0b131d; border-color: var(--gold-rule); }
+.admin-topbar .header-inner { min-height: 5rem; padding-block: .65rem; width: min(96rem, calc(100% - 2 * var(--gutter))); }
+.admin-topbar .brand { min-width: 0; flex-wrap: wrap; gap: .7rem 1.2rem; }
+.admin-topbar .brand-wordmark-art { display: block; width: 12rem; height: auto; }
+.admin-brand-label { padding-left: 1.2rem; border-left: 1px solid var(--gold-rule); color: var(--text-muted); font: 400 .75rem/1.4 ui-sans-serif, system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+.admin-shell { grid-template-columns: 14rem minmax(0, 1fr); gap: clamp(1.5rem, 3vw, 3rem); padding-block: 2rem 4rem; }
+.admin-sidebar { padding: .5rem; background: linear-gradient(180deg, #14202c, #0c151f); border: 1px solid var(--gold-rule); border-radius: var(--radius-sm); }
+.admin-nav { display: grid; gap: .12rem; }
+.admin-nav-group { margin: 1.2rem .85rem .35rem; color: var(--gold); font-size: .65rem; font-weight: 500; letter-spacing: .17em; }
+.admin-nav-group:first-child { margin-top: .6rem; }
+.admin-nav a { display: flex; min-height: 2.65rem; align-items: center; padding: .55rem .8rem; border: 0; border-left: 2px solid transparent; border-radius: 0; color: var(--text-muted); background: transparent; font-size: .82rem; font-weight: 400; text-decoration: none; }
+.admin-nav a:hover { color: var(--text); background: #ead2a10b; }
+.admin-nav a[aria-current="page"] { color: var(--gold); background: #d6b47710; border-left-color: var(--gold); }
+.admin-main > .page-header { position: relative; padding: .3rem 0 1.7rem; margin-bottom: 2rem; border-bottom: 1px solid var(--gold-rule); }
+.admin-main h1 { font-size: clamp(2rem, 3.2vw, 3.2rem); }
+.admin-main h2 { font-family: var(--display); font-weight: 400; }
+.admin-main .card, .admin-main .panel { border-radius: var(--radius-sm); background: var(--panel-fill); box-shadow: none; }
+.admin-main .card-grid { gap: 1.25rem; }
+.admin-main .card > p { max-width: 68ch; }
+.admin-main .action-row { gap: .6rem; }
+.admin-main .action-row .button { min-height: 2.7rem; font-size: .8rem; }
+.admin-main table { font-size: .875rem; font-variant-numeric: tabular-nums; }
+.admin-main th { font-weight: 500; }
+.admin-main td { line-height: 1.6; }
+.admin-main .table-wrap { overflow-x: auto; max-width: 100%; }
+.admin-main form, .admin-main fieldset, .admin-main .form-grid { min-width: 0; }
+.admin-main fieldset { border-color: var(--gold-rule); }
+.admin-main input, .admin-main select, .admin-main textarea { font-size: 1rem; }
+.admin-main .prose-text { line-height: 1.85; }
+.admin-main .alert { border-radius: var(--radius-sm); }
+.admin-mobile-nav summary { color: var(--gold); background: #101c28; border-color: var(--gold-rule); font-size: .9rem; font-weight: 500; }
+.admin-mobile-nav .admin-nav { background: #0d1722; border-color: var(--gold-rule); }
+@media (max-width: 63.99rem) {
+    .admin-shell { grid-template-columns: minmax(0, 1fr); }
+    .admin-sidebar { display: none; }
+    .admin-mobile-nav { display: block; margin-bottom: 1.5rem; }
+    .admin-main > .page-header { margin-bottom: 1.5rem; }
+}
+@media (max-width: 39.99rem) {
+    .admin-topbar .header-inner { flex-wrap: wrap; gap: .5rem; }
+    .admin-brand-label { font-size: .65rem; padding-left: .7rem; }
+    .admin-topbar .brand-wordmark-art { width: 10rem; }
+    .admin-topbar .account-actions { margin-left: 0; width: 100%; justify-content: space-between; }
+    .admin-shell { padding-top: 1rem; }
+    .admin-main .card, .admin-main .panel { padding: 1.2rem; }
+    .admin-main td, .admin-main th { padding: .8rem; }
+}
+@media (forced-colors: active) {
+    .admin-sidebar, .admin-main .card, .admin-main .panel { border: 1px solid CanvasText; }
+    .admin-nav a[aria-current="page"] { outline: 1px solid Highlight; }
+}

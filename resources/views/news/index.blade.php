@@ -2,6 +2,8 @@
 
 @section('title', __('public.news.title'))
 
+@section('portal-family', 'chronicles')
+
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
     <div class="page-header">
@@ -10,11 +12,16 @@
         <p class="muted">{{ __('public.news.description') }}</p>
     </div>
 
+    <div class="chronicle-index">
     @forelse ($posts as $post)
-        <article class="card">
+        <article class="card chronicle-entry @if($loop->first && $posts->onFirstPage()) chronicle-entry-lead @endif">
+            <div class="chronicle-illustration scene scene-{{ ['explore', 'chronicles', 'community'][$loop->index % 3] }}" aria-hidden="true"></div>
+            <div class="chronicle-copy">
             <p class="eyebrow">{{ __('public.news.published', ['date' => $post->published_at ? $localeFormatter->dateTime($post->published_at) : '']) }}</p>
             <h2><a href="{{ route('news.show', ['slug' => $post->slug]) }}">{{ $post->title }}</a></h2>
-            <a href="{{ route('news.show', ['slug' => $post->slug]) }}">{{ __('public.news.read') }}</a>
+            <p class="chronicle-excerpt">{{ \Illuminate\Support\Str::limit(strip_tags($post->body), $loop->first ? 260 : 180) }}</p>
+            <a class="text-link" href="{{ route('news.show', ['slug' => $post->slug]) }}">{{ __('public.news.read') }} <span aria-hidden="true">→</span></a>
+            </div>
         </article>
     @empty
         <div class="empty-state">
@@ -22,6 +29,7 @@
             <p>{{ __('public.news.empty_help') }}</p>
         </div>
     @endforelse
+    </div>
 
     @if ($posts->hasPages())
         <nav class="pagination" aria-label="{{ __('public.news.pages') }}">

@@ -1,0 +1,86 @@
+[
+  {
+    "source": "ChatGPT Image 7 wrz 2026, 15_40_58 (2).png",
+    "source_sha256": "326d643aca39d8a41b182e3a17547bc17489df20324f1cfee1d886e5104bb1c6",
+    "crop": [
+      70,
+      795,
+      400,
+      884
+    ],
+    "asset": "public/images/oteryn-explore.webp",
+    "width": 240,
+    "height": 100,
+    "sha256": "63f6d533df1e209c4a023c2520cdd7759578b9dfbcdc27706f307e60f99f84c9"
+  },
+  {
+    "source": "ChatGPT Image 7 wrz 2026, 15_40_58 (2).png",
+    "source_sha256": "326d643aca39d8a41b182e3a17547bc17489df20324f1cfee1d886e5104bb1c6",
+    "crop": [
+      95,
+      555,
+      540,
+      653
+    ],
+    "asset": "public/images/oteryn-fight.webp",
+    "width": 240,
+    "height": 100,
+    "sha256": "a7f0cd912bc2ee542812c30bfb16497364eb37da75cde68efac857f31cfe4eef"
+  },
+  {
+    "source": "ChatGPT Image 7 wrz 2026, 15_40_58 (2).png",
+    "source_sha256": "326d643aca39d8a41b182e3a17547bc17489df20324f1cfee1d886e5104bb1c6",
+    "crop": [
+      780,
+      795,
+      1110,
+      884
+    ],
+    "asset": "public/images/oteryn-market.webp",
+    "width": 240,
+    "height": 100,
+    "sha256": "0cd0815255270c697048d621ff5c503195c16df2d30020273dbb3f1d9a47d6eb"
+  },
+  {
+    "source": "ChatGPT Image 7 wrz 2026, 15_40_58 (2).png",
+    "source_sha256": "326d643aca39d8a41b182e3a17547bc17489df20324f1cfee1d886e5104bb1c6",
+    "crop": [
+      1135,
+      795,
+      1465,
+      884
+    ],
+    "asset": "public/images/oteryn-community.webp",
+    "width": 240,
+    "height": 100,
+    "sha256": "77bfe1cb422633b0ebd669e2ce2fbb1902f796d3e13725298d78edca60d1fe8f"
+  },
+  {
+    "source": "ChatGPT Image 7 wrz 2026, 15_40_58 (1).png",
+    "source_sha256": "098096e6b5772b63ee4e0554d4128f44ca217cbb11e2cec4caaf6da94fa8376b",
+    "crop": [
+      1220,
+      790,
+      1465,
+      877
+    ],
+    "asset": "public/images/oteryn-library.webp",
+    "width": 240,
+    "height": 100,
+    "sha256": "e7c84f61c1b591e7bfd0a9e716883b269a8f244fa94bdef2f08a016c9caed640"
+  },
+  {
+    "source": "ChatGPT Image 7 wrz 2026, 15_40_58 (3).png",
+    "source_sha256": "06ad36364d2b3265baa6f2acc6301e1c90c8c8d91215ff9286b944739fe767be",
+    "crop": [
+      400,
+      609,
+      691,
+      716
+    ],
+    "asset": "public/images/oteryn-chronicles.webp",
+    "width": 240,
+    "height": 100,
+    "sha256": "d97a48ff67861d481de1bf15328be382573b6d4e62ad71e29c8ed5d57fb5bed3"
+  }
+]

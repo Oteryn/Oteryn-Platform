@@ -2,6 +2,8 @@
 
 @section('title', __('support.title.report_create'))
 
+@section('portal-family', 'support')
+
 @section('content')
     @include('support.partials.navigation')
     @include('identity.partials.locale-switcher', ['localeRoute' => 'support.reports.create'])

@@ -1,12 +1,14 @@
 @extends('identity.layout')
 
-@section('title', 'Authorize Oteryn game login')
+@section('title', __('portal.identity.oauth_title'))
+
+@section('portal-family', 'identity')
 
 @section('content')
-    <h1>Authorize Oteryn game login</h1>
+    <h1>{{ __('portal.identity.oauth_title') }}</h1>
 
     <p>
-        <strong>{{ $client->name }}</strong> is requesting permission to continue your Oteryn game sign-in.
+        <strong>{{ $client->name }}</strong> {{ __('portal.identity.oauth_request') }}
     </p>
 
     @if (count($scopes) > 0)
@@ -17,13 +19,13 @@
         </ul>
     @endif
 
-    <div class="actions">
+    <div class="action-row oauth-actions">
         <form method="POST" action="{{ route('passport.authorizations.approve') }}">
             @csrf
             <input type="hidden" name="state" value="{{ $request->state }}">
             <input type="hidden" name="client_id" value="{{ $client->getKey() }}">
             <input type="hidden" name="auth_token" value="{{ $authToken }}">
-            <button type="submit">Continue to OTClient</button>
+            <button type="submit">{{ __('portal.identity.oauth_continue') }}</button>
         </form>
 
         <form method="POST" action="{{ route('passport.authorizations.deny') }}">
@@ -32,7 +34,7 @@
             <input type="hidden" name="state" value="{{ $request->state }}">
             <input type="hidden" name="client_id" value="{{ $client->getKey() }}">
             <input type="hidden" name="auth_token" value="{{ $authToken }}">
-            <button type="submit">Cancel</button>
+            <button type="submit">{{ __('portal.identity.cancel') }}</button>
         </form>
     </div>
 @endsection

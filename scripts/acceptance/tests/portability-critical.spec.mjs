@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { revealPublicNavigationLink } from './portal-navigation.mjs';
 import {
   allowExpectedHttpFailure,
   attachDiagnostics,
@@ -52,8 +53,7 @@ test('@portability public navigation and seeded game data work across browser en
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Oteryn Platform' })).toBeVisible();
 
-  const navigation = page.getByRole('navigation', { name: 'Public navigation' });
-  await navigation.getByRole('link', { name: 'Highscores' }).click();
+  await (await revealPublicNavigationLink(page, 'Highscores')).click();
   await expect(page).toHaveURL(/\/highscores$/u);
   await expect(page.getByText('Acceptance Hero')).toBeVisible();
 

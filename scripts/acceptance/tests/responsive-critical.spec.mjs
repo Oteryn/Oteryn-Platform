@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { revealPublicNavigationLink } from './portal-navigation.mjs';
 import {
   assertAccessibilitySmoke,
   attachDiagnostics,
@@ -36,16 +37,7 @@ function seedBrowserAdmin(email) {
 }
 
 async function openPublicNewsThroughVisibleNavigation(page) {
-  const desktopNavigation = page.getByRole('navigation', { name: 'Public navigation' });
-  if (await desktopNavigation.isVisible()) {
-    await desktopNavigation.getByRole('link', { name: 'News' }).click();
-    return;
-  }
-
-  await page.getByText('Menu', { exact: true }).click();
-  const mobilePanel = page.locator('.mobile-nav-panel');
-  await expect(mobilePanel).toBeVisible();
-  await mobilePanel.getByRole('link', { name: 'News' }).click();
+  await (await revealPublicNavigationLink(page, 'News')).click();
 }
 
 async function assertAuthenticatedHeaderState(page) {

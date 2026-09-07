@@ -2,6 +2,8 @@
 
 @section('title', __('public.game.online_title'))
 
+@section('portal-family', 'world-data')
+
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
     @inject('characterPresentation', 'App\PublicGameData\CharacterPresentation')
@@ -11,11 +13,12 @@
         <p class="muted">{{ __('public.game.online_description') }}</p>
     </div>
 
-    <div class="card-grid">
+    <div class="online-roster">
         @forelse ($characters as $character)
-            <article class="card">
+            <article class="card online-row">
+                <div class="player-emblem" aria-hidden="true">{{ mb_substr($character->name, 0, 1) }}</div>
                 <h2><a href="{{ route('game.characters.show', ['name' => $character->name]) }}">{{ $character->name }}</a></h2>
-                <dl>
+                <dl class="online-facts">
                     <dt>{{ __('public.game.level') }}:</dt><dd>{{ $localeFormatter->number($character->level) }}</dd>
                     <dt>{{ __('public.game.vocation') }}:</dt><dd>{{ $characterPresentation->vocationName((int) $character->vocation) }}</dd>
                     <dt>{{ __('public.game.channel') }}:</dt><dd>{{ $character->channel_name }} ({{ __('public.game.channel_id') }} {{ $localeFormatter->number($character->channel_id) }})</dd>

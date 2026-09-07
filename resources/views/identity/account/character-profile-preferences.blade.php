@@ -2,6 +2,8 @@
 
 @section('title', __('character_profiles.title'))
 
+@section('portal-family', 'profile-preferences')
+
 @section('content')
     <header class="page-header">
         <p class="eyebrow">{{ __('character_profiles.eyebrow') }}</p>
@@ -9,23 +11,13 @@
         <p class="muted">{{ __('character_profiles.description') }}</p>
     </header>
 
-    @if ($errors->any())
-        <div class="notice alert-danger" role="alert">
-            <ul>
-                @foreach ($errors->all() as $error)
-                    <li>{{ $error }}</li>
-                @endforeach
-            </ul>
-        </div>
-    @endif
-
-    <form method="POST" action="{{ route('account.characters.profile.update', ['name' => $character->name]) }}" class="panel">
+    <form method="POST" action="{{ route('account.characters.profile.update', ['name' => $character->name]) }}" class="profile-preferences-form">
         @csrf
         @method('PUT')
 
         <div class="field-stack">
             <label for="public_comment">{{ __('character_profiles.comment') }}</label>
-            <textarea id="public_comment" name="public_comment" rows="6" maxlength="500" aria-describedby="public-comment-help">{{ old('public_comment', $preference->public_comment) }}</textarea>
+            <textarea id="public_comment" name="public_comment" rows="6" maxlength="500" aria-describedby="public-comment-help @error('public_comment') error-public-comment @enderror" @error('public_comment') aria-invalid="true" @enderror>{{ old('public_comment', $preference->public_comment) }}</textarea>
             <p id="public-comment-help" class="muted">{{ __('character_profiles.comment_help') }}</p>
         </div>
 
@@ -62,7 +54,7 @@
 
         <div class="action-row">
             <button type="submit">{{ __('character_profiles.save') }}</button>
-            <a class="button button-secondary" href="{{ route('account.overview') }}">{{ __('character_profiles.back') }}</a>
+            <a class="button button-secondary" href="{{ route('account.overview', ['locale' => app()->getLocale()]) }}">{{ __('character_profiles.back') }}</a>
         </div>
     </form>
 @endsection

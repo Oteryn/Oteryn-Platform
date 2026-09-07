@@ -52,7 +52,7 @@ test('@portal-account Player Companion — private Hunt Session Analyzer create,
   const toolLink = page.getByRole('link', { name: 'Open session analyzer' });
   await expect(toolLink).toBeVisible();
   await toolLink.click();
-  await expect(page).toHaveURL(/\/account\/tools\/session-analyzer$/u);
+  await expect(page).toHaveURL((url) => url.pathname === '/account/tools/session-analyzer' && url.searchParams.get('locale') === 'en');
   await expect(page.getByRole('heading', { name: 'Hunt Session Analyzer', level: 1 })).toBeVisible();
   await expect(page.getByTestId('session-analysis-empty')).toBeVisible();
 

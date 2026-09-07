@@ -4,15 +4,13 @@
 @section('description', $event['summary'])
 @section('og-type', 'article')
 
-@push('styles')
-    <link rel="stylesheet" href="{{ asset('css/events-content.css') }}">
-@endpush
+@section('portal-family', 'events')
 
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
-    <article class="event-detail">
-        <div class="page-header">
-            <p class="eyebrow">{{ ucfirst($event['status']) }} {{ __('public.events.event') }}</p>
+    <article class="event-detail reading-article">
+        <div class="page-header reading-masthead">
+            <p class="eyebrow">{{ __('portal.event_status.'.$event['status']) }} {{ __('public.events.event') }}</p>
             <h1>{{ $event['title'] }}</h1>
             <p class="muted">
                 {{ $localeFormatter->dateTime($event['starts_at']) }}
@@ -22,7 +20,9 @@
             <p>{{ $event['summary'] }}</p>
         </div>
 
-        <div class="card content-copy">
+        <div class="calendar-cover scene scene-chronicles" aria-hidden="true"></div>
+
+        <div class="card content-copy reading-body">
             @foreach (preg_split('/\R{2,}/', $event['body']) ?: [$event['body']] as $paragraph)
                 <p>{{ $paragraph }}</p>
             @endforeach

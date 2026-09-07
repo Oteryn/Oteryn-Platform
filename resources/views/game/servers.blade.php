@@ -1,48 +1,44 @@
 @extends('game.layout')
-
 @section('title', __('public.game.servers_title'))
-
+@section('portal-family', 'worlds')
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
-    <div class="page-header">
-        <p class="eyebrow">{{ __('public.game.infrastructure') }}</p>
+    <header class="page-header utility-masthead">
+        <p class="eyebrow">{{ __('portal.worlds.eyebrow') }}</p>
         <h1>{{ __('public.game.servers_title') }}</h1>
-        <p class="muted">{{ __('public.game.servers_description') }}</p>
-    </div>
-
+        <p class="muted">{{ __('portal.worlds.intro') }}</p>
+    </header>
     @if (! $runtimeSnapshot->available)
         <div class="alert alert-warning" role="status">{{ __('public.game.runtime_unavailable_help') }}</div>
     @endif
-
-    <div class="card-grid">
+    <div class="world-directory">
         @forelse ($channels as $channel)
             @php($runtime = $runtimeSnapshot->forChannel((int) $channel->id))
-            <article class="card">
-                <h2>{{ $channel->name }}</h2>
-                <p><strong>{{ __('public.game.channel_id') }}:</strong> {{ $localeFormatter->number($channel->id) }}</p>
-                <p><strong>{{ __('public.game.pvp_type') }}:</strong> {{ $channel->pvp_type }}</p>
-                <p><strong>{{ __('public.game.max_players') }}:</strong> {{ $localeFormatter->number($channel->max_players) }}</p>
-
-                @if (! $runtimeSnapshot->available)
-                    <p class="badge badge-warning"><strong>{{ __('public.game.runtime') }}:</strong> {{ __('public.states.unavailable') }}</p>
-                @elseif ($runtime === null)
-                    <p class="badge badge-warning"><strong>{{ __('public.game.runtime') }}:</strong> {{ __('public.game.unknown') }}</p>
-                @else
-                    <p class="badge badge-success"><strong>{{ __('public.game.runtime') }}:</strong> {{ $runtime->status }}</p>
-                    <p><strong>{{ __('public.game.players_online') }}:</strong> {{ $localeFormatter->number($runtime->playersOnline) }}</p>
-                @endif
-
+            <article class="card world-row" data-world-state="{{ $channel->maintenance ? 'maintenance' : (! $runtimeSnapshot->available ? 'unavailable' : ($runtime === null ? 'unknown' : strtolower($runtime->status))) }}">
+                <div class="world-identity">
+                    <p class="eyebrow">{{ __('public.game.channel_id') }} {{ $localeFormatter->number($channel->id) }}</p>
+                    <h2>{{ $channel->name }}</h2>
+                    <p>{{ $channel->pvp_type }}</p>
+                </div>
+                <dl class="world-metrics">
+                    <div><dt>{{ __('public.game.runtime') }}:</dt><dd>
+                        @if (! $runtimeSnapshot->available)
+                            <span class="badge badge-warning">{{ __('public.states.unavailable') }}</span>
+                        @elseif ($runtime === null)
+                            <span class="badge badge-warning">{{ __('public.game.unknown') }}</span>
+                        @else
+                            <span class="badge {{ strtoupper($runtime->status) === 'ONLINE' ? 'badge-success' : 'badge-warning' }}">{{ $runtime->status }}</span>
+                        @endif
+                    </dd></div>
+                    <div><dt>{{ __('public.game.players_online') }}:</dt><dd class="world-population">{{ $runtimeSnapshot->available && $runtime !== null ? $localeFormatter->number($runtime->playersOnline) : '—' }}</dd></div>
+                    <div><dt>{{ __('public.game.max_players') }}:</dt><dd>{{ $localeFormatter->number($channel->max_players) }}</dd></div>
+                    <div><dt>{{ __('public.game.pvp_type') }}:</dt><dd>{{ $channel->pvp_type }}</dd></div>
+                </dl>
                 @if ($runtimeSnapshot->available && $runtime !== null && $runtime->isFull((int) $channel->max_players))
                     <p class="status badge badge-warning">{{ __('public.game.full') }}</p>
                 @endif
-
                 @if ($channel->maintenance)
-                    <div class="alert alert-warning">
-                        <strong>{{ __('public.game.configured_maintenance') }}</strong>
-                        @if ($channel->maintenance_message)
-                            <p>{{ $channel->maintenance_message }}</p>
-                        @endif
-                    </div>
+                    <div class="notice alert-warning world-maintenance" role="status"><strong>{{ __('public.game.configured_maintenance') }}</strong>@if ($channel->maintenance_message)<p>{{ $channel->maintenance_message }}</p>@endif</div>
                 @endif
             </article>
         @empty

@@ -2,6 +2,8 @@
 
 @section('title', __('payments.return.heading'))
 
+@section('portal-family', 'payments')
+
 @section('content')
     @php
         $whole = intdiv($order->amount_minor, 100);

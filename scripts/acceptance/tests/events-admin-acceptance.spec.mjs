@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   assertAccessibilitySmoke,
   attachDiagnostics,
   completeMfaChallenge,
@@ -91,6 +92,8 @@ test.afterEach(async ({ page }, testInfo) => {
 });
 
 test('@portal-events guest, MFA and exact manage/publish permission boundaries fail closed', async ({ page }) => {
+  // The intended-URL login redirect plus two explicit denied navigations.
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 403, pathname: '/admin/events', count: 3 });
   eventFixture('reset');
 
   await page.goto('/admin/events');
@@ -197,6 +200,7 @@ test('@portal-events administrator validation, create, publish, edit-to-draft, s
   const editUrl = page.url();
   await expect(page.getByRole('heading', { name: 'Publication state' })).toBeVisible();
 
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: `/events/${englishSlug}`, count: 2 });
   let response = await page.goto(`/events/${englishSlug}`);
   expect(response?.status()).toBe(404);
 
@@ -228,6 +232,7 @@ test('@portal-events administrator validation, create, publish, edit-to-draft, s
 
   await english.getByLabel('Title').fill('Stale browser edit must fail');
   eventFixture('bump-lock', englishSlug);
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 409, pathname: new URL(editUrl).pathname.replace(/\/edit$/u, '') });
   const [conflictResponse] = await Promise.all([
     page.waitForResponse((candidate) => candidate.url().includes('/admin/events/') && candidate.status() === 409),
     page.getByRole('button', { name: 'Save event draft' }).click(),

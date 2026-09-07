@@ -12,6 +12,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 final class AccountOverviewTest extends TestCase
@@ -67,7 +68,7 @@ final class AccountOverviewTest extends TestCase
         $response = $this->get('/account');
 
         $response->assertOk();
-        $response->assertSee('Your Oteryn account');
+        $response->assertSee('<h1>'.__('portal.account.heading').'</h1>', false);
         $response->assertSee('Ready');
         $response->assertSee('Your game account setup is complete and character creation is available.');
         $response->assertSee('Your characters');
@@ -262,6 +263,64 @@ final class AccountOverviewTest extends TestCase
             ->assertOk()
             ->assertSee('Setup interrupted')
             ->assertSee('Retry game account setup');
+    }
+
+    public function test_polish_overview_localizes_ready_empty_and_populated_states(): void
+    {
+        $identity = $this->identityWithBinding(991234, IdentityCanaryAccount::STATUS_READY);
+        $this->loginAsCurrentIdentity($identity);
+
+        $this->get('/account?locale=pl')->assertOk()
+            ->assertSee('lang="pl"', false)
+            ->assertSee('Gotowe')
+            ->assertSee('Konto gry jest skonfigurowane. Możesz tworzyć postacie.')
+            ->assertSee('Nie masz jeszcze aktywnych postaci.')
+            ->assertDontSee('Your game account setup is complete')
+            ->assertDontSee('You do not have any active characters yet.');
+
+        DB::connection('canary')->table('players')->insert([
+            'id' => 1, 'name' => 'Polish Knight', 'account_id' => 991234,
+            'level' => 120, 'vocation' => 4, 'deletion' => 0,
+        ]);
+        $this->get('/account?locale=pl')->assertOk()
+            ->assertSee('Zajęte miejsca na aktywne postacie: 1 z 10.')
+            ->assertSee('Polish Knight')
+            ->assertDontSee('active character slots');
+
+        DB::connection('canary')->table('players')->insert([
+            'id' => 2, 'name' => 'Polish Druid', 'account_id' => 991234,
+            'level' => 90, 'vocation' => 2, 'deletion' => 0,
+        ]);
+        $this->get('/account?locale=pl')->assertOk()
+            ->assertSee('Zajęte miejsca na aktywne postacie: 2 z 10.')
+            ->assertSee('Polish Druid')
+            ->assertDontSee('active character slots')
+            ->assertDontSee('991234');
+    }
+
+    /** @return iterable<string, array{?string, ?string, string, string}> */
+    public static function polishSetupStates(): iterable
+    {
+        yield 'pending' => [IdentityCanaryAccount::STATUS_PENDING, null, 'Konfiguracja w toku', 'Trwa konfiguracja konta gry.'];
+        yield 'recoverable' => [IdentityCanaryAccount::STATUS_PENDING, ProvisionCanaryAccount::FAILURE_DEPENDENCY_UNAVAILABLE, 'Konfiguracja przerwana', 'Możesz bezpiecznie ponowić istniejące żądanie konfiguracji.'];
+        yield 'conflict' => [IdentityCanaryAccount::STATUS_CONFLICT, ProvisionCanaryAccount::FAILURE_BINDING_CONFLICT, 'Wymagana pomoc techniczna', 'Konto zastępcze nie zostanie utworzone automatycznie.'];
+        yield 'missing' => [null, null, 'Wymagana pomoc techniczna', 'Nie możemy teraz potwierdzić konfiguracji konta gry.'];
+    }
+
+    #[DataProvider('polishSetupStates')]
+    public function test_polish_setup_messages_preserve_non_ready_state_guidance(?string $status, ?string $failureCode, string $label, string $message): void
+    {
+        $identity = $status === null ? $this->identity() : $this->identityWithBinding(null, $status, $failureCode);
+        $this->loginAsCurrentIdentity($identity);
+
+        $this->get('/account?locale=pl')->assertOk()
+            ->assertSee($label)
+            ->assertSee($message)
+            ->assertSee('Twoje postacie pojawią się po zakończeniu konfiguracji konta gry.')
+            ->assertDontSee('Your characters will appear')
+            ->assertDontSee('>Setup in progress<', false)
+            ->assertDontSee('>Setup interrupted<', false)
+            ->assertDontSee('>Support required<', false);
     }
 
     private function identityWithBinding(?int $accountId, string $status, ?string $failureCode = null): Identity
