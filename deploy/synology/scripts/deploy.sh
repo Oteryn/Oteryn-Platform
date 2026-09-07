@@ -330,9 +330,9 @@ finalize_previous_candidate_if_healthy() {
         rm -f "$candidate_env"
         return 1
     fi
-    if ! OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"; then
+    if ! OTERYN_HEALTH_PROFILE=recovery OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"; then
         rm -f "$candidate_env"
-        echo "Previous candidate remains unresolved because its full staging health contract failed." >&2
+        echo "Previous candidate remains unresolved because its stable recovery health contract failed." >&2
         return 1
     fi
 

@@ -163,10 +163,11 @@ def test_new_release_finalizes_only_a_proven_healthy_previous_candidate() -> Non
     assert '"GATEWAY_IMAGE=${candidate_state[2]}"' in body
     assert '"CANARY_IMAGE=${candidate_state[3]}"' in body
     assert '"GATEWAY_VERSION=sha-${candidate_sha}"' in body
-    assert 'OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"' in body
+    assert 'OTERYN_HEALTH_PROFILE=recovery OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"' in body
+    assert "stable recovery health contract failed" in body
     assert 'game-auth:world:ensure' in body
 
-    health = body.index('OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"')
+    health = body.index('OTERYN_HEALTH_PROFILE=recovery OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"')
     world = body.index('game-auth:world:ensure', health)
     promote = body.index('cp "$candidate_file" "$current_file.tmp"', world)
     clear = body.index('rm -f "$candidate_file"', promote)

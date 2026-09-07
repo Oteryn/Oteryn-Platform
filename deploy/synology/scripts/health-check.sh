@@ -10,6 +10,15 @@ COMPOSE_FILE="$DEPLOY_DIR/compose.yml"
 source "$SCRIPT_DIR/lib.sh"
 load_oteryn_env_file "$ENV_FILE"
 
+health_profile="${OTERYN_HEALTH_PROFILE:-full}"
+case "$health_profile" in
+    full|recovery) ;;
+    *)
+        echo "OTERYN_HEALTH_PROFILE must be full or recovery." >&2
+        exit 1
+        ;;
+esac
+
 compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 
 declare -A container_ids=()
@@ -232,6 +241,28 @@ if b'<form' in body_lower or b'oteryn platform' in body_lower:
 print('Verified Gateway identity, bounded invalid login, private no-store headers and port isolation.')
 PY
 
+if ! docker run --rm \
+    --network "container:${container_ids[canary]}" \
+    alpine:3.22 \
+    /bin/sh -ec \
+    "nc -z -w 3 127.0.0.1 '${CANARY_GAME_PORT}'"; then
+    echo "Canary game TCP port is not reachable inside the Canary network namespace." >&2
+    exit 1
+fi
+
+if [[ "$CANARY_GAME_BIND_ADDRESS" != "127.0.0.1" ]]; then
+    if ! timeout 5 bash -c "exec 3<>/dev/tcp/${CANARY_GAME_BIND_ADDRESS}/${CANARY_GAME_PORT}"; then
+        echo "Canary game TCP port is not reachable through the configured Synology LAN address." >&2
+        exit 1
+    fi
+    echo "Verified LAN game endpoint: ${CANARY_GAME_BIND_ADDRESS}:${CANARY_GAME_PORT}"
+fi
+
+if [[ "$health_profile" == recovery ]]; then
+    echo "Platform, Gateway, Canary stable recovery probes passed."
+    exit 0
+fi
+
 platform_container="${container_ids[platform]}"
 docker exec -i "$platform_container" php <<'PHP'
 <?php
@@ -334,22 +365,5 @@ foreach ($urls as $url) {
 
 echo "Verified requestless login, password-reset and signed-route canonical origins.\n";
 PHP
-
-if ! docker run --rm \
-    --network "container:${container_ids[canary]}" \
-    alpine:3.22 \
-    /bin/sh -ec \
-    "nc -z -w 3 127.0.0.1 '${CANARY_GAME_PORT}'"; then
-    echo "Canary game TCP port is not reachable inside the Canary network namespace." >&2
-    exit 1
-fi
-
-if [[ "$CANARY_GAME_BIND_ADDRESS" != "127.0.0.1" ]]; then
-    if ! timeout 5 bash -c "exec 3<>/dev/tcp/${CANARY_GAME_BIND_ADDRESS}/${CANARY_GAME_PORT}"; then
-        echo "Canary game TCP port is not reachable through the configured Synology LAN address." >&2
-        exit 1
-    fi
-    echo "Verified LAN game endpoint: ${CANARY_GAME_BIND_ADDRESS}:${CANARY_GAME_PORT}"
-fi
 
 echo "Platform, Gateway, Canary, canonical URL, cache-control, isolation and MFA QR staging probes passed."

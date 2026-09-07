@@ -147,8 +147,18 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         finalizer_call = self.deploy_script.index("\nfinalize_previous_candidate_if_healthy\n")
         baseline = self.deploy_script.index('bash "$SCRIPT_DIR/prepare-fresh-schema-baseline.sh"', finalizer_call)
         self.assertLess(finalizer_call, baseline)
-        self.assertIn('OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"', self.deploy_script)
+        self.assertIn('OTERYN_HEALTH_PROFILE=recovery OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"', self.deploy_script)
         self.assertIn('Finalized previously migrated candidate', self.deploy_script)
+
+    def test_previous_candidate_recovery_profile_stays_stable_across_feature_checks(self) -> None:
+        health = (ROOT / "deploy/synology/scripts/health-check.sh").read_text(encoding="utf-8")
+        self.assertIn('health_profile="${OTERYN_HEALTH_PROFILE:-full}"', health)
+        recovery_gate = health.index('if [[ "$health_profile" == recovery ]]')
+        canary_tcp = health.index("Canary game TCP port is not reachable inside the Canary network namespace.")
+        mfa_feature = health.index("MfaQrCode")
+        self.assertLess(canary_tcp, recovery_gate)
+        self.assertLess(recovery_gate, mfa_feature)
+        self.assertIn("Platform, Gateway, Canary stable recovery probes passed.", health)
 
 
 if __name__ == "__main__":
