@@ -154,7 +154,10 @@ test('@portal-support-legal-admin guest, MFA and exact permission boundaries fai
     confirmedMfa: false,
     permissions: ['support.content.manage'],
   });
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 403, pathname: '/admin/support-content' });
   await signIn(page, noMfa);
+  await expect(page).toHaveURL(/\/admin\/support-content$/u);
+  await expect(page.getByRole('heading', { name: 'You do not have access to this page' })).toBeVisible();
   allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 403, pathname: '/admin/support-content' });
   let response = await page.goto('/admin/support-content');
   expect(response?.status()).toBe(403);
