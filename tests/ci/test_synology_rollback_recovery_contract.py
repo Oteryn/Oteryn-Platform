@@ -97,19 +97,47 @@ def test_same_release_redeploy_preserves_distinct_last_good() -> None:
     assert skip_block < actual_migrate
 
 
-def test_pending_candidate_blocks_retry_before_candidate_or_backup_rewrite() -> None:
+def test_pending_candidate_resume_is_proven_before_candidate_or_backup_rewrite() -> None:
     baseline = FRESH_BASELINE.read_text()
+    lib = LIB.read_text()
+
     guard = baseline.index('if [[ -f "$candidate_file" ]]')
+    resume = baseline.index('_oteryn_resume_candidate_if_safe "$state_dir" "$release_sha"', guard)
     managed_baseline_return = baseline.index('if [[ -f "$current_file" || -f "$legacy_file" || -f "$last_good_file" ]]')
     dump = baseline.index("mariadb-dump")
-    assert guard < managed_baseline_return < dump
-    assert "unresolved candidate release" in baseline
-    assert 'release-state.sh" validate "$candidate_file"' in baseline
+    assert guard < resume < managed_baseline_return < dump
+
+    helper_start = lib.index("_oteryn_resume_candidate_if_safe()")
+    helper_end = lib.index("_oteryn_before_platform_migrate()", helper_start)
+    helper = lib[helper_start:helper_end]
+    assert "differs from requested release" in helper
+    assert "immutable runtime image identity drifted" in helper
+    assert "staged world identity drifted" in helper
+    assert "prior migration is not proven complete" in helper
+    assert '[[ "$schema_state" == known && "$schema_target" == "$release_sha" && "$schema_id" == "$candidate_schema" ]]' in helper
+    assert "preserving recovery evidence until health checks pass" in helper
+    assert 'rm -f "$candidate_file"' not in helper
+    assert "current-release.env" not in helper
+
+    before_start = lib.index("_oteryn_before_platform_migrate()")
+    before_end = lib.index("_oteryn_after_platform_migrate()", before_start)
+    before = lib[before_start:before_end]
+    existing_candidate = before.index('if [[ -f "$state_dir/candidate-release.env" ]]')
+    resume_before = before.index('_oteryn_resume_candidate_if_safe "$state_dir" "$release_sha"', existing_candidate)
+    candidate_rewrite = before.index('release-state.sh" write "$state_dir/candidate-release.env"')
+    backup_rewrite = before.index('cp "$current_file" "$state_dir/last-good-release.env.tmp"')
+    assert existing_candidate < resume_before < candidate_rewrite < backup_rewrite
+
+    finalizer_start = lib.index("_oteryn_finalize_release_on_exit()")
+    finalizer_end = lib.index("docker()", finalizer_start)
+    finalizer = lib[finalizer_start:finalizer_end]
+    assert '[[ "$rc" -eq 0 ]] || return "$rc"' in finalizer
+    assert 'rm -f "$state_dir/candidate-release.env"' in finalizer
 
     deploy = (SCRIPTS / "deploy.sh").read_text()
-    helper = deploy.index('bash "$SCRIPT_DIR/prepare-fresh-schema-baseline.sh"')
+    baseline_helper = deploy.index('bash "$SCRIPT_DIR/prepare-fresh-schema-baseline.sh"')
     platform_start = deploy.index('"${compose[@]}" up -d platform')
-    assert helper < platform_start
+    assert baseline_helper < platform_start
 
 
 def test_health_probe_helper_pins_are_full_immutable_digests() -> None:
