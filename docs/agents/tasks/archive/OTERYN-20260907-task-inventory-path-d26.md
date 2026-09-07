@@ -63,7 +63,7 @@ next_action: none
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: deleted
+source_branch_disposition: auto_delete_after_merge
 source_branch_reason: PR #1300 merged normally and repository delete-after-merge removed the task branch.
 source_branch_evidence: PR #1300 head 1d2c8019e09e0d5c98acaab9ba25032eef17a01b squash-merged to protected main as 3557085c20512d25576d8884cc54471665784b00; live branch inventory no longer contains fix/task-inventory-path-d26-20260907.
 ```
