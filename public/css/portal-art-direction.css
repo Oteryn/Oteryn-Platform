@@ -141,7 +141,15 @@ button:disabled, .button[aria-disabled="true"] { box-shadow: none; }
 .today-stream > section { padding: 1.5rem; background: var(--panel-fill); border: 1px solid var(--border); }
 /* World families are game ledgers, not dashboard widgets. */
 .community-filter, .catalog-filters, .bazaar-filters { background: #101a25ec; border: 1px solid var(--border); border-top-color: #ac874b7a; border-radius: var(--radius-sm); padding: 1.35rem; }
-.table-region, .table-wrap { position: relative; background: #0c151fe8; border: 1px solid var(--border); border-top-color: #ac874b7a; border-radius: var(--radius-sm); }
+.table-region, .table-wrap {
+    position: relative;
+    background: #0c151fe8;
+    border: 0;
+    border-block: 1px solid var(--border);
+    border-top-color: #ac874b7a;
+    border-radius: var(--radius-sm);
+    box-shadow: inset 1px 0 var(--border), inset -1px 0 var(--border);
+}
 th { color: #dac394; background: #15212c; font-size: .72rem; letter-spacing: .08em; padding-block: 1.1rem; }
 td { border-bottom-color: #2c374178; padding-block: 1.1rem; }
 tbody tr:nth-child(even) { background: #19253242; }
@@ -178,7 +186,7 @@ tbody tr:hover { background: #d6b4770a; }
 /* Releases and support use quiet, purposeful reading/task areas. */
 .download-release { padding: 1.8rem; background: var(--panel-fill); border: 1px solid var(--border); border-top-color: #b79558; border-radius: var(--radius-sm); }
 .download-release > .page-header { gap: .5rem; margin-bottom: 1.5rem; }
-.download-release .table-region { box-shadow: none; }
+.download-release .table-region { box-shadow: inset 1px 0 var(--border), inset -1px 0 var(--border); }
 .support-entry-paths { gap: 1rem; }
 .support-entry-paths > a { padding: 1.3rem; background: var(--panel-fill); border: 1px solid var(--border); }
 .support-entry-paths > a:hover { border-color: var(--gold-rule); }
