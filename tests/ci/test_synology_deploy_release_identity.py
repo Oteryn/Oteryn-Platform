@@ -114,12 +114,11 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
         )
         self.assertIn("contains(github.event.head_commit.message, '[character-bazaar-staging]')", self.character_workflow)
 
-    def test_repository_only_hardening_does_not_auto_publish_privileged_runner_on_main_push(self) -> None:
+    def test_synology_main_changes_rebuild_runtime_without_auto_publishing_privileged_runner(self) -> None:
         build_push = self.build_workflow.split("  push:\n", 1)[1].split("  workflow_dispatch:\n", 1)[0]
-        self.assertIn("deploy/synology/docker/**", build_push)
-        self.assertNotIn(".github/workflows/", build_push)
-        self.assertNotIn("deploy/synology/runner/", build_push)
-        self.assertNotIn("repository-ghcr-image.sh", build_push)
+        self.assertIn("deploy/synology/**", build_push)
+        self.assertIn(".github/workflows/build-synology-staging-images.yml", build_push)
+        self.assertIn(".github/workflows/deploy-synology-staging.yml", build_push)
         self.assertIn(
             "github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && matrix.name != 'deploy-runner')",
             self.build_workflow,
