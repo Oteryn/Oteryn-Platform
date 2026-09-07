@@ -50,6 +50,9 @@ load_oteryn_env_file() {
 
 _oteryn_deploy_state_dir() { printf '%s\n' "${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"; }
 
+# Legacy bootstrap only: old managed releases used one shared application SHA
+# for Platform and Gateway. New releases never derive the overall release from
+# component image metadata.
 _oteryn_release_sha_for_images() {
     local platform_image="$1" gateway_image="$2"
     local platform_revision gateway_revision
@@ -65,24 +68,50 @@ _oteryn_release_sha_for_images() {
         return 1
     }
     [[ "$platform_revision" == "$gateway_revision" ]] || {
-        echo "Platform/Gateway OCI application revisions disagree; refusing deployment." >&2
+        echo "Legacy Platform/Gateway OCI application revisions disagree; refusing bootstrap." >&2
         return 1
     }
     printf '%s\n' "$platform_revision"
 }
 
+_oteryn_verify_component_image_source() {
+    local image="$1" expected_sha="$2" label="$3" revision
+    [[ "$expected_sha" =~ ^[0-9a-f]{40}$ ]] || {
+        echo "$label source SHA is missing or invalid." >&2
+        return 1
+    }
+    [[ "$image" =~ @sha256:[0-9a-f]{64}$ ]] || {
+        echo "$label image is not an immutable digest reference." >&2
+        return 1
+    }
+    revision="$(command docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image" 2>/dev/null || true)"
+    [[ "$revision" == "$expected_sha" ]] || {
+        echo "$label OCI application revision does not match its persisted component source SHA." >&2
+        return 1
+    }
+}
+
 _oteryn_release_sha() {
-    local explicit_sha="${OTERYN_RELEASE_SHA:-}" revision
-    revision="$(_oteryn_release_sha_for_images "$PLATFORM_IMAGE" "$GATEWAY_IMAGE")" || return 1
-    if [[ -n "$explicit_sha" && "$explicit_sha" != "$revision" ]]; then
-        echo "OTERYN_RELEASE_SHA disagrees with runtime OCI application revision." >&2
+    local release_sha="${OTERYN_RELEASE_SHA:-}"
+    [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]] || {
+        echo "OTERYN_RELEASE_SHA must be the exact protected-main release identity." >&2
+        return 1
+    }
+    [[ "${PLATFORM_SOURCE_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || {
+        echo "PLATFORM_SOURCE_SHA must be an exact component source SHA." >&2
+        return 1
+    }
+    [[ "${GATEWAY_SOURCE_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || {
+        echo "GATEWAY_SOURCE_SHA must be an exact component source SHA." >&2
+        return 1
+    }
+    _oteryn_verify_component_image_source "$PLATFORM_IMAGE" "$PLATFORM_SOURCE_SHA" Platform || return 1
+    _oteryn_verify_component_image_source "$GATEWAY_IMAGE" "$GATEWAY_SOURCE_SHA" Gateway || return 1
+    if [[ "${GATEWAY_VERSION:-}" =~ ^sha-([0-9a-f]{40})$ && "${BASH_REMATCH[1]}" != "$GATEWAY_SOURCE_SHA" ]]; then
+        echo "GATEWAY_VERSION disagrees with Gateway component source SHA." >&2
         return 1
     fi
-    if [[ "${GATEWAY_VERSION:-}" =~ ^sha-([0-9a-f]{40})$ && "${BASH_REMATCH[1]}" != "$revision" ]]; then
-        echo "GATEWAY_VERSION disagrees with runtime OCI application revision." >&2
-        return 1
-    fi
-    printf '%s\n' "$revision"
+    printf '%s\n' "$release_sha"
 }
 
 _oteryn_contract_from_platform_image() {
@@ -194,7 +223,7 @@ _oteryn_bootstrap_legacy_current_release() {
     old_sha="$(_oteryn_release_sha_for_images "$old_platform" "$old_gateway")" || return 1
 
     observed_schema="observed-${old_sha}"
-    bash "$SCRIPT_DIR/release-state.sh" write "$current_file" "$old_sha" \
+    bash "$SCRIPT_DIR/release-state.sh" write "$current_file" "$old_sha" "$old_sha" "$old_sha" \
         "$observed_schema" "$observed_schema" "$old_platform" "$old_gateway" "$old_canary" 1
     _oteryn_write_schema_state_known "$state_dir" "$observed_schema" "$old_sha"
 }
@@ -240,7 +269,7 @@ _oteryn_load_marketplace_runtime_state() {
                 export "$key"
                 ;;
             *)
-                [[ "$source_file" != "$durable_file" ]] || { echo "Unexpected durable Marketplace state key: $key" >&2; return 1; }
+                [[ "$source_file" != "$durable_file" ]] || { echo "Unexpected durable Marketplace state key: $key" >&2; return 1 ;;
                 ;;
         esac
     done < "$source_file"
@@ -369,7 +398,8 @@ _oteryn_resume_candidate_if_safe() {
         set -euo pipefail
         source "$1"
         printf "%s\n" \
-            "$RELEASE_SHA" "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE" \
+            "$RELEASE_SHA" "$PLATFORM_SOURCE_SHA" "$GATEWAY_SOURCE_SHA" \
+            "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE" \
             "${GAME_WORLD_ID:-}" "${GAME_WORLD_SLUG:-}" "${GAME_WORLD_NAME:-}" \
             "${GAME_WORLD_REGION:-}" "${GAME_WORLD_HOST:-}" "${GAME_WORLD_PORT:-}"
     ' bash "$candidate_file")
@@ -378,18 +408,23 @@ _oteryn_resume_candidate_if_safe() {
         echo "Deployment rejected: unresolved candidate release ${candidate_runtime[0]:-UNKNOWN} differs from requested release $release_sha." >&2
         return 1
     }
-    [[ "${candidate_runtime[1]:-}" == "$PLATFORM_IMAGE" \
-        && "${candidate_runtime[2]:-}" == "$GATEWAY_IMAGE" \
-        && "${candidate_runtime[3]:-}" == "$CANARY_IMAGE" ]] || {
+    [[ "${candidate_runtime[1]:-}" == "$PLATFORM_SOURCE_SHA" \
+        && "${candidate_runtime[2]:-}" == "$GATEWAY_SOURCE_SHA" ]] || {
+        echo "Candidate resume rejected: component source identity drifted." >&2
+        return 1
+    }
+    [[ "${candidate_runtime[3]:-}" == "$PLATFORM_IMAGE" \
+        && "${candidate_runtime[4]:-}" == "$GATEWAY_IMAGE" \
+        && "${candidate_runtime[5]:-}" == "$CANARY_IMAGE" ]] || {
         echo "Candidate resume rejected: immutable runtime image identity drifted." >&2
         return 1
     }
-    [[ "${candidate_runtime[4]:-}" == "${GAME_WORLD_ID:-}" \
-        && "${candidate_runtime[5]:-}" == "${GAME_WORLD_SLUG:-}" \
-        && "${candidate_runtime[6]:-}" == "${GAME_WORLD_NAME:-}" \
-        && "${candidate_runtime[7]:-}" == "${GAME_WORLD_REGION:-}" \
-        && "${candidate_runtime[8]:-}" == "${GAME_WORLD_HOST:-}" \
-        && "${candidate_runtime[9]:-}" == "${GAME_WORLD_PORT:-}" ]] || {
+    [[ "${candidate_runtime[6]:-}" == "${GAME_WORLD_ID:-}" \
+        && "${candidate_runtime[7]:-}" == "${GAME_WORLD_SLUG:-}" \
+        && "${candidate_runtime[8]:-}" == "${GAME_WORLD_NAME:-}" \
+        && "${candidate_runtime[9]:-}" == "${GAME_WORLD_REGION:-}" \
+        && "${candidate_runtime[10]:-}" == "${GAME_WORLD_HOST:-}" \
+        && "${candidate_runtime[11]:-}" == "${GAME_WORLD_PORT:-}" ]] || {
         echo "Candidate resume rejected: staged world identity drifted." >&2
         return 1
     }
@@ -432,6 +467,7 @@ _oteryn_before_platform_migrate() {
     _oteryn_bootstrap_legacy_current_release "$state_dir" || return 1
 
     bash "$SCRIPT_DIR/release-state.sh" write "$state_dir/candidate-release.env" "$release_sha" \
+        "$PLATFORM_SOURCE_SHA" "$GATEWAY_SOURCE_SHA" \
         "$OTERYN_SCHEMA_COMPATIBILITY_ID" "$OTERYN_APP_ACCEPTS_SCHEMA_IDS" \
         "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE" 1
 
