@@ -62,9 +62,9 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-09-07T11:45:00Z
-head: 2c3934fece8e072f23ea33ad82f4b4399fc3b45e
+head: 421b89231b02a5c20281cc2a0daaf1c3b5c0d9f2
 branch: docs/r5-platform-controller-residue-1302
-pr: none
+pr: 1309
 status: validating
 context_routes:
   - agent-governance
@@ -87,10 +87,11 @@ proven:
   - Issue #1299 closed externally at 2026-09-07T09:26:20Z; this task does not reactivate or re-close it.
   - Exact PR #1303 head e711378ce6bb3d1c54ba2c33c56f4fe957f261e9 passed Agent Governance run 34112609317 and CI run 34112609162, then merge-group CI run 34117619196 before protected integration as main 2c3934fece8e072f23ea33ad82f4b4399fc3b45e.
   - The post-integration META report at cee7df confirms PR #1303's reduced deltas but identifies copied global controller residue in four documents that the final seven-path reconciliation did not change.
+  - Draft PR #1309 publishes the bounded four-controller reduction from initial exact head 421b89231b02a5c20281cc2a0daaf1c3b5c0d9f2.
 derived:
   - The remaining Platform retry and delivery documents can delegate global execution semantics while retaining local state compatibility, E2E, layer-completeness and resource-hygiene constraints.
 unknown:
-  - Exact four-file follow-up candidate head, hosted check results and integration outcome.
+  - Exact final follow-up hosted check results and integration outcome.
 conflicts: []
 first_failure:
   marker: post-integration-specialist-controller-residue
@@ -118,7 +119,7 @@ validation:
     evidence: Agent instruction and lifecycle documentation only; no executable product behavior changes.
 blockers:
   - none
-next_action: Validate and publish the four-file specialist-controller follow-up, then run required hosted checks; after protected integration archive this packet and close Issue #1302.
+next_action: Run required hosted checks and final review on PR #1309; after protected integration archive this packet and close Issue #1302.
 ```
 
 ## Source branch closeout
@@ -126,5 +127,5 @@ next_action: Validate and publish the four-file specialist-controller follow-up,
 ```yaml
 source_branch_disposition: pending
 source_branch_reason: The bounded specialist-controller follow-up is not integrated.
-source_branch_evidence: Branch docs/r5-platform-controller-residue-1302 will carry the remaining Issue #1302 candidate.
+source_branch_evidence: Draft PR #1309 carries the remaining Issue #1302 candidate from initial head 421b89231b02a5c20281cc2a0daaf1c3b5c0d9f2.
 ```
