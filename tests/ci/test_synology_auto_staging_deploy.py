@@ -83,6 +83,14 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
             check=False,
         )
 
+    def test_synology_deploy_workflow_no_longer_requires_python(self) -> None:
+        self.assertNotIn("python3 --version", self.deploy_workflow)
+        self.assertNotIn("python3 -", self.deploy_workflow)
+        self.assertIn(
+            'bash deploy/synology/scripts/validate-ipv4.sh "$CANARY_GAME_BIND_ADDRESS_INPUT" private-or-loopback',
+            self.deploy_workflow,
+        )
+
     def test_synology_deploy_script_no_longer_requires_python(self) -> None:
         self.assertNotIn("command -v python3", self.deploy_script)
         self.assertNotIn("python3 -", self.deploy_script)
