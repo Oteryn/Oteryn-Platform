@@ -1,4 +1,4 @@
-name: Temporary Synology Candidate Image Diagnostic
+name: Temporary Synology Candidate Gateway Reconstruction Writer
 
 on:
   push:
@@ -8,62 +8,135 @@ on:
       - .github/workflows/tmp-synology-candidate-image-diagnostic.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  inspect:
-    runs-on:
-      group: platform-runners
-      labels: oteryn-platform
+  repair:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout diagnostic source
+      - name: Checkout repair branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: fix/20260907-synology-candidate-image-resolution
 
-      - name: Inspect candidate and running runtime identities
+      - name: Apply bounded Gateway reconstruction repair
         run: |
           set -euo pipefail
-          state_file=/var/lib/oteryn-staging-state/candidate-release.env
-          test -f "$state_file"
-          bash deploy/synology/scripts/release-state.sh validate "$state_file"
+          python3 - <<'PY'
+          from pathlib import Path
 
-          mapfile -t candidate < <(bash -c '
-            set -euo pipefail
-            source "$1"
-            printf "%s\n%s\n%s\n%s\n" "$RELEASE_SHA" "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE"
-          ' bash "$state_file")
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, found {count}')
+              return text.replace(old, new, 1)
 
-          candidate_sha="${candidate[0]}"
-          echo "candidate_sha=$candidate_sha"
+          deploy_path = Path('deploy/synology/scripts/deploy.sh')
+          deploy = deploy_path.read_text()
 
-          services=(platform gateway canary)
-          for index in "${!services[@]}"; do
-            service="${services[$index]}"
-            expected_ref="${candidate[$((index + 1))]}"
-            mapfile -t containers < <(
-              docker ps -q \
-                --filter label=com.docker.compose.project=oteryn-staging \
-                --filter "label=com.docker.compose.service=$service"
-            )
-            echo "service=$service"
-            echo "expected_ref=$expected_ref"
-            echo "running_container_count=${#containers[@]}"
-            if (( ${#containers[@]} != 1 )); then
-              continue
-            fi
+          deploy = replace_once(
+              deploy,
+              '    local service container_id image_id expected_image expected_image_id\n',
+              '    local service container_id image_id expected_image expected_image_id\n'
+              '    local gateway_container_id gateway_image_id expected_gateway_image expected_gateway_image_id\n',
+              'candidate finalizer local variables',
+          )
 
-            container="${containers[0]}"
-            running_id="$(docker inspect --format '{{.Image}}' "$container")"
-            expected_id="$(docker image inspect --format '{{.Id}}' "$expected_ref" 2>/dev/null || true)"
-            running_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$running_id" 2>/dev/null || true)"
-            expected_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$expected_ref" 2>/dev/null || true)"
+          old_block = '''    services=(platform gateway canary)
+    expected_images=("${candidate_state[1]}" "${candidate_state[2]}" "${candidate_state[3]}")
+    for index in "${!services[@]}"; do
+        service="${services[$index]}"
+        expected_image="${expected_images[$index]}"
+        container_id="$("${compose[@]}" ps -q "$service" 2>/dev/null || true)"
+        [[ -n "$container_id" && "$(docker inspect --format '{{.State.Running}}' "$container_id")" == true ]] || {
+            echo "Previous candidate finalization rejected: $service is not running." >&2
+            return 1
+        }
+        image_id="$(docker inspect --format '{{.Image}}' "$container_id")" || return 1
+        expected_image_id="$(docker image inspect --format '{{.Id}}' "$expected_image" 2>/dev/null || true)"
+        [[ -n "$expected_image_id" && "$image_id" == "$expected_image_id" ]] || {
+            echo "Previous candidate finalization rejected: running $service image does not match candidate recovery identity." >&2
+            return 1
+        }
+    done
+'''
+          new_block = '''    # Platform and Canary are immutable anchors for recovery. Gateway is intentionally
+    # reconstructible because finalization force-recreates it from the persisted candidate image
+    # before the full health contract can promote the candidate.
+    services=(platform canary)
+    expected_images=("${candidate_state[1]}" "${candidate_state[3]}")
+    for index in "${!services[@]}"; do
+        service="${services[$index]}"
+        expected_image="${expected_images[$index]}"
+        container_id="$("${compose[@]}" ps -q "$service" 2>/dev/null || true)"
+        [[ -n "$container_id" && "$(docker inspect --format '{{.State.Running}}' "$container_id")" == true ]] || {
+            echo "Previous candidate finalization rejected: $service is not running." >&2
+            return 1
+        }
+        image_id="$(docker inspect --format '{{.Image}}' "$container_id")" || return 1
+        expected_image_id="$(docker image inspect --format '{{.Id}}' "$expected_image" 2>/dev/null || true)"
+        [[ -n "$expected_image_id" && "$image_id" == "$expected_image_id" ]] || {
+            echo "Previous candidate finalization rejected: running $service image does not match candidate recovery identity." >&2
+            return 1
+        }
+    done
 
-            echo "running_image_id=$running_id"
-            echo "expected_image_present=$([[ -n "$expected_id" ]] && echo true || echo false)"
-            echo "expected_image_id=${expected_id:-MISSING}"
-            echo "running_revision=${running_revision:-EMPTY}"
-            echo "expected_revision=${expected_revision:-EMPTY}"
-            echo 'running_repo_digests_begin'
-            docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$running_id" || true
-            echo 'running_repo_digests_end'
-            echo '---'
-          done
+    gateway_container_id="$("${compose[@]}" ps -q gateway 2>/dev/null || true)"
+    [[ -n "$gateway_container_id" && "$(docker inspect --format '{{.State.Running}}' "$gateway_container_id")" == true ]] || {
+        echo "Previous candidate finalization rejected: gateway is not running." >&2
+        return 1
+    }
+    gateway_image_id="$(docker inspect --format '{{.Image}}' "$gateway_container_id")" || return 1
+    expected_gateway_image="${candidate_state[2]}"
+    expected_gateway_image_id="$(docker image inspect --format '{{.Id}}' "$expected_gateway_image" 2>/dev/null || true)"
+    [[ -n "$expected_gateway_image_id" ]] || {
+        echo "Previous candidate finalization rejected: exact candidate Gateway image is unavailable." >&2
+        return 1
+    }
+    if [[ "$gateway_image_id" != "$expected_gateway_image_id" ]]; then
+        echo "Previous candidate Gateway runtime drift detected; reconstructing exact candidate Gateway before health proof."
+    fi
+'''
+          deploy = replace_once(deploy, old_block, new_block, 'candidate runtime identity block')
+          deploy_path.write_text(deploy)
+
+          test_path = Path('tests/ci/test_synology_rollback_recovery_contract.py')
+          tests = test_path.read_text()
+          old_assertions = '''    assert "running $service image does not match candidate recovery identity" in body
+    assert 'expected_image_id="$(docker image inspect --format' in body
+    assert 'release-state.sh" resolve-image "$image_id"' not in body
+    assert '"PLATFORM_IMAGE=${candidate_state[1]}"' in body
+'''
+          new_assertions = '''    assert "running $service image does not match candidate recovery identity" in body
+    assert 'services=(platform canary)' in body
+    assert 'expected_images=("${candidate_state[1]}" "${candidate_state[3]}")' in body
+    assert 'expected_gateway_image="${candidate_state[2]}"' in body
+    assert "exact candidate Gateway image is unavailable" in body
+    assert "Previous candidate Gateway runtime drift detected; reconstructing exact candidate Gateway before health proof." in body
+    assert 'expected_image_id="$(docker image inspect --format' in body
+    assert 'release-state.sh" resolve-image "$image_id"' not in body
+    assert '"PLATFORM_IMAGE=${candidate_state[1]}"' in body
+'''
+          tests = replace_once(tests, old_assertions, new_assertions, 'candidate reconstruction contract assertions')
+          test_path.write_text(tests)
+          PY
+
+      - name: Validate focused repair
+        run: |
+          set -euo pipefail
+          bash -n deploy/synology/scripts/deploy.sh
+          python3 tests/ci/test_synology_rollback_recovery_contract.py
+          python3 tests/ci/test_synology_auto_staging_deploy.py
+
+      - name: Remove temporary workflow and publish repair
+        env:
+          BRANCH: fix/20260907-synology-candidate-image-resolution
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/tmp-synology-candidate-image-diagnostic.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add deploy/synology/scripts/deploy.sh tests/ci/test_synology_rollback_recovery_contract.py .github/workflows/tmp-synology-candidate-image-diagnostic.yml
+          git diff --cached --check
+          git commit -m 'fix(staging): reconstruct drifted candidate gateway safely'
+          git push origin "HEAD:${BRANCH}"
