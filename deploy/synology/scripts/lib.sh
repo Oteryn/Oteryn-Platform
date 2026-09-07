@@ -269,7 +269,7 @@ _oteryn_load_marketplace_runtime_state() {
                 export "$key"
                 ;;
             *)
-                [[ "$source_file" != "$durable_file" ]] || { echo "Unexpected durable Marketplace state key: $key" >&2; return 1 ;;
+                [[ "$source_file" != "$durable_file" ]] || { echo "Unexpected durable Marketplace state key: $key" >&2; return 1; }
                 ;;
         esac
     done < "$source_file"
