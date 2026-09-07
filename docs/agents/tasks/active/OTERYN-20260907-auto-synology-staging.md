@@ -19,34 +19,36 @@ Governing GitHub Issue: #1313 — make each runtime-affecting protected-main cha
 
 ## Acceptance criteria
 
-- [x] Runtime-affecting `main` pushes and Synology workflow/package changes build exact-SHA Platform/Gateway images.
-- [x] Successful exact-main image builds automatically dispatch the guarded Synology staging deployment.
-- [x] Automatic deploy uses exact release identity, approved immutable Canary, LAN game bind and canonical staging world identity.
+- [x] Runtime-affecting protected-main changes build exact-SHA Platform/Gateway images and dispatch guarded Synology staging deployment.
 - [x] Pull requests never deploy and ordinary main pushes do not publish the privileged deploy-runner.
-- [x] Pythonless runner validation, canonical public URL, safe same-candidate resume, duplicate-pull removal and dependency-level readiness diagnostics are integrated.
-- [x] A newer release refuses to overwrite a different unresolved candidate.
-- [x] PR #1322 adds fail-closed finalization of a prior migrated candidate only after exact running-image/world/schema identity and the complete staging health contract pass.
-- [ ] PR #1322 passes repository-required exact-head checks and protected integration.
-- [ ] The resulting protected-main SHA automatically finalizes the old `bbeb084b...` candidate, deploys the newest exact main SHA, and passes the complete Synology staging health contract.
-- [ ] This task is archived only after live proof and Issue #1313 is closed completed afterward.
+- [x] Pythonless runner validation and canonical public staging origin are integrated.
+- [x] Failed candidates retain fail-closed recovery identity and can only resume/finalize after exact schema/image/world proof.
+- [x] Duplicate runtime pull was removed and Gateway dependency readiness now has explicit internal TLS probes.
+- [x] Drifted recovery Gateway can be reconstructed to the exact candidate image before health proof.
+- [x] Run #22 proved Gateway bindings, both internal TLS legs, identity/readiness/login isolation and MFA renderer are healthy for the previous candidate.
+- [x] Run #22 isolated a false-negative MFA asset assertion that matched localized English copy instead of stable semantic markers.
+- [ ] PR #1326 passes repository-required exact-head checks and protected integration.
+- [ ] The resulting protected-main SHA automatically finalizes the previous candidate, deploys current main, and passes the complete Synology staging health contract.
+- [ ] Archive this task only after live proof; close Issue #1313 completed afterward.
 
 ## Ownership
 
 ```yaml
 owned_paths:
-  - deploy/synology/scripts/deploy.sh
-  - tests/ci/test_synology_rollback_recovery_contract.py
+  - deploy/synology/scripts/health-check.sh
   - tests/ci/test_synology_auto_staging_deploy.py
   - docs/agents/tasks/active/OTERYN-20260907-auto-synology-staging.md
 modules:
   - Synology staging deployment
-  - deployment recovery and rollback safety
-  - Gateway dependency readiness diagnostics
+  - staging health contract
+  - recovery candidate verification
 dependencies:
   - protected-main auto-deploy foundation from PR #1314
-  - Pythonless runtime validation from PR #1317
+  - Pythonless validation from PR #1317
   - canonical public origin from PR #1320
-  - resumable/diagnostic deployment from PR #1321
+  - resumable deployment and dependency diagnostics from PR #1321
+  - candidate finalization from PR #1322
+  - candidate Gateway reconstruction from PR #1325
   - approved immutable Canary staging digest
   - synology-staging environment and platform-runners execution path
 blockers:
@@ -59,60 +61,57 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-07T20:40:00Z
-head: 5b13770d94ad149c2e30a5a052738cef6080ff82
-branch: fix/20260907-synology-finalize-stale-candidate
-pr: 1322
+updated_at: 2026-09-07T21:53:00Z
+head: 8d94ca13360913f6464409cb342b7cfb56788879
+branch: fix/20260907-synology-mfa-health-contract
+pr: 1326
 status: validating
 context_routes:
   - testing
   - execution-resources
 owned_paths:
-  - deploy/synology/scripts/deploy.sh
-  - tests/ci/test_synology_rollback_recovery_contract.py
+  - deploy/synology/scripts/health-check.sh
   - tests/ci/test_synology_auto_staging_deploy.py
   - docs/agents/tasks/active/OTERYN-20260907-auto-synology-staging.md
 proven:
-  - PR #1321 passed protected integration and is current main SHA febbfde9f9e122fbdf1a835a4ffb563d34b867f1.
-  - Post-integration Build Synology Staging Images run 34159592889 published exact-main Platform/Gateway images and dispatched Deploy Synology Staging run 34159643562.
-  - Deploy run 34159643562 passed runner tools, GHCR login, configuration validation, immutable image resolution and ephemeral env creation.
-  - That live deploy then correctly refused the newer febbfde9 release because migrated-but-unpromoted candidate bbeb084b0a8da2c4640fa6ad7e2e542f039bf047 still owns recovery state.
-  - The surviving bbeb candidate originated from run 34155125960, whose migration completed before its post-migration Gateway readiness failure; recovery state was intentionally preserved.
-  - PR #1322 never blindly deletes that state. It requires schema-state=known for the exact old candidate, exact accepted schema, exact staging world identity and exact running Platform/Gateway/Canary immutable identities.
-  - PR #1322 reconstructs a permission-restricted old-candidate health environment, recreates only internal-proxy/Gateway for that identity, runs the complete current staging health contract, and re-runs idempotent world registration before promotion.
-  - Only after full health success may the old candidate become current, prior current become last-good when distinct, and candidate recovery state be removed; normal newest-main deployment then continues.
-  - Temporary construction run 34160086400 passed shell syntax, rollback, rollback-recovery, auto-staging and fresh-baseline focused suites before publication.
+  - Current protected main is 83bb47493c94d2a7cabbad01c32d41549e3ba664 from PR #1325.
+  - Deploy Synology Staging run 34163892737 targeted exact main 83bb47493c94d2a7cabbad01c32d41549e3ba664.
+  - Run 34163892737 passed runner tools, GHCR, configuration, immutable image resolution and staging environment creation.
+  - The recovery path detected Gateway runtime drift and reconstructed the exact previous-candidate Gateway before health proof.
+  - The same run verified Platform/Gateway/Canary bindings, Gateway -> Platform internal TLS, Gateway -> Canary session issuer internal TLS, Gateway identity/readiness, bounded invalid login, private no-store headers, port isolation, MFA QR renderer and protected anonymous MFA route.
+  - The run failed immediately after the MFA PHP probe because health-check.sh searched the Blade source for literal English copy `Scan with your authenticator app`.
+  - The previous candidate Blade uses localization key `portal.identity.mfa_scan` and already contains `mfa-qr-panel` and `mfa-qr-code`; its CSS contains the `mfa-qr` rules.
+  - PR #1326 replaces the locale-specific source grep with stable semantic translation-key/structure checks and preserves the live MFA renderer, protected route and CSS assertions.
+  - Temporary validation run 34164599934 passed shell syntax and the focused Synology auto-deploy contract before publication.
 derived:
-  - Automatic deployment needs a safe candidate-finalization transition, not manual recovery-state deletion, because newer main cannot legitimately take ownership while a different candidate remains unresolved.
+  - Run #22 is a false-negative health-contract failure after the substantive Gateway and MFA runtime probes passed; the prior candidate was not rejected for runtime readiness.
 unknown:
-  - Whether the old bbeb candidate now passes direct Canary issuer, internal TLS and aggregate Gateway readiness after the forced TLS refresh and dependency-level diagnostics from PR #1321.
-  - Exact PR #1322 repository CI and the subsequent live two-stage deployment result are pending.
+  - Whether any later health probe after the corrected MFA asset assertion will expose another live defect; the next protected-main deployment will prove this.
 conflicts: []
 first_failure:
-  marker: DIFFERENT_PROVEN_CANDIDATE_BLOCKS_NEW_MAIN
-  evidence: Deploy Synology Staging run 34159643562 rejected requested febbfde9f9e122fbdf1a835a4ffb563d34b867f1 because unresolved candidate bbeb084b0a8da2c4640fa6ad7e2e542f039bf047 still owns recovery state.
+  marker: MFA_LOCALIZED_COPY_FALSE_NEGATIVE
+  evidence: Run 34163892737 printed `MFA QR renderer and protected anonymous route verified.` and then exited before the following QR-first asset success message; the first intervening command grepped a literal English sentence that is absent from the localized Blade source.
 rejected_hypotheses:
-  - Delete candidate-release.env manually; rejected because that would discard rollback/recovery ownership without health proof.
-  - Permit a newer SHA to overwrite candidate metadata; rejected because it would destroy exact recovery identity.
-  - Weaken Gateway readiness; rejected because the login/session dependency contract must remain blocking.
+  - Gateway readiness remains broken; both internal TLS legs, Gateway identity and aggregate readiness passed in run #22.
+  - QR-first MFA is absent from the previous candidate; its Blade and CSS contain the stable QR-first structure and renderer test passed live.
+  - Remove recovery state manually; rejected because candidate ownership must remain fail-closed until the complete corrected health contract passes.
 changed_paths:
-  - deploy/synology/scripts/deploy.sh
-  - tests/ci/test_synology_rollback_recovery_contract.py
+  - deploy/synology/scripts/health-check.sh
   - tests/ci/test_synology_auto_staging_deploy.py
   - docs/agents/tasks/active/OTERYN-20260907-auto-synology-staging.md
 validation:
-  - command: Deploy Synology Staging run 34159643562
+  - command: Deploy Synology Staging run 34163892737
     result: FAIL
-    evidence: fail-closed different-candidate ownership rejection after all pre-deploy identity gates passed
-  - command: Temporary Synology Candidate Finalizer Writer run 34160086400
+    evidence: false-negative localized-copy asset assertion after Gateway/TLS/MFA runtime probes passed
+  - command: Temporary Synology MFA Health Repair run 34164599934
     result: PASS
-    evidence: Bash syntax plus rollback, recovery, auto-staging and fresh-baseline focused suites passed
-  - command: repository-hosted PR #1322 exact-head checks
+    evidence: bash syntax and focused auto-staging contract passed
+  - command: repository-hosted PR #1326 exact-head checks
     result: NOT_RUN
     evidence: checks start after this checkpoint publication
 blockers:
   - none
-next_action: Validate PR #1322. After protected integration, verify the automatic Synology deployment finalizes the prior candidate and passes the newest exact-main health contract; then archive this task packet.
+next_action: Validate PR #1326. After protected integration, verify the corrected automatic Synology staging deployment reaches full health; then archive this task packet.
 ```
 
 ## Source branch closeout
@@ -120,7 +119,7 @@ next_action: Validate PR #1322. After protected integration, verify the automati
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository protected repair PR path
-source_branch_evidence: governing Issue #1313 and PR #1322
+source_branch_evidence: governing Issue #1313 and PR #1326
 ```
 
 ## Notes
