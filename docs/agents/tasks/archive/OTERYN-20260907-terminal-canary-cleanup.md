@@ -94,7 +94,7 @@ validation:
     evidence: Repository branch metadata cleanup only; no application, auth, data, payment or deployment behavior changes.
 blockers:
   - none
-next_action: none
+next_action: Monitor subsequent protected-main terminal lifecycle runs and open a newly governed task if deletion or liveness evidence regresses.
 ```
 
 ## Authorized targets
