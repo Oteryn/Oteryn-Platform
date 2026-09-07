@@ -32,7 +32,15 @@
     <p class="admin-nav-group">{{ __('portal_art.admin.'.$group) }}</p>
     @foreach ($links as [$destination, $label, $activePattern])
         @if ($destination !== 'admin.marketplace.index' || config('marketplace.enabled'))
-            <a href="{{ route($destination, ['locale' => app()->getLocale()]) }}" @if(request()->routeIs($activePattern)) aria-current="page" @endif>{{ __('portal_art.admin.'.$label) }}</a>
+            @php
+                $routeParameters = ['locale' => app()->getLocale()];
+                $href = match ($destination) {
+                    'admin.media.index' => route('admin.media.index', $routeParameters),
+                    'admin.payments.reconciliation.index' => route('admin.payments.reconciliation.index', $routeParameters),
+                    default => route($destination, $routeParameters),
+                };
+            @endphp
+            <a href="{{ $href }}" @if(request()->routeIs($activePattern)) aria-current="page" @endif>{{ __('portal_art.admin.'.$label) }}</a>
         @endif
     @endforeach
 @endforeach
