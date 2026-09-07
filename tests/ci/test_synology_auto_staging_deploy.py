@@ -12,6 +12,7 @@ BUILD_WORKFLOW = ROOT / ".github/workflows/build-synology-staging-images.yml"
 DEPLOY_WORKFLOW = ROOT / ".github/workflows/deploy-synology-staging.yml"
 DEPLOY_SCRIPT = ROOT / "deploy/synology/scripts/deploy.sh"
 IPV4_HELPER = ROOT / "deploy/synology/scripts/validate-ipv4.sh"
+INTERNAL_PROXY = ROOT / "deploy/synology/nginx/internal.conf"
 
 
 class SynologyAutoStagingDeployContractTest(unittest.TestCase):
@@ -20,6 +21,7 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         cls.build_workflow = BUILD_WORKFLOW.read_text(encoding="utf-8")
         cls.deploy_workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
         cls.deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        cls.internal_proxy = INTERNAL_PROXY.read_text(encoding="utf-8")
 
     def test_runtime_and_synology_main_changes_trigger_exact_image_build(self) -> None:
         push_block = self.build_workflow.split("  push:\n", 1)[1].split("  workflow_dispatch:\n", 1)[0]
@@ -142,6 +144,18 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         self.assertIn('Gateway -> Canary session issuer', health)
         self.assertIn('Gateway aggregate readiness failed after both internal dependencies passed.', health)
 
+    def test_internal_proxy_re_resolves_recreated_compose_service_ips(self) -> None:
+        self.assertIn("resolver 127.0.0.11 valid=10s ipv6=off;", self.internal_proxy)
+        self.assertIn("resolver_timeout 5s;", self.internal_proxy)
+        self.assertIn("zone platform_backend 64k;", self.internal_proxy)
+        self.assertIn("server platform:8000 resolve;", self.internal_proxy)
+        self.assertIn("zone canary_session_backend 64k;", self.internal_proxy)
+        self.assertIn("server canary:7180 resolve;", self.internal_proxy)
+        self.assertIn("proxy_pass http://platform_backend;", self.internal_proxy)
+        self.assertIn("proxy_pass http://canary_session_backend;", self.internal_proxy)
+        self.assertNotIn("proxy_pass http://platform:8000;", self.internal_proxy)
+        self.assertNotIn("proxy_pass http://canary:7180;", self.internal_proxy)
+
     def test_new_main_can_finalize_a_proven_previous_candidate_before_transition(self) -> None:
         self.assertIn("finalize_previous_candidate_if_healthy()", self.deploy_script)
         finalizer_call = self.deploy_script.index("\nfinalize_previous_candidate_if_healthy\n")
@@ -156,7 +170,6 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         self.assertIn("grep -q 'portal.identity.mfa_scan'", health)
         self.assertIn("grep -q 'mfa-qr-panel'", health)
         self.assertIn("grep -q 'mfa-qr-code'", health)
-
 
 
 if __name__ == "__main__":
