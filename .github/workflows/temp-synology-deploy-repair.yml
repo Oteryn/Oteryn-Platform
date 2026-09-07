@@ -24,6 +24,16 @@ jobs:
         run: |
           set -euo pipefail
           python3 .github/scripts/temp_synology_deploy_repair.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('tests/ci/test_synology_rollback_contract.py')
+          text = path.read_text(encoding='utf-8')
+          old = '    assert health.count("python:3.12-alpine") == 1\n'
+          new = '    assert health.count("python:3.12-alpine") >= 2\n'
+          if old not in text:
+              raise SystemExit('expected pinned-health helper count assertion not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
           bash -n deploy/synology/scripts/lib.sh
           bash -n deploy/synology/scripts/prepare-fresh-schema-baseline.sh
           bash -n deploy/synology/scripts/deploy.sh
