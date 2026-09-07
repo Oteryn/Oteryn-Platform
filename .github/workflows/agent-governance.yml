@@ -43,23 +43,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Resolve immutable META policy binding
-        id: meta_policy
-        shell: bash
-        run: |
-          python - <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-          from pathlib import Path
-
-          binding = json.loads(Path("docs/agents/META_AGENT_POLICY_BINDING.json").read_text(encoding="utf-8"))
-          print(f"authority_commit={binding['authority_commit']}")
-          PY
-
       - name: Check out bound META policy
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Oteryn/Oteryn
-          ref: ${{ steps.meta_policy.outputs.authority_commit }}
+          # Keep this independent trust anchor equal to META_AGENT_POLICY_BINDING.json.
+          # The authenticated consumer fails closed if either side changes alone.
+          ref: 5ed3f14400af450b5875c091e443da70f2d67ab9
           path: .meta-agent-policy
           persist-credentials: false
 

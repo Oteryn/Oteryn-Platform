@@ -17,18 +17,18 @@ Issue #1299 / PR #1300. Reject missing or non-directory task inventories while p
 - [x] Missing and regular-file paths fail before Issue API evaluation.
 - [x] Empty and README-only directories remain valid without API calls.
 - [x] All ten focused tests, including the CLI error path, pass.
-- [ ] Exact-head repository checks, protected integration and readback pass.
-- [ ] Archive this packet and close Issue #1299 after verified integration.
+- [x] Exact-head repository checks, protected integration and readback pass.
+- [x] Archive this packet and close Issue #1299 after verified integration.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-07T06:26:00Z
-head: 706b84000d4380a6b2a269939d43766b95a87f56
+updated_at: 2026-09-07T09:25:00Z
+head: 1d2c8019e09e0d5c98acaab9ba25032eef17a01b
 branch: fix/task-inventory-path-d26-20260907
 pr: 1300
-status: validating
+status: completed
 context_routes:
   - agent-governance
 owned_paths:
@@ -39,8 +39,7 @@ proven:
   - Five new regressions fail in three cases before repair; all ten tests pass after repair.
   - Published source and test blobs equal locally executed bytes.
 derived: []
-unknown:
-  - Exact final-head hosted qualification and merge outcome.
+unknown: []
 conflicts: []
 first_failure:
   marker: D26-invalid-inventory-passes
@@ -58,13 +57,13 @@ validation:
     evidence: Python governance input validation only; affected CLI error path is covered directly.
 blockers:
   - none
-next_action: Qualify the published final candidate through existing repository CI and normal protected integration, then archive this packet.
+next_action: none
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: PR #1300 is active; ordinary delete-after-merge path applies after integration.
-source_branch_evidence: Exact task revision, checks and closeout are recorded in the live Issue and PR, not self-referential checkpoint commits.
+source_branch_disposition: deleted
+source_branch_reason: PR #1300 merged normally and repository delete-after-merge removed the task branch.
+source_branch_evidence: PR #1300 head 1d2c8019e09e0d5c98acaab9ba25032eef17a01b squash-merged to protected main as 3557085c20512d25576d8884cc54471665784b00; live branch inventory no longer contains fix/task-inventory-path-d26-20260907.
 ```

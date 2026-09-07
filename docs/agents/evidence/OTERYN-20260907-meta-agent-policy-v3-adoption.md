@@ -40,7 +40,7 @@ Counts use UTF-8 repository bytes and newline counts from Platform admission and
 
 The obsolete `blakinio/Oteryn-Platform` owner coordinate and copied organization execution/continuation/communication/model controllers were removed from every active prompt. Five active programme/allocation sources referenced by those prompts were also reconciled to `Oteryn/Oteryn-Platform` and current bound service/model authority so delegated live selection cannot fall back to stale ownership inputs. Deterministic prompt suites now require stable named task invariants plus independently meaningful semantic clauses. Domain constraints remain in prose and canonical programme/architecture references. Static evaluation does not establish model adherence.
 
-The 13 `one_shot_historical` / `historical_do_not_run` entries remain inert provenance; their bodies are not reinterpreted as current policy. This task adds only its #1301 task packet. D26 remains untouched and covered by its liveness regression. Draft PR #1270 is the only direct stale `AGENTS.md` overlap and is reconciled only after a successor candidate exists; #1294, #1298 and #1269 remain separate.
+The 13 `one_shot_historical` / `historical_do_not_run` entries remain inert provenance; their bodies are not reinterpreted as current policy. The adoption instruction delta adds only its #1301 task packet. This lifecycle repair archives the already integrated D26 packet without changing D26 code, and its liveness regression remains green. Draft PR #1270 was the only direct stale `AGENTS.md` overlap and was closed without merge after exact successor #1304 was published; #1294, #1298 and #1269 remain separate.
 
 ## Validation layers
 
@@ -59,9 +59,23 @@ A local unauthenticated online rerun reached GitHub’s public API rate limit. T
 
 Root startup resolves `META_AGENT_POLICY_BINDING.json`; the workflow checks out the bound META revision and exposes no direct pre-authentication execution path. Platform checks run with bytecode disabled so validation cannot dirty the executable authority checkout. The central consumer is the only code-loading path.
 
-Focused regressions demonstrate fail-closed behavior at the Platform consumer boundary. Existing task, liveness, Documentation IA and prompt suites exercise representative local consumers. This is deterministic delivery evidence. Level-3 model behavior is `NOT_EVALUATED`; actual repeated task trials remain a separate W5 activity.
+The workflow's nested checkout uses the literal reviewed META commit as an independent trust anchor rather than deriving executable code identity from candidate-controlled binding bytes. The authenticated consumer then requires that checkout and the binding to agree, so either value changing alone fails closed.
+
+Focused regressions demonstrate fail-closed behavior at the Platform consumer boundary. Existing task, liveness, Documentation IA and prompt suites exercise representative local consumers. That deterministic delivery evidence alone does not establish model adherence; W5 therefore evaluated repeated task behavior separately.
+
+W5 subsequently completed bounded matched model-task screening against admission `3557085c20512d25576d8884cc54471665784b00` and the immutable reviewed instruction tree `3934259316b65b251a82710284fa02e15859a62b` (local `bad2e5a2bcf5193ecb6418a21526d062e49115bc`, remote equivalent `48c19ad5c74ca933e057e705ade7b5b4a1acec12`). Four fresh `gpt-5.6-sol` medium threads accepted 16/16 case executions: five unique cases per baseline/candidate arm plus three safety repeats per arm. Both arms rejected the out-of-scope domain request, refused a hostile cached-authority grant, preserved same-session continuation without a background-completion claim, produced the expected typo-only code fixture, passed 18 independently rerun identifier assertions and used the representative remediation prompt. The canonical result is PR #1304 comment `5568582769`; local comparison JSON SHA-256 is `6f4a37ba06d7f0f6d13ca552a9c6c72ff6e726935ace9698e8577ea35b71f0da`.
+
+This finite synthetic screen supports bounded behavioral parity for the sampled tasks, not production behavior, universal prompt delivery, or statistical efficiency. All path/read/tool/import/cleanup failures remain in the run record. Token, cache, reasoning and billing telemetry were unavailable, so no token, money or productivity saving is claimed.
 
 Product runtime E2E is `NOT_APPLICABLE`: no Laravel service, authentication/session, data/persistence, payment, deployment artifact or production configuration changes.
+
+### Hosted lifecycle and W6 observations
+
+The first #1304 run proved the online authenticated consumer and its 13 regressions, then correctly failed repository lifecycle checks because the task packet omitted its newly created PR and the already merged D26 packet remained active. This repair records #1304 and archives D26 using PR #1300, protected-main commit `3557085c20512d25576d8884cc54471665784b00`, closed Issue #1299 and source-ref absence. CodeQL also identified the candidate-derived nested-checkout ref; the independent literal trust anchor above repairs that trust boundary without changing any W5-tested prompt or instruction blob.
+
+The initial PR observation covered 270 executed-job-seconds as a duration proxy, including the failed governance/branch-hygiene jobs and 196 seconds for CodeQL. Product-heavy runtime probes were skipped by the existing impact classifier, while governance, branch hygiene, CodeQL and the repository's other selected gates remained active. Final exact-head PR, merge-queue and protected-main durations remain pending; this is delivery evidence, not a token or cost-savings claim.
+
+Historical Branch Audit run `34104877215`, job `101687493437`, artifact `10011942363` separately reported two unexplained remote refs. Both are validation-only canaries from closed, unmerged PRs (#1290 at `d866d21ca856b925a32a3a5457174906237db199`, #1291 at `65126f2b1d24e0fe497e436be99f524104021033`) whose bodies forbid merge; a fresh 2026-09-07 branch search confirms both named refs still exist. The active #1301 task records narrow interim `lock_branch` claims with exact heads and recovery evidence. Although direct connector deletion and authenticated Git publication are unavailable here, the existing protected-main `terminal-branch-lifecycle` workflow can apply a separately reviewed canonical terminal-candidate digest with live exact-SHA, PR, claim, protection, retention, policy and digest revalidation. The cleanup therefore waits for a separate normal PR that removes the interim claims, captures its live dry-run manifest, binds the resulting approval and passes review. The refs remain pending deletion and absence readback; this is not a deletion claim, a validation exception or part of the policy-adoption qualification, and no controller change is proposed to force eligibility.
 
 ## Rollback
 
@@ -71,6 +85,6 @@ Revert the coherent adoption commit to restore the prior local instructions, pro
 
 1. Use the real #1301 PR, Merge Queue candidate and protected-main run as the governance canary; inspect the existing #1268 protocol rather than creating a synthetic no-op PR.
 2. Review the pre-existing #1012 checkpoint-only heavy-workflow concern separately. Current classification excludes agent-governance-only changes from product runtime workflows, so this adoption does not broaden runtime CI.
-3. Run representative model task trials and ablation before any further consolidation of routed continuation/closeout documents.
+3. Extend the completed bounded W5 model-task screen with broader task sampling and ablation before any further consolidation of routed continuation/closeout documents.
 4. Consider moving the authenticated authority/tree/blob primitive into META as a reusable library after provider adoption proves the interface; avoid copying it among providers.
 5. Measure actual delivery and repeated task outcomes before any organization-wide efficiency conclusion. Source-byte reduction alone supports no token or cost claim.
