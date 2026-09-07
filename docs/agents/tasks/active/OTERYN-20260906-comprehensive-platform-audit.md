@@ -51,8 +51,9 @@ cross_repository_tasks:
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 2
-updated_at: 2026-09-07T04:17:00Z
+checkpoint_version: 1
+updated_at: 2026-09-07T04:23:00Z
+head: 7c457289b8f1ed939bae13464dd61c23021db0c2
 phase: investigate
 project_lane: oteryn-platform-core
 execution_mode: github
@@ -83,7 +84,7 @@ owned_paths:
 proven:
   - "Fixed inventory coordinate is main@294e18909b8319695021011ccbeb1386cac32ced with tree f8e7b29c94b5d8edd096cd18954ae105023d7e0f."
   - "main is protected and the branch endpoint reports required status context platform-gate."
-  - "PR #1294 remained an open draft on the authorized audit branch immediately before this checkpoint."
+  - "PR #1294 remained an open draft on the authorized audit branch immediately before the inventory checkpoint."
   - "Compare 3b2ea1c7392187d5d22488673073dc8f8305a374..294e18909b8319695021011ccbeb1386cac32ced contains exactly two commits and only five changed governance paths."
   - "All five changed governance paths were re-read directly on fixed main@294e18909b8319695021011ccbeb1386cac32ced."
   - "Recursive Git tree enumeration advanced across the major top-level repository families and large documentation/test/tool trees."
@@ -99,8 +100,8 @@ unknown:
   - "Final normalized finding IDs and deduplicated A-W severity ranking."
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: CI run 34082768555 / classify-changes / Validate active task checkpoint contract
+  evidence: checkpoint field head was missing and checkpoint_version was 2 instead of structural version 1
 rejected_hypotheses:
   - "Filename/tree enumeration alone is sufficient to label the repository audit complete."
   - "The prior tool-response visibility problem proved GitHub repository access was unavailable."
@@ -114,9 +115,12 @@ validation:
   - command: GitHub compare 3b2ea1c7392187d5d22488673073dc8f8305a374..294e18909b8319695021011ccbeb1386cac32ced
     result: PASS
     evidence: ahead_by=2; five changed governance paths only
+  - command: CI run 34082768555 active task checkpoint validation on inventory checkpoint head 7c457289b8f1ed939bae13464dd61c23021db0c2
+    result: FAIL
+    evidence: missing checkpoint field head; checkpoint_version must be 1 as declared by docs/agents/GOVERNANCE_CONTRACT.json
   - command: runtime/E2E for documentation/checkpoint persistence
     result: NOT_APPLICABLE
-    evidence: no product runtime, workflow, deployment, production, payment or authentication behavior is modified by this persistence commit
+    evidence: no product runtime, workflow, deployment, production, payment or authentication behavior is modified by this persistence work
 blockers:
   - none
 next_action: Build the canonical tracked-file ledger for main@294e18909b8319695021011ccbeb1386cac32ced and assign every path DIRECT, GROUPED, N/A or UNVERIFIED before continuing the unresolved A-W domains.
@@ -132,4 +136,4 @@ source_branch_evidence: PR #1294 open draft; branch docs/20260906-comprehensive-
 
 ## Notes
 
-Historical audit evidence is generation-scoped. The fixed-SHA compare now permits prior direct evidence to be reconciled to `294e18909b8319695021011ccbeb1386cac32ced` only for exact paths outside the five changed governance files; those five files were separately re-read on the fixed SHA. The audit remains `INCOMPLETE` until the tracked-file disposition ledger, A-W closure and independent cross-check are complete.
+Historical audit evidence is generation-scoped. The fixed-SHA compare now permits prior direct evidence to be reconciled to `294e18909b8319695021011ccbeb1386cac32ced` only for exact paths outside the five changed governance files; those five files were separately re-read on the fixed SHA. The `head` field points to the material inventory-checkpoint commit; this schema-repair-only task-record commit follows it. The audit remains `INCOMPLETE` until the tracked-file disposition ledger, A-W closure and independent cross-check are complete.
