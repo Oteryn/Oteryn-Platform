@@ -73,6 +73,16 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         self.assertIn("release_sha:", self.deploy_workflow)
         self.assertIn("if: inputs.action == 'rollback'", self.deploy_workflow)
 
+    def test_deploy_uses_repository_canonical_origin_without_environment_drift(self) -> None:
+        self.assertIn(
+            "CANONICAL_PUBLIC_APP_URL: https://oteryn.molehill.cloud",
+            self.deploy_workflow,
+        )
+        self.assertNotIn("vars.OTERYN_STAGING_APP_URL", self.deploy_workflow)
+        self.assertNotIn("APP_URL_INPUT", self.deploy_workflow)
+        self.assertIn('app_url="$CANONICAL_PUBLIC_APP_URL"', self.deploy_workflow)
+        self.assertIn("APP_URL=$app_url", self.deploy_workflow)
+
     def run_ipv4_helper(self, address: str, policy: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["bash", str(IPV4_HELPER), address, policy],
