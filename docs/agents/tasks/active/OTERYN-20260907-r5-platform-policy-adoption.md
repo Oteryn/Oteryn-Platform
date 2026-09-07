@@ -34,6 +34,7 @@ owned_paths:
   - docs/agents/CONTEXT_ROUTING.md
   - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
   - docs/agents/PLATFORM_AGENT_BOOTSTRAP.md
+  - docs/agents/tasks/active/OTERYN-20260907-terminal-canary-cleanup.md
   - docs/agents/tasks/active/OTERYN-20260907-r5-platform-policy-adoption.md
 modules:
   - agent-governance
@@ -51,8 +52,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-07T10:20:00Z
-head: 907546f193e91b0bed2f5f077ab5b874771929ef
+updated_at: 2026-09-07T10:28:00Z
+head: 6a87b27db7b69fec90344f779ba79061869d1d92
 branch: docs/r5-platform-policy-adoption-1302
 pr: 1303
 status: implementing
@@ -66,14 +67,17 @@ owned_paths:
   - docs/agents/CONTEXT_ROUTING.md
   - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
   - docs/agents/PLATFORM_AGENT_BOOTSTRAP.md
+  - docs/agents/tasks/active/OTERYN-20260907-terminal-canary-cleanup.md
   - docs/agents/tasks/active/OTERYN-20260907-r5-platform-policy-adoption.md
 proven:
   - Protected main 907546f193e91b0bed2f5f077ab5b874771929ef contains merged PR #1304 and tree d844c6c0e568896008ea8053057bcae53fb4b949.
   - PR #1304 owns the META binding, trusted policy consumer, prompt inventory migration, workflow trust boundary and D26 archive; this task preserves those paths unchanged.
   - Issue #1302 and draft PR #1303 own this remaining bounded R5 delta and coordinate with #1009.
   - Issue #1299 closed externally at 2026-09-07T09:26:20Z; this task does not reactivate or re-close it.
+  - PR #1306 merged its separately owned cleanup task, but the open #1305 packet omitted the archive-pending transition required while protected deletion and closeout remain unfinished; no open successor PR owns that one-line compatibility repair.
 derived:
   - The remaining Platform retry and delivery documents can delegate global execution semantics while retaining local state compatibility, E2E, layer-completeness and resource-hygiene constraints.
+  - Adding only terminal_pr_policy archive_pending to the #1305 packet preserves its truthful nonterminal state and does not claim cleanup, deletion or completion.
 unknown:
   - Exact reconciled candidate head, hosted check results and integration outcome.
 conflicts: []
@@ -89,6 +93,7 @@ changed_paths:
   - docs/agents/CONTEXT_ROUTING.md
   - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
   - docs/agents/PLATFORM_AGENT_BOOTSTRAP.md
+  - docs/agents/tasks/active/OTERYN-20260907-terminal-canary-cleanup.md
   - docs/agents/tasks/active/OTERYN-20260907-r5-platform-policy-adoption.md
 validation:
   - command: focused governance and documentation validation

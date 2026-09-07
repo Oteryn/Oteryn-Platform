@@ -52,6 +52,7 @@ head: 8fe46be5f4890bac333b377c183d50aa3cf2d35c
 branch: governance/terminal-canary-cleanup-1305
 pr: 1306
 status: validating
+terminal_pr_policy: archive_pending
 context_routes:
   - agent-governance
 owned_paths:
