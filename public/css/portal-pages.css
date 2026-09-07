@@ -168,7 +168,7 @@ legend { padding: .5rem .7rem .5rem 0; color: var(--gold); font-size: .9rem; }
 .download-release { margin-top: 2.5rem; padding-top: 2rem; border-top-color: var(--accent-active); }
 .download-release .page-header h2 { font-size: 2rem; }
 .download-release > .notice { font-size: .8rem; }
-.download-artifacts { min-width: 0; }
+.download-artifacts { min-width: 42rem; }
 .download-artifacts code { display: block; max-width: 17rem; font-size: .65rem; }
 .download-artifacts .download-action { min-width: 8rem; }
 .download-artifacts td[data-label] { font-size: .8rem; }
@@ -318,15 +318,6 @@ legend { padding: .5rem .7rem .5rem 0; color: var(--gold); font-size: .9rem; }
     .support-entry-paths { gap: 1rem; }
     .support-entry-paths > a { grid-template-columns: minmax(0, 1fr) auto; }
     .support-entry-paths > a > span:first-child { grid-column: 1 / -1; }
-    .download-artifacts, .download-artifacts tbody { display: block; width: 100%; }
-    .download-artifacts thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-    .download-artifacts tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .7rem 1rem; padding: 1rem; border-bottom: 1px solid var(--border); }
-    .download-artifacts td { display: grid; min-width: 0; max-width: none; gap: .3rem; padding: 0; border: 0; }
-    .download-artifacts td::before { content: attr(data-label); font-size: .65rem; color: var(--text-muted); }
-    .download-artifacts .download-checksum { grid-column: 1 / -1; }
-    .download-artifacts code { max-width: none; }
-    .download-artifacts .download-action { grid-column: 1 / -1; }
-    .download-artifacts .download-action a { justify-self: start; }
 }
 @media (max-width: 39.99rem) {
     .reading-masthead h1, .reading-article > h1 { font-size: 2.2rem; }

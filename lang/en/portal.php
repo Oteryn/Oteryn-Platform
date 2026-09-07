@@ -19,6 +19,10 @@ return [
         'realm' => 'The realm, at a glance',
         'tools' => 'Find your next destination',
     ],
+    'worlds' => [
+        'eyebrow' => 'The Oteryn realms',
+        'intro' => 'Compare worlds, see who is online and check current availability before you begin.',
+    ],
     'account' => [
         'title' => 'Account center',
         'heading' => 'Account overview',

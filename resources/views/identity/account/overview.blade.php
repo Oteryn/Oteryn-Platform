@@ -41,7 +41,7 @@
                 <span class="roster-count">{{ $localeFormatter->number($overview['character_count']) }} / {{ $localeFormatter->number($overview['character_limit']) }}</span>
             @endif
         </div>
-        <p class="muted">{{ $overview['characters_message'] }}</p>
+        @if ($overview['characters_state'] !== 'empty')<p class="muted">{{ $overview['characters_message'] }}</p>@endif
         @if ($overview['characters_state'] === 'available')
             <div class="character-roster">
                 @foreach ($overview['characters'] as $character)
@@ -62,7 +62,7 @@
                 @endforeach
             </div>
         @elseif ($overview['characters_state'] === 'empty')
-            <div class="empty-state"><p>{{ __('portal.account.empty') }}</p>
+            <div class="empty-state"><p>{{ $overview['characters_message'] }}</p>
                 @if ($overview['character_creation_allowed'])<a class="button" href="{{ route('account.characters.create', ['locale' => app()->getLocale()]) }}">{{ __('portal.account.first') }}</a>@endif
             </div>
         @elseif ($overview['characters_state'] === 'unavailable')

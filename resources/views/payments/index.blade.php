@@ -27,7 +27,7 @@
                 <p>{{ __('payments.empty') }}</p>
             </div>
         @else
-            <div class="table-wrap">
+            <div class="table-wrap" role="region" tabindex="0" aria-labelledby="payment-history-heading">
                 <table>
                     <thead>
                     <tr>

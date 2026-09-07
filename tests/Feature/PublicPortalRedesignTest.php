@@ -52,7 +52,7 @@ final class PublicPortalRedesignTest extends TestCase
         $view->assertSee('data-hero-world-state="'.$state->value.'"', false)
             ->assertSee('aria-label="Oteryn Platform">OTERYN</h1>', false)
             ->assertSee('css/portal-system.css', false)
-            ->assertSee('images/oteryn-world.svg', false)
+            ->assertSee('images/oteryn-citadel.webp', false)
             ->assertDontSee('css/home-preview.css', false)
             ->assertDontSee('css/app.css', false);
 

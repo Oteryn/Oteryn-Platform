@@ -11,11 +11,11 @@ Load the smallest required context for the current task. Do not preload broad re
 - This routing document is repository-specific. It is not required to match Canary routing content or Canary's machine-readable router.
 - A change to shared checkpoint/handoff structure must follow the upgrade process in `GOVERNANCE_CONTRACT.json`; repository-specific routing changes do not by themselves require a shared contract version bump.
 
-## Bounded startup and task routing
+## On-demand task routing
 
-Mandatory bootstrap context is defined by root `AGENTS.md`: root instructions, `PLATFORM_AGENT_BOOTSTRAP.md`, the nearest nested `AGENTS.md` for paths that may be touched, and the governing live GitHub Issue/task plus live PR state when present.
+Root `AGENTS.md` defines the small mandatory instruction set. This file is an optional selector for a task whose domain context is not already clear from the governing Issue and changed paths.
 
-Consult this routing document once, classify the task, and then load only the matching route context. The active task record is durable context/evidence/ownership/handoff, not a competing lifecycle authority; reconcile stale lifecycle or PR fields against live GitHub before acting.
+When used, classify the task and load only the matching route context. The active task record is durable context/evidence/ownership/handoff, not a competing lifecycle authority; reconcile stale lifecycle or PR fields against live GitHub before acting.
 
 `REPOSITORY_MAP.md`, `PROJECT_STATE.md`, `BUILD_TEST_MATRIX.md` and other references are task-routed or optional/reference context unless the selected route or an explicit safety/validation trigger requires them. Do not recursively follow links merely because a loaded document mentions another document.
 
@@ -23,7 +23,7 @@ Consult this routing document once, classify the task, and then load only the ma
 
 | Route | Trigger | Load / search |
 |---|---|---|
-| `agent-governance` | `AGENTS.md`, `docs/agents/**`, `tools/agents/**`, ownership or handoff | Read `GOVERNANCE_CONTRACT.json`, relevant governance/handoff records, `TASK_TEMPLATE.md`, `ACTIVE_WORK.md` and overlapping active tasks. |
+| `agent-governance` | `AGENTS.md`, `docs/agents/**`, `tools/agents/**`, ownership or handoff | Read `GOVERNANCE_CONTRACT.json`, relevant governance/handoff records, `tasks/TASK_TEMPLATE.md` and targeted overlapping active tasks. |
 | `architecture` | new module, durable boundary, major dependency, product architecture | Read `ARCHITECTURE_AUTHORITY.md` first, then the focused owner named there, relevant ADRs and contracts. Create or supersede an ADR when a decision outlives one task. |
 | `web-cms` | Blade/views/CMS/news/public pages | Read relevant module catalog section; search affected routes, controllers, views and tests. Check escaping, sanitization, authorization and CSRF boundaries. |
 | `auth-identity` | login, password, sessions, MFA, verification, recovery | Read `SECURITY_ARCHITECTURE.md` and `AUTH_GAME_LOGIN_CONTRACT.md`, then relevant auth config/code/tests. Treat unresolved game-login compatibility as a blocker for global-security claims. |
@@ -37,6 +37,7 @@ Consult this routing document once, classify the task, and then load only the ma
 | `testing` | test infrastructure, CI validation, E2E | Apply `BUILD_TEST_MATRIX.md`, then read `TEST_STRATEGY.md` and affected contracts/modules. Tie compatibility evidence to exact versions/SHAs where practical. |
 | `payments` | payment provider, coins, premium currency, webhook, shop | Read current payment ADRs plus security/data ownership sections. Distinguish repository foundation from provider selection, customer value delivery and production activation. |
 | `ci-repair` | required GitHub check fails | Read the failing workflow/job/step and current task. Investigate root cause before rerun. |
+| `execution-resources` | create or control containers, services, runners, volumes or persistent temporary infrastructure | Read `EXECUTION_RESOURCE_HYGIENE.md` and apply its ownership-scoped inventory and cleanup rules. |
 
 Multiple routes may apply, but each must be justified by task scope or evidence.
 

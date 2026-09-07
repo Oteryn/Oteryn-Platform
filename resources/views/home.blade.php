@@ -6,7 +6,7 @@
 @section('portal-family', 'home')
 
 @push('head')
-    <link rel="preload" as="image" href="{{ asset('images/oteryn-world.svg') }}" fetchpriority="high">
+    <link rel="preload" as="image" href="{{ asset('images/oteryn-citadel.webp') }}" fetchpriority="high">
 @endpush
 @push('styles')
     <link rel="stylesheet" href="{{ asset('css/home-production.css') }}">
@@ -15,7 +15,7 @@
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
     <section class="realm-hero" aria-labelledby="home-hero-title">
-        <img class="realm-hero-art" src="{{ asset('images/oteryn-world.svg') }}" width="2400" height="1200" alt="" aria-hidden="true" fetchpriority="high">
+        <img class="realm-hero-art" src="{{ asset('images/oteryn-citadel.webp') }}" width="626" height="468" alt="" aria-hidden="true" fetchpriority="high">
         <div class="realm-hero-copy">
             <p class="eyebrow">{{ __('public.home.kicker') }}</p>
             <h1 id="home-hero-title" aria-label="Oteryn Platform">OTERYN</h1>

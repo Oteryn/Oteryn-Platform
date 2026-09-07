@@ -60,7 +60,7 @@
         </aside>
     @else
         <aside class="identity-world" aria-hidden="true">
-            <img src="{{ asset('images/oteryn-world.svg') }}" width="2400" height="1200" alt="">
+            <img src="{{ asset('images/oteryn-citadel.webp') }}" width="626" height="468" alt="">
             <p class="identity-world-title">OTERYN</p>
             <p class="identity-world-copy">{{ __('portal.account.world_copy') }}</p>
         </aside>

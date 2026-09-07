@@ -35,7 +35,7 @@
     {
       "id": "OTERYN_PLATFORM_REMEDIATION",
       "path": "docs/agents/prompts/OTERYN_PLATFORM_REMEDIATION_PROGRAM.md",
-      "version": "1.3.0",
+      "version": "2.0.0",
       "classification": "reusable",
       "status": "active_reusable",
       "owner": "OTERYN_PLATFORM_REMEDIATION",
@@ -47,7 +47,7 @@
     {
       "id": "OTERYN-GAME-CATALOG-COMPLETION",
       "path": "docs/agents/prompts/OTERYN-GAME-CATALOG-COMPLETION-AGENT.md",
-      "version": "1.0",
+      "version": "2.0",
       "classification": "reusable",
       "status": "active_reusable",
       "owner": "OTERYN-GAME-CATALOG-COMPLETION",
@@ -59,7 +59,7 @@
     {
       "id": "OTERYN-CHARACTER-LIFECYCLE-BARRIER",
       "path": "docs/agents/prompts/OTERYN-CHARACTER-LIFECYCLE-BARRIER-AGENT.md",
-      "version": "1.0",
+      "version": "2.0",
       "classification": "reusable",
       "status": "active_reusable",
       "owner": "OTERYN-CHARACTER-LIFECYCLE-BARRIER",
@@ -71,7 +71,7 @@
     {
       "id": "OTERYN_PLATFORM_CONTINUOUS_AUDIT",
       "path": "docs/agents/prompts/OTERYN_PLATFORM_CONTINUOUS_AUDIT_PROGRAM.md",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "classification": "reusable",
       "status": "active_reusable",
       "owner": "OTERYN_PLATFORM_CONTINUOUS_AUDIT",
@@ -83,7 +83,7 @@
     {
       "id": "OTERYN-PLATFORM-WAVE-COORD",
       "path": "docs/agents/prompts/OTERYN-PLATFORM-PARALLEL-WAVE-COORDINATOR.md",
-      "version": "1.0",
+      "version": "2.0",
       "classification": "reusable",
       "status": "active_reusable",
       "owner": "OTERYN-PLATFORM-WAVE-COORD",
@@ -95,7 +95,7 @@
     {
       "id": "OTERYN_PORTAL_COMPLETION",
       "path": "docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md",
-      "version": "1.3",
+      "version": "2.0",
       "classification": "reusable",
       "status": "active_reusable",
       "owner": "PORTAL-CLOSEOUT",
@@ -107,7 +107,7 @@
     {
       "id": "OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_ULTRA",
       "path": "docs/agents/prompts/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_ULTRA.md",
-      "version": "1.0.1",
+      "version": "2.0.0",
       "classification": "reusable",
       "status": "active_reusable",
       "owner": "OTERYN-REPO-MIGRATION-ULTRA",
@@ -119,7 +119,7 @@
     {
       "id": "OTERYN_PLATFORM_ARCHITECTURE_REVIEW",
       "path": "docs/agents/prompts/OTERYN_PLATFORM_ARCHITECTURE_REVIEW_PROGRAM.md",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "classification": "reusable",
       "status": "active_reusable",
       "owner": "OTERYN_PLATFORM_ARCHITECTURE_REVIEW",
@@ -131,7 +131,7 @@
     {
       "id": "OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION",
       "path": "docs/agents/prompts/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_PROGRAM.md",
-      "version": "1.1.0",
+      "version": "2.0.0",
       "classification": "reusable",
       "status": "active_reusable",
       "owner": "OTERYN-REPO-MIGRATION",
@@ -143,7 +143,7 @@
     {
       "id": "OTERYN-PORTAL-COMPLETION-PARALLEL",
       "path": "docs/agents/prompts/OTERYN-PORTAL-COMPLETION-PARALLEL-COORDINATOR-PROMPT.md",
-      "version": "1.1",
+      "version": "2.0",
       "classification": "reusable",
       "status": "active_reusable",
       "owner": "OTERYN-PORTAL-COMPLETION-PARALLEL",

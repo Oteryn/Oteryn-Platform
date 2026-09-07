@@ -4,9 +4,9 @@
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
     <header class="page-header utility-masthead">
-        <p class="eyebrow">{{ __('public.game.infrastructure') }}</p>
+        <p class="eyebrow">{{ __('portal.worlds.eyebrow') }}</p>
         <h1>{{ __('public.game.servers_title') }}</h1>
-        <p class="muted">{{ __('public.game.servers_description') }}</p>
+        <p class="muted">{{ __('portal.worlds.intro') }}</p>
     </header>
     @if (! $runtimeSnapshot->available)
         <div class="alert alert-warning" role="status">{{ __('public.game.runtime_unavailable_help') }}</div>

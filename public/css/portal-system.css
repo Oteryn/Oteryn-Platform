@@ -124,7 +124,7 @@ button:disabled, input:disabled, select:disabled, textarea:disabled, .button[ari
 .search-row { display: flex; align-items: end; flex-wrap: wrap; gap: .75rem; }
 .search-row input { flex: 1 1 16rem; }
 .search-row label { flex: 0 0 auto; }
-.table-region, .table-wrap { min-width: 0; width: 100%; max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; border-block: 1px solid var(--border); scrollbar-color: var(--border-strong) var(--bg-subtle); }
+.table-region, .table-wrap { position: relative; min-width: 0; width: 100%; max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; border-block: 1px solid var(--border); scrollbar-color: var(--border-strong) var(--bg-subtle); }
 table { width: 100%; min-width: 38rem; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 th, td { padding: .95rem 1rem; max-width: 28rem; text-align: left; vertical-align: middle; border-bottom: 1px solid var(--border); }
 th { color: var(--text-muted); background: var(--bg-subtle); font-size: .7rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
@@ -192,7 +192,7 @@ td a:hover { text-decoration: underline; }
 .public-footer-brand p { margin-top: 1rem; font-size: .85rem; }
 .public-footer-brand .brand-wordmark-art { width: 13rem; }
 .public-footer-status-note { font-size: .75rem !important; }
-.public-footer-links { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: 2rem; }
+.public-footer-links { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 7.5rem), 1fr)); gap: 2rem 1rem; }
 .public-footer-group { display: flex; flex-direction: column; align-items: start; gap: .15rem; }
 .public-footer-group h2 { margin-bottom: .6rem; font-family: inherit; color: var(--gold); font-size: .65rem; letter-spacing: .14em; text-transform: uppercase; }
 .public-footer-group a { min-height: 2.1rem; padding-block: .35rem; color: var(--text-muted); font-size: .8rem; text-decoration: none; }

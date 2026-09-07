@@ -35,11 +35,23 @@ concurrency:
 jobs:
   checkpoint-validation:
     runs-on: ubuntu-latest
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      - name: Check out bound META policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Oteryn/Oteryn
+          # Keep this independent trust anchor equal to META_AGENT_POLICY_BINDING.json.
+          # The authenticated consumer fails closed if either side changes alone.
+          ref: 5ed3f14400af450b5875c091e443da70f2d67ab9
+          path: .meta-agent-policy
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -65,9 +77,14 @@ jobs:
         run: python tools/agents/test_control_room.py
 
       - name: Run policy consistency tests
+        env:
+          OTERYN_META_POLICY_ROOT: .meta-agent-policy
         run: python tools/agents/test_policy_consistency.py
 
-      - name: Validate cross-document policy consistency
+      - name: Validate Platform central-policy adoption
+        env:
+          OTERYN_META_POLICY_ROOT: .meta-agent-policy
+          GH_TOKEN: ${{ github.token }}
         run: python tools/agents/policy_consistency.py
 
       - name: Run prompt contract evaluator tests

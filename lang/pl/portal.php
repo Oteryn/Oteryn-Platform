@@ -19,6 +19,10 @@ return [
         'realm' => 'Świat w skrócie',
         'tools' => 'Wybierz kolejny cel podróży',
     ],
+    'worlds' => [
+        'eyebrow' => 'Światy Oteryn',
+        'intro' => 'Porównaj światy, sprawdź liczbę graczy online i aktualną dostępność przed rozpoczęciem gry.',
+    ],
     'account' => [
         'title' => 'Centrum konta',
         'heading' => 'Przegląd konta',

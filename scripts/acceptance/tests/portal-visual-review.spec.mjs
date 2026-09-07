@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { repoRoot, testedSha, runBinary, login, logout, assertAccessibilitySmoke } from './helpers.mjs';
+import { repoRoot, testedSha, runBinary, login, logout, uniqueCharacterName, assertAccessibilitySmoke } from './helpers.mjs';
 import { revealPublicNavigationLink } from './portal-navigation.mjs';
 
 const output = resolve(repoRoot, 'artifacts/acceptance/portal-review');
@@ -23,6 +23,8 @@ test.use({ trace: 'off', screenshot: 'off', video: 'off' });
 test.beforeAll(() => {
   mkdirSync(output, { recursive: true });
   const routes = JSON.parse(runBinary('php', ['artisan', 'route:list', '--json', '--except-vendor']));
+  const vendorConsent = JSON.parse(runBinary('php', ['artisan', 'route:list', '--json', '--name=passport.authorizations.authorize']));
+  routes.push(...vendorConsent);
   writeFileSync(resolve(output, 'routes.json'), JSON.stringify(routes.filter((route) =>
     route.method.includes('GET') && !/^(admin|api|internal|health|sanctum)(\/|$)/u.test(route.uri))
     .map(({ method, uri, name }) => ({ method, uri, name })), null, 2));
@@ -164,6 +166,42 @@ test('@smoke @portal-review actual authenticated hub, characters, support, secur
     await expect(page.locator('.realm-hero-actions a[href*="/account"]').first()).toBeVisible();
     await expect(page.locator('.realm-hero-actions a[href*="/register"]')).toHaveCount(0);
   }
+  await page.goto('/account/characters/create?locale=en');
+  const characterName = uniqueCharacterName('Portal');
+  await page.locator('input[name="name"]').fill(characterName);
+  await page.locator('select[name="vocation"]').selectOption('1');
+  await page.locator('select[name="sex"]').selectOption('1');
+  await page.locator('form[method="POST"] button[type="submit"]').last().click();
+  await page.goto('/account?locale=en');
+  await expect(page.locator('.character-roster-row')).toContainText(characterName);
+  const profilePath = `/account/characters/${encodeURIComponent(characterName)}/profile?locale=en`;
+  for (const [name, viewport] of viewports.filter(([name]) => ['desktop', 'phone'].includes(name))) {
+    await page.setViewportSize(viewport);
+    await visit(page, '/account?locale=en', `${name}-account-populated`);
+    await visit(page, profilePath, `${name}-character-profile-settings`);
+  }
+
+  await page.goto('/support/tickets/create?locale=en');
+  await page.getByLabel('Category').selectOption('technical');
+  await page.getByLabel('Subject').fill('Portal review help request');
+  await page.getByLabel('Initial message').fill('A synthetic visual review conversation, not a real support request.');
+  await page.getByRole('button', { name: 'Open ticket', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Portal review help request', exact: true })).toBeVisible();
+  const ticketPath = new URL(page.url()).pathname;
+  await page.goto('/support/reports/create?locale=en');
+  await page.getByLabel('Report type').selectOption('player');
+  await page.getByLabel('Category').selectOption('cheating');
+  await page.getByLabel('Target', { exact: true }).fill('Synthetic Review Target');
+  await page.getByLabel('Evidence summary').fill('Isolated fixture only. No real player is being reported.');
+  await page.getByRole('button', { name: 'Submit report', exact: true }).click();
+  await expect(page.getByText('Synthetic Review Target', { exact: true })).toBeVisible();
+  const reportPath = new URL(page.url()).pathname;
+  for (const [name, viewport] of viewports.filter(([name]) => ['desktop', 'phone'].includes(name))) {
+    await page.setViewportSize(viewport);
+    await visit(page, `${ticketPath}?locale=en`, `${name}-support-ticket-detail`);
+    await visit(page, `${reportPath}?locale=en`, `${name}-support-report-detail`);
+  }
+
   await page.goto('/account/tools/session-analyzer?locale=en');
   await page.getByLabel('Session label').fill('Portal review duo');
   await page.getByLabel('Session log').fill('Session: 01:00h\nXP Gain: 3,600,000\nLoot: 600,000\nSupplies: 200,000\nBalance: 400,000\nAlice\nLoot: 400,000\nSupplies: 100,000\nBob\nLoot: 200,000\nSupplies: 100,000');
@@ -212,4 +250,18 @@ test('@smoke @portal-review truthful edge states, phone 320, 200 percent text an
   await page.goto('/pl');
   await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
   await capture(page, 'tablet-text-200-percent', 200);
+});
+
+
+test('@smoke @portal-review MFA challenge belongs to the identity system', async ({ page }) => {
+  const mfaEmail = 'portal.mfa.review@example.test';
+  runBinary('php', ['scripts/acceptance/seed-browser-events.php', 'seed-identity', mfaEmail, password, 'PORTAL-REVIEW-MFA-01', 'confirmed', '']);
+  await page.goto('/login?locale=en');
+  await login(page, mfaEmail, password);
+  await expect(page).toHaveURL(/\/mfa\/challenge$/u);
+  for (const [name, viewport] of viewports.filter(([name]) => ['desktop', 'phone'].includes(name))) {
+    await page.setViewportSize(viewport);
+    await capture(page, `${name}-mfa-challenge`, 200);
+    await assertAccessibilitySmoke(page);
+  }
 });
