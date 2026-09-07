@@ -274,18 +274,21 @@ def evaluate_tasks(
     policy: Policy,
 ) -> dict[str, object]:
     results: list[TaskResult] = []
-    if active_root.exists():
-        for path in sorted(active_root.glob("*.md")):
-            if path.name.casefold() == "readme.md":
-                continue
-            results.append(
-                evaluate_task(
-                    path,
-                    repository=repository,
-                    client=client,
-                    policy=policy,
-                )
+    if not active_root.is_dir():
+        raise IssueLivenessError(
+            f"{active_root}: active task inventory must be an existing directory"
+        )
+    for path in sorted(active_root.glob("*.md")):
+        if path.name.casefold() == "readme.md":
+            continue
+        results.append(
+            evaluate_task(
+                path,
+                repository=repository,
+                client=client,
+                policy=policy,
             )
+        )
     errors = sum(
         finding.severity == "error"
         for result in results
