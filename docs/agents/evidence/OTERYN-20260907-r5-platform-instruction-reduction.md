@@ -10,10 +10,10 @@ Counts use UTF-8 file bytes and newline counts. They measure repository source r
 
 | Surface | Before | Candidate | Change |
 | --- | ---: | ---: | ---: |
-| 12 core Platform instruction/prompt documents | 145,815 B / 2,040 lines | 27,248 B / 306 lines | -118,567 B / -1,734 lines |
-| Policy/prompt validator code, tests and active eval suite (5 files) | 116,524 B / 2,238 lines | 60,798 B / 1,372 lines | -55,726 B / -866 lines |
-| Ordinary root task mandatory local sources | 3 files / 52,435 B / 582 lines | 3 files / 10,645 B / 114 lines | -41,790 B / -468 lines |
-| `docs/agents/**` task mandatory local sources | 4 files / 62,316 B / 671 lines | 4 files / 11,841 B / 124 lines | -50,475 B / -547 lines |
+| 12 core Platform instruction/prompt documents | 145,815 B / 2,040 lines | 27,193 B / 305 lines | -118,622 B / -1,735 lines |
+| Policy/prompt validator code, tests and active eval suite (5 files) | 116,524 B / 2,238 lines | 59,357 B / 1,345 lines | -57,167 B / -893 lines |
+| Ordinary root task mandatory local sources | 3 files / 52,435 B / 582 lines | 3 files / 10,590 B / 113 lines | -41,845 B / -469 lines |
+| `docs/agents/**` task mandatory local sources | 4 files / 62,316 B / 671 lines | 4 files / 11,786 B / 123 lines | -50,530 B / -548 lines |
 
 Before ordinary-task sources were root `AGENTS.md`, `PLATFORM_AGENT_BOOTSTRAP.md` and the always-consulted `CONTEXT_ROUTING.md`. Candidate sources are root, the thin bootstrap and `META_AGENT_POLICY_BINDING.json`; context routing is on demand. A `docs/agents/**` task additionally loads the nearest nested `AGENTS.md` in both states.
 

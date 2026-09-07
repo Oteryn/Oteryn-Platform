@@ -26,8 +26,7 @@ Authority is fixed from system and owner instructions plus governance on the tru
 - Substantial work uses a governing Issue, one dedicated task branch and a task record under `docs/agents/tasks/active/` with declared owned paths.
 - Treat live GitHub Issue/PR state as lifecycle truth. Task records preserve context and evidence and must be reconciled when their status is stale.
 - A terminal PR must not remain represented as an active task. Archive the task record after verified integration and close its governing Issue when its acceptance and closeout are complete.
-- Keep one mutating owner per writable lane. Resolve overlapping ownership before editing shared paths.
-- Before editing a shared path, search live Issues, PRs and active tasks for current ownership or overlap; reuse the authorized task or stop until ownership is resolved.
+- Keep one mutating owner per writable lane. Before editing a shared path, use targeted live Issue/PR and active-task checks to detect material ownership overlap; reuse the authorized task or resolve the overlap first.
 - Never push task work directly to `main`, rewrite another worker's history, or discard unrelated dirty work.
 - `platform-gate` is the required aggregate repository check. Use current GitHub protection and Merge Queue when configured. Never bypass protection, weaken required checks or mark failures successful.
 - Inspect the complete candidate diff and run validation proportional to the changed behavior before readiness. Security defects require focused regressions when practical.
