@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 1200" width="2400" height="1200" role="img" aria-labelledby="title desc">
+<title id="title">Oteryn: the citadel above the river</title>
+<desc id="desc">An original Oteryn world illustration. A lantern-lit mountain citadel overlooks a stone viaduct, forested cliffs and a winding emerald river beneath a quiet violet sky.</desc>
+<defs>
+  <linearGradient id="sky" x2="0" y2="1"><stop stop-color="#293443"/><stop offset=".53" stop-color="#6d9290"/><stop offset="1" stop-color="#adc8af"/></linearGradient>
+  <linearGradient id="water" x2=".4" y2="1"><stop stop-color="#a6cdb8"/><stop offset=".55" stop-color="#477d76"/><stop offset="1" stop-color="#183e44"/></linearGradient>
+  <linearGradient id="stone" x2="1" y2=".2"><stop stop-color="#8aa692"/><stop offset=".55" stop-color="#b6bba0"/><stop offset="1" stop-color="#4e7571"/></linearGradient>
+  <linearGradient id="cliff" x2=".65" y2="1"><stop stop-color="#436b61"/><stop offset="1" stop-color="#122e35"/></linearGradient>
+  <pattern id="masonry" width="34" height="24" patternUnits="userSpaceOnUse"><path d="M0 0h34M0 12h34M17 0v12M0 12v12" stroke="#42645e" stroke-width="1" opacity=".35"/></pattern>
+  <g id="pine"><path d="M0 0L-17 41h9l-17 29h16l-17 27h49L9 70h16L8 41h9z" fill="#254d45"/><path d="M0 12v87" stroke="#193c37" stroke-width="4"/><path d="M0 0v88h23L9 70h16L8 41h9z" fill="#183c39"/></g>
+  <g id="window"><path d="M0 12V4a4 4 0 0 1 8 0v8z" fill="#233f3e"/><path d="M2 11V4a2 2 0 0 1 4 0v7z" fill="#e3d8a2"/></g>
+  <g id="tower"><path d="M-30 0h60v175h-60z" fill="url(#stone)"/><path d="M-30 0h60v175h-60z" fill="url(#masonry)"/><path d="M-35 0L0-62 35 0z" fill="#2a5254"/><path d="M0-62L13 0h22z" fill="#173a41"/><path d="M-34 1h68M-33 12h66M-32 165h64" stroke="#c2c7a6" stroke-width="3"/><path d="M0-60v-24" stroke="#b3c4a6" stroke-width="2"/><use href="#window" x="-17" y="26"/><use href="#window" x="9" y="26"/><use href="#window" x="-17" y="58"/><use href="#window" x="9" y="58"/><use href="#window" x="-17" y="90"/><use href="#window" x="9" y="90"/><use href="#window" x="-17" y="122"/><use href="#window" x="9" y="122"/></g>
+  <g id="house"><path d="M-23 0h46v31h-46z" fill="#a2b49c"/><path d="M-30 0L0-23 30 0z" fill="#335b58"/><path d="M-11 31V16a5 5 0 0 1 10 0v15" fill="#274b44"/><use href="#window" x="10" y="7"/></g>
+</defs>
+<path fill="url(#sky)" d="M0 0h2400v1200H0z"/>
+<g fill="#e5e0bf" opacity=".65"><circle cx="126" cy="94" r="1.6"/><circle cx="489" cy="156" r="1.2"/><circle cx="1900" cy="102" r="1.5"/><circle cx="2190" cy="217" r="1.5"/><circle cx="2110" cy="74" r="1.1"/><circle cx="898" cy="77" r="1.3"/><circle cx="1645" cy="180" r="1"/></g>
+<path d="M374 139a73 73 0 1 0 83 94 68 68 0 0 1-83-94" fill="#d4d8bb" opacity=".8"/>
+<g fill="none" stroke="#d3d9c5" opacity=".16"><path d="M0 212Q221 210 370 183t251-13M60 228q182 3 330-26t219-17M1810 260q167-22 350-13t240-7M1964 278q190-35 436-21"/></g>
+<path d="M0 606L212 459l120 69L556 337l111 179 136-34 163 111 163-71 202 115 266-101 123 37 224-252 188 211 121-30 147 98v600H0z" fill="#536f73"/>
+<path d="M328 526L556 337l111 179-71-57-43-64-57 113-54-27-56 99zM1782 479l162-158 188 211-98-51-86-80-83 108-36-31-78 85z" fill="#a7b8b0" opacity=".52"/>
+<path d="M0 662L218 586l161 70 236-114 190 198 124-103 241 49 140 104 239-56 217-136 178 122 267-177 189 171v486H0z" fill="#668f81"/>
+<path d="M0 801q173-85 332-58t319 69q280 98 520-5t531-80q230 29 498-73l200 189v357H0z" fill="#86ac99"/>
+<path d="M1248 647q-1 62-141 107T966 858q-4 57 141 94t142 99q-3 55-308 149H676q279-180 273-210T852 873q-26-60 154-122t242-104" fill="url(#water)"/>
+<path d="M1270 662q-8 54-144 102T994 858q6 42 132 91 129 39 145 99M954 994q-51 88-204 170" fill="none" stroke="#c0d6bb" stroke-width="1.5" opacity=".4"/>
+<path d="M0 734l269-41 239 88 120-32 241 139-35 138-178 174H0z" fill="url(#cliff)"/>
+<path d="M0 789l252-31 223 53 116-23 112 82-45 168-119 162H0z" fill="#214949"/>
+<path d="M98 857l44 145-25 198M460 832l-12 214-79 154M667 895l-42 165" fill="none" stroke="#416960" stroke-width="18"/>
+<path d="M1410 850l84-60 111-59 215 28 95-70 205 50 280-54v515h-976l-36-183z" fill="url(#cliff)"/>
+<path d="M1474 824l129-50 216 28 116-74 198 67 267-61v466h-911l12-212-52-69z" fill="#244947"/>
+<path d="M1650 798l-40 129 32 85-38 188M1953 801l-53 98 43 201M2240 831l-48 108" fill="none" stroke="#517568" stroke-width="17"/>
+<!-- A long, open-arched viaduct anchors the inhabited realm. -->
+<path d="M802 840q334 40 765-81l13 37q-30 10-34 49l-26 8q-28-56-65 16l-29 8q-29-58-74 17l-29 7q-31-63-78 18l-31 5q-32-64-84 13l-33 3q-35-66-92 4l-30-1q-35-62-78-2l-24-3q-6-57-43-61z" fill="#668b7d"/>
+<path d="M806 840q334 40 762-81" fill="none" stroke="#bbc8a3" stroke-width="7"/>
+<path d="M854 861v151l20-12V863M1522 788v112l20-17V781" fill="#53796e"/>
+<!-- The Oteryn citadel: three quiet roof silhouettes, terraces and a lit gate. -->
+<g transform="translate(1810 663)">
+ <use href="#tower" x="-43" y="-168"/><use href="#tower" x="31" y="-208" transform="translate(-5 -15) scale(1.15)"/><use href="#tower" x="107" y="-148"/>
+ <path d="M13-345v28M14-343h24l-7 7 7 7H14" fill="#548b77" stroke="#b3c4a6" stroke-width="1"/>
+ <path d="M-87-7h235v132H-87z" fill="url(#stone)"/><path d="M-87-7h235v132H-87z" fill="url(#masonry)"/>
+ <path d="M-103-7L29-81 164-7z" fill="#2d5656"/><path d="M29-81L58-7h106z" fill="#1d434a"/>
+ <use href="#tower" x="-113" y="-43" transform="translate(-17 2) scale(.8)"/><use href="#tower" x="187" y="-54" transform="translate(-1 14) scale(.8)"/>
+ <path d="M-90 71l-68 39 18 50 253-19 90-44-39-24z" fill="#8faa93"/><path d="M-140 136l-7 34 258-14 100-50v-23l-101 52z" fill="url(#stone)"/>
+ <path d="M-146 134l258-3 100-48" fill="none" stroke="#c5caaa" stroke-width="4"/>
+ <path d="M-25 156v-48a20 20 0 0 1 40 0v47z" fill="#1b4140"/><path d="M-20 153v-43a14 14 0 0 1 28-3" fill="none" stroke="#d3ce98" stroke-width="3"/>
+ <use href="#house" x="-171" y="103"/><use href="#house" x="-205" y="122"/><use href="#house" x="195" y="89"/><use href="#house" x="223" y="125"/>
+ <path d="M-11 155q-14 49-126 67" fill="none" stroke="#c8c29a" stroke-width="8"/>
+</g>
+<g opacity=".78"><use href="#pine" transform="translate(72 646) scale(1.1)"/><use href="#pine" transform="translate(113 670) scale(.8)"/><use href="#pine" transform="translate(174 677) scale(1.2)"/><use href="#pine" transform="translate(235 681) scale(.85)"/><use href="#pine" transform="translate(309 713) scale(1)"/><use href="#pine" transform="translate(351 732) scale(.9)"/><use href="#pine" transform="translate(412 744) scale(1.3)"/><use href="#pine" transform="translate(484 762) scale(.8)"/><use href="#pine" transform="translate(541 767) scale(1.15)"/><use href="#pine" transform="translate(626 804) scale(.7)"/><use href="#pine" transform="translate(1987 742) scale(1.1)"/><use href="#pine" transform="translate(2070 727) scale(1.4)"/><use href="#pine" transform="translate(2180 693) scale(1.3)"/><use href="#pine" transform="translate(2260 710) scale(1.7)"/><use href="#pine" transform="translate(2350 692) scale(1.9)"/></g>
+<path d="M0 978q149-80 319-14l122 96 213 140H0zM1572 1200q96-219 309-215t263-108q123-42 256 17v306z" fill="#143337"/>
+<g><use href="#pine" transform="translate(28 777) scale(3.6)"/><use href="#pine" transform="translate(136 825) scale(2.9)"/><use href="#pine" transform="translate(282 931) scale(2.3)"/><use href="#pine" transform="translate(2130 895) scale(2.9)"/><use href="#pine" transform="translate(2268 821) scale(3.7)"/><use href="#pine" transform="translate(2390 770) scale(4.4)"/></g>
+<g stroke="#d3d9bc" fill="none" opacity=".5" stroke-width="2"><path d="M476 503q7-8 14 0 7-8 14 0M2130 378q9-9 18 0 9-9 18 0M2158 401q5-6 10 0 5-6 10 0"/></g>
+</svg>

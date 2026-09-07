@@ -12,146 +12,148 @@ search_first:
 optional_reads: []
 ---
 
-# OTERYN-20260906-premium-portal-redesign
+# Complete Oteryn player portal redesign
 
 ## Goal
 
-Governing GitHub Issue: #1297. Implement the owner's premium MMORPG portal redesign, preserve existing product behavior and deliver a visually inspected, validated PR for human review. No production deployment or automatic merge is requested.
+Issue #1297; the owner's full 2026-09-07 brief supersedes the earlier conservative presentation scope. Deliver a substantially new complete player-facing Laravel/Blade portal through PR #1298 for human visual review. No merge, auto-merge, deployment, production access or backend/security contract change.
 
 ## Acceptance criteria
 
-- [x] Inventory public/player surfaces, shared primitives, routes, assets, localization and states.
-- [x] Implement one recognizable Oteryn visual system and first-viewport world context.
-- [ ] Preserve guest/account workflows, navigation and truthful content states.
-- [ ] Inspect actual phone/tablet/desktop/wide renders and repair visual defects.
-- [ ] Pass relevant static/Laravel/browser checks and review the complete diff.
-- [ ] Publish exact evidence and a reviewable PR without a production-readiness claim.
+- [x] Recover the previously prepared implementation without starting a competing PR.
+- [x] Establish a standalone public design system, grouped navigation and new homepage composition.
+- [x] Implement dedicated editorial, world/player/community, knowledge, account and identity page families.
+- [ ] Reconcile every player-facing route/view in the coverage ledger.
+- [ ] Verify actual guest/authenticated, EN/PL and important edge-state workflows.
+- [ ] Inspect phone/tablet/desktop/wide Laravel renders and correct findings.
+- [ ] Pass relevant feature/static/browser checks and full exact-head self-review.
+- [ ] Remove the temporary tracked-source transport and publish final evidence.
+- [ ] Mark the single PR ready for human visual review, without merging it.
 
 ## Ownership
 
 ```yaml
 owned_paths:
-  - public/css/**
+  - public/css/portal-system.css
+  - public/css/portal-pages.css
+  - public/css/home-production.css
   - public/js/portal-navigation.js
+  - public/images/oteryn-world.svg
   - resources/views/home.blade.php
-  - resources/views/game/layout.blade.php
-  - resources/views/game/partials/**
-  - resources/views/identity/layout.blade.php
-  - resources/views/identity/partials/locale-switcher.blade.php
-  - resources/views/errors/layout.blade.php
-  - tests/Feature/HomeTest.php
-  - resources/views/public/components/**
+  - resources/views/game/**
+  - resources/views/identity/**
+  - resources/views/characters/**
+  - resources/views/game-auth/oauth/**
+  - resources/views/game-catalog/**
+  - resources/views/news/**
+  - resources/views/pages/**
+  - resources/views/events/**
+  - resources/views/announcements/**
+  - resources/views/public/**
+  - resources/views/downloads/**
+  - resources/views/wiki/**
+  - resources/views/support/**
+  - resources/views/marketplace/**
+  - resources/views/payments/**
+  - resources/views/player-companion/**
+  - resources/views/errors/**
   - lang/en/portal.php
   - lang/pl/portal.php
-  - scripts/acceptance/tests/portal-visual-review.spec.mjs
+  - scripts/acceptance/tests/portal*.mjs
+  - scripts/acceptance/tests/00-portal-source-recovery.spec.mjs
+  - scripts/acceptance/tests/accessibility-critical.spec.mjs
+  - scripts/acceptance/tests/homepage-navigation-seo.spec.mjs
+  - scripts/acceptance/tests/portability-critical.spec.mjs
+  - scripts/acceptance/tests/responsive-critical.spec.mjs
+  - tests/Feature/HomeTest.php
   - tests/Feature/PublicPortalRedesignTest.php
   - docs/agents/tasks/active/OTERYN-20260906-premium-portal-redesign.md
   - docs/testing/PORTAL_REDESIGN_REVIEW_2026-09-06.md
-modules:
-  - PublicPortal
-  - QualityE2E
-dependencies:
-  - existing isolated acceptance runtime
+modules: [PublicPortal, QualityE2E]
+dependencies: [existing isolated acceptance runtime]
 blockers: []
 cross_repository_tasks: []
 ```
 
-Implementation is serial because homepage composition, shared CSS and rendering iteration share the same primitives and no independent agent execution tool is available. Existing CI jobs provide independent validation; no overlapping work is delegated. Source inventory and baseline collection run before the shared implementation; final browser/state verification follows the coherent candidate.
+All admin views, backend/domain/controllers/routes, deployment, workflow and protection paths are excluded. Existing browser tests may adapt navigation selectors to the new interaction, not weaken their assertions. #1294 and #1303 own unrelated audit/governance paths; the catalog consumer #338 remains untouched.
+
+Parallel-first lanes: inventory, coherent implementation, visual/functional QA and integration. This invocation executes them serially because the exposed tools have no independent-agent execution action; one writer owns the existing branch and shared CSS/Blade composition. GitHub-hosted independent suites run concurrently. No fictitious delegation or model/effort setting is claimed.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-06T22:18:00Z
-head: 41794acb6f112aa12d78820b35c2cede5bb2de05
+updated_at: 2026-09-07T09:13:00Z
+head: be67a1e343780449fabd9e3d236643363a0304ab
 branch: feat/20260906-premium-portal-redesign
 pr: 1298
 status: implementing
-context_routes:
-  - web-cms
-  - testing
-  - agent-governance
+context_routes: [web-cms, auth-identity, public-game-data, testing, agent-governance]
 owned_paths:
   - public/css/**
   - public/js/portal-navigation.js
-  - resources/views/home.blade.php
-  - resources/views/game/layout.blade.php
-  - resources/views/game/partials/**
-  - resources/views/identity/layout.blade.php
-  - resources/views/identity/partials/locale-switcher.blade.php
-  - resources/views/errors/layout.blade.php
-  - tests/Feature/HomeTest.php
-  - resources/views/public/components/**
+  - public/images/oteryn-world.svg
+  - resources/views/**
   - lang/en/portal.php
   - lang/pl/portal.php
-  - scripts/acceptance/tests/portal-visual-review.spec.mjs
+  - scripts/acceptance/tests/**
+  - tests/Feature/HomeTest.php
   - tests/Feature/PublicPortalRedesignTest.php
   - docs/agents/tasks/active/OTERYN-20260906-premium-portal-redesign.md
   - docs/testing/PORTAL_REDESIGN_REVIEW_2026-09-06.md
 proven:
-  - Protected admission main is 294e18909b8319695021011ccbeb1386cac32ced.
-  - Public layout is resources/views/game/layout.blade.php; homepage uses real PublicPortal view models.
-  - Open PR 1294 owns only audit documentation and a different task file.
-  - Existing acceptance workflow runs actual Laravel with isolated MariaDB and Redis on ubuntu-latest.
+  - Current main is 3557085c20512d25576d8884cc54471665784b00; its only delta from admission is D26 task-inventory governance, not runtime or governing instructions.
+  - PR 1298 was still draft at 06afcd7004246c5388ccd625346baa232a4bc55a before recovery.
+  - Prepared tree 2eafba13c9c6051ccdd37e44793ba4909758c6db was recovered as commit be67a1e343780449fabd9e3d236643363a0304ab.
+  - The recovered diff changes player presentation, translations and navigation-aware tests; no backend or workflow change is present.
+  - The recovered presentation referenced a missing world illustration; this candidate supplies a passive original SVG asset.
 derived:
-  - Shared public primitives permit portal-wide improvement without changing backend contracts.
+  - Recovered implementation is a useful coherent candidate, not verified completion.
 unknown:
-  - Repaired responsive candidate and full exact-head validation remain pending.
+  - Final rendered quality and exact-head acceptance results remain unproven.
 conflicts: []
 first_failure:
-  marker: CANDIDATE_TEXT_RESIZE_OVERFLOW
-  evidence: acceptance run 34062708959 has 13 of 14 smoke tests passing; at 820px and 200 percent root font the page grew to 868px. Intrinsic wrapping repair prepared. PHPStan DOM typing and independent footer active-link contract repaired without modifying the independent gate.
-rejected_hypotheses: []
+  marker: RECOVERED_CANDIDATE_NOT_YET_VALIDATED
+  evidence: Prior branch contained no published full redesign; recover the prepared tree, then test its actual runtime.
+rejected_hypotheses:
+  - The Markdown attachment is unreadable; its full contents were available and define this task.
 changed_paths:
-  - scripts/acceptance/tests/portal-visual-review.spec.mjs
-  - docs/agents/tasks/active/OTERYN-20260906-premium-portal-redesign.md
+  - resources/views/**
+  - public/css/**
+  - public/images/oteryn-world.svg
+  - scripts/acceptance/tests/**
 validation:
-  - command: baseline acceptance run 34061513441
-    result: FAIL
-    evidence: artifact 9997642456; unseeded support editorial returned 404 after 12 desktop captures
-  - command: actual candidate acceptance run 34062708959
-    result: FAIL
-    evidence: artifact 9998000413 contains 61 actual Laravel HTTP screenshots; public routes, login/account, search, language, keyboard and no-JS menu passed; 200 percent text resizing failed
-  - command: candidate CI run 34062708998
-    result: FAIL
-    evidence: Pint and security guards passed; two PHPStan DOM type errors in the new test repaired
-  - command: independent critical suite run 34062708904
-    result: FAIL
-    evidence: 128 of 129 tests passed; footer account active-link semantics restored to satisfy unchanged independent architecture contract
-  - command: local CSS and DOM supporting preview at 320, 390, 820, 1440, 1920px
+  - command: node --check on temporary source recovery test; XML parse of new world SVG
     result: PASS
-    evidence: no horizontal document overflow; not a substitute for final Laravel HTTP verification
-  - command: node --check and php -l for changed script, tests and locale files
-    result: PASS
-    evidence: local syntax checks; dependency-backed tests run in repository CI
+    evidence: Local syntax checks only; no Laravel/runtime readiness claim.
 blockers: []
-next_action: Render the coherent candidate in existing CI, inspect its actual screenshots and repair findings.
+next_action: Retrieve the candidate acceptance artifact, inspect its exact tracked source and real Laravel screenshots, and repair the observed failures.
 project_lane: oteryn-platform-core
 admission_main_sha: 294e18909b8319695021011ccbeb1386cac32ced
 policy_version: 2
 task_kind: implementation
 phase: implement
 execution_mode: github-actions
-execution_reason: local sandbox cannot fetch dependencies; repository-hosted isolated validation is available
+execution_reason: local sandbox has no outbound DNS or Composer; existing isolated Actions runtime supplies real validation
 context_pressure: medium
 context_growth: stable
 context_score: 7
 estimate_confidence: medium
 decomposition_decision: single
-decomposition_reason: one shared public design system and its integrated player workflows
-session_id: portal-redesign-20260906T212400Z
-session_rotation_count: 0
+decomposition_reason: exposed tools provide no subagent action; one integrated public/player design owner
+session_id: portal-redesign-20260907T090400Z
+session_rotation_count: 1
 heavy_validation_runs: 0
-invocation_started_at: 2026-09-06T21:24:00Z
-last_progress_at: 2026-09-06T22:18:00Z
-ci_checks_for_current_head: 2
-ci_check_generation: draft
+invocation_started_at: 2026-09-07T09:04:00Z
+last_progress_at: 2026-09-07T09:13:00Z
+ci_checks_for_current_head: 0
+ci_check_generation: recovered-candidate
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
 repair_cycles_for_current_gate: 1
-context_reconstruction_attempts: 0
+context_reconstruction_attempts: 1
 stall_warnings: 0
 ```
 
@@ -160,34 +162,36 @@ stall_warnings: 0
 ```yaml
 recovery:
   policy_version: 1
-  generation: 1
-  session_id: portal-redesign-20260906T212400Z
-  session_started_at: 2026-09-06T21:24:00Z
-  checkpointed_at: 2026-09-06T22:18:00Z
-  last_progress_at: 2026-09-06T22:18:00Z
-  phase: candidate-validation
-  exact_head: 41794acb6f112aa12d78820b35c2cede5bb2de05
+  generation: 2
+  session_id: portal-redesign-20260907T090400Z
+  session_started_at: 2026-09-07T09:04:00Z
+  checkpointed_at: 2026-09-07T09:13:00Z
+  last_progress_at: 2026-09-07T09:13:00Z
+  phase: recovered-candidate-validation
+  exact_head: be67a1e343780449fabd9e3d236643363a0304ab
   pull_request: 1298
-  active_operation: responsive and validation repairs
+  active_operation: publish coherent candidate with missing asset and isolated source transport
   external_run_ids: []
   operation_started_at: null
   wait_deadline_at: null
-  check_generation: draft
+  check_generation: recovered-candidate
   checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: verify this branch and its PR before continuing; do not overwrite another writer
-  next_action: Render the coherent candidate in existing CI, inspect its actual screenshots and repair findings.
+  resume_condition: refresh live PR head and ensure no conflicting writer before publication or repairs
+  next_action: Retrieve the candidate acceptance artifact, inspect its exact tracked source and real Laravel screenshots, and repair the observed failures.
 ```
+
+Prior recovery generation 1 used branch head 41794acb6f112aa12d78820b35c2cede5bb2de05, two observations and one repair cycle. Its expired session is historical; no wait is being restarted. The new source transport exports only tracked Git trees from the candidate and fixed main, never live files, environment variables, credentials, sessions, databases or authentication traces. It is removed before readiness.
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: retain
-source_branch_reason: owner-requested human visual review; task agent retains this branch until review or explicit disposition
-source_branch_evidence: Issue 1297; PR 1298
+source_branch_reason: owner explicitly requires human visual review and forbids autonomous merge
+source_branch_evidence: Issue 1297; PR 1298; complete owner brief
 ```
 
 ## Execution resources
 
-The existing GitHub-hosted acceptance job and its runner-managed service containers are ephemeral. No self-hosted, desktop, staging or production resources are used. Baseline-only tracked-source export was removed after retrieving artifact 9997642456. Evidence contains only repository source and sanitized synthetic public renders, not environment files, credentials, session dumps or raw authentication traces.
+Only the task's local sandbox and existing GitHub-hosted acceptance job are used. No workstation, Synology, self-hosted runner, staging, production or protected environment is touched. GitHub runner service containers are runner-managed ephemeral resources. The only temporary repository resource is the source-recovery test; remove it before final readiness. Screenshots use isolated synthetic fixtures and exclude secret-bearing enrollment/reset/recovery values.
