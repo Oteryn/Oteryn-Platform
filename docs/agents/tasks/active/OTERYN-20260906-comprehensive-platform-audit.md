@@ -4,6 +4,7 @@ governing_issue: 451
 required_reads:
   - docs/testing/OTERYN_PLATFORM_REPOSITORY_AUDIT_2026-09-06.md
   - docs/testing/OTERYN_PLATFORM_REPOSITORY_AUDIT_2026-09-06-CONTINUATION.md
+  - docs/testing/OTERYN_PLATFORM_REPOSITORY_AUDIT_2026-09-07-CHECKPOINT.md
 search_first:
   - comprehensive Platform repository audit
 optional_reads: []
@@ -20,8 +21,9 @@ Persist and continue the owner-requested comprehensive repository audit without 
 ## Acceptance criteria
 
 - [x] Existing audit report is preserved in PR #1294.
-- [x] Continuation evidence, direct-review coverage, additional finding F15 and remaining gaps are persisted durably.
-- [ ] One fixed current-main SHA has a fully reconciled tracked-file coverage ledger.
+- [x] Continuation evidence, direct-review coverage, additional findings and remaining gaps are persisted durably.
+- [x] One fixed current-main SHA has been selected for the inventory phase: `294e18909b8319695021011ccbeb1386cac32ced`.
+- [ ] The fixed SHA has a fully reconciled tracked-file coverage ledger.
 - [ ] Every audit domain A-W is reconciled to the final completion contract.
 - [ ] Every active/reusable workflow and discovered build/test system is accounted for.
 - [ ] All accessible governance and instruction sources material to the audit are accounted for.
@@ -34,6 +36,7 @@ Persist and continue the owner-requested comprehensive repository audit without 
 owned_paths:
   - docs/testing/OTERYN_PLATFORM_REPOSITORY_AUDIT_2026-09-06.md
   - docs/testing/OTERYN_PLATFORM_REPOSITORY_AUDIT_2026-09-06-CONTINUATION.md
+  - docs/testing/OTERYN_PLATFORM_REPOSITORY_AUDIT_2026-09-07-CHECKPOINT.md
   - docs/agents/tasks/active/OTERYN-20260906-comprehensive-platform-audit.md
 modules:
   - repository-audit-documentation
@@ -48,12 +51,25 @@ cross_repository_tasks:
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 1
-updated_at: 2026-09-06T20:23:00Z
-head: 675afa3c05ee43848487ec8597c6d8da7ad5309c
+checkpoint_version: 2
+updated_at: 2026-09-07T04:17:00Z
+phase: investigate
+project_lane: oteryn-platform-core
+execution_mode: github
+execution_reason: repository-native read/write actions are sufficient for audit persistence and fixed-SHA inventory work
 branch: docs/20260906-comprehensive-platform-audit
 pr: 1294
 status: ready
+admission_main_sha: 3b2ea1c7392187d5d22488673073dc8f8305a374
+inventory_main_sha: 294e18909b8319695021011ccbeb1386cac32ced
+inventory_tree_sha: f8e7b29c94b5d8edd096cd18954ae105023d7e0f
+task_head_observed_before_checkpoint: 7f7fee8810c0e5d62fed3aa9478c09e7c8888839
+context_pressure: high
+context_growth: increasing
+context_score: 11
+estimate_confidence: medium
+decomposition_decision: phased
+decomposition_reason: one cohesive repository audit with large evidence volume; preserve one task/branch/PR and rotate phases instead of splitting ownership
 context_routes:
   - agent-governance
   - testing
@@ -62,47 +78,58 @@ context_routes:
 owned_paths:
   - docs/testing/OTERYN_PLATFORM_REPOSITORY_AUDIT_2026-09-06.md
   - docs/testing/OTERYN_PLATFORM_REPOSITORY_AUDIT_2026-09-06-CONTINUATION.md
+  - docs/testing/OTERYN_PLATFORM_REPOSITORY_AUDIT_2026-09-07-CHECKPOINT.md
   - docs/agents/tasks/active/OTERYN-20260906-comprehensive-platform-audit.md
 proven:
-  - "GitHub current main was observed as 294e18909b8319695021011ccbeb1386cac32ced before the persistence step."
-  - "PR #1294 is an open draft for the comprehensive Platform audit."
-  - "Continuation audit evidence is persisted at material head 675afa3c05ee43848487ec8597c6d8da7ad5309c and was read back through GitHub."
-  - "The continuation report explicitly records AUDIT_STATUS INCOMPLETE."
+  - "Fixed inventory coordinate is main@294e18909b8319695021011ccbeb1386cac32ced with tree f8e7b29c94b5d8edd096cd18954ae105023d7e0f."
+  - "main is protected and the branch endpoint reports required status context platform-gate."
+  - "PR #1294 remained an open draft on the authorized audit branch immediately before this checkpoint."
+  - "Compare 3b2ea1c7392187d5d22488673073dc8f8305a374..294e18909b8319695021011ccbeb1386cac32ced contains exactly two commits and only five changed governance paths."
+  - "All five changed governance paths were re-read directly on fixed main@294e18909b8319695021011ccbeb1386cac32ced."
+  - "Recursive Git tree enumeration advanced across the major top-level repository families and large documentation/test/tool trees."
+  - "Current fixed-SHA workflow reads confirm Game Gateway CI and Game Auth Ticket Concurrency lack merge_group triggers."
+  - "Current fixed-SHA Synology image workflow reads confirm lang/** is absent from relevant path filters, build has no needs dependency on validate-deployment, and build context is repository root."
 derived:
-  - "The owner audit completion contract is not yet satisfied because current-main path coverage, all workflows/build-test systems, instruction debt and governance have not been fully reconciled."
+  - "Earlier direct evidence for paths outside the five changed governance files can be generation-reconciled from 3b2ea1c7392187d5d22488673073dc8f8305a374 to 294e18909b8319695021011ccbeb1386cac32ced because GitHub compare reports no content change for those paths."
+  - "The owner audit completion contract remains unsatisfied because the per-path disposition ledger, full semantic workflow/build/test review, A-W normalization and independent cross-check are not complete."
 unknown:
-  - "Exact current-main DIRECT/GROUPED/N/A/UNVERIFIED tracked-file totals."
-  - "Complete current-main workflow and Merge Queue/ruleset coverage."
-  - "Complete current-head PHP, Go, Playwright, Docker and rollback execution evidence."
+  - "Exact fixed-SHA tracked-file count and exact DIRECT/GROUPED/N/A/UNVERIFIED totals."
+  - "Complete semantic disposition for every one of the 55 workflow files and every discovered build/test entry point."
+  - "Complete fixed-SHA PHP, Go, Playwright, Docker, migration and rollback execution evidence."
+  - "Final normalized finding IDs and deduplicated A-W severity ranking."
 conflicts: []
 first_failure:
   marker: none
   evidence: none
 rejected_hypotheses:
-  - "A substantial partial audit can be truthfully labelled complete without the tracked-file and A-W completion ledger."
+  - "Filename/tree enumeration alone is sufficient to label the repository audit complete."
+  - "The prior tool-response visibility problem proved GitHub repository access was unavailable."
 changed_paths:
-  - docs/testing/OTERYN_PLATFORM_REPOSITORY_AUDIT_2026-09-06-CONTINUATION.md
+  - docs/testing/OTERYN_PLATFORM_REPOSITORY_AUDIT_2026-09-07-CHECKPOINT.md
   - docs/agents/tasks/active/OTERYN-20260906-comprehensive-platform-audit.md
 validation:
-  - command: GitHub readback of continuation report at 675afa3c05ee43848487ec8597c6d8da7ad5309c
+  - command: GitHub live readback of main branch and PR #1294 immediately before persistence
     result: PASS
-    evidence: blob 34361414339a5ca57ec5cd13e332ad196aa9e35f
-  - command: runtime/E2E for persistence-only documentation change
+    evidence: main@294e18909b8319695021011ccbeb1386cac32ced; PR head 7f7fee8810c0e5d62fed3aa9478c09e7c8888839
+  - command: GitHub compare 3b2ea1c7392187d5d22488673073dc8f8305a374..294e18909b8319695021011ccbeb1386cac32ced
+    result: PASS
+    evidence: ahead_by=2; five changed governance paths only
+  - command: runtime/E2E for documentation/checkpoint persistence
     result: NOT_APPLICABLE
-    evidence: no product runtime, build, workflow, deployment, payment or authentication behavior changed
+    evidence: no product runtime, workflow, deployment, production, payment or authentication behavior is modified by this persistence commit
 blockers:
   - none
-next_action: Rebuild the full tracked-file inventory on one fixed fresh main SHA and assign every path DIRECT, GROUPED, N/A or UNVERIFIED before continuing the remaining A-W audit lanes.
+next_action: Build the canonical tracked-file ledger for main@294e18909b8319695021011ccbeb1386cac32ced and assign every path DIRECT, GROUPED, N/A or UNVERIFIED before continuing the unresolved A-W domains.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: audit remains incomplete and PR #1294 is still an active draft persistence path
-source_branch_evidence: PR #1294 open; branch docs/20260906-comprehensive-platform-audit
+source_branch_reason: audit remains incomplete and PR #1294 is still the active durable continuation path
+source_branch_evidence: PR #1294 open draft; branch docs/20260906-comprehensive-platform-audit
 ```
 
 ## Notes
 
-The `head` value above is the material audit-document commit. The task-record commit is checkpoint-only and intentionally follows that material head. Historical audit evidence is generation-scoped; older findings must be revalidated before being promoted to current-main facts.
+Historical audit evidence is generation-scoped. The fixed-SHA compare now permits prior direct evidence to be reconciled to `294e18909b8319695021011ccbeb1386cac32ced` only for exact paths outside the five changed governance files; those five files were separately re-read on the fixed SHA. The audit remains `INCOMPLETE` until the tracked-file disposition ledger, A-W closure and independent cross-check are complete.
