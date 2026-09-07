@@ -113,7 +113,6 @@ jobs:
           GAME_WORLD_NAME_INPUT: ${{ inputs.game_world_name }}
           GAME_WORLD_REGION_INPUT: ${{ inputs.game_world_region }}
           OTERYN_STATE_DIR_INPUT: ${{ vars.OTERYN_STAGING_STATE_DIR }}
-          APP_URL_INPUT: ${{ vars.OTERYN_STAGING_APP_URL }}
         run: |
           set -euo pipefail
 
@@ -157,13 +156,8 @@ jobs:
           fi
 
           state_dir="${OTERYN_STATE_DIR_INPUT:-/var/lib/oteryn-staging-state}"
-          app_url="${APP_URL_INPUT:-$CANONICAL_PUBLIC_APP_URL}"
           if [[ ! "$state_dir" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
             echo "OTERYN_STAGING_STATE_DIR must be an absolute simple path." >&2
-            exit 1
-          fi
-          if [[ "$app_url" != "$CANONICAL_PUBLIC_APP_URL" ]]; then
-            echo "OTERYN_STAGING_APP_URL must exactly equal $CANONICAL_PUBLIC_APP_URL for the public staging stack." >&2
             exit 1
           fi
 
@@ -320,12 +314,11 @@ jobs:
           GAME_WORLD_NAME_INPUT: ${{ inputs.game_world_name }}
           GAME_WORLD_REGION_INPUT: ${{ inputs.game_world_region }}
           OTERYN_STATE_DIR_INPUT: ${{ vars.OTERYN_STAGING_STATE_DIR }}
-          APP_URL_INPUT: ${{ vars.OTERYN_STAGING_APP_URL }}
         run: |
           set -euo pipefail
           umask 077
           state_dir="${OTERYN_STATE_DIR_INPUT:-/var/lib/oteryn-staging-state}"
-          app_url="${APP_URL_INPUT:-$CANONICAL_PUBLIC_APP_URL}"
+          app_url="$CANONICAL_PUBLIC_APP_URL"
           platform_image="${PLATFORM_IMAGE_REF:-rollback-placeholder}"
           gateway_image="${GATEWAY_IMAGE_REF:-rollback-placeholder}"
           canary_image="${CANARY_IMAGE_REF:-rollback-placeholder}"
