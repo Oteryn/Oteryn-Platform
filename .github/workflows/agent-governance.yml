@@ -110,8 +110,7 @@ jobs:
       - name: Validate cross-document policy consistency
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          META_ROOT: _meta-policy/${{ steps.meta_binding.outputs.authority_commit }}
-        run: python tools/agents/policy_consistency.py --meta-root "$META_ROOT"
+        run: python tools/agents/policy_consistency.py
 
       - name: Run prompt contract evaluator tests
         run: python tools/validation/test_prompt_eval.py

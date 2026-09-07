@@ -7,7 +7,6 @@ This module deliberately does not reimplement META's provider-overlay grammar.
 
 from __future__ import annotations
 
-import argparse
 import base64
 import importlib.util
 import json
@@ -355,12 +354,19 @@ def validate_policy(
     return errors
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, default=REPO_ROOT)
-    parser.add_argument("--meta-root", type=Path, required=True)
-    args = parser.parse_args(argv)
-    errors = validate_policy(args.root, meta_root=args.meta_root)
+def main() -> int:
+    try:
+        binding = _read_json(REPO_ROOT, BINDING_PATH)
+    except PolicyConsistencyError as exc:
+        print(f"policy-consistency: {exc}")
+        return 1
+    commit = binding.get("authority_commit") if isinstance(binding, dict) else None
+    if not isinstance(commit, str) or SHA_RE.fullmatch(commit) is None:
+        commit = "invalid-binding"
+    errors = validate_policy(
+        REPO_ROOT,
+        meta_root=REPO_ROOT / "_meta-policy" / commit,
+    )
     if errors:
         for error in errors:
             print(f"policy-consistency: {error}")

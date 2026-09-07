@@ -193,6 +193,20 @@ class PolicyConsistencyTest(unittest.TestCase):
         with self.assertRaisesRegex(policy.PolicyConsistencyError, "lacks callable"):
             policy.load_meta_validator(self.meta_root)
 
+    def test_executable_derives_bound_meta_path_under_fixed_repository_root(self) -> None:
+        binding = json.loads((self.root / policy.BINDING_PATH).read_text(encoding="utf-8"))
+        commit = binding["authority_commit"]
+        with (
+            mock.patch.object(policy, "REPO_ROOT", self.root),
+            mock.patch.object(policy, "_read_json", return_value=binding),
+            mock.patch.object(policy, "validate_policy", return_value=[]) as validate,
+        ):
+            self.assertEqual(0, policy.main())
+        validate.assert_called_once_with(
+            self.root,
+            meta_root=self.root / "_meta-policy" / commit,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
