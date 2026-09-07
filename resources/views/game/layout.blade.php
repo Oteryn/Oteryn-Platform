@@ -28,6 +28,7 @@
     @stack('head')
     <link rel="stylesheet" href="{{ asset('css/portal-system.css') }}">
     <link rel="stylesheet" href="{{ asset('css/portal-pages.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/portal-art-direction.css') }}">
     <script src="{{ asset('js/portal-navigation.js') }}" defer></script>
     @stack('styles')
 </head>

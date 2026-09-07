@@ -7,6 +7,7 @@
     <title>@yield('title') · {{ config('app.name') }}</title>
     <link rel="stylesheet" href="{{ asset('css/portal-system.css') }}">
     <link rel="stylesheet" href="{{ asset('css/portal-pages.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/portal-art-direction.css') }}">
     @stack('head')
     @stack('styles')
 </head>

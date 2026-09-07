@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   assertAccessibilitySmoke,
   attachDiagnostics,
   completeMfaChallenge,
@@ -76,6 +77,7 @@ test('@portal-support-legal-public route-complete missing, unpublished, publishe
 
   for (const definition of definitions) {
     for (const path of [definition.legacy_path, definition.english_path]) {
+      allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: path });
       const response = await page.goto(path);
       expect(response?.status(), `Missing state for ${path}`).toBe(404);
       await expect(page.locator('main')).toContainText('has not been configured');
@@ -85,6 +87,7 @@ test('@portal-support-legal-public route-complete missing, unpublished, publishe
   const unpublished = supportLegalFixture('seed-unpublished').pages;
   for (const definition of unpublished) {
     for (const path of [definition.legacy_path, definition.english_path]) {
+      allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: path });
       const response = await page.goto(path);
       expect(response?.status(), `Unpublished state for ${path}`).toBe(404);
       await expect(page.locator('main')).toContainText('not currently published');
@@ -152,6 +155,7 @@ test('@portal-support-legal-admin guest, MFA and exact permission boundaries fai
     permissions: ['support.content.manage'],
   });
   await signIn(page, noMfa);
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 403, pathname: '/admin/support-content' });
   let response = await page.goto('/admin/support-content');
   expect(response?.status()).toBe(403);
   await expect(page.getByRole('heading', { name: 'You do not have access to this page' })).toBeVisible();
@@ -162,6 +166,7 @@ test('@portal-support-legal-admin guest, MFA and exact permission boundaries fai
     permissions: [],
   });
   await signIn(page, noPermission);
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 403, pathname: '/admin/support-content' });
   response = await page.goto('/admin/support-content');
   expect(response?.status()).toBe(403);
   await expect(page.getByRole('heading', { name: 'You do not have access to this page' })).toBeVisible();

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { repoRoot, testedSha, runBinary, login, logout, uniqueCharacterName, assertAccessibilitySmoke } from './helpers.mjs';
+import { repoRoot, testedSha, runBinary, login, logout, register, uniqueEmail, uniqueCharacterName, assertAccessibilitySmoke } from './helpers.mjs';
 import { revealPublicNavigationLink } from './portal-navigation.mjs';
 
 const output = resolve(repoRoot, 'artifacts/acceptance/portal-review');
@@ -11,7 +11,7 @@ const viewports = [
   ['tablet', { width: 820, height: 1180 }],
   ['wide', { width: 1920, height: 1080 }],
 ];
-const email = 'portal.review@example.test';
+const email = uniqueEmail('portal-review');
 const password = 'Portal-Review-9!Only';
 let auction;
 
@@ -36,7 +36,7 @@ test.beforeAll(() => {
     ['scripts/acceptance/seed-game-catalog.php'],
     ['scripts/acceptance/seed-downloads-state.php', 'seed-portability'],
   ]) runBinary('php', args);
-  auction = JSON.parse(runBinary('php', ['scripts/acceptance/seed-marketplace.php', 'portal.bazaar@example.test', password]));
+  auction = JSON.parse(runBinary('php', ['scripts/acceptance/seed-marketplace.php', uniqueEmail('portal-bazaar'), password]));
 });
 
 async function capture(page, name, status) {
@@ -149,8 +149,10 @@ test('@smoke @portal-review grouped navigation, mobile keyboard, locale, search 
 });
 
 test('@smoke @portal-review actual authenticated hub, characters, support, security and tools', async ({ page }) => {
-  runBinary('php', ['scripts/acceptance/seed-account-overview-state.php', email, password, 'ready']);
+  await register(page, email, password);
   await login(page, email, password);
+  await page.goto('/account?locale=en');
+  await expect(page.locator('[data-account-state]')).toHaveAttribute('data-account-state', 'ready');
   const privatePages = [
     ['/account', 'account'], ['/account/characters/create', 'character-create'],
     ['/account/security', 'security'], ['/mfa', 'mfa'], ['/password/change', 'change-password'],
@@ -254,7 +256,7 @@ test('@smoke @portal-review truthful edge states, phone 320, 200 percent text an
 
 
 test('@smoke @portal-review MFA challenge belongs to the identity system', async ({ page }) => {
-  const mfaEmail = 'portal.mfa.review@example.test';
+  const mfaEmail = uniqueEmail('portal-mfa-review');
   runBinary('php', ['scripts/acceptance/seed-browser-events.php', 'seed-identity', mfaEmail, password, 'PORTAL-REVIEW-MFA-01', 'confirmed', '']);
   await page.goto('/login?locale=en');
   await login(page, mfaEmail, password);

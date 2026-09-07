@@ -15,10 +15,13 @@
     <div class="chronicle-index">
     @forelse ($posts as $post)
         <article class="card chronicle-entry @if($loop->first && $posts->onFirstPage()) chronicle-entry-lead @endif">
+            <div class="chronicle-illustration scene scene-{{ ['chronicles', 'explore', 'community'][$loop->index % 3] }}" aria-hidden="true"></div>
+            <div class="chronicle-copy">
             <p class="eyebrow">{{ __('public.news.published', ['date' => $post->published_at ? $localeFormatter->dateTime($post->published_at) : '']) }}</p>
             <h2><a href="{{ route('news.show', ['slug' => $post->slug]) }}">{{ $post->title }}</a></h2>
             <p class="chronicle-excerpt">{{ \Illuminate\Support\Str::limit(strip_tags($post->body), $loop->first ? 260 : 180) }}</p>
             <a class="text-link" href="{{ route('news.show', ['slug' => $post->slug]) }}">{{ __('public.news.read') }} <span aria-hidden="true">→</span></a>
+            </div>
         </article>
     @empty
         <div class="empty-state">

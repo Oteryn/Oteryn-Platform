@@ -16,6 +16,7 @@
         <p class="muted">{{ __('public.news.published', ['date' => $post->published_at ? $localeFormatter->dateTime($post->published_at) : '']) }}</p>
 
         </header>
+        <div class="reading-world scene scene-chronicles" aria-hidden="true"></div>
         <div class="card reading-body">
             <p class="prose-text">{{ $post->body }}</p>
         </div>

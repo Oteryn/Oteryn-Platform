@@ -17,7 +17,7 @@
     <section class="realm-hero" aria-labelledby="home-hero-title">
         <img class="realm-hero-art" src="{{ asset('images/oteryn-citadel.webp') }}" width="626" height="468" alt="" aria-hidden="true" fetchpriority="high">
         <div class="realm-hero-copy">
-            <p class="eyebrow">{{ __('public.home.kicker') }}</p>
+            <p class="eyebrow">{{ __('portal_art.kicker') }}</p>
             <h1 id="home-hero-title" aria-label="Oteryn Platform">OTERYN</h1>
             <h2 class="realm-hero-tagline">{{ __('public.home.hero_title') }}</h2>
             <p class="realm-hero-lede">{{ __('public.home.hero_lede') }}</p>
@@ -30,11 +30,14 @@
                     <a class="button button-secondary" href="{{ route('account.characters.create', ['locale' => app()->getLocale()]) }}">{{ __('public.home.create_character') }}</a>
                 @endguest
             </div>
+            <nav class="realm-promises" aria-label="{{ __('portal.home.explore') }}">
+                <a href="{{ route('game.servers.index') }}">@include('game.partials.realm-icon', ['icon' => 'compass'])<span>{{ __('portal_art.world') }}</span></a>
+                <a href="{{ route('wiki.index') }}">@include('game.partials.realm-icon', ['icon' => 'book'])<span>{{ __('portal_art.knowledge') }}</span></a>
+                <a href="{{ route('game.guilds.index') }}">@include('game.partials.realm-icon', ['icon' => 'community'])<span>{{ __('portal_art.community') }}</span></a>
+            </nav>
         </div>
-    </section>
-
     <section class="realm-pulse production-hero-world" data-hero-world-state="{{ $homePage->world->state->value }}" aria-label="{{ __('public.home.world_activity') }}">
-        <div class="portal-container realm-pulse-inner">
+        <div class="realm-pulse-inner">
             <span class="production-state-badge production-state-{{ strtolower($homePage->world->state->value) }}">{{ __('public.states.'.strtolower($homePage->world->state->value)) }}</span>
             @if ($homePage->world->state === \App\PublicPortal\PublicContentState::AVAILABLE)
                 <strong>{{ trans_choice('public.home.players_online', $homePage->world->playersOnline ?? 0, ['count' => $localeFormatter->number($homePage->world->playersOnline ?? 0)]) }}</strong>
@@ -48,25 +51,6 @@
         </div>
     </section>
 
-    <section id="character-search" class="realm-search portal-container" aria-labelledby="home-character-search-heading">
-        <div>
-            <p class="eyebrow">{{ __('public.home.meet_heroes') }}</p>
-            <h2 id="home-character-search-heading">{{ __('public.home.find_character') }}</h2>
-        </div>
-        <form class="realm-search-form" method="GET" action="{{ route('game.characters.search') }}">
-            <label class="portal-sr-only" for="home-character-name">{{ __('public.home.character_name') }}</label>
-            <input id="home-character-name" name="name" type="search" value="{{ old('name') }}" maxlength="255" autocomplete="off" placeholder="{{ __('public.home.character_placeholder') }}" required aria-describedby="home-character-help @error('name') home-character-error @enderror" @error('name') aria-invalid="true" @enderror>
-            <button type="submit">{{ __('public.home.search') }} <span aria-hidden="true">→</span></button>
-            <p id="home-character-help" class="form-help">{{ __('public.home.search_exact') }}</p>
-            @error('name')
-                <p id="home-character-error" class="form-error" role="alert">{{ $message }}</p>
-            @enderror
-        </form>
-        <nav class="realm-quick-links" aria-label="{{ __('portal.home.tools') }}">
-            <a href="{{ route('game.highscores.index') }}">{{ __('Highscores') }} <span aria-hidden="true">↗</span></a>
-            <a href="{{ route('game.online.index') }}">{{ __('Online') }} <span aria-hidden="true">↗</span></a>
-            <a href="{{ route('game.guilds.index') }}">{{ __('public.navigation.guilds') }} <span aria-hidden="true">↗</span></a>
-        </nav>
     </section>
 
     <div class="realm-journal portal-container">
@@ -80,10 +64,13 @@
                 <div class="production-news-list">
                     @foreach ($homePage->news->posts as $post)
                         <article class="journal-story {{ $loop->first ? 'journal-story-lead' : '' }}">
+                            <div class="journal-illustration scene scene-{{ ['fight', 'chronicles', 'community'][$loop->index % 3] }}" aria-hidden="true"></div>
+                            <div class="journal-copy">
                             <p class="production-news-date">{{ $post->published_at ? $localeFormatter->date($post->published_at) : '' }}</p>
                             <h3><a href="{{ route('news.show', ['slug' => $post->slug]) }}">{{ $post->title }}</a></h3>
-                            <p>{{ Str::limit($post->body, $loop->first ? 230 : 150) }}</p>
+                            <p>{{ Str::limit($post->body, $loop->first ? 130 : 80) }}</p>
                             <a class="realm-text-link" href="{{ route('news.show', ['slug' => $post->slug]) }}">{{ __('public.news.read') }} <span aria-hidden="true">→</span></a>
+                            </div>
                         </article>
                     @endforeach
                 </div>
@@ -140,6 +127,55 @@
         </aside>
     </div>
 
+    <section class="production-discover portal-container" aria-labelledby="home-discover-title">
+        <header class="section-heading">
+            <p class="eyebrow">{{ __('public.home.discover') }}</p>
+            <h2 id="home-discover-title">{{ __('portal_art.opportunity') }}</h2>
+            <p class="discovery-intro">{{ __('portal_art.next_step') }}</p>
+        </header>
+        <div class="production-discover-grid">
+            @foreach ([
+                ['downloads.index', 'public.downloads.title', 'public.home.download_help', 'explore', 'download'],
+                ['editorial.getting-started', 'Beginner\'s Guide', 'public.home.guide_help', 'fight', 'compass'],
+                ['wiki.index', 'public.wiki.title', 'public.home.wiki_help', 'library', 'book'],
+                ['events.index', 'public.events.title', 'public.home.events_help', 'chronicles', 'chronicles'],
+                ['game.guilds.index', 'public.game.guild_directory', 'public.home.guilds_help', 'community', 'community'],
+                ['support.index', 'support.nav.support_center', 'public.home.support_help', 'market', 'shield'],
+            ] as [$routeName, $label, $help, $scene, $icon])
+                <a class="discovery-card" href="{{ route($routeName) }}">
+                    <div class="discovery-illustration scene scene-{{ $scene }}" aria-hidden="true"></div>
+                    <div class="discovery-copy">
+                        @include('game.partials.realm-icon', ['icon' => $icon])
+                        <strong>{{ __($label) }}</strong>
+                        <span class="discovery-description">{{ __($help) }}</span>
+                    </div>
+                    <span class="discover-arrow" aria-hidden="true">↗</span>
+                </a>
+            @endforeach
+        </div>
+    </section>
+
+    <section id="character-search" class="realm-search portal-container" aria-labelledby="home-character-search-heading">
+        <div>
+            <p class="eyebrow">{{ __('public.home.meet_heroes') }}</p>
+            <h2 id="home-character-search-heading">{{ __('public.home.find_character') }}</h2>
+        </div>
+        <form class="realm-search-form" method="GET" action="{{ route('game.characters.search') }}">
+            <label class="portal-sr-only" for="home-character-name">{{ __('public.home.character_name') }}</label>
+            <input id="home-character-name" name="name" type="search" value="{{ old('name') }}" maxlength="255" autocomplete="off" placeholder="{{ __('public.home.character_placeholder') }}" required aria-describedby="home-character-help @error('name') home-character-error @enderror" @error('name') aria-invalid="true" @enderror>
+            <button type="submit">{{ __('public.home.search') }} <span aria-hidden="true">→</span></button>
+            <p id="home-character-help" class="form-help">{{ __('public.home.search_exact') }}</p>
+            @error('name')
+                <p id="home-character-error" class="form-error" role="alert">{{ $message }}</p>
+            @enderror
+        </form>
+        <nav class="realm-quick-links" aria-label="{{ __('portal.home.tools') }}">
+            <a href="{{ route('game.highscores.index') }}">{{ __('Highscores') }} <span aria-hidden="true">↗</span></a>
+            <a href="{{ route('game.online.index') }}">{{ __('Online') }} <span aria-hidden="true">↗</span></a>
+            <a href="{{ route('game.guilds.index') }}">{{ __('public.navigation.guilds') }} <span aria-hidden="true">↗</span></a>
+        </nav>
+    </section>
+
     <section class="realm-dispatches portal-container" aria-label="{{ __('public.home.community_updates') }}">
         @include('announcements.components.ticker', ['ticker' => $homePage->announcements])
         @include('events.components.upcoming-summary', ['summary' => $homePage->upcomingEvent])
@@ -163,22 +199,4 @@
         </div>
     </section>
 
-    <section class="production-discover portal-container" aria-labelledby="home-discover-title">
-        <header class="section-heading">
-            <p class="eyebrow">{{ __('public.home.discover') }}</p>
-            <h2 id="home-discover-title">{{ __('public.home.continue_journey') }}</h2>
-        </header>
-        <div class="production-discover-grid">
-            @foreach ([
-                ['downloads.index', 'public.downloads.title', 'public.home.download_help'],
-                ['editorial.getting-started', 'Beginner\'s Guide', 'public.home.guide_help'],
-                ['wiki.index', 'public.wiki.title', 'public.home.wiki_help'],
-                ['events.index', 'public.events.title', 'public.home.events_help'],
-                ['game.guilds.index', 'public.game.guild_directory', 'public.home.guilds_help'],
-                ['support.index', 'support.nav.support_center', 'public.home.support_help'],
-            ] as [$routeName, $label, $help])
-                <a href="{{ route($routeName) }}"><strong>{{ __($label) }}</strong><span>{{ __($help) }}</span><span class="discover-arrow" aria-hidden="true">↗</span></a>
-            @endforeach
-        </div>
-    </section>
 @endsection

@@ -6,6 +6,7 @@
     <meta name="robots" content="noindex, nofollow">
     <title>@yield('title') · {{ config('app.name') }}</title>
     <link rel="stylesheet" href="{{ asset('css/portal-system.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/portal-art-direction.css') }}">
 </head>
 <body class="error-body portal-error-body">
 <main id="main-content" class="error-panel">
