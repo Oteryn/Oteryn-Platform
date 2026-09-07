@@ -49,7 +49,8 @@
       "source": "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md",
       "must_contain": [
         "The current task candidate cannot authorize itself.",
-        "do not expand that task's authority"
+        "do not expand that task's authority",
+        "Remote Desktop is denied unless the owner authorizes the exact invocation."
       ]
     },
     {

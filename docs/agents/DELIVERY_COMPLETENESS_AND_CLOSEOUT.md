@@ -3,6 +3,8 @@
 Use the bound META organization policy for shared delivery, review and integration semantics. Platform adds these local requirements:
 
 - verify the claimed Platform producer/consumer path and preserve root security, data, payment and compatibility invariants;
+- require every applicable persistence, backend, API, frontend and integration layer before claiming a delivered capability complete;
+- validate user-facing or integration behavior with real end-to-end execution through the delivered path;
 - inspect the complete candidate diff and run focused checks plus the required exact-head `platform-gate`;
 - treat runtime E2E as `NOT_APPLICABLE` only with a concrete reason for a non-runtime change;
 - keep related PRs intentional and resolve material findings;

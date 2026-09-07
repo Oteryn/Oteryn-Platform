@@ -60,10 +60,16 @@ class PolicyConsistencyTest(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes((self.source_root / relative).read_bytes())
         self.central = FakeCentral()
+        self.resolved = {
+            "repository": "Oteryn/Oteryn",
+            "commit": "5ed3f14400af450b5875c091e443da70f2d67ab9",
+            "merged_to_protected_main": True,
+            "branch_protected": True,
+        }
         self.resolver = lambda repository, commit: {
+            **self.resolved,
             "repository": repository,
             "commit": commit,
-            "merged_to_protected_main": True,
         }
 
     def validate(self) -> list[str]:
@@ -73,6 +79,7 @@ class PolicyConsistencyTest(unittest.TestCase):
             meta_module=self.central,
             authority_resolver=self.resolver,
             meta_head_resolver=lambda _root: "5ed3f14400af450b5875c091e443da70f2d67ab9",
+            meta_clean_resolver=lambda _root: True,
         )
 
     def replace(self, relative: Path, old: str, new: str) -> None:
@@ -132,11 +139,48 @@ class PolicyConsistencyTest(unittest.TestCase):
             meta_module=self.central,
             authority_resolver=self.resolver,
             meta_head_resolver=lambda _root: "0123456789abcdef0123456789abcdef01234567",
+            meta_clean_resolver=lambda _root: True,
         )
         self.assertIn(
-            "bound META checkout HEAD does not equal META_AGENT_POLICY_BINDING.json authority_commit",
+            "META trust bootstrap: checkout HEAD does not equal authority_commit",
             findings,
         )
+
+    def test_untrusted_checkout_is_rejected_before_validator_import(self) -> None:
+        sentinel = Path(self.temp.name) / "sentinel"
+        target = self.meta_root / policy.META_VALIDATOR_PATH
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            f"from pathlib import Path\nPath({str(sentinel)!r}).write_text('executed')\n",
+            encoding="utf-8",
+        )
+        findings = policy.validate_policy(
+            self.root,
+            meta_root=self.meta_root,
+            authority_resolver=self.resolver,
+            meta_head_resolver=lambda _root: "0123456789abcdef0123456789abcdef01234567",
+            meta_clean_resolver=lambda _root: True,
+        )
+        self.assertIn("META trust bootstrap: checkout HEAD does not equal authority_commit", findings)
+        self.assertFalse(sentinel.exists(), findings)
+
+    def test_modified_checkout_is_rejected_before_validator_import(self) -> None:
+        sentinel = Path(self.temp.name) / "dirty-sentinel"
+        target = self.meta_root / policy.META_VALIDATOR_PATH
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            f"from pathlib import Path\nPath({str(sentinel)!r}).write_text('executed')\n",
+            encoding="utf-8",
+        )
+        findings = policy.validate_policy(
+            self.root,
+            meta_root=self.meta_root,
+            authority_resolver=self.resolver,
+            meta_head_resolver=lambda _root: "5ed3f14400af450b5875c091e443da70f2d67ab9",
+            meta_clean_resolver=lambda _root: False,
+        )
+        self.assertIn("META trust bootstrap: checkout has modified tracked files", findings)
+        self.assertFalse(sentinel.exists(), findings)
 
     def test_loader_rejects_missing_bound_validator(self) -> None:
         with self.assertRaisesRegex(policy.PolicyConsistencyError, "missing bound META validator"):

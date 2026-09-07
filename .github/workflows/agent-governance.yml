@@ -50,8 +50,33 @@ jobs:
         id: meta_binding
         shell: bash
         run: |
-          authority_commit="$(python -c 'import json; print(json.load(open("docs/agents/META_AGENT_POLICY_BINDING.json", encoding="utf-8"))["authority_commit"])')"
-          echo "authority_commit=$authority_commit" >> "$GITHUB_OUTPUT"
+          python - <<'PY'
+          import json
+          import os
+          import re
+
+          path = "docs/agents/META_AGENT_POLICY_BINDING.json"
+          with open(path, encoding="utf-8") as source:
+              binding = json.load(source)
+          expected = {
+              "schema_version": 1,
+              "policy_id": "OTERYN_ORGANIZATION_AGENT_POLICY",
+              "policy_version": "3.0.0",
+              "authority_repository": "Oteryn/Oteryn",
+              "organization_policy_path": "docs/agents/policy/ORGANIZATION_AGENT_POLICY.md",
+              "prompting_standard_path": "docs/agents/policy/PROMPTING_STANDARD.md",
+              "prompt_eval_standard_path": "docs/agents/policy/PROMPT_EVAL_STANDARD.md",
+          }
+          if not isinstance(binding, dict) or set(binding) != set(expected) | {"authority_commit"}:
+              raise SystemExit("META binding keys do not match the closed bootstrap schema")
+          if any(binding.get(key) != value for key, value in expected.items()):
+              raise SystemExit("META binding identity or canonical paths are invalid")
+          authority_commit = binding.get("authority_commit")
+          if not isinstance(authority_commit, str) or re.fullmatch(r"[0-9a-f]{40}", authority_commit) is None:
+              raise SystemExit("META authority_commit must be a lowercase full 40-hex SHA")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"authority_commit={authority_commit}\n")
+          PY
 
       - name: Check out bound META policy source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -83,9 +108,10 @@ jobs:
         run: python tools/agents/test_policy_consistency.py
 
       - name: Validate cross-document policy consistency
-        run: >-
-          python tools/agents/policy_consistency.py
-          --meta-root "_meta-policy/${{ steps.meta_binding.outputs.authority_commit }}"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          META_ROOT: _meta-policy/${{ steps.meta_binding.outputs.authority_commit }}
+        run: python tools/agents/policy_consistency.py --meta-root "$META_ROOT"
 
       - name: Run prompt contract evaluator tests
         run: python tools/validation/test_prompt_eval.py

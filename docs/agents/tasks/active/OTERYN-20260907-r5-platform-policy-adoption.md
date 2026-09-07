@@ -16,10 +16,10 @@ Adopt META organization policy 3.0.0 through one immutable binding, reduce dupli
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-07T08:32:00Z
-head: local-candidate
+updated_at: 2026-09-07T09:02:00Z
+head: 3c197b9f513aad2674f2999d0316af4b000cb71e
 branch: docs/r5-platform-policy-adoption-1302
-pr: none
+pr: 1303
 status: validating
 terminal_pr_policy: archive_pending
 context_routes:
@@ -56,10 +56,11 @@ proven:
   - META policy 3.0.0 is on protected META main 5ed3f14400af450b5875c091e443da70f2d67ab9.
   - Issue #1302 owns this exact bounded Platform consumer migration and coordinates with broader #1009.
   - D26 code and focused regressions are integrated through PR #1300; only lifecycle archival remains.
+  - Draft PR #1303 publishes the complete candidate from Issue #1302.
 derived:
   - The provider overlay, binding and consuming validators must change together to avoid retaining prose duplication as a gate.
 unknown:
-  - Exact final candidate head, hosted check results, independent review disposition and integration outcome.
+  - Exact final candidate head after this task-record reconciliation, hosted check results, independent review disposition and integration outcome.
 conflicts: []
 first_failure:
   marker: duplicated-platform-operating-policy
@@ -78,7 +79,7 @@ changed_paths:
 validation:
   - command: focused Agent Governance unit suites and validators
     result: PASS
-    evidence: 81 unit tests passed; prompt contract reported 11 cases, 7 categories, 4 safety-critical cases and model_trials_executed=0; Documentation IA and workflow trigger economy passed.
+    evidence: 83 unit tests passed, including malicious-validator pre-import rejection; prompt contract reported 11 cases, 7 categories, 4 safety-critical cases and model_trials_executed=0; Documentation IA and workflow trigger economy passed.
   - command: bound META central validator with protected-main resolver evidence
     result: PASS
     evidence: META bundle, binding, provider overlay, checkout identity and Platform invariants passed against 5ed3f14400af450b5875c091e443da70f2d67ab9.

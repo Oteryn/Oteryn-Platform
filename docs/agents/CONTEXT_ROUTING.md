@@ -37,6 +37,7 @@ When used, classify the task and load only the matching route context. The activ
 | `testing` | test infrastructure, CI validation, E2E | Apply `BUILD_TEST_MATRIX.md`, then read `TEST_STRATEGY.md` and affected contracts/modules. Tie compatibility evidence to exact versions/SHAs where practical. |
 | `payments` | payment provider, coins, premium currency, webhook, shop | Read current payment ADRs plus security/data ownership sections. Distinguish repository foundation from provider selection, customer value delivery and production activation. |
 | `ci-repair` | required GitHub check fails | Read the failing workflow/job/step and current task. Investigate root cause before rerun. |
+| `execution-resources` | create or control containers, services, runners, volumes or persistent temporary infrastructure | Read `EXECUTION_RESOURCE_HYGIENE.md` and apply its ownership-scoped inventory and cleanup rules. |
 
 Multiple routes may apply, but each must be justified by task scope or evidence.
 

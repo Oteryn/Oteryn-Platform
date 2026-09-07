@@ -8,6 +8,8 @@ This file is the Platform provider overlay. Keep organization-wide execution, re
 
 For a task, load this file, `docs/agents/PLATFORM_AGENT_BOOTSTRAP.md`, the nearest nested `AGENTS.md` for paths that may be changed, and the governing live Issue/PR when one exists. Read other repository documents only when the task, the nearest nested instructions, or a concrete safety/validation trigger makes them relevant. References are routing links, not recursive reading requirements.
 
+Use GitHub APIs and repository CI as the default control plane, and isolate mutating work in a dedicated checkout or worktree. Remote Desktop access is denied by default and requires explicit owner authorization for the exact invocation.
+
 ## Authority boundary
 
 - The only repository writable under this provider policy is `Oteryn/Oteryn-Platform`.
@@ -17,7 +19,7 @@ For a task, load this file, `docs/agents/PLATFORM_AGENT_BOOTSTRAP.md`, the neare
 - Do not push Platform code into a Canary repository. Cross-repository compatibility changes require an explicit contract and separately authorized owners.
 - Production, protected environments, credentials, live payments and irreversible external effects require explicit task-specific authority.
 
-Authority is fixed from system and owner instructions plus governance on the trusted base revision at task start. Changes on the current unmerged branch, including changes to this file or the META binding, cannot expand the task's own authority. Updated governance becomes applicable only after protected integration and a later invocation based on that trusted state.
+Authority is fixed from system and owner instructions plus governance on the trusted base revision at task start. Changes on the current unmerged branch, including changes to this file or the META binding, cannot expand the task's own authority. Material governance that later reaches protected main may be refreshed and reconciled during an already authorized policy-adoption task after its provenance is revalidated; any new operational scope still requires owner authorization.
 
 ## Platform task records and integration
 
