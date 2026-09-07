@@ -208,6 +208,7 @@ finalize_previous_candidate_if_healthy() {
     local schema_state schema_id schema_target current_sha
     local candidate_env="$state_dir/candidate-health.env"
     local service container_id image_id expected_image expected_image_id
+    local gateway_container_id gateway_image_id expected_gateway_image expected_gateway_image_id
     local index
     local -a candidate_state services expected_images candidate_compose
 
@@ -256,8 +257,11 @@ finalize_previous_candidate_if_healthy() {
         return 1
     }
 
-    services=(platform gateway canary)
-    expected_images=("${candidate_state[1]}" "${candidate_state[2]}" "${candidate_state[3]}")
+    # Platform and Canary are immutable anchors for recovery. Gateway is intentionally
+    # reconstructible because finalization force-recreates it from the persisted candidate image
+    # before the full health contract can promote the candidate.
+    services=(platform canary)
+    expected_images=("${candidate_state[1]}" "${candidate_state[3]}")
     for index in "${!services[@]}"; do
         service="${services[$index]}"
         expected_image="${expected_images[$index]}"
@@ -273,6 +277,22 @@ finalize_previous_candidate_if_healthy() {
             return 1
         }
     done
+
+    gateway_container_id="$("${compose[@]}" ps -q gateway 2>/dev/null || true)"
+    [[ -n "$gateway_container_id" && "$(docker inspect --format '{{.State.Running}}' "$gateway_container_id")" == true ]] || {
+        echo "Previous candidate finalization rejected: gateway is not running." >&2
+        return 1
+    }
+    gateway_image_id="$(docker inspect --format '{{.Image}}' "$gateway_container_id")" || return 1
+    expected_gateway_image="${candidate_state[2]}"
+    expected_gateway_image_id="$(docker image inspect --format '{{.Id}}' "$expected_gateway_image" 2>/dev/null || true)"
+    [[ -n "$expected_gateway_image_id" ]] || {
+        echo "Previous candidate finalization rejected: exact candidate Gateway image is unavailable." >&2
+        return 1
+    }
+    if [[ "$gateway_image_id" != "$expected_gateway_image_id" ]]; then
+        echo "Previous candidate Gateway runtime drift detected; reconstructing exact candidate Gateway before health proof."
+    fi
 
     awk \
         -v platform_image="${candidate_state[1]}" \

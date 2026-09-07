@@ -152,6 +152,11 @@ def test_new_release_finalizes_only_a_proven_healthy_previous_candidate() -> Non
     assert "candidate does not accept the proven schema" in body
     assert "staging world identity drifted" in body
     assert "running $service image does not match candidate recovery identity" in body
+    assert 'services=(platform canary)' in body
+    assert 'expected_images=("${candidate_state[1]}" "${candidate_state[3]}")' in body
+    assert 'expected_gateway_image="${candidate_state[2]}"' in body
+    assert "exact candidate Gateway image is unavailable" in body
+    assert "Previous candidate Gateway runtime drift detected; reconstructing exact candidate Gateway before health proof." in body
     assert 'expected_image_id="$(docker image inspect --format' in body
     assert 'release-state.sh" resolve-image "$image_id"' not in body
     assert '"PLATFORM_IMAGE=${candidate_state[1]}"' in body
