@@ -1,6 +1,7 @@
 ---
 task_id: OTERYN-20260907-auto-synology-staging
 governing_issue: 1313
+terminal_pr_policy: archive_pending
 required_reads:
   - docs/agents/BUILD_TEST_MATRIX.md
   - docs/agents/EXECUTION_RESOURCE_HYGIENE.md
@@ -51,8 +52,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-07T18:12:00Z
-head: 40aa02e6ffa994ae99313fc9acecbbe47502fcf8
+updated_at: 2026-09-07T18:14:30Z
+head: 2d51335328ad6cb946ac54563654262acdc7f205
 branch: ci/20260907-auto-synology-staging
 pr: 1314
 status: validating
@@ -70,6 +71,7 @@ proven:
   - Historical trusted-main one-shot deployment used actions:write dispatch plus gh run watch successfully and established LAN game endpoint 192.168.1.2:7172 with world id 1.
   - Approved Canary staging image is ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f.
   - PR #1314 is the live protected-main integration surface for branch ci/20260907-auto-synology-staging.
+  - Issue #1313 intentionally remains open across PR integration so live post-merge staging proof can complete before terminal issue closeout.
 derived:
   - Reusing the existing deploy workflow avoids duplicating secret handling, health checks, rollback and self-hosted cleanup semantics.
 unknown:
@@ -87,10 +89,10 @@ changed_paths:
 validation:
   - command: repository-hosted PR #1314 exact-head checks
     result: NOT_RUN
-    evidence: final candidate publication is in progress
+    evidence: final candidate checks are running
 blockers:
   - none
-next_action: Inspect PR #1314 exact-head checks and repair the first concrete failure if any.
+next_action: After protected integration, verify the exact main SHA deploy on Synology and archive this task packet after successful live proof.
 ```
 
 ## Source branch closeout
