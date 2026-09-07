@@ -1,0 +1,100 @@
+name: Temporary Synology Gateway Readiness Diagnostic
+
+on:
+  push:
+    branches:
+      - diag/20260907-synology-gateway-ready-c154
+    paths:
+      - .github/workflows/tmp-synology-gateway-ready-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on:
+      group: platform-runners
+      labels: oteryn-platform
+    timeout-minutes: 5
+    steps:
+      - name: Checkout diagnostic source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Inspect live Gateway readiness without mutating runtime
+        run: |
+          set -euo pipefail
+          state_dir=/var/lib/oteryn-staging-state
+          for state in current-release.env candidate-release.env schema-state.env; do
+            if [[ -f "$state_dir/$state" ]]; then
+              echo "state=$state"
+              case "$state" in
+                current-release.env|candidate-release.env)
+                  bash deploy/synology/scripts/release-state.sh validate "$state_dir/$state"
+                  bash -c 'set -euo pipefail; source "$1"; printf "release_sha=%s\nplatform_image=%s\ngateway_image=%s\ncanary_image=%s\n" "$RELEASE_SHA" "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE"' bash "$state_dir/$state"
+                  ;;
+                schema-state.env)
+                  grep -E '^(SCHEMA_STATE|SCHEMA_COMPATIBILITY_ID|MIGRATION_TARGET_RELEASE_SHA)=' "$state_dir/$state" || true
+                  ;;
+              esac
+            else
+              echo "state=$state missing"
+            fi
+          done
+
+          mapfile -t gateway_ids < <(
+            docker ps -q \
+              --filter label=com.docker.compose.project=oteryn-staging \
+              --filter label=com.docker.compose.service=gateway
+          )
+          if (( ${#gateway_ids[@]} != 1 )); then
+            echo "running_gateway_container_count=${#gateway_ids[@]}"
+            exit 1
+          fi
+          gateway="${gateway_ids[0]}"
+          echo "gateway_container=$gateway"
+          docker inspect --format 'gateway_running={{.State.Running}} gateway_image_id={{.Image}}' "$gateway"
+          gateway_image_id="$(docker inspect --format '{{.Image}}' "$gateway")"
+          docker image inspect --format 'gateway_revision={{ index .Config.Labels "org.opencontainers.image.revision" }}' "$gateway_image_id"
+
+          echo 'gateway_safe_environment_begin'
+          docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$gateway" \
+            | grep -E '^(OTERYN_PLATFORM_BASE_URL|GAME_SESSION_SERVICE_BASE_URL|GATEWAY_REQUEST_TIMEOUT|GATEWAY_VERSION|SSL_CERT_FILE)=' || true
+          echo 'gateway_safe_environment_end'
+
+          echo 'gateway_tls_permissions_begin'
+          docker exec "$gateway" sh -ec 'id; ls -ld /etc/oteryn/tls; ls -l /etc/oteryn/tls/ca.crt; test -r /etc/oteryn/tls/ca.crt && echo ca_readable=true || echo ca_readable=false'
+          echo 'gateway_tls_permissions_end'
+
+          echo 'gateway_dependency_probes_begin'
+          docker exec "$gateway" sh -ec '
+            set -eu
+            for var in OTERYN_PLATFORM_BASE_URL GAME_SESSION_SERVICE_BASE_URL; do
+              eval "url=\${$var}"
+              echo "probe=$var url=$url"
+              started=$(date +%s)
+              if wget -qO- -T 10 "$url/health"; then
+                rc=0
+              else
+                rc=$?
+              fi
+              ended=$(date +%s)
+              echo
+              echo "probe_result=$var rc=$rc duration_seconds=$((ended-started))"
+            done
+          '
+          echo 'gateway_dependency_probes_end'
+
+          echo 'gateway_ready_probe_begin'
+          docker exec "$gateway" sh -ec 'wget -S -O- -T 15 http://127.0.0.1:8080/ready || true'
+          echo 'gateway_ready_probe_end'
+
+          echo 'gateway_logs_begin'
+          docker logs --tail 250 "$gateway" 2>&1 || true
+          echo 'gateway_logs_end'
+
+          internal_proxy="$(docker ps -q --filter label=com.docker.compose.project=oteryn-staging --filter label=com.docker.compose.service=internal-proxy | head -n 1)"
+          if [[ -n "$internal_proxy" ]]; then
+            echo 'internal_proxy_logs_begin'
+            docker logs --tail 200 "$internal_proxy" 2>&1 || true
+            echo 'internal_proxy_logs_end'
+          fi
