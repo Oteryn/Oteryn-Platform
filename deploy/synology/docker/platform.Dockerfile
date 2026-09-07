@@ -42,7 +42,17 @@ RUN composer install \
     --optimize-autoloader \
     --prefer-dist
 
-COPY . .
+COPY artisan ./artisan
+COPY app/ ./app/
+COPY bootstrap/ ./bootstrap/
+COPY config/ ./config/
+COPY database/ ./database/
+COPY lang/ ./lang/
+COPY public/ ./public/
+COPY resources/ ./resources/
+COPY routes/ ./routes/
+COPY storage/ ./storage/
+COPY docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json ./docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json
 RUN composer dump-autoload --no-dev --no-interaction --optimize \
     && mkdir -p \
         storage/framework/cache \
