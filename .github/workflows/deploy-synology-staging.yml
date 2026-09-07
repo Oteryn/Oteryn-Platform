@@ -389,6 +389,14 @@ jobs:
           EOF
           chmod 600 deploy/synology/.env
 
+      - name: Upgrade legacy release provenance state
+        env:
+          OTERYN_STATE_DIR_INPUT: ${{ vars.OTERYN_STAGING_STATE_DIR }}
+        run: |
+          set -euo pipefail
+          export OTERYN_STATE_DIR="${OTERYN_STATE_DIR_INPUT:-/var/lib/oteryn-staging-state}"
+          bash deploy/synology/scripts/upgrade-legacy-release-state.sh
+
       - name: Deploy prebuilt images
         if: inputs.action == 'deploy'
         run: bash deploy/synology/scripts/deploy.sh
