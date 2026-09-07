@@ -79,7 +79,7 @@ changed_paths:
 validation:
   - command: focused Agent Governance unit suites and validators
     result: PASS
-    evidence: 83 unit tests passed, including malicious-validator pre-import rejection; prompt contract reported 11 cases, 7 categories, 4 safety-critical cases and model_trials_executed=0; Documentation IA and workflow trigger economy passed.
+    evidence: 84 unit tests passed, including malicious-validator pre-import rejection and the unchanged Portal Completion scope-manifest contract; prompt contract reported 11 cases, 7 categories, 4 safety-critical cases and model_trials_executed=0; Documentation IA and workflow trigger economy passed.
   - command: bound META central validator with protected-main resolver evidence
     result: PASS
     evidence: META bundle, binding, provider overlay, checkout identity and Platform invariants passed against 5ed3f14400af450b5875c091e443da70f2d67ab9.
