@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -19,6 +21,9 @@ RUNTIME_ENV = ROOT / "deploy/synology/.env.example"
 RUNNER_ENV = ROOT / "deploy/synology/runner/.env.example"
 RUNNER_COMPOSE = ROOT / "deploy/synology/runner/compose.yml"
 RUNNER_ENTRYPOINT = ROOT / "deploy/synology/runner/entrypoint.sh"
+CLASSIFIER = ROOT / "scripts/ci/classify_synology_builds.py"
+PLATFORM_DOCKERFILE = ROOT / "deploy/synology/docker/platform.Dockerfile"
+REUSE_DOCKERFILE = ROOT / "deploy/synology/docker/reuse-release.Dockerfile"
 
 
 class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
@@ -34,6 +39,9 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
         cls.runner_env = RUNNER_ENV.read_text(encoding="utf-8")
         cls.runner_compose = RUNNER_COMPOSE.read_text(encoding="utf-8")
         cls.runner_entrypoint = RUNNER_ENTRYPOINT.read_text(encoding="utf-8")
+        cls.classifier = CLASSIFIER.read_text(encoding="utf-8")
+        cls.platform_dockerfile = PLATFORM_DOCKERFILE.read_text(encoding="utf-8")
+        cls.reuse_dockerfile = REUSE_DOCKERFILE.read_text(encoding="utf-8")
 
     def run_helper(self, owner: str, package: str = "oteryn-platform") -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
@@ -48,6 +56,39 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
             stderr=subprocess.PIPE,
             check=False,
         )
+
+    def run_classifier(self, event: str, paths: list[str]) -> dict[str, object]:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(CLASSIFIER),
+                "--event",
+                event,
+                "--head",
+                "HEAD",
+                "--paths-json",
+                json.dumps(paths),
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    @staticmethod
+    def matrix_modes(result: dict[str, object]) -> dict[str, str]:
+        matrix = result["matrix"]
+        assert isinstance(matrix, dict)
+        include = matrix["include"]
+        assert isinstance(include, list)
+        return {
+            str(entry["name"]): str(entry["mode"])
+            for entry in include
+            if isinstance(entry, dict)
+        }
 
     def test_out_of_scope_operational_assets_are_absent(self) -> None:
         forbidden = (
@@ -74,10 +115,19 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
         self.assertNotIn("release_tag:", self.workflow)
         self.assertNotIn("default: main", self.workflow)
 
-    def test_platform_and_gateway_source_revision_must_match_release_sha(self) -> None:
+    def test_platform_and_gateway_release_revision_still_matches_release_sha(self) -> None:
         self.assertIn("org.opencontainers.image.revision", self.workflow)
         self.assertIn('platform_revision" != "$RELEASE_SHA"', self.workflow)
         self.assertIn('gateway_revision" != "$RELEASE_SHA"', self.workflow)
+        self.assertIn("org.opencontainers.image.revision=${{ steps.identity.outputs.release_sha }}", self.build_workflow)
+
+    def test_component_source_provenance_is_separate_from_release_revision(self) -> None:
+        marker = "io.oteryn.component.source-revision"
+        self.assertIn(marker, self.build_workflow)
+        self.assertIn(marker, self.reuse_dockerfile)
+        self.assertIn('source-${SOURCE_SHA}', self.build_workflow)
+        self.assertIn("BASE_IMAGE=${{ steps.reuse.outputs.base_ref }}", self.build_workflow)
+        self.assertIn("Reusable component provenance mismatch", self.build_workflow)
 
     def test_runtime_images_are_resolved_to_digest_references(self) -> None:
         self.assertIn("Resolve immutable runtime image digests", self.workflow)
@@ -99,11 +149,100 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
         marker = "deploy/synology/scripts/repository-ghcr-image.sh"
         self.assertIn(marker, self.build_workflow)
         self.assertIn(marker, self.workflow)
-        self.assertIn("package: oteryn-platform", self.build_workflow)
-        self.assertIn("package: oteryn-game-gateway", self.build_workflow)
-        self.assertIn("package: oteryn-deploy-runner", self.build_workflow)
+        self.assertIn('"package": "oteryn-platform"', self.classifier)
+        self.assertIn('"package": "oteryn-game-gateway"', self.classifier)
+        self.assertIn('"package": "oteryn-deploy-runner"', self.classifier)
         self.assertIn('platform_repo="$(bash deploy/synology/scripts/repository-ghcr-image.sh oteryn-platform)"', self.workflow)
         self.assertIn('gateway_repo="$(bash deploy/synology/scripts/repository-ghcr-image.sh oteryn-game-gateway)"', self.workflow)
+
+    def test_deployment_only_pr_validates_without_runtime_rebuild(self) -> None:
+        result = self.run_classifier("pull_request", ["deploy/synology/scripts/health-check.sh"])
+        self.assertTrue(result["deployment_changed"])
+        self.assertEqual(self.matrix_modes(result), {"noop": "noop"})
+
+    def test_deployment_only_main_reuses_both_runtime_components(self) -> None:
+        result = self.run_classifier("push", ["deploy/synology/scripts/health-check.sh"])
+        self.assertEqual(
+            self.matrix_modes(result),
+            {"platform": "reuse", "game-gateway": "reuse"},
+        )
+
+    def test_platform_change_is_proportional_on_pr_and_main(self) -> None:
+        pr = self.run_classifier("pull_request", ["app/Http/Controllers/Example.php"])
+        self.assertEqual(self.matrix_modes(pr), {"platform": "full"})
+        main = self.run_classifier("push", ["app/Http/Controllers/Example.php"])
+        self.assertEqual(
+            self.matrix_modes(main),
+            {"platform": "full", "game-gateway": "reuse"},
+        )
+
+    def test_gateway_change_is_proportional_on_pr_and_main(self) -> None:
+        pr = self.run_classifier("pull_request", ["services/game-gateway/cmd/game-gateway/main.go"])
+        self.assertEqual(self.matrix_modes(pr), {"game-gateway": "full"})
+        main = self.run_classifier("push", ["services/game-gateway/cmd/game-gateway/main.go"])
+        self.assertEqual(
+            self.matrix_modes(main),
+            {"platform": "reuse", "game-gateway": "full"},
+        )
+
+    def test_runner_change_never_publishes_runner_on_ordinary_main(self) -> None:
+        pr = self.run_classifier("pull_request", ["deploy/synology/runner/entrypoint.sh"])
+        self.assertEqual(self.matrix_modes(pr), {"deploy-runner": "full"})
+        main = self.run_classifier("push", ["deploy/synology/runner/entrypoint.sh"])
+        self.assertEqual(
+            self.matrix_modes(main),
+            {"platform": "reuse", "game-gateway": "reuse"},
+        )
+        self.assertNotIn("deploy-runner", self.matrix_modes(main))
+
+    def test_control_plane_change_fails_closed_to_full_builds(self) -> None:
+        path = ".github/workflows/build-synology-staging-images.yml"
+        pr = self.run_classifier("pull_request", [path])
+        self.assertEqual(
+            self.matrix_modes(pr),
+            {"platform": "full", "game-gateway": "full", "deploy-runner": "full"},
+        )
+        main = self.run_classifier("push", [path])
+        self.assertEqual(
+            self.matrix_modes(main),
+            {"platform": "full", "game-gateway": "full"},
+        )
+
+    def test_platform_runtime_input_model_covers_localization_and_bootstrap_inputs(self) -> None:
+        for path in ("artisan", "lang/pl.json", "storage/framework/.gitignore"):
+            result = self.run_classifier("pull_request", [path])
+            self.assertEqual(self.matrix_modes(result), {"platform": "full"}, path)
+
+    def test_platform_dockerfile_has_no_repository_wide_copy_invalidation(self) -> None:
+        self.assertNotIn("COPY . .", self.platform_dockerfile)
+        for marker in (
+            "COPY artisan ./artisan",
+            "COPY app/ ./app/",
+            "COPY public/ ./public/",
+            "COPY resources/ ./resources/",
+            "COPY lang/ ./lang/",
+            "COPY storage/ ./storage/",
+            "COPY deploy/synology/release-contract.env ./deploy/synology/release-contract.env",
+        ):
+            self.assertIn(marker, self.platform_dockerfile)
+
+    def test_reuse_release_image_is_metadata_only(self) -> None:
+        self.assertIn("FROM ${BASE_IMAGE}", self.reuse_dockerfile)
+        self.assertIn('org.opencontainers.image.revision="${RELEASE_SHA}"', self.reuse_dockerfile)
+        self.assertIn('io.oteryn.component.source-revision="${COMPONENT_SOURCE_SHA}"', self.reuse_dockerfile)
+        self.assertNotIn("COPY ", self.reuse_dockerfile)
+        self.assertNotIn("RUN ", self.reuse_dockerfile)
+
+    def test_build_workflow_uses_dynamic_component_matrix_and_safe_fallback(self) -> None:
+        build_push = self.build_workflow.split("  push:\n", 1)[1].split("  workflow_dispatch:\n", 1)[0]
+        self.assertIn("deploy/synology/**", build_push)
+        self.assertIn("scripts/ci/classify_synology_builds.py", build_push)
+        self.assertIn("lang/**", build_push)
+        self.assertIn("storage/**", build_push)
+        self.assertIn("matrix: ${{ fromJson(needs.classify.outputs.matrix) }}", self.build_workflow)
+        self.assertIn("falling back to a full build", self.build_workflow)
+        self.assertIn("Build and publish metadata-only reused release image", self.build_workflow)
+        self.assertIn("Build changed component or safe fallback", self.build_workflow)
 
     def test_character_bazaar_uses_current_owner_for_platform_images_but_preserves_canary_pin(self) -> None:
         self.assertIn("repository-ghcr-image.sh oteryn-platform", self.character_workflow)
@@ -113,16 +252,6 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
             self.character_workflow,
         )
         self.assertIn("contains(github.event.head_commit.message, '[character-bazaar-staging]')", self.character_workflow)
-
-    def test_synology_main_changes_rebuild_runtime_without_auto_publishing_privileged_runner(self) -> None:
-        build_push = self.build_workflow.split("  push:\n", 1)[1].split("  workflow_dispatch:\n", 1)[0]
-        self.assertIn("deploy/synology/**", build_push)
-        self.assertIn(".github/workflows/build-synology-staging-images.yml", build_push)
-        self.assertIn(".github/workflows/deploy-synology-staging.yml", build_push)
-        self.assertIn(
-            "github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && matrix.name != 'deploy-runner')",
-            self.build_workflow,
-        )
 
     def test_production_target_preflight_accepts_current_owner_exact_digest_runtime_refs(self) -> None:
         self.assertIn("repository-ghcr-image.sh", self.preflight)
@@ -172,6 +301,8 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
             "runner-env": self.runner_env,
             "runner-compose": self.runner_compose,
             "runner-entrypoint": self.runner_entrypoint,
+            "classifier": self.classifier,
+            "reuse-dockerfile": self.reuse_dockerfile,
         }
         forbidden = (
             "ghcr.io/blakinio/oteryn-platform",
