@@ -19,7 +19,7 @@ jobs:
       - name: Checkout diagnostic source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Inspect candidate and running Gateway identities
+      - name: Inspect candidate and running runtime identities
         run: |
           set -euo pipefail
           state_file=/var/lib/oteryn-staging-state/candidate-release.env
@@ -29,35 +29,41 @@ jobs:
           mapfile -t candidate < <(bash -c '
             set -euo pipefail
             source "$1"
-            printf "%s\n%s\n" "$RELEASE_SHA" "$GATEWAY_IMAGE"
+            printf "%s\n%s\n%s\n%s\n" "$RELEASE_SHA" "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE"
           ' bash "$state_file")
+
           candidate_sha="${candidate[0]}"
-          expected_gateway="${candidate[1]}"
-
-          mapfile -t gateway_containers < <(
-            docker ps -q \
-              --filter label=com.docker.compose.project=oteryn-staging \
-              --filter label=com.docker.compose.service=gateway
-          )
-          if (( ${#gateway_containers[@]} != 1 )); then
-            echo "running_gateway_container_count=${#gateway_containers[@]}"
-            exit 1
-          fi
-
-          gateway_container="${gateway_containers[0]}"
-          running_image_id="$(docker inspect --format '{{.Image}}' "$gateway_container")"
-          expected_image_id="$(docker image inspect --format '{{.Id}}' "$expected_gateway" 2>/dev/null || true)"
-
           echo "candidate_sha=$candidate_sha"
-          echo "expected_gateway_ref=$expected_gateway"
-          echo "running_gateway_image_id=$running_image_id"
-          if [[ -n "$expected_image_id" ]]; then
-            echo "expected_gateway_image_present=true"
-            echo "expected_gateway_image_id=$expected_image_id"
-          else
-            echo "expected_gateway_image_present=false"
-            echo "expected_gateway_image_id=MISSING"
-          fi
-          echo 'running_gateway_repo_digests_begin'
-          docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$running_image_id" || true
-          echo 'running_gateway_repo_digests_end'
+
+          services=(platform gateway canary)
+          for index in "${!services[@]}"; do
+            service="${services[$index]}"
+            expected_ref="${candidate[$((index + 1))]}"
+            mapfile -t containers < <(
+              docker ps -q \
+                --filter label=com.docker.compose.project=oteryn-staging \
+                --filter "label=com.docker.compose.service=$service"
+            )
+            echo "service=$service"
+            echo "expected_ref=$expected_ref"
+            echo "running_container_count=${#containers[@]}"
+            if (( ${#containers[@]} != 1 )); then
+              continue
+            fi
+
+            container="${containers[0]}"
+            running_id="$(docker inspect --format '{{.Image}}' "$container")"
+            expected_id="$(docker image inspect --format '{{.Id}}' "$expected_ref" 2>/dev/null || true)"
+            running_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$running_id" 2>/dev/null || true)"
+            expected_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$expected_ref" 2>/dev/null || true)"
+
+            echo "running_image_id=$running_id"
+            echo "expected_image_present=$([[ -n "$expected_id" ]] && echo true || echo false)"
+            echo "expected_image_id=${expected_id:-MISSING}"
+            echo "running_revision=${running_revision:-EMPTY}"
+            echo "expected_revision=${expected_revision:-EMPTY}"
+            echo 'running_repo_digests_begin'
+            docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$running_id" || true
+            echo 'running_repo_digests_end'
+            echo '---'
+          done
