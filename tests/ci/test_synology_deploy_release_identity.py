@@ -158,10 +158,12 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
     def test_deployment_only_pr_validates_without_runtime_rebuild(self) -> None:
         result = self.run_classifier("pull_request", ["deploy/synology/scripts/health-check.sh"])
         self.assertTrue(result["deployment_changed"])
+        self.assertTrue(result["runtime_deployment_changed"])
         self.assertEqual(self.matrix_modes(result), {"noop": "noop"})
 
     def test_deployment_only_main_reuses_both_runtime_components(self) -> None:
         result = self.run_classifier("push", ["deploy/synology/scripts/health-check.sh"])
+        self.assertTrue(result["release_relevant"])
         self.assertEqual(
             self.matrix_modes(result),
             {"platform": "reuse", "game-gateway": "reuse"},
@@ -185,15 +187,15 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
             {"platform": "reuse", "game-gateway": "full"},
         )
 
-    def test_runner_change_never_publishes_runner_on_ordinary_main(self) -> None:
-        pr = self.run_classifier("pull_request", ["deploy/synology/runner/entrypoint.sh"])
+    def test_runner_change_is_validated_on_pr_but_does_not_release_on_main(self) -> None:
+        path = "deploy/synology/runner/entrypoint.sh"
+        pr = self.run_classifier("pull_request", [path])
         self.assertEqual(self.matrix_modes(pr), {"deploy-runner": "full"})
-        main = self.run_classifier("push", ["deploy/synology/runner/entrypoint.sh"])
-        self.assertEqual(
-            self.matrix_modes(main),
-            {"platform": "reuse", "game-gateway": "reuse"},
-        )
-        self.assertNotIn("deploy-runner", self.matrix_modes(main))
+        main = self.run_classifier("push", [path])
+        self.assertTrue(main["deployment_changed"])
+        self.assertFalse(main["runtime_deployment_changed"])
+        self.assertFalse(main["release_relevant"])
+        self.assertEqual(self.matrix_modes(main), {"noop": "noop"})
 
     def test_control_plane_change_fails_closed_to_full_builds(self) -> None:
         path = ".github/workflows/build-synology-staging-images.yml"
@@ -208,8 +210,15 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
             {"platform": "full", "game-gateway": "full"},
         )
 
-    def test_platform_runtime_input_model_covers_localization_and_bootstrap_inputs(self) -> None:
-        for path in ("artisan", "lang/pl.json", "storage/framework/.gitignore"):
+    def test_platform_runtime_input_model_covers_bounded_runtime_inputs(self) -> None:
+        for path in (
+            "artisan",
+            "lang/pl.json",
+            "storage/framework/.gitignore",
+            "docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json",
+            "docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md",
+            "docs/architecture/SECURITY_ARCHITECTURE.md",
+        ):
             result = self.run_classifier("pull_request", [path])
             self.assertEqual(self.matrix_modes(result), {"platform": "full"}, path)
 
@@ -223,8 +232,26 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
             "COPY lang/ ./lang/",
             "COPY storage/ ./storage/",
             "COPY deploy/synology/release-contract.env ./deploy/synology/release-contract.env",
+            "COPY docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json ./docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json",
+            "COPY docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md ./docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md",
+            "COPY docs/architecture/adr/0013-wiki-administration.md ./docs/architecture/adr/0013-wiki-administration.md",
         ):
             self.assertIn(marker, self.platform_dockerfile)
+
+    def test_build_trigger_covers_bounded_wiki_runtime_provenance(self) -> None:
+        push = self.build_workflow.split("  push:\n", 1)[1].split("  workflow_dispatch:\n", 1)[0]
+        for marker in (
+            "docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json",
+            "docs/architecture/adr/0004-authoritative-platform-account-ownership.md",
+            "docs/architecture/adr/0005-character-creation-product-policy.md",
+            "docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md",
+            "docs/contracts/OTCLIENT_GAME_AUTH_CONTRACT.md",
+            "docs/agents/PROJECT_STATE.md",
+            "docs/architecture/PUBLIC_WEBSITE_EXPANSION_PLAN.md",
+            "docs/architecture/SECURITY_ARCHITECTURE.md",
+            "docs/architecture/adr/0013-wiki-administration.md",
+        ):
+            self.assertIn(marker, push)
 
     def test_reuse_release_image_is_metadata_only(self) -> None:
         self.assertIn("FROM ${BASE_IMAGE}", self.reuse_dockerfile)
