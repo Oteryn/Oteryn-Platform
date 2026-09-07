@@ -74,7 +74,6 @@ CONTROL_PLANE_EXACT = {
     ".github/workflows/build-synology-staging-images.yml",
     ".github/workflows/deploy-synology-staging.yml",
     "scripts/ci/classify_synology_builds.py",
-    "deploy/synology/docker/reuse-release.Dockerfile",
 }
 DEPLOYMENT_PREFIXES = ("deploy/synology/",)
 
@@ -128,12 +127,7 @@ def classify(paths: Iterable[str], event_name: str, head: str) -> dict[str, obje
     runner_changed = any(path.startswith(RUNNER_PREFIXES) for path in changed)
     deployment_changed = any(path.startswith(DEPLOYMENT_PREFIXES) for path in changed)
     runtime_deployment_changed = any(_is_runtime_deployment_path(path) for path in changed)
-    release_relevant = (
-        control_plane
-        or platform_changed
-        or gateway_changed
-        or runtime_deployment_changed
-    )
+    release_relevant = control_plane or platform_changed or gateway_changed or runtime_deployment_changed
 
     source_shas = {
         "platform": _component_source_sha(head, PLATFORM_SOURCE_PATHS) if head else "",
@@ -145,17 +139,14 @@ def classify(paths: Iterable[str], event_name: str, head: str) -> dict[str, obje
         "platform": {
             "package": "oteryn-platform",
             "dockerfile": "deploy/synology/docker/platform.Dockerfile",
-            "changed": platform_changed,
         },
         "game-gateway": {
             "package": "oteryn-game-gateway",
             "dockerfile": "deploy/synology/docker/gateway.Dockerfile",
-            "changed": gateway_changed,
         },
         "deploy-runner": {
             "package": "oteryn-deploy-runner",
             "dockerfile": "deploy/synology/runner/Dockerfile",
-            "changed": runner_changed,
         },
     }
 
@@ -213,6 +204,9 @@ def classify(paths: Iterable[str], event_name: str, head: str) -> dict[str, obje
         "runtime_deployment_changed": runtime_deployment_changed,
         "control_plane": control_plane,
         "release_relevant": release_relevant,
+        "platform_source_sha": source_shas["platform"],
+        "gateway_source_sha": source_shas["game-gateway"],
+        "runner_source_sha": source_shas["deploy-runner"],
         "changed_paths": changed,
         "matrix": {"include": include},
     }
@@ -229,6 +223,8 @@ def _write_output(path: Path, result: dict[str, object]) -> None:
         "release_relevant",
     )
     lines = [f"{key}={'true' if result[key] else 'false'}" for key in bool_keys]
+    for key in ("platform_source_sha", "gateway_source_sha", "runner_source_sha"):
+        lines.append(f"{key}={result[key]}")
     lines.append(f"matrix={json.dumps(result['matrix'], separators=(',', ':'))}")
     lines.append(f"changed_paths={json.dumps(result['changed_paths'], separators=(',', ':'))}")
     with path.open("a", encoding="utf-8") as handle:
@@ -249,6 +245,8 @@ def _write_summary(path: Path, result: dict[str, object]) -> None:
         f"- control-plane change: `{str(result['control_plane']).lower()}`\n"
         f"- deployment package change: `{str(result['deployment_changed']).lower()}`\n"
         f"- release-relevant deployment change: `{str(result['runtime_deployment_changed']).lower()}`\n"
+        f"- Platform source SHA: `{result['platform_source_sha']}`\n"
+        f"- Gateway source SHA: `{result['gateway_source_sha']}`\n"
         f"- changed paths: `{len(result['changed_paths'])}`\n\n"
         "| component | mode | component source SHA |\n"
         "|---|---|---|\n"
