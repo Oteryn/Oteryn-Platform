@@ -2,6 +2,8 @@
 
 @section('title', __('identity.security.title'))
 
+@section('portal-family', 'security')
+
 @section('content')
     <header class="page-header">
         <p class="eyebrow">{{ __('identity.security.eyebrow') }}</p>
@@ -13,10 +15,18 @@
         ])
     </header>
 
-    <div class="card-grid">
+    <nav class="settings-index" aria-label="{{ __('portal.common.on_page') }}">
+        @foreach (['primary-email-heading' => 'email', 'privacy-heading' => 'privacy', 'sessions-heading' => 'sessions', 'recovery-key-heading' => 'recovery', 'factor-policy-heading' => 'policy', 'termination-heading' => 'termination'] as $anchor => $section)
+            <a href="#{{ $anchor }}">{{ __('identity.security.'.$section.'.heading') }}</a>
+        @endforeach
+    </nav>
+    <div class="settings-sections">
         <section class="card" aria-labelledby="primary-email-heading">
-            <p class="eyebrow">{{ __('identity.security.email.eyebrow') }}</p>
+            <div class="settings-heading">
+                <p class="eyebrow">{{ __('identity.security.email.eyebrow') }}</p>
             <h2 id="primary-email-heading">{{ __('identity.security.email.heading') }}</h2>
+            </div>
+            <div class="settings-body">
             <p>{{ __('identity.security.email.current') }} <strong>{{ $identity->email }}</strong></p>
 
             @if ($pendingEmailChange)
@@ -31,30 +41,34 @@
             @if ($identity->email_change_available_at?->isFuture())
                 <p class="muted">{{ __('identity.security.email.cooldown', ['date' => $identity->email_change_available_at->utc()->format('Y-m-d H:i')]) }}</p>
             @else
-                <form method="POST" action="{{ route('identity.email-change.store') }}" class="stacked-form">
+                <form method="POST" action="{{ route('identity.email-change.store', ['locale' => app()->getLocale()]) }}" class="stacked-form">
                     @csrf
                     <label for="new-email">
                         <span>{{ __('identity.security.email.new') }}</span>
-                        <input id="new-email" type="email" name="email" maxlength="254" autocomplete="email" required>
+                        <input id="new-email" type="email" name="email" maxlength="254" autocomplete="email" required @error('email') aria-invalid="true" aria-describedby="error-email" @enderror>
                     </label>
                     <label for="new-email-confirmation">
                         <span>{{ __('identity.security.email.confirm_new') }}</span>
-                        <input id="new-email-confirmation" type="email" name="email_confirmation" maxlength="254" autocomplete="email" required>
+                        <input id="new-email-confirmation" type="email" name="email_confirmation" maxlength="254" autocomplete="email" required @error('email_confirmation') aria-invalid="true" aria-describedby="error-email-confirmation" @enderror>
                     </label>
                     <label for="email-current-password">
                         <span>{{ __('identity.common.current_password') }}</span>
-                        <input id="email-current-password" type="password" name="current_password" autocomplete="current-password" required>
+                        <input id="email-current-password" type="password" name="current_password" autocomplete="current-password" required @error('current_password') aria-invalid="true" aria-describedby="error-current-password" @enderror>
                     </label>
                     <button type="submit">{{ __('identity.security.email.submit') }}</button>
                 </form>
             @endif
+            </div>
         </section>
 
         <section class="card" aria-labelledby="privacy-heading">
-            <p class="eyebrow">{{ __('identity.security.privacy.eyebrow') }}</p>
+            <div class="settings-heading">
+                <p class="eyebrow">{{ __('identity.security.privacy.eyebrow') }}</p>
             <h2 id="privacy-heading">{{ __('identity.security.privacy.heading') }}</h2>
+            </div>
+            <div class="settings-body">
             <p class="muted">{{ __('identity.security.privacy.intro') }}</p>
-            <form method="POST" action="{{ route('identity.privacy.update') }}" class="stacked-form">
+            <form method="POST" action="{{ route('identity.privacy.update', ['locale' => app()->getLocale()]) }}" class="stacked-form">
                 @csrf
                 @method('PUT')
                 <label class="checkbox-row">
@@ -67,6 +81,7 @@
                 </label>
                 <button type="submit">{{ __('identity.security.privacy.submit') }}</button>
             </form>
+            </div>
         </section>
     </div>
 
@@ -80,9 +95,9 @@
         @if ($sessions->isEmpty())
             <div class="empty-state"><p>{{ __('identity.security.sessions.empty') }}</p></div>
         @else
-            <div class="card-grid">
+            <div class="session-ledger">
                 @foreach ($sessions as $webSession)
-                    <article class="card">
+                    <article class="card session-row">
                         <h3>
                             {{ $webSession->id === $currentSessionId ? __('identity.security.sessions.current_session') : __('identity.security.sessions.other_session') }}
                             @if ($webSession->id === $currentSessionId)
@@ -109,7 +124,7 @@
             </div>
 
             @if ($sessions->where('id', '!=', $currentSessionId)->isNotEmpty())
-                <form method="POST" action="{{ route('identity.sessions.destroy-others') }}" class="action-row">
+                <form method="POST" action="{{ route('identity.sessions.destroy-others', ['locale' => app()->getLocale()]) }}" class="action-row">
                     @csrf
                     @method('DELETE')
                     <button class="button button-danger" type="submit">{{ __('identity.security.sessions.revoke_others') }}</button>
@@ -118,38 +133,45 @@
         @endif
     </section>
 
-    <div class="card-grid">
+    <div class="settings-sections">
         <section class="card" aria-labelledby="recovery-key-heading">
-            <p class="eyebrow">{{ __('identity.security.recovery.eyebrow') }}</p>
+            <div class="settings-heading">
+                <p class="eyebrow">{{ __('identity.security.recovery.eyebrow') }}</p>
             <h2 id="recovery-key-heading">{{ __('identity.security.recovery.heading') }}</h2>
+            </div>
+            <div class="settings-body">
             <p>{{ $hasRecoveryKey ? __('identity.security.recovery.active') : __('identity.security.recovery.inactive') }}</p>
             <p class="muted">{{ __('identity.security.recovery.intro') }}</p>
 
-            <form method="POST" action="{{ route('identity.recovery-key.generate') }}" class="stacked-form">
+            <form method="POST" action="{{ route('identity.recovery-key.generate', ['locale' => app()->getLocale()]) }}" class="stacked-form">
                 @csrf
                 <label for="recovery-key-password">
                     <span>{{ __('identity.common.current_password') }}</span>
-                    <input id="recovery-key-password" type="password" name="current_password" autocomplete="current-password" required>
+                    <input id="recovery-key-password" type="password" name="current_password" autocomplete="current-password" required @error('current_password') aria-invalid="true" aria-describedby="error-current-password" @enderror>
                 </label>
                 <button type="submit">{{ $hasRecoveryKey ? __('identity.security.recovery.rotate') : __('identity.security.recovery.generate') }}</button>
             </form>
 
             @if ($hasRecoveryKey)
-                <form method="POST" action="{{ route('identity.recovery-key.revoke') }}" class="stacked-form">
+                <form method="POST" action="{{ route('identity.recovery-key.revoke', ['locale' => app()->getLocale()]) }}" class="stacked-form">
                     @csrf
                     @method('DELETE')
                     <label for="recovery-key-revoke-password">
                         <span>{{ __('identity.common.current_password') }}</span>
-                        <input id="recovery-key-revoke-password" type="password" name="current_password" autocomplete="current-password" required>
+                        <input id="recovery-key-revoke-password" type="password" name="current_password" autocomplete="current-password" required @error('current_password') aria-invalid="true" aria-describedby="error-current-password" @enderror>
                     </label>
                     <button class="button button-danger" type="submit">{{ __('identity.security.recovery.revoke') }}</button>
                 </form>
             @endif
+            </div>
         </section>
 
         <section class="card" aria-labelledby="factor-policy-heading">
-            <p class="eyebrow">{{ __('identity.security.policy.eyebrow') }}</p>
+            <div class="settings-heading">
+                <p class="eyebrow">{{ __('identity.security.policy.eyebrow') }}</p>
             <h2 id="factor-policy-heading">{{ __('identity.security.policy.heading') }}</h2>
+            </div>
+            <div class="settings-body">
             <dl>
                 <dt>{{ __('identity.security.policy.authenticator') }}</dt>
                 <dd><span class="badge {{ $identity->hasConfirmedMfa() ? 'badge-success' : 'badge-warning' }}">{{ $identity->hasConfirmedMfa() ? __('identity.common.enabled') : __('identity.common.not_enabled') }}</span></dd>
@@ -159,8 +181,9 @@
                 <dd>{{ $bindingMutationPolicy === 'deny' ? __('identity.security.policy.binding_locked') : __('identity.security.policy.binding_managed') }}</dd>
             </dl>
             <div class="action-row">
-                <a class="button button-secondary" href="{{ route('identity.mfa.settings') }}">{{ __('identity.security.policy.manage_authenticator') }}</a>
-                <a class="button button-secondary" href="{{ route('identity.password.change.create') }}">{{ __('identity.security.policy.change_password') }}</a>
+                <a class="button button-secondary" href="{{ route('identity.mfa.settings', ['locale' => app()->getLocale()]) }}">{{ __('identity.security.policy.manage_authenticator') }}</a>
+                <a class="button button-secondary" href="{{ route('identity.password.change.create', ['locale' => app()->getLocale()]) }}">{{ __('identity.security.policy.change_password') }}</a>
+            </div>
             </div>
         </section>
     </div>
@@ -177,25 +200,25 @@
                 {{ __('identity.security.termination.scheduled_prefix') }}
                 <time datetime="{{ $identity->termination_scheduled_for->toAtomString() }}">{{ $identity->termination_scheduled_for->utc()->format('Y-m-d H:i') }} UTC</time>.
             </div>
-            <form method="POST" action="{{ route('identity.termination.destroy') }}" class="stacked-form">
+            <form method="POST" action="{{ route('identity.termination.destroy', ['locale' => app()->getLocale()]) }}" class="stacked-form">
                 @csrf
                 @method('DELETE')
                 <label for="termination-cancel-password">
                     <span>{{ __('identity.common.current_password') }}</span>
-                    <input id="termination-cancel-password" type="password" name="current_password" autocomplete="current-password" required>
+                    <input id="termination-cancel-password" type="password" name="current_password" autocomplete="current-password" required @error('current_password') aria-invalid="true" aria-describedby="error-current-password" @enderror>
                 </label>
                 <button type="submit">{{ __('identity.security.termination.cancel') }}</button>
             </form>
         @else
-            <form method="POST" action="{{ route('identity.termination.store') }}" class="stacked-form">
+            <form method="POST" action="{{ route('identity.termination.store', ['locale' => app()->getLocale()]) }}" class="stacked-form">
                 @csrf
                 <label for="termination-password">
                     <span>{{ __('identity.common.current_password') }}</span>
-                    <input id="termination-password" type="password" name="current_password" autocomplete="current-password" required>
+                    <input id="termination-password" type="password" name="current_password" autocomplete="current-password" required @error('current_password') aria-invalid="true" aria-describedby="error-current-password" @enderror>
                 </label>
                 <label for="termination-confirmation">
                     <span>{{ __('identity.security.termination.confirmation', ['phrase' => config('identity_security.termination.confirmation_phrase', 'TERMINATE')]) }}</span>
-                    <input id="termination-confirmation" type="text" name="confirmation" autocomplete="off" required>
+                    <input id="termination-confirmation" type="text" name="confirmation" autocomplete="off" required @error('confirmation') aria-invalid="true" aria-describedby="error-confirmation" @enderror>
                 </label>
                 <button class="button button-danger" type="submit">{{ __('identity.security.termination.schedule') }}</button>
             </form>

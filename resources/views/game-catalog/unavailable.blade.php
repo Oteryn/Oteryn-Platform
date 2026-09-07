@@ -5,9 +5,7 @@
 @section('robots', 'noindex,nofollow')
 @section('page-class', 'game-catalog-page')
 
-@push('styles')
-    <link rel="stylesheet" href="{{ asset('css/game-catalog.css') }}">
-@endpush
+@section('portal-family', 'catalog')
 
 @section('content')
     <header class="page-header">

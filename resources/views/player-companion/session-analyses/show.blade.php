@@ -1,4 +1,4 @@
-@extends('game.layout')
+@extends('identity.layout')
 
 @section('title', $analysis->label ?: __('player_companion.session_analyzer'))
 @section('description', __('player_companion.privacy_note'))
@@ -7,6 +7,8 @@
 @push('head')
     <script src="{{ asset('js/form-confirmations.js') }}" defer></script>
 @endpush
+
+@section('portal-family', 'player-tools')
 
 @section('content')
     <div class="page-header">
@@ -25,9 +27,6 @@
         </div>
     </div>
 
-    @if (session('status'))
-        <div class="notice notice-success" role="status">{{ session('status') }}</div>
-    @endif
 
     <section class="content-card">
         <div class="stats-grid" data-testid="session-analysis-metrics">

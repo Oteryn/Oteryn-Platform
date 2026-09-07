@@ -19,6 +19,6 @@
 
     <p class="muted">{{ __('identity.recovery_key.generated.verifier') }}</p>
     <div class="action-row">
-        <a class="button" href="{{ route('identity.account-security.show') }}">{{ __('identity.recovery_key.generated.return') }}</a>
+        <a class="button" href="{{ route('identity.account-security.show', ['locale' => app()->getLocale()]) }}">{{ __('identity.recovery_key.generated.return') }}</a>
     </div>
 @endsection

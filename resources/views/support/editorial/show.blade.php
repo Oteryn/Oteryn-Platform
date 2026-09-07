@@ -2,11 +2,21 @@
 
 @section('title', $result->page?->title ?? __('public.editorial.labels.'.$key->value))
 
+@section('portal-family', 'support')
+
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
+    @if ($key->isSupportGuidance())
+        <nav class="support-entry-paths" aria-label="{{ __('support.nav.support_center') }}">
+            <a href="{{ route('support.tickets.index', ['locale' => app()->getLocale()]) }}"><span aria-hidden="true">01</span><strong>{{ __('support.nav.tickets') }}</strong><span aria-hidden="true">↗</span></a>
+            <a href="{{ route('support.reports.index', ['locale' => app()->getLocale()]) }}"><span aria-hidden="true">02</span><strong>{{ __('support.nav.reports') }}</strong><span aria-hidden="true">↗</span></a>
+            <a href="{{ route('support.enforcement.index', ['locale' => app()->getLocale()]) }}"><span aria-hidden="true">03</span><strong>{{ __('support.nav.enforcement') }}</strong><span aria-hidden="true">↗</span></a>
+        </nav>
+    @endif
+
     @if ($result->state === \App\Cms\Editorial\EditorialPageState::Published)
         @php($page = $result->page)
-        <article>
+        <article class="reading-article">
             <p class="eyebrow">{{ $key->isLegal() ? __('public.editorial.legal') : ($key->isSupportGuidance() ? __('public.editorial.support') : __('public.editorial.learn')) }}</p>
             <h1>{{ $page->title }}</h1>
 
@@ -19,7 +29,7 @@
                 </p>
             @endif
 
-            <div class="card">
+            <div class="card reading-body">
                 <p class="prose-text">{{ $page->body }}</p>
             </div>
 
@@ -51,7 +61,7 @@
             @endif
         </article>
     @else
-        <article>
+        <article class="reading-article">
             <p class="eyebrow">{{ __('public.editorial.content') }}</p>
             <h1>{{ __('public.editorial.labels.'.$key->value) }}</h1>
 

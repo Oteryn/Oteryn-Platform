@@ -83,6 +83,7 @@ final class HomeTest extends TestCase
             ->assertDontSee('Future hidden news')
             ->assertSee('data-content-state="AVAILABLE"', false)
             ->assertDontSee('css/home-preview.css', false)
+            ->assertDontSee('css/app.css', false)
             ->assertSee('css/portal-system.css', false)
             ->assertSee('<h1 id="home-hero-title" aria-label="Oteryn Platform">OTERYN</h1>', false)
             ->assertSee('css/home-production.css', false);

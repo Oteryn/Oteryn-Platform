@@ -4,6 +4,8 @@
 @section('title', $highscoreTitle)
 @section('page-class', 'page-shell-wide community-page')
 
+@section('portal-family', 'world-data')
+
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
     @inject('characterPresentation', 'App\PublicGameData\CharacterPresentation')
@@ -14,7 +16,7 @@
         <p class="muted">{{ __('community.highscores.description') }}</p>
     </div>
 
-    <form class="card community-filter" method="get" action="{{ route('game.highscores.index') }}" aria-label="{{ __('community.highscores.filters') }}">
+    <form class="community-filter ranking-filters" method="get" action="{{ route('game.highscores.index') }}" aria-label="{{ __('community.highscores.filters') }}">
         <div class="form-grid">
             <label>
                 <span>{{ __('community.highscores.category') }}</span>
@@ -50,7 +52,7 @@
 
     <div class="card">
         <div class="table-region" tabindex="0" aria-label="{{ $highscoreTitle }}">
-            <table class="table-compact">
+            <table class="table-compact ranking-table">
                 <thead>
                 <tr>
                     <th scope="col">{{ __('public.game.rank') }}</th>
@@ -63,7 +65,7 @@
                 <tbody>
                 @forelse ($players as $player)
                     <tr>
-                        <td>{{ $localeFormatter->number(($players->firstItem() ?? 1) + $loop->index) }}</td>
+                        <td class="rank-cell" data-rank="{{ ($players->firstItem() ?? 1) + $loop->index }}">{{ $localeFormatter->number(($players->firstItem() ?? 1) + $loop->index) }}</td>
                         <td><a href="{{ route('game.characters.show', ['name' => $player->name]) }}">{{ $player->name }}</a></td>
                         <td>{{ $localeFormatter->number((int) $player->score) }}</td>
                         <td>{{ $localeFormatter->number((int) $player->level) }}</td>

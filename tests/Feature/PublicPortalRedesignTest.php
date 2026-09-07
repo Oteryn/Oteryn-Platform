@@ -52,7 +52,9 @@ final class PublicPortalRedesignTest extends TestCase
         $view->assertSee('data-hero-world-state="'.$state->value.'"', false)
             ->assertSee('aria-label="Oteryn Platform">OTERYN</h1>', false)
             ->assertSee('css/portal-system.css', false)
-            ->assertDontSee('css/home-preview.css', false);
+            ->assertSee('images/oteryn-world.svg', false)
+            ->assertDontSee('css/home-preview.css', false)
+            ->assertDontSee('css/app.css', false);
 
         if ($state === PublicContentState::AVAILABLE) {
             $view->assertSee(trans_choice('public.home.players_online', 42, ['count' => '42']));
@@ -65,12 +67,11 @@ final class PublicPortalRedesignTest extends TestCase
         }
     }
 
-    public function test_configured_maintenance_is_visible_in_hero_and_details_without_unescaped_content(): void
+    public function test_configured_maintenance_is_visible_without_unescaped_content(): void
     {
         $world = new HomeWorldSummary(PublicContentState::AVAILABLE, [
             new HomeWorldChannel(1, 'Alpha', 'open-pvp', 500, true, '<script>not markup</script>', 'ONLINE', 12),
         ], 12);
-
         $this->view('home', ['homePage' => $this->home($world)])
             ->assertSee('class="production-hero-maintenance"', false)
             ->assertSee(__('public.home.maintenance'))
@@ -78,7 +79,7 @@ final class PublicPortalRedesignTest extends TestCase
             ->assertDontSee('<script>not markup</script>', false);
     }
 
-    public function test_localized_home_navigation_is_current_and_all_registered_destinations_remain(): void
+    public function test_localized_home_navigation_is_current_and_registered_destinations_remain(): void
     {
         foreach (['en', 'pl'] as $locale) {
             $response = $this->get('/'.$locale)->assertOk();
@@ -99,23 +100,38 @@ final class PublicPortalRedesignTest extends TestCase
             $activeLink = $current->item(0);
             self::assertInstanceOf(DOMElement::class, $activeLink);
             self::assertSame(route('home'), $activeLink->getAttribute('href'));
+            $groups = $xpath->query('//nav[contains(@class,"primary-nav")]/details/summary');
+            self::assertNotFalse($groups);
+            self::assertGreaterThanOrEqual(3, $groups->length);
             $response->assertSee('/'.$locale.'/guilds', false)
                 ->assertSee('/'.$locale.'/download', false)
                 ->assertSee('/'.$locale.'/wiki', false)
-                ->assertSee('/'.$locale.'/support', false);
+                ->assertSee('/'.$locale.'/support', false)
+                ->assertSee('class="realm-hero"', false)
+                ->assertDontSee('preview-hero', false);
         }
     }
 
-    public function test_identity_and_error_pages_share_visual_system_without_changing_security_metadata(): void
+    public function test_identity_and_error_layouts_keep_security_metadata_and_independent_styles(): void
     {
         $this->get('/login')->assertOk()
             ->assertSee('css/portal-system.css', false)
             ->assertSee('images/oteryn-wordmark.svg', false)
             ->assertSee('noindex,nofollow,noarchive', false)
-            ->assertSee('autocomplete="current-password"', false);
+            ->assertSee('autocomplete="current-password"', false)
+            ->assertDontSee('css/app.css', false);
         $this->get('/portal-redesign-missing-page')->assertNotFound()
             ->assertSee('portal-error-body', false)
             ->assertSee('css/portal-system.css', false);
+    }
+
+    public function test_guest_security_forms_are_localized_in_polish(): void
+    {
+        $this->get('/register?locale=pl')->assertOk()->assertSee('lang="pl"', false)
+            ->assertSee(__('portal.identity.register', [], 'pl'))
+            ->assertDontSee('>Register</button>', false);
+        $this->get('/forgot-password?locale=pl')->assertOk()->assertSee('lang="pl"', false)
+            ->assertSee('autocomplete="email"', false);
     }
 
     private function home(HomeWorldSummary $world): HomePageViewModel

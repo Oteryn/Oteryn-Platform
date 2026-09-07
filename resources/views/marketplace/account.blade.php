@@ -1,8 +1,10 @@
-@extends('game.layout')
+@extends('identity.layout')
 
 @section('title', __('marketplace.my_bazaar'))
 @section('robots', 'noindex,nofollow')
 @section('page-class', 'bazaar-page')
+
+@section('portal-family', 'bazaar')
 
 @section('content')
     <div class="page-header bazaar-hero">
@@ -17,18 +19,6 @@
         </div>
     </div>
 
-    @if (session('status'))
-        <div class="alert alert-success" role="status">{{ session('status') }}</div>
-    @endif
-    @if ($errors->any())
-        <div class="alert alert-danger" role="alert">
-            <ul>
-                @foreach ($errors->all() as $error)
-                    <li>{{ $error }}</li>
-                @endforeach
-            </ul>
-        </div>
-    @endif
 
     <section class="bazaar-wallet" aria-labelledby="wallet-heading">
         <div>

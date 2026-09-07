@@ -1,11 +1,13 @@
-@extends('game.layout')
+@extends('identity.layout')
 
 @section('title', __('marketplace.create_title'))
 @section('robots', 'noindex,nofollow')
 @section('page-class', 'bazaar-page')
 
+@section('portal-family', 'bazaar')
+
 @section('content')
-    <nav class="bazaar-breadcrumbs" aria-label="Breadcrumb">
+    <nav class="bazaar-breadcrumbs" aria-label="{{ __('portal.common.breadcrumb') }}">
         <a href="{{ route('marketplace.account') }}">{{ __('marketplace.my_bazaar') }}</a>
         <span aria-hidden="true">/</span>
         <span aria-current="page">{{ __('marketplace.create_title') }}</span>
@@ -17,15 +19,6 @@
         <p class="muted">{{ __('marketplace.create_description') }}</p>
     </div>
 
-    @if ($errors->any())
-        <div class="alert alert-danger" role="alert">
-            <ul>
-                @foreach ($errors->all() as $error)
-                    <li>{{ $error }}</li>
-                @endforeach
-            </ul>
-        </div>
-    @endif
 
     @if (! $bindingReady)
         <div class="empty-state">

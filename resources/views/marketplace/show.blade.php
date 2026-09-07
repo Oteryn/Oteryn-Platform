@@ -4,6 +4,8 @@
 @section('description', __('marketplace.verified_snapshot_help'))
 @section('page-class', 'bazaar-page')
 
+@section('portal-family', 'bazaar')
+
 @section('content')
     @php
         $snapshot = $auction->character_snapshot;
@@ -14,7 +16,7 @@
         $isSeller = auth()->check() && (int) auth()->id() === $auction->seller_identity_id;
     @endphp
 
-    <nav class="bazaar-breadcrumbs" aria-label="Breadcrumb">
+    <nav class="bazaar-breadcrumbs" aria-label="{{ __('portal.common.breadcrumb') }}">
         <a href="{{ route('marketplace.index') }}">{{ __('marketplace.title') }}</a>
         <span aria-hidden="true">/</span>
         <span aria-current="page">{{ $auction->player_name }}</span>
@@ -75,10 +77,10 @@
                 <dl class="bazaar-stat-grid">
                     <div><dt>{{ __('marketplace.level') }}</dt><dd>{{ number_format((int) ($snapshot['level'] ?? $auction->level), 0, ',', ' ') }}</dd></div>
                     <div><dt>{{ __('marketplace.vocation') }}</dt><dd>{{ __('marketplace.vocations.'.($snapshot['vocation'] ?? $auction->vocation)) }}</dd></div>
-                    <div><dt>Experience</dt><dd>{{ number_format((int) ($snapshot['experience'] ?? 0), 0, ',', ' ') }}</dd></div>
-                    <div><dt>Town ID</dt><dd>{{ number_format((int) ($snapshot['town_id'] ?? 0), 0, ',', ' ') }}</dd></div>
-                    <div><dt>Last login</dt><dd>{{ (int) ($snapshot['lastlogin'] ?? 0) > 0 ? gmdate('Y-m-d H:i', (int) $snapshot['lastlogin']).' UTC' : '—' }}</dd></div>
-                    <div><dt>Last logout</dt><dd>{{ (int) ($snapshot['lastlogout'] ?? 0) > 0 ? gmdate('Y-m-d H:i', (int) $snapshot['lastlogout']).' UTC' : '—' }}</dd></div>
+                    <div><dt>{{ __('portal.marketplace.experience') }}</dt><dd>{{ number_format((int) ($snapshot['experience'] ?? 0), 0, ',', ' ') }}</dd></div>
+                    <div><dt>{{ __('portal.marketplace.town_id') }}</dt><dd>{{ number_format((int) ($snapshot['town_id'] ?? 0), 0, ',', ' ') }}</dd></div>
+                    <div><dt>{{ __('community.profile.last_login') }}</dt><dd>{{ (int) ($snapshot['lastlogin'] ?? 0) > 0 ? gmdate('Y-m-d H:i', (int) $snapshot['lastlogin']).' UTC' : '—' }}</dd></div>
+                    <div><dt>{{ __('community.profile.last_logout') }}</dt><dd>{{ (int) ($snapshot['lastlogout'] ?? 0) > 0 ? gmdate('Y-m-d H:i', (int) $snapshot['lastlogout']).' UTC' : '—' }}</dd></div>
                 </dl>
             </section>
 
@@ -104,7 +106,7 @@
                 </div>
                 <dl class="bazaar-stat-grid">
                     @foreach (['looktype', 'lookaddons', 'lookhead', 'lookbody', 'looklegs', 'lookfeet'] as $appearance)
-                        <div><dt>{{ str_replace('look', 'Look ', ucfirst($appearance)) }}</dt><dd>{{ number_format((int) ($snapshot[$appearance] ?? 0), 0, ',', ' ') }}</dd></div>
+                        <div><dt>{{ __('portal.marketplace.'.$appearance) }}</dt><dd>{{ number_format((int) ($snapshot[$appearance] ?? 0), 0, ',', ' ') }}</dd></div>
                     @endforeach
                 </dl>
             </section>

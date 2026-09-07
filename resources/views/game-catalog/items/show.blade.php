@@ -4,9 +4,7 @@
 @section('description', $item->description ?? $item->name)
 @section('page-class', 'game-catalog-page catalog-detail')
 
-@push('styles')
-    <link rel="stylesheet" href="{{ asset('css/game-catalog.css') }}">
-@endpush
+@section('portal-family', 'catalog')
 
 @section('content')
     <header class="page-header catalog-hero">

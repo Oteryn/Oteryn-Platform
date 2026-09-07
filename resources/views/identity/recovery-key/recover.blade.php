@@ -13,26 +13,26 @@
         ])
     </div>
 
-    <form method="POST" action="{{ route('identity.recovery-key.recover') }}" class="stacked-form">
+    <form method="POST" action="{{ route('identity.recovery-key.recover', ['locale' => app()->getLocale()]) }}" class="stacked-form">
         @csrf
         <label for="recovery-email">
             <span>{{ __('identity.recovery_key.recover.email') }}</span>
-            <input id="recovery-email" type="email" name="email" value="{{ old('email') }}" maxlength="254" autocomplete="email" required autofocus>
+            <input id="recovery-email" type="email" name="email" value="{{ old('email') }}" maxlength="254" autocomplete="email" required autofocus @error('email') aria-invalid="true" aria-describedby="error-email" @enderror>
         </label>
         <label for="recovery-key">
             <span>{{ __('identity.recovery_key.recover.key') }}</span>
-            <input id="recovery-key" type="text" name="recovery_key" maxlength="160" autocomplete="off" required>
+            <input id="recovery-key" type="text" name="recovery_key" maxlength="160" autocomplete="off" required @error('recovery_key') aria-invalid="true" aria-describedby="error-recovery-key" @enderror>
         </label>
         <label for="recovery-password">
             <span>{{ __('identity.recovery_key.recover.new_password') }}</span>
-            <input id="recovery-password" type="password" name="password" autocomplete="new-password" required>
+            <input id="recovery-password" type="password" name="password" autocomplete="new-password" required @error('password') aria-invalid="true" aria-describedby="error-password" @enderror>
         </label>
         <label for="recovery-password-confirmation">
             <span>{{ __('identity.recovery_key.recover.confirm_password') }}</span>
-            <input id="recovery-password-confirmation" type="password" name="password_confirmation" autocomplete="new-password" required>
+            <input id="recovery-password-confirmation" type="password" name="password_confirmation" autocomplete="new-password" required @error('password_confirmation') aria-invalid="true" aria-describedby="error-password-confirmation" @enderror>
         </label>
         <button type="submit">{{ __('identity.recovery_key.recover.submit') }}</button>
     </form>
 
-    <p class="muted"><a href="{{ route('password.request') }}">{{ __('identity.recovery_key.recover.email_alternative') }}</a></p>
+    <p class="muted"><a href="{{ route('password.request', ['locale' => app()->getLocale()]) }}">{{ __('identity.recovery_key.recover.email_alternative') }}</a></p>
 @endsection

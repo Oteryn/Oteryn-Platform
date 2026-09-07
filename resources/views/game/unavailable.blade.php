@@ -4,6 +4,8 @@
 @section('robots', 'noindex,nofollow')
 @section('page-class', 'community-page')
 
+@section('portal-family', 'world-data')
+
 @section('content')
     <section class="card community-unavailable" role="status" aria-labelledby="community-unavailable-heading">
         <p class="eyebrow">{{ __('community.unavailable.eyebrow') }}</p>

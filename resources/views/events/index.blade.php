@@ -2,6 +2,8 @@
 
 @section('title', __('public.events.title'))
 
+@section('portal-family', 'events')
+
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
     <div class="page-header">
@@ -23,16 +25,18 @@
             'cancelled' => [__('public.events.cancelled'), __('public.events.cancelled_help')],
         ] as $bucket => [$heading, $description])
             @if ($calendar[$bucket] !== [])
-                <section aria-labelledby="events-{{ $bucket }}">
+                <section class="calendar-bucket calendar-bucket-{{ $bucket }}" aria-labelledby="events-{{ $bucket }}">
                     <div class="section-heading">
                         <p class="eyebrow">{{ $heading }}</p>
                         <h2 id="events-{{ $bucket }}">{{ $heading }}</h2>
                         <p class="muted">{{ $description }}</p>
                     </div>
 
-                    <div class="card-grid">
+                    <div class="event-timeline">
                         @foreach ($calendar[$bucket] as $event)
-                            <article class="card">
+                            <article class="card event-timeline-entry">
+                                <time class="event-date" datetime="{{ $event['starts_at']->toAtomString() }}">{{ $localeFormatter->date($event['starts_at']) }}</time>
+                                <div class="event-timeline-copy">
                                 <p class="eyebrow">
                                     {{ $localeFormatter->dateTime($event['starts_at']) }}
                                     –
@@ -43,6 +47,7 @@
                                 @if ($event['featured'])
                                     <p><strong>{{ __('public.events.featured') }}</strong></p>
                                 @endif
+                                </div>
                             </article>
                         @endforeach
                     </div>

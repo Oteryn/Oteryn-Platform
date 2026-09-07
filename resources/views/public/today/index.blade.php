@@ -4,6 +4,8 @@
 @section('description', __('today.description'))
 @section('page-class', 'today-page')
 
+@section('portal-family', 'today')
+
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
     <div class="page-header" data-today-state="{{ $today->state->value }}">
@@ -17,7 +19,7 @@
         @endif
     </div>
 
-    <div class="card-grid" aria-label="{{ __('today.cards_label') }}">
+    <div class="today-stream" aria-label="{{ __('today.cards_label') }}">
         @foreach ($today->cards as $card)
             <section
                 id="today-{{ $card->kind }}"

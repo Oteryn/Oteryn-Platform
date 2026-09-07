@@ -1,27 +1,21 @@
-@extends('game.layout')
+@extends('identity.layout')
 
 @section('title', __('player_companion.session_analyzer'))
 @section('description', __('player_companion.session_analyzer_intro'))
 @section('page-class', 'player-companion-page')
 
+@section('portal-family', 'player-tools')
+
 @section('content')
     <div class="page-header">
         <div>
-            <p class="eyebrow">Player Companion · SessionAnalysis</p>
+            <p class="eyebrow">{{ __('portal.account.tools') }}</p>
             <h1>{{ __('player_companion.session_analyzer') }}</h1>
             <p class="muted">{{ __('player_companion.session_analyzer_intro') }}</p>
         </div>
     </div>
 
-    @if (session('status'))
-        <div class="notice notice-success" role="status">{{ session('status') }}</div>
-    @endif
 
-    @if ($errors->any())
-        <div class="notice notice-danger" role="alert">
-            <strong>{{ $errors->first() }}</strong>
-        </div>
-    @endif
 
     <section class="content-card" aria-labelledby="session-analyzer-form-title">
         <div class="section-heading">

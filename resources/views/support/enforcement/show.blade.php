@@ -2,6 +2,8 @@
 
 @section('title', __('support.title.enforcement_detail'))
 
+@section('portal-family', 'support')
+
 @section('content')
     @include('support.partials.navigation')
     @include('identity.partials.locale-switcher', [

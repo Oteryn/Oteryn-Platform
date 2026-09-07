@@ -4,6 +4,8 @@
 @section('description', __('marketplace.description'))
 @section('page-class', 'bazaar-page')
 
+@section('portal-family', 'bazaar')
+
 @section('content')
     <div class="page-header bazaar-hero">
         <div>
@@ -77,7 +79,7 @@
             <p>{{ __('marketplace.empty_help') }}</p>
         </div>
     @else
-        <div class="bazaar-grid" data-testid="marketplace-auction-grid">
+        <div class="bazaar-grid bazaar-roster" data-testid="marketplace-auction-grid">
             @foreach ($auctions as $auction)
                 @include('marketplace.partials.auction-card', ['auction' => $auction])
             @endforeach

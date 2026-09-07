@@ -9,9 +9,7 @@
         <meta name="description" content="{{ \Illuminate\Support\Str::limit(strip_tags($category->description), 155) }}">
     @endif
 @endpush
-@push('styles')
-    <link rel="stylesheet" href="{{ asset('css/wiki.css') }}">
-@endpush
+@section('portal-family', 'knowledge')
 
 @section('content')
     @include('wiki.partials.breadcrumbs', ['breadcrumbs' => $category->breadcrumbs])

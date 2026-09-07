@@ -2,6 +2,8 @@
 
 @section('title', __('payments.title'))
 
+@section('portal-family', 'payments')
+
 @section('content')
     <header class="page-header">
         <p class="eyebrow">{{ __('payments.eyebrow') }}</p>

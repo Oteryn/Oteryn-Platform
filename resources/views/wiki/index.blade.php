@@ -1,15 +1,13 @@
 @extends('game.layout')
 
 @section('title', __('public.wiki.title'))
-@section('description', __('public.wiki.intro'))
+@section('description', __('public.wiki.description'))
 @section('page-class', 'wiki-page')
 
 @push('head')
     <meta name="description" content="{{ __('public.wiki.description') }}">
 @endpush
-@push('styles')
-    <link rel="stylesheet" href="{{ asset('css/wiki.css') }}">
-@endpush
+@section('portal-family', 'knowledge')
 
 @section('content')
     <header class="page-header wiki-hero">
@@ -25,6 +23,7 @@
             <p>{{ __('public.wiki.empty_help') }}</p>
         </div>
     @else
+        <div class="knowledge-library">
         @if ($wiki->categories !== [])
             <section aria-labelledby="wiki-categories">
                 <div class="section-heading">
@@ -45,6 +44,7 @@
             </section>
         @endif
 
+        <div class="knowledge-stream">
         @if ($wiki->featuredArticles !== [])
             <section aria-labelledby="wiki-featured">
                 <div class="section-heading">
@@ -72,5 +72,7 @@
                 </div>
             </section>
         @endif
+        </div>
+        </div>
     @endif
 @endsection
