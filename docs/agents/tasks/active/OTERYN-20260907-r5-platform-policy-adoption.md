@@ -34,7 +34,6 @@ owned_paths:
   - docs/agents/CONTEXT_ROUTING.md
   - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
   - docs/agents/PLATFORM_AGENT_BOOTSTRAP.md
-  - docs/agents/tasks/active/OTERYN-20260907-terminal-canary-cleanup.md
   - docs/agents/tasks/active/OTERYN-20260907-r5-platform-policy-adoption.md
 modules:
   - agent-governance
@@ -52,11 +51,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-07T10:28:00Z
-head: 6a87b27db7b69fec90344f779ba79061869d1d92
+updated_at: 2026-09-07T10:38:00Z
+head: b0f268d682b1f9117140168a3a9d9b86c56ba9cc
 branch: docs/r5-platform-policy-adoption-1302
 pr: 1303
-status: implementing
+status: validating
 terminal_pr_policy: archive_pending
 context_routes:
   - agent-governance
@@ -67,17 +66,14 @@ owned_paths:
   - docs/agents/CONTEXT_ROUTING.md
   - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
   - docs/agents/PLATFORM_AGENT_BOOTSTRAP.md
-  - docs/agents/tasks/active/OTERYN-20260907-terminal-canary-cleanup.md
   - docs/agents/tasks/active/OTERYN-20260907-r5-platform-policy-adoption.md
 proven:
-  - Protected main 907546f193e91b0bed2f5f077ab5b874771929ef contains merged PR #1304 and tree d844c6c0e568896008ea8053057bcae53fb4b949.
+  - Protected main b0f268d682b1f9117140168a3a9d9b86c56ba9cc contains the accepted PR #1304 policy adoption and the completed #1305 cleanup closeout from PRs #1306-#1308.
   - PR #1304 owns the META binding, trusted policy consumer, prompt inventory migration, workflow trust boundary and D26 archive; this task preserves those paths unchanged.
   - Issue #1302 and draft PR #1303 own this remaining bounded R5 delta and coordinate with #1009.
   - Issue #1299 closed externally at 2026-09-07T09:26:20Z; this task does not reactivate or re-close it.
-  - PR #1306 merged its separately owned cleanup task, but the open #1305 packet omitted the archive-pending transition required while protected deletion and closeout remain unfinished; no open successor PR owns that bounded transition repair.
 derived:
   - The remaining Platform retry and delivery documents can delegate global execution semantics while retaining local state compatibility, E2E, layer-completeness and resource-hygiene constraints.
-  - Adding terminal_pr_policy archive_pending with a truthful archive-after-readback next action preserves the #1305 packet's nonterminal state and does not claim cleanup, deletion or completion.
 unknown:
   - Exact reconciled candidate head, hosted check results and integration outcome.
 conflicts: []
@@ -93,12 +89,11 @@ changed_paths:
   - docs/agents/CONTEXT_ROUTING.md
   - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
   - docs/agents/PLATFORM_AGENT_BOOTSTRAP.md
-  - docs/agents/tasks/active/OTERYN-20260907-terminal-canary-cleanup.md
   - docs/agents/tasks/active/OTERYN-20260907-r5-platform-policy-adoption.md
 validation:
   - command: focused governance and documentation validation
-    result: NOT_RUN
-    evidence: Pending on the reconciled candidate.
+    result: PASS
+    evidence: Checkpoint 12, source-closeout 5, task-liveness 25, governing-Issue 10, Documentation IA 5, Control Room 4, authenticated policy consumer 13 and prompt evaluator 8 tests pass; active checkpoints, closeout, catalog, central policy and 24-case prompt suite validators pass. A mocked merged-PR check also proved the temporary #1305 archive transition before protected main completed that cleanup independently.
   - command: product runtime E2E
     result: NOT_APPLICABLE
     evidence: Agent instruction and lifecycle documentation only; no executable product behavior changes.
