@@ -7,6 +7,18 @@ import subprocess
 from pathlib import Path
 from typing import Iterable
 
+WIKI_RUNTIME_PROVENANCE = (
+    "docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json",
+    "docs/architecture/adr/0004-authoritative-platform-account-ownership.md",
+    "docs/architecture/adr/0005-character-creation-product-policy.md",
+    "docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md",
+    "docs/contracts/OTCLIENT_GAME_AUTH_CONTRACT.md",
+    "docs/agents/PROJECT_STATE.md",
+    "docs/architecture/PUBLIC_WEBSITE_EXPANSION_PLAN.md",
+    "docs/architecture/SECURITY_ARCHITECTURE.md",
+    "docs/architecture/adr/0013-wiki-administration.md",
+)
+
 PLATFORM_EXACT = {
     "composer.json",
     "composer.lock",
@@ -15,6 +27,7 @@ PLATFORM_EXACT = {
     "deploy/synology/docker/platform-media.ini",
     "deploy/synology/docker/platform-entrypoint.sh",
     "deploy/synology/release-contract.env",
+    *WIKI_RUNTIME_PROVENANCE,
 }
 PLATFORM_PREFIXES = (
     "app/",
@@ -44,6 +57,7 @@ PLATFORM_SOURCE_PATHS = (
     "deploy/synology/docker/platform-media.ini",
     "deploy/synology/docker/platform-entrypoint.sh",
     "deploy/synology/release-contract.env",
+    *WIKI_RUNTIME_PROVENANCE,
 )
 
 GATEWAY_EXACT = {"deploy/synology/docker/gateway.Dockerfile"}
@@ -67,6 +81,10 @@ DEPLOYMENT_PREFIXES = ("deploy/synology/",)
 
 def _matches(path: str, exact: set[str], prefixes: Iterable[str]) -> bool:
     return path in exact or any(path.startswith(prefix) for prefix in prefixes)
+
+
+def _is_runtime_deployment_path(path: str) -> bool:
+    return path.startswith(DEPLOYMENT_PREFIXES) and not path.startswith(RUNNER_PREFIXES)
 
 
 def _changed_paths(base: str, head: str) -> list[str]:
@@ -109,12 +127,12 @@ def classify(paths: Iterable[str], event_name: str, head: str) -> dict[str, obje
     gateway_changed = any(_matches(path, GATEWAY_EXACT, GATEWAY_PREFIXES) for path in changed)
     runner_changed = any(path.startswith(RUNNER_PREFIXES) for path in changed)
     deployment_changed = any(path.startswith(DEPLOYMENT_PREFIXES) for path in changed)
+    runtime_deployment_changed = any(_is_runtime_deployment_path(path) for path in changed)
     release_relevant = (
         control_plane
         or platform_changed
         or gateway_changed
-        or runner_changed
-        or deployment_changed
+        or runtime_deployment_changed
     )
 
     source_shas = {
@@ -192,6 +210,7 @@ def classify(paths: Iterable[str], event_name: str, head: str) -> dict[str, obje
         "gateway_changed": gateway_changed,
         "runner_changed": runner_changed,
         "deployment_changed": deployment_changed,
+        "runtime_deployment_changed": runtime_deployment_changed,
         "control_plane": control_plane,
         "release_relevant": release_relevant,
         "changed_paths": changed,
@@ -205,6 +224,7 @@ def _write_output(path: Path, result: dict[str, object]) -> None:
         "gateway_changed",
         "runner_changed",
         "deployment_changed",
+        "runtime_deployment_changed",
         "control_plane",
         "release_relevant",
     )
@@ -228,6 +248,7 @@ def _write_summary(path: Path, result: dict[str, object]) -> None:
         "### Synology staging build classification\n\n"
         f"- control-plane change: `{str(result['control_plane']).lower()}`\n"
         f"- deployment package change: `{str(result['deployment_changed']).lower()}`\n"
+        f"- release-relevant deployment change: `{str(result['runtime_deployment_changed']).lower()}`\n"
         f"- changed paths: `{len(result['changed_paths'])}`\n\n"
         "| component | mode | component source SHA |\n"
         "|---|---|---|\n"
