@@ -207,7 +207,7 @@ finalize_previous_candidate_if_healthy() {
     local requested_sha candidate_sha candidate_schema candidate_accepts
     local schema_state schema_id schema_target current_sha
     local candidate_env="$state_dir/candidate-health.env"
-    local service container_id image_id resolved_image expected_image
+    local service container_id image_id expected_image expected_image_id
     local index
     local -a candidate_state services expected_images candidate_compose
 
@@ -267,8 +267,8 @@ finalize_previous_candidate_if_healthy() {
             return 1
         }
         image_id="$(docker inspect --format '{{.Image}}' "$container_id")" || return 1
-        resolved_image="$(bash "$SCRIPT_DIR/release-state.sh" resolve-image "$image_id")" || return 1
-        [[ "$resolved_image" == "$expected_image" ]] || {
+        expected_image_id="$(docker image inspect --format '{{.Id}}' "$expected_image" 2>/dev/null || true)"
+        [[ -n "$expected_image_id" && "$image_id" == "$expected_image_id" ]] || {
             echo "Previous candidate finalization rejected: running $service image does not match candidate recovery identity." >&2
             return 1
         }
@@ -294,7 +294,14 @@ finalize_previous_candidate_if_healthy() {
     chmod 600 "$candidate_env.tmp"
     mv "$candidate_env.tmp" "$candidate_env"
 
-    candidate_compose=(docker compose --env-file "$candidate_env" -f "$COMPOSE_FILE")
+    candidate_compose=(
+        env
+        "PLATFORM_IMAGE=${candidate_state[1]}"
+        "GATEWAY_IMAGE=${candidate_state[2]}"
+        "CANARY_IMAGE=${candidate_state[3]}"
+        "GATEWAY_VERSION=sha-${candidate_sha}"
+        docker compose --env-file "$candidate_env" -f "$COMPOSE_FILE"
+    )
     if ! "${candidate_compose[@]}" config --quiet; then
         rm -f "$candidate_env"
         return 1
