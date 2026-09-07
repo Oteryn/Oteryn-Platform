@@ -269,7 +269,9 @@ if (! is_string($statusLine) || preg_match('/^HTTP\/\S+ 302\b/', $statusLine) !=
 echo "MFA QR renderer and protected anonymous route verified.\n";
 PHP
 
-docker exec "$platform_container" grep -q 'Scan with your authenticator app' /var/www/html/resources/views/identity/mfa/settings.blade.php
+docker exec "$platform_container" grep -q 'portal.identity.mfa_scan' /var/www/html/resources/views/identity/mfa/settings.blade.php
+docker exec "$platform_container" grep -q 'mfa-qr-panel' /var/www/html/resources/views/identity/mfa/settings.blade.php
+docker exec "$platform_container" grep -q 'mfa-qr-code' /var/www/html/resources/views/identity/mfa/settings.blade.php
 docker exec "$platform_container" grep -q 'mfa-qr' /var/www/html/public/css/mfa.css
 echo "Verified QR-first MFA renderer, deployed assets and protected anonymous MFA boundary."
 

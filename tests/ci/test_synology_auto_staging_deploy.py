@@ -150,6 +150,14 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         self.assertIn('OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"', self.deploy_script)
         self.assertIn('Finalized previously migrated candidate', self.deploy_script)
 
+    def test_mfa_health_check_uses_semantic_markers_not_localized_copy(self) -> None:
+        health = (ROOT / "deploy/synology/scripts/health-check.sh").read_text(encoding="utf-8")
+        self.assertNotIn("grep -q 'Scan with your authenticator app'", health)
+        self.assertIn("grep -q 'portal.identity.mfa_scan'", health)
+        self.assertIn("grep -q 'mfa-qr-panel'", health)
+        self.assertIn("grep -q 'mfa-qr-code'", health)
+
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
