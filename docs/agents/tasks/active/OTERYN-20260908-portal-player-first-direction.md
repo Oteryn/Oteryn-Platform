@@ -23,7 +23,7 @@ Persist the owner-approved player-first Portal completion direction as a durable
 - [x] Preserve explicit unknowns and prohibit invented gameplay/release/runtime claims.
 - [x] Link the direction from `docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md` without changing selector authority or delivery ordering.
 - [x] Keep the change documentation/governance only; no runtime, production, auth, payment, game-server or deployment behavior changes.
-- [ ] Pass applicable exact-head documentation/governance validation and protected integration requirements.
+- [x] Pass applicable exact-head documentation/governance validation and protected integration requirements.
 
 ## Ownership
 
@@ -47,11 +47,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T13:55:30Z
-head: fc5f423bc4cebf29bfccf8d6dcbb6b427dcc8c14
+updated_at: 2026-09-08T13:58:30Z
+head: 3e31a1ae06524e2af09d2a402432cea61b85e5d6
 branch: docs/1356-portal-player-first-direction
 pr: 1357
-status: validating
+status: ready
 context_routes:
   - portal-completion
 owned_paths:
@@ -62,11 +62,13 @@ proven:
   - Owner requested that the comprehensive player-first Portal completion solution agreed in the current session be persisted to the repository.
   - Issue #1356 owns this documentation-only record and explicitly does not resurrect PORTAL-POLISH or replace the live Portal Completion selector.
   - Protected main at task admission is 2acb8b548b413b9ce522ff5c507b4f10c9d0ff0e.
-  - PR #1357 contains exactly the new player-experience companion direction, its delivery-plan reference and this task packet at the pre-checkpoint candidate fc5f423bc4cebf29bfccf8d6dcbb6b427dcc8c14.
+  - PR #1357 changes exactly the new player-experience companion direction, its one-line delivery-plan reference and this task packet.
+  - PR head 3e31a1ae06524e2af09d2a402432cea61b85e5d6 passed CI run 34234974571 including platform-gate, Agent Governance 34234974487, Edge Security 34234974615, Game Auth Ticket Concurrency 34234974431, Native protocol contract audits 34234974543, Native protocol contract 34234974889, Phase 7 Production-Like Validation 34234974928 and Platform DB Outage Validation 34234974752.
 derived:
   - The direction is durable and discoverable from the existing Portal Completion delivery hierarchy without creating a parallel queue.
+  - The implementation content is ready for the repository's protected integration path; the checkpoint-only readiness update does not add runtime/product scope.
 unknown:
-  - Exact-head documentation/governance and required-check result for the final PR head after this checkpoint update.
+  - Resulting protected-main SHA after PR #1357 integration.
 conflicts: []
 first_failure:
   marker: none
@@ -82,20 +84,26 @@ validation:
   - command: product/browser E2E
     result: NOT_APPLICABLE
     evidence: This task records owner-approved documentation direction only and changes no executable product path.
-  - command: exact-head documentation/governance validation
-    result: NOT_RUN
-    evidence: Final PR head checks are pending after the checkpoint update.
+  - command: CI 34234974571 / platform-gate
+    result: PASS
+    evidence: Exact PR head 3e31a1ae passed change classification, checkpoint validation, required test gate and platform-gate.
+  - command: Agent Governance 34234974487
+    result: PASS
+    evidence: Exact PR head 3e31a1ae passed repository governance validation.
+  - command: ancillary exact-head workflows
+    result: PASS
+    evidence: Runs 34234974615, 34234974431, 34234974543, 34234974889, 34234974928 and 34234974752 all completed successfully on 3e31a1ae.
 blockers:
   - none
-next_action: Verify the exact final PR #1357 head, inspect its complete three-file diff, and confirm applicable required/documentation governance checks before protected integration.
+next_action: Enqueue PR #1357 through the repository's configured protected Merge Queue; after verified integration, archive this task, close Issue #1356 and verify source-branch deletion.
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: documentation task is validating in PR #1357
-source_branch_evidence: Issue #1356; PR #1357; branch docs/1356-portal-player-first-direction
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: player-first direction and validation evidence are durable in PR #1357; delete the source branch after verified protected integration
+source_branch_evidence: Issue #1356; PR #1357; validated implementation head 3e31a1ae06524e2af09d2a402432cea61b85e5d6
 ```
 
 ## Notes
