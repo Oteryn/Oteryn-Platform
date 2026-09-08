@@ -51,10 +51,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T10:24:00Z
-head: 08349e4cd87f8ec76f33e81068083a9399a38beb
+updated_at: 2026-09-08T10:27:00Z
+head: 0834334a4e890106d4d10e06a6ce36e217456fc1
 branch: fix/1344-owner-visible-portal-polish
-pr: none
+pr: 1348
 status: validating
 context_routes:
   - web-cms
@@ -72,11 +72,12 @@ proven:
   - Public layouts previously used stable asset URLs without a content/release cache key.
   - The implementation now computes deterministic 12-hex SHA-256 content versions for shared Portal CSS/JS, home-production CSS, the citadel hero and home discovery artwork.
   - A final override stylesheet changes the home hero to an explicit two-column realm stage on desktop and one-column mobile composition, with a framed native-size citadel and 3/2/1-column discovery cards.
+  - Canonical draft PR #1348 owns this branch and exact task scope.
 derived:
   - Content-versioned asset URLs remove stale-cache ambiguity without taking ownership of Synology/edge configuration.
   - The new composition is intentionally more visually distinct than the micro-spacing changes in PR #1334 while preserving the same semantic DOM and data contracts.
 unknown:
-  - Exact hosted validation result for the implementation candidate.
+  - Exact hosted validation result for the current task head.
   - Protected-main SHA and staging release after integration.
 conflicts: []
 first_failure:
@@ -95,12 +96,15 @@ validation:
   - command: staging deploy 34212996824
     result: PASS
     evidence: deployed baseline is healthy and proves the owner-visible problem is post-deploy rather than a missing deployment
+  - command: Agent Governance 34215368352
+    result: FAIL
+    evidence: first candidate omitted live PR #1348 from the task packet; all checkpoint/Issue/source-branch validators passed before liveness rejected pr none
   - command: exact-head CI / Portal browser acceptance
     result: NOT_RUN
-    evidence: implementation commit is being published for hosted validation
+    evidence: current docs-only liveness repair must receive fresh exact-head hosted validation
 blockers:
   - none
-next_action: run exact-head hosted CI and Portal browser acceptance, repair the first task-owned failure if any, then open the canonical PR
+next_action: validate the current exact head, repair the first remaining task-owned failure if any, then mark PR #1348 ready for protected integration
 ```
 
 ## Source branch closeout
@@ -108,7 +112,7 @@ next_action: run exact-head hosted CI and Portal browser acceptance, repair the 
 ```yaml
 source_branch_disposition: pending
 source_branch_reason: task is active and awaiting exact-head validation plus protected integration/deployed proof
-source_branch_evidence: Issue #1344; branch fix/1344-owner-visible-portal-polish
+source_branch_evidence: Issue #1344; PR #1348; branch fix/1344-owner-visible-portal-polish
 ```
 
 ## Notes
