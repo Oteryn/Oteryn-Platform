@@ -49,8 +49,12 @@ PLATFORM_PREFIXES = (
 GATEWAY_EXACT = {
     "deploy/synology/docker/gateway.Dockerfile",
     GATEWAY_DOCKERIGNORE,
+    "services/game-gateway/go.mod",
 }
-GATEWAY_PREFIXES = ("services/game-gateway/",)
+GATEWAY_PREFIXES = (
+    "services/game-gateway/cmd/",
+    "services/game-gateway/internal/",
+)
 
 # The deploy-runner image only copies these files. Runner Compose/environment
 # files are operator-package inputs, not deploy-runner image inputs.
