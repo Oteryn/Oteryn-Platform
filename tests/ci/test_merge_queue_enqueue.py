@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOL_PATH = ROOT / "scripts/github/merge_queue_enqueue.py"
+WORKFLOW_PATH = ROOT / ".github/workflows/merge-queue-enqueue.yml"
 spec = importlib.util.spec_from_file_location("merge_queue_enqueue", TOOL_PATH)
 if spec is None or spec.loader is None:
     raise RuntimeError(f"unable to load {TOOL_PATH}")
@@ -175,6 +176,25 @@ class MergeQueueEnqueueTest(unittest.TestCase):
         qualified = self.qualify(client)
         with self.assertRaisesRegex(mod.GitHubRequestError, "did not return a merge queue entry"):
             mod.enqueue_pull_request(client, qualified)
+
+
+class MergeQueueWorkflowContractTest(unittest.TestCase):
+    def test_workflow_uses_minimum_app_permissions_and_pinned_actions(self):
+        text = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertIn(
+            "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            text,
+        )
+        self.assertIn(
+            "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
+            text,
+        )
+        self.assertIn("permission-checks: read", text)
+        self.assertIn("permission-pull-requests: read", text)
+        self.assertIn("permission-merge-queues: write", text)
+        self.assertNotIn("permission-pull-requests: write", text)
+        self.assertNotIn("permissions: write-all", text)
+        self.assertIn("if: ${{ github.ref == 'refs/heads/main' }}", text)
 
 
 if __name__ == "__main__":
