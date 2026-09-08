@@ -6,9 +6,8 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SCRIPTS = ROOT / "deploy" / "synology" / "scripts"
-ENTRYPOINT = SCRIPTS / "deploy.sh"
-DEPLOY_CORE = SCRIPTS / "deploy-core.sh"
-DEPLOY = DEPLOY_CORE
+ENTRYPOINT = SCRIPTS / "deploy-impact.sh"
+DEPLOY = SCRIPTS / "deploy.sh"
 FRESH_BASELINE = SCRIPTS / "prepare-fresh-schema-baseline.sh"
 RECOVERY = SCRIPTS / "recover-schema.sh"
 RELEASE_STATE = SCRIPTS / "release-state.sh"
@@ -171,8 +170,8 @@ def test_platform_reconcile_keeps_presentation_on_existing_fast_path() -> None:
     ]
     assert "resources/*|lang/*|public/css/*|public/js/*|public/images/*" in presentation
     assert "presentation-only candidate delegated to platform-fast" in entrypoint
+    assert 'CORE_DEPLOY="$SCRIPT_DIR/deploy.sh"' in entrypoint
     assert 'exec bash "$CORE_DEPLOY"' in entrypoint
-    assert 'CORE_DEPLOY="$SCRIPT_DIR/deploy-core.sh"' in entrypoint
 
 
 def test_platform_reconcile_accepts_known_platform_inputs_but_not_schema_or_control_inputs() -> None:
@@ -207,6 +206,7 @@ def test_platform_reconcile_accepts_known_platform_inputs_but_not_schema_or_cont
     ]
     assert "scripts/ci/classify_synology_builds.py" in non_runtime
     assert "deploy/synology/scripts/repository-ghcr-image.sh" in non_runtime
+    assert "deploy/synology/scripts/deploy-impact.sh" in non_runtime
     assert "scripts/acceptance/*" in non_runtime
 
 
