@@ -2,11 +2,12 @@
 
 namespace App\Http\Controllers\PublicPortal;
 
+use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
 final class PublicRobotsController
 {
-    public function __invoke(): Response
+    public function __invoke(Request $request): Response
     {
         $lines = [
             'User-agent: *',
@@ -26,9 +27,14 @@ final class PublicRobotsController
             'Sitemap: '.route('seo.sitemap'),
             '',
         ];
-
-        return response(implode("\n", $lines))
+        $content = implode("\n", $lines);
+        $response = response($content)
             ->header('Content-Type', 'text/plain; charset=UTF-8')
             ->header('Cache-Control', 'public, no-cache, must-revalidate');
+
+        $response->setEtag(hash('sha256', $content));
+        $response->isNotModified($request);
+
+        return $response;
     }
 }
