@@ -20,13 +20,13 @@ Add a fail-closed impact-based staging fast path so presentation-only Platform r
 
 ## Acceptance criteria
 
-- [ ] classify accumulated live deployed-release -> target-release impact, not only the latest commit;
-- [ ] permit fast deployment only for a narrow proven presentation allowlist and ignore only known non-runtime paths;
-- [ ] preserve exact Platform/Gateway/Canary provenance and known schema compatibility;
-- [ ] recreate only Platform plus an existing tightly coupled Marketplace runtime when required;
-- [ ] prove MariaDB, Redis, Canary, internal proxy and Gateway are not restarted by the fast path;
-- [ ] restore the previously proven Platform and release metadata on fast-path failure;
-- [ ] retain the existing full migration/health/rollback path for all non-fast candidates;
+- [x] classify accumulated live deployed-release -> target-release impact, not only the latest commit;
+- [x] permit fast deployment only for a narrow proven presentation allowlist and ignore only known non-runtime paths;
+- [x] preserve exact Platform/Gateway/Canary provenance and known schema compatibility;
+- [x] recreate only Platform plus an existing tightly coupled Marketplace runtime when required;
+- [x] prove MariaDB, Redis, Canary, internal proxy and Gateway are not restarted by the fast path contract;
+- [x] restore the previously proven Platform and release metadata on fast-path failure;
+- [x] retain the existing full migration/health/rollback path for all non-fast candidates;
 - [ ] focused Synology contracts and exact-head required checks pass before Merge Queue integration.
 
 ## Ownership
@@ -34,7 +34,7 @@ Add a fail-closed impact-based staging fast path so presentation-only Platform r
 ```yaml
 owned_paths:
   - deploy/synology/scripts/deploy.sh
-  - tests/ci/test_synology_auto_staging_deploy.py
+  - deploy/synology/tests/test_fresh_baseline_contract.py
   - docs/agents/tasks/active/OTERYN-20260908-synology-impact-deploy.md
 modules:
   - Synology staging deployment routing
@@ -53,26 +53,28 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T09:15:00Z
-head: 7bf4d26efb8cd9e25a4090f283d701f4d3a304e0
+updated_at: 2026-09-08T09:33:00Z
+head: UNKNOWN
 branch: perf/1341-synology-impact-deploy
-pr: none
-status: implementing
+pr: 1342
+status: validating
 context_routes:
   - testing
   - execution-resources
 owned_paths:
   - deploy/synology/scripts/deploy.sh
-  - tests/ci/test_synology_auto_staging_deploy.py
+  - deploy/synology/tests/test_fresh_baseline_contract.py
   - docs/agents/tasks/active/OTERYN-20260908-synology-impact-deploy.md
 proven:
   - protected main is 7bf4d26efb8cd9e25a4090f283d701f4d3a304e0 with required platform-gate
   - live run 34204735730 spent about 68 seconds resolving runtime provenance and about 7 minutes 50 seconds inside deploy.sh
-  - current deploy.sh always executes the full MariaDB/Redis/TLS/Canary/migration/Gateway/full-health path
+  - PR 1342 owns the implementation branch and staging automation paths for Issue 1341
+  - implementation keeps the existing full deployment body and inserts the fast decision before any MariaDB TLS Canary migration or Gateway reconciliation starts
 derived:
   - the largest safe latency reduction is to bypass full-stack reconciliation only when accumulated runtime impact is proven presentation-only
-  - Synology must independently classify from persisted current-release SHA to target SHA so skipped intermediate releases cannot be hidden by a latest-commit-only classification
+  - Synology independently classifies from persisted current-release SHA to target SHA so skipped intermediate releases cannot be hidden by a latest-commit-only classification
 unknown:
+  - exact-head CI result for PR 1342
   - representative protected-main fast-path wall time after integration
 conflicts: []
 first_failure:
@@ -82,14 +84,16 @@ rejected_hypotheses:
   - copying individual files into a running container would break immutable release provenance
   - treating all public files as presentation-only would incorrectly include public/index.php
 changed_paths:
+  - deploy/synology/scripts/deploy.sh
+  - deploy/synology/tests/test_fresh_baseline_contract.py
   - docs/agents/tasks/active/OTERYN-20260908-synology-impact-deploy.md
 validation:
-  - command: not-run
+  - command: PR 1342 exact-head GitHub Actions
     result: NOT_RUN
-    evidence: implementation not yet committed
+    evidence: checks started after PR creation and current checkpoint binding
 blockers:
   - none
-next_action: implement bounded runtime impact classification and Platform-only fast reconciliation in deploy.sh
+next_action: inspect PR 1342 exact-head checks and repair any first failing contract before Merge Queue
 ```
 
 ## Source branch closeout
