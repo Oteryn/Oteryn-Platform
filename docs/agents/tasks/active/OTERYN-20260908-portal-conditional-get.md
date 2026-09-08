@@ -48,10 +48,10 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T13:14:00Z
-head: f46f1d8df36c1f773425fc4be5579f54e669982e
+updated_at: 2026-09-08T13:16:00Z
+head: c6cf758704a2c52d5fa07f7adb5f58b320a26ddf
 branch: perf/1351-portal-conditional-get
-pr: none
+pr: 1354
 status: validating
 context_routes:
   - testing
@@ -68,6 +68,7 @@ proven:
   - sitemap 503 failure path returns before any ETag assignment and keeps no-store
   - focused tests cover initial ETag, matching If-None-Match 304, empty 304 body, cache directives, and 503 without ETag
   - task changes no migration, schema, Gateway, Canary, auth, payment or deployment-control path
+  - PR 1354 is the canonical validation/integration PR for this task
 unknown:
   - exact-head validation result
   - resulting protected-main deployment profile and wall-time
@@ -84,20 +85,20 @@ changed_paths:
   - tests/Feature/PublicPortal/PublicSeoConditionalRequestTest.php
   - docs/agents/tasks/active/OTERYN-20260908-portal-conditional-get.md
 validation:
-  - command: focused feature tests
+  - command: PR 1354 exact-head workflows
     result: PENDING
-    evidence: waiting for GitHub exact-head CI
+    evidence: waiting for GitHub Actions on exact head
 blockers:
   - resulting-main Synology deployment for PR 1353 is still in progress
-next_action: open validation PR and use exact-head CI while keeping protected integration held until PR 1353 staging is healthy
+next_action: complete exact-head validation; after PR 1353 staging is healthy, transition to ready/archive-pending and enter normal Merge Queue
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: implementation is complete but validation and protected integration are not terminal
-source_branch_evidence: Issue #1351; branch perf/1351-portal-conditional-get
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: delete source branch only after verified protected integration and deployed staging proof
+source_branch_evidence: Issue #1351; PR #1354; branch perf/1351-portal-conditional-get
 ```
 
 ## Notes
