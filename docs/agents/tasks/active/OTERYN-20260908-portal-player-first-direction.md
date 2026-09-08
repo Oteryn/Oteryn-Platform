@@ -19,10 +19,10 @@ Persist the owner-approved player-first Portal completion direction as a durable
 
 ## Acceptance criteria
 
-- [ ] Add a durable player-facing completion direction document covering product promise, truthful release/service state, Oteryn/Tibia-oriented art direction, homepage composition, page-family completion, EN/PL editorial quality, player journey, empty-state policy, implementation boundary and release acceptance.
-- [ ] Preserve explicit unknowns and prohibit invented gameplay/release/runtime claims.
-- [ ] Link the direction from `docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md` without changing selector authority or delivery ordering.
-- [ ] Keep the change documentation/governance only; no runtime, production, auth, payment, game-server or deployment behavior changes.
+- [x] Add a durable player-facing completion direction document covering product promise, truthful release/service state, Oteryn/Tibia-oriented art direction, homepage composition, page-family completion, EN/PL editorial quality, player journey, empty-state policy, implementation boundary and release acceptance.
+- [x] Preserve explicit unknowns and prohibit invented gameplay/release/runtime claims.
+- [x] Link the direction from `docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md` without changing selector authority or delivery ordering.
+- [x] Keep the change documentation/governance only; no runtime, production, auth, payment, game-server or deployment behavior changes.
 - [ ] Pass applicable exact-head documentation/governance validation and protected integration requirements.
 
 ## Ownership
@@ -47,11 +47,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T13:48:45Z
-head: 2acb8b548b413b9ce522ff5c507b4f10c9d0ff0e
+updated_at: 2026-09-08T13:55:30Z
+head: fc5f423bc4cebf29bfccf8d6dcbb6b427dcc8c14
 branch: docs/1356-portal-player-first-direction
-pr: none
-status: implementing
+pr: 1357
+status: validating
 context_routes:
   - portal-completion
 owned_paths:
@@ -62,17 +62,21 @@ proven:
   - Owner requested that the comprehensive player-first Portal completion solution agreed in the current session be persisted to the repository.
   - Issue #1356 owns this documentation-only record and explicitly does not resurrect PORTAL-POLISH or replace the live Portal Completion selector.
   - Protected main at task admission is 2acb8b548b413b9ce522ff5c507b4f10c9d0ff0e.
+  - PR #1357 contains exactly the new player-experience companion direction, its delivery-plan reference and this task packet at the pre-checkpoint candidate fc5f423bc4cebf29bfccf8d6dcbb6b427dcc8c14.
 derived:
-  - A companion direction document plus one reference from the existing delivery plan is sufficient to make the decision durable without creating a parallel queue.
+  - The direction is durable and discoverable from the existing Portal Completion delivery hierarchy without creating a parallel queue.
 unknown:
-  - Exact final PR number and exact final task-head SHA.
+  - Exact-head documentation/governance and required-check result for the final PR head after this checkpoint update.
 conflicts: []
 first_failure:
   marker: none
   evidence: none
 rejected_hypotheses:
   - Reopening the completed PORTAL-POLISH task is required to preserve the new owner direction.
+  - The player-first direction requires a runtime change in the same PR.
 changed_paths:
+  - docs/architecture/PORTAL_PLAYER_EXPERIENCE_COMPLETION_DIRECTION.md
+  - docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md
   - docs/agents/tasks/active/OTERYN-20260908-portal-player-first-direction.md
 validation:
   - command: product/browser E2E
@@ -80,18 +84,18 @@ validation:
     evidence: This task records owner-approved documentation direction only and changes no executable product path.
   - command: exact-head documentation/governance validation
     result: NOT_RUN
-    evidence: Final candidate has not been created yet.
+    evidence: Final PR head checks are pending after the checkpoint update.
 blockers:
   - none
-next_action: Add the player-experience direction document and link it from the existing Portal Completion delivery plan, then open the documentation PR and validate its exact head.
+next_action: Verify the exact final PR #1357 head, inspect its complete three-file diff, and confirm applicable required/documentation governance checks before protected integration.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: documentation task is still active
-source_branch_evidence: Issue #1356 and branch docs/1356-portal-player-first-direction
+source_branch_reason: documentation task is validating in PR #1357
+source_branch_evidence: Issue #1356; PR #1357; branch docs/1356-portal-player-first-direction
 ```
 
 ## Notes
