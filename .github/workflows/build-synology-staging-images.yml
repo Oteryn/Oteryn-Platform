@@ -29,13 +29,44 @@ on:
       - services/game-gateway/go.mod
       - services/game-gateway/cmd/**
       - services/game-gateway/internal/**
-      - deploy/synology/**
+      - deploy/synology/.env.example
+      - deploy/synology/compose.yml
+      - deploy/synology/compose.marketplace.yml
+      - deploy/synology/release-contract.env
+      - deploy/synology/docker/platform.Dockerfile
+      - deploy/synology/docker/platform.Dockerfile.dockerignore
+      - deploy/synology/docker/platform-entrypoint.sh
+      - deploy/synology/docker/platform-media.ini
+      - deploy/synology/docker/gateway.Dockerfile
+      - deploy/synology/docker/gateway.Dockerfile.dockerignore
+      - deploy/synology/mariadb/init/**
+      - deploy/synology/nginx/**
+      - deploy/synology/tls/**
+      - deploy/synology/runner/Dockerfile
+      - deploy/synology/runner/Dockerfile.dockerignore
+      - deploy/synology/runner/entrypoint.sh
+      - deploy/synology/runner/test-entrypoint.sh
+      - deploy/synology/runner/.env.example
+      - deploy/synology/runner/compose.yml
+      - deploy/synology/scripts/deploy.sh
+      - deploy/synology/scripts/health-check.sh
+      - deploy/synology/scripts/lib.sh
+      - deploy/synology/scripts/marketplace-staging.sh
+      - deploy/synology/scripts/prepare-fresh-schema-baseline.sh
+      - deploy/synology/scripts/recover-schema.sh
+      - deploy/synology/scripts/release-state.sh
+      - deploy/synology/scripts/repository-ghcr-image.sh
+      - deploy/synology/scripts/rollback.sh
+      - deploy/synology/scripts/upgrade-legacy-release-state.sh
+      - deploy/synology/scripts/validate-ipv4.sh
+      - deploy/synology/tests/**
       - scripts/ci/classify_synology_builds.py
       - tests/ci/test_synology_rollback_contract.py
       - tests/ci/test_synology_rollback_recovery_contract.py
       - tests/ci/test_synology_deploy_release_identity.py
       - tests/ci/test_synology_auto_staging_deploy.py
       - tests/ci/test_synology_gateway_build_inputs.py
+      - tests/ci/test_synology_deployment_package_routing.py
       - .github/workflows/build-synology-staging-images.yml
       - .github/workflows/deploy-synology-staging.yml
   push:
@@ -66,8 +97,44 @@ on:
       - services/game-gateway/go.mod
       - services/game-gateway/cmd/**
       - services/game-gateway/internal/**
-      - deploy/synology/**
+      - deploy/synology/.env.example
+      - deploy/synology/compose.yml
+      - deploy/synology/compose.marketplace.yml
+      - deploy/synology/release-contract.env
+      - deploy/synology/docker/platform.Dockerfile
+      - deploy/synology/docker/platform.Dockerfile.dockerignore
+      - deploy/synology/docker/platform-entrypoint.sh
+      - deploy/synology/docker/platform-media.ini
+      - deploy/synology/docker/gateway.Dockerfile
+      - deploy/synology/docker/gateway.Dockerfile.dockerignore
+      - deploy/synology/mariadb/init/**
+      - deploy/synology/nginx/**
+      - deploy/synology/tls/**
+      - deploy/synology/runner/Dockerfile
+      - deploy/synology/runner/Dockerfile.dockerignore
+      - deploy/synology/runner/entrypoint.sh
+      - deploy/synology/runner/test-entrypoint.sh
+      - deploy/synology/runner/.env.example
+      - deploy/synology/runner/compose.yml
+      - deploy/synology/scripts/deploy.sh
+      - deploy/synology/scripts/health-check.sh
+      - deploy/synology/scripts/lib.sh
+      - deploy/synology/scripts/marketplace-staging.sh
+      - deploy/synology/scripts/prepare-fresh-schema-baseline.sh
+      - deploy/synology/scripts/recover-schema.sh
+      - deploy/synology/scripts/release-state.sh
+      - deploy/synology/scripts/repository-ghcr-image.sh
+      - deploy/synology/scripts/rollback.sh
+      - deploy/synology/scripts/upgrade-legacy-release-state.sh
+      - deploy/synology/scripts/validate-ipv4.sh
+      - deploy/synology/tests/**
       - scripts/ci/classify_synology_builds.py
+      - tests/ci/test_synology_rollback_contract.py
+      - tests/ci/test_synology_rollback_recovery_contract.py
+      - tests/ci/test_synology_deploy_release_identity.py
+      - tests/ci/test_synology_auto_staging_deploy.py
+      - tests/ci/test_synology_gateway_build_inputs.py
+      - tests/ci/test_synology_deployment_package_routing.py
       - .github/workflows/build-synology-staging-images.yml
       - .github/workflows/deploy-synology-staging.yml
   workflow_dispatch:
@@ -94,6 +161,7 @@ jobs:
       deployment_package_changed: ${{ steps.classify.outputs.deployment_package_changed }}
       control_plane_changed: ${{ steps.classify.outputs.control_plane_changed }}
       runtime_deployment_changed: ${{ steps.classify.outputs.runtime_deployment_changed }}
+      deployment_validation_changed: ${{ steps.classify.outputs.deployment_validation_changed }}
       build_platform: ${{ steps.classify.outputs.build_platform }}
       build_gateway: ${{ steps.classify.outputs.build_gateway }}
       build_deploy_runner: ${{ steps.classify.outputs.build_deploy_runner }}
@@ -138,11 +206,14 @@ jobs:
             deploy/synology/scripts/lib.sh \
             deploy/synology/scripts/deploy.sh \
             deploy/synology/scripts/health-check.sh \
+            deploy/synology/scripts/marketplace-staging.sh \
+            deploy/synology/scripts/prepare-fresh-schema-baseline.sh \
             deploy/synology/scripts/recover-schema.sh \
             deploy/synology/scripts/release-state.sh \
             deploy/synology/scripts/repository-ghcr-image.sh \
             deploy/synology/scripts/rollback.sh \
             deploy/synology/scripts/upgrade-legacy-release-state.sh \
+            deploy/synology/scripts/validate-ipv4.sh \
             deploy/synology/runner/entrypoint.sh
           sh -n \
             deploy/synology/tls/init.sh \
@@ -156,6 +227,8 @@ jobs:
           python3 tests/ci/test_synology_deploy_release_identity.py
           python3 tests/ci/test_synology_auto_staging_deploy.py
           python3 tests/ci/test_synology_gateway_build_inputs.py
+          python3 tests/ci/test_synology_deployment_package_routing.py
+          python3 deploy/synology/tests/test_fresh_baseline_contract.py
 
       - name: Validate Compose manifests and LAN isolation
         run: |
