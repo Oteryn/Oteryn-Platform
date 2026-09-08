@@ -32,7 +32,13 @@ def _codeql_action_refs() -> list[tuple[str, str, str]]:
         r"(?m)^\s*uses:\s*github/codeql-action/([^@\s]+)@([0-9a-f]{40})(?:\s+#.*)?$"
     )
     refs: list[tuple[str, str, str]] = []
-    for workflow in sorted(WORKFLOWS_DIR.glob("*.yml")):
+    workflows = sorted(
+        [
+            *WORKFLOWS_DIR.glob("*.yml"),
+            *WORKFLOWS_DIR.glob("*.yaml"),
+        ]
+    )
+    for workflow in workflows:
         text = workflow.read_text(encoding="utf-8")
         for component, sha in pattern.findall(text):
             refs.append((workflow.name, component, sha))
