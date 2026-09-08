@@ -65,6 +65,47 @@ RUNNER_EXACT = {
     "deploy/synology/runner/test-entrypoint.sh",
 }
 
+# These files change the base Synology staging runtime/reconciliation behavior.
+# They can require a protected-main staging reconcile but do not inherently
+# invalidate Platform or Gateway images.
+DEPLOYMENT_RUNTIME_EXACT = {
+    "deploy/synology/.env.example",
+    "deploy/synology/compose.yml",
+    "deploy/synology/compose.marketplace.yml",
+    "deploy/synology/scripts/deploy.sh",
+    "deploy/synology/scripts/health-check.sh",
+    "deploy/synology/scripts/lib.sh",
+    "deploy/synology/scripts/prepare-fresh-schema-baseline.sh",
+    "deploy/synology/scripts/recover-schema.sh",
+    "deploy/synology/scripts/release-state.sh",
+    "deploy/synology/scripts/rollback.sh",
+    "deploy/synology/scripts/upgrade-legacy-release-state.sh",
+    "deploy/synology/scripts/validate-ipv4.sh",
+}
+DEPLOYMENT_RUNTIME_PREFIXES = (
+    "deploy/synology/mariadb/init/",
+    "deploy/synology/nginx/",
+    "deploy/synology/tls/",
+)
+
+# Operator package inputs are validated but do not require automatic runtime
+# reconciliation by themselves.
+DEPLOYMENT_OPERATOR_EXACT = {
+    "deploy/synology/runner/.env.example",
+    "deploy/synology/runner/compose.yml",
+    "deploy/synology/scripts/marketplace-staging.sh",
+}
+
+# Validation/preflight assets may exercise Synology contracts without changing
+# deployment behavior. In particular, production preflight remains outside the
+# staging reconciliation boundary.
+DEPLOYMENT_VALIDATION_EXACT = {
+    "deploy/synology/scripts/production-target-preflight.sh",
+}
+DEPLOYMENT_VALIDATION_PREFIXES = (
+    "deploy/synology/tests/",
+)
+
 # If the decision machinery or a Docker build-context boundary changes, prove
 # every relevant image path rather than allowing the classifier to skip itself.
 CONTROL_PLANE_EXACT = {
@@ -76,9 +117,6 @@ CONTROL_PLANE_EXACT = {
     GATEWAY_DOCKERIGNORE,
     RUNNER_DOCKERIGNORE,
 }
-
-DEPLOYMENT_ROOT = "deploy/synology/"
-RUNNER_ROOT = "deploy/synology/runner/"
 
 
 def _matches(path: str, exact: set[str], prefixes: Iterable[str] = ()) -> bool:
@@ -97,16 +135,20 @@ def _runner_input(path: str) -> bool:
     return path in RUNNER_EXACT
 
 
-def _deployment_package_input(path: str) -> bool:
-    if not path.startswith(DEPLOYMENT_ROOT):
-        return False
-    return not (_platform_input(path) or _gateway_input(path) or _runner_input(path))
-
-
 def _runtime_deployment_package_input(path: str) -> bool:
-    # Runner operator configuration is validated as deployment-package state but
-    # does not reconcile the staging runtime by itself.
-    return _deployment_package_input(path) and not path.startswith(RUNNER_ROOT)
+    return _matches(path, DEPLOYMENT_RUNTIME_EXACT, DEPLOYMENT_RUNTIME_PREFIXES)
+
+
+def _operator_deployment_package_input(path: str) -> bool:
+    return path in DEPLOYMENT_OPERATOR_EXACT
+
+
+def _deployment_package_input(path: str) -> bool:
+    return _runtime_deployment_package_input(path) or _operator_deployment_package_input(path)
+
+
+def _deployment_validation_input(path: str) -> bool:
+    return _matches(path, DEPLOYMENT_VALIDATION_EXACT, DEPLOYMENT_VALIDATION_PREFIXES)
 
 
 def _changed_paths(base: str, head: str) -> list[str]:
@@ -150,6 +192,7 @@ def classify(paths: Iterable[str], event_name: str, head: str) -> dict[str, obje
     deploy_runner_changed = any(_runner_input(path) for path in changed)
     deployment_package_changed = any(_deployment_package_input(path) for path in changed)
     runtime_deployment_changed = any(_runtime_deployment_package_input(path) for path in changed)
+    deployment_validation_changed = any(_deployment_validation_input(path) for path in changed)
 
     if event_name == "workflow_dispatch":
         build_platform = True
@@ -227,6 +270,7 @@ def classify(paths: Iterable[str], event_name: str, head: str) -> dict[str, obje
         "deployment_package_changed": deployment_package_changed,
         "control_plane_changed": control_plane_changed,
         "runtime_deployment_changed": runtime_deployment_changed,
+        "deployment_validation_changed": deployment_validation_changed,
         "build_platform": build_platform,
         "build_gateway": build_gateway,
         "build_deploy_runner": build_deploy_runner,
@@ -255,6 +299,7 @@ def _write_output(path: Path, result: dict[str, object]) -> None:
         "deployment_package_changed",
         "control_plane_changed",
         "runtime_deployment_changed",
+        "deployment_validation_changed",
         "build_platform",
         "build_gateway",
         "build_deploy_runner",
@@ -287,6 +332,7 @@ def _write_summary(path: Path, result: dict[str, object]) -> None:
         f"- control-plane change: `{str(result['control_plane_changed']).lower()}`\n"
         f"- deployment-package change: `{str(result['deployment_package_changed']).lower()}`\n"
         f"- runtime deployment reconciliation: `{str(result['runtime_deployment_changed']).lower()}`\n"
+        f"- validation-only change: `{str(result['deployment_validation_changed']).lower()}`\n"
         f"- image jobs allocated: `{str(result['has_image_builds']).lower()}`\n"
         f"- changed paths: `{len(result['changed_paths'])}`\n\n"
         "| component | mode | build source SHA |\n"

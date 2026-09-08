@@ -74,3 +74,34 @@ test('@smoke @portal-polish measure rendered asset sizes and layout quality', as
     }
   }
 });
+
+test('@smoke @portal-polish breakpoint changes preserve newly opened mobile navigation', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto('/en');
+  const menu = page.locator('.mobile-nav');
+  const trigger = menu.locator('summary');
+  // Reproduce the event order without timers: resize opens the now-visible
+  // native disclosure before the queued media-query change is delivered.
+  await page.evaluate(() => window.addEventListener('resize', () => {
+    const summary = document.querySelector('.mobile-nav > summary');
+    summary.focus();
+    summary.click();
+  }, { once: true }));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect(menu).toHaveAttribute('open', '');
+  await page.keyboard.press('Tab');
+  await expect(menu.locator('nav a').first()).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu).not.toHaveAttribute('open', '');
+  await expect(trigger).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(menu).toHaveAttribute('open', '');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await expect(menu).not.toHaveAttribute('open', '');
+  const desktopMenu = page.locator('.nav-group').first();
+  await desktopMenu.locator('summary').click();
+  await expect(desktopMenu).toHaveAttribute('open', '');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(desktopMenu).not.toHaveAttribute('open', '');
+});

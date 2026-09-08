@@ -52,6 +52,9 @@
             $href = match ($destination) {
                 'admin.media.index' => route('admin.media.index', $routeParameters),
                 'admin.payments.reconciliation.index' => route('admin.payments.reconciliation.index', $routeParameters),
+                'admin.audit.index' => route('admin.audit.index', $routeParameters),
+                'admin.homepage-templates.index' => route('admin.homepage-templates.index', $routeParameters),
+                'admin.roles.index' => route('admin.roles.index', $routeParameters),
                 default => route($destination, $routeParameters),
             };
         @endphp
