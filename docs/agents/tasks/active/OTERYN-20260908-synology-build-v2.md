@@ -38,6 +38,7 @@ Governing GitHub Issue: #1328 — make Synology staging image builds component-a
 owned_paths:
   - .github/workflows/build-synology-staging-images.yml
   - .github/workflows/deploy-synology-staging.yml
+  - deploy/synology/compose.yml
   - deploy/synology/docker/platform.Dockerfile
   - deploy/synology/docker/platform.Dockerfile.dockerignore
   - deploy/synology/docker/gateway.Dockerfile
@@ -69,78 +70,65 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T07:40:00Z
-head: 28a1f33c6bb1ce6ab753de7d7f4246be3b11b4c3
-branch: ci/1328-synology-truthful-deploy-package
-pr: 1336
-status: validating
+updated_at: 2026-09-08T07:53:00Z
+head: 6c1d2914969454e32998b7283f8876c789d807e6
+branch: ci/1328-synology-deploy-package-proof
+pr: none
+status: implementing
 context_routes:
   - testing
   - execution-resources
 owned_paths:
-  - .github/workflows/build-synology-staging-images.yml
-  - scripts/ci/classify_synology_builds.py
+  - deploy/synology/compose.yml
   - tests/ci/test_synology_auto_staging_deploy.py
-  - tests/ci/test_synology_deployment_package_routing.py
   - docs/agents/tasks/active/OTERYN-20260908-synology-build-v2.md
 proven:
   - PR 1331 integrated through Merge Queue as protected main 48565e8c3a31c1d0349a89e7c7b38118fd4cebba with component-aware build/provenance architecture
-  - protected-main run 34195930772 exposed a provenance fan-in local-initialization defect after successful Platform/Gateway publication
-  - PR 1335 repaired the fan-in and bounded Gateway inputs to go.mod plus cmd/** plus internal/**; its exact-head and Merge Queue qualification passed
-  - PR 1335 integrated through Merge Queue as protected main cbe2d4ee618019f1884c3f076133469386198f95; main remains protected with required platform-gate
-  - protected-main Build Synology Staging Images run 34197410049 succeeded at cbe2d4ee618019f1884c3f076133469386198f95
-  - automatic Deploy Synology Staging run 34197488519 succeeded for the same protected-main release
-  - Gateway BuildKit context was reduced from 136.13 kB before truthful bounding to 12.53 kB on PR 1335 qualification
-  - remaining broad deploy/synology/** trigger/classifier fallback incorrectly treated Synology documentation as deployment package/runtime reconciliation input
-  - PR 1336 replaces that fallback with explicit runtime, operator-only and validation-only input sets and removes the broad deploy/synology/** workflow trigger
-  - docs under deploy/synology, including README.md and PUBLIC_ENDPOINTS.md, are excluded from the PR 1336 classifier and workflow trigger model
-  - PR 1336 control-plane qualification at e40489363a9b868f8a8d7936027f8248337a871f successfully built and smoke-checked Platform, Gateway and deploy-runner; PR deploy was skipped as required
-  - the only Synology validation failure at e40489363a9b868f8a8d7936027f8248337a871f was a stale test that explicitly required the removed deploy/synology/** trigger
-  - tests/ci/test_synology_auto_staging_deploy.py now requires representative truthful runtime paths and rejects the broad glob and Synology documentation paths
+  - PR 1335 repaired protected-main provenance fan-in and bounded Gateway inputs; protected-main Build Synology run 34197410049 and Deploy Synology run 34197488519 both succeeded at cbe2d4ee618019f1884c3f076133469386198f95
+  - Gateway BuildKit context was reduced from 136.13 kB before truthful bounding to 12.53 kB after PR 1335
+  - PR 1336 removed broad deploy/synology/** routing, separated runtime/operator/validation-only inputs, passed exact-head and Merge Queue qualification, and integrated as protected main 1181afbbcf74faa9b19b2f6d05fe28ff7a04fb19
+  - protected-main Build Synology Staging Images run 34201292818 at 1181afbbcf74faa9b19b2f6d05fe28ff7a04fb19 passed classifier, deployment validation, Platform/Gateway publication and exact-provenance staging dispatch; ordinary main did not publish deploy-runner
+  - Agent Governance run 34201292867 failed only because this task still referenced terminal PR 1336 with a stale merge next action; checkpoint schema and governing Issue liveness passed
+  - deploy/synology/compose.yml used mutable alpine:3.22 specifically for tls-init even though the exact Alpine digest sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce was already independently resolved in prior successful Gateway BuildKit provenance
+  - Case A branch pins tls-init to alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce and adds a deterministic contract requiring that immutable identity
 derived:
-  - a docs-only change under deploy/synology can no longer enter the Synology image/deploy workflow once PR 1336 is integrated because neither the top-level paths nor classifier include those documentation paths
-  - runtime deployment-package-only protected-main changes remain release-relevant while allocating zero image jobs, enabling exact immutable Platform/Gateway reuse through persisted current-release provenance
-  - operator-only and validation-only Synology changes can still be validated without forcing base staging reconciliation
+  - Case A is a truthful runtime deployment-package-only change: deploy/synology/compose.yml is release-relevant, while no Platform, Gateway or deploy-runner image input changes
+  - after protected integration, Case A should allocate zero runtime image build jobs and resolve both runtime components from accepted persisted immutable current-release provenance before staging reconciliation
+  - moving active ownership to the current branch removes the terminal-PR liveness conflict without archiving the still-incomplete governing task
 unknown:
-  - exact-head CI result after the stale trigger-test and checkpoint-schema repairs
-  - protected-main behavior after PR 1336 integration
-  - representative deployment-package-only zero-image-build live proof
+  - terminal result of Deploy Synology Staging run 34201364919 for protected main 1181afbbcf74faa9b19b2f6d05fe28ff7a04fb19
+  - exact-head CI and routing result for Case A
+  - live protected-main Case A zero-image-build and component-reuse result
   - representative one-runtime-component one-image-build live proof with immutable reuse
 conflicts: []
 first_failure:
-  marker: stale-broad-synology-trigger-contract
-  evidence: Build Synology Staging Images run 34199930921 failed only because test_synology_auto_staging_deploy.py asserted deploy/synology/** remained in the push block; classifier and all three PR component builds passed
+  marker: post-1336-terminal-task-liveness
+  evidence: Agent Governance run 34201292867 reported terminal_pr_stale_next_action and terminal_pr_active_task for merged PR 1336; all checkpoint and governing-Issue validators passed
 rejected_hypotheses:
-  - docs under deploy/synology are deployment package inputs
-  - production-target preflight changes require staging reconciliation
-  - marketplace operator-control script changes inherently require base staging reconciliation
-  - the new component classifier or PR image builds failed at e40489363a9b868f8a8d7936027f8248337a871f
+  - PR 1336 technical routing failed on protected main
+  - protected-main deploy-runner publication occurred after PR 1336
+  - health-check alpine references require a new pin; lib.sh already substitutes their historical tags with immutable probe digests
 changed_paths:
-  - .github/workflows/build-synology-staging-images.yml
-  - scripts/ci/classify_synology_builds.py
+  - deploy/synology/compose.yml
   - tests/ci/test_synology_auto_staging_deploy.py
-  - tests/ci/test_synology_deployment_package_routing.py
   - docs/agents/tasks/active/OTERYN-20260908-synology-build-v2.md
 validation:
-  - command: Build Synology Staging Images run 34197410049 at protected main cbe2d4ee618019f1884c3f076133469386198f95
+  - command: Build Synology Staging Images run 34201292818 at protected main 1181afbbcf74faa9b19b2f6d05fe28ff7a04fb19
     result: PASS
-    evidence: protected-main image build/fan-in path completed successfully after PR 1335
-  - command: Deploy Synology Staging run 34197488519
-    result: PASS
-    evidence: automatic Synology staging deployment completed successfully for cbe2d4ee618019f1884c3f076133469386198f95
-  - command: Build Synology Staging Images run 34199930921 at e40489363a9b868f8a8d7936027f8248337a871f
+    evidence: deployment validation, classifier, Platform/Gateway publish and exact-provenance staging dispatch succeeded; no deploy-runner main publication job existed
+  - command: Agent Governance run 34201292867
     result: FAIL
-    evidence: classifier and Platform/Gateway/deploy-runner PR builds passed; only stale broad-trigger contract failed before Compose validation
+    evidence: only live task-liveness failed because merged PR 1336 remained recorded as active ownership; schema and Issue liveness passed
 blockers: []
-next_action: qualify the repaired PR 1336 exact head, integrate through required platform-gate and Merge Queue, then execute representative deployment-package-only and one-component live proofs
+next_action: Open the Case A deployment-package-only proof PR from ci/1328-synology-deploy-package-proof, qualify exact-head zero-image routing, integrate through protected policy, and verify automatic Synology staging reconciliation with both runtime components reused by immutable provenance.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: task remains active until live proportional protected-main behavior is proven and Issue #1328 is terminally completed
-source_branch_evidence: PR #1336 continues the same governing Issue #1328 task after merged PRs #1331 and #1335
+source_branch_reason: task ownership moved to the active Case A live-proof branch and remains active until both live proportionality cases and terminal closeout are proven
+source_branch_evidence: ci/1328-synology-deploy-package-proof continues Issue #1328 after merged PR #1336
 ```
 
 ## Notes
