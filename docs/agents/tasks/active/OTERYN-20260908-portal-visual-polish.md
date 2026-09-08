@@ -13,17 +13,17 @@ optional_reads: []
 
 ## Goal
 
-Governing GitHub Issue: #1333. Finish the owner-rejected visual details of the integrated Platform redesign, preserve application/security contracts, prove real page families, and deliver through protected main.
-
-Historical admission main was `519f610b9e02641283cc4322c80b74a9462edb11`. The previous #1298 task is terminal; this follow-up preserves its implementation rather than restarting it. Continue the existing PR #1334 and branch `fix/20260908-portal-visual-polish` only.
+Finish the owner-rejected visual details of the integrated Platform redesign, preserve application/security contracts, prove real page families, and deliver through protected main using the existing Issue #1333, PR #1334 and branch `fix/20260908-portal-visual-polish` only.
 
 ## Acceptance criteria
 
-- [ ] Replace oversized or blurry thumbnail presentation, background seams and unfinished shared visual hierarchy.
-- [ ] Finish representative public, account/security, commerce/support/error and administrator families in EN/PL and at phone/tablet/desktop/wide sizes.
-- [ ] Record asset/layout measurements and compare real before/after screenshots, including sparse and populated content.
-- [ ] Preserve all routes, security/domain/payment behavior, negative assertions and truthful application states.
-- [ ] Pass relevant focused and exact-candidate required checks and complete protected integration/closeout.
+- [x] Replace oversized or blurry thumbnail presentation and remove stretched decorative background seams.
+- [x] Finish shared typography, spacing, density, controls, cards, tables, focus behavior, mobile navigation and footer presentation.
+- [x] Cover representative public, account/security, commerce/support/error and administrator families in EN/PL and phone/tablet/desktop/wide viewports.
+- [x] Record measured asset/layout diagnostics and bounded before/after visual evidence.
+- [x] Preserve routes, domain/security/payment behavior and negative assertions.
+- [ ] Pass fresh exact-integration-candidate checks after current-main reconciliation.
+- [ ] Complete protected integration, task archival, Issue closeout and source-branch disposition.
 
 ## Ownership
 
@@ -46,58 +46,17 @@ owned_paths:
 modules:
   - web-cms
   - admin-rbac
-dependencies:
-  - none
-blockers:
-  - none
-cross_repository_tasks:
-  - none
+dependencies: []
+blockers: []
+cross_repository_tasks: []
 ```
-
-The navigation enhancement is included solely to repair this task's existing mobile keyboard-focus failure. No authentication, role grant, permission, payment or server boundary is expanded.
-
-## Execution routing
-
-```yaml
-execution_target: isolated_workspace
-runner_class: github_hosted
-equivalent_ci: .github/workflows/acceptance-validation.yml
-remote_desktop: denied
-remote_desktop_reason: null
-requested_host_actions: []
-requested_remote_desktop_tools: []
-requested_remote_desktop_calls: []
-github_preflight:
-  verified_at: 2026-09-08T08:32:00Z
-  repository: Oteryn/Oteryn-Platform
-  default_branch_sha: c2e4ff4d035b50a96c88cf99adfb32d60040e317
-  governing_issue: 1333
-  pull_request: 1334
-  task_head_sha: b0d898ebe29cb571bd5f8c91543cfb0380ef3f75
-parallel_execution:
-  effort: high
-  lane_strategy: single_agent
-  decision_basis: Shared visual tokens, templates, navigation and screenshot acceptance require one coherent writer; existing hosted browser jobs provide independent validation.
-  lanes:
-    - id: portal-polish
-      owned_paths: [public/css, public/images, public/js/portal-navigation.js, resources/views, lang, scripts/acceptance/tests/portal-polish-quality.spec.mjs, scripts/acceptance/tests/portal-visual-review.spec.mjs, tests/Feature/PortalVisualPolishTest.php]
-      dependencies: []
-      branch: refs/heads/fix/20260908-portal-visual-polish
-      worktree: isolated-workspace-with-exact-source-and-hosted-runtime-validation
-      shared_leases: []
-  integration_order: [portal-polish]
-```
-
-## Next-agent invocation
-
-`PORTAL-POLISH` resolves this existing live ownership through the canonical Portal prompt. It does not create a new programme, Issue, branch, PR or parallel writer. After terminal closeout the alias is status-only.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T08:32:00Z
-head: b0d898ebe29cb571bd5f8c91543cfb0380ef3f75
+updated_at: 2026-09-08T09:10:00Z
+head: 1b9909342a303affe567fbfcb69193a2f2522a80
 branch: fix/20260908-portal-visual-polish
 pr: 1334
 status: validating
@@ -121,32 +80,34 @@ owned_paths:
   - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
   - docs/agents/tasks/active/OTERYN-20260908-portal-visual-polish.md
 proven:
-  - Issue 1333 and draft PR 1334 remain open; the head field records the continuation admission head before this material repair commit.
-  - Protected main advanced from 0cd7e76c45736e81cc50db24c6af79ba4a819631 to c2e4ff4d035b50a96c88cf99adfb32d60040e317 through PR 1338; its delta is confined to Synology build inputs, their test and the separate task packet.
-  - Implementation 2acc56708461c5f4dce853d837e04f1e56840a8b passed CI 34197970711, CodeQL 34197970792, Edge Security 34197970823, DB Outage 34197970747, Game Auth Concurrency 34197970750, Phase 7 34197970713, Content Scale 34197970748, Events 34197970758, Wiki Reconciliation 34197970781 and staging-image build 34197970707.
-  - Acceptance run 34197970780 failed mobile Tab focus; its failure snapshot shows the disclosure closed. Its manifest contains 205 real Laravel screenshot records with no reported missing assets, unlabelled controls or document overflow; this does not make the failed run a PASS.
-  - A deterministic Chromium component reproduction opens the visible native mobile disclosure during resize before the queued media-query event; the old unconditional close handler closes it and loses first-link focus, while the hidden-disclosures-only fix preserves both. Escape focus restoration and hiding the mobile disclosure at desktop width also pass.
-  - The administrator links already existed at runtime; the repository navigation scanner recognizes literal route calls rather than route variables. Three explicit match arms make audit, homepage templates and roles discoverable without changing authorization or exempting routes.
-  - Baseline artifact 10043606384 from run 34194603808 has verified SHA256 b7096f699bc388d7514c73f07d2a40a404ff97f600565ced9e3be4a22a69e1c0 and tracked-source archive identity 4b71868c969766416c57246bf74186168375d125.
-  - Implementation artifact 10044731213 from run 34197970780 has verified SHA256 86c41460dc9372074ccb2ddd09bb1611d7c41a02f2573b79a79285106c0b48dd.
+  - Issue #1333 and draft PR #1334 remain the canonical live lifecycle and branch ownership.
+  - Commit 937fb0c341aaff277102be59e1513ad399286122 repaired the recorded mobile keyboard-focus regression and the three administrator route/navigation coverage gaps.
+  - Acceptance E2E and Visual UX 34205457055 passed 145 configured PR-profile tests with zero failures/errors; Portal Acceptance Contract 34205457081 and CI/platform-gate 34205457014 passed on 937fb0c.
+  - The repaired acceptance artifact records 206 real Laravel screenshot records across 21 page families, EN/PL and 320/390/820/1440/1920 px viewports with no recorded missing image, unlabelled-control or document-overflow finding.
+  - Commit 1b9909342a303affe567fbfcb69193a2f2522a80 independently passed Acceptance E2E and Visual UX 34206540517, Agent Governance 34206540572, Game Auth Concurrency 34206540745, Content Scale 34206540584, Edge Security 34206540628, DB Outage 34206540573, Phase 7 34206540650, CodeQL 34206540490, Build Synology Staging Images 34206540645, Events 34206540607, CI 34206540524, Wiki Reconciliation 34206540531 and Portal Acceptance Contract 34206540511.
+  - Protected main is 7bf4d26efb8cd9e25a4090f283d701f4d3a304e0 and differs from the previous reconciliation only by the independent Synology routing documentation plus active-to-archive task transition from PR #1340.
+  - Candidate-only public/images/oteryn-thais-concept.webp is unused and its connector-read binary prefix is not a valid WebP RIFF/WEBP header; final integration removes this broken public asset instead of wiring it into UI.
+  - docs/testing/PORTAL_VISUAL_POLISH_2026-09-08.md records measured before/after evidence and explicit performance-claim boundaries.
 derived:
-  - The queued responsive dismissal explains a reproducible version of the reported focus failure; the unchanged real keyboard acceptance path must independently confirm the repair on the new exact head.
-  - The branch reconciliation must preserve all existing Portal work and import main's unrelated Synology files byte-for-byte; no separate Synology repair is authorized here.
+  - The final runtime candidate should retain the already-green Portal implementation, inherit protected main 7bf4d26 exactly, remove the unused invalid candidate image and then rerun required exact-head validation.
+  - No production deployment, payment/live-auth mutation, protection change or cross-repository work is required for this closeout.
 unknown:
-  - Hosted exact-head acceptance, navigation contract and required checks for the commit containing this checkpoint.
-  - Final whole-family visual assessment, before/after resource comparison and protected integration result.
+  - Fresh exact-head workflow results after this reconciliation commit.
+  - Protected integration result and resulting main SHA.
 conflicts: []
 first_failure:
-  marker: mobile-navigation-focus
-  evidence: Historical run 34197970780 at 2acc56708461c5f4dce853d837e04f1e56840a8b; repaired candidate awaits hosted confirmation.
+  marker: none-open-on-validated-portal-runtime
+  evidence: both historical task-owned failures are repaired; final candidate validation remains pending after reconciliation.
 rejected_hypotheses:
-  - Missing administrator navigation requires removing route coverage or changing permissions; existing links only needed explicit literal references for the scanner.
-  - Offline component execution or prior-head screenshot records alone prove final Laravel acceptance.
+  - The administrator coverage repair requires permission expansion or scanner exemptions.
+  - Passing browser automation alone proves unmeasured production performance.
+  - The unused candidate artwork should be wired into UI despite failing bounded WebP header recognition.
 changed_paths:
   - app/Admin/AdminAuthorization.php
   - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
   - docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md
   - docs/agents/tasks/active/OTERYN-20260908-portal-visual-polish.md
+  - docs/testing/PORTAL_VISUAL_POLISH_2026-09-08.md
   - lang/en/portal_art.php
   - lang/pl/portal_art.php
   - public/css/home-production.css
@@ -164,33 +125,30 @@ changed_paths:
   - scripts/acceptance/tests/portal-visual-review.spec.mjs
   - tests/Feature/PortalVisualPolishTest.php
 validation:
-  - command: Chromium native-disclosure resize ordering reproduction before and after the prepared JavaScript repair
+  - command: Acceptance E2E and Visual UX run 34205457055 at 937fb0c
     result: PASS
-    evidence: Old handler closes the menu and loses first-link focus; repaired handler preserves them and passes Escape and desktop-hide checks. Component-only evidence, not Laravel E2E.
-  - command: node --check on portal-navigation.js and portal-polish-quality.spec.mjs; PHP syntax checks on changed Blade PHP blocks; literal route reference check
+    evidence: 145 configured PR-profile test cases with zero failures/errors plus secret-safe screenshot/manifest evidence.
+  - command: Portal Acceptance Contract 34205457081 and CI 34205457014 at 937fb0c
     result: PASS
-    evidence: Prepared files parse and all three previously missing administrator routes are discoverable; no scanner or authorization rule changed.
-  - command: local node --test scripts/acceptance/coverage/test-route-view-navigation-*.mjs
-    result: BLOCKED
-    evidence: Both suites stop before assertions because php artisan route:list cannot load missing vendor/autoload.php in the recovered tracked-only workspace; hosted runtime validation is required.
-  - command: hosted acceptance and required exact-head checks for this repair
+    evidence: strict coverage, account lifecycle, runtime tests, static analysis and platform-gate passed.
+  - command: all PR-triggered required workflows at 1b990934
+    result: PASS
+    evidence: runs 34206540490 through 34206540745 listed in proven evidence all completed successfully.
+  - command: final reconciled exact-head workflows
     result: NOT_RUN
-    evidence: Must run after publication; previous implementation-head results are not promoted to the new candidate.
-blockers:
-  - none
-next_action: Verify publication of the reconciled existing branch, inspect fresh exact-head hosted checks and screenshots, repair any task-owned failure, then finish measured visual acceptance and protected merge-queue closeout.
+    evidence: starts after publication of the reconciliation commit.
+blockers: []
+next_action: Publish the current-main reconciliation with the invalid unused candidate removed, rerun exact-head required checks, then archive the task and integrate PR #1334 through the protected path.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: visual acceptance, exact-candidate required checks and protected integration are not terminal
-source_branch_evidence: draft PR #1334 remains open
+source_branch_reason: exact integration candidate and protected merge are not terminal yet
+source_branch_evidence: PR #1334 remains open
 ```
 
 ## Notes
 
-Local GitHub DNS and a complete local Laravel dependency installation are unavailable. GitHub connector writes plus repository-native hosted validation remain available; no Remote Desktop or machine-policy bypass is used. Offline browser probes are explicitly component evidence.
-
-The temporary tracked-source export was removed in the earlier implementation and remains removed. No production deployment, live-data operation, payment/auth mutation or protection change is part of this task. The bounded administrator granted-permission projection still preserves route middleware authority and its revocation regression.
+The task remains Platform-only. The Synology closeout paths included by current-main reconciliation are inherited byte-for-byte from protected main and are not Portal task mutations. No production deployment, live-data operation, payment/auth mutation or protection change is part of PORTAL-POLISH.
