@@ -34,8 +34,9 @@ Add a second fail-closed Synology staging profile for schema-stable Platform-onl
 ```yaml
 owned_paths:
   - .github/workflows/build-synology-staging-images.yml
-  - deploy/synology/scripts/deploy.sh
-  - deploy/synology/scripts/deploy-core.sh
+  - .github/workflows/deploy-synology-staging.yml
+  - .github/workflows/synology-rollback-contract.yml
+  - deploy/synology/scripts/deploy-impact.sh
   - deploy/synology/tests/test_fresh_baseline_contract.py
   - scripts/ci/classify_synology_builds.py
   - tests/ci/test_synology_deployment_package_routing.py
@@ -56,8 +57,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T10:33:00Z
-head: d35e7b164e936a87a8873bfff0389cbe243d8980
+updated_at: 2026-09-08T10:47:00Z
+head: f0037e9d1c82896c8baa3b7e2165e832f38fee49
 branch: perf/1345-synology-platform-reconcile
 pr: 1349
 status: validating
@@ -66,8 +67,9 @@ context_routes:
   - execution-resources
 owned_paths:
   - .github/workflows/build-synology-staging-images.yml
-  - deploy/synology/scripts/deploy.sh
-  - deploy/synology/scripts/deploy-core.sh
+  - .github/workflows/deploy-synology-staging.yml
+  - .github/workflows/synology-rollback-contract.yml
+  - deploy/synology/scripts/deploy-impact.sh
   - deploy/synology/tests/test_fresh_baseline_contract.py
   - scripts/ci/classify_synology_builds.py
   - tests/ci/test_synology_deployment_package_routing.py
@@ -77,40 +79,49 @@ proven:
   - Issue 1341 presentation fast path is integrated and its implementation packet is archived
   - protected-main Deploy run 34212996824 selected full because the accumulated range included app/Admin/AdminAuthorization.php from portal PR 1334
   - the existing health-check.sh validates Platform, Gateway, Canary, internal TLS, Gateway identity, canonical public origin, MFA and LAN endpoint without itself recreating services
-  - the former deploy.sh implementation is preserved byte-for-byte as deploy-core.sh using blob 0ab49b18416099fdf26db64090d49c4258fad776
   - PR 1349 is the canonical implementation PR for Issue 1345
-  - the workflow change adds only deploy-core.sh to pull-request/push path routing and shell syntax validation
-  - deploy-core.sh is classified as a runtime deployment input so future changes cannot bypass protected-main staging reconciliation
+  - initial exact-head cd449d0a735aa3218e4bce4e8b1c05b320eb4151 exposed one Synology Rollback Contract failure in run 34216148757 job 102028235933 because the first design had renamed the canonical deploy.sh implementation
+  - canonical deploy.sh is restored exactly to pre-task blob 0ab49b18416099fdf26db64090d49c4258fad776; no rollback/recovery test is redirected or weakened
+  - new Platform reconcile routing now lives only in deploy/synology/scripts/deploy-impact.sh and the guarded staging workflow invokes that entrypoint for deploy actions
+  - build routing classifies deploy-impact.sh as a runtime deployment input and both Synology validation workflows syntax-check it
+  - database/schema, Gateway, deployment/control-plane and unknown runtime paths remain outside the Platform-only allowlist and therefore delegate to canonical deploy.sh full behavior
+  - presentation-only accumulated candidates are delegated to canonical deploy.sh so existing platform-fast behavior remains unchanged
 derived:
   - a second Platform-only reconcile profile can reuse the same immutable provenance and rollback preflight while running the broader existing health contract on preserved services
   - full-stack recreation provides no additional component identity when only the Platform image changes and schema/deployment/Gateway inputs are unchanged
+  - keeping the mature deploy.sh at its historical path minimizes regression surface because existing rollback/recovery tests and explicit operator workflows continue to exercise the same canonical implementation
   - control-plane changes in PR 1349 must deliberately fall back to the full resulting-main deployment path
 unknown:
-  - exact-head validation result for PR 1349
+  - exact-head validation result after the canonical deploy.sh restoration repair
   - live wall-time of the first genuine Platform-reconcile product release
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: Synology Rollback Contract initial exact-head rename regression repaired
+  evidence: run 34216148757 job 102028235933 failed test_deploy_does_not_pull_all_images_twice_and_forces_tls_bootstrap_refresh because deploy.sh no longer contained the canonical full-path marker; the repair restores deploy.sh blob 0ab49b18416099fdf26db64090d49c4258fad776 and moves only the new router to deploy-impact.sh
 rejected_hypotheses:
   - treating all runtime paths as fast without schema/component boundaries would not be fail-closed
   - restarting Gateway, Canary, MariaDB or Redis merely because Platform application code changed is unnecessary when their provenance and schema contracts are unchanged
-  - rewriting the mature migration/recovery path inside the new entrypoint would increase regression risk; the existing core is preserved instead
+  - rewriting or renaming the mature deploy.sh migration/recovery path increases regression risk and was rejected after the exact-head contract failure
+  - weakening or redirecting existing rollback/recovery assertions would hide a path-identity regression rather than fixing it
 changed_paths:
   - .github/workflows/build-synology-staging-images.yml
-  - deploy/synology/scripts/deploy.sh
-  - deploy/synology/scripts/deploy-core.sh
+  - .github/workflows/deploy-synology-staging.yml
+  - .github/workflows/synology-rollback-contract.yml
+  - deploy/synology/scripts/deploy-impact.sh
   - deploy/synology/tests/test_fresh_baseline_contract.py
   - docs/agents/tasks/active/OTERYN-20260908-synology-platform-reconcile.md
   - scripts/ci/classify_synology_builds.py
   - tests/ci/test_synology_deployment_package_routing.py
 validation:
-  - command: PR 1349 exact-head GitHub Actions
+  - command: PR 1349 initial exact-head GitHub Actions on cd449d0a735aa3218e4bce4e8b1c05b320eb4151
+    result: FAIL
+    evidence: Synology Rollback Contract run 34216148757 job 102028235933 isolated the canonical deploy.sh path-identity regression; other conclusions are not used as proof for the repaired head
+  - command: repaired PR 1349 exact-head GitHub Actions
     result: NOT_RUN
-    evidence: task is now bound to PR 1349; inspect the new exact-head workflow generation after this checkpoint commit
+    evidence: inspect the workflow generation after this checkpoint commit and repair any first failing contract before Merge Queue
 blockers:
   - none
-next_action: inspect PR 1349 exact-head Synology, Agent Governance and required CI checks; repair the first failing contract before Merge Queue
+next_action: inspect repaired PR 1349 exact-head Synology, Agent Governance and required CI checks; repair the first failing contract before Merge Queue
 ```
 
 ## Source branch closeout
