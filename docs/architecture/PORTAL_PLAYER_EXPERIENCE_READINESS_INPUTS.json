@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "document_type": "player_experience_readiness_input_register",
+  "mode": "non_scheduling_planning_only",
+  "repository": "Oteryn/Oteryn-Platform",
+  "documentation_issue": 1356,
+  "documentation_pr": 1357,
+  "source_main_sha": "2acb8b548b413b9ce522ff5c507b4f10c9d0ff0e",
+  "direction_path": "docs/architecture/PORTAL_PLAYER_EXPERIENCE_COMPLETION_DIRECTION.md",
+  "project_path": "docs/architecture/PORTAL_PLAYER_EXPERIENCE_IMPLEMENTATION_PROJECT.md",
+  "selection_authority": "docs/agents/programs/OTERYN_PORTAL_COMPLETION.md",
+  "rules": {
+    "selects_work": false,
+    "claims_ownership": false,
+    "proves_runtime_readiness": false,
+    "grants_runtime_or_environment_authority": false,
+    "replaces_capability_dispositions": false,
+    "unresolved_meaning": "Exact input/evidence is unresolved for this project; it does not prove that the underlying capability is unimplemented.",
+    "resolution": "Retrieve existing allowed authoritative evidence before asking the owner. Record real decisions in their canonical authority; references here do not create approval.",
+    "package_references": "PEX-01 through PEX-10 are proposed project dependencies, not live task identities or dispatch instructions."
+  },
+  "inputs": [
+    {
+      "input_id": "IN-01",
+      "title": "Release stage and target",
+      "kind": "owner_decision",
+      "responsible_role": "product_release_owner",
+      "assigned_identity": null,
+      "state": "unresolved_at_planning",
+      "value": null,
+      "authority_evidence": [],
+      "blocks_package_claims": [
+        "PEX-01",
+        "PEX-04",
+        "PEX-08",
+        "PEX-10"
+      ],
+      "required_resolution_fields": [
+        "stage: preparation, testing, playable launch or an explicitly named approved alternative",
+        "target environment and world/profile identity",
+        "accepted scope or decision reference and effective release"
+      ],
+      "retrieval_boundary": "Check existing accepted release decisions first; missing runtime status must not choose the stage.",
+      "independent_work": "Prepare alternative compositions; publish no stage-specific play promise."
+    },
+    {
+      "input_id": "IN-02",
+      "title": "Approved game fact sheet",
+      "kind": "owner_approved_facts",
+      "responsible_role": "product_game_fact_owner",
+      "assigned_identity": null,
+      "state": "unresolved_at_planning",
+      "value": null,
+      "authority_evidence": [],
+      "blocks_package_claims": [
+        "PEX-03",
+        "PEX-04",
+        "PEX-07"
+      ],
+      "required_resolution_fields": [
+        "three or four verified differentiators with source evidence",
+        "approved rules/progression and supported features for the named profile",
+        "explicit treatment of rates, resets, economy and monetization claims"
+      ],
+      "retrieval_boundary": "Use allowed Platform contracts and accepted owner facts; external game sources require separate exact authority.",
+      "independent_work": "Write neutral interface/help copy and draft claim slots without publishing guessed properties."
+    },
+    {
+      "input_id": "IN-03",
+      "title": "Location references and media provenance",
+      "kind": "source_material_and_approval",
+      "responsible_role": "art_and_release_owner",
+      "assigned_identity": null,
+      "state": "unresolved_at_planning",
+      "value": null,
+      "authority_evidence": [],
+      "blocks_package_claims": [
+        "PEX-03",
+        "PEX-04",
+        "PEX-07"
+      ],
+      "required_resolution_fields": [
+        "chosen location/profile revision and bounded reference images",
+        "landmark layout, viewpoint and crop requirements",
+        "source/rights disposition for each asset and actual-gameplay publication permission"
+      ],
+      "retrieval_boundary": "Use approved provided/reference material; do not assume a full-world export, game-repository access or redistribution rights.",
+      "independent_work": "Prepare compositions and asset specifications; mark unapproved media unpublished, not authentic gameplay."
+    },
+    {
+      "input_id": "IN-04",
+      "title": "Compatible client and approved distribution",
+      "kind": "external_dependency_evidence",
+      "responsible_role": "client_distribution_owner",
+      "assigned_identity": null,
+      "state": "unresolved_at_planning",
+      "value": null,
+      "authority_evidence": [],
+      "blocks_package_claims": [
+        "PEX-04",
+        "PEX-05",
+        "PEX-08",
+        "PEX-10"
+      ],
+      "required_resolution_fields": [
+        "client/build identity and supported OS/architecture matrix",
+        "immutable artifact identity, approved URL and applicable integrity/signing evidence",
+        "compatibility with intended world/profile and publication eligibility"
+      ],
+      "retrieval_boundary": "Inspect the existing Downloads lifecycle and allowed release records; external updater/signing/activation stays separately gated.",
+      "independent_work": "Design download/withdrawn/unsupported states; never publish a random archive to fill a gap."
+    },
+    {
+      "input_id": "IN-05",
+      "title": "Actual player flow and safe test context",
+      "kind": "contract_and_test_authority",
+      "responsible_role": "identity_client_game_owners",
+      "assigned_identity": null,
+      "state": "unresolved_at_planning",
+      "value": null,
+      "authority_evidence": [],
+      "blocks_package_claims": [
+        "PEX-03",
+        "PEX-05",
+        "PEX-08",
+        "PEX-10"
+      ],
+      "required_resolution_fields": [
+        "supported account verification, character creation and client login sequence",
+        "exact client/world pair and authorized isolated test identities",
+        "allowed execution environment, redaction and recovery procedure"
+      ],
+      "retrieval_boundary": "Verify Platform-side contracts first; exact client/game/environment actions need their own authority.",
+      "independent_work": "Test isolated Portal boundaries and document the external seam; do not label Portal-only tests as world-entry E2E."
+    },
+    {
+      "input_id": "IN-06",
+      "title": "Published content and catalog inventory",
+      "kind": "environment_evidence_and_publication_authority",
+      "responsible_role": "editorial_catalog_owner",
+      "assigned_identity": null,
+      "state": "unresolved_at_planning",
+      "value": null,
+      "authority_evidence": [],
+      "blocks_package_claims": [
+        "PEX-05",
+        "PEX-07",
+        "PEX-08",
+        "PEX-10"
+      ],
+      "required_resolution_fields": [
+        "required page/slugs and EN/PL publication and freshness state",
+        "approved active catalog/profile and explicit coverage inventory",
+        "authorized publication path, media references and previous revisions"
+      ],
+      "retrieval_boundary": "Reuse existing CMS, typed editorial queries, Downloads, Wiki/Game Catalog and content-programme ownership; no new duplicate importer.",
+      "independent_work": "Prepare reviewed drafts and inventories only; runtime content counts remain unknown without authorized evidence."
+    },
+    {
+      "input_id": "IN-07",
+      "title": "Exact named launch-scope dispositions",
+      "kind": "owner_decision_and_canonical_inventory",
+      "responsible_role": "product_owner",
+      "assigned_identity": null,
+      "state": "unresolved_at_planning",
+      "value": null,
+      "authority_evidence": [],
+      "blocks_package_claims": [
+        "PEX-01",
+        "PEX-06",
+        "PEX-07",
+        "PEX-09",
+        "PEX-10"
+      ],
+      "required_resolution_fields": [
+        "exact named release-capability inventory and required route coverage",
+        "one canonical owner-approved IMPLEMENT/DEFER/REJECT record per applicable capability",
+        "explicit decisions for conditional tools, richer community and commerce"
+      ],
+      "retrieval_boundary": "Resolve docs/agents/programs/OTERYN_PORTAL_COMPLETION_SCOPE.json with its accepted architecture owners; this input register cannot replace those records.",
+      "independent_work": "Preserve existing dispositions; do not promote deferred features or claim global completion."
+    },
+    {
+      "input_id": "IN-08",
+      "title": "Environment, deployed identity and recovery authority",
+      "kind": "operation_specific_authority",
+      "responsible_role": "environment_release_owner",
+      "assigned_identity": null,
+      "state": "unresolved_at_planning",
+      "value": null,
+      "authority_evidence": [],
+      "blocks_package_claims": [
+        "PEX-01",
+        "PEX-05",
+        "PEX-07",
+        "PEX-08",
+        "PEX-10"
+      ],
+      "required_resolution_fields": [
+        "authorized read/publication/deployment scope for the exact target",
+        "deployed release/build identity and approved content/media revision manifest",
+        "last-good compatible recovery target, required backup/restore proof and operator responsibility"
+      ],
+      "retrieval_boundary": "Repository evidence is not environment authority; use the existing guarded rollout and fail closed for unauthorized protected operations.",
+      "independent_work": "Continue source/docs and isolated tests; no live account/content mutation, deployment or implied background monitoring."
+    }
+  ]
+}
