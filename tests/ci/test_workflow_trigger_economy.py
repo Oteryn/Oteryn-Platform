@@ -61,6 +61,8 @@ RETIRED_WORKFLOWS = (
     "account-security-format-diagnostics.yml",
     "account-security-static-diagnostics.yml",
     "deep-system-validation.yml",
+    "native-auth-canary-cache-build.yml",
+    "native-auth-ephemeral-cutover-rehearsal.yml",
     "portal-exhaustive-acceptance.yml",
     "portal-exhaustive-audit.yml",
     "portal-exhaustive-trigger-coupling.yml",
@@ -77,6 +79,10 @@ GLOBAL_PULL_REQUEST_WORKFLOWS = {
 GLOBAL_MAIN_PUSH_WORKFLOWS = {
     "ci.yml",
 }
+
+ACTIVE_TASK_TRIGGER = re.compile(
+    r"docs/agents/tasks/active/[A-Za-z0-9._-]+\.md"
+)
 
 
 def trigger_prefix(text: str) -> str:
@@ -176,6 +182,12 @@ for path in sorted([*WORKFLOW_ROOT.glob("*.yml"), *WORKFLOW_ROOT.glob("*.yaml")]
     trigger = trigger_prefix(text)
     pull_request = event_block(trigger, "pull_request")
     push = event_block(trigger, "push")
+
+    for active_task_ref in sorted(set(ACTIVE_TASK_TRIGGER.findall(trigger))):
+        if not (ROOT / active_task_ref).is_file():
+            inventory_findings.append(
+                f"{path.name}: trigger references missing active task {active_task_ref}"
+            )
 
     for retired in RETIRED_WORKFLOWS:
         marker = f".github/workflows/{retired}"
