@@ -69,8 +69,8 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T07:33:00Z
-head: b42c4103e3656a88799ee9ecc5e87bcd5ea39430
+updated_at: 2026-09-08T07:40:00Z
+head: 28a1f33c6bb1ce6ab753de7d7f4246be3b11b4c3
 branch: ci/1328-synology-truthful-deploy-package
 pr: 1336
 status: validating
@@ -80,6 +80,7 @@ context_routes:
 owned_paths:
   - .github/workflows/build-synology-staging-images.yml
   - scripts/ci/classify_synology_builds.py
+  - tests/ci/test_synology_auto_staging_deploy.py
   - tests/ci/test_synology_deployment_package_routing.py
   - docs/agents/tasks/active/OTERYN-20260908-synology-build-v2.md
 proven:
@@ -93,22 +94,31 @@ proven:
   - remaining broad deploy/synology/** trigger/classifier fallback incorrectly treated Synology documentation as deployment package/runtime reconciliation input
   - PR 1336 replaces that fallback with explicit runtime, operator-only and validation-only input sets and removes the broad deploy/synology/** workflow trigger
   - docs under deploy/synology, including README.md and PUBLIC_ENDPOINTS.md, are excluded from the PR 1336 classifier and workflow trigger model
+  - PR 1336 control-plane qualification at e40489363a9b868f8a8d7936027f8248337a871f successfully built and smoke-checked Platform, Gateway and deploy-runner; PR deploy was skipped as required
+  - the only Synology validation failure at e40489363a9b868f8a8d7936027f8248337a871f was a stale test that explicitly required the removed deploy/synology/** trigger
+  - tests/ci/test_synology_auto_staging_deploy.py now requires representative truthful runtime paths and rejects the broad glob and Synology documentation paths
+derived:
+  - a docs-only change under deploy/synology can no longer enter the Synology image/deploy workflow once PR 1336 is integrated because neither the top-level paths nor classifier include those documentation paths
+  - runtime deployment-package-only protected-main changes remain release-relevant while allocating zero image jobs, enabling exact immutable Platform/Gateway reuse through persisted current-release provenance
+  - operator-only and validation-only Synology changes can still be validated without forcing base staging reconciliation
 unknown:
-  - exact-head CI result for PR 1336
+  - exact-head CI result after the stale trigger-test and checkpoint-schema repairs
   - protected-main behavior after PR 1336 integration
   - representative deployment-package-only zero-image-build live proof
   - representative one-runtime-component one-image-build live proof with immutable reuse
 conflicts: []
 first_failure:
-  marker: none-current
-  evidence: PR 1336 exact-head qualification has not completed yet; no failure is claimed
+  marker: stale-broad-synology-trigger-contract
+  evidence: Build Synology Staging Images run 34199930921 failed only because test_synology_auto_staging_deploy.py asserted deploy/synology/** remained in the push block; classifier and all three PR component builds passed
 rejected_hypotheses:
   - docs under deploy/synology are deployment package inputs
   - production-target preflight changes require staging reconciliation
   - marketplace operator-control script changes inherently require base staging reconciliation
+  - the new component classifier or PR image builds failed at e40489363a9b868f8a8d7936027f8248337a871f
 changed_paths:
   - .github/workflows/build-synology-staging-images.yml
   - scripts/ci/classify_synology_builds.py
+  - tests/ci/test_synology_auto_staging_deploy.py
   - tests/ci/test_synology_deployment_package_routing.py
   - docs/agents/tasks/active/OTERYN-20260908-synology-build-v2.md
 validation:
@@ -118,8 +128,11 @@ validation:
   - command: Deploy Synology Staging run 34197488519
     result: PASS
     evidence: automatic Synology staging deployment completed successfully for cbe2d4ee618019f1884c3f076133469386198f95
+  - command: Build Synology Staging Images run 34199930921 at e40489363a9b868f8a8d7936027f8248337a871f
+    result: FAIL
+    evidence: classifier and Platform/Gateway/deploy-runner PR builds passed; only stale broad-trigger contract failed before Compose validation
 blockers: []
-next_action: qualify PR 1336 exact head, repair only evidence-backed failures, integrate through required platform-gate and Merge Queue, then execute representative deployment-package-only and one-component live proofs
+next_action: qualify the repaired PR 1336 exact head, integrate through required platform-gate and Merge Queue, then execute representative deployment-package-only and one-component live proofs
 ```
 
 ## Source branch closeout
