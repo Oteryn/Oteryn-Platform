@@ -17,10 +17,10 @@ Add deterministic conditional GET support to the public `/robots.txt` and `/site
 
 ## Acceptance criteria
 
-- [ ] successful robots and sitemap responses expose deterministic content ETags;
-- [ ] matching `If-None-Match` returns 304 for unchanged content;
-- [ ] existing content types and `public, no-cache, must-revalidate` semantics remain intact;
-- [ ] sitemap dependency failure remains 503 + `no-store` and does not expose a reusable ETag;
+- [x] successful robots and sitemap responses expose deterministic content ETags;
+- [x] matching `If-None-Match` returns 304 for unchanged content by implementation contract;
+- [x] existing content types and `public, no-cache, must-revalidate` semantics remain intact by implementation contract;
+- [x] sitemap dependency failure remains 503 + `no-store` and does not expose a reusable ETag by implementation contract;
 - [ ] focused feature tests pass;
 - [ ] exact-head CI and `platform-gate` pass;
 - [ ] integration uses normal Merge Queue;
@@ -32,7 +32,7 @@ Add deterministic conditional GET support to the public `/robots.txt` and `/site
 owned_paths:
   - app/Http/Controllers/PublicPortal/PublicRobotsController.php
   - app/Http/Controllers/PublicPortal/PublicSitemapController.php
-  - tests/Feature/PublicPortal/HomepageNavigationSeoTest.php
+  - tests/Feature/PublicPortal/PublicSeoConditionalRequestTest.php
   - docs/agents/tasks/active/OTERYN-20260908-portal-conditional-get.md
 modules:
   - PublicPortal SEO responses
@@ -48,22 +48,25 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T13:12:00Z
-head: 2c3c88c30b6da35124ade7ed82dbd20cf8c0f557
+updated_at: 2026-09-08T13:14:00Z
+head: f46f1d8df36c1f773425fc4be5579f54e669982e
 branch: perf/1351-portal-conditional-get
 pr: none
-status: implementing
+status: validating
 context_routes:
   - testing
 owned_paths:
   - app/Http/Controllers/PublicPortal/PublicRobotsController.php
   - app/Http/Controllers/PublicPortal/PublicSitemapController.php
-  - tests/Feature/PublicPortal/HomepageNavigationSeoTest.php
+  - tests/Feature/PublicPortal/PublicSeoConditionalRequestTest.php
   - docs/agents/tasks/active/OTERYN-20260908-portal-conditional-get.md
 proven:
   - protected main at task start is 2c3c88c30b6da35124ade7ed82dbd20cf8c0f557
-  - current successful robots and sitemap responses use public no-cache must-revalidate but do not set ETag validators
+  - prior successful robots and sitemap responses used public no-cache must-revalidate but did not set ETag validators
   - repository already uses setEtag plus isNotModified for public editorial media
+  - robots and sitemap successful responses now derive ETag from exact response bytes and call isNotModified on the incoming Request
+  - sitemap 503 failure path returns before any ETag assignment and keeps no-store
+  - focused tests cover initial ETag, matching If-None-Match 304, empty 304 body, cache directives, and 503 without ETag
   - task changes no migration, schema, Gateway, Canary, auth, payment or deployment-control path
 unknown:
   - exact-head validation result
@@ -71,23 +74,29 @@ unknown:
 conflicts: []
 first_failure:
   marker: missing-conditional-validator
-  evidence: current PublicRobotsController and PublicSitemapController return revalidating successful responses without an ETag
+  evidence: pre-task PublicRobotsController and PublicSitemapController returned revalidating successful responses without an ETag
 rejected_hypotheses:
   - weakening cache revalidation would trade correctness for performance
   - using timestamps rather than content-derived validators would make unchanged bytes unnecessarily miss 304
 changed_paths:
+  - app/Http/Controllers/PublicPortal/PublicRobotsController.php
+  - app/Http/Controllers/PublicPortal/PublicSitemapController.php
+  - tests/Feature/PublicPortal/PublicSeoConditionalRequestTest.php
   - docs/agents/tasks/active/OTERYN-20260908-portal-conditional-get.md
-validation: []
+validation:
+  - command: focused feature tests
+    result: PENDING
+    evidence: waiting for GitHub exact-head CI
 blockers:
   - resulting-main Synology deployment for PR 1353 is still in progress
-next_action: implement content-derived ETags and focused conditional-request tests; keep integration held until PR 1353 staging is healthy
+next_action: open validation PR and use exact-head CI while keeping protected integration held until PR 1353 staging is healthy
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: implementation and exact-head validation are active
+source_branch_reason: implementation is complete but validation and protected integration are not terminal
 source_branch_evidence: Issue #1351; branch perf/1351-portal-conditional-get
 ```
 
