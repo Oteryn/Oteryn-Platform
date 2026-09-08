@@ -49,7 +49,7 @@ on:
       - deploy/synology/runner/.env.example
       - deploy/synology/runner/compose.yml
       - deploy/synology/scripts/deploy.sh
-      - deploy/synology/scripts/deploy-core.sh
+      - deploy/synology/scripts/deploy-impact.sh
       - deploy/synology/scripts/health-check.sh
       - deploy/synology/scripts/lib.sh
       - deploy/synology/scripts/marketplace-staging.sh
@@ -118,7 +118,7 @@ on:
       - deploy/synology/runner/.env.example
       - deploy/synology/runner/compose.yml
       - deploy/synology/scripts/deploy.sh
-      - deploy/synology/scripts/deploy-core.sh
+      - deploy/synology/scripts/deploy-impact.sh
       - deploy/synology/scripts/health-check.sh
       - deploy/synology/scripts/lib.sh
       - deploy/synology/scripts/marketplace-staging.sh
@@ -207,7 +207,7 @@ jobs:
           bash -n \
             deploy/synology/scripts/lib.sh \
             deploy/synology/scripts/deploy.sh \
-            deploy/synology/scripts/deploy-core.sh \
+            deploy/synology/scripts/deploy-impact.sh \
             deploy/synology/scripts/health-check.sh \
             deploy/synology/scripts/marketplace-staging.sh \
             deploy/synology/scripts/prepare-fresh-schema-baseline.sh \
