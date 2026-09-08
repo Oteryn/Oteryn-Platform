@@ -11,6 +11,7 @@ search_first:
   - Platform PR #1335
   - Platform PR #1336
   - Platform PR #1337
+  - Platform PR #1338
 optional_reads: []
 ---
 
@@ -71,11 +72,11 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T08:12:00Z
-head: 45c251d93937d6d6e0335f22fc9a4c3838dd1b8a
+updated_at: 2026-09-08T08:21:00Z
+head: bb9c8a0d14548b24f66a1f77c120df32b0e2421f
 branch: ci/1328-synology-gateway-proof
-pr: none
-status: implementing
+pr: 1338
+status: validating
 context_routes:
   - testing
   - execution-resources
@@ -95,15 +96,15 @@ proven:
   - protected-main Case A dispatch explicitly reused exact proven Platform and Gateway components from Synology current-release state; no current-run component provenance artifact was downloaded because neither component rebuilt
   - Case A changed only a real deployment-package input by pinning tls-init to alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce plus its contract and task ownership
   - protected-main Gateway build run 34201292818 resolved golang:1.24-alpine to sha256:8bee1901f1e530bfb4a7850aa7a479d17ae3a18beb6e09064ed54cfd245b7191 and alpine:3.22 to sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce; BuildKit provenance recorded both materials
-  - Case B branch pins those already observed Gateway base-image digests and adds an exact deterministic contract; no Platform or deploy-runner image input changes
+  - PR 1338 pins those already observed Gateway base-image digests and adds an exact deterministic contract; no Platform or deploy-runner image input changes
   - Repair Synology Autostart run 34202647284 failed before staging service checks because no oteryn-deploy-runner/runner container existed; no causal link to the Case A tls-init digest is proven
 derived:
   - Case A demonstrates image-job allocation reduction from the former fixed three-entry matrix to zero for a truthful deployment-package-only protected-main release
-  - Case B is a truthful Gateway-only image change and should allocate exactly one Gateway image build while Platform is resolved from persisted immutable provenance
+  - PR 1338 is a truthful Gateway-only image change and should allocate exactly one Gateway image build while Platform is resolved from persisted immutable provenance
   - the autostart failure is a separate infrastructure observation unless older workflow evidence proves otherwise; it must not be attributed to Case A without causal evidence
 unknown:
   - terminal result and exact reused component identities from Deploy Synology Staging run 34202722679 for protected main 0cd7e76c45736e81cc50db24c6af79ba4a819631
-  - exact-head Case B PR routing and CI result
+  - exact-head PR 1338 routing and CI result
   - protected-main Case B one-image-build and Platform-reuse result
   - whether the missing oteryn-deploy-runner/runner container predates Case A; recent run history inspected so far does not establish an earlier comparable autostart result
 conflicts: []
@@ -113,7 +114,7 @@ first_failure:
 rejected_hypotheses:
   - Case A rebuilt Platform, Gateway or deploy-runner; protected-main build job was skipped with BUILD_PLATFORM=false and BUILD_GATEWAY=false
   - Case A staging dispatch invented new runtime component identities; dispatch sent empty current-run component inputs and selected persisted-provenance reuse
-  - Case B base-image digests were guessed from mutable Docker tags; both exact digests are recorded in successful protected-main BuildKit logs and provenance
+  - PR 1338 base-image digests were guessed from mutable Docker tags; both exact digests are recorded in successful protected-main BuildKit logs and provenance
   - Repair Synology Autostart failure proves the tls-init digest is invalid; the failure occurred at missing deploy-runner container discovery before staging services were inspected
 changed_paths:
   - deploy/synology/docker/gateway.Dockerfile
@@ -130,15 +131,15 @@ validation:
     result: FAIL
     evidence: workflow found zero oteryn-deploy-runner/runner containers before checking staging services; relationship to Issue 1328 is not proven
 blockers: []
-next_action: Open the Case B Gateway-only PR from ci/1328-synology-gateway-proof, prove exactly one Gateway image build with no Platform or deploy-runner build, then integrate through protected policy and verify immutable Platform reuse on Synology staging.
+next_action: Qualify PR 1338 exact head and require exactly one game-gateway image build with no Platform or deploy-runner build; then integrate through protected policy and verify immutable Platform reuse on Synology staging.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: task ownership is bound to the live Case B branch and remains active until one-component protected-main behavior and terminal closeout are proven
-source_branch_evidence: ci/1328-synology-gateway-proof continues Issue #1328 after merged PR #1337
+source_branch_reason: task ownership is bound to open PR 1338 and remains active until one-component protected-main behavior and terminal closeout are proven
+source_branch_evidence: PR #1338 continues Issue #1328 after merged PR #1337
 ```
 
 ## Notes
