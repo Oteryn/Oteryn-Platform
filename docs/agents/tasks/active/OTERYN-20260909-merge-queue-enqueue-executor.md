@@ -47,11 +47,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T23:23:49Z
-head: 5b272a8246ebb050a5b0522d2dce86e7ef3c57ce
+updated_at: 2026-09-08T23:35:00Z
+head: ee50d7ce22f24c95fce70dc6cc00759bb9f2bfaf
 branch: ci/1363-merge-queue-enqueue-executor
-pr: none
-status: implementing
+pr: 1371
+status: validating
 context_routes:
   - ci-repair
   - execution-resources
@@ -66,15 +66,16 @@ proven:
   - Protected main is 5b272a8246ebb050a5b0522d2dce86e7ef3c57ce and requires platform-gate.
   - PR #1367 merged Issue #1362 repair; the remaining #1362 active ownership is narrowed to exact paths and no longer owns all .github/workflows or tools.
   - No existing branch, PR, workflow, or script implementing enqueuePullRequest was found before this task branch was created.
-  - Issue #1363 remains open and unowned.
+  - Issue #1363 remains open and PR #1371 is the canonical implementation PR.
   - GitHub GraphQL documents enqueuePullRequest with pullRequestId and expectedHeadOid; MergeQueueEntry exposes id, position, and state.
   - actions/create-github-app-token v3.2.0 resolves to immutable commit bcd2ba49218906704ab6c1aa796996da409d3eb1 and can scope an installation token to the current repository with explicit permissions.
   - The new manual-only workflow is explicitly registered in the workflow lifecycle policy with a documented review/retirement condition.
+  - The focused test module exercises fourteen fail-closed qualification/enqueue cases and passed locally against the exact implementation bytes prepared for this branch.
 derived:
   - The #1363 implementation proceeds on exact owned paths without overlapping #1362.
 unknown:
-  - Exact final focused-test and required-CI result.
-  - First legitimate Merge Queue bootstrap path for this executor PR.
+  - Repository-required exact-head CI result for PR #1371 after this checkpoint commit.
+  - First legitimate Merge Queue bootstrap path for PR #1371.
 conflicts: []
 first_failure:
   marker: missing-repository-native-merge-queue-enqueue-route
@@ -93,12 +94,15 @@ validation:
   - command: LIVE overlap and protected-main inspection
     result: PASS
     evidence: #1362 ownership is exact and disjoint from the #1363 paths; current main and required platform-gate were re-read before branch creation
+  - command: python tests/ci/test_merge_queue_enqueue.py
+    result: PASS
+    evidence: 14 deterministic tests passed, including wrong repository/base/head/state/draft/origin, missing/failed exact-head platform-gate, latest-run selection, expectedHeadOid mutation fencing and missing queue-entry rejection
   - command: implementation self-review against Issue #1363 mutation boundary
     result: PASS
     evidence: the script has no REST merge call and its only GraphQL mutation is enqueuePullRequest with expectedHeadOid
 blockers:
   - none
-next_action: run focused tests and repository validation, then open and qualify the exact-head PR
+next_action: qualify the new exact PR head across repository-required checks, then enqueue only through a legitimate Merge Queue route
 ```
 
 ## Source branch closeout
