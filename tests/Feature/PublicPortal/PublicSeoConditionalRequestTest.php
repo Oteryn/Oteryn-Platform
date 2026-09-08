@@ -4,7 +4,6 @@ namespace Tests\Feature\PublicPortal;
 
 use App\Wiki\Queries\Public\PublicWikiQuery;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Mockery\MockInterface;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -46,9 +45,9 @@ final class PublicSeoConditionalRequestTest extends TestCase
 
     public function test_sitemap_dependency_failure_remains_no_store_without_etag(): void
     {
-        $this->mock(PublicWikiQuery::class, function (MockInterface $mock): void {
-            $mock->shouldReceive('sitemapSlugs')->andThrow(new RuntimeException('dependency unavailable'));
-        });
+        $wiki = $this->createMock(PublicWikiQuery::class);
+        $wiki->method('sitemapSlugs')->willThrowException(new RuntimeException('dependency unavailable'));
+        $this->app->instance(PublicWikiQuery::class, $wiki);
 
         $response = $this->get('/sitemap.xml')->assertStatus(503);
 
