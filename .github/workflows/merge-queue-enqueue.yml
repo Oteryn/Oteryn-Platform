@@ -38,7 +38,8 @@ jobs:
           client-id: ${{ vars.OTERYN_MQ_APP_CLIENT_ID }}
           private-key: ${{ secrets.OTERYN_MQ_APP_PRIVATE_KEY }}
           permission-checks: read
-          permission-pull-requests: write
+          permission-pull-requests: read
+          permission-merge-queues: write
 
       - name: Enqueue exact qualified pull request
         env:
