@@ -1,212 +1,152 @@
-/* Cinematic entry and editorial/discovery compositions over the shared player system. */
+/* Landing composition. Raster artwork is never enlarged beyond its source size. */
 .production-home-shell { width: 100%; max-width: none; padding: 0; }
-.realm-hero { position: relative; isolation: isolate; min-height: 34rem; display: grid; align-content: center; overflow: hidden; background: #0e1823; }
-.realm-hero-art { position: absolute; z-index: -2; inset: 0 0 0 auto; width: 76%; height: 100%; object-fit: cover; object-position: 62% 40%; }
-.realm-hero::before { content: ''; position: absolute; z-index: -1; inset: 0; background: linear-gradient(90deg, #080f18 3%, #0b1521e8 27%, #0b15217a 50%, #0b152105 76%), linear-gradient(0deg, #080e14cc 0, transparent 28%, #080e1422 100%); }
-.realm-hero-copy { width: min(var(--content-wide), calc(100% - 2 * var(--gutter))); margin: 0 auto; padding: 3.2rem 0 3rem; }
-.realm-hero-copy > .eyebrow { color: #e6c791; font-size: .72rem; font-weight: 400; letter-spacing: .25em; margin-bottom: .9rem; }
-#home-hero-title { margin: 0 0 .6rem; padding: 0; color: #f3e4c9; font-size: clamp(4rem, 7.2vw, 7rem); line-height: 1; font-weight: 400; letter-spacing: .055em; text-shadow: 0 4px 30px #0004; }
-.realm-hero-tagline { max-width: 24ch; margin: 0 0 1rem; color: #f4eee3; font-size: clamp(1.6rem, 2.65vw, 2.6rem); line-height: 1.25; }
-.realm-hero-lede { max-width: 43ch; margin-bottom: 1.6rem; color: #d1dbe5; font-size: 1.03rem; line-height: 1.75; }
-.realm-hero-actions { display: flex; flex-wrap: wrap; gap: .9rem; }
-.realm-hero-actions .button { min-width: 10.4rem; min-height: 3.15rem; padding: .8rem 1.55rem; font-size: .95rem; }
-.realm-hero-actions .button-secondary { background: #101a26b8; border-color: #87929d; }
-.realm-promises { display: flex; flex-wrap: wrap; gap: 1.4rem; margin-top: 2.2rem; max-width: 44rem; }
-.realm-promises a { display: inline-flex; align-items: center; gap: .6rem; min-height: 2.75rem; color: #e0e5e9; text-decoration: none; font-size: .78rem; }
+.realm-hero { position: relative; isolation: isolate; overflow: hidden; background: radial-gradient(ellipse at 74% 28%, #253544, #101a24 55%, var(--bg)); border-bottom: 1px solid var(--gold-rule); }
+.realm-hero-art { position: absolute; z-index: -2; top: 0; right: max(0px, calc((100% - var(--content)) / 2)); width: min(100%, 626px); height: auto; max-height: 468px; object-fit: contain; mask-image: linear-gradient(90deg, transparent, #000 18%, #000 86%, transparent); }
+.realm-hero::before { content: ''; position: absolute; z-index: -1; inset: 0; background: linear-gradient(90deg, #0a121bea 0, #0a121bdb 34%, #0a121b00 70%), linear-gradient(0deg, var(--bg), #080e1400 44%); }
+.realm-hero-copy { width: min(var(--content), calc(100% - 2 * var(--gutter))); margin: auto; padding: 3.5rem 0 2.8rem; min-height: 31rem; }
+.realm-hero-copy > .eyebrow { color: var(--gold); font-size: .72rem; letter-spacing: .22em; margin-bottom: 1rem; }
+#home-hero-title { margin: 0 0 .85rem; color: #f3e3c6; font-size: clamp(4rem, 6.5vw, 6.5rem); line-height: 1; letter-spacing: .04em; font-weight: 400; }
+.realm-hero-tagline { max-width: 23ch; margin: 0 0 1rem; font-size: clamp(1.6rem, 2.5vw, 2.3rem); line-height: 1.25; }
+.realm-hero-lede { max-width: 44ch; margin-bottom: 1.5rem; color: #c8d1dc; font-size: 1rem; line-height: 1.75; }
+.realm-hero-actions { display: flex; flex-wrap: wrap; gap: .75rem; }
+.realm-hero-actions .button { min-width: 10rem; min-height: 3rem; font-size: .92rem; }
+.realm-promises { display: flex; flex-wrap: wrap; gap: .3rem 1.3rem; max-width: 40rem; margin-top: 1.7rem; }
+.realm-promises a { display: inline-flex; align-items: center; gap: .55rem; min-height: 2.75rem; color: var(--text-muted); text-decoration: none; font-size: .8rem; }
 .realm-promises a:hover { color: var(--gold); }
-.realm-icon { width: 1.85rem; height: 1.85rem; flex: 0 0 auto; color: var(--gold); }
-.realm-pulse { position: absolute; right: max(var(--gutter), calc((100% - var(--content-wide)) / 2)); bottom: 2rem; width: 16rem; padding: 1.4rem; background: linear-gradient(145deg, #101923f5, #080e14ed); border: 1px solid #bba27559; border-radius: var(--radius-sm); box-shadow: 0 20px 45px #0004; }
-.realm-pulse-inner { display: grid; gap: .75rem; width: 100%; margin: 0; }
-.realm-pulse-inner > strong { color: var(--text); font-family: var(--display); font-size: 1.5rem; font-weight: 400; line-height: 1.3; }
-.realm-pulse-inner > p { margin: 0; color: var(--text-muted); font-size: .82rem; }
-.realm-pulse-inner > a { justify-self: start; min-height: 2rem; color: var(--gold); text-decoration: none; font-size: .82rem; }
+.realm-pulse { position: absolute; right: max(var(--gutter), calc((100% - var(--content)) / 2)); bottom: 2rem; width: 16rem; padding: 1.2rem 1.4rem; border: 1px solid var(--gold-rule); border-radius: var(--radius-md); background: #0c151ff2; box-shadow: var(--panel-shadow); }
+.realm-pulse-inner { display: grid; gap: .6rem; }
+.realm-pulse-inner > strong { color: var(--text); font-size: 1.5rem; font-weight: 500; line-height: 1.25; font-variant-numeric: tabular-nums; }
+.realm-pulse-inner > p { margin: 0; color: var(--text-muted); font-size: .83rem; }
+.realm-pulse-inner > a { justify-self: start; display: inline-flex; align-items: center; min-height: 2.25rem; color: var(--gold); text-decoration: none; font-size: .83rem; }
 .realm-pulse-inner > a:hover { text-decoration: underline; }
-.realm-pulse-inner .production-hero-maintenance { color: var(--warning); border-top: 1px solid var(--gold-rule); padding-top: .65rem; }
-.production-state-badge { display: inline-flex; align-items: center; gap: .55rem; color: var(--text-muted); font-size: .78rem; font-weight: 550; }
-.production-state-badge::before { content: ''; width: .5rem; height: .5rem; border-radius: 50%; background: currentColor; box-shadow: 0 0 12px currentColor; }
+.realm-pulse-inner .production-hero-maintenance { grid-row: auto; color: var(--warning); padding-top: .6rem; border-top: 1px solid var(--border); }
+.production-state-badge { display: inline-flex; align-items: center; gap: .55rem; color: var(--text-muted); font-size: .8rem; font-weight: 550; }
+.production-state-badge::before { content: ''; width: .5rem; height: .5rem; border-radius: 50%; background: currentColor; }
 .production-state-available { color: var(--success); }
-.production-state-empty { color: var(--text-muted); }
 .production-state-stale { color: var(--warning); }
 .production-state-unavailable { color: var(--danger); }
-.realm-journal { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr); gap: 1.3rem; padding-block: 1.8rem; align-items: start; }
-.production-news-panel, .realm-ledger { min-width: 0; padding: 1.5rem; background: linear-gradient(135deg, #111b24e6, #080f16f2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
-.production-news-panel .section-heading, .realm-ledger .section-heading { position: relative; margin-bottom: 1.2rem; gap: .4rem .8rem; }
-.production-news-panel .section-heading h2 { font-size: 1.65rem; }
-.production-news-panel .section-heading > .eyebrow { font-size: .65rem; }
-.realm-text-link { display: inline-flex; align-items: center; gap: .65rem; min-height: 2.25rem; color: var(--gold); font-size: .78rem; text-decoration: none; }
+.realm-journal { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr); align-items: start; gap: 2rem; padding-block: 2.5rem; }
+.production-news-panel, .realm-ledger { min-width: 0; }
+.production-news-panel .section-heading h2, .realm-ledger .section-heading h2 { font-size: 1.7rem; }
+.realm-text-link { display: inline-flex; align-items: center; gap: .65rem; min-height: 2.75rem; color: var(--gold); font-size: .85rem; text-decoration: none; }
 .realm-text-link:hover { text-decoration: underline; }
-.production-news-list { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 1.15rem; align-items: start; }
-.journal-story { min-width: 0; }
-.journal-story-lead { grid-row: 1 / span 3; grid-column: 1; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: #101a23; }
-.journal-illustration { min-width: 0; height: 10rem; }
+.production-news-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.journal-story { min-width: 0; padding: 1.25rem; background: var(--panel-fill); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.journal-story-lead { grid-column: 1 / -1; border-top-color: var(--gold-rule); }
 .journal-copy { min-width: 0; }
-.journal-story-lead .journal-copy { padding: 1.05rem; }
-.journal-story h3 { margin: .3rem 0 .6rem; font-size: .95rem; line-height: 1.4; font-weight: 500; }
+.journal-story h3 { margin: .55rem 0 .6rem; font-size: 1.05rem; line-height: 1.4; font-weight: 550; }
 .journal-story h3 a { color: var(--text); text-decoration: none; }
 .journal-story h3 a:hover { color: var(--gold); }
-.journal-story p { margin-bottom: .4rem; color: var(--text-muted); font-size: .8rem; line-height: 1.65; }
-.journal-story .production-news-date { margin: 0; color: #c6c1b7; font-size: .65rem; letter-spacing: .035em; }
-.journal-story-lead h3 { font-family: var(--display); font-size: 1.5rem; font-weight: 400; line-height: 1.22; }
-.journal-story:not(.journal-story-lead) { grid-column: 2; display: grid; grid-template-columns: 4rem minmax(0, 1fr); gap: .85rem; padding-bottom: .8rem; border-bottom: 1px solid #2c374180; }
-.journal-story:not(.journal-story-lead) .journal-illustration { height: 4.1rem; border: 1px solid var(--border); border-radius: var(--radius-sm); }
-.journal-story:not(.journal-story-lead) .realm-text-link { font-size: .7rem; }
-.realm-ledger .section-heading h2 { font-size: 1.55rem; }
-.realm-ledger .section-heading > .eyebrow { font-size: .65rem; }
-.production-world-total { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; margin-block: 1.2rem; padding: .9rem 1rem; background: #1d283044; border: 1px solid var(--border); border-radius: var(--radius-sm); }
-.production-world-total strong { color: var(--text); font-family: var(--display); font-weight: 400; font-size: 2.5rem; line-height: 1; }
+.journal-story p { margin-bottom: .3rem; color: var(--text-muted); font-size: .88rem; line-height: 1.65; }
+.journal-story .production-news-date { color: #c4b28f; font-size: .73rem; letter-spacing: .03em; font-variant-numeric: tabular-nums; }
+.journal-story-lead h3 { font-family: var(--display); font-size: 1.85rem; font-weight: 400; }
+.journal-story .realm-text-link { margin-top: .2rem; }
+.realm-ledger { padding: 1.35rem; border: 1px solid var(--border); border-top-color: var(--gold-rule); border-radius: var(--radius-md); background: var(--panel-fill); }
+.production-world-total { display: flex; align-items: baseline; flex-wrap: wrap; gap: .65rem; padding-bottom: 1rem; margin-block: .75rem 0; }
+.production-world-total strong { color: var(--text); font-size: 2.4rem; font-weight: 500; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .production-world-total span { color: var(--text-muted); font-size: .85rem; }
-.production-world-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem .8rem; padding-block: .9rem; border-top: 1px solid var(--border); }
-.production-world-row h3 { margin: 0 0 .25rem; font-size: .9rem; font-weight: 500; }
-.production-world-row p { margin: 0; color: var(--text-muted); font-size: .73rem; }
-.production-runtime-summary { display: grid; justify-items: end; align-content: start; gap: .25rem; font-size: .73rem; }
-.production-runtime-summary strong { color: var(--text); font-weight: 550; }
+.production-world-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem .8rem; padding-block: 1rem; border-top: 1px solid var(--border); }
+.production-world-row h3 { margin: 0 0 .3rem; font-size: .95rem; font-weight: 550; }
+.production-world-row p { margin: 0; color: var(--text-muted); font-size: .8rem; }
+.production-runtime-summary { display: grid; justify-items: end; align-content: start; gap: .3rem; font-size: .8rem; }
+.production-runtime-summary strong { font-weight: 550; }
 .production-runtime-summary span { color: var(--text-muted); }
 .production-world-row .production-maintenance { grid-column: 1 / -1; color: var(--warning); }
-.realm-ledger > .realm-text-link { margin-top: .6rem; }
-/* Every discovery destination is real and uses the existing localized route. */
-.production-discover { padding-block: 1.3rem 2.5rem; }
-.production-discover .section-heading { margin-bottom: 1.4rem; }
-.production-discover .section-heading h2 { font-size: clamp(1.8rem, 3vw, 2.65rem); }
-.production-discover .section-heading > .discovery-intro { flex-basis: auto; max-width: 35ch; font-size: .9rem; }
-.production-discover-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .9rem; }
-.discovery-card { position: relative; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; color: var(--text); text-decoration: none; background: linear-gradient(160deg, #131f2b, #080f16); }
-.discovery-illustration { height: 7rem; min-width: 0; position: relative; }
-.discovery-illustration::after { content: ''; position: absolute; inset: 0; background: linear-gradient(0deg, #101923, transparent 70%); }
-.discovery-copy { position: relative; min-width: 0; display: grid; align-content: start; gap: .65rem; padding: 0 1rem 1.1rem; margin-top: -.5rem; }
-.discovery-copy .realm-icon { width: 1.5rem; height: 1.5rem; margin-bottom: .15rem; }
-.discovery-copy strong { color: var(--text); font-family: var(--display); font-size: 1.22rem; font-weight: 400; line-height: 1.25; }
-.discovery-description { color: var(--text-muted); font-size: .73rem; line-height: 1.65; }
-.discover-arrow { position: absolute; top: 7rem; right: .85rem; color: var(--gold); font-size: 1rem; }
-.discovery-card:hover { border-color: #ba965999; }
+.realm-ledger > .realm-text-link { margin-top: .4rem; }
+/* Thumbnail-sized scenery is decorative, not a fictitious editorial cover. */
+.production-discover { padding-block: .5rem 2.5rem; }
+.production-discover .section-heading h2 { font-size: clamp(1.8rem, 3vw, 2.5rem); }
+.production-discover .section-heading > .discovery-intro { flex-basis: auto; max-width: 40ch; font-size: .92rem; }
+.production-discover-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .85rem; }
+.discovery-card { position: relative; min-width: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--panel-fill); color: var(--text); text-decoration: none; }
+.discovery-illustration { display: block; width: 100%; max-width: 240px; height: auto; aspect-ratio: 12 / 5; margin-inline: auto; object-fit: contain; }
+.discovery-copy { min-width: 0; display: grid; align-content: start; gap: .6rem; padding: 1rem; }
+.discovery-copy .realm-icon { width: 1.4rem; height: 1.4rem; }
+.discovery-copy strong { font-family: var(--display); color: var(--text); font-size: 1.3rem; line-height: 1.25; font-weight: 400; }
+.discovery-description { color: var(--text-muted); font-size: .82rem; line-height: 1.6; }
+.discover-arrow { position: absolute; top: 6.8rem; right: .85rem; color: var(--gold); }
+.discovery-card:hover { border-color: var(--border-strong); }
 .discovery-card:hover strong { color: var(--gold); }
-/* Search and operational notices follow editorial content without disappearing. */
-.realm-search { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.3fr) minmax(0, .7fr); gap: 2rem; align-items: center; padding: 1.8rem 0; border-block: 1px solid var(--gold-rule); margin-bottom: 2.3rem; }
-.realm-search h2 { font-size: 1.5rem; margin: .4rem 0 0; }
+.realm-search { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.3fr) minmax(0, .7fr); gap: 1.5rem; align-items: center; padding-block: 1.5rem; margin-bottom: 2rem; border-block: 1px solid var(--border); }
+.realm-search h2 { margin: .4rem 0 0; font-size: 1.65rem; }
 .realm-search-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem; margin: 0; }
-.realm-search-form .form-help, .realm-search-form .form-error { grid-column: 1 / -1; font-size: .75rem; }
-.realm-quick-links { display: grid; gap: .1rem; }
-.realm-quick-links a { display: inline-flex; align-items: center; gap: 1rem; min-height: 2.25rem; font-size: .8rem; color: var(--text-muted); text-decoration: none; }
+.realm-search-form .form-help, .realm-search-form .form-error { grid-column: 1 / -1; margin: 0; font-size: .8rem; }
+.realm-quick-links { display: grid; }
+.realm-quick-links a { display: inline-flex; align-items: center; gap: .6rem; min-height: 2.75rem; color: var(--text-muted); font-size: .85rem; text-decoration: none; }
 .realm-quick-links a:hover { color: var(--gold); }
-.realm-dispatches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2rem; padding-bottom: 2.5rem; }
-.realm-dispatches > .card { margin: 0; padding: 1.5rem; background: var(--panel-fill); border: 1px solid var(--border); border-top-color: var(--gold-rule); }
-.realm-dispatches .section-heading h2 { font-size: 1.5rem; }
+.realm-dispatches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; padding-bottom: 2rem; }
+.realm-dispatches > .card { margin: 0; padding: 1.25rem; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--panel-fill); }
+.realm-dispatches .section-heading h2 { font-size: 1.6rem; }
 .realm-dispatches .notice { padding: 1rem; }
-.realm-dispatches .notice h3 { font-size: 1rem; margin-block: .4rem; }
-.realm-dispatches p { font-size: .85rem; }
-.realm-journey { background: linear-gradient(100deg, #111b26fa 5%, #172331b8, #080e14e0), url('../images/oteryn-citadel.webp') center 64% / cover; border-top: 1px solid var(--gold-rule); }
-.realm-journey-inner { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.6fr); gap: 3rem; align-items: center; padding-block: 2.5rem; }
-.realm-journey h2 { margin: .6rem 0 0; max-width: 16ch; font-size: 2.25rem; }
-.production-path-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.5rem; list-style: none; padding: 0; margin: 0; counter-reset: journey; }
+.realm-journey { border-top: 1px solid var(--border); background: #101923; }
+.realm-journey-inner { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 2.5rem; padding-block: 2rem; }
+.realm-journey h2 { max-width: 18ch; font-size: 2rem; margin: .5rem 0 0; }
+.production-path-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.5rem; margin: 0; padding: 0; list-style: none; counter-reset: journey; }
 .production-path-list li { min-width: 0; counter-increment: journey; }
-.production-path-list li::before { content: '0' counter(journey); display: block; margin-bottom: .5rem; color: var(--gold); font-family: var(--display); font-size: 1.5rem; }
+.production-path-list li::before { content: '0' counter(journey); display: block; margin-bottom: .5rem; color: var(--gold); font-family: var(--display); font-size: 1.4rem; }
 .production-path-list a { color: var(--text); text-decoration: none; }
 .production-path-list a:hover strong { color: var(--gold); text-decoration: underline; }
-.production-path-list strong { display: block; font-size: .92rem; font-weight: 500; }
-.production-path-list span { display: block; margin-top: .45rem; color: var(--text-muted); font-size: .78rem; line-height: 1.65; }
-@media (min-width: 110rem) {
-    .realm-hero { min-height: 38rem; }
-    .realm-hero-art { width: 70%; object-position: 62% 44%; }
-}
+.production-path-list strong { display: block; font-size: .92rem; font-weight: 550; }
+.production-path-list span { display: block; margin-top: .4rem; color: var(--text-muted); font-size: .83rem; line-height: 1.6; }
 @media (max-width: 79.99rem) {
     .realm-hero-copy { padding-block: 2.8rem; }
-    .realm-hero-tagline { max-width: 22ch; }
-    .realm-hero-lede { max-width: 37ch; }
-    .realm-pulse { width: 14rem; }
-    .realm-promises { max-width: 34rem; gap: .4rem 1.2rem; }
-    .realm-journal { gap: 1rem; grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); }
-    .production-news-panel, .realm-ledger { padding: 1.2rem; }
-    .production-news-list { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
-    .journal-story-lead { grid-row: auto; }
-    .journal-story:not(.journal-story-lead) { grid-column: 1; grid-template-columns: 5rem minmax(0, 1fr); }
-    .production-discover-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
-    .discovery-copy { padding: 0 1.3rem 1.3rem; }
-    .discovery-copy strong { font-size: 1.5rem; }
-    .discovery-description { font-size: .83rem; }
-    .realm-search { grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 1rem 2rem; }
-    .realm-quick-links { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: .4rem 1.5rem; }
-    .realm-journey-inner { grid-template-columns: minmax(0, 1fr); gap: 2rem; }
-    .realm-journey h2 { max-width: none; }
+    .realm-promises { max-width: 32rem; }
+    .production-discover-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .discovery-card { align-items: stretch; }
+    .discovery-copy { padding: 1.15rem; }
+    .discover-arrow { top: 7.3rem; }
+    .realm-search { grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); }
+    .realm-quick-links { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0 1.5rem; }
 }
 @media (max-width: 59.99rem) {
-    .realm-hero { min-height: 37rem; align-content: start; }
-    .realm-hero-copy { padding-block: 2.8rem 10rem; }
-    .realm-hero-art { width: 100%; object-position: 63% center; }
-    .realm-hero::before { background: linear-gradient(90deg, #08111af5 0, #08111adb 38%, #08111a4d 100%), linear-gradient(0deg, var(--bg), transparent 50%); }
-    .realm-pulse { left: var(--gutter); right: var(--gutter); width: auto; bottom: 1.5rem; padding: 1rem 1.3rem; }
-    .realm-pulse-inner { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .5rem 1.2rem; }
-    .realm-pulse-inner > strong { font-size: 1.25rem; }
+    .realm-hero-copy { min-height: 0; padding-bottom: 1.2rem; }
+    .realm-hero::before { background: linear-gradient(90deg, #0a121bee, #0a121bc9 55%, #0a121b44), linear-gradient(0deg, var(--bg), #080e1400); }
+    .realm-pulse { position: relative; inset: auto; width: min(var(--content), calc(100% - 2 * var(--gutter))); margin: 0 auto 1.5rem; padding: 1rem 1.25rem; }
+    .realm-pulse-inner { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .5rem 1rem; }
+    .realm-pulse-inner > strong { font-size: 1.3rem; }
     .realm-pulse-inner .production-hero-maintenance { grid-column: 1 / -1; }
-    .realm-promises { max-width: none; gap: .5rem 1.1rem; margin-top: 1.5rem; }
-    .realm-promises a { font-size: .73rem; }
-    .realm-journal { grid-template-columns: minmax(0, 1fr); padding-block: 1.4rem; }
-    .production-news-list { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); }
-    .journal-story-lead { grid-row: 1 / span 3; }
-    .journal-story:not(.journal-story-lead) { grid-column: 2; grid-template-columns: 4rem minmax(0, 1fr); }
+    .realm-journal { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; padding-block: 2rem; }
     .realm-ledger { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 0 1.5rem; }
-    .realm-ledger .section-heading, .realm-ledger > .notice, .realm-ledger > .empty-state { grid-column: 1 / -1; }
-    .production-world-total { align-self: start; margin-top: 0; }
-    .realm-ledger > .realm-text-link { grid-column: 1 / -1; }
-    .realm-dispatches { gap: 1rem; }
+    .realm-ledger .section-heading, .realm-ledger > .notice, .realm-ledger > .empty-state, .realm-ledger > .realm-text-link { grid-column: 1 / -1; }
+    .production-world-total { align-self: start; }
+    .realm-journey-inner { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
+    .realm-journey h2 { max-width: none; }
 }
 @media (max-width: 39.99rem) {
-    .realm-hero { display: block; min-height: 0; }
-    .realm-hero-art { height: 25rem; object-position: 61% 25%; }
-    .realm-hero::before { background: linear-gradient(180deg, #08111a66 0, #08111acf 17rem, #080e14 27rem), linear-gradient(90deg, #08111ae0, #08111a33); }
-    .realm-hero-copy { padding: 2.5rem 0 1.2rem; }
-    .realm-hero-copy > .eyebrow { font-size: .63rem; letter-spacing: .17em; }
-    #home-hero-title { font-size: clamp(3.15rem, 13.5vw, 5.2rem); letter-spacing: .035em; margin-block: .7rem; }
-    .realm-hero-tagline { max-width: 21ch; font-size: 1.8rem; }
-    .realm-hero-lede { max-width: 36ch; font-size: .95rem; }
-    .realm-hero-actions { gap: .65rem; }
-    .realm-hero-actions .button { min-width: 0; flex: 1 1 9rem; min-height: 3rem; font-size: .85rem; padding-inline: .85rem; }
-    .realm-promises { display: grid; gap: .15rem; margin-top: 1.2rem; }
-    .realm-promises a { font-size: .8rem; min-height: 2.65rem; }
-    .realm-promises .realm-icon { width: 1.4rem; height: 1.4rem; }
-    .realm-pulse { position: relative; inset: auto; width: calc(100% - 2 * var(--gutter)); margin: .5rem auto 1.2rem; padding: 1.2rem; }
-    .realm-pulse-inner { grid-template-columns: minmax(0, 1fr); gap: .6rem; }
-    .realm-pulse-inner > strong { font-size: 1.5rem; }
-    .realm-journal { padding-block: .8rem 1.2rem; }
-    .production-news-panel, .realm-ledger { padding: 1.2rem; }
-    .production-news-panel .section-heading > .realm-text-link { flex-basis: 100%; }
-    .production-news-list { grid-template-columns: minmax(0, 1fr); gap: 1.2rem; }
-    .journal-story-lead { grid-row: auto; }
-    .journal-story:not(.journal-story-lead) { grid-column: 1; grid-template-columns: 4.5rem minmax(0, 1fr); }
-    .journal-story-lead h3 { font-size: 1.55rem; }
-    .journal-story-lead .journal-illustration { height: 9rem; }
-    .realm-ledger { display: block; }
-    .production-world-total { margin-block: 1rem; }
-    .production-discover { padding-block: 1rem 2rem; }
-    .production-discover .section-heading > .discovery-intro { flex-basis: 100%; }
+    .realm-hero-copy { padding-top: 2rem; }
+    .realm-hero-copy > .eyebrow { font-size: .68rem; letter-spacing: .15em; }
+    #home-hero-title { font-size: clamp(3.2rem, 14vw, 4.5rem); }
+    .realm-hero-tagline { max-width: 23ch; font-size: 1.7rem; }
+    .realm-hero-lede { font-size: .93rem; margin-bottom: 1.25rem; }
+    .realm-hero-actions .button { flex: 1 1 8rem; min-width: 0; font-size: .85rem; padding-inline: .75rem; }
+    .realm-promises { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; margin-top: 1rem; }
+    .realm-promises a { min-height: 2.4rem; font-size: .8rem; }
+    .realm-pulse { padding: 1rem; }
+    .realm-pulse-inner { grid-template-columns: minmax(0, 1fr) auto; }
+    .realm-pulse-inner > strong, .realm-pulse-inner > p { grid-column: 1 / -1; grid-row: 2; }
+    .realm-pulse-inner > a { grid-column: 2; grid-row: 1; font-size: .78rem; }
+    .realm-journal { padding-block: 1.5rem; }
+    .production-news-list { grid-template-columns: minmax(0, 1fr); gap: .75rem; }
+    .journal-story { padding: 1.1rem; }
+    .journal-story-lead h3 { font-size: 1.65rem; }
+    .realm-ledger { display: block; padding: 1.1rem; }
+    .production-discover { padding-bottom: 1.75rem; }
     .production-discover-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
-    .discovery-illustration { height: 5.5rem; }
-    .discovery-copy { padding: 0 .85rem 1rem; gap: .55rem; }
-    .discovery-copy strong { font-size: 1.23rem; }
-    .discovery-description { font-size: .74rem; }
-    .discover-arrow { top: 5.5rem; right: .7rem; }
-    .realm-search { grid-template-columns: minmax(0, 1fr); gap: 1rem; padding-block: 1.5rem; margin-bottom: 1.5rem; }
-    .realm-search h2 { font-size: 1.5rem; }
-    .realm-search-form button { padding-inline: .85rem; }
-    .realm-quick-links { gap: .25rem 1.2rem; }
-    .realm-dispatches { grid-template-columns: minmax(0, 1fr); padding-bottom: 1.5rem; }
-    .realm-dispatches > .card { padding: 1.2rem; }
-    .realm-journey-inner { padding-block: 2rem; gap: 1.5rem; }
-    .realm-journey h2 { font-size: 1.85rem; }
+    .discovery-copy { padding: .9rem; }
+    .discovery-copy strong { font-size: 1.22rem; }
+    .discovery-description { font-size: .8rem; }
+    .discover-arrow { display: none; }
+    .realm-search { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+    .realm-dispatches { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
     .production-path-list { grid-template-columns: minmax(0, 1fr); gap: 1.2rem; }
-    .production-path-list li { padding-left: 2.5rem; position: relative; }
-    .production-path-list li::before { position: absolute; left: 0; top: -.2rem; }
-}
-@media (max-width: 22rem) {
-    .production-discover-grid { grid-template-columns: minmax(0, 1fr); }
-    .discovery-illustration { height: 7rem; }
-    .discovery-copy { padding: 0 1.2rem 1.2rem; }
-    .discover-arrow { top: 7rem; }
+    .production-path-list li { position: relative; padding-left: 2.5rem; }
+    .production-path-list li::before { position: absolute; left: 0; }
 }
 @media (prefers-reduced-motion: no-preference) {
-    .discovery-card { transition: border-color .18s ease, box-shadow .18s ease; }
-    .discovery-card:hover { box-shadow: 0 10px 24px #0004; }
+    .discovery-card, .journal-story { transition: border-color .15s ease; }
+    .journal-story:hover { border-color: var(--border-strong); }
 }
 @media (forced-colors: active) {
     .realm-hero-art, .realm-hero::before, .discovery-illustration { display: none; }
-    .realm-pulse, .production-news-panel, .realm-ledger, .discovery-card { border: 1px solid CanvasText; box-shadow: none; }
-    .realm-icon { color: LinkText; }
+    .realm-pulse, .realm-ledger, .discovery-card, .journal-story { border: 1px solid CanvasText; box-shadow: none; }
 }

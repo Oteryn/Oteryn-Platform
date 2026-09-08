@@ -4,9 +4,6 @@
 @section('description', __('public.wiki.description'))
 @section('page-class', 'wiki-page')
 
-@push('head')
-    <meta name="description" content="{{ __('public.wiki.description') }}">
-@endpush
 @section('portal-family', 'knowledge')
 
 @section('content')
@@ -23,6 +20,10 @@
             <p>{{ __('public.wiki.empty_help') }}</p>
         </div>
     @else
+        @php
+            $featuredSlugs = array_map(static fn ($article) => $article->slug, $wiki->featuredArticles);
+            $recentArticles = array_filter($wiki->recentArticles, static fn ($article) => ! in_array($article->slug, $featuredSlugs, true));
+        @endphp
         <div class="knowledge-library">
         @if ($wiki->categories !== [])
             <section aria-labelledby="wiki-categories">
@@ -59,14 +60,14 @@
             </section>
         @endif
 
-        @if ($wiki->recentArticles !== [])
+        @if ($recentArticles !== [])
             <section aria-labelledby="wiki-recent">
                 <div class="section-heading">
                     <p class="eyebrow">{{ __('public.wiki.recent') }}</p>
                     <h2 id="wiki-recent">{{ __('public.wiki.recent_articles') }}</h2>
                 </div>
                 <div class="card-grid">
-                    @foreach ($wiki->recentArticles as $articleCard)
+                    @foreach ($recentArticles as $articleCard)
                         @include('wiki.partials.article-card', ['articleCard' => $articleCard])
                     @endforeach
                 </div>

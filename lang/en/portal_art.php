@@ -9,6 +9,12 @@ return [
     'opportunity' => 'A world of opportunity',
     'next_step' => 'Explore the guides, stories and communities that bring Oteryn to life.',
     'admin' => [
+        'workspace' => 'Administrator workspace',
+        'workspace_help' => 'Choose a task. Only capabilities available to your role are shown.',
+        'content_help' => 'Publish, organize and maintain the information players see.',
+        'support_help' => 'Review player conversations, reports and moderation decisions.',
+        'access_help' => 'Manage administrator roles and access.',
+        'operations_help' => 'Inspect catalog data, transactions and the audit trail.',
         'console' => 'Administration',
         'navigation' => 'Administrator navigation',
         'request_error' => 'The request could not be completed.',

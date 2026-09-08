@@ -9,19 +9,12 @@ const output = resolve(root, 'artifacts/acceptance/portal-polish');
 
 test.describe.configure({ retries: 0 });
 
-test('@smoke @portal-polish collect exact-source visual quality baseline', async ({ page }) => {
+test('@smoke @portal-polish measure rendered asset sizes and layout quality', async ({ page }) => {
   test.setTimeout(120_000);
   mkdirSync(output, { recursive: true });
   const exactHead = execFileSync('git', ['rev-parse', 'HEAD'], {
     cwd: root, encoding: 'utf8', timeout: 5000,
   }).trim();
-  // Temporary baseline transport for the isolated design workspace. Only tracked
-  // source is exported, never .git, untracked .env, cookies or runtime/user data.
-  // Remove this archive operation before this candidate is marked ready.
-  execFileSync('git', ['archive', '--format=tar', `--output=${resolve(output, 'tracked-source.tar')}`, 'HEAD'], {
-    cwd: root, timeout: 30_000, stdio: 'pipe',
-  });
-
   const records = [];
   for (const width of [390, 820, 1440, 1920]) {
     await page.setViewportSize({ width, height: 1000 });
@@ -29,6 +22,25 @@ test('@smoke @portal-polish collect exact-source visual quality baseline', async
       const response = await page.goto(path);
       await expect(page.locator('main')).toBeVisible();
       await page.evaluate(() => document.fonts.ready);
+      for (const image of await page.locator('img[loading="lazy"]').all()) {
+        if (await image.isVisible()) {
+          await image.scrollIntoViewIfNeeded();
+          await expect(image).toHaveJSProperty('complete', true);
+        }
+      }
+      await page.evaluate(() => window.scrollTo(0, 0));
+      // Public fixture DOM only, for offline visual iteration; never authenticated HTML.
+      if (width === 1440 && path.startsWith('/en')) {
+        const html = await page.evaluate(() => {
+          const clone = document.documentElement.cloneNode(true);
+          clone.querySelectorAll('script, meta[name="csrf-token"], input[type="hidden"]').forEach((node) => node.remove());
+          clone.querySelectorAll('input').forEach((node) => node.removeAttribute('value'));
+          clone.querySelectorAll('textarea').forEach((node) => { node.textContent = ''; });
+          clone.querySelectorAll('[nonce]').forEach((node) => node.removeAttribute('nonce'));
+          return `<!doctype html>${clone.outerHTML}`;
+        });
+        writeFileSync(resolve(output, `${path.replaceAll('/', '-')}.html`), html);
+      }
       const metrics = await page.evaluate(() => ({
         viewport: document.documentElement.clientWidth,
         scrollWidth: document.documentElement.scrollWidth,
@@ -52,8 +64,12 @@ test('@smoke @portal-polish collect exact-source visual quality baseline', async
           })),
       }));
       records.push({ path, width, status: response?.status(), ...metrics });
-      writeFileSync(resolve(output, 'quality-baseline.json'), JSON.stringify({ exactHead, records }, null, 2));
+      writeFileSync(resolve(output, 'quality-current.json'), JSON.stringify({ exactHead, records }, null, 2));
       expect(response?.status(), path).toBe(200);
+      for (const image of metrics.images.filter((image) => image.path.endsWith('.webp'))) {
+        expect(image.naturalWidth, `${path}: loaded image ${image.path}`).toBeGreaterThan(0);
+        expect(image.displayedWidth, `${path}: avoid enlarging ${image.path}`).toBeLessThanOrEqual(image.naturalWidth + 1);
+      }
       expect(metrics.scrollWidth, `${path} at ${width}px`).toBeLessThanOrEqual(metrics.viewport + 1);
     }
   }

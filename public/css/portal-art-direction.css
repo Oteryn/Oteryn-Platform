@@ -10,7 +10,7 @@
     --text: #f2eee6;
     --text-muted: #b2bfcc;
     --border: #2c3741;
-    --border-strong: #68727b;
+    --border-strong: #647380;
     --accent: #dfbd80;
     --accent-hover: #f4d9aa;
     --accent-active: #b38a4d;
@@ -22,9 +22,9 @@
     --focus: #ffe0a4;
     --content: 82rem;
     --content-wide: 88rem;
-    --radius-sm: .22rem;
-    --radius-md: .3rem;
-    --radius-lg: .4rem;
+    --radius-sm: .25rem;
+    --radius-md: .45rem;
+    --radius-lg: .7rem;
     --gold-rule: #a17c4259;
     --gold-surface: linear-gradient(110deg, #d6b477, #eed3a0 48%, #c79d5a);
     --panel-fill: linear-gradient(135deg, #15202aec, #0b121af5);
@@ -33,12 +33,10 @@
 html { scroll-padding-top: 1.5rem; }
 body { background: var(--bg); }
 .public-body, .identity-body { position: relative; isolation: isolate; }
-.public-body:not([data-portal-family="home"])::before,
-.identity-authenticated::before {
-    content: ''; position: absolute; z-index: -1; inset: 0 0 auto; height: 38rem;
-    background: linear-gradient(180deg, #080e144d, var(--bg) 95%), linear-gradient(90deg, var(--bg) 8%, #080e1499 60%, #080e1466), url('../images/oteryn-citadel.webp') right 32% / auto 100% no-repeat;
-    pointer-events: none;
+.public-body:not([data-portal-family="home"]), .identity-authenticated {
+    background: radial-gradient(ellipse at 85% 0, #21334466, transparent 38rem), var(--bg);
 }
+/* Reading and task pages do not download a stretched decorative castle. */
 h1, h2, .display-title { font-weight: 400; letter-spacing: -.025em; }
 h1 { line-height: 1.13; }
 h2 { line-height: 1.22; }
@@ -49,16 +47,16 @@ p, li { line-height: 1.7; }
 .section-heading > .eyebrow { margin-bottom: .2rem; }
 .page-shell { padding-top: 2rem; }
 .page-shell > .page-header, .page-shell > .bazaar-hero {
-    position: relative; min-height: 12rem; align-content: center; padding-block: 1.4rem 2rem; margin-bottom: 2rem;
+    position: relative; min-height: 0; align-content: center; padding-block: .7rem 1.8rem; margin-bottom: 1.8rem;
 }
 .page-shell > .page-header::after, .page-shell > .bazaar-hero::after {
     content: ''; position: absolute; inset: auto 0 0; height: 1px;
     background: linear-gradient(90deg, var(--gold), var(--gold-rule) 35%, transparent 88%);
 }
-.page-shell > .page-header h1 { margin-block: .2rem .35rem; font-size: clamp(2.5rem, 4.2vw, 4.1rem); }
+.page-shell > .page-header h1 { margin-block: .2rem .35rem; font-size: clamp(2.2rem, 3.5vw, 3.4rem); }
 .page-shell > .page-header > p:not(.eyebrow) { max-width: 60ch; font-size: 1rem; }
 .card, .panel, .portal-section { border-top-color: var(--gold-rule); }
-.section-grid, .card-grid { gap: 1.5rem 2rem; }
+.section-grid, .card-grid { gap: 1.25rem 1.5rem; align-items: start; }
 /* Controls: gold is an action colour, green is reserved for real positive state. */
 button, .button {
     color: #1c160d; background: var(--gold-surface); border-color: #d0a66a;
@@ -90,11 +88,11 @@ button:disabled, .button[aria-disabled="true"] { box-shadow: none; }
 .badge-danger { color: var(--danger); border-color: #885960; }
 /* Shared header and menus retain native details and the no-JavaScript path. */
 .site-header { background: #080f17ed; border-bottom-color: #c7a46830; }
-.header-inner { min-height: 5rem; gap: 1.8rem; }
-.brand-wordmark-art { width: 13.6rem; }
+.header-inner { min-height: 4.75rem; gap: 1.25rem; }
+.brand-wordmark-art { width: 12.5rem; }
 .primary-nav { gap: .15rem; }
 .nav-link, .nav-group > summary { color: #e0e4e7; font-size: .9rem; font-weight: 400; padding: .85rem .7rem; }
-.nav-link[aria-current="page"] { color: var(--gold); box-shadow: inset 0 -2px var(--gold); }
+.nav-link[aria-current="page"], .nav-group:has(a[aria-current="page"]) > summary { color: var(--gold); box-shadow: inset 0 -2px var(--gold); }
 .nav-group-links { background: #0e1823; border-color: #9e815250; padding: .6rem; box-shadow: 0 20px 50px #0009; top: calc(100% + .6rem); }
 .nav-group-links .nav-link { font-size: .88rem; }
 .nav-group-links .nav-link:hover { background: #d6b4770e; }
@@ -107,33 +105,24 @@ button:disabled, .button[aria-disabled="true"] { box-shadow: none; }
 .portal-context-nav { gap: .2rem 1.7rem; padding-block: 0 .65rem; margin-bottom: .7rem; border-bottom-color: #c7a46825; }
 .portal-context-nav a { font-size: .8rem; min-height: 2.75rem; }
 .portal-context-nav a[aria-current="page"] { box-shadow: inset 0 -1px var(--gold); }
-/* Decorative scene strips contain no rendered text or controls. */
-.scene { background-image: url('../images/oteryn-explore.webp'); background-size: cover; background-repeat: no-repeat; background-color: #162332; }
-.scene-explore { background-image: url('../images/oteryn-explore.webp'); background-position: center; }
-.scene-fight { background-image: url('../images/oteryn-fight.webp'); background-position: center; }
-.scene-market { background-image: url('../images/oteryn-market.webp'); background-position: center; }
-.scene-community { background-image: url('../images/oteryn-community.webp'); background-position: center; }
-.scene-library { background-image: url('../images/oteryn-library.webp'); background-position: center; }
-.scene-chronicles { background-image: url('../images/oteryn-chronicles.webp'); background-position: center; }
-/* Chronicles: an illustrated lead, smaller stories, and a long-form reading surface. */
-.chronicle-index { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2rem; }
-.chronicle-entry { display: grid; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-fill); }
-.chronicle-illustration { min-height: 11rem; border-bottom: 1px solid var(--gold-rule); }
-.chronicle-copy { min-width: 0; padding: 1.65rem; }
-.chronicle-copy .eyebrow { font-size: .66rem; line-height: 1.8; }
-.chronicle-entry h2 { margin-block: .7rem; font-size: 1.75rem; max-width: 28ch; }
-.chronicle-excerpt { margin-bottom: .9rem; font-size: .95rem; }
-.chronicle-entry-lead { grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr); gap: 0; border-top: 1px solid #b79558; }
-.chronicle-entry-lead .chronicle-illustration { min-height: 19rem; border: 0; }
-.chronicle-entry-lead .chronicle-copy { display: flex; flex-direction: column; justify-content: center; padding: clamp(1.5rem, 3vw, 3rem); }
-.chronicle-entry-lead h2 { font-size: clamp(2rem, 3vw, 3rem); }
+/* News has a single decorative lead; actual posts remain text, not invented media. */
+.chronicle-index { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.chronicle-entry { display: block; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--panel-fill); }
+.chronicle-copy { min-width: 0; padding: 1.5rem; }
+.chronicle-copy .eyebrow { font-size: .73rem; line-height: 1.65; letter-spacing: .05em; }
+.chronicle-entry h2 { margin-block: .65rem; font-size: 1.65rem; max-width: 32ch; }
+.chronicle-excerpt { margin-bottom: .65rem; font-size: .95rem; }
+.chronicle-entry-lead { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 0; border-top-color: var(--gold-rule); }
+.chronicle-illustration { display: grid; place-items: center; min-width: 0; background: #111d28; }
+.chronicle-illustration img { display: block; width: 100%; max-width: 626px; height: auto; }
+.chronicle-entry-lead .chronicle-copy { display: flex; flex-direction: column; justify-content: center; padding: clamp(1.4rem, 3vw, 2.5rem); }
+.chronicle-entry-lead h2 { font-size: clamp(1.8rem, 2.6vw, 2.5rem); }
 .chronicle-entry-lead .text-link { align-self: start; }
-.reading-article { max-width: 58rem; }
-.reading-masthead { padding-block: 1rem 2rem; border-bottom-color: var(--gold-rule); }
-.reading-masthead h1 { max-width: 24ch; }
-.reading-world { height: clamp(9rem, 20vw, 16rem); margin-block: 1rem 2.4rem; border: 1px solid var(--gold-rule); border-radius: var(--radius-sm); }
+.reading-article { max-width: 54rem; }
+.reading-masthead { padding-block: .5rem 1.75rem; border-bottom-color: var(--gold-rule); }
+.reading-masthead h1 { max-width: 26ch; }
 .reading-body { padding: 0; border: 0; }
-.reading-body p, .reading-article > .prose-text { color: #d5dce2; font-size: 1.06rem; line-height: 1.95; }
+.reading-body p, .reading-article > .prose-text { color: #d5dce2; font-size: 1.06rem; line-height: 1.85; }
 .event-timeline-entry { background: linear-gradient(90deg, #dfbd8008, transparent 70%); padding: 1.5rem; border-bottom-color: var(--gold-rule); }
 .event-date { border-right-color: var(--gold-rule); font-size: 1.6rem; }
 .event-timeline-copy h3 { font-size: 1.7rem; }
@@ -169,11 +158,11 @@ tbody tr:hover { background: #d6b4770a; }
 /* Library and catalog retain search, taxonomy, authentic data and semantic media. */
 .wiki-hero { padding-block: 1.8rem 2.4rem; }
 .wiki-search-form { max-width: 38rem; margin-top: 1.5rem; }
-.knowledge-library { gap: 3rem; }
+.knowledge-library { gap: 1.75rem; }
 .knowledge-library > section { padding: 1.5rem; border: 1px solid var(--border); background: #101a24dc; align-self: start; }
 .knowledge-library .section-heading h2 { font-size: 1.55rem; }
-.knowledge-library .wiki-category-grid .card { padding-inline: 0; background: transparent; }
-.knowledge-stream .card-grid { gap: 1rem; }
+.knowledge-library .wiki-category-grid .card { padding: 1rem 0; background: transparent; }
+.knowledge-stream .card-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: 1rem; }
 .knowledge-stream .card { padding: 1.5rem; border: 1px solid var(--border); background: var(--panel-fill); border-radius: var(--radius-sm); }
 .wiki-category-grid h3 a { color: var(--gold); }
 .wiki-toc { padding: 1.3rem; background: #101a24ec; border: 1px solid var(--border); border-top-color: var(--gold-rule); }
@@ -192,18 +181,18 @@ tbody tr:hover { background: #d6b4770a; }
 .support-entry-paths > a:hover { border-color: var(--gold-rule); }
 [data-portal-family="support"] .identity-panel > .card { padding: 1.6rem; border: 1px solid var(--border); background: var(--panel-fill); }
 /* Player workspace: atmosphere around information, never behind sensitive input. */
-.identity-workspace { grid-template-columns: 14rem minmax(0, 1fr); gap: 3rem; padding-block: 2.8rem 5rem; }
+.identity-workspace { grid-template-columns: 13.5rem minmax(0, 1fr); gap: 2rem; padding-block: 2rem 3.5rem; }
 .account-sidebar { background: linear-gradient(145deg, #14202bd9, #0d1721e8); padding: 1.3rem .85rem; border: 1px solid var(--border); border-top-color: #b79558; }
 .account-sidebar > .eyebrow { padding-inline: .8rem; margin-bottom: .8rem; }
 .context-nav a { font-size: .87rem; padding-block: .75rem; }
 .context-nav a[aria-current="page"] { background: #d6b47710; border-left-color: var(--gold); color: var(--gold); }
 .context-nav a:hover { background: #d6b4770a; }
-.account-masthead { padding: 1.9rem; min-height: 12rem; background: linear-gradient(90deg, #0e1822fa 22%, #0e1822a6), url('../images/oteryn-citadel.webp') right 45% / auto 220% no-repeat; border: 1px solid var(--gold-rule); }
-.account-masthead h1 { font-size: clamp(2.1rem, 3.5vw, 3.3rem); }
-.account-connection { background: #101b26ed; border: 1px solid var(--border); border-left: 2px solid var(--gold); margin-block: 1.5rem 2.5rem; }
+.account-masthead { padding: 1.5rem; min-height: 0; background: linear-gradient(115deg, #172735, #101a24); border: 1px solid var(--gold-rule); border-radius: var(--radius-md); }
+.account-masthead h1 { font-size: clamp(2rem, 3vw, 2.8rem); }
+.account-connection { background: #101b26ed; border: 1px solid var(--border); border-left: 2px solid var(--gold); margin-block: 1.25rem 1.75rem; }
 .account-roster .empty-state { padding-block: 2rem; }
 .character-roster-row { padding: 1.5rem; background: var(--panel-fill); border: 1px solid var(--border); margin-bottom: .8rem; }
-.account-services { gap: 2rem; }
+.account-services { gap: 1.25rem; }
 .account-services > section { padding: 1.5rem; background: var(--panel-fill); border-top: 1px solid var(--gold-rule); }
 .security-section { padding: 1.6rem; background: #101a24d9; border: 1px solid var(--border); margin-bottom: 1.5rem; }
 .security-section h2 { font-size: 1.8rem; }
@@ -212,7 +201,7 @@ tbody tr:hover { background: #d6b4770a; }
 .identity-guest { background: radial-gradient(ellipse at 24% 30%, #1f3041 0, #0b131c 48%, #080e14 85%); }
 .identity-guest .identity-workspace { max-width: 76rem; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 0; padding-block: 3rem 4rem; align-items: stretch; }
 .identity-guest .identity-world { min-height: 35rem; background: #172738; border: 1px solid var(--gold-rule); border-right: 0; padding: 2.4rem; }
-.identity-world img { object-position: 65% center; }
+.identity-world img { width: 100%; max-width: 626px; height: auto; max-height: 468px; object-fit: contain; object-position: top center; }
 .identity-world::after { background: linear-gradient(0deg, #0a1118f5 0, #0a111833 66%); }
 .identity-world .identity-world-title { color: #f2d8a7; font-size: 3.1rem; letter-spacing: .12em; }
 .identity-world .identity-world-copy { color: #d3dce5; font-size: 1rem; line-height: 1.8; }
@@ -237,15 +226,18 @@ tbody tr:hover { background: #d6b4770a; }
 .stats-grid { gap: 1rem; }
 .stat-card { padding: 1.4rem; border: 1px solid var(--border); background: var(--panel-fill); }
 /* A real navigation directory closes every public page. */
-.site-footer { background: linear-gradient(180deg, #080e14ed, #080e14f5), url('../images/oteryn-citadel.webp') center 55% / cover; border-top-color: #c7a46845; }
-.public-footer-grid { gap: 4rem; padding-block: 3rem; }
-.public-footer-brand .brand-wordmark-art { width: 14rem; }
-.public-footer-brand p { line-height: 1.8; }
+.site-footer { background: #0a121b; border-top-color: #c7a46845; }
+.public-footer-grid { grid-template-columns: minmax(0, .7fr) minmax(0, 2fr); gap: 2rem; padding-block: 2.5rem; }
+.public-footer-links { grid-template-columns: repeat(auto-fit, minmax(min(100%, 7rem), 1fr)); gap: 1.5rem 1rem; }
+.public-footer-group { min-width: 0; }
+.public-footer-status-note { max-width: 38ch; }
+.public-footer-brand .brand-wordmark-art { width: 12rem; }
+.public-footer-brand p { line-height: 1.65; }
 .public-footer-group h2 { font-family: var(--display); font-weight: 400; font-size: .85rem; letter-spacing: .1em; }
 .public-footer-group a { font-size: .83rem; min-height: 2.3rem; }
 .public-footer-meta { border-top-color: #c7a46828; font-size: .75rem; }
 .identity-footer { background: #080e1488; border-top-color: var(--gold-rule); }
-.error-body { background: linear-gradient(90deg, #080e14ed, #080e14b0), url('../images/oteryn-citadel.webp') center / cover; }
+.error-body { background: radial-gradient(ellipse at 50% 20%, #213345, #0b141e 58%, var(--bg)); }
 .error-panel { padding: clamp(1.5rem, 5vw, 3.5rem); border: 1px solid var(--gold-rule); background: #0b141deb; box-shadow: var(--panel-shadow); }
 .error-code { font-size: clamp(5rem, 15vw, 8rem); color: var(--gold); }
 /* Responsive compositions are deliberate; tables remain semantic and scrollable. */
@@ -255,7 +247,7 @@ tbody tr:hover { background: #d6b4770a; }
     .public-footer-grid { grid-template-columns: minmax(0, 1fr); gap: 2rem; }
 }
 @media (max-width: 59.99rem) {
-    .page-shell > .page-header { min-height: 10rem; }
+    .page-shell > .page-header { min-height: 0; }
     .identity-workspace { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; padding-top: 1.5rem; }
     .account-sidebar { padding: 1rem; }
     .account-sidebar > .eyebrow { padding-inline: 0; }
@@ -265,7 +257,7 @@ tbody tr:hover { background: #d6b4770a; }
     .identity-guest .identity-world { display: none; }
     .identity-guest .identity-shell { padding: 2rem; }
     .chronicle-entry-lead { grid-template-columns: minmax(0, 1fr); }
-    .chronicle-entry-lead .chronicle-illustration { min-height: 12rem; }
+    .chronicle-entry-lead .chronicle-illustration img { max-height: 18rem; width: auto; max-width: 100%; object-fit: contain; }
     .knowledge-library > section { padding: 1.3rem; }
     .knowledge-library .wiki-category-grid { gap: 0 1.5rem; }
     .account-masthead, .player-masthead { padding: 1.5rem; }
@@ -276,7 +268,7 @@ tbody tr:hover { background: #d6b4770a; }
     .brand-wordmark-art { width: 11.5rem; }
     .identity-body .brand-wordmark-art { width: 10rem; }
     .page-shell { padding-top: 1.2rem; }
-    .page-shell > .page-header, .page-shell > .bazaar-hero { min-height: 9rem; padding-block: 1rem 1.5rem; margin-bottom: 1.5rem; }
+    .page-shell > .page-header, .page-shell > .bazaar-hero { min-height: 0; padding-block: .75rem 1.25rem; margin-bottom: 1.5rem; }
     .page-shell > .page-header h1 { font-size: 2.4rem; }
     .portal-context-nav { gap: .2rem 1rem; }
     .chronicle-index { grid-template-columns: minmax(0, 1fr); gap: 1.2rem; }
@@ -291,7 +283,8 @@ tbody tr:hover { background: #d6b4770a; }
     .character-roster-row { padding: 1.15rem; }
     .account-services > section { padding: 1.2rem; }
     .support-entry-paths > a { padding: 1rem; }
-    .public-footer-grid { padding-block: 2.5rem; }
+    .public-footer-grid { padding-block: 2rem; }
+    .public-footer-links { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem 1rem; }
     .public-footer-group a { min-height: 2.75rem; }
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -311,12 +304,10 @@ tbody tr:hover { background: #d6b4770a; }
 .identity-panel > form, .identity-panel .content-card { min-width: 0; }
 .payment-scroll-region { max-width: 100%; overflow-x: auto; }
 .wiki-article-header, .wiki-hero { border-bottom-color: var(--gold-rule); }
-.wiki-page .page-header h1, .community-page .page-header h1 { font-size: clamp(2.4rem, 4.1vw, 4rem); }
+.wiki-page .page-header h1, .community-page .page-header h1 { font-size: clamp(2.2rem, 3.5vw, 3.4rem); }
 .wiki-page .card-grid > article { border-top-color: var(--gold-rule); }
 .catalog-description, .catalog-detail, .session-analysis-detail { color: var(--text-muted); }
-.calendar-cover { height: 9rem; margin-block: 1.5rem 2rem; border: 1px solid var(--gold-rule); border-radius: var(--radius-sm); }
+
 @media (max-width: 39.99rem) {
-    .identity-guest .identity-shell { padding: 1.3rem; }
     .identity-body .account-actions { max-width: 100%; }
-    .calendar-cover { height: 6rem; }
 }

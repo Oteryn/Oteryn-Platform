@@ -20,7 +20,6 @@
             <p>{{ $event['summary'] }}</p>
         </div>
 
-        <div class="calendar-cover scene scene-chronicles" aria-hidden="true"></div>
 
         <div class="card content-copy reading-body">
             @foreach (preg_split('/\R{2,}/', $event['body']) ?: [$event['body']] as $paragraph)
