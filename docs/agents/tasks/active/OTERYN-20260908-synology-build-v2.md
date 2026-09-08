@@ -8,6 +8,7 @@ search_first:
   - Platform Issue #1328
   - Platform Issue #1313
   - Platform PR #1331
+  - Platform PR #1335
 optional_reads: []
 ---
 
@@ -67,11 +68,11 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T06:48:00Z
-head: 9c626b038edc736ff51f06064fbb961ac2b3c1b1
+updated_at: 2026-09-08T06:52:00Z
+head: 79860eb67068176ad92b79c25033f44bba92a5bb
 branch: ci/1328-synology-postmerge-fixes
-pr: null
-status: implementing
+pr: 1335
+status: validating
 context_routes:
   - testing
   - execution-resources
@@ -89,12 +90,12 @@ proven:
   - protected-main Build Synology Staging Images run 34195930772 failed only in the deploy fan-in before workflow dispatch, so no new Synology staging deployment was claimed
   - first failure is reproducible from job 101963679870: read_component declared name and file in one local statement under set -u, causing name to be expanded before initialization
   - the merged Synology Gateway Dockerfile still copied the entire services/game-gateway tree, causing README.md and the unrelated service Dockerfile to participate in Synology Gateway image invalidation
-  - follow-up branch splits the fan-in locals and narrows Gateway Dockerfile, Docker context, classifier and workflow path triggers to go.mod plus cmd/** plus internal/**
+  - PR 1335 splits the fan-in locals and narrows Gateway Dockerfile, Docker context, classifier and workflow path triggers to go.mod plus cmd/** plus internal/**
   - regression contract tests/ci/test_synology_gateway_build_inputs.py proves truthful Gateway routing/context and the fan-in local initialization rule
 derived:
-  - the post-merge fan-in repair is sufficient to let the already proven build provenance artifacts reach the guarded Deploy Synology Staging workflow, subject to fresh exact-head and protected-main verification
+  - the post-merge fan-in repair is sufficient to let proven build provenance artifacts reach the guarded Deploy Synology Staging workflow, subject to fresh exact-head and protected-main verification
 unknown:
-  - exact-head CI result for this follow-up branch
+  - exact-head CI result for PR 1335
   - successful protected-main staging dispatch/deployment under the repaired fan-in
   - representative deployment-package-only zero-image-build live proof
   - representative one-runtime-component one-image-build live proof
@@ -125,7 +126,7 @@ validation:
     result: PASS
     evidence: pre-1328 prerequisite staging deployment remained the latest previously proven healthy staging baseline
 blockers: []
-next_action: open the post-merge repair PR, qualify exact head including platform-gate, integrate through Merge Queue, then verify the protected-main build fan-in and live Synology staging deployment before moving to representative zero-build and one-component cases
+next_action: qualify PR 1335 exact head including platform-gate, integrate through Merge Queue, then verify the protected-main build fan-in and live Synology staging deployment before representative zero-build and one-component cases
 ```
 
 ## Source branch closeout
@@ -133,7 +134,7 @@ next_action: open the post-merge repair PR, qualify exact head including platfor
 ```yaml
 source_branch_disposition: pending
 source_branch_reason: task remains active until live proportional protected-main behavior is proven and Issue #1328 is terminally completed
-source_branch_evidence: follow-up branch ci/1328-synology-postmerge-fixes continues the same governing Issue #1328 task ownership after merged PR #1331
+source_branch_evidence: PR #1335 continues the same governing Issue #1328 task ownership after merged PR #1331
 ```
 
 ## Notes
