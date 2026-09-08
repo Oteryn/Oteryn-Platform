@@ -7,6 +7,7 @@ on:
     paths:
       - composer.json
       - composer.lock
+      - artisan
       - app/**
       - bootstrap/**
       - config/**
@@ -14,9 +15,22 @@ on:
       - public/**
       - resources/**
       - routes/**
+      - lang/**
+      - storage/**
+      - docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json
+      - docs/architecture/adr/0004-authoritative-platform-account-ownership.md
+      - docs/architecture/adr/0005-character-creation-product-policy.md
+      - docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md
+      - docs/contracts/OTCLIENT_GAME_AUTH_CONTRACT.md
+      - docs/agents/PROJECT_STATE.md
+      - docs/architecture/PUBLIC_WEBSITE_EXPANSION_PLAN.md
+      - docs/architecture/SECURITY_ARCHITECTURE.md
+      - docs/architecture/adr/0013-wiki-administration.md
       - services/game-gateway/**
       - deploy/synology/**
+      - scripts/ci/classify_synology_builds.py
       - tests/ci/test_synology_rollback_contract.py
+      - tests/ci/test_synology_rollback_recovery_contract.py
       - tests/ci/test_synology_deploy_release_identity.py
       - tests/ci/test_synology_auto_staging_deploy.py
       - .github/workflows/build-synology-staging-images.yml
@@ -27,6 +41,7 @@ on:
     paths:
       - composer.json
       - composer.lock
+      - artisan
       - app/**
       - bootstrap/**
       - config/**
@@ -34,8 +49,20 @@ on:
       - public/**
       - resources/**
       - routes/**
+      - lang/**
+      - storage/**
+      - docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json
+      - docs/architecture/adr/0004-authoritative-platform-account-ownership.md
+      - docs/architecture/adr/0005-character-creation-product-policy.md
+      - docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md
+      - docs/contracts/OTCLIENT_GAME_AUTH_CONTRACT.md
+      - docs/agents/PROJECT_STATE.md
+      - docs/architecture/PUBLIC_WEBSITE_EXPANSION_PLAN.md
+      - docs/architecture/SECURITY_ARCHITECTURE.md
+      - docs/architecture/adr/0013-wiki-administration.md
       - services/game-gateway/**
       - deploy/synology/**
+      - scripts/ci/classify_synology_builds.py
       - .github/workflows/build-synology-staging-images.yml
       - .github/workflows/deploy-synology-staging.yml
   workflow_dispatch:
@@ -49,12 +76,55 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  classify:
+    name: Classify Synology image inputs
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.classify.outputs.matrix }}
+      has_image_builds: ${{ steps.classify.outputs.has_image_builds }}
+      release_relevant: ${{ steps.classify.outputs.release_relevant }}
+      platform_changed: ${{ steps.classify.outputs.platform_changed }}
+      gateway_changed: ${{ steps.classify.outputs.gateway_changed }}
+      deploy_runner_changed: ${{ steps.classify.outputs.deploy_runner_changed }}
+      deployment_package_changed: ${{ steps.classify.outputs.deployment_package_changed }}
+      control_plane_changed: ${{ steps.classify.outputs.control_plane_changed }}
+      runtime_deployment_changed: ${{ steps.classify.outputs.runtime_deployment_changed }}
+      build_platform: ${{ steps.classify.outputs.build_platform }}
+      build_gateway: ${{ steps.classify.outputs.build_gateway }}
+      build_deploy_runner: ${{ steps.classify.outputs.build_deploy_runner }}
+    steps:
+      - name: Checkout exact classification range
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Validate classifier syntax
+        run: python3 -m py_compile scripts/ci/classify_synology_builds.py
+
+      - name: Classify component build requirements
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/classify_synology_builds.py \
+            --event "$EVENT_NAME" \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA" \
+            --github-output "$GITHUB_OUTPUT" \
+            --summary "$GITHUB_STEP_SUMMARY"
+
   validate-deployment:
     name: Validate Synology deployment package
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Validate shell syntax
         run: |
@@ -67,6 +137,7 @@ jobs:
             deploy/synology/scripts/release-state.sh \
             deploy/synology/scripts/repository-ghcr-image.sh \
             deploy/synology/scripts/rollback.sh \
+            deploy/synology/scripts/upgrade-legacy-release-state.sh \
             deploy/synology/runner/entrypoint.sh
           sh -n \
             deploy/synology/tls/init.sh \
@@ -76,6 +147,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 tests/ci/test_synology_rollback_contract.py
+          python3 tests/ci/test_synology_rollback_recovery_contract.py
           python3 tests/ci/test_synology_deploy_release_identity.py
           python3 tests/ci/test_synology_auto_staging_deploy.py
 
@@ -210,75 +282,79 @@ jobs:
             config --quiet
 
   build:
-    name: Build ${{ matrix.name }} image
+    name: Build ${{ matrix.name }} component
+    if: ${{ needs.classify.outputs.has_image_builds == 'true' }}
+    needs:
+      - classify
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: platform
-            package: oteryn-platform
-            dockerfile: deploy/synology/docker/platform.Dockerfile
-          - name: game-gateway
-            package: oteryn-game-gateway
-            dockerfile: deploy/synology/docker/gateway.Dockerfile
-          - name: deploy-runner
-            package: oteryn-deploy-runner
-            dockerfile: deploy/synology/runner/Dockerfile
+      matrix: ${{ fromJson(needs.classify.outputs.matrix) }}
 
     steps:
       - name: Checkout exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
-      - name: Resolve current repository GHCR image
+      - name: Resolve component image identity
         id: image
         env:
           PACKAGE_NAME: ${{ matrix.package }}
+          SOURCE_SHA: ${{ matrix.source_sha }}
+          GIT_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           image="$(bash deploy/synology/scripts/repository-ghcr-image.sh "$PACKAGE_NAME")"
-          echo "image=$image" >> "$GITHUB_OUTPUT"
-
-      - name: Compute image tags
-        id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ steps.image.outputs.image }}
-          tags: |
-            type=sha,format=long
-            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+          tags="${image}:source-${SOURCE_SHA}"
+          if [[ "$GIT_REF" == refs/heads/main ]]; then
+            tags+=$'\n'"${image}:main"
+          fi
+          {
+            echo "image=$image"
+            echo "source_ref=${image}:source-${SOURCE_SHA}"
+            echo "tags<<EOF"
+            printf '%s\n' "$tags"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
-        if: github.event_name != 'pull_request' && (github.event_name == 'workflow_dispatch' || matrix.name != 'deploy-runner')
+        if: ${{ github.event_name != 'pull_request' }}
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and optionally publish
+      - name: Build affected component
+        id: build-image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          push: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && matrix.name != 'deploy-runner') }}
+          push: ${{ github.event_name != 'pull_request' }}
           load: ${{ github.event_name == 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.image.outputs.tags }}
+          labels: |
+            org.opencontainers.image.revision=${{ matrix.source_sha }}
+            io.oteryn.component.source-revision=${{ matrix.source_sha }}
           cache-from: type=gha,scope=synology-${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=synology-${{ matrix.name }}
 
       - name: Validate locally loaded pull-request image
-        if: github.event_name == 'pull_request'
+        if: ${{ github.event_name == 'pull_request' }}
         env:
-          IMAGE_REF: ${{ steps.image.outputs.image }}:${{ steps.meta.outputs.version }}
+          IMAGE_REF: ${{ steps.image.outputs.source_ref }}
           IMAGE_NAME: ${{ matrix.name }}
+          SOURCE_SHA: ${{ matrix.source_sha }}
         run: |
           set -euo pipefail
-          docker image inspect "$IMAGE_REF" >/dev/null
+          revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE_REF")"
+          [[ "$revision" == "$SOURCE_SHA" ]]
           case "$IMAGE_NAME" in
             platform)
               docker run --rm --entrypoint php "$IMAGE_REF" -v
@@ -291,10 +367,46 @@ jobs:
               ;;
           esac
 
+      - name: Record immutable current-run component provenance
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.name != 'deploy-runner' }}
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          DIGEST: ${{ steps.build-image.outputs.digest }}
+          SOURCE_SHA: ${{ matrix.source_sha }}
+          IMAGE_NAME: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "Build did not produce an immutable digest." >&2; exit 1; }
+          image_ref="${IMAGE}@${DIGEST}"
+          mkdir -p artifacts/synology
+          {
+            printf 'SOURCE_SHA=%s\n' "$SOURCE_SHA"
+            printf 'IMAGE=%s\n' "$image_ref"
+          } > "artifacts/synology/${IMAGE_NAME}.env"
+          echo "Published ${IMAGE_NAME} from ${SOURCE_SHA} as ${image_ref}." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload immutable current-run provenance
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.name != 'deploy-runner' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: synology-runtime-${{ matrix.name }}
+          path: artifacts/synology/${{ matrix.name }}.env
+          if-no-files-found: error
+          retention-days: 1
+
   deploy-staging:
-    name: Dispatch exact main SHA to Synology staging
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    name: Dispatch exact component provenance to Synology staging
+    if: >-
+      ${{
+        always() &&
+        github.event_name == 'push' &&
+        github.ref == 'refs/heads/main' &&
+        needs.classify.outputs.release_relevant == 'true' &&
+        needs.validate-deployment.result == 'success' &&
+        (needs.build.result == 'success' || needs.build.result == 'skipped')
+      }}
     needs:
+      - classify
       - validate-deployment
       - build
     runs-on: ubuntu-latest
@@ -303,9 +415,71 @@ jobs:
       actions: write
       contents: read
     steps:
-      - name: Dispatch guarded exact-SHA Synology staging deployment
+      - name: Checkout exact release tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Download immutable current-run component provenance
+        if: ${{ needs.classify.outputs.has_image_builds == 'true' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: synology-runtime-*
+          path: artifacts/synology
+          merge-multiple: true
+
+      - name: Resolve newly built component inputs
+        id: runtime
+        env:
+          BUILD_PLATFORM: ${{ needs.classify.outputs.build_platform }}
+          BUILD_GATEWAY: ${{ needs.classify.outputs.build_gateway }}
+        run: |
+          set -euo pipefail
+          read_component() {
+            local name="$1" required="$2" file="artifacts/synology/${name}.env"
+            if [[ "$required" != true ]]; then
+              printf '%s\n%s\n' '' ''
+              return 0
+            fi
+            [[ -f "$file" ]] || { echo "Missing current-run provenance for $name." >&2; return 1; }
+            local source_sha image
+            source_sha="$(sed -n 's/^SOURCE_SHA=//p' "$file")"
+            image="$(sed -n 's/^IMAGE=//p' "$file")"
+            [[ "$source_sha" == "$GITHUB_SHA" ]] || { echo "$name source SHA is not the exact protected-main SHA." >&2; return 1; }
+            [[ "$image" =~ ^ghcr\.io/[a-z0-9._-]+/[a-z0-9._-]+@sha256:[0-9a-f]{64}$ ]] || { echo "$name image is not an immutable GHCR digest." >&2; return 1; }
+            printf '%s\n%s\n' "$source_sha" "$image"
+          }
+
+          mapfile -t platform < <(read_component platform "$BUILD_PLATFORM")
+          mapfile -t gateway < <(read_component game-gateway "$BUILD_GATEWAY")
+          {
+            echo "platform_source_sha=${platform[0]:-}"
+            echo "platform_image=${platform[1]:-}"
+            echo "gateway_source_sha=${gateway[0]:-}"
+            echo "gateway_image=${gateway[1]:-}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Overall release: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$BUILD_PLATFORM" == true ]]; then
+            echo "Platform: newly built ${platform[0]} — ${platform[1]}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Platform: reuse exact proven component from Synology current-release state" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [[ "$BUILD_GATEWAY" == true ]]; then
+            echo "Gateway: newly built ${gateway[0]} — ${gateway[1]}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Gateway: reuse exact proven component from Synology current-release state" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Dispatch guarded exact-provenance Synology staging deployment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PLATFORM_CHANGED: ${{ needs.classify.outputs.build_platform }}
+          GATEWAY_CHANGED: ${{ needs.classify.outputs.build_gateway }}
+          PLATFORM_SOURCE_SHA: ${{ steps.runtime.outputs.platform_source_sha }}
+          PLATFORM_IMAGE: ${{ steps.runtime.outputs.platform_image }}
+          GATEWAY_SOURCE_SHA: ${{ steps.runtime.outputs.gateway_source_sha }}
+          GATEWAY_IMAGE: ${{ steps.runtime.outputs.gateway_image }}
           CANARY_IMAGE_DIGEST: ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f
         run: |
           set -euo pipefail
@@ -322,6 +496,12 @@ jobs:
             -f ref=main \
             -f 'inputs[action]=deploy' \
             -f "inputs[release_sha]=${GITHUB_SHA}" \
+            -f "inputs[platform_changed]=${PLATFORM_CHANGED}" \
+            -f "inputs[platform_source_sha]=${PLATFORM_SOURCE_SHA}" \
+            -f "inputs[platform_image]=${PLATFORM_IMAGE}" \
+            -f "inputs[gateway_changed]=${GATEWAY_CHANGED}" \
+            -f "inputs[gateway_source_sha]=${GATEWAY_SOURCE_SHA}" \
+            -f "inputs[gateway_image]=${GATEWAY_IMAGE}" \
             -f "inputs[canary_image]=${CANARY_IMAGE_DIGEST}" \
             -f 'inputs[canary_game_bind_address]=192.168.1.2' \
             -f 'inputs[game_world_id]=1' \
@@ -329,5 +509,5 @@ jobs:
             -f 'inputs[game_world_name]=Oteryn Staging' \
             -f 'inputs[game_world_region]=LAN'
 
-          echo "Synology staging deployment accepted for exact main SHA ${GITHUB_SHA}."
-          echo "Deployment continues independently in Deploy Synology Staging; image-build completion is no longer coupled to remote staging duration."
+          echo "Synology staging deployment accepted for exact main release ${GITHUB_SHA}."
+          echo "Deployment continues independently in Deploy Synology Staging; build completion is not coupled to remote staging duration."

@@ -1,0 +1,6 @@
+**
+!deploy/
+!deploy/synology/
+!deploy/synology/runner/
+!deploy/synology/runner/entrypoint.sh
+!deploy/synology/runner/test-entrypoint.sh

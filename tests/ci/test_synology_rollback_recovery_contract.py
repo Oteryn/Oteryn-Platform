@@ -111,6 +111,7 @@ def test_pending_candidate_resume_is_proven_before_candidate_or_backup_rewrite()
     helper_end = lib.index("_oteryn_before_platform_migrate()", helper_start)
     helper = lib[helper_start:helper_end]
     assert "differs from requested release" in helper
+    assert "component source identity drifted" in helper
     assert "immutable runtime image identity drifted" in helper
     assert "staged world identity drifted" in helper
     assert "prior migration is not proven complete" in helper
@@ -140,7 +141,6 @@ def test_pending_candidate_resume_is_proven_before_candidate_or_backup_rewrite()
     assert baseline_helper < platform_start
 
 
-
 def test_new_release_finalizes_only_a_proven_healthy_previous_candidate() -> None:
     deploy = (SCRIPTS / "deploy.sh").read_text()
     start = deploy.index("finalize_previous_candidate_if_healthy()")
@@ -152,17 +152,21 @@ def test_new_release_finalizes_only_a_proven_healthy_previous_candidate() -> Non
     assert "candidate does not accept the proven schema" in body
     assert "staging world identity drifted" in body
     assert "running $service image does not match candidate recovery identity" in body
+    assert '_oteryn_verify_component_image_source "${candidate_state[3]}" "${candidate_state[1]}" Platform' in body
+    assert '_oteryn_verify_component_image_source "${candidate_state[4]}" "${candidate_state[2]}" Gateway' in body
     assert 'services=(platform canary)' in body
-    assert 'expected_images=("${candidate_state[1]}" "${candidate_state[3]}")' in body
-    assert 'expected_gateway_image="${candidate_state[2]}"' in body
+    assert 'expected_images=("${candidate_state[3]}" "${candidate_state[5]}")' in body
+    assert 'expected_gateway_image="${candidate_state[4]}"' in body
     assert "exact candidate Gateway image is unavailable" in body
     assert "Previous candidate Gateway runtime drift detected; reconstructing exact candidate Gateway before health proof." in body
     assert 'expected_image_id="$(docker image inspect --format' in body
     assert 'release-state.sh" resolve-image "$image_id"' not in body
-    assert '"PLATFORM_IMAGE=${candidate_state[1]}"' in body
-    assert '"GATEWAY_IMAGE=${candidate_state[2]}"' in body
-    assert '"CANARY_IMAGE=${candidate_state[3]}"' in body
-    assert '"GATEWAY_VERSION=sha-${candidate_sha}"' in body
+    assert '"PLATFORM_SOURCE_SHA=${candidate_state[1]}"' in body
+    assert '"GATEWAY_SOURCE_SHA=${candidate_state[2]}"' in body
+    assert '"PLATFORM_IMAGE=${candidate_state[3]}"' in body
+    assert '"GATEWAY_IMAGE=${candidate_state[4]}"' in body
+    assert '"CANARY_IMAGE=${candidate_state[5]}"' in body
+    assert '"GATEWAY_VERSION=sha-${candidate_state[2]}"' in body
     assert 'OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"' in body
     assert 'game-auth:world:ensure' in body
 
@@ -187,6 +191,7 @@ def test_previous_candidate_finalizer_never_blindly_discards_recovery_state() ->
     assert body.index('game-auth:world:ensure') < clear
     assert body.index('running $service image does not match candidate recovery identity') < clear
 
+
 def test_health_probe_helper_pins_are_full_immutable_digests() -> None:
     lib = LIB.read_text()
     alpine = re.search(r"^OTERYN_HEALTH_ALPINE_IMAGE='([^']+)'$", lib, re.MULTILINE)
@@ -199,23 +204,23 @@ def test_health_probe_helper_pins_are_full_immutable_digests() -> None:
     assert 'python:3.12-alpine) args[$i]="$OTERYN_HEALTH_PYTHON_IMAGE"' in lib
 
 
-def test_rollback_revalidates_last_good_image_revision_before_start() -> None:
+def test_rollback_revalidates_each_last_good_component_revision_before_start() -> None:
     rollback = ROLLBACK.read_text()
     pull = rollback.index('"${compose[@]}" pull platform gateway canary')
-    revision = rollback.index('last_good_revision="$(_oteryn_release_sha_for_images "$PLATFORM_IMAGE" "$GATEWAY_IMAGE")"')
-    compare = rollback.index('[[ "$last_good_revision" == "$RELEASE_SHA" ]]', revision)
+    platform_verify = rollback.index('_oteryn_verify_component_image_source "$PLATFORM_IMAGE" "$PLATFORM_SOURCE_SHA" Platform')
+    gateway_verify = rollback.index('_oteryn_verify_component_image_source "$GATEWAY_IMAGE" "$GATEWAY_SOURCE_SHA" Gateway')
     start = rollback.index('"${compose[@]}" up -d canary platform internal-proxy gateway')
-    assert pull < revision < compare < start
-    assert "last-good runtime image revision does not match persisted release identity" in rollback
+    assert pull < platform_verify < gateway_verify < start
+    assert "overall release SHA intentionally remains independent" in rollback
 
 
-def test_rollback_gateway_version_is_derived_from_last_good_release() -> None:
+def test_rollback_gateway_version_is_derived_from_last_good_component_source() -> None:
     rollback = ROLLBACK.read_text()
     source = rollback.index('source "$last_good_file"')
-    derive = rollback.index('GATEWAY_VERSION="sha-$RELEASE_SHA"', source)
+    derive = rollback.index('GATEWAY_VERSION="sha-$GATEWAY_SOURCE_SHA"', source)
     start = rollback.index('"${compose[@]}" up -d canary platform internal-proxy gateway', derive)
     assert source < derive < start
-    assert "export PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE GATEWAY_VERSION" in rollback
+    assert "export OTERYN_RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE GATEWAY_VERSION" in rollback
 
 
 def test_rollback_rejects_canary_bind_identity_mismatch() -> None:

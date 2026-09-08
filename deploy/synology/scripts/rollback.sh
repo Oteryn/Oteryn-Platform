@@ -37,7 +37,7 @@ bash "$SCRIPT_DIR/release-state.sh" compatible-schema "$schema_identity" "$last_
 # Load immutable last-good runtime identity only after all compatibility gates.
 # shellcheck disable=SC1090
 source "$last_good_file"
-for name in RELEASE_SHA PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT; do
+for name in RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT; do
     [[ -n "${!name:-}" ]] || { echo "Rollback configuration is incomplete: $name" >&2; exit 1; }
 done
 
@@ -50,27 +50,64 @@ done
     exit 1
 }
 
-GATEWAY_VERSION="sha-$RELEASE_SHA"
-export PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE GATEWAY_VERSION
-compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
-"${compose[@]}" pull platform gateway canary
+OTERYN_RELEASE_SHA="$RELEASE_SHA"
+GATEWAY_VERSION="sha-$GATEWAY_SOURCE_SHA"
+export OTERYN_RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE GATEWAY_VERSION
 
-# Re-prove that immutable last-good Platform/Gateway artifacts still identify the
-# exact persisted application release before starting any rollback runtime.
-last_good_revision="$(_oteryn_release_sha_for_images "$PLATFORM_IMAGE" "$GATEWAY_IMAGE")"
-[[ "$last_good_revision" == "$RELEASE_SHA" ]] || {
-    echo "Rollback rejected: last-good runtime image revision does not match persisted release identity." >&2
+rollback_env="$state_dir/rollback-health.env"
+cleanup() { rm -f "$rollback_env" "$rollback_env.tmp"; }
+trap cleanup EXIT
+awk \
+    -v release_sha="$OTERYN_RELEASE_SHA" \
+    -v platform_source_sha="$PLATFORM_SOURCE_SHA" \
+    -v gateway_source_sha="$GATEWAY_SOURCE_SHA" \
+    -v platform_image="$PLATFORM_IMAGE" \
+    -v gateway_image="$GATEWAY_IMAGE" \
+    -v canary_image="$CANARY_IMAGE" \
+    -v gateway_version="$GATEWAY_VERSION" '
+    BEGIN { r=0; ps=0; gs=0; p=0; g=0; c=0; v=0 }
+    /^OTERYN_RELEASE_SHA=/ { print "OTERYN_RELEASE_SHA=" release_sha; r=1; next }
+    /^PLATFORM_SOURCE_SHA=/ { print "PLATFORM_SOURCE_SHA=" platform_source_sha; ps=1; next }
+    /^GATEWAY_SOURCE_SHA=/ { print "GATEWAY_SOURCE_SHA=" gateway_source_sha; gs=1; next }
+    /^PLATFORM_IMAGE=/ { print "PLATFORM_IMAGE=" platform_image; p=1; next }
+    /^GATEWAY_IMAGE=/ { print "GATEWAY_IMAGE=" gateway_image; g=1; next }
+    /^CANARY_IMAGE=/ { print "CANARY_IMAGE=" canary_image; c=1; next }
+    /^GATEWAY_VERSION=/ { print "GATEWAY_VERSION=" gateway_version; v=1; next }
+    { print }
+    END { if (!(r && ps && gs && p && g && c && v)) exit 42 }
+' "$ENV_FILE" >"$rollback_env.tmp" || {
+    echo "Rollback rejected: unable to construct bounded last-good runtime environment." >&2
     exit 1
 }
+chmod 600 "$rollback_env.tmp"
+mv "$rollback_env.tmp" "$rollback_env"
+
+compose=(
+    env
+    "OTERYN_RELEASE_SHA=$OTERYN_RELEASE_SHA"
+    "PLATFORM_SOURCE_SHA=$PLATFORM_SOURCE_SHA"
+    "GATEWAY_SOURCE_SHA=$GATEWAY_SOURCE_SHA"
+    "PLATFORM_IMAGE=$PLATFORM_IMAGE"
+    "GATEWAY_IMAGE=$GATEWAY_IMAGE"
+    "CANARY_IMAGE=$CANARY_IMAGE"
+    "GATEWAY_VERSION=$GATEWAY_VERSION"
+    docker compose --env-file "$rollback_env" -f "$COMPOSE_FILE"
+)
+"${compose[@]}" pull platform gateway canary
+
+# Re-prove each immutable last-good artifact against its own persisted source
+# identity. The overall release SHA intentionally remains independent.
+_oteryn_verify_component_image_source "$PLATFORM_IMAGE" "$PLATFORM_SOURCE_SHA" Platform
+_oteryn_verify_component_image_source "$GATEWAY_IMAGE" "$GATEWAY_SOURCE_SHA" Gateway
 
 "${compose[@]}" up -d canary platform internal-proxy gateway
 
 # Marketplace is an optional Platform-image consumer outside the base manifest.
 # Reconcile both the browser-facing Platform service and scheduler to the selected
 # last-good image/effective state before health checks and release-state promotion.
-_oteryn_reconcile_marketplace_scheduler_after_runtime_change
+OTERYN_ENV_FILE="$rollback_env" _oteryn_reconcile_marketplace_scheduler_after_runtime_change
 
-OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/health-check.sh"
+OTERYN_ENV_FILE="$rollback_env" bash "$SCRIPT_DIR/health-check.sh"
 "${compose[@]}" exec -T platform php artisan game-auth:world:ensure \
     --id="$GAME_WORLD_ID" --slug="$GAME_WORLD_SLUG" --name="$GAME_WORLD_NAME" \
     --region="$GAME_WORLD_REGION" --host="$GAME_WORLD_HOST" --port="$GAME_WORLD_PORT" \

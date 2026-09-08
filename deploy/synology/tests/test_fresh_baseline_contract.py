@@ -61,6 +61,8 @@ def test_release_state_requires_candidate_to_accept_its_primary_schema() -> None
                 "write",
                 str(state),
                 sha,
+                sha,
+                sha,
                 "schema-v2",
                 "schema-v1",
                 f"example/platform@sha256:{digest}",

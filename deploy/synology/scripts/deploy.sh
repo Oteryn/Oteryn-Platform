@@ -12,6 +12,7 @@ source "$SCRIPT_DIR/lib.sh"
 load_oteryn_env_file "$ENV_FILE"
 
 required_vars=(
+    OTERYN_RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA
     PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE
     PLATFORM_BIND_ADDRESS GATEWAY_BIND_ADDRESS CANARY_LOGIN_BIND_ADDRESS CANARY_GAME_BIND_ADDRESS
     PLATFORM_PORT GATEWAY_PORT CANARY_LOGIN_PORT CANARY_GAME_PORT CANARY_SERVER_IP
@@ -220,7 +221,8 @@ finalize_previous_candidate_if_healthy() {
         set -euo pipefail
         source "$1"
         printf "%s\n" \
-            "$RELEASE_SHA" "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE" \
+            "$RELEASE_SHA" "$PLATFORM_SOURCE_SHA" "$GATEWAY_SOURCE_SHA" \
+            "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE" \
             "${GAME_WORLD_ID:-}" "${GAME_WORLD_SLUG:-}" "${GAME_WORLD_NAME:-}" \
             "${GAME_WORLD_REGION:-}" "${GAME_WORLD_HOST:-}" "${GAME_WORLD_PORT:-}" \
             "$SCHEMA_COMPATIBILITY_ID" "$APP_ACCEPTS_SCHEMA_IDS"
@@ -236,8 +238,8 @@ finalize_previous_candidate_if_healthy() {
     schema_state="$(_oteryn_read_state_key "$schema_file" SCHEMA_STATE)" || return 1
     schema_id="$(_oteryn_read_state_key "$schema_file" SCHEMA_COMPATIBILITY_ID)" || return 1
     schema_target="$(_oteryn_read_state_key "$schema_file" MIGRATION_TARGET_RELEASE_SHA)" || return 1
-    candidate_schema="${candidate_state[10]:-}"
-    candidate_accepts="${candidate_state[11]:-}"
+    candidate_schema="${candidate_state[12]:-}"
+    candidate_accepts="${candidate_state[13]:-}"
     [[ "$schema_state" == known && "$schema_target" == "$candidate_sha" && "$schema_id" == "$candidate_schema" ]] || {
         echo "Previous candidate finalization rejected: its migration is not proven complete." >&2
         return 1
@@ -247,21 +249,24 @@ finalize_previous_candidate_if_healthy() {
         return 1
     }
 
-    [[ "${candidate_state[4]:-}" == "$GAME_WORLD_ID" \
-        && "${candidate_state[5]:-}" == "$GAME_WORLD_SLUG" \
-        && "${candidate_state[6]:-}" == "$GAME_WORLD_NAME" \
-        && "${candidate_state[7]:-}" == "$GAME_WORLD_REGION" \
-        && "${candidate_state[8]:-}" == "$GAME_WORLD_HOST" \
-        && "${candidate_state[9]:-}" == "$GAME_WORLD_PORT" ]] || {
+    [[ "${candidate_state[6]:-}" == "$GAME_WORLD_ID" \
+        && "${candidate_state[7]:-}" == "$GAME_WORLD_SLUG" \
+        && "${candidate_state[8]:-}" == "$GAME_WORLD_NAME" \
+        && "${candidate_state[9]:-}" == "$GAME_WORLD_REGION" \
+        && "${candidate_state[10]:-}" == "$GAME_WORLD_HOST" \
+        && "${candidate_state[11]:-}" == "$GAME_WORLD_PORT" ]] || {
         echo "Previous candidate finalization rejected: staging world identity drifted." >&2
         return 1
     }
+
+    _oteryn_verify_component_image_source "${candidate_state[3]}" "${candidate_state[1]}" Platform || return 1
+    _oteryn_verify_component_image_source "${candidate_state[4]}" "${candidate_state[2]}" Gateway || return 1
 
     # Platform and Canary are immutable anchors for recovery. Gateway is intentionally
     # reconstructible because finalization force-recreates it from the persisted candidate image
     # before the full health contract can promote the candidate.
     services=(platform canary)
-    expected_images=("${candidate_state[1]}" "${candidate_state[3]}")
+    expected_images=("${candidate_state[3]}" "${candidate_state[5]}")
     for index in "${!services[@]}"; do
         service="${services[$index]}"
         expected_image="${expected_images[$index]}"
@@ -284,7 +289,7 @@ finalize_previous_candidate_if_healthy() {
         return 1
     }
     gateway_image_id="$(docker inspect --format '{{.Image}}' "$gateway_container_id")" || return 1
-    expected_gateway_image="${candidate_state[2]}"
+    expected_gateway_image="${candidate_state[4]}"
     expected_gateway_image_id="$(docker image inspect --format '{{.Id}}' "$expected_gateway_image" 2>/dev/null || true)"
     [[ -n "$expected_gateway_image_id" ]] || {
         echo "Previous candidate finalization rejected: exact candidate Gateway image is unavailable." >&2
@@ -295,17 +300,23 @@ finalize_previous_candidate_if_healthy() {
     fi
 
     awk \
-        -v platform_image="${candidate_state[1]}" \
-        -v gateway_image="${candidate_state[2]}" \
-        -v canary_image="${candidate_state[3]}" \
-        -v gateway_version="sha-${candidate_sha}" '
-        BEGIN { p=0; g=0; c=0; v=0 }
+        -v release_sha="${candidate_state[0]}" \
+        -v platform_source_sha="${candidate_state[1]}" \
+        -v gateway_source_sha="${candidate_state[2]}" \
+        -v platform_image="${candidate_state[3]}" \
+        -v gateway_image="${candidate_state[4]}" \
+        -v canary_image="${candidate_state[5]}" \
+        -v gateway_version="sha-${candidate_state[2]}" '
+        BEGIN { r=0; ps=0; gs=0; p=0; g=0; c=0; v=0 }
+        /^OTERYN_RELEASE_SHA=/ { print "OTERYN_RELEASE_SHA=" release_sha; r=1; next }
+        /^PLATFORM_SOURCE_SHA=/ { print "PLATFORM_SOURCE_SHA=" platform_source_sha; ps=1; next }
+        /^GATEWAY_SOURCE_SHA=/ { print "GATEWAY_SOURCE_SHA=" gateway_source_sha; gs=1; next }
         /^PLATFORM_IMAGE=/ { print "PLATFORM_IMAGE=" platform_image; p=1; next }
         /^GATEWAY_IMAGE=/ { print "GATEWAY_IMAGE=" gateway_image; g=1; next }
         /^CANARY_IMAGE=/ { print "CANARY_IMAGE=" canary_image; c=1; next }
         /^GATEWAY_VERSION=/ { print "GATEWAY_VERSION=" gateway_version; v=1; next }
         { print }
-        END { if (!(p && g && c && v)) exit 42 }
+        END { if (!(r && ps && gs && p && g && c && v)) exit 42 }
     ' "$ENV_FILE" >"$candidate_env.tmp" || {
         rm -f "$candidate_env.tmp"
         echo "Previous candidate finalization rejected: unable to construct bounded candidate health environment." >&2
@@ -316,10 +327,13 @@ finalize_previous_candidate_if_healthy() {
 
     candidate_compose=(
         env
-        "PLATFORM_IMAGE=${candidate_state[1]}"
-        "GATEWAY_IMAGE=${candidate_state[2]}"
-        "CANARY_IMAGE=${candidate_state[3]}"
-        "GATEWAY_VERSION=sha-${candidate_sha}"
+        "OTERYN_RELEASE_SHA=${candidate_state[0]}"
+        "PLATFORM_SOURCE_SHA=${candidate_state[1]}"
+        "GATEWAY_SOURCE_SHA=${candidate_state[2]}"
+        "PLATFORM_IMAGE=${candidate_state[3]}"
+        "GATEWAY_IMAGE=${candidate_state[4]}"
+        "CANARY_IMAGE=${candidate_state[5]}"
+        "GATEWAY_VERSION=sha-${candidate_state[2]}"
         docker compose --env-file "$candidate_env" -f "$COMPOSE_FILE"
     )
     if ! "${candidate_compose[@]}" config --quiet; then

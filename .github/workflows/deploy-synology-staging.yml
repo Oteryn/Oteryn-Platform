@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: Deploy selected images or roll back to the last runtime image snapshot
+        description: Deploy selected immutable component images or roll back to the last compatible runtime release
         required: true
         type: choice
         options:
@@ -12,7 +12,39 @@ on:
           - rollback
         default: deploy
       release_sha:
-        description: Full 40-character Platform commit SHA; required for deploy and resolved through sha-<SHA> GHCR tags
+        description: Full 40-character protected-main release/tooling SHA; required for deploy
+        required: false
+        type: string
+      platform_changed:
+        description: true when this release provides a newly built Platform component; false reuses current proven immutable Platform provenance
+        required: false
+        type: choice
+        options:
+          - "true"
+          - "false"
+        default: "true"
+      platform_source_sha:
+        description: Full 40-character Platform component source SHA; required only when platform_changed=true
+        required: false
+        type: string
+      platform_image:
+        description: Exact immutable Platform image digest; required only when platform_changed=true
+        required: false
+        type: string
+      gateway_changed:
+        description: true when this release provides a newly built Gateway component; false reuses current proven immutable Gateway provenance
+        required: false
+        type: choice
+        options:
+          - "true"
+          - "false"
+        default: "true"
+      gateway_source_sha:
+        description: Full 40-character Gateway component source SHA; required only when gateway_changed=true
+        required: false
+        type: string
+      gateway_image:
+        description: Exact immutable Gateway image digest; required only when gateway_changed=true
         required: false
         type: string
       canary_image:
@@ -80,10 +112,11 @@ jobs:
       CANARY_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256: ${{ secrets.OTERYN_STAGING_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256 }}
 
     steps:
-      - name: Checkout trusted main
+      - name: Checkout exact release tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          ref: ${{ inputs.action == 'deploy' && inputs.release_sha || 'main' }}
+          fetch-depth: 0
 
       - name: Validate runner tools
         run: |
@@ -93,6 +126,7 @@ jobs:
           curl --version >/dev/null
           sha256sum --version >/dev/null
           timeout --version >/dev/null
+          git --version >/dev/null
 
       - name: Log in to GHCR
         env:
@@ -106,6 +140,12 @@ jobs:
         env:
           DEPLOY_ACTION: ${{ inputs.action }}
           RELEASE_SHA: ${{ inputs.release_sha }}
+          PLATFORM_CHANGED: ${{ inputs.platform_changed }}
+          PLATFORM_SOURCE_SHA_INPUT: ${{ inputs.platform_source_sha }}
+          PLATFORM_IMAGE_INPUT: ${{ inputs.platform_image }}
+          GATEWAY_CHANGED: ${{ inputs.gateway_changed }}
+          GATEWAY_SOURCE_SHA_INPUT: ${{ inputs.gateway_source_sha }}
+          GATEWAY_IMAGE_INPUT: ${{ inputs.gateway_image }}
           CANARY_IMAGE_INPUT: ${{ inputs.canary_image }}
           CANARY_GAME_BIND_ADDRESS_INPUT: ${{ inputs.canary_game_bind_address }}
           GAME_WORLD_ID_INPUT: ${{ inputs.game_world_id }}
@@ -116,21 +156,34 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "$DEPLOY_ACTION" == "deploy" && ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "release_sha is required for deploy and must be an exact lower-case 40-character Git commit SHA." >&2
-            exit 1
-          fi
-          if [[ -n "$RELEASE_SHA" && ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "release_sha must be empty or an exact lower-case 40-character Git commit SHA." >&2
-            exit 1
-          fi
-          if [[ "$DEPLOY_ACTION" == "deploy" ]] && { [[ -z "$CANARY_IMAGE_INPUT" ]] || [[ ! "$CANARY_IMAGE_INPUT" =~ ^[A-Za-z0-9./:@_-]+$ ]]; }; then
-            echo "canary_image is required for deploy and must be a bounded container image reference." >&2
-            exit 1
-          fi
-          if [[ -n "$CANARY_IMAGE_INPUT" && ! "$CANARY_IMAGE_INPUT" =~ ^[A-Za-z0-9./:@_-]+$ ]]; then
-            echo "canary_image contains unsupported characters." >&2
-            exit 1
+          is_sha() { [[ "$1" =~ ^[0-9a-f]{40}$ ]]; }
+          is_digest_ref() { [[ "$1" =~ ^ghcr\.io/[a-z0-9._-]+/[a-z0-9._-]+@sha256:[0-9a-f]{64}$ ]]; }
+          is_bool() { [[ "$1" == true || "$1" == false ]]; }
+
+          if [[ "$DEPLOY_ACTION" == deploy ]]; then
+            is_sha "$RELEASE_SHA" || { echo "release_sha is required for deploy and must be an exact lower-case 40-character Git SHA." >&2; exit 1; }
+            is_bool "$PLATFORM_CHANGED" || { echo "platform_changed must be true or false." >&2; exit 1; }
+            is_bool "$GATEWAY_CHANGED" || { echo "gateway_changed must be true or false." >&2; exit 1; }
+
+            if [[ "$PLATFORM_CHANGED" == true ]]; then
+              is_sha "$PLATFORM_SOURCE_SHA_INPUT" || { echo "platform_source_sha is required when platform_changed=true." >&2; exit 1; }
+              is_digest_ref "$PLATFORM_IMAGE_INPUT" || { echo "platform_image must be an immutable GHCR digest when platform_changed=true." >&2; exit 1; }
+            elif [[ -n "$PLATFORM_SOURCE_SHA_INPUT" || -n "$PLATFORM_IMAGE_INPUT" ]]; then
+              echo "Platform reuse must not provide competing component inputs." >&2
+              exit 1
+            fi
+
+            if [[ "$GATEWAY_CHANGED" == true ]]; then
+              is_sha "$GATEWAY_SOURCE_SHA_INPUT" || { echo "gateway_source_sha is required when gateway_changed=true." >&2; exit 1; }
+              is_digest_ref "$GATEWAY_IMAGE_INPUT" || { echo "gateway_image must be an immutable GHCR digest when gateway_changed=true." >&2; exit 1; }
+            elif [[ -n "$GATEWAY_SOURCE_SHA_INPUT" || -n "$GATEWAY_IMAGE_INPUT" ]]; then
+              echo "Gateway reuse must not provide competing component inputs." >&2
+              exit 1
+            fi
+
+            [[ -n "$CANARY_IMAGE_INPUT" && "$CANARY_IMAGE_INPUT" =~ ^[A-Za-z0-9./:@_-]+$ ]] || { echo "canary_image is required for deploy and must be a bounded container image reference." >&2; exit 1; }
+          else
+            [[ -z "$RELEASE_SHA" ]] || is_sha "$RELEASE_SHA" || { echo "release_sha must be empty or an exact Git SHA." >&2; exit 1; }
           fi
 
           if ! bash deploy/synology/scripts/validate-ipv4.sh "$CANARY_GAME_BIND_ADDRESS_INPUT" private-or-loopback; then
@@ -223,45 +276,108 @@ jobs:
             fi
           done
 
-      - name: Resolve immutable runtime image digests
+      - name: Upgrade legacy release provenance state
+        env:
+          OTERYN_STATE_DIR_INPUT: ${{ vars.OTERYN_STAGING_STATE_DIR }}
+        run: |
+          set -euo pipefail
+          export OTERYN_STATE_DIR="${OTERYN_STATE_DIR_INPUT:-/var/lib/oteryn-staging-state}"
+          bash deploy/synology/scripts/upgrade-legacy-release-state.sh
+
+      - name: Resolve immutable runtime component provenance
         id: release_images
         if: inputs.action == 'deploy'
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
+          PLATFORM_CHANGED: ${{ inputs.platform_changed }}
+          PLATFORM_SOURCE_SHA_INPUT: ${{ inputs.platform_source_sha }}
+          PLATFORM_IMAGE_INPUT: ${{ inputs.platform_image }}
+          GATEWAY_CHANGED: ${{ inputs.gateway_changed }}
+          GATEWAY_SOURCE_SHA_INPUT: ${{ inputs.gateway_source_sha }}
+          GATEWAY_IMAGE_INPUT: ${{ inputs.gateway_image }}
           CANARY_IMAGE_INPUT: ${{ inputs.canary_image }}
+          OTERYN_STATE_DIR_INPUT: ${{ vars.OTERYN_STAGING_STATE_DIR }}
         run: |
           set -euo pipefail
-          release_tag="sha-${RELEASE_SHA}"
+          state_dir="${OTERYN_STATE_DIR_INPUT:-/var/lib/oteryn-staging-state}"
           platform_repo="$(bash deploy/synology/scripts/repository-ghcr-image.sh oteryn-platform)"
           gateway_repo="$(bash deploy/synology/scripts/repository-ghcr-image.sh oteryn-game-gateway)"
-          platform_tag="${platform_repo}:${release_tag}"
-          gateway_tag="${gateway_repo}:${release_tag}"
 
-          docker pull "$platform_tag" >/dev/null
-          docker pull "$gateway_tag" >/dev/null
+          persisted_release_sha=""
+          persisted_platform_source_sha=""
+          persisted_platform_image=""
+          persisted_gateway_source_sha=""
+          persisted_gateway_image=""
+          if [[ "$PLATFORM_CHANGED" == false || "$GATEWAY_CHANGED" == false ]]; then
+            current_file="$state_dir/current-release.env"
+            [[ -f "$current_file" ]] || { echo "Component reuse rejected: current proven release state is missing." >&2; exit 1; }
+            bash deploy/synology/scripts/release-state.sh validate "$current_file"
+            mapfile -t persisted < <(bash -c '
+              set -euo pipefail
+              source "$1"
+              printf "%s\n" "$RELEASE_SHA" "$PLATFORM_SOURCE_SHA" "$PLATFORM_IMAGE" "$GATEWAY_SOURCE_SHA" "$GATEWAY_IMAGE"
+            ' bash "$current_file")
+            persisted_release_sha="${persisted[0]:-}"
+            persisted_platform_source_sha="${persisted[1]:-}"
+            persisted_platform_image="${persisted[2]:-}"
+            persisted_gateway_source_sha="${persisted[3]:-}"
+            persisted_gateway_image="${persisted[4]:-}"
+            [[ "$persisted_release_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "Persisted release lineage is invalid." >&2; exit 1; }
+            git merge-base --is-ancestor "$persisted_release_sha" "$RELEASE_SHA" || {
+              echo "Component reuse rejected: persisted release is not in the target protected-main lineage." >&2
+              exit 1
+            }
+          fi
+
+          if [[ "$PLATFORM_CHANGED" == true ]]; then
+            platform_source_sha="$PLATFORM_SOURCE_SHA_INPUT"
+            platform_image="$PLATFORM_IMAGE_INPUT"
+            platform_mode=new
+          else
+            platform_source_sha="$persisted_platform_source_sha"
+            platform_image="$persisted_platform_image"
+            platform_mode=reused
+          fi
+          if [[ "$GATEWAY_CHANGED" == true ]]; then
+            gateway_source_sha="$GATEWAY_SOURCE_SHA_INPUT"
+            gateway_image="$GATEWAY_IMAGE_INPUT"
+            gateway_mode=new
+          else
+            gateway_source_sha="$persisted_gateway_source_sha"
+            gateway_image="$persisted_gateway_image"
+            gateway_mode=reused
+          fi
+
+          for source_sha in "$platform_source_sha" "$gateway_source_sha"; do
+            [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "Resolved component source SHA is invalid." >&2; exit 1; }
+            git merge-base --is-ancestor "$source_sha" "$RELEASE_SHA" || {
+              echo "Resolved component source SHA is not in the target protected-main lineage." >&2
+              exit 1
+            }
+          done
+          [[ "$platform_image" == "${platform_repo}@sha256:"* ]] || { echo "Platform digest is not from the current repository owner/package." >&2; exit 1; }
+          [[ "$gateway_image" == "${gateway_repo}@sha256:"* ]] || { echo "Gateway digest is not from the current repository owner/package." >&2; exit 1; }
+          [[ "$platform_image" =~ @sha256:[0-9a-f]{64}$ ]] || { echo "Platform provenance is not immutable." >&2; exit 1; }
+          [[ "$gateway_image" =~ @sha256:[0-9a-f]{64}$ ]] || { echo "Gateway provenance is not immutable." >&2; exit 1; }
+
+          docker pull "$platform_image" >/dev/null
+          docker pull "$gateway_image" >/dev/null
           docker pull "$CANARY_IMAGE_INPUT" >/dev/null
 
-          resolve_expected_digest_ref() {
-            local tag_ref="$1"
-            local expected_repo="$2"
-            local candidate digest
-            while IFS= read -r candidate; do
-              [[ -n "$candidate" ]] || continue
-              if [[ "$candidate" == "$expected_repo"@sha256:* ]]; then
-                digest="${candidate#*@sha256:}"
-                if [[ "$digest" =~ ^[0-9a-f]{64}$ ]]; then
-                  printf '%s\n' "$candidate"
-                  return 0
-                fi
-              fi
-            done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$tag_ref")
-            echo "Unable to resolve immutable digest for $tag_ref." >&2
-            return 1
-          }
+          platform_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$platform_image")"
+          gateway_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$gateway_image")"
+          [[ "$platform_revision" == "$platform_source_sha" ]] || { echo "Platform OCI revision does not match resolved Platform source SHA." >&2; exit 1; }
+          [[ "$gateway_revision" == "$gateway_source_sha" ]] || { echo "Gateway OCI revision does not match resolved Gateway source SHA." >&2; exit 1; }
 
           resolve_any_digest_ref() {
-            local tag_ref="$1"
-            local candidate digest
+            local image_ref="$1" candidate digest
+            if [[ "$image_ref" == *@sha256:* ]]; then
+              digest="${image_ref#*@sha256:}"
+              if [[ "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+                printf '%s\n' "$image_ref"
+                return 0
+              fi
+            fi
             while IFS= read -r candidate; do
               [[ -n "$candidate" ]] || continue
               if [[ "$candidate" == *@sha256:* ]]; then
@@ -271,40 +387,36 @@ jobs:
                   return 0
                 fi
               fi
-            done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$tag_ref")
-            echo "Unable to resolve immutable digest for $tag_ref." >&2
+            done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$image_ref")
+            echo "Unable to resolve immutable digest for $image_ref." >&2
             return 1
           }
 
-          platform_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$platform_tag")"
-          gateway_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$gateway_tag")"
-          if [[ "$platform_revision" != "$RELEASE_SHA" || "$gateway_revision" != "$RELEASE_SHA" ]]; then
-            echo "Platform/Gateway OCI revision labels must exactly match release_sha before deployment." >&2
-            exit 1
-          fi
-
-          platform_ref="$(resolve_expected_digest_ref "$platform_tag" "$platform_repo")"
-          gateway_ref="$(resolve_expected_digest_ref "$gateway_tag" "$gateway_repo")"
           canary_ref="$(resolve_any_digest_ref "$CANARY_IMAGE_INPUT")"
-
           {
-            printf 'platform_ref=%s\n' "$platform_ref"
-            printf 'gateway_ref=%s\n' "$gateway_ref"
+            printf 'platform_source_sha=%s\n' "$platform_source_sha"
+            printf 'platform_ref=%s\n' "$platform_image"
+            printf 'gateway_source_sha=%s\n' "$gateway_source_sha"
+            printf 'gateway_ref=%s\n' "$gateway_image"
             printf 'canary_ref=%s\n' "$canary_ref"
           } >> "$GITHUB_OUTPUT"
 
           {
             echo '### Immutable staging release identity'
             echo
-            echo "- source commit: \`$RELEASE_SHA\`"
-            echo "- Platform: \`$platform_ref\`"
-            echo "- Gateway: \`$gateway_ref\`"
+            echo "- overall release/tooling SHA: \`$RELEASE_SHA\`"
+            echo "- Platform ($platform_mode) source SHA: \`$platform_source_sha\`"
+            echo "- Platform digest: \`$platform_image\`"
+            echo "- Gateway ($gateway_mode) source SHA: \`$gateway_source_sha\`"
+            echo "- Gateway digest: \`$gateway_image\`"
             echo "- Canary: \`$canary_ref\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Write ephemeral staging environment
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
+          PLATFORM_SOURCE_SHA_RESOLVED: ${{ steps.release_images.outputs.platform_source_sha }}
+          GATEWAY_SOURCE_SHA_RESOLVED: ${{ steps.release_images.outputs.gateway_source_sha }}
           PLATFORM_IMAGE_REF: ${{ steps.release_images.outputs.platform_ref }}
           GATEWAY_IMAGE_REF: ${{ steps.release_images.outputs.gateway_ref }}
           CANARY_IMAGE_REF: ${{ steps.release_images.outputs.canary_ref }}
@@ -319,14 +431,20 @@ jobs:
           umask 077
           state_dir="${OTERYN_STATE_DIR_INPUT:-/var/lib/oteryn-staging-state}"
           app_url="$CANONICAL_PUBLIC_APP_URL"
+          release_sha="${RELEASE_SHA:-rollback-placeholder}"
+          platform_source_sha="${PLATFORM_SOURCE_SHA_RESOLVED:-rollback-placeholder}"
+          gateway_source_sha="${GATEWAY_SOURCE_SHA_RESOLVED:-rollback-placeholder}"
           platform_image="${PLATFORM_IMAGE_REF:-rollback-placeholder}"
           gateway_image="${GATEWAY_IMAGE_REF:-rollback-placeholder}"
           canary_image="${CANARY_IMAGE_REF:-rollback-placeholder}"
-          release_version="${RELEASE_SHA:+sha-$RELEASE_SHA}"
-          release_version="${release_version:-rollback}"
+          gateway_version="${GATEWAY_SOURCE_SHA_RESOLVED:+sha-$GATEWAY_SOURCE_SHA_RESOLVED}"
+          gateway_version="${gateway_version:-rollback}"
 
           cat > deploy/synology/.env <<EOF
           COMPOSE_PROJECT_NAME=oteryn-staging
+          OTERYN_RELEASE_SHA=$release_sha
+          PLATFORM_SOURCE_SHA=$platform_source_sha
+          GATEWAY_SOURCE_SHA=$gateway_source_sha
           PLATFORM_BIND_ADDRESS=127.0.0.1
           GATEWAY_BIND_ADDRESS=127.0.0.1
           CANARY_LOGIN_BIND_ADDRESS=127.0.0.1
@@ -378,7 +496,7 @@ jobs:
           CANARY_TEST_ACCOUNTS=false
           CANARY_DATA_PACK=data-otservbr-global
           CANARY_MAP_URL=https://github.com/opentibiabr/canary/releases/download/v3.6.1/otservbr.otbm
-          GATEWAY_VERSION=$release_version
+          GATEWAY_VERSION=$gateway_version
           OTERYN_STATE_DIR=$state_dir
           EOF
           chmod 600 deploy/synology/.env
