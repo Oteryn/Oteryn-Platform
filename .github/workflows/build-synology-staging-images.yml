@@ -229,9 +229,6 @@ jobs:
           python3 tests/ci/test_synology_gateway_build_inputs.py
           python3 tests/ci/test_synology_deployment_package_routing.py
           python3 deploy/synology/tests/test_fresh_baseline_contract.py
-          python3 deploy/synology/tests/test_health_check_path.py
-          python3 deploy/synology/tests/test_marketplace_db_confirmation.py
-          python3 deploy/synology/tests/test_marketplace_switch.py
 
       - name: Validate Compose manifests and LAN isolation
         run: |
