@@ -122,9 +122,9 @@ jobs:
           if approval["candidate_count"] != len(manifest["entries"]):
               raise SystemExit("candidate count drift")
           if approval["entries_sha256"] != entries_hash:
-              raise SystemExit("candidate entries drift before apply")
+              raise SystemExit("candidate entries drift")
           if approval["policy_sha256"] != manifest["policy_sha256"]:
-              raise SystemExit("policy drift before apply")
+              raise SystemExit("policy hash drift")
           pathlib.Path("branch-lifecycle-approval-validation.json").write_text(
               canonical({
                   "apply_on_main": approval["apply_on_main"],
