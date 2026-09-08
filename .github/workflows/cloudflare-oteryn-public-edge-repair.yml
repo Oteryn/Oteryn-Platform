@@ -9,7 +9,6 @@ on:
       - scripts/operations/cloudflare-oteryn-public-edge-repair.py
       - tests/operations/cloudflare-oteryn-public-edge-repair/**
       - docs/operations/CLOUDFLARE_PUBLIC_EDGE_REPAIR.md
-      - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
       - ops/triggers/cloudflare-oteryn-public-edge-repair.md
   push:
     branches:

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "workflow_budget": 55,
+  "workflow_budget": 53,
   "registered_workflows": [
     "acceptance-soak.yml",
     "acceptance-stability.yml",
@@ -32,8 +32,6 @@
     "game-gateway-ci.yml",
     "github-actions-storage-hygiene.yml",
     "historical-branch-audit.yml",
-    "native-auth-canary-cache-build.yml",
-    "native-auth-ephemeral-cutover-rehearsal.yml",
     "native-protocol-contract-audits.yml",
     "native-protocol-contract.yml",
     "oteryn-public-edge-validation.yml",
@@ -62,6 +60,8 @@
     "account-security-format-diagnostics.yml",
     "account-security-static-diagnostics.yml",
     "deep-system-validation.yml",
+    "native-auth-canary-cache-build.yml",
+    "native-auth-ephemeral-cutover-rehearsal.yml",
     "portal-exhaustive-acceptance.yml",
     "portal-exhaustive-audit.yml",
     "portal-exhaustive-trigger-coupling.yml"
@@ -81,6 +81,8 @@
     "account-security-format-diagnostics.yml": "ci.yml blocking Pint check",
     "account-security-static-diagnostics.yml": "ci.yml blocking PHPStan/Larastan check",
     "deep-system-validation.yml": "risk-routed CI/domain workflows plus portal-e2e-audit.yml for explicit comprehensive orchestration",
+    "native-auth-canary-cache-build.yml": "terminal historical Canary cache-header build proof preserved in Git/task provenance; current native protocol and release workflows own durable validation",
+    "native-auth-ephemeral-cutover-rehearsal.yml": "terminal migration rehearsal proof preserved in Git/task provenance after native-auth production-verification closeout; current native protocol and product CI remain authoritative",
     "portal-exhaustive-acceptance.yml": "acceptance-validation.yml critical profile selected directly by relevant workflows or manual audit",
     "portal-exhaustive-audit.yml": "current strict coverage/product ledgers, focused domain workflows, and portal-e2e-audit.yml when comprehensive orchestration is explicitly requested",
     "portal-exhaustive-trigger-coupling.yml": "workflow lifecycle registry and trigger-economy contract"

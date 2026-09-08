@@ -14,7 +14,6 @@ on:
       - deploy/synology/PUBLIC_ENDPOINTS.md
       - docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md
       - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
-      - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
   pull_request_target:
     branches:
       - main
