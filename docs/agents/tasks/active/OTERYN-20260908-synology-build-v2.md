@@ -10,6 +10,7 @@ search_first:
   - Platform PR #1331
   - Platform PR #1335
   - Platform PR #1336
+  - Platform PR #1337
 optional_reads: []
 ---
 
@@ -70,11 +71,11 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T07:53:00Z
-head: 6c1d2914969454e32998b7283f8876c789d807e6
+updated_at: 2026-09-08T07:59:00Z
+head: 6f244bec5bf26c020b08d7975a3f3393795f582a
 branch: ci/1328-synology-deploy-package-proof
-pr: none
-status: implementing
+pr: 1337
+status: validating
 context_routes:
   - testing
   - execution-resources
@@ -90,14 +91,15 @@ proven:
   - protected-main Build Synology Staging Images run 34201292818 at 1181afbbcf74faa9b19b2f6d05fe28ff7a04fb19 passed classifier, deployment validation, Platform/Gateway publication and exact-provenance staging dispatch; ordinary main did not publish deploy-runner
   - Agent Governance run 34201292867 failed only because this task still referenced terminal PR 1336 with a stale merge next action; checkpoint schema and governing Issue liveness passed
   - deploy/synology/compose.yml used mutable alpine:3.22 specifically for tls-init even though the exact Alpine digest sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce was already independently resolved in prior successful Gateway BuildKit provenance
-  - Case A branch pins tls-init to alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce and adds a deterministic contract requiring that immutable identity
+  - PR 1337 pins tls-init to alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce and adds a deterministic contract requiring that immutable identity
+  - PR 1337 changes only the staging deployment package, its contract test, and active task ownership; no Platform, Gateway or deploy-runner image input is modified
 derived:
-  - Case A is a truthful runtime deployment-package-only change: deploy/synology/compose.yml is release-relevant, while no Platform, Gateway or deploy-runner image input changes
-  - after protected integration, Case A should allocate zero runtime image build jobs and resolve both runtime components from accepted persisted immutable current-release provenance before staging reconciliation
-  - moving active ownership to the current branch removes the terminal-PR liveness conflict without archiving the still-incomplete governing task
+  - PR 1337 is a truthful runtime deployment-package-only change: deploy/synology/compose.yml is release-relevant, while no Platform, Gateway or deploy-runner image input changes
+  - after protected integration, PR 1337 should allocate zero runtime image build jobs and resolve both runtime components from accepted persisted immutable current-release provenance before staging reconciliation
+  - active ownership now references open PR 1337 rather than terminal PR 1336, removing the prior liveness conflict subject to fresh exact-head governance validation
 unknown:
   - terminal result of Deploy Synology Staging run 34201364919 for protected main 1181afbbcf74faa9b19b2f6d05fe28ff7a04fb19
-  - exact-head CI and routing result for Case A
+  - exact-head CI and routing result for PR 1337
   - live protected-main Case A zero-image-build and component-reuse result
   - representative one-runtime-component one-image-build live proof with immutable reuse
 conflicts: []
@@ -120,15 +122,15 @@ validation:
     result: FAIL
     evidence: only live task-liveness failed because merged PR 1336 remained recorded as active ownership; schema and Issue liveness passed
 blockers: []
-next_action: Open the Case A deployment-package-only proof PR from ci/1328-synology-deploy-package-proof, qualify exact-head zero-image routing, integrate through protected policy, and verify automatic Synology staging reconciliation with both runtime components reused by immutable provenance.
+next_action: Qualify PR 1337 exact-head as a deployment-package-only change with zero image build jobs, integrate through protected policy, and verify automatic Synology staging reconciliation with both runtime components reused by immutable provenance.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: task ownership moved to the active Case A live-proof branch and remains active until both live proportionality cases and terminal closeout are proven
-source_branch_evidence: ci/1328-synology-deploy-package-proof continues Issue #1328 after merged PR #1336
+source_branch_reason: task ownership is bound to open PR 1337 and remains active until both live proportionality cases and terminal closeout are proven
+source_branch_evidence: PR #1337 continues Issue #1328 after merged PR #1336
 ```
 
 ## Notes
