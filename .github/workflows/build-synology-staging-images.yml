@@ -26,13 +26,16 @@ on:
       - docs/architecture/PUBLIC_WEBSITE_EXPANSION_PLAN.md
       - docs/architecture/SECURITY_ARCHITECTURE.md
       - docs/architecture/adr/0013-wiki-administration.md
-      - services/game-gateway/**
+      - services/game-gateway/go.mod
+      - services/game-gateway/cmd/**
+      - services/game-gateway/internal/**
       - deploy/synology/**
       - scripts/ci/classify_synology_builds.py
       - tests/ci/test_synology_rollback_contract.py
       - tests/ci/test_synology_rollback_recovery_contract.py
       - tests/ci/test_synology_deploy_release_identity.py
       - tests/ci/test_synology_auto_staging_deploy.py
+      - tests/ci/test_synology_gateway_build_inputs.py
       - .github/workflows/build-synology-staging-images.yml
       - .github/workflows/deploy-synology-staging.yml
   push:
@@ -60,7 +63,9 @@ on:
       - docs/architecture/PUBLIC_WEBSITE_EXPANSION_PLAN.md
       - docs/architecture/SECURITY_ARCHITECTURE.md
       - docs/architecture/adr/0013-wiki-administration.md
-      - services/game-gateway/**
+      - services/game-gateway/go.mod
+      - services/game-gateway/cmd/**
+      - services/game-gateway/internal/**
       - deploy/synology/**
       - scripts/ci/classify_synology_builds.py
       - .github/workflows/build-synology-staging-images.yml
@@ -150,6 +155,7 @@ jobs:
           python3 tests/ci/test_synology_rollback_recovery_contract.py
           python3 tests/ci/test_synology_deploy_release_identity.py
           python3 tests/ci/test_synology_auto_staging_deploy.py
+          python3 tests/ci/test_synology_gateway_build_inputs.py
 
       - name: Validate Compose manifests and LAN isolation
         run: |
@@ -436,7 +442,9 @@ jobs:
         run: |
           set -euo pipefail
           read_component() {
-            local name="$1" required="$2" file="artifacts/synology/${name}.env"
+            local name="$1"
+            local required="$2"
+            local file="artifacts/synology/${name}.env"
             if [[ "$required" != true ]]; then
               printf '%s\n%s\n' '' ''
               return 0

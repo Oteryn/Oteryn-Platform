@@ -1,7 +1,9 @@
 FROM golang:1.24-alpine AS build
 
 WORKDIR /src/services/game-gateway
-COPY services/game-gateway/ ./
+COPY services/game-gateway/go.mod ./
+COPY services/game-gateway/cmd/ ./cmd/
+COPY services/game-gateway/internal/ ./internal/
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
     -ldflags="-s -w" \

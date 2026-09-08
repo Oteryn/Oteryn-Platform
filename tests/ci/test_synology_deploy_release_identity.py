@@ -142,9 +142,9 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
         self.git(root, "config", "user.email", "ci@example.invalid")
         self.git(root, "config", "user.name", "CI Contract")
         (root / "app").mkdir()
-        (root / "services/game-gateway").mkdir(parents=True)
+        (root / "services/game-gateway/internal").mkdir(parents=True)
         (root / "app/base.php").write_text("base\n")
-        (root / "services/game-gateway/base.go").write_text("package base\n")
+        (root / "services/game-gateway/internal/base.go").write_text("package base\n")
         self.git(root, "add", ".")
         self.git(root, "commit", "-qm", "base")
         return self.git(root, "rev-parse", "HEAD")
@@ -268,7 +268,7 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             base = self.init_range_repo(root)
-            (root / "services/game-gateway/base.go").write_text("package changed\n")
+            (root / "services/game-gateway/internal/base.go").write_text("package changed\n")
             self.git(root, "add", ".")
             self.git(root, "commit", "-qm", "gateway")
             head = self.git(root, "rev-parse", "HEAD")
@@ -335,7 +335,13 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
             self.assertNotIn(unrelated, self.platform_ignore)
 
         self.assertEqual(self.gateway_ignore.splitlines()[0], "**")
-        self.assertIn("!services/game-gateway/**", self.gateway_ignore)
+        for required in (
+            "!services/game-gateway/go.mod",
+            "!services/game-gateway/cmd/**",
+            "!services/game-gateway/internal/**",
+        ):
+            self.assertIn(required, self.gateway_ignore)
+        self.assertNotIn("!services/game-gateway/**", self.gateway_ignore)
         self.assertNotIn("!app/**", self.gateway_ignore)
 
         self.assertEqual(self.runner_ignore.splitlines()[0], "**")
