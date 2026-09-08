@@ -17,7 +17,8 @@ contains_schema_id() {
 validate_release_file() {
     local file="$1"
     [[ -f "$file" ]] || { echo "Missing release metadata: $file" >&2; return 1; }
-    unset RELEASE_SHA PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE SCHEMA_COMPATIBILITY_ID APP_ACCEPTS_SCHEMA_IDS MIGRATION_POLICY ROLLBACK_ELIGIBLE
+    unset RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE
+    unset SCHEMA_COMPATIBILITY_ID APP_ACCEPTS_SCHEMA_IDS MIGRATION_POLICY ROLLBACK_ELIGIBLE
     unset GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT
     # State files are written only by write_release using printf %q for every
     # value, so sourcing preserves exact bytes without allowing whitespace or
@@ -25,6 +26,8 @@ validate_release_file() {
     # shellcheck disable=SC1090
     source "$file"
     is_sha "${RELEASE_SHA:-}" || { echo "Invalid or missing RELEASE_SHA" >&2; return 1; }
+    is_sha "${PLATFORM_SOURCE_SHA:-}" || { echo "Invalid or missing PLATFORM_SOURCE_SHA" >&2; return 1; }
+    is_sha "${GATEWAY_SOURCE_SHA:-}" || { echo "Invalid or missing GATEWAY_SOURCE_SHA" >&2; return 1; }
     is_schema_id "${SCHEMA_COMPATIBILITY_ID:-}" || { echo "Invalid or missing SCHEMA_COMPATIBILITY_ID" >&2; return 1; }
     [[ "${MIGRATION_POLICY:-}" == expand-contract ]] || { echo "MIGRATION_POLICY must be expand-contract" >&2; return 1; }
     [[ -n "${APP_ACCEPTS_SCHEMA_IDS:-}" ]] || { echo "Missing APP_ACCEPTS_SCHEMA_IDS" >&2; return 1; }
@@ -66,8 +69,11 @@ write_state_value() {
 }
 
 write_release() {
-    local out="$1" release_sha="$2" schema_id="$3" accepts="$4" platform="$5" gateway="$6" canary="$7" eligible="$8"
+    local out="$1" release_sha="$2" platform_source_sha="$3" gateway_source_sha="$4"
+    local schema_id="$5" accepts="$6" platform="$7" gateway="$8" canary="$9" eligible="${10}"
     is_sha "$release_sha" || { echo "Release SHA must be exact 40-char lowercase git SHA" >&2; return 1; }
+    is_sha "$platform_source_sha" || { echo "Platform source SHA must be exact 40-char lowercase git SHA" >&2; return 1; }
+    is_sha "$gateway_source_sha" || { echo "Gateway source SHA must be exact 40-char lowercase git SHA" >&2; return 1; }
     is_schema_id "$schema_id" || { echo "Invalid schema compatibility identity" >&2; return 1; }
     [[ -n "$accepts" ]] || { echo "Accepted schema identities are required" >&2; return 1; }
     contains_schema_id "$schema_id" "$accepts" || {
@@ -80,6 +86,8 @@ write_release() {
     umask 077
     {
         write_state_value RELEASE_SHA "$release_sha"
+        write_state_value PLATFORM_SOURCE_SHA "$platform_source_sha"
+        write_state_value GATEWAY_SOURCE_SHA "$gateway_source_sha"
         write_state_value PLATFORM_IMAGE "$platform"
         write_state_value GATEWAY_IMAGE "$gateway"
         write_state_value CANARY_IMAGE "$canary"
@@ -102,6 +110,6 @@ case "${1:-}" in
     validate) validate_release_file "$2" ;;
     compatible-schema) assert_schema_compatible "$2" "$3" "$4" ;;
     resolve-image) resolve_image "$2" ;;
-    write) write_release "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" ;;
-    *) echo "usage: $0 {validate FILE|compatible-schema SCHEMA LAST_GOOD CANDIDATE_SHA|resolve-image IMAGE|write OUT SHA SCHEMA ACCEPTS PLATFORM GATEWAY CANARY ELIGIBLE}" >&2; exit 2 ;;
+    write) write_release "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}" ;;
+    *) echo "usage: $0 {validate FILE|compatible-schema SCHEMA LAST_GOOD CANDIDATE_SHA|resolve-image IMAGE|write OUT RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA SCHEMA ACCEPTS PLATFORM GATEWAY CANARY ELIGIBLE}" >&2; exit 2 ;;
 esac

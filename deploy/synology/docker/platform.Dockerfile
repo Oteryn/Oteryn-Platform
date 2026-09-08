@@ -42,7 +42,33 @@ RUN composer install \
     --optimize-autoloader \
     --prefer-dist
 
-COPY . .
+# Keep the application layer cache key bound to real Platform runtime inputs.
+# Repository governance, tests, CI and unrelated deployment assets must not
+# invalidate a production Platform image layer.
+COPY artisan ./artisan
+COPY app/ ./app/
+COPY bootstrap/ ./bootstrap/
+COPY config/ ./config/
+COPY database/ ./database/
+COPY public/ ./public/
+COPY resources/ ./resources/
+COPY routes/ ./routes/
+COPY lang/ ./lang/
+COPY storage/ ./storage/
+COPY deploy/synology/release-contract.env ./deploy/synology/release-contract.env
+
+# The reviewed Wiki launch-content commands validate these exact repository
+# provenance files at runtime. Copy only that bounded set rather than all docs.
+COPY docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json ./docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json
+COPY docs/architecture/adr/0004-authoritative-platform-account-ownership.md ./docs/architecture/adr/0004-authoritative-platform-account-ownership.md
+COPY docs/architecture/adr/0005-character-creation-product-policy.md ./docs/architecture/adr/0005-character-creation-product-policy.md
+COPY docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md ./docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md
+COPY docs/contracts/OTCLIENT_GAME_AUTH_CONTRACT.md ./docs/contracts/OTCLIENT_GAME_AUTH_CONTRACT.md
+COPY docs/agents/PROJECT_STATE.md ./docs/agents/PROJECT_STATE.md
+COPY docs/architecture/PUBLIC_WEBSITE_EXPANSION_PLAN.md ./docs/architecture/PUBLIC_WEBSITE_EXPANSION_PLAN.md
+COPY docs/architecture/SECURITY_ARCHITECTURE.md ./docs/architecture/SECURITY_ARCHITECTURE.md
+COPY docs/architecture/adr/0013-wiki-administration.md ./docs/architecture/adr/0013-wiki-administration.md
+
 RUN composer dump-autoload --no-dev --no-interaction --optimize \
     && mkdir -p \
         storage/framework/cache \

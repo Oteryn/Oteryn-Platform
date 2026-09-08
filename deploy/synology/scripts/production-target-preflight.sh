@@ -190,23 +190,42 @@ gateway_digest="sha256:${gateway_digest_hex}"
     || fail "Canary is not deployed by immutable digest"
 canary_digest="sha256:${BASH_REMATCH[1]}"
 
-deployed_release_sha=""
+current_release_file="$state_dir/current-release.env"
+[[ -f "$current_release_file" ]] || fail "managed current release state is missing"
+bash "$script_dir/release-state.sh" validate "$current_release_file" \
+    || fail "managed current release state is invalid"
+mapfile -t release_state < <(bash -c '
+    set -euo pipefail
+    source "$1"
+    printf "%s\n" \
+        "$RELEASE_SHA" "$PLATFORM_SOURCE_SHA" "$GATEWAY_SOURCE_SHA" \
+        "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE"
+' bash "$current_release_file")
+
+deployed_release_sha="${release_state[0]:-}"
+platform_source_sha="${release_state[1]:-}"
+gateway_source_sha="${release_state[2]:-}"
+persisted_platform_image="${release_state[3]:-}"
+persisted_gateway_image="${release_state[4]:-}"
+persisted_canary_image="${release_state[5]:-}"
+[[ "$deployed_release_sha" =~ ^[a-f0-9]{40}$ ]] || fail "persisted overall release SHA is invalid"
+[[ "$platform_source_sha" =~ ^[a-f0-9]{40}$ ]] || fail "persisted Platform source SHA is invalid"
+[[ "$gateway_source_sha" =~ ^[a-f0-9]{40}$ ]] || fail "persisted Gateway source SHA is invalid"
+[[ "$platform_image" == "$persisted_platform_image" ]] || fail "running Platform digest differs from current release state"
+[[ "$gateway_image" == "$persisted_gateway_image" ]] || fail "running Gateway digest differs from current release state"
+[[ "$canary_image" == "$persisted_canary_image" ]] || fail "running Canary digest differs from current release state"
+
 for service in platform gateway canary; do
     image_id="$(docker inspect --format '{{.Image}}' "${containers[$service]}")"
     [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]] || fail "$service image ID is not immutable"
-
-    if [[ "$service" == "platform" || "$service" == "gateway" ]]; then
-        image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image_id")"
-        [[ "$image_revision" =~ ^[a-f0-9]{40}$ ]] \
-            || fail "$service image is missing an exact org.opencontainers.image.revision"
-        if [[ -z "$deployed_release_sha" ]]; then
-            deployed_release_sha="$image_revision"
-        elif [[ "$image_revision" != "$deployed_release_sha" ]]; then
-            fail "Gateway OCI revision does not match the Platform release SHA"
-        fi
-    fi
 done
-[[ -n "$deployed_release_sha" ]] || fail "unable to recover deployed release SHA from immutable image metadata"
+
+platform_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$(docker inspect --format '{{.Image}}' "${containers[platform]}")")"
+gateway_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$(docker inspect --format '{{.Image}}' "${containers[gateway]}")")"
+[[ "$platform_revision" == "$platform_source_sha" ]] \
+    || fail "Platform OCI revision does not match persisted Platform source SHA"
+[[ "$gateway_revision" == "$gateway_source_sha" ]] \
+    || fail "Gateway OCI revision does not match persisted Gateway source SHA"
 
 assert_named_volume() {
     local service="$1"
@@ -481,6 +500,8 @@ cat > "$evidence_path" <<EOF
   "target": "local-synology",
   "compose_project": "$project_name",
   "deployed_release_sha": "$deployed_release_sha",
+  "platform_source_sha": "$platform_source_sha",
+  "gateway_source_sha": "$gateway_source_sha",
   "platform_ghcr_repository": "$platform_repo",
   "gateway_ghcr_repository": "$gateway_repo",
   "platform_image": "$platform_image",
@@ -492,6 +513,7 @@ cat > "$evidence_path" <<EOF
   "host_bindings_fail_closed": "PASS",
   "database_and_redis_unpublished": "PASS",
   "immutable_runtime_images": "PASS",
+  "persisted_component_provenance": "PASS",
   "named_persistent_volumes": "PASS",
   "runner_state_and_last_good_snapshot": "PASS",
   "application_and_gateway_health": "PASS",
@@ -516,4 +538,4 @@ cat > "$evidence_path" <<EOF
 EOF
 chmod 600 "$evidence_path"
 
-echo "SYNOLOGY_PRODUCTION_TARGET_PREFLIGHT_STAGING_PROVEN release=$deployed_release_sha restore=$restore_result evidence=$evidence_path"
+echo "SYNOLOGY_PRODUCTION_TARGET_PREFLIGHT_STAGING_PROVEN release=$deployed_release_sha platform_source=$platform_source_sha gateway_source=$gateway_source_sha restore=$restore_result evidence=$evidence_path"

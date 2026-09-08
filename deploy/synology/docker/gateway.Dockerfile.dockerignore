@@ -1,0 +1,8 @@
+**
+!services/
+!services/game-gateway/
+!services/game-gateway/go.mod
+!services/game-gateway/cmd/
+!services/game-gateway/cmd/**
+!services/game-gateway/internal/
+!services/game-gateway/internal/**

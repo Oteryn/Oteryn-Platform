@@ -13,6 +13,7 @@ DEPLOY_WORKFLOW = ROOT / ".github/workflows/deploy-synology-staging.yml"
 DEPLOY_SCRIPT = ROOT / "deploy/synology/scripts/deploy.sh"
 IPV4_HELPER = ROOT / "deploy/synology/scripts/validate-ipv4.sh"
 INTERNAL_PROXY = ROOT / "deploy/synology/nginx/internal.conf"
+CLASSIFIER = ROOT / "scripts/ci/classify_synology_builds.py"
 
 
 class SynologyAutoStagingDeployContractTest(unittest.TestCase):
@@ -22,8 +23,9 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         cls.deploy_workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
         cls.deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
         cls.internal_proxy = INTERNAL_PROXY.read_text(encoding="utf-8")
+        cls.classifier = CLASSIFIER.read_text(encoding="utf-8")
 
-    def test_runtime_and_synology_main_changes_trigger_exact_image_build(self) -> None:
+    def test_runtime_and_synology_main_changes_trigger_component_classifier(self) -> None:
         push_block = self.build_workflow.split("  push:\n", 1)[1].split("  workflow_dispatch:\n", 1)[0]
         self.assertIn("      - deploy/synology/**", push_block)
         self.assertIn("      - .github/workflows/build-synology-staging-images.yml", push_block)
@@ -31,14 +33,17 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         self.assertIn("      - app/**", push_block)
         self.assertIn("      - public/**", push_block)
         self.assertIn("      - resources/**", push_block)
+        self.assertIn("Classify Synology image inputs", self.build_workflow)
 
-    def test_main_push_waits_for_build_then_dispatches_without_waiting_for_remote_deploy(self) -> None:
+    def test_main_push_dispatches_after_validation_and_build_or_safe_skip(self) -> None:
         self.assertIn("  deploy-staging:\n", self.build_workflow)
-        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main'", self.build_workflow)
+        self.assertIn("github.event_name == 'push'", self.build_workflow)
+        self.assertIn("github.ref == 'refs/heads/main'", self.build_workflow)
         self.assertIn("      - validate-deployment\n      - build", self.build_workflow)
+        self.assertIn("needs.build.result == 'success' || needs.build.result == 'skipped'", self.build_workflow)
         self.assertIn("actions: write", self.build_workflow)
         self.assertIn("actions/workflows/deploy-synology-staging.yml/dispatches", self.build_workflow)
-        self.assertIn("Dispatch exact main SHA to Synology staging", self.build_workflow)
+        self.assertIn("Dispatch guarded exact-provenance Synology staging deployment", self.build_workflow)
         self.assertNotIn("gh run watch", self.build_workflow)
         self.assertNotIn("Locate and monitor Synology deployment run", self.build_workflow)
         self.assertIn("Deployment continues independently in Deploy Synology Staging", self.build_workflow)
@@ -49,6 +54,8 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
             "784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f"
         )
         self.assertIn("inputs[release_sha]=${GITHUB_SHA}", self.build_workflow)
+        self.assertIn("inputs[platform_changed]=${PLATFORM_CHANGED}", self.build_workflow)
+        self.assertIn("inputs[gateway_changed]=${GATEWAY_CHANGED}", self.build_workflow)
         self.assertIn(expected, self.build_workflow)
         self.assertIn("inputs[canary_game_bind_address]=192.168.1.2", self.build_workflow)
         self.assertIn("inputs[game_world_id]=1", self.build_workflow)
@@ -57,24 +64,35 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         self.assertIn("inputs[game_world_region]=LAN", self.build_workflow)
 
     def test_superseded_main_build_does_not_dispatch_an_old_release(self) -> None:
-        self.assertIn('git/ref/heads/main', self.build_workflow)
+        self.assertIn("git/ref/heads/main", self.build_workflow)
         self.assertIn('if [[ "$current_main" != "$GITHUB_SHA" ]]', self.build_workflow)
         self.assertIn("Skipping superseded main deployment", self.build_workflow)
 
     def test_pull_requests_never_enter_the_staging_dispatch_job(self) -> None:
         self.assertNotIn("pull_request && github.ref == 'refs/heads/main'", self.build_workflow)
-        self.assertIn("if: github.event_name == 'push' && github.ref == 'refs/heads/main'", self.build_workflow)
+        self.assertIn("github.event_name == 'push'", self.build_workflow)
+        self.assertIn("needs.classify.outputs.release_relevant == 'true'", self.build_workflow)
 
-    def test_privileged_deploy_runner_remains_manual_only(self) -> None:
-        self.assertIn(
-            "github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && matrix.name != 'deploy-runner')",
-            self.build_workflow,
-        )
+    def test_privileged_deploy_runner_remains_manual_only_on_main_publish(self) -> None:
+        self.assertIn("else:  # protected-main push", self.classifier)
+        self.assertIn("build_deploy_runner = False", self.classifier)
+        self.assertIn('if event_name == "workflow_dispatch":', self.classifier)
+        self.assertIn("build_deploy_runner = True", self.classifier)
+        self.assertIn("Ordinary main is never allowed to publish the privileged deploy-runner", self.classifier)
+
+    def test_deployment_package_only_main_can_reuse_both_runtime_components(self) -> None:
+        self.assertIn("Component reuse rejected: current proven release state is missing.", self.deploy_workflow)
+        self.assertIn('platform_source_sha="$persisted_platform_source_sha"', self.deploy_workflow)
+        self.assertIn('gateway_source_sha="$persisted_gateway_source_sha"', self.deploy_workflow)
+        self.assertIn('git merge-base --is-ancestor "$persisted_release_sha" "$RELEASE_SHA"', self.deploy_workflow)
+        self.assertIn("reuse exact proven component from Synology current-release state", self.build_workflow)
 
     def test_manual_deploy_and_rollback_remain_available(self) -> None:
         self.assertIn("  workflow_dispatch:\n", self.deploy_workflow)
         self.assertIn("          - deploy\n          - rollback", self.deploy_workflow)
         self.assertIn("release_sha:", self.deploy_workflow)
+        self.assertIn("platform_changed:", self.deploy_workflow)
+        self.assertIn("gateway_changed:", self.deploy_workflow)
         self.assertIn("if: inputs.action == 'rollback'", self.deploy_workflow)
 
     def test_deploy_uses_repository_canonical_origin_without_environment_drift(self) -> None:
@@ -112,13 +130,25 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
 
     def test_shell_ipv4_helper_accepts_only_loopback_or_rfc1918_for_game_bind(self) -> None:
         accepted = (
-            "127.0.0.1", "127.20.1.2", "10.0.0.1", "172.16.0.1",
-            "172.31.255.254", "192.168.1.2",
+            "127.0.0.1",
+            "127.20.1.2",
+            "10.0.0.1",
+            "172.16.0.1",
+            "172.31.255.254",
+            "192.168.1.2",
         )
         rejected = (
-            "0.0.0.0", "8.8.8.8", "169.254.1.1", "172.15.0.1",
-            "172.32.0.1", "192.167.1.1", "224.0.0.1", "256.1.1.1",
-            "192.168.001.2", "192.168.1", "not-an-ip",
+            "0.0.0.0",
+            "8.8.8.8",
+            "169.254.1.1",
+            "172.15.0.1",
+            "172.32.0.1",
+            "192.167.1.1",
+            "224.0.0.1",
+            "256.1.1.1",
+            "192.168.001.2",
+            "192.168.1",
+            "not-an-ip",
         )
         for address in accepted:
             with self.subTest(address=address):
@@ -139,10 +169,10 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
 
     def test_runtime_health_names_gateway_dependency_failures_before_ready(self) -> None:
         health = (ROOT / "deploy/synology/scripts/health-check.sh").read_text(encoding="utf-8")
-        self.assertIn('Canary session issuer /health', health)
-        self.assertIn('Gateway -> Platform', health)
-        self.assertIn('Gateway -> Canary session issuer', health)
-        self.assertIn('Gateway aggregate readiness failed after both internal dependencies passed.', health)
+        self.assertIn("Canary session issuer /health", health)
+        self.assertIn("Gateway -> Platform", health)
+        self.assertIn("Gateway -> Canary session issuer", health)
+        self.assertIn("Gateway aggregate readiness failed after both internal dependencies passed.", health)
 
     def test_internal_proxy_re_resolves_recreated_compose_service_ips(self) -> None:
         self.assertIn("resolver 127.0.0.11 valid=10s ipv6=off;", self.internal_proxy)
@@ -162,7 +192,7 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         baseline = self.deploy_script.index('bash "$SCRIPT_DIR/prepare-fresh-schema-baseline.sh"', finalizer_call)
         self.assertLess(finalizer_call, baseline)
         self.assertIn('OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"', self.deploy_script)
-        self.assertIn('Finalized previously migrated candidate', self.deploy_script)
+        self.assertIn("Finalized previously migrated candidate", self.deploy_script)
 
     def test_mfa_health_check_uses_semantic_markers_not_localized_copy(self) -> None:
         health = (ROOT / "deploy/synology/scripts/health-check.sh").read_text(encoding="utf-8")
