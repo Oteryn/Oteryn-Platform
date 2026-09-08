@@ -38,6 +38,7 @@ owned_paths:
   - tests/Feature/PortalVisualPolishTest.php
   - tests/Feature/Operations/SecurityHeadersTest.php
   - scripts/acceptance/tests/portal-polish-quality.spec.mjs
+  - scripts/acceptance/tests/portal-visual-review.spec.mjs
 modules:
   - web-cms
 dependencies:
@@ -52,8 +53,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T10:49:22Z
-head: 13ffc5e4e70d539caf7f952b825bb06b67601536
+updated_at: 2026-09-08T11:07:00Z
+head: 186f5dfaf13258f0adb512040cfba43fa517d03e
 branch: fix/1344-owner-visible-portal-polish
 pr: 1348
 status: validating
@@ -67,6 +68,7 @@ owned_paths:
   - tests/Feature/PortalVisualPolishTest.php
   - tests/Feature/Operations/SecurityHeadersTest.php
   - scripts/acceptance/tests/portal-polish-quality.spec.mjs
+  - scripts/acceptance/tests/portal-visual-review.spec.mjs
 proven:
   - PR #1334 merged through Merge Queue and its source branch was deleted.
   - Synology staging deploy 34212996824 completed successfully for protected main 01a41276d3f345da94b35ad00f093a9ca66482a3 and ended healthy.
@@ -75,22 +77,24 @@ proven:
   - The implementation computes deterministic 12-hex SHA-256 content versions for shared Portal CSS/JS, home-production CSS, the citadel hero and home discovery artwork.
   - A final override stylesheet changes the home hero to an explicit two-column realm stage on desktop and one-column mobile composition, with a framed native-size citadel and 3/2/1-column discovery cards.
   - Canonical draft PR #1348 owns this branch and exact task scope.
-  - Agent Governance is green after binding the active task packet to PR #1348.
-  - CI run 34215456344 reached the full PHPUnit suite with Pint and PHPStan green; its single failure was the stale SecurityHeadersTest assertion requiring queryless stylesheet URLs after cache-busting was intentionally introduced.
+  - CI run 34217551280 is fully green on 3824b35eb5dec7c672b4a2109ccf81debdd76cce, including runtime-tests and platform-gate; Portal Acceptance Contract run 34217551335 is fully green including strict coverage and complete account lifecycle; Governance, Edge Security, CodeQL, DB Outage, Game Auth, Phase 7, Content Scale, Community Data, Wiki Reconciliation, Events and staging-image build are also green.
+  - Acceptance run 34217551274 reached real exact-SHA Laravel HTTP and failed Chromium smoke only because portal-visual-review.spec.mjs used href$=/css/portal-art-direction.css, which cannot match the intentional ?v=<12-hex> versioned URL. Direct artifact 10052522971 (sha256:99fcd4afd46f381564563e95ad514b4ed6fbb4da970d1331708cec2a3d14f902) carries the exact repeated failure at portal-visual-review.spec.mjs:53.
+  - The visual review contract now requires exactly one portal-art-direction stylesheet whose URL is same-origin, whose pathname is /css/portal-art-direction.css and whose v query is exactly 12 lowercase hexadecimal characters.
 derived:
   - Content-versioned asset URLs remove stale-cache ambiguity without taking ownership of Synology/edge configuration.
   - The new composition is intentionally more visually distinct than the micro-spacing changes in PR #1334 while preserving the same semantic DOM and data contracts.
-  - The SecurityHeadersTest contract must require same-origin versioned stylesheet URLs rather than reverting cache-busting.
+  - Security and visual acceptance contracts must require same-origin versioned stylesheet URLs rather than reverting cache-busting or introducing dummy queryless links.
 unknown:
-  - Fresh exact-head hosted validation result after the SecurityHeadersTest contract repair.
+  - Fresh exact-head hosted validation result after the portal-visual-review versioned-art-direction contract repair.
   - Protected-main SHA and staging release after integration.
 conflicts: []
 first_failure:
-  marker: security-headers-versioned-asset-contract
-  evidence: runtime-tests job 102026171086 in CI run 34215456344 failed only because tests/Feature/Operations/SecurityHeadersTest.php expected href=asset(path) without the intentional ?v=<12-hex> content version
+  marker: portal-visual-review-versioned-art-direction-contract
+  evidence: Acceptance E2E run 34217551274 / job 102032785013 / artifact 10052522971 failed because link[href$=/css/portal-art-direction.css] returned 0 after the stylesheet correctly gained ?v=<12-hex>
 rejected_hypotheses:
   - The original lack of visible change was solely because PR #1334 had not deployed; deploy 34212996824 later completed successfully and the owner-visible gap remained the controlling acceptance failure.
-  - Cache-busting should be removed to satisfy the old SecurityHeadersTest; that would reintroduce the deployed stale-asset ambiguity this task exists to remove.
+  - Cache-busting should be removed to satisfy old PHP or Playwright selectors; that would reintroduce the deployed stale-asset ambiguity this task exists to remove.
+  - A dummy queryless link should be added only to satisfy the old selector; that would test-game the acceptance contract instead of verifying the real stylesheet.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260908-owner-visible-portal-polish.md
   - resources/views/game/layout.blade.php
@@ -99,22 +103,23 @@ changed_paths:
   - tests/Feature/PortalVisualPolishTest.php
   - tests/Feature/Operations/SecurityHeadersTest.php
   - scripts/acceptance/tests/portal-polish-quality.spec.mjs
+  - scripts/acceptance/tests/portal-visual-review.spec.mjs
 validation:
   - command: staging deploy 34212996824
     result: PASS
     evidence: deployed baseline is healthy and proves the owner-visible problem is post-deploy rather than a missing deployment
-  - command: Agent Governance 34215368352
-    result: FAIL
-    evidence: first candidate omitted live PR #1348 from the task packet; all checkpoint/Issue/source-branch validators passed before liveness rejected pr none
-  - command: subsequent Agent Governance on head 13ffc5e4e70d539caf7f952b825bb06b67601536
+  - command: CI 34217551280 / runtime-tests + platform-gate
     result: PASS
-    evidence: live active-task ownership and Control Room validation passed after PR identity repair
-  - command: CI 34215456344 / runtime-tests 102026171086
+    evidence: full PHP runtime tests, Pint, PHPStan and aggregate platform-gate are green on 3824b35eb5dec7c672b4a2109ccf81debdd76cce
+  - command: Portal Acceptance Contract 34217551335
+    result: PASS
+    evidence: strict portal coverage closure and complete account lifecycle are green on 3824b35eb5dec7c672b4a2109ccf81debdd76cce
+  - command: Acceptance E2E 34217551274 / job 102032785013
     result: FAIL
-    evidence: Pint and PHPStan passed; PHPUnit had 1 failure and 77 passes, with SecurityHeadersTest line 23 still expecting queryless portal-system.css while the application intentionally emitted a same-origin content version
+    evidence: real Laravel HTTP smoke failed only on the stale href$ selector for content-versioned portal-art-direction.css; artifact 10052522971 carries exact failure evidence
 blockers:
   - none
-next_action: validate the fresh exact head after the SecurityHeadersTest cache-version contract repair, then repair any remaining task-owned failure before protected integration
+next_action: validate the fresh exact head after the portal-visual-review cache-version contract repair, then repair any remaining task-owned failure before protected integration
 ```
 
 ## Source branch closeout
