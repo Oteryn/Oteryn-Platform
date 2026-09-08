@@ -53,8 +53,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T22:51:00Z
-head: b53e7a0a42bb90598718a0f420c18662963f9144
+updated_at: 2026-09-08T22:56:00Z
+head: d830aa5fdb72197dbd9c6b0a1a1b1dc7d0ad385d
 branch: fix/dependabot-ci-resilience-1362
 pr: 1367
 status: validating
@@ -81,11 +81,12 @@ proven:
   - The first PR #1367 exact-head candidate passed CI, CodeQL, Playwright PHP 8.5, Support Legal, Support Moderation, Edge Security, Game Auth Concurrency, DB Outage and Phase 7 before protected main moved.
   - Protected main advanced path-disjoint through merged PR #1365 to ba5f8ca3c9f99b7947b8aee24883aa304314076b.
   - The task branch was explicitly reconciled with protected main in merge commit b53e7a0a42bb90598718a0f420c18662963f9144; compare state is ahead with behind_by=0 and merge-base exactly ba5f8ca3c9f99b7947b8aee24883aa304314076b.
+  - The first post-reconciliation candidate exposed only a checkpoint-schema error caused by unsupported validation result SUPERSEDED; no product or CI-gate regression was reported by that failure.
 derived:
   - The old shared acceptance/lifecycle red state was stale-base validation debt, not a regression caused by the refreshed Composer dependency versions.
   - PRs #1280 and #1281 should be closed as superseded after the atomic CodeQL update reaches protected main.
 unknown:
-  - Exact-head result of the final PR #1367 candidate after current-main reconciliation.
+  - Exact-head result of the final PR #1367 candidate after checkpoint-schema correction.
   - Whether any dependency PR gains a new failure after the repair reaches protected main and all still-relevant heads are refreshed again.
 conflicts: []
 first_failure:
@@ -113,14 +114,17 @@ validation:
     result: PASS
     evidence: current release list reports v4.37.9 as latest v4 release and immutable commit cdf488f595d80d6e07e03d4674febd5ab45fa938
   - command: PR #1367 first exact-head GitHub Actions candidate
-    result: SUPERSEDED
-    evidence: core affected workflows passed, but protected main moved before every broad workflow was terminal; final candidate must rerun after reconciliation
+    result: NOT_APPLICABLE
+    evidence: candidate was invalidated by protected-main movement before every broad workflow was terminal; final candidate reruns after reconciliation
   - command: compare protected main ba5f8ca3c9f99b7947b8aee24883aa304314076b...b53e7a0a42bb90598718a0f420c18662963f9144
     result: PASS
     evidence: behind_by=0 and merge-base equals current protected main
+  - command: PR #1367 post-reconciliation Agent Governance
+    result: FAIL
+    evidence: checkpoint validator rejected unsupported result SUPERSEDED; this commit replaces it with the supported NOT_APPLICABLE value
 blockers:
   - none
-next_action: Monitor the final PR #1367 exact-head workflows after current-main reconciliation, fix any material failure, then use normal protected integration and verify resulting main before reconciling the dependency queue.
+next_action: Monitor the final PR #1367 exact-head workflows after the checkpoint-schema correction, fix any material failure, then use normal protected integration and verify resulting main before reconciling the dependency queue.
 ```
 
 ## Source branch closeout
