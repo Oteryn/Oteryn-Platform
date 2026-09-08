@@ -10,6 +10,7 @@ Companion records:
 
 - review: `docs/agents/reports/OTERYN-20260810-portal-architecture-product-review.md`;
 - architecture owner: `docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md`;
+- player-facing completion direction: `docs/architecture/PORTAL_PLAYER_EXPERIENCE_COMPLETION_DIRECTION.md`;
 - programme / sole live selector: `docs/agents/programs/OTERYN_PORTAL_COMPLETION.md`;
 - non-scheduling completion scope: `docs/agents/programs/OTERYN_PORTAL_COMPLETION_SCOPE.json`;
 - post-selection work allocation: `docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md`;
