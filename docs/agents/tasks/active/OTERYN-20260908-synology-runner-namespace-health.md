@@ -52,10 +52,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T15:38:53Z
-head: 7c8792d64e6baff599ab6a35595a521f212ee1e6
+updated_at: 2026-09-08T15:42:12Z
+head: 12e7b98aaf27877a3cbc97d9926bfaa154813f17
 branch: fix/1358-runner-namespace-health
-pr: none
+pr: 1359
 status: validating
 context_routes:
   - ci-repair
@@ -72,10 +72,11 @@ proven:
   - Synology Diagnostics run 34243765900 proves the Platform Actions runner executes inside a Docker container with host Docker-socket access, while Platform is published on the Synology host loopback.
   - deploy/synology/runner/compose.organization.example.yml gives the Platform runner normal container networking rather than host networking.
   - The retained full health-check probes Platform through the target container namespace instead of runner-local loopback.
+  - PR 1359 is the canonical validation and integration PR for Issue 1358; its implementation commit is 12e7b98aaf27877a3cbc97d9926bfaa154813f17.
 derived:
   - Fast/reconcile HTTP smoke must enter the exact Platform container namespace rather than address runner-local 127.0.0.1.
 unknown:
-  - Exact-head CI and required-check result for the repair branch.
+  - Final exact-head CI and required-check result for PR 1359.
   - Resulting protected-main conservative/full staging result after repair integration.
   - Whether the repaired probe passes the next genuine live fast/reconcile product release on protected main.
 conflicts: []
@@ -104,7 +105,7 @@ validation:
     evidence: checkpoint contract v1 validated locally
 blockers:
   - none
-next_action: commit and publish the bounded repair, create the canonical PR for Issue 1358, then validate the exact PR head before Merge Queue enqueue
+next_action: validate the final exact head of PR 1359 across all required checks before any Merge Queue enqueue
 ```
 
 ## Source branch closeout
