@@ -11,7 +11,7 @@
     <link rel="stylesheet" href="{{ asset('css/marketplace.css') }}">
     <link rel="stylesheet" href="{{ asset('css/marketplace-responsive.css') }}">
     <link rel="stylesheet" href="{{ asset('css/support.css') }}">
-    <link rel="stylesheet" href="{{ asset('css/portal-art-direction.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/portal-art-direction.css') }}?v={{ substr(hash_file('sha256', public_path('css/portal-art-direction.css')), 0, 12) }}">
     <link rel="stylesheet" href="{{ asset('css/portal-admin.css') }}">
     @stack('head')
 </head>
