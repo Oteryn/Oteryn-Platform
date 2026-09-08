@@ -27,12 +27,24 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
 
     def test_runtime_and_synology_main_changes_trigger_component_classifier(self) -> None:
         push_block = self.build_workflow.split("  push:\n", 1)[1].split("  workflow_dispatch:\n", 1)[0]
-        self.assertIn("      - deploy/synology/**", push_block)
-        self.assertIn("      - .github/workflows/build-synology-staging-images.yml", push_block)
-        self.assertIn("      - .github/workflows/deploy-synology-staging.yml", push_block)
-        self.assertIn("      - app/**", push_block)
-        self.assertIn("      - public/**", push_block)
-        self.assertIn("      - resources/**", push_block)
+        for required in (
+            "      - deploy/synology/.env.example",
+            "      - deploy/synology/compose.yml",
+            "      - deploy/synology/nginx/**",
+            "      - deploy/synology/tls/**",
+            "      - deploy/synology/mariadb/init/**",
+            "      - deploy/synology/scripts/deploy.sh",
+            "      - deploy/synology/scripts/health-check.sh",
+            "      - .github/workflows/build-synology-staging-images.yml",
+            "      - .github/workflows/deploy-synology-staging.yml",
+            "      - app/**",
+            "      - public/**",
+            "      - resources/**",
+        ):
+            self.assertIn(required, push_block)
+        self.assertNotIn("      - deploy/synology/**", push_block)
+        self.assertNotIn("      - deploy/synology/README.md", push_block)
+        self.assertNotIn("      - deploy/synology/PUBLIC_ENDPOINTS.md", push_block)
         self.assertIn("Classify Synology image inputs", self.build_workflow)
 
     def test_main_push_dispatches_after_validation_and_build_or_safe_skip(self) -> None:
