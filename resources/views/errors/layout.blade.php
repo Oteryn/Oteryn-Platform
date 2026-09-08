@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex, nofollow">
     <title>@yield('title') · {{ config('app.name') }}</title>
-    <link rel="stylesheet" href="{{ asset('css/portal-system.css') }}">
-    <link rel="stylesheet" href="{{ asset('css/portal-art-direction.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/portal-system.css') }}?v={{ substr(hash_file('sha256', public_path('css/portal-system.css')), 0, 12) }}">
+    <link rel="stylesheet" href="{{ asset('css/portal-art-direction.css') }}?v={{ substr(hash_file('sha256', public_path('css/portal-art-direction.css')), 0, 12) }}">
 </head>
 <body class="error-body portal-error-body">
 <main id="main-content" class="error-panel">
