@@ -48,6 +48,60 @@ load_oteryn_env_file() {
     fi
 }
 
+_oteryn_platform_container_http_status() {
+    local container_id="$1"
+    local path="$2"
+
+    [[ -n "$container_id" ]] || return 2
+    [[ "$path" == /* && "$path" != *$'\r'* && "$path" != *$'\n'* ]] || return 2
+
+    # The Platform Actions runner is itself a Docker container. Host-published
+    # 127.0.0.1 ports therefore belong to the Synology host namespace, not the
+    # runner namespace. Probe from inside the exact Platform container instead.
+    command docker exec "$container_id" php -r '
+$path = $argv[1] ?? "/";
+$socket = @fsockopen("127.0.0.1", 8000, $errno, $errstr, 2.0);
+if ($socket === false) {
+    exit(10);
+}
+stream_set_timeout($socket, 2);
+$request = "GET {$path} HTTP/1.1\r\n"
+    . "Host: oteryn.molehill.cloud\r\n"
+    . "X-Forwarded-Host: oteryn.molehill.cloud\r\n"
+    . "X-Forwarded-Proto: https\r\n"
+    . "X-Forwarded-Port: 443\r\n"
+    . "Connection: close\r\n\r\n";
+if (@fwrite($socket, $request) === false) {
+    fclose($socket);
+    exit(11);
+}
+$statusLine = fgets($socket);
+fclose($socket);
+if (! is_string($statusLine)
+    || preg_match("/^HTTP\\/[0-9.]+\\s+([0-9]{3})(?:\\s|$)/", trim($statusLine), $matches) !== 1) {
+    exit(12);
+}
+fwrite(STDOUT, $matches[1]);
+' "$path"
+}
+
+_oteryn_wait_platform_http_200() {
+    local container_id="$1"
+    local path="${2:-/health}"
+    local attempts="${3:-30}"
+    local status
+
+    [[ "$attempts" =~ ^[1-9][0-9]*$ ]] || return 2
+    for _ in $(seq 1 "$attempts"); do
+        status="$(_oteryn_platform_container_http_status "$container_id" "$path" 2>/dev/null || true)"
+        if [[ "$status" == 200 ]]; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
 _oteryn_deploy_state_dir() { printf '%s\n' "${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"; }
 
 # Legacy bootstrap only: old managed releases used one shared application SHA

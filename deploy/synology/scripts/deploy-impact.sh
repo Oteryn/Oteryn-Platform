@@ -360,6 +360,8 @@ _oteryn_reconcile_restore_on_exit() {
         || "$(command docker inspect --format '{{.State.Running}}' "$restored_platform_id" 2>/dev/null || true)" != true \
         || "$(command docker inspect --format '{{.Image}}' "$restored_platform_id" 2>/dev/null || true)" != "$expected_old_id" ]]; then
         echo "Platform reconcile recovery could not prove the previous Platform runtime was restored." >&2
+    elif ! _oteryn_wait_platform_http_200 "$restored_platform_id" /health 30; then
+        echo "Platform reconcile recovery could not prove the previous Platform /health was restored." >&2
     else
         echo "Previous Platform runtime restored after Platform reconcile failure." >&2
     fi
@@ -382,7 +384,7 @@ _oteryn_assert_preserved_service() {
 }
 
 _oteryn_platform_smoke() {
-    local platform_id expected_id actual_id actual_binding status ready=0
+    local platform_id expected_id actual_id actual_binding status
     platform_id="$("${compose[@]}" ps -q platform)"
     [[ -n "$platform_id" ]] || { echo "Platform reconcile did not create Platform." >&2; return 1; }
     expected_id="$(docker image inspect --format '{{.Id}}' "$PLATFORM_IMAGE")"
@@ -393,26 +395,12 @@ _oteryn_platform_smoke() {
         echo "Platform reconcile changed Platform published binding: ${actual_binding:-none}" >&2
         return 1
     }
-    for _ in $(seq 1 20); do
-        if curl --fail --silent --show-error --max-time 5 \
-            -H 'Host: oteryn.molehill.cloud' \
-            -H 'X-Forwarded-Host: oteryn.molehill.cloud' \
-            -H 'X-Forwarded-Proto: https' \
-            -H 'X-Forwarded-Port: 443' \
-            "http://127.0.0.1:${PLATFORM_PORT}/health" >/dev/null; then
-            ready=1
-            break
-        fi
-        sleep 1
-    done
-    [[ "$ready" -eq 1 ]] || { echo "Platform reconcile /health did not become ready." >&2; return 1; }
-    status="$(curl --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' \
-        -H 'Host: oteryn.molehill.cloud' \
-        -H 'X-Forwarded-Host: oteryn.molehill.cloud' \
-        -H 'X-Forwarded-Proto: https' \
-        -H 'X-Forwarded-Port: 443' \
-        "http://127.0.0.1:${PLATFORM_PORT}/login?locale=en")"
-    [[ "$status" == 200 ]] || { echo "Platform reconcile public login smoke returned HTTP $status." >&2; return 1; }
+    if ! _oteryn_wait_platform_http_200 "$platform_id" /health 30; then
+        echo "Platform reconcile /health did not become ready in the Platform container namespace." >&2
+        return 1
+    fi
+    status="$(_oteryn_platform_container_http_status "$platform_id" '/login?locale=en' 2>/dev/null || true)"
+    [[ "$status" == 200 ]] || { echo "Platform reconcile public login smoke returned HTTP ${status:-unreachable}." >&2; return 1; }
 }
 
 _oteryn_platform_reconcile() {

@@ -8,6 +8,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[3]
 SCRIPTS = ROOT / "deploy" / "synology" / "scripts"
 ENTRYPOINT = SCRIPTS / "deploy-impact.sh"
 DEPLOY = SCRIPTS / "deploy.sh"
+LIB = SCRIPTS / "lib.sh"
 FRESH_BASELINE = SCRIPTS / "prepare-fresh-schema-baseline.sh"
 RECOVERY = SCRIPTS / "recover-schema.sh"
 RELEASE_STATE = SCRIPTS / "release-state.sh"
@@ -180,9 +181,10 @@ def test_fast_deploy_smoke_proves_exact_platform_image_binding_and_public_page()
     assert "docker image inspect --format '{{.Id}}' \"$PLATFORM_IMAGE\"" in smoke
     assert "Fast deploy Platform image identity mismatch." in smoke
     assert "${PLATFORM_BIND_ADDRESS}:${PLATFORM_PORT}" in smoke
-    assert '"http://127.0.0.1:${PLATFORM_PORT}/health"' in smoke
-    assert '"http://127.0.0.1:${PLATFORM_PORT}/login?locale=en"' in smoke
-    assert "Fast deploy public login smoke returned HTTP $status." in smoke
+    assert '_oteryn_wait_platform_http_200 "$platform_id" /health 30' in smoke
+    assert "_oteryn_platform_container_http_status \"$platform_id\" '/login?locale=en'" in smoke
+    assert 'http://127.0.0.1:${PLATFORM_PORT}' not in smoke
+    assert "Fast deploy public login smoke returned HTTP ${status:-unreachable}." in smoke
 
 
 def test_platform_reconcile_keeps_presentation_on_existing_fast_path() -> None:
@@ -231,6 +233,46 @@ def test_platform_reconcile_accepts_known_platform_inputs_but_not_schema_or_cont
     assert "deploy/synology/scripts/deploy-impact.sh" in non_runtime
     assert "scripts/acceptance/*" in non_runtime
 
+
+
+def test_fast_and_reconcile_http_smoke_stays_in_platform_container_namespace() -> None:
+    lib = LIB.read_text()
+    helper = lib[
+        lib.index("_oteryn_platform_container_http_status()") : lib.index("_oteryn_deploy_state_dir()")
+    ]
+    assert 'command docker exec "$container_id" php -r' in helper
+    assert '@fsockopen("127.0.0.1", 8000' in helper
+    assert 'Host: oteryn.molehill.cloud' in helper
+    assert 'X-Forwarded-Proto: https' in helper
+    assert '_oteryn_platform_container_http_status "$container_id" "$path"' in helper
+
+    fast_smoke = DEPLOY.read_text()
+    fast_smoke = fast_smoke[
+        fast_smoke.index("_oteryn_fast_platform_smoke()") : fast_smoke.index("_oteryn_fast_deploy_platform()")
+    ]
+    reconcile_smoke = ENTRYPOINT.read_text()
+    reconcile_smoke = reconcile_smoke[
+        reconcile_smoke.index("_oteryn_platform_smoke()") : reconcile_smoke.index("_oteryn_platform_reconcile()")
+    ]
+    for smoke in (fast_smoke, reconcile_smoke):
+        assert '_oteryn_wait_platform_http_200 "$platform_id" /health 30' in smoke
+        assert '_oteryn_platform_container_http_status "$platform_id" \'/login?locale=en\'' in smoke
+        assert 'http://127.0.0.1:${PLATFORM_PORT}' not in smoke
+        assert 'curl ' not in smoke
+
+
+def test_fast_and_reconcile_recovery_proves_restored_platform_health() -> None:
+    fast = DEPLOY.read_text()
+    fast_restore = fast[
+        fast.index("_oteryn_fast_restore_on_exit()") : fast.index("_oteryn_fast_assert_preserved_service()")
+    ]
+    reconcile = ENTRYPOINT.read_text()
+    reconcile_restore = reconcile[
+        reconcile.index("_oteryn_reconcile_restore_on_exit()") : reconcile.index("_oteryn_assert_preserved_service()")
+    ]
+    for restore in (fast_restore, reconcile_restore):
+        assert '_oteryn_wait_platform_http_200 "$restored_platform_id" /health 30' in restore
+        assert "could not prove the previous Platform /health was restored" in restore
 
 def test_platform_reconcile_uses_accumulated_exact_release_impact() -> None:
     entrypoint = ENTRYPOINT.read_text()
