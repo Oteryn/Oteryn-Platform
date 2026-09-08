@@ -8,7 +8,6 @@ on:
       - deploy/synology/**
       - tests/ci/test_synology_rollback_contract.py
       - tests/ci/test_synology_rollback_recovery_contract.py
-      - docs/agents/tasks/active/OTERYN-20260812-synology-rollback-schema-safety.md
       - .github/workflows/recover-synology-staging-schema.yml
       - .github/workflows/synology-rollback-contract.yml
   push:
@@ -18,7 +17,6 @@ on:
       - deploy/synology/**
       - tests/ci/test_synology_rollback_contract.py
       - tests/ci/test_synology_rollback_recovery_contract.py
-      - docs/agents/tasks/active/OTERYN-20260812-synology-rollback-schema-safety.md
       - .github/workflows/recover-synology-staging-schema.yml
       - .github/workflows/synology-rollback-contract.yml
   workflow_dispatch:
