@@ -192,7 +192,8 @@ _oteryn_fast_non_runtime_path() {
         deploy/synology/PUBLIC_ENDPOINTS.md|\
         deploy/synology/BUILD_ROUTING.md|\
         deploy/synology/.gitignore|\
-        docs/*|tests/*|.github/*|AGENTS.md|README.md|LICENSE|.gitignore|.gitattributes|.editorconfig)
+        deploy/synology/tests/*|\
+        docs/*|tests/*|scripts/acceptance/*|.github/*|AGENTS.md|README.md|LICENSE|.gitignore|.gitattributes|.editorconfig)
             return 0
             ;;
         *)
