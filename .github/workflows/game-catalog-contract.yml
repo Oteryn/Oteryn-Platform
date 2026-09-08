@@ -23,9 +23,6 @@ on:
       - 'tests/Integration/GameCatalog/**'
       - 'tests/Unit/GameCatalog/**'
       - 'tools/game-catalog/**'
-      - 'docs/agents/tasks/active/OTERYN-20260728-game-catalog-slice-1.md'
-      - 'docs/agents/tasks/active/OTERYN-20260729-game-catalog-null-boundary.md'
-      - 'docs/agents/tasks/active/OTERYN-20260729-game-catalog-runtime-threshold.md'
   pull_request:
     branches:
       - main
@@ -41,9 +38,6 @@ on:
       - 'tests/Integration/GameCatalog/**'
       - 'tests/Unit/GameCatalog/**'
       - 'tools/game-catalog/**'
-      - 'docs/agents/tasks/active/OTERYN-20260728-game-catalog-slice-1.md'
-      - 'docs/agents/tasks/active/OTERYN-20260729-game-catalog-null-boundary.md'
-      - 'docs/agents/tasks/active/OTERYN-20260729-game-catalog-runtime-threshold.md'
 
 permissions:
   contents: read
