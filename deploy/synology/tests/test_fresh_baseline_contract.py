@@ -12,6 +12,7 @@ FRESH_BASELINE = SCRIPTS / "prepare-fresh-schema-baseline.sh"
 RECOVERY = SCRIPTS / "recover-schema.sh"
 RELEASE_STATE = SCRIPTS / "release-state.sh"
 RECOVERY_WORKFLOW = ROOT / ".github" / "workflows" / "recover-synology-staging-schema.yml"
+DEPLOY_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-synology-staging.yml"
 
 
 def test_first_empty_database_gets_recoverable_baseline_before_platform_start() -> None:
@@ -85,6 +86,9 @@ def test_fast_deploy_uses_accumulated_impact_and_a_narrow_presentation_allowlist
     presentation = deploy[
         deploy.index("_oteryn_fast_presentation_path()") : deploy.index("_oteryn_fast_non_runtime_path()")
     ]
+    non_runtime = deploy[
+        deploy.index("_oteryn_fast_non_runtime_path()") : deploy.index("_oteryn_fast_running_service_id()")
+    ]
     assert "resources/*|lang/*|public/css/*|public/js/*|public/images/*" in presentation
     assert "public/index.php" not in presentation
     assert "public/*)" not in presentation
@@ -94,6 +98,24 @@ def test_fast_deploy_uses_accumulated_impact_and_a_narrow_presentation_allowlist
     assert "accumulated runtime impact includes $path" in deploy
     assert "docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json" in deploy
     assert "deploy/synology/BUILD_ROUTING.md" in deploy
+    assert "deploy/synology/tests/*" in non_runtime
+    assert "scripts/acceptance/*" in non_runtime
+
+
+def test_provenance_preflight_reuses_local_immutable_images_before_network_pull() -> None:
+    workflow = DEPLOY_WORKFLOW.read_text()
+    resolver = workflow[
+        workflow.index("ensure_runtime_image()") : workflow.index("resolve_any_digest_ref()")
+    ]
+    assert 'if [[ "$image_ref" == *@sha256:* ]] && docker image inspect "$image_ref" >/dev/null 2>&1; then' in resolver
+    assert "Using locally available immutable $component image" in resolver
+    assert 'docker pull "$image_ref" >/dev/null' in resolver
+    assert 'ensure_runtime_image "$platform_image" Platform' in resolver
+    assert 'ensure_runtime_image "$gateway_image" Gateway' in resolver
+    assert 'ensure_runtime_image "$CANARY_IMAGE_INPUT" Canary' in resolver
+    assert 'docker pull "$platform_image" >/dev/null' not in resolver
+    assert 'docker pull "$gateway_image" >/dev/null' not in resolver
+    assert 'docker pull "$CANARY_IMAGE_INPUT" >/dev/null' not in resolver
 
 
 def test_fast_deploy_recreates_platform_but_not_full_stack_services() -> None:
