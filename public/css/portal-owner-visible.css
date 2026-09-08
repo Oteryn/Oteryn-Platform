@@ -230,9 +230,9 @@ body[data-portal-family="home"] .realm-journey {
         grid-template-columns: minmax(0, 1fr);
         grid-template-areas:
             "copy"
-            "art"
-            "pulse";
-        gap: 1.5rem;
+            "pulse"
+            "art";
+        gap: 1rem;
         min-height: 0;
         padding-block: 2.4rem;
     }
@@ -242,7 +242,7 @@ body[data-portal-family="home"] .realm-journey {
     }
 
     body[data-portal-family="home"] .realm-hero-copy {
-        padding: 1.5rem 0 1.1rem 1.5rem;
+        padding: 1.5rem 0 .8rem 1.5rem;
     }
 
     body[data-portal-family="home"] .realm-hero-art {
@@ -266,12 +266,17 @@ body[data-portal-family="home"] .realm-journey {
 
 @media (max-width: 39.99rem) {
     body[data-portal-family="home"] .realm-hero {
-        padding: 1.7rem var(--gutter) 2.3rem;
+        gap: .8rem;
+        padding: 1.35rem var(--gutter) 2.1rem;
     }
 
     body[data-portal-family="home"] .realm-hero-copy {
-        padding: 1.1rem 0 .8rem 1rem;
+        padding: .8rem 0 .45rem 1rem;
         border-left-width: 2px;
+    }
+
+    body[data-portal-family="home"] .realm-hero-copy > .eyebrow {
+        margin-bottom: .7rem;
     }
 
     body[data-portal-family="home"] #home-hero-title {
@@ -280,11 +285,21 @@ body[data-portal-family="home"] .realm-journey {
     }
 
     body[data-portal-family="home"] .realm-hero-tagline {
+        margin-bottom: .8rem;
         font-size: 1.75rem;
     }
 
+    body[data-portal-family="home"] .realm-hero-lede {
+        margin-bottom: 1.2rem;
+    }
+
     body[data-portal-family="home"] .realm-promises {
+        margin-top: 1.15rem;
         padding-top: .65rem;
+    }
+
+    body[data-portal-family="home"] .realm-pulse {
+        padding: .9rem 1rem;
     }
 
     body[data-portal-family="home"] .production-discover-grid {
