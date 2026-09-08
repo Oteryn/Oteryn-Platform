@@ -20,11 +20,23 @@ final class SecurityHeadersTest extends TestCase
             ->assertHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
             ->assertHeader('Permissions-Policy', 'camera=(), geolocation=(), microphone=(), payment=(), usb=()')
             ->assertHeaderMissing('Strict-Transport-Security')
-            ->assertSee('href="'.asset('css/portal-system.css').'"', false)
-            ->assertSee('href="'.asset('css/portal-pages.css').'"', false)
-            ->assertSee('href="'.asset('css/home-production.css').'"', false)
             ->assertDontSee('css/app.css', false)
             ->assertDontSee('<style>', false);
+
+        $html = $response->getContent();
+        self::assertIsString($html);
+
+        foreach ([
+            'css/portal-system.css',
+            'css/portal-pages.css',
+            'css/home-production.css',
+        ] as $path) {
+            self::assertMatchesRegularExpression(
+                '~href="'.preg_quote(asset($path), '~').'\\?v=[0-9a-f]{12}"~',
+                $html,
+                'Expected a same-origin content-versioned stylesheet URL for '.$path,
+            );
+        }
 
         $csp = $response->headers->get('Content-Security-Policy');
         self::assertIsString($csp);

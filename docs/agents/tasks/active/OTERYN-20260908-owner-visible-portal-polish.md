@@ -36,6 +36,7 @@ owned_paths:
   - resources/views/home.blade.php
   - public/css/portal-owner-visible.css
   - tests/Feature/PortalVisualPolishTest.php
+  - tests/Feature/Operations/SecurityHeadersTest.php
   - scripts/acceptance/tests/portal-polish-quality.spec.mjs
 modules:
   - web-cms
@@ -51,8 +52,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T10:27:00Z
-head: 0834334a4e890106d4d10e06a6ce36e217456fc1
+updated_at: 2026-09-08T10:49:22Z
+head: 13ffc5e4e70d539caf7f952b825bb06b67601536
 branch: fix/1344-owner-visible-portal-polish
 pr: 1348
 status: validating
@@ -64,33 +65,39 @@ owned_paths:
   - resources/views/home.blade.php
   - public/css/portal-owner-visible.css
   - tests/Feature/PortalVisualPolishTest.php
+  - tests/Feature/Operations/SecurityHeadersTest.php
   - scripts/acceptance/tests/portal-polish-quality.spec.mjs
 proven:
   - PR #1334 merged through Merge Queue and its source branch was deleted.
   - Synology staging deploy 34212996824 completed successfully for protected main 01a41276d3f345da94b35ad00f093a9ca66482a3 and ended healthy.
   - Owner-visible acceptance failed after that deploy because the page still appeared effectively unchanged.
   - Public layouts previously used stable asset URLs without a content/release cache key.
-  - The implementation now computes deterministic 12-hex SHA-256 content versions for shared Portal CSS/JS, home-production CSS, the citadel hero and home discovery artwork.
+  - The implementation computes deterministic 12-hex SHA-256 content versions for shared Portal CSS/JS, home-production CSS, the citadel hero and home discovery artwork.
   - A final override stylesheet changes the home hero to an explicit two-column realm stage on desktop and one-column mobile composition, with a framed native-size citadel and 3/2/1-column discovery cards.
   - Canonical draft PR #1348 owns this branch and exact task scope.
+  - Agent Governance is green after binding the active task packet to PR #1348.
+  - CI run 34215456344 reached the full PHPUnit suite with Pint and PHPStan green; its single failure was the stale SecurityHeadersTest assertion requiring queryless stylesheet URLs after cache-busting was intentionally introduced.
 derived:
   - Content-versioned asset URLs remove stale-cache ambiguity without taking ownership of Synology/edge configuration.
   - The new composition is intentionally more visually distinct than the micro-spacing changes in PR #1334 while preserving the same semantic DOM and data contracts.
+  - The SecurityHeadersTest contract must require same-origin versioned stylesheet URLs rather than reverting cache-busting.
 unknown:
-  - Exact hosted validation result for the current task head.
+  - Fresh exact-head hosted validation result after the SecurityHeadersTest contract repair.
   - Protected-main SHA and staging release after integration.
 conflicts: []
 first_failure:
-  marker: owner-visible-staging-acceptance
-  evidence: healthy deploy 34212996824 followed by owner report that the site looked unchanged
+  marker: security-headers-versioned-asset-contract
+  evidence: runtime-tests job 102026171086 in CI run 34215456344 failed only because tests/Feature/Operations/SecurityHeadersTest.php expected href=asset(path) without the intentional ?v=<12-hex> content version
 rejected_hypotheses:
   - The original lack of visible change was solely because PR #1334 had not deployed; deploy 34212996824 later completed successfully and the owner-visible gap remained the controlling acceptance failure.
+  - Cache-busting should be removed to satisfy the old SecurityHeadersTest; that would reintroduce the deployed stale-asset ambiguity this task exists to remove.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260908-owner-visible-portal-polish.md
   - resources/views/game/layout.blade.php
   - resources/views/home.blade.php
   - public/css/portal-owner-visible.css
   - tests/Feature/PortalVisualPolishTest.php
+  - tests/Feature/Operations/SecurityHeadersTest.php
   - scripts/acceptance/tests/portal-polish-quality.spec.mjs
 validation:
   - command: staging deploy 34212996824
@@ -99,12 +106,15 @@ validation:
   - command: Agent Governance 34215368352
     result: FAIL
     evidence: first candidate omitted live PR #1348 from the task packet; all checkpoint/Issue/source-branch validators passed before liveness rejected pr none
-  - command: exact-head CI / Portal browser acceptance
-    result: NOT_RUN
-    evidence: current docs-only liveness repair must receive fresh exact-head hosted validation
+  - command: subsequent Agent Governance on head 13ffc5e4e70d539caf7f952b825bb06b67601536
+    result: PASS
+    evidence: live active-task ownership and Control Room validation passed after PR identity repair
+  - command: CI 34215456344 / runtime-tests 102026171086
+    result: FAIL
+    evidence: Pint and PHPStan passed; PHPUnit had 1 failure and 77 passes, with SecurityHeadersTest line 23 still expecting queryless portal-system.css while the application intentionally emitted a same-origin content version
 blockers:
   - none
-next_action: validate the current exact head, repair the first remaining task-owned failure if any, then mark PR #1348 ready for protected integration
+next_action: validate the fresh exact head after the SecurityHeadersTest cache-version contract repair, then repair any remaining task-owned failure before protected integration
 ```
 
 ## Source branch closeout
