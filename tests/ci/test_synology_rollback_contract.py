@@ -22,6 +22,8 @@ def release(path: pathlib.Path, *, sha: str, schema: str, accepts: str, eligible
         "\n".join(
             [
                 f"RELEASE_SHA={sha}",
+                f"PLATFORM_SOURCE_SHA={sha}",
+                f"GATEWAY_SOURCE_SHA={sha}",
                 f"PLATFORM_IMAGE=example/platform@sha256:{DIGEST_A}",
                 f"GATEWAY_IMAGE=example/gateway@sha256:{DIGEST_B}",
                 f"CANARY_IMAGE=example/canary@sha256:{DIGEST_C}",
@@ -45,7 +47,16 @@ def run_compatible(candidate: pathlib.Path, old: pathlib.Path, schema: str = "sc
     )
 
 
-def run_release_sha(platform_sha: str, gateway_sha: str, *, explicit_sha: str = "") -> subprocess.CompletedProcess[str]:
+def run_release_sha(
+    platform_revision: str,
+    gateway_revision: str,
+    *,
+    release_sha: str = NEW_SHA,
+    platform_source_sha: str | None = None,
+    gateway_source_sha: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    platform_source_sha = platform_source_sha or platform_revision
+    gateway_source_sha = gateway_source_sha or gateway_revision
     with tempfile.TemporaryDirectory() as td:
         root = pathlib.Path(td)
         docker = root / "docker"
@@ -53,16 +64,19 @@ def run_release_sha(platform_sha: str, gateway_sha: str, *, explicit_sha: str = 
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
             "ref=${@: -1}\n"
-            f"case \"$ref\" in *platform*) printf '%s\\n' '{platform_sha}' ;; *gateway*) printf '%s\\n' '{gateway_sha}' ;; *) exit 9 ;; esac\n"
+            f"case \"$ref\" in *platform*) printf '%s\\n' '{platform_revision}' ;; *gateway*) printf '%s\\n' '{gateway_revision}' ;; *) exit 9 ;; esac\n"
         )
         docker.chmod(0o755)
         env = os.environ.copy()
         env.update(
             {
                 "PATH": f"{root}:{env['PATH']}",
-                "PLATFORM_IMAGE": "example/platform:test",
-                "GATEWAY_IMAGE": "example/gateway:test",
-                "OTERYN_RELEASE_SHA": explicit_sha,
+                "PLATFORM_IMAGE": f"example/platform@sha256:{DIGEST_A}",
+                "GATEWAY_IMAGE": f"example/gateway@sha256:{DIGEST_B}",
+                "OTERYN_RELEASE_SHA": release_sha,
+                "PLATFORM_SOURCE_SHA": platform_source_sha,
+                "GATEWAY_SOURCE_SHA": gateway_source_sha,
+                "GATEWAY_VERSION": f"sha-{gateway_source_sha}",
             }
         )
         return subprocess.run(
@@ -160,6 +174,8 @@ def test_release_state_round_trips_world_name_with_spaces() -> None:
                 "write",
                 str(state),
                 NEW_SHA,
+                OLD_SHA,
+                NEW_SHA,
                 "schema-v2",
                 "schema-v1,schema-v2",
                 f"example/platform@sha256:{DIGEST_A}",
@@ -173,7 +189,10 @@ def test_release_state_round_trips_world_name_with_spaces() -> None:
             env=env,
         )
         assert write.returncode == 0, write.stderr
-        assert "GAME_WORLD_NAME=Oteryn\\ Staging" in state.read_text()
+        state_text = state.read_text()
+        assert f"PLATFORM_SOURCE_SHA={OLD_SHA}" in state_text
+        assert f"GATEWAY_SOURCE_SHA={NEW_SHA}" in state_text
+        assert "GAME_WORLD_NAME=Oteryn\\ Staging" in state_text
         read = subprocess.run(
             ["bash", "-c", 'source "$1"; printf "%s" "$GAME_WORLD_NAME"', "bash", str(state)],
             text=True,
@@ -184,22 +203,22 @@ def test_release_state_round_trips_world_name_with_spaces() -> None:
         assert read.stdout == "Oteryn Staging"
 
 
-def test_release_sha_is_derived_from_matching_runtime_oci_revisions() -> None:
-    result = run_release_sha(NEW_SHA, NEW_SHA)
+def test_release_sha_accepts_independent_component_provenance() -> None:
+    result = run_release_sha(OLD_SHA, NEW_SHA, release_sha=NEW_SHA)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == NEW_SHA
 
 
-def test_release_sha_rejects_runtime_revision_mismatch() -> None:
-    result = run_release_sha(NEW_SHA, OLD_SHA)
+def test_release_sha_rejects_component_revision_mismatch() -> None:
+    result = run_release_sha(OLD_SHA, NEW_SHA, platform_source_sha=NEW_SHA)
     assert result.returncode != 0
-    assert "OCI application revisions disagree" in result.stderr
+    assert "Platform OCI application revision does not match its persisted component source SHA" in result.stderr
 
 
-def test_release_sha_rejects_conflicting_explicit_identity() -> None:
-    result = run_release_sha(NEW_SHA, NEW_SHA, explicit_sha=OLD_SHA)
+def test_release_sha_requires_explicit_overall_release_identity() -> None:
+    result = run_release_sha(NEW_SHA, NEW_SHA, release_sha="")
     assert result.returncode != 0
-    assert "OTERYN_RELEASE_SHA disagrees" in result.stderr
+    assert "OTERYN_RELEASE_SHA must be the exact protected-main release identity" in result.stderr
 
 
 def test_candidate_contract_is_loaded_from_platform_image() -> None:
@@ -242,9 +261,11 @@ def test_failed_exact_candidate_resume_requires_known_matching_schema_and_identi
     baseline = (SCRIPTS / "prepare-fresh-schema-baseline.sh").read_text()
     assert "_oteryn_resume_candidate_if_safe()" in lib
     assert '[[ "${candidate_runtime[0]:-}" == "$release_sha" ]]' in lib
-    assert '"${candidate_runtime[1]:-}" == "$PLATFORM_IMAGE"' in lib
-    assert '"${candidate_runtime[2]:-}" == "$GATEWAY_IMAGE"' in lib
-    assert '"${candidate_runtime[3]:-}" == "$CANARY_IMAGE"' in lib
+    assert '"${candidate_runtime[1]:-}" == "$PLATFORM_SOURCE_SHA"' in lib
+    assert '"${candidate_runtime[2]:-}" == "$GATEWAY_SOURCE_SHA"' in lib
+    assert '"${candidate_runtime[3]:-}" == "$PLATFORM_IMAGE"' in lib
+    assert '"${candidate_runtime[4]:-}" == "$GATEWAY_IMAGE"' in lib
+    assert '"${candidate_runtime[5]:-}" == "$CANARY_IMAGE"' in lib
     assert '[[ "$schema_state" == known && "$schema_target" == "$release_sha" && "$schema_id" == "$candidate_schema" ]]' in lib
     assert "prior migration is not proven complete" in lib
     assert "preserving recovery evidence until health checks pass" in lib
@@ -324,7 +345,7 @@ def test_pre_migration_backup_quiesces_db_consumers_and_restores_scheduler() -> 
 
 def test_marketplace_scheduler_recreation_uses_effective_or_durable_state() -> None:
     lib = LIB.read_text()
-    assert 'printf \'%s/marketplace.env\\n\'' in lib
+    assert "printf '%s/marketplace.env\\n'" in lib
     assert "grep -q '^MARKETPLACE_ENABLED=' \"$ENV_FILE\"" in lib
     assert "Unexpected durable Marketplace state key" in lib
     assert "_oteryn_load_marketplace_runtime_state" in lib
