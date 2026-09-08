@@ -43,6 +43,14 @@ Resolve current main, active ownership, Issues, tasks, PRs, reviews, checks and 
 
 A selector pass chooses at most one new candidate for this invocation. Other path-disjoint tasks can already be owned in parallel; treat them as `OWNED` and do not join or duplicate them.
 
+## Task-pinned continuation alias
+
+When the owner invokes `PORTAL-POLISH`, do not select a new Portal slice. Resolve the live task packet `docs/agents/tasks/active/OTERYN-20260908-portal-visual-polish.md`, governing Issue `#1333`, its current branch and PR, and current protected `main` before doing any implementation work.
+
+If that live ownership is still valid, resume the same Issue-owned writer and execute the task checkpoint's concrete `next_action`; do not create a replacement Issue, branch, PR, programme or parallel writer. The embedded Issue/task identity is only a routing anchor and must be verified against GitHub live state at invocation.
+
+If the task has moved to archive, the governing Issue is terminal, the PR is terminal without an explicit archive-pending transition, or ownership no longer matches, reconcile lifecycle state and report the terminal/current status instead of resurrecting the task. After terminal closeout, `PORTAL-POLISH` is status-only; new Portal work returns to the ordinary `PORTAL-CLOSEOUT` selector.
+
 ## Authority and context delta
 
 Writes are limited to the selected Platform task ownership. External/server repository access, production or protected-environment operations, Cloudflare/DNS/Synology changes, secrets, live data, payment activation, direct protected-main writes and invented game/product facts require separate exact authority.
