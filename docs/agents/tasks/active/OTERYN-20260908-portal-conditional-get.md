@@ -48,8 +48,8 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T13:16:00Z
-head: c6cf758704a2c52d5fa07f7adb5f58b320a26ddf
+updated_at: 2026-09-08T13:18:00Z
+head: 6040630899bfaba021ab0836db55cc26601859fd
 branch: perf/1351-portal-conditional-get
 pr: 1354
 status: validating
@@ -69,6 +69,9 @@ proven:
   - focused tests cover initial ETag, matching If-None-Match 304, empty 304 body, cache directives, and 503 without ETag
   - task changes no migration, schema, Gateway, Canary, auth, payment or deployment-control path
   - PR 1354 is the canonical validation/integration PR for this task
+derived:
+  - content-derived validators preserve representation correctness while allowing unchanged successful responses to complete as conditional HTTP 304
+  - sitemap failure responses remain non-reusable because ETag assignment occurs only after successful dependency resolution and rendering
 unknown:
   - exact-head validation result
   - resulting protected-main deployment profile and wall-time
@@ -86,11 +89,11 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260908-portal-conditional-get.md
 validation:
   - command: PR 1354 exact-head workflows
-    result: PENDING
-    evidence: waiting for GitHub Actions on exact head
+    result: NOT_RUN
+    evidence: previous head 6040630899bfaba021ab0836db55cc26601859fd failed before runtime classification because this checkpoint omitted derived and used unsupported PENDING; this metadata repair creates a fresh exact head
 blockers:
   - resulting-main Synology deployment for PR 1353 is still in progress
-next_action: complete exact-head validation; after PR 1353 staging is healthy, transition to ready/archive-pending and enter normal Merge Queue
+next_action: complete fresh exact-head validation; after PR 1353 staging is healthy, transition to ready/archive-pending and enter normal Merge Queue
 ```
 
 ## Source branch closeout
