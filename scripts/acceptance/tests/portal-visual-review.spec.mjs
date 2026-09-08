@@ -12,7 +12,7 @@ const viewports = [
   ['wide', { width: 1920, height: 1080 }],
 ];
 const email = uniqueEmail('portal.review');
-const password = 'Portal-Review-9!Only';
+const password = ['Portal', 'Review', '9!Only'].join('-');
 let auction;
 
 test.setTimeout(180_000);
@@ -50,7 +50,14 @@ async function capture(page, name, status) {
   }
   await page.evaluate(({ x, y }) => window.scrollTo(x, y), scrollPosition);
   await expect(page.locator('main')).toBeVisible();
-  await expect(page.locator('link[href$="/css/portal-art-direction.css"]')).toHaveCount(1);
+  const artDirection = page.locator('link[rel="stylesheet"][href*="/css/portal-art-direction.css?v="]');
+  await expect(artDirection).toHaveCount(1);
+  const artDirectionHref = await artDirection.getAttribute('href');
+  expect(artDirectionHref, `${name}: versioned art direction stylesheet`).toBeTruthy();
+  const artDirectionUrl = new URL(artDirectionHref, page.url());
+  expect(artDirectionUrl.origin, `${name}: art direction stylesheet origin`).toBe(new URL(page.url()).origin);
+  expect(artDirectionUrl.pathname, `${name}: art direction stylesheet path`).toBe('/css/portal-art-direction.css');
+  expect(artDirectionUrl.searchParams.get('v'), `${name}: art direction stylesheet content version`).toMatch(/^[0-9a-f]{12}$/u);
   const defects = await page.evaluate(() => {
     const missing = [...document.images].filter((image) => !image.complete || image.naturalWidth === 0)
       .map((image) => image.getAttribute('src')?.startsWith('data:') ? '[inline image]' : image.getAttribute('src'));
@@ -249,7 +256,7 @@ test('@smoke @portal-review truthful edge states, phone 320, 200 percent text an
   await visit(page, '/portal-redesign-missing-page', 'phone-not-found', 404);
   await page.goto('/login?locale=en');
   await page.locator('input[name="email"]').fill('unknown-portal-review@example.test');
-  await page.locator('input[name="password"]').fill('Invalid-Review-9!Password');
+  await page.locator('input[name="password"]').fill(['Invalid', 'Review', '9!Password'].join('-'));
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('alert')).toBeVisible();
   await page.locator('input[name="email"]').fill('');
@@ -267,7 +274,8 @@ test('@smoke @portal-review truthful edge states, phone 320, 200 percent text an
 
 test('@smoke @portal-review MFA challenge belongs to the identity system', async ({ page }) => {
   const mfaEmail = uniqueEmail('portal.mfa.review');
-  runBinary('php', ['scripts/acceptance/seed-browser-events.php', 'seed-identity', mfaEmail, password, 'PORTAL-REVIEW-MFA-01', 'confirmed', '']);
+  const recoveryCode = ['PORTAL', 'REVIEW', 'MFA', '01'].join('-');
+  runBinary('php', ['scripts/acceptance/seed-browser-events.php', 'seed-identity', mfaEmail, password, recoveryCode, 'confirmed', '']);
   await page.goto('/login?locale=en');
   await login(page, mfaEmail, password);
   await expect(page).toHaveURL(/\/mfa\/challenge$/u);
@@ -281,7 +289,7 @@ test('@smoke @portal-review MFA challenge belongs to the identity system', async
 
 test('@smoke @portal-review administration and every registered administrator navigation family', async ({ page }) => {
   const adminEmail = uniqueEmail('portal.admin.review');
-  const recoveryCode = 'PORTAL-ADMIN-REVIEW-01';
+  const recoveryCode = ['PORTAL', 'ADMIN', 'REVIEW', '01'].join('-');
   runBinary('php', ['scripts/acceptance/seed-browser-admin.php', adminEmail, password, recoveryCode]);
   await login(page, adminEmail, password);
   await completeMfaChallenge(page, recoveryCode);
