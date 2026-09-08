@@ -11,7 +11,8 @@ The workflow is intentionally manual-only and fail-closed. It does not call a RE
 Create or reuse a dedicated GitHub App whose installation is limited to `Oteryn/Oteryn-Platform`. Grant only the repository permissions required by this executor:
 
 - **Checks: Read** — read the exact-head `platform-gate` check run.
-- **Pull requests: Read and write** — enqueue the qualified pull request through GraphQL.
+- **Pull requests: Read** — read the current PR state, base, head and origin metadata.
+- **Merge queues: Write** — enqueue the qualified pull request through GraphQL.
 - **Metadata: Read** — implicit GitHub App repository metadata access.
 
 Install the App only on `Oteryn/Oteryn-Platform`, then configure these repository Actions values without committing their contents:
@@ -19,7 +20,7 @@ Install the App only on `Oteryn/Oteryn-Platform`, then configure these repositor
 - repository variable `OTERYN_MQ_APP_CLIENT_ID` = the GitHub App client ID;
 - repository secret `OTERYN_MQ_APP_PRIVATE_KEY` = the App private key.
 
-The workflow uses pinned `actions/create-github-app-token` to mint a short-lived installation token scoped to the current repository and explicitly requests only `checks: read` and `pull-requests: write`. The action revokes the token in its post step.
+The workflow uses pinned `actions/create-github-app-token` to mint a short-lived installation token scoped to the current repository and explicitly requests `checks: read`, `pull-requests: read`, and `merge-queues: write`. The action revokes the token in its post step.
 
 ## Invocation
 
