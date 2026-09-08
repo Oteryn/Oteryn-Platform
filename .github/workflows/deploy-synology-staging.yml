@@ -360,9 +360,19 @@ jobs:
           [[ "$platform_image" =~ @sha256:[0-9a-f]{64}$ ]] || { echo "Platform provenance is not immutable." >&2; exit 1; }
           [[ "$gateway_image" =~ @sha256:[0-9a-f]{64}$ ]] || { echo "Gateway provenance is not immutable." >&2; exit 1; }
 
-          docker pull "$platform_image" >/dev/null
-          docker pull "$gateway_image" >/dev/null
-          docker pull "$CANARY_IMAGE_INPUT" >/dev/null
+          ensure_runtime_image() {
+            local image_ref="$1" component="$2"
+            if [[ "$image_ref" == *@sha256:* ]] && docker image inspect "$image_ref" >/dev/null 2>&1; then
+              echo "Using locally available immutable $component image: $image_ref" >&2
+              return 0
+            fi
+            echo "Pulling $component image: $image_ref" >&2
+            docker pull "$image_ref" >/dev/null
+          }
+
+          ensure_runtime_image "$platform_image" Platform
+          ensure_runtime_image "$gateway_image" Gateway
+          ensure_runtime_image "$CANARY_IMAGE_INPUT" Canary
 
           platform_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$platform_image")"
           gateway_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$gateway_image")"
