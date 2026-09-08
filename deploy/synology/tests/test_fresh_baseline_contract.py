@@ -79,6 +79,89 @@ def test_release_state_requires_candidate_to_accept_its_primary_schema() -> None
         assert not state.exists()
 
 
+def test_fast_deploy_uses_accumulated_impact_and_a_narrow_presentation_allowlist() -> None:
+    deploy = DEPLOY.read_text()
+    presentation = deploy[
+        deploy.index("_oteryn_fast_presentation_path()") : deploy.index("_oteryn_fast_non_runtime_path()")
+    ]
+    assert "resources/*|lang/*|public/css/*|public/js/*|public/images/*" in presentation
+    assert "public/index.php" not in presentation
+    assert "public/*)" not in presentation
+    assert 'git -C "$REPO_ROOT" merge-base --is-ancestor "$FAST_OLD_RELEASE_SHA" "$OTERYN_RELEASE_SHA"' in deploy
+    assert "git -C \"$REPO_ROOT\" diff --name-only --no-renames --diff-filter=ACDMRTUXB -z" in deploy
+    assert '"$FAST_OLD_RELEASE_SHA" "$OTERYN_RELEASE_SHA" --' in deploy
+    assert "accumulated runtime impact includes $path" in deploy
+    assert "docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json" in deploy
+    assert "deploy/synology/BUILD_ROUTING.md" in deploy
+
+
+def test_fast_deploy_recreates_platform_but_not_full_stack_services() -> None:
+    deploy = DEPLOY.read_text()
+    fast = deploy[
+        deploy.index("_oteryn_fast_deploy_platform()") : deploy.index("fast_candidate_rc=0")
+    ]
+    assert '"${compose[@]}" up -d --no-deps --force-recreate platform' in fast
+    assert "_oteryn_reconcile_marketplace_scheduler_after_runtime_change" in fast
+    assert "_oteryn_fast_platform_smoke" in fast
+    for service in ("mariadb", "redis", "canary", "internal-proxy", "gateway"):
+        assert f"_oteryn_fast_assert_preserved_service {service}" in fast
+    for forbidden in (
+        "php artisan migrate",
+        '"${compose[@]}" up -d mariadb redis',
+        '"${compose[@]}" up -d canary',
+        'bash "$SCRIPT_DIR/health-check.sh"',
+        '"${compose[@]}" up -d gateway',
+        "tls-init",
+    ):
+        assert forbidden not in fast
+
+    full = deploy[deploy.index("stage_bootstrap_files()") :]
+    assert '"${compose[@]}" up -d mariadb redis' in full
+    assert '"${compose[@]}" up -d canary' in full
+    assert 'php artisan migrate --force --no-interaction' in full
+    assert 'bash "$SCRIPT_DIR/health-check.sh"' in full
+    assert '"${compose[@]}" up -d gateway' in full
+
+
+def test_fast_deploy_fails_closed_and_restores_previous_release_on_failure() -> None:
+    deploy = DEPLOY.read_text()
+    preflight = deploy[deploy.index("_oteryn_fast_candidate()") : deploy.index("_oteryn_fast_restore_on_exit()")]
+    restore = deploy[deploy.index("_oteryn_fast_restore_on_exit()") : deploy.index("_oteryn_fast_assert_preserved_service()")]
+    fast = deploy[deploy.index("_oteryn_fast_deploy_platform()") : deploy.index("fast_candidate_rc=0")]
+
+    assert '[[ ! -f "$state_dir/candidate-release.env" ]]' in preflight
+    assert "candidate primary schema identity changed" in preflight
+    assert "Gateway provenance changed" in preflight
+    assert "Canary provenance changed" in preflight
+    assert "staging world identity changed" in preflight
+    assert "Fast deploy recovery marker already exists" in preflight
+
+    assert "trap - EXIT" in restore
+    assert 'export PLATFORM_IMAGE="$FAST_OLD_PLATFORM_IMAGE"' in restore
+    assert "Fast deploy recovery could not prove the previous Platform runtime was restored." in restore
+    assert 'mv "$FAST_PREVIOUS_LAST_GOOD" "$state_dir/last-good-release.env"' in restore
+
+    smoke = fast.index("_oteryn_fast_platform_smoke")
+    preserved = fast.index("_oteryn_fast_assert_preserved_service mariadb", smoke)
+    write_state = fast.index('release-state.sh" write "$state_dir/current-release.env.fast"', preserved)
+    promote = fast.index('mv "$state_dir/current-release.env.fast" "$current_file"', write_state)
+    assert smoke < preserved < write_state < promote
+    assert "trap _oteryn_fast_restore_on_exit EXIT" in fast
+    assert "FAST_STATE_PROMOTED=1" in fast
+    assert "Fast deploy preflight failed closed; refusing to continue with ambiguous state." in deploy
+
+
+def test_fast_deploy_smoke_proves_exact_platform_image_binding_and_public_page() -> None:
+    deploy = DEPLOY.read_text()
+    smoke = deploy[deploy.index("_oteryn_fast_platform_smoke()") : deploy.index("_oteryn_fast_deploy_platform()")]
+    assert "docker image inspect --format '{{.Id}}' \"$PLATFORM_IMAGE\"" in smoke
+    assert "Fast deploy Platform image identity mismatch." in smoke
+    assert "${PLATFORM_BIND_ADDRESS}:${PLATFORM_PORT}" in smoke
+    assert '"http://127.0.0.1:${PLATFORM_PORT}/health"' in smoke
+    assert '"http://127.0.0.1:${PLATFORM_PORT}/login?locale=en"' in smoke
+    assert "Fast deploy public login smoke returned HTTP $status." in smoke
+
+
 def main() -> None:
     tests = [
         value

@@ -158,6 +158,333 @@ fi
 mkdir -p "$state_dir"
 chmod 700 "$state_dir"
 
+# A fast deployment is selected from the accumulated difference between the
+# release actually proven on Synology and the exact protected-main target. The
+# allowlist is intentionally narrow: templates/resources, translations and
+# static public assets. Unknown or mixed runtime impact falls back to the full
+# migration/reconciliation path below.
+_oteryn_fast_presentation_path() {
+    local path="$1"
+    case "$path" in
+        resources/*|lang/*|public/css/*|public/js/*|public/images/*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+_oteryn_fast_non_runtime_path() {
+    local path="$1"
+    case "$path" in
+        docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json|\
+        docs/architecture/adr/0004-authoritative-platform-account-ownership.md|\
+        docs/architecture/adr/0005-character-creation-product-policy.md|\
+        docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md|\
+        docs/contracts/OTCLIENT_GAME_AUTH_CONTRACT.md|\
+        docs/agents/PROJECT_STATE.md|\
+        docs/architecture/PUBLIC_WEBSITE_EXPANSION_PLAN.md|\
+        docs/architecture/SECURITY_ARCHITECTURE.md|\
+        docs/architecture/adr/0013-wiki-administration.md|\
+        .github/workflows/build-synology-staging-images.yml|\
+        .github/workflows/deploy-synology-staging.yml|\
+        scripts/ci/classify_synology_builds.py)
+            return 1
+            ;;
+        deploy/synology/README.md|\
+        deploy/synology/PUBLIC_ENDPOINTS.md|\
+        deploy/synology/BUILD_ROUTING.md|\
+        deploy/synology/.gitignore|\
+        docs/*|tests/*|.github/*|AGENTS.md|README.md|LICENSE|.gitignore|.gitattributes|.editorconfig)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+_oteryn_fast_running_service_id() {
+    local service="$1" expected_image="${2:-}" container_id running image_id expected_image_id
+    container_id="$("${compose[@]}" ps -q "$service" 2>/dev/null || true)"
+    [[ -n "$container_id" ]] || { echo "Fast deploy rejected: $service is not created." >&2; return 1; }
+    running="$(docker inspect --format '{{.State.Running}}' "$container_id" 2>/dev/null || true)"
+    [[ "$running" == true ]] || { echo "Fast deploy rejected: $service is not running." >&2; return 1; }
+    if [[ -n "$expected_image" ]]; then
+        image_id="$(docker inspect --format '{{.Image}}' "$container_id" 2>/dev/null || true)"
+        expected_image_id="$(docker image inspect --format '{{.Id}}' "$expected_image" 2>/dev/null || true)"
+        [[ -n "$expected_image_id" && "$image_id" == "$expected_image_id" ]] || {
+            echo "Fast deploy rejected: running $service image does not match persisted release identity." >&2
+            return 1
+        }
+    fi
+    printf '%s\n' "$container_id"
+}
+
+FAST_DEPLOY_REASON='not evaluated'
+FAST_DEPLOY_SAFE_PATHS=0
+FAST_OLD_RELEASE_SHA=''
+FAST_OLD_PLATFORM_SOURCE_SHA=''
+FAST_OLD_GATEWAY_SOURCE_SHA=''
+FAST_OLD_PLATFORM_IMAGE=''
+FAST_OLD_GATEWAY_IMAGE=''
+FAST_OLD_CANARY_IMAGE=''
+FAST_SCHEMA_ID=''
+FAST_MARIADB_ID=''
+FAST_REDIS_ID=''
+FAST_CANARY_ID=''
+FAST_PROXY_ID=''
+FAST_GATEWAY_ID=''
+FAST_OLD_PLATFORM_ID=''
+FAST_SWAP_STARTED=0
+FAST_STATE_PROMOTED=0
+FAST_HAD_PREVIOUS_LAST_GOOD=0
+FAST_PREVIOUS_LAST_GOOD="$state_dir/.fast-deploy-previous-last-good.env"
+
+_oteryn_fast_candidate() {
+    local current_file="$state_dir/current-release.env"
+    local schema_file="$state_dir/schema-state.env"
+    local current_schema_state current_schema_id checked_out path
+    local -a current_state changed_paths
+
+    FAST_DEPLOY_REASON='candidate is not presentation-only'
+    FAST_DEPLOY_SAFE_PATHS=0
+
+    [[ -f "$current_file" ]] || { FAST_DEPLOY_REASON='managed current release state is missing'; return 1; }
+    [[ ! -f "$state_dir/candidate-release.env" ]] || { FAST_DEPLOY_REASON='an unresolved migration candidate exists'; return 1; }
+    [[ ! -e "$FAST_PREVIOUS_LAST_GOOD" ]] || {
+        echo "Fast deploy recovery marker already exists: $FAST_PREVIOUS_LAST_GOOD" >&2
+        return 2
+    }
+    bash "$SCRIPT_DIR/release-state.sh" validate "$current_file" || return 2
+
+    mapfile -t current_state < <(bash -c '
+        set -euo pipefail
+        source "$1"
+        printf "%s\n" \
+            "$RELEASE_SHA" "$PLATFORM_SOURCE_SHA" "$GATEWAY_SOURCE_SHA" \
+            "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE" \
+            "$SCHEMA_COMPATIBILITY_ID" "$APP_ACCEPTS_SCHEMA_IDS" \
+            "${GAME_WORLD_ID:-}" "${GAME_WORLD_SLUG:-}" "${GAME_WORLD_NAME:-}" \
+            "${GAME_WORLD_REGION:-}" "${GAME_WORLD_HOST:-}" "${GAME_WORLD_PORT:-}"
+    ' bash "$current_file")
+
+    FAST_OLD_RELEASE_SHA="${current_state[0]:-}"
+    FAST_OLD_PLATFORM_SOURCE_SHA="${current_state[1]:-}"
+    FAST_OLD_GATEWAY_SOURCE_SHA="${current_state[2]:-}"
+    FAST_OLD_PLATFORM_IMAGE="${current_state[3]:-}"
+    FAST_OLD_GATEWAY_IMAGE="${current_state[4]:-}"
+    FAST_OLD_CANARY_IMAGE="${current_state[5]:-}"
+
+    [[ "$FAST_OLD_RELEASE_SHA" != "$OTERYN_RELEASE_SHA" ]] || { FAST_DEPLOY_REASON='target release is already current'; return 1; }
+    checked_out="$(git -C "$REPO_ROOT" rev-parse HEAD)"
+    [[ "$checked_out" == "$OTERYN_RELEASE_SHA" ]] || { echo "Fast deploy rejected: checkout is not the exact target release." >&2; return 2; }
+    git -C "$REPO_ROOT" merge-base --is-ancestor "$FAST_OLD_RELEASE_SHA" "$OTERYN_RELEASE_SHA" || {
+        echo "Fast deploy rejected: persisted current release is not in target protected-main lineage." >&2
+        return 2
+    }
+
+    mapfile -d '' -t changed_paths < <(
+        git -C "$REPO_ROOT" diff --name-only --no-renames --diff-filter=ACDMRTUXB -z \
+            "$FAST_OLD_RELEASE_SHA" "$OTERYN_RELEASE_SHA" --
+    )
+    ((${#changed_paths[@]} > 0)) || { FAST_DEPLOY_REASON='no accumulated file changes'; return 1; }
+
+    for path in "${changed_paths[@]}"; do
+        if _oteryn_fast_presentation_path "$path"; then
+            FAST_DEPLOY_SAFE_PATHS=$((FAST_DEPLOY_SAFE_PATHS + 1))
+            continue
+        fi
+        if _oteryn_fast_non_runtime_path "$path"; then
+            continue
+        fi
+        FAST_DEPLOY_REASON="accumulated runtime impact includes $path"
+        return 1
+    done
+    ((FAST_DEPLOY_SAFE_PATHS > 0)) || { FAST_DEPLOY_REASON='no presentation runtime changes'; return 1; }
+
+    [[ "$PLATFORM_SOURCE_SHA" == "$OTERYN_RELEASE_SHA" ]] || { FAST_DEPLOY_REASON='Platform was not built from the exact target release'; return 1; }
+    [[ "$PLATFORM_IMAGE" != "$FAST_OLD_PLATFORM_IMAGE" ]] || { FAST_DEPLOY_REASON='Platform image did not change'; return 1; }
+    [[ "$GATEWAY_SOURCE_SHA" == "$FAST_OLD_GATEWAY_SOURCE_SHA" && "$GATEWAY_IMAGE" == "$FAST_OLD_GATEWAY_IMAGE" ]] || {
+        FAST_DEPLOY_REASON='Gateway provenance changed'; return 1;
+    }
+    [[ "$CANARY_IMAGE" == "$FAST_OLD_CANARY_IMAGE" ]] || { FAST_DEPLOY_REASON='Canary provenance changed'; return 1; }
+    [[ "${current_state[8]:-}" == "$GAME_WORLD_ID" \
+        && "${current_state[9]:-}" == "$GAME_WORLD_SLUG" \
+        && "${current_state[10]:-}" == "$GAME_WORLD_NAME" \
+        && "${current_state[11]:-}" == "$GAME_WORLD_REGION" \
+        && "${current_state[12]:-}" == "$GAME_WORLD_HOST" \
+        && "${current_state[13]:-}" == "$GAME_WORLD_PORT" ]] || {
+        FAST_DEPLOY_REASON='staging world identity changed'; return 1;
+    }
+
+    [[ -f "$schema_file" ]] || { FAST_DEPLOY_REASON='managed schema state is missing'; return 1; }
+    current_schema_state="$(_oteryn_read_state_key "$schema_file" SCHEMA_STATE)" || return 2
+    current_schema_id="$(_oteryn_read_state_key "$schema_file" SCHEMA_COMPATIBILITY_ID)" || return 2
+    [[ "$current_schema_state" == known ]] || { FAST_DEPLOY_REASON='managed schema state is not known'; return 1; }
+    [[ "$current_schema_id" == "${current_state[6]:-}" ]] || { FAST_DEPLOY_REASON='current release/schema identity is not exact'; return 1; }
+
+    _oteryn_release_sha >/dev/null || return 2
+    _oteryn_load_candidate_contract || return 2
+    [[ "$OTERYN_SCHEMA_COMPATIBILITY_ID" == "$current_schema_id" ]] || { FAST_DEPLOY_REASON='candidate primary schema identity changed'; return 1; }
+    _oteryn_schema_list_contains "$current_schema_id" "$OTERYN_APP_ACCEPTS_SCHEMA_IDS" || {
+        FAST_DEPLOY_REASON='candidate does not accept the current schema'; return 1;
+    }
+    FAST_SCHEMA_ID="$current_schema_id"
+
+    FAST_OLD_PLATFORM_ID="$(_oteryn_fast_running_service_id platform "$FAST_OLD_PLATFORM_IMAGE")" || return 2
+    FAST_GATEWAY_ID="$(_oteryn_fast_running_service_id gateway "$FAST_OLD_GATEWAY_IMAGE")" || return 2
+    FAST_CANARY_ID="$(_oteryn_fast_running_service_id canary "$FAST_OLD_CANARY_IMAGE")" || return 2
+    FAST_MARIADB_ID="$(_oteryn_fast_running_service_id mariadb)" || return 2
+    FAST_REDIS_ID="$(_oteryn_fast_running_service_id redis)" || return 2
+    FAST_PROXY_ID="$(_oteryn_fast_running_service_id internal-proxy)" || return 2
+
+    FAST_DEPLOY_REASON='presentation-only accumulated runtime impact'
+    return 0
+}
+
+_oteryn_fast_restore_on_exit() {
+    local rc="$?" restored_platform_id expected_old_id
+    trap - EXIT
+    if [[ "$rc" -eq 0 || "$FAST_SWAP_STARTED" -ne 1 ]]; then
+        exit "$rc"
+    fi
+
+    echo "Fast Platform deploy failed; restoring the previously proven Platform release." >&2
+    if [[ "$FAST_STATE_PROMOTED" -eq 1 && -f "$state_dir/last-good-release.env" ]]; then
+        cp "$state_dir/last-good-release.env" "$state_dir/current-release.env.tmp" || true
+        chmod 600 "$state_dir/current-release.env.tmp" 2>/dev/null || true
+        mv "$state_dir/current-release.env.tmp" "$state_dir/current-release.env" 2>/dev/null || true
+    fi
+
+    export OTERYN_RELEASE_SHA="$FAST_OLD_RELEASE_SHA"
+    export PLATFORM_SOURCE_SHA="$FAST_OLD_PLATFORM_SOURCE_SHA"
+    export GATEWAY_SOURCE_SHA="$FAST_OLD_GATEWAY_SOURCE_SHA"
+    export PLATFORM_IMAGE="$FAST_OLD_PLATFORM_IMAGE"
+    export GATEWAY_IMAGE="$FAST_OLD_GATEWAY_IMAGE"
+    export CANARY_IMAGE="$FAST_OLD_CANARY_IMAGE"
+    export GATEWAY_VERSION="sha-$FAST_OLD_GATEWAY_SOURCE_SHA"
+
+    command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+        up -d --no-deps --force-recreate platform >/dev/null 2>&1 || \
+        echo "Fast deploy recovery could not recreate the previous Platform container." >&2
+    _oteryn_reconcile_marketplace_scheduler_after_runtime_change >/dev/null 2>&1 || \
+        echo "Fast deploy recovery could not reconcile the previous Marketplace runtime." >&2
+
+    restored_platform_id="$(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps -q platform 2>/dev/null || true)"
+    expected_old_id="$(command docker image inspect --format '{{.Id}}' "$FAST_OLD_PLATFORM_IMAGE" 2>/dev/null || true)"
+    if [[ -z "$restored_platform_id" \
+        || "$(command docker inspect --format '{{.State.Running}}' "$restored_platform_id" 2>/dev/null || true)" != true \
+        || "$(command docker inspect --format '{{.Image}}' "$restored_platform_id" 2>/dev/null || true)" != "$expected_old_id" ]]; then
+        echo "Fast deploy recovery could not prove the previous Platform runtime was restored." >&2
+    else
+        echo "Previous Platform runtime restored after fast deploy failure." >&2
+    fi
+
+    if [[ "$FAST_HAD_PREVIOUS_LAST_GOOD" -eq 1 && -f "$FAST_PREVIOUS_LAST_GOOD" ]]; then
+        mv "$FAST_PREVIOUS_LAST_GOOD" "$state_dir/last-good-release.env" 2>/dev/null || true
+    else
+        rm -f "$state_dir/last-good-release.env" "$FAST_PREVIOUS_LAST_GOOD" 2>/dev/null || true
+    fi
+    rm -f "$state_dir/current-release.env.fast" 2>/dev/null || true
+    exit "$rc"
+}
+
+_oteryn_fast_assert_preserved_service() {
+    local service="$1" expected_id="$2" actual_id running
+    actual_id="$("${compose[@]}" ps -q "$service" 2>/dev/null || true)"
+    [[ "$actual_id" == "$expected_id" ]] || { echo "Fast deploy changed $service container identity." >&2; return 1; }
+    running="$(docker inspect --format '{{.State.Running}}' "$actual_id" 2>/dev/null || true)"
+    [[ "$running" == true ]] || { echo "Fast deploy left $service non-running." >&2; return 1; }
+}
+
+_oteryn_fast_platform_smoke() {
+    local platform_id expected_id actual_id actual_binding status ready=0
+    platform_id="$("${compose[@]}" ps -q platform)"
+    [[ -n "$platform_id" ]] || { echo "Fast deploy did not create Platform." >&2; return 1; }
+    expected_id="$(docker image inspect --format '{{.Id}}' "$PLATFORM_IMAGE")"
+    actual_id="$(docker inspect --format '{{.Image}}' "$platform_id")"
+    [[ "$actual_id" == "$expected_id" ]] || { echo "Fast deploy Platform image identity mismatch." >&2; return 1; }
+    actual_binding="$(docker inspect --format '{{with index .NetworkSettings.Ports "8000/tcp"}}{{if eq (len .) 1}}{{(index . 0).HostIp}}:{{(index . 0).HostPort}}{{end}}{{end}}' "$platform_id")"
+    [[ "$actual_binding" == "${PLATFORM_BIND_ADDRESS}:${PLATFORM_PORT}" ]] || {
+        echo "Fast deploy changed Platform published binding: ${actual_binding:-none}" >&2
+        return 1
+    }
+
+    for _ in $(seq 1 20); do
+        if curl --fail --silent --show-error --max-time 5 \
+            -H 'Host: oteryn.molehill.cloud' \
+            -H 'X-Forwarded-Host: oteryn.molehill.cloud' \
+            -H 'X-Forwarded-Proto: https' \
+            -H 'X-Forwarded-Port: 443' \
+            "http://127.0.0.1:${PLATFORM_PORT}/health" >/dev/null; then
+            ready=1
+            break
+        fi
+        sleep 1
+    done
+    [[ "$ready" -eq 1 ]] || { echo "Fast deploy Platform /health did not become ready." >&2; return 1; }
+
+    status="$(curl --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' \
+        -H 'Host: oteryn.molehill.cloud' \
+        -H 'X-Forwarded-Host: oteryn.molehill.cloud' \
+        -H 'X-Forwarded-Proto: https' \
+        -H 'X-Forwarded-Port: 443' \
+        "http://127.0.0.1:${PLATFORM_PORT}/login?locale=en")"
+    [[ "$status" == 200 ]] || { echo "Fast deploy public login smoke returned HTTP $status." >&2; return 1; }
+}
+
+_oteryn_fast_deploy_platform() {
+    local current_file="$state_dir/current-release.env"
+    local last_good_file="$state_dir/last-good-release.env"
+    local started="$SECONDS"
+
+    if [[ -f "$last_good_file" ]]; then
+        cp "$last_good_file" "$FAST_PREVIOUS_LAST_GOOD"
+        chmod 600 "$FAST_PREVIOUS_LAST_GOOD"
+        FAST_HAD_PREVIOUS_LAST_GOOD=1
+    fi
+    cp "$current_file" "$last_good_file.tmp"
+    chmod 600 "$last_good_file.tmp"
+    mv "$last_good_file.tmp" "$last_good_file"
+
+    trap _oteryn_fast_restore_on_exit EXIT
+    FAST_SWAP_STARTED=1
+
+    "${compose[@]}" config --quiet
+    "${compose[@]}" up -d --no-deps --force-recreate platform
+    _oteryn_reconcile_marketplace_scheduler_after_runtime_change
+    _oteryn_fast_platform_smoke
+
+    _oteryn_fast_assert_preserved_service mariadb "$FAST_MARIADB_ID"
+    _oteryn_fast_assert_preserved_service redis "$FAST_REDIS_ID"
+    _oteryn_fast_assert_preserved_service canary "$FAST_CANARY_ID"
+    _oteryn_fast_assert_preserved_service internal-proxy "$FAST_PROXY_ID"
+    _oteryn_fast_assert_preserved_service gateway "$FAST_GATEWAY_ID"
+
+    bash "$SCRIPT_DIR/release-state.sh" write "$state_dir/current-release.env.fast" \
+        "$OTERYN_RELEASE_SHA" "$PLATFORM_SOURCE_SHA" "$GATEWAY_SOURCE_SHA" \
+        "$FAST_SCHEMA_ID" "$OTERYN_APP_ACCEPTS_SCHEMA_IDS" \
+        "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE" 1
+    mv "$state_dir/current-release.env.fast" "$current_file"
+    FAST_STATE_PROMOTED=1
+
+    rm -f "$FAST_PREVIOUS_LAST_GOOD"
+    FAST_SWAP_STARTED=0
+    trap - EXIT
+    echo "Oteryn Synology staging Platform fast deploy is healthy in $((SECONDS - started))s; MariaDB, Redis, Canary, internal proxy and Gateway were preserved."
+}
+
+fast_candidate_rc=0
+_oteryn_fast_candidate || fast_candidate_rc=$?
+if [[ "$fast_candidate_rc" -eq 0 ]]; then
+    echo "Synology staging deploy profile: platform-fast ($FAST_DEPLOY_REASON; $FAST_DEPLOY_SAFE_PATHS presentation path(s))."
+    _oteryn_fast_deploy_platform
+    exit 0
+elif [[ "$fast_candidate_rc" -gt 1 ]]; then
+    echo "Fast deploy preflight failed closed; refusing to continue with ambiguous state." >&2
+    exit "$fast_candidate_rc"
+else
+    echo "Synology staging deploy profile: full ($FAST_DEPLOY_REASON)."
+fi
+
 stage_bootstrap_files() {
     local tls_container
 
@@ -262,9 +589,6 @@ finalize_previous_candidate_if_healthy() {
     _oteryn_verify_component_image_source "${candidate_state[3]}" "${candidate_state[1]}" Platform || return 1
     _oteryn_verify_component_image_source "${candidate_state[4]}" "${candidate_state[2]}" Gateway || return 1
 
-    # Platform and Canary are immutable anchors for recovery. Gateway is intentionally
-    # reconstructible because finalization force-recreates it from the persisted candidate image
-    # before the full health contract can promote the candidate.
     services=(platform canary)
     expected_images=("${candidate_state[3]}" "${candidate_state[5]}")
     for index in "${!services[@]}"; do
