@@ -21,7 +21,6 @@
             <h1 id="home-hero-title" aria-label="Oteryn Platform">OTERYN</h1>
             <h2 class="realm-hero-tagline">{{ __('portal_art.hero_title') }}</h2>
             <p class="realm-hero-lede">{{ __('public.home.hero_lede') }}</p>
-            <h3 class="eyebrow realm-hero-call">{{ __('public.home.hero_title') }}</h3>
             <div class="realm-hero-actions">
                 @guest
                     <a class="button" href="{{ route('identity.register.create', ['locale' => app()->getLocale()]) }}">{{ __('public.account.create') }} <span aria-hidden="true">↗</span></a>
@@ -65,11 +64,10 @@
                 <div class="production-news-list">
                     @foreach ($homePage->news->posts as $post)
                         <article class="journal-story {{ $loop->first ? 'journal-story-lead' : '' }}">
-                            <div class="journal-illustration scene scene-{{ ['fight', 'chronicles', 'community'][$loop->index % 3] }}" aria-hidden="true"></div>
                             <div class="journal-copy">
                                 <p class="production-news-date">{{ $post->published_at ? $localeFormatter->date($post->published_at) : '' }}</p>
                                 <h3><a href="{{ route('news.show', ['slug' => $post->slug]) }}">{{ $post->title }}</a></h3>
-                                <p>{{ Str::limit($post->body, $loop->first ? 130 : 80) }}</p>
+                                <p>{{ Str::limit(strip_tags($post->body), $loop->first ? 160 : 100) }}</p>
                                 <a class="realm-text-link" href="{{ route('news.show', ['slug' => $post->slug]) }}">{{ __('public.news.read') }} <span aria-hidden="true">→</span></a>
                             </div>
                         </article>
@@ -144,7 +142,7 @@
                 ['support.index', 'support.nav.support_center', 'public.home.support_help', 'market', 'shield'],
             ] as [$routeName, $label, $help, $scene, $icon])
                 <a class="discovery-card" href="{{ route($routeName) }}">
-                    <div class="discovery-illustration scene scene-{{ $scene }}" aria-hidden="true"></div>
+                    <img class="discovery-illustration scene-{{ $scene }}" src="{{ asset('images/oteryn-'.$scene.'.webp') }}" width="240" height="100" loading="lazy" decoding="async" alt="" aria-hidden="true">
                     <div class="discovery-copy">
                         @include('game.partials.realm-icon', ['icon' => $icon])
                         <strong>{{ __($label) }}</strong>
@@ -186,7 +184,7 @@
         <div class="portal-container realm-journey-inner">
             <header>
                 <p class="eyebrow">{{ __('public.home.begin_journey') }}</p>
-                <h2 id="home-journey-heading">{{ __('portal.home.journey') }}</h2>
+                <h2 id="home-journey-heading">{{ __('public.home.hero_title') }}</h2>
             </header>
             <ol class="production-path-list">
                 @guest

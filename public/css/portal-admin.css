@@ -19,6 +19,21 @@ html:has(.admin-body) { overflow-x: visible; }
 .admin-main h2 { font-family: var(--display); font-weight: 400; }
 .admin-main .card, .admin-main .panel { border-radius: var(--radius-sm); background: var(--panel-fill); box-shadow: none; }
 .admin-main .card-grid { gap: 1.25rem; }
+.admin-task-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+.admin-task-group { min-width: 0; padding: 1.4rem; border: 1px solid var(--border); border-top-color: var(--gold-rule); border-radius: var(--radius-md); background: var(--panel-fill); }
+.admin-task-group h2 { margin-bottom: .5rem; font-size: 1.6rem; }
+.admin-task-group > p { margin-bottom: 1rem; font-size: .9rem; }
+.admin-task-group-content { grid-row: span 2; }
+.admin-task-group-operations { grid-column: 1 / -1; }
+.admin-task-links { display: grid; gap: .5rem; }
+.admin-task-group-content .admin-task-links { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.admin-task-group-operations .admin-task-links { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.admin-task-links a { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-width: 0; min-height: 3rem; padding: .75rem; color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: .9rem; text-decoration: none; }
+.admin-task-links a:hover { color: var(--gold); background: var(--surface); border-color: var(--border-strong); }
+.admin-task-links a > span { color: var(--gold); }
+.admin-main .form-grid { gap: 1rem 1.5rem; }
+.admin-main .page-header .action-row { margin-top: .5rem; }
+.admin-main .muted { line-height: 1.65; }
 .admin-main .card > p { max-width: 68ch; }
 .admin-main .action-row { gap: .6rem; }
 .admin-main .action-row .button { min-height: 2.7rem; font-size: .8rem; }
@@ -38,6 +53,9 @@ html:has(.admin-body) { overflow-x: visible; }
     .admin-sidebar { display: none; }
     .admin-mobile-nav { display: block; margin-bottom: 1.5rem; }
     .admin-main > .page-header { margin-bottom: 1.5rem; }
+    .admin-task-grid { grid-template-columns: minmax(0, 1fr); }
+    .admin-task-group-content { grid-row: auto; }
+    .admin-task-group-operations .admin-task-links { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 39.99rem) {
     .admin-topbar .header-inner { flex-wrap: wrap; gap: .5rem; }
@@ -47,6 +65,8 @@ html:has(.admin-body) { overflow-x: visible; }
     .admin-shell { padding-top: 1rem; }
     .admin-main .card, .admin-main .panel { padding: 1.2rem; }
     .admin-main td, .admin-main th { padding: .8rem; }
+    .admin-task-group { padding: 1.1rem; }
+    .admin-task-group-content .admin-task-links, .admin-task-group-operations .admin-task-links { grid-template-columns: minmax(0, 1fr); }
 }
 @media (forced-colors: active) {
     .admin-sidebar, .admin-main .card, .admin-main .panel { border: 1px solid CanvasText; }

@@ -27,6 +27,8 @@
         for (const details of disclosures) if (!details.contains(event.target)) close(details);
     });
     window.matchMedia('(min-width: 80rem)').addEventListener('change', () => {
-        for (const details of disclosures) close(details);
+        // A resize event may open the newly visible menu before this queued event.
+        // Dismiss only disclosures hidden by the current responsive layout.
+        for (const details of disclosures) if (!details.getClientRects().length) close(details);
     });
 })();

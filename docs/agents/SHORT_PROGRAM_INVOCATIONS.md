@@ -128,6 +128,26 @@ delivery_plan: docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md
 
 The programme selects or resumes one bounded highest-priority portal-completion slice and owns it through validation and terminal closeout. Existing implementation-authorized audit findings continue through `OTERYN_PLATFORM_REMEDIATION`; the portal-completion programme must reuse that Issue-owned workflow rather than create duplicate repair ownership. The alias grants no production, protected-environment, payment, live-data or external-repository authority.
 
+## Portal visual polish continuation
+
+```text
+PORTAL-POLISH
+Uruchom PORTAL-POLISH autonomicznie.
+Kontynuuj PORTAL-POLISH autonomicznie.
+Pokaż stan PORTAL-POLISH.
+```
+
+```yaml
+programme_id: OTERYN_PORTAL_COMPLETION
+canonical_prompt: docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md
+resume_task: docs/agents/tasks/active/OTERYN-20260908-portal-visual-polish.md
+governing_issue: 1333
+selection_mode: resume_existing_live_task_only
+merge_method: merge_queue
+```
+
+`PORTAL-POLISH` is a task-pinned continuation alias for the already-owned visual-polish lifecycle. It must resolve Issue #1333, the active task, current branch/PR, current protected `main` and exact checks live before work. When ownership is valid it resumes that writer and the checkpoint's `next_action`; it never starts a second Portal selector, Issue, branch, PR or parallel writer. If the task or Issue is terminal, the alias is status-only and must not resurrect the task; ordinary new Portal selection remains `PORTAL-CLOSEOUT`.
+
 ## Platform parallel completion wave
 
 These aliases are intentionally separate sibling roles. Start the three product/dependency workers first; start the coordinator after their ownership is visible when running them concurrently.

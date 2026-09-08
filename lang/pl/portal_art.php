@@ -9,6 +9,12 @@ return [
     'opportunity' => 'Świat pełen możliwości',
     'next_step' => 'Odkrywaj poradniki, historie i społeczności, które tworzą Oteryn.',
     'admin' => [
+        'workspace' => 'Obszar administratora',
+        'workspace_help' => 'Wybierz zadanie. Widoczne są tylko funkcje dostępne dla Twojej roli.',
+        'content_help' => 'Publikuj, porządkuj i aktualizuj informacje dla graczy.',
+        'support_help' => 'Przeglądaj zgłoszenia graczy, raporty i decyzje moderacji.',
+        'access_help' => 'Zarządzaj rolami administratorów i dostępem.',
+        'operations_help' => 'Przeglądaj dane katalogu, transakcje i dziennik audytu.',
         'console' => 'Administracja',
         'navigation' => 'Nawigacja administratora',
         'request_error' => 'Nie udało się wykonać żądania.',

@@ -41,6 +41,14 @@ test.beforeAll(() => {
 
 async function capture(page, name, status) {
   await page.evaluate(() => document.fonts.ready);
+  const scrollPosition = await page.evaluate(() => ({ x: scrollX, y: scrollY }));
+  for (const image of await page.locator('img[loading="lazy"]').all()) {
+    if (await image.isVisible()) {
+      await image.scrollIntoViewIfNeeded();
+      await expect(image).toHaveJSProperty('complete', true);
+    }
+  }
+  await page.evaluate(({ x, y }) => window.scrollTo(x, y), scrollPosition);
   await expect(page.locator('main')).toBeVisible();
   await expect(page.locator('link[href$="/css/portal-art-direction.css"]')).toHaveCount(1);
   const defects = await page.evaluate(() => {
