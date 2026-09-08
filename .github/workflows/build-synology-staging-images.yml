@@ -81,16 +81,17 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.classify.outputs.matrix }}
+      has_image_builds: ${{ steps.classify.outputs.has_image_builds }}
       release_relevant: ${{ steps.classify.outputs.release_relevant }}
       platform_changed: ${{ steps.classify.outputs.platform_changed }}
       gateway_changed: ${{ steps.classify.outputs.gateway_changed }}
-      runner_changed: ${{ steps.classify.outputs.runner_changed }}
-      deployment_changed: ${{ steps.classify.outputs.deployment_changed }}
+      deploy_runner_changed: ${{ steps.classify.outputs.deploy_runner_changed }}
+      deployment_package_changed: ${{ steps.classify.outputs.deployment_package_changed }}
+      control_plane_changed: ${{ steps.classify.outputs.control_plane_changed }}
       runtime_deployment_changed: ${{ steps.classify.outputs.runtime_deployment_changed }}
-      control_plane: ${{ steps.classify.outputs.control_plane }}
-      platform_source_sha: ${{ steps.classify.outputs.platform_source_sha }}
-      gateway_source_sha: ${{ steps.classify.outputs.gateway_source_sha }}
-      runner_source_sha: ${{ steps.classify.outputs.runner_source_sha }}
+      build_platform: ${{ steps.classify.outputs.build_platform }}
+      build_gateway: ${{ steps.classify.outputs.build_gateway }}
+      build_deploy_runner: ${{ steps.classify.outputs.build_deploy_runner }}
     steps:
       - name: Checkout exact classification range
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -136,6 +137,7 @@ jobs:
             deploy/synology/scripts/release-state.sh \
             deploy/synology/scripts/repository-ghcr-image.sh \
             deploy/synology/scripts/rollback.sh \
+            deploy/synology/scripts/upgrade-legacy-release-state.sh \
             deploy/synology/runner/entrypoint.sh
           sh -n \
             deploy/synology/tls/init.sh \
@@ -280,7 +282,8 @@ jobs:
             config --quiet
 
   build:
-    name: ${{ matrix.mode == 'noop' && 'No Synology image build required' || format('{0} {1} component', matrix.mode, matrix.name) }}
+    name: Build ${{ matrix.name }} component
+    if: ${{ needs.classify.outputs.has_image_builds == 'true' }}
     needs:
       - classify
     runs-on: ubuntu-latest
@@ -289,22 +292,15 @@ jobs:
       matrix: ${{ fromJson(needs.classify.outputs.matrix) }}
 
     steps:
-      - name: No image build required
-        if: ${{ matrix.mode == 'noop' }}
-        run: echo "No runtime image build is required for this change."
-
       - name: Checkout exact source
-        if: ${{ matrix.mode != 'noop' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Docker Buildx
-        if: ${{ matrix.mode != 'noop' }}
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Resolve component image identity
-        if: ${{ matrix.mode != 'noop' }}
         id: image
         env:
           PACKAGE_NAME: ${{ matrix.package }}
@@ -327,53 +323,15 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
-        if: ${{ matrix.mode != 'noop' && github.event_name != 'pull_request' }}
+        if: ${{ github.event_name != 'pull_request' }}
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Resolve exact reusable component artifact
-        if: ${{ matrix.mode == 'reuse' }}
-        id: reuse
-        env:
-          IMAGE: ${{ steps.image.outputs.image }}
-          SOURCE_REF: ${{ steps.image.outputs.source_ref }}
-          SOURCE_SHA: ${{ matrix.source_sha }}
-        run: |
-          set -euo pipefail
-          if ! docker pull "$SOURCE_REF" >/dev/null 2>&1; then
-            echo "Reusable source artifact $SOURCE_REF is unavailable; falling back to a full build."
-            echo "reusable=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$SOURCE_REF" 2>/dev/null || true)"
-          if [[ "$revision" != "$SOURCE_SHA" ]]; then
-            echo "Reusable component provenance mismatch: expected $SOURCE_SHA, found ${revision:-UNKNOWN}." >&2
-            exit 1
-          fi
-
-          digest_ref=""
-          while IFS= read -r candidate; do
-            [[ "$candidate" == "${IMAGE}@sha256:"* ]] || continue
-            digest="${candidate#*@sha256:}"
-            if [[ "$digest" =~ ^[0-9a-f]{64}$ ]]; then
-              digest_ref="$candidate"
-              break
-            fi
-          done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$SOURCE_REF")
-          [[ -n "$digest_ref" ]] || { echo "Reusable source artifact has no immutable repository digest." >&2; exit 1; }
-
-          docker tag "$SOURCE_REF" "${IMAGE}:main"
-          docker push "${IMAGE}:main" >/dev/null
-          echo "reusable=true" >> "$GITHUB_OUTPUT"
-          echo "digest_ref=$digest_ref" >> "$GITHUB_OUTPUT"
-          echo "Reused exact component artifact $digest_ref for source SHA $SOURCE_SHA."
-
-      - name: Build changed component or safe reuse fallback
-        if: ${{ matrix.mode == 'full' || (matrix.mode == 'reuse' && steps.reuse.outputs.reusable != 'true') }}
+      - name: Build affected component
+        id: build-image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
@@ -388,7 +346,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=synology-${{ matrix.name }}
 
       - name: Validate locally loaded pull-request image
-        if: ${{ github.event_name == 'pull_request' && matrix.mode != 'noop' }}
+        if: ${{ github.event_name == 'pull_request' }}
         env:
           IMAGE_REF: ${{ steps.image.outputs.source_ref }}
           IMAGE_NAME: ${{ matrix.name }}
@@ -409,9 +367,44 @@ jobs:
               ;;
           esac
 
+      - name: Record immutable current-run component provenance
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.name != 'deploy-runner' }}
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          DIGEST: ${{ steps.build-image.outputs.digest }}
+          SOURCE_SHA: ${{ matrix.source_sha }}
+          IMAGE_NAME: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "Build did not produce an immutable digest." >&2; exit 1; }
+          image_ref="${IMAGE}@${DIGEST}"
+          mkdir -p artifacts/synology
+          {
+            printf 'SOURCE_SHA=%s\n' "$SOURCE_SHA"
+            printf 'IMAGE=%s\n' "$image_ref"
+          } > "artifacts/synology/${IMAGE_NAME}.env"
+          echo "Published ${IMAGE_NAME} from ${SOURCE_SHA} as ${image_ref}." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload immutable current-run provenance
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.name != 'deploy-runner' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: synology-runtime-${{ matrix.name }}
+          path: artifacts/synology/${{ matrix.name }}.env
+          if-no-files-found: error
+          retention-days: 1
+
   deploy-staging:
-    name: Resolve component digests and dispatch exact main release
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.classify.outputs.release_relevant == 'true' }}
+    name: Dispatch exact component provenance to Synology staging
+    if: >-
+      ${{
+        always() &&
+        github.event_name == 'push' &&
+        github.ref == 'refs/heads/main' &&
+        needs.classify.outputs.release_relevant == 'true' &&
+        needs.validate-deployment.result == 'success' &&
+        (needs.build.result == 'success' || needs.build.result == 'skipped')
+      }}
     needs:
       - classify
       - validate-deployment
@@ -421,73 +414,72 @@ jobs:
     permissions:
       actions: write
       contents: read
-      packages: read
     steps:
       - name: Checkout exact release tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
 
-      - name: Log in to GHCR
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      - name: Download immutable current-run component provenance
+        if: ${{ needs.classify.outputs.has_image_builds == 'true' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          pattern: synology-runtime-*
+          path: artifacts/synology
+          merge-multiple: true
 
-      - name: Resolve immutable component release inputs
+      - name: Resolve newly built component inputs
         id: runtime
         env:
-          PLATFORM_SOURCE_SHA: ${{ needs.classify.outputs.platform_source_sha }}
-          GATEWAY_SOURCE_SHA: ${{ needs.classify.outputs.gateway_source_sha }}
+          BUILD_PLATFORM: ${{ needs.classify.outputs.build_platform }}
+          BUILD_GATEWAY: ${{ needs.classify.outputs.build_gateway }}
         run: |
           set -euo pipefail
-          [[ "$PLATFORM_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$GATEWAY_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-
-          platform_repo="$(bash deploy/synology/scripts/repository-ghcr-image.sh oteryn-platform)"
-          gateway_repo="$(bash deploy/synology/scripts/repository-ghcr-image.sh oteryn-game-gateway)"
-
-          resolve_component() {
-            local repo="$1" source_sha="$2" label="$3" tag revision digest_ref candidate digest
-            tag="${repo}:source-${source_sha}"
-            docker pull "$tag" >/dev/null
-            revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$tag" 2>/dev/null || true)"
-            [[ "$revision" == "$source_sha" ]] || {
-              echo "$label OCI revision mismatch: expected $source_sha, found ${revision:-UNKNOWN}." >&2
-              return 1
-            }
-            digest_ref=""
-            while IFS= read -r candidate; do
-              [[ "$candidate" == "${repo}@sha256:"* ]] || continue
-              digest="${candidate#*@sha256:}"
-              if [[ "$digest" =~ ^[0-9a-f]{64}$ ]]; then
-                digest_ref="$candidate"
-                break
-              fi
-            done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$tag")
-            [[ -n "$digest_ref" ]] || { echo "$label source artifact did not resolve to an immutable digest." >&2; return 1; }
-            printf '%s\n' "$digest_ref"
+          read_component() {
+            local name="$1" required="$2" file="artifacts/synology/${name}.env"
+            if [[ "$required" != true ]]; then
+              printf '%s\n%s\n' '' ''
+              return 0
+            fi
+            [[ -f "$file" ]] || { echo "Missing current-run provenance for $name." >&2; return 1; }
+            local source_sha image
+            source_sha="$(sed -n 's/^SOURCE_SHA=//p' "$file")"
+            image="$(sed -n 's/^IMAGE=//p' "$file")"
+            [[ "$source_sha" == "$GITHUB_SHA" ]] || { echo "$name source SHA is not the exact protected-main SHA." >&2; return 1; }
+            [[ "$image" =~ ^ghcr\.io/[a-z0-9._-]+/[a-z0-9._-]+@sha256:[0-9a-f]{64}$ ]] || { echo "$name image is not an immutable GHCR digest." >&2; return 1; }
+            printf '%s\n%s\n' "$source_sha" "$image"
           }
 
-          platform_ref="$(resolve_component "$platform_repo" "$PLATFORM_SOURCE_SHA" Platform)"
-          gateway_ref="$(resolve_component "$gateway_repo" "$GATEWAY_SOURCE_SHA" Gateway)"
+          mapfile -t platform < <(read_component platform "$BUILD_PLATFORM")
+          mapfile -t gateway < <(read_component game-gateway "$BUILD_GATEWAY")
           {
-            echo "platform_ref=$platform_ref"
-            echo "gateway_ref=$gateway_ref"
+            echo "platform_source_sha=${platform[0]:-}"
+            echo "platform_image=${platform[1]:-}"
+            echo "gateway_source_sha=${gateway[0]:-}"
+            echo "gateway_image=${gateway[1]:-}"
           } >> "$GITHUB_OUTPUT"
 
           echo "Overall release: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
-          echo "Platform source: $PLATFORM_SOURCE_SHA — $platform_ref" >> "$GITHUB_STEP_SUMMARY"
-          echo "Gateway source: $GATEWAY_SOURCE_SHA — $gateway_ref" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$BUILD_PLATFORM" == true ]]; then
+            echo "Platform: newly built ${platform[0]} — ${platform[1]}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Platform: reuse exact proven component from Synology current-release state" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [[ "$BUILD_GATEWAY" == true ]]; then
+            echo "Gateway: newly built ${gateway[0]} — ${gateway[1]}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Gateway: reuse exact proven component from Synology current-release state" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Dispatch guarded exact-provenance Synology staging deployment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PLATFORM_SOURCE_SHA: ${{ needs.classify.outputs.platform_source_sha }}
-          GATEWAY_SOURCE_SHA: ${{ needs.classify.outputs.gateway_source_sha }}
-          PLATFORM_IMAGE: ${{ steps.runtime.outputs.platform_ref }}
-          GATEWAY_IMAGE: ${{ steps.runtime.outputs.gateway_ref }}
+          PLATFORM_CHANGED: ${{ needs.classify.outputs.build_platform }}
+          GATEWAY_CHANGED: ${{ needs.classify.outputs.build_gateway }}
+          PLATFORM_SOURCE_SHA: ${{ steps.runtime.outputs.platform_source_sha }}
+          PLATFORM_IMAGE: ${{ steps.runtime.outputs.platform_image }}
+          GATEWAY_SOURCE_SHA: ${{ steps.runtime.outputs.gateway_source_sha }}
+          GATEWAY_IMAGE: ${{ steps.runtime.outputs.gateway_image }}
           CANARY_IMAGE_DIGEST: ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f
         run: |
           set -euo pipefail
@@ -504,8 +496,10 @@ jobs:
             -f ref=main \
             -f 'inputs[action]=deploy' \
             -f "inputs[release_sha]=${GITHUB_SHA}" \
+            -f "inputs[platform_changed]=${PLATFORM_CHANGED}" \
             -f "inputs[platform_source_sha]=${PLATFORM_SOURCE_SHA}" \
             -f "inputs[platform_image]=${PLATFORM_IMAGE}" \
+            -f "inputs[gateway_changed]=${GATEWAY_CHANGED}" \
             -f "inputs[gateway_source_sha]=${GATEWAY_SOURCE_SHA}" \
             -f "inputs[gateway_image]=${GATEWAY_IMAGE}" \
             -f "inputs[canary_image]=${CANARY_IMAGE_DIGEST}" \
@@ -516,4 +510,4 @@ jobs:
             -f 'inputs[game_world_region]=LAN'
 
           echo "Synology staging deployment accepted for exact main release ${GITHUB_SHA}."
-          echo "Deployment continues independently in Deploy Synology Staging; image-build completion is not coupled to remote staging duration."
+          echo "Deployment continues independently in Deploy Synology Staging; build completion is not coupled to remote staging duration."
