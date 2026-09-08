@@ -13,6 +13,7 @@ DEPLOY_WORKFLOW = ROOT / ".github/workflows/deploy-synology-staging.yml"
 DEPLOY_SCRIPT = ROOT / "deploy/synology/scripts/deploy.sh"
 IPV4_HELPER = ROOT / "deploy/synology/scripts/validate-ipv4.sh"
 INTERNAL_PROXY = ROOT / "deploy/synology/nginx/internal.conf"
+RUNTIME_COMPOSE = ROOT / "deploy/synology/compose.yml"
 CLASSIFIER = ROOT / "scripts/ci/classify_synology_builds.py"
 
 
@@ -23,6 +24,7 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         cls.deploy_workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
         cls.deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
         cls.internal_proxy = INTERNAL_PROXY.read_text(encoding="utf-8")
+        cls.runtime_compose = RUNTIME_COMPOSE.read_text(encoding="utf-8")
         cls.classifier = CLASSIFIER.read_text(encoding="utf-8")
 
     def test_runtime_and_synology_main_changes_trigger_component_classifier(self) -> None:
@@ -74,6 +76,14 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         self.assertIn("inputs[game_world_slug]=oteryn-staging", self.build_workflow)
         self.assertIn("inputs[game_world_name]=Oteryn Staging", self.build_workflow)
         self.assertIn("inputs[game_world_region]=LAN", self.build_workflow)
+
+    def test_tls_init_uses_verified_immutable_alpine_digest(self) -> None:
+        expected = (
+            "image: alpine@sha256:"
+            "14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce"
+        )
+        self.assertIn(expected, self.runtime_compose)
+        self.assertNotIn("    image: alpine:3.22\n", self.runtime_compose)
 
     def test_superseded_main_build_does_not_dispatch_an_old_release(self) -> None:
         self.assertIn("git/ref/heads/main", self.build_workflow)
