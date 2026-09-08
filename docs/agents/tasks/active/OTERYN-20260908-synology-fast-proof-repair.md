@@ -51,8 +51,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T12:46:00Z
-head: f7a541abe534f14df76ab3af9b3d1e3733692161
+updated_at: 2026-09-08T12:48:00Z
+head: 651c1d0287ebbb179968ac04f98fb75ce20cb23b
 branch: perf/1341-synology-fast-proof-repair
 pr: 1353
 status: validating
@@ -75,8 +75,12 @@ proven:
   - provenance preflight now uses an exact @sha256 local image only when docker image inspect proves that exact reference exists; otherwise it pulls normally
   - Platform/Gateway repository-package digest validation and OCI revision checks remain after acquisition
   - PR 1353 is the canonical repair PR
+derived:
+  - repository-only acceptance and Synology contract tests can be ignored by runtime-impact classification without weakening unknown-path fail-closed behavior because they are not copied into the deployed Platform image and do not alter staging control inputs
+  - local reuse of an exact immutable @sha256 image is provenance-equivalent to re-pulling that same digest once repository/package ownership, source lineage and OCI revision checks still run; network pull remains the fallback when the exact local reference is unavailable
+  - the genuine e242f0cd release remains a failed fast-path proof even though the deployment itself was healthy, because the selected profile was full
 unknown:
-  - exact-head CI result for PR 1353
+  - exact-head CI result for PR 1353 after checkpoint repair
   - corrected resulting-main and later genuine platform-fast wall-times
 conflicts: []
 first_failure:
@@ -93,11 +97,11 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260908-synology-fast-proof-repair.md
 validation:
   - command: live protected-main product release e242f0cd212abb3cad517d6dcbfde566e604f91d
-    result: FAIL_AS_FAST_PROOF
-    evidence: Build 34224431667 Platform-only; Deploy 34224564123 healthy but profile full because scripts/acceptance path was misclassified; provenance 4m13s and deploy step 10m03s
+    result: FAIL
+    evidence: Build 34224431667 was Platform-only and Deploy 34224564123 was healthy, but the release selected full because a scripts/acceptance path was misclassified; provenance took 4m13s and the full deploy step took 10m03s, so this is not accepted as a fast-path proof
 blockers:
   - none
-next_action: resolve first exact-head failure if any; otherwise proceed through normal Merge Queue and resulting-main full control-plane proof
+next_action: allow exact-head validation to rerun; independently let the existing canonical #1344 closeout worker remove the terminal portal active-task residue, then proceed through normal Merge Queue only when all final checks are green
 ```
 
 ## Source branch closeout
