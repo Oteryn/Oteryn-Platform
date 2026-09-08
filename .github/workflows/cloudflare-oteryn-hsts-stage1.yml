@@ -10,7 +10,6 @@ on:
       - tests/operations/cloudflare-oteryn-hsts-stage1/**
       - ops/triggers/cloudflare-oteryn-hsts-stage1.md
       - docs/operations/CLOUDFLARE_HSTS_STAGE1.md
-      - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
   push:
     branches:
       - main
