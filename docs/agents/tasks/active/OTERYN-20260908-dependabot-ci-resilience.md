@@ -53,11 +53,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T22:45:00Z
-head: b89f5e7c22916bb5fc0a15d85cbdaedb6fddce15
+updated_at: 2026-09-08T22:47:00Z
+head: 1314450ab85d2f559ec761e64370a0e961a9aeb0
 branch: fix/dependabot-ci-resilience-1362
-pr: none
-status: implementing
+pr: 1367
+status: validating
 context_routes:
   - CI/dependency validation
 owned_paths:
@@ -70,6 +70,7 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260908-dependabot-ci-resilience.md
 proven:
   - Issue #1362 is open and governs this task.
+  - PR #1367 is the single live repair PR for this task.
   - Task branch fix/dependabot-ci-resilience-1362 was created from protected main 3594f5ec9b3262326ba4875a68718ada3f19e666; protected main has since advanced path-disjoint through portal documentation/task closeout to d86b0a43932fd4d8ef67077b39b1f06d3e0528d7.
   - Historical CodeQL Dependabot PRs #1280 and #1281 split init/analyze revisions and produced a CodeQL 4.37.9 versus 4.37.6 configuration mismatch; both remain stale and non-mergeable on old base 85eb4c41d977340e2599006d5cfef271d1e334cf.
   - Upstream github/codeql-action release inventory currently identifies v4.37.9 as the newest v4 action release, pinned by commit cdf488f595d80d6e07e03d4674febd5ab45fa938.
@@ -82,7 +83,7 @@ derived:
   - The old shared acceptance/lifecycle red state was stale-base validation debt, not a regression caused by the refreshed Composer dependency versions.
   - PRs #1280 and #1281 should be superseded after the atomic CodeQL update reaches protected main because their single-step updates are structurally unsafe by construction.
 unknown:
-  - Exact-head result of the repair PR and its merge-group candidate.
+  - Exact-head result of PR #1367 and its merge-group candidate.
   - Whether any dependency PR gains a new failure after the repair reaches protected main and all still-relevant heads are refreshed again.
 conflicts: []
 first_failure:
@@ -109,9 +110,12 @@ validation:
   - command: upstream github/codeql-action release inspection
     result: PASS
     evidence: current release list reports v4.37.9 as latest v4 release and Dependabot-provided immutable commit is cdf488f595d80d6e07e03d4674febd5ab45fa938
+  - command: PR #1367 exact-head GitHub Actions
+    result: NOT_RUN
+    evidence: new exact head is being produced by this checkpoint reconciliation; CI must run on that resulting head
 blockers:
   - none
-next_action: Open the single repair PR for #1362, run exact-head CI including CodeQL and dependency-update contracts, then resolve any findings before Merge Queue integration.
+next_action: Monitor PR #1367 exact-head CI on the reconciled task-packet head, fix any material failure, then integrate only through normal protected Merge Queue flow.
 ```
 
 ## Source branch closeout
