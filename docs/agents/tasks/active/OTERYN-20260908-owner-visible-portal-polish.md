@@ -18,8 +18,8 @@ Governing GitHub Issue: #1344 — make the deployed Portal visual change unmista
 
 ## Acceptance criteria
 
-- [ ] First-party Portal CSS/JS and critical home artwork use deterministic versioned URLs that change with asset content.
-- [ ] Home/public presentation has a materially visible composition delta on desktop and mobile while preserving truthful content and existing routes.
+- [x] First-party Portal CSS/JS and critical home artwork use deterministic versioned URLs that change with asset content.
+- [x] Home/public presentation has a materially visible composition delta on desktop and mobile while preserving truthful content and existing routes.
 - [ ] Existing EN/PL, responsive, keyboard/focus, reduced-motion, security and Portal contracts remain green.
 - [ ] Exact-head browser acceptance, CI/platform-gate and Portal Acceptance Contract pass.
 - [ ] Protected integration uses Merge Queue only.
@@ -34,7 +34,7 @@ owned_paths:
   - docs/agents/tasks/archive/OTERYN-20260908-owner-visible-portal-polish.md
   - resources/views/game/layout.blade.php
   - resources/views/home.blade.php
-  - public/css/home-production.css
+  - public/css/portal-owner-visible.css
   - tests/Feature/PortalVisualPolishTest.php
   - scripts/acceptance/tests/portal-polish-quality.spec.mjs
 modules:
@@ -51,30 +51,33 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-08T10:17:00Z
-head: 01a41276d3f345da94b35ad00f093a9ca66482a3
+updated_at: 2026-09-08T10:24:00Z
+head: 08349e4cd87f8ec76f33e81068083a9399a38beb
 branch: fix/1344-owner-visible-portal-polish
 pr: none
-status: implementing
+status: validating
 context_routes:
   - web-cms
   - portal-completion
 owned_paths:
   - resources/views/game/layout.blade.php
   - resources/views/home.blade.php
-  - public/css/home-production.css
+  - public/css/portal-owner-visible.css
   - tests/Feature/PortalVisualPolishTest.php
   - scripts/acceptance/tests/portal-polish-quality.spec.mjs
 proven:
   - PR #1334 merged through Merge Queue and its source branch was deleted.
   - Synology staging deploy 34212996824 completed successfully for protected main 01a41276d3f345da94b35ad00f093a9ca66482a3 and ended healthy.
   - Owner-visible acceptance failed after that deploy because the page still appeared effectively unchanged.
-  - Public layouts currently use stable asset URLs without a content/release cache key.
+  - Public layouts previously used stable asset URLs without a content/release cache key.
+  - The implementation now computes deterministic 12-hex SHA-256 content versions for shared Portal CSS/JS, home-production CSS, the citadel hero and home discovery artwork.
+  - A final override stylesheet changes the home hero to an explicit two-column realm stage on desktop and one-column mobile composition, with a framed native-size citadel and 3/2/1-column discovery cards.
 derived:
-  - A content-versioned asset URL is the smallest repository-local cache-safe fix without taking ownership of Synology/edge configuration.
-  - Existing visual-polish deltas should be made more obvious in the home composition rather than relying on micro-spacing changes.
+  - Content-versioned asset URLs remove stale-cache ambiguity without taking ownership of Synology/edge configuration.
+  - The new composition is intentionally more visually distinct than the micro-spacing changes in PR #1334 while preserving the same semantic DOM and data contracts.
 unknown:
-  - Whether stale first-party asset caching is the only reason the owner perceived no change.
+  - Exact hosted validation result for the implementation candidate.
+  - Protected-main SHA and staging release after integration.
 conflicts: []
 first_failure:
   marker: owner-visible-staging-acceptance
@@ -83,21 +86,29 @@ rejected_hypotheses:
   - The original lack of visible change was solely because PR #1334 had not deployed; deploy 34212996824 later completed successfully and the owner-visible gap remained the controlling acceptance failure.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260908-owner-visible-portal-polish.md
+  - resources/views/game/layout.blade.php
+  - resources/views/home.blade.php
+  - public/css/portal-owner-visible.css
+  - tests/Feature/PortalVisualPolishTest.php
+  - scripts/acceptance/tests/portal-polish-quality.spec.mjs
 validation:
   - command: staging deploy 34212996824
     result: PASS
-    evidence: existing deployed baseline is healthy; new task changes are not yet implemented
+    evidence: deployed baseline is healthy and proves the owner-visible problem is post-deploy rather than a missing deployment
+  - command: exact-head CI / Portal browser acceptance
+    result: NOT_RUN
+    evidence: implementation commit is being published for hosted validation
 blockers:
   - none
-next_action: implement content-versioned Portal assets and a visibly stronger home composition, then run focused tests
+next_action: run exact-head hosted CI and Portal browser acceptance, repair the first task-owned failure if any, then open the canonical PR
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: task is active
-source_branch_evidence: pending
+source_branch_reason: task is active and awaiting exact-head validation plus protected integration/deployed proof
+source_branch_evidence: Issue #1344; branch fix/1344-owner-visible-portal-polish
 ```
 
 ## Notes

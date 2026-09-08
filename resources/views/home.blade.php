@@ -5,17 +5,26 @@
 @section('page-class', 'production-home-shell')
 @section('portal-family', 'home')
 
+@php
+    $homeAsset = static function (string $path): string {
+        $absolute = public_path($path);
+        $hash = is_file($absolute) ? hash_file('sha256', $absolute) : false;
+        $version = is_string($hash) ? substr($hash, 0, 12) : 'missing';
+
+        return asset($path).'?v='.$version;
+    };
+@endphp
 @push('head')
-    <link rel="preload" as="image" href="{{ asset('images/oteryn-citadel.webp') }}" fetchpriority="high">
+    <link rel="preload" as="image" href="{{ $homeAsset('images/oteryn-citadel.webp') }}" fetchpriority="high">
 @endpush
 @push('styles')
-    <link rel="stylesheet" href="{{ asset('css/home-production.css') }}">
+    <link rel="stylesheet" href="{{ $homeAsset('css/home-production.css') }}">
 @endpush
 
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
     <section class="realm-hero" aria-labelledby="home-hero-title">
-        <img class="realm-hero-art" src="{{ asset('images/oteryn-citadel.webp') }}" width="626" height="468" alt="" aria-hidden="true" fetchpriority="high">
+        <img class="realm-hero-art" src="{{ $homeAsset('images/oteryn-citadel.webp') }}" width="626" height="468" alt="" aria-hidden="true" fetchpriority="high">
         <div class="realm-hero-copy">
             <p class="eyebrow">{{ __('portal_art.kicker') }}</p>
             <h1 id="home-hero-title" aria-label="Oteryn Platform">OTERYN</h1>
@@ -142,7 +151,7 @@
                 ['support.index', 'support.nav.support_center', 'public.home.support_help', 'market', 'shield'],
             ] as [$routeName, $label, $help, $scene, $icon])
                 <a class="discovery-card" href="{{ route($routeName) }}">
-                    <img class="discovery-illustration scene-{{ $scene }}" src="{{ asset('images/oteryn-'.$scene.'.webp') }}" width="240" height="100" loading="lazy" decoding="async" alt="" aria-hidden="true">
+                    <img class="discovery-illustration scene-{{ $scene }}" src="{{ $homeAsset('images/oteryn-'.$scene.'.webp') }}" width="240" height="100" loading="lazy" decoding="async" alt="" aria-hidden="true">
                     <div class="discovery-copy">
                         @include('game.partials.realm-icon', ['icon' => $icon])
                         <strong>{{ __($label) }}</strong>

@@ -31,6 +31,32 @@ final class PortalVisualPolishTest extends TestCase
         }
     }
 
+    public function test_public_portal_assets_are_content_versioned_for_cache_safe_delivery(): void
+    {
+        foreach (['en', 'pl'] as $locale) {
+            $response = $this->get('/'.$locale)->assertOk();
+            $html = $response->getContent();
+            self::assertIsString($html);
+            self::assertMatchesRegularExpression('/data-portal-assets="[0-9a-f]{12}"/', $html);
+
+            foreach ([
+                'css/portal-system.css',
+                'css/portal-pages.css',
+                'css/portal-art-direction.css',
+                'css/portal-owner-visible.css',
+                'css/home-production.css',
+                'js/portal-navigation.js',
+                'images/oteryn-citadel.webp',
+            ] as $path) {
+                self::assertMatchesRegularExpression(
+                    '~(?:href|src)="[^"]*/'.preg_quote($path, '~').'\?v=[0-9a-f]{12}"~',
+                    $html,
+                    'Expected a content-versioned first-party asset URL for '.$path,
+                );
+            }
+        }
+    }
+
     public function test_news_uses_one_sized_decorative_lead_and_preserves_real_content(): void
     {
         foreach (['first', 'second', 'third'] as $index => $slug) {

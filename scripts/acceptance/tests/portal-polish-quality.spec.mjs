@@ -58,6 +58,7 @@ test('@smoke @portal-polish measure rendered asset sizes and layout quality', as
           .filter((resource) => ['img', 'css', 'link', 'script'].includes(resource.initiatorType))
           .map((resource) => ({
             path: new URL(resource.name, location.href).pathname,
+            version: new URL(resource.name, location.href).searchParams.get('v'),
             transferSize: resource.transferSize,
             decodedBodySize: resource.decodedBodySize,
             durationMs: Math.round(resource.duration),
@@ -73,6 +74,55 @@ test('@smoke @portal-polish measure rendered asset sizes and layout quality', as
       expect(metrics.scrollWidth, `${path} at ${width}px`).toBeLessThanOrEqual(metrics.viewport + 1);
     }
   }
+});
+
+test('@smoke @portal-polish release-keyed assets deliver an owner-visible home composition', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto('/en');
+  await expect(page.locator('body')).toHaveAttribute('data-portal-assets', /^[0-9a-f]{12}$/);
+
+  const assetUrls = await page.locator('link[rel="stylesheet"], script[src], img.realm-hero-art').evaluateAll((nodes) => nodes.map((node) => node.href || node.src));
+  for (const expectedPath of [
+    '/css/portal-system.css',
+    '/css/portal-pages.css',
+    '/css/portal-art-direction.css',
+    '/css/portal-owner-visible.css',
+    '/css/home-production.css',
+    '/js/portal-navigation.js',
+    '/images/oteryn-citadel.webp',
+  ]) {
+    const url = assetUrls.map((value) => new URL(value)).find((candidate) => candidate.pathname.endsWith(expectedPath));
+    expect(url, `versioned ${expectedPath}`).toBeTruthy();
+    expect(url?.searchParams.get('v'), `content version for ${expectedPath}`).toMatch(/^[0-9a-f]{12}$/);
+  }
+
+  const desktopComposition = await page.evaluate(() => {
+    const hero = document.querySelector('.realm-hero');
+    const copy = document.querySelector('.realm-hero-copy');
+    const art = document.querySelector('.realm-hero-art');
+    const discovery = document.querySelector('.production-discover-grid');
+    const artRect = art.getBoundingClientRect();
+    return {
+      heroDisplay: getComputedStyle(hero).display,
+      copyBorder: parseFloat(getComputedStyle(copy).borderLeftWidth),
+      artPosition: getComputedStyle(art).position,
+      artWidth: Math.round(artRect.width),
+      discoveryColumns: getComputedStyle(discovery).gridTemplateColumns.split(' ').filter(Boolean).length,
+    };
+  });
+  expect(desktopComposition.heroDisplay).toBe('grid');
+  expect(desktopComposition.copyBorder).toBeGreaterThanOrEqual(2);
+  expect(desktopComposition.artPosition).toBe('relative');
+  expect(desktopComposition.artWidth).toBeLessThanOrEqual(626);
+  expect(desktopComposition.discoveryColumns).toBe(3);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const mobileColumns = await page.locator('.production-discover-grid').evaluate((node) => getComputedStyle(node).gridTemplateColumns.split(' ').filter(Boolean).length);
+  expect(mobileColumns).toBe(1);
+  const mobileArt = await page.locator('.realm-hero-art').boundingBox();
+  expect(mobileArt?.width ?? 0).toBeLessThanOrEqual(390);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391);
 });
 
 test('@smoke @portal-polish breakpoint changes preserve newly opened mobile navigation', async ({ page }) => {

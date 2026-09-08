@@ -1,0 +1,302 @@
+/* Owner-visible Portal delivery layer.
+ * Loaded after the existing page styles so the visual delta is obvious while
+ * preserving the current semantic DOM, native disclosure behavior and data contracts.
+ */
+
+body[data-portal-family="home"] .realm-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.02fr) minmax(20rem, .98fr);
+    grid-template-areas:
+        "copy art"
+        "pulse art";
+    gap: 1.4rem 3.4rem;
+    align-items: center;
+    min-height: 38rem;
+    padding: clamp(2.5rem, 5vw, 4.8rem) max(var(--gutter), calc((100% - var(--content)) / 2));
+    background:
+        radial-gradient(circle at 82% 22%, rgba(132, 173, 191, .18), transparent 31%),
+        radial-gradient(circle at 66% 74%, rgba(183, 139, 66, .12), transparent 38%),
+        linear-gradient(118deg, #071019 0%, #0b1722 46%, #12283a 100%);
+    border-block: 1px solid rgba(202, 164, 94, .34);
+    box-shadow: inset 0 -1.5rem 4rem rgba(0, 0, 0, .24);
+}
+
+body[data-portal-family="home"] .realm-hero::before {
+    z-index: -1;
+    background:
+        linear-gradient(90deg, rgba(6, 13, 20, .42), rgba(6, 13, 20, .04) 58%, rgba(6, 13, 20, .18)),
+        repeating-linear-gradient(90deg, transparent 0 5.5rem, rgba(224, 194, 135, .025) 5.5rem 5.56rem);
+}
+
+body[data-portal-family="home"] .realm-hero::after {
+    content: '';
+    position: absolute;
+    inset: auto max(var(--gutter), calc((100% - var(--content)) / 2)) 1.25rem;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(216, 176, 101, .72), rgba(216, 176, 101, .06) 72%, transparent);
+    pointer-events: none;
+}
+
+body[data-portal-family="home"] .realm-hero-copy {
+    grid-area: copy;
+    width: auto;
+    margin: 0;
+    min-height: 0;
+    padding: 2.2rem 0 1.35rem 2rem;
+    border-left: 3px solid rgba(220, 179, 103, .72);
+    position: relative;
+    z-index: 1;
+}
+
+body[data-portal-family="home"] .realm-hero-copy > .eyebrow {
+    margin-bottom: 1.2rem;
+    color: #e2bd79;
+    letter-spacing: .28em;
+}
+
+body[data-portal-family="home"] #home-hero-title {
+    margin-bottom: .65rem;
+    font-size: clamp(4.8rem, 7.3vw, 7.4rem);
+    letter-spacing: .075em;
+    color: #f7ead4;
+    text-shadow: 0 .12em .6em rgba(0, 0, 0, .45);
+}
+
+body[data-portal-family="home"] .realm-hero-tagline {
+    max-width: 19ch;
+    margin-bottom: 1.1rem;
+    font-size: clamp(1.8rem, 2.8vw, 2.65rem);
+    line-height: 1.16;
+}
+
+body[data-portal-family="home"] .realm-hero-lede {
+    max-width: 46ch;
+    margin-bottom: 1.8rem;
+    color: #d3dbe4;
+    font-size: 1.03rem;
+}
+
+body[data-portal-family="home"] .realm-hero-actions {
+    gap: .85rem;
+}
+
+body[data-portal-family="home"] .realm-hero-actions .button {
+    min-height: 3.2rem;
+    padding-inline: 1.2rem;
+}
+
+body[data-portal-family="home"] .realm-promises {
+    margin-top: 1.9rem;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(215, 177, 106, .19);
+}
+
+body[data-portal-family="home"] .realm-hero-art {
+    grid-area: art;
+    position: relative;
+    inset: auto;
+    z-index: 0;
+    justify-self: end;
+    align-self: center;
+    width: min(100%, 626px);
+    max-width: 626px;
+    max-height: none;
+    height: auto;
+    object-fit: contain;
+    mask-image: none;
+    border: 1px solid rgba(221, 185, 117, .38);
+    border-radius: calc(var(--radius-md) + .3rem);
+    background: #0a141d;
+    box-shadow:
+        0 1.8rem 4.8rem rgba(0, 0, 0, .48),
+        0 0 0 .45rem rgba(8, 17, 25, .72),
+        0 0 0 .5rem rgba(218, 177, 100, .13);
+}
+
+body[data-portal-family="home"] .realm-pulse {
+    grid-area: pulse;
+    position: relative;
+    inset: auto;
+    width: min(100%, 34rem);
+    margin: 0 0 0 2rem;
+    padding: 1.2rem 1.35rem;
+    justify-self: start;
+    border: 1px solid rgba(219, 181, 111, .32);
+    border-left: 3px solid rgba(219, 181, 111, .62);
+    background: linear-gradient(135deg, rgba(12, 24, 34, .96), rgba(16, 31, 43, .92));
+    box-shadow: 0 1.1rem 2.8rem rgba(0, 0, 0, .24);
+}
+
+body[data-portal-family="home"] .realm-journal {
+    gap: 2.4rem;
+    padding-block: 3rem;
+}
+
+body[data-portal-family="home"] .journal-story,
+body[data-portal-family="home"] .realm-ledger {
+    background: linear-gradient(145deg, rgba(20, 32, 43, .96), rgba(13, 23, 32, .98));
+    border-color: rgba(171, 153, 122, .23);
+}
+
+body[data-portal-family="home"] .journal-story-lead,
+body[data-portal-family="home"] .realm-ledger {
+    border-top: 2px solid rgba(216, 176, 101, .52);
+}
+
+body[data-portal-family="home"] .production-discover {
+    padding-block: 1.1rem 3.4rem;
+}
+
+body[data-portal-family="home"] .production-discover .section-heading {
+    margin-bottom: 1.4rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid rgba(216, 176, 101, .21);
+}
+
+body[data-portal-family="home"] .production-discover-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.2rem;
+}
+
+body[data-portal-family="home"] .discovery-card {
+    min-height: 16.5rem;
+    border-color: rgba(171, 153, 122, .25);
+    border-top: 2px solid rgba(216, 176, 101, .48);
+    background:
+        linear-gradient(180deg, rgba(29, 44, 57, .98), rgba(15, 26, 35, .98));
+    box-shadow: 0 1rem 2.6rem rgba(0, 0, 0, .18);
+}
+
+body[data-portal-family="home"] .discovery-illustration {
+    margin-top: .7rem;
+    border-radius: calc(var(--radius-md) - .15rem);
+}
+
+body[data-portal-family="home"] .discovery-copy {
+    gap: .72rem;
+    padding: 1.15rem 1.25rem 1.35rem;
+}
+
+body[data-portal-family="home"] .discovery-copy strong {
+    font-size: 1.45rem;
+}
+
+body[data-portal-family="home"] .discover-arrow {
+    top: 1rem;
+    right: 1rem;
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    border: 1px solid rgba(216, 176, 101, .32);
+    border-radius: 50%;
+    background: rgba(7, 16, 24, .68);
+}
+
+body[data-portal-family="home"] .realm-search {
+    margin-bottom: 2.8rem;
+    padding: 1.8rem;
+    border: 1px solid rgba(171, 153, 122, .24);
+    border-left: 3px solid rgba(216, 176, 101, .52);
+    border-radius: var(--radius-md);
+    background: linear-gradient(110deg, rgba(18, 31, 42, .9), rgba(12, 22, 31, .72));
+}
+
+body[data-portal-family="home"] .realm-journey {
+    border-top-color: rgba(216, 176, 101, .29);
+    background:
+        radial-gradient(circle at 18% 20%, rgba(216, 176, 101, .08), transparent 34%),
+        #0d1822;
+}
+
+@media (max-width: 79.99rem) {
+    body[data-portal-family="home"] .realm-hero {
+        grid-template-columns: minmax(0, 1fr) minmax(17rem, .85fr);
+        gap: 1.2rem 2rem;
+        min-height: 34rem;
+    }
+
+    body[data-portal-family="home"] #home-hero-title {
+        font-size: clamp(4.4rem, 8vw, 6.2rem);
+    }
+
+    body[data-portal-family="home"] .production-discover-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 59.99rem) {
+    body[data-portal-family="home"] .realm-hero {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas:
+            "copy"
+            "art"
+            "pulse";
+        gap: 1.5rem;
+        min-height: 0;
+        padding-block: 2.4rem;
+    }
+
+    body[data-portal-family="home"] .realm-hero::after {
+        bottom: 1rem;
+    }
+
+    body[data-portal-family="home"] .realm-hero-copy {
+        padding: 1.5rem 0 1.1rem 1.5rem;
+    }
+
+    body[data-portal-family="home"] .realm-hero-art {
+        justify-self: start;
+        width: min(100%, 626px);
+    }
+
+    body[data-portal-family="home"] .realm-pulse {
+        width: 100%;
+        margin: 0;
+    }
+
+    body[data-portal-family="home"] .realm-ledger {
+        background: linear-gradient(145deg, rgba(20, 32, 43, .98), rgba(13, 23, 32, .99));
+    }
+
+    body[data-portal-family="home"] .realm-search {
+        padding: 1.35rem;
+    }
+}
+
+@media (max-width: 39.99rem) {
+    body[data-portal-family="home"] .realm-hero {
+        padding: 1.7rem var(--gutter) 2.3rem;
+    }
+
+    body[data-portal-family="home"] .realm-hero-copy {
+        padding: 1.1rem 0 .8rem 1rem;
+        border-left-width: 2px;
+    }
+
+    body[data-portal-family="home"] #home-hero-title {
+        font-size: clamp(3.6rem, 17vw, 4.8rem);
+        letter-spacing: .055em;
+    }
+
+    body[data-portal-family="home"] .realm-hero-tagline {
+        font-size: 1.75rem;
+    }
+
+    body[data-portal-family="home"] .realm-promises {
+        padding-top: .65rem;
+    }
+
+    body[data-portal-family="home"] .production-discover-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    body[data-portal-family="home"] .discovery-card {
+        min-height: 0;
+    }
+
+    body[data-portal-family="home"] .realm-search {
+        padding: 1.1rem;
+        border-left-width: 2px;
+    }
+}
