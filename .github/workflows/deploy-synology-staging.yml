@@ -503,7 +503,7 @@ jobs:
 
       - name: Deploy prebuilt images
         if: inputs.action == 'deploy'
-        run: bash deploy/synology/scripts/deploy.sh
+        run: bash deploy/synology/scripts/deploy-impact.sh
 
       - name: Roll back runtime images
         if: inputs.action == 'rollback'

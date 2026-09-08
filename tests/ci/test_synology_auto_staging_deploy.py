@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 BUILD_WORKFLOW = ROOT / ".github/workflows/build-synology-staging-images.yml"
 DEPLOY_WORKFLOW = ROOT / ".github/workflows/deploy-synology-staging.yml"
 DEPLOY_SCRIPT = ROOT / "deploy/synology/scripts/deploy.sh"
+IMPACT_DEPLOY_SCRIPT = ROOT / "deploy/synology/scripts/deploy-impact.sh"
 IPV4_HELPER = ROOT / "deploy/synology/scripts/validate-ipv4.sh"
 INTERNAL_PROXY = ROOT / "deploy/synology/nginx/internal.conf"
 RUNTIME_COMPOSE = ROOT / "deploy/synology/compose.yml"
@@ -23,6 +24,7 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         cls.build_workflow = BUILD_WORKFLOW.read_text(encoding="utf-8")
         cls.deploy_workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
         cls.deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        cls.impact_deploy_script = IMPACT_DEPLOY_SCRIPT.read_text(encoding="utf-8")
         cls.internal_proxy = INTERNAL_PROXY.read_text(encoding="utf-8")
         cls.runtime_compose = RUNTIME_COMPOSE.read_text(encoding="utf-8")
         cls.classifier = CLASSIFIER.read_text(encoding="utf-8")
@@ -36,6 +38,7 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
             "      - deploy/synology/tls/**",
             "      - deploy/synology/mariadb/init/**",
             "      - deploy/synology/scripts/deploy.sh",
+            "      - deploy/synology/scripts/deploy-impact.sh",
             "      - deploy/synology/scripts/health-check.sh",
             "      - .github/workflows/build-synology-staging-images.yml",
             "      - .github/workflows/deploy-synology-staging.yml",
@@ -61,6 +64,18 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         self.assertNotIn("gh run watch", self.build_workflow)
         self.assertNotIn("Locate and monitor Synology deployment run", self.build_workflow)
         self.assertIn("Deployment continues independently in Deploy Synology Staging", self.build_workflow)
+
+    def test_guarded_deploy_workflow_enters_impact_router(self) -> None:
+        self.assertIn(
+            "run: bash deploy/synology/scripts/deploy-impact.sh",
+            self.deploy_workflow,
+        )
+        self.assertNotIn(
+            "run: bash deploy/synology/scripts/deploy.sh\n",
+            self.deploy_workflow,
+        )
+        self.assertIn('CORE_DEPLOY="$SCRIPT_DIR/deploy.sh"', self.impact_deploy_script)
+        self.assertIn('exec bash "$CORE_DEPLOY"', self.impact_deploy_script)
 
     def test_automatic_deploy_is_exact_sha_and_preserves_approved_staging_identity(self) -> None:
         expected = (
@@ -149,6 +164,9 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         self.assertNotIn("command -v python3", self.deploy_script)
         self.assertNotIn("python3 -", self.deploy_script)
         self.assertIn("validate-ipv4.sh", self.deploy_script)
+        self.assertNotIn("command -v python3", self.impact_deploy_script)
+        self.assertNotIn("python3 -", self.impact_deploy_script)
+        self.assertIn("validate-ipv4.sh", self.impact_deploy_script)
 
     def test_shell_ipv4_helper_accepts_only_loopback_or_rfc1918_for_game_bind(self) -> None:
         accepted = (

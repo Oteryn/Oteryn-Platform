@@ -76,6 +76,7 @@ class SynologyDeploymentPackageRoutingTest(unittest.TestCase):
             "deploy/synology/tls/init.sh",
             "deploy/synology/mariadb/init/10-platform-database.sh",
             "deploy/synology/scripts/deploy.sh",
+            "deploy/synology/scripts/deploy-impact.sh",
             "deploy/synology/scripts/health-check.sh",
             "deploy/synology/scripts/prepare-fresh-schema-baseline.sh",
             "deploy/synology/scripts/validate-ipv4.sh",
@@ -123,6 +124,7 @@ class SynologyDeploymentPackageRoutingTest(unittest.TestCase):
             "      - deploy/synology/nginx/**\n",
             "      - deploy/synology/tls/**\n",
             "      - deploy/synology/mariadb/init/**\n",
+            "      - deploy/synology/scripts/deploy-impact.sh\n",
             "      - deploy/synology/tests/**\n",
         ):
             self.assertIn(required, self.workflow, required)

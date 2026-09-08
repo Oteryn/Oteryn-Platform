@@ -6,6 +6,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SCRIPTS = ROOT / "deploy" / "synology" / "scripts"
+ENTRYPOINT = SCRIPTS / "deploy-impact.sh"
 DEPLOY = SCRIPTS / "deploy.sh"
 FRESH_BASELINE = SCRIPTS / "prepare-fresh-schema-baseline.sh"
 RECOVERY = SCRIPTS / "recover-schema.sh"
@@ -160,6 +161,108 @@ def test_fast_deploy_smoke_proves_exact_platform_image_binding_and_public_page()
     assert '"http://127.0.0.1:${PLATFORM_PORT}/health"' in smoke
     assert '"http://127.0.0.1:${PLATFORM_PORT}/login?locale=en"' in smoke
     assert "Fast deploy public login smoke returned HTTP $status." in smoke
+
+
+def test_platform_reconcile_keeps_presentation_on_existing_fast_path() -> None:
+    entrypoint = ENTRYPOINT.read_text()
+    presentation = entrypoint[
+        entrypoint.index("_oteryn_presentation_path()") : entrypoint.index("_oteryn_platform_runtime_path()")
+    ]
+    assert "resources/*|lang/*|public/css/*|public/js/*|public/images/*" in presentation
+    assert "presentation-only candidate delegated to platform-fast" in entrypoint
+    assert 'CORE_DEPLOY="$SCRIPT_DIR/deploy.sh"' in entrypoint
+    assert 'exec bash "$CORE_DEPLOY"' in entrypoint
+
+
+def test_platform_reconcile_accepts_known_platform_inputs_but_not_schema_or_control_inputs() -> None:
+    entrypoint = ENTRYPOINT.read_text()
+    runtime = entrypoint[
+        entrypoint.index("_oteryn_platform_runtime_path()") : entrypoint.index("_oteryn_non_runtime_path()")
+    ]
+    for allowed in (
+        "composer.json",
+        "deploy/synology/docker/platform.Dockerfile",
+        "app/*",
+        "bootstrap/*",
+        "config/*",
+        "public/*",
+        "resources/*",
+        "routes/*",
+        "lang/*",
+        "storage/*",
+    ):
+        assert allowed in runtime
+    for forbidden in (
+        "database/*",
+        "deploy/synology/release-contract.env",
+        "deploy/synology/docker/platform.Dockerfile.dockerignore",
+        "services/game-gateway/",
+        "deploy/synology/scripts/deploy.sh",
+    ):
+        assert forbidden not in runtime
+
+    non_runtime = entrypoint[
+        entrypoint.index("_oteryn_non_runtime_path()") : entrypoint.index("_oteryn_running_service_id()")
+    ]
+    assert "scripts/ci/classify_synology_builds.py" in non_runtime
+    assert "deploy/synology/scripts/repository-ghcr-image.sh" in non_runtime
+    assert "deploy/synology/scripts/deploy-impact.sh" in non_runtime
+    assert "scripts/acceptance/*" in non_runtime
+
+
+def test_platform_reconcile_uses_accumulated_exact_release_impact() -> None:
+    entrypoint = ENTRYPOINT.read_text()
+    preflight = entrypoint[
+        entrypoint.index("_oteryn_platform_reconcile_candidate()") : entrypoint.index("_oteryn_reconcile_restore_on_exit()")
+    ]
+    assert 'git -C "$REPO_ROOT" merge-base --is-ancestor "$RECONCILE_OLD_RELEASE_SHA" "$OTERYN_RELEASE_SHA"' in preflight
+    assert "git -C \"$REPO_ROOT\" diff --name-only --no-renames --diff-filter=ACDMRTUXB -z" in preflight
+    assert '"$RECONCILE_OLD_RELEASE_SHA" "$OTERYN_RELEASE_SHA" --' in preflight
+    assert "accumulated runtime/control impact includes $path" in preflight
+    assert "candidate primary schema identity changed" in preflight
+    assert "candidate does not accept the current schema" in preflight
+    assert "Gateway provenance changed" in preflight
+    assert "Canary provenance changed" in preflight
+    assert "staging world identity changed" in preflight
+    assert "Platform reconcile recovery marker already exists" in preflight
+
+
+def test_platform_reconcile_restarts_only_platform_and_runs_full_health_before_promotion() -> None:
+    entrypoint = ENTRYPOINT.read_text()
+    reconcile = entrypoint[
+        entrypoint.index("_oteryn_platform_reconcile()") : entrypoint.index("reconcile_rc=0")
+    ]
+    assert '"${compose[@]}" up -d --no-deps --force-recreate platform' in reconcile
+    assert "_oteryn_reconcile_marketplace_scheduler_after_runtime_change" in reconcile
+    assert "_oteryn_platform_smoke" in reconcile
+    health = reconcile.index('bash "$SCRIPT_DIR/health-check.sh"')
+    for service in ("mariadb", "redis", "canary", "internal-proxy", "gateway"):
+        marker = f"_oteryn_assert_preserved_service {service}"
+        assert marker in reconcile
+        assert reconcile.index(marker) > health
+    write_state = reconcile.index('release-state.sh" write "$state_dir/current-release.env.reconcile"')
+    promote = reconcile.index('mv "$state_dir/current-release.env.reconcile" "$current_file"')
+    assert health < write_state < promote
+    for forbidden in (
+        "php artisan migrate",
+        '"${compose[@]}" up -d mariadb redis',
+        '"${compose[@]}" up -d canary',
+        '"${compose[@]}" up -d gateway',
+        "tls-init",
+    ):
+        assert forbidden not in reconcile
+
+
+def test_platform_reconcile_failure_restores_previous_platform_and_release_state() -> None:
+    entrypoint = ENTRYPOINT.read_text()
+    restore = entrypoint[
+        entrypoint.index("_oteryn_reconcile_restore_on_exit()") : entrypoint.index("_oteryn_assert_preserved_service()")
+    ]
+    assert "trap - EXIT" in restore
+    assert 'export PLATFORM_IMAGE="$RECONCILE_OLD_PLATFORM_IMAGE"' in restore
+    assert "Platform reconcile recovery could not prove the previous Platform runtime was restored." in restore
+    assert 'mv "$RECONCILE_PREVIOUS_LAST_GOOD" "$state_dir/last-good-release.env"' in restore
+    assert "Platform reconcile preflight failed closed; refusing to continue with ambiguous state." in entrypoint
 
 
 def main() -> None:

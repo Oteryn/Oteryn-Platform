@@ -73,6 +73,7 @@ DEPLOYMENT_RUNTIME_EXACT = {
     "deploy/synology/compose.yml",
     "deploy/synology/compose.marketplace.yml",
     "deploy/synology/scripts/deploy.sh",
+    "deploy/synology/scripts/deploy-impact.sh",
     "deploy/synology/scripts/health-check.sh",
     "deploy/synology/scripts/lib.sh",
     "deploy/synology/scripts/prepare-fresh-schema-baseline.sh",
