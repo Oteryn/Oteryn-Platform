@@ -95,27 +95,38 @@ class MergeQueuePreflightTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "40-character"):
             self.qualify(FakeClient(), expected_head_sha="abc")
 
-    def test_rejects_closed_merged_or_draft_pull_request(self):
-        cases = (pull_payload(state="closed"), pull_payload(merged=True), pull_payload(draft=True))
-        for payload in cases:
-            with self.subTest(payload=payload), self.assertRaises(ValueError):
+    def test_rejects_closed_or_merged_pull_request(self):
+        for payload in (pull_payload(state="closed"), pull_payload(merged=True)):
+            with self.subTest(payload=payload), self.assertRaisesRegex(ValueError, "open and unmerged"):
                 self.qualify(FakeClient(pull=payload))
 
-    def test_rejects_wrong_base_head_or_origin(self):
-        cases = (
-            pull_payload(base={"ref": "develop"}),
-            pull_payload(head={"sha": "b" * 40, "repo": {"full_name": "Oteryn/Oteryn-Platform"}}),
-            pull_payload(head={"sha": HEAD, "repo": {"full_name": "fork/Oteryn-Platform"}}),
-        )
-        for payload in cases:
-            with self.subTest(payload=payload), self.assertRaises(ValueError):
-                self.qualify(FakeClient(pull=payload))
+    def test_rejects_draft_pull_request(self):
+        with self.assertRaisesRegex(ValueError, "not draft"):
+            self.qualify(FakeClient(pull=pull_payload(draft=True)))
 
-    def test_requires_latest_exact_head_platform_gate_success(self):
+    def test_rejects_wrong_base(self):
+        with self.assertRaisesRegex(ValueError, "base must be exactly main"):
+            self.qualify(FakeClient(pull=pull_payload(base={"ref": "develop"})))
+
+    def test_rejects_changed_head(self):
+        with self.assertRaisesRegex(ValueError, "head changed"):
+            self.qualify(FakeClient(pull=pull_payload(head={
+                "sha": "b" * 40, "repo": {"full_name": "Oteryn/Oteryn-Platform"},
+            })))
+
+    def test_rejects_cross_repository_head(self):
+        with self.assertRaisesRegex(ValueError, "same-repository"):
+            self.qualify(FakeClient(pull=pull_payload(head={
+                "sha": HEAD, "repo": {"full_name": "fork/Oteryn-Platform"},
+            })))
+
+    def test_rejects_missing_or_wrong_head_platform_gate(self):
         with self.assertRaisesRegex(ValueError, "no exact-head platform-gate"):
             self.qualify(FakeClient(checks={"check_runs": []}))
         with self.assertRaisesRegex(ValueError, "matches the exact expected head"):
             self.qualify(FakeClient(checks=checks_payload(head_sha="b" * 40)))
+
+    def test_rejects_non_success_latest_platform_gate(self):
         checks = {"check_runs": [
             {"id": 11, "name": "platform-gate", "head_sha": HEAD,
              "status": "completed", "conclusion": "success"},
@@ -124,6 +135,15 @@ class MergeQueuePreflightTest(unittest.TestCase):
         ]}
         with self.assertRaisesRegex(ValueError, "completed/success"):
             self.qualify(FakeClient(checks=checks))
+
+    def test_successful_qualification_is_exact_head_fenced(self):
+        client = FakeClient()
+        qualified = self.qualify(client)
+        self.assertEqual(("Oteryn/Oteryn-Platform", 1363, "main", HEAD), (
+            qualified.repository, qualified.number, qualified.base, qualified.head_sha,
+        ))
+        self.assertIn(f"/commits/{HEAD}/check-runs?", client.calls[1][1])
+        self.assertIn("check_name=platform-gate", client.calls[1][1])
 
 
 class MergeAsyncContractTest(unittest.TestCase):
@@ -151,47 +171,76 @@ class MergeAsyncContractTest(unittest.TestCase):
         self.assertEqual({"sha": HEAD, "merge_action": "merge_queue"}, mutation_client.calls[0][2])
         self.assertTrue(any("/merge-async/" in call[1] for call in mutation_client.calls))
         self.assertFalse(any("/check-runs?" in call[1] for call in mutation_client.calls))
+        self.assertFalse(any(
+            call[0] == "GET" and call[1].endswith("/pulls/1363")
+            for call in mutation_client.calls
+        ))
 
     def test_202_records_receipt_and_strictly_later_same_uuid_readback(self):
         result = self.submit(FakeClient())
+        self.assertEqual("REQUEST_ACCEPTED_NON_TERMINAL", result["result"])
         self.assertEqual(UUID, result["receipt"]["server_uuid"])
         self.assertEqual(UUID, result["readback"]["server_uuid"])
         self.assertEqual(1, result["receipt"]["sequence"])
         self.assertEqual(2, result["readback"]["sequence"])
+        for evidence in (result["receipt"], result["readback"]):
+            self.assertEqual("Oteryn/Oteryn-Platform", evidence["repository"])
+            self.assertEqual(1363, evidence["pr_number"])
+            self.assertEqual("main", evidence["base"])
+            self.assertEqual(HEAD, evidence["head_sha"])
+            self.assertEqual("merge_queue", evidence["merge_action"])
 
-    def test_202_rejects_missing_malformed_or_mismatched_uuid(self):
+    def test_202_rejects_missing_or_malformed_uuid(self):
         for value in (None, "not-a-uuid"):
             payload = async_payload()
             payload["details"]["uuid"] = value
             with self.subTest(value=value), self.assertRaisesRegex(mod.GitHubRequestError, "server UUID"):
                 self.submit(FakeClient(submit=payload))
+
+    def test_rejects_uuid_mismatch(self):
         with self.assertRaisesRegex(mod.GitHubRequestError, "UUID does not match"):
             self.submit(FakeClient(readback=async_payload(
                 server_uuid="730b9d5e-3f2a-4f7e-8b0c-2d5f9a8c1e42"
             )))
 
-    def test_rejects_readback_action_head_or_target_mismatch(self):
+    def test_rejects_readback_action_or_head_mismatch(self):
         for payload, message in (
             (async_payload(action="default"), "explicit merge_queue"),
             (async_payload(head="b" * 40), "head does not match"),
         ):
             with self.subTest(message=message), self.assertRaisesRegex(mod.GitHubRequestError, message):
                 self.submit(FakeClient(readback=payload))
-        for post_pull in (
-            pull_payload(base={"ref": "develop"}),
-            pull_payload(head={"sha": "b" * 40, "repo": {"full_name": "Oteryn/Oteryn-Platform"}}),
-        ):
-            with self.subTest(post_pull=post_pull), self.assertRaisesRegex(mod.GitHubRequestError, "target mismatch"):
-                self.submit(FakeClient(post_pull=post_pull))
 
-    def test_rejects_invalid_executor_sequence(self):
+    def test_rejects_post_submission_retarget_or_head_change(self):
+        cases = (
+            (pull_payload(base={"ref": "develop"}), "target mismatch"),
+            (pull_payload(head={"sha": "b" * 40, "repo": {"full_name": "Oteryn/Oteryn-Platform"}}), "target mismatch"),
+        )
+        for payload, message in cases:
+            with self.subTest(payload=payload), self.assertRaisesRegex(mod.GitHubRequestError, message):
+                self.submit(FakeClient(post_pull=payload))
+
+    def test_rejects_equal_lower_boolean_or_nonpositive_sequence(self):
         for values in ((1, 1), (2, 1), (True,), (0,), (-1,)):
             with self.subTest(values=values), mock.patch.object(
                 mod.ExecutorSequence, "next", side_effect=values
             ), self.assertRaisesRegex(mod.GitHubRequestError, "sequence"):
                 self.submit(FakeClient())
 
-    def test_200_and_409_are_reconciliation_only_even_after_completion(self):
+    def test_200_without_uuid_is_live_nonterminal_reconciliation(self):
+        client = FakeClient(
+            submit_status=200,
+            submit={"status": "merged", "details": {"message": "already"}},
+            post_pull=pull_payload(state="closed", merged=True),
+        )
+        result = self.submit(client)
+        self.assertEqual("RECONCILIATION_REQUIRED", result["result"])
+        self.assertFalse(result["accepted"])
+        self.assertIsNone(result["receipt"])
+        self.assertIsNone(result["readback"])
+        self.assertEqual(2, client.pull_reads)
+
+    def test_200_or_409_with_uuid_reconciles_identity_after_pr_completes(self):
         completed = pull_payload(state="closed", merged=True)
         for status in (200, 409):
             with self.subTest(status=status):
@@ -206,15 +255,13 @@ class MergeAsyncContractTest(unittest.TestCase):
                 self.assertIsNone(result["receipt"])
                 self.assertEqual(UUID, result["readback"]["server_uuid"])
 
-    def test_200_without_uuid_uses_identity_only_target_reconciliation(self):
-        client = FakeClient(
-            submit_status=200,
-            submit={"status": "merged", "details": {"message": "already"}},
-            post_pull=pull_payload(state="closed", merged=True),
-        )
-        result = self.submit(client)
+    def test_409_with_existing_uuid_is_live_nonterminal_reconciliation(self):
+        result = self.submit(FakeClient(submit_status=409))
         self.assertEqual("RECONCILIATION_REQUIRED", result["result"])
-        self.assertIsNone(result["readback"])
+        self.assertEqual(409, result["http_status"])
+        self.assertFalse(result["accepted"])
+        self.assertIsNone(result["receipt"])
+        self.assertEqual(UUID, result["readback"]["server_uuid"])
 
     def test_fail_closed_status_classification(self):
         for status, classification in (
@@ -226,8 +273,10 @@ class MergeAsyncContractTest(unittest.TestCase):
 
     def test_source_forbids_graphql_direct_and_default_alternatives(self):
         text = TOOL_PATH.read_text(encoding="utf-8")
-        for forbidden in ("graphql", "enqueuePullRequest", "expectedHeadOid", "direct_merge"):
-            self.assertNotIn(forbidden, text)
+        self.assertNotIn("graphql", text.lower())
+        self.assertNotIn("enqueuePullRequest", text)
+        self.assertNotIn("expectedHeadOid", text)
+        self.assertNotIn("direct_merge", text)
         self.assertNotIn('"merge_action": "default"', text)
         self.assertNotIn('/pulls/{pull.number}/merge"', text)
 
@@ -258,6 +307,21 @@ class WorkflowAndDocumentationContractTest(unittest.TestCase):
         self.assertIn("github.event.comment.author_association", text)
         self.assertIn("^(OWNER|MEMBER|COLLABORATOR)$", text)
         self.assertIn("^/oteryn-mq-enqueue\\ ([0-9a-fA-F]{40})$", text)
+        self.assertIn("needs.authorize.outputs.allowed == 'true'", text)
+
+    def test_malformed_unauthorized_and_non_pr_comments_cannot_authorize(self):
+        command_re = mod.re.compile(r"^/oteryn-mq-enqueue ([0-9a-fA-F]{40})$")
+        self.assertIsNotNone(command_re.fullmatch(f"/oteryn-mq-enqueue {HEAD}"))
+        for command in (
+            "/oteryn-mq-enqueue",
+            f"/oteryn-mq-enqueue {HEAD} extra",
+            f"x/oteryn-mq-enqueue {HEAD}",
+        ):
+            self.assertIsNone(command_re.fullmatch(command))
+        authorized = {"OWNER", "MEMBER", "COLLABORATOR"}
+        self.assertNotIn("CONTRIBUTOR", authorized)
+        self.assertNotIn("NONE", authorized)
+        self.assertIn("ISSUE_IS_PULL_REQUEST\" == true", WORKFLOW_PATH.read_text(encoding="utf-8"))
 
     def test_docs_and_task_forbid_custom_app_bootstrap(self):
         for path in (DOC_PATH, TASK_PATH):
