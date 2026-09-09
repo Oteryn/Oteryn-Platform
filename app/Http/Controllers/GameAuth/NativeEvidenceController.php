@@ -7,6 +7,7 @@ use App\GameAuth\NativeEvidence\NativeEvidenceContract;
 use App\GameAuth\NativeEvidence\NativeEvidenceRequestDecoder;
 use App\GameAuth\NativeEvidence\NativeEvidenceSource;
 use App\GameAuth\NativeEvidence\NativeEvidenceUnavailable;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
@@ -28,7 +29,7 @@ final class NativeEvidenceController
 
         try {
             $payload = $capacity->run(fn (): array => $source->observe($decoded));
-        } catch (NativeEvidenceUnavailable) {
+        } catch (NativeEvidenceUnavailable|QueryException) {
             $payload = NativeEvidenceContract::failure(
                 (int) $decoded['version'],
                 (string) $decoded['operation'],

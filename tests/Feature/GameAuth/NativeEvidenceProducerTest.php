@@ -11,6 +11,7 @@ use App\Identity\Support\CanonicalAccountId;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use LogicException;
 use Symfony\Component\HttpFoundation\Response;
@@ -32,12 +33,14 @@ final class NativeEvidenceProducerTest extends TestCase
         mkdir($this->witnessDirectory, 0700, true);
         config([
             'game-auth.native_evidence.source_authority' => 'platform',
+            'game-auth.native_evidence.activated' => true,
             'game-auth.native_evidence.mtls_client_identity' => self::PEER_SUBJECT,
             'game-auth.native_evidence.high_water_directory' => $this->witnessDirectory,
             'game-auth.native_evidence.fresh_account_purpose' => 'platform_security',
             'game-auth.native_evidence.fresh_account_scope' => 'fresh_admission',
             'game-auth.native_evidence.fresh_key_purpose' => 'fresh_admission',
             'game-auth.native_evidence.clock_uncertainty_seconds' => 0,
+            'game-auth.native_evidence.requests_per_minute' => 120,
         ]);
     }
 
@@ -348,6 +351,117 @@ final class NativeEvidenceProducerTest extends TestCase
             'operation' => NativeEvidenceContract::FRESH_ACCOUNT,
             'result' => 'unsupported',
         ]);
+    }
+
+    public function test_native_evidence_cannot_serve_before_the_one_way_activation_bit(): void
+    {
+        config(['game-auth.native_evidence.activated' => false]);
+        $identity = $this->identity('native-not-activated@example.test');
+
+        $this->postEvidence($this->freshAccountRequest($identity->account_id))->assertOk()->assertExactJson([
+            'version' => 1,
+            'operation' => NativeEvidenceContract::FRESH_ACCOUNT,
+            'result' => 'unavailable',
+        ]);
+        self::assertSame(0, DB::table('native_game_evidence_observations')->count());
+    }
+
+    public function test_account_id_expansion_remains_nullable_during_rolling_deployment(): void
+    {
+        $identity = $this->identity('rolling-account-id@example.test');
+
+        DB::table('identities')->where('id', $identity->id)->update(['account_id' => null]);
+
+        self::assertNull(DB::table('identities')->where('id', $identity->id)->value('account_id'));
+    }
+
+    public function test_revocation_blocks_missing_witness_only_after_native_authority_activation(): void
+    {
+        $inactive = $this->identity('witness-inactive@example.test');
+        config([
+            'game-auth.native_evidence.activated' => false,
+            'game-auth.native_evidence.high_water_directory' => null,
+        ]);
+
+        self::assertSame(1, app(RevokeIdentityGameAuthorizations::class)->execute($inactive));
+        self::assertSame(2, $inactive->refresh()->native_security_generation);
+
+        config([
+            'game-auth.native_evidence.activated' => true,
+            'game-auth.native_evidence.high_water_directory' => $this->witnessDirectory,
+        ]);
+        $active = $this->identity('witness-active@example.test');
+        $this->postEvidence($this->freshAccountRequest($active->account_id))->assertOk();
+        DB::table('native_game_evidence_observations')
+            ->where('namespace_hash', NativeEvidenceNamespace::accountSource($active->account_id))
+            ->delete();
+        config(['game-auth.native_evidence.high_water_directory' => null]);
+
+        try {
+            app(RevokeIdentityGameAuthorizations::class)->execute($active->refresh());
+            self::fail('Revocation must fail closed after native evidence history exists without its witness configuration.');
+        } catch (LogicException $exception) {
+            self::assertStringContainsString('requires its non-rollback witness', $exception->getMessage());
+        }
+
+        self::assertSame(0, $active->refresh()->game_auth_generation);
+        self::assertSame(1, $active->native_security_generation);
+    }
+
+    public function test_native_evidence_peer_is_rate_limited_with_an_empty_non_cacheable_transport_failure(): void
+    {
+        config(['game-auth.native_evidence.requests_per_minute' => 2]);
+        $identity = $this->identity('native-rate-limit@example.test');
+        $request = $this->freshAccountRequest($identity->account_id);
+
+        $this->postEvidence($request)->assertOk()->assertJsonPath('source_revision', '1');
+        $this->postEvidence($request)->assertOk()->assertJsonPath('source_revision', '2');
+        $rotatedSource = $this->peerServer();
+        $rotatedSource['REMOTE_ADDR'] = '203.0.113.77';
+        $limited = $this->withServerVariables($rotatedSource)
+            ->postJson('/internal/v1/game-auth/native-evidence', $request)
+            ->assertStatus(429)
+            ->assertContent('');
+        $this->assertSensitiveResponseIsNotCacheable($limited);
+
+        self::assertSame(2, DB::table('native_game_evidence_observations')
+            ->where('namespace_hash', NativeEvidenceNamespace::accountSource($identity->account_id))
+            ->count());
+    }
+
+    public function test_clock_uncertainty_is_strictly_parsed_and_malformed_configuration_fails_closed(): void
+    {
+        $identity = $this->identity('clock-config@example.test');
+        $request = $this->freshAccountRequest($identity->account_id);
+
+        foreach (['', false, 'garbage', '00', '6'] as $invalid) {
+            config(['game-auth.native_evidence.clock_uncertainty_seconds' => $invalid]);
+            $this->postEvidence($request)->assertOk()->assertExactJson([
+                'version' => 1,
+                'operation' => NativeEvidenceContract::FRESH_ACCOUNT,
+                'result' => 'unavailable',
+            ]);
+        }
+
+        self::assertSame(0, DB::table('native_game_evidence_observations')->count());
+        config(['game-auth.native_evidence.clock_uncertainty_seconds' => '5']);
+        $this->postEvidence($request)->assertOk()
+            ->assertJsonPath('clock_uncertainty_seconds', '5')
+            ->assertJsonPath('source_revision', '1');
+    }
+
+    public function test_database_query_failure_returns_the_bounded_unavailable_wire_shape(): void
+    {
+        $identity = $this->identity('database-failure@example.test');
+        $request = $this->freshAccountRequest($identity->account_id);
+        Schema::drop('native_game_evidence_observations');
+
+        $response = $this->postEvidence($request)->assertOk()->assertExactJson([
+            'version' => 1,
+            'operation' => NativeEvidenceContract::FRESH_ACCOUNT,
+            'result' => 'unavailable',
+        ]);
+        $this->assertSensitiveResponseIsNotCacheable($response);
     }
 
     public function test_protected_game_golden_requests_are_exactly_compatible_for_all_four_operations(): void

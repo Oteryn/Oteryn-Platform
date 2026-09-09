@@ -17,6 +17,10 @@ final class NativeEvidenceSource
      */
     public function observe(array $request): array
     {
+        if (config('game-auth.native_evidence.activated') !== true) {
+            throw new NativeEvidenceUnavailable('Native evidence producer is not activated.');
+        }
+
         $operation = (string) $request['operation'];
         $version = (int) $request['version'];
 
@@ -386,6 +390,14 @@ final class NativeEvidenceSource
     private function clockUncertaintySeconds(): int
     {
         $value = config('game-auth.native_evidence.clock_uncertainty_seconds');
+        if (is_string($value)) {
+            if (preg_match('/^(0|[1-5])$/D', $value) !== 1) {
+                throw new NativeEvidenceUnavailable('Native evidence clock uncertainty is not configured safely.');
+            }
+
+            $value = (int) $value;
+        }
+
         if (! is_int($value) || $value < 0 || $value > 5) {
             throw new NativeEvidenceUnavailable('Native evidence clock uncertainty is not configured safely.');
         }

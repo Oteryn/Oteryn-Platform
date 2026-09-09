@@ -7,6 +7,7 @@ use App\Http\Middleware\GameAuth\EnforceNativeEvidenceHttpBounds;
 use App\Http\Middleware\GameAuth\PreventSensitiveGameAuthResponseCaching;
 use App\Http\Middleware\GameAuth\RequireGatewayServiceCredential;
 use App\Http\Middleware\GameAuth\RequireNativeEvidenceMtlsPeer;
+use App\Http\Middleware\GameAuth\ThrottleNativeEvidencePeer;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/internal/v1/game-auth/tickets/redeem', GameLoginTicketRedeemController::class)
@@ -24,5 +25,6 @@ Route::post('/internal/v1/game-auth/native-evidence', NativeEvidenceController::
     ->middleware([
         PreventSensitiveGameAuthResponseCaching::class,
         RequireNativeEvidenceMtlsPeer::class,
+        ThrottleNativeEvidencePeer::class,
         EnforceNativeEvidenceHttpBounds::class,
     ]);

@@ -41,6 +41,7 @@ owned_paths:
   - app/Http/Controllers/GameAuth/NativeEvidenceController.php
   - app/Http/Middleware/GameAuth/*NativeEvidence*.php
   - app/Http/Middleware/GameAuth/PreventSensitiveGameAuthResponseCaching.php
+  - app/Http/Middleware/GameAuth/ThrottleNativeEvidencePeer.php
   - app/Identity/Support/CanonicalAccountId.php
   - app/Identity/Models/Identity.php
   - app/Identity/Actions/RevokeIdentityGameAuthorizations.php
@@ -83,6 +84,7 @@ owned_paths:
   - app/Http/Controllers/GameAuth/NativeEvidenceController.php
   - app/Http/Middleware/GameAuth/*NativeEvidence*.php
   - app/Http/Middleware/GameAuth/PreventSensitiveGameAuthResponseCaching.php
+  - app/Http/Middleware/GameAuth/ThrottleNativeEvidencePeer.php
   - app/Identity/Support/CanonicalAccountId.php
   - app/Identity/Models/Identity.php
   - app/Identity/Actions/RevokeIdentityGameAuthorizations.php
@@ -117,6 +119,7 @@ changed_paths:
   - app/Http/Middleware/GameAuth/EnforceNativeEvidenceHttpBounds.php
   - app/Http/Middleware/GameAuth/RequireNativeEvidenceMtlsPeer.php
   - app/Http/Middleware/GameAuth/PreventSensitiveGameAuthResponseCaching.php
+  - app/Http/Middleware/GameAuth/ThrottleNativeEvidencePeer.php
   - app/Identity/Support/CanonicalAccountId.php
   - app/Identity/Models/Identity.php
   - app/Identity/Actions/RevokeIdentityGameAuthorizations.php

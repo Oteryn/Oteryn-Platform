@@ -1,6 +1,8 @@
 <?php
 
 $nativeEvidenceClockUncertainty = env('GAME_AUTH_NATIVE_EVIDENCE_CLOCK_UNCERTAINTY_SECONDS');
+$nativeEvidenceActivated = env('GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED', false);
+$nativeEvidenceRequestsPerMinute = env('GAME_AUTH_NATIVE_EVIDENCE_REQUESTS_PER_MINUTE', '120');
 
 return [
     'protocol_version' => 1,
@@ -25,11 +27,13 @@ return [
 
     'native_evidence' => [
         'source_authority' => env('GAME_AUTH_NATIVE_EVIDENCE_SOURCE_AUTHORITY', 'platform'),
+        'activated' => $nativeEvidenceActivated,
         'mtls_client_identity' => env('GAME_AUTH_NATIVE_EVIDENCE_MTLS_CLIENT_IDENTITY'),
         'high_water_directory' => env('GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY'),
         'fresh_account_purpose' => env('GAME_AUTH_NATIVE_EVIDENCE_FRESH_ACCOUNT_PURPOSE'),
         'fresh_account_scope' => env('GAME_AUTH_NATIVE_EVIDENCE_FRESH_ACCOUNT_SCOPE'),
         'fresh_key_purpose' => env('GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE'),
-        'clock_uncertainty_seconds' => $nativeEvidenceClockUncertainty === null ? null : (int) $nativeEvidenceClockUncertainty,
+        'clock_uncertainty_seconds' => $nativeEvidenceClockUncertainty,
+        'requests_per_minute' => $nativeEvidenceRequestsPerMinute,
     ],
 ];

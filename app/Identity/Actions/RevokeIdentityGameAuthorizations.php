@@ -61,14 +61,42 @@ final class RevokeIdentityGameAuthorizations
         });
     }
 
+    private function nativeEvidenceActivated(): bool
+    {
+        $activated = config('game-auth.native_evidence.activated');
+        if (! is_bool($activated)) {
+            throw new LogicException('Native evidence activation configuration is invalid.');
+        }
+
+        return $activated;
+    }
+
     private function fenceNativeGeneration(Identity $identity, int $currentGeneration, int $nextGeneration): void
     {
         $witness = $this->nativeEvidenceWitness ?? app(NativeEvidenceHighWaterWitness::class);
+        $activated = $this->nativeEvidenceActivated();
+        $accountId = $identity->account_id;
+
         if (! $witness->isConfigured()) {
+            if ($activated) {
+                throw new LogicException('Native security revocation requires its non-rollback witness after native authority activation.');
+            }
+
+            if (! CanonicalAccountId::isValid($accountId)) {
+                return;
+            }
+
+            $sourceNamespace = NativeEvidenceNamespace::accountSource($accountId);
+            $databaseHighWater = DB::table('native_game_evidence_observations')
+                ->where('namespace_hash', $sourceNamespace)
+                ->max('source_revision');
+            if ($databaseHighWater !== null) {
+                throw new LogicException('Native security revocation requires its non-rollback witness after native authority activation.');
+            }
+
             return;
         }
 
-        $accountId = $identity->account_id;
         if (! CanonicalAccountId::isValid($accountId)) {
             throw new LogicException('Canonical AccountId is unavailable for native security revocation.');
         }

@@ -24,10 +24,9 @@ return new class extends Migration
             }
         });
 
-        Schema::table('identities', function (Blueprint $table): void {
-            $table->string('account_id', 36)->nullable(false)->change();
-        });
-
+        // Expansion/backfill phase intentionally remains nullable during rolling deployment.
+        // A later contract phase must re-backfill rows created by drained pre-AccountId
+        // writers before enforcing NOT NULL.
         Schema::create('native_game_evidence_observations', function (Blueprint $table): void {
             $table->id();
             $table->char('namespace_hash', 64);
