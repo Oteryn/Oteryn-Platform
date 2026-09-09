@@ -71,15 +71,18 @@ export function installDiagnostics(page) {
   page.on('response', (response) => {
     if (response.status() >= 400) {
       const rawUrl = response.url();
+      const method = response.request().method();
       const identity = requestIdentity(rawUrl);
       diagnostics.httpErrors.push({
         status: response.status(),
+        method,
         url: sanitizeUrl(rawUrl),
         requestIdentity: identity,
       });
       if (response.status() >= 500) {
         diagnostics.serverErrors.push({
           status: response.status(),
+          method,
           url: sanitizeUrl(rawUrl),
           requestIdentity: identity,
         });
