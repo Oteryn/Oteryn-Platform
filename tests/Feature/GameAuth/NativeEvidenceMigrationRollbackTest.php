@@ -3,11 +3,11 @@
 namespace Tests\Feature\GameAuth;
 
 use App\Identity\Models\Identity;
-use Illuminate\Database\Migrations\Migration;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use LogicException;
+use ReflectionMethod;
 use Tests\TestCase;
 
 final class NativeEvidenceMigrationRollbackTest extends TestCase
@@ -25,11 +25,12 @@ final class NativeEvidenceMigrationRollbackTest extends TestCase
         $issuedAccountId = $identity->account_id;
         self::assertNotSame('', $issuedAccountId);
 
-        /** @var Migration $migration */
         $migration = require database_path('migrations/2026_09_09_120900_add_native_game_evidence_state.php');
+        self::assertIsObject($migration);
+        $down = new ReflectionMethod($migration, 'down');
 
         try {
-            $migration->down();
+            $down->invoke($migration);
             self::fail('Activated native evidence identity state must not be destructively rolled back.');
         } catch (LogicException $exception) {
             self::assertStringContainsString('cannot be rolled back after activation', $exception->getMessage());
