@@ -31,6 +31,7 @@ function sanitizeUrl(rawUrl) {
 export function installDiagnostics(page) {
   const diagnostics = {
     testedSha,
+    browserName: page.context().browser()?.browserType().name() ?? null,
     consoleErrors: [],
     pageErrors: [],
     failedRequests: [],
