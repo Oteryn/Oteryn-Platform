@@ -9,6 +9,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 TOOL_PATH = ROOT / "scripts/github/merge_queue_enqueue.py"
 WORKFLOW_PATH = ROOT / ".github/workflows/merge-queue-enqueue.yml"
+DOC_PATH = ROOT / "docs/operations/MERGE_QUEUE_EXECUTOR.md"
+TASK_PATH = ROOT / "docs/agents/tasks/active/OTERYN-20260909-merge-queue-enqueue-executor.md"
 spec = importlib.util.spec_from_file_location("merge_queue_enqueue", TOOL_PATH)
 if spec is None or spec.loader is None:
     raise RuntimeError(f"unable to load {TOOL_PATH}")
@@ -195,6 +197,40 @@ class MergeQueueWorkflowContractTest(unittest.TestCase):
         self.assertNotIn("permission-pull-requests: write", text)
         self.assertNotIn("permissions: write-all", text)
         self.assertIn("if: ${{ github.ref == 'refs/heads/main' }}", text)
+
+
+class NativeMergeAsyncV31RedContractTest(unittest.TestCase):
+    """Protected RED for the META 3.1 native exact-head queue route."""
+
+    def test_executor_retires_graphql_enqueue_and_names_only_native_merge_async_route(self):
+        text = TOOL_PATH.read_text(encoding="utf-8")
+        self.assertIn("/merge-async", text)
+        self.assertIn("merge_action", text)
+        self.assertIn("merge_queue", text)
+        self.assertNotIn("enqueuePullRequest", text)
+        self.assertNotIn("expectedHeadOid", text)
+        self.assertNotIn("direct_merge", text)
+
+    def test_workflow_supports_connector_comment_trigger_and_rest_app_permission(self):
+        text = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", text)
+        self.assertIn("issue_comment:", text)
+        self.assertIn("permission-contents: write", text)
+        self.assertIn("permission-checks: read", text)
+        self.assertIn("permission-pull-requests: read", text)
+        self.assertNotIn("permission-merge-queues: write", text)
+        self.assertIn("author_association", text)
+        self.assertIn("OTERYN_MQ_APP_CLIENT_ID", text)
+        self.assertIn("OTERYN_MQ_APP_PRIVATE_KEY", text)
+
+    def test_documentation_and_active_task_are_rebound_to_meta_3_1(self):
+        docs = DOC_PATH.read_text(encoding="utf-8")
+        task = TASK_PATH.read_text(encoding="utf-8")
+        for text in (docs, task):
+            self.assertIn("merge-async", text)
+            self.assertIn("merge_queue", text)
+            self.assertNotIn("enqueuePullRequest", text)
+        self.assertIn("3.1", task)
 
 
 if __name__ == "__main__":
