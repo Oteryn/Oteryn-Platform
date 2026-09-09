@@ -66,11 +66,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-09T12:08:17Z
+updated_at: 2026-09-09T13:48:00Z
 head: UNKNOWN
 branch: coord/wp5-platform-native-evidence-1379
-pr: none
-status: implementing
+pr: 1381
+status: validating
 context_routes:
   - architecture
   - auth-identity
@@ -112,14 +112,30 @@ rejected_hypotheses:
   - reuse Passport/OAuth/Gateway/ticket credentials as native signing trust
   - store rollback witness only inside the same relational backup unit
 changed_paths:
-  - pending first implementation commit
+  - app/GameAuth/NativeEvidence/**
+  - app/Http/Controllers/GameAuth/NativeEvidenceController.php
+  - app/Http/Middleware/GameAuth/EnforceNativeEvidenceHttpBounds.php
+  - app/Http/Middleware/GameAuth/RequireNativeEvidenceMtlsPeer.php
+  - app/Http/Middleware/GameAuth/PreventSensitiveGameAuthResponseCaching.php
+  - app/Identity/Support/CanonicalAccountId.php
+  - app/Identity/Models/Identity.php
+  - app/Identity/Actions/RevokeIdentityGameAuthorizations.php
+  - config/game-auth.php
+  - routes/internal.php
+  - database/migrations/2026_09_09_120900_add_native_game_evidence_state.php
+  - tests/Feature/GameAuth/NativeEvidenceProducerTest.php
+  - docs/contracts/OTERYN_V2_NATIVE_EVIDENCE_PRODUCER_CONTRACT.md
+  - docs/agents/tasks/active/OTERYN-20260909-wp5-native-evidence-producer.md
 validation:
-  - command: not-run
-    result: NOT_RUN
-    evidence: exact branch candidate not committed yet
+  - command: php -l on every changed PHP file in the coherent candidate snapshot
+    result: PASS
+    evidence: all changed PHP files parsed successfully before Git data publication
+  - command: GitHub compare base 13e207d5e826b2a24513664d7b8b6dc5d918f9b0 to implementation head e97b6ef4628ef3505bb11ea7f8340fa33376b730
+    result: PASS
+    evidence: exactly 21 expected paths; zero placeholder or out-of-scope files
 blockers:
   - none
-next_action: publish the coherent implementation package on the dedicated branch and run exact-candidate focused validation
+next_action: run canonical exact-head CI and independent deep security/authority review on PR 1381
 ```
 
 ## Source branch closeout
