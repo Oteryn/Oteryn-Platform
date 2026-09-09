@@ -4,12 +4,25 @@ const NAVIGATION_CANCELLATION_FAILURES = new Set([
   'Load request cancelled',
 ]);
 
+const EXPECTED_HTTP_DUPLICATE_FAILURES = new Set([
+  '<unknown error>',
+]);
+
+const REQUEST_IDENTITY_PATTERN = /^[0-9a-f]{64}$/u;
+
 function diagnosticPath(rawUrl) {
   try {
     return new URL(rawUrl).pathname;
   } catch {
     return null;
   }
+}
+
+function requestIdentity(entry) {
+  return typeof entry?.requestIdentity === 'string'
+    && REQUEST_IDENTITY_PATTERN.test(entry.requestIdentity)
+    ? entry.requestIdentity
+    : null;
 }
 
 function matchesAllowance(allowance, entry) {
@@ -43,6 +56,7 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
     responseRemaining: entry.count,
     consoleRemaining: entry.count,
     matchedResponses: 0,
+    matchedResponseIdentities: [],
   }));
   const observedHttpErrors = Array.isArray(diagnostics.httpErrors)
     ? diagnostics.httpErrors
@@ -57,6 +71,10 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
     if (matchingAllowance) {
       matchingAllowance.responseRemaining -= 1;
       matchingAllowance.matchedResponses += 1;
+      const identity = requestIdentity(entry);
+      if (entry.method === 'GET' && identity !== null) {
+        matchingAllowance.matchedResponseIdentities.push(identity);
+      }
       continue;
     }
 
@@ -86,9 +104,37 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
     }
   }
 
-  const unexpectedFailedRequests = (diagnostics.failedRequests ?? []).filter((entry) => (
-    !NAVIGATION_CANCELLATION_FAILURES.has(entry.failure)
-  ));
+  const unexpectedFailedRequests = [];
+  for (const entry of diagnostics.failedRequests ?? []) {
+    if (NAVIGATION_CANCELLATION_FAILURES.has(entry.failure)) {
+      continue;
+    }
+
+    let duplicate = null;
+    const identity = requestIdentity(entry);
+    if (
+      diagnostics.browserName === 'firefox'
+      && entry.method === 'GET'
+      && EXPECTED_HTTP_DUPLICATE_FAILURES.has(entry.failure)
+      && identity !== null
+    ) {
+      for (const allowance of allowances) {
+        const matchIndex = allowance.matchedResponseIdentities.indexOf(identity);
+        if (matchIndex >= 0) {
+          duplicate = { allowance, matchIndex };
+          break;
+        }
+      }
+    }
+
+    if (duplicate) {
+      duplicate.allowance.matchedResponseIdentities.splice(duplicate.matchIndex, 1);
+      continue;
+    }
+
+    unexpectedFailedRequests.push(entry);
+  }
+
   const missingExpectedHttpFailures = allowances.filter((entry) => entry.responseRemaining > 0);
   const unexpected = Object.fromEntries(
     [
@@ -106,6 +152,9 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
 }
 
 export async function attachRuntimeDiagnostics(testInfo, diagnostics, testedSha) {
+  const browserName = testInfo.project?.use?.browserName;
+  diagnostics.browserName = typeof browserName === 'string' ? browserName : null;
+
   await testInfo.attach('exact-tested-sha', {
     body: Buffer.from(`${testedSha}\n`, 'utf8'),
     contentType: 'text/plain',

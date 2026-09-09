@@ -2,6 +2,7 @@
 
 namespace App\Identity\Models;
 
+use App\Identity\Support\CanonicalAccountId;
 use Illuminate\Auth\Passwords\CanResetPassword as CanResetPasswordTrait;
 use Illuminate\Contracts\Auth\CanResetPassword as CanResetPasswordContract;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -11,13 +12,16 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
 use Laravel\Passport\Contracts\OAuthenticatable;
 use Laravel\Passport\HasApiTokens;
+use LogicException;
 
 /**
  * @property int $id
+ * @property string $account_id
  * @property string $email
  * @property string $password
  * @property int $web_session_generation
  * @property int $game_auth_generation
+ * @property int $native_security_generation
  * @property Carbon|null $disabled_at
  * @property string|null $two_factor_secret
  * @property array<int, string>|null $two_factor_recovery_codes
@@ -58,6 +62,24 @@ final class Identity extends Authenticatable implements CanResetPasswordContract
         'two_factor_recovery_codes',
         'terminated_email_hash',
     ];
+
+    protected static function booted(): void
+    {
+        self::creating(function (Identity $identity): void {
+            if ($identity->getAttribute('account_id') !== null) {
+                throw new LogicException('Canonical AccountId is Platform-issued and cannot be supplied by a caller.');
+            }
+
+            $identity->setAttribute('account_id', CanonicalAccountId::generate());
+            $identity->setAttribute('native_security_generation', 1);
+        });
+
+        self::updating(function (Identity $identity): void {
+            if ($identity->isDirty('account_id')) {
+                throw new LogicException('Canonical AccountId is immutable.');
+            }
+        });
+    }
 
     /** @return HasMany<IdentityWebSession, $this> */
     public function webSessions(): HasMany
@@ -107,6 +129,7 @@ final class Identity extends Authenticatable implements CanResetPasswordContract
         return [
             'web_session_generation' => 'integer',
             'game_auth_generation' => 'integer',
+            'native_security_generation' => 'integer',
             'disabled_at' => 'datetime',
             'two_factor_secret' => 'encrypted',
             'two_factor_recovery_codes' => 'encrypted:array',
