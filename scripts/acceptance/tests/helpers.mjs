@@ -29,11 +29,21 @@ function sanitizeUrl(rawUrl) {
 }
 
 export function installDiagnostics(page) {
-  const requestIdentityKey = crypto.randomBytes(32);
-  const requestIdentity = (rawUrl) => crypto
-    .createHmac('sha256', requestIdentityKey)
-    .update(rawUrl, 'utf8')
-    .digest('hex');
+  const requestIdentities = new WeakMap();
+  const requestIdentity = (request) => {
+    if (request === null || (typeof request !== 'object' && typeof request !== 'function')) {
+      return null;
+    }
+
+    const existing = requestIdentities.get(request);
+    if (existing !== undefined) {
+      return existing;
+    }
+
+    const identity = crypto.randomBytes(32).toString('hex');
+    requestIdentities.set(request, identity);
+    return identity;
+  };
   const diagnostics = {
     testedSha,
     browserName: page.context().browser()?.browserType().name() ?? null,
@@ -63,7 +73,7 @@ export function installDiagnostics(page) {
     diagnostics.failedRequests.push({
       method: request.method(),
       url: sanitizeUrl(rawUrl),
-      requestIdentity: requestIdentity(rawUrl),
+      requestIdentity: requestIdentity(request),
       failure: request.failure()?.errorText ?? 'unknown',
     });
   });
@@ -71,8 +81,9 @@ export function installDiagnostics(page) {
   page.on('response', (response) => {
     if (response.status() >= 400) {
       const rawUrl = response.url();
-      const method = response.request().method();
-      const identity = requestIdentity(rawUrl);
+      const request = response.request();
+      const method = request.method();
+      const identity = requestIdentity(request);
       diagnostics.httpErrors.push({
         status: response.status(),
         method,
