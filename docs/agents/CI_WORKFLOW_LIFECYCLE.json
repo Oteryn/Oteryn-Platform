@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "workflow_budget": 53,
+  "workflow_budget": 54,
   "registered_workflows": [
     "acceptance-soak.yml",
     "acceptance-stability.yml",
@@ -32,6 +32,7 @@
     "game-gateway-ci.yml",
     "github-actions-storage-hygiene.yml",
     "historical-branch-audit.yml",
+    "merge-queue-enqueue.yml",
     "native-protocol-contract-audits.yml",
     "native-protocol-contract.yml",
     "oteryn-public-edge-validation.yml",
@@ -66,7 +67,9 @@
     "portal-exhaustive-audit.yml",
     "portal-exhaustive-trigger-coupling.yml"
   ],
-  "manual_only_workflows": [],
+  "manual_only_workflows": [
+    "merge-queue-enqueue.yml"
+  ],
   "creation_policy": {
     "default": "reuse_or_extend",
     "new_workflow_requires": [

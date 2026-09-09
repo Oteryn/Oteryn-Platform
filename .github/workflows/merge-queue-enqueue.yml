@@ -1,0 +1,54 @@
+name: Merge Queue Enqueue
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to enqueue
+        required: true
+        type: string
+      expected_head_sha:
+        description: Exact 40-character PR head SHA already qualified by platform-gate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: merge-queue-enqueue-${{ inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  enqueue:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact trusted workflow revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Mint repository-scoped Merge Queue App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.OTERYN_MQ_APP_CLIENT_ID }}
+          private-key: ${{ secrets.OTERYN_MQ_APP_PRIVATE_KEY }}
+          permission-checks: read
+          permission-pull-requests: read
+          permission-merge-queues: write
+
+      - name: Enqueue exact qualified pull request
+        env:
+          MQ_GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+        run: >-
+          python scripts/github/merge_queue_enqueue.py
+          --repository "$REPOSITORY"
+          --pr-number "$PR_NUMBER"
+          --expected-head-sha "$EXPECTED_HEAD_SHA"
