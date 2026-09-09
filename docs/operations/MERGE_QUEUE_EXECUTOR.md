@@ -1,22 +1,27 @@
-# Merge Queue enqueue executor (META 3.1)
+# Merge Queue enqueue executor (META native `merge-async`)
 
 ## Purpose and authority
 
-`.github/workflows/merge-queue-enqueue.yml` is the narrow repository-native path for submitting an already-qualified same-repository pull request to the protected `main` Merge Queue. Its only positive mutation is:
+`.github/workflows/merge-queue-enqueue.yml` is the narrow repository-native path for submitting an already-qualified same-repository pull request to protected `main` Merge Queue. Its only positive mutation is:
 
 `PUT /repos/Oteryn/Oteryn-Platform/pulls/{pr}/merge-async`
 
-The JSON body is exactly the qualified `sha` and explicit `merge_action: merge_queue`. The executor has no direct merge, default-action, generic auto-merge, GraphQL, dequeue, protection-bypass, or check-mutation fallback. This implements the immutable META 3.1 policy bound at `Oteryn/Oteryn@ed6c8c98605a7fbfea858e0ef616f89baa617262`.
+The JSON body is exactly the qualified `sha` and explicit `merge_action: merge_queue`. There is no direct merge, default-action, generic auto-merge, GraphQL, dequeue, protection-bypass, or check-mutation fallback.
 
-## One-time GitHub App bootstrap
+## Authentication: no custom GitHub App
 
-Create or reuse a dedicated GitHub App installed only on `Oteryn/Oteryn-Platform`, with these repository permissions (plus implicit metadata):
+Do **not** create a dedicated Oteryn GitHub App, App client ID, or private key for this executor.
 
-- **Contents: Write** — invoke native `merge-async` with `merge_action: merge_queue`;
-- **Checks: Read** — read the exact-head `platform-gate` check run;
-- **Pull requests: Read** — perform fresh preflight and post-request target readback.
+The workflow deliberately separates read authority from mutation authority:
 
-Configure repository variable `OTERYN_MQ_APP_CLIENT_ID` and repository secret `OTERYN_MQ_APP_PRIVATE_KEY`. Never record either credential value in Git, Issues, comments, logs, or task evidence. The pinned `actions/create-github-app-token` step requests only `permission-contents: write`, `permission-checks: read`, and `permission-pull-requests: read`, and revokes its short-lived installation token in the action post-step. Top-level `GITHUB_TOKEN` permissions remain read-only; it is not used for mutation because its event suppression would prevent the required independent `merge_group` workflow run.
+- `MQ_GITHUB_READ_TOKEN=${{ github.token }}` uses the built-in read-only `GITHUB_TOKEN` for PR identity, exact-head `platform-gate` preflight, and fresh PR target readback;
+- `MQ_GITHUB_MUTATION_TOKEN=${{ secrets.OTERYN_MQ_TOKEN }}` is a fine-grained personal access token used only for native `PUT .../merge-async` and `GET .../merge-async/{uuid}`.
+
+`OTERYN_MQ_TOKEN` must be fine-grained, scoped only to the repository(s) that need autonomous Merge Queue submission, and grant **Contents: Read and write** only unless GitHub changes the endpoint contract. The workflow does not use that token to read checks or PR metadata. Never record or echo its value in Git, Issues, comments, logs, artifacts, or task evidence.
+
+The built-in `GITHUB_TOKEN` must remain read-only and must not perform the queue mutation. GitHub suppresses most workflow runs caused by `GITHUB_TOKEN`; using it for queue admission could prevent the required independent `merge_group` workflow from being created. A fine-grained PAT is a supported credential for native `merge-async` and avoids any custom-App bootstrap.
+
+If `OTERYN_MQ_TOKEN` is absent or the token lacks the native endpoint capability, the executor fails closed as `BLOCKED_CAPABILITY_UNAVAILABLE`. It never selects another merge primitive.
 
 ## Invocation and preflight
 
@@ -25,22 +30,22 @@ Two invocation surfaces are supported:
 1. `workflow_dispatch` from `main`, with a positive `pr_number` and exact 40-hex `expected_head_sha`;
 2. a PR-conversation comment whose complete body is exactly `/oteryn-mq-enqueue <40-hex-head>`, authored with association exactly `OWNER`, `MEMBER`, or `COLLABORATOR`. The PR number comes only from `github.event.issue.number`.
 
-Non-PR issues, unauthorized associations, whitespace changes, malformed SHAs, and extra tokens do not start the mutation job. Both invocation paths then reject before mutation unless live state proves exact repository `Oteryn/Oteryn-Platform`, positive PR number, open/unmerged/non-draft state, same-repository head, `base=main`, exact qualified head, and the latest exact-head `platform-gate` is `completed/success`.
+Non-PR issues, unauthorized associations, whitespace changes, malformed SHAs, and extra tokens do not start mutation. Both invocation paths reject before mutation unless live read-only state proves exact repository `Oteryn/Oteryn-Platform`, positive PR number, open/unmerged/non-draft state, same-repository head, `base=main`, exact qualified head, and latest exact-head `platform-gate=completed/success`.
 
 ## Acceptance receipt and causal readback
 
-HTTP `202` means request acceptance only. The executor requires the server response to contain a canonical UUID, status, exact expected head, and explicit `merge_queue` action. It records those with repository, PR, base and a positive process-owned monotonic receipt sequence. The sequence is generated inside the executor and cannot be supplied by the workflow or caller.
+HTTP `202` means request acceptance only. The executor requires the server response to contain a canonical UUID, status, exact expected head, and explicit `merge_queue` action. It records those with repository, PR, base and a positive process-owned monotonic receipt sequence.
 
-Immediately afterward, the executor reads `GET /repos/{owner}/{repo}/pulls/{pr}/merge-async/{uuid}` and then freshly reads the PR target. The readback must bind the same UUID, repository and PR, `base=main`, unchanged exact head, and explicit `merge_queue`, with an executor sequence strictly greater than the receipt sequence. Missing/malformed/mismatched UUID, missing fields, equal/lower/boolean/nonpositive sequence, stale target, retarget, or head change fails closed. Timestamps may be supplemental bounded-freshness evidence only; they are not causal ordering.
+Immediately afterward, the mutation client reads `GET /repos/{owner}/{repo}/pulls/{pr}/merge-async/{uuid}` while the read-only client freshly reads the PR target. The readback must bind the same UUID, repository and PR, `base=main`, unchanged exact head, and explicit `merge_queue`, with an executor sequence strictly greater than the receipt sequence. Missing/malformed/mismatched UUID, invalid sequence, stale target, retarget, or head change fails closed.
 
-HTTP `200` and `409` are reconciliation-only. The executor performs the available live async and PR readbacks, reports `RECONCILIATION_REQUIRED`, and never fabricates a `202` acceptance receipt. HTTP `400` and `422` are precise request rejection. HTTP `403` and `404` are `BLOCKED_CAPABILITY_UNAVAILABLE`; capability or permission denial never selects another merge primitive.
+HTTP `200` and `409` are reconciliation-only. HTTP `400` and `422` are request rejection. HTTP `403` and `404` are `BLOCKED_CAPABILITY_UNAVAILABLE`. Queue admission is never integration proof.
 
 ## Completion boundary
 
-A receipt, pending async result, or queue admission is non-terminal. Do not close the task or claim integration until a later real `merge_group` aggregate `platform-gate` succeeds and protected `main` readback contains the integrated candidate. The executor never automatically dequeues an ambiguous request.
+Do not claim integration until a real `merge_group` aggregate `platform-gate` succeeds and protected `main` readback contains the integrated candidate. The executor never automatically dequeues an ambiguous request.
 
-PR #1382 on `fix/1363-native-merge-async-executor` is the bootstrap repair. It must remain Draft until its exact-head checks are green and must integrate through the existing protected Merge Queue route. After this implementation reaches protected `main`, a separate qualified provider PR must supply the remaining real native canary evidence: receipt UUID/sequence, strictly later readback, real `merge_group` gate, and protected-main integration readback.
+Historical bootstrap PR #1382 integrated the native `merge-async` implementation as protected `main@57b775a932ad24a7fad5d7c9120f725a4c451374`. Real canary PR #1383 then proved the exact comment trigger, authorization and exact-head qualification path but exposed the obsolete custom-App bootstrap before `merge-async` was called. The follow-up app-free repair must integrate normally, after which the same #1383 carrier is retried once to prove `202 + UUID + causal readback + merge_group + protected-main` end to end.
 
 ## Lifecycle
 
-The workflow is registered in `docs/agents/CI_WORKFLOW_LIFECYCLE.json`. It is no longer manual-only because its exact authorized PR-comment connector trigger supplements `workflow_dispatch`. Review or retire it if GitHub changes the native async contract, App-token permissions, event behavior, or if a protected replacement preserves every fail-closed and terminal-proof property above.
+The workflow remains registered in `docs/agents/CI_WORKFLOW_LIFECYCLE.json`. Review or retire it if GitHub changes native async authentication/event semantics or if a protected replacement preserves every fail-closed and terminal-proof property above.
