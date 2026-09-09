@@ -192,6 +192,7 @@ jobs:
 
       - name: Install acceptance system clients
         run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends mariadb-client redis-tools imagemagick
 
