@@ -250,6 +250,8 @@ def _readback(
     server_uuid: str,
     sequence: ExecutorSequence,
     prior_sequence: int,
+    *,
+    require_eligible_target: bool,
 ) -> Evidence:
     owner, name = pull.repository.split("/", 1)
     async_result = _response_body(client.rest(
@@ -265,7 +267,10 @@ def _readback(
 
     fresh_pull = _response_body(client.rest("GET", f"/repos/{owner}/{name}/pulls/{pull.number}"))
     try:
-        _validate_target(fresh_pull, pull.repository, pull.head_sha)
+        if require_eligible_target:
+            _validate_target(fresh_pull, pull.repository, pull.head_sha)
+        else:
+            _validate_target_identity(fresh_pull, pull.repository, pull.head_sha)
     except ValueError as exc:
         raise GitHubRequestError(f"post-submission target mismatch: {exc}") from exc
     readback_sequence = _sequence(sequence)
@@ -302,7 +307,10 @@ def submit_merge_queue(client: Client, pull: QualifiedPullRequest) -> Mapping[st
             pull.repository, pull.number, pull.base, pull.head_sha, action,
             status, server_uuid, receipt_sequence,
         )
-        readback = _readback(client, pull, server_uuid, sequence, receipt_sequence)
+        readback = _readback(
+            client, pull, server_uuid, sequence, receipt_sequence,
+            require_eligible_target=True,
+        )
         return {"result": "REQUEST_ACCEPTED_NON_TERMINAL", "receipt": asdict(receipt), "readback": asdict(readback)}
 
     # HTTP 200/409 never fabricates a new acceptance receipt. Reconcile live state only.
@@ -311,7 +319,10 @@ def submit_merge_queue(client: Client, pull: QualifiedPullRequest) -> Mapping[st
     readback = None
     if possible_uuid is not None:
         server_uuid = _valid_uuid(possible_uuid)
-        readback = asdict(_readback(client, pull, server_uuid, sequence, 0))
+        readback = asdict(_readback(
+            client, pull, server_uuid, sequence, 0,
+            require_eligible_target=False,
+        ))
     else:
         fresh = _response_body(client.rest("GET", f"/repos/{owner}/{name}/pulls/{pull.number}"))
         _validate_target_identity(fresh, pull.repository, pull.head_sha)
