@@ -40,7 +40,7 @@ modules:
   - repository integration control plane
 dependencies:
   - protected native merge-async implementation from PR #1382 at main@57b775a932ad24a7fad5d7c9120f725a4c451374
-  - one fine-grained OTERY_N/A token secret named OTERYN_MQ_TOKEN with selected-repository Contents write authority
+  - one fine-grained PAT secret named OTERYN_MQ_TOKEN with selected-repository Contents write authority
 blockers:
   - secret value cannot be created or inspected by repository code or the connected GitHub surface
 cross_repository_tasks:
