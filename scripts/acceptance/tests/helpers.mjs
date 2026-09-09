@@ -328,7 +328,7 @@ export async function assertAccessibilitySmoke(page) {
         || element.getAttribute('aria-label')
         || element.getAttribute('title')
         || '';
-      if (!name) findings.push(`unnamed-interactive:${element.tagName.toLowerCase()}#${element.id || 'no-id'}`);
+      if (!name) findings.push(`unnamed-interactive:${element.tagName.toLowerCase()}`);
     }
 
     if (document.documentElement.scrollWidth > window.innerWidth + 1) {
