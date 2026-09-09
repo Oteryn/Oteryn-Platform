@@ -45,7 +45,7 @@ class Client(Protocol):
 class GitHubClient:
     def __init__(self, token: str, api_url: str = "https://api.github.com") -> None:
         if not token.strip():
-            raise ValueError("GitHub App installation token is required")
+            raise ValueError("GitHub token is required")
         self.token = token.strip()
         self.api_url = api_url.rstrip("/")
 
@@ -171,7 +171,6 @@ def _validate_target(pull: Mapping[str, Any], repository: str, expected_head_sha
 def _validate_target_identity(
     pull: Mapping[str, Any], repository: str, expected_head_sha: str
 ) -> None:
-    """Bind target identity during reconciliation without pretending it is still eligible."""
     base = pull.get("base")
     head = pull.get("head")
     if not isinstance(base, dict) or base.get("ref") != EXPECTED_BASE:
@@ -245,7 +244,8 @@ def _sequence(sequence: ExecutorSequence) -> int:
 
 
 def _readback(
-    client: Client,
+    async_client: Client,
+    target_client: Client,
     pull: QualifiedPullRequest,
     server_uuid: str,
     sequence: ExecutorSequence,
@@ -254,7 +254,7 @@ def _readback(
     require_eligible_target: bool,
 ) -> Evidence:
     owner, name = pull.repository.split("/", 1)
-    async_result = _response_body(client.rest(
+    async_result = _response_body(async_client.rest(
         "GET", f"/repos/{owner}/{name}/pulls/{pull.number}/merge-async/{server_uuid}"
     ))
     status, readback_uuid, action, head = _server_fields(async_result, require_uuid=True)
@@ -265,7 +265,7 @@ def _readback(
     if head != pull.head_sha:
         raise GitHubRequestError("merge-async readback head does not match qualified head")
 
-    fresh_pull = _response_body(client.rest("GET", f"/repos/{owner}/{name}/pulls/{pull.number}"))
+    fresh_pull = _response_body(target_client.rest("GET", f"/repos/{owner}/{name}/pulls/{pull.number}"))
     try:
         if require_eligible_target:
             _validate_target(fresh_pull, pull.repository, pull.head_sha)
@@ -282,10 +282,16 @@ def _readback(
     )
 
 
-def submit_merge_queue(client: Client, pull: QualifiedPullRequest) -> Mapping[str, Any]:
+def submit_merge_queue(
+    mutation_client: Client,
+    pull: QualifiedPullRequest,
+    *,
+    target_client: Client | None = None,
+) -> Mapping[str, Any]:
+    target_client = target_client or mutation_client
     sequence = ExecutorSequence()
     owner, name = pull.repository.split("/", 1)
-    response = client.rest(
+    response = mutation_client.rest(
         "PUT",
         f"/repos/{owner}/{name}/pulls/{pull.number}/merge-async",
         body={"sha": pull.head_sha, "merge_action": MERGE_ACTION},
@@ -308,23 +314,22 @@ def submit_merge_queue(client: Client, pull: QualifiedPullRequest) -> Mapping[st
             status, server_uuid, receipt_sequence,
         )
         readback = _readback(
-            client, pull, server_uuid, sequence, receipt_sequence,
+            mutation_client, target_client, pull, server_uuid, sequence, receipt_sequence,
             require_eligible_target=True,
         )
         return {"result": "REQUEST_ACCEPTED_NON_TERMINAL", "receipt": asdict(receipt), "readback": asdict(readback)}
 
-    # HTTP 200/409 never fabricates a new acceptance receipt. Reconcile live state only.
     details = response.body.get("details")
     possible_uuid = details.get("uuid") if isinstance(details, dict) else None
     readback = None
     if possible_uuid is not None:
         server_uuid = _valid_uuid(possible_uuid)
         readback = asdict(_readback(
-            client, pull, server_uuid, sequence, 0,
+            mutation_client, target_client, pull, server_uuid, sequence, 0,
             require_eligible_target=False,
         ))
     else:
-        fresh = _response_body(client.rest("GET", f"/repos/{owner}/{name}/pulls/{pull.number}"))
+        fresh = _response_body(target_client.rest("GET", f"/repos/{owner}/{name}/pulls/{pull.number}"))
         _validate_target_identity(fresh, pull.repository, pull.head_sha)
     return {
         "result": "RECONCILIATION_REQUIRED",
@@ -346,15 +351,19 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     try:
-        client = GitHubClient(
-            os.environ.get("MQ_GITHUB_TOKEN", ""),
-            os.environ.get("GITHUB_API_URL", "https://api.github.com"),
-        )
+        api_url = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+        read_client = GitHubClient(os.environ.get("MQ_GITHUB_READ_TOKEN", ""), api_url)
+        mutation_token = os.environ.get("MQ_GITHUB_MUTATION_TOKEN", "")
+        if not mutation_token.strip():
+            raise GitHubRequestError(
+                "BLOCKED_CAPABILITY_UNAVAILABLE: OTERYN_MQ_TOKEN is not configured"
+            )
+        mutation_client = GitHubClient(mutation_token, api_url)
         pull = qualify_pull_request(
-            client, repository=args.repository, pr_number=args.pr_number,
+            read_client, repository=args.repository, pr_number=args.pr_number,
             expected_head_sha=args.expected_head_sha,
         )
-        result = submit_merge_queue(client, pull)
+        result = submit_merge_queue(mutation_client, pull, target_client=read_client)
     except (ValueError, GitHubRequestError) as exc:
         print(f"Merge Queue enqueue rejected: {exc}", file=sys.stderr)
         return 1
