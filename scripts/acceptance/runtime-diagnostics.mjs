@@ -72,7 +72,7 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
       matchingAllowance.responseRemaining -= 1;
       matchingAllowance.matchedResponses += 1;
       const identity = requestIdentity(entry);
-      if (identity !== null) {
+      if (entry.method === 'GET' && identity !== null) {
         matchingAllowance.matchedResponseIdentities.push(identity);
       }
       continue;
