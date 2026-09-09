@@ -4,6 +4,10 @@ const NAVIGATION_CANCELLATION_FAILURES = new Set([
   'Load request cancelled',
 ]);
 
+const EXPECTED_HTTP_DUPLICATE_FAILURES = new Set([
+  '<unknown error>',
+]);
+
 function diagnosticPath(rawUrl) {
   try {
     return new URL(rawUrl).pathname;
@@ -42,6 +46,7 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
     ...entry,
     responseRemaining: entry.count,
     consoleRemaining: entry.count,
+    failedRequestRemaining: 0,
     matchedResponses: 0,
   }));
   const observedHttpErrors = Array.isArray(diagnostics.httpErrors)
@@ -56,6 +61,7 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
     ));
     if (matchingAllowance) {
       matchingAllowance.responseRemaining -= 1;
+      matchingAllowance.failedRequestRemaining += 1;
       matchingAllowance.matchedResponses += 1;
       continue;
     }
@@ -86,9 +92,29 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
     }
   }
 
-  const unexpectedFailedRequests = (diagnostics.failedRequests ?? []).filter((entry) => (
-    !NAVIGATION_CANCELLATION_FAILURES.has(entry.failure)
-  ));
+  const unexpectedFailedRequests = [];
+  for (const entry of diagnostics.failedRequests ?? []) {
+    if (NAVIGATION_CANCELLATION_FAILURES.has(entry.failure)) {
+      continue;
+    }
+
+    const pathname = diagnosticPath(entry.url);
+    const allowance = entry.method === 'GET' && EXPECTED_HTTP_DUPLICATE_FAILURES.has(entry.failure)
+      ? allowances.find((candidate) => (
+        candidate.pathname === pathname
+          && candidate.matchedResponses > 0
+          && candidate.failedRequestRemaining > 0
+      ))
+      : null;
+
+    if (allowance) {
+      allowance.failedRequestRemaining -= 1;
+      continue;
+    }
+
+    unexpectedFailedRequests.push(entry);
+  }
+
   const missingExpectedHttpFailures = allowances.filter((entry) => entry.responseRemaining > 0);
   const unexpected = Object.fromEntries(
     [
