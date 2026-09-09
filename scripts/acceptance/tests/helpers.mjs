@@ -29,6 +29,11 @@ function sanitizeUrl(rawUrl) {
 }
 
 export function installDiagnostics(page) {
+  const requestIdentityKey = crypto.randomBytes(32);
+  const requestIdentity = (rawUrl) => crypto
+    .createHmac('sha256', requestIdentityKey)
+    .update(rawUrl, 'utf8')
+    .digest('hex');
   const diagnostics = {
     testedSha,
     browserName: page.context().browser()?.browserType().name() ?? null,
@@ -54,25 +59,31 @@ export function installDiagnostics(page) {
   });
 
   page.on('requestfailed', (request) => {
+    const rawUrl = request.url();
     diagnostics.failedRequests.push({
       method: request.method(),
-      url: sanitizeUrl(request.url()),
+      url: sanitizeUrl(rawUrl),
+      requestIdentity: requestIdentity(rawUrl),
       failure: request.failure()?.errorText ?? 'unknown',
     });
   });
 
   page.on('response', (response) => {
     if (response.status() >= 400) {
+      const rawUrl = response.url();
+      const identity = requestIdentity(rawUrl);
       diagnostics.httpErrors.push({
         status: response.status(),
-        url: sanitizeUrl(response.url()),
+        url: sanitizeUrl(rawUrl),
+        requestIdentity: identity,
       });
-    }
-    if (response.status() >= 500) {
-      diagnostics.serverErrors.push({
-        status: response.status(),
-        url: sanitizeUrl(response.url()),
-      });
+      if (response.status() >= 500) {
+        diagnostics.serverErrors.push({
+          status: response.status(),
+          url: sanitizeUrl(rawUrl),
+          requestIdentity: identity,
+        });
+      }
     }
   });
 
@@ -317,7 +328,7 @@ export async function assertAccessibilitySmoke(page) {
         || element.getAttribute('aria-label')
         || element.getAttribute('title')
         || '';
-      if (!name) findings.push(`unnamed-interactive:${element.tagName.toLowerCase()}`);
+      if (!name) findings.push(`unnamed-interactive:${element.tagName.toLowerCase()}#${element.id || 'no-id'}`);
     }
 
     if (document.documentElement.scrollWidth > window.innerWidth + 1) {
