@@ -57,7 +57,7 @@ final class NativeEvidenceProducerTest extends TestCase
 
         self::assertTrue(CanonicalAccountId::isValid($identity->account_id));
         self::assertSame(1, $identity->native_security_generation);
-        self::assertSame(0, $identity->game_auth_generation);
+        self::assertSame(0, $identity->refresh()->game_auth_generation);
 
         $identity->forceFill(['account_id' => CanonicalAccountId::generate()]);
         $this->expectException(LogicException::class);
@@ -80,7 +80,8 @@ final class NativeEvidenceProducerTest extends TestCase
             'account_id' => $identity->account_id,
             'purpose' => 'platform_security',
             'scope' => 'fresh_admission',
-        ])->assertOk()->assertHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+        ])->assertOk();
+        $this->assertSensitiveResponseIsNotCacheable($fresh);
 
         $fresh->assertExactJson([
             'version' => 1,
@@ -294,7 +295,11 @@ final class NativeEvidenceProducerTest extends TestCase
         ]);
         self::assertSame([], glob($this->witnessDirectory.'/*.floor') ?: []);
 
-        $this->postJson('/internal/v1/game-auth/native-evidence', $this->freshAccountRequest($unknown))
+        $this->withServerVariables([
+            'SSL_CLIENT_VERIFY' => '',
+            'SSL_PROTOCOL' => '',
+            'SSL_CLIENT_S_DN' => '',
+        ])->postJson('/internal/v1/game-auth/native-evidence', $this->freshAccountRequest($unknown))
             ->assertUnauthorized()
             ->assertContent('');
 
@@ -485,6 +490,21 @@ final class NativeEvidenceProducerTest extends TestCase
             $this->peerServer(),
             $raw,
         );
+    }
+
+    /**
+     * @param  TestResponse<Response>  $response
+     */
+    private function assertSensitiveResponseIsNotCacheable(TestResponse $response): void
+    {
+        $cacheControl = (string) $response->headers->get('Cache-Control');
+
+        self::assertStringContainsString('no-store', $cacheControl);
+        self::assertStringContainsString('no-cache', $cacheControl);
+        self::assertStringContainsString('must-revalidate', $cacheControl);
+        self::assertStringContainsString('private', $cacheControl);
+        $response->assertHeader('Pragma', 'no-cache')
+            ->assertHeader('Expires', '0');
     }
 
     private function integerValue(mixed $value): int
