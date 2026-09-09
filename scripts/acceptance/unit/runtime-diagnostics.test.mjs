@@ -88,6 +88,7 @@ test('installDiagnostics exposes exact browser identity to direct assertion path
   const addExpectedDuplicate = (state) => {
     state.httpErrors.push({
       status: 404,
+      method: 'GET',
       url: 'http://127.0.0.1:8080/missing',
       requestIdentity: REQUEST_IDENTITY_A,
     });
@@ -150,6 +151,7 @@ test('Firefox duplicate request failure consumes only the exact matched response
     browserName: 'firefox',
     httpErrors: [{
       status: 404,
+      method: 'GET',
       url: 'http://127.0.0.1:8080/missing',
       requestIdentity: REQUEST_IDENTITY_A,
     }],
@@ -177,6 +179,7 @@ test('Firefox duplicate suppression rejects a different origin with the same pat
     browserName: 'firefox',
     httpErrors: [{
       status: 404,
+      method: 'GET',
       url: 'http://127.0.0.1:8080/missing',
       requestIdentity: REQUEST_IDENTITY_A,
     }],
@@ -201,9 +204,10 @@ test('installed diagnostics preserve secret-safe query identity for Firefox dupl
     };
     return { state: acceptanceHelpers.installDiagnostics(page), handlers };
   };
-  const emitResponse = (handlers, rawUrl) => handlers.get('response')({
+  const emitResponse = (handlers, rawUrl, method = 'GET') => handlers.get('response')({
     status: () => 404,
     url: () => rawUrl,
+    request: () => ({ method: () => method }),
   });
   const emitFailure = (handlers, rawUrl) => handlers.get('requestfailed')({
     method: () => 'GET',
@@ -230,8 +234,19 @@ test('installed diagnostics preserve secret-safe query identity for Firefox dupl
   emitResponse(exact.handlers, 'http://127.0.0.1:8080/missing?id=1');
   emitFailure(exact.handlers, 'http://127.0.0.1:8080/missing?id=1');
   acceptanceHelpers.allowExpectedHttpFailure(exact.state, { status: 404, pathname: '/missing' });
+  assert.equal(exact.state.httpErrors[0].method, 'GET');
   assert.equal(exact.state.httpErrors[0].requestIdentity, exact.state.failedRequests[0].requestIdentity);
   assert.doesNotThrow(() => acceptanceHelpers.assertNoUnexpectedRuntimeFailures(exact.state));
+
+  const wrongResponseMethod = install();
+  emitResponse(wrongResponseMethod.handlers, 'http://127.0.0.1:8080/missing?id=1', 'POST');
+  emitFailure(wrongResponseMethod.handlers, 'http://127.0.0.1:8080/missing?id=1');
+  acceptanceHelpers.allowExpectedHttpFailure(wrongResponseMethod.state, { status: 404, pathname: '/missing' });
+  assert.equal(wrongResponseMethod.state.httpErrors[0].method, 'POST');
+  assert.throws(
+    () => acceptanceHelpers.assertNoUnexpectedRuntimeFailures(wrongResponseMethod.state),
+    /Unexpected browser\/runtime failures/u,
+  );
 });
 
 test('Firefox duplicate suppression remains fail-closed for method, failure and missing identity', () => {
@@ -244,6 +259,7 @@ test('Firefox duplicate suppression remains fail-closed for method, failure and 
       browserName: 'firefox',
       httpErrors: [{
         status: 404,
+        method: 'GET',
         url: 'http://127.0.0.1:8080/missing',
         requestIdentity: REQUEST_IDENTITY_A,
       }],
@@ -262,6 +278,7 @@ test('non-Firefox unknown request failures remain fatal even after an expected r
     browserName: 'chromium',
     httpErrors: [{
       status: 404,
+      method: 'GET',
       url: 'http://127.0.0.1:8080/missing',
       requestIdentity: REQUEST_IDENTITY_A,
     }],
