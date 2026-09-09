@@ -295,16 +295,18 @@ final class NativeEvidenceProducerTest extends TestCase
         ]);
         self::assertSame([], glob($this->witnessDirectory.'/*.floor') ?: []);
 
-        $this->withServerVariables([
+        $unauthorized = $this->withServerVariables([
             'SSL_CLIENT_VERIFY' => '',
             'SSL_PROTOCOL' => '',
             'SSL_CLIENT_S_DN' => '',
         ])->postJson('/internal/v1/game-auth/native-evidence', $this->freshAccountRequest($unknown))
             ->assertUnauthorized()
             ->assertContent('');
+        $this->assertSensitiveResponseIsNotCacheable($unauthorized);
 
         $raw = '{"version":1,"operation":"ReadAccountSecurityV1","operation":"ReadAccountSecurityV1","account_id":"'.$unknown.'","purpose":"platform_security","scope":"fresh_admission"}';
-        $this->rawEvidence($raw)->assertStatus(400)->assertContent('');
+        $malformed = $this->rawEvidence($raw)->assertStatus(400)->assertContent('');
+        $this->assertSensitiveResponseIsNotCacheable($malformed);
     }
 
     public function test_missing_source_witness_and_invalid_private_boundary_inputs_fail_closed(): void
@@ -330,9 +332,10 @@ final class NativeEvidenceProducerTest extends TestCase
             ->assertUnauthorized()
             ->assertContent('');
 
-        $this->rawEvidence(str_repeat(' ', NativeEvidenceContract::MAX_REQUEST_BYTES + 1))
+        $oversize = $this->rawEvidence(str_repeat(' ', NativeEvidenceContract::MAX_REQUEST_BYTES + 1))
             ->assertStatus(413)
             ->assertContent('');
+        $this->assertSensitiveResponseIsNotCacheable($oversize);
 
         $extra = $request;
         $extra['unexpected'] = 'value';
