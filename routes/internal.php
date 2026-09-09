@@ -22,7 +22,7 @@ Route::get('/internal/v1/game-auth/accounts/{canaryAccountId}/login-context', Ga
 
 Route::post('/internal/v1/game-auth/native-evidence', NativeEvidenceController::class)
     ->middleware([
+        PreventSensitiveGameAuthResponseCaching::class,
         RequireNativeEvidenceMtlsPeer::class,
         EnforceNativeEvidenceHttpBounds::class,
-        PreventSensitiveGameAuthResponseCaching::class,
     ]);
