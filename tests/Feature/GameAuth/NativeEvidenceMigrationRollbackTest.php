@@ -3,6 +3,7 @@
 namespace Tests\Feature\GameAuth;
 
 use App\Identity\Models\Identity;
+use Illuminate\Database\Migrations\Migration;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
@@ -22,9 +23,9 @@ final class NativeEvidenceMigrationRollbackTest extends TestCase
             'password' => Hash::make('correct horse battery staple'),
         ]);
         $issuedAccountId = $identity->account_id;
-        self::assertIsString($issuedAccountId);
         self::assertNotSame('', $issuedAccountId);
 
+        /** @var Migration $migration */
         $migration = require database_path('migrations/2026_09_09_120900_add_native_game_evidence_state.php');
 
         try {
