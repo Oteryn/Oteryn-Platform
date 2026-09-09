@@ -222,6 +222,21 @@ class MergeAsyncContractTest(unittest.TestCase):
         self.assertIsNone(result["receipt"])
         self.assertEqual(2, client.pull_reads)
 
+    def test_200_or_409_with_uuid_reconciles_identity_after_pr_completes(self):
+        completed = pull_payload(state="closed", merged=True)
+        for status in (200, 409):
+            with self.subTest(status=status):
+                result = self.submit(FakeClient(
+                    submit_status=status,
+                    submit=async_payload(status="enqueued"),
+                    post_pull=completed,
+                ))
+                self.assertEqual("RECONCILIATION_REQUIRED", result["result"])
+                self.assertEqual(status, result["http_status"])
+                self.assertFalse(result["accepted"])
+                self.assertIsNone(result["receipt"])
+                self.assertEqual(UUID, result["readback"]["server_uuid"])
+
     def test_409_with_existing_uuid_is_live_nonterminal_reconciliation(self):
         result = self.submit(FakeClient(submit_status=409))
         self.assertEqual("RECONCILIATION_REQUIRED", result["result"])
