@@ -73,6 +73,52 @@ test('attachDiagnostics records the exact Playwright browser before enforcing th
   assert.equal(state.browserName, 'firefox');
 });
 
+test('installDiagnostics exposes exact browser identity to direct assertion paths', async () => {
+  const acceptanceHelpers = await import('../tests/helpers.mjs');
+  const pageFor = (browserName) => ({
+    context: () => ({
+      browser: () => browserName === null
+        ? null
+        : { browserType: () => ({ name: () => browserName }) },
+    }),
+    on: () => {},
+  });
+  const addExpectedDuplicate = (state) => {
+    state.httpErrors.push({ status: 404, url: 'http://127.0.0.1:8080/missing' });
+    state.failedRequests.push({
+      method: 'GET',
+      url: 'http://127.0.0.1:8080/missing',
+      failure: '<unknown error>',
+    });
+    acceptanceHelpers.allowExpectedHttpFailure(state, { status: 404, pathname: '/missing' });
+  };
+
+  const firefox = acceptanceHelpers.installDiagnostics(pageFor('firefox'));
+  assert.equal(firefox.browserName, 'firefox');
+  addExpectedDuplicate(firefox);
+  assert.doesNotThrow(() => acceptanceHelpers.assertNoUnexpectedRuntimeFailures(firefox));
+
+  firefox.failedRequests.push({
+    method: 'GET',
+    url: 'http://127.0.0.1:8080/missing',
+    failure: '<unknown error>',
+  });
+  assert.throws(
+    () => acceptanceHelpers.assertNoUnexpectedRuntimeFailures(firefox),
+    /Unexpected browser\/runtime failures/u,
+  );
+
+  for (const browserName of ['chromium', 'webkit', null]) {
+    const state = acceptanceHelpers.installDiagnostics(pageFor(browserName));
+    assert.equal(state.browserName, browserName);
+    addExpectedDuplicate(state);
+    assert.throws(
+      () => acceptanceHelpers.assertNoUnexpectedRuntimeFailures(state),
+      /Unexpected browser\/runtime failures/u,
+    );
+  }
+});
+
 test('navigation aborts are ignored but real request failures remain fatal', () => {
   assert.doesNotThrow(() => helpers.assertNoUnexpectedRuntimeFailures(diagnostics({
     failedRequests: [{
