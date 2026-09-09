@@ -35,7 +35,8 @@ final class NativeEvidenceHighWaterWitness
 
         $floorPath = $realDirectory.DIRECTORY_SEPARATOR.$namespaceHash.'.floor';
         $lock = @fopen($floorPath.'.lock', 'c+b');
-        if (! is_resource($lock) || !@flock($lock, LOCK_EX | LOCK_NB)) {
+        $locked = is_resource($lock) ? @flock($lock, LOCK_EX | LOCK_NB) : false;
+        if (! is_resource($lock) || $locked !== true) {
             if (is_resource($lock)) {
                 fclose($lock);
             }
@@ -130,7 +131,8 @@ final class NativeEvidenceHighWaterWitness
         }
         fclose($handle);
 
-        if (!@rename($temporary, $path)) {
+        $installed = @rename($temporary, $path);
+        if ($installed !== true) {
             @unlink($temporary);
             throw new NativeEvidenceUnavailable('Native evidence high-water witness cannot be installed.');
         }
@@ -141,7 +143,8 @@ final class NativeEvidenceHighWaterWitness
                 throw new NativeEvidenceUnavailable('Native evidence high-water directory cannot be synchronized.');
             }
             try {
-                if (!@fsync($directory)) {
+                $synced = @fsync($directory);
+                if ($synced !== true) {
                     throw new NativeEvidenceUnavailable('Native evidence high-water directory cannot be synchronized.');
                 }
             } finally {
