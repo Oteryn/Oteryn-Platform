@@ -7,13 +7,12 @@ use App\GameAuth\NativeEvidence\NativeEvidenceContract;
 use App\GameAuth\NativeEvidence\NativeEvidenceRequestDecoder;
 use App\GameAuth\NativeEvidence\NativeEvidenceSource;
 use App\GameAuth\NativeEvidence\NativeEvidenceUnavailable;
-use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\Response;
 
-final class NativeEvidenceController extends Controller
+final class NativeEvidenceController
 {
     public function __invoke(
         Request $request,
