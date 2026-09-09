@@ -11,13 +11,13 @@ final class NativeEvidenceCapacity
     {
         $directory = config('game-auth.native_evidence.high_water_directory');
         $realDirectory = is_string($directory) ? realpath($directory) : false;
-        if (! is_string($realDirectory) || ! is_dir($realDirectory) || ! is_writable($realDirectory)) {
+        if (is_string($realDirectory) === false || is_dir($realDirectory) === false || is_writable($realDirectory) === false) {
             throw new NativeEvidenceUnavailable('Native evidence capacity state is unavailable.');
         }
 
         for ($slot = 0; $slot < 2; $slot++) {
             $handle = @fopen($realDirectory.DIRECTORY_SEPARATOR."pipeline-{$slot}.lock", 'c+b');
-            if (! is_resource($handle)) {
+            if (is_resource($handle) === false) {
                 continue;
             }
 
