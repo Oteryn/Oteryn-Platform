@@ -8,12 +8,21 @@ const EXPECTED_HTTP_DUPLICATE_FAILURES = new Set([
   '<unknown error>',
 ]);
 
+const REQUEST_IDENTITY_PATTERN = /^[0-9a-f]{64}$/u;
+
 function diagnosticPath(rawUrl) {
   try {
     return new URL(rawUrl).pathname;
   } catch {
     return null;
   }
+}
+
+function requestIdentity(entry) {
+  return typeof entry?.requestIdentity === 'string'
+    && REQUEST_IDENTITY_PATTERN.test(entry.requestIdentity)
+    ? entry.requestIdentity
+    : null;
 }
 
 function matchesAllowance(allowance, entry) {
@@ -47,7 +56,7 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
     responseRemaining: entry.count,
     consoleRemaining: entry.count,
     matchedResponses: 0,
-    matchedResponseUrls: [],
+    matchedResponseIdentities: [],
   }));
   const observedHttpErrors = Array.isArray(diagnostics.httpErrors)
     ? diagnostics.httpErrors
@@ -62,7 +71,10 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
     if (matchingAllowance) {
       matchingAllowance.responseRemaining -= 1;
       matchingAllowance.matchedResponses += 1;
-      matchingAllowance.matchedResponseUrls.push(entry.url);
+      const identity = requestIdentity(entry);
+      if (identity !== null) {
+        matchingAllowance.matchedResponseIdentities.push(identity);
+      }
       continue;
     }
 
@@ -99,13 +111,15 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
     }
 
     let duplicate = null;
+    const identity = requestIdentity(entry);
     if (
       diagnostics.browserName === 'firefox'
       && entry.method === 'GET'
       && EXPECTED_HTTP_DUPLICATE_FAILURES.has(entry.failure)
+      && identity !== null
     ) {
       for (const allowance of allowances) {
-        const matchIndex = allowance.matchedResponseUrls.indexOf(entry.url);
+        const matchIndex = allowance.matchedResponseIdentities.indexOf(identity);
         if (matchIndex >= 0) {
           duplicate = { allowance, matchIndex };
           break;
@@ -114,7 +128,7 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
     }
 
     if (duplicate) {
-      duplicate.allowance.matchedResponseUrls.splice(duplicate.matchIndex, 1);
+      duplicate.allowance.matchedResponseIdentities.splice(duplicate.matchIndex, 1);
       continue;
     }
 
