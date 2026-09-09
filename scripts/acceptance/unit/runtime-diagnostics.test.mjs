@@ -194,7 +194,7 @@ test('Firefox duplicate suppression rejects a different origin with the same pat
   assert.throws(() => helpers.assertNoUnexpectedRuntimeFailures(state), /Unexpected browser\/runtime failures/u);
 });
 
-test('installed diagnostics preserve secret-safe query identity for Firefox duplicate matching', async () => {
+test('installed diagnostics preserve secret-safe per-request identity for Firefox duplicate matching', async () => {
   const acceptanceHelpers = await import('../tests/helpers.mjs');
   const install = () => {
     const handlers = new Map();
@@ -204,43 +204,66 @@ test('installed diagnostics preserve secret-safe query identity for Firefox dupl
     };
     return { state: acceptanceHelpers.installDiagnostics(page), handlers };
   };
-  const emitResponse = (handlers, rawUrl, method = 'GET') => handlers.get('response')({
-    status: () => 404,
-    url: () => rawUrl,
-    request: () => ({ method: () => method }),
-  });
-  const emitFailure = (handlers, rawUrl) => handlers.get('requestfailed')({
-    method: () => 'GET',
+  const requestFor = (rawUrl, method = 'GET') => ({
+    method: () => method,
     url: () => rawUrl,
     failure: () => ({ errorText: '<unknown error>' }),
   });
+  const emitResponse = (handlers, request) => handlers.get('response')({
+    status: () => 404,
+    url: () => request.url(),
+    request: () => request,
+  });
+  const emitFailure = (handlers, request) => handlers.get('requestfailed')(request);
 
-  const mismatched = install();
-  emitResponse(mismatched.handlers, 'http://127.0.0.1:8080/missing?id=1');
-  emitFailure(mismatched.handlers, 'http://127.0.0.1:8080/missing?id=2');
-  acceptanceHelpers.allowExpectedHttpFailure(mismatched.state, { status: 404, pathname: '/missing' });
-  assert.equal(mismatched.state.httpErrors[0].url, 'http://127.0.0.1:8080/missing');
-  assert.equal(mismatched.state.failedRequests[0].url, 'http://127.0.0.1:8080/missing');
+  const mismatchedQuery = install();
+  const queryResponseRequest = requestFor('http://127.0.0.1:8080/missing?id=1');
+  const queryFailureRequest = requestFor('http://127.0.0.1:8080/missing?id=2');
+  emitResponse(mismatchedQuery.handlers, queryResponseRequest);
+  emitFailure(mismatchedQuery.handlers, queryFailureRequest);
+  acceptanceHelpers.allowExpectedHttpFailure(mismatchedQuery.state, { status: 404, pathname: '/missing' });
+  assert.equal(mismatchedQuery.state.httpErrors[0].url, 'http://127.0.0.1:8080/missing');
+  assert.equal(mismatchedQuery.state.failedRequests[0].url, 'http://127.0.0.1:8080/missing');
   assert.notEqual(
-    mismatched.state.httpErrors[0].requestIdentity,
-    mismatched.state.failedRequests[0].requestIdentity,
+    mismatchedQuery.state.httpErrors[0].requestIdentity,
+    mismatchedQuery.state.failedRequests[0].requestIdentity,
   );
   assert.throws(
-    () => acceptanceHelpers.assertNoUnexpectedRuntimeFailures(mismatched.state),
+    () => acceptanceHelpers.assertNoUnexpectedRuntimeFailures(mismatchedQuery.state),
     /Unexpected browser\/runtime failures/u,
   );
 
   const exact = install();
-  emitResponse(exact.handlers, 'http://127.0.0.1:8080/missing?id=1');
-  emitFailure(exact.handlers, 'http://127.0.0.1:8080/missing?id=1');
+  const exactRequest = requestFor('http://127.0.0.1:8080/missing?id=1');
+  emitResponse(exact.handlers, exactRequest);
+  emitFailure(exact.handlers, exactRequest);
   acceptanceHelpers.allowExpectedHttpFailure(exact.state, { status: 404, pathname: '/missing' });
   assert.equal(exact.state.httpErrors[0].method, 'GET');
+  assert.match(exact.state.httpErrors[0].requestIdentity, /^[0-9a-f]{64}$/u);
   assert.equal(exact.state.httpErrors[0].requestIdentity, exact.state.failedRequests[0].requestIdentity);
   assert.doesNotThrow(() => acceptanceHelpers.assertNoUnexpectedRuntimeFailures(exact.state));
 
+  const distinctSameUrl = install();
+  const sameUrlResponseRequest = requestFor('http://127.0.0.1:8080/missing?id=1');
+  const sameUrlFailureRequest = requestFor('http://127.0.0.1:8080/missing?id=1');
+  emitResponse(distinctSameUrl.handlers, sameUrlResponseRequest);
+  emitFailure(distinctSameUrl.handlers, sameUrlFailureRequest);
+  acceptanceHelpers.allowExpectedHttpFailure(distinctSameUrl.state, { status: 404, pathname: '/missing' });
+  assert.equal(distinctSameUrl.state.httpErrors[0].url, distinctSameUrl.state.failedRequests[0].url);
+  assert.notEqual(
+    distinctSameUrl.state.httpErrors[0].requestIdentity,
+    distinctSameUrl.state.failedRequests[0].requestIdentity,
+  );
+  assert.throws(
+    () => acceptanceHelpers.assertNoUnexpectedRuntimeFailures(distinctSameUrl.state),
+    /Unexpected browser\/runtime failures/u,
+  );
+
   const wrongResponseMethod = install();
-  emitResponse(wrongResponseMethod.handlers, 'http://127.0.0.1:8080/missing?id=1', 'POST');
-  emitFailure(wrongResponseMethod.handlers, 'http://127.0.0.1:8080/missing?id=1');
+  const postResponseRequest = requestFor('http://127.0.0.1:8080/missing?id=1', 'POST');
+  const getFailureRequest = requestFor('http://127.0.0.1:8080/missing?id=1');
+  emitResponse(wrongResponseMethod.handlers, postResponseRequest);
+  emitFailure(wrongResponseMethod.handlers, getFailureRequest);
   acceptanceHelpers.allowExpectedHttpFailure(wrongResponseMethod.state, { status: 404, pathname: '/missing' });
   assert.equal(wrongResponseMethod.state.httpErrors[0].method, 'POST');
   assert.throws(
