@@ -235,8 +235,9 @@ final class NativeEvidenceSource
 
     /**
      * @template T of array<string, bool|int|string>|null
-     * @param Closure(int): T $observer
-     * @param Closure(): array<string, bool|int|string> $notFound
+     *
+     * @param  Closure(int): T  $observer
+     * @param  Closure(): array<string, bool|int|string>  $notFound
      * @return array<string, bool|int|string>
      */
     private function withOrderedNamespace(string $namespace, Closure $observer, Closure $notFound): array
@@ -412,5 +413,4 @@ final class NativeEvidenceSource
 
         throw new NativeEvidenceUnavailable("Native evidence {$name} is out of range.");
     }
-
 }

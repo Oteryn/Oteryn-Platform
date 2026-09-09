@@ -20,7 +20,7 @@ final class NativeEvidenceCapacity
             if (! is_resource($handle)) {
                 continue;
             }
-            if (! @flock($handle, LOCK_EX | LOCK_NB)) {
+            if (!@flock($handle, LOCK_EX | LOCK_NB)) {
                 fclose($handle);
                 continue;
             }

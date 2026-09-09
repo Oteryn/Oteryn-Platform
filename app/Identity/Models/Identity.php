@@ -65,7 +65,7 @@ final class Identity extends Authenticatable implements CanResetPasswordContract
 
     protected static function booted(): void
     {
-        static::creating(function (Identity $identity): void {
+        self::creating(function (Identity $identity): void {
             if ($identity->getAttribute('account_id') !== null) {
                 throw new LogicException('Canonical AccountId is Platform-issued and cannot be supplied by a caller.');
             }
@@ -74,7 +74,7 @@ final class Identity extends Authenticatable implements CanResetPasswordContract
             $identity->setAttribute('native_security_generation', 1);
         });
 
-        static::updating(function (Identity $identity): void {
+        self::updating(function (Identity $identity): void {
             if ($identity->isDirty('account_id')) {
                 throw new LogicException('Canonical AccountId is immutable.');
             }

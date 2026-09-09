@@ -8,22 +8,35 @@ use InvalidArgumentException;
 final class NativeEvidenceContract
 {
     public const FRESH_ACCOUNT = 'ReadAccountSecurityV1';
+
     public const FRESH_TRUST = 'ReadFreshSigningTrustV1';
+
     public const RECOVERY_ACCOUNT = 'ReadRecoveryAccountSecurityV2';
+
     public const RECOVERY_TRUST = 'ReadRecoverySigningTrustV2';
 
     public const FRESH_ISSUER = 'urn:oteryn:platform:game-admission';
+
     public const FRESH_PROFILE = 'oteryn-pre-admission-v1';
+
     public const RECOVERY_ISSUER = 'urn:oteryn:platform:game-recovery';
+
     public const RECOVERY_PROFILE = 'oteryn-reauth-recovery-v1';
+
     public const RECOVERY_PURPOSE = 'platform_security';
+
     public const RECOVERY_SCOPE = 'existing_actor_recovery';
+
     public const RECOVERY_KEY_PURPOSE = 'existing_actor_recovery';
 
     public const MAX_REQUEST_BYTES = 1024;
+
     public const MAX_RESPONSE_BYTES = 8192;
+
     public const MAX_MEMBERS = 16;
+
     public const MAX_NAME_BYTES = 64;
+
     public const MAX_STRING_BYTES = 256;
 
     /** @return array{version:int,operation:string,result:string} */

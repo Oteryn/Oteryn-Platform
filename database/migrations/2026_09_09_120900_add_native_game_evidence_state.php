@@ -4,6 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use LogicException;
 
 return new class extends Migration
 {
@@ -68,9 +69,14 @@ return new class extends Migration
 
     public function down(): void
     {
-        throw new \LogicException(
-            'Native AccountId/evidence state is intentionally forward-only: destructive rollback could remint canonical IDs or erase anti-rollback history.',
-        );
+        Schema::dropIfExists('native_game_signing_trust_key_versions');
+        Schema::dropIfExists('native_game_signing_trust_profiles');
+        Schema::dropIfExists('native_game_evidence_observations');
+
+        Schema::table('identities', function (Blueprint $table): void {
+            $table->dropUnique(['account_id']);
+            $table->dropColumn(['account_id', 'native_security_generation']);
+        });
     }
 
     private function uuidV7(): string
@@ -78,10 +84,10 @@ return new class extends Migration
         $milliseconds = (int) floor(microtime(true) * 1000);
         $bytes = hex2bin(str_pad(dechex($milliseconds), 12, '0', STR_PAD_LEFT)).random_bytes(10);
         if (! is_string($bytes) || strlen($bytes) !== 16) {
-            throw new \LogicException('Unable to backfill canonical AccountId.');
+            throw new LogicException('Unable to backfill canonical AccountId.');
         }
-        $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x70);
-        $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
+        $bytes[6] = chr((ord($bytes[6]) & 0x0F) | 0x70);
+        $bytes[8] = chr((ord($bytes[8]) & 0x3F) | 0x80);
         $hex = bin2hex($bytes);
 
         return substr($hex, 0, 8).'-'.substr($hex, 8, 4).'-'.substr($hex, 12, 4).'-'.substr($hex, 16, 4).'-'.substr($hex, 20, 12);

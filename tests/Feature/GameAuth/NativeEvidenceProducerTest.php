@@ -301,7 +301,6 @@ final class NativeEvidenceProducerTest extends TestCase
         $this->rawEvidence($raw)->assertStatus(400)->assertContent('');
     }
 
-
     public function test_missing_source_witness_and_invalid_private_boundary_inputs_fail_closed(): void
     {
         $identity = $this->identity('boundary@example.test');

@@ -3,6 +3,7 @@
 namespace App\GameAuth\NativeEvidence;
 
 use Closure;
+use Throwable;
 
 final class NativeEvidenceHighWaterWitness
 {
@@ -24,6 +25,7 @@ final class NativeEvidenceHighWaterWitness
      * Execute one source namespace while holding its independent high-water witness lock.
      *
      * @template T
+     *
      * @param  Closure(?int, Closure(int): void): T  $callback
      * @return T
      */
@@ -33,7 +35,7 @@ final class NativeEvidenceHighWaterWitness
 
         $floorPath = $realDirectory.DIRECTORY_SEPARATOR.$namespaceHash.'.floor';
         $lock = @fopen($floorPath.'.lock', 'c+b');
-        if (! is_resource($lock) || ! @flock($lock, LOCK_EX | LOCK_NB)) {
+        if (! is_resource($lock) || !@flock($lock, LOCK_EX | LOCK_NB)) {
             if (is_resource($lock)) {
                 fclose($lock);
             }
@@ -120,7 +122,7 @@ final class NativeEvidenceHighWaterWitness
             if (function_exists('fsync') && ! fsync($handle)) {
                 throw new NativeEvidenceUnavailable('Native evidence high-water witness cannot be synchronized.');
             }
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             fclose($handle);
             @unlink($temporary);
 
@@ -128,7 +130,7 @@ final class NativeEvidenceHighWaterWitness
         }
         fclose($handle);
 
-        if (! @rename($temporary, $path)) {
+        if (!@rename($temporary, $path)) {
             @unlink($temporary);
             throw new NativeEvidenceUnavailable('Native evidence high-water witness cannot be installed.');
         }
@@ -139,7 +141,7 @@ final class NativeEvidenceHighWaterWitness
                 throw new NativeEvidenceUnavailable('Native evidence high-water directory cannot be synchronized.');
             }
             try {
-                if (! @fsync($directory)) {
+                if (!@fsync($directory)) {
                     throw new NativeEvidenceUnavailable('Native evidence high-water directory cannot be synchronized.');
                 }
             } finally {
