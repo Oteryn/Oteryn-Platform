@@ -34,15 +34,15 @@ Non-PR issues, unauthorized associations, whitespace changes, malformed SHAs, an
 
 ## Acceptance receipt and causal readback
 
-HTTP `202` means request acceptance only. The executor requires the server response to contain a canonical UUID, status, exact expected head, and explicit `merge_queue` action. It records those with repository, PR, base and a positive process-owned monotonic receipt sequence.
+HTTP `202` means request acceptance only. The executor requires the server response to contain a canonical UUID, status, exact expected head, and explicit `merge_queue` action. It records those with repository, PR, base and a positive process-owned monotonic receipt sequence. The sequence is generated inside the executor and cannot be supplied by the workflow or caller.
 
-Immediately afterward, the mutation client reads `GET /repos/{owner}/{repo}/pulls/{pr}/merge-async/{uuid}` while the read-only client freshly reads the PR target. The readback must bind the same UUID, repository and PR, `base=main`, unchanged exact head, and explicit `merge_queue`, with an executor sequence strictly greater than the receipt sequence. Missing/malformed/mismatched UUID, invalid sequence, stale target, retarget, or head change fails closed.
+Immediately afterward, the mutation client reads `GET /repos/{owner}/{repo}/pulls/{pr}/merge-async/{uuid}` while the read-only client freshly reads the PR target. The readback must bind the same UUID, repository and PR, `base=main`, unchanged exact head, and explicit `merge_queue`, with an executor sequence strictly greater than the receipt sequence. Missing/malformed/mismatched UUID, missing required server fields, equal/lower/boolean/nonpositive sequence, stale target, retarget, or head change fails closed. Whole-second timestamps, when present in surrounding GitHub evidence, are freshness evidence only and are never causal-order authority.
 
-HTTP `200` and `409` are reconciliation-only. HTTP `400` and `422` are request rejection. HTTP `403` and `404` are `BLOCKED_CAPABILITY_UNAVAILABLE`. Queue admission is never integration proof.
+HTTP `200` and `409` are reconciliation-only. The executor performs the available async-status and PR identity readbacks, returns `RECONCILIATION_REQUIRED`, and never fabricates a new `202` receipt. HTTP `400` and `422` are request rejection. HTTP `403` and `404` are `BLOCKED_CAPABILITY_UNAVAILABLE`; permission/capability denial never selects another merge primitive.
 
 ## Completion boundary
 
-Do not claim integration until a real `merge_group` aggregate `platform-gate` succeeds and protected `main` readback contains the integrated candidate. The executor never automatically dequeues an ambiguous request.
+A receipt, pending async state, or queue-admission event is non-terminal. Do not claim integration until a real `merge_group` aggregate `platform-gate` succeeds and protected `main` readback contains the integrated candidate. The executor never automatically dequeues an ambiguous request.
 
 Historical bootstrap PR #1382 integrated the native `merge-async` implementation as protected `main@57b775a932ad24a7fad5d7c9120f725a4c451374`. Real canary PR #1383 then proved the exact comment trigger, authorization and exact-head qualification path but exposed the obsolete custom-App bootstrap before `merge-async` was called. The follow-up app-free repair must integrate normally, after which the same #1383 carrier is retried once to prove `202 + UUID + causal readback + merge_group + protected-main` end to end.
 
