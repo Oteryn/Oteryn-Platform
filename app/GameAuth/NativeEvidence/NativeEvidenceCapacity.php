@@ -24,6 +24,7 @@ final class NativeEvidenceCapacity
             $locked = @flock($handle, LOCK_EX | LOCK_NB);
             if ($locked !== true) {
                 fclose($handle);
+
                 continue;
             }
 
