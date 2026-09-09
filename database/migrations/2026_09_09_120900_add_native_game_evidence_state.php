@@ -67,6 +67,13 @@ return new class extends Migration
 
     public function down(): void
     {
+        // Activation is a one-way deployment decision. Once native authority may have
+        // issued canonical AccountIds/generations, deleting that identity state would
+        // permit a later migration replay to mint different cross-boundary identities.
+        if (config('game-auth.native_evidence.activated') === true) {
+            throw new LogicException('Native evidence identity state cannot be rolled back after activation.');
+        }
+
         Schema::dropIfExists('native_game_signing_trust_key_versions');
         Schema::dropIfExists('native_game_signing_trust_profiles');
         Schema::dropIfExists('native_game_evidence_observations');
