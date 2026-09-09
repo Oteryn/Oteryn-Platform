@@ -82,7 +82,7 @@ return new class extends Migration
     {
         $milliseconds = (int) floor(microtime(true) * 1000);
         $bytes = hex2bin(str_pad(dechex($milliseconds), 12, '0', STR_PAD_LEFT)).random_bytes(10);
-        if (! is_string($bytes) || strlen($bytes) !== 16) {
+        if (strlen($bytes) !== 16) {
             throw new LogicException('Unable to backfill canonical AccountId.');
         }
         $bytes[6] = chr((ord($bytes[6]) & 0x0F) | 0x70);

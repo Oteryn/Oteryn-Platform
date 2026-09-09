@@ -14,7 +14,7 @@ final class CanonicalAccountId
         $timeHex = str_pad(dechex($milliseconds), 12, '0', STR_PAD_LEFT);
         $bytes = hex2bin($timeHex).random_bytes(10);
 
-        if (! is_string($bytes) || strlen($bytes) !== 16) {
+        if (strlen($bytes) !== 16) {
             throw new LogicException('Unable to generate canonical AccountId bytes.');
         }
 

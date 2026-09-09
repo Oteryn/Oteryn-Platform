@@ -13,8 +13,7 @@ final class EnforceNativeEvidenceHttpBounds
     {
         $contentLength = $request->headers->get('Content-Length');
         if ($contentLength !== null
-            && (! is_string($contentLength)
-                || preg_match('/^(0|[1-9][0-9]{0,3})$/', $contentLength) !== 1
+            && (preg_match('/^(0|[1-9][0-9]{0,3})$/', $contentLength) !== 1
                 || (int) $contentLength > NativeEvidenceContract::MAX_REQUEST_BYTES)) {
             return response('', 413);
         }
@@ -36,6 +35,10 @@ final class EnforceNativeEvidenceHttpBounds
         $headerBytes = strlen($request->getMethod().' '.$request->getRequestUri().' HTTP/1.1\r\n') + 2;
         foreach ($request->headers->all() as $name => $values) {
             foreach ($values as $value) {
+                if ($value === null) {
+                    return response('', 400);
+                }
+
                 $fieldCount++;
                 $lineBytes = strlen($name) + 2 + strlen($value) + 2;
                 if ($lineBytes > 2048) {
@@ -56,6 +59,11 @@ final class EnforceNativeEvidenceHttpBounds
             return response('', 400);
         }
 
-        return $next($request);
+        $response = $next($request);
+        if (! $response instanceof Response) {
+            return response('', 500);
+        }
+
+        return $response;
     }
 }

@@ -34,10 +34,10 @@ final class RevokeIdentityGameAuthorizations
 
             $legacyGeneration = $lockedIdentity->game_auth_generation;
             $nativeGeneration = $lockedIdentity->native_security_generation;
-            if (! is_int($legacyGeneration) || $legacyGeneration < 0 || $legacyGeneration >= PHP_INT_MAX) {
+            if ($legacyGeneration < 0 || $legacyGeneration >= PHP_INT_MAX) {
                 throw new LogicException('Legacy game authorization generation cannot advance safely.');
             }
-            if (! is_int($nativeGeneration) || $nativeGeneration < 1 || $nativeGeneration >= PHP_INT_MAX) {
+            if ($nativeGeneration < 1 || $nativeGeneration >= PHP_INT_MAX) {
                 throw new LogicException('Native security generation cannot advance safely.');
             }
 
@@ -69,7 +69,7 @@ final class RevokeIdentityGameAuthorizations
         }
 
         $accountId = $identity->account_id;
-        if (! is_string($accountId) || ! CanonicalAccountId::isValid($accountId)) {
+        if (! CanonicalAccountId::isValid($accountId)) {
             throw new LogicException('Canonical AccountId is unavailable for native security revocation.');
         }
 

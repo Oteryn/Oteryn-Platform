@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Testing\TestResponse;
 use LogicException;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
 final class NativeEvidenceProducerTest extends TestCase
@@ -115,7 +116,7 @@ final class NativeEvidenceProducerTest extends TestCase
         self::assertSame('2', $recovery->json('source_revision'));
         self::assertSame('7', $recovery->json('minimum_valid_generation'));
 
-        $issuedNativeGeneration = (int) $fresh->json('minimum_valid_generation');
+        $issuedNativeGeneration = $this->integerValue($fresh->json('minimum_valid_generation'));
         app(RevokeIdentityGameAuthorizations::class)->execute($identity->refresh());
         $afterRevocation = $this->postEvidence([
             'version' => 2,
@@ -126,7 +127,7 @@ final class NativeEvidenceProducerTest extends TestCase
         ])->assertOk();
         self::assertSame('3', $afterRevocation->json('source_revision'));
         self::assertSame('8', $afterRevocation->json('minimum_valid_generation'));
-        self::assertGreaterThan($issuedNativeGeneration, (int) $afterRevocation->json('minimum_valid_generation'));
+        self::assertGreaterThan($issuedNativeGeneration, $this->integerValue($afterRevocation->json('minimum_valid_generation')));
     }
 
     public function test_security_generation_witness_detects_post_revocation_database_rollback(): void
@@ -160,8 +161,8 @@ final class NativeEvidenceProducerTest extends TestCase
             'key-1',
             $keyOne,
         );
-        self::assertSame(1, (int) $versionOne->key_revision);
-        self::assertSame(1, (int) DB::table('native_game_signing_trust_profiles')->value('issuer_revision'));
+        self::assertSame(1, $this->integerValue($versionOne->key_revision ?? null));
+        self::assertSame(1, $this->integerValue(DB::table('native_game_signing_trust_profiles')->value('issuer_revision')));
 
         $first = $this->postEvidence($this->freshTrustRequest('key-1'))->assertOk();
         self::assertSame('1', $first->json('source_revision'));
@@ -177,7 +178,7 @@ final class NativeEvidenceProducerTest extends TestCase
         );
         $second = $this->postEvidence($this->freshTrustRequest('key-2'))->assertOk();
         self::assertSame('2', $second->json('source_revision'));
-        self::assertSame(2, (int) DB::table('native_game_signing_trust_profiles')->value('issuer_revision'));
+        self::assertSame(2, $this->integerValue(DB::table('native_game_signing_trust_profiles')->value('issuer_revision')));
 
         $revoked = $registry->revokeKey(
             NativeEvidenceContract::FRESH_ISSUER,
@@ -185,9 +186,9 @@ final class NativeEvidenceProducerTest extends TestCase
             'fresh_admission',
             'key-1',
         );
-        self::assertSame(2, (int) $revoked->key_revision);
+        self::assertSame(2, $this->integerValue($revoked->key_revision ?? null));
         self::assertFalse((bool) $revoked->trusted);
-        self::assertSame(3, (int) DB::table('native_game_signing_trust_profiles')->value('issuer_revision'));
+        self::assertSame(3, $this->integerValue(DB::table('native_game_signing_trust_profiles')->value('issuer_revision')));
 
         $third = $this->postEvidence($this->freshTrustRequest('key-1'))->assertOk();
         self::assertSame('3', $third->json('source_revision'));
@@ -201,9 +202,9 @@ final class NativeEvidenceProducerTest extends TestCase
         $fourth = $this->postEvidence($this->freshTrustRequest('key-2'))->assertOk();
         self::assertSame('4', $fourth->json('source_revision'));
         self::assertFalse($fourth->json('trusted'));
-        self::assertSame(4, (int) DB::table('native_game_signing_trust_profiles')
+        self::assertSame(4, $this->integerValue(DB::table('native_game_signing_trust_profiles')
             ->where('issuer', NativeEvidenceContract::FRESH_ISSUER)
-            ->value('issuer_revision'));
+            ->value('issuer_revision')));
 
         $recoveryKey = str_repeat("\x03", 32);
         $registry->publishTrustedKey(
@@ -461,12 +462,18 @@ final class NativeEvidenceProducerTest extends TestCase
         return $this->withServerVariables($this->peerServer());
     }
 
-    /** @param array<string, int|string> $payload */
+    /**
+     * @param  array<string, int|string>  $payload
+     * @return TestResponse<Response>
+     */
     private function postEvidence(array $payload): TestResponse
     {
         return $this->withPeer()->postJson('/internal/v1/game-auth/native-evidence', $payload);
     }
 
+    /**
+     * @return TestResponse<Response>
+     */
     private function rawEvidence(string $raw): TestResponse
     {
         return $this->call(
@@ -478,5 +485,20 @@ final class NativeEvidenceProducerTest extends TestCase
             $this->peerServer(),
             $raw,
         );
+    }
+
+    private function integerValue(mixed $value): int
+    {
+        if (is_int($value) && $value >= 0) {
+            return $value;
+        }
+        if (is_string($value) && preg_match('/^(0|[1-9][0-9]{0,18})$/', $value) === 1) {
+            $parsed = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+            if (is_int($parsed)) {
+                return $parsed;
+            }
+        }
+
+        self::fail('Expected a non-negative bounded integer value.');
     }
 }

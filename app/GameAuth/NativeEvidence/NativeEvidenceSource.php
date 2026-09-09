@@ -11,7 +11,10 @@ final class NativeEvidenceSource
 {
     public function __construct(private readonly NativeEvidenceHighWaterWitness $witness) {}
 
-    /** @param array<string, int|string> $request @return array<string, bool|int|string> */
+    /**
+     * @param  array<string, int|string>  $request
+     * @return array<string, bool|int|string>
+     */
     public function observe(array $request): array
     {
         $operation = (string) $request['operation'];
@@ -26,7 +29,10 @@ final class NativeEvidenceSource
         };
     }
 
-    /** @param array<string, int|string> $request @return array<string, bool|int|string> */
+    /**
+     * @param  array<string, int|string>  $request
+     * @return array<string, bool|int|string>
+     */
     private function observeAccount(array $request, int $version, bool $recovery): array
     {
         $operation = (string) $request['operation'];
@@ -83,11 +89,7 @@ final class NativeEvidenceSource
 
                 $generation = $this->positiveDatabaseInt($identity->native_security_generation ?? null, 'native security generation');
                 $this->assertOrBootstrapAccountStateHighWater($sourceNamespace, $stateNamespace, $generation);
-
-                $observedAt = now()->timestamp;
-                if ($observedAt < 0) {
-                    throw new NativeEvidenceUnavailable('Native evidence source time is invalid.');
-                }
+                $observedAt = $this->nonNegativeDatabaseInt(now()->timestamp, 'source observed time');
 
                 $response = [
                     'version' => $version,
@@ -112,7 +114,10 @@ final class NativeEvidenceSource
         }, static fn () => NativeEvidenceContract::failure($version, $operation, 'not_found'));
     }
 
-    /** @param array<string, int|string> $request @return array<string, bool|int|string> */
+    /**
+     * @param  array<string, int|string>  $request
+     * @return array<string, bool|int|string>
+     */
     private function observeTrust(array $request, int $version, bool $recovery): array
     {
         $operation = (string) $request['operation'];
@@ -147,9 +152,10 @@ final class NativeEvidenceSource
         }
 
         $issuerRevision = $this->positiveDatabaseInt($profile->issuer_revision ?? null, 'signing trust issuer revision');
+        $profileId = $this->positiveDatabaseInt($profile->id ?? null, 'signing trust profile id');
         $this->assertTrustStateHighWater($stateNamespace, $issuerRevision);
 
-        if (! $this->trustKeyExists((int) $profile->id, $keyId)) {
+        if (! $this->trustKeyExists($profileId, $keyId)) {
             return NativeEvidenceContract::failure($version, $operation, 'not_found');
         }
 
@@ -183,10 +189,11 @@ final class NativeEvidenceSource
                 }
 
                 $issuerRevision = $this->positiveDatabaseInt($profile->issuer_revision ?? null, 'signing trust issuer revision');
+                $profileId = $this->positiveDatabaseInt($profile->id ?? null, 'signing trust profile id');
                 $this->assertTrustStateHighWater($stateNamespace, $issuerRevision);
 
                 $key = DB::table('native_game_signing_trust_key_versions')
-                    ->where('profile_id', $profile->id)
+                    ->where('profile_id', $profileId)
                     ->where('key_id', $keyId)
                     ->orderByDesc('key_revision')
                     ->lockForUpdate()
@@ -197,10 +204,7 @@ final class NativeEvidenceSource
 
                 $this->positiveDatabaseInt($key->key_revision ?? null, 'signing key revision');
                 NativeEvidenceContract::assertEncodedPublicKey($key->public_key);
-                $observedAt = now()->timestamp;
-                if ($observedAt < 0) {
-                    throw new NativeEvidenceUnavailable('Native evidence source time is invalid.');
-                }
+                $observedAt = $this->nonNegativeDatabaseInt(now()->timestamp, 'source observed time');
 
                 $response = [
                     'version' => $version,

@@ -7,7 +7,9 @@ use JsonException;
 
 final class NativeEvidenceRequestDecoder
 {
-    /** @return array<string, int|string> */
+    /**
+     * @return array<string, int|string>
+     */
     public function decode(string $raw): array
     {
         if ($raw === '' || strlen($raw) > NativeEvidenceContract::MAX_REQUEST_BYTES) {
@@ -44,6 +46,7 @@ final class NativeEvidenceRequestDecoder
         $expected = match ($operation) {
             NativeEvidenceContract::FRESH_ACCOUNT, NativeEvidenceContract::RECOVERY_ACCOUNT => ['version', 'operation', 'account_id', 'purpose', 'scope'],
             NativeEvidenceContract::FRESH_TRUST, NativeEvidenceContract::RECOVERY_TRUST => ['version', 'operation', 'issuer', 'profile', 'key_purpose', 'key_id'],
+            default => throw new InvalidArgumentException('Native evidence operation is unsupported.'),
         };
         $keys = array_keys($decoded);
         sort($keys);
@@ -64,14 +67,23 @@ final class NativeEvidenceRequestDecoder
             NativeEvidenceContract::assertBinding($value);
         }
 
-        if (isset($decoded['account_id'])) {
-            NativeEvidenceContract::assertAccountId($decoded['account_id']);
-        }
-        if (isset($decoded['key_id'])) {
-            NativeEvidenceContract::assertKeyId($decoded['key_id']);
+        /** @var array<string, int|string> $decoded */
+        $accountId = $decoded['account_id'] ?? null;
+        if ($accountId !== null) {
+            if (! is_string($accountId)) {
+                throw new InvalidArgumentException('Native evidence AccountId type is invalid.');
+            }
+            NativeEvidenceContract::assertAccountId($accountId);
         }
 
-        /** @var array<string, int|string> $decoded */
+        $keyId = $decoded['key_id'] ?? null;
+        if ($keyId !== null) {
+            if (! is_string($keyId)) {
+                throw new InvalidArgumentException('Native evidence key id type is invalid.');
+            }
+            NativeEvidenceContract::assertKeyId($keyId);
+        }
+
         return $decoded;
     }
 
@@ -79,7 +91,7 @@ final class NativeEvidenceRequestDecoder
     {
         preg_match_all('/"((?:[^"\\\\]|\\\\.)*)"\s*:/s', $raw, $matches);
         $seen = [];
-        foreach ($matches[1] ?? [] as $encodedName) {
+        foreach ($matches[1] as $encodedName) {
             try {
                 $name = json_decode('"'.$encodedName.'"', true, 2, JSON_THROW_ON_ERROR);
             } catch (JsonException $exception) {

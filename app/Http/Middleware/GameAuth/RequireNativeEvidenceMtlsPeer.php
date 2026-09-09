@@ -29,6 +29,11 @@ final class RequireNativeEvidenceMtlsPeer
             return response('', 401);
         }
 
-        return $next($request);
+        $response = $next($request);
+        if (! $response instanceof Response) {
+            return response('', 500);
+        }
+
+        return $response;
     }
 }

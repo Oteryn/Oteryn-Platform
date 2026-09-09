@@ -6,7 +6,12 @@ use Closure;
 
 final class NativeEvidenceCapacity
 {
-    /** @template T @param Closure(): T $callback @return T */
+    /**
+     * @template T
+     *
+     * @param  Closure(): T  $callback
+     * @return T
+     */
     public function run(Closure $callback): mixed
     {
         $directory = config('game-auth.native_evidence.high_water_directory');
