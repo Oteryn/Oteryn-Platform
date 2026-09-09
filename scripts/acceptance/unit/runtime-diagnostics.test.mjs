@@ -62,6 +62,17 @@ test('attachDiagnostics persists evidence before enforcing the runtime gate', as
   assert.deepEqual(attachments, ['exact-tested-sha', 'browser-diagnostics']);
 });
 
+test('attachDiagnostics records the exact Playwright browser before enforcing the gate', async () => {
+  const state = diagnostics();
+  const testInfo = {
+    project: { use: { browserName: 'firefox' } },
+    attach: async () => {},
+  };
+
+  await helpers.attachRuntimeDiagnostics(testInfo, state, 'test-sha');
+  assert.equal(state.browserName, 'firefox');
+});
+
 test('navigation aborts are ignored but real request failures remain fatal', () => {
   assert.doesNotThrow(() => helpers.assertNoUnexpectedRuntimeFailures(diagnostics({
     failedRequests: [{
@@ -78,6 +89,55 @@ test('navigation aborts are ignored but real request failures remain fatal', () 
       failure: 'net::ERR_FAILED',
     }],
   })), /Unexpected browser\/runtime failures/u);
+});
+
+test('Firefox duplicate request failure consumes only the exact matched response URL', () => {
+  const state = diagnostics({
+    browserName: 'firefox',
+    httpErrors: [{ status: 404, url: 'http://127.0.0.1:8080/missing' }],
+    failedRequests: [{
+      method: 'GET',
+      url: 'http://127.0.0.1:8080/missing',
+      failure: '<unknown error>',
+    }],
+  });
+  helpers.allowExpectedHttpFailure(state, { status: 404, pathname: '/missing' });
+  assert.doesNotThrow(() => helpers.assertNoUnexpectedRuntimeFailures(state));
+
+  state.failedRequests.push({
+    method: 'GET',
+    url: 'http://127.0.0.1:8080/missing',
+    failure: '<unknown error>',
+  });
+  assert.throws(() => helpers.assertNoUnexpectedRuntimeFailures(state), /Unexpected browser\/runtime failures/u);
+});
+
+test('Firefox duplicate suppression rejects a different origin with the same pathname', () => {
+  const state = diagnostics({
+    browserName: 'firefox',
+    httpErrors: [{ status: 404, url: 'http://127.0.0.1:8080/missing' }],
+    failedRequests: [{
+      method: 'GET',
+      url: 'https://cdn.example.test/missing',
+      failure: '<unknown error>',
+    }],
+  });
+  helpers.allowExpectedHttpFailure(state, { status: 404, pathname: '/missing' });
+  assert.throws(() => helpers.assertNoUnexpectedRuntimeFailures(state), /Unexpected browser\/runtime failures/u);
+});
+
+test('non-Firefox unknown request failures remain fatal even after an expected response', () => {
+  const state = diagnostics({
+    browserName: 'chromium',
+    httpErrors: [{ status: 404, url: 'http://127.0.0.1:8080/missing' }],
+    failedRequests: [{
+      method: 'GET',
+      url: 'http://127.0.0.1:8080/missing',
+      failure: '<unknown error>',
+    }],
+  });
+  helpers.allowExpectedHttpFailure(state, { status: 404, pathname: '/missing' });
+  assert.throws(() => helpers.assertNoUnexpectedRuntimeFailures(state), /Unexpected browser\/runtime failures/u);
 });
 
 const expectedHttpStatuses = [403, 404, 409, 419, 422, 429, 500, 503];

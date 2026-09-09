@@ -46,8 +46,8 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
     ...entry,
     responseRemaining: entry.count,
     consoleRemaining: entry.count,
-    failedRequestRemaining: 0,
     matchedResponses: 0,
+    matchedResponseUrls: [],
   }));
   const observedHttpErrors = Array.isArray(diagnostics.httpErrors)
     ? diagnostics.httpErrors
@@ -61,8 +61,8 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
     ));
     if (matchingAllowance) {
       matchingAllowance.responseRemaining -= 1;
-      matchingAllowance.failedRequestRemaining += 1;
       matchingAllowance.matchedResponses += 1;
+      matchingAllowance.matchedResponseUrls.push(entry.url);
       continue;
     }
 
@@ -98,17 +98,23 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
       continue;
     }
 
-    const pathname = diagnosticPath(entry.url);
-    const allowance = entry.method === 'GET' && EXPECTED_HTTP_DUPLICATE_FAILURES.has(entry.failure)
-      ? allowances.find((candidate) => (
-        candidate.pathname === pathname
-          && candidate.matchedResponses > 0
-          && candidate.failedRequestRemaining > 0
-      ))
-      : null;
+    let duplicate = null;
+    if (
+      diagnostics.browserName === 'firefox'
+      && entry.method === 'GET'
+      && EXPECTED_HTTP_DUPLICATE_FAILURES.has(entry.failure)
+    ) {
+      for (const allowance of allowances) {
+        const matchIndex = allowance.matchedResponseUrls.indexOf(entry.url);
+        if (matchIndex >= 0) {
+          duplicate = { allowance, matchIndex };
+          break;
+        }
+      }
+    }
 
-    if (allowance) {
-      allowance.failedRequestRemaining -= 1;
+    if (duplicate) {
+      duplicate.allowance.matchedResponseUrls.splice(duplicate.matchIndex, 1);
       continue;
     }
 
@@ -132,6 +138,9 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
 }
 
 export async function attachRuntimeDiagnostics(testInfo, diagnostics, testedSha) {
+  const browserName = testInfo.project?.use?.browserName;
+  diagnostics.browserName = typeof browserName === 'string' ? browserName : null;
+
   await testInfo.attach('exact-tested-sha', {
     body: Buffer.from(`${testedSha}\n`, 'utf8'),
     contentType: 'text/plain',
