@@ -68,6 +68,14 @@ blockers: []
 next_action: none
 ```
 
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR #1384 is terminally integrated and the obsolete repository-local bridge lifecycle is complete.
+source_branch_evidence: protected Platform main a09f8dfa65d5af7b8a25201b7d551d5849debc4b with merge_group run 34411221385 and platform-gate 102666441905 successful.
+```
+
 ## Notes
 
 Historical #1382/#1383 evidence remains as provenance. The failed App-token canary explains why the redundant local bridge was retired; it is not an active execution dependency.
