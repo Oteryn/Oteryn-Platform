@@ -3,8 +3,8 @@ task_id: OTERYN-20260909-merge-queue-enqueue-executor
 governing_issue: 1363
 required_reads: []
 search_first:
-  - live Issue #1363 state and repository-native queue-executor bootstrap evidence
-  - current protected main and required platform-gate
+  - live Issue #1363 and Draft PR #1382 state
+  - current protected main and exact-head platform-gate
 optional_reads: []
 ---
 
@@ -12,17 +12,20 @@ optional_reads: []
 
 ## Goal
 
-Governing GitHub Issue: #1363 — add one repository-native, fail-closed queue enqueue executor so qualified PRs do not depend on an online maintainer workstation.
+Migrate the protected Platform executor to the native META 3.1 `merge-async` contract on Draft PR #1382, branch `fix/1363-native-merge-async-executor`, without expanding the six-path Issue #1363 scope.
 
 ## Acceptance criteria
 
-- [x] Executor only performs GraphQL `enqueuePullRequest` with exact expected-head fencing.
-- [x] Wrong repository/base/head/state/draft/origin or non-success exact-head `platform-gate` fails before mutation by deterministic code paths.
-- [x] GitHub App token is short-lived, repository-scoped, minimum-permission, and no credential value is committed.
-- [x] External GitHub Actions references are immutable full SHAs.
-- [x] Focused tests and repository-required exact-head checks pass.
-- [x] Integration itself used the normal protected queue with no direct endpoint or protection bypass.
-- [ ] One-time GitHub App configuration is proven and one qualified PR is successfully queued by the repository-native executor from `main`.
+- [x] The only positive mutation is REST `PUT .../merge-async` with an exact qualified `sha` and explicit `merge_action: merge_queue`.
+- [x] Fresh preflight rejects wrong repository/PR/base/head/state/draft/origin and any latest exact-head `platform-gate` result other than `completed/success`.
+- [x] A valid `202` records a server UUID and positive executor-owned sequence, followed immediately by same-UUID async readback and fresh target readback with a strictly greater executor sequence.
+- [x] Missing/malformed/mismatched UUID, invalid causal sequence, retarget, head change, and stale or incomplete evidence fail closed; there is no automatic dequeue.
+- [x] `200`/`409` return non-terminal reconciliation results without fabricated acceptance; `400`/`422` reject precisely and `403`/`404` classify `BLOCKED_CAPABILITY_UNAVAILABLE`.
+- [x] `workflow_dispatch` is retained and the exact `/oteryn-mq-enqueue <40-hex-head>` PR-comment command is gated to `OWNER`, `MEMBER`, or `COLLABORATOR`.
+- [x] The dedicated repository-scoped App token requests Contents: Write, Checks: Read, and Pull requests: Read only (plus implicit metadata); top-level `GITHUB_TOKEN` remains read-only.
+- [x] External GitHub Actions references remain pinned to immutable full SHAs.
+- [ ] Draft PR #1382 exact-head required CI is green and protected-main freshness is reconciled.
+- [ ] After protected integration, a separate qualified provider PR proves the remaining real canary end to end.
 
 ## Ownership
 
@@ -37,9 +40,10 @@ owned_paths:
 modules:
   - repository integration control plane
 dependencies:
-  - dedicated repository-scoped GitHub App bootstrap described in docs/operations/MERGE_QUEUE_EXECUTOR.md
+  - protected META 3.1 at Oteryn/Oteryn@ed6c8c98605a7fbfea858e0ef616f89baa617262
+  - dedicated repository-scoped GitHub App bootstrap in docs/operations/MERGE_QUEUE_EXECUTOR.md
 blockers:
-  - one-time App variable/secret configuration and one successful repository-native enqueue proof are not yet independently observable from the connected GitHub surface
+  - real native canary is intentionally deferred until this repaired executor reaches protected main
 cross_repository_tasks:
   - none
 ```
@@ -48,12 +52,13 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-09T07:20:00Z
-head: 4a81631f38e172921ddc42a940426f37e05914ac
-branch: ci/1363-merge-queue-enqueue-executor
-pr: 1371
+updated_at: 2026-09-09T00:00:00Z
+head: exact GREEN head is recorded in live Draft PR #1382 after publication
+branch: fix/1363-native-merge-async-executor
+pr: 1382
 status: validating
-terminal_pr_policy: archive_pending
+terminal_pr_policy: keep_active_until_protected_integration_and_real_canary
+meta_policy: OTERYN_ORGANIZATION_AGENT_POLICY 3.1.0 @ ed6c8c98605a7fbfea858e0ef616f89baa617262
 context_routes:
   - ci-repair
   - execution-resources
@@ -65,56 +70,45 @@ owned_paths:
   - docs/agents/CI_WORKFLOW_LIFECYCLE.json
   - docs/agents/tasks/active/OTERYN-20260909-merge-queue-enqueue-executor.md
 proven:
-  - Lifecycle-only PR #1372 reconciled Issue #1362 and integrated first as protected commit 7902564e8251c55f273cba277ce138d8a9b99bc8.
-  - PR #1371 then integrated through the configured protected queue as current protected main 4a81631f38e172921ddc42a940426f37e05914ac.
-  - main remains protected and still requires platform-gate.
-  - PR #1371 source branch ci/1363-merge-queue-enqueue-executor is absent after integration.
-  - The delivered manual-only workflow exists on protected main and uses pinned actions/create-github-app-token with checks:read, pull-requests:read and merge-queues:write, while GITHUB_TOKEN remains contents:read.
-  - The enqueue script performs only GraphQL enqueuePullRequest with expectedHeadOid after exact repository, PR state/base/origin/head and exact-head platform-gate checks.
-  - Focused test module passed fifteen deterministic fail-closed cases on the implementation candidate.
-  - The current resulting-main Agent Governance failure is lifecycle bookkeeping only: run 34323008921 reports terminal_pr_stale_next_action and terminal_pr_active_task for this task after PR #1371 became terminal.
-derived:
-  - Product and integration-control implementation is protected-main released; only bootstrap proof and terminal archival remain.
-  - Keeping the task active without archive-pending state is no longer valid after terminal PR #1371.
+  - RED was consumed at d0b6e38042f06f9504b8ea00cfb4d2a8c8a6b249 with 15 passing and 3 expected failing tests.
+  - Native request body, response classification, receipt/readback causal ordering, target reread and connector authorization have deterministic coverage.
+  - No credential values, product/runtime paths, protection settings, rulesets, required checks or deployment behavior changed.
 unknown:
-  - Whether OTERYN_MQ_APP_CLIENT_ID and OTERYN_MQ_APP_PRIVATE_KEY are already configured with the documented dedicated App.
-  - Whether the first protected-main executor dispatch can mint the scoped App token and queue a qualified PR successfully.
+  - Exact-head GitHub CI result for the final published GREEN candidate.
+  - Real native merge-async App-token canary receipt and later merge_group/protected-main proof.
+derived:
+  - The executor repair is governance/CI control-plane work, so product runtime E2E is not applicable.
+  - A native acceptance receipt remains non-terminal until merge_group and protected-main evidence exist.
 conflicts: []
 first_failure:
-  marker: post-integration-active-task-liveness
-  evidence: resulting-main Agent Governance run 34323008921 reports stale terminal next action and terminal PR active-task findings for PR #1371
+  marker: awaiting-exact-head-ci
+  evidence: local GREEN validation is in progress and exact-head GitHub CI requires publication
 rejected_hypotheses:
-  - PR #1371 is still awaiting protected integration.
-  - The resulting-main governance red state is an implementation or platform-gate failure.
-  - A direct endpoint should be used to prove the executor.
+  - A 202 response alone proves integration.
+  - Existing 200 or 409 state permits fabricating a fresh acceptance receipt.
+  - Capability denial permits a GraphQL, default-action or direct-merge fallback.
 changed_paths:
+  - .github/workflows/merge-queue-enqueue.yml
+  - scripts/github/merge_queue_enqueue.py
+  - tests/ci/test_merge_queue_enqueue.py
+  - docs/operations/MERGE_QUEUE_EXECUTOR.md
+  - docs/agents/CI_WORKFLOW_LIFECYCLE.json
   - docs/agents/tasks/active/OTERYN-20260909-merge-queue-enqueue-executor.md
 validation:
-  - command: protected integration readback for PR #1371
+  - command: python -m pytest tests/ci/test_merge_queue_enqueue.py -q
     result: PASS
-    evidence: PR #1371 is merged as current protected main 4a81631f38e172921ddc42a940426f37e05914ac and its source branch is absent
-  - command: resulting-main branch protection readback
+    evidence: 25 tests and 20 subtests passed locally on the six-path GREEN worktree
+  - command: repository policy/lifecycle/workflow validation
     result: PASS
-    evidence: main remains protected and requires platform-gate
-  - command: resulting-main Agent Governance
-    result: FAIL
-    evidence: run 34323008921 fails only on terminal task lifecycle for this task; deterministic policy, checkpoint, source-branch, prompt and governing-Issue validation steps pass
-  - command: repository-native executor bootstrap proof
+    evidence: focused repository policy tests, governance unit suites, workflow YAML parsing and lifecycle JSON parsing passed locally
+  - command: required exact-head CI
     result: NOT_RUN
-    evidence: connected GitHub automation cannot inspect credential values or dispatch this workflow; bootstrap remains fail-closed until an observable executor run exists
+    evidence: exact-head CI can start only after the committed GREEN candidate is published to Draft PR #1382
 blockers:
-  - one-time App configuration and first successful repository-native enqueue proof
-next_action: Archive this task after the dedicated GitHub App is configured on Oteryn/Oteryn-Platform and one qualified PR is successfully queued by the repository-native executor from main.
-```
-
-## Source branch closeout
-
-```yaml
-source_branch_disposition: auto_delete_after_merge
-source_branch_reason: original implementation ownership ended when PR 1371 reached protected main
-source_branch_evidence: branch ci/1363-merge-queue-enqueue-executor is absent after protected integration as main 4a81631f38e172921ddc42a940426f37e05914ac
+  - real-canary acceptance remains after protected integration
+next_action: Keep PR #1382 Draft, publish the six-path GREEN candidate, and wait for required exact-head CI before requesting stable independent review.
 ```
 
 ## Notes
 
-Implementation is released. This task intentionally remains active only as `archive_pending` until the documented one-time App bootstrap and one real repository-native enqueue are proven. No direct endpoint, protection bypass, force-push, secret value, or credential disclosure is authorized.
+Queue admission is not integration proof. Terminal proof remains a later real `merge_group` `platform-gate` plus protected-main readback. No direct/default merge, alternate GraphQL enqueue, bypass, force/rebase/reset, no-op retrigger, automated dequeue, credential inspection, or premature closeout is authorized.

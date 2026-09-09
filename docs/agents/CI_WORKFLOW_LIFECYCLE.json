@@ -67,9 +67,7 @@
     "portal-exhaustive-audit.yml",
     "portal-exhaustive-trigger-coupling.yml"
   ],
-  "manual_only_workflows": [
-    "merge-queue-enqueue.yml"
-  ],
+  "manual_only_workflows": [],
   "creation_policy": {
     "default": "reuse_or_extend",
     "new_workflow_requires": [
