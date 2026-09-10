@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "catalog_id": "OTERYN_PLATFORM_DOCUMENTATION_IA",
-  "inventory_head": "b930d2782e1d2fe01f66cde5c28b1c2486541cec",
+  "inventory_head": "eed9b0d15328d2e1d4a7f6d55f0d97c7b0deffaa",
   "inventory_scope": {
     "prompt_root": "docs/agents/prompts",
     "handover_root": "docs/agents/handovers",
@@ -20,6 +20,18 @@
   },
   "lifecycle_authority": "docs/agents/DOCUMENTATION_IA_LIFECYCLE.md",
   "prompts": [
+    {
+      "id": "OTERYN-CI-CANARY-AUDIT-V1",
+      "path": "docs/agents/prompts/OTERYN-CI-CANARY-AUDIT-V1.md",
+      "version": "1.0",
+      "classification": "reusable",
+      "status": "active_reusable",
+      "owner": "OTERYN-CI-CANARY-AUDIT-V1",
+      "scope": "Controlled cross-repository CI canary audit coordinator for Oteryn Platform, Game, and Atlas",
+      "executable": true,
+      "supersession": {"target": null, "reason": "Reusable execution prompt; live Issue #1268 and fresh exact repository state govern each invocation."},
+      "provenance": ["issue:1268", "docs/superpowers/specs/2026-08-25-organization-ci-canary-audit-design.md", "docs/superpowers/plans/2026-08-25-organization-ci-canary-audit.md"]
+    },
     {
       "id": "OTERYN-RUNTIME-DIAGNOSTICS-CLOSEOUT",
       "path": "docs/agents/prompts/OTERYN-RUNTIME-DIAGNOSTICS-CLOSEOUT-AGENT-PROMPT.md",
