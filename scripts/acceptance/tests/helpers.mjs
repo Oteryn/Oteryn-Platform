@@ -29,8 +29,24 @@ function sanitizeUrl(rawUrl) {
 }
 
 export function installDiagnostics(page) {
+  const requestIdentities = new WeakMap();
+  const requestIdentity = (request) => {
+    if (request === null || (typeof request !== 'object' && typeof request !== 'function')) {
+      return null;
+    }
+
+    const existing = requestIdentities.get(request);
+    if (existing !== undefined) {
+      return existing;
+    }
+
+    const identity = crypto.randomBytes(32).toString('hex');
+    requestIdentities.set(request, identity);
+    return identity;
+  };
   const diagnostics = {
     testedSha,
+    browserName: page.context().browser()?.browserType().name() ?? null,
     consoleErrors: [],
     pageErrors: [],
     failedRequests: [],
@@ -53,25 +69,35 @@ export function installDiagnostics(page) {
   });
 
   page.on('requestfailed', (request) => {
+    const rawUrl = request.url();
     diagnostics.failedRequests.push({
       method: request.method(),
-      url: sanitizeUrl(request.url()),
+      url: sanitizeUrl(rawUrl),
+      requestIdentity: requestIdentity(request),
       failure: request.failure()?.errorText ?? 'unknown',
     });
   });
 
   page.on('response', (response) => {
     if (response.status() >= 400) {
+      const rawUrl = response.url();
+      const request = response.request();
+      const method = request.method();
+      const identity = requestIdentity(request);
       diagnostics.httpErrors.push({
         status: response.status(),
-        url: sanitizeUrl(response.url()),
+        method,
+        url: sanitizeUrl(rawUrl),
+        requestIdentity: identity,
       });
-    }
-    if (response.status() >= 500) {
-      diagnostics.serverErrors.push({
-        status: response.status(),
-        url: sanitizeUrl(response.url()),
-      });
+      if (response.status() >= 500) {
+        diagnostics.serverErrors.push({
+          status: response.status(),
+          method,
+          url: sanitizeUrl(rawUrl),
+          requestIdentity: identity,
+        });
+      }
     }
   });
 

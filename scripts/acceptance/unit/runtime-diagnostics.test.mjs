@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 const helpers = await import('../runtime-diagnostics.mjs');
+const REQUEST_IDENTITY_A = 'a'.repeat(64);
+const REQUEST_IDENTITY_B = 'b'.repeat(64);
 
 function diagnostics(overrides = {}) {
   return {
@@ -62,6 +64,70 @@ test('attachDiagnostics persists evidence before enforcing the runtime gate', as
   assert.deepEqual(attachments, ['exact-tested-sha', 'browser-diagnostics']);
 });
 
+test('attachDiagnostics records the exact Playwright browser before enforcing the gate', async () => {
+  const state = diagnostics();
+  const testInfo = {
+    project: { use: { browserName: 'firefox' } },
+    attach: async () => {},
+  };
+
+  await helpers.attachRuntimeDiagnostics(testInfo, state, 'test-sha');
+  assert.equal(state.browserName, 'firefox');
+});
+
+test('installDiagnostics exposes exact browser identity to direct assertion paths', async () => {
+  const acceptanceHelpers = await import('../tests/helpers.mjs');
+  const pageFor = (browserName) => ({
+    context: () => ({
+      browser: () => browserName === null
+        ? null
+        : { browserType: () => ({ name: () => browserName }) },
+    }),
+    on: () => {},
+  });
+  const addExpectedDuplicate = (state) => {
+    state.httpErrors.push({
+      status: 404,
+      method: 'GET',
+      url: 'http://127.0.0.1:8080/missing',
+      requestIdentity: REQUEST_IDENTITY_A,
+    });
+    state.failedRequests.push({
+      method: 'GET',
+      url: 'http://127.0.0.1:8080/missing',
+      requestIdentity: REQUEST_IDENTITY_A,
+      failure: '<unknown error>',
+    });
+    acceptanceHelpers.allowExpectedHttpFailure(state, { status: 404, pathname: '/missing' });
+  };
+
+  const firefox = acceptanceHelpers.installDiagnostics(pageFor('firefox'));
+  assert.equal(firefox.browserName, 'firefox');
+  addExpectedDuplicate(firefox);
+  assert.doesNotThrow(() => acceptanceHelpers.assertNoUnexpectedRuntimeFailures(firefox));
+
+  firefox.failedRequests.push({
+    method: 'GET',
+    url: 'http://127.0.0.1:8080/missing',
+    requestIdentity: REQUEST_IDENTITY_A,
+    failure: '<unknown error>',
+  });
+  assert.throws(
+    () => acceptanceHelpers.assertNoUnexpectedRuntimeFailures(firefox),
+    /Unexpected browser\/runtime failures/u,
+  );
+
+  for (const browserName of ['chromium', 'webkit', null]) {
+    const state = acceptanceHelpers.installDiagnostics(pageFor(browserName));
+    assert.equal(state.browserName, browserName);
+    addExpectedDuplicate(state);
+    assert.throws(
+      () => acceptanceHelpers.assertNoUnexpectedRuntimeFailures(state),
+      /Unexpected browser\/runtime failures/u,
+    );
+  }
+});
+
 test('navigation aborts are ignored but real request failures remain fatal', () => {
   assert.doesNotThrow(() => helpers.assertNoUnexpectedRuntimeFailures(diagnostics({
     failedRequests: [{
@@ -78,6 +144,176 @@ test('navigation aborts are ignored but real request failures remain fatal', () 
       failure: 'net::ERR_FAILED',
     }],
   })), /Unexpected browser\/runtime failures/u);
+});
+
+test('Firefox duplicate request failure consumes only the exact matched response identity', () => {
+  const state = diagnostics({
+    browserName: 'firefox',
+    httpErrors: [{
+      status: 404,
+      method: 'GET',
+      url: 'http://127.0.0.1:8080/missing',
+      requestIdentity: REQUEST_IDENTITY_A,
+    }],
+    failedRequests: [{
+      method: 'GET',
+      url: 'http://127.0.0.1:8080/missing',
+      requestIdentity: REQUEST_IDENTITY_A,
+      failure: '<unknown error>',
+    }],
+  });
+  helpers.allowExpectedHttpFailure(state, { status: 404, pathname: '/missing' });
+  assert.doesNotThrow(() => helpers.assertNoUnexpectedRuntimeFailures(state));
+
+  state.failedRequests.push({
+    method: 'GET',
+    url: 'http://127.0.0.1:8080/missing',
+    requestIdentity: REQUEST_IDENTITY_A,
+    failure: '<unknown error>',
+  });
+  assert.throws(() => helpers.assertNoUnexpectedRuntimeFailures(state), /Unexpected browser\/runtime failures/u);
+});
+
+test('Firefox duplicate suppression rejects a different origin with the same pathname', () => {
+  const state = diagnostics({
+    browserName: 'firefox',
+    httpErrors: [{
+      status: 404,
+      method: 'GET',
+      url: 'http://127.0.0.1:8080/missing',
+      requestIdentity: REQUEST_IDENTITY_A,
+    }],
+    failedRequests: [{
+      method: 'GET',
+      url: 'https://cdn.example.test/missing',
+      requestIdentity: REQUEST_IDENTITY_B,
+      failure: '<unknown error>',
+    }],
+  });
+  helpers.allowExpectedHttpFailure(state, { status: 404, pathname: '/missing' });
+  assert.throws(() => helpers.assertNoUnexpectedRuntimeFailures(state), /Unexpected browser\/runtime failures/u);
+});
+
+test('installed diagnostics preserve secret-safe per-request identity for Firefox duplicate matching', async () => {
+  const acceptanceHelpers = await import('../tests/helpers.mjs');
+  const install = () => {
+    const handlers = new Map();
+    const page = {
+      context: () => ({ browser: () => ({ browserType: () => ({ name: () => 'firefox' }) }) }),
+      on: (event, handler) => handlers.set(event, handler),
+    };
+    return { state: acceptanceHelpers.installDiagnostics(page), handlers };
+  };
+  const requestFor = (rawUrl, method = 'GET') => ({
+    method: () => method,
+    url: () => rawUrl,
+    failure: () => ({ errorText: '<unknown error>' }),
+  });
+  const emitResponse = (handlers, request) => handlers.get('response')({
+    status: () => 404,
+    url: () => request.url(),
+    request: () => request,
+  });
+  const emitFailure = (handlers, request) => handlers.get('requestfailed')(request);
+
+  const mismatchedQuery = install();
+  const queryResponseRequest = requestFor('http://127.0.0.1:8080/missing?id=1');
+  const queryFailureRequest = requestFor('http://127.0.0.1:8080/missing?id=2');
+  emitResponse(mismatchedQuery.handlers, queryResponseRequest);
+  emitFailure(mismatchedQuery.handlers, queryFailureRequest);
+  acceptanceHelpers.allowExpectedHttpFailure(mismatchedQuery.state, { status: 404, pathname: '/missing' });
+  assert.equal(mismatchedQuery.state.httpErrors[0].url, 'http://127.0.0.1:8080/missing');
+  assert.equal(mismatchedQuery.state.failedRequests[0].url, 'http://127.0.0.1:8080/missing');
+  assert.notEqual(
+    mismatchedQuery.state.httpErrors[0].requestIdentity,
+    mismatchedQuery.state.failedRequests[0].requestIdentity,
+  );
+  assert.throws(
+    () => acceptanceHelpers.assertNoUnexpectedRuntimeFailures(mismatchedQuery.state),
+    /Unexpected browser\/runtime failures/u,
+  );
+
+  const exact = install();
+  const exactRequest = requestFor('http://127.0.0.1:8080/missing?id=1');
+  emitResponse(exact.handlers, exactRequest);
+  emitFailure(exact.handlers, exactRequest);
+  acceptanceHelpers.allowExpectedHttpFailure(exact.state, { status: 404, pathname: '/missing' });
+  assert.equal(exact.state.httpErrors[0].method, 'GET');
+  assert.match(exact.state.httpErrors[0].requestIdentity, /^[0-9a-f]{64}$/u);
+  assert.equal(exact.state.httpErrors[0].requestIdentity, exact.state.failedRequests[0].requestIdentity);
+  assert.doesNotThrow(() => acceptanceHelpers.assertNoUnexpectedRuntimeFailures(exact.state));
+
+  const distinctSameUrl = install();
+  const sameUrlResponseRequest = requestFor('http://127.0.0.1:8080/missing?id=1');
+  const sameUrlFailureRequest = requestFor('http://127.0.0.1:8080/missing?id=1');
+  emitResponse(distinctSameUrl.handlers, sameUrlResponseRequest);
+  emitFailure(distinctSameUrl.handlers, sameUrlFailureRequest);
+  acceptanceHelpers.allowExpectedHttpFailure(distinctSameUrl.state, { status: 404, pathname: '/missing' });
+  assert.equal(distinctSameUrl.state.httpErrors[0].url, distinctSameUrl.state.failedRequests[0].url);
+  assert.notEqual(
+    distinctSameUrl.state.httpErrors[0].requestIdentity,
+    distinctSameUrl.state.failedRequests[0].requestIdentity,
+  );
+  assert.throws(
+    () => acceptanceHelpers.assertNoUnexpectedRuntimeFailures(distinctSameUrl.state),
+    /Unexpected browser\/runtime failures/u,
+  );
+
+  const wrongResponseMethod = install();
+  const postResponseRequest = requestFor('http://127.0.0.1:8080/missing?id=1', 'POST');
+  const getFailureRequest = requestFor('http://127.0.0.1:8080/missing?id=1');
+  emitResponse(wrongResponseMethod.handlers, postResponseRequest);
+  emitFailure(wrongResponseMethod.handlers, getFailureRequest);
+  acceptanceHelpers.allowExpectedHttpFailure(wrongResponseMethod.state, { status: 404, pathname: '/missing' });
+  assert.equal(wrongResponseMethod.state.httpErrors[0].method, 'POST');
+  assert.throws(
+    () => acceptanceHelpers.assertNoUnexpectedRuntimeFailures(wrongResponseMethod.state),
+    /Unexpected browser\/runtime failures/u,
+  );
+});
+
+test('Firefox duplicate suppression remains fail-closed for method, failure and missing identity', () => {
+  for (const failedRequest of [
+    { method: 'POST', failure: '<unknown error>', requestIdentity: REQUEST_IDENTITY_A },
+    { method: 'GET', failure: 'net::ERR_FAILED', requestIdentity: REQUEST_IDENTITY_A },
+    { method: 'GET', failure: '<unknown error>' },
+  ]) {
+    const state = diagnostics({
+      browserName: 'firefox',
+      httpErrors: [{
+        status: 404,
+        method: 'GET',
+        url: 'http://127.0.0.1:8080/missing',
+        requestIdentity: REQUEST_IDENTITY_A,
+      }],
+      failedRequests: [{
+        url: 'http://127.0.0.1:8080/missing',
+        ...failedRequest,
+      }],
+    });
+    helpers.allowExpectedHttpFailure(state, { status: 404, pathname: '/missing' });
+    assert.throws(() => helpers.assertNoUnexpectedRuntimeFailures(state), /Unexpected browser\/runtime failures/u);
+  }
+});
+
+test('non-Firefox unknown request failures remain fatal even after an expected response', () => {
+  const state = diagnostics({
+    browserName: 'chromium',
+    httpErrors: [{
+      status: 404,
+      method: 'GET',
+      url: 'http://127.0.0.1:8080/missing',
+      requestIdentity: REQUEST_IDENTITY_A,
+    }],
+    failedRequests: [{
+      method: 'GET',
+      url: 'http://127.0.0.1:8080/missing',
+      requestIdentity: REQUEST_IDENTITY_A,
+      failure: '<unknown error>',
+    }],
+  });
+  helpers.allowExpectedHttpFailure(state, { status: 404, pathname: '/missing' });
+  assert.throws(() => helpers.assertNoUnexpectedRuntimeFailures(state), /Unexpected browser\/runtime failures/u);
 });
 
 const expectedHttpStatuses = [403, 404, 409, 419, 422, 429, 500, 503];
