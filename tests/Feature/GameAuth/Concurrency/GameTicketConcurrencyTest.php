@@ -248,6 +248,15 @@ final class GameTicketConcurrencyTest extends TestCase
             self::assertEquals(3, DB::table('native_game_signing_trust_profiles')
                 ->where('profile_version', 2)
                 ->value('issuer_revision'));
+
+            DB::table('native_game_signing_trust_key_versions')
+                ->whereIn('profile_id', DB::table('native_game_signing_trust_profiles')
+                    ->select('id')
+                    ->where('profile_version', '>', 1))
+                ->delete();
+            DB::table('native_game_signing_trust_profiles')
+                ->where('profile_version', '>', 1)
+                ->delete();
         });
     }
 
