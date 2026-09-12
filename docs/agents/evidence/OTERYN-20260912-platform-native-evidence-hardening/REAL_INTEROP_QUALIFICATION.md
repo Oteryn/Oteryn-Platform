@@ -4,14 +4,14 @@ Status: `PROCEDURE_READY / COMPOSED_RUN_NOT_YET_CLAIMED`
 
 Governing Platform Issue: #1388.
 
-Repository-qualified Platform runtime candidate: `Oteryn/Oteryn-Platform@a3a44b781fc8131bf4b85f054f860c570071dcbe`.
+Repository-qualified Platform runtime candidate: `Oteryn/Oteryn-Platform@00ea71d79b19a2578068bb0b047a0c6f9814f03f`.
 
 This is a non-production evidence procedure. It does not authorize production deployment, PKI/root changes, certificate or private-key custody changes, secrets in the repository, Game repository writes, live user/account/session mutations, ruleset changes or Merge Queue bypass.
 
 ## Pinned consumer baseline inspected during hardening
 
 - Platform admission base: `Oteryn/Oteryn-Platform@2271fea9db1e202cacb206dab289efa4cefcec76`.
-- Repository-qualified Platform runtime candidate: `Oteryn/Oteryn-Platform@a3a44b781fc8131bf4b85f054f860c570071dcbe`.
+- Repository-qualified Platform runtime candidate: `Oteryn/Oteryn-Platform@00ea71d79b19a2578068bb0b047a0c6f9814f03f`.
 - Game protected main inspected and re-read at repository-readiness closeout: `Oteryn/Oteryn-Game@489e3e390a1bce1ce3439c66521ab75f8a826cd8`.
 - Game wire fixture: `apps/game-server/tests/admission_evidence_wire.rs` at that exact Game revision.
 - Game native source codec/client: `apps/game-server/src/admission_evidence.rs` at that exact Game revision.
