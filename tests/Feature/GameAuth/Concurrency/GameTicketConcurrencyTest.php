@@ -3,6 +3,10 @@
 namespace Tests\Feature\GameAuth\Concurrency;
 
 use App\Accounts\Models\IdentityCanaryAccount;
+use App\GameAuth\NativeEvidence\NativeEvidenceContract;
+use App\GameAuth\NativeEvidence\NativeEvidenceHighWaterWitness;
+use App\GameAuth\NativeEvidence\NativeEvidenceNamespace;
+use App\GameAuth\NativeEvidence\NativeSigningTrustRegistry;
 use App\GameAuth\OAuth\IssueGameLoginTicketFromOAuth;
 use App\GameAuth\OAuth\NativeOAuthClientManager;
 use App\GameAuth\OAuth\OAuthBootstrapDenied;
@@ -18,6 +22,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Laravel\Passport\RefreshToken;
 use Laravel\Passport\Token;
+use Symfony\Component\Process\Process;
 use Tests\TestCase;
 use Throwable;
 
@@ -129,6 +134,123 @@ final class GameTicketConcurrencyTest extends TestCase
         }
     }
 
+    public function test_native_evidence_account_reconciliation_survives_outer_rollback_and_process_restart(): void
+    {
+        $this->withNativeEvidenceDirectory(function (string $directory): void {
+            $identity = Identity::query()->create([
+                'email' => 'native-restart-account@example.test',
+                'password' => Hash::make('Correct-Horse-9!Battery'),
+            ]);
+            $accountId = $identity->account_id;
+            self::assertIsString($accountId);
+
+            $namespace = NativeEvidenceNamespace::accountState($accountId);
+            $witness = $this->app->make(NativeEvidenceHighWaterWitness::class);
+            $witness->withNamespace($namespace, function (?int $floor, \Closure $advance): void {
+                self::assertNull($floor);
+                $advance(1);
+            });
+
+            DB::beginTransaction();
+            try {
+                $this->app->make(RevokeIdentityGameAuthorizations::class)->execute($identity->refresh());
+                self::assertSame(2, (int) Identity::query()
+                    ->where('account_id', $accountId)
+                    ->value('native_security_generation'));
+            } finally {
+                DB::rollBack();
+            }
+
+            DB::purge();
+            DB::reconnect();
+            self::assertSame(1, (int) Identity::query()
+                ->where('account_id', $accountId)
+                ->value('native_security_generation'));
+            self::assertSame(2, $this->app->make(NativeEvidenceHighWaterWitness::class)->peek($namespace));
+
+            $processes = [
+                $this->nativeEvidenceReconcileProcess($directory, '--account-id='.$accountId),
+                $this->nativeEvidenceReconcileProcess($directory, '--account-id='.$accountId),
+            ];
+            $this->runProcessesConcurrently($processes);
+
+            DB::purge();
+            DB::reconnect();
+            self::assertSame(2, (int) Identity::query()
+                ->where('account_id', $accountId)
+                ->value('native_security_generation'));
+            self::assertSame(2, $this->app->make(NativeEvidenceHighWaterWitness::class)->peek($namespace));
+        });
+    }
+
+    public function test_native_evidence_signing_trust_recovery_survives_outer_rollback_and_process_restart(): void
+    {
+        $this->withNativeEvidenceDirectory(function (string $directory): void {
+            $registry = $this->app->make(NativeSigningTrustRegistry::class);
+            $keyOne = str_repeat("\x01", 32);
+            $keyTwo = str_repeat("\x02", 32);
+
+            $registry->publishTrustedKey(
+                NativeEvidenceContract::FRESH_ISSUER,
+                NativeEvidenceContract::FRESH_PROFILE,
+                'fresh_admission',
+                'key-1',
+                $keyOne,
+            );
+
+            DB::beginTransaction();
+            try {
+                $registry->revokeProfile(
+                    NativeEvidenceContract::FRESH_ISSUER,
+                    NativeEvidenceContract::FRESH_PROFILE,
+                    'fresh_admission',
+                );
+                self::assertNotNull(DB::table('native_game_signing_trust_profiles')
+                    ->where('profile_version', 1)
+                    ->value('revoked_at'));
+            } finally {
+                DB::rollBack();
+            }
+
+            DB::purge();
+            DB::reconnect();
+            self::assertEquals(1, DB::table('native_game_signing_trust_profiles')
+                ->where('profile_version', 1)
+                ->value('issuer_revision'));
+            self::assertNull(DB::table('native_game_signing_trust_profiles')
+                ->where('profile_version', 1)
+                ->value('revoked_at'));
+
+            $processes = [
+                $this->nativeEvidenceReconcileProcess($directory, '--trust=fresh'),
+                $this->nativeEvidenceReconcileProcess($directory, '--trust=fresh'),
+            ];
+            $this->runProcessesConcurrently($processes);
+
+            DB::purge();
+            DB::reconnect();
+            self::assertEquals(2, DB::table('native_game_signing_trust_profiles')
+                ->where('profile_version', 1)
+                ->value('issuer_revision'));
+            self::assertNotNull(DB::table('native_game_signing_trust_profiles')
+                ->where('profile_version', 1)
+                ->value('revoked_at'));
+
+            $next = $this->app->make(NativeSigningTrustRegistry::class)->publishNextProfileVersion(
+                NativeEvidenceContract::FRESH_ISSUER,
+                NativeEvidenceContract::FRESH_PROFILE,
+                'fresh_admission',
+                'key-2',
+                $keyTwo,
+            );
+            self::assertEquals(1, $next->key_revision);
+            self::assertSame(2, DB::table('native_game_signing_trust_profiles')->count());
+            self::assertEquals(3, DB::table('native_game_signing_trust_profiles')
+                ->where('profile_version', 2)
+                ->value('issuer_revision'));
+        });
+    }
+
     /**
      * @param  callable(): string  $operation
      * @return list<string>
@@ -221,6 +343,72 @@ final class GameTicketConcurrencyTest extends TestCase
         DB::reconnect();
 
         return $results;
+    }
+
+    /** @param callable(string): void $callback */
+    private function withNativeEvidenceDirectory(callable $callback): void
+    {
+        $directory = sys_get_temp_dir().'/oteryn-native-evidence-'.bin2hex(random_bytes(8));
+        self::assertTrue(mkdir($directory, 0700));
+        config([
+            'game-auth.native_evidence.source_authority' => 'platform',
+            'game-auth.native_evidence.activated' => true,
+            'game-auth.native_evidence.high_water_directory' => $directory,
+            'game-auth.native_evidence.fresh_account_purpose' => 'platform_security',
+            'game-auth.native_evidence.fresh_account_scope' => 'fresh_admission',
+            'game-auth.native_evidence.fresh_key_purpose' => 'fresh_admission',
+            'game-auth.native_evidence.clock_uncertainty_seconds' => 0,
+            'game-auth.native_evidence.requests_per_minute' => 120,
+        ]);
+
+        try {
+            $callback($directory);
+        } finally {
+            DB::purge();
+            DB::reconnect();
+            foreach (glob($directory.'/*') ?: [] as $path) {
+                @unlink($path);
+            }
+            @rmdir($directory);
+        }
+    }
+
+    private function nativeEvidenceReconcileProcess(string $directory, string $option): Process
+    {
+        $process = new Process(
+            [PHP_BINARY, base_path('artisan'), 'game-auth:native-evidence:reconcile', $option],
+            base_path(),
+            [
+                'GAME_AUTH_NATIVE_EVIDENCE_SOURCE_AUTHORITY' => 'platform',
+                'GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED' => 'true',
+                'GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY' => $directory,
+                'GAME_AUTH_NATIVE_EVIDENCE_FRESH_ACCOUNT_PURPOSE' => 'platform_security',
+                'GAME_AUTH_NATIVE_EVIDENCE_FRESH_ACCOUNT_SCOPE' => 'fresh_admission',
+                'GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE' => 'fresh_admission',
+                'GAME_AUTH_NATIVE_EVIDENCE_CLOCK_UNCERTAINTY_SECONDS' => '0',
+                'GAME_AUTH_NATIVE_EVIDENCE_REQUESTS_PER_MINUTE' => '120',
+            ],
+        );
+        $process->setTimeout(30);
+
+        return $process;
+    }
+
+    /** @param list<Process> $processes */
+    private function runProcessesConcurrently(array $processes): void
+    {
+        foreach ($processes as $process) {
+            $process->start();
+        }
+
+        foreach ($processes as $process) {
+            $exitCode = $process->wait();
+            self::assertSame(
+                0,
+                $exitCode,
+                "Native evidence restart process failed.\nstdout:\n{$process->getOutput()}\nstderr:\n{$process->getErrorOutput()}",
+            );
+        }
     }
 
     private function createBootstrapTokenFamily(Identity $identity, string $clientId): string
