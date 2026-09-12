@@ -2,7 +2,6 @@
 
 namespace App\GameAuth\NativeEvidence;
 
-use Closure;
 use App\Identity\Support\CanonicalAccountId;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
