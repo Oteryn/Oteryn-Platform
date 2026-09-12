@@ -142,7 +142,6 @@ final class GameTicketConcurrencyTest extends TestCase
                 'password' => Hash::make('Correct-Horse-9!Battery'),
             ]);
             $accountId = $identity->account_id;
-            self::assertIsString($accountId);
 
             $namespace = NativeEvidenceNamespace::accountState($accountId);
             $witness = $this->app->make(NativeEvidenceHighWaterWitness::class);
@@ -154,18 +153,20 @@ final class GameTicketConcurrencyTest extends TestCase
             DB::beginTransaction();
             try {
                 $this->app->make(RevokeIdentityGameAuthorizations::class)->execute($identity->refresh());
-                self::assertSame(2, (int) Identity::query()
-                    ->where('account_id', $accountId)
-                    ->value('native_security_generation'));
+                self::assertSame(2, $this->databaseInt(
+                    Identity::query()->where('account_id', $accountId)->value('native_security_generation'),
+                    'native security generation after revoked transaction',
+                ));
             } finally {
                 DB::rollBack();
             }
 
             DB::purge();
             DB::reconnect();
-            self::assertSame(1, (int) Identity::query()
-                ->where('account_id', $accountId)
-                ->value('native_security_generation'));
+            self::assertSame(1, $this->databaseInt(
+                Identity::query()->where('account_id', $accountId)->value('native_security_generation'),
+                'native security generation after rollback',
+            ));
             self::assertSame(2, $this->app->make(NativeEvidenceHighWaterWitness::class)->peek($namespace));
 
             $processes = [
@@ -176,9 +177,10 @@ final class GameTicketConcurrencyTest extends TestCase
 
             DB::purge();
             DB::reconnect();
-            self::assertSame(2, (int) Identity::query()
-                ->where('account_id', $accountId)
-                ->value('native_security_generation'));
+            self::assertSame(2, $this->databaseInt(
+                Identity::query()->where('account_id', $accountId)->value('native_security_generation'),
+                'native security generation after restart reconciliation',
+            ));
             self::assertSame(2, $this->app->make(NativeEvidenceHighWaterWitness::class)->peek($namespace));
         });
     }
@@ -419,6 +421,18 @@ final class GameTicketConcurrencyTest extends TestCase
                 "Native evidence restart process failed.\nstdout:\n{$process->getOutput()}\nstderr:\n{$process->getErrorOutput()}",
             );
         }
+    }
+
+    private function databaseInt(mixed $value, string $label): int
+    {
+        if (is_int($value)) {
+            return $value;
+        }
+        if (is_string($value) && preg_match('/^[0-9]+$/', $value) === 1) {
+            return (int) $value;
+        }
+
+        throw new \RuntimeException("{$label} must be a non-negative integer.");
     }
 
     private function createBootstrapTokenFamily(Identity $identity, string $clientId): string
