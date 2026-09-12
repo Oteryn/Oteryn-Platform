@@ -68,7 +68,7 @@ cross_repository_tasks:
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 2
+checkpoint_version: 1
 updated_at: 2026-09-12T21:04:24Z
 head: 00ea71d79b19a2578068bb0b047a0c6f9814f03f
 branch: agent/platform-native-evidence-hardening-1388
