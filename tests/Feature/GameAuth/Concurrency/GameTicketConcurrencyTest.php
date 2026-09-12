@@ -364,6 +364,7 @@ final class GameTicketConcurrencyTest extends TestCase
         try {
             $callback($directory);
         } finally {
+            config(['game-auth.native_evidence.activated' => false]);
             DB::purge();
             DB::reconnect();
             foreach (glob($directory.'/*') ?: [] as $path) {
