@@ -4,17 +4,20 @@ Status: `PROCEDURE_READY / COMPOSED_RUN_NOT_YET_CLAIMED`
 
 Governing Platform Issue: #1388.
 
+Repository-qualified Platform runtime candidate: `Oteryn/Oteryn-Platform@a3a44b781fc8131bf4b85f054f860c570071dcbe`.
+
 This is a non-production evidence procedure. It does not authorize production deployment, PKI/root changes, certificate or private-key custody changes, secrets in the repository, Game repository writes, live user/account/session mutations, ruleset changes or Merge Queue bypass.
 
 ## Pinned consumer baseline inspected during hardening
 
 - Platform admission base: `Oteryn/Oteryn-Platform@2271fea9db1e202cacb206dab289efa4cefcec76`.
-- Game protected main inspected: `Oteryn/Oteryn-Game@489e3e390a1bce1ce3439c66521ab75f8a826cd8`.
+- Repository-qualified Platform runtime candidate: `Oteryn/Oteryn-Platform@a3a44b781fc8131bf4b85f054f860c570071dcbe`.
+- Game protected main inspected and re-read at repository-readiness closeout: `Oteryn/Oteryn-Game@489e3e390a1bce1ce3439c66521ab75f8a826cd8`.
 - Game wire fixture: `apps/game-server/tests/admission_evidence_wire.rs` at that exact Game revision.
 - Game native source codec/client: `apps/game-server/src/admission_evidence.rs` at that exact Game revision.
 - Producer route: `POST /internal/v1/game-auth/native-evidence`.
 
-The Platform implementation candidate SHA must be frozen and inserted into the evidence record at execution time. Game protected main must be re-read immediately before the composed run; if it moved, the exact consumer fixture/client revision used by the run replaces the baseline above. A Platform-local PASS never becomes a cross-repository PASS by prose.
+The exact Platform candidate SHA must be frozen again at composed execution time. Game protected main must also be re-read immediately before the composed run; if either revision moved, the exact producer/consumer revisions actually used by the run replace the repository-readiness pins above. A Platform-local PASS never becomes a cross-repository PASS by prose.
 
 ## Required environment
 
@@ -72,13 +75,19 @@ Use only disposable synthetic data.
 6. Create an analogous signing-trust witness-ahead/database-behind rollback. Prove normal reads remain unavailable; run `game-auth:native-evidence:reconcile --trust=fresh` (and independently the recovery scope when applicable); prove reconciliation marks the affected profile version revoked at the retained issuer revision. Restore trust only by creating a successor profile version with a fresh key id and prove the previous revoked profile remains immutable history.
 7. Inject file-sync or directory-sync failure in a disposable qualified harness/profile and prove no successful authority response is claimed from that failed persistence step.
 
+### Restore topology boundary
+
+The anti-rollback design deliberately has two independent authority records: relational native-evidence provenance/history and the separately retained witness volume. Genuine first activation is distinguishable from ordinary database restore or retained-volume replacement while at least one of those independent records survives.
+
+Simultaneous loss or rollback of **both** authority records removes the evidence needed to distinguish a historical producer from a genuinely unused installation. That topology is not a qualified restore path and must be classified `BLOCKED`; it must never be represented as successful provenance recovery, real interoperability proof or production proof. Operational backup/restore design must preserve at least one independent authority record across recovery.
+
 ## Evidence result classes
 
 Use only these result classes for the composed run:
 
 - `COMPOSED_PASS` — every mandatory item above passed on one explicitly pinned Platform candidate SHA, Game consumer SHA and non-production topology revision;
 - `COMPOSED_FAIL` — an executed mandatory check failed;
-- `BLOCKED` — the required real mTLS/retained-volume/non-production environment or exact consumer revision was unavailable;
+- `BLOCKED` — the required real mTLS/retained-volume/non-production environment, exact consumer revision or qualified restore topology was unavailable;
 - `NOT_RUN` — procedure exists but composed execution has not occurred.
 
 Until an actual run records `COMPOSED_PASS`, the strongest repository-only terminal statement is `PLATFORM_NATIVE_EVIDENCE_READY_FOR_REAL_INTEROP`; it is not `REAL_INTEROP_PROVEN` and never `PRODUCTION_PROVEN`.
