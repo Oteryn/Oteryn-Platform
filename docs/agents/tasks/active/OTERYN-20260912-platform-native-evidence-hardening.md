@@ -69,10 +69,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-12T19:10:00Z
-head: IMPLEMENTATION_CANDIDATE_PENDING
+updated_at: 2026-09-12T19:12:00Z
+head: b4791fbaf742863003e4afae0217c34cc6d66555
 branch: agent/platform-native-evidence-hardening-1388
-pr: none
+pr: 1389
 status: implementing
 context_routes:
   - architecture
@@ -96,6 +96,7 @@ owned_paths:
 proven:
   - protected main admission baseline is 2271fea9db1e202cacb206dab289efa4cefcec76
   - Issue #1388 is open and governs this Platform task
+  - PR #1389 owns branch agent/platform-native-evidence-hardening-1388
   - pre-hardening witness persistence conditionally skipped fsync when PHP did not expose it
   - current shared revocation action can advance the retained native-generation witness before an enclosing security transaction commits
   - password change/reset, MFA, email, recovery and termination families all route game-authorization revocation through the shared action
@@ -112,8 +113,8 @@ unknown:
   - real non-production composed mTLS interoperability result
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: agent-governance@b4791fbaf742863003e4afae0217c34cc6d66555
+  evidence: task liveness rejected pr:none after PR #1389 opened; implementation validators themselves passed
 rejected_hypotheses:
   - reusing closed Issue #1379/PR #1381 as the live implementation lineage
   - silently blessing a new empty retained-witness directory after history exists
@@ -121,19 +122,19 @@ rejected_hypotheses:
 changed_paths:
   - implementation candidate paths under the ownership set above
 validation:
-  - command: not-run
-    result: NOT_RUN
-    evidence: implementation candidate is being assembled before exact-head validation
+  - command: Agent Governance on b4791fbaf742863003e4afae0217c34cc6d66555
+    result: FAIL
+    evidence: branch_pr_identity_omitted; corrected by binding this packet to PR #1389
 blockers:
-  - none
-next_action: freeze the implementation head, run focused and repository-required validation, review findings, then prepare real-interoperability handoff evidence
+  - exact-head CI pending on successor checkpoint commit
+next_action: run focused and repository-required validation on the successor exact PR head, resolve any material failures, then prepare real-interoperability handoff evidence
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: task is active under Issue #1388
+source_branch_reason: task is active under Issue #1388 and PR #1389
 source_branch_evidence: pending
 ```
 
