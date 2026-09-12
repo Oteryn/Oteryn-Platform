@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Testing\TestResponse;
 use LogicException;
+use ReflectionMethod;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
@@ -201,14 +202,13 @@ final class NativeEvidenceHardeningTest extends TestCase
 
     public function test_hardening_migration_refuses_destructive_rollback_while_native_authority_is_active(): void
     {
-        /** @var Migration $migration */
         $migration = require database_path('migrations/2026_09_12_204800_harden_native_game_evidence_authority.php');
-        self::assertIsObject($migration);
+        self::assertInstanceOf(Migration::class, $migration);
         config(['game-auth.native_evidence.activated' => true]);
 
         $this->expectException(LogicException::class);
         $this->expectExceptionMessage('unless activation is explicitly false');
-        $migration->down();
+        (new ReflectionMethod($migration, 'down'))->invoke($migration);
     }
 
     private function identity(string $email): Identity
