@@ -157,6 +157,7 @@ final class NativeEvidenceSource
 
         $issuerRevision = $this->positiveDatabaseInt($profile->issuer_revision ?? null, 'signing trust issuer revision');
         $profileId = $this->positiveDatabaseInt($profile->id ?? null, 'signing trust profile id');
+        $this->positiveDatabaseInt($profile->profile_version ?? null, 'signing trust profile version');
         $this->assertTrustStateHighWater($stateNamespace, $issuerRevision);
 
         if (! $this->trustKeyExists($profileId, $keyId)) {
@@ -186,6 +187,7 @@ final class NativeEvidenceSource
                     ->where('issuer', $issuer)
                     ->where('profile', $profileName)
                     ->where('key_purpose', $keyPurpose)
+                    ->orderByDesc('profile_version')
                     ->lockForUpdate()
                     ->first();
                 if (! $profile instanceof stdClass) {
@@ -194,6 +196,7 @@ final class NativeEvidenceSource
 
                 $issuerRevision = $this->positiveDatabaseInt($profile->issuer_revision ?? null, 'signing trust issuer revision');
                 $profileId = $this->positiveDatabaseInt($profile->id ?? null, 'signing trust profile id');
+                $this->positiveDatabaseInt($profile->profile_version ?? null, 'signing trust profile version');
                 $this->assertTrustStateHighWater($stateNamespace, $issuerRevision);
 
                 $key = DB::table('native_game_signing_trust_key_versions')
@@ -314,6 +317,7 @@ final class NativeEvidenceSource
             ->where('issuer', $issuer)
             ->where('profile', $profile)
             ->where('key_purpose', $keyPurpose)
+            ->orderByDesc('profile_version')
             ->first();
 
         return $value instanceof stdClass ? $value : null;

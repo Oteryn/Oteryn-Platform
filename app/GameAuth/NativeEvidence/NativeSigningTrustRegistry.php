@@ -51,6 +51,7 @@ final class NativeSigningTrustRegistry
                         'issuer' => $issuer,
                         'profile' => $profile,
                         'key_purpose' => $keyPurpose,
+                        'profile_version' => 1,
                         'issuer_revision' => 1,
                         'revoked_at' => null,
                         'created_at' => now(),
@@ -62,9 +63,10 @@ final class NativeSigningTrustRegistry
 
                 $issuerRevision = $this->positiveDatabaseInt($trustProfile->issuer_revision ?? null, 'native signing trust issuer revision');
                 $profileId = $this->positiveDatabaseInt($trustProfile->id ?? null, 'native signing trust profile id');
+                $this->positiveDatabaseInt($trustProfile->profile_version ?? null, 'native signing trust profile version');
                 $this->assertWitnessMatches($floor, $issuerRevision, 'native signing trust state');
                 if (($trustProfile->revoked_at ?? null) !== null) {
-                    throw new LogicException('Revoked native signing trust profile cannot accept a trusted key.');
+                    throw new LogicException('Revoked native signing trust profile version cannot accept a trusted key.');
                 }
 
                 $latest = $this->latestKeyVersion($profileId, $keyId, true);
@@ -89,6 +91,64 @@ final class NativeSigningTrustRegistry
                 ]);
 
                 return $this->insertKeyVersion($profileId, $keyId, $keyRevision, $encoded, true, null);
+            }, 3);
+        });
+    }
+
+    public function publishNextProfileVersion(
+        string $issuer,
+        string $profile,
+        string $keyPurpose,
+        string $keyId,
+        string $publicKeyBytes,
+    ): stdClass {
+        $this->assertSupportedScope($issuer, $profile, $keyPurpose);
+        NativeEvidenceContract::assertKeyId($keyId);
+        $encoded = NativeEvidenceContract::encodePublicKey($publicKeyBytes);
+        $stateNamespace = NativeEvidenceNamespace::trustState($issuer, $profile, $keyPurpose);
+
+        return $this->witness->withNamespace($stateNamespace, function (?int $floor, Closure $advance) use (
+            $issuer,
+            $profile,
+            $keyPurpose,
+            $keyId,
+            $encoded,
+        ): stdClass {
+            return DB::transaction(function () use (
+                $floor,
+                $advance,
+                $issuer,
+                $profile,
+                $keyPurpose,
+                $keyId,
+                $encoded,
+            ): stdClass {
+                $trustProfile = $this->lockedProfile($issuer, $profile, $keyPurpose);
+                $issuerRevision = $this->positiveDatabaseInt($trustProfile->issuer_revision ?? null, 'native signing trust issuer revision');
+                $profileVersion = $this->positiveDatabaseInt($trustProfile->profile_version ?? null, 'native signing trust profile version');
+                $this->assertWitnessMatches($floor, $issuerRevision, 'native signing trust state');
+                if (($trustProfile->revoked_at ?? null) === null) {
+                    throw new LogicException('A successor native signing trust profile version requires terminal revocation of the current version.');
+                }
+                if ($this->historicalKeyIdExists($issuer, $profile, $keyPurpose, $keyId)) {
+                    throw new LogicException('A native signing key id cannot be reused across trust profile versions.');
+                }
+
+                $nextIssuerRevision = $this->nextPositive($issuerRevision, 'native signing trust issuer revision');
+                $nextProfileVersion = $this->nextPositive($profileVersion, 'native signing trust profile version');
+                $advance($nextIssuerRevision);
+                $profileId = DB::table('native_game_signing_trust_profiles')->insertGetId([
+                    'issuer' => $issuer,
+                    'profile' => $profile,
+                    'key_purpose' => $keyPurpose,
+                    'profile_version' => $nextProfileVersion,
+                    'issuer_revision' => $nextIssuerRevision,
+                    'revoked_at' => null,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                return $this->insertKeyVersion($profileId, $keyId, 1, $encoded, true, null);
             }, 3);
         });
     }
@@ -192,6 +252,7 @@ final class NativeSigningTrustRegistry
             ->where('issuer', $issuer)
             ->where('profile', $profile)
             ->where('key_purpose', $keyPurpose)
+            ->orderByDesc('profile_version')
             ->lockForUpdate()
             ->first();
 
@@ -210,6 +271,17 @@ final class NativeSigningTrustRegistry
         $value = $query->first();
 
         return $value instanceof stdClass ? $value : null;
+    }
+
+    private function historicalKeyIdExists(string $issuer, string $profile, string $keyPurpose, string $keyId): bool
+    {
+        return DB::table('native_game_signing_trust_key_versions as key_versions')
+            ->join('native_game_signing_trust_profiles as profiles', 'profiles.id', '=', 'key_versions.profile_id')
+            ->where('profiles.issuer', $issuer)
+            ->where('profiles.profile', $profile)
+            ->where('profiles.key_purpose', $keyPurpose)
+            ->where('key_versions.key_id', $keyId)
+            ->exists();
     }
 
     private function insertKeyVersion(

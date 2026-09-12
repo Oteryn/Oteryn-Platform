@@ -1,10 +1,10 @@
 # Oteryn V2 Platform native evidence producer contract
 
-Status: **Platform counterpart accepted for implementation under Issue #1379; production deployment remains separately gated.**
+Status: **Platform hardening candidate under Issue #1388; real composed non-production interoperability and production deployment remain separately gated.**
 
 Authority:
 - Platform ADR 0028 owns canonical cross-boundary `AccountId` as immutable UUIDv7.
-- Protected Game PR #470 (`ae22132fd9ddb6c83f5bf386fdc267cb670d16aa`) supplies the accepted consumer wire/ordering handoff for `FND-NATIVE-SOURCE-EVIDENCE-V1` and `FND-RECOVERY-SOURCE-TRANSPORT-V2`.
+- Protected Game `main@489e3e390a1bce1ce3439c66521ab75f8a826cd8` contains the current accepted consumer wire/ordering implementation for `FND-NATIVE-SOURCE-EVIDENCE-V1` and `FND-RECOVERY-SOURCE-TRANSPORT-V2`; the original accepted handoff was introduced through protected Game PR #470.
 - This contract accepts that handoff on the Platform producer side without transferring Game, deployment, PKI or private-key authority.
 
 ## Producer operations
@@ -28,29 +28,45 @@ Success and closed failure JSON shapes remain exact-compatible with the protecte
 
 Fresh V1 and recovery V2 account observations share one source-revision namespace per AccountId and the same security-generation floor. Every successful new observation advances that shared source ordering even if the security generation did not change.
 
-## Observation durability and anti-rollback
+## Observation durability, retained-store provenance and anti-rollback
 
 A successful observation is persisted as an immutable exact JSON decision before it is returned. Its `source_revision` is positive and monotonic in the contract-defined namespace; `decision_identity` equals that revision. A revision is never re-aged or rewritten with changed facts/time.
 
-The relational observation history is paired with retained high-water witnesses stored under `GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY`. That directory is required to be an independently retained durable volume, outside the relational database restore unit. A successful first observation installs revision `1`; database history above a missing witness fails closed. Database history below a retained observation witness is detected as producer rollback and the operation returns unavailable. Database history ahead of an existing retained witness may reconcile that witness upward because the relational decision is already the newer committed truth; witnesses are never automatically lowered or deleted.
+The relational observation history is paired with retained high-water witnesses stored under `GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY`. That directory is required to be an independently retained durable volume, outside the relational database restore unit. The qualified PHP/filesystem profile must expose working `fsync`; witness updates are accepted only after the temporary file has been written, flushed and `fsync`ed, atomically renamed, and the containing directory has also been `fsync`ed. Absence or failure of either file or directory synchronization fails closed.
 
-Account security additionally retains the positive native security-generation high-water per AccountId. On first source activation it may bootstrap exactly to the current positive generation only when no prior source history exists. Once active, `RevokeIdentityGameAuthorizations` advances that independent generation witness before persisting the next generation; if retained witness configuration later disappears while relational source history proves activation, revocation itself fails closed rather than degrading to database-only state. A later database restore below the witness therefore makes the source unavailable rather than resurrecting an older authorization floor. Trust state uses the same safety rule: every profile/key mutation advances an independently retained profile-state witness before the relational mutation, and reads require exact equality between retained and relational state revisions. If a cross-store mutation becomes ambiguous after the witness advances but before the relational commit is proven, the namespace remains fail-closed; neither an application retry nor a restart may lower the witness. Explicit owner recovery/reconciliation is required before that namespace can serve authority again.
+The retained store has a random 256-bit `witness-store.id`. The same identifier is bound to the Platform database through the singleton `native_game_evidence_witness_stores` record. An existing database binding with a missing or mismatched retained marker fails closed, so an empty replacement writable directory cannot silently become authority. A retained marker with a missing database binding may re-establish that binding after a database restore because the retained store is the independent anti-rollback authority. An upgrade from the pre-provenance producer may adopt a configured directory only when it already contains a syntactically valid namespace `.floor` witness; database history with neither retained marker nor retained floor is not silently blessed.
 
-The application admits at most two in-flight producer operations and no application-side pending queue; this is a stricter server-side subset of the accepted `NSRC-INFLIGHT <= 2` and `NSRC-QUEUE <= 8` envelope. Authenticated peer throughput is additionally bounded by a service-specific per-peer limiter (`GAME_AUTH_NATIVE_EVIDENCE_REQUESTS_PER_MINUTE`, strict range 1..600, default 120); exhaustion returns an empty, non-cacheable `429` transport failure. Request bodies are capped at 1,024 bytes, response bodies at 8,192 bytes, root JSON at 16 scalar members, headers at the accepted 8,192/32/2,048-byte shape, and nested/duplicate/unknown fields fail closed. Transfer/content encodings not safely accounted by this Laravel boundary are rejected rather than silently widened. After a request has decoded successfully, relational `QueryException` failures are normalized to the exact bounded `result: unavailable` wire shape instead of leaking framework exception JSON; non-database programming failures remain outside that conversion.
+A successful first observation installs revision `1`; database history above a missing witness fails closed. Database history below a retained observation witness is detected as producer rollback and the operation returns unavailable. Database history ahead of an existing retained observation witness may reconcile that witness upward because the relational decision is already the newer committed truth; observation witnesses are never automatically lowered or deleted.
 
-## Signing trust
+Account security additionally retains the positive native security-generation high-water per AccountId. On first source activation it may bootstrap exactly to the current positive generation only when no prior source history exists. Once active, `RevokeIdentityGameAuthorizations` advances that independent generation witness before persisting the next generation; if retained witness configuration later disappears while relational source history proves activation, revocation itself fails closed rather than degrading to database-only state. A witness-ahead/database-behind generation caused by an outer security transaction rollback or database restore remains unavailable during normal producer reads. Recovery is an explicit owner operation: `game-auth:native-evidence:reconcile --account-id=...` may only move the Platform-native generation forward to the retained floor and refuses any state that would lower retained authority.
+
+Trust state uses the same fail-closed rule. Every profile/key mutation advances an independently retained profile-state witness before the relational mutation becomes observable, and reads require exact equality between retained and relational state revisions. When a trust mutation becomes ambiguous after witness advance, normal reads and mutations remain unavailable. The explicit trust reconciliation path may only move the relational issuer revision forward to the retained floor while conservatively leaving the affected profile version revoked. Re-enabling trust then requires an explicit successor profile version and a fresh key id; neither reconciliation nor retry clears an existing revocation.
+
+## Capacity and throughput semantics
+
+The application admits at most two in-flight producer operations and no application-side pending queue; this is a stricter server-side subset of the accepted `NSRC-INFLIGHT <= 2` and `NSRC-QUEUE <= 8` envelope.
+
+`GAME_AUTH_NATIVE_EVIDENCE_REQUESTS_PER_MINUTE` is a service-specific per-peer **best-effort application throughput guard**, with strict configuration range `1..600` and default `120`. The Laravel limiter's check/callback/hit behavior is not represented as a hard atomic concurrent-admission reservation and must not be used as proof of the two-in-flight bound. Exhaustion returns an empty, non-cacheable `429` transport failure. The hard application concurrency claim comes from the independent two-slot `NativeEvidenceCapacity` admission boundary.
+
+Request bodies are capped at 1,024 bytes, response bodies at 8,192 bytes, root JSON at 16 scalar members, headers at the accepted 8,192/32/2,048-byte shape, and nested/duplicate/unknown fields fail closed. Transfer/content encodings not safely accounted by this Laravel boundary are rejected rather than silently widened. After a request has decoded successfully, relational `QueryException` failures are normalized to the exact bounded `result: unavailable` wire shape instead of leaking framework exception JSON; non-database programming failures remain outside that conversion.
+
+## Signing trust lifecycle
 
 Platform stores public trust only. It does not own or expose private signing material through this producer.
 
-Each fixed `(issuer, profile, key_purpose)` trust set has a positive durable `issuer_revision` mirrored by the independent trust-state high-water witness. Each key id has immutable version rows with positive `key_revision`, canonical public key, explicit trusted state and revocation time. Key rotation/revocation locks the profile; profile revision and retained state witness advance together before the relational mutation becomes observable. A revoked key id cannot be silently re-trusted, and profile revocation cannot be bypassed by selecting another key id. Source observation revision is a separate profile/set-wide namespace shared across all key ids, as required by Game.
+Each fixed `(issuer, profile, key_purpose)` trust set has a positive durable `issuer_revision` mirrored by the independent trust-state high-water witness. Internally, immutable `profile_version` rows preserve terminal profile-revocation history while keeping the external issuer/profile/key-purpose contract fixed. Each key id has immutable version rows with positive `key_revision`, canonical public key, explicit trusted state and revocation time.
 
-No Passport/OAuth key, Gateway bearer credential, Game Login Ticket key or Canary state is promoted into this trust authority.
+Normal key rotation or key revocation operates only inside the current non-revoked profile version. A revoked key id cannot be silently re-trusted. Terminal profile revocation cannot be cleared in place. After an ambiguous witness-ahead state is conservatively reconciled revoked, or after an intentional terminal profile revocation, a successor trust set is created only through `publishNextProfileVersion`: it increments both the internal profile version and the retained issuer revision, preserves the old revoked row, requires a key id never used in an earlier version of that fixed scope, and installs only public key material. The producer reads only the highest profile version for the fixed external scope.
+
+Source observation revision is a separate profile/set-wide namespace shared across all key ids, as required by Game. No Passport/OAuth key, Gateway bearer credential, Game Login Ticket key or Canary state is promoted into this trust authority.
 
 ## Private authenticated boundary
 
 The route is private under `/internal/v1/game-auth/native-evidence`. Laravel requires upstream-authenticated TLS metadata `SSL_PROTOCOL=TLSv1.3`, `SSL_CLIENT_VERIFY=SUCCESS` and exact `SSL_CLIENT_S_DN` equality with the independently configured Game client identity. Missing configuration or verification fails closed. These server variables are trusted only when supplied by the separately qualified TLS terminator/FastCGI boundary; public headers are not accepted as substitutes.
 
-Repository delivery does **not** claim a live mTLS listener, certificates, PKI roots, client private key, endpoint provisioning or connectivity. Real authenticated Platform↔Game qualification and deployment descriptor proof remain mandatory before WP5 S3.
+Repository feature tests that inject application server variables prove middleware interpretation only. They are **not** composed mTLS evidence. Real non-production qualification must use an actual TLS 1.3 mutual-authentication path, prove that untrusted public input cannot synthesize the trusted server variables, exercise all four producer operations with an exact pinned Game consumer, and bind the evidence to exact Platform and Game revisions. The procedure is recorded in `docs/agents/evidence/OTERYN-20260912-platform-native-evidence-hardening/REAL_INTEROP_QUALIFICATION.md`.
+
+Repository delivery does **not** claim a live production mTLS listener, certificates, PKI roots, client private key, endpoint provisioning or production connectivity. Real authenticated Platform↔Game qualification remains mandatory before Game WP5 S3 can claim composed readiness.
 
 ## Configuration and exclusions
 
@@ -59,9 +75,9 @@ The producer is fail-closed until the deployment supplies a one-way activation d
 The deployment supplies:
 - `GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED=true` before cutover;
 - `GAME_AUTH_NATIVE_EVIDENCE_MTLS_CLIENT_IDENTITY`;
-- `GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY` on an independently retained durable volume;
+- `GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY` on an independently retained durable volume whose qualified PHP/filesystem profile supports file and directory `fsync`;
 - fresh account purpose/scope and fresh signing key purpose matching the authorized Game descriptor;
 - an explicit clock-uncertainty decimal in the strict range `0..5` (malformed, empty or boolean-like values fail closed);
-- an optional native-evidence throughput limit in the strict range `1..600` requests/minute per authenticated peer (default `120`).
+- an optional native-evidence best-effort throughput limit in the strict range `1..600` requests/minute per authenticated peer (default `120`).
 
 No production deployment, secret/certificate rotation, live credential mutation, Game repository mutation, character authority, Server Seam authority or legacy compatibility promotion is authorized by this contract.
