@@ -8,6 +8,7 @@ use App\GameAuth\NativeEvidence\NativeEvidenceUnavailable;
 use App\GameAuth\NativeEvidence\NativeSigningTrustRegistry;
 use App\Identity\Actions\RevokeIdentityGameAuthorizations;
 use App\Identity\Models\Identity;
+use Illuminate\Database\Migrations\Migration;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -153,7 +154,7 @@ final class NativeEvidenceHardeningTest extends TestCase
 
         self::assertSame(Command::SUCCESS, Artisan::call('game-auth:native-evidence:reconcile', ['--trust' => 'fresh']));
         self::assertStringContainsString('profile version remains revoked', Artisan::output());
-        self::assertSame(2, (int) DB::table('native_game_signing_trust_profiles')->where('profile_version', 1)->value('issuer_revision'));
+        self::assertEquals(2, DB::table('native_game_signing_trust_profiles')->where('profile_version', 1)->value('issuer_revision'));
         self::assertNotNull(DB::table('native_game_signing_trust_profiles')->where('profile_version', 1)->value('revoked_at'));
         $this->postEvidence($this->freshTrustRequest('key-1'))->assertOk()->assertJsonPath('trusted', false);
 
@@ -177,9 +178,9 @@ final class NativeEvidenceHardeningTest extends TestCase
             'key-2',
             $keyTwo,
         );
-        self::assertSame(1, (int) $next->key_revision);
+        self::assertEquals(1, $next->key_revision);
         self::assertSame(2, DB::table('native_game_signing_trust_profiles')->count());
-        self::assertSame(3, (int) DB::table('native_game_signing_trust_profiles')->where('profile_version', 2)->value('issuer_revision'));
+        self::assertEquals(3, DB::table('native_game_signing_trust_profiles')->where('profile_version', 2)->value('issuer_revision'));
         self::assertNull(DB::table('native_game_signing_trust_profiles')->where('profile_version', 2)->value('revoked_at'));
         $this->postEvidence($this->freshTrustRequest('key-2'))->assertOk()->assertJsonPath('trusted', true);
 
@@ -200,6 +201,7 @@ final class NativeEvidenceHardeningTest extends TestCase
 
     public function test_hardening_migration_refuses_destructive_rollback_while_native_authority_is_active(): void
     {
+        /** @var Migration $migration */
         $migration = require database_path('migrations/2026_09_12_204800_harden_native_game_evidence_authority.php');
         self::assertIsObject($migration);
         config(['game-auth.native_evidence.activated' => true]);
@@ -242,7 +244,10 @@ final class NativeEvidenceHardeningTest extends TestCase
         ];
     }
 
-    /** @return TestResponse<Response> */
+    /**
+     * @param  array<string, int|string>  $payload
+     * @return TestResponse<Response>
+     */
     private function postEvidence(array $payload): TestResponse
     {
         return $this->withServerVariables([
