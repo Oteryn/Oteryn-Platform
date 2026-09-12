@@ -43,6 +43,7 @@ Terminal task outcome: `PLATFORM_NATIVE_EVIDENCE_READY_FOR_REAL_INTEROP`.
 ```yaml
 owned_paths:
   - app/GameAuth/NativeEvidence/**
+  - app/Console/Commands/ReconcileNativeEvidence.php
   - app/Http/Middleware/GameAuth/RequireNativeEvidenceMtlsPeer.php
   - app/Http/Middleware/GameAuth/ThrottleNativeEvidencePeer.php
   - app/Identity/Actions/RevokeIdentityGameAuthorizations.php
@@ -57,7 +58,7 @@ modules:
   - Identity security lifecycle
 dependencies:
   - Platform main@2271fea9db1e202cacb206dab289efa4cefcec76
-  - accepted Game native-evidence consumer contract (read-only compatibility evidence)
+  - Game protected main@489e3e390a1bce1ce3439c66521ab75f8a826cd8 read-only consumer evidence
 blockers:
   - none
 cross_repository_tasks:
@@ -68,11 +69,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-12T18:52:04Z
-head: UNKNOWN
+updated_at: 2026-09-12T19:10:00Z
+head: IMPLEMENTATION_CANDIDATE_PENDING
 branch: agent/platform-native-evidence-hardening-1388
 pr: none
-status: investigating
+status: implementing
 context_routes:
   - architecture
   - auth-identity
@@ -82,6 +83,7 @@ context_routes:
   - testing
 owned_paths:
   - app/GameAuth/NativeEvidence/**
+  - app/Console/Commands/ReconcileNativeEvidence.php
   - app/Http/Middleware/GameAuth/RequireNativeEvidenceMtlsPeer.php
   - app/Http/Middleware/GameAuth/ThrottleNativeEvidencePeer.php
   - app/Identity/Actions/RevokeIdentityGameAuthorizations.php
@@ -94,32 +96,37 @@ owned_paths:
 proven:
   - protected main admission baseline is 2271fea9db1e202cacb206dab289efa4cefcec76
   - Issue #1388 is open and governs this Platform task
-  - current witness persistence conditionally skips fsync when PHP does not expose it
-  - current revocation advances the native-generation witness inside a database transaction before outer workflow commit is proven
+  - pre-hardening witness persistence conditionally skipped fsync when PHP did not expose it
+  - current shared revocation action can advance the retained native-generation witness before an enclosing security transaction commits
+  - password change/reset, MFA, email, recovery and termination families all route game-authorization revocation through the shared action
+  - Game protected main 489e3e390a1bce1ce3439c66521ab75f8a826cd8 retains the accepted four-operation native-evidence wire fixture and consumer codec
   - no overlapping open native-evidence Platform PR was found at admission
   - Game repository is read-only for exact compatibility evidence only
   - production deployment, PKI, secrets and live account/session mutation are outside authority
 derived:
-  - witness-ahead/DB-behind recovery must be forward-only so recovery cannot resurrect older authorization
-  - limiter semantics must be documented as approximate unless atomic reservation is proven
+  - ambiguous witness-ahead account recovery must move only the database native generation forward and never lower retained authority
+  - ambiguous witness-ahead signing trust recovery must conservatively revoke the affected profile version before a successor version can become trusted
+  - requests-per-minute limiter semantics are best-effort throughput control; the independent capacity slots own the hard in-flight claim
 unknown:
-  - exact Game protected revision and consumer fixture set to bind in final cross-repository evidence
-  - exact repository validation delta required after implementation
+  - final Platform implementation SHA and exact candidate CI result
+  - real non-production composed mTLS interoperability result
 conflicts: []
 first_failure:
   marker: none
   evidence: none
 rejected_hypotheses:
   - reusing closed Issue #1379/PR #1381 as the live implementation lineage
+  - silently blessing a new empty retained-witness directory after history exists
+  - automatically hiding witness-ahead recovery inside ordinary producer reads
 changed_paths:
-  - docs/agents/tasks/active/OTERYN-20260912-platform-native-evidence-hardening.md
+  - implementation candidate paths under the ownership set above
 validation:
   - command: not-run
     result: NOT_RUN
-    evidence: task admitted; implementation not yet complete
+    evidence: implementation candidate is being assembled before exact-head validation
 blockers:
   - none
-next_action: inspect the exact durability, provenance, recovery, signing-trust and real-interoperability boundaries and implement the smallest fail-closed hardening delta
+next_action: freeze the implementation head, run focused and repository-required validation, review findings, then prepare real-interoperability handoff evidence
 ```
 
 ## Source branch closeout
