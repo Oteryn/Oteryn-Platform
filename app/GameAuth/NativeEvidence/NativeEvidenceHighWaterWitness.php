@@ -232,13 +232,9 @@ final class NativeEvidenceHighWaterWitness
             && DB::table('native_game_evidence_observations')->exists()) {
             return true;
         }
-        if (Schema::hasTable('native_game_signing_trust_profiles')
-            && DB::table('native_game_signing_trust_profiles')->exists()) {
-            return true;
-        }
 
-        return Schema::hasColumn('identities', 'native_security_generation')
-            && DB::table('identities')->where('native_security_generation', '>', 1)->exists();
+        return Schema::hasTable('native_game_signing_trust_profiles')
+            && DB::table('native_game_signing_trust_profiles')->exists();
     }
 
     private function readFloor(string $path): ?int
