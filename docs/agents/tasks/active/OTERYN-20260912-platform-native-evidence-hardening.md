@@ -69,11 +69,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-12T21:04:24Z
-head: 00ea71d79b19a2578068bb0b047a0c6f9814f03f
+updated_at: 2026-09-12T21:25:46Z
+head: 8fef3b1833b9fbd8d598d21b25fd2985c238006a
 branch: agent/platform-native-evidence-hardening-1388
 pr: 1389
-status: ready
+status: validating
+terminal_pr_policy: archive_pending
 context_routes:
   - architecture
   - auth-identity
@@ -94,9 +95,9 @@ owned_paths:
   - docs/agents/evidence/OTERYN-20260912-platform-native-evidence-hardening/**
   - docs/agents/tasks/active/OTERYN-20260912-platform-native-evidence-hardening.md
 proven:
-  - protected Platform main readback remains 2271fea9db1e202cacb206dab289efa4cefcec76
-  - Issue #1388 is open and PR #1389 owns branch agent/platform-native-evidence-hardening-1388
-  - PR #1389 is non-draft and mergeable with runtime implementation candidate 00ea71d79b19a2578068bb0b047a0c6f9814f03f validated against base 2271fea9db1e202cacb206dab289efa4cefcec76
+  - protected Platform main readback is 224e5f0719114652a42f60ad63e28ce7559097c5 after terminal PR #1389 merged from exact source head 8fef3b1833b9fbd8d598d21b25fd2985c238006a
+  - Issue #1388 remains open because real composed non-production interoperability remains separately gated
+  - resulting-main Agent Governance failure observed from PR #1390 is lifecycle bookkeeping only (terminal_pr_active_task), while PR #1390 authenticated META ce20300 policy adoption itself passed
   - witness persistence requires working PHP fsync for both the written file and containing directory
   - witness-store identity is durably bound across retained storage and the Platform database and a replacement empty store fails closed while binding/history survives
   - native security-generation witness-ahead rollback recovery is explicit and forward-only
@@ -123,8 +124,8 @@ unknown:
   - real non-production composed TLS 1.3 mTLS Platform↔Game interoperability result
 conflicts: []
 first_failure:
-  marker: none
-  evidence: no unresolved failure remains on validated runtime head 00ea71d79b19a2578068bb0b047a0c6f9814f03f
+  marker: terminal_pr_active_task
+  evidence: resulting-main Agent Governance observed from PR #1390 requires this merged terminal PR to use the explicit archive-pending active-task transition; PR #1390 authenticated META ce20300 policy adoption itself passed
 rejected_hypotheses:
   - reusing closed Issue #1379/PR #1381 as the live implementation lineage
   - describing the Laravel requests-per-minute limiter as a strict atomic concurrent-admission reservation
@@ -167,22 +168,28 @@ validation:
   - command: final PR review/readback before checkpoint
     result: PASS
     evidence: PR #1389 mergeable=true with zero submitted reviews, zero inline review threads and zero PR comments at readback
+  - command: terminal PR #1389 protected-main readback
+    result: PASS
+    evidence: PR #1389 merged at protected main 224e5f0719114652a42f60ad63e28ce7559097c5 from exact source head 8fef3b1833b9fbd8d598d21b25fd2985c238006a
+  - command: PR #1390 authenticated META policy adoption and resulting-main Agent Governance
+    result: FAIL
+    evidence: authenticated META ce20300 policy adoption passed; Agent Governance failed only terminal_pr_active_task lifecycle bookkeeping for this active record
   - command: real composed non-production TLS 1.3 mTLS interoperability
     result: NOT_RUN
     evidence: separately gated environment/PKI/consumer execution is intentionally not authorized by this repository task; procedure is recorded in REAL_INTEROP_QUALIFICATION.md
 blockers:
   - none for PLATFORM_NATIVE_EVIDENCE_READY_FOR_REAL_INTEROP
-next_action: pass PR #1389 through the organization-governed exact-head protected integration path; after integration, execute REAL_INTEROP_QUALIFICATION only in a separately authorized non-production topology before any Game WP5 S3 composed-readiness claim
+next_action: archive this record only after the separately authorized REAL_INTEROP_QUALIFICATION and remaining Issue #1388 boundary is completed or explicitly closed
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository delivery branch for mergeable PR #1389; retain no post-merge task authority on the source ref
-source_branch_evidence: PR #1389 remains open and unmerged; verify source-ref disappearance only after normal protected merge
+source_branch_reason: implementation PR #1389 merged through the protected integration path and the dedicated source branch has no retention purpose
+source_branch_evidence: PR #1389 merged at protected main 224e5f0719114652a42f60ad63e28ce7559097c5 from exact source head 8fef3b1833b9fbd8d598d21b25fd2985c238006a; remote source ref is absent
 ```
 
 ## Notes
 
-Repository implementation/evidence terminal state is `PLATFORM_NATIVE_EVIDENCE_READY_FOR_REAL_INTEROP` on runtime candidate `00ea71d79b19a2578068bb0b047a0c6f9814f03f`. `REAL_INTEROP_PROVEN` and `PRODUCTION_PROVEN` are explicitly not claimed. The owner-launched alias does not authorize Game writes, production deployment, PKI/certificate changes, secrets, protected-environment actions or live account/session mutation.
+Repository implementation/evidence terminal state is `PLATFORM_NATIVE_EVIDENCE_READY_FOR_REAL_INTEROP` from exact source head `8fef3b1833b9fbd8d598d21b25fd2985c238006a`, merged as protected `main@224e5f0719114652a42f60ad63e28ce7559097c5`. The record remains active only for the separately authorized real-interoperability boundary under open Issue #1388. `REAL_INTEROP_PROVEN` and `PRODUCTION_PROVEN` are explicitly not claimed. The owner-launched alias does not authorize Game writes, production deployment, PKI/certificate changes, secrets, protected-environment actions or live account/session mutation.
