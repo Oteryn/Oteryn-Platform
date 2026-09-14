@@ -53,10 +53,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-14T07:15:00Z
-head: a3943405bdf601195557f013456ec4494a547be1
+updated_at: 2026-09-14T07:18:00Z
+head: UNKNOWN
 branch: docs/issue-1399-ci-mq-canary-v2
-pr: none
+pr: 1400
 status: waiting
 context_routes:
   - CI validation
@@ -67,6 +67,7 @@ owned_paths:
 proven:
   - V1 Issue #1268 closed not_planned as superseded by #1399
   - V1 PR #1269 closed unmerged and source branch removed
+  - V2 preparation Draft PR #1400 exists on the dedicated task branch
   - Platform #1392 terminally proved delegated exact-head enqueue -> real merge_group -> platform-gate -> automatic protected merge on META 23b21e9
   - current META main is 23b21e9b1b2d4b6c3a5cac3d4c7a18747804c090
   - current META PR CI is global META CI with PR concurrency cancel-in-progress=true
@@ -80,7 +81,7 @@ unknown:
 conflicts: []
 first_failure:
   marker: preparation branch creation initially unavailable
-  evidence: later authorized retry succeeded and branch now exists
+  evidence: later authorized retry succeeded and branch/PR now exist
 rejected_hypotheses:
   - historical V1 nine-probe matrix remains current
   - queue receipt alone proves integration
@@ -95,11 +96,14 @@ validation:
   - command: live V2 canary execution
     result: NOT_APPLICABLE
     evidence: preparation task explicitly does not launch live probes
+  - command: exact-head repository CI for preparation PR #1400
+    result: NOT_RUN
+    evidence: wait for current exact-head checks after this checkpoint update
 blockers:
   - Platform #1398
   - Game #592
   - Atlas #492/#493
-next_action: open the V2 preparation Draft PR, then continue read-only blocker/preflight reconciliation until each repository has a clean generation for live V2 execution
+next_action: observe exact-head checks for #1400 and continue read-only reconciliation of #1398/#592/#492/#493 until each repository has a clean generation for live V2 execution
 ```
 
 ## Source branch closeout
