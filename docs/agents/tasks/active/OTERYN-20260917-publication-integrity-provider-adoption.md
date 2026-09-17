@@ -49,10 +49,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-17T05:42:41Z
+updated_at: 2026-09-17T05:59:00Z
 head: UNKNOWN
 branch: governance/publication-integrity-adoption-1401
-pr: none
+pr: 1402
 status: validating
 context_routes:
   - governance
@@ -65,10 +65,11 @@ owned_paths:
 proven:
   - protected META publication-integrity authority is 33b212e652c680bd4047be3b414c9a358b8bf26f
   - Platform main at task creation is 84d504c98acc8134eb4c9545711010b74c987974
+  - Draft PR #1402 owns this exact provider-adoption lineage
 derived:
   - independent workflow trust anchor must move with META_AGENT_POLICY_BINDING.json
 unknown:
-  - exact-head CI result
+  - terminal exact-head CI result after this lifecycle-metadata correction
 conflicts: []
 first_failure:
   marker: none
@@ -82,11 +83,11 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260917-publication-integrity-provider-adoption.md
 validation:
   - command: Agent Governance / policy consistency
-    result: NOT_RUN
-    evidence: PR not yet opened
+    result: PENDING_CURRENT_HEAD
+    evidence: previous candidate generation was green; this metadata correction requires fresh exact-head qualification
 blockers:
   - none
-next_action: open one Draft PR and consume exact-head CI
+next_action: consume fresh exact-head CI and the already-running independent review evidence where representative
 ```
 
 ## Source branch closeout
