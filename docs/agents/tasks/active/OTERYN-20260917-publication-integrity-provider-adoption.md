@@ -49,7 +49,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-17T05:59:00Z
+updated_at: 2026-09-17T06:00:30Z
 head: UNKNOWN
 branch: governance/publication-integrity-adoption-1401
 pr: 1402
@@ -83,8 +83,8 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260917-publication-integrity-provider-adoption.md
 validation:
   - command: Agent Governance / policy consistency
-    result: PENDING_CURRENT_HEAD
-    evidence: previous candidate generation was green; this metadata correction requires fresh exact-head qualification
+    result: NOT_RUN
+    evidence: fresh exact-head qualification is required after the lifecycle-metadata correction
 blockers:
   - none
 next_action: consume fresh exact-head CI and the already-running independent review evidence where representative
