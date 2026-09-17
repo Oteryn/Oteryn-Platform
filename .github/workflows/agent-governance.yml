@@ -49,7 +49,7 @@ jobs:
           repository: Oteryn/Oteryn
           # Keep this independent trust anchor equal to META_AGENT_POLICY_BINDING.json.
           # The authenticated consumer fails closed if either side changes alone.
-          ref: ce20300aa8a9e1017aff722fe0cd628587fadf63
+          ref: 33b212e652c680bd4047be3b414c9a358b8bf26f
           path: .meta-agent-policy
           persist-credentials: false
 
