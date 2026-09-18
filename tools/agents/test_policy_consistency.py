@@ -21,6 +21,8 @@ from policy_consistency import (
     validate_policy,
 )
 
+PUBLICATION_INTEGRITY_AUTHORITY = "33b212e652c680bd4047be3b414c9a358b8bf26f"
+
 
 class PolicyConsistencyTests(unittest.TestCase):
     @classmethod
@@ -88,6 +90,26 @@ class PolicyConsistencyTests(unittest.TestCase):
 
     def test_current_repository_adopts_authenticated_central_policy(self) -> None:
         self.assertEqual([], validate_policy(REPO_ROOT, self.meta_root, self.authority))
+
+    def test_publication_integrity_authority_and_fallback_are_bound(self) -> None:
+        self.assertEqual(self.binding["authority_commit"], PUBLICATION_INTEGRITY_AUTHORITY)
+        workflow = (REPO_ROOT / ".github/workflows/agent-governance.yml").read_text(encoding="utf-8")
+        self.assertIn(f"ref: {PUBLICATION_INTEGRITY_AUTHORITY}", workflow)
+        bootstrap = (REPO_ROOT / "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md").read_text(encoding="utf-8")
+        for value in (
+            "preserve the candidate and report the publication blocked",
+            "raw Git Data blob/tree/commit/ref operations",
+            "per-file API writes",
+        ):
+            self.assertIn(value, bootstrap)
+        contract = (self.meta_root / "docs/agents/contracts/PUBLICATION_INTEGRITY_POLICY.md").read_text(encoding="utf-8")
+        for value in (
+            "publication must preserve that exact commit identity",
+            "ad-hoc Git Data API blob/tree/commit/ref construction",
+            "per-file Contents API reconstruction",
+            "Preserve the candidate/recovery artifact",
+        ):
+            self.assertIn(value, contract)
 
     def test_authentication_rejects_dirty_executable_policy_checkout(self) -> None:
         temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)

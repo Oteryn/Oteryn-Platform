@@ -28,6 +28,8 @@ Capability must be established from tools and permissions actually available in 
 
 This compatibility path applies only to an already-authorized existing task branch and PR; PR creation remains a coordinator/control-plane action. If `GH_TOKEN` and `GITHUB_TOKEN` are unset but agent-visible `GH` exists, it may be passed transiently as `GH_TOKEN="$GH"` to the exact authorized `gh` command. Do not assume that mapping authenticates `git push`, embed a token in a remote URL, or persist a credential helper. Use another authorized repository-native write path when the existing Git transport cannot consume the identity.
 
+If an already-prepared material candidate cannot use the normal authorized publication path, preserve the candidate and report the publication blocked. Do not reconstruct it through raw Git Data blob/tree/commit/ref operations or per-file API writes as a publication fallback.
+
 Credential presence grants no repository, branch, path, merge, production or secret authority. Never force-push, and verify the remote exact head after publication.
 
 ## Completion boundary
