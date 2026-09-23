@@ -25,7 +25,8 @@ final class PreventSensitiveGameAuthResponseCaching
         return $request->is('oauth/token')
             || $request->is('api/v1/game-auth/tickets')
             || $request->is('internal/v1/game-auth/tickets/redeem')
-            || $request->is('internal/v1/game-auth/native-evidence');
+            || $request->is('internal/v1/game-auth/native-evidence')
+            || $request->is('internal/v1/game-auth/character-bootstrap-intents/reconcile');
     }
 
     public static function apply(Response $response): Response

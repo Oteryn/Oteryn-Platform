@@ -25,6 +25,14 @@ return [
         'previous_service_token_sha256' => env('GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256'),
     ],
 
+    'character_bootstrap_intent' => [
+        'activated' => env('GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_ACTIVATED', false),
+        'issuer_authority' => env('GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_ISSUER_AUTHORITY'),
+        'mtls_client_identity' => env('GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY'),
+        'ttl_seconds' => (($ttl = env('GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS')) !== null ? (int) $ttl : null),
+        'high_water_directory' => env('GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_HIGH_WATER_DIRECTORY'),
+    ],
+
     'native_evidence' => [
         'source_authority' => env('GAME_AUTH_NATIVE_EVIDENCE_SOURCE_AUTHORITY', 'platform'),
         'activated' => $nativeEvidenceActivated,
