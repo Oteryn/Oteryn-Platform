@@ -46,8 +46,10 @@ final class CharacterBootstrapIntentIssuer
             $existing = DB::table('character_bootstrap_intents')->where('operation_id', $operationId)->first();
             if ($existing instanceof stdClass) {
                 $this->assertSameBinding($existing, $identityId, $identity->account_id, $binding);
+                $payload = $this->decodeStored($existing);
+                CharacterBootstrapIntentContract::assertAuthorityState($authority, $payload);
 
-                return $this->decodeStored($existing);
+                return $payload;
             }
 
             $lastRevision = $this->positiveOrZero($authority->last_source_revision ?? null);
