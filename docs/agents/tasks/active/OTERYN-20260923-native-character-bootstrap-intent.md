@@ -58,11 +58,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-23T13:17:26Z
-head: 623435ec1b907d6d9770b767806c90300252a71c
+updated_at: 2026-09-23T18:41:00Z
+head: cc128f6bab458762ccf442ebeac6a87297ee06a8
 branch: coord/native-character-bootstrap-intent-1406
-pr: none
-status: ready
+pr: 1407
+status: validating
 context_routes:
   - architecture
   - accounts-characters
@@ -84,7 +84,7 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260923-native-character-bootstrap-intent.md
 proven:
   - protected Platform main and local allocation head are 623435ec1b907d6d9770b767806c90300252a71c
-  - live Issue 1406 is open and no related pull request exists
+  - live Issue 1406 is open and Draft PR #1407 owns branch coord/native-character-bootstrap-intent-1406
   - canonical AccountId is persisted on identities and generated immutably by Platform
   - the existing private NativeEvidence endpoint proves a TLS 1.3 client-certificate provenance interpretation pattern
   - focused Character bootstrap-intent tests and existing NativeEvidence producer regression pass 214 assertions in total
@@ -147,7 +147,7 @@ validation:
     evidence: checkpoint validates against contract version 1
 blockers:
   - none for Draft PR publication; exact-head CI must supply the required PHP 8.5, Argon2 and MariaDB concurrency environments before readiness
-next_action: publish the exact committed head and open one Draft PR for exact-head CI validation
+next_action: qualify the current PR #1407 exact head; repair only exact-head findings, then mark the unchanged qualified candidate ready for governed integration
 ```
 
 ## Source branch closeout
