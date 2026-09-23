@@ -6,6 +6,7 @@ use App\Console\Commands\IssueCharacterBootstrapIntent;
 use App\GameAuth\CharacterBootstrapIntent\CharacterBootstrapIntentConflict;
 use App\GameAuth\CharacterBootstrapIntent\CharacterBootstrapIntentContract;
 use App\GameAuth\CharacterBootstrapIntent\CharacterBootstrapIntentIssuer;
+use App\GameAuth\CharacterBootstrapIntent\CharacterBootstrapIntentUnavailable;
 use App\GameAuth\NativeEvidence\NativeEvidenceContract;
 use App\Identity\Models\Identity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -151,6 +152,31 @@ final class CharacterBootstrapIntentProducerTest extends TestCase
             'last_issuer_decision_id' => strtolower((string) Str::uuid()),
         ]);
         $this->read($operationId)->assertStatus(503)->assertContent('');
+    }
+
+    public function test_corrupted_supported_shape_with_unsupported_audience_fails_closed(): void
+    {
+        $identity = $this->identity('corrupt-stored-intent@example.test');
+        $operationId = strtolower((string) Str::uuid());
+        $binding = $this->binding();
+        $issuer = app(CharacterBootstrapIntentIssuer::class);
+        $issuer->issue($identity->id, $operationId, $binding);
+
+        $json = DB::table('character_bootstrap_intents')->where('operation_id', $operationId)->value('intent_json');
+        self::assertIsString($json);
+        $payload = json_decode($json, true, 3, JSON_THROW_ON_ERROR);
+        self::assertIsArray($payload);
+        $payload['audience'] = 'UNSUPPORTED_AUDIENCE';
+        $corrupted = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        DB::table('character_bootstrap_intents')->where('operation_id', $operationId)->update([
+            'intent_json' => $corrupted,
+            'intent_sha256' => hash('sha256', $corrupted),
+        ]);
+
+        $this->read($operationId)->assertStatus(503)->assertContent('');
+
+        $this->expectException(CharacterBootstrapIntentUnavailable::class);
+        $issuer->issue($identity->id, $operationId, $binding);
     }
 
     public function test_native_evidence_contract_remains_exactly_four_operations(): void
