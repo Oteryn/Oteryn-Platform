@@ -154,6 +154,25 @@ final class CharacterBootstrapIntentProducerTest extends TestCase
         $this->read($operationId)->assertStatus(503)->assertContent('');
     }
 
+    public function test_authority_high_water_rollback_blocks_read_and_exact_retry(): void
+    {
+        $identity = $this->identity('rollback-retry@example.test');
+        $operationId = strtolower((string) Str::uuid());
+        $binding = $this->binding();
+        $issuer = app(CharacterBootstrapIntentIssuer::class);
+        $issuer->issue($identity->id, $operationId, $binding);
+
+        DB::table('character_bootstrap_intent_authority')->where('id', 1)->update([
+            'last_source_revision' => 0,
+            'last_issuer_decision_id' => null,
+        ]);
+
+        $this->read($operationId)->assertStatus(503)->assertContent('');
+
+        $this->expectException(CharacterBootstrapIntentUnavailable::class);
+        $issuer->issue($identity->id, $operationId, $binding);
+    }
+
     public function test_corrupted_supported_shape_with_unsupported_audience_fails_closed(): void
     {
         $identity = $this->identity('corrupt-stored-intent@example.test');
