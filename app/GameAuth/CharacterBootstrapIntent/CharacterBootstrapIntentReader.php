@@ -17,20 +17,10 @@ final class CharacterBootstrapIntentReader
         $payload = CharacterBootstrapIntentContract::decodeStored($row);
 
         $authority = DB::table('character_bootstrap_intent_authority')->where('id', 1)->first();
-        $lastRevision = filter_var(
-            $authority instanceof stdClass ? ($authority->last_source_revision ?? null) : null,
-            FILTER_VALIDATE_INT,
-            ['options' => ['min_range' => 0]],
-        );
-        $sourceRevision = (int) $payload['source_revision'];
-        if (! is_int($lastRevision) || $sourceRevision > $lastRevision) {
-            throw new CharacterBootstrapIntentUnavailable('Character bootstrap-intent source ordering is invalid.');
+        if (! $authority instanceof stdClass) {
+            throw new CharacterBootstrapIntentUnavailable('Character bootstrap-intent authority state is unavailable.');
         }
-        if ($sourceRevision === $lastRevision
-            && (! is_string($authority->last_issuer_decision_id ?? null)
-                || ! hash_equals($payload['issuer_decision_id'], $authority->last_issuer_decision_id))) {
-            throw new CharacterBootstrapIntentUnavailable('Character bootstrap-intent decision identity conflicts at equal revision.');
-        }
+        CharacterBootstrapIntentContract::assertAuthorityState($authority, $payload);
 
         $issuedAt = (int) $payload['issued_at_source'];
         $expiresAt = (int) $payload['expires_at_source'];
