@@ -58,8 +58,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-23T18:41:00Z
-head: cc128f6bab458762ccf442ebeac6a87297ee06a8
+updated_at: 2026-09-23T19:04:00Z
+head: 805eedb188124f4418ad1944e0d9a245b1f85aad
 branch: coord/native-character-bootstrap-intent-1406
 pr: 1407
 status: validating
@@ -83,21 +83,22 @@ owned_paths:
   - tests/Feature/GameAuth/**CharacterBootstrapIntent*
   - docs/agents/tasks/active/OTERYN-20260923-native-character-bootstrap-intent.md
 proven:
-  - protected Platform main and local allocation head are 623435ec1b907d6d9770b767806c90300252a71c
+  - protected Platform main is 5dd88253f6c18088ab424cfe6b752be21505ec9d after terminal Merge Queue integration of governance baseline cleanup PR #1408
   - live Issue 1406 is open and Draft PR #1407 owns branch coord/native-character-bootstrap-intent-1406
+  - material implementation head 805eedb188124f4418ad1944e0d9a245b1f85aad passed hosted Pint, PHPStan, PHPUnit and platform-gate in CI run 35905850537
+  - material implementation head 805eedb188124f4418ad1944e0d9a245b1f85aad passed Game Auth Ticket Concurrency run 35905850642 with the dedicated MariaDB environment
+  - exact-head Edge Security, DB Outage, Phase 7, Native protocol, protocol audits, Content Scale, Portal Acceptance, Acceptance E2E and Synology build all passed on 805eedb188124f4418ad1944e0d9a245b1f85aad
+  - whole-diff review repaired semantic stored-intent validation and exact-retry authority high-water rollback fail-closed behavior, with regression coverage
   - canonical AccountId is persisted on identities and generated immutably by Platform
   - the existing private NativeEvidence endpoint proves a TLS 1.3 client-certificate provenance interpretation pattern
-  - focused Character bootstrap-intent tests and existing NativeEvidence producer regression pass 214 assertions in total
-  - Pint and PHPStan pass and repository-contract plus strict acceptance-coverage validation pass
 derived:
   - a separate mTLS identity configuration key preserves purpose separation while reusing the proven interpretation
   - the current merged NativeEvidence task record overlaps config and tests historically but has no active source branch writer
-unknown:
-  - dedicated MariaDB execution result for the two new independent-process concurrency tests
+unknown: []
 conflicts: []
 first_failure:
-  marker: local_php_runtime_mismatch
-  evidence: local PHP 8.4.22-dev lacks the repository-required PHP 8.5/Argon2 environment; aggregate PHPUnit cannot truthfully validate both Argon2 fixtures and this local runtime, and its exception renderer exhausts the fixed 128 MiB child-process limit
+  marker: stale_base_governance_liveness
+  evidence: Agent Governance run 35905850582 on material head 805eedb... failed only stale active-task state for terminal PRs #1400/#1402; cleanup PR #1408 then merged through real Merge Queue as protected main 5dd88253f6c18088ab424cfe6b752be21505ec9d, so this checkpoint successor requires one fresh governance generation
 rejected_hypotheses:
   - accepting caller-supplied AccountId as command authority
   - extending NativeEvidence with a fifth operation
@@ -142,12 +143,18 @@ validation:
   - command: COMPOSER_ALLOW_SUPERUSER=1 HASH_DRIVER=bcrypt composer verify
     result: BLOCKED
     evidence: local PHP 8.4.22-dev lacks the required Argon2 runtime and composer-installed dependencies required --ignore-platform-req=php/ext-sodium; forcing bcrypt invalidates existing Argon2 fixture expectations and the fixed 128 MiB test child exhausts memory while rendering those unrelated failures
+  - command: hosted exact-head CI on material head 805eedb188124f4418ad1944e0d9a245b1f85aad
+    result: PASS
+    evidence: CI run 35905850537 passed formatting, PHPStan, PHPUnit and platform-gate; Game Auth concurrency run 35905850642 and all other selected product/security/acceptance workflows passed
+  - command: Agent Governance on material head 805eedb188124f4418ad1944e0d9a245b1f85aad before baseline cleanup integration
+    result: FAIL
+    evidence: run 35905850582 reported only terminal_pr_active_task for #1400/#1402; no #1407 finding; #1408 repaired both and merged through Merge Queue as protected main 5dd88253f6c18088ab424cfe6b752be21505ec9d
   - command: python3 tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20260923-native-character-bootstrap-intent.md --require-checkpoint
     result: PASS
     evidence: checkpoint validates against contract version 1
 blockers:
-  - none for Draft PR publication; exact-head CI must supply the required PHP 8.5, Argon2 and MariaDB concurrency environments before readiness
-next_action: qualify the current PR #1407 exact head; repair only exact-head findings, then mark the unchanged qualified candidate ready for governed integration
+  - none
+next_action: qualify this checkpoint successor against protected main 5dd88253f6c18088ab424cfe6b752be21505ec9d; if all required checks are green, mark PR #1407 ready and submit its exact head through governed Merge Queue
 ```
 
 ## Source branch closeout
