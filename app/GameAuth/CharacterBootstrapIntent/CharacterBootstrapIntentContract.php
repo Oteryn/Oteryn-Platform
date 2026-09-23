@@ -142,7 +142,7 @@ final class CharacterBootstrapIntentContract
         ];
         foreach ($stringBindings as $field => $expected) {
             $stored = $row->{$field} ?? null;
-            if (! is_string($stored) || ! hash_equals($stored, $expected)) {
+            if (! is_string($stored) || ! is_string($expected) || ! hash_equals($stored, $expected)) {
                 throw new CharacterBootstrapIntentUnavailable('Stored Character bootstrap-intent binding is invalid.');
             }
         }
