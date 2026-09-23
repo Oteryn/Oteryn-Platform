@@ -156,6 +156,22 @@ final class CharacterBootstrapIntentContract
         return $payload;
     }
 
+    /** @param array<string, int|string|array<string, string>> $payload */
+    public static function assertAuthorityState(stdClass $authority, array $payload): void
+    {
+        $lastRevision = self::storedDecimal($authority->last_source_revision ?? null, 0);
+        $sourceRevision = self::storedDecimal($payload['source_revision'] ?? null, 1);
+        if ((int) $sourceRevision > (int) $lastRevision) {
+            throw new CharacterBootstrapIntentUnavailable('Character bootstrap-intent source ordering is invalid.');
+        }
+        if (hash_equals($sourceRevision, $lastRevision)
+            && (! is_string($authority->last_issuer_decision_id ?? null)
+                || ! is_string($payload['issuer_decision_id'] ?? null)
+                || ! hash_equals($payload['issuer_decision_id'], $authority->last_issuer_decision_id))) {
+            throw new CharacterBootstrapIntentUnavailable('Character bootstrap-intent decision identity conflicts at equal revision.');
+        }
+    }
+
     private static function storedDecimal(mixed $value, int $minimum): string
     {
         if (is_int($value)) {
