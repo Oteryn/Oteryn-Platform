@@ -49,11 +49,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-17T06:00:30Z
-head: UNKNOWN
+updated_at: 2026-09-23T18:34:00Z
+head: 27aa5023ddd36d783f6c8020e60e99d91d5c2f16
 branch: governance/publication-integrity-adoption-1401
 pr: 1402
-status: validating
+status: completed
+terminal_pr_policy: archive_pending
 context_routes:
   - governance
 owned_paths:
@@ -87,7 +88,7 @@ validation:
     evidence: fresh exact-head qualification is required after the lifecycle-metadata correction
 blockers:
   - none
-next_action: consume fresh exact-head CI and the already-running independent review evidence where representative
+next_action: archive this completed provider-adoption packet after protected-main lifecycle readback; keep any later Issue #1401 work in a fresh bounded task
 ```
 
 ## Source branch closeout
