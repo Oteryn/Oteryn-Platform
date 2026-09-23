@@ -4,7 +4,6 @@ namespace App\GameAuth\CharacterBootstrapIntent;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use JsonException;
 use stdClass;
 
 final class CharacterBootstrapIntentIssuer
@@ -142,22 +141,7 @@ final class CharacterBootstrapIntentIssuer
     /** @return array<string, int|string|array<string, string>> */
     private function decodeStored(stdClass $row): array
     {
-        if (! is_string($row->intent_json ?? null)
-            || ! is_string($row->intent_sha256 ?? null)
-            || ! hash_equals($row->intent_sha256, hash('sha256', $row->intent_json))) {
-            throw new CharacterBootstrapIntentUnavailable('Stored Character bootstrap intent is invalid.');
-        }
-        try {
-            $payload = json_decode($row->intent_json, true, 3, JSON_THROW_ON_ERROR);
-        } catch (JsonException $exception) {
-            throw new CharacterBootstrapIntentUnavailable('Stored Character bootstrap intent is invalid.', 0, $exception);
-        }
-        if (! is_array($payload) || array_is_list($payload)) {
-            throw new CharacterBootstrapIntentUnavailable('Stored Character bootstrap intent is invalid.');
-        }
-
-        /** @var array<string, int|string|array<string, string>> $payload */
-        return $payload;
+        return CharacterBootstrapIntentContract::decodeStored($row);
     }
 
     private function positiveOrZero(mixed $value): int
