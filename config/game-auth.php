@@ -36,4 +36,9 @@ return [
         'clock_uncertainty_seconds' => $nativeEvidenceClockUncertainty,
         'requests_per_minute' => $nativeEvidenceRequestsPerMinute,
     ],
+
+    'character_bootstrap_intent' => [
+        'ttl_seconds' => env('GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS'),
+        'mtls_client_identity' => env('GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY'),
+    ],
 ];
