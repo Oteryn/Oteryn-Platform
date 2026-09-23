@@ -53,11 +53,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-14T07:18:00Z
-head: UNKNOWN
+updated_at: 2026-09-23T18:34:00Z
+head: efd0ef80734d7e0c3e6c85ffdccace66e95f2914
 branch: docs/issue-1399-ci-mq-canary-v2
 pr: 1400
-status: waiting
+status: validating
+terminal_pr_policy: archive_pending
 context_routes:
   - CI validation
   - Merge Queue integration capability
@@ -103,7 +104,7 @@ blockers:
   - Platform #1398
   - Game #592
   - Atlas #492/#493
-next_action: observe exact-head checks for #1400 and continue read-only reconciliation of #1398/#592/#492/#493 until each repository has a clean generation for live V2 execution
+next_action: archive this terminal preparation packet; continue Issue #1399 live V2 execution only under a fresh bounded task and branch after current repository preflight is re-established
 ```
 
 ## Source branch closeout
