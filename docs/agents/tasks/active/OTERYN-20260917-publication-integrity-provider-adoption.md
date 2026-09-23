@@ -53,7 +53,7 @@ updated_at: 2026-09-23T18:34:00Z
 head: 27aa5023ddd36d783f6c8020e60e99d91d5c2f16
 branch: governance/publication-integrity-adoption-1401
 pr: 1402
-status: completed
+status: validating
 terminal_pr_policy: archive_pending
 context_routes:
   - governance
