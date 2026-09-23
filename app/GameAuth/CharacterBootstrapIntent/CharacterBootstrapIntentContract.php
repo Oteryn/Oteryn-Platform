@@ -164,10 +164,12 @@ final class CharacterBootstrapIntentContract
         if ((int) $sourceRevision > (int) $lastRevision) {
             throw new CharacterBootstrapIntentUnavailable('Character bootstrap-intent source ordering is invalid.');
         }
+        $lastDecisionId = $authority->last_issuer_decision_id ?? null;
+        $decisionId = $payload['issuer_decision_id'] ?? null;
         if (hash_equals($sourceRevision, $lastRevision)
-            && (! is_string($authority->last_issuer_decision_id ?? null)
-                || ! is_string($payload['issuer_decision_id'] ?? null)
-                || ! hash_equals($payload['issuer_decision_id'], $authority->last_issuer_decision_id))) {
+            && (! is_string($lastDecisionId)
+                || ! is_string($decisionId)
+                || ! hash_equals($decisionId, $lastDecisionId))) {
             throw new CharacterBootstrapIntentUnavailable('Character bootstrap-intent decision identity conflicts at equal revision.');
         }
     }
