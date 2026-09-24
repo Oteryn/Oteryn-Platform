@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -88,22 +89,105 @@ class PolicyConsistencyTests(unittest.TestCase):
     def _findings(self, root: Path) -> str:
         return "\n".join(validate_policy(root, self.meta_root, self.authority))
 
+    @staticmethod
+    def _bound_meta_checkout_target(workflow: str) -> tuple[str, str]:
+        match = re.search(
+            r"(?ms)^\s*- name: Check out bound META policy\s*$"
+            r"(?P<body>.*?)(?=^\s*- name:|\Z)",
+            workflow,
+        )
+        if match is None:
+            raise AssertionError("bound META checkout step is missing")
+        active = "\n".join(
+            line for line in match.group("body").splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        repository = re.search(r"(?m)^\s*repository:\s*([^\s#]+)\s*$", active)
+        ref = re.search(r"(?m)^\s*ref:\s*([0-9a-f]{40})\s*$", active)
+        if repository is None or ref is None:
+            raise AssertionError("bound META checkout step lacks one active repository/ref")
+        return repository.group(1), ref.group(1)
+
+    @staticmethod
+    def _publication_fallback_clause(bootstrap: str) -> str:
+        match = re.search(
+            r"(?ms)^If an already-prepared material candidate cannot use the normal "
+            r"authorized publication path, .*?(?=\n\n)",
+            bootstrap,
+        )
+        if match is None:
+            raise AssertionError("operative publication fallback clause is missing")
+        return match.group(0)
+
+    @staticmethod
+    def _publication_fallback_clause_is_bound(clause: str) -> bool:
+        required = (
+            "do not silently reconstruct or relabel that selected candidate",
+            "Preserve its custody and return publication control to the active control plane",
+            "The control plane may select only an API-native **new candidate** route permitted by the bound META policy",
+            "bounded connector-compatible Git Data mode only under its exact one-writer/predecessor/one-commit/non-force/post-readback conditions",
+            "Ad-hoc raw Git Data reconstruction",
+            "sequential per-file API publication",
+            "force/ref replacement",
+            "reset and rebase remain forbidden",
+        )
+        return all(value in clause for value in required)
+
     def test_current_repository_adopts_authenticated_central_policy(self) -> None:
         self.assertEqual([], validate_policy(REPO_ROOT, self.meta_root, self.authority))
 
     def test_publication_integrity_authority_and_fallback_are_bound(self) -> None:
         self.assertEqual(self.binding["authority_commit"], PUBLICATION_INTEGRITY_AUTHORITY)
+
         workflow = (REPO_ROOT / ".github/workflows/agent-governance.yml").read_text(encoding="utf-8")
-        self.assertIn(f"ref: {PUBLICATION_INTEGRITY_AUTHORITY}", workflow)
+        self.assertEqual(
+            ("Oteryn/Oteryn", PUBLICATION_INTEGRITY_AUTHORITY),
+            self._bound_meta_checkout_target(workflow),
+        )
+        stale_workflow = workflow.replace(
+            f"          ref: {PUBLICATION_INTEGRITY_AUTHORITY}",
+            "          # stale evidence only: ref: "
+            f"{PUBLICATION_INTEGRITY_AUTHORITY}\n"
+            "          ref: 33b212e652c680bd4047be3b414c9a358b8bf26f",
+            1,
+        )
+        self.assertEqual(
+            ("Oteryn/Oteryn", "33b212e652c680bd4047be3b414c9a358b8bf26f"),
+            self._bound_meta_checkout_target(stale_workflow),
+        )
+
         bootstrap = (REPO_ROOT / "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md").read_text(encoding="utf-8")
-        for value in (
-            "API-native **new candidate** route permitted by the bound META policy",
-            "bounded connector-compatible Git Data mode",
-            "one-writer/predecessor/one-commit/non-force/post-readback conditions",
+        clause = self._publication_fallback_clause(bootstrap)
+        self.assertTrue(self._publication_fallback_clause_is_bound(clause))
+        for required in (
+            "do not silently reconstruct or relabel that selected candidate",
+            "Preserve its custody and return publication control to the active control plane",
+            "The control plane may select only an API-native **new candidate** route permitted by the bound META policy",
+            "bounded connector-compatible Git Data mode only under its exact one-writer/predecessor/one-commit/non-force/post-readback conditions",
             "Ad-hoc raw Git Data reconstruction",
             "sequential per-file API publication",
+            "force/ref replacement",
+            "reset and rebase remain forbidden",
         ):
-            self.assertIn(value, bootstrap)
+            self.assertFalse(
+                self._publication_fallback_clause_is_bound(clause.replace(required, "", 1)),
+                required,
+            )
+        contradictory = bootstrap.replace(
+            clause,
+            clause.replace(
+                "reset and rebase remain forbidden",
+                "reset and rebase remain allowed",
+                1,
+            ),
+            1,
+        ) + "\n\nHistorical note: reset and rebase remain forbidden.\n"
+        self.assertFalse(
+            self._publication_fallback_clause_is_bound(
+                self._publication_fallback_clause(contradictory)
+            )
+        )
+
         contract = (self.meta_root / "docs/agents/contracts/PUBLICATION_INTEGRITY_POLICY.md").read_text(encoding="utf-8")
         for value in (
             "bounded connector-compatible Git Data route",
