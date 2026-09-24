@@ -83,8 +83,8 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260924-bounded-connector-publication.md
 validation:
   - command: exact-head Platform CI
-    result: RUNNING
-    evidence: predecessor 766acdbd4a6dd908d5bcbbd020b43fae5095957f had Agent Governance liveness-only failure because this packet omitted PR #1411
+    result: NOT_RUN
+    evidence: fresh exact-head qualification pending after binding this packet to PR #1411
 blockers:
   - none
 next_action: rerun exact-head Platform qualification, review, and protected Merge Queue
