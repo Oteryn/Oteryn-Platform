@@ -110,15 +110,15 @@ class PolicyConsistencyTests(unittest.TestCase):
 
     @staticmethod
     def _markdown_inline_text(text: str) -> str:
-        text = re.sub(r"\\([\\\\`*{}\\[\\]()#+\\-.!_>])", r"\\1", text)
-        text = re.sub(r"`+([^`\\n]*?)`+", lambda match: match.group(1).strip(), text)
-        text = re.sub(r"!\\[([^\\]]*)\\]\\([^)]+\\)", r"\\1", text)
-        text = re.sub(r"\\[([^\\]]+)\\]\\([^)]+\\)", r"\\1", text)
-        text = re.sub(r"\\[([^\\]]+)\\]\\[[^\\]]*\\]", r"\\1", text)
+        text = re.sub(r"\\([\\\`*{}\[\]()#+\-.!_>])", r"\1", text)
+        text = re.sub(r"\`+([^\`\n]*?)\`+", lambda match: match.group(1).strip(), text)
+        text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
+        text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+        text = re.sub(r"\[([^\]]+)\]\[[^\]]*\]", r"\1", text)
         text = re.sub(r"<(?:https?://|mailto:)[^>]+>", "", text)
         text = re.sub(r"</?[A-Za-z][^>]*>", "", text)
         text = text.replace("*", "").replace("_", "")
-        return re.sub(r"\\s+", " ", text).strip()
+        return re.sub(r"\s+", " ", text).strip()
 
     @staticmethod
     def _markdown_other_block_start(line: str) -> bool:
