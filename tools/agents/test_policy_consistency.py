@@ -109,30 +109,37 @@ class PolicyConsistencyTests(unittest.TestCase):
         return repository.group(1), ref.group(1)
 
     @staticmethod
-    def _setext_title_block_boundary(line: str) -> bool:
-        stripped = line.rstrip("\r\n")
-        if not stripped.strip():
-            return True
-        if len(stripped) - len(stripped.lstrip(" ")) >= 4:
+    def _markdown_inline_text(text: str) -> str:
+        text = re.sub(r"\\([\\\\`*{}\\[\\]()#+\\-.!_>])", r"\\1", text)
+        text = re.sub(r"`+([^`\\n]*?)`+", lambda match: match.group(1).strip(), text)
+        text = re.sub(r"!\\[([^\\]]*)\\]\\([^)]+\\)", r"\\1", text)
+        text = re.sub(r"\\[([^\\]]+)\\]\\([^)]+\\)", r"\\1", text)
+        text = re.sub(r"\\[([^\\]]+)\\]\\[[^\\]]*\\]", r"\\1", text)
+        text = re.sub(r"<(?:https?://|mailto:)[^>]+>", "", text)
+        text = re.sub(r"</?[A-Za-z][^>]*>", "", text)
+        text = text.replace("*", "").replace("_", "")
+        return re.sub(r"\\s+", " ", text).strip()
+
+    @staticmethod
+    def _markdown_other_block_start(line: str) -> bool:
+        if len(line) - len(line.lstrip(" ")) >= 4:
             return True
         if re.match(
-            r"^[ \t]{0,3}(?:"
-            r"#{1,6}(?:[ \t]+|$)|"
-            r"(?:`{3,}|~{3,})|"
-            r">(?:[ \t]+|$)|"
-            r"(?:[-+*]|\d+[.)])(?:[ \t]+|$)|"
+            r"^[ \\t]{0,3}(?:"
+            r">(?:[ \\t]+|$)|"
+            r"(?:[-+*]|\\d+[.)])(?:[ \\t]+|$)|"
             r"</?[A-Za-z]|<!--"
             r")",
-            stripped,
+            line,
         ):
             return True
         return re.fullmatch(
-            r"[ \t]{0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})",
-            stripped,
+            r"[ \\t]{0,3}(?:(?:\\*[ \\t]*){3,}|(?:_[ \\t]*){3,}|(?:-[ \\t]*){3,})",
+            line,
         ) is not None
 
     @classmethod
-    def _setext_h2_spans(cls, markdown: str) -> list[tuple[int, int, str]]:
+    def _markdown_h2_spans(cls, markdown: str) -> list[tuple[int, int, str]]:
         lines = markdown.splitlines(keepends=True)
         offsets: list[int] = []
         cursor = 0
@@ -141,39 +148,82 @@ class PolicyConsistencyTests(unittest.TestCase):
             cursor += len(line)
 
         spans: list[tuple[int, int, str]] = []
-        underline = re.compile(r"^[ \t]{0,3}-{3,}[ \t]*(?:\r?\n)?$")
+        fence: tuple[str, int] | None = None
+        paragraph_start: int | None = None
+
         for index, line in enumerate(lines):
-            if index == 0 or underline.fullmatch(line) is None:
+            stripped = line.rstrip("\\r\\n")
+
+            if fence is not None:
+                marker, width = fence
+                if re.fullmatch(
+                    rf"[ \\t]{{0,3}}{re.escape(marker)}{{{width},}}[ \\t]*",
+                    stripped,
+                ):
+                    fence = None
+                paragraph_start = None
                 continue
 
-            first = index - 1
-            while first >= 0 and not cls._setext_title_block_boundary(lines[first]):
-                first -= 1
-            first += 1
-            if first >= index:
+            fence_open = re.match(r"^[ \\t]{0,3}(`{3,}|~{3,})(.*)$", stripped)
+            if fence_open is not None:
+                marker = fence_open.group(1)
+                fence = (marker[0], len(marker))
+                paragraph_start = None
                 continue
 
-            title = " ".join(part.strip() for part in lines[first:index])
-            spans.append((offsets[first], offsets[index] + len(line), title))
+            if not stripped.strip():
+                paragraph_start = None
+                continue
+
+            atx = re.match(
+                r"^[ \\t]{0,3}##(?:[ \\t]+|$)(?P<title>.*)$",
+                stripped,
+            )
+            if atx is not None:
+                title = re.sub(r"[ \\t]+#+[ \\t]*$", "", atx.group("title"))
+                spans.append(
+                    (
+                        offsets[index],
+                        offsets[index] + len(line),
+                        cls._markdown_inline_text(title),
+                    )
+                )
+                paragraph_start = None
+                continue
+
+            if re.fullmatch(r"[ \\t]{0,3}-{3,}[ \\t]*", stripped):
+                if paragraph_start is not None and paragraph_start < index:
+                    title = " ".join(
+                        part.rstrip("\\r\\n").strip()
+                        for part in lines[paragraph_start:index]
+                    )
+                    spans.append(
+                        (
+                            offsets[paragraph_start],
+                            offsets[index] + len(line),
+                            cls._markdown_inline_text(title),
+                        )
+                    )
+                paragraph_start = None
+                continue
+
+            if cls._markdown_other_block_start(stripped):
+                paragraph_start = None
+                continue
+
+            if paragraph_start is None:
+                paragraph_start = index
+
         return spans
 
     @classmethod
     def _credential_compatibility_section(cls, bootstrap: str) -> str:
-        atx = [
-            (match.start(), match.end())
-            for match in re.finditer(
-                r"(?m)^[ \t]{0,3}##[ \t]+GitHub credential compatibility"
-                r"(?:[ \t]+#+)?[ \t]*$",
-                bootstrap,
-            )
+        headings = cls._markdown_h2_spans(bootstrap)
+        matches = [
+            (start, end)
+            for start, end, title in headings
+            if title == "GitHub credential compatibility"
         ]
-        setext = [
-            (span_start, span_end)
-            for span_start, span_end, title in cls._setext_h2_spans(bootstrap)
-            if re.sub(r"\s+", " ", title).strip()
-            == "GitHub credential compatibility"
-        ]
-        matches = sorted([*atx, *setext], key=lambda match: match[0])
         if len(matches) != 1:
             raise AssertionError(
                 "bootstrap must contain exactly one GitHub credential compatibility "
@@ -181,21 +231,15 @@ class PolicyConsistencyTests(unittest.TestCase):
             )
 
         start = matches[0][1]
-        remainder = bootstrap[start:]
-        next_atx = re.search(r"(?m)^[ \t]{0,3}##(?:[ \t]+|$)", remainder)
-        next_setext = min(
-            (span_start for span_start, _span_end, _title in cls._setext_h2_spans(remainder)),
+        next_h2 = min(
+            (
+                heading_start
+                for heading_start, _heading_end, _title in headings
+                if heading_start >= start
+            ),
             default=None,
         )
-        candidates = [
-            candidate
-            for candidate in (
-                next_atx.start() if next_atx is not None else None,
-                next_setext,
-            )
-            if candidate is not None
-        ]
-        end = start + min(candidates) if candidates else len(bootstrap)
+        end = next_h2 if next_h2 is not None else len(bootstrap)
         return bootstrap[start:end].strip()
 
     @classmethod
@@ -351,6 +395,38 @@ class PolicyConsistencyTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
             self._credential_compatibility_section(wrapped_setext_after_atx_block)
+
+        fenced_setext_example = (
+            "```text\n"
+            "GitHub credential\n"
+            "compatibility\n---\n"
+            "```\n\n"
+            + bootstrap
+        )
+        self.assertEqual(
+            section,
+            self._credential_compatibility_section(fenced_setext_example),
+        )
+
+        inline_markup_duplicate = (
+            "GitHub **credential**\n"
+            "compatibility\n---\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(inline_markup_duplicate)
+
+        inline_link_duplicate = (
+            "GitHub [credential](https://example.invalid) compatibility\n"
+            "---\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(inline_link_duplicate)
 
         wrapped_setext_next_section = bootstrap.replace(
             section,
