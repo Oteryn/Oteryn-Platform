@@ -109,39 +109,68 @@ class PolicyConsistencyTests(unittest.TestCase):
         return repository.group(1), ref.group(1)
 
     @staticmethod
-    def _credential_compatibility_section(bootstrap: str) -> str:
-        atx = list(
-            re.finditer(
+    def _setext_h2_spans(markdown: str) -> list[tuple[int, int, str]]:
+        lines = markdown.splitlines(keepends=True)
+        offsets: list[int] = []
+        cursor = 0
+        for line in lines:
+            offsets.append(cursor)
+            cursor += len(line)
+
+        spans: list[tuple[int, int, str]] = []
+        underline = re.compile(r"^[ \t]{0,3}-{3,}[ \t]*(?:\r?\n)?$")
+        for index, line in enumerate(lines):
+            if index == 0 or underline.fullmatch(line) is None:
+                continue
+
+            first = index - 1
+            while first >= 0 and lines[first].strip():
+                first -= 1
+            first += 1
+            if first >= index:
+                continue
+
+            title = " ".join(part.strip() for part in lines[first:index])
+            spans.append((offsets[first], offsets[index] + len(line), title))
+        return spans
+
+    @classmethod
+    def _credential_compatibility_section(cls, bootstrap: str) -> str:
+        atx = [
+            (match.start(), match.end())
+            for match in re.finditer(
                 r"(?m)^[ \t]{0,3}##[ \t]+GitHub credential compatibility"
                 r"(?:[ \t]+#+)?[ \t]*$",
                 bootstrap,
             )
-        )
-        setext = list(
-            re.finditer(
-                r"(?m)^[ \t]{0,3}GitHub credential compatibility[ \t]*\n"
-                r"[ \t]{0,3}-{3,}[ \t]*$",
-                bootstrap,
-            )
-        )
-        matches = sorted([*atx, *setext], key=lambda match: match.start())
+        ]
+        setext = [
+            (span_start, span_end)
+            for span_start, span_end, title in cls._setext_h2_spans(bootstrap)
+            if re.sub(r"\s+", " ", title).strip()
+            == "GitHub credential compatibility"
+        ]
+        matches = sorted([*atx, *setext], key=lambda match: match[0])
         if len(matches) != 1:
             raise AssertionError(
                 "bootstrap must contain exactly one GitHub credential compatibility "
                 f"section, found {len(matches)}"
             )
 
-        start = matches[0].end()
+        start = matches[0][1]
         remainder = bootstrap[start:]
         next_atx = re.search(r"(?m)^[ \t]{0,3}##(?:[ \t]+|$)", remainder)
-        next_setext = re.search(
-            r"(?m)^[ \t]{0,3}[^\s#][^\n]*\n[ \t]{0,3}-{3,}[ \t]*$",
-            remainder,
+        next_setext = min(
+            (span_start for span_start, _span_end, _title in cls._setext_h2_spans(remainder)),
+            default=None,
         )
         candidates = [
-            match.start()
-            for match in (next_atx, next_setext)
-            if match is not None
+            candidate
+            for candidate in (
+                next_atx.start() if next_atx is not None else None,
+                next_setext,
+            )
+            if candidate is not None
         ]
         end = start + min(candidates) if candidates else len(bootstrap)
         return bootstrap[start:end].strip()
@@ -280,6 +309,25 @@ class PolicyConsistencyTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
             self._credential_compatibility_section(setext_duplicate_section)
+
+        wrapped_setext_duplicate_section = (
+            "GitHub credential\ncompatibility\n---\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(wrapped_setext_duplicate_section)
+
+        wrapped_setext_next_section = bootstrap.replace(
+            section,
+            section + "\n\nAnother wrapped\nsection\n---\n\nHistorical evidence only.",
+            1,
+        )
+        self.assertEqual(
+            section,
+            self._credential_compatibility_section(wrapped_setext_next_section),
+        )
 
         standalone_permission = bootstrap.replace(
             clause,
