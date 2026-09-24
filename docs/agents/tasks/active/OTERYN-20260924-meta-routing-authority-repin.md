@@ -46,7 +46,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-24T15:06:00Z
+updated_at: 2026-09-24T15:12:00Z
 head: 61eba0ecf6eef43edb971a2833033f2f842670cf
 branch: governance/meta-routing-repin-1401
 pr: 1412
@@ -90,7 +90,7 @@ next_action: archive this task after terminal PR #1412 merged to protected main
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository governance adoption PR
-source_branch_evidence: PR #1412 merged to protected main as 2134a2f59d24a7e77fac2730fe97f280506e652f; terminal source branch cleanup is authorized
+source_branch_evidence: live GitHub readback returned 404 Branch not found for governance/meta-routing-repin-1401 after PR #1412 merged as 2134a2f59d24a7e77fac2730fe97f280506e652f
 ```
 
 ## Notes
