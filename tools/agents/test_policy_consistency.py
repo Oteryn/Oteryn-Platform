@@ -21,7 +21,7 @@ from policy_consistency import (
     validate_policy,
 )
 
-PUBLICATION_INTEGRITY_AUTHORITY = "33b212e652c680bd4047be3b414c9a358b8bf26f"
+PUBLICATION_INTEGRITY_AUTHORITY = "21bc49bccef4874b037aabcbde9732b904187c32"
 
 
 class PolicyConsistencyTests(unittest.TestCase):
@@ -97,17 +97,20 @@ class PolicyConsistencyTests(unittest.TestCase):
         self.assertIn(f"ref: {PUBLICATION_INTEGRITY_AUTHORITY}", workflow)
         bootstrap = (REPO_ROOT / "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md").read_text(encoding="utf-8")
         for value in (
-            "preserve the candidate and report the publication blocked",
-            "raw Git Data blob/tree/commit/ref operations",
-            "per-file API writes",
+            "API-native **new candidate** route permitted by the bound META policy",
+            "bounded connector-compatible Git Data mode",
+            "one-writer/predecessor/one-commit/non-force/post-readback conditions",
+            "Ad-hoc raw Git Data reconstruction",
+            "sequential per-file API publication",
         ):
             self.assertIn(value, bootstrap)
         contract = (self.meta_root / "docs/agents/contracts/PUBLICATION_INTEGRITY_POLICY.md").read_text(encoding="utf-8")
         for value in (
-            "publication must preserve that exact commit identity",
-            "ad-hoc Git Data API blob/tree/commit/ref construction",
-            "per-file Contents API reconstruction",
-            "Preserve the candidate/recovery artifact",
+            "bounded connector-compatible Git Data route",
+            "Either API route creates a **new candidate**",
+            "GitHub Git-refs `force=false` proves only ancestry",
+            "sequential per-file commits",
+            "partial/mixed reconstruction remain forbidden",
         ):
             self.assertIn(value, contract)
 
