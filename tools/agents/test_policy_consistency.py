@@ -109,18 +109,30 @@ class PolicyConsistencyTests(unittest.TestCase):
         return repository.group(1), ref.group(1)
 
     @staticmethod
-    def _publication_fallback_clause(bootstrap: str) -> str:
-        section = re.search(
-            r"(?ms)^## GitHub credential compatibility\s*$"
-            r"(?P<body>.*?)(?=^## |\Z)",
-            bootstrap,
+    def _credential_compatibility_section(bootstrap: str) -> str:
+        matches = list(
+            re.finditer(
+                r"(?m)^## GitHub credential compatibility\s*$",
+                bootstrap,
+            )
         )
-        if section is None:
-            raise AssertionError("GitHub credential compatibility section is missing")
+        if len(matches) != 1:
+            raise AssertionError(
+                "bootstrap must contain exactly one GitHub credential compatibility "
+                f"section, found {len(matches)}"
+            )
+        start = matches[0].end()
+        next_heading = re.search(r"(?m)^##\s+", bootstrap[start:])
+        end = start + next_heading.start() if next_heading else len(bootstrap)
+        return bootstrap[start:end].strip()
+
+    @classmethod
+    def _publication_fallback_clause(cls, bootstrap: str) -> str:
+        section = cls._credential_compatibility_section(bootstrap)
         matches = re.findall(
             r"(?ms)^If an already-prepared material candidate cannot use the normal "
             r"authorized publication path, .*?(?=\n\n|\Z)",
-            section.group("body"),
+            section,
         )
         if len(matches) != 1:
             raise AssertionError(
@@ -128,6 +140,30 @@ class PolicyConsistencyTests(unittest.TestCase):
                 f"publication fallback clause, found {len(matches)}"
             )
         return matches[0]
+
+    @staticmethod
+    def _credential_compatibility_section_is_bound(section: str) -> bool:
+        expected = (
+            'This compatibility path applies only to an already-authorized existing task '
+            'branch and PR; PR creation remains a coordinator/control-plane action. If '
+            '`GH_TOKEN` and `GITHUB_TOKEN` are unset but agent-visible `GH` exists, it may '
+            'be passed transiently as `GH_TOKEN="$GH"` to the exact authorized `gh` command. '
+            'Do not assume that mapping authenticates `git push`, embed a token in a remote '
+            'URL, or persist a credential helper. Use another authorized repository-native '
+            'write path when the existing Git transport cannot consume the identity.\n\n'
+            'If an already-prepared material candidate cannot use the normal authorized '
+            'publication path, do not silently reconstruct or relabel that selected candidate. '
+            'Preserve its custody and return publication control to the active control plane. '
+            'The control plane may select only an API-native **new candidate** route permitted '
+            'by the bound META policy, including the bounded connector-compatible Git Data mode '
+            'only under its exact one-writer/predecessor/one-commit/non-force/post-readback '
+            'conditions. Ad-hoc raw Git Data reconstruction, sequential per-file API publication, '
+            'force/ref replacement, reset and rebase remain forbidden.\n\n'
+            'Credential presence grants no repository, branch, path, merge, production or secret '
+            'authority. Never force-push, and verify the remote exact head after publication.'
+        )
+        normalize = lambda value: re.sub(r"[ \t]+", " ", value).strip()
+        return normalize(section) == normalize(expected)
 
     @staticmethod
     def _publication_fallback_clause_is_bound(clause: str) -> bool:
@@ -168,6 +204,8 @@ class PolicyConsistencyTests(unittest.TestCase):
         )
 
         bootstrap = (REPO_ROOT / "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md").read_text(encoding="utf-8")
+        section = self._credential_compatibility_section(bootstrap)
+        self.assertTrue(self._credential_compatibility_section_is_bound(section))
         clause = self._publication_fallback_clause(bootstrap)
         self.assertTrue(self._publication_fallback_clause_is_bound(clause))
         historical_prefix = clause + "\n\nHistorical evidence only.\n\n"
@@ -195,6 +233,23 @@ class PolicyConsistencyTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(AssertionError, "exactly one operative"):
             self._publication_fallback_clause(duplicate_inside_live_section)
+
+        duplicate_section = (
+            "## GitHub credential compatibility\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(duplicate_section)
+
+        standalone_permission = bootstrap.replace(
+            clause,
+            clause + "\n\nReset and rebase may be used for recovery.",
+            1,
+        )
+        mutated_section = self._credential_compatibility_section(standalone_permission)
+        self.assertFalse(self._credential_compatibility_section_is_bound(mutated_section))
         for required in (
             "do not silently reconstruct or relabel that selected candidate",
             "Preserve its custody and return publication control to the active control plane",
