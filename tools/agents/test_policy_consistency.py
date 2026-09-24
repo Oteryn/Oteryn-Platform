@@ -110,8 +110,8 @@ class PolicyConsistencyTests(unittest.TestCase):
 
     @staticmethod
     def _markdown_inline_text(text: str) -> str:
-        text = re.sub(r"\\([\\\`*{}\[\]()#+\-.!_>])", r"\1", text)
-        text = re.sub(r"\`+([^\`\n]*?)\`+", lambda match: match.group(1).strip(), text)
+        text = re.sub(r"\\([\\*{}\[\]()#+\-.!_>])", r"\1", text)
+        text = re.sub(r"\x60+([^\x60\n]*?)\x60+", lambda match: match.group(1).strip(), text)
         text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
         text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
         text = re.sub(r"\[([^\]]+)\]\[[^\]]*\]", r"\1", text)
@@ -125,16 +125,16 @@ class PolicyConsistencyTests(unittest.TestCase):
         if len(line) - len(line.lstrip(" ")) >= 4:
             return True
         if re.match(
-            r"^[ \\t]{0,3}(?:"
-            r">(?:[ \\t]+|$)|"
-            r"(?:[-+*]|\\d+[.)])(?:[ \\t]+|$)|"
+            r"^[ \t]{0,3}(?:"
+            r">(?:[ \t]+|$)|"
+            r"(?:[-+*]|\d+[.)])(?:[ \t]+|$)|"
             r"</?[A-Za-z]|<!--"
             r")",
             line,
         ):
             return True
         return re.fullmatch(
-            r"[ \\t]{0,3}(?:(?:\\*[ \\t]*){3,}|(?:_[ \\t]*){3,}|(?:-[ \\t]*){3,})",
+            r"[ \t]{0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})",
             line,
         ) is not None
 
@@ -152,19 +152,19 @@ class PolicyConsistencyTests(unittest.TestCase):
         paragraph_start: int | None = None
 
         for index, line in enumerate(lines):
-            stripped = line.rstrip("\\r\\n")
+            stripped = line.rstrip("\r\n")
 
             if fence is not None:
                 marker, width = fence
                 if re.fullmatch(
-                    rf"[ \\t]{{0,3}}{re.escape(marker)}{{{width},}}[ \\t]*",
+                    rf"[ \t]{{0,3}}{re.escape(marker)}{{{width},}}[ \t]*",
                     stripped,
                 ):
                     fence = None
                 paragraph_start = None
                 continue
 
-            fence_open = re.match(r"^[ \\t]{0,3}(`{3,}|~{3,})(.*)$", stripped)
+            fence_open = re.match(r"^[ \t]{0,3}(\x60{3,}|~{3,})(.*)$", stripped)
             if fence_open is not None:
                 marker = fence_open.group(1)
                 fence = (marker[0], len(marker))
@@ -176,11 +176,11 @@ class PolicyConsistencyTests(unittest.TestCase):
                 continue
 
             atx = re.match(
-                r"^[ \\t]{0,3}##(?:[ \\t]+|$)(?P<title>.*)$",
+                r"^[ \t]{0,3}##(?:[ \t]+|$)(?P<title>.*)$",
                 stripped,
             )
             if atx is not None:
-                title = re.sub(r"[ \\t]+#+[ \\t]*$", "", atx.group("title"))
+                title = re.sub(r"[ \t]+#+[ \t]*$", "", atx.group("title"))
                 spans.append(
                     (
                         offsets[index],
@@ -191,10 +191,10 @@ class PolicyConsistencyTests(unittest.TestCase):
                 paragraph_start = None
                 continue
 
-            if re.fullmatch(r"[ \\t]{0,3}-{3,}[ \\t]*", stripped):
+            if re.fullmatch(r"[ \t]{0,3}-{3,}[ \t]*", stripped):
                 if paragraph_start is not None and paragraph_start < index:
                     title = " ".join(
-                        part.rstrip("\\r\\n").strip()
+                        part.rstrip("\r\n").strip()
                         for part in lines[paragraph_start:index]
                     )
                     spans.append(
