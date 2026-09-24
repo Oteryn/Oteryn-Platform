@@ -282,6 +282,11 @@ class PolicyConsistencyTests(unittest.TestCase):
                 paragraph_start = None
                 continue
 
+            leading = re.match(r"^[ \t]*", stripped)
+            prefix = leading.group(0) if leading is not None else ""
+            if paragraph_start is not None and ("\t" in prefix or len(prefix) >= 4):
+                continue
+
             if cls._markdown_other_block_start(stripped):
                 paragraph_start = None
                 continue
@@ -644,6 +649,18 @@ class PolicyConsistencyTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
             self._credential_compatibility_section(heavily_split_authority_heading)
+
+        indented_setext_paragraph_continuation = (
+            "GitHub\n"
+            "    credential\n"
+            "compatibility\n"
+            "---\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(indented_setext_paragraph_continuation)
 
         short_setext_single_hyphen = (
             "GitHub credential compatibility\n"
