@@ -50,8 +50,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-24T15:02:00Z
-head: 6b8e8b1f420e531babc2920a3168710a199a7c78
+updated_at: 2026-09-24T15:04:00Z
+head: e758c217355f705947e0b3265a92507d274c27c2
 branch: governance/bounded-connector-publication-1410
 pr: 1411
 status: validating
@@ -91,7 +91,7 @@ validation:
     evidence: protected main advanced after prior green candidate; fresh exact-head qualification required after merge-up
 blockers:
   - none
-next_action: merge up protected main without downgrading META authority, then rerun exact-head Platform qualification, review, and protected Merge Queue
+next_action: run fresh exact-head Platform qualification and review on the reconciled successor, then protected Merge Queue
 ```
 
 ## Source branch closeout
