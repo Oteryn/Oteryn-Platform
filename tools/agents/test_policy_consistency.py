@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import os
 from pathlib import Path
@@ -110,6 +111,7 @@ class PolicyConsistencyTests(unittest.TestCase):
 
     @staticmethod
     def _markdown_inline_text(text: str) -> str:
+        text = html.unescape(text)
         text = re.sub(r"\\([\\*{}\[\]()#+\-.!_>])", r"\1", text)
         text = re.sub(r"\x60+([^\x60\n]*?)\x60+", lambda match: match.group(1).strip(), text)
         text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
@@ -167,6 +169,9 @@ class PolicyConsistencyTests(unittest.TestCase):
             fence_open = re.match(r"^[ \t]{0,3}(\x60{3,}|~{3,})(.*)$", stripped)
             if fence_open is not None:
                 marker = fence_open.group(1)
+                remainder = fence_open.group(2)
+                if marker[0] == "`" and "`" in remainder:
+                    raise AssertionError("invalid backtick fence opener")
                 fence = (marker[0], len(marker))
                 paragraph_start = None
                 continue
@@ -427,6 +432,25 @@ class PolicyConsistencyTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
             self._credential_compatibility_section(inline_link_duplicate)
+
+        invalid_backtick_fence = (
+            "```foo`bar\n"
+            "GitHub credential compatibility\n"
+            "---\n\n"
+            "```\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "invalid backtick fence opener"):
+            self._credential_compatibility_section(invalid_backtick_fence)
+
+        entity_duplicate_section = (
+            "## GitHub credential compatibilit&#121;\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(entity_duplicate_section)
 
         wrapped_setext_next_section = bootstrap.replace(
             section,
