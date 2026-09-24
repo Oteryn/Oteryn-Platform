@@ -141,7 +141,43 @@ class PolicyConsistencyTests(unittest.TestCase):
         return True
 
     @staticmethod
-    def _markdown_other_block_start(line: str) -> bool:
+    def _markdown_html_block_start(line: str) -> bool:
+        # Only classify constructs that can actually open a CommonMark HTML block.
+        # Inline HTML with rendered text (for example
+        # <span>GitHub credential compatibility</span>) must remain paragraph
+        # content so a following Setext underline can make it a heading.
+        if re.match(
+            r"^ {0,3}(?:"
+            r"<(?:script|pre|style|textarea)(?:[ \t>]|$)|"
+            r"<!--|<\?|<![A-Z]|<!\[CDATA\["
+            r")",
+            line,
+            re.IGNORECASE,
+        ):
+            return True
+        block_tags = (
+            "address|article|aside|base|basefont|blockquote|body|caption|center|col|"
+            "colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|"
+            "footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|"
+            "li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|"
+            "search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul"
+        )
+        if re.match(
+            rf"^ {{0,3}}</?(?:{block_tags})(?:[ \t]+|/?>|$)",
+            line,
+            re.IGNORECASE,
+        ):
+            return True
+        # Type-7 HTML blocks require a complete standalone tag line.
+        # A tag carrying inline rendered text is deliberately not matched.
+        return re.fullmatch(
+            r" {0,3}</?[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[^<>\n]*)?/?"
+            r">[ \t]*",
+            line,
+        ) is not None
+
+    @classmethod
+    def _markdown_other_block_start(cls, line: str) -> bool:
         if not line:
             return False
         leading = re.match(r"^[ \t]*", line)
@@ -157,6 +193,8 @@ class PolicyConsistencyTests(unittest.TestCase):
             r")",
             line,
         ):
+            return True
+        if cls._markdown_html_block_start(line):
             return True
         return re.fullmatch(
             r" {0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})",
@@ -225,10 +263,10 @@ class PolicyConsistencyTests(unittest.TestCase):
                 paragraph_start = None
                 continue
 
-            if re.match(r"^[ \t]*\t[ \t]*-{3,}[ \t]*$", stripped):
+            if re.match(r"^[ \t]*\t[ \t]*-+[ \t]*$", stripped):
                 raise AssertionError("ambiguous tab-indented Setext underline")
 
-            if re.fullmatch(r" {0,3}-{3,}[ \t]*", stripped):
+            if re.fullmatch(r" {0,3}-+[ \t]*", stripped):
                 if paragraph_start is not None and paragraph_start < index:
                     title = " ".join(
                         part.rstrip("\r\n").strip()
@@ -413,6 +451,24 @@ class PolicyConsistencyTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
             self._credential_compatibility_section(setext_duplicate_section)
+
+        short_setext_duplicate_section = (
+            "GitHub credential compatibility\n-\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(short_setext_duplicate_section)
+
+        inline_html_setext_duplicate = (
+            "<span>GitHub credential compatibility</span>\n---\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(inline_html_setext_duplicate)
 
         wrapped_setext_duplicate_section = (
             "GitHub credential\ncompatibility\n---\n\n"
