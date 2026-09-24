@@ -153,8 +153,7 @@ class PolicyConsistencyTests(unittest.TestCase):
         if re.match(
             r"^ {0,3}(?:"
             r">(?:[ \t]+|$)|"
-            r"(?:[-+*]|\d+[.)])(?:[ \t]+|$)|"
-            r"</?[A-Za-z]|<!--"
+            r"(?:[-+*]|\d+[.)])(?:[ \t]+|$)"
             r")",
             line,
         ):
@@ -589,6 +588,36 @@ class PolicyConsistencyTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
             self._credential_compatibility_section(heavily_split_authority_heading)
+
+        short_setext_single_hyphen = (
+            "GitHub credential compatibility\n"
+            "-\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(short_setext_single_hyphen)
+
+        short_setext_two_hyphens = (
+            "GitHub credential compatibility\n"
+            "--\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(short_setext_two_hyphens)
+
+        inline_html_setext_title = (
+            "<span>GitHub credential compatibility</span>\n"
+            "---\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(inline_html_setext_title)
 
         tab_indented_pseudo_closer = (
             "```\n"
