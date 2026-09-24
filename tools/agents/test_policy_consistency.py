@@ -131,7 +131,19 @@ class PolicyConsistencyTests(unittest.TestCase):
             "force/ref replacement",
             "reset and rebase remain forbidden",
         )
-        return all(value in clause for value in required)
+        contradictions = (
+            r"\bselected candidate\b[^.]{0,100}\b(?:may|can)\s+be\s+(?:reconstructed|relabelled|relabeled)\b",
+            r"\bpublication control\b[^.]{0,100}\b(?:may|can)\s+(?:remain|stay)\s+with\s+(?:the\s+)?(?:worker|agent)\b",
+            r"\bAd-hoc raw Git Data reconstruction\b[^.]{0,100}\b(?:is|are|be|remain)?\s*(?:allowed|permitted|authorized)\b",
+            r"\bsequential per-file API publication\b[^.]{0,100}\b(?:is|are|be|remain)?\s*(?:allowed|permitted|authorized)\b",
+            r"\bforce/ref replacement\b[^.]{0,100}\b(?:is|are|be|remain)?\s*(?:allowed|permitted|authorized)\b",
+            r"\breset and rebase\b[^.]{0,100}\b(?:is|are|be|remain)?\s*(?:allowed|permitted|authorized)\b",
+            r"\b(?:may|can|should)\s+(?:use|perform)\b[^.]{0,100}\b(?:raw Git Data|sequential per-file|force/ref replacement|reset|rebase)\b",
+        )
+        return (
+            all(value in clause for value in required)
+            and not any(re.search(pattern, clause, re.IGNORECASE) for pattern in contradictions)
+        )
 
     def test_current_repository_adopts_authenticated_central_policy(self) -> None:
         self.assertEqual([], validate_policy(REPO_ROOT, self.meta_root, self.authority))
@@ -173,13 +185,24 @@ class PolicyConsistencyTests(unittest.TestCase):
                 self._publication_fallback_clause_is_bound(clause.replace(required, "", 1)),
                 required,
             )
+        for additive_contradiction in (
+            " Selected candidate may be reconstructed for recovery.",
+            " Publication control may remain with the worker during recovery.",
+            " Ad-hoc raw Git Data reconstruction is allowed for recovery.",
+            " Sequential per-file API publication is permitted for recovery.",
+            " Force/ref replacement is authorized for recovery.",
+            " Reset and rebase are allowed for recovery.",
+            " The worker may use reset when recovery is difficult.",
+        ):
+            self.assertFalse(
+                self._publication_fallback_clause_is_bound(
+                    clause + additive_contradiction
+                ),
+                additive_contradiction,
+            )
         contradictory = bootstrap.replace(
             clause,
-            clause.replace(
-                "reset and rebase remain forbidden",
-                "reset and rebase remain allowed",
-                1,
-            ),
+            clause + " Reset and rebase are allowed for recovery.",
             1,
         ) + "\n\nHistorical note: reset and rebase remain forbidden.\n"
         self.assertFalse(
