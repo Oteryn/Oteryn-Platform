@@ -19,10 +19,10 @@ Repin Platform's immutable META 3.1 binding, independent workflow trust anchor a
 
 ## Acceptance criteria
 
-- [ ] Binding and independent workflow trust anchor equal exact protected META `1bfb5ff98c8aa156e73669a14e083a1d464c29fb`.
-- [ ] Policy-consistency regression expects the same exact authority.
-- [ ] Exact-head required Platform CI and independent review are clean.
-- [ ] Integration uses protected Merge Queue, real merge-group `platform-gate`, and protected-main readback.
+- [x] Binding and independent workflow trust anchor equal exact protected META `1bfb5ff98c8aa156e73669a14e083a1d464c29fb`.
+- [x] Policy-consistency regression expects the same exact authority.
+- [x] Exact-head required Platform CI and independent review are clean.
+- [x] Integration uses protected Merge Queue, real merge-group `platform-gate`, and protected-main readback.
 
 ## Ownership
 
@@ -31,7 +31,7 @@ owned_paths:
   - docs/agents/META_AGENT_POLICY_BINDING.json
   - .github/workflows/agent-governance.yml
   - tools/agents/test_policy_consistency.py
-  - docs/agents/tasks/active/OTERYN-20260924-meta-routing-authority-repin.md
+  - docs/agents/tasks/archive/OTERYN-20260924-meta-routing-authority-repin.md
 modules:
   - agent-governance
 dependencies:
@@ -58,7 +58,7 @@ owned_paths:
   - docs/agents/META_AGENT_POLICY_BINDING.json
   - .github/workflows/agent-governance.yml
   - tools/agents/test_policy_consistency.py
-  - docs/agents/tasks/active/OTERYN-20260924-meta-routing-authority-repin.md
+  - docs/agents/tasks/archive/OTERYN-20260924-meta-routing-authority-repin.md
 proven:
   - protected META PR #224 integrated at 1bfb5ff98c8aa156e73669a14e083a1d464c29fb
   - protected META merge-group META CI succeeded on 1bfb5ff98c8aa156e73669a14e083a1d464c29fb
@@ -75,7 +75,7 @@ changed_paths:
   - docs/agents/META_AGENT_POLICY_BINDING.json
   - .github/workflows/agent-governance.yml
   - tools/agents/test_policy_consistency.py
-  - docs/agents/tasks/active/OTERYN-20260924-meta-routing-authority-repin.md
+  - docs/agents/tasks/archive/OTERYN-20260924-meta-routing-authority-repin.md
 validation:
   - command: protected PR #1412 integration
     result: PASS
