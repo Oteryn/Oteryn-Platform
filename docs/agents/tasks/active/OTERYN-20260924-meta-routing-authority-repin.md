@@ -46,11 +46,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-24T13:40:00Z
+updated_at: 2026-09-24T14:10:00Z
 head: UNKNOWN
 branch: governance/meta-routing-repin-1401
-pr: none
-status: implementing
+pr: 1412
+status: validating
 context_routes:
   - governance
 owned_paths:
@@ -82,7 +82,7 @@ validation:
     evidence: PR exact-head qualification pending
 blockers:
   - none
-next_action: open canonical PR, bind this packet to it, then qualify the successor exact head
+next_action: freeze the successor exact head and consume fresh exact-head CI/review evidence
 ```
 
 ## Source branch closeout
