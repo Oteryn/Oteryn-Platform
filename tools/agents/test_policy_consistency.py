@@ -111,14 +111,19 @@ class PolicyConsistencyTests(unittest.TestCase):
 
     @staticmethod
     def _markdown_inline_text(text: str) -> str:
+        # This is intentionally conservative, not a general Markdown renderer.
+        # For the single authority-heading comparison, ambiguous inline syntax is
+        # normalized toward the visible label so equivalent headings fail closed.
         text = html.unescape(text)
-        text = re.sub(r"\\([\\*{}\[\]()#+\-.!_>])", r"\1", text)
+        text = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
         text = re.sub(r"\x60+([^\x60\n]*?)\x60+", lambda match: match.group(1).strip(), text)
         text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
         text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
         text = re.sub(r"\[([^\]]+)\]\[[^\]]*\]", r"\1", text)
+        text = re.sub(r"\[([^\]]+)\]", r"\1", text)
         text = re.sub(r"<(?:https?://|mailto:)[^>]+>", "", text)
         text = re.sub(r"</?[A-Za-z][^>]*>", "", text)
+        text = re.sub(r"\\([\\\x60*{}\[\]()#+\-.!_>])", r"\1", text)
         text = text.replace("*", "").replace("_", "")
         return re.sub(r"\s+", " ", text).strip()
 
@@ -166,7 +171,10 @@ class PolicyConsistencyTests(unittest.TestCase):
                 paragraph_start = None
                 continue
 
-            fence_open = re.match(r"^[ \t]{0,3}(\x60{3,}|~{3,})(.*)$", stripped)
+            if re.match(r"^[ \t]*\t[ \t]*(?:\x60{3,}|~{3,})", stripped):
+                raise AssertionError("ambiguous tab-indented fence opener")
+
+            fence_open = re.match(r"^ {0,3}(\x60{3,}|~{3,})(.*)$", stripped)
             if fence_open is not None:
                 marker = fence_open.group(1)
                 remainder = fence_open.group(2)
@@ -451,6 +459,35 @@ class PolicyConsistencyTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
             self._credential_compatibility_section(entity_duplicate_section)
+
+        tab_indented_pseudo_fence = (
+            "\t```foo\n"
+            "GitHub credential compatibility\n"
+            "---\n\n"
+            "```\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "ambiguous tab-indented fence opener"):
+            self._credential_compatibility_section(tab_indented_pseudo_fence)
+
+        shortcut_reference_duplicate = (
+            "## GitHub [credential] compatibility\n\n"
+            "[credential]: /target\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(shortcut_reference_duplicate)
+
+        inline_comment_duplicate = (
+            "## GitHub cred<!--hidden-->ential compatibility\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(inline_comment_duplicate)
 
         wrapped_setext_next_section = bootstrap.replace(
             section,
