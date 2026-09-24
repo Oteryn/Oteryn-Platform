@@ -117,40 +117,32 @@ class PolicyConsistencyTests(unittest.TestCase):
         )
         if section is None:
             raise AssertionError("GitHub credential compatibility section is missing")
-        match = re.search(
+        matches = re.findall(
             r"(?ms)^If an already-prepared material candidate cannot use the normal "
             r"authorized publication path, .*?(?=\n\n|\Z)",
             section.group("body"),
         )
-        if match is None:
-            raise AssertionError("operative publication fallback clause is missing")
-        return match.group(0)
+        if len(matches) != 1:
+            raise AssertionError(
+                "GitHub credential compatibility must contain exactly one operative "
+                f"publication fallback clause, found {len(matches)}"
+            )
+        return matches[0]
 
     @staticmethod
     def _publication_fallback_clause_is_bound(clause: str) -> bool:
-        required = (
-            "do not silently reconstruct or relabel that selected candidate",
-            "Preserve its custody and return publication control to the active control plane",
-            "The control plane may select only an API-native **new candidate** route permitted by the bound META policy",
-            "bounded connector-compatible Git Data mode only under its exact one-writer/predecessor/one-commit/non-force/post-readback conditions",
-            "Ad-hoc raw Git Data reconstruction",
-            "sequential per-file API publication",
-            "force/ref replacement",
-            "reset and rebase remain forbidden",
+        expected = (
+            "If an already-prepared material candidate cannot use the normal authorized "
+            "publication path, do not silently reconstruct or relabel that selected candidate. "
+            "Preserve its custody and return publication control to the active control plane. "
+            "The control plane may select only an API-native **new candidate** route permitted "
+            "by the bound META policy, including the bounded connector-compatible Git Data mode "
+            "only under its exact one-writer/predecessor/one-commit/non-force/post-readback "
+            "conditions. Ad-hoc raw Git Data reconstruction, sequential per-file API publication, "
+            "force/ref replacement, reset and rebase remain forbidden."
         )
-        contradictions = (
-            r"\bselected candidate\b[^.]{0,100}\b(?:may|can)\s+be\s+(?:reconstructed|relabelled|relabeled)\b",
-            r"\bpublication control\b[^.]{0,100}\b(?:may|can)\s+(?:remain|stay)\s+with\s+(?:the\s+)?(?:worker|agent)\b",
-            r"\bAd-hoc raw Git Data reconstruction\b[^.]{0,100}\b(?:is|are|be|remain)?\s*(?:allowed|permitted|authorized)\b",
-            r"\bsequential per-file API publication\b[^.]{0,100}\b(?:is|are|be|remain)?\s*(?:allowed|permitted|authorized)\b",
-            r"\bforce/ref replacement\b[^.]{0,100}\b(?:is|are|be|remain)?\s*(?:allowed|permitted|authorized)\b",
-            r"\breset and rebase\b[^.]{0,100}\b(?:is|are|be|remain)?\s*(?:allowed|permitted|authorized)\b",
-            r"\b(?:may|can|should)\s+(?:use|perform)\b[^.]{0,100}\b(?:raw Git Data|sequential per-file|force/ref replacement|reset|rebase)\b",
-        )
-        return (
-            all(value in clause for value in required)
-            and not any(re.search(pattern, clause, re.IGNORECASE) for pattern in contradictions)
-        )
+        normalize = lambda value: re.sub(r"\s+", " ", value).strip()
+        return normalize(clause) == normalize(expected)
 
     def test_current_repository_adopts_authenticated_central_policy(self) -> None:
         self.assertEqual([], validate_policy(REPO_ROOT, self.meta_root, self.authority))
@@ -194,6 +186,15 @@ class PolicyConsistencyTests(unittest.TestCase):
             ),
             "a historical copy before the live section must not qualify a relaxed live clause",
         )
+        duplicate_inside_live_section = bootstrap.replace(
+            "## GitHub credential compatibility\n\n",
+            "## GitHub credential compatibility\n\n"
+            + clause
+            + "\n\nHistorical evidence only.\n\n",
+            1,
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one operative"):
+            self._publication_fallback_clause(duplicate_inside_live_section)
         for required in (
             "do not silently reconstruct or relabel that selected candidate",
             "Preserve its custody and return publication control to the active control plane",
@@ -212,9 +213,13 @@ class PolicyConsistencyTests(unittest.TestCase):
             " Selected candidate may be reconstructed for recovery.",
             " Publication control may remain with the worker during recovery.",
             " Ad-hoc raw Git Data reconstruction is allowed for recovery.",
+            " Ad-hoc raw Git Data reconstruction may be used for recovery.",
             " Sequential per-file API publication is permitted for recovery.",
+            " Sequential per-file API publication may be used for recovery.",
             " Force/ref replacement is authorized for recovery.",
+            " Force/ref replacement may be used for recovery.",
             " Reset and rebase are allowed for recovery.",
+            " Reset and rebase may be used for recovery.",
             " The worker may use reset when recovery is difficult.",
         ):
             self.assertFalse(
