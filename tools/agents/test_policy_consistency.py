@@ -109,7 +109,30 @@ class PolicyConsistencyTests(unittest.TestCase):
         return repository.group(1), ref.group(1)
 
     @staticmethod
-    def _setext_h2_spans(markdown: str) -> list[tuple[int, int, str]]:
+    def _setext_title_block_boundary(line: str) -> bool:
+        stripped = line.rstrip("\r\n")
+        if not stripped.strip():
+            return True
+        if len(stripped) - len(stripped.lstrip(" ")) >= 4:
+            return True
+        if re.match(
+            r"^[ \t]{0,3}(?:"
+            r"#{1,6}(?:[ \t]+|$)|"
+            r"(?:`{3,}|~{3,})|"
+            r">(?:[ \t]+|$)|"
+            r"(?:[-+*]|\d+[.)])(?:[ \t]+|$)|"
+            r"</?[A-Za-z]|<!--"
+            r")",
+            stripped,
+        ):
+            return True
+        return re.fullmatch(
+            r"[ \t]{0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})",
+            stripped,
+        ) is not None
+
+    @classmethod
+    def _setext_h2_spans(cls, markdown: str) -> list[tuple[int, int, str]]:
         lines = markdown.splitlines(keepends=True)
         offsets: list[int] = []
         cursor = 0
@@ -124,7 +147,7 @@ class PolicyConsistencyTests(unittest.TestCase):
                 continue
 
             first = index - 1
-            while first >= 0 and lines[first].strip():
+            while first >= 0 and not cls._setext_title_block_boundary(lines[first]):
                 first -= 1
             first += 1
             if first >= index:
@@ -318,6 +341,16 @@ class PolicyConsistencyTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
             self._credential_compatibility_section(wrapped_setext_duplicate_section)
+
+        wrapped_setext_after_atx_block = (
+            "## Historical evidence\n"
+            "GitHub credential\ncompatibility\n---\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(wrapped_setext_after_atx_block)
 
         wrapped_setext_next_section = bootstrap.replace(
             section,
