@@ -50,8 +50,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-24T15:04:00Z
-head: e758c217355f705947e0b3265a92507d274c27c2
+updated_at: 2026-09-24T15:06:00Z
+head: f8ac73aed90ee9474d7da3149f1f18d83402f574
 branch: governance/bounded-connector-publication-1410
 pr: 1411
 status: validating
@@ -87,7 +87,7 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260924-bounded-connector-publication.md
 validation:
   - command: exact-head Platform CI
-    result: REQUALIFY_REQUIRED
+    result: NOT_RUN
     evidence: protected main advanced after prior green candidate; fresh exact-head qualification required after merge-up
 blockers:
   - none
