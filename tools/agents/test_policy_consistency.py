@@ -110,10 +110,17 @@ class PolicyConsistencyTests(unittest.TestCase):
 
     @staticmethod
     def _publication_fallback_clause(bootstrap: str) -> str:
+        section = re.search(
+            r"(?ms)^## GitHub credential compatibility\s*$"
+            r"(?P<body>.*?)(?=^## |\Z)",
+            bootstrap,
+        )
+        if section is None:
+            raise AssertionError("GitHub credential compatibility section is missing")
         match = re.search(
             r"(?ms)^If an already-prepared material candidate cannot use the normal "
-            r"authorized publication path, .*?(?=\n\n)",
-            bootstrap,
+            r"authorized publication path, .*?(?=\n\n|\Z)",
+            section.group("body"),
         )
         if match is None:
             raise AssertionError("operative publication fallback clause is missing")
@@ -171,6 +178,22 @@ class PolicyConsistencyTests(unittest.TestCase):
         bootstrap = (REPO_ROOT / "docs/agents/PLATFORM_AGENT_BOOTSTRAP.md").read_text(encoding="utf-8")
         clause = self._publication_fallback_clause(bootstrap)
         self.assertTrue(self._publication_fallback_clause_is_bound(clause))
+        historical_prefix = clause + "\n\nHistorical evidence only.\n\n"
+        relaxed_live = bootstrap.replace(
+            clause,
+            clause.replace(
+                "Preserve its custody and return publication control to the active control plane",
+                "Preserve its custody",
+                1,
+            ),
+            1,
+        )
+        self.assertFalse(
+            self._publication_fallback_clause_is_bound(
+                self._publication_fallback_clause(historical_prefix + relaxed_live)
+            ),
+            "a historical copy before the live section must not qualify a relaxed live clause",
+        )
         for required in (
             "do not silently reconstruct or relabel that selected candidate",
             "Preserve its custody and return publication control to the active control plane",
