@@ -110,29 +110,33 @@ class PolicyConsistencyTests(unittest.TestCase):
         return repository.group(1), ref.group(1)
 
     @staticmethod
-    def _markdown_inline_text(text: str) -> str:
-        # This is intentionally conservative, not a general Markdown renderer.
-        # For the single authority-heading comparison, ambiguous inline syntax is
-        # normalized toward the visible label so equivalent headings fail closed.
-        text = html.unescape(text)
-        text = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
-        text = re.sub(r"\x60+([^\x60\n]*?)\x60+", lambda match: match.group(1).strip(), text)
-        text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
-        text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
-        text = re.sub(r"\[([^\]]+)\]\[[^\]]*\]", r"\1", text)
-        text = re.sub(r"\[([^\]]+)\]", r"\1", text)
-        text = re.sub(r"<(?:https?://|mailto:)[^>]+>", "", text)
-        text = re.sub(r"</?[A-Za-z][^>]*>", "", text)
-        text = re.sub(r"\\([\\\x60*{}\[\]()#+\-.!_>])", r"\1", text)
-        text = text.replace("*", "").replace("_", "")
-        return re.sub(r"\s+", " ", text).strip()
+    def _authority_heading_source_matches(text: str) -> bool:
+        # Fail closed for the single protected heading. We do not need a full
+        # inline Markdown renderer: strip syntax that can split visible words,
+        # decode entities/comments, then require the authority words in order.
+        candidate = html.unescape(text)
+        candidate = re.sub(r"<!--.*?-->", "", candidate, flags=re.DOTALL)
+        candidate = re.sub(r"</?[A-Za-z][^>]*>", "", candidate)
+        candidate = re.sub(r"\\([\\\x60*{}[\]()#+\-.!_>])", r"\1", candidate)
+        candidate = re.sub(r"[\x60*_[\]{}()!<>#]+", " ", candidate)
+        candidate = re.sub(r"\s+", " ", candidate).strip()
+        return re.search(
+            r"(?i)\bGitHub\b.*\bcredential\b.*\bcompatibility\b",
+            candidate,
+        ) is not None
 
     @staticmethod
     def _markdown_other_block_start(line: str) -> bool:
-        if len(line) - len(line.lstrip(" ")) >= 4:
+        if not line:
+            return False
+        leading = re.match(r"^[ \t]*", line)
+        prefix = leading.group(0) if leading is not None else ""
+        if "\t" in prefix:
+            return True
+        if len(prefix) >= 4:
             return True
         if re.match(
-            r"^[ \t]{0,3}(?:"
+            r"^ {0,3}(?:"
             r">(?:[ \t]+|$)|"
             r"(?:[-+*]|\d+[.)])(?:[ \t]+|$)|"
             r"</?[A-Za-z]|<!--"
@@ -141,7 +145,7 @@ class PolicyConsistencyTests(unittest.TestCase):
         ):
             return True
         return re.fullmatch(
-            r"[ \t]{0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})",
+            r" {0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})",
             line,
         ) is not None
 
@@ -161,24 +165,24 @@ class PolicyConsistencyTests(unittest.TestCase):
         for index, line in enumerate(lines):
             stripped = line.rstrip("\r\n")
 
+            if re.match(r"^[ \t]*\t[ \t]*(?:\x60{3,}|~{3,})", stripped):
+                raise AssertionError("ambiguous tab-indented fence line")
+
             if fence is not None:
                 marker, width = fence
                 if re.fullmatch(
-                    rf"[ \t]{{0,3}}{re.escape(marker)}{{{width},}}[ \t]*",
+                    rf" {{0,3}}{re.escape(marker)}{{{width},}}[ \t]*",
                     stripped,
                 ):
                     fence = None
                 paragraph_start = None
                 continue
 
-            if re.match(r"^[ \t]*\t[ \t]*(?:\x60{3,}|~{3,})", stripped):
-                raise AssertionError("ambiguous tab-indented fence opener")
-
             fence_open = re.match(r"^ {0,3}(\x60{3,}|~{3,})(.*)$", stripped)
             if fence_open is not None:
                 marker = fence_open.group(1)
                 remainder = fence_open.group(2)
-                if marker[0] == "`" and "`" in remainder:
+                if marker[0] == "\x60" and "\x60" in remainder:
                     raise AssertionError("invalid backtick fence opener")
                 fence = (marker[0], len(marker))
                 paragraph_start = None
@@ -188,8 +192,11 @@ class PolicyConsistencyTests(unittest.TestCase):
                 paragraph_start = None
                 continue
 
+            if re.match(r"^[ \t]*\t[ \t]*##(?:[ \t]+|$)", stripped):
+                raise AssertionError("ambiguous tab-indented ATX heading")
+
             atx = re.match(
-                r"^[ \t]{0,3}##(?:[ \t]+|$)(?P<title>.*)$",
+                r"^ {0,3}##(?:[ \t]+|$)(?P<title>.*)$",
                 stripped,
             )
             if atx is not None:
@@ -198,13 +205,16 @@ class PolicyConsistencyTests(unittest.TestCase):
                     (
                         offsets[index],
                         offsets[index] + len(line),
-                        cls._markdown_inline_text(title),
+                        title,
                     )
                 )
                 paragraph_start = None
                 continue
 
-            if re.fullmatch(r"[ \t]{0,3}-{3,}[ \t]*", stripped):
+            if re.match(r"^[ \t]*\t[ \t]*-{3,}[ \t]*$", stripped):
+                raise AssertionError("ambiguous tab-indented Setext underline")
+
+            if re.fullmatch(r" {0,3}-{3,}[ \t]*", stripped):
                 if paragraph_start is not None and paragraph_start < index:
                     title = " ".join(
                         part.rstrip("\r\n").strip()
@@ -214,7 +224,7 @@ class PolicyConsistencyTests(unittest.TestCase):
                         (
                             offsets[paragraph_start],
                             offsets[index] + len(line),
-                            cls._markdown_inline_text(title),
+                            title,
                         )
                     )
                 paragraph_start = None
@@ -235,7 +245,7 @@ class PolicyConsistencyTests(unittest.TestCase):
         matches = [
             (start, end)
             for start, end, title in headings
-            if title == "GitHub credential compatibility"
+            if cls._authority_heading_source_matches(title)
         ]
         if len(matches) != 1:
             raise AssertionError(
@@ -467,7 +477,7 @@ class PolicyConsistencyTests(unittest.TestCase):
             "```\n"
             + bootstrap
         )
-        with self.assertRaisesRegex(AssertionError, "ambiguous tab-indented fence opener"):
+        with self.assertRaisesRegex(AssertionError, "ambiguous tab-indented fence line"):
             self._credential_compatibility_section(tab_indented_pseudo_fence)
 
         shortcut_reference_duplicate = (
@@ -488,6 +498,41 @@ class PolicyConsistencyTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
             self._credential_compatibility_section(inline_comment_duplicate)
+
+        tab_indented_pseudo_closer = (
+            "```\n"
+            "\t```\n"
+            + bootstrap
+            + "\n```\n"
+            "## GitHub credential compatibility\n\n"
+            "Relaxed historical text.\n"
+        )
+        with self.assertRaisesRegex(AssertionError, "ambiguous tab-indented fence line"):
+            self._credential_compatibility_section(tab_indented_pseudo_closer)
+
+        balanced_destination_duplicate = (
+            "## GitHub [credential](https://example.invalid/foo(bar)) compatibility\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(balanced_destination_duplicate)
+
+        tab_indented_atx = (
+            "\t## GitHub credential compatibility\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "ambiguous tab-indented ATX heading"):
+            self._credential_compatibility_section(tab_indented_atx)
+
+        tab_indented_setext = (
+            "GitHub credential compatibility\n"
+            "\t---\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "ambiguous tab-indented Setext underline"):
+            self._credential_compatibility_section(tab_indented_setext)
 
         wrapped_setext_next_section = bootstrap.replace(
             section,
