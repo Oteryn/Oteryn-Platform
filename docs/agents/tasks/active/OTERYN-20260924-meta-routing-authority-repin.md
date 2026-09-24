@@ -46,11 +46,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-24T14:10:00Z
-head: UNKNOWN
+updated_at: 2026-09-24T15:06:00Z
+head: 61eba0ecf6eef43edb971a2833033f2f842670cf
 branch: governance/meta-routing-repin-1401
 pr: 1412
-status: validating
+status: completed
+terminal_pr_policy: archive_pending
 context_routes:
   - governance
 owned_paths:
@@ -64,8 +65,7 @@ proven:
   - prior Platform publication-integrity adoption is already protected on main
 derived:
   - current repin requires no Platform product/runtime/auth/payment/database/deployment change
-unknown:
-  - final exact candidate head
+unknown: []
 conflicts: []
 first_failure:
   marker: none
@@ -77,12 +77,12 @@ changed_paths:
   - tools/agents/test_policy_consistency.py
   - docs/agents/tasks/active/OTERYN-20260924-meta-routing-authority-repin.md
 validation:
-  - command: hosted Agent Governance / platform-gate
-    result: NOT_RUN
-    evidence: PR exact-head qualification pending
+  - command: protected PR #1412 integration
+    result: PASS
+    evidence: PR #1412 merged as 2134a2f59d24a7e77fac2730fe97f280506e652f
 blockers:
   - none
-next_action: freeze the successor exact head and consume fresh exact-head CI/review evidence
+next_action: archive this task after terminal PR #1412 merged to protected main
 ```
 
 ## Source branch closeout
