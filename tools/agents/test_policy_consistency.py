@@ -117,6 +117,7 @@ class PolicyConsistencyTests(unittest.TestCase):
         candidate = html.unescape(text)
         candidate = re.sub(r"<!--.*?-->", "", candidate, flags=re.DOTALL)
         candidate = re.sub(r"</?[A-Za-z][^>]*>", "", candidate)
+        candidate = re.sub(r"\[([^\]]+)\]\[[^\]]*\]", r"\1", candidate)
         candidate = re.sub(r"\\([\\\x60*{}[\]()#+\-.!_>])", r"\1", candidate)
         candidate = (
             candidate.replace("\x60", "")
@@ -541,6 +542,26 @@ class PolicyConsistencyTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
             self._credential_compatibility_section(inline_shortcut_label_split_word)
+
+        inline_full_reference_split_word = (
+            "## GitHub cred[ential][target] compatibility\n\n"
+            "[target]: /destination\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(inline_full_reference_split_word)
+
+        inline_collapsed_reference_split_word = (
+            "## GitHub cred[ential][] compatibility\n\n"
+            "[ential]: /destination\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(inline_collapsed_reference_split_word)
 
         tab_indented_pseudo_closer = (
             "```\n"
