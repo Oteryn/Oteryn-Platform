@@ -90,7 +90,7 @@ next_action: archive this task after terminal PR #1412 merged to protected main
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository governance adoption PR
-source_branch_evidence: pending protected integration
+source_branch_evidence: PR #1412 merged to protected main as 2134a2f59d24a7e77fac2730fe97f280506e652f; terminal source branch cleanup is authorized
 ```
 
 ## Notes
