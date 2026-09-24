@@ -118,7 +118,7 @@ class PolicyConsistencyTests(unittest.TestCase):
         candidate = re.sub(r"<!--.*?-->", "", candidate, flags=re.DOTALL)
         candidate = re.sub(r"</?[A-Za-z][^>]*>", "", candidate)
         candidate = re.sub(r"\\([\\\x60*{}[\]()#+\-.!_>])", r"\1", candidate)
-        candidate = re.sub(r"[\x60*_[\]{}()!<>#]+", " ", candidate)
+        candidate = candidate.replace("\x60", "").replace("*", "").replace("_", "")
         candidate = re.sub(r"\s+", " ", candidate).strip()
         return re.search(
             r"(?i)\bGitHub\b.*\bcredential\b.*\bcompatibility\b",
@@ -498,6 +498,24 @@ class PolicyConsistencyTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
             self._credential_compatibility_section(inline_comment_duplicate)
+
+        inline_emphasis_split_word = (
+            "## GitHub cred**ential** compatibility\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(inline_emphasis_split_word)
+
+        inline_underscore_split_word = (
+            "## GitHub cred__ential__ compatibility\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(inline_underscore_split_word)
 
         tab_indented_pseudo_closer = (
             "```\n"
