@@ -28,7 +28,7 @@ Capability must be established from tools and permissions actually available in 
 
 This compatibility path applies only to an already-authorized existing task branch and PR; PR creation remains a coordinator/control-plane action. If `GH_TOKEN` and `GITHUB_TOKEN` are unset but agent-visible `GH` exists, it may be passed transiently as `GH_TOKEN="$GH"` to the exact authorized `gh` command. Do not assume that mapping authenticates `git push`, embed a token in a remote URL, or persist a credential helper. Use another authorized repository-native write path when the existing Git transport cannot consume the identity.
 
-If an already-prepared material candidate cannot use the normal authorized publication path, preserve the candidate and report the publication blocked. Do not reconstruct it through raw Git Data blob/tree/commit/ref operations or per-file API writes as a publication fallback.
+If an already-prepared material candidate cannot use the normal authorized publication path, do not silently reconstruct or relabel that selected candidate. Preserve its custody and return publication control to the active control plane. The control plane may select only an API-native **new candidate** route permitted by the bound META policy, including the bounded connector-compatible Git Data mode only under its exact one-writer/predecessor/one-commit/non-force/post-readback conditions. Ad-hoc raw Git Data reconstruction, sequential per-file API publication, force/ref replacement, reset and rebase remain forbidden.
 
 Credential presence grants no repository, branch, path, merge, production or secret authority. Never force-push, and verify the remote exact head after publication.
 
