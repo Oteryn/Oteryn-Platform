@@ -112,7 +112,8 @@ class PolicyConsistencyTests(unittest.TestCase):
     def _credential_compatibility_section(bootstrap: str) -> str:
         matches = list(
             re.finditer(
-                r"(?m)^## GitHub credential compatibility\s*$",
+                r"(?m)^[ \\t]{0,3}##[ \\t]+GitHub credential compatibility"
+                r"(?:[ \\t]+#+)?[ \\t]*$",
                 bootstrap,
             )
         )
@@ -122,7 +123,7 @@ class PolicyConsistencyTests(unittest.TestCase):
                 f"section, found {len(matches)}"
             )
         start = matches[0].end()
-        next_heading = re.search(r"(?m)^##\s+", bootstrap[start:])
+        next_heading = re.search(r"(?m)^[ \\t]{0,3}##[ \\t]+", bootstrap[start:])
         end = start + next_heading.start() if next_heading else len(bootstrap)
         return bootstrap[start:end].strip()
 
@@ -242,6 +243,15 @@ class PolicyConsistencyTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
             self._credential_compatibility_section(duplicate_section)
+
+        equivalent_duplicate_section = (
+            "## GitHub credential compatibility ##\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(equivalent_duplicate_section)
 
         standalone_permission = bootstrap.replace(
             clause,
