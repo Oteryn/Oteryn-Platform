@@ -15,11 +15,11 @@ optional_reads: []
 
 Governing GitHub Issue: #1410 — canonical lifecycle authority for this task.
 
-Adopt protected META publication policy `21bc49bccef4874b037aabcbde9732b904187c32` and reconcile Platform-local publication wording without widening runtime, production, credential or merge authority.
+Adopt current protected META authority `1bfb5ff98c8aa156e73669a14e083a1d464c29fb`, which contains bounded connector publication from Oteryn/Oteryn#223 and the subsequent integration-routing revision, and reconcile Platform-local publication wording without widening runtime, production, credential or merge authority.
 
 ## Acceptance criteria
 
-- [ ] Binding and independent workflow trust anchor equal exact protected META `21bc49bccef4874b037aabcbde9732b904187c32`.
+- [ ] Binding and independent workflow trust anchor equal exact current protected META `1bfb5ff98c8aa156e73669a14e083a1d464c29fb`.
 - [ ] Bootstrap permits only the bound META API-native **new candidate** route when ordinary publication is unavailable, while ad-hoc raw Git Data/per-file reconstruction remains forbidden.
 - [ ] Policy-consistency tests and authenticated provider validator pass against the exact bound META checkout.
 - [ ] Exact-head required Platform CI and material review are clean.
@@ -38,6 +38,7 @@ modules:
   - agent-governance
 dependencies:
   - Oteryn/Oteryn#223
+  - Oteryn/Oteryn#222
   - Oteryn/Oteryn-Game#838
 blockers:
   - none
@@ -49,8 +50,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-24T13:45:00Z
-head: 766acdbd4a6dd908d5bcbbd020b43fae5095957f
+updated_at: 2026-09-24T15:02:00Z
+head: 6b8e8b1f420e531babc2920a3168710a199a7c78
 branch: governance/bounded-connector-publication-1410
 pr: 1411
 status: validating
@@ -63,14 +64,17 @@ owned_paths:
   - tools/agents/test_policy_consistency.py
   - docs/agents/tasks/active/OTERYN-20260924-bounded-connector-publication.md
 proven:
-  - protected META publication policy revision is 21bc49bccef4874b037aabcbde9732b904187c32
+  - protected META publication policy revision 21bc49bccef4874b037aabcbde9732b904187c32 is an ancestor of current protected META 1bfb5ff98c8aa156e73669a14e083a1d464c29fb
+  - current protected META authority 1bfb5ff98c8aa156e73669a14e083a1d464c29fb includes both bounded connector publication and inherited integration routing
   - Game-first provider adoption merged as Oteryn/Oteryn-Game#838 at 88efe885c1b9ff08dc3a33e061d9a63474d67824
-  - protected Platform main at task start is 6a778ac19cea7fe83fafcb2b298d18b67a18fc71
+  - protected Platform main at task start was 6a778ac19cea7fe83fafcb2b298d18b67a18fc71
+  - protected Platform main advanced to 2134a2f59d24a7e77fac2730fe97f280506e652f with the final META authority repin before integration
 derived:
-  - Platform binding and independent workflow trust anchor must move together
+  - Platform binding and independent workflow trust anchor must remain on the newer final META authority while publication fallback semantics are reconciled
 unknown:
-  - exact final candidate head and qualification result
-conflicts: []
+  - exact reconciled candidate head and fresh qualification result
+conflicts:
+  - resolved by merge-up: protected main changed the same META binding/workflow/test paths; newer authority retained
 first_failure:
   marker: none
   evidence: none
@@ -83,11 +87,11 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260924-bounded-connector-publication.md
 validation:
   - command: exact-head Platform CI
-    result: NOT_RUN
-    evidence: fresh exact-head qualification pending after binding this packet to PR #1411
+    result: REQUALIFY_REQUIRED
+    evidence: protected main advanced after prior green candidate; fresh exact-head qualification required after merge-up
 blockers:
   - none
-next_action: rerun exact-head Platform qualification, review, and protected Merge Queue
+next_action: merge up protected main without downgrading META authority, then rerun exact-head Platform qualification, review, and protected Merge Queue
 ```
 
 ## Source branch closeout

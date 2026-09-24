@@ -22,7 +22,7 @@ from policy_consistency import (
     validate_policy,
 )
 
-PUBLICATION_INTEGRITY_AUTHORITY = "21bc49bccef4874b037aabcbde9732b904187c32"
+PUBLICATION_INTEGRITY_AUTHORITY = "1bfb5ff98c8aa156e73669a14e083a1d464c29fb"
 
 
 class PolicyConsistencyTests(unittest.TestCase):
