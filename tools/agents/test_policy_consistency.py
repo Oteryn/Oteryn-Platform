@@ -110,27 +110,35 @@ class PolicyConsistencyTests(unittest.TestCase):
         return repository.group(1), ref.group(1)
 
     @staticmethod
-    def _authority_heading_source_matches(text: str) -> bool:
-        # Fail closed for the single protected heading. We do not need a full
-        # inline Markdown renderer: strip syntax that can split visible words,
-        # decode entities/comments, then require the authority words in order.
+    def _consume_subsequence(text: str, word: str, start: int) -> int | None:
+        cursor = start
+        lowered = text.casefold()
+        for character in word.casefold():
+            position = lowered.find(character, cursor)
+            if position < 0:
+                return None
+            cursor = position + 1
+        return cursor
+
+    @classmethod
+    def _authority_heading_source_matches(cls, text: str) -> bool:
+        # Deliberately fail closed for this single protected heading. CommonMark
+        # inline syntax can split visible words with emphasis, links, references,
+        # destinations and entities. Strip only truly non-rendered comments/tags,
+        # then require the authority words as ordered character subsequences.
+        # False positives are acceptable here: they stop governance validation
+        # rather than allowing an ambiguous duplicate authority section through.
         candidate = html.unescape(text)
         candidate = re.sub(r"<!--.*?-->", "", candidate, flags=re.DOTALL)
         candidate = re.sub(r"</?[A-Za-z][^>]*>", "", candidate)
-        candidate = re.sub(r"\[([^\]]+)\]\[[^\]]*\]", r"\1", candidate)
-        candidate = re.sub(r"\\([\\\x60*{}[\]()#+\-.!_>])", r"\1", candidate)
-        candidate = (
-            candidate.replace("\x60", "")
-            .replace("*", "")
-            .replace("_", "")
-            .replace("[", "")
-            .replace("]", "")
-        )
-        candidate = re.sub(r"\s+", " ", candidate).strip()
-        return re.search(
-            r"(?i)\bGitHub\b.*\bcredential\b.*\bcompatibility\b",
-            candidate,
-        ) is not None
+
+        cursor = 0
+        for word in ("GitHub", "credential", "compatibility"):
+            next_cursor = cls._consume_subsequence(candidate, word, cursor)
+            if next_cursor is None:
+                return False
+            cursor = next_cursor
+        return True
 
     @staticmethod
     def _markdown_other_block_start(line: str) -> bool:
@@ -562,6 +570,25 @@ class PolicyConsistencyTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
             self._credential_compatibility_section(inline_collapsed_reference_split_word)
+
+        inline_destination_inside_word = (
+            "## GitHub cred[ent](https://example.invalid/foo(bar))ial compatibility\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(inline_destination_inside_word)
+
+        heavily_split_authority_heading = (
+            "## G*i*tH[u](https://example.invalid)b cr[e][target]d__ent__ial compatibilit&#121;\n\n"
+            "[target]: /destination\n\n"
+            + section
+            + "\n\n"
+            + bootstrap
+        )
+        with self.assertRaisesRegex(AssertionError, "exactly one GitHub credential compatibility"):
+            self._credential_compatibility_section(heavily_split_authority_heading)
 
         tab_indented_pseudo_closer = (
             "```\n"
