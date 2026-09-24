@@ -65,7 +65,7 @@ proven:
 derived:
   - current repin requires no Platform product/runtime/auth/payment/database/deployment change
 unknown:
-  - canonical PR number and final exact candidate head
+  - final exact candidate head
 conflicts: []
 first_failure:
   marker: none
