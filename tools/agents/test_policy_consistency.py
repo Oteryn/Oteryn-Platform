@@ -112,15 +112,15 @@ class PolicyConsistencyTests(unittest.TestCase):
     def _credential_compatibility_section(bootstrap: str) -> str:
         atx = list(
             re.finditer(
-                r"(?m)^[ \\t]{0,3}##[ \\t]+GitHub credential compatibility"
-                r"(?:[ \\t]+#+)?[ \\t]*$",
+                r"(?m)^[ \t]{0,3}##[ \t]+GitHub credential compatibility"
+                r"(?:[ \t]+#+)?[ \t]*$",
                 bootstrap,
             )
         )
         setext = list(
             re.finditer(
-                r"(?m)^[ \\t]{0,3}GitHub credential compatibility[ \\t]*\\n"
-                r"[ \\t]{0,3}-{3,}[ \\t]*$",
+                r"(?m)^[ \t]{0,3}GitHub credential compatibility[ \t]*\n"
+                r"[ \t]{0,3}-{3,}[ \t]*$",
                 bootstrap,
             )
         )
@@ -133,9 +133,9 @@ class PolicyConsistencyTests(unittest.TestCase):
 
         start = matches[0].end()
         remainder = bootstrap[start:]
-        next_atx = re.search(r"(?m)^[ \\t]{0,3}##(?:[ \\t]+|$)", remainder)
+        next_atx = re.search(r"(?m)^[ \t]{0,3}##(?:[ \t]+|$)", remainder)
         next_setext = re.search(
-            r"(?m)^[ \\t]{0,3}[^\\s#][^\\n]*\\n[ \\t]{0,3}-{3,}[ \\t]*$",
+            r"(?m)^[ \t]{0,3}[^\s#][^\n]*\n[ \t]{0,3}-{3,}[ \t]*$",
             remainder,
         )
         candidates = [
