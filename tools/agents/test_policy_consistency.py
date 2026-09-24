@@ -21,7 +21,7 @@ from policy_consistency import (
     validate_policy,
 )
 
-PUBLICATION_INTEGRITY_AUTHORITY = "33b212e652c680bd4047be3b414c9a358b8bf26f"
+PUBLICATION_INTEGRITY_AUTHORITY = "1bfb5ff98c8aa156e73669a14e083a1d464c29fb"
 
 
 class PolicyConsistencyTests(unittest.TestCase):
