@@ -112,3 +112,6 @@ jobs:
 
       - name: Run independent-process MariaDB character profile concurrency proof
         run: php artisan test tests/Feature/CharacterProfiles/Concurrency/CharacterProfilePreferenceConcurrencyTest.php
+
+      - name: Run independent-process MariaDB native topology concurrency proof
+        run: php artisan test tests/Feature/GameAuth/NativeTopology/NativeTopologyConcurrencyTest.php
