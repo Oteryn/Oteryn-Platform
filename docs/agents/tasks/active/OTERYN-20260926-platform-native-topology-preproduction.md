@@ -68,8 +68,8 @@ The exact NativeTopology test subtree is separately allocated against the termin
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-26T14:05:00Z
-head: ea3c8e540c3f278689bf6526ea485aa253769216
+updated_at: 2026-09-26T14:20:00Z
+head: 063d7fed4e8b54b428259d7b352b7714a754af30
 branch: codex/platform-native-topology-preproduction
 pr: 1417
 status: implementing
@@ -104,7 +104,7 @@ unknown:
 conflicts: []
 first_failure:
   marker: WORKFLOW_FAILURE
-  evidence: Candidateea3c8e failed Pint unused import and three waiter observations; actualMariaDB11.8.9 metadata cache refresh requires idle above100ms and resets on every read. Repair removes import and polls at150ms; oracle/deadline unchanged.
+  evidence: Candidate063d7fed passed Pint and actual waiter observation, then failed8PHPStan type/assertion errors and a different-World Channel insert with real1213deadlock. Repair uses guarded row/status types and removes only redundant Channel range locking after World ownership; oracle/deadline unchanged.
 rejected_hypotheses:
   - Integer World or channel1 is canonical native identity.
   - APP_ENV or UUID time proves issuer custody, readiness or current writer authority.
@@ -132,12 +132,15 @@ validation:
   - command: frozen candidate repository CI and independent review
     result: NOT_RUN
     evidence: successor candidate is not yet frozen; exact candidate-specific evidence will follow publication.
-  - command: prior diagnostic candidate CI36246821678 and concurrency36246821637
+  - command: prior candidate CI36247204364 and concurrency36247204340
     result: FAIL
-    evidence: ExactPintdiff identifies unused NativeTopologyReceipt import. Child profiles match genuine2backends/mysql/testing/disposableDB; held InnoDB blocker and pending results, but1mspolling leaves transaction/wait cache empty. PHPStan/features notrun.
-  - command: diagnostic candidate independent deep source review and AgentGovernance36246821614
+    evidence: Pintpasses; PHPStan8actual errors confined to ConcurrencyTest, fullFeature notrun. Actualtwo-waiter oracle reached; two same-World cases finish without assertion failure/warningspendingdisplay; distinctWorlds emits1213deadlock on Channelinsert.
+  - command: candidate063d7fed independent deep source review and AgentGovernance36247204341
     result: PASS
-    evidence: Full13files/exactea3c8e reviewed; P2 diagnostic/cleanup repaired without oracle change, no new material finding. CanonicalPR identity governance passes. This does not replace failed runtime gates.
+    evidence: Full13files/exact063d7fed reviewed; metadata cadence supported by exactupstream, no new material finding. CanonicalPR governance passes. SourcePASS does not replace failed runtime gates or qualify successor.
+  - command: owning World serialization and first consistent read inspection
+    result: PASS
+    evidence: PinnedLaravel uses own normal PDO transaction/samewritePDO. ExactMariaDBbf9193 row0sel.cc4727–4728 opens view only for LOCK_NONE; lock0lock.cc6645–6647 checks snapshot only ifview alreadyopen. FirstdatareadWorldFORUPDATE creates no earlier snapshot; Channelconsistentread occurs after World ownership and sees predecessorcommit. Soleordinaryissuer/immutablemodelguards/uniqueFK remain. No isolation config/retryloop needed. Successor realtests still required.
 blockers:
   - none for authoring; root controls proven repository validation routes
 next_action: Publish the complete owned tree through the selected control-plane route, freeze its exact returned head and qualify that candidate.
@@ -155,4 +158,4 @@ source_branch_evidence: pending protected integration and source-ref absence rea
 
 ## Notes
 
-Migration rollback is externally exclusive/quiescent and refuses before DDL once identity is issued. Fixture destruction is explicitly separate. No whole-database restore, privileged raw SQL, production/readiness or Game consumer authority is claimed. Root owns publication, independent review, qualification/MQ and terminal active-packet archival. The repair preserves the two-real-waiter oracle and10secdeadline, captures bounded child/backend facts before refusal and cleans failed fixtures. Existing mandatory Pint --test adds verbose output. The actualCI MariaDB11.8.9 source_revision bf9193a939f515e95dd8def1a5468088c91cede6, storage/innobase/trx/trx0i_s.cc958–970/1069–1082/1129–1133 and handler/i_s.cc183/370–374/822–826, proves its shared cache requires idle above100ms and each read resets last_read. Only metadata polling becomes150ms; no product timer, alternative PASS or deadline increase. Candidate runtime qualification still must demonstrate two actual waits and final product assertions.
+Migration rollback is externally exclusive/quiescent and refuses before DDL once identity is issued. Fixture destruction is explicitly separate. No whole-database restore, privileged raw SQL, production/readiness or Game consumer authority is claimed. Root owns publication, independent review, qualification/MQ and terminal active-packet archival. Repair preserves actual2waiters/10secdeadline, bounded diagnostics and guaranteed cleanup. Mandatory Pint adds verbose output; native concurrency displays warnings. ActualMariaDB11.8.9@bf9193a939f515e95dd8def1a5468088c91cede6 trx0i_s.cc958–970/1069–1082/1129–1133/handleri_s.cc183/373/825 proves metadata idle>100ms; cadence150ms resolves observation. Later actual1213deadlock at Channelinsert motivates removing only redundant absent-Channel range lock. Exact[read-view source](https://github.com/MariaDB/server/blob/bf9193a939f515e95dd8def1a5468088c91cede6/storage/innobase/row/row0sel.cc#L4727) and[snapshot guard](https://github.com/MariaDB/server/blob/bf9193a939f515e95dd8def1a5468088c91cede6/storage/innobase/lock/lock0lock.cc#L6645) prove firstlockingWorldread creates no staleview. World ownership acquired before firstconsistentChannelread serializes sameWorld producers; independentWorlds need no Channelrange lock. Readback/UUIDguards/uniqueFK remain. The precise deadlockcycle is inferred, not an observedLATESTDEADLOCK report; actualsuccessor concurrency must prove repair. No isolationchange, retryloop, producttimer or permissionchange. FullCI/review pending.

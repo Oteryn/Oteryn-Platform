@@ -106,7 +106,8 @@ final class NativeTopologyConcurrencyTest extends TestCase
                         DB::purge();
                         try {
                             $backend = DB::selectOne('SELECT CONNECTION_ID() AS id');
-                            if ($backend === null || (! is_int($backend->id) && ! is_string($backend->id))) {
+                            self::assertInstanceOf(\stdClass::class, $backend);
+                            if (! is_int($backend->id) && ! is_string($backend->id)) {
                                 throw new \LogicException('No child database backend.');
                             }
                             file_put_contents($directory.'/ready-'.$index, (string) $backend->id);
@@ -119,9 +120,10 @@ final class NativeTopologyConcurrencyTest extends TestCase
                             }
                             $connection = DB::connection();
                             $currentBackend = DB::selectOne('SELECT CONNECTION_ID() AS id');
+                            self::assertInstanceOf(\stdClass::class, $currentBackend);
                             $short = static fn (mixed $value): ?string => is_string($value) ? substr($value, 0, 128) : null;
                             file_put_contents($directory.'/profile-'.$index, json_encode([
-                                'backend_id' => $currentBackend?->id,
+                                'backend_id' => $currentBackend->id,
                                 'driver' => $connection->getDriverName(),
                                 'database' => substr($connection->getDatabaseName(), 0, 128),
                                 'host' => $short($connection->getConfig('host')),
@@ -174,7 +176,7 @@ final class NativeTopologyConcurrencyTest extends TestCase
                              WHERE trx.trx_mysql_thread_id IN (?, ?)',
                             $backendIds,
                         );
-                        self::assertNotNull($row);
+                        self::assertInstanceOf(\stdClass::class, $row);
                         $count = $row->waiting;
                         self::assertTrue(is_int($count) || is_string($count));
                         $waiting = (int) $count;
@@ -203,6 +205,7 @@ final class NativeTopologyConcurrencyTest extends TestCase
                 }
                 DB::purge();
                 foreach ($exitStatuses as $status) {
+                    self::assertIsInt($status);
                     self::assertTrue(pcntl_wifexited($status));
                     self::assertSame(0, pcntl_wexitstatus($status));
                 }
@@ -263,7 +266,6 @@ final class NativeTopologyConcurrencyTest extends TestCase
             $snapshot['metadata_error_class'] = get_class($exception);
         }
         $json = json_encode($snapshot, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
-        self::assertIsString($json);
 
         return $json;
     }

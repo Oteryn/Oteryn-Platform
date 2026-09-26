@@ -17,7 +17,8 @@ final class NativeTopologyRegistry
 
         $connection->transaction(function () use ($connection, $localWorldRowId, $channelKey): void {
             // The existing World row serializes even the first absent Channel.
-            // All issuer paths take World -> Channel in this order.
+            // Acquire it before the first consistent read, so a waiter sees
+            // the previous issuer's commit without cross-World Channel gaps.
             $world = $connection->table('game_worlds')->where('id', $localWorldRowId)->lockForUpdate()->first();
             if ($world === null) {
                 throw new LogicException('The explicitly provisioned World does not exist.');
@@ -39,7 +40,7 @@ final class NativeTopologyRegistry
             }
 
             $channel = $connection->table('game_channels')->where('game_world_id', $localWorldRowId)
-                ->where('channel_key', $channelKey)->lockForUpdate()->first();
+                ->where('channel_key', $channelKey)->first();
             if ($channel === null) {
                 $channelId = (string) Str::uuid7();
                 new NativeTopologyReceipt($worldId, $channelId);
