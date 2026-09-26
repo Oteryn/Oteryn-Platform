@@ -68,8 +68,8 @@ The exact NativeTopology test subtree is separately allocated against the termin
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-26T13:53:00Z
-head: 288e4ad43973144ddcd5cd7d85b083e9932e7a78
+updated_at: 2026-09-26T14:05:00Z
+head: ea3c8e540c3f278689bf6526ea485aa253769216
 branch: codex/platform-native-topology-preproduction
 pr: 1417
 status: implementing
@@ -104,7 +104,7 @@ unknown:
 conflicts: []
 first_failure:
   marker: WORKFLOW_FAILURE
-  evidence: Previous288e4ad candidate failed Pint, three actual-waiter tests and omitted canonical task PR identity; bounded diagnostics are being repaired.
+  evidence: Candidateea3c8e failed Pint unused import and three waiter observations; actualMariaDB11.8.9 metadata cache refresh requires idle above100ms and resets on every read. Repair removes import and polls at150ms; oracle/deadline unchanged.
 rejected_hypotheses:
   - Integer World or channel1 is canonical native identity.
   - APP_ENV or UUID time proves issuer custody, readiness or current writer authority.
@@ -132,12 +132,12 @@ validation:
   - command: frozen candidate repository CI and independent review
     result: NOT_RUN
     evidence: successor candidate is not yet frozen; exact candidate-specific evidence will follow publication.
-  - command: prior candidate CI36245519865 and concurrency36245519867
+  - command: prior diagnostic candidate CI36246821678 and concurrency36246821637
     result: FAIL
-    evidence: Pint1styleissue; PHPStan/features notrun; three native races report0waiters, with child facts previously masked.
-  - command: prior candidate independent deep source review and AgentGovernance36245519851
-    result: FAIL
-    evidence: No additional confirmedP0/P1; acceptedP2 diagnostic/cleanup issue; live task omitted existing draftPR1417. Required gates remain blocking.
+    evidence: ExactPintdiff identifies unused NativeTopologyReceipt import. Child profiles match genuine2backends/mysql/testing/disposableDB; held InnoDB blocker and pending results, but1mspolling leaves transaction/wait cache empty. PHPStan/features notrun.
+  - command: diagnostic candidate independent deep source review and AgentGovernance36246821614
+    result: PASS
+    evidence: Full13files/exactea3c8e reviewed; P2 diagnostic/cleanup repaired without oracle change, no new material finding. CanonicalPR identity governance passes. This does not replace failed runtime gates.
 blockers:
   - none for authoring; root controls proven repository validation routes
 next_action: Publish the complete owned tree through the selected control-plane route, freeze its exact returned head and qualify that candidate.
@@ -155,4 +155,4 @@ source_branch_evidence: pending protected integration and source-ref absence rea
 
 ## Notes
 
-Migration rollback is externally exclusive/quiescent and refuses before DDL once identity is issued. Fixture destruction is explicitly separate. No whole-database restore, privileged raw SQL, production/readiness or Game consumer authority is claimed. Root owns publication, independent review, qualification/MQ and terminal active-packet archival. The required repair preserves the two-real-waiter oracle and its deadline, captures bounded child/backend facts before refusal and cleans failed fixtures. Existing mandatory Pint --test adds verbose output; no gate is weakened and the unknown underlying race/style cause is not guessed.
+Migration rollback is externally exclusive/quiescent and refuses before DDL once identity is issued. Fixture destruction is explicitly separate. No whole-database restore, privileged raw SQL, production/readiness or Game consumer authority is claimed. Root owns publication, independent review, qualification/MQ and terminal active-packet archival. The repair preserves the two-real-waiter oracle and10secdeadline, captures bounded child/backend facts before refusal and cleans failed fixtures. Existing mandatory Pint --test adds verbose output. The actualCI MariaDB11.8.9 source_revision bf9193a939f515e95dd8def1a5468088c91cede6, storage/innobase/trx/trx0i_s.cc958–970/1069–1082/1129–1133 and handler/i_s.cc183/370–374/822–826, proves its shared cache requires idle above100ms and each read resets last_read. Only metadata polling becomes150ms; no product timer, alternative PASS or deadline increase. Candidate runtime qualification still must demonstrate two actual waits and final product assertions.

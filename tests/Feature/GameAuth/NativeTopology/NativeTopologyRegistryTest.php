@@ -6,7 +6,6 @@ use App\GameAuth\Worlds\DatabaseWorldRegistry;
 use App\GameAuth\Worlds\GameChannel;
 use App\GameAuth\Worlds\GameWorld;
 use App\GameAuth\Worlds\GameWorldStatus;
-use App\GameAuth\Worlds\NativeTopologyReceipt;
 use App\GameAuth\Worlds\NativeTopologyRegistry;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Artisan;

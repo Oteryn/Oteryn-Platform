@@ -179,7 +179,10 @@ final class NativeTopologyConcurrencyTest extends TestCase
                         self::assertTrue(is_int($count) || is_string($count));
                         $waiting = (int) $count;
                         if ($waiting !== 2) {
-                            usleep(1000);
+                            // MariaDB 11.8's shared I_S cache refresh needs more
+                            // than 100 ms since its last read; every read resets
+                            // that timestamp. Polling at 1 ms pins an empty cache.
+                            usleep(150000);
                         }
                     }
                     // Preserve the actual two-waiter oracle; diagnostic facts
