@@ -2,7 +2,7 @@
 
 ## Status
 
-`ACCEPTED ARCHITECTURE CONTRACT � LIMITED DISPOSABLE ISSUANCE AUTHORIZED (#1416)`
+`ACCEPTED ARCHITECTURE CONTRACT — LIMITED DISPOSABLE ISSUANCE AUTHORIZED (#1416)`
 
 This contract defines the native world/channel identity and topology boundary owned by Oteryn Platform World Registry and consumed by Game Gateway and Oteryn-v2.
 
@@ -171,7 +171,7 @@ Those belong to their owning protocol/runtime contracts.
 
 ## Route and protocol separation
 
-A RouteCandidate answers �how may this consumer reach this Channel under the current policy?�. It does not answer �what Channel is this?�.
+A RouteCandidate answers “how may this consumer reach this Channel under the current policy?”. It does not answer “what Channel is this?”.
 
 Therefore:
 
@@ -274,7 +274,7 @@ The separately owner-authorized [Platform #1416](https://github.com/Oteryn/Otery
 - `game_worlds.id` remains the local integer PK. Nullable unique `game_worlds.world_id` is canonical WorldId.
 - `game_channels` is independent first-class topology storage: local surrogate, restrictive World FK, globally unique canonical ChannelId and explicit `channel_key` unique within the owning World.
 - No default, seed, ordinary model creation or backfill issues a WorldId. An explicitly provisioned local World row is a selector for the private owner, never the exported native identity.
-- Channel keys use the existing bounded lower-case slug shape (1�64 ASCII characters) as an owner-authored replay selector. They are not canonical identity or UUID derivation.
+- Channel keys use the existing bounded lower-case slug shape (1–64 ASCII characters) as an owner-authored replay selector. They are not canonical identity or UUID derivation.
 - The private Registry locks World then Channel, issues UUIDv7 through the pinned upstream primitive, commits and independently reads back the persisted joined pair. The existing World lock also serializes first creation of an absent Channel.
 - Exact replay and owner/process restart retain the same pair. Different logical Channels require distinct fresh IDs. Metadata or endpoint changes retain existing IDs.
 - Ordinary model instance writes cannot mint, replace, clear or reassign canonical identity. Deletion of issued records is refused, including a stale World object whose current DB row has since received identity. Privileged raw SQL is outside that ordinary ownership boundary.
