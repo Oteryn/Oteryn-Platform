@@ -155,7 +155,7 @@ jobs:
         run: composer audit --no-interaction
 
       - name: Check formatting
-        run: vendor/bin/pint --test
+        run: vendor/bin/pint --test -v
 
       - name: Run static analysis
         run: composer analyse

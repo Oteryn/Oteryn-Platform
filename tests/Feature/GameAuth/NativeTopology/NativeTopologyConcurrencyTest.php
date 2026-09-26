@@ -94,113 +94,175 @@ final class NativeTopologyConcurrencyTest extends TestCase
         $directory = sys_get_temp_dir().'/oteryn-native-topology-race-'.bin2hex(random_bytes(8));
         self::assertTrue(mkdir($directory, 0700));
         $children = [];
-        foreach ($bindings as $index => $binding) {
-            $pid = pcntl_fork();
-            if ($pid === -1) {
-                self::fail('Unable to fork native topology test process.');
-            }
-            if ($pid === 0) {
-                DB::disconnect();
-                DB::purge();
-                try {
-                    $backend = DB::selectOne('SELECT CONNECTION_ID() AS id');
-                    if ($backend === null || (! is_int($backend->id) && ! is_string($backend->id))) {
-                        throw new \LogicException('No child database backend.');
-                    }
-                    file_put_contents($directory.'/ready-'.$index, (string) $backend->id);
-                    $deadline = microtime(true) + 10;
-                    while (! file_exists($directory.'/start') && microtime(true) < $deadline) {
-                        usleep(1000);
-                    }
-                    if (! file_exists($directory.'/start')) {
-                        throw new \LogicException('Native topology test start barrier expired.');
-                    }
-                    $result = json_encode(
-                        (new NativeTopologyRegistry)->issueForPreproduction($binding['world_row_id'], $binding['channel_key'])->toArray(),
-                        JSON_THROW_ON_ERROR,
-                    );
-                } catch (Throwable $exception) {
-                    $result = 'error:'.$exception->getMessage();
-                }
-                file_put_contents($directory.'/result-'.$index, $result);
-                exit(0);
-            }
-            $children[] = $pid;
-        }
-
         try {
-            $deadline = microtime(true) + 10;
-            while ((! file_exists($directory.'/ready-0') || ! file_exists($directory.'/ready-1')) && microtime(true) < $deadline) {
-                usleep(1000);
-            }
-            self::assertFileExists($directory.'/ready-0');
-            self::assertFileExists($directory.'/ready-1');
-            $backendIds = [
-                (int) file_get_contents($directory.'/ready-0'),
-                (int) file_get_contents($directory.'/ready-1'),
-            ];
-            self::assertGreaterThan(0, $backendIds[0]);
-            self::assertGreaterThan(0, $backendIds[1]);
-            self::assertNotSame($backendIds[0], $backendIds[1]);
-
-            // Open the blocker only after both forked children have discarded
-            // inherited PDOs, so closing them cannot release this transaction.
-            DB::purge();
-            DB::beginTransaction();
             try {
-                GameWorld::query()->whereIn('id', array_column($bindings, 'world_row_id'))
-                    ->orderBy('id')->lockForUpdate()->get();
-                touch($directory.'/start');
-                $waiting = 0;
-                $deadline = microtime(true) + 10;
-                while ($waiting !== 2 && microtime(true) < $deadline) {
-                    $row = DB::selectOne(
-                        'SELECT COUNT(DISTINCT trx.trx_mysql_thread_id) AS waiting
-                         FROM information_schema.INNODB_LOCK_WAITS AS waits
-                         JOIN information_schema.INNODB_TRX AS trx ON trx.trx_id = waits.requesting_trx_id
-                         WHERE trx.trx_mysql_thread_id IN (?, ?)',
-                        $backendIds,
-                    );
-                    self::assertNotNull($row);
-                    $count = $row->waiting;
-                    self::assertTrue(is_int($count) || is_string($count));
-                    $waiting = (int) $count;
-                    if ($waiting !== 2) {
-                        usleep(1000);
+                foreach ($bindings as $index => $binding) {
+                    $pid = pcntl_fork();
+                    if ($pid === -1) {
+                        self::fail('Unable to fork native topology test process.');
                     }
+                    if ($pid === 0) {
+                        DB::disconnect();
+                        DB::purge();
+                        try {
+                            $backend = DB::selectOne('SELECT CONNECTION_ID() AS id');
+                            if ($backend === null || (! is_int($backend->id) && ! is_string($backend->id))) {
+                                throw new \LogicException('No child database backend.');
+                            }
+                            file_put_contents($directory.'/ready-'.$index, (string) $backend->id);
+                            $deadline = microtime(true) + 10;
+                            while (! file_exists($directory.'/start') && microtime(true) < $deadline) {
+                                usleep(1000);
+                            }
+                            if (! file_exists($directory.'/start')) {
+                                throw new \LogicException('Native topology test start barrier expired.');
+                            }
+                            $connection = DB::connection();
+                            $currentBackend = DB::selectOne('SELECT CONNECTION_ID() AS id');
+                            $short = static fn (mixed $value): ?string => is_string($value) ? substr($value, 0, 128) : null;
+                            file_put_contents($directory.'/profile-'.$index, json_encode([
+                                'backend_id' => $currentBackend?->id,
+                                'driver' => $connection->getDriverName(),
+                                'database' => substr($connection->getDatabaseName(), 0, 128),
+                                'host' => $short($connection->getConfig('host')),
+                                'socket' => $short($connection->getConfig('unix_socket')),
+                                'environment' => $short(app('env')),
+                                'transaction_level' => $connection->transactionLevel(),
+                            ], JSON_THROW_ON_ERROR));
+                            $result = json_encode(
+                                (new NativeTopologyRegistry)->issueForPreproduction($binding['world_row_id'], $binding['channel_key'])->toArray(),
+                                JSON_THROW_ON_ERROR,
+                            );
+                        } catch (Throwable $exception) {
+                            $result = 'error:'.get_class($exception).':'.substr($exception->getMessage(), 0, 512);
+                        }
+                        file_put_contents($directory.'/result-'.$index, $result);
+                        exit(0);
+                    }
+                    $children[] = $pid;
                 }
-                // Both named requests must really wait, including queued
-                // dependency chains. No direct-blocker-only premise is used.
-                self::assertSame(2, $waiting);
-                self::assertFileDoesNotExist($directory.'/result-0');
-                self::assertFileDoesNotExist($directory.'/result-1');
+
+                $deadline = microtime(true) + 10;
+                while ((! file_exists($directory.'/ready-0') || ! file_exists($directory.'/ready-1')) && microtime(true) < $deadline) {
+                    usleep(1000);
+                }
+                self::assertFileExists($directory.'/ready-0');
+                self::assertFileExists($directory.'/ready-1');
+                $backendIds = [
+                    (int) file_get_contents($directory.'/ready-0'),
+                    (int) file_get_contents($directory.'/ready-1'),
+                ];
+                self::assertGreaterThan(0, $backendIds[0]);
+                self::assertGreaterThan(0, $backendIds[1]);
+                self::assertNotSame($backendIds[0], $backendIds[1]);
+
+                // Open the blocker only after both forked children have discarded
+                // inherited PDOs, so closing them cannot release this transaction.
+                DB::purge();
+                DB::beginTransaction();
+                try {
+                    GameWorld::query()->whereIn('id', array_column($bindings, 'world_row_id'))
+                        ->orderBy('id')->lockForUpdate()->get();
+                    touch($directory.'/start');
+                    $waiting = 0;
+                    $deadline = microtime(true) + 10;
+                    while ($waiting !== 2 && microtime(true) < $deadline) {
+                        $row = DB::selectOne(
+                            'SELECT COUNT(DISTINCT trx.trx_mysql_thread_id) AS waiting
+                             FROM information_schema.INNODB_LOCK_WAITS AS waits
+                             JOIN information_schema.INNODB_TRX AS trx ON trx.trx_id = waits.requesting_trx_id
+                             WHERE trx.trx_mysql_thread_id IN (?, ?)',
+                            $backendIds,
+                        );
+                        self::assertNotNull($row);
+                        $count = $row->waiting;
+                        self::assertTrue(is_int($count) || is_string($count));
+                        $waiting = (int) $count;
+                        if ($waiting !== 2) {
+                            usleep(1000);
+                        }
+                    }
+                    // Preserve the actual two-waiter oracle; diagnostic facts
+                    // cannot turn an alternative state into a passing result.
+                    self::assertSame(2, $waiting, $waiting === 2 ? '' : $this->waiterDiagnostic($backendIds, $directory));
+                    self::assertFileDoesNotExist($directory.'/result-0');
+                    self::assertFileDoesNotExist($directory.'/result-1');
+                } finally {
+                    DB::rollBack();
+                }
             } finally {
-                DB::rollBack();
+                touch($directory.'/start');
+                $exitStatuses = [];
+                foreach ($children as $pid) {
+                    $status = 0;
+                    pcntl_waitpid($pid, $status);
+                    $exitStatuses[] = $status;
+                }
+                DB::purge();
+                foreach ($exitStatuses as $status) {
+                    self::assertTrue(pcntl_wifexited($status));
+                    self::assertSame(0, pcntl_wexitstatus($status));
+                }
             }
+
+            $results = [
+                (string) file_get_contents($directory.'/result-0'),
+                (string) file_get_contents($directory.'/result-1'),
+            ];
+            foreach ($results as $result) {
+                self::assertFalse(str_starts_with($result, 'error:'), $result);
+            }
+
+            return $results;
         } finally {
-            touch($directory.'/start');
-            foreach ($children as $pid) {
-                $status = 0;
-                pcntl_waitpid($pid, $status);
-                self::assertTrue(pcntl_wifexited($status));
-                self::assertSame(0, pcntl_wexitstatus($status));
+            // A failed waiter assertion must also dispose its owned fixture.
+            foreach (glob($directory.'/*') ?: [] as $path) {
+                unlink($path);
             }
-            DB::purge();
+            rmdir($directory);
         }
+    }
 
-        $results = [
-            (string) file_get_contents($directory.'/result-0'),
-            (string) file_get_contents($directory.'/result-1'),
-        ];
-        foreach (glob($directory.'/*') ?: [] as $path) {
-            unlink($path);
+    /** @param list<int> $backendIds */
+    private function waiterDiagnostic(array $backendIds, string $directory): string
+    {
+        $children = [];
+        foreach ([0, 1] as $index) {
+            foreach (['profile', 'result'] as $kind) {
+                $path = $directory.'/'.$kind.'-'.$index;
+                $contents = is_file($path) ? file_get_contents($path, false, null, 0, 1024) : false;
+                $children[$kind.'-'.$index] = $contents === false ? null : $contents;
+            }
         }
-        rmdir($directory);
-        foreach ($results as $result) {
-            self::assertFalse(str_starts_with($result, 'error:'), $result);
+        $snapshot = ['expected_backend_ids' => $backendIds, 'children' => $children];
+        try {
+            $snapshot['blocker'] = DB::selectOne('SELECT CONNECTION_ID() AS id, DATABASE() AS database_name');
+            $snapshot['world_engine'] = DB::selectOne(
+                "SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'game_worlds' LIMIT 1",
+            );
+            $snapshot['processes'] = DB::select(
+                'SELECT ID, COMMAND, STATE FROM information_schema.PROCESSLIST WHERE ID IN (?, ?) LIMIT 2',
+                $backendIds,
+            );
+            $snapshot['transactions'] = DB::select(
+                'SELECT trx_mysql_thread_id, trx_state, trx_requested_lock_id
+                 FROM information_schema.INNODB_TRX WHERE trx_mysql_thread_id IN (?, ?) LIMIT 2',
+                $backendIds,
+            );
+            $snapshot['waits'] = DB::select(
+                'SELECT waits.requesting_trx_id, waits.blocking_trx_id, trx.trx_mysql_thread_id
+                 FROM information_schema.INNODB_LOCK_WAITS AS waits
+                 JOIN information_schema.INNODB_TRX AS trx ON trx.trx_id = waits.requesting_trx_id
+                 WHERE trx.trx_mysql_thread_id IN (?, ?) LIMIT 4',
+                $backendIds,
+            );
+        } catch (Throwable $exception) {
+            $snapshot['metadata_error_class'] = get_class($exception);
         }
+        $json = json_encode($snapshot, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
+        self::assertIsString($json);
 
-        return $results;
+        return $json;
     }
 
     /** @return array{version:int,purpose:string,issuer:string,world_id:string,channel_id:string} */

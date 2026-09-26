@@ -20,7 +20,7 @@ Governing GitHub Issue: [#1416](https://github.com/Oteryn/Oteryn-Platform/issues
 
 Implement a genuine Platform Registry-owned canonical WorldId + distinct ChannelId issuer/readback for one explicitly provisioned disposable preproduction room. Preserve old integer compatibility and leave production, deployment, credentials, backfill and route/readiness activation outside this task.
 
-The owner-authorized lease is [#1416 comment5846491253](https://github.com/Oteryn/Oteryn-Platform/issues/1416#issuecomment-5846491253). This record is the prepublication AUTHORING snapshot; live GitHub controls subsequent candidate, qualification and closeout.
+The owner-authorized lease is [#1416 comment5846491253](https://github.com/Oteryn/Oteryn-Platform/issues/1416#issuecomment-5846491253), expanded by [required diagnostic repair5846770645](https://github.com/Oteryn/Oteryn-Platform/issues/1416#issuecomment-5846770645). Canonical draft PR is [#1417](https://github.com/Oteryn/Oteryn-Platform/pull/1417). This is the repaired AUTHORING snapshot; live GitHub controls the successor freeze, qualification and closeout.
 
 ## Acceptance criteria
 
@@ -47,6 +47,7 @@ owned_paths:
   - tests/Feature/GameAuth/NativeTopology/NativeTopologyConcurrencyTest.php
   - tests/Feature/GameAuth/NativeTopology/NativeTopologyMigrationRollbackTest.php
   - .github/workflows/game-auth-ticket-concurrency.yml
+  - .github/workflows/ci.yml
   - docs/contracts/OTERYN_V2_WORLD_TOPOLOGY_CONTRACT.md
   - docs/agents/tasks/active/OTERYN-20260926-platform-native-topology-preproduction.md
 modules:
@@ -67,10 +68,10 @@ The exact NativeTopology test subtree is separately allocated against the termin
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-26T13:20:40Z
-head: c54db8786cdef421ae3c378cbe50e564fbf597b7
+updated_at: 2026-09-26T13:53:00Z
+head: 288e4ad43973144ddcd5cd7d85b083e9932e7a78
 branch: codex/platform-native-topology-preproduction
-pr: none
+pr: 1417
 status: implementing
 context_routes:
   - architecture
@@ -87,6 +88,7 @@ owned_paths:
   - tests/Feature/GameAuth/NativeTopology/NativeTopologyConcurrencyTest.php
   - tests/Feature/GameAuth/NativeTopology/NativeTopologyMigrationRollbackTest.php
   - .github/workflows/game-auth-ticket-concurrency.yml
+  - .github/workflows/ci.yml
   - docs/contracts/OTERYN_V2_WORLD_TOPOLOGY_CONTRACT.md
   - docs/agents/tasks/active/OTERYN-20260926-platform-native-topology-preproduction.md
 proven:
@@ -97,12 +99,12 @@ proven:
 derived:
   - World row locking and unique scoped keys provide the bounded issuance serialization boundary.
 unknown:
-  - Frozen candidate compiler, format, static analysis, feature, MariaDB and aggregate CI results are pending publication.
+  - Successor compiler, format, static analysis, feature, MariaDB and aggregate CI results are pending; prior candidate failed qualification.
   - Required independent review and protected integration are pending.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: no candidate execution yet
+  marker: WORKFLOW_FAILURE
+  evidence: Previous288e4ad candidate failed Pint, three actual-waiter tests and omitted canonical task PR identity; bounded diagnostics are being repaired.
 rejected_hypotheses:
   - Integer World or channel1 is canonical native identity.
   - APP_ENV or UUID time proves issuer custody, readiness or current writer authority.
@@ -117,6 +119,7 @@ changed_paths:
   - tests/Feature/GameAuth/NativeTopology/NativeTopologyConcurrencyTest.php
   - tests/Feature/GameAuth/NativeTopology/NativeTopologyMigrationRollbackTest.php
   - .github/workflows/game-auth-ticket-concurrency.yml
+  - .github/workflows/ci.yml
   - docs/contracts/OTERYN_V2_WORLD_TOPOLOGY_CONTRACT.md
   - docs/agents/tasks/active/OTERYN-20260926-platform-native-topology-preproduction.md
 validation:
@@ -128,7 +131,13 @@ validation:
     evidence: PHP executable is unavailable in the current Windows worker; no local execution PASS claimed.
   - command: frozen candidate repository CI and independent review
     result: NOT_RUN
-    evidence: this AUTHORING snapshot precedes API publication and exact candidate freeze.
+    evidence: successor candidate is not yet frozen; exact candidate-specific evidence will follow publication.
+  - command: prior candidate CI36245519865 and concurrency36245519867
+    result: FAIL
+    evidence: Pint1styleissue; PHPStan/features notrun; three native races report0waiters, with child facts previously masked.
+  - command: prior candidate independent deep source review and AgentGovernance36245519851
+    result: FAIL
+    evidence: No additional confirmedP0/P1; acceptedP2 diagnostic/cleanup issue; live task omitted existing draftPR1417. Required gates remain blocking.
 blockers:
   - none for authoring; root controls proven repository validation routes
 next_action: Publish the complete owned tree through the selected control-plane route, freeze its exact returned head and qualify that candidate.
@@ -146,4 +155,4 @@ source_branch_evidence: pending protected integration and source-ref absence rea
 
 ## Notes
 
-Migration rollback is externally exclusive/quiescent and refuses before DDL once identity is issued. Fixture destruction is explicitly separate. No whole-database restore, privileged raw SQL, production/readiness or Game consumer authority is claimed. Root owns publication, independent review, qualification/MQ and terminal active-packet archival.
+Migration rollback is externally exclusive/quiescent and refuses before DDL once identity is issued. Fixture destruction is explicitly separate. No whole-database restore, privileged raw SQL, production/readiness or Game consumer authority is claimed. Root owns publication, independent review, qualification/MQ and terminal active-packet archival. The required repair preserves the two-real-waiter oracle and its deadline, captures bounded child/backend facts before refusal and cleans failed fixtures. Existing mandatory Pint --test adds verbose output; no gate is weakened and the unknown underlying race/style cause is not guessed.
