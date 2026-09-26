@@ -2,7 +2,7 @@
 
 ## Status
 
-`ACCEPTED ARCHITECTURE CONTRACT — IMPLEMENTATION NOT YET AUTHORIZED`
+`ACCEPTED ARCHITECTURE CONTRACT — LIMITED DISPOSABLE ISSUANCE AUTHORIZED (#1416)`
 
 This contract defines the native world/channel identity and topology boundary owned by Oteryn Platform World Registry and consumed by Game Gateway and Oteryn-v2.
 
@@ -265,6 +265,67 @@ A later implementation must use an explicit additive migration sequence, expecte
 
 Backfill algorithm, database DDL and rollout sequencing require their own migration review and tests.
 
+## Bounded disposable preproduction issuance (#1416)
+
+The separately owner-authorized [Platform #1416](https://github.com/Oteryn/Oteryn-Platform/issues/1416) implements only a private Registry-owned issuance/readback slice for disposable preproduction qualification. Required review and exact-candidate qualification are recorded by the live task/PR; this section makes no deployment or readiness claim.
+
+### Storage and identity lifetime
+
+- `game_worlds.id` remains the local integer PK. Nullable unique `game_worlds.world_id` is canonical WorldId.
+- `game_channels` is independent first-class topology storage: local surrogate, restrictive World FK, globally unique canonical ChannelId and explicit `channel_key` unique within the owning World.
+- No default, seed, ordinary model creation or backfill issues a WorldId. An explicitly provisioned local World row is a selector for the private owner, never the exported native identity.
+- Channel keys use the existing bounded lower-case slug shape (1–64 ASCII characters) as an owner-authored replay selector. They are not canonical identity or UUID derivation.
+- The private Registry acquires the World owner row lock before the scoped Channel lookup, issues UUIDv7 through the pinned upstream primitive, commits and independently reads back the persisted joined pair. That World lock serializes every issuer for the same World, including first creation of an absent Channel. A second absent-Channel range lock is unnecessary and can deadlock independent Worlds.
+- Outer transactions are refused and the first data read in the issuer transaction is World `FOR UPDATE`. The first consistent Channel read therefore follows acquisition of World ownership and observes the preceding same-World issuer's commit. Pinned Laravel13.30.1 uses a normal PDO transaction and the same write connection; exact MariaDB11.8.9 opens the consistent read view only for a nonlocking read. This guarantee depends on retaining that order and sole ordinary Registry issuance. Existing identity model guards and unique/FK constraints remain. No isolation setting or retry loop is introduced.
+- Exact replay and owner/process restart retain the same pair. Different logical Channels require distinct fresh IDs. Metadata or endpoint changes retain existing IDs.
+- Ordinary model instance writes cannot mint, replace, clear or reassign canonical identity. Deletion of issued records is refused, including a stale World object whose current DB row has since received identity. Privileged raw SQL is outside that ordinary ownership boundary.
+
+### Private operator command and receipt
+
+First explicitly provision a disposable World through the existing `game-auth:world:ensure` owner with login disabled. Then invoke:
+
+```text
+php artisan game-auth:native-topology:issue --world-row-id=<local-row> --channel-key=<authored-key>
+```
+
+Neither the command nor its service accepts caller WorldId/ChannelId, routes, requested readiness or current writer claims. It does not change World status, login eligibility, protocol candidates, integer Gateway payloads or current `channel_id = 1` compatibility state.
+
+Successful JSON is a committed identity-only receipt with exactly:
+
+```text
+version = 1
+purpose = disposable-preproduction-native-topology
+issuer = oteryn-platform-world-registry
+world_id = canonical UUIDv7 WorldId
+channel_id = canonical UUIDv7 ChannelId belonging to world_id
+```
+
+The pair retains distinct semantic domains. The DTO alone is not authenticated custody evidence. A qualifying runner must bind the actual trusted Registry process, exact producer revision, isolated database custody and committed readback. Copied JSON, APP_ENV, database names, operator flags and UUID timestamps cannot establish custody or freshness.
+
+No topology revision is derived from `gameplay_policy_revision`, UUID time, native-evidence source ordinal or GameNode generation. This immutable identity receipt proves no route eligibility, health, readiness, account entitlement, Character ownership, placement, runtime fence, admission or current actor/controller authority. Game consumption and current assignment remain separately authorized and qualified.
+
+### Closed disposable execution profile
+
+Service and command fail closed outside APP_ENV `testing` or `preproduction`, and refuse an existing outer transaction so no uncommitted receipt can escape. Supported database profiles are:
+
+- testing SQLite `:memory:` for ordinary feature qualification;
+- testing MariaDB `oteryn_concurrency` on loopback TCP for the existing independent-process CI route;
+- retained SQLite regular file `<real sys_get_temp_dir()>/oteryn-native-topology-<unique lower-case hex>/oteryn-native-topology.sqlite`, with exact canonical containment and no directory/file symlink.
+
+The file profile is checked before opening the issuer connection or performing mutation. These checks prevent accidental execution against other configured databases; actual custody is established by the external qualifying runner. They do not turn a fixture name into product identity.
+
+### Supported rollback and retention
+
+Issued identities remain retained even when login is disabled or the World is inactive. The additive migration refuses down before any DDL when any nonnull WorldId or Channel record exists; malformed retained state also blocks erasure. With no issued native state, down removes only the additions and preserves existing integer World rows.
+
+Schema rollback is supported only under externally exclusive, quiescent disposable schema custody. Check-then-DDL is not claimed safe against concurrent privileged migration/issuer operations. Ordinary model guards are not protection from privileged raw SQL. An entire database snapshot cannot prove its own issuance history survived restoration; externally anchored restore, production rollout and backfill are outside #1416.
+
+Tests dispose their isolated fixture separately before framework migration teardown. That explicit fixture destruction is not a product identity-deletion API, permission to weaken down, or proof of snapshot restore safety.
+
+### Compatibility and next consumer
+
+The current World Registry, Ensure command, GameWorldRoute, account filtering and integer protocol-candidate namespace retain their existing contracts. No native routing is activated. A separately allocated Oteryn/Oteryn-Game qualification must pin the integrated Platform producer and invoke this actual disposable command before consuming the canonical pair. CharacterBootstrapIntent caller UUIDs are not substituted for Registry issuance.
+
 ## Relationship to gameplay admission
 
 Platform topology authorization proves that a request may be routed toward a particular WorldId/ChannelId under current Platform policy.
@@ -283,10 +344,10 @@ No write to `blakinio/Oteryn-v2` is authorized by this Platform contract alone.
 
 ## Non-authorization
 
-This contract authorizes no:
+This architecture contract alone grants no mutation authority. The separately authorized #1416 slice above is bounded; the following operations require their own authority beyond that slice:
 
-- Laravel migration or model change;
-- first-class Channel runtime implementation;
+- additional Laravel migrations, backfill or model/lifecycle expansion;
+- production Channel routing/allocation runtime implementation;
 - Gateway API/runtime change;
 - route activation;
 - GameNode allocator/fencing implementation;
