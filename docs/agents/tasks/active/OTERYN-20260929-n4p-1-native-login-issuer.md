@@ -54,7 +54,7 @@ Overlap: `OTERYN-20260912-platform-native-evidence-hardening` (#1388, PR #1389 m
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-09-29T23:30:00Z
-head: UNKNOWN
+head: 4d6edf6
 branch: claude/n4p-1-native-login-issuer
 pr: none
 status: validating
@@ -91,9 +91,18 @@ changed_paths:
   - tests/Feature/GameAuth/NativeAdmission/NativeAdmissionGrantIssuerTest.php
   - docs/agents/tasks/active/OTERYN-20260929-n4p-1-native-login-issuer.md
 validation:
-  - command: php artisan test tests/Feature/GameAuth
-    result: NOT_RUN
-    evidence: pending
+  - command: vendor/bin/phpunit (full Unit and Feature suites)
+    result: PASS
+    evidence: 686 tests, 24 skipped, one pre-existing unrelated PHPUnit notice (PublicSeoConditionalRequestTest); 10 new NativeAdmission tests
+  - command: vendor/bin/phpstan analyse
+    result: PASS
+    evidence: full repository, no errors
+  - command: vendor/bin/pint --test
+    result: PASS
+    evidence: full repository
+  - command: python tools/agents/checkpoint.py, documentation_ia.py, source_branch_closeout.py, git diff --check
+    result: PASS
+    evidence: local; PHP 8.4.19 locally while composer requires 8.5, exact-head CI is authoritative
   - command: product runtime E2E
     result: NOT_APPLICABLE
     evidence: no route or actor path in this slice; the issuer is reachable only from N4P-1b
