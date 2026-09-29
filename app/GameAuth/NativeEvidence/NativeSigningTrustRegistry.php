@@ -3,6 +3,7 @@
 namespace App\GameAuth\NativeEvidence;
 
 use Closure;
+use Illuminate\Database\Query\JoinClause;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use LogicException;
@@ -10,6 +11,9 @@ use stdClass;
 
 final class NativeSigningTrustRegistry
 {
+    /** Current and retiring key (OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT §9.2, §9.3). */
+    private const MAX_FRESH_TRUSTED_KEYS = 2;
+
     public function __construct(private readonly NativeEvidenceHighWaterWitness $witness) {}
 
     public function publishTrustedKey(
@@ -78,8 +82,15 @@ final class NativeSigningTrustRegistry
                     if (($latest->public_key ?? null) === $encoded) {
                         return $latest;
                     }
+                    if ($this->isFreshAdmissionScope($issuer, $profile)) {
+                        throw new LogicException('A fresh admission signing key id is bound to one public key forever.');
+                    }
                     $keyRevision = $this->nextPositive($currentKeyRevision, 'native signing key revision');
                 } else {
+                    if ($this->isFreshAdmissionScope($issuer, $profile)
+                        && $this->trustedKeyCount($profileId) >= self::MAX_FRESH_TRUSTED_KEYS) {
+                        throw new LogicException('At most two fresh admission signing keys may be trusted at once.');
+                    }
                     $keyRevision = 1;
                 }
 
@@ -234,6 +245,57 @@ final class NativeSigningTrustRegistry
                 ]);
             }, 3);
         });
+    }
+
+    /**
+     * Encoded public key of a key id that is currently trusted in a non-revoked profile version,
+     * or null. Read-only; used by the native admission issuer self-check.
+     */
+    public function trustedPublicKey(string $issuer, string $profile, string $keyPurpose, string $keyId): ?string
+    {
+        $this->assertSupportedScope($issuer, $profile, $keyPurpose);
+        NativeEvidenceContract::assertKeyId($keyId);
+
+        $trustProfile = DB::table('native_game_signing_trust_profiles')
+            ->where('issuer', $issuer)
+            ->where('profile', $profile)
+            ->where('key_purpose', $keyPurpose)
+            ->orderByDesc('profile_version')
+            ->first();
+        if (! $trustProfile instanceof stdClass || ($trustProfile->revoked_at ?? null) !== null) {
+            return null;
+        }
+        $profileId = $this->positiveDatabaseInt($trustProfile->id ?? null, 'native signing trust profile id');
+        $latest = $this->latestKeyVersion($profileId, $keyId, false);
+        if (! $latest instanceof stdClass || ! (bool) $latest->trusted || ! is_string($latest->public_key ?? null)) {
+            return null;
+        }
+        NativeEvidenceContract::assertEncodedPublicKey($latest->public_key);
+
+        return $latest->public_key;
+    }
+
+    private function isFreshAdmissionScope(string $issuer, string $profile): bool
+    {
+        return $issuer === NativeEvidenceContract::FRESH_ISSUER && $profile === NativeEvidenceContract::FRESH_PROFILE;
+    }
+
+    /** Key ids of one profile version whose latest revision is trusted. Caller holds the profile lock. */
+    private function trustedKeyCount(int $profileId): int
+    {
+        $latestRevisions = DB::table('native_game_signing_trust_key_versions')
+            ->select('key_id', DB::raw('MAX(key_revision) as key_revision'))
+            ->where('profile_id', $profileId)
+            ->groupBy('key_id');
+
+        return DB::table('native_game_signing_trust_key_versions as key_versions')
+            ->joinSub($latestRevisions, 'latest', function (JoinClause $join): void {
+                $join->on('latest.key_id', '=', 'key_versions.key_id')
+                    ->on('latest.key_revision', '=', 'key_versions.key_revision');
+            })
+            ->where('key_versions.profile_id', $profileId)
+            ->where('key_versions.trusted', true)
+            ->count();
     }
 
     private function lockedProfile(string $issuer, string $profile, string $keyPurpose): stdClass
