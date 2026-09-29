@@ -50,8 +50,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-29T23:30:00Z
-head: 2649668579528b383de1873808a8de376f3b18b5
+updated_at: 2026-09-30T00:30:00Z
+head: 050df7491852d40e9d19f23dad38fc5d6b1b4268
 branch: claude/n4p-native-gateway-contract
 pr: 1420
 status: validating
@@ -73,12 +73,13 @@ derived:
   - One Laravel issuer transaction can make redemption, selection and signing atomic
   - Deterministic Ed25519 re-signing makes attempt_ref retries byte-identical without storing tokens
 unknown:
-  - U1 to U14 as listed in section 15 of the candidate contract
+  - U1 to U18 as listed in section 15 of the candidate contract
 conflicts: []
 first_failure:
   marker: none
   evidence: none
 rejected_hypotheses:
+  - Node-reported gameplay endpoint and route_revision rejected in review round 1; the World Registry owns the route record
   - Two-phase Gateway selection handle rejected as recommendation because it adds a second bearer credential
 changed_paths:
   - docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md
