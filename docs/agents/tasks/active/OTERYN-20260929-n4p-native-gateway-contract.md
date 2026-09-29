@@ -51,9 +51,9 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-09-29T23:30:00Z
-head: db9ce9703b0f5af0ce6dc93ca279d4e2621c27bf
+head: 2649668579528b383de1873808a8de376f3b18b5
 branch: claude/n4p-native-gateway-contract
-pr: none
+pr: 1420
 status: validating
 terminal_pr_policy: archive_pending
 context_routes:
