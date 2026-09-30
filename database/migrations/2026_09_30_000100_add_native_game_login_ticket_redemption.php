@@ -45,10 +45,14 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::dropIfExists('native_admission_attempts');
+        // Native admission evidence must survive: refuse before any DDL while attempts or native tickets exist.
+        if (DB::table('native_admission_attempts')->exists()
+            || DB::table('game_login_tickets')->whereNull('canary_account_id')->exists()
+            || DB::table('game_login_tickets')->whereNotNull('account_id')->exists()) {
+            throw new LogicException('Native admission attempts and native tickets must be retained; rollback refused before DDL.');
+        }
 
-        // Native tickets live at most 60 seconds and cannot exist without canary_account_id after rollback.
-        DB::table('game_login_tickets')->whereNull('canary_account_id')->delete();
+        Schema::drop('native_admission_attempts');
 
         Schema::table('game_login_tickets', function (Blueprint $table): void {
             $table->dropColumn(['account_id', 'native_security_generation', 'attempt_ref']);

@@ -34,6 +34,7 @@ Delivery item 1 of #1419: the N4-P contract candidate `docs/contracts/OTERYN_V2_
 owned_paths:
   - docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md
   - docs/agents/tasks/active/OTERYN-20260929-n4p-native-gateway-contract.md
+  - docs/agents/tasks/archive/OTERYN-20260929-n4p-native-gateway-contract.md
 modules:
   - GameAuth
   - game-gateway
@@ -48,13 +49,15 @@ cross_repository_tasks:
 
 ## Context checkpoint
 
+Historical implementation checkpoint with the explicit archive-pending terminal transition; PR #1420 is integrated.
+
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-30T00:30:00Z
+updated_at: 2026-09-30T14:00:00Z
 head: 050df7491852d40e9d19f23dad38fc5d6b1b4268
 branch: claude/n4p-native-gateway-contract
 pr: 1420
-status: validating
+status: completed
 terminal_pr_policy: archive_pending
 context_routes:
   - architecture
@@ -63,6 +66,7 @@ context_routes:
 owned_paths:
   - docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md
   - docs/agents/tasks/active/OTERYN-20260929-n4p-native-gateway-contract.md
+  - docs/agents/tasks/archive/OTERYN-20260929-n4p-native-gateway-contract.md
 proven:
   - Gateway /v1/login today redeems Canary tickets and returns integer canary ids (services/game-gateway)
   - Ticket issuance requires a ready IdentityCanaryAccount binding (IssueGameLoginTicket)
@@ -84,6 +88,7 @@ rejected_hypotheses:
 changed_paths:
   - docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md
   - docs/agents/tasks/active/OTERYN-20260929-n4p-native-gateway-contract.md
+  - docs/agents/tasks/archive/OTERYN-20260929-n4p-native-gateway-contract.md
 validation:
   - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20260929-n4p-native-gateway-contract.md --require-checkpoint
     result: PASS
@@ -96,15 +101,15 @@ validation:
     evidence: documentation-only contract candidate; no runtime path changes
 blockers:
   - none
-next_action: await architect and owner acceptance of the frozen candidate; after this PR integrates, archive this packet to docs/agents/tasks/archive in the next #1419 delivery task
+next_action: none remaining for this packet; it moves to docs/agents/tasks/archive in the N4P-2 PR #1423 closeout, the next #1419 delivery task
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: pending
+source_branch_reason: ordinary same-repository PR integration completed
+source_branch_evidence: source ref claude/n4p-native-gateway-contract absent (ls-remote 2026-09-30) after PR 1420 integrated as ed6c0d383ce25f87c1ea6799d403adeceac86310
 ```
 
 ## Notes

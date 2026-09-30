@@ -25,6 +25,7 @@ use App\Identity\Models\Identity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Hash;
+use LogicException;
 use Tests\TestCase;
 
 final class NativeAdmissionAttemptsTest extends TestCase
@@ -335,6 +336,24 @@ final class NativeAdmissionAttemptsTest extends TestCase
             (new NativeAdmissionRequest('ticket', self::ATTEMPT, self::CHARACTER, null, $reordered))->offerDigest,
         );
         self::assertStringNotContainsString('secret-ticket', print_r($this->request('secret-ticket'), true));
+    }
+
+    public function test_request_never_exposes_the_ticket_outside_its_accessor(): void
+    {
+        $request = $this->request('secret-ticket');
+
+        self::assertSame('secret-ticket', $request->ticket());
+        self::assertStringNotContainsString('secret-ticket', json_encode($request, JSON_THROW_ON_ERROR));
+        self::assertStringNotContainsString('secret-ticket', var_export($request, true));
+        self::assertStringNotContainsString('secret-ticket', print_r($request, true));
+        self::assertStringNotContainsString('secret-ticket', print_r(get_object_vars($request), true));
+
+        try {
+            $serialized = serialize($request);
+            self::fail('Serialization exposed the request: '.$serialized);
+        } catch (LogicException $exception) {
+            self::assertStringNotContainsString('secret-ticket', $exception->getMessage());
+        }
     }
 
     public function test_error_mapping_follows_contract_section_eleven(): void

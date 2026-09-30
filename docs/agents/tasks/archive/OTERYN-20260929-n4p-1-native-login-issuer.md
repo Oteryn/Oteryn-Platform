@@ -36,6 +36,7 @@ owned_paths:
   - config/game-auth.php
   - tests/Feature/GameAuth/NativeAdmission/**
   - docs/agents/tasks/active/OTERYN-20260929-n4p-1-native-login-issuer.md
+  - docs/agents/tasks/archive/OTERYN-20260929-n4p-1-native-login-issuer.md
 modules:
   - GameAuth/NativeAdmission
   - GameAuth/NativeEvidence
@@ -51,13 +52,16 @@ Overlap: `OTERYN-20260912-platform-native-evidence-hardening` (#1388, PR #1389 m
 
 ## Context checkpoint
 
+Historical implementation checkpoint with the explicit archive-pending terminal transition; PR #1421 is integrated.
+
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-30T03:00:00Z
+updated_at: 2026-09-30T14:00:00Z
 head: f7af6b3
 branch: claude/n4p-1-native-login-issuer
 pr: 1421
-status: validating
+status: completed
+terminal_pr_policy: archive_pending
 context_routes:
   - auth-identity
   - security
@@ -96,6 +100,7 @@ changed_paths:
   - config/game-auth.php
   - tests/Feature/GameAuth/NativeAdmission/NativeAdmissionGrantIssuerTest.php
   - docs/agents/tasks/active/OTERYN-20260929-n4p-1-native-login-issuer.md
+  - docs/agents/tasks/archive/OTERYN-20260929-n4p-1-native-login-issuer.md
 validation:
   - command: vendor/bin/phpunit, vendor/bin/phpstan analyse, vendor/bin/pint --test at 4d6edf6
     result: PASS
@@ -111,13 +116,13 @@ validation:
     evidence: no route or actor path in this slice; the issuer is reachable only from N4P-1b
 blockers:
   - none
-next_action: control plane freezes the round-2 PR #1421 head, runs exact-head CI and a fresh review; then N4P-1b (native login endpoint) in its own packet
+next_action: none remaining for this packet; it moves to docs/agents/tasks/archive in the N4P-2 PR #1423 closeout, and N4P-1b (native login endpoint) runs in its own packet
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: pending
+source_branch_reason: ordinary same-repository PR integration completed
+source_branch_evidence: source ref claude/n4p-1-native-login-issuer absent (ls-remote 2026-09-30) after PR 1421 integrated as 0e9abbfd1e444870218286a80cae98dbb080c38c
 ```

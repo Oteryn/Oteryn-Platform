@@ -74,7 +74,7 @@ final class NativeAdmissionAttempts
 
     private function issue(NativeAdmissionRequest $request): NativeAdmissionResult
     {
-        $account = $this->tickets->redeem($request->ticket, $request->attemptRef);
+        $account = $this->tickets->redeem($request->ticket(), $request->attemptRef);
         $scope = $this->scopes->resolve($account, $request);
         if ($scope->characterId !== $request->characterId) {
             throw new NativeLoginRefused(NativeLoginError::CharacterConflict);
@@ -107,7 +107,7 @@ final class NativeAdmissionAttempts
 
         NativeAdmissionAttempt::query()->create([
             'attempt_ref' => $request->attemptRef,
-            'ticket_hash' => $this->tickets->hash($request->ticket),
+            'ticket_hash' => $this->tickets->hash($request->ticket()),
             'account_id' => $account->accountId,
             'character_id' => $scope->characterId,
             'requested_channel_id' => $request->channelId,
@@ -125,7 +125,7 @@ final class NativeAdmissionAttempts
 
     private function replay(NativeAdmissionAttempt $attempt, NativeAdmissionRequest $request): NativeAdmissionResult
     {
-        if (! hash_equals($attempt->ticket_hash, $this->tickets->hash($request->ticket))
+        if (! hash_equals($attempt->ticket_hash, $this->tickets->hash($request->ticket()))
             || $attempt->character_id !== $request->characterId
             || $attempt->requested_channel_id !== $request->channelId
             || ! hash_equals($attempt->offer_digest, $request->offerDigest)) {

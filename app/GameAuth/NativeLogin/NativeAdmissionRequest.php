@@ -2,6 +2,8 @@
 
 namespace App\GameAuth\NativeLogin;
 
+use Closure;
+use LogicException;
 use SensitiveParameter;
 
 /**
@@ -9,6 +11,11 @@ use SensitiveParameter;
  * (contract §3.1, §6.1). Invalid input is NATIVE_LOGIN_REQUEST_MALFORMED; an offer without a
  * supported transport is NATIVE_LOGIN_OFFER_UNSUPPORTED. character_id and channel_id stay claims
  * to validate: they are never copied into a grant from here.
+ *
+ * The ticket is a bearer secret: it is held only inside a closure and read through ticket(), so
+ * json_encode, var_export and debug output of the request never contain it, and serialization
+ * is refused. Residual risk: Reflection, or debug output of the closure itself taken from an
+ * array cast, can still read it.
  */
 final readonly class NativeAdmissionRequest
 {
@@ -25,11 +32,14 @@ final readonly class NativeAdmissionRequest
     /** Lowercase hex SHA-256 of the RFC 8785 serialization of the validated offer. */
     public string $offerDigest;
 
+    /** @var Closure(): string */
+    private Closure $ticketSource;
+
     /**
      * @param  array<mixed>  $offer
      */
     public function __construct(
-        #[SensitiveParameter] public string $ticket,
+        #[SensitiveParameter] string $ticket,
         public string $attemptRef,
         public string $characterId,
         public ?string $channelId,
@@ -43,6 +53,24 @@ final readonly class NativeAdmissionRequest
         }
 
         $this->offerDigest = hash('sha256', self::canonicalOffer($offer));
+        $this->ticketSource = static fn (): string => $ticket;
+    }
+
+    public function ticket(): string
+    {
+        return ($this->ticketSource)();
+    }
+
+    /** @return array<string, mixed> */
+    public function __serialize(): array
+    {
+        throw new LogicException('A native admission request carries a bearer ticket and cannot be serialized.');
+    }
+
+    /** @param array<string, mixed> $data */
+    public function __unserialize(array $data): void
+    {
+        throw new LogicException('A native admission request cannot be unserialized.');
     }
 
     /** @return array<string, mixed> */
