@@ -5,6 +5,7 @@ namespace App\GameAuth\NativeLogin;
 use App\GameAuth\NativeAdmission\NativeAdmissionGrantContext;
 use App\GameAuth\NativeAdmission\NativeAdmissionGrantIssuer;
 use App\GameAuth\NativeAdmission\NativeAdmissionUnavailable;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -19,6 +20,9 @@ use Throwable;
  */
 final class NativeAdmissionAttempts
 {
+    /** MySQL/MariaDB ER_LOCK_WAIT_TIMEOUT and ER_LOCK_DEADLOCK. */
+    private const LOCK_CONFLICTS = [1205, 1213];
+
     /** Set once the transaction body finished, so a later failure is an unknown commit outcome. */
     private bool $committing = false;
 
@@ -66,6 +70,14 @@ final class NativeAdmissionAttempts
             throw $refused;
         } catch (NativeAdmissionUnavailable) {
             throw new NativeLoginRefused(NativeLoginError::Unavailable);
+        } catch (QueryException $exception) {
+            if (! $this->committing && DB::transactionLevel() === 0
+                && in_array($exception->errorInfo[1] ?? null, self::LOCK_CONFLICTS, true)) {
+                // The gap lock on a missing attempt_ref row lets two first requests deadlock (§16);
+                // the rolled-back request re-reads the attempt like any other lost race.
+                throw new NativeAdmissionAttemptRace(previous: $exception);
+            }
+            throw new NativeLoginRefused($this->committing ? NativeLoginError::ReconciliationRequired : NativeLoginError::Unavailable);
         } catch (Throwable) {
             // Unknown commit outcome: only the same attempt_ref and ticket can resolve it.
             throw new NativeLoginRefused($this->committing ? NativeLoginError::ReconciliationRequired : NativeLoginError::Unavailable);
