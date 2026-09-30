@@ -68,11 +68,11 @@ Overlap: `OTERYN-20260929-n4p-1-native-login-issuer` owns `app/GameAuth/NativeAd
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-30T14:00:00Z
+updated_at: 2026-09-30T18:00:00Z
 head: 3ad7e4f
 branch: claude/n4p-2-native-ticket-redemption
 pr: 1423
-status: validating
+status: completed
 terminal_pr_policy: archive_pending
 context_routes:
   - auth-identity
@@ -143,13 +143,13 @@ validation:
     evidence: no route or actor path in this slice; the issuer is reachable only after N4P-3 adds the route
 blockers:
   - none
-next_action: control plane freezes the repaired head and routes the independent security re-review; once integrated, archive this packet to docs/agents/tasks/archive with the next #1419 delivery task (N4P-3)
+next_action: none remaining for this packet; PR 1423 integrated as ecfcc573013ef0941a5306caac26a5731533bcd4 and the packet moves to the archive in the N4P-2b closeout (OTERYN-20260930-n4p-2b-redemption-concurrency), which also corrects the derived concurrency claim above - a concurrent first request can deadlock on the attempt_ref gap lock (1213)
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: pending
+source_branch_reason: ordinary same-repository PR integration completed
+source_branch_evidence: source ref claude/n4p-2-native-ticket-redemption absent (ls-remote 2026-09-30) after PR 1423 integrated as ecfcc573013ef0941a5306caac26a5731533bcd4
 ```
