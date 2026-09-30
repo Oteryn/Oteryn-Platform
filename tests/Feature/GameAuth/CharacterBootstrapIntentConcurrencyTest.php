@@ -53,7 +53,7 @@ final class CharacterBootstrapIntentConcurrencyTest extends TestCase
     }
 
     /**
-     * @param  list<array{target_world_id:string,profile_revision:string,ruleset_revision:string,content_revision:string,starter_template_revision:string}>  $bindings
+     * @param  list<array{target_world_id:string,requested_name:string,profile_revision:string,ruleset_revision:string,content_revision:string,starter_template_revision:string}>  $bindings
      * @return list<string>
      */
     private function race(int $identityId, array $bindings): array
@@ -121,11 +121,12 @@ final class CharacterBootstrapIntentConcurrencyTest extends TestCase
         return Identity::query()->create(['email' => $email, 'password' => Hash::make('Race-Test-9!Password')]);
     }
 
-    /** @return array{target_world_id:string,profile_revision:string,ruleset_revision:string,content_revision:string,starter_template_revision:string} */
+    /** @return array{target_world_id:string,requested_name:string,profile_revision:string,ruleset_revision:string,content_revision:string,starter_template_revision:string} */
     private function binding(): array
     {
         return [
             'target_world_id' => '01890f4e-7c00-7000-8000-000000000002',
+            'requested_name' => 'Race Hero',
             'profile_revision' => 'profile-17',
             'ruleset_revision' => 'ruleset-22',
             'content_revision' => 'content-91',
