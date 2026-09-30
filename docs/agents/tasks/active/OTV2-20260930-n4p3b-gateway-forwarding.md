@@ -34,6 +34,8 @@ Out of scope: production config, secrets and enablement; issuer PHP changes; `.g
 owned_paths:
   - services/game-gateway/**
   - docs/agents/tasks/active/OTV2-20260930-n4p3b-gateway-forwarding.md
+  - docs/agents/tasks/active/OTV2-20260930-n4p3-native-admission-issuer.md
+  - docs/agents/tasks/archive/OTV2-20260930-n4p3-native-admission-issuer.md
 modules:
   - services/game-gateway
 dependencies:
@@ -81,6 +83,7 @@ changed_paths:
   - services/game-gateway/internal/e2e/native_login_test.go
   - services/game-gateway/README.md
   - docs/agents/tasks/active/OTV2-20260930-n4p3b-gateway-forwarding.md
+  - docs/agents/tasks/archive/OTV2-20260930-n4p3-native-admission-issuer.md (moved from active; PR 1427 merged, checkpoint-validation terminal_pr_active_task)
 validation:
   - command: gofmt -l . && go vet ./... && go test -race -count=1 ./... && go build -trimpath ./cmd/game-gateway (services/game-gateway, Go 1.24.7)
     result: PASS
