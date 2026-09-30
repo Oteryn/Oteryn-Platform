@@ -64,9 +64,9 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-09-30T18:30:00Z
-head: UNKNOWN
+head: fa9b41f0454a806ecae4e4e1c2f0f67790d9e714
 branch: claude/prem-p-premium-snapshot-producer
-pr: none
+pr: 1433
 status: validating
 context_routes:
   - api
@@ -119,7 +119,7 @@ validation:
     evidence: private service endpoint with no browser actor; the Game consumer E2E is a Game-side task using the shared fixtures
 blockers:
   - none
-next_action: open a draft PR stacked on PR 1432 and drive exact-head CI to green
+next_action: drive exact-head CI on draft PR 1433 to green
 ```
 
 ## Source branch closeout
