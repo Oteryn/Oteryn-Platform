@@ -15,6 +15,8 @@ use App\Http\Middleware\GameAuth\RequireCharacterBootstrapIntentMtlsPeer;
 use App\Http\Middleware\GameAuth\RequireGatewayServiceCredential;
 use App\Http\Middleware\GameAuth\RequireNativeEvidenceMtlsPeer;
 use App\Http\Middleware\GameAuth\ThrottleNativeEvidencePeer;
+use App\ProductsEntitlements\Http\GuardPremiumSnapshotPeer;
+use App\ProductsEntitlements\Http\PremiumSnapshotController;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/internal/v1/game-auth/tickets/redeem', GameLoginTicketRedeemController::class)
@@ -60,4 +62,10 @@ Route::post('/internal/v1/game-auth/character-bootstrap-intents/read', Character
     ->middleware([
         PreventSensitiveGameAuthResponseCaching::class,
         RequireCharacterBootstrapIntentMtlsPeer::class,
+    ]);
+
+Route::post('/internal/v1/products-entitlements/premium-snapshots/read', PremiumSnapshotController::class)
+    ->middleware([
+        PreventSensitiveGameAuthResponseCaching::class,
+        GuardPremiumSnapshotPeer::class,
     ]);

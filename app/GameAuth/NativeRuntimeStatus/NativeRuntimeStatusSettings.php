@@ -52,7 +52,7 @@ final readonly class NativeRuntimeStatusSettings
 
     /**
      * Identity => scope list, refusing (null) any identity of another purpose: native evidence,
-     * character bootstrap and every identity configured under `game-auth.<$otherSection>.identities`,
+     * character bootstrap, premium snapshot and every identity configured under `game-auth.<$otherSection>.identities`,
      * whether or not that purpose is enabled.
      *
      * @return array<string, list<string>>|null
@@ -68,6 +68,7 @@ final readonly class NativeRuntimeStatusSettings
         $otherPurposes = [
             config('game-auth.native_evidence.mtls_client_identity'),
             config('game-auth.character_bootstrap_intent.mtls_client_identity'),
+            config('products-entitlements.premium_snapshot.mtls_client_identity'),
             ...(is_array($other) ? array_map('strval', array_keys($other)) : []),
         ];
         $identities = [];
