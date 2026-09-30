@@ -51,5 +51,4 @@ final readonly class PremiumTimeEntitlement
             default => PremiumTimeContract::STATE_ACTIVE,
         };
     }
-
 }
