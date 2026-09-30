@@ -59,10 +59,10 @@ Overlap: `OTERYN-20260929-n4p-1-native-login-issuer` owns `app/GameAuth/NativeAd
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-30T12:00:00Z
-head: UNKNOWN
+updated_at: 2026-09-30T13:00:00Z
+head: b27f92c
 branch: claude/n4p-2-native-ticket-redemption
-pr: none
+pr: 1423
 status: validating
 context_routes:
   - auth-identity
