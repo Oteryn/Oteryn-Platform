@@ -45,7 +45,14 @@ final class NativeAdmissionAttempts
         }
         try {
             return $this->attempt($request);
-        } catch (NativeAdmissionAttemptRace|UniqueConstraintViolationException) {
+        } catch (NativeAdmissionAttemptRace $race) {
+            // A second lock conflict rolled back again and nothing committed: fail closed as the
+            // retryable NATIVE_LOGIN_UNAVAILABLE (same request with backoff). Any other second lost
+            // race means a committed attempt is not visible, so only reconciliation can resolve it.
+            throw new NativeLoginRefused(self::isLockConflict($race->getPrevious())
+                ? NativeLoginError::Unavailable
+                : NativeLoginError::ReconciliationRequired);
+        } catch (UniqueConstraintViolationException) {
             throw new NativeLoginRefused(NativeLoginError::ReconciliationRequired);
         }
     }
@@ -71,8 +78,7 @@ final class NativeAdmissionAttempts
         } catch (NativeAdmissionUnavailable) {
             throw new NativeLoginRefused(NativeLoginError::Unavailable);
         } catch (QueryException $exception) {
-            if (! $this->committing && DB::transactionLevel() === 0
-                && in_array($exception->errorInfo[1] ?? null, self::LOCK_CONFLICTS, true)) {
+            if (! $this->committing && DB::transactionLevel() === 0 && self::isLockConflict($exception)) {
                 // The gap lock on a missing attempt_ref row lets two first requests deadlock (§16);
                 // the rolled-back request re-reads the attempt like any other lost race.
                 throw new NativeAdmissionAttemptRace(previous: $exception);
@@ -82,6 +88,12 @@ final class NativeAdmissionAttempts
             // Unknown commit outcome: only the same attempt_ref and ticket can resolve it.
             throw new NativeLoginRefused($this->committing ? NativeLoginError::ReconciliationRequired : NativeLoginError::Unavailable);
         }
+    }
+
+    private static function isLockConflict(?Throwable $exception): bool
+    {
+        return $exception instanceof QueryException
+            && in_array($exception->errorInfo[1] ?? null, self::LOCK_CONFLICTS, true);
     }
 
     private function issue(NativeAdmissionRequest $request): NativeAdmissionResult

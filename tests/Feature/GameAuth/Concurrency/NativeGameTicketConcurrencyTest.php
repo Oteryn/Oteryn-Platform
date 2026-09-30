@@ -25,6 +25,7 @@ use Throwable;
  * scope resolver holds the ticket row lock long enough for the other request to take its gap lock
  * on the missing attempt_ref row first, so the winner's attempt insert deterministically deadlocks
  * (1213) against the waiting loser. The loser must re-read the committed attempt, never grant twice.
+ * A lock conflict that repeats on the one re-read is the retryable NATIVE_LOGIN_UNAVAILABLE.
  */
 final class NativeGameTicketConcurrencyTest extends TestCase
 {
@@ -151,6 +152,56 @@ final class NativeGameTicketConcurrencyTest extends TestCase
         self::assertSame(self::ATTEMPT, NativeAdmissionAttempt::query()->sole()->attempt_ref);
     }
 
+    public function test_a_repeated_lock_conflict_on_the_re_read_is_retryable_unavailable_and_grants_nothing(): void
+    {
+        $ticket = $this->ticket();
+
+        // Another transaction holds the ticket row across both of the request's lock waits, so the
+        // first attempt and its one re-read each end in ER_LOCK_WAIT_TIMEOUT (1205).
+        $results = $this->race(
+            fn (): string => $this->holdTicketRow(5),
+            fn (): string => $this->afterTicketRowLocked(fn (): string => $this->admit($ticket, self::ATTEMPT)),
+        );
+
+        self::assertSame(['held', 'NATIVE_LOGIN_UNAVAILABLE'], $results);
+        self::assertSame(0, NativeAdmissionAttempt::query()->count());
+        $stored = GameLoginTicket::query()->sole();
+        self::assertNull($stored->used_at);
+        self::assertNull($stored->attempt_ref);
+
+        // Nothing committed, so the same request succeeds once the lock is released.
+        self::assertStringStartsWith('granted:', $this->admit($ticket, self::ATTEMPT));
+        self::assertSame(self::ATTEMPT, NativeAdmissionAttempt::query()->sole()->attempt_ref);
+    }
+
+    private function holdTicketRow(int $seconds): string
+    {
+        DB::transaction(function () use ($seconds): void {
+            DB::table('game_login_tickets')->lockForUpdate()->get();
+            file_put_contents($this->directory.'/ticket-locked', '1');
+            sleep($seconds);
+        });
+
+        return 'held';
+    }
+
+    /**
+     * @param  callable(): string  $operation
+     */
+    private function afterTicketRowLocked(callable $operation): string
+    {
+        $deadline = microtime(true) + 10;
+        while (! file_exists($this->directory.'/ticket-locked')) {
+            if (microtime(true) > $deadline) {
+                return 'error:ticket-row-not-locked';
+            }
+            usleep(1000);
+        }
+        DB::statement('SET SESSION innodb_lock_wait_timeout = 1');
+
+        return $operation();
+    }
+
     private function admit(string $ticket, string $attemptRef, string $build = '0.1.0+abc123'): string
     {
         $request = new NativeAdmissionRequest($ticket, $attemptRef, self::CHARACTER, null, [
@@ -227,7 +278,11 @@ final class NativeGameTicketConcurrencyTest extends TestCase
         }
         file_put_contents($barrier.'/start', '1');
         foreach ($children as $pid) {
+            $status = null;
             pcntl_waitpid($pid, $status);
+            if (! is_int($status)) {
+                self::fail('Child process status was not an integer.');
+            }
             self::assertTrue(pcntl_wifexited($status) && pcntl_wexitstatus($status) === 0);
         }
 
