@@ -110,6 +110,8 @@ test('@portal-support-moderation guest, MFA, exact-permission and object-ownersh
   await page.getByLabel('Subject').fill('Ownership acceptance ticket');
   await page.getByLabel('Initial message').fill('Only the owner may read this conversation.');
   await page.getByRole('button', { name: 'Open ticket' }).click();
+  // WebKit can report the create URL until the post-submit redirect commits.
+  await page.waitForURL(/\/support\/tickets\/(?!create$)[^/]+$/u);
   const ownerTicketPath = new URL(page.url()).pathname;
   await logout(page);
 
