@@ -182,6 +182,7 @@
     "portal-evidence-dimensions/content.json",
     "portal-evidence-dimensions/modules.json",
     "portal-evidence-dimensions/payments.json",
-    "portal-evidence-dimensions/homepage-template-selector.json"
+    "portal-evidence-dimensions/homepage-template-selector.json",
+    "portal-evidence-dimensions/products-entitlements.json"
   ]
 }

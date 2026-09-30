@@ -38,6 +38,8 @@ final class AdminPermission
 
     public const MANAGE_MARKETPLACE = 'marketplace.manage';
 
+    public const MANAGE_PREMIUM_TIME = 'products.premium.manage';
+
     public const RECONCILE_PAYMENTS = 'payments.reconcile';
 
     public const GAME_CATALOG_ACCESS = 'game_catalog.access';
@@ -85,6 +87,7 @@ final class AdminPermission
             self::MANAGE_SUPPORT_REPORTS,
             self::MANAGE_SUPPORT_ENFORCEMENT,
             self::MANAGE_MARKETPLACE,
+            self::MANAGE_PREMIUM_TIME,
             self::RECONCILE_PAYMENTS,
             self::GAME_CATALOG_ACCESS,
             self::VIEW_GAME_CATALOG_SNAPSHOTS,

@@ -24,6 +24,7 @@
             ['admin.game-catalog.index', 'catalog', 'admin.game-catalog.*', 'game_catalog.access'],
             ['admin.payments.reconciliation.index', 'payments', 'admin.payments.*', 'payments.reconcile'],
             ['admin.marketplace.index', 'bazaar', 'admin.marketplace.*', 'marketplace.manage'],
+            ['admin.premium.index', 'premium', 'admin.premium.*', 'products.premium.manage'],
             ['admin.audit.index', 'audit', 'admin.audit.*', 'audit.view'],
         ],
     ];
