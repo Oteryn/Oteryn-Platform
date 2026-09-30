@@ -22,7 +22,10 @@ final class RedeemGameLoginTicket
                 ->lockForUpdate()
                 ->first();
 
+            // A native ticket has no Canary binding and never redeems here.
+            $canaryAccountId = $storedTicket?->canary_account_id;
             if (! $storedTicket instanceof GameLoginTicket
+                || $canaryAccountId === null
                 || ! hash_equals($storedTicket->audience, $audience)
                 || $storedTicket->used_at !== null
                 || $storedTicket->expires_at->lte(now())
@@ -47,7 +50,7 @@ final class RedeemGameLoginTicket
 
             if (! $binding instanceof IdentityCanaryAccount
                 || ! $binding->isReady()
-                || $binding->canary_account_id !== $storedTicket->canary_account_id
+                || $binding->canary_account_id !== $canaryAccountId
             ) {
                 throw new GameLoginTicketDenied;
             }
@@ -59,7 +62,7 @@ final class RedeemGameLoginTicket
 
             return new RedeemedGameLoginTicket(
                 identityId: $identity->id,
-                canaryAccountId: $storedTicket->canary_account_id,
+                canaryAccountId: $canaryAccountId,
                 securityGeneration: $storedTicket->security_generation,
                 redeemedAt: $redeemedAt,
             );

@@ -7,6 +7,8 @@ use App\CanaryIntegration\CanaryAccountProvisioner;
 use App\CanaryIntegration\CanaryCharacterCreator;
 use App\CanaryIntegration\CanaryCharacterTransfer;
 use App\Characters\Contracts\CanaryCharacterCreationGateway;
+use App\GameAuth\NativeLogin\NativeAdmissionScopeResolver;
+use App\GameAuth\NativeLogin\UnavailableNativeAdmissionScopeResolver;
 use App\GameAuth\OAuth\RequirePublicClientPkceS256;
 use App\Identity\Mfa\PendingMfaLogin;
 use App\Identity\Support\CanonicalEmail;
@@ -49,6 +51,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(WikiMarkdownRenderer::class, CommonMarkWikiRenderer::class);
         $this->app->bind(WikiSearch::class, DatabaseWikiSearch::class);
         $this->app->bind(PublicWikiQuery::class, DatabasePublicWikiQuery::class);
+        $this->app->bind(NativeAdmissionScopeResolver::class, UnavailableNativeAdmissionScopeResolver::class);
     }
 
     public function boot(): void
