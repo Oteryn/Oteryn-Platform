@@ -13,6 +13,7 @@ import (
 	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/config"
 	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/gateway"
 	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/httpapi"
+	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/nativelogin"
 	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/platform"
 	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/session"
 )
@@ -30,6 +31,10 @@ func main() {
 	sessionClient := session.NewClient(cfg.SessionBaseURL, cfg.SessionServiceToken, httpClient)
 	service := gateway.NewService(platformClient, sessionClient)
 	api := httpapi.NewServer(service, cfg.Version, logger)
+	if cfg.NativeLoginEnabled {
+		issuer := nativelogin.NewIssuerClient(cfg.PlatformBaseURL, cfg.PlatformServiceToken, cfg.NativeAdmissionTimeout, nil)
+		api.EnableNativeLogin(nativelogin.NewHandler(issuer, logger))
+	}
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddress,
@@ -51,7 +56,7 @@ func main() {
 		}
 	}()
 
-	logger.Info("gateway_started", "version", cfg.Version, "listen_address", cfg.ListenAddress)
+	logger.Info("gateway_started", "version", cfg.Version, "listen_address", cfg.ListenAddress, "native_login_enabled", cfg.NativeLoginEnabled)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("gateway_stopped_unexpectedly")
 		os.Exit(1)

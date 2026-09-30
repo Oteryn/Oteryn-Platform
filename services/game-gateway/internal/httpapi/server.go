@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/gateway"
+	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/nativelogin"
 )
 
 const (
@@ -24,9 +25,15 @@ var safeRequestID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
 type Server struct {
 	service *gateway.Service
+	native  NativeLoginHandler
 	version string
 	logger  *slog.Logger
 	mux     *http.ServeMux
+}
+
+// NativeLoginHandler serves the native branch (protocol_version 2) of POST /v1/login.
+type NativeLoginHandler interface {
+	Serve(w http.ResponseWriter, r *http.Request, body []byte)
 }
 
 func NewServer(service *gateway.Service, version string, logger *slog.Logger) *Server {
@@ -41,6 +48,12 @@ func NewServer(service *gateway.Service, version string, logger *slog.Logger) *S
 	server.mux.HandleFunc("GET /version", server.versionInfo)
 	server.mux.HandleFunc("POST /v1/login", server.login)
 	return server
+}
+
+// EnableNativeLogin routes protocol_version 2 login requests to the native branch. Without it
+// (the default) such requests keep the Canary-compatible invalid_request answer.
+func (s *Server) EnableNativeLogin(native NativeLoginHandler) {
+	s.native = native
 }
 
 func (s *Server) Handler() http.Handler {
@@ -75,6 +88,10 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, extendedLoginRequestLimit))
+	if err == nil && s.native != nil && nativelogin.IsNativeRequest(body) {
+		s.native.Serve(w, r, body)
+		return
+	}
 	if err != nil || len(body) == 0 || validateUniqueJSONKeys(body) != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
 		return

@@ -17,7 +17,14 @@ type Config struct {
 	SessionServiceToken  string
 	RequestTimeout       time.Duration
 	Version              string
+	// NativeLoginEnabled routes protocol_version 2 logins to the Platform native admission
+	// issuer. Default off; the Canary path is unchanged either way.
+	NativeLoginEnabled     bool
+	NativeAdmissionTimeout time.Duration
 }
+
+// maxNativeAdmissionTimeout keeps one issuer exchange inside the server write timeout.
+const maxNativeAdmissionTimeout = 8 * time.Second
 
 func Load() (Config, error) {
 	cfg := Config{
@@ -28,6 +35,8 @@ func Load() (Config, error) {
 		SessionServiceToken:  os.Getenv("GAME_SESSION_SERVICE_TOKEN"),
 		Version:              valueOrDefault("GATEWAY_VERSION", "dev"),
 		RequestTimeout:       5 * time.Second,
+
+		NativeAdmissionTimeout: 5 * time.Second,
 	}
 
 	if raw := os.Getenv("GATEWAY_REQUEST_TIMEOUT"); raw != "" {
@@ -36,6 +45,21 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("invalid GATEWAY_REQUEST_TIMEOUT")
 		}
 		cfg.RequestTimeout = parsed
+	}
+
+	switch os.Getenv("GATEWAY_NATIVE_LOGIN_ENABLED") {
+	case "", "false":
+	case "true":
+		cfg.NativeLoginEnabled = true
+	default:
+		return Config{}, fmt.Errorf("invalid GATEWAY_NATIVE_LOGIN_ENABLED")
+	}
+	if raw := os.Getenv("GATEWAY_NATIVE_ADMISSION_TIMEOUT"); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil || parsed <= 0 || parsed > maxNativeAdmissionTimeout {
+			return Config{}, fmt.Errorf("invalid GATEWAY_NATIVE_ADMISSION_TIMEOUT")
+		}
+		cfg.NativeAdmissionTimeout = parsed
 	}
 
 	if cfg.PlatformServiceToken == "" || cfg.SessionServiceToken == "" {
