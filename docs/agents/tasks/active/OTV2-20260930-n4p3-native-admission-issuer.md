@@ -64,10 +64,11 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-09-30T23:59:00Z
-head: UNKNOWN
+head: c575a1a
 branch: claude/n4p3-native-admission-issuer
-pr: none
+pr: 1427
 status: validating
+terminal_pr_policy: archive_pending
 context_routes:
   - auth-identity
   - security
