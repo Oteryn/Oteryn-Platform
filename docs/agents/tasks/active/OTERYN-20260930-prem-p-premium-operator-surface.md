@@ -29,7 +29,7 @@ There is no payment and no production configuration.
 - [x] Grant, extend and revoke work through the page. An exact form retry is idempotent, a changed reuse conflicts, and each change is audited once.
 - [x] Validation and domain refusals are shown and leave state unchanged.
 - [x] The navigation link is shown only with the exact permission.
-- [ ] Exact-head CI passes, including the Playwright evidence.
+- [x] Exact-head CI passes, including the Playwright evidence.
 
 ## Ownership
 
@@ -49,6 +49,9 @@ owned_paths:
   - scripts/acceptance/coverage/surfaces/products-entitlements.json
   - scripts/acceptance/coverage/portal-evidence-dimensions/products-entitlements.json
   - scripts/acceptance/coverage/portal-evidence-dimensions.json
+  - docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json
+  - docs/testing/PORTAL_MEDIA_STATE_EVIDENCE.json
+  - scripts/acceptance/coverage/test-portal-content-scale-evidence.mjs
   - docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-operator-surface.md
   - docs/agents/tasks/archive/OTERYN-20260930-prem-p-premium-operator-surface.md
 modules:
@@ -66,8 +69,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-30T19:40:00Z
-head: 184a20abb1faff6cafe953c2d30f7cb30c327aa1
+updated_at: 2026-09-30T19:35:00Z
+head: aa74d010b83050bdc4afc6c028150910837c4d43
 branch: claude/prem-p-premium-operator-surface
 pr: 1436
 status: validating
@@ -89,6 +92,9 @@ owned_paths:
   - scripts/acceptance/coverage/surfaces/products-entitlements.json
   - scripts/acceptance/coverage/portal-evidence-dimensions/products-entitlements.json
   - scripts/acceptance/coverage/portal-evidence-dimensions.json
+  - docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json
+  - docs/testing/PORTAL_MEDIA_STATE_EVIDENCE.json
+  - scripts/acceptance/coverage/test-portal-content-scale-evidence.mjs
   - docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-operator-surface.md
   - docs/agents/tasks/archive/OTERYN-20260930-prem-p-premium-operator-surface.md
 proven:
@@ -119,6 +125,9 @@ changed_paths:
   - scripts/acceptance/coverage/surfaces/products-entitlements.json
   - scripts/acceptance/coverage/portal-evidence-dimensions/products-entitlements.json
   - scripts/acceptance/coverage/portal-evidence-dimensions.json
+  - docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json
+  - docs/testing/PORTAL_MEDIA_STATE_EVIDENCE.json
+  - scripts/acceptance/coverage/test-portal-content-scale-evidence.mjs
 validation:
   - command: php -l and node --check on changed files
     result: PASS
@@ -129,9 +138,12 @@ validation:
   - command: phpunit / pint / phpstan / Playwright locally
     result: BLOCKED
     evidence: session egress policy denies third-party Composer package downloads; exact-head CI is the validation of record
+  - command: exact-head CI on PR 1436
+    result: PASS
+    evidence: all checks green on aa74d010b83050bdc4afc6c028150910837c4d43, including runtime-tests, Strict portal coverage closure and acceptance
 blockers:
   - none
-next_action: drive exact-head CI on PR 1436 to green
+next_action: await review and merge of PR 1436 after its stacked base PR 1433
 ```
 
 ## Source branch closeout
