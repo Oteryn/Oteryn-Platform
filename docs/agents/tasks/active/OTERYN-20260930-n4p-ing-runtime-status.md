@@ -69,9 +69,9 @@ Overlap: no open Platform PR touches the owned paths (checked 2026-09-30). The i
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-09-30T23:30:00Z
-head: UNKNOWN
+head: b4f014a
 branch: claude/n4p-ing-runtime-status
-pr: none
+pr: 1425
 status: validating
 terminal_pr_policy: archive_pending
 context_routes:
