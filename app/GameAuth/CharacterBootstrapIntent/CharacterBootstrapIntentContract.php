@@ -9,7 +9,8 @@ use stdClass;
 
 final class CharacterBootstrapIntentContract
 {
-    public const CONTRACT_VERSION = 1;
+    /** Version 2 (CHAR-NAME-1) adds the required requested_name; version 1 is no longer produced or read. */
+    public const CONTRACT_VERSION = 2;
 
     public const VARIANT = 'OPERATOR_CONTROL_PLANE_BOOTSTRAP';
 
@@ -29,6 +30,9 @@ final class CharacterBootstrapIntentContract
 
     private const REVISION_PATTERN = '/\A[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\z/D';
 
+    /** Game naming policy revision 1: 2..29 ASCII letters in words joined by single spaces. */
+    private const NAME_PATTERN = '/\A[A-Za-z]+( [A-Za-z]+)*\z/D';
+
     public static function assertUuid(string $value, string $label): void
     {
         if (preg_match(self::UUID_PATTERN, $value) !== 1) {
@@ -47,6 +51,18 @@ final class CharacterBootstrapIntentContract
     {
         if (strlen($value) > self::MAX_REVISION_BYTES || preg_match(self::REVISION_PATTERN, $value) !== 1) {
             throw new InvalidArgumentException("{$label} is invalid.");
+        }
+    }
+
+    /**
+     * Syntax only. Game Character Authority owns the name's uniqueness and reservation;
+     * Platform never decides availability.
+     */
+    public static function assertRequestedName(string $value): void
+    {
+        $length = strlen($value);
+        if ($length < 2 || $length > 29 || preg_match(self::NAME_PATTERN, $value) !== 1) {
+            throw new InvalidArgumentException('requested_name is invalid.');
         }
     }
 
@@ -74,8 +90,8 @@ final class CharacterBootstrapIntentContract
 
         $expectedKeys = [
             'contract_version', 'variant', 'issuer_authority', 'issuer_decision_id', 'source_revision',
-            'operation_id', 'operation', 'account_id', 'target_world_id', 'interpretation_context',
-            'issued_at_source', 'expires_at_source', 'audience',
+            'operation_id', 'operation', 'account_id', 'target_world_id', 'requested_name',
+            'interpretation_context', 'issued_at_source', 'expires_at_source', 'audience',
         ];
         $keys = array_keys($payload);
         sort($keys);
@@ -90,6 +106,7 @@ final class CharacterBootstrapIntentContract
             || ! is_string($payload['operation_id'] ?? null)
             || ! is_string($payload['account_id'] ?? null)
             || ! is_string($payload['target_world_id'] ?? null)
+            || ! is_string($payload['requested_name'] ?? null)
             || ! is_string($payload['source_revision'] ?? null)
             || ! is_string($payload['issued_at_source'] ?? null)
             || ! is_string($payload['expires_at_source'] ?? null)) {
@@ -113,6 +130,7 @@ final class CharacterBootstrapIntentContract
             self::assertUuid($payload['operation_id'], 'operation_id');
             self::assertUuid($payload['target_world_id'], 'target_world_id');
             self::assertAccountId($payload['account_id']);
+            self::assertRequestedName($payload['requested_name']);
             foreach ($expectedContextKeys as $field) {
                 if (! is_string($context[$field] ?? null)) {
                     throw new InvalidArgumentException("{$field} is invalid.");
@@ -135,6 +153,7 @@ final class CharacterBootstrapIntentContract
             'issuer_decision_id' => $payload['issuer_decision_id'],
             'account_id' => $payload['account_id'],
             'target_world_id' => $payload['target_world_id'],
+            'requested_name' => $payload['requested_name'],
             'profile_revision' => $context['profile_revision'],
             'ruleset_revision' => $context['ruleset_revision'],
             'content_revision' => $context['content_revision'],
