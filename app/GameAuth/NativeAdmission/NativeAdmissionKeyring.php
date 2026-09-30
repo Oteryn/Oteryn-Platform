@@ -3,6 +3,7 @@
 namespace App\GameAuth\NativeAdmission;
 
 use App\GameAuth\NativeEvidence\NativeEvidenceContract;
+use Closure;
 use InvalidArgumentException;
 use LogicException;
 use SensitiveParameter;
@@ -15,7 +16,13 @@ use SensitiveParameter;
  * The path must name a regular, non-symlink file owned by the process user with no group or other
  * permission bits. A standard Kubernetes secret volume exposes each key as a symlink, so it is
  * refused (fail closed); mount the key at a non-symlink path instead (production custody is U9).
- * The keyring holds secret key bytes, so it redacts debug output and refuses serialization.
+ * The owner check needs the posix extension: without posix_geteuid() no key is loaded (fail closed).
+ *
+ * The secret keys live in a NativeAdmissionSecretKeys holder captured by a closure, so
+ * var_dump(), print_r(), var_export(), an array cast and serialization of the keyring never show
+ * key bytes. Residual risk: code that uses Reflection to read the closure's static variables and
+ * then exports or array-casts the holder can still reach the bytes; that requires code execution
+ * inside the issuer process, which already implies access to the key file.
  */
 final class NativeAdmissionKeyring
 {
@@ -29,8 +36,11 @@ final class NativeAdmissionKeyring
 
     private const REGULAR_FILE = 0o100000;
 
-    /** @var array<string, non-empty-string>|null kid => 64-byte libsodium secret key */
-    private ?array $secretKeys = null;
+    /** @var (Closure(string): (string|null))|null kid => 64-byte libsodium secret key */
+    private ?Closure $secretKeyOf = null;
+
+    /** @var list<string> */
+    private array $loadedKeyIds = [];
 
     private ?string $currentKeyId = null;
 
@@ -39,7 +49,7 @@ final class NativeAdmissionKeyring
     {
         return [
             'currentKeyId' => $this->currentKeyId,
-            'loadedKeyIds' => $this->secretKeys === null ? [] : array_keys($this->secretKeys),
+            'loadedKeyIds' => $this->loadedKeyIds,
         ];
     }
 
@@ -66,7 +76,7 @@ final class NativeAdmissionKeyring
     {
         $this->load();
 
-        return isset($this->secretKeys[$keyId]);
+        return in_array($keyId, $this->loadedKeyIds, true);
     }
 
     /** Raw 32-byte public key derived from the loaded private key. */
@@ -85,21 +95,23 @@ final class NativeAdmissionKeyring
     private function secretKey(string $keyId): string
     {
         $this->load();
-        if (! isset($this->secretKeys[$keyId])) {
+        $secretKey = $this->secretKeyOf instanceof Closure ? ($this->secretKeyOf)($keyId) : null;
+        if (! is_string($secretKey) || $secretKey === '') {
             throw new NativeAdmissionUnavailable('Native admission signing key id is not loaded.');
         }
 
-        return $this->secretKeys[$keyId];
+        return $secretKey;
     }
 
     private function load(): void
     {
-        if ($this->secretKeys !== null) {
+        if ($this->secretKeyOf instanceof Closure) {
             return;
         }
 
         $currentId = $this->keyId(config('game-auth.native_admission.signing_key_id'), 'current');
         $keys = [$currentId => $this->readKeyFile(config('game-auth.native_admission.signing_key_file'), 'current')];
+        $keyIds = [$currentId];
 
         $retiringFile = config('game-auth.native_admission.retiring_signing_key_file');
         $retiringId = config('game-auth.native_admission.retiring_signing_key_id');
@@ -109,10 +121,13 @@ final class NativeAdmissionKeyring
                 throw new NativeAdmissionUnavailable('Retiring native admission key id must differ from the current key id.');
             }
             $keys[$retiringId] = $this->readKeyFile($retiringFile, 'retiring');
+            $keyIds[] = $retiringId;
         }
 
+        $holder = new NativeAdmissionSecretKeys($keys);
         $this->currentKeyId = $currentId;
-        $this->secretKeys = $keys;
+        $this->loadedKeyIds = $keyIds;
+        $this->secretKeyOf = static fn (string $keyId): ?string => $holder->get($keyId);
     }
 
     private function keyId(mixed $value, string $role): string
@@ -165,7 +180,10 @@ final class NativeAdmissionKeyring
             if (($stat['mode'] & 0o077) !== 0) {
                 throw new NativeAdmissionUnavailable("Native admission {$role} key file must not be accessible to group or others.");
             }
-            if (function_exists('posix_geteuid') && $stat['uid'] !== posix_geteuid()) {
+            if (! function_exists('posix_geteuid')) {
+                throw new NativeAdmissionUnavailable("Native admission {$role} key file ownership cannot be verified without the posix extension.");
+            }
+            if ($stat['uid'] !== posix_geteuid()) {
                 throw new NativeAdmissionUnavailable("Native admission {$role} key file must be owned by the issuer process user.");
             }
             if ($stat['size'] > self::MAX_KEY_FILE_BYTES) {

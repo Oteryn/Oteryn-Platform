@@ -53,8 +53,8 @@ Overlap: `OTERYN-20260912-platform-native-evidence-hardening` (#1388, PR #1389 m
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-30T01:30:00Z
-head: 1ce1d61
+updated_at: 2026-09-30T03:00:00Z
+head: f7af6b3
 branch: claude/n4p-1-native-login-issuer
 pr: 1421
 status: validating
@@ -71,6 +71,8 @@ proven:
   - libsodium detached Ed25519 signatures are deterministic, so stored signing input plus kid re-signs byte-identically
   - Review 5901672391 at 1ce1d614 found publishTrustedKey could re-trust or re-key a kid of an earlier profile version; the repair refuses any kid already used in an earlier version
   - Validation regexes anchored with a bare $ accepted a trailing newline; the repair anchors every regex in owned paths with \A and \z
+  - Re-review of f7af6b3 found resign accepted a canonical payload with iat far in the future; repair round 2 refuses iat > now and requires exp - now >= 1 s on one millisecond clock
+  - var_export and array casts of the keyring exposed the secret-key array; round 2 keeps the keys in a redacting holder reachable only through a closure (residual risk, Reflection on the closure, documented in the class doc)
 derived:
   - Self-check cache is per issuer instance and bounded to 5 s, so a revocation stops signing within 5 s
 unknown:
@@ -88,6 +90,7 @@ changed_paths:
   - app/GameAuth/NativeAdmission/NativeAdmissionGrantContext.php
   - app/GameAuth/NativeAdmission/NativeAdmissionGrantIssuer.php
   - app/GameAuth/NativeAdmission/NativeAdmissionKeyring.php
+  - app/GameAuth/NativeAdmission/NativeAdmissionSecretKeys.php
   - app/GameAuth/NativeAdmission/NativeAdmissionUnavailable.php
   - app/GameAuth/NativeEvidence/NativeSigningTrustRegistry.php
   - config/game-auth.php
@@ -97,9 +100,9 @@ validation:
   - command: vendor/bin/phpunit, vendor/bin/phpstan analyse, vendor/bin/pint --test at 4d6edf6
     result: PASS
     evidence: 686 tests, 24 skipped, one pre-existing unrelated notice; phpstan and pint clean; superseded by the review repair
-  - command: review repair (findings 1, 2, 4-7 of review 5901672391); php -l on changed PHP files and a stubbed issuer/keyring harness
+  - command: review repair round 1 (findings 1, 2, 4-7 of review 5901672391) at f7af6b3 and round 2 (re-review of f7af6b3; future iat, 1 s remaining, posix fail closed, secret holder); php -l on changed PHP files and a stubbed issuer/keyring harness
     result: PASS
-    evidence: local; composer install blocked (dependency downloads from github.com refused by the session proxy), so PHPUnit, PHPStan and Pint for the repair run in exact-head CI
+    evidence: local harness 50/50 plus a posix_geteuid-disabled run that refuses to load the key; composer install blocked (dependency downloads from github.com refused by the session proxy), so PHPUnit, PHPStan and Pint run in exact-head CI
   - command: python tools/agents/checkpoint.py, documentation_ia.py, source_branch_closeout.py, git diff --check
     result: PASS
     evidence: local; PHP 8.4.19 locally while composer requires 8.5, exact-head CI is authoritative
@@ -108,7 +111,7 @@ validation:
     evidence: no route or actor path in this slice; the issuer is reachable only from N4P-1b
 blockers:
   - none
-next_action: control plane freezes the repaired PR #1421 head, runs exact-head CI and a fresh review; then N4P-1b (native login endpoint) in its own packet
+next_action: control plane freezes the round-2 PR #1421 head, runs exact-head CI and a fresh review; then N4P-1b (native login endpoint) in its own packet
 ```
 
 ## Source branch closeout

@@ -225,7 +225,8 @@ final class NativeAdmissionGrantIssuer
     /**
      * A stored payload is re-signable only if it decodes within the payload bound, re-validates every
      * claim, is byte-identical to the payload this issuer would build from those claims (so the claim
-     * set, order, constants and nbf = iat all hold), has a TTL within 5..30 s and is not expired.
+     * set, order, constants and nbf = iat all hold), has a TTL within 5..30 s, was not issued in the
+     * future and has at least 1 s left before exp.
      */
     private static function assertStoredPayload(string $segment): void
     {
@@ -251,8 +252,12 @@ final class NativeAdmissionGrantIssuer
         $exp = $claims['exp'] ?? null;
         $jti = $claims['jti'] ?? null;
         if (! is_int($iat) || ! is_int($exp) || ! is_string($jti) || preg_match(self::JTI, $jti) !== 1
-            || $exp - $iat < self::MIN_TTL_SECONDS || $exp - $iat > self::MAX_TTL_SECONDS
-            || $exp <= now()->getTimestamp()) {
+            || $exp - $iat < self::MIN_TTL_SECONDS || $exp - $iat > self::MAX_TTL_SECONDS) {
+            throw $refuse();
+        }
+        // One clock for both bounds: never issued in the future, and at least 1 s left (§6.2).
+        $nowMs = now()->getTimestampMs();
+        if ($iat * 1000 > $nowMs || $exp * 1000 - $nowMs < 1000) {
             throw $refuse();
         }
 

@@ -275,6 +275,12 @@ final class NativeAdmissionGrantIssuerTest extends TestCase
             'wrong purpose' => json_encode(array_replace($claims, ['purpose' => 'platform_security']), JSON_UNESCAPED_SLASHES),
             'nbf differs from iat' => json_encode(array_replace($claims, ['nbf' => $iat + 1]), JSON_UNESCAPED_SLASHES),
             'ttl above 30 s' => json_encode(array_replace($claims, ['exp' => $iat + 31]), JSON_UNESCAPED_SLASHES),
+            'iat in the future' => json_encode(array_replace($claims, [
+                'iat' => $iat + 157_680_000,
+                'nbf' => $iat + 157_680_000,
+                'exp' => $iat + 157_680_030,
+            ]), JSON_UNESCAPED_SLASHES),
+            'iat one second ahead' => json_encode(array_replace($claims, ['iat' => $iat + 1, 'nbf' => $iat + 1, 'exp' => $iat + 21]), JSON_UNESCAPED_SLASHES),
             'string generation with newline' => json_encode(array_replace($claims, ['account_security_generation' => "7\n"]), JSON_UNESCAPED_SLASHES),
             'nested claim' => json_encode(array_replace($claims, ['route_revision' => ['rt']]), JSON_UNESCAPED_SLASHES),
             'whitespace' => json_encode($claims, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
@@ -291,9 +297,19 @@ final class NativeAdmissionGrantIssuerTest extends TestCase
             }
         }
 
+        // Exactly 1 s left is re-signable (contract §6.2).
         Carbon::setTestNow(Carbon::createFromTimestamp(1_790_000_019));
         self::assertSame($grant->token, $issuer->resign('admission-1', $grant->signingInput));
 
+        Carbon::setTestNow(Carbon::createFromTimestampMs(1_790_000_019_500));
+        try {
+            $issuer->resign('admission-1', $grant->signingInput);
+            self::fail('Resign must refuse a grant with less than 1 s left.');
+        } catch (NativeAdmissionUnavailable) {
+            self::addToAssertionCount(1);
+        }
+
+        // Exactly 0 s left.
         Carbon::setTestNow(Carbon::createFromTimestamp(1_790_000_020));
         $this->expectException(NativeAdmissionUnavailable::class);
         $issuer->resign('admission-1', $grant->signingInput);
@@ -455,8 +471,17 @@ final class NativeAdmissionGrantIssuerTest extends TestCase
 
         $dump = print_r($keyring, true);
         self::assertStringContainsString('admission-1', $dump);
-        self::assertStringNotContainsString($secretKey, $dump);
-        self::assertStringNotContainsString($seed, $dump);
+        foreach ([
+            $dump,
+            var_export($keyring, true),
+            var_export((array) $keyring, true),
+            print_r((array) $keyring, true),
+            (string) json_encode((array) $keyring),
+        ] as $exported) {
+            self::assertStringNotContainsString($secretKey, $exported);
+            self::assertStringNotContainsString($seed, $exported);
+            self::assertStringNotContainsString(substr($secretKey, 0, 16), $exported);
+        }
         self::assertSame(['currentKeyId' => 'admission-1', 'loadedKeyIds' => ['admission-1']], $keyring->__debugInfo());
 
         $this->expectException(LogicException::class);
