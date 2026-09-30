@@ -51,6 +51,18 @@ return [
         'grant_ttl_seconds' => env('GAME_AUTH_NATIVE_ADMISSION_GRANT_TTL_SECONDS', 20),
     ],
 
+    'native_runtime_status' => [
+        // Default off (N4P rollout step 4). While off, ReportRuntimeStatusV1 answers 503, stores nothing and no scope routes.
+        'enabled' => env('GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED', false),
+        // JSON object: runtime-status client certificate subject => ["<world_id>/<channel_id>", ...] it may serve.
+        // Never another purpose's identity (native evidence, character bootstrap); U15 PKI is not decided.
+        'identities' => env('GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES'),
+        // F and Platform clock uncertainty (U5; Game heartbeat H = 5 s).
+        'freshness_seconds' => env('GAME_AUTH_NATIVE_RUNTIME_STATUS_FRESHNESS_SECONDS', 15),
+        'clock_uncertainty_seconds' => env('GAME_AUTH_NATIVE_RUNTIME_STATUS_CLOCK_UNCERTAINTY_SECONDS', 1),
+        'requests_per_minute' => env('GAME_AUTH_NATIVE_RUNTIME_STATUS_REQUESTS_PER_MINUTE', 600),
+    ],
+
     'character_bootstrap_intent' => [
         'ttl_seconds' => env('GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS'),
         'mtls_client_identity' => env('GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY'),

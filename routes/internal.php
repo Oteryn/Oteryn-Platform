@@ -4,7 +4,9 @@ use App\Http\Controllers\GameAuth\CharacterBootstrapIntentController;
 use App\Http\Controllers\GameAuth\GameLoginContextController;
 use App\Http\Controllers\GameAuth\GameLoginTicketRedeemController;
 use App\Http\Controllers\GameAuth\NativeEvidenceController;
+use App\Http\Controllers\GameAuth\NativeRuntimeStatusController;
 use App\Http\Middleware\GameAuth\EnforceNativeEvidenceHttpBounds;
+use App\Http\Middleware\GameAuth\GuardNativeRuntimeStatusPeer;
 use App\Http\Middleware\GameAuth\PreventSensitiveGameAuthResponseCaching;
 use App\Http\Middleware\GameAuth\RequireCharacterBootstrapIntentMtlsPeer;
 use App\Http\Middleware\GameAuth\RequireGatewayServiceCredential;
@@ -30,6 +32,9 @@ Route::post('/internal/v1/game-auth/native-evidence', NativeEvidenceController::
         ThrottleNativeEvidencePeer::class,
         EnforceNativeEvidenceHttpBounds::class,
     ]);
+
+Route::post('/internal/v1/game-auth/native-runtime-status', NativeRuntimeStatusController::class)
+    ->middleware([PreventSensitiveGameAuthResponseCaching::class, GuardNativeRuntimeStatusPeer::class]);
 
 Route::post('/internal/v1/game-auth/character-bootstrap-intents/read', CharacterBootstrapIntentController::class)
     ->middleware([

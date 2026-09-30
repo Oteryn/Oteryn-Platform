@@ -26,6 +26,7 @@ final class PreventSensitiveGameAuthResponseCaching
             || $request->is('api/v1/game-auth/tickets')
             || $request->is('internal/v1/game-auth/tickets/redeem')
             || $request->is('internal/v1/game-auth/native-evidence')
+            || $request->is('internal/v1/game-auth/native-runtime-status')
             || $request->is('internal/v1/game-auth/character-bootstrap-intents/read');
     }
 

@@ -1,0 +1,20 @@
+{
+  "contract_id": "oteryn-game-native-runtime-status-v1",
+  "game_repository": "Oteryn/Oteryn-Game",
+  "game_commit": "07cd8bcc3539a1504c1f6f6df3e188f53f39adf0",
+  "files": {
+    "report.json": {
+      "source_path": "apps/game-server/tests/native_runtime_status.rs",
+      "source_test": "report_is_the_exact_contract_wire_without_any_endpoint",
+      "encoder": "apps/game-server/src/native_admission_source/runtime_status.rs encode()",
+      "note": "exact encoder output bytes followed by one LF added for the repository final-newline rule; the wire body excludes that LF",
+      "wire_sha256": "de892e99372c7a4f0b4b606238a949e3e65233ec082446c639231a6efc6d00e8",
+      "wire_bytes": 753
+    },
+    "accepted_ack": {
+      "source_path": "apps/game-server/tests/native_runtime_status.rs",
+      "source_constant": "ACK",
+      "value": "{\"contract_version\":1,\"result\":\"accepted\"}"
+    }
+  }
+}
