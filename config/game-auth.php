@@ -49,6 +49,15 @@ return [
         'retiring_signing_key_file' => env('GAME_AUTH_NATIVE_ADMISSION_RETIRING_SIGNING_KEY_FILE'),
         'retiring_signing_key_id' => env('GAME_AUTH_NATIVE_ADMISSION_RETIRING_SIGNING_KEY_ID'),
         'grant_ttl_seconds' => env('GAME_AUTH_NATIVE_ADMISSION_GRANT_TTL_SECONDS', 20),
+        // D171, testing/preproduction only: issue without verifying AccountId -> CharacterId ownership for
+        // Characters of the one configured World; Game FND-04A §5 admission stays the fail-closed guard.
+        // Refused (NATIVE_LOGIN_UNAVAILABLE) in any other environment. Release gate: CHAR-NAME-1 -> LCFA-1 + §5.4.
+        'unverified_character_ownership' => env('GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_OWNERSHIP', false),
+        'unverified_character_world_id' => env('GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID'),
+        // InnoDB lock wait bound for the issuer transaction (1..10 s); a timeout rolls back and fails closed.
+        'lock_wait_timeout_seconds' => env('GAME_AUTH_NATIVE_ADMISSION_LOCK_WAIT_TIMEOUT_SECONDS', 3),
+        // Issuer requests per minute per Gateway service credential (contract §10).
+        'requests_per_minute' => env('GAME_AUTH_NATIVE_ADMISSION_REQUESTS_PER_MINUTE', 120),
     ],
 
     'native_runtime_status' => [
@@ -69,7 +78,7 @@ return [
         // JSON object: scope ownership authority (oteryn-game-ops) certificate subject => ["<world_id>/<channel_id>", ...]
         // whose assignments it may report. Never another purpose's identity, including a runtime-status identity.
         'identities' => env('GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES'),
-        'requests_per_minute' => env('GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_REQUESTS_PER_MINUTE', 60),
+        'requests_per_minute' => env('GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_REQUESTS_PER_MINUTE', 120),
     ],
 
     'character_bootstrap_intent' => [

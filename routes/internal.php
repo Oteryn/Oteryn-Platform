@@ -4,6 +4,7 @@ use App\GameAuth\NativeRuntimeStatus\NativeRuntimeStatusReport;
 use App\Http\Controllers\GameAuth\CharacterBootstrapIntentController;
 use App\Http\Controllers\GameAuth\GameLoginContextController;
 use App\Http\Controllers\GameAuth\GameLoginTicketRedeemController;
+use App\Http\Controllers\GameAuth\NativeAdmissionController;
 use App\Http\Controllers\GameAuth\NativeEvidenceController;
 use App\Http\Controllers\GameAuth\NativeRuntimeStatusController;
 use App\Http\Controllers\GameAuth\NativeScopeAssignmentController;
@@ -26,6 +27,12 @@ Route::post('/internal/v1/game-auth/tickets/redeem', GameLoginTicketRedeemContro
 
 Route::get('/internal/v1/game-auth/accounts/{canaryAccountId}/login-context', GameLoginContextController::class)
     ->middleware([RequireGatewayServiceCredential::class, 'throttle:game-auth-ticket-redeem']);
+
+Route::post('/internal/v1/game-auth/native-admissions', NativeAdmissionController::class)
+    ->middleware([
+        PreventSensitiveGameAuthResponseCaching::class,
+        RequireGatewayServiceCredential::class,
+    ]);
 
 Route::post('/internal/v1/game-auth/native-evidence', NativeEvidenceController::class)
     ->middleware([

@@ -28,6 +28,7 @@ final class PreventSensitiveGameAuthResponseCaching
             || $request->is('internal/v1/game-auth/native-evidence')
             || $request->is('internal/v1/game-auth/native-runtime-status')
             || $request->is('internal/v1/game-auth/native-scope-assignments')
+            || $request->is('internal/v1/game-auth/native-admissions')
             || $request->is('internal/v1/game-auth/character-bootstrap-intents/read');
     }
 

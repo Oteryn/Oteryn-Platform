@@ -71,6 +71,61 @@ final class NativeTopologyRegistry
         return $receipt;
     }
 
+    /**
+     * Publishes the Registry route record of one issued Channel (§7.3, D172 testing/preproduction only).
+     * An unchanged endpoint keeps its route_revision; any endpoint change advances the registry route
+     * version and so invalidates every outstanding grant for the old revision. `$loginEnabled` is the
+     * native login policy of the scope (§7.4 condition 2; U7 for production).
+     */
+    public function publishRouteForPreproduction(
+        int $localWorldRowId,
+        string $channelKey,
+        string $host,
+        int $port,
+        string $tlsServerName,
+        bool $loginEnabled,
+    ): NativeRouteRecord {
+        $this->validateSelector($localWorldRowId, $channelKey);
+        $connection = $this->isolatedConnection();
+
+        $record = $connection->transaction(function () use ($connection, $localWorldRowId, $channelKey, $host, $port, $tlsServerName, $loginEnabled): NativeRouteRecord {
+            $world = $connection->table('game_worlds')->where('id', $localWorldRowId)->lockForUpdate()->first();
+            $channel = $connection->table('game_channels')->where('game_world_id', $localWorldRowId)
+                ->where('channel_key', $channelKey)->lockForUpdate()->first();
+            if ($world === null || $channel === null || ! is_string($world->world_id) || ! is_string($channel->channel_id)) {
+                throw new LogicException('Publish a route only for an issued native WorldId and ChannelId.');
+            }
+
+            $current = NativeRouteRecords::fromRow($world->world_id, $channel);
+            $version = $current === null ? 1 + NativeRouteRecords::storedVersion($channel) : $current->version;
+            if ($current !== null && ! $current->sameEndpoint($host, $port, $tlsServerName)) {
+                $version++;
+            }
+            $record = new NativeRouteRecord($world->world_id, $channel->channel_id, $host, $port, $tlsServerName, $version);
+            $connection->table('game_channels')->where('id', $channel->id)->update([
+                'native_route_host' => $record->host,
+                'native_route_port' => $record->port,
+                'native_route_tls_server_name' => $record->tlsServerName,
+                'native_route_version' => $record->version,
+                'native_route_revision' => $record->routeRevision,
+                'native_login_enabled' => $loginEnabled,
+                'updated_at' => now(),
+            ]);
+
+            return $record;
+        });
+
+        Log::info('Disposable native route record published.', [
+            'service' => 'oteryn-platform-world-registry',
+            'world_id' => $record->worldId,
+            'channel_id' => $record->channelId,
+            'route_revision' => $record->routeRevision,
+            'native_login_enabled' => $loginEnabled,
+        ]);
+
+        return $record;
+    }
+
     public function readbackForPreproduction(int $localWorldRowId, string $channelKey): NativeTopologyReceipt
     {
         $this->validateSelector($localWorldRowId, $channelKey);
