@@ -257,7 +257,7 @@ final class PremiumSnapshotEndpointTest extends TestCase
         $this->read($player->account_id)->assertOk();
         $this->read($player->account_id)->assertOk();
         $this->read($player->account_id)->assertStatus(429)->assertContent('');
-        self::assertSame(2, (int) DB::table('premium_time_authority')->value('authority_revision'));
+        self::assertEquals(2, DB::table('premium_time_authority')->value('authority_revision'));
     }
 
     public function test_invalid_durable_entitlement_state_is_unavailable(): void

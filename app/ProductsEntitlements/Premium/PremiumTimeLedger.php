@@ -122,9 +122,9 @@ final class PremiumTimeLedger
         }
 
         return [
-            'id' => $existing?->id ?? strtolower((string) Str::uuid7()),
+            'id' => $existing->id ?? strtolower((string) Str::uuid7()),
             'state' => PremiumTimeContract::STORED_ACTIVE,
-            'lifecycle_revision' => ($existing?->lifecycleRevision ?? 0) + 1,
+            'lifecycle_revision' => ($existing->lifecycleRevision ?? 0) + 1,
             'effective_from' => $from,
             'effective_until' => $until,
         ];
