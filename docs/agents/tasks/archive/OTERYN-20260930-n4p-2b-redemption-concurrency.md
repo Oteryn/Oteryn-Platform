@@ -56,11 +56,11 @@ Overlap: the integrated N4P-2 packet owned `app/GameAuth/NativeLogin/**`; it is 
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-30T21:00:00Z
+updated_at: 2026-09-30T23:30:00Z
 head: 1fee84a
 branch: claude/n4p-2b-redemption-concurrency
 pr: 1424
-status: validating
+status: completed
 terminal_pr_policy: archive_pending
 context_routes:
   - auth-identity
@@ -115,13 +115,13 @@ validation:
     evidence: no route or actor path; the issuer stays behind the default-off switch until N4P-3
 blockers:
   - none
-next_action: exact-head CI on the repair head; then control plane freezes the head and routes the security review; after integration archive this packet with the next #1419 delivery task
+next_action: none; PR 1424 integrated as e289fc773a430461a7e6c5a3412a4267a90c81f8 and this packet was archived by the next #1419 delivery task (N4P-ING-RS)
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: pending
+source_branch_reason: ordinary same-repository PR integration completed
+source_branch_evidence: source ref claude/n4p-2b-redemption-concurrency absent (ls-remote 2026-09-30) after PR 1424 integrated as e289fc773a430461a7e6c5a3412a4267a90c81f8
 ```
