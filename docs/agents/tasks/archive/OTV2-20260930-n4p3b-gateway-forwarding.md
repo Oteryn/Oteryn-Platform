@@ -51,10 +51,11 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-09-30T23:59:00Z
-head: 146c980 (implementation; this packet update on top)
+head: 3d99f03; integrated as 23da556 (PR 1429)
 branch: claude/n4p3b-gateway-forwarding
 pr: 1429
-status: validating
+status: completed
+terminal_pr_policy: archive_pending
 context_routes:
   - auth-identity
   - security
@@ -96,15 +97,15 @@ validation:
     evidence: every native switch is default-off and enablement is testing/preproduction only under separate authority; joint E2E with Game is #1419 item 5
 blockers:
   - none
-next_action: exact-head CI green; hand back to the control plane (Oteryn/Oteryn-Game#162)
+next_action: none; PR 1429 integrated as 23da556 and this record archived by its post-merge closeout
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: pending
+source_branch_reason: ordinary same-repository PR integration completed
+source_branch_evidence: source ref claude/n4p3b-gateway-forwarding absent (ls-remote 2026-09-30) after PR 1429 integrated as 23da556ff58a5f9f5236ab0ce186ffc7044c72e5
 ```
 
 ## Notes
