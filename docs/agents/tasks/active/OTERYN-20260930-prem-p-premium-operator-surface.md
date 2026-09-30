@@ -67,10 +67,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-09-30T19:40:00Z
-head: pending
+head: 184a20abb1faff6cafe953c2d30f7cb30c327aa1
 branch: claude/prem-p-premium-operator-surface
-pr: none
-status: implementing
+pr: 1436
+status: validating
 context_routes:
   - security
   - frontend
@@ -131,7 +131,7 @@ validation:
     evidence: session egress policy denies third-party Composer package downloads; exact-head CI is the validation of record
 blockers:
   - none
-next_action: open the stacked PR and drive exact-head CI to green
+next_action: drive exact-head CI on PR 1436 to green
 ```
 
 ## Source branch closeout
