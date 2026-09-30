@@ -56,9 +56,9 @@ Overlap: the integrated N4P-2 packet owned `app/GameAuth/NativeLogin/**`; it is 
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-09-30T18:00:00Z
-head: UNKNOWN
+head: 5054cf7
 branch: claude/n4p-2b-redemption-concurrency
-pr: none
+pr: 1424
 status: validating
 terminal_pr_policy: archive_pending
 context_routes:
