@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use InvalidArgumentException;
 use LogicException;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
 /**
@@ -378,6 +379,7 @@ final class NativeAdmissionIssuerTest extends TestCase
         return json_encode($this->payload($ticket, $channelId), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
     }
 
+    /** @return TestResponse<Response> */
     private function admit(string $body): TestResponse
     {
         return $this->call('POST', self::PATH, [], [], [], [
@@ -386,6 +388,7 @@ final class NativeAdmissionIssuerTest extends TestCase
         ], $body);
     }
 
+    /** @param TestResponse<Response> $response */
     private function assertError(TestResponse $response, int $status, string $code, ?string $attemptRef = self::ATTEMPT): void
     {
         $response->assertStatus($status);
