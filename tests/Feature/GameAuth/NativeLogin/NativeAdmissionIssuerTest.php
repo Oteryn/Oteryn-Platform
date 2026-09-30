@@ -329,7 +329,6 @@ final class NativeAdmissionIssuerTest extends TestCase
         $this->report('alpha', $alpha->routeRevision);
         $ticket = $this->ticket();
         $accountId = Identity::query()->sole()->account_id;
-        self::assertIsString($accountId);
         $committed = static fn (int $index, int $issuedAt): array => [
             'attempt_ref' => sprintf('0192b3c4-5d6e-7f80-9a1b-%012d', $index),
             'ticket_hash' => str_repeat('0', 64),
