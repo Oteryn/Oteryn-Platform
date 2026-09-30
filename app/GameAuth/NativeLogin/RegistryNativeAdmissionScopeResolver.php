@@ -33,11 +33,10 @@ final class RegistryNativeAdmissionScopeResolver implements NativeAdmissionScope
     {
         $worldId = self::unverifiedCharacterWorld();
 
-        // Shared epoch lock (lock order: epoch, then nothing else here): an epoch raise cannot land between
-        // the ownership check of the selected report and signing. A waiter is bounded by the issuer's lock
-        // wait timeout and fails closed as NATIVE_LOGIN_UNAVAILABLE.
+        // The caller (NativeAdmissionAttempts::issue) already holds the shared epoch lock, taken before any
+        // non-locking read of its transaction: an epoch raise cannot land between the ownership check of the
+        // selected report and signing, and these reads see every raise committed before the lock.
         try {
-            $this->runtime->lockEpoch(exclusive: false);
             $now = now()->getTimestamp();
             foreach ($this->routes->forWorld($worldId) as $route) {
                 if ($request->channelId !== null && $route->channelId !== $request->channelId) {

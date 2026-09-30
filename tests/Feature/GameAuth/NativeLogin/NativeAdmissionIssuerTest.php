@@ -5,13 +5,17 @@ namespace Tests\Feature\GameAuth\NativeLogin;
 use App\GameAuth\NativeEvidence\NativeEvidenceContract;
 use App\GameAuth\NativeEvidence\NativeSigningTrustRegistry;
 use App\GameAuth\NativeLogin\NativeAdmissionAttempt;
+use App\GameAuth\NativeLogin\NativeAdmissionAttempts;
 use App\GameAuth\NativeLogin\NativeGameLoginTickets;
 use App\GameAuth\Tickets\GameLoginTicket;
 use App\GameAuth\Worlds\GameWorld;
 use App\GameAuth\Worlds\GameWorldStatus;
 use App\GameAuth\Worlds\NativeRouteRecord;
+use App\GameAuth\Worlds\NativeRouteRecords;
 use App\GameAuth\Worlds\NativeTopologyRegistry;
 use App\Identity\Models\Identity;
+use Illuminate\Cache\CacheManager;
+use Illuminate\Cache\RateLimiter;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +24,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use InvalidArgumentException;
 use LogicException;
+use RuntimeException;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
@@ -141,7 +146,14 @@ final class NativeAdmissionIssuerTest extends TestCase
         self::assertNotSame($record->routeRevision, (new NativeRouteRecord($this->worldId, $this->channels['alpha'], 'game-eu1.example.invalid', 7173, 'game-eu1.example.invalid', 1))->routeRevision);
         self::assertSame('::1', (new NativeRouteRecord($this->worldId, $this->channels['alpha'], '::1', 7172, 'localhost', 1))->host);
 
-        foreach ([['Game.example', 7172, 'game.example'], ['game.example', 0, 'game.example'], ['game.example', 7172, '127.0.0.1:1'], ['0:0::1', 7172, 'game.example']] as [$host, $port, $sni]) {
+        self::assertSame('game1.example', (new NativeRouteRecord($this->worldId, $this->channels['alpha'], '10.0.0.1', 7172, 'game1.example', 1))->tlsServerName);
+
+        $invalid = [
+            ['Game.example', 7172, 'game.example'], ['game.example', 0, 'game.example'], ['game.example', 7172, '127.0.0.1:1'], ['0:0::1', 7172, 'game.example'],
+            // An IP-looking tls_server_name (last label all digits) is never a DNS name.
+            ['game.example', 7172, '10.0.0.1'], ['game.example', 7172, 'game.123'], ['game.example', 7172, '4294967295'],
+        ];
+        foreach ($invalid as [$host, $port, $sni]) {
             try {
                 new NativeRouteRecord($this->worldId, $this->channels['alpha'], $host, $port, $sni, 1);
                 self::fail('Invalid route record accepted.');
@@ -246,6 +258,113 @@ final class NativeAdmissionIssuerTest extends TestCase
         self::assertSame(0, NativeAdmissionAttempt::query()->count());
     }
 
+    public function test_route_records_are_unreadable_outside_testing_and_preproduction(): void
+    {
+        $alpha = $this->publish('alpha');
+        $routes = $this->app->make(NativeRouteRecords::class);
+        self::assertSame($alpha->routeRevision, $routes->find($this->worldId, $alpha->channelId)?->routeRevision);
+
+        $this->app->detectEnvironment(fn (): string => 'preproduction');
+        self::assertCount(1, $routes->forWorld($this->worldId));
+
+        foreach (['production', 'local', 'staging'] as $environment) {
+            $this->app->detectEnvironment(fn (): string => $environment);
+            foreach ([fn (): mixed => $routes->forWorld($this->worldId), fn (): mixed => $routes->find($this->worldId, $alpha->channelId)] as $read) {
+                try {
+                    $read();
+                    self::fail('A route record was read in '.$environment.'.');
+                } catch (LogicException) {
+                }
+            }
+        }
+    }
+
+    public function test_a_report_in_an_epoch_below_the_highest_after_a_reset_routes_nowhere(): void
+    {
+        $alpha = $this->publish('alpha');
+        $this->report('alpha', $alpha->routeRevision);
+        $ticket = $this->ticket();
+
+        // The scope itself was reassigned in a new epoch; its report is still in the old one.
+        DB::table('native_scope_assignments')->where('channel_id', $alpha->channelId)->update(['assignment_epoch' => '2']);
+        $this->assertError($this->admit($this->body($ticket)), 503, 'NATIVE_LOGIN_ROUTE_UNAVAILABLE');
+
+        // Another scope raised the epoch (restore reset): the whole old epoch is invalid, report and assignment alike.
+        $this->report('alpha', $alpha->routeRevision);
+        DB::table('native_scope_assignments')->insert([
+            'world_id' => $this->worldId, 'channel_id' => $this->channels['beta'],
+            'assignment_epoch' => '2', 'ownership_generation' => '1', 'node_identity' => self::NODE, 'assigned_at' => self::NOW - 1,
+        ]);
+        $this->assertError($this->admit($this->body($ticket)), 503, 'NATIVE_LOGIN_ROUTE_UNAVAILABLE');
+        self::assertNull(GameLoginTicket::query()->sole()->used_at);
+        self::assertSame(0, NativeAdmissionAttempt::query()->count());
+
+        // Once the scope reports in the highest epoch it routes again.
+        $this->report('alpha', $alpha->routeRevision, epoch: '2');
+        $this->admit($this->body($ticket))->assertOk()->assertJsonPath('channel_id', $alpha->channelId);
+    }
+
+    public function test_a_route_change_after_issuance_answers_route_unavailable_until_exp_then_grant_expired(): void
+    {
+        $alpha = $this->publish('alpha');
+        $this->report('alpha', $alpha->routeRevision);
+        $ticket = $this->ticket();
+        $this->admit($this->body($ticket))->assertOk();
+
+        $moved = $this->publish('alpha', port: 7200);
+        self::assertNotSame($alpha->routeRevision, $moved->routeRevision);
+        $this->assertError($this->admit($this->body($ticket)), 503, 'NATIVE_LOGIN_ROUTE_UNAVAILABLE');
+
+        Carbon::setTestNow(Carbon::createFromTimestamp(self::NOW + 18));
+        $this->assertError($this->admit($this->body($ticket)), 503, 'NATIVE_LOGIN_ROUTE_UNAVAILABLE');
+
+        Carbon::setTestNow(Carbon::createFromTimestamp(self::NOW + 20));
+        $this->assertError($this->admit($this->body($ticket)), 409, 'NATIVE_LOGIN_GRANT_EXPIRED');
+        self::assertSame(1, NativeAdmissionAttempt::query()->count());
+    }
+
+    public function test_committed_attempts_are_limited_per_account_and_a_refusal_leaves_the_ticket_unused(): void
+    {
+        $alpha = $this->publish('alpha');
+        $this->report('alpha', $alpha->routeRevision);
+        $ticket = $this->ticket();
+        $accountId = Identity::query()->sole()->account_id;
+        self::assertIsString($accountId);
+        $committed = static fn (int $index, int $issuedAt): array => [
+            'attempt_ref' => sprintf('0192b3c4-5d6e-7f80-9a1b-%012d', $index),
+            'ticket_hash' => str_repeat('0', 64),
+            'account_id' => $accountId,
+            'character_id' => self::CHARACTER,
+            'requested_channel_id' => null,
+            'world_id' => '0192b3c4-5d6e-7f80-9a1b-000000000000',
+            'channel_id' => '0192b3c4-5d6e-7f80-9a1b-000000000000',
+            'offer_digest' => str_repeat('0', 64),
+            'signing_input' => null,
+            'key_id' => 'admission-1',
+            'issued_at' => $issuedAt,
+            'expires_at' => $issuedAt + 20,
+        ];
+        // An attempt older than 60 s does not count; ten within the window exhaust the limit.
+        DB::table('native_admission_attempts')->insert($committed(0, self::NOW - 61));
+        foreach (range(1, NativeAdmissionAttempts::ACCOUNT_ATTEMPTS_PER_MINUTE) as $index) {
+            DB::table('native_admission_attempts')->insert($committed($index, self::NOW - 50 + $index));
+        }
+
+        $limited = $this->admit($this->body($ticket));
+        $this->assertError($limited, 429, 'NATIVE_LOGIN_RATE_LIMITED');
+        self::assertSame('11', $limited->headers->get('Retry-After'));
+        self::assertNull(GameLoginTicket::query()->sole()->used_at);
+        self::assertSame(11, NativeAdmissionAttempt::query()->count());
+
+        // Another account is not limited by this one.
+        DB::table('native_admission_attempts')->update(['account_id' => '0192b3c4-5d6e-7f80-9a1b-ffffffffffff']);
+        $this->admit($this->body($ticket))->assertOk();
+
+        // A replay of the committed attempt_ref is never limited (§6), even once the account is at the limit.
+        DB::table('native_admission_attempts')->where('attempt_ref', '!=', self::ATTEMPT)->update(['account_id' => $accountId]);
+        $this->admit($this->body($ticket))->assertOk();
+    }
+
     public function test_unverified_character_mode_is_config_gated_and_refused_outside_testing_and_preproduction(): void
     {
         $alpha = $this->publish('alpha');
@@ -296,6 +415,24 @@ final class NativeAdmissionIssuerTest extends TestCase
         $limited = $this->admit($body);
         $this->assertError($limited, 429, 'NATIVE_LOGIN_RATE_LIMITED', self::ATTEMPT);
         self::assertGreaterThanOrEqual(1, (int) $limited->headers->get('Retry-After'));
+
+        // The decision uses only the count of the atomic increment, never a separate check before it.
+        $this->app->instance(RateLimiter::class, new class($this->app->make(CacheManager::class)->driver()) extends RateLimiter
+        {
+            /**
+             * @param  string  $key
+             * @param  int  $maxAttempts
+             */
+            public function tooManyAttempts($key, $maxAttempts): bool
+            {
+                throw new RuntimeException('A check-then-hit rate limit is not atomic.');
+            }
+        });
+        $this->assertError($this->admit($body), 429, 'NATIVE_LOGIN_RATE_LIMITED', self::ATTEMPT);
+        // Refused requests are counted too: four requests so far, so a limit of four still refuses the fifth.
+        config(['game-auth.native_admission.requests_per_minute' => 4]);
+        $this->assertError($this->admit($body), 429, 'NATIVE_LOGIN_RATE_LIMITED', self::ATTEMPT);
+
         $config = require base_path('config/game-auth.php');
         self::assertIsArray($config);
         self::assertIsArray($config['native_scope_assignment']);
@@ -307,18 +444,18 @@ final class NativeAdmissionIssuerTest extends TestCase
         return (new NativeTopologyRegistry)->publishRouteForPreproduction($this->worldRow, $key, $host, $port, $host, $enabled);
     }
 
-    private function report(string $key, string $routeRevision, bool $ready = true, int $observedAt = self::NOW): void
+    private function report(string $key, string $routeRevision, bool $ready = true, int $observedAt = self::NOW, string $epoch = '1'): void
     {
         $scope = ['world_id' => $this->worldId, 'channel_id' => $this->channels[$key]];
         DB::table('native_scope_assignments')->updateOrInsert($scope, [
-            'assignment_epoch' => '1', 'ownership_generation' => '3', 'node_identity' => self::NODE, 'assigned_at' => self::NOW - 60,
+            'assignment_epoch' => $epoch, 'ownership_generation' => '3', 'node_identity' => self::NODE, 'assigned_at' => self::NOW - 60,
         ]);
         $revision = fn (string $name): string => $name.'-1';
         DB::table('native_runtime_status_reports')->updateOrInsert($scope, [
             'node_identity' => self::NODE,
             'source_authority' => 'oteryn-game',
             'node_id' => '01934f10-7c04-7001-805b-3b1122334401',
-            'assignment_epoch' => '1',
+            'assignment_epoch' => $epoch,
             'scope_ownership_generation' => '3',
             'source_revision' => '7',
             'decision_identity' => 'runtime-readiness:0a:3:7:true',

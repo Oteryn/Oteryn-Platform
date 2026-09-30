@@ -5,6 +5,7 @@ namespace App\GameAuth\NativeLogin;
 use App\GameAuth\NativeAdmission\NativeAdmissionGrantContext;
 use App\GameAuth\NativeAdmission\NativeAdmissionGrantIssuer;
 use App\GameAuth\NativeAdmission\NativeAdmissionUnavailable;
+use App\GameAuth\NativeRuntimeStatus\NativeRuntimeStatusReadModel;
 use App\GameAuth\NativeRuntimeStatus\NativeRuntimeStatusSettings;
 use Closure;
 use Illuminate\Database\QueryException;
@@ -13,17 +14,26 @@ use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use JsonException;
 use Throwable;
+use UnexpectedValueException;
 
 /**
  * Native admission issuer transaction with attempt_ref idempotency (contract §6.2):
  * one attempt_ref yields at most one logical grant. A first request redeems the native ticket,
  * resolves Character and route, signs and stores the signing input; a retry re-signs the stored
  * input byte-identically after binding it to its attempt row.
+ *
+ * Lock order of a first request: attempt row, then the shared epoch lock, then ticket, then Identity
+ * (ingestion takes epoch, then assignment, then report, so no cycle exists). Rule: no non-locking read
+ * runs before the epoch lock, so the transaction's consistent snapshot is taken under it and sees every
+ * epoch raise committed before it.
  */
 final class NativeAdmissionAttempts
 {
     /** MySQL/MariaDB ER_LOCK_WAIT_TIMEOUT and ER_LOCK_DEADLOCK. */
     private const LOCK_CONFLICTS = [1205, 1213];
+
+    /** Contract §10: committed attempts per AccountId within the last 60 seconds. */
+    public const ACCOUNT_ATTEMPTS_PER_MINUTE = 10;
 
     /** Set once the transaction body finished, so a later failure is an unknown commit outcome. */
     private bool $committing = false;
@@ -32,6 +42,7 @@ final class NativeAdmissionAttempts
         private readonly NativeGameLoginTickets $tickets,
         private readonly NativeAdmissionScopeResolver $scopes,
         private readonly NativeAdmissionGrantIssuer $issuer,
+        private readonly NativeRuntimeStatusReadModel $runtime,
     ) {}
 
     public function admit(NativeAdmissionRequest $request): NativeAdmissionResult
@@ -142,7 +153,13 @@ final class NativeAdmissionAttempts
 
     private function issue(NativeAdmissionRequest $request): NativeAdmissionResult
     {
+        try {
+            $this->runtime->lockEpoch(exclusive: false);
+        } catch (UnexpectedValueException) {
+            throw new NativeLoginRefused(NativeLoginError::Unavailable);
+        }
         $account = $this->tickets->redeem($request->ticket(), $request->attemptRef);
+        $this->limitCommittedAttempts($account->accountId);
         $scope = $this->scopes->resolve($account, $request);
         if ($scope->characterId !== $request->characterId) {
             throw new NativeLoginRefused(NativeLoginError::CharacterConflict);
@@ -189,6 +206,27 @@ final class NativeAdmissionAttempts
         ]);
 
         return $this->result($request, $scope->worldId, $scope->channelId, $scope->routeRevision, $grant->token, $grant->expiresAt);
+    }
+
+    /**
+     * Contract §10 per-AccountId limit, checked after redemption so it counts only committed attempts.
+     * The redeemed ticket's Identity row lock serializes issuance for one account, so this count sees
+     * every attempt committed before it. The refusal rolls the transaction back and the ticket stays
+     * unused; a replay of a committed attempt_ref is never limited (§6).
+     */
+    private function limitCommittedAttempts(string $accountId): void
+    {
+        $since = now()->getTimestamp() - 60;
+        $issuedAt = NativeAdmissionAttempt::query()
+            ->where('account_id', $accountId)
+            ->where('issued_at', '>=', $since)
+            ->orderBy('issued_at')
+            ->limit(self::ACCOUNT_ATTEMPTS_PER_MINUTE)
+            ->pluck('issued_at');
+        if ($issuedAt->count() >= self::ACCOUNT_ATTEMPTS_PER_MINUTE) {
+            $oldest = $issuedAt->first();
+            throw new NativeLoginRefused(NativeLoginError::RateLimited, max(1, (is_numeric($oldest) ? (int) $oldest : $since) - $since));
+        }
     }
 
     private function replay(NativeAdmissionAttempt $attempt, NativeAdmissionRequest $request): NativeAdmissionResult

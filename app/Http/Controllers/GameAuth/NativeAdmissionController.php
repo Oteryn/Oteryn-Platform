@@ -17,8 +17,9 @@ use Throwable;
  * `POST /internal/v1/game-auth/native-admissions` (login contract §3.3, Decision D1): the private
  * native admission issuer the Gateway calls once per native login. It is reached only behind the
  * Gateway service credential; it rate-limits per credential (§10), decodes the exact §3.1 body, runs
- * the §6.2 issuer transaction and answers with the §3.2 body whose endpoint is the Registry route
- * record bound to the grant's route_revision, or the §11.1 error body. Responses are never cached.
+ * the §6.2 issuer transaction (which also applies the §10 per-AccountId limit) and answers with the
+ * §3.2 body whose endpoint is the Registry route record bound to the grant's route_revision, or the
+ * §11.1 error body. Responses are never cached.
  */
 final class NativeAdmissionController
 {
@@ -31,12 +32,12 @@ final class NativeAdmissionController
         if ($limit === null) {
             return self::refused(NativeLoginError::Unavailable, $attemptRef);
         }
+        // Hit, then compare the count returned by the one atomic cache increment: concurrent requests can
+        // never all pass a separate check before any of them is counted.
         $key = 'game-auth-native-admission:'.hash('sha256', (string) $request->bearerToken());
-        if ($limiter->tooManyAttempts($key, $limit)) {
-            return self::refused(NativeLoginError::RateLimited, $attemptRef)
-                ->header('Retry-After', (string) max(1, $limiter->availableIn($key)));
+        if ($limiter->hit($key, 60) > $limit) {
+            return self::refused(NativeLoginError::RateLimited, $attemptRef, max(1, $limiter->availableIn($key)));
         }
-        $limiter->hit($key, 60);
 
         try {
             $result = $attempts->admit(NativeAdmissionWire::decode($raw));
@@ -46,7 +47,7 @@ final class NativeAdmissionController
                 throw new NativeLoginRefused(NativeLoginError::RouteUnavailable);
             }
         } catch (NativeLoginRefused $refused) {
-            return self::refused($refused->error, $attemptRef);
+            return self::refused($refused->error, $attemptRef, $refused->retryAfterSeconds);
         } catch (Throwable) {
             return self::refused(NativeLoginError::Unavailable, $attemptRef);
         }
@@ -54,8 +55,12 @@ final class NativeAdmissionController
         return new JsonResponse(NativeAdmissionWire::success($result, $route->endpoint()), 200, [], JSON_UNESCAPED_SLASHES);
     }
 
-    private static function refused(NativeLoginError $error, ?string $attemptRef): JsonResponse
+    private static function refused(NativeLoginError $error, ?string $attemptRef, ?int $retryAfterSeconds = null): JsonResponse
     {
-        return new JsonResponse(NativeAdmissionWire::error($error, $attemptRef), $error->httpStatus(), [], JSON_UNESCAPED_SLASHES);
+        $headers = $error === NativeLoginError::RateLimited && $retryAfterSeconds !== null
+            ? ['Retry-After' => (string) $retryAfterSeconds]
+            : [];
+
+        return new JsonResponse(NativeAdmissionWire::error($error, $attemptRef), $error->httpStatus(), $headers, JSON_UNESCAPED_SLASHES);
     }
 }

@@ -35,7 +35,7 @@ final readonly class NativeRouteRecord
         if (preg_match(self::UUID_V7, $worldId) !== 1 || preg_match(self::UUID_V7, $channelId) !== 1
             || ! self::validHost($host)
             || $port < 1 || $port > 65535
-            || preg_match(self::DNS_NAME, $tlsServerName) !== 1
+            || ! self::validServerName($tlsServerName)
             || $version < 1 || $version > 4_294_967_295) {
             throw new InvalidArgumentException('Native route record is invalid.');
         }
@@ -77,6 +77,12 @@ final readonly class NativeRouteRecord
             'protocol_major' => self::PROTOCOL_MAJOR,
             'transport_profile' => self::TRANSPORT_PROFILE,
         ];
+    }
+
+    /** A lowercase LDH DNS name whose last label is not all digits, so it can never read as an IP address. */
+    private static function validServerName(string $name): bool
+    {
+        return preg_match(self::DNS_NAME, $name) === 1 && preg_match('/(?:\A|\.)[0-9]+\z/', $name) !== 1;
     }
 
     /** A lowercase LDH DNS name or a canonical IPv4/IPv6 literal (§3.2 `endpoint.host`). */

@@ -5,12 +5,14 @@ namespace App\GameAuth\Worlds;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
+use LogicException;
 
 /**
  * Read side of the Registry route records for native issuance (§7.4 conditions 1 and 2). Only a
  * Channel with a complete record whose stored route_revision equals the one recomputed from its
  * descriptor, and whose native login policy is enabled, is returned: a record altered in storage or
- * half-written routes nowhere.
+ * half-written routes nowhere. D172 route records exist only in `testing`/`preproduction`, so every read
+ * refuses elsewhere on its own, independently of the D171 gate that runs before it on the issuer path.
  */
 final class NativeRouteRecords
 {
@@ -76,6 +78,10 @@ final class NativeRouteRecords
 
     private function query(): Builder
     {
+        if (! app()->environment(['testing', 'preproduction'])) {
+            throw new LogicException('Native route records are readable only in testing or preproduction (D172).');
+        }
+
         return DB::table('game_channels')
             ->join('game_worlds', 'game_worlds.id', '=', 'game_channels.game_world_id')
             ->where('game_channels.native_login_enabled', true)

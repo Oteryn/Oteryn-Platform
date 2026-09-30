@@ -16,9 +16,9 @@ optional_reads: []
 
 Governing GitHub Issue: #1419 (https://github.com/Oteryn/Oteryn-Platform/issues/1419). Coordination: Oteryn/Oteryn-Game#162 (lane N4-P). Owner authority: D160 (Platform write scope, #162 comment 5899892092), D164, D171, D172 (owner answer 33c/34b, #162 comment 5905264083).
 
-N4P-3: the private issuer `POST /internal/v1/game-auth/native-admissions` (contract §3.3). It fills `NativeAdmissionScopeResolver` with route selection over `NativeTopologyRegistry` plus fresh, ownership-bound runtime status, fail-closed when stale. It adds the D172 native route record on `game_channels` (testing/preproduction only) and the D171 unverified-ownership mode (config-gated, refused outside testing/preproduction). It also bounds the issuer lock wait, raises the scope-assignment rate-limit default from 60 to 120, and adds a contract amendment recording both modes and their release gates.
+N4P-3: the private issuer `POST /internal/v1/game-auth/native-admissions` (contract §3.3). It fills `NativeAdmissionScopeResolver` with route selection over `NativeTopologyRegistry` plus fresh, ownership-bound runtime status, fail-closed when stale. It adds the D172 native route record on `game_channels` (testing/preproduction only) and the D171 unverified-ownership mode (config-gated, refused outside testing/preproduction). It also bounds the issuer lock wait, enforces the §10 per-AccountId limit (10 committed attempts/min) inside the issuer transaction, raises the scope-assignment rate-limit default from 60 to 120, and adds a contract amendment recording both modes and their release gates.
 
-Out of scope: the Go Gateway forwarding of `protocol_version: 2` (split to N4P-3b, a separate later PR), the per-AccountId committed-attempt limit (§10, recorded in the amendment), production config/secrets/enablement, LCFA-1, CHAR-NAME-1, Game repository writes and workflow changes.
+Out of scope: the Go Gateway forwarding of `protocol_version: 2` (split to N4P-3b, a separate later PR), an operator path for `publishRouteForPreproduction` outside the isolated connection (joint-E2E follow-up under separate authority), production config/secrets/enablement, LCFA-1, CHAR-NAME-1, Game repository writes and workflow changes.
 
 ## Acceptance criteria
 
@@ -26,7 +26,9 @@ Out of scope: the Go Gateway forwarding of `protocol_version: 2` (split to N4P-3
 - [x] Route selection: login-enabled Registry route record, fresh ready ownership-bound report, report route_revision equals the record's, lowest ChannelId, requested channel must be a candidate. Stale, invalid or mismatched status routes nowhere.
 - [x] Route record migration (additive, nullable, rollback refused while a record exists) and `publishRouteForPreproduction` (testing/preproduction only, revision stable for an unchanged endpoint, advanced on change).
 - [x] D171 mode config-gated, refused outside testing/preproduction, off by default (fail closed).
-- [x] InnoDB lock wait timeout bounded for the issuer transaction. Issuer limit is 120/min per credential. Scope-assignment default is 120.
+- [x] InnoDB lock wait timeout bounded for the issuer transaction. Issuer limit is 120/min per credential (atomic hit-then-compare). Scope-assignment default is 120.
+- [x] Per-AccountId limit of 10 committed attempts/min inside the issuer transaction; a refusal rolls back and the ticket stays unused.
+- [x] Security review repair (KEEP, no material blocker): route records unreadable outside testing/preproduction; shared epoch lock taken before the ticket redeem and any non-locking read; IP-looking tls_server_name rejected; MariaDB race of issuance vs an epoch raise; lower-epoch and route-change-after-issuance tests.
 - [x] Contract amendment §17 (33a and 34a release gates). The #1426 epoch finding is recorded in U16.
 
 ## Ownership
@@ -45,6 +47,7 @@ owned_paths:
   - database/migrations/2026_09_30_210000_add_native_route_record_to_game_channels.php
   - tests/Feature/GameAuth/NativeLogin/**
   - tests/Feature/GameAuth/Concurrency/NativeGameTicketConcurrencyTest.php
+  - tests/Feature/GameAuth/Concurrency/NativeAdmissionIssuerGameTicketConcurrencyTest.php
   - docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md
   - docs/agents/tasks/active/OTV2-20260930-n4p3-native-admission-issuer.md
   - docs/agents/tasks/archive/OTERYN-20260930-n4p-ing-scope-assignment.md
@@ -64,7 +67,7 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-09-30T23:59:00Z
-head: c575a1a
+head: 0a20fd0 (security review repair generation on top)
 branch: claude/n4p3-native-admission-issuer
 pr: 1427
 status: validating
@@ -81,10 +84,12 @@ owned_paths:
   - database/migrations/2026_09_30_210000_add_native_route_record_to_game_channels.php
   - tests/Feature/GameAuth/NativeLogin/**
   - tests/Feature/GameAuth/Concurrency/NativeGameTicketConcurrencyTest.php
+  - tests/Feature/GameAuth/Concurrency/NativeAdmissionIssuerGameTicketConcurrencyTest.php
   - docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md
 proven:
   - No Platform Character read model exists at b0e7b47; without D171 the only fail-closed answer is NATIVE_LOGIN_ROUTE_UNAVAILABLE
-  - The resolver takes only the shared epoch lock after ticket/Identity row locks; ingestion takes epoch then assignment/report, so no lock-order cycle is added
+  - "Issuer lock order: attempt row, shared epoch lock, ticket, Identity; ingestion takes epoch, assignment, report, so no cycle exists"
+  - Taking the epoch lock after a non-locking read (the per-AccountId count) lets an issuance that waited for an epoch raise grant against the old epoch; the MariaDB race test fails in that order and passes with the lock first
 derived:
   - "D171 needs a Character world: the mode uses one configured unverified_character_world_id; Game FND-04A §5 rejects a Character in another world"
   - A route record changed after issuance answers ROUTE_UNAVAILABLE on retry (grant would be ROUTE_STALE at admission)
@@ -106,16 +111,17 @@ changed_paths:
   - routes/internal.php
   - database/migrations/2026_09_30_210000_add_native_route_record_to_game_channels.php
   - tests/Feature/GameAuth/NativeLogin/
+  - tests/Feature/GameAuth/Concurrency/NativeAdmissionIssuerGameTicketConcurrencyTest.php (new; issuance vs a scope-assignment epoch raise in both orders)
   - tests/Feature/GameAuth/Concurrency/NativeGameTicketConcurrencyTest.php (repeated-lock-conflict proof now bounds the wait through the issuer setting instead of a session statement the issuer overrides)
   - docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md
   - docs/agents/tasks/archive/OTERYN-20260930-n4p-ing-scope-assignment.md (moved from active)
 validation:
   - command: vendor/bin/phpunit tests/Feature/GameAuth and the full suite (sqlite)
     result: PASS
-    evidence: local PHP 8.4.19, dependencies from the lock installed from source without phpstan/larastan (scratch manifest; composer.json requires ^8.5); GameAuth 179 tests, 16 skipped; full suite 745 tests, 0 failures, 30 skipped
+    evidence: local PHP 8.4.19, dependencies from the lock installed from source without phpstan/larastan (scratch manifest; composer.json requires ^8.5); review repair generation GameAuth 185 tests, 18 skipped; full suite 751 tests, 0 failures, 32 skipped; the new tests for items 1, 4, 5 and 6 fail against 0a20fd0 app code
   - command: php artisan test --filter=GameTicketConcurrencyTest and NativeTopologyConcurrencyTest (MariaDB 10.11 InnoDB, GAME_AUTH_CONCURRENCY_TEST=1, pcntl)
     result: PASS
-    evidence: local; 11 + 3 tests pass. With the old session statement (innodb_lock_wait_timeout = 1) instead of the issuer setting, the repeated-lock-conflict test fails because the issuer's own 3 s bound overrides it, which proves the bound is applied. CI runs MariaDB 11.8
+    evidence: local; review repair generation 13 + 3 tests pass (2 new issuer-vs-epoch-raise races). Earlier generation 11 + 3. With the old session statement (innodb_lock_wait_timeout = 1) instead of the issuer setting, the repeated-lock-conflict test fails because the issuer's own 3 s bound overrides it, which proves the bound is applied. CI runs MariaDB 11.8
   - command: vendor/bin/pint --test on changed PHP files, git diff --check, checkpoint.py --require-checkpoint
     result: PASS
     evidence: local
@@ -127,7 +133,7 @@ validation:
     evidence: the Gateway native branch (N4P-3b) does not forward yet and every switch is default-off; joint E2E is #1419 item 5
 blockers:
   - none
-next_action: exact-head CI green; control plane freezes the head and routes the required security review
+next_action: exact-head CI green on the review repair head; hand back to the control plane (Oteryn/Oteryn-Game#162)
 ```
 
 ## Source branch closeout
@@ -141,3 +147,5 @@ source_branch_evidence: pending
 ## Notes
 
 Split: the Go Gateway forwarding of the native branch is N4P-3b (separate later PR).
+
+Security review repair (disposition KEEP, no material blocker), one push on 0a20fd0: (1) `NativeRouteRecords` refuses every read outside testing/preproduction; (2) `NativeAdmissionAttempts::issue` takes the shared epoch lock before `tickets->redeem`, rule "no non-locking read before the epoch lock"; (3) MariaDB race, lower-epoch-after-reset and route-change-after-issuance tests; (4) §10 per-AccountId limit enforced, deferral wording removed; (5) IP-looking `tls_server_name` rejected; (6) atomic hit-then-compare credential limit; (7) out of scope: `publishRouteForPreproduction` works only on the isolated connection, so joint E2E needs an operator path under separate authority.
