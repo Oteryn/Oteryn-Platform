@@ -68,11 +68,11 @@ Overlap: no open Platform PR touches the owned paths (checked 2026-09-30). The i
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-30T23:30:00Z
-head: b4f014a
+updated_at: 2026-09-30T23:59:00Z
+head: 88e1546
 branch: claude/n4p-ing-runtime-status
 pr: 1425
-status: validating
+status: completed
 terminal_pr_policy: archive_pending
 context_routes:
   - auth-identity
@@ -95,6 +95,7 @@ proven:
   - The Game encoder output (fixture, 753 bytes, sha256 de892e99...) is accepted byte-for-byte and acknowledged with the exact Game ACK bytes
   - Every Game encode() grammar refusal (zero epoch/generation/revision, observed before published, negative time, protocol_major 2, 65-char revision, space in revision, uppercase uuid, quote in decision_identity) is a 400 here; the largest grammar-valid report (uint64 max, i64 max times, 128/64-char strings) parses within 2048 bytes
   - A report is never accepted without a matching assignment row, so no runtime state exists until the assignment ingestion lands
+  - "Security review KEEP at frozen head 88e1546 (#1425 comment 5904675686); follow-ups 1-3 (early HTTP bounds, ownership-authority identity reuse, epoch lock and MariaDB lock-order proof) carried by N4P-ING-SA"
 derived:
   - A future observed_at is refused 400 without mutation (contract says "invalid"; the previous report goes stale within F anyway)
   - A report whose identity differs from the assignment's node_identity is 409 (conflict with the current assignment); an identity whose configured scope list lacks the scope is 401
@@ -135,13 +136,13 @@ validation:
     evidence: no actor path yet; the endpoint is default-off and nothing routes until assignment ingestion and N4P-3 route selection exist; joint E2E is #1419 item 5
 blockers:
   - none
-next_action: exact-head CI; then the control plane freezes the head and routes the security review; after integration archive this packet with the next #1419 delivery task
+next_action: none; PR 1425 integrated as 328472d00670df2cd27e5300ca8904a97d5a5b2a and this packet was archived by the next #1419 delivery task (N4P-ING-SA)
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: pending
+source_branch_reason: ordinary same-repository PR integration completed
+source_branch_evidence: source ref claude/n4p-ing-runtime-status absent (ls-remote 2026-09-30) after PR 1425 integrated as 328472d00670df2cd27e5300ca8904a97d5a5b2a
 ```

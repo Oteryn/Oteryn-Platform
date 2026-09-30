@@ -8,7 +8,8 @@ use JsonException;
  * Validated `game-auth.native_runtime_status` configuration. `current()` is null while the default-off
  * switch is off or any value is invalid, so ingestion answers 503 and nothing routes (fail closed).
  * Each runtime-status identity is one node host's certificate subject with the scopes it may serve
- * (login contract §7.2); it may never equal another purpose's identity.
+ * (login contract §7.2); it may never equal another purpose's identity, including an ownership-authority
+ * identity (`native_scope_assignment`).
  */
 final readonly class NativeRuntimeStatusSettings
 {
@@ -27,7 +28,7 @@ final readonly class NativeRuntimeStatusSettings
         if (config('game-auth.native_runtime_status.enabled') !== true) {
             return null;
         }
-        $identities = self::identities(config('game-auth.native_runtime_status.identities'));
+        $identities = self::identities(config('game-auth.native_runtime_status.identities'), 'native_scope_assignment');
         $freshness = self::bounded(config('game-auth.native_runtime_status.freshness_seconds'), 1, 60);
         $uncertainty = self::bounded(config('game-auth.native_runtime_status.clock_uncertainty_seconds'), 0, 5);
         $rate = self::bounded(config('game-auth.native_runtime_status.requests_per_minute'), 1, 600);
@@ -49,28 +50,30 @@ final readonly class NativeRuntimeStatusSettings
         return in_array($worldId.'/'.$channelId, $this->identities[$identity] ?? [], true);
     }
 
-    /** @return array<string, list<string>>|null */
-    private static function identities(mixed $raw): ?array
+    /**
+     * Identity => scope list, refusing (null) any identity of another purpose: native evidence,
+     * character bootstrap and every identity configured under `game-auth.<$otherSection>.identities`,
+     * whether or not that purpose is enabled.
+     *
+     * @return array<string, list<string>>|null
+     */
+    public static function identities(mixed $raw, string $otherSection): ?array
     {
-        if (is_string($raw)) {
-            try {
-                $raw = json_decode($raw, true, 3, JSON_THROW_ON_ERROR);
-            } catch (JsonException) {
-                return null;
-            }
-        }
+        $raw = self::decoded($raw);
         if (! is_array($raw) || $raw === [] || array_is_list($raw)) {
             return null;
         }
 
+        $other = self::decoded(config('game-auth.'.$otherSection.'.identities'));
         $otherPurposes = [
             config('game-auth.native_evidence.mtls_client_identity'),
             config('game-auth.character_bootstrap_intent.mtls_client_identity'),
+            ...(is_array($other) ? array_map('strval', array_keys($other)) : []),
         ];
         $identities = [];
         foreach ($raw as $identity => $scopes) {
             if (! is_string($identity)
-                || preg_match('/^[\x20-\x7e]{1,128}$/D', $identity) !== 1
+                || preg_match(NativeScopeAssignmentReport::IDENTITY, $identity) !== 1
                 || in_array($identity, $otherPurposes, true)
                 || ! is_array($scopes)
                 || $scopes === []
@@ -90,7 +93,16 @@ final readonly class NativeRuntimeStatusSettings
         return $identities;
     }
 
-    private static function bounded(mixed $value, int $minimum, int $maximum): ?int
+    private static function decoded(mixed $raw): mixed
+    {
+        try {
+            return is_string($raw) ? json_decode($raw, true, 3, JSON_THROW_ON_ERROR) : $raw;
+        } catch (JsonException) {
+            return null;
+        }
+    }
+
+    public static function bounded(mixed $value, int $minimum, int $maximum): ?int
     {
         if (is_string($value) && preg_match('/^(0|[1-9][0-9]{0,3})$/D', $value) === 1) {
             $value = (int) $value;

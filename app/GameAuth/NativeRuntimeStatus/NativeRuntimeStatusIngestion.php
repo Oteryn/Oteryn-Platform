@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
  * the highest epoch (else 409). Per scope the key (assignment_epoch, scope_ownership_generation,
  * source_revision) only moves forward: lower is `superseded`; an equal key with other content marks
  * the scope invalid (409) until a higher key; an equal key with identical content refreshes observed_at.
+ * The highest epoch is read under the shared epoch lock, so an epoch raise cannot race the check.
  */
 final class NativeRuntimeStatusIngestion
 {
@@ -29,10 +30,11 @@ final class NativeRuntimeStatusIngestion
         }
 
         $result = DB::transaction(function () use ($identity, $report): string {
+            $highest = $this->readModel->lockEpoch(exclusive: false);
             $scope = ['world_id' => $report->worldId, 'channel_id' => $report->channelId];
             $assignment = DB::table('native_scope_assignments')->where($scope)->lockForUpdate()->first();
             if ($assignment === null
-                || NativeRuntimeStatusRow::string($assignment, 'assignment_epoch') !== $this->readModel->highestEpoch()
+                || NativeRuntimeStatusRow::string($assignment, 'assignment_epoch') !== $highest
                 || NativeRuntimeStatusRow::string($assignment, 'assignment_epoch') !== $report->assignmentEpoch
                 || NativeRuntimeStatusRow::string($assignment, 'ownership_generation') !== $report->scopeOwnershipGeneration
                 || ! hash_equals(NativeRuntimeStatusRow::string($assignment, 'node_identity'), $identity)) {

@@ -63,6 +63,15 @@ return [
         'requests_per_minute' => env('GAME_AUTH_NATIVE_RUNTIME_STATUS_REQUESTS_PER_MINUTE', 600),
     ],
 
+    'native_scope_assignment' => [
+        // Default off. While off (or while native_runtime_status is invalid), ReportScopeAssignmentV1 answers 503.
+        'enabled' => env('GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_ENABLED', false),
+        // JSON object: scope ownership authority (oteryn-game-ops) certificate subject => ["<world_id>/<channel_id>", ...]
+        // whose assignments it may report. Never another purpose's identity, including a runtime-status identity.
+        'identities' => env('GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES'),
+        'requests_per_minute' => env('GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_REQUESTS_PER_MINUTE', 60),
+    ],
+
     'character_bootstrap_intent' => [
         'ttl_seconds' => env('GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS'),
         'mtls_client_identity' => env('GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY'),
