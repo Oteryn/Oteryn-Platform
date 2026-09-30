@@ -445,7 +445,7 @@ Rollback: switch the native branch off; outstanding grants expire within 30 s; C
 | U13 | Attempt audit retention period | item 4 | Platform + owner |
 | U14 | Gateway→issuer auth (existing credential vs mTLS) | item 4 | Platform |
 | U15 | Client-identity separation per purpose: per-node runtime-status certificates with scope lists, Character Authority projection certificates, ownership-authority certificate, all distinct from native evidence; PKI issuing them | items 3, 5 | Platform + Game + owner |
-| U16 | Runtime-status restore reset: how `assignment_epoch` is stored and raised after a Game durability-root restore | item 3, Game | Game architect |
+| U16 | Runtime-status restore reset: how `assignment_epoch` is stored and raised after a Game durability-root restore. Platform finding (#1426 review): the epoch is global, so any ownership-authority identity may raise it for every scope; either restrict epoch raises to an identity holding every scope or keep it an operator-only action. Two first reports for different scopes can gap-lock deadlock; this fails safe as `503` and the producer retries | item 3, Game | Game architect |
 | U17 | Projection liveness bound S (proposed 30 s) and watermark period (10 s) | item 3 | architect, measured |
 | U18 | Whether the Registry also pins gameplay revisions (conflicts with Q16b "no manual source") | item 3 | architect + owner |
 
@@ -464,6 +464,18 @@ Rollback: switch the native branch off; outstanding grants expire within 30 s; C
 - logs and responses free of every §13 secret;
 - joint E2E through the real Gateway, issuer and game node (Game node-boot job).
 
-## 17. Non-authorization
+## 17. Amendment N4P-3: testing/preproduction issuance modes
+
+Owner decisions D171 and D172 (Oteryn-Game #162; answers 33c/34b, comment 5905264083) allow the private issuer (§3.3) to run before two prerequisites exist. Both modes are limited to the `testing` and `preproduction` environments, default off, and change no claim, header, error or wire shape.
+
+**Mode 33a (D171): Character ownership not verified.** Until the Character read model exists (§5), the issuer does not verify `AccountId -> CharacterId` ownership, availability or current world. It is enabled only by `GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_OWNERSHIP=true` together with one configured `GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID` (canonical UUIDv7) that serves as the Character's `world_id`. With the mode off, issuance fails closed with `NATIVE_LOGIN_ROUTE_UNAVAILABLE` (no Character source, §5.4). With the mode on outside `testing`/`preproduction`, or with an invalid world, issuance fails closed with `NATIVE_LOGIN_UNAVAILABLE`. The request `character_id` is copied into the grant unvalidated. Game FND-04A §5 admission stays the fail-closed guard: a foreign, unavailable or moved Character is rejected there (`ADMISSION_ACCOUNT_CHARACTER_CONFLICT`, `ADMISSION_GRANT_WORLD_STALE`). **Release gate:** CHAR-NAME-1, then LCFA-1, then the full §5.4 issuance check replaces this mode. The mode is never enabled for a release entry.
+
+**Mode 34a (D172): Registry route record for testing/preproduction.** The §7.3 route record is stored on `game_channels` (`native_route_host`, `native_route_port`, `native_route_tls_server_name`, `native_route_version`, `native_route_revision`) with the §7.3 `route_revision` digest. It is published only through `NativeTopologyRegistry::publishRouteForPreproduction`, which is restricted to `testing`/`preproduction` like topology issuance (U8). An unchanged endpoint keeps its revision, and any endpoint change advances the version. `native_login_enabled` (default false) is the per-scope native login policy of §7.4 condition 2 in this mode. A stored record whose revision does not equal the one recomputed from its descriptor routes nowhere. The client verifies `tls_server_name` against the explicitly configured root used by `oteryn-dev-client` (§3.2). **Release gate:** U3 (gameplay CA), then D3 acceptance and U7 (production login policy), before any production route record exists.
+
+Selection follows §7.4 over these records, using the runtime-status read model under the shared epoch lock. A report that is not `fresh` (stale, invalid, superseded or not ownership-bound), not ready, or whose `route_revision` differs from the record routes nowhere (`NATIVE_LOGIN_ROUTE_UNAVAILABLE`). The response `endpoint` is the record whose `route_revision` is bound in the grant. If that record changed after issuance, the retry answers `NATIVE_LOGIN_ROUTE_UNAVAILABLE` until `exp`, then `NATIVE_LOGIN_GRANT_EXPIRED`.
+
+Issuer limits in this amendment: every InnoDB lock wait inside the issuer transaction is bounded by `GAME_AUTH_NATIVE_ADMISSION_LOCK_WAIT_TIMEOUT_SECONDS` (default 3 s, 1..10), and a timeout rolls back as `NATIVE_LOGIN_UNAVAILABLE`. The per-Gateway-credential limit is 120/minute (§10). The `native-scope-assignments` ingestion default is now 120/minute, matching §10. The per-`AccountId` limit of 10 committed attempts per minute (§10) is not yet enforced and is required before activation beyond internal builds. The Go Gateway forwarding of the native branch is a separate later change.
+
+## 18. Non-authorization
 
 This candidate authorizes no code, migration, route, configuration, secret, key, certificate, deployment, production change or Game repository change. Each #1419 delivery item needs its own task packet and PR after acceptance.

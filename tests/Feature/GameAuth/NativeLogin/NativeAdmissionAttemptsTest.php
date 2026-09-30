@@ -15,7 +15,7 @@ use App\GameAuth\NativeLogin\NativeGameLoginTickets;
 use App\GameAuth\NativeLogin\NativeLoginError;
 use App\GameAuth\NativeLogin\NativeLoginRefused;
 use App\GameAuth\NativeLogin\RedeemedNativeAccount;
-use App\GameAuth\NativeLogin\UnavailableNativeAdmissionScopeResolver;
+use App\GameAuth\NativeLogin\RegistryNativeAdmissionScopeResolver;
 use App\GameAuth\Tickets\GameLoginTicket;
 use App\GameAuth\Tickets\GameLoginTicketDenied;
 use App\GameAuth\Tickets\IssueGameLoginTicket;
@@ -191,10 +191,10 @@ final class NativeAdmissionAttemptsTest extends TestCase
         self::assertNotNull(GameLoginTicket::query()->sole()->used_at);
     }
 
-    public function test_default_resolver_fails_closed_until_route_selection_exists(): void
+    public function test_default_resolver_fails_closed_without_a_character_source(): void
     {
         $this->app->forgetInstance(NativeAdmissionScopeResolver::class);
-        self::assertInstanceOf(UnavailableNativeAdmissionScopeResolver::class, $this->app->make(NativeAdmissionScopeResolver::class));
+        self::assertInstanceOf(RegistryNativeAdmissionScopeResolver::class, $this->app->make(NativeAdmissionScopeResolver::class));
 
         $this->assertRefused(NativeLoginError::RouteUnavailable, $this->request($this->ticket($this->identity())));
         self::assertNull(GameLoginTicket::query()->sole()->used_at);

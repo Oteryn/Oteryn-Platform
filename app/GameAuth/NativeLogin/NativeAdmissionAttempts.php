@@ -5,6 +5,8 @@ namespace App\GameAuth\NativeLogin;
 use App\GameAuth\NativeAdmission\NativeAdmissionGrantContext;
 use App\GameAuth\NativeAdmission\NativeAdmissionGrantIssuer;
 use App\GameAuth\NativeAdmission\NativeAdmissionUnavailable;
+use App\GameAuth\NativeRuntimeStatus\NativeRuntimeStatusSettings;
+use Closure;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -37,7 +39,16 @@ final class NativeAdmissionAttempts
         if (filter_var(config('game-auth.native_admission.enabled'), FILTER_VALIDATE_BOOL) !== true) {
             throw new NativeLoginRefused(NativeLoginError::Unavailable);
         }
+        $lockWait = NativeRuntimeStatusSettings::bounded(config('game-auth.native_admission.lock_wait_timeout_seconds'), 1, 10);
+        if ($lockWait === null) {
+            throw new NativeLoginRefused(NativeLoginError::Unavailable);
+        }
 
+        return $this->withLockWaitTimeout($lockWait, fn (): NativeAdmissionResult => $this->admitOnce($request));
+    }
+
+    private function admitOnce(NativeAdmissionRequest $request): NativeAdmissionResult
+    {
         try {
             return $this->attempt($request);
         } catch (NativeAdmissionAttemptRace|UniqueConstraintViolationException) {
@@ -87,6 +98,39 @@ final class NativeAdmissionAttempts
         } catch (Throwable) {
             // Unknown commit outcome: only the same attempt_ref and ticket can resolve it.
             throw new NativeLoginRefused($this->committing ? NativeLoginError::ReconciliationRequired : NativeLoginError::Unavailable);
+        }
+    }
+
+    /**
+     * Bounds every InnoDB row-lock wait of the issuer transaction (ticket, Identity, attempt row, epoch
+     * lock) so a stuck writer yields a fast rollback (ER_LOCK_WAIT_TIMEOUT, then NATIVE_LOGIN_UNAVAILABLE)
+     * instead of holding the Gateway call. The session value is restored for a reused connection.
+     *
+     * @param  Closure(): NativeAdmissionResult  $admit
+     */
+    private function withLockWaitTimeout(int $seconds, Closure $admit): NativeAdmissionResult
+    {
+        $connection = DB::connection();
+        if ($connection->getDriverName() !== 'mysql' || $connection->transactionLevel() !== 0) {
+            return $admit();
+        }
+
+        try {
+            $row = $connection->selectOne('SELECT @@SESSION.innodb_lock_wait_timeout AS seconds');
+            $current = is_object($row) ? (get_object_vars($row)['seconds'] ?? null) : null;
+            $previous = is_int($current) || (is_string($current) && ctype_digit($current)) ? (int) $current : 50;
+            $connection->statement('SET SESSION innodb_lock_wait_timeout = '.$seconds);
+        } catch (QueryException) {
+            throw new NativeLoginRefused(NativeLoginError::Unavailable);
+        }
+        try {
+            return $admit();
+        } finally {
+            try {
+                $connection->statement('SET SESSION innodb_lock_wait_timeout = '.max(1, $previous));
+            } catch (QueryException) {
+                // A failed reset leaves only a shorter wait on this connection; the admission result stands.
+            }
         }
     }
 

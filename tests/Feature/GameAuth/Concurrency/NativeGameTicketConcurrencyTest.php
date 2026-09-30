@@ -197,7 +197,8 @@ final class NativeGameTicketConcurrencyTest extends TestCase
             }
             usleep(1000);
         }
-        DB::statement('SET SESSION innodb_lock_wait_timeout = 1');
+        // The issuer bounds its own lock waits; each wait of the request ends in 1205 after 1 s.
+        config(['game-auth.native_admission.lock_wait_timeout_seconds' => 1]);
 
         return $operation();
     }

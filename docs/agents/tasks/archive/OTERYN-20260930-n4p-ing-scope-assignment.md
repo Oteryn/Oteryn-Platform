@@ -74,7 +74,7 @@ updated_at: 2026-09-30T23:59:00Z
 head: 85b4567
 branch: claude/n4p-ing-scope-assignment
 pr: 1426
-status: validating
+status: completed
 terminal_pr_policy: archive_pending
 context_routes:
   - auth-identity
@@ -139,13 +139,13 @@ validation:
     evidence: both endpoints are default-off and nothing routes until N4P-3 route selection; the Game ops producer does not exist yet; joint E2E is #1419 item 5
 blockers:
   - none
-next_action: exact-head CI; then the control plane freezes the head and routes the security review; after integration archive this packet with the next #1419 delivery task
+next_action: none; PR 1426 integrated as b0e7b47468c1bd1184170aa1775902e99cd83861 and this packet was archived by the next #1419 delivery task (N4P-3 native admission issuer)
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: pending
+source_branch_reason: ordinary same-repository PR integration completed
+source_branch_evidence: source ref claude/n4p-ing-scope-assignment absent (ls-remote 2026-09-30) after PR 1426 integrated as b0e7b47468c1bd1184170aa1775902e99cd83861
 ```
