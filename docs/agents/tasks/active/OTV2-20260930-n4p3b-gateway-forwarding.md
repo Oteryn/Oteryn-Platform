@@ -49,9 +49,9 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-09-30T23:59:00Z
-head: UNKNOWN
+head: 146c980 (implementation; this packet update on top)
 branch: claude/n4p3b-gateway-forwarding
-pr: none
+pr: 1429
 status: validating
 context_routes:
   - auth-identity
