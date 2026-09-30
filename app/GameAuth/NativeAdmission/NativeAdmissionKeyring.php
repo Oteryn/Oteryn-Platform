@@ -4,21 +4,56 @@ namespace App\GameAuth\NativeAdmission;
 
 use App\GameAuth\NativeEvidence\NativeEvidenceContract;
 use InvalidArgumentException;
+use LogicException;
 use SensitiveParameter;
 
 /**
  * Ed25519 signing keys of the native admission issuer (contract §9.1): the current key and
  * at most one retiring key kept for re-signing (§6.3, §9.3). Each key is read from an
  * externally injected secret file path; the key value itself is never configuration.
+ *
+ * The path must name a regular, non-symlink file owned by the process user with no group or other
+ * permission bits. A standard Kubernetes secret volume exposes each key as a symlink, so it is
+ * refused (fail closed); mount the key at a non-symlink path instead (production custody is U9).
+ * The keyring holds secret key bytes, so it redacts debug output and refuses serialization.
  */
 final class NativeAdmissionKeyring
 {
     private const MAX_KEY_FILE_BYTES = 128;
 
+    private const KEY_ID = '/\A[A-Za-z0-9._-]{1,64}\z/';
+
+    private const SEED = '/\A[A-Za-z0-9_-]{43}\z/';
+
+    private const FILE_TYPE_MASK = 0o170000;
+
+    private const REGULAR_FILE = 0o100000;
+
     /** @var array<string, non-empty-string>|null kid => 64-byte libsodium secret key */
     private ?array $secretKeys = null;
 
     private ?string $currentKeyId = null;
+
+    /** @return array<string, mixed> */
+    public function __debugInfo(): array
+    {
+        return [
+            'currentKeyId' => $this->currentKeyId,
+            'loadedKeyIds' => $this->secretKeys === null ? [] : array_keys($this->secretKeys),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public function __serialize(): array
+    {
+        throw new LogicException('The native admission keyring holds secret key material and cannot be serialized.');
+    }
+
+    /** @param array<string, mixed> $data */
+    public function __unserialize(array $data): void
+    {
+        throw new LogicException('The native admission keyring cannot be unserialized.');
+    }
 
     public function currentKeyId(): string
     {
@@ -90,36 +125,70 @@ final class NativeAdmissionKeyring
         } catch (InvalidArgumentException) {
             throw new NativeAdmissionUnavailable("Native admission {$role} key id is invalid.");
         }
+        if (preg_match(self::KEY_ID, $value) !== 1) {
+            throw new NativeAdmissionUnavailable("Native admission {$role} key id is invalid.");
+        }
 
         return $value;
     }
 
-    /** @return non-empty-string */
+    /**
+     * Opens the key file once and validates the opened handle, so the checked file is the read file.
+     * lstat() refuses a symlink at the path; the handle's device and inode must equal what lstat()
+     * saw, so a path swapped to a symlink between the two calls is refused as well.
+     *
+     * @return non-empty-string
+     */
     private function readKeyFile(mixed $path, string $role): string
     {
         if (! is_string($path) || $path === '' || ! str_starts_with($path, '/')) {
             throw new NativeAdmissionUnavailable("Native admission {$role} key file must be an absolute path.");
         }
         clearstatcache(true, $path);
-        if (is_link($path) || ! is_file($path) || ! is_readable($path)) {
+        $link = @lstat($path);
+        if ($link === false || ($link['mode'] & self::FILE_TYPE_MASK) !== self::REGULAR_FILE) {
             throw new NativeAdmissionUnavailable("Native admission {$role} key file is not a readable regular file.");
         }
-        $mode = fileperms($path);
-        if ($mode === false || ($mode & 0o077) !== 0) {
-            throw new NativeAdmissionUnavailable("Native admission {$role} key file must not be accessible to group or others.");
+
+        $handle = @fopen($path, 'rb');
+        if ($handle === false) {
+            throw new NativeAdmissionUnavailable("Native admission {$role} key file is not a readable regular file.");
         }
-        $contents = file_get_contents($path, false, null, 0, self::MAX_KEY_FILE_BYTES + 1);
+        try {
+            $stat = fstat($handle);
+            if ($stat === false
+                || $stat['dev'] !== $link['dev']
+                || $stat['ino'] !== $link['ino']
+                || ($stat['mode'] & self::FILE_TYPE_MASK) !== self::REGULAR_FILE) {
+                throw new NativeAdmissionUnavailable("Native admission {$role} key file is not a readable regular file.");
+            }
+            if (($stat['mode'] & 0o077) !== 0) {
+                throw new NativeAdmissionUnavailable("Native admission {$role} key file must not be accessible to group or others.");
+            }
+            if (function_exists('posix_geteuid') && $stat['uid'] !== posix_geteuid()) {
+                throw new NativeAdmissionUnavailable("Native admission {$role} key file must be owned by the issuer process user.");
+            }
+            if ($stat['size'] > self::MAX_KEY_FILE_BYTES) {
+                throw new NativeAdmissionUnavailable("Native admission {$role} key file is unreadable or oversized.");
+            }
+            $contents = stream_get_contents($handle, self::MAX_KEY_FILE_BYTES + 1);
+        } finally {
+            fclose($handle);
+        }
         if (! is_string($contents) || strlen($contents) > self::MAX_KEY_FILE_BYTES) {
             throw new NativeAdmissionUnavailable("Native admission {$role} key file is unreadable or oversized.");
         }
 
-        return $this->secretKeyFromSeed(rtrim($contents, "\n"), $role);
+        return $this->secretKeyFromSeed(
+            str_ends_with($contents, "\n") ? substr($contents, 0, -1) : $contents,
+            $role,
+        );
     }
 
     /** @return non-empty-string */
     private function secretKeyFromSeed(#[SensitiveParameter] string $encoded, string $role): string
     {
-        $seed = preg_match('/^[A-Za-z0-9_-]{43}$/', $encoded) === 1
+        $seed = preg_match(self::SEED, $encoded) === 1
             ? base64_decode(strtr($encoded.'=', '-_', '+/'), true)
             : false;
         if (! is_string($seed) || strlen($seed) !== SODIUM_CRYPTO_SIGN_SEEDBYTES

@@ -53,10 +53,10 @@ Overlap: `OTERYN-20260912-platform-native-evidence-hardening` (#1388, PR #1389 m
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-29T23:30:00Z
-head: 4d6edf6
+updated_at: 2026-09-30T01:30:00Z
+head: 1ce1d61
 branch: claude/n4p-1-native-login-issuer
-pr: none
+pr: 1421
 status: validating
 context_routes:
   - auth-identity
@@ -69,6 +69,8 @@ owned_paths:
 proven:
   - NativeSigningTrustRegistry previously allowed re-keying a kid by key revision and had no trusted-key ceiling
   - libsodium detached Ed25519 signatures are deterministic, so stored signing input plus kid re-signs byte-identically
+  - Review 5901672391 at 1ce1d614 found publishTrustedKey could re-trust or re-key a kid of an earlier profile version; the repair refuses any kid already used in an earlier version
+  - Validation regexes anchored with a bare $ accepted a trailing newline; the repair anchors every regex in owned paths with \A and \z
 derived:
   - Self-check cache is per issuer instance and bounded to 5 s, so a revocation stops signing within 5 s
 unknown:
@@ -80,6 +82,7 @@ first_failure:
   evidence: none
 rejected_hypotheses:
   - Reading trust through NativeEvidenceSource rejected; it persists observations and advances high-water, so a read-only registry lookup is used
+  - Editing the shared CanonicalAccountId and NativeEvidenceContract::assertKeyId regexes rejected in this packet (outside owned paths); the issuer, keyring, context and registry apply local strict checks instead
 changed_paths:
   - app/GameAuth/NativeAdmission/IssuedNativeAdmissionGrant.php
   - app/GameAuth/NativeAdmission/NativeAdmissionGrantContext.php
@@ -91,15 +94,12 @@ changed_paths:
   - tests/Feature/GameAuth/NativeAdmission/NativeAdmissionGrantIssuerTest.php
   - docs/agents/tasks/active/OTERYN-20260929-n4p-1-native-login-issuer.md
 validation:
-  - command: vendor/bin/phpunit (full Unit and Feature suites)
+  - command: vendor/bin/phpunit, vendor/bin/phpstan analyse, vendor/bin/pint --test at 4d6edf6
     result: PASS
-    evidence: 686 tests, 24 skipped, one pre-existing unrelated PHPUnit notice (PublicSeoConditionalRequestTest); 10 new NativeAdmission tests
-  - command: vendor/bin/phpstan analyse
+    evidence: 686 tests, 24 skipped, one pre-existing unrelated notice; phpstan and pint clean; superseded by the review repair
+  - command: review repair (findings 1, 2, 4-7 of review 5901672391); php -l on changed PHP files and a stubbed issuer/keyring harness
     result: PASS
-    evidence: full repository, no errors
-  - command: vendor/bin/pint --test
-    result: PASS
-    evidence: full repository
+    evidence: local; composer install blocked (dependency downloads from github.com refused by the session proxy), so PHPUnit, PHPStan and Pint for the repair run in exact-head CI
   - command: python tools/agents/checkpoint.py, documentation_ia.py, source_branch_closeout.py, git diff --check
     result: PASS
     evidence: local; PHP 8.4.19 locally while composer requires 8.5, exact-head CI is authoritative
@@ -108,7 +108,7 @@ validation:
     evidence: no route or actor path in this slice; the issuer is reachable only from N4P-1b
 blockers:
   - none
-next_action: open the N4P-1a PR, freeze, then start N4P-1b (native login endpoint) in its own packet
+next_action: control plane freezes the repaired PR #1421 head, runs exact-head CI and a fresh review; then N4P-1b (native login endpoint) in its own packet
 ```
 
 ## Source branch closeout

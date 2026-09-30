@@ -2,7 +2,6 @@
 
 namespace App\GameAuth\NativeAdmission;
 
-use App\Identity\Support\CanonicalAccountId;
 use InvalidArgumentException;
 
 /**
@@ -12,10 +11,14 @@ use InvalidArgumentException;
  */
 final readonly class NativeAdmissionGrantContext
 {
-    // Conservative subset of the FND-04 §5 token grammar; the pinned Game verifier fixtures (§16) are authoritative.
-    private const REVISION = '/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/';
+    // Every pattern is anchored with \A and \z so a trailing newline never passes.
+    // Lowercase UUIDv7, the CanonicalAccountId grammar.
+    private const UUID_V7 = '/\A[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/';
 
-    private const NON_ZERO_UINT64 = '/^[1-9][0-9]{0,19}$/';
+    // Conservative subset of the FND-04 §5 token grammar; the pinned Game verifier fixtures (§16) are authoritative.
+    private const REVISION = '/\A[A-Za-z0-9][A-Za-z0-9._:-]{0,63}\z/';
+
+    private const NON_ZERO_UINT64 = '/\A[1-9][0-9]{0,19}\z/';
 
     public function __construct(
         public string $attemptRef,
@@ -40,7 +43,7 @@ final readonly class NativeAdmissionGrantContext
             'world_id' => $worldId,
             'channel_id' => $channelId,
         ] as $name => $value) {
-            if (! CanonicalAccountId::isValid($value)) {
+            if (preg_match(self::UUID_V7, $value) !== 1) {
                 throw new InvalidArgumentException("Native admission {$name} is not a canonical UUIDv7.");
             }
         }

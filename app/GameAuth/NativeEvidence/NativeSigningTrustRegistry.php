@@ -24,7 +24,7 @@ final class NativeSigningTrustRegistry
         string $publicKeyBytes,
     ): stdClass {
         $this->assertSupportedScope($issuer, $profile, $keyPurpose);
-        NativeEvidenceContract::assertKeyId($keyId);
+        $this->assertKeyId($keyId);
         $encoded = NativeEvidenceContract::encodePublicKey($publicKeyBytes);
         $stateNamespace = NativeEvidenceNamespace::trustState($issuer, $profile, $keyPurpose);
 
@@ -87,6 +87,11 @@ final class NativeSigningTrustRegistry
                     }
                     $keyRevision = $this->nextPositive($currentKeyRevision, 'native signing key revision');
                 } else {
+                    // One kid, one public key forever, and a revoked kid is never re-trusted, across every
+                    // profile version (contract §9.2, §9.3); publishNextProfileVersion enforces the same.
+                    if ($this->historicalKeyIdExists($issuer, $profile, $keyPurpose, $keyId)) {
+                        throw new LogicException('A native signing key id cannot be reused across trust profile versions.');
+                    }
                     if ($this->isFreshAdmissionScope($issuer, $profile)
                         && $this->trustedKeyCount($profileId) >= self::MAX_FRESH_TRUSTED_KEYS) {
                         throw new LogicException('At most two fresh admission signing keys may be trusted at once.');
@@ -114,7 +119,7 @@ final class NativeSigningTrustRegistry
         string $publicKeyBytes,
     ): stdClass {
         $this->assertSupportedScope($issuer, $profile, $keyPurpose);
-        NativeEvidenceContract::assertKeyId($keyId);
+        $this->assertKeyId($keyId);
         $encoded = NativeEvidenceContract::encodePublicKey($publicKeyBytes);
         $stateNamespace = NativeEvidenceNamespace::trustState($issuer, $profile, $keyPurpose);
 
@@ -167,7 +172,7 @@ final class NativeSigningTrustRegistry
     public function revokeKey(string $issuer, string $profile, string $keyPurpose, string $keyId): stdClass
     {
         $this->assertSupportedScope($issuer, $profile, $keyPurpose);
-        NativeEvidenceContract::assertKeyId($keyId);
+        $this->assertKeyId($keyId);
         $stateNamespace = NativeEvidenceNamespace::trustState($issuer, $profile, $keyPurpose);
 
         return $this->witness->withNamespace($stateNamespace, function (?int $floor, Closure $advance) use (
@@ -254,7 +259,7 @@ final class NativeSigningTrustRegistry
     public function trustedPublicKey(string $issuer, string $profile, string $keyPurpose, string $keyId): ?string
     {
         $this->assertSupportedScope($issuer, $profile, $keyPurpose);
-        NativeEvidenceContract::assertKeyId($keyId);
+        $this->assertKeyId($keyId);
 
         $trustProfile = DB::table('native_game_signing_trust_profiles')
             ->where('issuer', $issuer)
@@ -273,6 +278,18 @@ final class NativeSigningTrustRegistry
         NativeEvidenceContract::assertEncodedPublicKey($latest->public_key);
 
         return $latest->public_key;
+    }
+
+    /**
+     * NativeEvidenceContract::assertKeyId plus a strict end anchor, so a trailing newline can never
+     * enter the registry or the FND-04 header.
+     */
+    private function assertKeyId(string $keyId): void
+    {
+        NativeEvidenceContract::assertKeyId($keyId);
+        if (preg_match('/\A[A-Za-z0-9._-]{1,64}\z/', $keyId) !== 1) {
+            throw new InvalidArgumentException('Invalid native evidence key id.');
+        }
     }
 
     private function isFreshAdmissionScope(string $issuer, string $profile): bool
@@ -403,7 +420,7 @@ final class NativeSigningTrustRegistry
         if (is_int($value) && $value >= 1) {
             return $value;
         }
-        if (is_string($value) && preg_match('/^[1-9][0-9]{0,18}$/', $value) === 1) {
+        if (is_string($value) && preg_match('/\A[1-9][0-9]{0,18}\z/', $value) === 1) {
             $parsed = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
             if (is_int($parsed)) {
                 return $parsed;

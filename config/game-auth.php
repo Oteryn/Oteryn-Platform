@@ -41,6 +41,9 @@ return [
         // Default off. Testing/preproduction only (N4P-1); production needs separate authority (U8, U9).
         'enabled' => env('GAME_AUTH_NATIVE_ADMISSION_ENABLED', false),
         // Paths to externally injected secret files holding the base64url Ed25519 seed; never the key itself.
+        // Each file must be a regular, non-symlink file owned by the issuer process user with mode 0600
+        // or stricter. Kubernetes secret volumes expose keys as symlinks and are refused: mount the key
+        // at a non-symlink path (for example a subPath mount). Production custody stays U9.
         'signing_key_file' => env('GAME_AUTH_NATIVE_ADMISSION_SIGNING_KEY_FILE'),
         'signing_key_id' => env('GAME_AUTH_NATIVE_ADMISSION_SIGNING_KEY_ID'),
         'retiring_signing_key_file' => env('GAME_AUTH_NATIVE_ADMISSION_RETIRING_SIGNING_KEY_FILE'),

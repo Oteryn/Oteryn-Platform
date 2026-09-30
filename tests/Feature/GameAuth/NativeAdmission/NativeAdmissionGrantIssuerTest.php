@@ -41,7 +41,7 @@ final class NativeAdmissionGrantIssuerTest extends TestCase
     {
         Carbon::setTestNow();
         foreach (glob($this->directory.'/{,witness/}*', GLOB_BRACE) ?: [] as $path) {
-            is_file($path) && @unlink($path);
+            (is_link($path) || is_file($path)) && @unlink($path);
         }
         @rmdir($this->directory.'/witness');
         @rmdir($this->directory);
@@ -253,6 +253,216 @@ final class NativeAdmissionGrantIssuerTest extends TestCase
         self::assertSame('18446744073709551615', $this->context(['scopeOwnershipGeneration' => '18446744073709551615'])->scopeOwnershipGeneration);
     }
 
+    public function test_resign_refuses_a_tampered_expired_or_oversized_stored_payload(): void
+    {
+        $seed = $this->installKey('current', 'admission-1');
+        $this->trust('admission-1', $this->publicKey($seed));
+        Carbon::setTestNow(Carbon::createFromTimestamp(1_790_000_000));
+        $issuer = $this->issuer();
+        $grant = $issuer->issue($this->context());
+        $claims = json_decode($this->decode(explode('.', $grant->signingInput)[1]), true, 2, JSON_THROW_ON_ERROR);
+        self::assertIsArray($claims);
+        $iat = $claims['iat'] ?? null;
+        self::assertIsInt($iat);
+
+        $tampered = [
+            'extra claim' => json_encode($claims + ['admin' => true], JSON_UNESCAPED_SLASHES),
+            'missing claim' => json_encode(array_diff_key($claims, ['offer_revision' => true]), JSON_UNESCAPED_SLASHES),
+            'reordered claims' => json_encode(['aud' => $claims['aud'], 'iss' => $claims['iss']] + $claims, JSON_UNESCAPED_SLASHES),
+            'wrong issuer' => json_encode(['iss' => 'urn:oteryn:platform:game-recovery'] + $claims, JSON_UNESCAPED_SLASHES),
+            'wrong audience' => json_encode(array_replace($claims, ['aud' => 'urn:oteryn:game:other']), JSON_UNESCAPED_SLASHES),
+            'wrong profile' => json_encode(array_replace($claims, ['profile' => 'oteryn-reauth-recovery-v1']), JSON_UNESCAPED_SLASHES),
+            'wrong purpose' => json_encode(array_replace($claims, ['purpose' => 'platform_security']), JSON_UNESCAPED_SLASHES),
+            'nbf differs from iat' => json_encode(array_replace($claims, ['nbf' => $iat + 1]), JSON_UNESCAPED_SLASHES),
+            'ttl above 30 s' => json_encode(array_replace($claims, ['exp' => $iat + 31]), JSON_UNESCAPED_SLASHES),
+            'string generation with newline' => json_encode(array_replace($claims, ['account_security_generation' => "7\n"]), JSON_UNESCAPED_SLASHES),
+            'nested claim' => json_encode(array_replace($claims, ['route_revision' => ['rt']]), JSON_UNESCAPED_SLASHES),
+            'whitespace' => json_encode($claims, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+            'not json' => 'not json',
+            'oversized' => json_encode($claims + ['pad' => str_repeat('a', 3072)], JSON_UNESCAPED_SLASHES),
+        ];
+        foreach ($tampered as $case => $payload) {
+            self::assertIsString($payload);
+            try {
+                $issuer->resign('admission-1', $this->signingInput('admission-1', $payload));
+                self::fail("Resign must refuse a stored payload with: {$case}.");
+            } catch (NativeAdmissionUnavailable) {
+                self::addToAssertionCount(1);
+            }
+        }
+
+        Carbon::setTestNow(Carbon::createFromTimestamp(1_790_000_019));
+        self::assertSame($grant->token, $issuer->resign('admission-1', $grant->signingInput));
+
+        Carbon::setTestNow(Carbon::createFromTimestamp(1_790_000_020));
+        $this->expectException(NativeAdmissionUnavailable::class);
+        $issuer->resign('admission-1', $grant->signingInput);
+    }
+
+    public function test_production_environment_is_refused(): void
+    {
+        $seed = $this->installKey('current', 'admission-1');
+        $this->trust('admission-1', $this->publicKey($seed));
+        $grant = $this->issuer()->issue($this->context());
+
+        $this->app['env'] = 'production';
+        try {
+            $this->issuer()->issue($this->context());
+            self::fail('Issuance must be refused in production.');
+        } catch (NativeAdmissionUnavailable $exception) {
+            self::assertStringContainsString('testing or preproduction', $exception->getMessage());
+        }
+
+        $this->expectException(NativeAdmissionUnavailable::class);
+        $this->issuer()->resign($grant->keyId, $grant->signingInput);
+    }
+
+    public function test_resign_is_refused_when_the_switch_is_off(): void
+    {
+        $seed = $this->installKey('current', 'admission-1');
+        $this->trust('admission-1', $this->publicKey($seed));
+        $grant = $this->issuer()->issue($this->context());
+
+        config(['game-auth.native_admission.enabled' => false]);
+        $this->expectException(NativeAdmissionUnavailable::class);
+        $this->expectExceptionMessage('disabled');
+        $this->issuer()->resign($grant->keyId, $grant->signingInput);
+    }
+
+    public function test_revoked_profile_stops_signing(): void
+    {
+        $seed = $this->installKey('current', 'admission-1');
+        $this->trust('admission-1', $this->publicKey($seed));
+        Carbon::setTestNow(Carbon::createFromTimestamp(1_790_000_000));
+        $grant = $this->issuer()->issue($this->context());
+
+        $this->registry()->revokeProfile(NativeEvidenceContract::FRESH_ISSUER, NativeEvidenceContract::FRESH_PROFILE, self::PURPOSE);
+
+        try {
+            $this->issuer()->issue($this->context());
+            self::fail('A revoked trust profile must stop issuance.');
+        } catch (NativeAdmissionUnavailable) {
+            self::addToAssertionCount(1);
+        }
+        $this->expectException(NativeAdmissionUnavailable::class);
+        $this->issuer()->resign($grant->keyId, $grant->signingInput);
+    }
+
+    public function test_symlinked_key_file_and_retiring_kid_equal_to_current_are_refused(): void
+    {
+        $this->installKey('current', 'admission-1');
+        $path = config('game-auth.native_admission.signing_key_file');
+        self::assertIsString($path);
+
+        $link = $this->directory.'/link.key';
+        self::assertTrue(symlink($path, $link));
+        config(['game-auth.native_admission.signing_key_file' => $link]);
+        $this->assertKeyringRefuses();
+
+        config(['game-auth.native_admission.signing_key_file' => $this->directory]);
+        $this->assertKeyringRefuses();
+
+        config(['game-auth.native_admission.signing_key_file' => $path]);
+        $this->installKey('retiring', 'admission-1');
+        try {
+            (new NativeAdmissionKeyring)->currentKeyId();
+            self::fail('A retiring kid equal to the current kid must be refused.');
+        } catch (NativeAdmissionUnavailable $exception) {
+            self::assertStringContainsString('must differ', $exception->getMessage());
+        }
+    }
+
+    public function test_trailing_newline_is_refused_everywhere(): void
+    {
+        foreach ([
+            ['attemptRef' => "0192b3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b\n"],
+            ['accountId' => "0192b3c4-5d6e-7f80-8a1b-2c3d4e5f6a70\n"],
+            ['accountSecurityGeneration' => "7\n"],
+            ['scopeOwnershipGeneration' => "5\n"],
+            ['routeRevision' => "rt.1\n"],
+            ['offerRevision' => "offer.1\n"],
+        ] as $override) {
+            try {
+                $this->context($override);
+                self::fail('Context must reject '.json_encode($override));
+            } catch (InvalidArgumentException) {
+                self::addToAssertionCount(1);
+            }
+        }
+
+        try {
+            $this->trust("admission-1\n", str_repeat("\x01", 32));
+            self::fail('The registry must refuse a kid with a trailing newline.');
+        } catch (InvalidArgumentException) {
+            self::addToAssertionCount(1);
+        }
+
+        $seed = $this->installKey('current', "admission-1\n");
+        $this->assertKeyringRefuses();
+
+        config(['game-auth.native_admission.signing_key_id' => 'admission-1']);
+        $this->trust('admission-1', $this->publicKey($seed));
+        $grant = $this->issuer()->issue($this->context());
+        try {
+            $this->issuer()->resign("admission-1\n", $grant->signingInput);
+            self::fail('Resign must refuse a kid with a trailing newline.');
+        } catch (NativeAdmissionUnavailable) {
+            self::addToAssertionCount(1);
+        }
+
+        $this->expectException(NativeAdmissionUnavailable::class);
+        $this->issuer()->resign('admission-1', $grant->signingInput."\n");
+    }
+
+    public function test_registry_refuses_cross_version_reuse_of_a_kid(): void
+    {
+        $registry = $this->registry();
+        $keyA = str_repeat("\x01", 32);
+        $keyB = str_repeat("\x09", 32);
+        $this->trust('admission-1', $keyA);
+        $registry->revokeKey(NativeEvidenceContract::FRESH_ISSUER, NativeEvidenceContract::FRESH_PROFILE, self::PURPOSE, 'admission-1');
+        $registry->revokeProfile(NativeEvidenceContract::FRESH_ISSUER, NativeEvidenceContract::FRESH_PROFILE, self::PURPOSE);
+        $registry->publishNextProfileVersion(
+            NativeEvidenceContract::FRESH_ISSUER,
+            NativeEvidenceContract::FRESH_PROFILE,
+            self::PURPOSE,
+            'admission-2',
+            str_repeat("\x02", 32),
+        );
+
+        foreach (['same key' => $keyA, 'another key' => $keyB] as $case => $key) {
+            try {
+                $this->trust('admission-1', $key);
+                self::fail("Re-publishing a kid of an earlier profile version with the {$case} must be refused.");
+            } catch (LogicException $exception) {
+                self::assertStringContainsString('cannot be reused across trust profile versions', $exception->getMessage());
+            }
+        }
+
+        self::assertNull($registry->trustedPublicKey(NativeEvidenceContract::FRESH_ISSUER, NativeEvidenceContract::FRESH_PROFILE, self::PURPOSE, 'admission-1'));
+        self::assertSame(
+            NativeEvidenceContract::encodePublicKey(str_repeat("\x03", 32)),
+            $this->trust('admission-3', str_repeat("\x03", 32))->public_key,
+        );
+    }
+
+    public function test_keyring_redacts_debug_output_and_refuses_serialization(): void
+    {
+        $seed = $this->installKey('current', 'admission-1');
+        $keyring = new NativeAdmissionKeyring;
+        self::assertSame('admission-1', $keyring->currentKeyId());
+        $secretKey = sodium_crypto_sign_secretkey(sodium_crypto_sign_seed_keypair($seed));
+
+        $dump = print_r($keyring, true);
+        self::assertStringContainsString('admission-1', $dump);
+        self::assertStringNotContainsString($secretKey, $dump);
+        self::assertStringNotContainsString($seed, $dump);
+        self::assertSame(['currentKeyId' => 'admission-1', 'loadedKeyIds' => ['admission-1']], $keyring->__debugInfo());
+
+        $this->expectException(LogicException::class);
+        self::assertNotSame('', serialize($keyring));
+    }
+
     private function assertKeyringRefuses(): void
     {
         try {
@@ -329,6 +539,13 @@ final class NativeAdmissionGrantIssuerTest extends TestCase
             'worldPolicyRevision' => 'policy.1',
             'offerRevision' => 'offer.1',
         ], $override));
+    }
+
+    private function signingInput(string $keyId, string $payload): string
+    {
+        $encode = static fn (string $bytes): string => rtrim(strtr(base64_encode($bytes), '+/', '-_'), '=');
+
+        return $encode('{"alg":"Ed25519","kid":"'.$keyId.'","typ":"oteryn-admission+jwt"}').'.'.$encode($payload);
     }
 
     /** @return non-empty-string */
