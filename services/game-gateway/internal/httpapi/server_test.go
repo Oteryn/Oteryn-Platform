@@ -275,3 +275,55 @@ func assertSensitiveResponseNoCache(t *testing.T, response *httptest.ResponseRec
 		t.Fatalf("unexpected Expires header: %q", got)
 	}
 }
+
+type recordingNativeHandler struct {
+	bodies []string
+}
+
+func (h *recordingNativeHandler) Serve(w http.ResponseWriter, _ *http.Request, body []byte) {
+	h.bodies = append(h.bodies, string(body))
+	w.WriteHeader(http.StatusTeapot)
+}
+
+const nativeLoginBody = `{"protocol_version":2,"game_login_ticket":"native-ticket","attempt_ref":"0192b3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b","character_id":"0192b3c4-5d6e-7f80-8a1b-2c3d4e5f6a7c","channel_id":null,"offer":{"client_build":"0.1.0","client_platform":"windows","transports":[{"protocol_major":1,"transport_profile":1,"alpn":"oteryn-game/1"}]}}`
+
+func TestNativeLoginIsDefaultOffAndKeepsTheLegacyAnswer(t *testing.T) {
+	platform := legacyTestPlatform()
+	sessions := &testSessionIssuer{}
+	server := NewServer(gateway.NewService(platform, sessions), "test", slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
+
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/login", strings.NewReader(nativeLoginBody)))
+	if response.Code != http.StatusBadRequest || strings.TrimSpace(response.Body.String()) != `{"error":"invalid_request"}` {
+		t.Fatalf("expected the unchanged legacy refusal, got %d %s", response.Code, response.Body.String())
+	}
+	if platform.redeemCalls != 0 || sessions.calls != 0 {
+		t.Fatalf("a native request must never reach the Canary path")
+	}
+}
+
+func TestNativeLoginRoutesOnlyProtocolVersionTwo(t *testing.T) {
+	now := time.Now().UTC()
+	platform := legacyTestPlatform()
+	sessions := &testSessionIssuer{session: gateway.Session{Credential: "session-secret", ExpiresAt: now.Add(time.Minute)}}
+	server := NewServer(gateway.NewService(platform, sessions), "test", slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
+	native := &recordingNativeHandler{}
+	server.EnableNativeLogin(native)
+
+	for _, body := range []string{nativeLoginBody, `{"protocol_version":2,"protocol_version":2}`} {
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/login", strings.NewReader(body)))
+		if response.Code != http.StatusTeapot {
+			t.Fatalf("protocol_version 2 must reach the native branch, got %d", response.Code)
+		}
+		if response.Header().Get("Cache-Control") != "no-store, no-cache, must-revalidate, private" {
+			t.Fatalf("native responses must not be cacheable")
+		}
+	}
+
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/login", strings.NewReader(`{"protocol_version":1,"game_login_ticket":"ticket"}`)))
+	if response.Code != http.StatusOK || sessions.calls != 1 || len(native.bodies) != 2 {
+		t.Fatalf("protocol_version 1 must keep the Canary path, got %d sessions=%d native=%d", response.Code, sessions.calls, len(native.bodies))
+	}
+}

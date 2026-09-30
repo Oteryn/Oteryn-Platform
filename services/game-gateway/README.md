@@ -26,6 +26,8 @@ The Gateway:
 
 The Gateway has no Platform or Canary database credentials.
 
+`POST /v1/login` with `protocol_version: 2` is the native login branch of `docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md`. It is off by default; see [Native login branch](#native-login-branch).
+
 Native candidate persistence is empty and disabled by default. Producer rollout and rollback are documented in `docs/operations/OTERYN_NATIVE_PROTOCOL_PRODUCER.md`. Otheryn and Rust native consumers remain required before activation.
 
 ## Environment
@@ -45,6 +47,8 @@ Optional:
 GATEWAY_LISTEN_ADDR=:8080
 GATEWAY_REQUEST_TIMEOUT=5s
 GATEWAY_VERSION=dev
+GATEWAY_NATIVE_LOGIN_ENABLED=false
+GATEWAY_NATIVE_ADMISSION_TIMEOUT=5s
 ```
 
 Service credentials are injected runtime secrets. Do not commit them or place them in URLs.
@@ -135,6 +139,27 @@ Response semantics:
 
 The concrete Canary-compatible Session Issuer is delivered by Canary PR #722. Its bounded OTClient -> Gateway -> Canary E2E is proven, but production activation still requires exact private/TLS routing, injected credential rotation and production-like re-verification against the deployed revisions.
 
+### Native login branch
+
+With `GATEWAY_NATIVE_LOGIN_ENABLED=true` (exactly `true` or `false`; default off), a request whose top-level `protocol_version` is the integer `2` is served by the native branch (`internal/nativelogin`). Every other request keeps the Canary-compatible path above unchanged, and a native request never reaches the ticket redeem, login-context or Game Session issuer calls. With the switch off, `protocol_version: 2` keeps its previous `400 {"error":"invalid_request"}` answer.
+
+The native branch:
+
+1. applies the contract §10 Gateway limits in process: 30 requests per minute per connection source address (no forwarding header is trusted) and 6 requests in total per (`attempt_ref`, ticket hash), retained for 2 minutes (longer than a ticket's 60 s plus a grant's 30 s); the limiter refuses new keys when its bounded table is full;
+2. validates the exact §3.1 request with the issuer's rules (2048 bytes, exact members, canonical UUIDv7s, bounded ASCII, at least one supported transport);
+3. forwards the re-encoded request once to the private issuer:
+
+```text
+POST /internal/v1/game-auth/native-admissions
+Authorization: Bearer <platform service credential>
+```
+
+4. returns the issuer's §3.2 success only after validating it exactly (same `attempt_ref`, requested channel if any, Registry endpoint, `oteryn-pre-admission-v1` JWS of at most 4096 bytes, validity 1..30 s), or a §11.1 error body.
+
+The issuer call uses the Gateway -> Platform service credential, is bounded by `GATEWAY_NATIVE_ADMISSION_TIMEOUT` (at most 8 s) and never follows redirects. Error mapping for an issuer that gives no valid answer: a request that never left the Gateway is `NATIVE_LOGIN_UNAVAILABLE`; once written, a timeout, transport failure or invalid success body is `ADMISSION_ATTEMPT_RECONCILIATION_REQUIRED` (the client retries the same ticket and `attempt_ref`, and the issuer returns the committed grant); an issuer error body outside the §11.2 mapping is `NATIVE_LOGIN_UNAVAILABLE`. Issuer error codes pass through; `SECURITY_TERMINAL` codes are only ever public as `NATIVE_LOGIN_AUTHENTICATION_REQUIRED`.
+
+The Gateway holds no database or signing credential and no grant state. Enablement is limited to `testing`/`preproduction` by the issuer; production enablement needs separate authority.
+
 ## Response caching
 
 `POST /v1/login` returns opaque Game Session material and therefore sets `Cache-Control: no-store, no-cache, must-revalidate, private`, `Pragma: no-cache` and `Expires: 0` on success and bounded failure responses.
@@ -149,7 +174,9 @@ Structured logs contain bounded request metadata only:
 - status;
 - duration.
 
-The service does not log request/response bodies, headers, Game Login Tickets, service credentials or Game Session secrets.
+The native branch adds one `native_login_result` line with the canonical `attempt_ref` (or empty) and the result code.
+
+The service does not log request/response bodies, headers, Game Login Tickets, grants, service credentials or Game Session secrets.
 
 ## Local validation
 

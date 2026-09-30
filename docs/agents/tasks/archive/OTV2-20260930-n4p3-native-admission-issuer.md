@@ -67,10 +67,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-09-30T23:59:00Z
-head: 0a20fd0 (security review repair generation on top)
+head: 0a20fd0 (security review repair generation on top); integrated as f880cd744f8846f3efb8e7c1edadf1ea048656ce
 branch: claude/n4p3-native-admission-issuer
 pr: 1427
-status: validating
+status: completed
 terminal_pr_policy: archive_pending
 context_routes:
   - auth-identity
@@ -133,15 +133,15 @@ validation:
     evidence: the Gateway native branch (N4P-3b) does not forward yet and every switch is default-off; joint E2E is #1419 item 5
 blockers:
   - none
-next_action: exact-head CI green on the review repair head; hand back to the control plane (Oteryn/Oteryn-Game#162)
+next_action: none; PR 1427 integrated as f880cd7 and this record archived by N4P-3b (PR 1429)
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: pending
+source_branch_reason: ordinary same-repository PR integration completed
+source_branch_evidence: source ref claude/n4p3-native-admission-issuer absent (ls-remote 2026-09-30) after PR 1427 integrated as f880cd744f8846f3efb8e7c1edadf1ea048656ce
 ```
 
 ## Notes
