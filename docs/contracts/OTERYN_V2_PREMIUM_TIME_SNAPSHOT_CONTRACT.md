@@ -58,6 +58,7 @@ effective_until := min(effective_until, now)
 lifecycle_revision := lifecycle_revision + 1
 ```
 
+- If revocation happens in the same second the interval started, `effective_until` becomes `effective_from + 1 s`, so that `effective_from < effective_until` still holds. `REVOKED` still wins classification, so this second grants no benefit.
 - Revocation removes all remaining time. It does not remove one grant's days while keeping the rest. An operator who needs a shorter term revokes and then re-grants.
 - Revoking an entitlement that is not `ACTIVE`, or an absent one, is refused and changes nothing.
 - A later grant starts a new interval (2.2) at a higher `lifecycle_revision`. The generic contract permits this: a higher lifecycle revision supersedes every lower one. The revision fence is never lowered.
