@@ -61,26 +61,7 @@ final readonly class NativeRuntimeStatusReport
 
     public static function fromWire(string $raw): self
     {
-        if ($raw === '' || strlen($raw) > self::MAX_REQUEST_BYTES) {
-            throw new InvalidArgumentException('Runtime status report size is invalid.');
-        }
-        // A duplicate (even an escaped spelling of a name) adds a member name that decoding would drop.
-        preg_match_all('/"((?:[^"\\\\]|\\\\.)*)"\s*:/s', $raw, $names);
-        if (count($names[1]) !== count(self::CONTENT) + 3) {
-            throw new InvalidArgumentException('Runtime status report member count is invalid.');
-        }
-
-        try {
-            $decoded = json_decode($raw, true, 2, JSON_THROW_ON_ERROR);
-        } catch (JsonException $exception) {
-            throw new InvalidArgumentException('Runtime status report JSON is invalid.', 0, $exception);
-        }
-        if (! is_array($decoded)
-            || count($decoded) !== count(self::CONTENT) + 3
-            || ($decoded['contract_version'] ?? null) !== 1
-            || ($decoded['operation'] ?? null) !== 'ReportRuntimeStatusV1') {
-            throw new InvalidArgumentException('Runtime status report envelope is invalid.');
-        }
+        $decoded = self::decode($raw, count(self::CONTENT) + 3, 'ReportRuntimeStatusV1');
 
         $content = [];
         foreach (self::CONTENT as $name => $grammar) {
@@ -106,6 +87,38 @@ final readonly class NativeRuntimeStatusReport
         );
     }
 
+    /**
+     * The exact flat Game object with $members members (including contract_version and operation):
+     * no unknown, duplicate (even an escaped spelling), missing, null or nested member.
+     *
+     * @return array<mixed>
+     */
+    public static function decode(string $raw, int $members, string $operation): array
+    {
+        if ($raw === '' || strlen($raw) > self::MAX_REQUEST_BYTES) {
+            throw new InvalidArgumentException('Native runtime report size is invalid.');
+        }
+        // A duplicate (even an escaped spelling of a name) adds a member name that decoding would drop.
+        preg_match_all('/"((?:[^"\\\\]|\\\\.)*)"\s*:/s', $raw, $names);
+        if (count($names[1]) !== $members) {
+            throw new InvalidArgumentException('Native runtime report member count is invalid.');
+        }
+
+        try {
+            $decoded = json_decode($raw, true, 2, JSON_THROW_ON_ERROR);
+        } catch (JsonException $exception) {
+            throw new InvalidArgumentException('Native runtime report JSON is invalid.', 0, $exception);
+        }
+        if (! is_array($decoded)
+            || count($decoded) !== $members
+            || ($decoded['contract_version'] ?? null) !== 1
+            || ($decoded['operation'] ?? null) !== $operation) {
+            throw new InvalidArgumentException('Native runtime report envelope is invalid.');
+        }
+
+        return $decoded;
+    }
+
     /** Numeric order of two canonical decimal strings. */
     public static function compare(string $left, string $right): int
     {
@@ -118,8 +131,12 @@ final readonly class NativeRuntimeStatusReport
         return hash('sha256', json_encode($this->content, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
     }
 
-    /** @param array<mixed> $decoded */
-    private static function member(array $decoded, string $name, string $grammar): string|int|bool
+    /**
+     * One member in the Game grammar: a regex, or `bool`, `one`, `uint64` or `time` (returned as int).
+     *
+     * @param  array<mixed>  $decoded
+     */
+    public static function member(array $decoded, string $name, string $grammar): string|int|bool
     {
         $value = $decoded[$name] ?? null;
         $valid = match ($grammar) {

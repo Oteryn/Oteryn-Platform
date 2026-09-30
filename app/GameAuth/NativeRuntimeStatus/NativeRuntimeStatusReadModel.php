@@ -3,6 +3,7 @@
 namespace App\GameAuth\NativeRuntimeStatus;
 
 use Illuminate\Support\Facades\DB;
+use UnexpectedValueException;
 
 /**
  * Platform consumer evidence state for one native scope (runtime status projection contract, login
@@ -62,6 +63,21 @@ final class NativeRuntimeStatusReadModel
         }
 
         return $highest;
+    }
+
+    /**
+     * Inside a transaction: takes the epoch lock (exclusive to raise the epoch, shared to rely on it) and
+     * returns the highest epoch under it. Lock order everywhere: epoch lock, then the scope's assignment
+     * row, then its runtime report row.
+     */
+    public function lockEpoch(bool $exclusive): ?string
+    {
+        $lock = DB::table('native_assignment_epoch_locks')->where('id', 1);
+        if (($exclusive ? $lock->lockForUpdate() : $lock->sharedLock())->first() === null) {
+            throw new UnexpectedValueException('Native assignment epoch lock row is missing.');
+        }
+
+        return $this->highestEpoch();
     }
 
     /** @return array{0: string, 1: object|null} */

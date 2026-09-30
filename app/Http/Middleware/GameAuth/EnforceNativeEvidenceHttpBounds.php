@@ -7,14 +7,20 @@ use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
+/**
+ * Early HTTP bounds for the native internal routes: 413 on a Content-Length or body above the route's
+ * limit (native evidence by default; `:<bytes>` for another route), 400 on Transfer-Encoding, a
+ * Content-Encoding other than identity or a non-JSON Content-Type, and 431 on oversized headers.
+ */
 final class EnforceNativeEvidenceHttpBounds
 {
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, Closure $next, ?string $maxRequestBytes = null): Response
     {
+        $limit = $maxRequestBytes === null ? NativeEvidenceContract::MAX_REQUEST_BYTES : (int) $maxRequestBytes;
         $contentLength = $request->headers->get('Content-Length');
         if ($contentLength !== null
             && (preg_match('/^(0|[1-9][0-9]{0,3})$/', $contentLength) !== 1
-                || (int) $contentLength > NativeEvidenceContract::MAX_REQUEST_BYTES)) {
+                || (int) $contentLength > $limit)) {
             return response('', 413);
         }
 
@@ -52,7 +58,7 @@ final class EnforceNativeEvidenceHttpBounds
         }
 
         $body = $request->getContent();
-        if (strlen($body) > NativeEvidenceContract::MAX_REQUEST_BYTES) {
+        if (strlen($body) > $limit) {
             return response('', 413);
         }
         if ($contentLength !== null && (int) $contentLength !== strlen($body)) {

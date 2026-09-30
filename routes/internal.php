@@ -1,10 +1,12 @@
 <?php
 
+use App\GameAuth\NativeRuntimeStatus\NativeRuntimeStatusReport;
 use App\Http\Controllers\GameAuth\CharacterBootstrapIntentController;
 use App\Http\Controllers\GameAuth\GameLoginContextController;
 use App\Http\Controllers\GameAuth\GameLoginTicketRedeemController;
 use App\Http\Controllers\GameAuth\NativeEvidenceController;
 use App\Http\Controllers\GameAuth\NativeRuntimeStatusController;
+use App\Http\Controllers\GameAuth\NativeScopeAssignmentController;
 use App\Http\Middleware\GameAuth\EnforceNativeEvidenceHttpBounds;
 use App\Http\Middleware\GameAuth\GuardNativeRuntimeStatusPeer;
 use App\Http\Middleware\GameAuth\PreventSensitiveGameAuthResponseCaching;
@@ -34,7 +36,18 @@ Route::post('/internal/v1/game-auth/native-evidence', NativeEvidenceController::
     ]);
 
 Route::post('/internal/v1/game-auth/native-runtime-status', NativeRuntimeStatusController::class)
-    ->middleware([PreventSensitiveGameAuthResponseCaching::class, GuardNativeRuntimeStatusPeer::class]);
+    ->middleware([
+        PreventSensitiveGameAuthResponseCaching::class,
+        GuardNativeRuntimeStatusPeer::class.':runtime',
+        EnforceNativeEvidenceHttpBounds::class.':'.NativeRuntimeStatusReport::MAX_REQUEST_BYTES,
+    ]);
+
+Route::post('/internal/v1/game-auth/native-scope-assignments', NativeScopeAssignmentController::class)
+    ->middleware([
+        PreventSensitiveGameAuthResponseCaching::class,
+        GuardNativeRuntimeStatusPeer::class.':assignment',
+        EnforceNativeEvidenceHttpBounds::class.':'.NativeRuntimeStatusReport::MAX_REQUEST_BYTES,
+    ]);
 
 Route::post('/internal/v1/game-auth/character-bootstrap-intents/read', CharacterBootstrapIntentController::class)
     ->middleware([

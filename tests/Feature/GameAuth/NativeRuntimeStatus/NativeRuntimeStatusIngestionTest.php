@@ -233,12 +233,13 @@ final class NativeRuntimeStatusIngestionTest extends TestCase
             'string ready' => $this->body(['ready' => 'true']),
             'contract_version 2' => $this->body(['contract_version' => 2]),
             'other operation' => $this->body(['operation' => 'ReportScopeAssignmentV1']),
-            'oversized body' => $wire.str_repeat(' ', NativeRuntimeStatusReport::MAX_REQUEST_BYTES - strlen($wire) + 1),
         ];
         foreach ($bodies as $case => $body) {
             $this->assertRefused($this->report($body), 400, $case);
         }
         $this->assertRefused($this->report($wire, self::NODE, ['CONTENT_TYPE' => 'text/plain']), 400);
+        // Early HTTP bounds (EnforceNativeEvidenceHttpBounds) refuse an oversized body before parsing.
+        $this->assertRefused($this->report($wire.str_repeat(' ', NativeRuntimeStatusReport::MAX_REQUEST_BYTES - strlen($wire) + 1)), 413);
         self::assertFalse(DB::table('native_runtime_status_reports')->exists());
 
         $this->expectException(InvalidArgumentException::class);
