@@ -8,6 +8,7 @@
   "required": [
     "schema",
     "producer_revision",
+    "producer_profile",
     "nonce",
     "account_id",
     "product_id",
@@ -29,6 +30,9 @@
     "producer_revision": {
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
+    },
+    "producer_profile": {
+      "const": "oteryn.entitlement.profile_b.v1"
     },
     "nonce": {
       "type": "string",

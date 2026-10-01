@@ -46,6 +46,8 @@ final class PremiumTimeContract
 
     public const SNAPSHOT_SCHEMA = 'oteryn.premium_snapshot.v1';
 
+    public const PRODUCER_PROFILE = 'oteryn.entitlement.profile_b.v1';
+
     public const REQUEST_SCHEMA = 'oteryn.premium_snapshot_request.v1';
 
     public const MAX_REQUEST_BYTES = 256;
