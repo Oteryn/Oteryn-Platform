@@ -71,11 +71,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-01T09:50:00Z
-head: fd07a4edaa1c0cff505980cefa53ac6fc372dace
+updated_at: 2026-10-01T10:25:00Z
+head: 7d869edebf34d034f81415b8eec8205764ada89d; integrated as d4c28ad (PR 1436)
 branch: claude/prem-p-premium-operator-surface
 pr: 1436
-status: validating
+status: completed
+terminal_pr_policy: archive_pending
 context_routes:
   - security
   - frontend
@@ -151,13 +152,13 @@ validation:
     evidence: all checks green on aa74d010b83050bdc4afc6c028150910837c4d43, including runtime-tests, Strict portal coverage closure and acceptance
 blockers:
   - none
-next_action: exact-head CI on PR 1436 after merging main with PR 1433 integrated as 85b6b12, then merge; archive this record in the post-merge closeout
+next_action: none; PR 1436 integrated as d4c28ad and this record archived by its post-merge closeout
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository PR integration completed
+source_branch_evidence: source ref claude/prem-p-premium-operator-surface absent (ls-remote 2026-10-01) after PR 1436 integrated as d4c28add21d67778a2261377e8516a78e6ea59a6
 ```
