@@ -31,7 +31,7 @@ The packet is documentation only. The owner accepts the candidate.
 
 - [x] The contract covers the product, grant and merge rules, revocation, policy values, the endpoint, the wire and ordering, and records a decision on every item in the Game proposal.
 - [x] Each conflict with an accepted Platform contract is stated.
-- [x] The fixtures validate: 5 valid snapshots pass the schema and cross-field rules, and 16 invalid snapshot cases and 7 invalid request cases are rejected.
+- [x] The fixtures validate: 5 valid snapshots pass the schema and cross-field rules, and 18 invalid snapshot cases and 7 invalid request cases are rejected.
 - [ ] The owner accepts the candidate, which happens at PR review.
 
 ## Ownership
@@ -57,7 +57,7 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-01T07:30:00Z
-head: dd2cb19f6119626855ad6b47f9f88685a13f41bc
+head: 6851d9e83bd98f0449e3952ec7653724b31913ea
 branch: claude/prem-p-premium-snapshot-contract
 pr: 1432
 status: validating
