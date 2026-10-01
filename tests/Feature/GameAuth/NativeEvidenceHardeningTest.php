@@ -83,6 +83,7 @@ final class NativeEvidenceHardeningTest extends TestCase
 
         DB::table('native_game_evidence_witness_stores')->delete();
         $this->postEvidence($request)->assertOk()->assertJsonPath('source_revision', '2');
+        // @phpstan-ignore staticMethod.alreadyNarrowedType (re-reads the store id after the table was cleared)
         self::assertSame($storeId, DB::table('native_game_evidence_witness_stores')->where('id', 1)->value('store_id'));
 
         foreach (glob($this->witnessDirectory.'/*') ?: [] as $path) {

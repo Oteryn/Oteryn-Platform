@@ -171,6 +171,7 @@ final class PremiumSnapshotEndpointTest extends TestCase
 
         $uuidV4 = substr_replace($first->account_id, '4', 14, 1);
         $this->read($uuidV4)->assertStatus(400)->assertContent('');
+        // @phpstan-ignore staticMethod.alreadyNarrowedType (re-reads the row count after the rejected read)
         self::assertSame($before, DB::table('premium_time_authority')->count());
     }
 

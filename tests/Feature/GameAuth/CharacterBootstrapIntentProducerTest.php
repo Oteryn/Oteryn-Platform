@@ -143,6 +143,7 @@ final class CharacterBootstrapIntentProducerTest extends TestCase
         }
 
         $this->read(strtolower((string) Str::uuid()))->assertNotFound()->assertContent('');
+        // @phpstan-ignore staticMethod.alreadyNarrowedType (re-reads the row count after the rejected reads)
         self::assertSame(1, DB::table('character_bootstrap_intents')->count());
     }
 
