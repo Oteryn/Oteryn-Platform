@@ -69,8 +69,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-30T19:35:00Z
-head: aa74d010b83050bdc4afc6c028150910837c4d43
+updated_at: 2026-10-01T07:45:00Z
+head: 55d5285ea011d256ff8b7a4752678fa4e9c23c06
 branch: claude/prem-p-premium-operator-surface
 pr: 1436
 status: validating
@@ -143,7 +143,7 @@ validation:
     evidence: all checks green on aa74d010b83050bdc4afc6c028150910837c4d43, including runtime-tests, Strict portal coverage closure and acceptance
 blockers:
   - none
-next_action: await review and merge of PR 1436 after its stacked base PR 1433
+next_action: exact-head CI on PR 1436 after merging producer_profile from PR 1433, then review and merge after PR 1433
 ```
 
 ## Source branch closeout
