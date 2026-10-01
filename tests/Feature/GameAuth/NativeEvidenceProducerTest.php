@@ -296,6 +296,7 @@ final class NativeEvidenceProducerTest extends TestCase
             'operation' => NativeEvidenceContract::FRESH_ACCOUNT,
             'result' => 'not_found',
         ]);
+        // @phpstan-ignore staticMethod.alreadyNarrowedType (re-reads the witness directory after the request)
         self::assertSame([], glob($this->witnessDirectory.'/*.floor') ?: []);
 
         $unauthorized = $this->withServerVariables([

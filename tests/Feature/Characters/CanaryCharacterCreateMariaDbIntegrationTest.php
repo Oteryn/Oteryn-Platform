@@ -158,6 +158,7 @@ final class CanaryCharacterCreateMariaDbIntegrationTest extends TestCase
             (new CanaryCharacterCreator)->create(1002, 'Deleted Hero', 4, 0);
             self::fail('A soft-deleted row must continue to reserve its globally unique name.');
         } catch (CharacterNameConflict) {
+            // @phpstan-ignore staticMethod.alreadyNarrowedType (re-reads the active count after a rejected create)
             self::assertSame(10, $this->activeCount(1002));
         }
 
@@ -567,6 +568,7 @@ final class CanaryCharacterCreateMariaDbIntegrationTest extends TestCase
         $normalized = [];
 
         foreach ($row as $key => $value) {
+            // @phpstan-ignore function.alreadyNarrowedType (PDO may return integer keys for numeric column aliases)
             if (! is_string($key)) {
                 self::fail('MariaDB integration row contained a non-string key.');
             }

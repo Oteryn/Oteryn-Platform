@@ -100,6 +100,7 @@ final class NativeAdmissionGrantIssuerTest extends TestCase
 
         $fresh = $this->app->make(NativeAdmissionGrantIssuer::class);
         self::assertSame($grant->token, $fresh->resign($grant->keyId, $grant->signingInput));
+        // @phpstan-ignore staticMethod.alreadyNarrowedType (a second resign must stay byte-identical)
         self::assertSame($grant->token, $fresh->resign($grant->keyId, $grant->signingInput));
 
         $this->expectException(NativeAdmissionUnavailable::class);
