@@ -67,6 +67,7 @@ final class PremiumSnapshotIssuer
         return [
             'schema' => PremiumTimeContract::SNAPSHOT_SCHEMA,
             'producer_revision' => $producerRevision,
+            'producer_profile' => PremiumTimeContract::PRODUCER_PROFILE,
             'nonce' => $nonce,
             'account_id' => $accountId,
             'product_id' => PremiumTimeContract::PRODUCT_ID,

@@ -94,15 +94,16 @@ final class PremiumSnapshotEndpointTest extends TestCase
         $snapshot = $this->validSnapshot($response, $player->account_id, $nonce);
 
         self::assertSame([
-            'schema', 'producer_revision', 'nonce', 'account_id', 'product_id', 'product_version', 'entitlement_id',
-            'entitlement_state', 'lifecycle_revision', 'authority_revision', 'effective_from', 'effective_until',
-            'authority_issued_at', 'authority_valid_until', 'refresh_after',
+            'schema', 'producer_revision', 'producer_profile', 'nonce', 'account_id', 'product_id', 'product_version',
+            'entitlement_id', 'entitlement_state', 'lifecycle_revision', 'authority_revision', 'effective_from',
+            'effective_until', 'authority_issued_at', 'authority_valid_until', 'refresh_after',
         ], array_keys($snapshot));
         self::assertSame(PremiumTimeContract::STATE_NONE, $snapshot['entitlement_state']);
         self::assertNull($snapshot['entitlement_id']);
         self::assertSame(0, $snapshot['lifecycle_revision']);
         self::assertSame(1, $snapshot['authority_revision']);
         self::assertSame(self::REVISION, $snapshot['producer_revision']);
+        self::assertSame('oteryn.entitlement.profile_b.v1', $snapshot['producer_profile']);
         self::assertSame('2026-10-01T12:00:00Z', $snapshot['authority_issued_at']);
         self::assertSame('2026-10-01T13:00:00Z', $snapshot['authority_valid_until']);
         self::assertSame('2026-10-01T12:40:00Z', $snapshot['refresh_after']);

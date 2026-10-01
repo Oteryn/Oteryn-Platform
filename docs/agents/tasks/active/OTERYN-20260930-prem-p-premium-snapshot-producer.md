@@ -63,8 +63,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-30T18:30:00Z
-head: fa9b41f0454a806ecae4e4e1c2f0f67790d9e714
+updated_at: 2026-10-01T07:40:00Z
+head: 70badc430ca8cc9b43beb7741f63d3c3ac3720ff
 branch: claude/prem-p-premium-snapshot-producer
 pr: 1433
 status: validating
@@ -87,6 +87,7 @@ owned_paths:
 proven:
   - The Laravel internal route group applies PreventSensitiveGameAuthResponseCaching globally by path.
   - The mTLS provenance fields SSL_CLIENT_VERIFY, SSL_PROTOCOL and SSL_CLIENT_S_DN match the existing Platform peer pattern.
+  - The snapshot emits producer_profile = oteryn.entitlement.profile_b.v1, required by the architect on #1431 (comment 5926527459) and merged in from contract PR 1432.
 derived:
   - Locking one authority row per account serializes grants and snapshot issuance, so authority_revision is ordered with lifecycle changes.
 unknown:
@@ -119,7 +120,7 @@ validation:
     evidence: private service endpoint with no browser actor; the Game consumer E2E is a Game-side task using the shared fixtures
 blockers:
   - none
-next_action: drive exact-head CI on draft PR 1433 to green
+next_action: drive exact-head CI on PR 1433 to green after the producer_profile change
 ```
 
 ## Source branch closeout
