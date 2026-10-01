@@ -25,6 +25,16 @@ final class PremiumSnapshotController
             return response('', 503);
         }
 
+        // Contract 4.1 and 4.4: the body is JSON on the wire, so a mislabelled or encoded request is malformed.
+        $contentType = $request->headers->get('Content-Type');
+        $contentEncoding = $request->headers->get('Content-Encoding');
+        if (! is_string($contentType)
+            || strtolower(trim(explode(';', $contentType, 2)[0])) !== 'application/json'
+            || (is_string($contentEncoding) && strtolower(trim($contentEncoding)) !== 'identity')
+            || $request->headers->has('Transfer-Encoding')) {
+            return response('', 400);
+        }
+
         try {
             $decoded = $decoder->decode($request->getContent());
         } catch (InvalidArgumentException) {
