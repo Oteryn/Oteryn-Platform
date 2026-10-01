@@ -70,7 +70,7 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-01T07:45:00Z
-head: 586081e6ad150fa23e53602cc949f5f1fc9a1e43
+head: 9b661bbafc62674d791793a9ce06ea13aad369fb
 branch: claude/prem-p-premium-operator-surface
 pr: 1436
 status: validating
@@ -98,6 +98,7 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-operator-surface.md
   - docs/agents/tasks/archive/OTERYN-20260930-prem-p-premium-operator-surface.md
 proven:
+  - Grant and revoke forms submit the reviewed account's immutable AccountId (UUIDv7), and the controller resolves the target only by AccountId, so an email reassigned between review and submission cannot redirect a mutation to another account (Codex review 4153365665); lookup by email remains for the read-only search.
   - AdminAuthorization denies any permission key missing from AdminPermission::all(), so the key is registered there.
   - Route module files under routes/modules are loaded by glob from routes/web.php.
 derived:
@@ -143,7 +144,7 @@ validation:
     evidence: all checks green on aa74d010b83050bdc4afc6c028150910837c4d43, including runtime-tests, Strict portal coverage closure and acceptance
 blockers:
   - none
-next_action: exact-head CI on PR 1436 after merging the UUIDv7 validation from PR 1432 and PR 1433, then review and merge after PR 1433
+next_action: exact-head CI on PR 1436 for AccountId-bound mutations and the merged PR 1433 fixes, then review and merge after PR 1433
 ```
 
 ## Source branch closeout

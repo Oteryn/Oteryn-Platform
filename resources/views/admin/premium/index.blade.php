@@ -31,6 +31,7 @@
                 @else
                     <dl>
                         <div><dt>Identity</dt><dd>{{ $identity->email }}</dd></div>
+                        <div><dt>AccountId</dt><dd>{{ $identity->account_id }}</dd></div>
                         <div><dt>Premium state</dt><dd>{{ $state }}</dd></div>
                         @if ($entitlement)
                             <div><dt>Effective from</dt><dd>{{ \App\ProductsEntitlements\Premium\PremiumTimeContract::formatTime($entitlement->effectiveFrom) }}</dd></div>
@@ -41,7 +42,7 @@
 
                     <form class="bazaar-listing-form" method="POST" action="{{ route('admin.premium.grant') }}">
                         @csrf
-                        <input type="hidden" name="email" value="{{ $identity->email }}">
+                        <input type="hidden" name="account_id" value="{{ $identity->account_id }}">
                         <input type="hidden" name="request_id" value="{{ \Illuminate\Support\Str::uuid() }}">
                         <label for="premium-days">
                             <span>Days to grant</span>
@@ -57,7 +58,7 @@
                     @if ($state === \App\ProductsEntitlements\Premium\PremiumTimeContract::STATE_ACTIVE)
                         <form class="bazaar-listing-form" method="POST" action="{{ route('admin.premium.revoke') }}">
                             @csrf
-                            <input type="hidden" name="email" value="{{ $identity->email }}">
+                            <input type="hidden" name="account_id" value="{{ $identity->account_id }}">
                             <input type="hidden" name="request_id" value="{{ \Illuminate\Support\Str::uuid() }}">
                             <label for="premium-revoke-reason">
                                 <span>Revocation reason</span>

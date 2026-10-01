@@ -56,17 +56,17 @@ final class AdminPremiumTimeController
         $actor = $request->user();
         abort_unless($actor instanceof Identity, 403);
 
-        /** @var array{email: string, duration_days: int, reason: string, request_id: string} $validated */
+        /** @var array{account_id: string, duration_days: int, reason: string, request_id: string} $validated */
         $validated = $request->validate([
-            'email' => ['required', 'email:rfc', 'max:255'],
+            'account_id' => ['required', 'string', 'size:36'],
             'duration_days' => ['required', 'integer', 'min:'.PremiumTimeContract::MIN_GRANT_DAYS, 'max:'.PremiumTimeContract::MAX_GRANT_DAYS],
             'reason' => ['required', 'string', 'min:10', 'max:500'],
             'request_id' => ['required', 'uuid'],
         ]);
 
-        $target = $this->target($validated['email']);
+        $target = $this->target($validated['account_id']);
         if (! $target instanceof Identity) {
-            return back()->withInput()->withErrors(['email' => 'No Platform Identity exists for this email address.']);
+            return back()->withInput()->withErrors(['account_id' => 'No Platform Identity exists for this AccountId.']);
         }
 
         try {
@@ -84,16 +84,16 @@ final class AdminPremiumTimeController
         $actor = $request->user();
         abort_unless($actor instanceof Identity, 403);
 
-        /** @var array{email: string, reason: string, request_id: string} $validated */
+        /** @var array{account_id: string, reason: string, request_id: string} $validated */
         $validated = $request->validate([
-            'email' => ['required', 'email:rfc', 'max:255'],
+            'account_id' => ['required', 'string', 'size:36'],
             'reason' => ['required', 'string', 'min:10', 'max:500'],
             'request_id' => ['required', 'uuid'],
         ]);
 
-        $target = $this->target($validated['email']);
+        $target = $this->target($validated['account_id']);
         if (! $target instanceof Identity) {
-            return back()->withInput()->withErrors(['email' => 'No Platform Identity exists for this email address.']);
+            return back()->withInput()->withErrors(['account_id' => 'No Platform Identity exists for this AccountId.']);
         }
 
         try {
@@ -106,9 +106,12 @@ final class AdminPremiumTimeController
             ->with('status', 'Premium time revoked.');
     }
 
-    private function target(string $email): ?Identity
+    /** Mutations bind to the immutable AccountId the operator reviewed, never to a reassignable email address. */
+    private function target(string $accountId): ?Identity
     {
-        return Identity::query()->where('email', CanonicalEmail::normalize($email))->first();
+        return PremiumTimeContract::isUuidV7($accountId)
+            ? Identity::query()->where('account_id', $accountId)->first()
+            : null;
     }
 
     /**

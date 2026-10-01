@@ -69,6 +69,7 @@ final class AdminPremiumTimeTest extends TestCase
             ->assertOk()
             ->assertSee('Premium state')
             ->assertSee(PremiumTimeContract::STATE_NONE)
+            ->assertSee('name="account_id" value="'.$target->account_id.'"', false)
             ->assertDontSee('Revoke Premium time');
 
         $grant = $this->grantInput($target, 30);
@@ -112,8 +113,12 @@ final class AdminPremiumTimeTest extends TestCase
             ->assertSessionHasErrors('duration_days');
         $this->post(route('admin.premium.grant'), [...$this->grantInput($target, 5), 'reason' => 'short'])
             ->assertSessionHasErrors('reason');
-        $this->post(route('admin.premium.grant'), [...$this->grantInput($target, 5), 'email' => 'nobody@example.com'])
-            ->assertSessionHasErrors('email');
+        $this->post(route('admin.premium.grant'), [...$this->grantInput($target, 5), 'account_id' => strtolower((string) Str::uuid7())])
+            ->assertSessionHasErrors('account_id');
+        $this->post(route('admin.premium.grant'), [...$this->grantInput($target, 5), 'account_id' => substr_replace($target->account_id, '4', 14, 1)])
+            ->assertSessionHasErrors('account_id');
+        $this->post(route('admin.premium.grant'), [...$this->grantInput($target, 5), 'account_id' => null, 'email' => $target->email])
+            ->assertSessionHasErrors('account_id');
         $this->post(route('admin.premium.revoke'), $this->revokeInput($target))
             ->assertSessionHasErrors('premium');
 
@@ -126,6 +131,23 @@ final class AdminPremiumTimeTest extends TestCase
         self::assertNotNull($stored);
         self::assertSame(1, $stored->lifecycleRevision);
         self::assertSame(1, DB::table('premium_time_entitlement_events')->count());
+    }
+
+    public function test_premium_admin_mutation_stays_bound_to_the_reviewed_account_after_an_email_is_reassigned(): void
+    {
+        $reviewed = $this->identity('premium-reviewed@example.com');
+        $this->operator();
+        $this->get(route('admin.premium.index', ['email' => 'premium-reviewed@example.com']))->assertOk();
+        $grant = $this->grantInput($reviewed, 7);
+
+        // The reviewed account changes its email and another account takes the old address before the form is sent.
+        $reviewed->forceFill(['email' => 'premium-renamed@example.com'])->save();
+        $successor = $this->identity('premium-reviewed@example.com');
+
+        $this->post(route('admin.premium.grant'), $grant)->assertSessionHasNoErrors();
+
+        self::assertNotNull(PremiumTimeEntitlement::forIdentity($reviewed->id));
+        self::assertNull(PremiumTimeEntitlement::forIdentity($successor->id));
     }
 
     public function test_premium_admin_navigation_is_shown_only_with_the_exact_permission(): void
@@ -154,16 +176,16 @@ final class AdminPremiumTimeTest extends TestCase
         self::assertSame([AdminRoleManager::PLATFORM_ADMIN], $roleKeys);
     }
 
-    /** @return array{email: string, duration_days: int, reason: string, request_id: string} */
+    /** @return array{account_id: string, duration_days: int, reason: string, request_id: string} */
     private function grantInput(Identity $target, int $days): array
     {
-        return ['email' => $target->email, 'duration_days' => $days, 'reason' => self::REASON, 'request_id' => (string) Str::uuid()];
+        return ['account_id' => $target->account_id, 'duration_days' => $days, 'reason' => self::REASON, 'request_id' => (string) Str::uuid()];
     }
 
-    /** @return array{email: string, reason: string, request_id: string} */
+    /** @return array{account_id: string, reason: string, request_id: string} */
     private function revokeInput(Identity $target): array
     {
-        return ['email' => $target->email, 'reason' => 'Granted to the wrong account', 'request_id' => (string) Str::uuid()];
+        return ['account_id' => $target->account_id, 'reason' => 'Granted to the wrong account', 'request_id' => (string) Str::uuid()];
     }
 
     private function operator(): Identity
