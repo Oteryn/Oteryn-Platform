@@ -247,6 +247,20 @@ final class PremiumSnapshotEndpointTest extends TestCase
         foreach ($raws as $raw) {
             $this->rawRead($raw, $this->peer())->assertStatus(400)->assertContent('');
         }
+
+        // A valid body is still malformed when its HTTP metadata does not declare plain JSON.
+        $valid = $this->body($account, $nonce);
+        foreach ([
+            ['CONTENT_TYPE' => 'text/plain'],
+            ['CONTENT_TYPE' => 'application/x-www-form-urlencoded'],
+            ['CONTENT_TYPE' => 'application/json', 'HTTP_CONTENT_ENCODING' => 'gzip'],
+            ['CONTENT_TYPE' => 'application/json', 'HTTP_TRANSFER_ENCODING' => 'chunked'],
+        ] as $metadata) {
+            $this->rawRead($valid, array_merge($this->peer(), $metadata))->assertStatus(400)->assertContent('');
+        }
+        $missingType = $this->peer();
+        unset($missingType['CONTENT_TYPE']);
+        $this->rawRead($valid, $missingType)->assertStatus(400)->assertContent('');
         self::assertSame(0, DB::table('premium_time_authority')->count());
 
         // The shared valid request fixture is accepted byte for byte (its account is unknown here).

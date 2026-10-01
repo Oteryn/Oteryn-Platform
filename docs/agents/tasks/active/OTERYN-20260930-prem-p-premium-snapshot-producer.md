@@ -69,8 +69,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-01T07:40:00Z
-head: e22b62c4a26b3d0d795dc0e552181a2f6678bd71
+updated_at: 2026-10-01T09:45:00Z
+head: c85b9a46be766ededa9d642f7a104f16dfc002ef
 branch: claude/prem-p-premium-snapshot-producer
 pr: 1433
 status: validating
@@ -101,6 +101,7 @@ proven:
   - mTLS purpose separation is bidirectional: the native evidence and character bootstrap peer guards answer 503 when their configured subject equals the Premium snapshot subject, as the Premium settings already refuse theirs (Codex review 4153372810). RequireNativeEvidenceMtlsPeer and NativeEvidenceHardeningTest are also listed by OTERYN-20260912-platform-native-evidence-hardening, whose PR 1389 merged on 2026-09-12 and which only awaits separately authorized external qualification; this additive fail-closed check does not change its wire or evidence.
   - An exact retry returns the result its matching ledger event recorded, not the current entitlement, even after later grants or revocation (Codex review 4153372817).
   - The request decoder and the stored-entitlement read model require canonical UUIDv7 (version 7, RFC variant) for account_id and entitlement_id, matching the PR 1432 schemas (Codex review 4153365059); a UUIDv4 account_id is a 400 that allocates no authority revision, while an unknown UUIDv7 stays a 404. Operator request ids remain any lower-case UUID.
+  - The snapshot read enforces its declared JSON transport: a Content-Type other than application/json (parameters allowed), a Content-Encoding other than identity, or a Transfer-Encoding is a 400 before decoding, with no authority revision allocated (Codex review 5377486170).
   - The Laravel internal route group applies PreventSensitiveGameAuthResponseCaching globally by path.
   - The mTLS provenance fields SSL_CLIENT_VERIFY, SSL_PROTOCOL and SSL_CLIENT_S_DN match the existing Platform peer pattern.
   - The snapshot emits producer_profile = oteryn.entitlement.profile_b.v1, required by the architect on #1431 (comment 5926527459) and merged in from contract PR 1432.
