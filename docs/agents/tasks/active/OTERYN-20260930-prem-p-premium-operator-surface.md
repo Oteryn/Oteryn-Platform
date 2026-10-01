@@ -70,7 +70,7 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-01T07:45:00Z
-head: 9b661bbafc62674d791793a9ce06ea13aad369fb
+head: 35dc6fad1dc080731509d4ed370d4b93054d6639
 branch: claude/prem-p-premium-operator-surface
 pr: 1436
 status: validating
@@ -144,7 +144,7 @@ validation:
     evidence: all checks green on aa74d010b83050bdc4afc6c028150910837c4d43, including runtime-tests, Strict portal coverage closure and acceptance
 blockers:
   - none
-next_action: exact-head CI on PR 1436 for AccountId-bound mutations and the merged PR 1433 fixes, then review and merge after PR 1433
+next_action: exact-head CI on PR 1436 after merging PR 1433 with main (PR 1432 integrated), then review and merge after PR 1433
 ```
 
 ## Source branch closeout
