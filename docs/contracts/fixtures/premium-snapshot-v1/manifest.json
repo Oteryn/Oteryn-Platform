@@ -17,12 +17,12 @@
     {
       "file": "snapshot.active.json",
       "entitlement_state": "ACTIVE",
-      "expected_consumer_classification": "CURRENT_AUTHORITY while trusted time is within [effective_from, authority_valid_until) conservatively; full 3600 s lease"
+      "expected_consumer_classification": "CURRENT_AUTHORITY while trusted time is within [effective_from, refresh_after) conservatively; STALE_WITHIN_BOUND (deny) from refresh_after and EXPIRED from authority_valid_until without newer evidence; full 3600 s lease"
     },
     {
       "file": "snapshot.active-clipped.json",
       "entitlement_state": "ACTIVE",
-      "expected_consumer_classification": "CURRENT_AUTHORITY; lease clipped to commercial effective_until, refresh at two thirds of the clipped lease"
+      "expected_consumer_classification": "CURRENT_AUTHORITY before refresh_after; lease clipped to commercial effective_until, refresh at two thirds of the clipped lease"
     },
     {
       "file": "snapshot.expired.json",

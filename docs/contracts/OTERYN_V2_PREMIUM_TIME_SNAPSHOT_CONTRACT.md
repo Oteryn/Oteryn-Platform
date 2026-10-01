@@ -85,10 +85,10 @@ These values are **mandatory, fixed for `oteryn.premium_time` v1, and not deploy
 | `max_authority_lease` | 60 min | **Accepted: 3600 s** | A 60-minute lease bounds how long a revocation can go unseen. With refresh at two thirds of the lease, one Game pull per online account every 40 minutes is a negligible load. |
 | Refresh point (`refresh_before` in the generic contract, `refresh_after` on the wire) | 40 min after issue | **Amended:** `refresh_after = authority_issued_at + floor(2 × (authority_valid_until − authority_issued_at) / 3)` seconds. This equals exactly 40 min for a full lease. | A fixed 40-minute value would land after `authority_valid_until` when the commercial end clips the lease, and the generic contract requires the refresh point to precede the cutoff. |
 | `max_clock_skew` | 5 s | **Accepted: 5 s** | Both producer and consumer run on NTP-disciplined servers. The consumer fails closed when its trusted-time uncertainty exceeds 5 s. |
-| `stale_within_bound` | not permitted | **Accepted: DENY** | Zero stale grace. Without fresh evidence, benefit ends at the absolute cutoff. `STALE_WITHIN_BOUND` never applies to this product version. |
+| `stale_within_bound` | not permitted | **Accepted: DENY** | Zero stale grace. Once `refresh_after` of the newest accepted snapshot is reached without newer accepted evidence, the refresh is due and the evidence classifies as `STALE_WITHIN_BOUND` until `authority_valid_until`. Benefit is denied throughout that interval. `authority_valid_until` stays the absolute cutoff after which the evidence is `EXPIRED`. |
 | `authority_expired` | — | **Deny** benefit until a fresh snapshot is accepted and trusted time is safe again | Required by the generic contract. |
 
-Because stale use is denied, the Game consumer's usable classifications for this product are `CURRENT_AUTHORITY`, `NOT_YET_EFFECTIVE`, `EXPIRED`, `REVOKED` and `AUTHORITY_UNAVAILABLE`.
+Because stale use is denied, `CURRENT_AUTHORITY` is the only classification that permits benefit for this product. `STALE_WITHIN_BOUND`, `NOT_YET_EFFECTIVE`, `EXPIRED`, `REVOKED` and `AUTHORITY_UNAVAILABLE` all deny it. Without fresh evidence, benefit therefore ends at `refresh_after`, never at the later `authority_valid_until`.
 
 ## 4. Snapshot read transport
 
@@ -143,7 +143,7 @@ Platform rejects duplicate, unknown, missing, nested or non-string members, and 
 | Rate limit exceeded | `429` | empty |
 | Disabled, misconfigured, database unavailable or invalid durable state | `503` | empty |
 
-Every response is `Cache-Control: no-store, private`. Failure bodies never carry entitlement data or diagnostics. A `404` means the AccountId is unknown to Platform. It is not a Premium state. The consumer treats it, like every non-200 status, as no fresh authority. Existing accepted evidence then runs out at its own absolute cutoff.
+Every response is `Cache-Control: no-store, private`. Failure bodies never carry entitlement data or diagnostics. A `404` means the AccountId is unknown to Platform. It is not a Premium state. The consumer treats it, like every non-200 status, as no fresh authority. Existing accepted evidence then stops permitting benefit at its own `refresh_after` (section 3) and expires at its absolute cutoff.
 
 A `404` is decided before any authority revision is allocated, so probing unknown ids creates no rows. The request rate per peer is bounded by the named limiter `products-entitlements-premium-snapshot`, which defaults to 1200 requests per minute.
 
@@ -262,7 +262,7 @@ Premium benefit is permitted only when **all** of the following hold:
 
 - `entitlement_state` is `ACTIVE` or `NOT_YET_EFFECTIVE`. A future-start `ACTIVE`-lifecycle representation authorizes only once start is proven reached;
 - the earliest plausible trusted time is at or after `effective_from`;
-- the latest plausible trusted time is before `min(effective_until, authority_valid_until)`;
+- the latest plausible trusted time is before `min(effective_until, refresh_after)` of the newest accepted snapshot. At or after `refresh_after` without newer accepted evidence the snapshot is `STALE_WITHIN_BOUND`, which this product denies (section 3); `refresh_after < authority_valid_until` always holds (5.2);
 - trusted-time uncertainty is at most 5 s.
 
 Platform's `entitlement_state` of `ACTIVE` never overrides these time checks. Game must evaluate the absolute times itself.
@@ -277,7 +277,7 @@ After `authority_valid_until`, an accepted active snapshot classifies as `EXPIRE
 
 ### 8.5 Refresh
 
-Game should pull again at or after `refresh_after`, and on login or reconnect. Pull failures never extend authority.
+Game may pull at any time within the rate limit, and should pull on login or reconnect. To keep benefit continuous it should pull early enough that a newer snapshot is accepted before the current `refresh_after`; benefit stops at `refresh_after` otherwise (8.2). Pull failures never extend authority.
 
 ## 9. Decisions on the Game proposal
 
@@ -295,7 +295,7 @@ Game should pull again at or after `refresh_after`, and on login or reconnect. P
 | D10 | `authority_revision` u64, monotonic per account | **Accepted.** Strictly increasing per account (6.4). Values stay ≤ 2^53 − 1 on the wire. |
 | D11 | `lifecycle_revision` u64, monotonic per entitlement | **Accepted.** There is one entitlement per account and product (2.1). `NONE` uses 0. |
 | D12 | `entitlement_state` includes `NOT_YET_EFFECTIVE` | **Accepted** on the wire but unreachable in v1 (5.3). |
-| D13 | Policy values: 60 min lease, 5 s skew, no stale use | **Accepted** (section 3). |
+| D13 | Policy values: 60 min lease, 5 s skew, no stale use | **Accepted** (section 3). No stale use means benefit stops at `refresh_after` without newer accepted evidence. |
 
 ### 9.1 Conflicts with Platform contracts
 
