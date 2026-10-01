@@ -64,7 +64,7 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-01T07:40:00Z
-head: 70badc430ca8cc9b43beb7741f63d3c3ac3720ff
+head: 841ec423933de54341c539158d2c502fdb2f0b30
 branch: claude/prem-p-premium-snapshot-producer
 pr: 1433
 status: validating
@@ -120,7 +120,7 @@ validation:
     evidence: private service endpoint with no browser actor; the Game consumer E2E is a Game-side task using the shared fixtures
 blockers:
   - none
-next_action: drive exact-head CI on PR 1433 to green after the producer_profile change
+next_action: exact-head CI on PR 1433 after merging the PR 1432 stale-denial fix (contract text only; the producer wire is unchanged)
 ```
 
 ## Source branch closeout

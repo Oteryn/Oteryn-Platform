@@ -40,6 +40,7 @@ The packet is documentation only. The owner accepts the candidate.
 owned_paths:
   - docs/contracts/OTERYN_V2_PREMIUM_TIME_SNAPSHOT_CONTRACT.md
   - docs/contracts/fixtures/premium-snapshot-v1/**
+  - composer.lock
   - docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-snapshot-contract.md
   - docs/agents/tasks/archive/OTERYN-20260930-prem-p-premium-snapshot-contract.md
 modules:
@@ -57,7 +58,7 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-01T07:30:00Z
-head: 6851d9e83bd98f0449e3952ec7653724b31913ea
+head: 9893257f4f8652882cce3c7421a478a840572263
 branch: claude/prem-p-premium-snapshot-contract
 pr: 1432
 status: validating
@@ -69,6 +70,7 @@ context_routes:
 owned_paths:
   - docs/contracts/OTERYN_V2_PREMIUM_TIME_SNAPSHOT_CONTRACT.md
   - docs/contracts/fixtures/premium-snapshot-v1/**
+  - composer.lock
   - docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-snapshot-contract.md
   - docs/agents/tasks/archive/OTERYN-20260930-prem-p-premium-snapshot-contract.md
 proven:
@@ -78,6 +80,7 @@ proven:
   - The canonical AccountId is identities.account_id, a unique lower-case UUID.
   - No ProductsEntitlements code exists; the module is PLANNED in MODULE_CATALOG.
   - The architect confirmed decisions 1-4 on #1431 (comment 5926527459) and required the constant snapshot member producer_profile = oteryn.entitlement.profile_b.v1, which the Game consumer (PREMIUM-DELIVERY-0 section 4, PREM-1a) requires.
+  - The generic Profile-B contract classifies due or failed refresh evidence as STALE_WITHIN_BOUND, so with the accepted stale DENY policy benefit stops at refresh_after without newer accepted evidence (Codex review 4153022073 on PR 1432); sections 3, 4.5, 8.2, 8.5, D13 and the manifest classification text now say so.
 derived:
   - One entitlement per account and product keeps lifecycle_revision a single monotonic sequence.
   - A per-account locked authority row gives a strictly increasing authority_revision that is ordered with grants.
@@ -89,11 +92,14 @@ first_failure:
   marker: none
   evidence: none
 rejected_hypotheses:
+  - Treating the composer audit failure as this PR's defect was rejected; it is the league/commonmark advisory fixed in PR 1435, ported here (composer.lock only) and a no-op once PR 1435 merges.
+  - Permitting benefit until authority_valid_until without a fresh snapshot was rejected; it would make the refresh-due interval a stale grace that the accepted DENY policy forbids.
   - A fixed refresh_after of 40 min was rejected because it can fall after a clipped cutoff.
   - A new entitlement_id per grant was rejected because it would break per-entitlement lifecycle ordering for merged intervals.
 changed_paths:
   - docs/contracts/OTERYN_V2_PREMIUM_TIME_SNAPSHOT_CONTRACT.md
   - docs/contracts/fixtures/premium-snapshot-v1/**
+  - composer.lock
   - docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-snapshot-contract.md
 validation:
   - command: fixture check (jsonschema Draft 2020-12 plus cross-field rules), local
@@ -107,7 +113,7 @@ validation:
     evidence: documentation-only contract candidate; no runtime path changes
 blockers:
   - none
-next_action: exact-head CI and review of PR 1432, then carry producer_profile into PR 1433 and PR 1436
+next_action: exact-head CI of the stale-denial fix on PR 1432, then report the new freeze SHA on #1431 and merge it into PR 1433 and PR 1436
 ```
 
 ## Source branch closeout
