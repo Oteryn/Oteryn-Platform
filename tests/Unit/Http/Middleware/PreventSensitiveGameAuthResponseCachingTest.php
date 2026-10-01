@@ -18,6 +18,7 @@ final class PreventSensitiveGameAuthResponseCachingTest extends TestCase
         yield 'OAuth token' => ['/oauth/token'];
         yield 'Game Login Ticket issue' => ['/api/v1/game-auth/tickets'];
         yield 'Game Login Ticket redeem' => ['/internal/v1/game-auth/tickets/redeem'];
+        yield 'Premium time snapshot read' => ['/internal/v1/products-entitlements/premium-snapshots/read'];
     }
 
     #[DataProvider('sensitivePaths')]

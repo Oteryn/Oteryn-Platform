@@ -122,6 +122,10 @@ final class CharacterBootstrapIntentProducerTest extends TestCase
             'operation_id' => $operationId,
         ])->assertUnauthorized()->assertContent('');
 
+        config(['products-entitlements.premium_snapshot.mtls_client_identity' => self::PEER]);
+        $this->read($operationId)->assertStatus(503)->assertContent('');
+        config(['products-entitlements.premium_snapshot.mtls_client_identity' => null]);
+
         $response = $this->read($operationId)->assertOk()->assertExactJson($issued);
         $this->assertPrivateNoStore($response);
         self::assertSame(1, DB::table('character_bootstrap_intents')->count());

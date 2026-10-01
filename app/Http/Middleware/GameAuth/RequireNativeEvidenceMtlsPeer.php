@@ -14,7 +14,9 @@ final class RequireNativeEvidenceMtlsPeer
         if (! is_string($expectedIdentity)
             || $expectedIdentity === ''
             || strlen($expectedIdentity) > 128
-            || preg_match('/^[\x20-\x7e]+$/', $expectedIdentity) !== 1) {
+            || preg_match('/^[\x20-\x7e]+$/', $expectedIdentity) !== 1
+            // A subject shared with the Premium snapshot read is ambiguous; neither purpose accepts it.
+            || $expectedIdentity === config('products-entitlements.premium_snapshot.mtls_client_identity')) {
             return response('', 503);
         }
 

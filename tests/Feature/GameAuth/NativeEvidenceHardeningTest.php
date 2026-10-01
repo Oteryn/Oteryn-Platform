@@ -58,6 +58,17 @@ final class NativeEvidenceHardeningTest extends TestCase
         parent::tearDown();
     }
 
+    public function test_a_subject_shared_with_the_premium_snapshot_read_is_refused(): void
+    {
+        $request = $this->freshAccountRequest($this->identity('native-shared-subject@example.test')->account_id);
+
+        config(['products-entitlements.premium_snapshot.mtls_client_identity' => self::PEER_SUBJECT]);
+        $this->postEvidence($request)->assertStatus(503)->assertContent('');
+
+        config(['products-entitlements.premium_snapshot.mtls_client_identity' => null]);
+        $this->postEvidence($request)->assertOk();
+    }
+
     public function test_retained_store_identity_recovers_database_binding_but_rejects_an_empty_replacement_store(): void
     {
         $identity = $this->identity('native-store-provenance@example.test');
