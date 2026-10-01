@@ -157,6 +157,7 @@ A `200` body is one UTF-8 JSON object of **at most 1,024 bytes**. It has exactly
 |---|---|---|
 | `schema` | string | `oteryn.premium_snapshot.v1` |
 | `producer_revision` | string | `PLATFORM_BUILD_REVISION`, 40 lower-case hex characters |
+| `producer_profile` | string | `oteryn.entitlement.profile_b.v1`, the generic Profile-B delivery profile |
 | `nonce` | string | the request nonce, byte for byte |
 | `account_id` | string | the request `account_id` |
 | `product_id` | string | `oteryn.premium_time` |
@@ -287,7 +288,7 @@ Game should pull again at or after `refresh_after`, and on login or reconnect. P
 | D3 | Expiry and revocation are Platform's | **Accepted.** Revocation removes all remaining time (2.3). Removing a single grant is not supported in v1. |
 | D4 | mTLS on the private network with a Platform-issued service identity scoped to this one read | **Accepted as the existing trusted-terminator mTLS peer pattern with a dedicated configured subject (4.2).** Certificate issuance is deployment work and out of scope. |
 | D5 | Request carries `account_id` and a fresh 128-bit nonce | **Accepted.** The wire encoding is 32 lower-case hex characters inside a versioned request `schema` member (4.4). |
-| D6 | Response of at most 1,024 bytes with exactly the listed fields | **Accepted.** The field set and names are unchanged. |
+| D6 | Response of at most 1,024 bytes with exactly the listed fields | **Accepted.** The field set and names are unchanged, including `producer_profile` (constant `oteryn.entitlement.profile_b.v1`), which the consumer requires. |
 | D7 | `effective_from` / `effective_until` as absolute RFC 3339 UTC | **Amended:** both are `null` when `entitlement_state = NONE`, because there is no interval. Whole-second `Z` format. |
 | D8 | `refresh_after` = 40 min after issue | **Amended:** two thirds of the actual lease (40 min for a full lease), so the refresh point always precedes a clipped cutoff (section 3). |
 | D9 | `authority_valid_until` ≤ `issued_at + max_authority_lease` | **Accepted and tightened:** also ≤ `effective_until` for `ACTIVE` and `NOT_YET_EFFECTIVE` (generic contract rule). |
