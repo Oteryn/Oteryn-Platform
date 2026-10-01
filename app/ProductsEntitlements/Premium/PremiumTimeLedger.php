@@ -54,8 +54,9 @@ final class PremiumTimeLedger
         try {
             return DB::transaction(function () use ($actor, $target, $binding, $requestId): PremiumTimeEntitlement {
                 $this->authority->lock($target->id);
-                if ($this->replayed($requestId, $binding)) {
-                    return $this->current($target->id);
+                $replayed = $this->replayed($requestId, $binding);
+                if ($replayed !== null) {
+                    return $replayed;
                 }
 
                 $now = now()->getTimestamp();
@@ -95,8 +96,9 @@ final class PremiumTimeLedger
             }, 3);
         } catch (QueryException $exception) {
             // A concurrent request for another target raced on the same request_id: judge it by the stored binding.
-            if ($this->isDuplicateKey($exception) && $this->replayed($requestId, $binding)) {
-                return $this->current($target->id);
+            $replayed = $this->isDuplicateKey($exception) ? $this->replayed($requestId, $binding) : null;
+            if ($replayed !== null) {
+                return $replayed;
             }
 
             throw new PremiumTimeException('premium_unavailable', 'Premium time is temporarily unavailable.');
@@ -183,12 +185,16 @@ final class PremiumTimeLedger
         }
     }
 
-    /** @param array{identity_id:int,actor_identity_id:int,event_type:string,duration_days:?int,reason_sha256:string} $binding */
-    private function replayed(string $requestId, array $binding): bool
+    /**
+     * The result recorded for an exact retry of `$requestId`, null for a new request; a changed reuse conflicts.
+     *
+     * @param  array{identity_id:int,actor_identity_id:int,event_type:string,duration_days:?int,reason_sha256:string}  $binding
+     */
+    private function replayed(string $requestId, array $binding): ?PremiumTimeEntitlement
     {
         $event = DB::table('premium_time_entitlement_events')->where('request_id', $requestId)->first();
         if ($event === null) {
-            return false;
+            return null;
         }
         $duration = $event->duration_days === null ? null : PremiumTimeContract::databaseInteger($event->duration_days);
         $reasonHash = $event->reason_sha256;
@@ -201,7 +207,7 @@ final class PremiumTimeLedger
             throw new PremiumTimeException('premium_idempotency_conflict', 'The request identifier is already in use.');
         }
 
-        return true;
+        return PremiumTimeEntitlement::recorded($event);
     }
 
     private function current(int $identityId): PremiumTimeEntitlement
