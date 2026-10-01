@@ -180,6 +180,15 @@ final class PremiumTimeLedgerTest extends TestCase
         self::assertSame(1, $this->stored($player)->lifecycleRevision);
         self::assertNull(PremiumTimeEntitlement::forIdentity($other->id));
         self::assertSame(1, DB::table('premium_time_entitlement_events')->count());
+
+        // A retry after later changes still returns the result its own request recorded, not the current state.
+        $extended = $this->ledger()->grant($operator, $player, 10, self::REASON, $this->requestId());
+        $revoked = $this->ledger()->revoke($operator, $player, self::REASON, $this->requestId());
+        self::assertSame(3, $revoked->lifecycleRevision);
+        self::assertEquals($first, $this->ledger()->grant($operator, $player, 30, self::REASON, $requestId));
+        self::assertNotEquals($extended, $first);
+        self::assertSame(3, $this->stored($player)->lifecycleRevision);
+        self::assertSame(3, DB::table('premium_time_entitlement_events')->count());
     }
 
     public function test_duration_reason_request_and_horizon_bounds_are_refused_without_state_change(): void
