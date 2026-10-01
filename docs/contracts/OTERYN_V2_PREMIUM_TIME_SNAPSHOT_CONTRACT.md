@@ -18,7 +18,7 @@ This contract authorizes no payment, voucher, production activation, deployment,
 | `product_id` | `oteryn.premium_time` |
 | `product_version` | `1` |
 | Delivery profile | B: a game-consumed account entitlement |
-| Target scope | one canonical Platform `AccountId` (`identities.account_id`, lower-case UUID) |
+| Target scope | one canonical Platform `AccountId` (`identities.account_id`, lower-case UUIDv7) |
 | Issuance sources in v1 | `OPERATOR_GRANT` (production-capable), plus test fixtures in non-production test code only |
 | Paid / voucher issuance | **not available** in v1. Commercial activation of #322 stays blocked on #1236 |
 | Post-delivery reversal class | `deny-future-use`: revocation ends future benefit and never mutates game state |
@@ -127,7 +127,7 @@ The body is one JSON object of at most 256 bytes. It has exactly these members, 
 | Member | Rule |
 |---|---|
 | `schema` | exactly `oteryn.premium_snapshot_request.v1` |
-| `account_id` | canonical lower-case hyphenated UUID, 36 characters |
+| `account_id` | canonical lower-case hyphenated RFC 9562 UUIDv7 (version 7, RFC variant), 36 characters; any other UUID is rejected with `400` |
 | `nonce` | 128 bits as exactly 32 lower-case hexadecimal characters, generated fresh by Game for each request |
 
 Platform rejects duplicate, unknown, missing, nested or non-string members, and malformed or oversized JSON, with `400`. Platform echoes the nonce and does not store it. Freshness and matching belong to the consumer (8.1). The mTLS channel supplies transport replay protection, and the echoed nonce binds each response to one Game request.
@@ -162,7 +162,7 @@ A `200` body is one UTF-8 JSON object of **at most 1,024 bytes**. It has exactly
 | `account_id` | string | the request `account_id` |
 | `product_id` | string | `oteryn.premium_time` |
 | `product_version` | integer | `1` |
-| `entitlement_id` | string or null | lower-case UUID. `null` only when the state is `NONE` |
+| `entitlement_id` | string or null | lower-case RFC 9562 UUIDv7. `null` only when the state is `NONE` |
 | `entitlement_state` | string | `ACTIVE`, `NOT_YET_EFFECTIVE`, `EXPIRED`, `REVOKED` or `NONE` |
 | `lifecycle_revision` | integer | at least 1 when an entitlement exists, 0 for `NONE` |
 | `authority_revision` | integer | at least 1, strictly increasing per account (6.4) |
