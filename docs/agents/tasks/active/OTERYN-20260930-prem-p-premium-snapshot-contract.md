@@ -40,6 +40,7 @@ The packet is documentation only. The owner accepts the candidate.
 owned_paths:
   - docs/contracts/OTERYN_V2_PREMIUM_TIME_SNAPSHOT_CONTRACT.md
   - docs/contracts/fixtures/premium-snapshot-v1/**
+  - composer.lock
   - docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-snapshot-contract.md
   - docs/agents/tasks/archive/OTERYN-20260930-prem-p-premium-snapshot-contract.md
 modules:
@@ -57,7 +58,7 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-01T07:30:00Z
-head: 6851d9e83bd98f0449e3952ec7653724b31913ea
+head: ecfeee48cd79de809705a8cfe2058e0df1c19b7c
 branch: claude/prem-p-premium-snapshot-contract
 pr: 1432
 status: validating
@@ -69,6 +70,7 @@ context_routes:
 owned_paths:
   - docs/contracts/OTERYN_V2_PREMIUM_TIME_SNAPSHOT_CONTRACT.md
   - docs/contracts/fixtures/premium-snapshot-v1/**
+  - composer.lock
   - docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-snapshot-contract.md
   - docs/agents/tasks/archive/OTERYN-20260930-prem-p-premium-snapshot-contract.md
 proven:
@@ -89,11 +91,13 @@ first_failure:
   marker: none
   evidence: none
 rejected_hypotheses:
+  - Treating the composer audit failure as this PR's defect was rejected; it is the league/commonmark advisory fixed in PR 1435, ported here (composer.lock only) and a no-op once PR 1435 merges.
   - A fixed refresh_after of 40 min was rejected because it can fall after a clipped cutoff.
   - A new entitlement_id per grant was rejected because it would break per-entitlement lifecycle ordering for merged intervals.
 changed_paths:
   - docs/contracts/OTERYN_V2_PREMIUM_TIME_SNAPSHOT_CONTRACT.md
   - docs/contracts/fixtures/premium-snapshot-v1/**
+  - composer.lock
   - docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-snapshot-contract.md
 validation:
   - command: fixture check (jsonschema Draft 2020-12 plus cross-field rules), local
