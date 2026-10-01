@@ -48,6 +48,8 @@ owned_paths:
   - app/Http/Middleware/GameAuth/RequireCharacterBootstrapIntentMtlsPeer.php
   - tests/Feature/GameAuth/NativeEvidenceHardeningTest.php
   - tests/Feature/GameAuth/CharacterBootstrapIntentProducerTest.php
+  - docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-snapshot-contract.md
+  - docs/agents/tasks/archive/OTERYN-20260930-prem-p-premium-snapshot-contract.md
   - tests/Unit/Http/Middleware/PreventSensitiveGameAuthResponseCachingTest.php
   - .env.example
   - docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-snapshot-producer.md
@@ -68,7 +70,7 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-01T07:40:00Z
-head: f60371fc080344f0f8b44794723378ceeb1aa238
+head: e22b62c4a26b3d0d795dc0e552181a2f6678bd71
 branch: claude/prem-p-premium-snapshot-producer
 pr: 1433
 status: validating
@@ -88,11 +90,14 @@ owned_paths:
   - app/Http/Middleware/GameAuth/RequireCharacterBootstrapIntentMtlsPeer.php
   - tests/Feature/GameAuth/NativeEvidenceHardeningTest.php
   - tests/Feature/GameAuth/CharacterBootstrapIntentProducerTest.php
+  - docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-snapshot-contract.md
+  - docs/agents/tasks/archive/OTERYN-20260930-prem-p-premium-snapshot-contract.md
   - tests/Unit/Http/Middleware/PreventSensitiveGameAuthResponseCachingTest.php
   - .env.example
   - docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-snapshot-producer.md
   - docs/agents/tasks/archive/OTERYN-20260930-prem-p-premium-snapshot-producer.md
 proven:
+  - PR 1432 merged as 5ebd609; its contract record is archived here (archive_pending, source ref deleted) so live task liveness does not flag a terminal PR still represented as active.
   - mTLS purpose separation is bidirectional: the native evidence and character bootstrap peer guards answer 503 when their configured subject equals the Premium snapshot subject, as the Premium settings already refuse theirs (Codex review 4153372810). RequireNativeEvidenceMtlsPeer and NativeEvidenceHardeningTest are also listed by OTERYN-20260912-platform-native-evidence-hardening, whose PR 1389 merged on 2026-09-12 and which only awaits separately authorized external qualification; this additive fail-closed check does not change its wire or evidence.
   - An exact retry returns the result its matching ledger event recorded, not the current entitlement, even after later grants or revocation (Codex review 4153372817).
   - The request decoder and the stored-entitlement read model require canonical UUIDv7 (version 7, RFC variant) for account_id and entitlement_id, matching the PR 1432 schemas (Codex review 4153365059); a UUIDv4 account_id is a 400 that allocates no authority revision, while an unknown UUIDv7 stays a 404. Operator request ids remain any lower-case UUID.
@@ -121,6 +126,8 @@ changed_paths:
   - app/Http/Middleware/GameAuth/RequireCharacterBootstrapIntentMtlsPeer.php
   - tests/Feature/GameAuth/NativeEvidenceHardeningTest.php
   - tests/Feature/GameAuth/CharacterBootstrapIntentProducerTest.php
+  - docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-snapshot-contract.md
+  - docs/agents/tasks/archive/OTERYN-20260930-prem-p-premium-snapshot-contract.md
   - tests/Unit/Http/Middleware/PreventSensitiveGameAuthResponseCachingTest.php
   - .env.example
 validation:
