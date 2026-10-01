@@ -122,6 +122,11 @@
       "rationale": "Administrator wallet adjustment, ledger and recovery surfaces render privileged textual data and controls without managed media."
     },
     {
+      "id": "products-entitlements.admin-premium-time",
+      "classification": "not_applicable",
+      "rationale": "The operator Premium time lookup, grant and revocation surface renders privileged textual state and controls without managed media."
+    },
+    {
       "id": "payments.account-history-and-return",
       "classification": "not_applicable",
       "rationale": "Payment history and checkout-return presentation render bounded financial state, identifiers and controls without repository-managed media."

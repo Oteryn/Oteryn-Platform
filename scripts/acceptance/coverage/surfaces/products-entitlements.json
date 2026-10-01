@@ -1,0 +1,71 @@
+[
+  {
+    "id": "products-entitlements.admin-premium-time",
+    "owner": "ProductsEntitlements / Admin / Audit",
+    "status": "covered",
+    "route_names": [
+      "admin.premium.index",
+      "admin.premium.grant",
+      "admin.premium.revoke"
+    ],
+    "roles": [
+      "guest",
+      "authenticated-no-mfa",
+      "mfa-confirmed-no-permission",
+      "premium-time-operator"
+    ],
+    "states": [
+      "permission-denied",
+      "account-not-found",
+      "no-entitlement",
+      "grant",
+      "extend",
+      "revoke",
+      "validation",
+      "exact-idempotent-replay",
+      "idempotency-conflict",
+      "revoke-refused-not-active",
+      "audit"
+    ],
+    "viewports": [
+      "desktop-1440x1000",
+      "tablet-820x1180",
+      "mobile-390x844"
+    ],
+    "browsers": [
+      "chromium-primary"
+    ],
+    "evidence_layers": [
+      "feature",
+      "playwright",
+      "responsive",
+      "accessibility",
+      "security",
+      "audit"
+    ],
+    "evidence": [
+      {
+        "file": "tests/Feature/ProductsEntitlements/AdminPremiumTimeTest.php",
+        "markers": [
+          "test_premium_admin_requires_login_confirmed_mfa_and_the_exact_permission",
+          "test_premium_admin_grants_extends_and_revokes_with_audit_and_idempotent_replay",
+          "test_premium_admin_refusals_leave_state_unchanged_and_report_the_reason",
+          "test_premium_admin_navigation_is_shown_only_with_the_exact_permission"
+        ]
+      },
+      {
+        "file": "tests/Feature/ProductsEntitlements/PremiumTimeLedgerTest.php",
+        "markers": [
+          "test_exact_retry_is_idempotent_and_changed_reuse_of_a_request_id_conflicts"
+        ]
+      },
+      {
+        "file": "scripts/acceptance/tests/premium-admin-acceptance.spec.mjs",
+        "markers": [
+          "@portal-premium-admin MFA permission Premium time grant extend revoke and audit surface"
+        ]
+      }
+    ],
+    "gaps": []
+  }
+]

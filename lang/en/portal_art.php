@@ -40,6 +40,7 @@ return [
         'catalog' => 'Game Catalog',
         'payments' => 'Payment reconciliation',
         'bazaar' => 'Character Bazaar',
+        'premium' => 'Premium time',
         'audit' => 'Audit',
     ],
 ];

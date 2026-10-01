@@ -40,6 +40,7 @@ return [
         'catalog' => 'Katalog gry',
         'payments' => 'Uzgadnianie płatności',
         'bazaar' => 'Bazar postaci',
+        'premium' => 'Czas Premium',
         'audit' => 'Audyt',
     ],
 ];

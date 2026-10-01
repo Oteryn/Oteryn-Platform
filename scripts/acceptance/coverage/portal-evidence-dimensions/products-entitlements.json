@@ -1,0 +1,75 @@
+{
+  "surfaces": [
+    {
+      "id": "products-entitlements.admin-premium-time",
+      "kind": "rendered",
+      "critical": false,
+      "evidence": [
+        {
+          "id": "e1",
+          "file": "scripts/acceptance/tests/premium-admin-acceptance.spec.mjs",
+          "markers": [
+            "@portal-premium-admin MFA permission Premium time grant extend revoke and audit surface",
+            "{ width: 1440, height: 1000 }"
+          ]
+        },
+        {
+          "id": "e2",
+          "file": "scripts/acceptance/tests/premium-admin-acceptance.spec.mjs",
+          "markers": [
+            "@portal-premium-admin MFA permission Premium time grant extend revoke and audit surface",
+            "{ width: 820, height: 1180 }"
+          ]
+        },
+        {
+          "id": "e3",
+          "file": "scripts/acceptance/tests/premium-admin-acceptance.spec.mjs",
+          "markers": [
+            "@portal-premium-admin MFA permission Premium time grant extend revoke and audit surface",
+            "{ width: 390, height: 844 }"
+          ]
+        },
+        {
+          "id": "e4",
+          "file": "scripts/acceptance/tests/premium-admin-acceptance.spec.mjs",
+          "markers": [
+            "@portal-premium-admin MFA permission Premium time grant extend revoke and audit surface"
+          ]
+        }
+      ],
+      "viewports": {
+        "desktop-1440x1000": {
+          "profile": "standard-primary",
+          "project": "chromium-primary",
+          "mode": "test-controlled",
+          "evidence": "e1"
+        },
+        "tablet-820x1180": {
+          "profile": "standard-primary",
+          "project": "chromium-primary",
+          "mode": "test-controlled",
+          "evidence": "e2"
+        },
+        "mobile-390x844": {
+          "profile": "standard-primary",
+          "project": "chromium-primary",
+          "mode": "test-controlled",
+          "evidence": "e3"
+        }
+      },
+      "browsers": {
+        "chromium-primary": {
+          "profile": "standard-primary",
+          "projects": [
+            "chromium-primary"
+          ],
+          "evidence": "e4"
+        }
+      },
+      "portability": {
+        "status": "excluded",
+        "rationale": "Operator Premium time grant and revocation are privileged, audited entitlement mutations. They remain zero-retry Chromium with feature, audit and database evidence rather than being multiplied across browser engines."
+      }
+    }
+  ]
+}
