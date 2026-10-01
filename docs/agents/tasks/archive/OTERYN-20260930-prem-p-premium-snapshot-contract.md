@@ -58,10 +58,11 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-01T07:30:00Z
-head: 30091a999c6bf19c99b7c3142da6a4008489931c
+head: 1b5d0f69b78e05c7f34280dcef6eb1b61ecd4b71; integrated as 5ebd609 (PR 1432)
 branch: claude/prem-p-premium-snapshot-contract
 pr: 1432
-status: validating
+status: completed
+terminal_pr_policy: archive_pending
 context_routes:
   - architecture
   - api
@@ -114,15 +115,15 @@ validation:
     evidence: documentation-only contract candidate; no runtime path changes
 blockers:
   - none
-next_action: exact-head CI of the UUIDv7 schema fix on PR 1432, then carry UUIDv7 validation into PR 1433 and merge through PR 1436
+next_action: none; PR 1432 integrated as 5ebd609 and this record archived by its post-merge closeout
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository PR integration completed
+source_branch_evidence: source ref claude/prem-p-premium-snapshot-contract absent (ls-remote 2026-10-01) after PR 1432 integrated as 5ebd609
 ```
 
 ## Notes
