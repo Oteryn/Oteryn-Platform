@@ -59,15 +59,23 @@ final class PremiumTimeContract
 
     private const UUID = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/D';
 
+    /** RFC 9562 version 7 with the RFC variant: AccountId and entitlement_id (contract 4.4, 5.1). */
+    private const UUID_V7 = '/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/D';
+
     public static function isUuid(mixed $value): bool
     {
         return is_string($value) && preg_match(self::UUID, $value) === 1;
     }
 
-    public static function assertUuid(mixed $value, string $field): string
+    public static function isUuidV7(mixed $value): bool
     {
-        if (! is_string($value) || ! self::isUuid($value)) {
-            throw new InvalidArgumentException("Premium time {$field} must be a canonical lower-case UUID.");
+        return is_string($value) && preg_match(self::UUID_V7, $value) === 1;
+    }
+
+    public static function assertUuidV7(mixed $value, string $field): string
+    {
+        if (! is_string($value) || ! self::isUuidV7($value)) {
+            throw new InvalidArgumentException("Premium time {$field} must be a canonical lower-case UUIDv7.");
         }
 
         return $value;
