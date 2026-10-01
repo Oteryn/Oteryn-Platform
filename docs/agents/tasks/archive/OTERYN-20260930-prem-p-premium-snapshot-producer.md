@@ -69,11 +69,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-01T09:45:00Z
-head: c85b9a46be766ededa9d642f7a104f16dfc002ef
+updated_at: 2026-10-01T09:50:00Z
+head: fe1e0a5b05b20fc6e00f669ad870c87c60c9f9be; integrated as 85b6b12 (PR 1433)
 branch: claude/prem-p-premium-snapshot-producer
 pr: 1433
-status: validating
+status: completed
+terminal_pr_policy: archive_pending
 context_routes:
   - api
   - security
@@ -143,15 +144,15 @@ validation:
     evidence: private service endpoint with no browser actor; the Game consumer E2E is a Game-side task using the shared fixtures
 blockers:
   - none
-next_action: exact-head CI on PR 1433 after merging main with PR 1432 integrated, then merge into PR 1436
+next_action: none; PR 1433 integrated as 85b6b12 and this record archived by its post-merge closeout
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository PR integration completed
+source_branch_evidence: source ref claude/prem-p-premium-snapshot-producer absent (ls-remote 2026-10-01) after PR 1433 integrated as 85b6b12
 ```
 
 ## Notes

@@ -54,6 +54,8 @@ owned_paths:
   - scripts/acceptance/coverage/test-portal-content-scale-evidence.mjs
   - docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-operator-surface.md
   - docs/agents/tasks/archive/OTERYN-20260930-prem-p-premium-operator-surface.md
+  - docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-snapshot-producer.md
+  - docs/agents/tasks/archive/OTERYN-20260930-prem-p-premium-snapshot-producer.md
 modules:
   - ProductsEntitlements
   - Admin (permission catalogue and navigation entry only)
@@ -69,8 +71,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-01T07:45:00Z
-head: 8f369be56fc4db2d8e955fb29b47299498e67da7
+updated_at: 2026-10-01T09:50:00Z
+head: fd07a4edaa1c0cff505980cefa53ac6fc372dace
 branch: claude/prem-p-premium-operator-surface
 pr: 1436
 status: validating
@@ -97,10 +99,13 @@ owned_paths:
   - scripts/acceptance/coverage/test-portal-content-scale-evidence.mjs
   - docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-operator-surface.md
   - docs/agents/tasks/archive/OTERYN-20260930-prem-p-premium-operator-surface.md
+  - docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-snapshot-producer.md
+  - docs/agents/tasks/archive/OTERYN-20260930-prem-p-premium-snapshot-producer.md
 proven:
   - Grant and revoke forms submit the reviewed account's immutable AccountId (UUIDv7), and the controller resolves the target only by AccountId, so an email reassigned between review and submission cannot redirect a mutation to another account (Codex review 4153365665); lookup by email remains for the read-only search.
   - AdminAuthorization denies any permission key missing from AdminPermission::all(), so the key is registered there.
   - Route module files under routes/modules are loaded by glob from routes/web.php.
+  - PR 1433 integrated as 85b6b12; its producer task record is archived here (completed, archive_pending, source ref absent) so live task liveness does not flag a terminal PR's active record.
 derived:
   - The shared acceptance browser administrator keeps its grants; a separate acceptance-only role adds products.premium.manage so the denied state is observable first.
 unknown:
@@ -129,6 +134,8 @@ changed_paths:
   - docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json
   - docs/testing/PORTAL_MEDIA_STATE_EVIDENCE.json
   - scripts/acceptance/coverage/test-portal-content-scale-evidence.mjs
+  - docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-snapshot-producer.md
+  - docs/agents/tasks/archive/OTERYN-20260930-prem-p-premium-snapshot-producer.md
 validation:
   - command: php -l and node --check on changed files
     result: PASS
@@ -144,7 +151,7 @@ validation:
     evidence: all checks green on aa74d010b83050bdc4afc6c028150910837c4d43, including runtime-tests, Strict portal coverage closure and acceptance
 blockers:
   - none
-next_action: exact-head CI on PR 1436 after merging PR 1433 with main (PR 1432 integrated), then review and merge after PR 1433
+next_action: exact-head CI on PR 1436 after merging main with PR 1433 integrated as 85b6b12, then merge; archive this record in the post-merge closeout
 ```
 
 ## Source branch closeout
