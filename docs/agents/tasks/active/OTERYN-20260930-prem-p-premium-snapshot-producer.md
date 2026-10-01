@@ -64,7 +64,7 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-01T07:40:00Z
-head: 841ec423933de54341c539158d2c502fdb2f0b30
+head: 91166cac0d5680a39738de41e2f530549b54bf20
 branch: claude/prem-p-premium-snapshot-producer
 pr: 1433
 status: validating
@@ -85,6 +85,7 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-snapshot-producer.md
   - docs/agents/tasks/archive/OTERYN-20260930-prem-p-premium-snapshot-producer.md
 proven:
+  - The request decoder and the stored-entitlement read model require canonical UUIDv7 (version 7, RFC variant) for account_id and entitlement_id, matching the PR 1432 schemas (Codex review 4153365059); a UUIDv4 account_id is a 400 that allocates no authority revision, while an unknown UUIDv7 stays a 404. Operator request ids remain any lower-case UUID.
   - The Laravel internal route group applies PreventSensitiveGameAuthResponseCaching globally by path.
   - The mTLS provenance fields SSL_CLIENT_VERIFY, SSL_PROTOCOL and SSL_CLIENT_S_DN match the existing Platform peer pattern.
   - The snapshot emits producer_profile = oteryn.entitlement.profile_b.v1, required by the architect on #1431 (comment 5926527459) and merged in from contract PR 1432.
@@ -120,7 +121,7 @@ validation:
     evidence: private service endpoint with no browser actor; the Game consumer E2E is a Game-side task using the shared fixtures
 blockers:
   - none
-next_action: exact-head CI on PR 1433 after merging the PR 1432 stale-denial fix (contract text only; the producer wire is unchanged)
+next_action: exact-head CI on PR 1433 for the UUIDv7 request and read-model validation, then merge into PR 1436
 ```
 
 ## Source branch closeout

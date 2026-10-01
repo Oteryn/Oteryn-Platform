@@ -42,7 +42,7 @@ final class PremiumTimeLedgerTest extends TestCase
 
         $entitlement = $this->ledger()->grant($operator, $player, 30, self::REASON, $this->requestId());
 
-        self::assertTrue(PremiumTimeContract::isUuid($entitlement->id));
+        self::assertTrue(PremiumTimeContract::isUuidV7($entitlement->id));
         self::assertSame(1, $entitlement->lifecycleRevision);
         self::assertSame($now, $entitlement->effectiveFrom);
         self::assertSame($now + 30 * self::DAY, $entitlement->effectiveUntil);

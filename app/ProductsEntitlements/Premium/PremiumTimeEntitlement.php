@@ -28,7 +28,7 @@ final readonly class PremiumTimeEntitlement
         $revision = PremiumTimeContract::databaseInteger($row->lifecycle_revision);
         $from = PremiumTimeContract::databaseInteger($row->effective_from);
         $until = PremiumTimeContract::databaseInteger($row->effective_until);
-        if (! is_string($id) || ! PremiumTimeContract::isUuid($id)
+        if (! is_string($id) || ! PremiumTimeContract::isUuidV7($id)
             || $row->product_id !== PremiumTimeContract::PRODUCT_ID
             || PremiumTimeContract::databaseInteger($row->product_version) !== PremiumTimeContract::PRODUCT_VERSION
             || ! is_string($state)

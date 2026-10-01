@@ -40,7 +40,7 @@ final class PremiumSnapshotRequestDecoder
 
         return [
             'schema' => $schema,
-            'account_id' => PremiumTimeContract::assertUuid($accountId, 'account_id'),
+            'account_id' => PremiumTimeContract::assertUuidV7($accountId, 'account_id'),
             'nonce' => $nonce,
         ];
     }

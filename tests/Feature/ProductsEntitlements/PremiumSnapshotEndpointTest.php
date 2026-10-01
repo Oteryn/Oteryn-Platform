@@ -166,7 +166,11 @@ final class PremiumSnapshotEndpointTest extends TestCase
         self::assertSame(1, $this->validSnapshot($this->read($second->account_id)->assertOk(), $second->account_id)['authority_revision']);
 
         $before = DB::table('premium_time_authority')->count();
-        $this->read(strtolower((string) Str::uuid()))->assertNotFound()->assertContent('');
+        $this->read(strtolower((string) Str::uuid7()))->assertNotFound()->assertContent('');
+        self::assertSame($before, DB::table('premium_time_authority')->count());
+
+        $uuidV4 = substr_replace($first->account_id, '4', 14, 1);
+        $this->read($uuidV4)->assertStatus(400)->assertContent('');
         self::assertSame($before, DB::table('premium_time_authority')->count());
     }
 

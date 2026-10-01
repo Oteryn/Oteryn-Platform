@@ -31,7 +31,7 @@ The packet is documentation only. The owner accepts the candidate.
 
 - [x] The contract covers the product, grant and merge rules, revocation, policy values, the endpoint, the wire and ordering, and records a decision on every item in the Game proposal.
 - [x] Each conflict with an accepted Platform contract is stated.
-- [x] The fixtures validate: 5 valid snapshots pass the schema and cross-field rules, and 18 invalid snapshot cases and 7 invalid request cases are rejected.
+- [x] The fixtures validate: 5 valid snapshots pass the schema and cross-field rules, and 20 invalid snapshot cases and 9 invalid request cases are rejected.
 - [ ] The owner accepts the candidate, which happens at PR review.
 
 ## Ownership
@@ -58,7 +58,7 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-01T07:30:00Z
-head: 9893257f4f8652882cce3c7421a478a840572263
+head: 30091a999c6bf19c99b7c3142da6a4008489931c
 branch: claude/prem-p-premium-snapshot-contract
 pr: 1432
 status: validating
@@ -81,6 +81,7 @@ proven:
   - No ProductsEntitlements code exists; the module is PLANNED in MODULE_CATALOG.
   - The architect confirmed decisions 1-4 on #1431 (comment 5926527459) and required the constant snapshot member producer_profile = oteryn.entitlement.profile_b.v1, which the Game consumer (PREMIUM-DELIVERY-0 section 4, PREM-1a) requires.
   - The generic Profile-B contract classifies due or failed refresh evidence as STALE_WITHIN_BOUND, so with the accepted stale DENY policy benefit stops at refresh_after without newer accepted evidence (Codex review 4153022073 on PR 1432); sections 3, 4.5, 8.2, 8.5, D13 and the manifest classification text now say so.
+  - AccountId is a canonical UUIDv7 (OTERYN_V2_ACCOUNT_IDENTITY_CONTRACT) and entitlement_id is UUIDv7 (section 2.1), so both schemas require version 7 and the RFC variant (Codex review 4153365059 on PR 1432); a non-UUIDv7 account_id is a malformed request (400), not an unknown account (404).
 derived:
   - One entitlement per account and product keeps lifecycle_revision a single monotonic sequence.
   - A per-account locked authority row gives a strictly increasing authority_revision that is ordered with grants.
@@ -104,7 +105,7 @@ changed_paths:
 validation:
   - command: fixture check (jsonschema Draft 2020-12 plus cross-field rules), local
     result: PASS
-    evidence: 5 valid accepted, 25 invalid rejected (2 new producer_profile cases); largest valid body 650 bytes
+    evidence: 5 valid accepted, 29 invalid rejected (4 new UUIDv7 cases); largest valid body 650 bytes
   - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20260930-prem-p-premium-snapshot-contract.md --require-checkpoint
     result: PASS
     evidence: local run before push
@@ -113,7 +114,7 @@ validation:
     evidence: documentation-only contract candidate; no runtime path changes
 blockers:
   - none
-next_action: exact-head CI of the stale-denial fix on PR 1432, then report the new freeze SHA on #1431 and merge it into PR 1433 and PR 1436
+next_action: exact-head CI of the UUIDv7 schema fix on PR 1432, then carry UUIDv7 validation into PR 1433 and merge through PR 1436
 ```
 
 ## Source branch closeout
