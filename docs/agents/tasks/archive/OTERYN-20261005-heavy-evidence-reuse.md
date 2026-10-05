@@ -52,10 +52,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-05T19:05:00+02:00
-head: b1e48bcfeb9ed114f112d69ac98914bf0b196874
+updated_at: 2026-10-05T19:08:00+02:00
+head: a5de3553bfc8736936747c369e7331a0735ffe68
 branch: ci/issue-1012-heavy-evidence-reuse
-pr: 1453
+pr: 1455
 status: completed
 terminal_pr_policy: archive_pending
 context_routes:
