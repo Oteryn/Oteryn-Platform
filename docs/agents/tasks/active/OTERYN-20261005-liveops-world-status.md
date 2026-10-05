@@ -67,12 +67,12 @@ blockers: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-05T19:03:19Z
-status: implementing
-phase: implementation
+updated_at: 2026-10-05T19:15:44Z
+status: validating
+phase: exact_head_ci
 branch: feat/liveops-world-status-1458
-head: 46ed77d5799a8c0019e9fecf9178aafe13584115
-pr: none
+head: a1f1227c481be2c66d6440e5a4effbe78dc2a40a
+pr: 1459
 context_routes:
   - api
   - testing
@@ -104,11 +104,24 @@ first_failure:
 rejected_hypotheses:
   - Treating stale or unavailable runtime evidence as offline.
   - Reading native runtime tables directly from PublicPortal.
-changed_paths: []
+changed_paths:
+  - app/GameAuth/NativeRuntimeStatus/NativeRuntimePublicEvidence.php
+  - app/GameAuth/NativeRuntimeStatus/NativeRuntimeStatusReadModel.php
+  - app/LiveOps/WorldStatus/PublicWorldStatus.php
+  - app/LiveOps/WorldStatus/PublicWorldStatusQuery.php
+  - app/PublicPortal/Today/TodayCardState.php
+  - app/PublicPortal/Today/TodayPageQuery.php
+  - resources/views/public/today/index.blade.php
+  - lang/en/today.php
+  - lang/pl/today.php
+  - tests/Feature/LiveOps/PublicWorldStatusQueryTest.php
+  - scripts/acceptance/coverage/surfaces/public-today.json
+  - docs/architecture/MODULE_CATALOG.md
+  - docs/agents/tasks/active/OTERYN-20261005-liveops-world-status.md
 validation:
   - command: php -l on new PHP implementation/test files
     result: PASS
     evidence: local syntax validation before first branch commit
 blockers: []
-next_action: Publish the implementation candidate, create its PR, freeze the exact checkpoint and run exact-head CI.
+next_action: Inspect PR #1459 exact-head CI and review. Repair only evidence-backed failures; then add the required zero-retry browser evidence before READY_FOR_INTEGRATION.
 ```
