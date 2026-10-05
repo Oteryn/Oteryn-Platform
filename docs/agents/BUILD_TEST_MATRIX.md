@@ -16,7 +16,7 @@ Validation must be proportional to changed paths, risk and the current project m
 - Automatic domain workflows use trigger-level `paths`/`paths-ignore` whenever they are not intentionally repository-wide.
 - Heavy workflows use trigger-level governance/checkpoint exclusions plus internal fail-closed path classification where applicable.
 - Final applicable validation runs once on the exact candidate head; focused checks may run earlier.
-- A checkpoint-only or agent-governance-only commit does not start unrelated edge, outage, production-like, browser or concurrency workflows.
+- A checkpoint-only or agent-governance-only successor does not rerun unrelated edge, outage, production-like or concurrency heavy jobs. A workflow may still emit its lightweight classifier when the accumulated PR diff matches its trigger.
 - A workflow-file edit does not imply every runtime risk changed: ordinary workflow definitions route to core CI, heavy workflow definitions route to core CI plus their own lane, and only central routing-control changes fail closed to every gate.
 - Workflow definitions are durable architecture, not task history. New or retained workflow files must satisfy `CI_WORKFLOW_LIFECYCLE.md` and the machine lifecycle registry.
 
@@ -27,7 +27,9 @@ Validation must be proportional to changed paths, risk and the current project m
 - Run heavy validation earlier only when a step changes dependency manifests or lockfiles, build tooling, generated assets, framework bootstrap, shared contracts, migrations needed by subsequent steps, container definitions, or when later work requires a verified artifact.
 - Documentation, task-checkpoint, comment, metadata and other clearly non-runtime/non-build-affecting commits do not require application, browser or container builds.
 - Security-sensitive behavior still requires focused regression tests as soon as the behavior exists; batching must not postpone detection of an unsafe auth, authorization, session, payment or data-integrity design.
-- Run the full applicable final validation once on the exact final head before merge. A later runtime/build-affecting commit invalidates it; a later docs-only commit needs only the checks selected by repository path policy.
+- Run the full applicable final validation once for a material PR generation. A later runtime/build/workflow/classifier-affecting generation invalidates relevant prior heavy evidence and reruns the affected lane.
+- On a `pull_request/synchronize` successor, heavy evidence may be reused only when the event's exact `before -> after` range is non-material for that gate, the gate-relevant Git material-tree SHA-256 digest is unchanged, and an earlier successful run of the same workflow on the same PR contains a successful heavy evidence job for that identical digest.
+- Reuse is fail closed: missing/invalid generation identity, force-push/non-ancestor history, unavailable Git objects, GitHub API failure, absent prior successful heavy job, or digest ambiguity all mean `RUN`. The final head still runs lightweight governance/classification and required aggregate checks, and the reused source head/run ID/digest is recorded in the workflow summary.
 - Record why a heavy check was run early or skipped when the choice is not obvious from changed paths.
 
 ## Change-to-proof matrix
