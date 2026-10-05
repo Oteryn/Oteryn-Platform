@@ -15,6 +15,13 @@ HEAVY_WORKFLOWS = (
     "game-auth-ticket-concurrency.yml",
 )
 
+HEAVY_EVIDENCE_JOBS = {
+    "edge-security-emulation.yml": "validate",
+    "platform-db-outage-validation.yml": "validate",
+    "phase7-production-like-validation.yml": "validate",
+    "game-auth-ticket-concurrency.yml": "concurrency-proof",
+}
+
 REQUIRED_IGNORES = (
     "'AGENTS.md'",
     "'docs/agents/PLATFORM_AGENT_BOOTSTRAP.md'",
@@ -170,6 +177,19 @@ for filename in HEAVY_WORKFLOWS:
     assert "scripts/ci/classify_changes.py" in text, (
         f"{filename}: internal fail-closed path classification was removed"
     )
+    assert "actions: read" in text, (
+        f"{filename}: same-PR prior workflow evidence cannot be read"
+    )
+    assert "scripts/ci/heavy_evidence_reuse.py" in text, (
+        f"{filename}: fail-closed checkpoint-successor evidence reuse was removed"
+    )
+    assert "validation_required: ${{ steps.reuse.outputs.validation_required }}" in text
+    assert "reused_material_head: ${{ steps.reuse.outputs.material_head }}" in text
+    assert "reused_run_id: ${{ steps.reuse.outputs.reused_run_id }}" in text
+    assert f'--evidence-job "{HEAVY_EVIDENCE_JOBS[filename]}"' in text
+    assert "needs.classify_changes.outputs.validation_required != 'false'" in text, (
+        f"{filename}: heavy internals do not honor proven reusable evidence"
+    )
 
 for filename in RETIRED_WORKFLOWS:
     assert not (WORKFLOW_ROOT / filename).exists(), (
@@ -275,8 +295,15 @@ assert (
     'if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "merge_group" ]]; then'
     in ci
 ), "ci.yml: merge-group candidates must use exact diff-range classification"
+assert "python tests/ci/test_heavy_evidence_reuse.py" in ci
 assert "python tests/ci/test_push_change_routing.py" in ci
 assert "paths_json: ${{ steps.classify.outputs.paths_json }}" in ci
+assert "runtime_validation_required: ${{ steps.runtime_reuse.outputs.validation_required }}" in ci
+assert "runtime_material_head: ${{ steps.runtime_reuse.outputs.material_head }}" in ci
+assert "runtime_reused_run_id: ${{ steps.runtime_reuse.outputs.reused_run_id }}" in ci
+assert "scripts/ci/heavy_evidence_reuse.py" in ci
+assert '--evidence-job "runtime-tests"' in ci
+assert "needs.classify_changes.outputs.runtime_validation_required != 'false'" in ci
 assert "contains(needs.classify_changes.outputs.paths_json, '.github/workflows/ci.yml')" in ci
 assert "contains(needs.classify_changes.outputs.classes, 'workflow')" not in ci
 
