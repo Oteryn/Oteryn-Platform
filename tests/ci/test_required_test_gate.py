@@ -160,9 +160,10 @@ class RequiredTestWorkflowContractTest(unittest.TestCase):
     def test_runtime_suite_is_conditional_on_successful_runtime_classification(self) -> None:
         self.assertIn("  runtime_tests:\n    name: runtime-tests", self.workflow)
         self.assertIn(
-            "if: ${{ needs.classify_changes.result == 'success' && needs.classify_changes.outputs.ci == 'true' }}",
+            "needs.classify_changes.outputs.runtime_validation_required != 'false'",
             self.workflow,
         )
+        self.assertIn("python scripts/ci/heavy_evidence_reuse.py", self.workflow)
         self.assertIn("image: mariadb:11.8", self.workflow)
         self.assertIn("php artisan test --log-junit=artifacts/ci/phpunit-junit.xml", self.workflow)
 
@@ -174,6 +175,18 @@ class RequiredTestWorkflowContractTest(unittest.TestCase):
         self.assertIn("python scripts/ci/required_test_gate.py", self.workflow)
         self.assertIn(
             "RUNTIME_TESTS_RESULT: ${{ needs.runtime_tests.result }}", self.workflow
+        )
+        self.assertIn(
+            "RUNTIME_VALIDATION_REQUIRED: ${{ needs.classify_changes.outputs.runtime_validation_required }}",
+            self.workflow,
+        )
+        self.assertIn(
+            "REUSED_MATERIAL_HEAD: ${{ needs.classify_changes.outputs.runtime_material_head }}",
+            self.workflow,
+        )
+        self.assertIn(
+            "REUSED_RUN_ID: ${{ needs.classify_changes.outputs.runtime_reused_run_id }}",
+            self.workflow,
         )
 
 
