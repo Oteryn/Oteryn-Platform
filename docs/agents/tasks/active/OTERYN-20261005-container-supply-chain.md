@@ -55,11 +55,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-05T19:40:00+02:00
-head: 91d70e7075697d11cf3f3e53e19dd2dc2c012438
+updated_at: 2026-10-05T19:45:00+02:00
+head: f73ae5bbc3816d0e64aa52d0ec4de8c6d7b9662e
 branch: security/issue-1011-container-supply-chain
-pr: none
-status: implementing
+pr: 1456
+status: validating
 terminal_pr_policy: active
 context_routes:
   - ci
@@ -106,7 +106,7 @@ validation:
     result: NOT_RUN
     evidence: implementation not yet committed
 blockers: []
-next_action: implement immutable base policy, SBOM/scan/provenance evidence and deterministic tests, then open exact-head PR
+next_action: validate PR #1456 exact head, repair first failures, then integrate through Merge Queue
 ```
 
 ## Source branch closeout
