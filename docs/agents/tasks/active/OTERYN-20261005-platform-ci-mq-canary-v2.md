@@ -31,8 +31,8 @@ No Oteryn-Game or Oteryn-Atlas mutation is authorized by this task.
 - [x] Current Platform protected main is frozen for preflight.
 - [x] Current META governed executor is proven operational on the frozen META generation.
 - [x] Current open Platform PRs are inspected for overlap with the measured CI/MQ surface.
-- [ ] Exact current Platform PR-capable workflow and downstream trigger matrix is frozen.
-- [ ] Existing recent Platform evidence is classified as reusable or insufficient for each V2 state.
+- [x] Exact current Platform PR-capable workflow and downstream trigger matrix is frozen.
+- [x] Existing recent Platform evidence is classified as reusable or insufficient for each V2 state.
 - [ ] If evidence is insufficient, create only the smallest bounded Platform canary needed.
 - [ ] Prove or classify ELIGIBLE, AUTO_ENQUEUE, MERGE_GROUP_PROVEN and AUTO_MERGE_AFTER_ENQUEUE separately.
 - [ ] Persist final Platform V2 evidence without claiming Game/Atlas completion.
@@ -61,10 +61,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-05T11:58:00Z
-head: b143cff5dd19f622990791d2f9b93d2c483020f8
+head: 1a3302b451ed8d5c67f85c6316386f846144fbb0
 branch: test/issue-1399-platform-ci-mq-v2-20261005
 pr: none
-status: implementing
+status: validating
 terminal_pr_policy: active
 context_routes:
   - ci
@@ -88,8 +88,7 @@ derived:
   - current META executor capability is operational, but target-specific Platform AUTO_ENQUEUE must still be proven or explicitly classified from exact current evidence
   - recent PR #1447 proves a real current-generation Platform merge_group and automatic protected merge but does not by itself prove governed exact-head AUTO_ENQUEUE because generic auto-merge transport is not equivalent to the #196 executor contract
 unknown:
-  - exact current Platform workflow trigger matrix after the latest CI changes
-  - whether existing exact current evidence can prove Platform AUTO_ENQUEUE without a new bounded canary
+  - exact governed AUTO_ENQUEUE result for the fresh delivery PR
 conflicts: []
 first_failure:
   marker: none
@@ -101,6 +100,42 @@ rejected_hypotheses:
 changed_paths:
   - docs/agents/tasks/archive/OTERYN-20260914-ci-mq-canary-v2.md
   - docs/agents/tasks/active/OTERYN-20261005-platform-ci-mq-canary-v2.md
+matrix:
+  r0_docs_agents_only:
+    expected_pull_request:
+      - CI
+      - Agent Governance
+    opened_trusted_base:
+      - Historical Branch Audit
+    close_housekeeping:
+      - GitHub Actions Storage Hygiene
+      - Terminal Branch Lifecycle
+    forbidden_or_not_applicable:
+      - CodeQL
+      - Edge Security Emulation
+      - Platform DB Outage Validation
+      - Game Auth Ticket Concurrency
+      - Phase 7 Production-Like Validation
+      - php-coverage-report
+      - runtime-tests
+    observed_reference:
+      pr: 1448
+      exact_head: 989c4f207fe1c25324fc82026d6a20a0fd35c3a8
+      ci: 37305682464
+      agent_governance: 37305682341
+      historical_branch_audit: 37305574333
+      storage_hygiene_close: 37305850971
+      terminal_branch_close: 37305850961
+  merge_queue_reference:
+    pr: 1448
+    merge_group_run: 37305783477
+    merge_group_sha: b143cff5dd19f622990791d2f9b93d2c483020f8
+    protected_merge: b143cff5dd19f622990791d2f9b93d2c483020f8
+  evidence_classification:
+    ELIGIBLE: fresh delivery PR exact-head green state still required
+    AUTO_ENQUEUE: INSUFFICIENT from #1447/#1448 because generic auto-merge transport is not the governed #196 executor contract
+    MERGE_GROUP_PROVEN: REUSABLE from #1448 current-generation merge_group run 37305783477
+    AUTO_MERGE_AFTER_ENQUEUE: REUSABLE from #1448 protected merge b143cff5dd19f622990791d2f9b93d2c483020f8
 validation:
   - command: live GitHub readback of META main and governed executor run 37118716936
     result: PASS
@@ -109,7 +144,7 @@ validation:
     result: PASS
     evidence: no open PR changes current pull_request/merge_group CI routing surface; #1211 workflow is push-main/workflow_dispatch only
 blockers: []
-next_action: freeze the exact current Platform workflow trigger/downstream matrix, classify reusable evidence, then create no more than the minimum missing Platform probe
+next_action: open this docs-only delivery PR as the single R0 probe; after exact-head gates pass, issue exactly one governed META #196 request for that exact head to prove AUTO_ENQUEUE, then observe provider merge_group and protected merge without any second integration mutation
 ```
 
 ## Source branch closeout
