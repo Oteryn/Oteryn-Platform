@@ -55,8 +55,8 @@ checkpoint_version: 1
 updated_at: 2026-10-05T09:30:00Z
 head: UNKNOWN
 branch: docs/platform-completion-lead-20261005
-pr: none
-status: implementing
+pr: 1442
+status: validating
 context_routes:
   - agent-governance
 owned_paths:
@@ -99,7 +99,7 @@ validation:
     evidence: exact-candidate validation pending
 blockers:
   - none
-next_action: publish one exact candidate and open the governed PR
+next_action: rerun exact-head CI and reconcile the governed PR
 ```
 
 ## Source branch closeout
