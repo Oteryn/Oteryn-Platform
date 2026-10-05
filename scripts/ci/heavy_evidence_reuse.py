@@ -25,6 +25,7 @@ from classify_changes import GATES, classify_path  # noqa: E402
 class ReusePlan:
     candidate: bool
     material_head: str | None
+    equivalent_heads: tuple[str, ...]
     material_digest: str | None
     current_digest: str | None
     reason: str
@@ -131,7 +132,7 @@ def plan_reuse(*, event_name: str, base: str, head: str, gate: str) -> ReusePlan
         raise ValueError(f"unsupported heavy gate: {gate}")
 
     if event_name != "pull_request":
-        return ReusePlan(False, None, None, None, "non-pull-request events always validate")
+        return ReusePlan(False, None, (), None, None, "non-pull-request events always validate")
 
     try:
         resolved_base = resolve_commit(base)
@@ -143,6 +144,7 @@ def plan_reuse(*, event_name: str, base: str, head: str, gate: str) -> ReusePlan
             return ReusePlan(
                 False,
                 None,
+                (),
                 None,
                 None,
                 "gate is not affected by the accumulated PR diff",
@@ -157,6 +159,7 @@ def plan_reuse(*, event_name: str, base: str, head: str, gate: str) -> ReusePlan
             return ReusePlan(
                 False,
                 None,
+                (),
                 None,
                 None,
                 "no attributable material commit found; validate fail-closed",
@@ -167,6 +170,7 @@ def plan_reuse(*, event_name: str, base: str, head: str, gate: str) -> ReusePlan
             return ReusePlan(
                 False,
                 material_head,
+                (),
                 digest,
                 digest,
                 "final head contains a material change for this gate",
@@ -178,14 +182,38 @@ def plan_reuse(*, event_name: str, base: str, head: str, gate: str) -> ReusePlan
             return ReusePlan(
                 False,
                 material_head,
+                (),
                 material_digest,
                 current_digest,
                 "gate-specific material tree changed after the candidate material head",
             )
 
+        commit_heads = [commit for _, commit in edges]
+        material_index = commit_heads.index(material_head)
+        equivalent_heads = tuple(reversed(commit_heads[material_index:-1]))
+        if not equivalent_heads:
+            return ReusePlan(
+                False,
+                material_head,
+                (),
+                material_digest,
+                current_digest,
+                "no earlier equivalent PR head exists; validate fail-closed",
+            )
+        if len(equivalent_heads) > 100:
+            return ReusePlan(
+                False,
+                material_head,
+                (),
+                material_digest,
+                current_digest,
+                "equivalent-head evidence search exceeds bounded limit; validate fail-closed",
+            )
+
         return ReusePlan(
             True,
             material_head,
+            equivalent_heads,
             material_digest,
             current_digest,
             "later commits leave the gate-specific material tree byte-identical",
@@ -194,6 +222,7 @@ def plan_reuse(*, event_name: str, base: str, head: str, gate: str) -> ReusePlan
         return ReusePlan(
             False,
             None,
+            (),
             None,
             None,
             f"reuse planning is ambiguous; validate fail-closed: {exc}",
@@ -233,68 +262,72 @@ def find_reusable_run(
     repository: str,
     workflow: str,
     pr_number: int,
-    material_head: str,
+    equivalent_heads: tuple[str, ...],
     evidence_job: str,
     token: str,
     api_url: str = "https://api.github.com",
     get_json: Callable[[str, str], dict[str, Any]] = _http_get_json,
-) -> int | None:
+) -> tuple[str, int] | None:
     if "/" not in repository or not workflow or pr_number < 1 or not evidence_job:
         raise ValueError("invalid GitHub evidence query context")
+    if not equivalent_heads or len(equivalent_heads) > 100:
+        raise ValueError("invalid bounded equivalent-head evidence search")
 
     workflow_id = urllib.parse.quote(Path(workflow).name, safe="")
-    query = urllib.parse.urlencode(
-        {
-            "event": "pull_request",
-            "head_sha": material_head,
-            "status": "success",
-            "per_page": 100,
-        }
-    )
-    runs_url = (
-        f"{api_url.rstrip('/')}/repos/{repository}/actions/workflows/"
-        f"{workflow_id}/runs?{query}"
-    )
-    run_payload = get_json(runs_url, token)
-    runs = run_payload.get("workflow_runs")
-    total_count = run_payload.get("total_count")
-    if not isinstance(runs, list) or not isinstance(total_count, int):
-        raise ValueError("malformed workflow-run evidence response")
-    if total_count > len(runs):
-        raise ValueError("workflow-run evidence response was truncated")
 
-    candidates = [
-        run
-        for run in runs
-        if isinstance(run, dict)
-        and run.get("event") == "pull_request"
-        and run.get("conclusion") == "success"
-        and run.get("head_sha") == material_head
-        and _same_pull_request(run, pr_number)
-        and isinstance(run.get("id"), int)
-    ]
-
-    for run in sorted(candidates, key=lambda value: int(value["id"]), reverse=True):
-        run_id = int(run["id"])
-        jobs_url = (
-            f"{api_url.rstrip('/')}/repos/{repository}/actions/runs/"
-            f"{run_id}/jobs?per_page=100"
+    for evidence_head in equivalent_heads:
+        query = urllib.parse.urlencode(
+            {
+                "event": "pull_request",
+                "head_sha": evidence_head,
+                "status": "success",
+                "per_page": 100,
+            }
         )
-        jobs_payload = get_json(jobs_url, token)
-        jobs = jobs_payload.get("jobs")
-        jobs_total = jobs_payload.get("total_count")
-        if not isinstance(jobs, list) or not isinstance(jobs_total, int):
-            raise ValueError("malformed workflow-job evidence response")
-        if jobs_total > len(jobs):
-            raise ValueError("workflow-job evidence response was truncated")
+        runs_url = (
+            f"{api_url.rstrip('/')}/repos/{repository}/actions/workflows/"
+            f"{workflow_id}/runs?{query}"
+        )
+        run_payload = get_json(runs_url, token)
+        runs = run_payload.get("workflow_runs")
+        total_count = run_payload.get("total_count")
+        if not isinstance(runs, list) or not isinstance(total_count, int):
+            raise ValueError("malformed workflow-run evidence response")
+        if total_count > len(runs):
+            raise ValueError("workflow-run evidence response was truncated")
 
-        if any(
-            isinstance(job, dict)
-            and job.get("name") == evidence_job
-            and job.get("conclusion") == "success"
-            for job in jobs
-        ):
-            return run_id
+        candidates = [
+            run
+            for run in runs
+            if isinstance(run, dict)
+            and run.get("event") == "pull_request"
+            and run.get("conclusion") == "success"
+            and run.get("head_sha") == evidence_head
+            and _same_pull_request(run, pr_number)
+            and isinstance(run.get("id"), int)
+        ]
+
+        for run in sorted(candidates, key=lambda value: int(value["id"]), reverse=True):
+            run_id = int(run["id"])
+            jobs_url = (
+                f"{api_url.rstrip('/')}/repos/{repository}/actions/runs/"
+                f"{run_id}/jobs?per_page=100"
+            )
+            jobs_payload = get_json(jobs_url, token)
+            jobs = jobs_payload.get("jobs")
+            jobs_total = jobs_payload.get("total_count")
+            if not isinstance(jobs, list) or not isinstance(jobs_total, int):
+                raise ValueError("malformed workflow-job evidence response")
+            if jobs_total > len(jobs):
+                raise ValueError("workflow-job evidence response was truncated")
+
+            if any(
+                isinstance(job, dict)
+                and job.get("name") == evidence_job
+                and job.get("conclusion") == "success"
+                for job in jobs
+            ):
+                return evidence_head, run_id
 
     return None
 
@@ -337,11 +370,11 @@ def decide_reuse(
 
     assert plan.material_head is not None
     try:
-        run_id = find_reusable_run(
+        reusable = find_reusable_run(
             repository=repository,
             workflow=workflow,
             pr_number=pr_number,
-            material_head=plan.material_head,
+            equivalent_heads=plan.equivalent_heads,
             evidence_job=evidence_job,
             token=token,
             get_json=get_json,
@@ -357,7 +390,7 @@ def decide_reuse(
             f"prior heavy evidence lookup is ambiguous; validate fail-closed: {exc}",
         )
 
-    if run_id is None:
+    if reusable is None:
         return ReuseDecision(
             True,
             "RUN",
@@ -365,17 +398,18 @@ def decide_reuse(
             None,
             plan.material_digest,
             plan.current_digest,
-            "no same-PR successful heavy evidence job exists for the material head",
+            "no same-PR successful heavy evidence job exists for an equivalent prior head",
         )
 
+    evidence_head, run_id = reusable
     return ReuseDecision(
         False,
         "REUSE",
-        plan.material_head,
+        evidence_head,
         run_id,
         plan.material_digest,
         plan.current_digest,
-        f"reuse prior successful {evidence_job} evidence from run {run_id}",
+        f"reuse prior successful {evidence_job} evidence from equivalent head {evidence_head} run {run_id}",
     )
 
 
