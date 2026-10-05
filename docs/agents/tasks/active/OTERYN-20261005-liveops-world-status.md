@@ -72,11 +72,11 @@ blockers: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-05T19:15:44Z
+updated_at: 2026-10-05T19:20:19Z
 status: validating
 phase: exact_head_ci
 branch: feat/liveops-world-status-1458
-head: a1f1227c481be2c66d6440e5a4effbe78dc2a40a
+head: 1d24fa9e88975154c48f16fb8a65984423103e6b
 pr: 1459
 context_routes:
   - api
@@ -138,5 +138,5 @@ validation:
     result: PASS
     evidence: local syntax validation before first branch commit
 blockers: []
-next_action: Publish real acceptance-state transitions, then freeze a new exact head. Inspect CI/review and repair only evidence-backed failures before READY_FOR_INTEGRATION.
+next_action: Inspect PR #1459 exact-head CI/review. Repair only evidence-backed failures; if all required checks and zero-retry browser profiles pass, classify READY_FOR_INTEGRATION.
 ```
