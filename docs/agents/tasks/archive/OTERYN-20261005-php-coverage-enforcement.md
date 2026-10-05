@@ -99,10 +99,10 @@ Post-merge coverage remained **82.69%**, above the **82.0%** floor. Durable arti
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-05T11:05:00Z
+updated_at: 2026-10-05T11:51:00Z
 head: a29c0f990cbac725e47e9f0407a16fbc9eaf333c
 branch: docs/issue-1010-php-coverage-closeout
-pr: none
+pr: 1448
 status: completed
 terminal_pr_policy: archive_pending
 context_routes:
@@ -146,7 +146,7 @@ validation:
     result: PASS
     evidence: CI 37300007155; 82.69 percent statement coverage; platform-gate PASS; artifact 11342055808
 blockers: []
-next_action: merge the sequential archive-closeout PR, verify its source branch is absent, then close Issue #1010 as completed
+next_action: validate and merge PR #1448, verify its source branch is absent, then close Issue #1010 as completed
 ```
 
 ## Source branch closeout
