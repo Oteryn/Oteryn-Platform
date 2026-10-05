@@ -149,16 +149,17 @@ final class PublicWorldStatusQueryTest extends TestCase
 
     private function runtime(string $channelId, bool $ready, int $observedAt, bool $invalid = false): void
     {
-        DB::table('native_scope_assignments')->insert([
-            'world_id' => self::WORLD,
-            'channel_id' => $channelId,
-            'assignment_epoch' => '1',
-            'ownership_generation' => '1',
-            'node_identity' => self::NODE_IDENTITY,
-            'assigned_at' => $observedAt - 1,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        DB::table('native_scope_assignments')->updateOrInsert(
+            ['world_id' => self::WORLD, 'channel_id' => $channelId],
+            [
+                'assignment_epoch' => '1',
+                'ownership_generation' => '1',
+                'node_identity' => self::NODE_IDENTITY,
+                'assigned_at' => $observedAt - 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        );
         DB::table('native_runtime_status_reports')->insert([
             'world_id' => self::WORLD,
             'channel_id' => $channelId,
