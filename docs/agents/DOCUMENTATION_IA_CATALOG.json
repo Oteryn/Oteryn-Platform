@@ -81,6 +81,18 @@
       "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md"]
     },
     {
+      "id": "OTERYN_PLATFORM_COMPLETION_LEAD",
+      "path": "docs/agents/prompts/OTERYN_PLATFORM_COMPLETION_LEAD.md",
+      "version": "1.0",
+      "classification": "reusable",
+      "status": "active_reusable",
+      "owner": "Oteryn: platform lead",
+      "scope": "Subordinate technical lead for Platform completion, preserving existing Platform ownership and routing Game-owned blockers through the Game control plane",
+      "executable": true,
+      "supersession": {"target": null, "reason": "Canonical reusable short invocation for Platform completion leadership and cross-repository escalation routing."},
+      "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md", "docs/agents/programs/OTERYN_PLATFORM_COMPLETION_LEAD_PROGRAMME.md", "issue:1441", "KAN-41"]
+    },
+    {
       "id": "OTERYN-PLATFORM-WAVE-COORD",
       "path": "docs/agents/prompts/OTERYN-PLATFORM-PARALLEL-WAVE-COORDINATOR.md",
       "version": "2.0",

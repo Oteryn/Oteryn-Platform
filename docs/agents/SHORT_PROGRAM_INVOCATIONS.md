@@ -155,12 +155,16 @@ Oteryn: platform lead
 ```
 
 ```yaml
-alias_id: OTERYN_PLATFORM_COMPLETION_LEAD
+programme_id: OTERYN_PLATFORM_COMPLETION_LEAD
+canonical_prompt: docs/agents/prompts/OTERYN_PLATFORM_COMPLETION_LEAD.md
+programme_state: docs/agents/programs/OTERYN_PLATFORM_COMPLETION_LEAD_PROGRAMME.md
+governing_issue: 1441
 programme_story: KAN-41
-game_escalation: Oteryn/Oteryn-Game#1622 -> OTV2_WORK_DELIVERY_COORDINATOR
+game_control_plane: Oteryn/Oteryn-Game#1622 -> OTV2_WORK_DELIVERY_COORDINATOR
+game_architect_route: OTV2_SOL_SUPERVISING_ARCHITECT via Game coordinator
 ```
 
-This entry registers the invocation alias only. It does not add Game repository write, allocation, architecture, merge, production, payment or secret authority and does not create a second Game control plane.
+The alias resolves the canonical subordinate technical Platform Completion Lead. It coordinates existing Platform programmes/owners rather than replacing them, and it never creates a second Oteryn Game control plane. Game-owned implementation or architecture blockers are packaged and routed through the Game Work Coordinator; material Game architecture reaches the Supervising Architect only through that coordinator.
 
 ## Platform parallel completion wave
 
