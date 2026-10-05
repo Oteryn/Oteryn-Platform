@@ -59,7 +59,7 @@ updated_at: 2026-10-05T22:00:00+02:00
 status: implementing
 phase: repository_repair
 branch: fix/1339-synology-autostart-org-runner
-head: 0dd62b08d0249e67321eaeaf91899411e02bc79e
+head: a670ed2c85385310ac8412cc4ce7c055c42cf205
 pr: none
 context_routes:
   - ci-repair
@@ -98,7 +98,10 @@ validation:
   - command: post-write GitHub readback
     result: PASS
     evidence: workflow resolves oteryn-organization-runners/platform, legacy selector is absent, focused contract test and ownership packet are present
+  - command: focused Synology autostart contract assertions against exact branch head a670ed2c85385310ac8412cc4ce7c055c42cf205
+    result: PASS
+    evidence: 20/20 assertions passed for current org-runner selector/group/label, org-compose trigger, restart=always on platform runner and six persistent staging services, exclusion of tls-init/Atlas/Game, and exact-one fail-closed behavior
 blockers:
   - final live-host verification requires separately authorized protected-environment execution
-next_action: Hold this repository candidate while GitHub-hosted Actions is degraded; open the PR and run focused/exact-head CI after #1459 releases the queue, then request separately authorized live-host verification.
+next_action: Hold this validated repository candidate while #1459 required checks are externally queued; open the PR when Actions scheduling is healthy enough to obtain exact-head CI, then request separately authorized live-host verification.
 ```
