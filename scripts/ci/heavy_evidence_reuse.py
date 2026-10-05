@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
 import json
 import os
@@ -73,8 +74,16 @@ def diff_paths(base: str, head: str) -> list[str]:
     return [line for line in raw.splitlines() if line.strip()]
 
 
-def gate_affected(paths: list[str], gate: str) -> bool:
-    return any(gate in classify_path(path).gates for path in paths)
+def scope_affected(
+    paths: list[str],
+    gate: str,
+    extra_patterns: tuple[str, ...] = (),
+) -> bool:
+    return any(
+        gate in classify_path(path).gates
+        or any(fnmatch.fnmatchcase(path, pattern) for pattern in extra_patterns)
+        for path in paths
+    )
 
 
 def _linear_edges(base: str, head: str, *, limit: int = 2000) -> list[tuple[str, str]]:
@@ -105,7 +114,11 @@ def _linear_edges(base: str, head: str, *, limit: int = 2000) -> list[tuple[str,
     return edges
 
 
-def material_tree_digest(commit: str, gate: str) -> str:
+def material_tree_digest(
+    commit: str,
+    gate: str,
+    extra_patterns: tuple[str, ...] = (),
+) -> str:
     tree = _git_bytes("ls-tree", "-r", "-z", "--full-tree", commit)
     digest = hashlib.sha256()
 
@@ -117,7 +130,9 @@ def material_tree_digest(commit: str, gate: str) -> str:
         except ValueError as exc:
             raise ValueError("unexpected git ls-tree record") from exc
         path = path_raw.decode("utf-8", errors="surrogateescape")
-        if gate not in classify_path(path).gates:
+        if gate not in classify_path(path).gates and not any(
+            fnmatch.fnmatchcase(path, pattern) for pattern in extra_patterns
+        ):
             continue
         digest.update(metadata)
         digest.update(b"\t")
@@ -127,7 +142,14 @@ def material_tree_digest(commit: str, gate: str) -> str:
     return digest.hexdigest()
 
 
-def plan_reuse(*, event_name: str, base: str, head: str, gate: str) -> ReusePlan:
+def plan_reuse(
+    *,
+    event_name: str,
+    base: str,
+    head: str,
+    gate: str,
+    extra_patterns: tuple[str, ...] = (),
+) -> ReusePlan:
     if gate not in GATES:
         raise ValueError(f"unsupported heavy gate: {gate}")
 
@@ -140,7 +162,7 @@ def plan_reuse(*, event_name: str, base: str, head: str, gate: str) -> ReusePlan
         edges = _linear_edges(resolved_base, resolved_head)
 
         accumulated_paths = diff_paths(resolved_base, resolved_head)
-        if not gate_affected(accumulated_paths, gate):
+        if not scope_affected(accumulated_paths, gate, extra_patterns):
             return ReusePlan(
                 False,
                 None,
@@ -152,7 +174,7 @@ def plan_reuse(*, event_name: str, base: str, head: str, gate: str) -> ReusePlan
 
         material_head: str | None = None
         for parent, commit in edges:
-            if gate_affected(diff_paths(parent, commit), gate):
+            if scope_affected(diff_paths(parent, commit), gate, extra_patterns):
                 material_head = commit
 
         if material_head is None:
@@ -166,7 +188,7 @@ def plan_reuse(*, event_name: str, base: str, head: str, gate: str) -> ReusePlan
             )
 
         if material_head == resolved_head:
-            digest = material_tree_digest(resolved_head, gate)
+            digest = material_tree_digest(resolved_head, gate, extra_patterns)
             return ReusePlan(
                 False,
                 material_head,
@@ -176,8 +198,8 @@ def plan_reuse(*, event_name: str, base: str, head: str, gate: str) -> ReusePlan
                 "final head contains a material change for this gate",
             )
 
-        material_digest = material_tree_digest(material_head, gate)
-        current_digest = material_tree_digest(resolved_head, gate)
+        material_digest = material_tree_digest(material_head, gate, extra_patterns)
+        current_digest = material_tree_digest(resolved_head, gate, extra_patterns)
         if material_digest != current_digest:
             return ReusePlan(
                 False,
@@ -343,9 +365,16 @@ def decide_reuse(
     pr_number: int,
     evidence_job: str,
     token: str,
+    extra_patterns: tuple[str, ...] = (),
     get_json: Callable[[str, str], dict[str, Any]] = _http_get_json,
 ) -> ReuseDecision:
-    plan = plan_reuse(event_name=event_name, base=base, head=head, gate=gate)
+    plan = plan_reuse(
+        event_name=event_name,
+        base=base,
+        head=head,
+        gate=gate,
+        extra_patterns=extra_patterns,
+    )
     if not plan.candidate:
         return ReuseDecision(
             True,
@@ -461,6 +490,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workflow", required=True)
     parser.add_argument("--pr-number", type=int, default=0)
     parser.add_argument("--evidence-job", required=True)
+    parser.add_argument("--extra-pattern", action="append", default=[])
     parser.add_argument("--token-env", default="GITHUB_TOKEN")
     parser.add_argument("--github-output", type=Path)
     parser.add_argument("--summary", type=Path)
@@ -481,6 +511,7 @@ def main() -> int:
         pr_number=args.pr_number,
         evidence_job=args.evidence_job,
         token=token,
+        extra_patterns=tuple(args.extra_pattern),
     )
 
     if args.github_output:
