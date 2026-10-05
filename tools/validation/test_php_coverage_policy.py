@@ -111,6 +111,77 @@ class CoveragePolicyTest(unittest.TestCase):
             ):
                 coverage._load_policy(path)
 
+    def test_repository_policy_uses_verified_enforcement_baseline(self) -> None:
+        policy = coverage._load_policy(
+            ROOT / "docs" / "agents" / "CI_COVERAGE_POLICY.json"
+        )
+        self.assertEqual("enforce", policy["mode"])
+        self.assertEqual("VERIFIED_STABLE", policy["baseline_state"])
+        self.assertEqual(82.69, policy["baseline_statement_percent"])
+        self.assertEqual(82.0, policy["minimum_statement_percent"])
+        self.assertGreaterEqual(len(policy["baseline_evidence"]), 2)
+
+    def test_enforce_policy_rejects_floor_above_verified_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "policy.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "mode": "enforce",
+                        "minimum_statement_percent": 83.0,
+                        "baseline_state": "VERIFIED_STABLE",
+                        "baseline_statement_percent": 82.69,
+                        "baseline_evidence": [
+                            {
+                                "run_id": 1,
+                                "head_sha": "a" * 40,
+                                "statement_percent": 82.69,
+                            },
+                            {
+                                "run_id": 2,
+                                "head_sha": "b" * 40,
+                                "statement_percent": 82.69,
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                coverage.CoveragePolicyError,
+                "cannot exceed the verified baseline",
+            ):
+                coverage._load_policy(path)
+
+    def test_enforce_policy_requires_multiple_baseline_evidence_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "policy.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "mode": "enforce",
+                        "minimum_statement_percent": 82.0,
+                        "baseline_state": "VERIFIED_STABLE",
+                        "baseline_statement_percent": 82.69,
+                        "baseline_evidence": [
+                            {
+                                "run_id": 1,
+                                "head_sha": "a" * 40,
+                                "statement_percent": 82.69,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                coverage.CoveragePolicyError,
+                "at least two verified baseline evidence runs",
+            ):
+                coverage._load_policy(path)
+
     def test_clover_rejects_impossible_metrics(self) -> None:
         impossible = CLOVER.replace(
             'statements="100" coveredstatements="83"',
