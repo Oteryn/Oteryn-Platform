@@ -12,6 +12,7 @@ on:
       - '.github/PULL_REQUEST_TEMPLATE.md'
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -29,6 +30,10 @@ jobs:
       db_outage: ${{ steps.classify.outputs.db_outage }}
       game_auth_concurrency: ${{ steps.classify.outputs.game_auth_concurrency }}
       classes: ${{ steps.classify.outputs.classes }}
+      validation_required: ${{ steps.reuse.outputs.validation_required }}
+      reused_material_head: ${{ steps.reuse.outputs.material_head }}
+      reused_run_id: ${{ steps.reuse.outputs.reused_run_id }}
+      material_digest: ${{ steps.reuse.outputs.material_digest }}
       paths_json: ${{ steps.classify.outputs.paths_json }}
     steps:
       - name: Checkout exact classification range
@@ -53,9 +58,35 @@ jobs:
             python scripts/ci/classify_changes.py               --all               --github-output "$GITHUB_OUTPUT"               --summary "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Resolve reusable game-auth concurrency evidence
+        id: reuse
+        if: >-
+          ${{
+            steps.classify.outputs.game_auth_concurrency == 'true' ||
+            contains(steps.classify.outputs.paths_json, 'app/CharacterProfiles/') ||
+            contains(steps.classify.outputs.paths_json, 'tests/Feature/CharacterProfiles/Concurrency/')
+          }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python scripts/ci/heavy_evidence_reuse.py
+          --event-name "${{ github.event_name }}"
+          --base "${{ github.event.pull_request.base.sha || '' }}"
+          --head "${{ github.event.pull_request.head.sha || github.sha }}"
+          --gate game_auth_concurrency
+          --extra-pattern "app/CharacterProfiles/**"
+          --extra-pattern "tests/Feature/CharacterProfiles/Concurrency/**"
+          --repository "${{ github.repository }}"
+          --workflow "game-auth-ticket-concurrency.yml"
+          --pr-number "${{ github.event.pull_request.number || 0 }}"
+          --evidence-job "concurrency-proof"
+          --token-env GH_TOKEN
+          --github-output "$GITHUB_OUTPUT"
+          --summary "$GITHUB_STEP_SUMMARY"
+
   concurrency-proof:
     needs: classify_changes
-    if: ${{ always() && (needs.classify_changes.result != 'success' || needs.classify_changes.outputs.game_auth_concurrency == 'true' || contains(needs.classify_changes.outputs.paths_json, 'app/CharacterProfiles/') || contains(needs.classify_changes.outputs.paths_json, 'tests/Feature/CharacterProfiles/Concurrency/')) }}
+    if: ${{ always() && (needs.classify_changes.result != 'success' || ((needs.classify_changes.outputs.game_auth_concurrency == 'true' || contains(needs.classify_changes.outputs.paths_json, 'app/CharacterProfiles/') || contains(needs.classify_changes.outputs.paths_json, 'tests/Feature/CharacterProfiles/Concurrency/')) && needs.classify_changes.outputs.validation_required != 'false')) }}
     runs-on: ubuntu-latest
     services:
       mariadb:
