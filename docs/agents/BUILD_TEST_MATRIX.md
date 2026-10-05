@@ -1,7 +1,7 @@
 # Oteryn Platform Build and Test Matrix
 
 ```yaml
-actions_economy_policy_version: 2
+actions_economy_policy_version: 3
 workflow_lifecycle_policy: docs/agents/CI_WORKFLOW_LIFECYCLE.json
 coverage_policy: docs/agents/CI_COVERAGE_POLICY.json
 ```
@@ -17,6 +17,8 @@ Validation must be proportional to changed paths, risk and the current project m
 - Heavy workflows use trigger-level governance/checkpoint exclusions plus internal fail-closed path classification where applicable.
 - Final applicable validation runs once on the exact candidate head; focused checks may run earlier.
 - A checkpoint-only or agent-governance-only commit does not start unrelated edge, outage, production-like, browser or concurrency workflows.
+- When a pull request already has successful heavy evidence for an exact ancestor head, a later docs/agent-governance-only successor may reuse that evidence only if the same PR/run identity is verified and the material repository tree digest is byte-identical. Missing API evidence, ambiguous history, a changed material digest or any material latest-commit path fails closed to a new heavy run.
+- Reuse never applies to Merge Queue candidates or protected-main pushes; those integration generations keep their normal exact-candidate validation.
 - A workflow-file edit does not imply every runtime risk changed: ordinary workflow definitions route to core CI, heavy workflow definitions route to core CI plus their own lane, and only central routing-control changes fail closed to every gate.
 - Workflow definitions are durable architecture, not task history. New or retained workflow files must satisfy `CI_WORKFLOW_LIFECYCLE.md` and the machine lifecycle registry.
 
@@ -27,7 +29,7 @@ Validation must be proportional to changed paths, risk and the current project m
 - Run heavy validation earlier only when a step changes dependency manifests or lockfiles, build tooling, generated assets, framework bootstrap, shared contracts, migrations needed by subsequent steps, container definitions, or when later work requires a verified artifact.
 - Documentation, task-checkpoint, comment, metadata and other clearly non-runtime/non-build-affecting commits do not require application, browser or container builds.
 - Security-sensitive behavior still requires focused regression tests as soon as the behavior exists; batching must not postpone detection of an unsafe auth, authorization, session, payment or data-integrity design.
-- Run the full applicable final validation once on the exact final head before merge. A later runtime/build-affecting commit invalidates it; a later docs-only commit needs only the checks selected by repository path policy.
+- Run the full applicable final validation once on the latest material candidate head before merge. A later runtime/build/workflow/classifier-affecting commit invalidates it. A later docs/agent-governance-only commit may keep lightweight exact-final-head checks while reusing prior heavy evidence only under the exact ancestor/run + identical material-tree proof above.
 - Record why a heavy check was run early or skipped when the choice is not obvious from changed paths.
 
 ## Change-to-proof matrix
