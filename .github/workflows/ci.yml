@@ -12,6 +12,7 @@ on:
       - checks_requested
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -30,6 +31,10 @@ jobs:
       game_auth_concurrency: ${{ steps.classify.outputs.game_auth_concurrency }}
       classes: ${{ steps.classify.outputs.classes }}
       paths_json: ${{ steps.classify.outputs.paths_json }}
+      runtime_validation_required: ${{ steps.runtime_reuse.outputs.validation_required }}
+      runtime_material_head: ${{ steps.runtime_reuse.outputs.material_head }}
+      runtime_reused_run_id: ${{ steps.runtime_reuse.outputs.reused_run_id }}
+      runtime_material_digest: ${{ steps.runtime_reuse.outputs.material_digest }}
     steps:
       - name: Checkout exact classification range
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -40,6 +45,7 @@ jobs:
       - name: Validate CI routing contracts
         run: |
           python tests/ci/test_classify_changes.py
+          python tests/ci/test_heavy_evidence_reuse.py
           python tests/ci/test_push_change_routing.py
           python tests/ci/test_required_test_gate.py
           python tests/ci/test_workflow_trigger_economy.py
@@ -104,10 +110,29 @@ jobs:
               --summary "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Resolve reusable runtime-test evidence
+        id: runtime_reuse
+        if: ${{ steps.classify.outputs.ci == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python scripts/ci/heavy_evidence_reuse.py
+          --event-name "${{ github.event_name }}"
+          --base "${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.event.before || '' }}"
+          --head "${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha || github.sha }}"
+          --gate ci
+          --repository "${{ github.repository }}"
+          --workflow "ci.yml"
+          --pr-number "${{ github.event.pull_request.number || 0 }}"
+          --evidence-job "runtime-tests"
+          --token-env GH_TOKEN
+          --github-output "$GITHUB_OUTPUT"
+          --summary "$GITHUB_STEP_SUMMARY"
+
   runtime_tests:
     name: runtime-tests
     needs: classify_changes
-    if: ${{ needs.classify_changes.result == 'success' && needs.classify_changes.outputs.ci == 'true' }}
+    if: ${{ needs.classify_changes.result == 'success' && needs.classify_changes.outputs.ci == 'true' && needs.classify_changes.outputs.runtime_validation_required != 'false' }}
     runs-on: ubuntu-latest
     services:
       mariadb:
@@ -273,11 +298,17 @@ jobs:
           CLASSIFICATION_RESULT: ${{ needs.classify_changes.result }}
           CI_REQUIRED: ${{ needs.classify_changes.outputs.ci }}
           RUNTIME_TESTS_RESULT: ${{ needs.runtime_tests.result }}
+          RUNTIME_VALIDATION_REQUIRED: ${{ needs.classify_changes.outputs.runtime_validation_required }}
+          REUSED_MATERIAL_HEAD: ${{ needs.classify_changes.outputs.runtime_material_head }}
+          REUSED_RUN_ID: ${{ needs.classify_changes.outputs.runtime_reused_run_id }}
         run: >-
           python scripts/ci/required_test_gate.py
           --classification-result "$CLASSIFICATION_RESULT"
           --ci-required "$CI_REQUIRED"
           --runtime-tests-result "$RUNTIME_TESTS_RESULT"
+          --runtime-validation-required "${RUNTIME_VALIDATION_REQUIRED:-true}"
+          --reused-material-head "$REUSED_MATERIAL_HEAD"
+          --reused-run-id "$REUSED_RUN_ID"
           --summary "$GITHUB_STEP_SUMMARY"
 
   platform_gate:
