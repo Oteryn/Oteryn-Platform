@@ -19,7 +19,11 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }, testInfo) => {
-  await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
+  try {
+    await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
+  } finally {
+    runBinary('php', ['scripts/acceptance/set-liveops-state.php', 'cleanup']);
+  }
 });
 
 test('@homepage-seo homepage navigation metadata and crawl policy remain responsive and keyboard operable', async ({ page, request }) => {
@@ -63,6 +67,7 @@ test('@homepage-seo homepage navigation metadata and crawl policy remain respons
 });
 
 test('@portal-today public guest command centre preserves source truth LiveOps freshness partial recovery localization and no-store', async ({ page, request }) => {
+  runBinary('php', ['scripts/acceptance/set-liveops-state.php', 'ready']);
   let response = await page.goto('/en/today');
   expect(response?.status()).toBe(200);
   expect(response?.headers()['cache-control']).toContain('no-store');

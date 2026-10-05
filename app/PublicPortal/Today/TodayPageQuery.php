@@ -68,7 +68,8 @@ final readonly class TodayPageQuery
     {
         try {
             $worlds = $this->liveOps->get($evaluatedAt->getTimestamp());
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
+            report($exception);
             $worlds = [];
         }
         if ($worlds === []) {

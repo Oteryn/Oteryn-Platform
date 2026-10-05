@@ -16,8 +16,8 @@ if (env('APP_ENV') !== 'acceptance') {
 }
 
 $state = $argv[1] ?? '';
-if (! in_array($state, ['ready', 'stale', 'invalid', 'unavailable', 'maintenance', 'recovery'], true)) {
-    fwrite(STDERR, "Usage: php scripts/acceptance/set-liveops-state.php ready|stale|invalid|unavailable|maintenance|recovery\n");
+if (! in_array($state, ['ready', 'stale', 'invalid', 'unavailable', 'maintenance', 'recovery', 'cleanup'], true)) {
+    fwrite(STDERR, "Usage: php scripts/acceptance/set-liveops-state.php ready|stale|invalid|unavailable|maintenance|recovery|cleanup\n");
     exit(2);
 }
 
@@ -27,7 +27,43 @@ $nodeIdentity = 'CN=acceptance-runtime-node';
 $now = now()->getTimestamp();
 
 DB::transaction(function () use ($state, $worldId, $channelId, $nodeIdentity, $now): void {
-    DB::table('game_worlds')->where('world_id', $worldId)->update([
+    if ($state === 'cleanup') {
+        DB::table('native_runtime_status_reports')->where('world_id', $worldId)->delete();
+        DB::table('native_scope_assignments')->where('world_id', $worldId)->delete();
+        DB::table('game_channels')->where('channel_id', $channelId)->delete();
+        DB::table('game_worlds')->where('world_id', $worldId)->delete();
+
+        return;
+    }
+
+    $worldRowId = DB::table('game_worlds')->where('world_id', $worldId)->value('id');
+    if ($worldRowId === null) {
+        $worldRowId = DB::table('game_worlds')->insertGetId([
+            'world_id' => $worldId,
+            'slug' => 'acceptance-liveops',
+            'name' => 'Acceptance LiveOps',
+            'region' => 'TEST',
+            'status' => 'online',
+            'login_enabled' => true,
+            'game_host' => '127.0.0.1',
+            'game_port' => 7172,
+            'gameplay_policy_revision' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    DB::table('game_channels')->updateOrInsert(
+        ['channel_id' => $channelId],
+        [
+            'game_world_id' => $worldRowId,
+            'channel_key' => 'acceptance-primary',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ],
+    );
+
+    DB::table('game_worlds')->where('id', $worldRowId)->update([
         'status' => $state === 'maintenance' ? 'maintenance' : 'online',
         'login_enabled' => $state !== 'maintenance',
         'updated_at' => now(),

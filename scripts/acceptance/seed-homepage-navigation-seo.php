@@ -14,11 +14,8 @@ $app = require __DIR__.'/../../bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
 
 $now = now();
-$liveOpsWorldId = '018f0f1e-7b2c-7a31-8d4e-1234567890ab';
-$liveOpsChannelId = '018f0f1e-7b2c-7a32-8d4e-1234567890ac';
-$liveOpsNodeIdentity = 'CN=acceptance-runtime-node';
 
-DB::transaction(function () use ($now, $liveOpsWorldId, $liveOpsChannelId, $liveOpsNodeIdentity): void {
+DB::transaction(function () use ($now): void {
     DB::table('site_announcements')->where('title', 'Acceptance realm maintenance')->delete();
     DB::table('site_announcements')->insert([
         'title' => 'Acceptance realm maintenance',
@@ -195,68 +192,6 @@ DB::transaction(function () use ($now, $liveOpsWorldId, $liveOpsChannelId, $live
         'updated_at' => $now,
     ]);
 
-    DB::table('native_runtime_status_reports')->where('world_id', $liveOpsWorldId)->delete();
-    DB::table('native_scope_assignments')->where('world_id', $liveOpsWorldId)->delete();
-    DB::table('game_channels')->where('channel_id', $liveOpsChannelId)->delete();
-    DB::table('game_worlds')->where('world_id', $liveOpsWorldId)->delete();
-
-    $liveOpsWorldRowId = DB::table('game_worlds')->insertGetId([
-        'world_id' => $liveOpsWorldId,
-        'slug' => 'acceptance-liveops',
-        'name' => 'Acceptance LiveOps',
-        'region' => 'TEST',
-        'status' => 'online',
-        'login_enabled' => true,
-        'game_host' => '127.0.0.1',
-        'game_port' => 7172,
-        'gameplay_policy_revision' => 1,
-        'created_at' => $now,
-        'updated_at' => $now,
-    ]);
-    DB::table('game_channels')->insert([
-        'game_world_id' => $liveOpsWorldRowId,
-        'channel_id' => $liveOpsChannelId,
-        'channel_key' => 'acceptance-primary',
-        'created_at' => $now,
-        'updated_at' => $now,
-    ]);
-    DB::table('native_scope_assignments')->insert([
-        'world_id' => $liveOpsWorldId,
-        'channel_id' => $liveOpsChannelId,
-        'assignment_epoch' => '1',
-        'ownership_generation' => '1',
-        'node_identity' => $liveOpsNodeIdentity,
-        'assigned_at' => $now->copy()->subSeconds(3)->getTimestamp(),
-        'created_at' => $now,
-        'updated_at' => $now,
-    ]);
-    DB::table('native_runtime_status_reports')->insert([
-        'world_id' => $liveOpsWorldId,
-        'channel_id' => $liveOpsChannelId,
-        'node_identity' => $liveOpsNodeIdentity,
-        'source_authority' => 'oteryn-game',
-        'node_id' => '11111111-2222-3333-8444-555555555555',
-        'assignment_epoch' => '1',
-        'scope_ownership_generation' => '1',
-        'source_revision' => '1',
-        'decision_identity' => 'acceptance-runtime',
-        'ready' => true,
-        'published_at' => $now->copy()->subSeconds(3)->getTimestamp(),
-        'observed_at' => $now->copy()->subSeconds(2)->getTimestamp(),
-        'protocol_major' => 1,
-        'transport_profile' => 1,
-        'route_revision' => 'acceptance-route-1',
-        'runtime_observation_revision' => 'acceptance-runtime-1',
-        'ruleset_revision' => 'acceptance-ruleset-1',
-        'content_revision' => 'acceptance-content-1',
-        'map_revision' => 'acceptance-map-1',
-        'world_policy_revision' => 'acceptance-policy-1',
-        'offer_revision' => 'acceptance-offer-1',
-        'content_digest' => str_repeat('b', 64),
-        'invalid' => false,
-        'created_at' => $now,
-        'updated_at' => $now,
-    ]);
 });
 
-fwrite(STDOUT, "acceptance-state: homepage navigation SEO, public Today and native LiveOps seeded\n");
+fwrite(STDOUT, "acceptance-state: homepage navigation SEO and public Today seeded\n");
