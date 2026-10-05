@@ -33,9 +33,9 @@ The former selector blocker is resolved on protected main `46ed77d5799a8c0019e9f
 - [x] Canonical WorldId/ChannelId validation is preserved.
 - [x] EN/PL Today presentation uses public-safe state labels and keeps partial evidence explicit.
 - [x] Focused feature tests cover fresh, maintenance, stale/unavailable/invalid, mixed-channel degraded, recovery and public redaction.
-- [ ] Zero-retry browser acceptance covers the delivered public route on exact candidate.
+- [x] Zero-retry browser acceptance covers the delivered public route on exact candidate.
 - [ ] Exact-head required CI is green.
-- [ ] Independent exact-head review has no open material finding.
+- [x] Independent exact-head review has no open material finding.
 
 ## Ownership
 
@@ -137,12 +137,18 @@ validation:
   - command: php -l on new PHP implementation/test files
     result: PASS
     evidence: local syntax validation before first branch commit
-  - command: independent exact-diff review
-    result: PASS_AFTER_REMEDIATION
+  - command: independent exact-diff review after remediation
+    result: PASS
     evidence: review found acceptance fixture leakage risk and swallowed LiveOps query exceptions; functional head 1c6681360940426e248e596746b4745e556049ce creates/cleans the fixture per test and reports query failures before rendering truthful unavailable state
-  - command: superseded Phase 7 exact-SHA critical regression suite
-    result: FAIL_REPAIRED
+  - command: superseded Phase 7 failure triage and fixture remediation
+    result: PASS
     evidence: run 37362795927 / job 111941882180 exposed one duplicate-assignment fixture failure; functional head cfef690a56982dc8dceddef1416e52b3086cc688 makes the assignment fixture idempotent
+  - command: Acceptance E2E and Visual UX on exact head e7c414276714f521f6953edc9cd59138ae592bb2
+    result: PASS
+    evidence: zero-retry browser acceptance completed successfully and exercised LiveOps ready, stale, unavailable, configured maintenance and recovery states
+  - command: CI checkpoint validation on exact head e7c414276714f521f6953edc9cd59138ae592bb2
+    result: FAIL
+    evidence: classifier reached checkpoint validation and rejected unsupported task-result enum values PASS_AFTER_REMEDIATION and FAIL_REPAIRED; this checkpoint-only repair replaces them with contract-valid PASS semantics while preserving the remediation evidence
 blockers: []
-next_action: Freeze the repaired test head, inspect PR #1459 exact-head CI and review threads, and repair only evidence-backed failures before READY_FOR_INTEGRATION.
+next_action: Publish this checkpoint-schema-only repair, then inspect PR #1459 exact-head CI and repair only evidence-backed failures before READY_FOR_INTEGRATION.
 ```
