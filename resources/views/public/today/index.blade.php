@@ -29,7 +29,7 @@
                 data-source-owner="{{ $card->sourceOwner }}"
                 data-source-identity="{{ $card->sourceIdentity }}"
                 data-schema-version="{{ $card->schemaVersion }}"
-                @if ($card->kind === 'liveops') data-today-runtime-evidence="absent" @endif
+                @if ($card->kind === 'liveops') data-today-runtime-evidence="{{ $card->state === \App\PublicPortal\Today\TodayCardState::UNAVAILABLE ? 'absent' : ($card->state === \App\PublicPortal\Today\TodayCardState::PARTIAL ? 'partial' : 'present') }}" @endif
                 aria-labelledby="today-{{ $card->kind }}-title"
             >
                 <div class="section-heading">
@@ -47,6 +47,9 @@
                         <p>{{ __('today.cards.'.$card->kind.'.empty_help') }}</p>
                     </div>
                 @else
+                    @if ($card->state === \App\PublicPortal\Today\TodayCardState::PARTIAL)
+                        <div class="alert" role="status">{{ __('today.cards.'.$card->kind.'.partial') }}</div>
+                    @endif
                     <div class="stack">
                         @foreach ($card->items as $item)
                             <article data-today-item="{{ $item->publicId }}">
