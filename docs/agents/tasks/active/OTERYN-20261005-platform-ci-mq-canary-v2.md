@@ -60,10 +60,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-05T11:58:00Z
-head: 1a3302b451ed8d5c67f85c6316386f846144fbb0
+updated_at: 2026-10-05T12:00:00Z
+head: c3bcabfd7c10e37ece2b07b8ec4791dbab072259
 branch: test/issue-1399-platform-ci-mq-v2-20261005
-pr: none
+pr: 1449
 status: validating
 terminal_pr_policy: active
 context_routes:
