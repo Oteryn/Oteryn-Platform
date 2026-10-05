@@ -92,7 +92,7 @@ jobs:
 
   concurrency-proof:
     needs: classify_changes
-    if: ${{ always() && (needs.classify_changes.result != 'success' || needs.classify_changes.outputs.game_auth_concurrency == 'true' || contains(needs.classify_changes.outputs.paths_json, 'app/CharacterProfiles/') || contains(needs.classify_changes.outputs.paths_json, 'tests/Feature/CharacterProfiles/Concurrency/')) }}
+    if: ${{ always() && (needs.classify_changes.result != 'success' || needs.classify_changes.outputs.game_auth_concurrency == 'true') }}
     runs-on: ubuntu-latest
     services:
       mariadb:
