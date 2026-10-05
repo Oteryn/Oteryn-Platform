@@ -280,6 +280,23 @@ assert "paths_json: ${{ steps.classify.outputs.paths_json }}" in ci
 assert "contains(needs.classify_changes.outputs.paths_json, '.github/workflows/ci.yml')" in ci
 assert "contains(needs.classify_changes.outputs.classes, 'workflow')" not in ci
 
+coverage_job = ci.split("\n  php_coverage:\n", 1)[1].split("\n  test:\n", 1)[0]
+assert "(github.event_name == 'push' || github.event_name == 'merge_group')" in coverage_job, (
+    "ci.yml: PHP coverage must protect relevant Merge Queue candidates and main pushes"
+)
+assert "github.event_name == 'pull_request'" not in coverage_job, (
+    "ci.yml: expensive PHP coverage must not run on ordinary pull requests"
+)
+assert (
+    "ref: ${{ github.event.merge_group.head_sha || github.sha }}" in coverage_job
+), "ci.yml: PHP coverage must checkout the exact Merge Queue candidate"
+platform_gate = ci.split("\n  platform_gate:\n", 1)[1]
+assert "      - php_coverage\n" in platform_gate, (
+    "ci.yml: platform-gate must depend on PHP coverage"
+)
+assert "PHP_COVERAGE_RESULT: ${{ needs.php_coverage.result }}" in platform_gate
+assert 'test "$PHP_COVERAGE_RESULT" = success -o "$PHP_COVERAGE_RESULT" = skipped' in platform_gate
+
 acceptance = (WORKFLOW_ROOT / "acceptance-validation.yml").read_text(encoding="utf-8")
 acceptance_trigger = trigger_prefix(acceptance)
 assert event_block(acceptance_trigger, "pull_request") is not None
