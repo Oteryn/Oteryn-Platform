@@ -13,6 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -30,6 +31,10 @@ jobs:
       db_outage: ${{ steps.classify.outputs.db_outage }}
       game_auth_concurrency: ${{ steps.classify.outputs.game_auth_concurrency }}
       classes: ${{ steps.classify.outputs.classes }}
+      validation_required: ${{ steps.reuse.outputs.validation_required }}
+      reused_material_head: ${{ steps.reuse.outputs.material_head }}
+      reused_run_id: ${{ steps.reuse.outputs.reused_run_id }}
+      material_digest: ${{ steps.reuse.outputs.material_digest }}
     steps:
       - name: Checkout exact classification range
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,9 +55,28 @@ jobs:
             python scripts/ci/classify_changes.py               --all               --github-output "$GITHUB_OUTPUT"               --summary "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Resolve reusable Phase 7 evidence
+        id: reuse
+        if: ${{ steps.classify.outputs.phase7 == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python scripts/ci/heavy_evidence_reuse.py
+          --event-name "${{ github.event_name }}"
+          --base "${{ github.event.pull_request.base.sha || '' }}"
+          --head "${{ github.event.pull_request.head.sha || github.sha }}"
+          --gate phase7
+          --repository "${{ github.repository }}"
+          --workflow "phase7-production-like-validation.yml"
+          --pr-number "${{ github.event.pull_request.number || 0 }}"
+          --evidence-job "validate"
+          --token-env GH_TOKEN
+          --github-output "$GITHUB_OUTPUT"
+          --summary "$GITHUB_STEP_SUMMARY"
+
   validate:
     needs: classify_changes
-    if: ${{ always() && (needs.classify_changes.result != 'success' || needs.classify_changes.outputs.phase7 == 'true') }}
+    if: ${{ always() && (needs.classify_changes.result != 'success' || (needs.classify_changes.outputs.phase7 == 'true' && needs.classify_changes.outputs.validation_required != 'false')) }}
     runs-on: ubuntu-latest
     services:
       mariadb:
