@@ -388,6 +388,20 @@
         "agent_governance"
       ],
       "gates": []
+    },
+    {
+      "name": "character_profiles_concurrency",
+      "paths": [
+        "app/CharacterProfiles/CharacterProfileService.php"
+      ],
+      "classes": [
+        "backend"
+      ],
+      "gates": [
+        "ci",
+        "phase7",
+        "game_auth_concurrency"
+      ]
     }
   ]
 }
