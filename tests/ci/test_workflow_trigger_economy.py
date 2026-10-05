@@ -170,6 +170,18 @@ for filename in HEAVY_WORKFLOWS:
     assert "scripts/ci/classify_changes.py" in text, (
         f"{filename}: internal fail-closed path classification was removed"
     )
+    assert "actions: read" in text, (
+        f"{filename}: reusable evidence lookup lost read-only Actions access"
+    )
+    assert "scripts/ci/heavy_evidence_reuse.py" in text, (
+        f"{filename}: checkpoint successor evidence reuse resolver is missing"
+    )
+    assert "reuse_heavy: ${{ steps.reuse.outputs.reuse_heavy }}" in text, (
+        f"{filename}: classifier does not expose reusable heavy evidence"
+    )
+    assert "needs.classify_changes.outputs.reuse_heavy != 'true'" in text, (
+        f"{filename}: heavy job does not fail closed when reuse is unavailable"
+    )
 
 for filename in RETIRED_WORKFLOWS:
     assert not (WORKFLOW_ROOT / filename).exists(), (
@@ -276,6 +288,13 @@ assert (
     in ci
 ), "ci.yml: merge-group candidates must use exact diff-range classification"
 assert "python tests/ci/test_push_change_routing.py" in ci
+assert "python tests/ci/test_heavy_evidence_reuse.py" in ci
+assert "actions: read" in ci
+assert "scripts/ci/heavy_evidence_reuse.py" in ci
+assert "reuse_heavy: ${{ steps.reuse.outputs.reuse_heavy }}" in ci
+assert (
+    "needs.classify_changes.outputs.reuse_heavy != 'true'" in ci
+), "ci.yml: runtime-tests must run unless exact reusable evidence is proven"
 assert "paths_json: ${{ steps.classify.outputs.paths_json }}" in ci
 assert "contains(needs.classify_changes.outputs.paths_json, '.github/workflows/ci.yml')" in ci
 assert "contains(needs.classify_changes.outputs.classes, 'workflow')" not in ci

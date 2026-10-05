@@ -26,11 +26,17 @@ class RequiredTestGateTest(unittest.TestCase):
         classification: str = "success",
         ci_required: str = "true",
         runtime_tests: str = "success",
+        reuse_heavy: str = "false",
+        reused_head_sha: str = "",
+        reused_run_id: str = "",
     ):
         return gate.evaluate_gate(
             classification_result=classification,
             ci_required=ci_required,
             runtime_tests_result=runtime_tests,
+            reuse_heavy=reuse_heavy,
+            reused_head_sha=reused_head_sha,
+            reused_run_id=reused_run_id,
         )
 
     def test_documentation_only_change_passes_with_explicit_not_applicable(self) -> None:
@@ -70,11 +76,36 @@ class RequiredTestGateTest(unittest.TestCase):
         self.assertTrue(decision.runtime_tests_required)
         self.assertIn("were required", decision.message)
 
+    def test_required_runtime_tests_accept_verified_reuse(self) -> None:
+        decision = self.evaluate(
+            ci_required="true",
+            runtime_tests="skipped",
+            reuse_heavy="true",
+            reused_head_sha="a" * 40,
+            reused_run_id="4242",
+        )
+
+        self.assertTrue(decision.passed)
+        self.assertEqual("runtime-tests-reused", decision.outcome)
+        self.assertIn("run 4242", decision.message)
+
+    def test_required_runtime_reuse_without_exact_evidence_fails_closed(self) -> None:
+        decision = self.evaluate(
+            ci_required="true",
+            runtime_tests="skipped",
+            reuse_heavy="true",
+            reused_head_sha="bad",
+            reused_run_id="",
+        )
+
+        self.assertFalse(decision.passed)
+        self.assertIn("missing or malformed", decision.message)
+
     def test_failed_runtime_tests_fail_the_required_context(self) -> None:
         decision = self.evaluate(ci_required="true", runtime_tests="failure")
 
         self.assertFalse(decision.passed)
-        self.assertIn("did not succeed", decision.message)
+        self.assertIn("neither succeeded", decision.message)
 
     def test_not_applicable_path_requires_the_conditional_job_to_be_skipped(self) -> None:
         decision = self.evaluate(ci_required="false", runtime_tests="success")
@@ -116,7 +147,7 @@ class RequiredTestWorkflowContractTest(unittest.TestCase):
     def test_runtime_suite_is_conditional_on_successful_runtime_classification(self) -> None:
         self.assertIn("  runtime_tests:\n    name: runtime-tests", self.workflow)
         self.assertIn(
-            "if: ${{ needs.classify_changes.result == 'success' && needs.classify_changes.outputs.ci == 'true' }}",
+            "if: ${{ needs.classify_changes.result == 'success' && needs.classify_changes.outputs.ci == 'true' && needs.classify_changes.outputs.reuse_heavy != 'true' }}",
             self.workflow,
         )
         self.assertIn("image: mariadb:11.8", self.workflow)
@@ -131,6 +162,11 @@ class RequiredTestWorkflowContractTest(unittest.TestCase):
         self.assertIn(
             "RUNTIME_TESTS_RESULT: ${{ needs.runtime_tests.result }}", self.workflow
         )
+        self.assertIn(
+            "REUSE_HEAVY: ${{ needs.classify_changes.outputs.reuse_heavy }}",
+            self.workflow,
+        )
+        self.assertIn('--reused-run-id "$REUSED_RUN_ID"', self.workflow)
 
 
 if __name__ == "__main__":

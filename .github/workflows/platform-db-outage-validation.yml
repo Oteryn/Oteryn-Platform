@@ -13,6 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -30,6 +31,10 @@ jobs:
       db_outage: ${{ steps.classify.outputs.db_outage }}
       game_auth_concurrency: ${{ steps.classify.outputs.game_auth_concurrency }}
       classes: ${{ steps.classify.outputs.classes }}
+      reuse_heavy: ${{ steps.reuse.outputs.reuse_heavy }}
+      reused_head_sha: ${{ steps.reuse.outputs.reused_head_sha }}
+      reused_run_id: ${{ steps.reuse.outputs.reused_run_id }}
+      material_tree_digest: ${{ steps.reuse.outputs.material_tree_digest }}
     steps:
       - name: Checkout exact classification range
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -53,9 +58,27 @@ jobs:
             python scripts/ci/classify_changes.py               --all               --github-output "$GITHUB_OUTPUT"               --summary "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Resolve reusable prior heavy evidence
+        id: reuse
+        if: ${{ github.event_name == 'pull_request' && steps.classify.outputs.db_outage == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: >-
+          python scripts/ci/heavy_evidence_reuse.py
+          --repository "$GITHUB_REPOSITORY"
+          --pr-number "$PR_NUMBER"
+          --workflow "platform-db-outage-validation.yml"
+          --job-name "validate"
+          --head "$HEAD_SHA"
+          --token-env GH_TOKEN
+          --github-output "$GITHUB_OUTPUT"
+          --summary "$GITHUB_STEP_SUMMARY"
+
   validate:
     needs: classify_changes
-    if: ${{ always() && (needs.classify_changes.result != 'success' || needs.classify_changes.outputs.db_outage == 'true') }}
+    if: ${{ always() && (needs.classify_changes.result != 'success' || (needs.classify_changes.outputs.db_outage == 'true' && needs.classify_changes.outputs.reuse_heavy != 'true')) }}
     runs-on: ubuntu-latest
     services:
       mariadb:
