@@ -228,3 +228,24 @@ bash deploy/synology/scripts/rollback.sh
 - It does not authorize router port forwarding or Internet exposure of game TCP.
 - It does not activate legacy password authentication for Platform-created Canary accounts.
 - A fully usable desktop native-login flow additionally requires an exact compatible OTClient build and trusted browser/OAuth/Gateway endpoint configuration.
+
+
+## Container supply-chain gate
+
+The Synology build path enforces `docs/security/CONTAINER_SUPPLY_CHAIN_POLICY.json` before an affected image build can dispatch staging work.
+
+For every allocated Platform, Game Gateway, or deploy-runner image build, CI must:
+
+1. validate all external `FROM` and external `COPY --from` references are tag-plus-`sha256` pinned;
+2. preserve the reviewed non-root final runtime user;
+3. generate an SPDX JSON SBOM;
+4. scan HIGH/CRITICAL OS and library vulnerabilities with Trivy;
+5. fail on patchable HIGH/CRITICAL findings unless the exact component + vulnerability + package has a current bounded exception in `docs/security/CONTAINER_VULNERABILITY_EXCEPTIONS.json`;
+6. generate `oteryn-container-provenance-v1` tying the exact source SHA, Dockerfile and dockerignore SHA-256, immutable base references, SBOM digest, scan digest, policy digest and final image digest together;
+7. retain SBOM, vulnerability, policy and provenance evidence for 14 days as a workflow artifact.
+
+Exceptions require review evidence, expire, and may not exceed the policy's 30-day lifetime. Expired or malformed exceptions fail closed. Blanket CVE ignores are not allowed.
+
+Docker base-image pins are kept updateable through Dependabot Docker entries for `/deploy/synology/docker` and `/deploy/synology/runner`. Updating a digest must pass the same image build, SBOM, vulnerability and provenance checks.
+
+This gate introduces no signing key, new registry credential or production action. Staging dispatch remains downstream of successful image-build jobs, so a failed supply-chain check blocks that release path.
