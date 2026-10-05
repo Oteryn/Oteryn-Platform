@@ -105,10 +105,10 @@ Post-merge Agent Governance `37345393917` failed only because the now-merged tas
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-05T17:08:00Z
+updated_at: 2026-10-05T17:10:00Z
 head: b1e48bcfeb9ed114f112d69ac98914bf0b196874
 branch: docs/issue-1012-heavy-evidence-reuse-closeout
-pr: none
+pr: 1454
 status: completed
 terminal_pr_policy: archive_pending
 context_routes:
@@ -164,7 +164,7 @@ validation:
     result: PASS
     evidence: CI 37345393737 on b1e48bcfeb9ed114f112d69ac98914bf0b196874; runtime-tests, coverage, test and platform-gate PASS
 blockers: []
-next_action: merge the sequential archive closeout PR, verify closeout branch absence, close Issue #1012 as completed
+next_action: validate and merge PR #1454, verify closeout branch absence, close Issue #1012 as completed
 ```
 
 ## Source branch closeout
