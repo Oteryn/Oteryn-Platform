@@ -2,7 +2,7 @@
 
 Governing Issue: #1399.
 
-Status: `PREPARED / LIVE_EXECUTION_NOT_STARTED`.
+Status: `PLATFORM_PASS / GAME_ATLAS_PENDING`.
 
 This runbook supersedes the V1 execution package from #1268/#1269. Historical V1 evidence remains historical only.
 
@@ -208,3 +208,21 @@ Current admission status at preparation time:
 - Atlas: `WAIT` while #492/#493 occupy the verification/MQ canary surface.
 
 No live V2 canary is authorized merely by this runbook.
+
+## Platform V2 terminal result — 2026-10-05
+
+Platform V2 is **PASS** on the current measured generation. This result does not claim Game or Atlas completion.
+
+| Stage | Result | Exact evidence |
+| --- | --- | --- |
+| `ELIGIBLE` | PASS | Platform PR #1449 exact head `84232c82271182b4373336b2c55a9679b5e1b251`; Agent Governance `37306708199`; CI `37306708129` |
+| `AUTO_ENQUEUE` | PASS | META #196 comment `5994026696`; executor run `37306816432`; provider UUID `d8c8be6e-5146-4e00-afa6-d6e29e0e8399` |
+| `MERGE_GROUP_PROVEN` | PASS | Platform merge-group CI `37306867655` on `05eeb6c6b8fbba762c9e783b173e2e30ca0e53e6`; `platform-gate` PASS |
+| `AUTO_MERGE_AFTER_ENQUEUE` | PASS | PR #1449 merged with no second integration mutation; protected main readback `05eeb6c6b8fbba762c9e783b173e2e30ca0e53e6` |
+| `TASK_SELF_INTEGRATION` | PASS | All four stages above are attributable to one exact governed request and one real provider queue candidate |
+
+The single docs/control delivery PR #1449 also served as R0; no second disposable Platform canary was created. On its exact PR head, CI and Agent Governance were the applicable primary workflows, required `test`/`platform-gate` passed, and runtime/PHP coverage were correctly skipped. The source branch was absent after merge.
+
+The delegated request was issued exactly once against qualified META protected main `56419b6e463d28bf5ea71a92303a75ab6bf5207c`. The executor returned `REQUEST_ACCEPTED_NON_TERMINAL`; terminal success came only from the subsequent real provider `merge_group`, queue-gate success, merged PR state and protected-main readback.
+
+Remaining organization V2 work is intentionally separate. Oteryn-Game and Oteryn-Atlas were not mutated by this Platform lane. Issue #1399 remains the governing open work item for their current-generation disposition.
