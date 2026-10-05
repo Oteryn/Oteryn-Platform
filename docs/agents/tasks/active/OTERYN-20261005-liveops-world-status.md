@@ -72,11 +72,11 @@ blockers: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-05T19:26:00Z
+updated_at: 2026-10-05T19:29:00Z
 status: validating
 phase: exact_head_ci
 branch: feat/liveops-world-status-1458
-head: 1c6681360940426e248e596746b4745e556049ce
+head: cfef690a56982dc8dceddef1416e52b3086cc688
 pr: 1459
 context_routes:
   - api
@@ -109,8 +109,8 @@ unknown:
   - Production runtime-status activation/configuration; this task makes no production claim.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: phase7_exact_sha_regression_fixture_duplicate_assignment
+  evidence: superseded exact-head run 37362795927 / job 111941882180 failed PublicWorldStatusQueryTest because runtime() inserted the same native_scope_assignments (world_id, channel_id) twice; repaired with updateOrInsert on functional head cfef690a56982dc8dceddef1416e52b3086cc688
 rejected_hypotheses:
   - Treating stale or unavailable runtime evidence as offline.
   - Reading native runtime tables directly from PublicPortal.
@@ -140,6 +140,9 @@ validation:
   - command: independent exact-diff review
     result: PASS_AFTER_REMEDIATION
     evidence: review found acceptance fixture leakage risk and swallowed LiveOps query exceptions; functional head 1c6681360940426e248e596746b4745e556049ce creates/cleans the fixture per test and reports query failures before rendering truthful unavailable state
+  - command: superseded Phase 7 exact-SHA critical regression suite
+    result: FAIL_REPAIRED
+    evidence: run 37362795927 / job 111941882180 exposed one duplicate-assignment fixture failure; functional head cfef690a56982dc8dceddef1416e52b3086cc688 makes the assignment fixture idempotent
 blockers: []
-next_action: Freeze the repaired functional head, inspect PR #1459 exact-head CI and review threads, and repair only evidence-backed failures before READY_FOR_INTEGRATION.
+next_action: Freeze the repaired test head, inspect PR #1459 exact-head CI and review threads, and repair only evidence-backed failures before READY_FOR_INTEGRATION.
 ```
