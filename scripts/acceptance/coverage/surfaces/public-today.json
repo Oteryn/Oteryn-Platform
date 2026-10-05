@@ -65,7 +65,7 @@
         {
           "file": "scripts/acceptance/tests/homepage-navigation-seo.spec.mjs",
           "markers": [
-            "@portal-today public guest command centre preserves source truth empty partial LiveOps absence localization and no-store"
+            "@portal-today public guest command centre preserves source truth LiveOps freshness partial recovery localization and no-store"
           ]
         }
       ],

@@ -51,6 +51,11 @@ owned_paths:
   - lang/pl/today.php
   - tests/Feature/LiveOps/**
   - scripts/acceptance/coverage/surfaces/public-today.json
+  - scripts/acceptance/coverage/portal-evidence-dimensions/homepage-template-selector.json
+  - scripts/acceptance/seed-homepage-navigation-seo.php
+  - scripts/acceptance/set-liveops-state.php
+  - scripts/acceptance/tests/homepage-navigation-seo.spec.mjs
+  - config/game-auth.php
   - docs/architecture/MODULE_CATALOG.md
   - docs/agents/tasks/active/OTERYN-20261005-liveops-world-status.md
 modules:
@@ -88,6 +93,11 @@ owned_paths:
   - lang/pl/today.php
   - tests/Feature/LiveOps/**
   - scripts/acceptance/coverage/surfaces/public-today.json
+  - scripts/acceptance/coverage/portal-evidence-dimensions/homepage-template-selector.json
+  - scripts/acceptance/seed-homepage-navigation-seo.php
+  - scripts/acceptance/set-liveops-state.php
+  - scripts/acceptance/tests/homepage-navigation-seo.spec.mjs
+  - config/game-auth.php
   - docs/architecture/MODULE_CATALOG.md
   - docs/agents/tasks/active/OTERYN-20261005-liveops-world-status.md
 proven:
@@ -116,6 +126,11 @@ changed_paths:
   - lang/pl/today.php
   - tests/Feature/LiveOps/PublicWorldStatusQueryTest.php
   - scripts/acceptance/coverage/surfaces/public-today.json
+  - scripts/acceptance/coverage/portal-evidence-dimensions/homepage-template-selector.json
+  - scripts/acceptance/seed-homepage-navigation-seo.php
+  - scripts/acceptance/set-liveops-state.php
+  - scripts/acceptance/tests/homepage-navigation-seo.spec.mjs
+  - config/game-auth.php
   - docs/architecture/MODULE_CATALOG.md
   - docs/agents/tasks/active/OTERYN-20261005-liveops-world-status.md
 validation:
@@ -123,5 +138,5 @@ validation:
     result: PASS
     evidence: local syntax validation before first branch commit
 blockers: []
-next_action: Inspect PR #1459 exact-head CI and review. Repair only evidence-backed failures; then add the required zero-retry browser evidence before READY_FOR_INTEGRATION.
+next_action: Publish real acceptance-state transitions, then freeze a new exact head. Inspect CI/review and repair only evidence-backed failures before READY_FOR_INTEGRATION.
 ```
