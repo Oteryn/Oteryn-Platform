@@ -28,6 +28,9 @@ def evaluate_gate(
     classification_result: str,
     ci_required: str,
     runtime_tests_result: str,
+    reuse_heavy: str = "false",
+    reused_head_sha: str = "",
+    reused_run_id: str = "",
 ) -> GateDecision:
     classification = classification_result.strip().casefold()
     runtime_result = runtime_tests_result.strip().casefold()
@@ -54,21 +57,51 @@ def evaluate_gate(
         )
 
     if required:
-        if runtime_result != "success":
+        if runtime_result == "success":
+            return GateDecision(
+                passed=True,
+                outcome="runtime-tests-passed",
+                runtime_tests_required=True,
+                message="Runtime tests were required and completed successfully.",
+            )
+
+        reuse = reuse_heavy.strip().casefold()
+        if runtime_result == "skipped" and reuse == "true":
+            if (
+                len(reused_head_sha) == 40
+                and all(ch in "0123456789abcdef" for ch in reused_head_sha)
+                and reused_run_id.isdigit()
+                and int(reused_run_id) > 0
+            ):
+                return GateDecision(
+                    passed=True,
+                    outcome="runtime-tests-reused",
+                    runtime_tests_required=True,
+                    message=(
+                        "Runtime tests are required for the accumulated PR scope, but "
+                        "the exact final head reused a prior successful runtime-tests "
+                        f"run {reused_run_id} from material head {reused_head_sha}."
+                    ),
+                )
             return GateDecision(
                 passed=False,
                 outcome="failed",
                 runtime_tests_required=True,
                 message=(
-                    "Runtime tests were required but did not succeed "
-                    f"(runtime-tests={runtime_result or 'missing'})."
+                    "Runtime tests reported reusable evidence but the exact reused "
+                    "head/run identity is missing or malformed."
                 ),
             )
+
         return GateDecision(
-            passed=True,
-            outcome="runtime-tests-passed",
+            passed=False,
+            outcome="failed",
             runtime_tests_required=True,
-            message="Runtime tests were required and completed successfully.",
+            message=(
+                "Runtime tests were required but neither succeeded nor supplied "
+                "valid reusable heavy evidence "
+                f"(runtime-tests={runtime_result or 'missing'}, reuse={reuse or 'missing'})."
+            ),
         )
 
     if runtime_result != "skipped":
@@ -119,6 +152,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--classification-result", required=True)
     parser.add_argument("--ci-required", required=True)
     parser.add_argument("--runtime-tests-result", required=True)
+    parser.add_argument("--reuse-heavy", default="false")
+    parser.add_argument("--reused-head-sha", default="")
+    parser.add_argument("--reused-run-id", default="")
     parser.add_argument("--summary", type=Path)
     return parser.parse_args()
 
@@ -129,6 +165,9 @@ def main() -> int:
         classification_result=args.classification_result,
         ci_required=args.ci_required,
         runtime_tests_result=args.runtime_tests_result,
+        reuse_heavy=args.reuse_heavy,
+        reused_head_sha=args.reused_head_sha,
+        reused_run_id=args.reused_run_id,
     )
     if args.summary:
         write_summary(args.summary, decision)
