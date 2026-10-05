@@ -27,7 +27,7 @@ Correct `Oteryn: platform lead` so it self-executes eligible Platform work by de
 - [x] Short invocation and Documentation IA describe the corrected model.
 - [x] Deterministic prompt eval covers self-execution and escalation boundaries.
 - [x] Terminal task #1441/#1442 is removed from active task ownership.
-- [ ] Exact candidate CI/validation is green.
+- [x] Exact candidate CI/validation is green.
 
 ## Ownership
 
@@ -57,12 +57,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-05T09:50:54Z
-head: UNKNOWN
+updated_at: 2026-10-05T10:11:03Z
+head: 12d6c79c9c746357b336ff56b22b6656795ef1fe
 branch: docs/platform-lead-self-execution-1443
 pr: 1444
-status: validating
-terminal_pr_policy: archive_pending
+status: completed
+terminal_pr_policy: terminal
 context_routes:
   - agent-governance
 owned_paths:
@@ -82,8 +82,7 @@ proven:
   - The owner explicitly requested that the lead work on Platform problems itself and escalate only when needed.
 derived:
   - The reusable lead contract must make self-execution the default while preserving live ownership and Game non-interference.
-unknown:
-  - exact candidate CI result
+unknown: []
 conflicts: []
 first_failure:
   marker: branch_pr_identity_omitted
@@ -102,18 +101,15 @@ changed_paths:
   - docs/agents/tasks/archive/OTERYN-20261005-platform-completion-lead.md
   - docs/agents/tasks/active/OTERYN-20261005-platform-lead-self-execution.md
 validation:
-  - command: python tools/agents/documentation_ia.py
-    result: NOT_RUN
-    evidence: exact-candidate validation pending
-  - command: python tools/validation/prompt_eval.py --suite docs/agents/evals/oteryn-platform-completion-lead-v2.json
-    result: NOT_RUN
-    evidence: exact-candidate validation pending
-  - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20261005-platform-lead-self-execution.md --require-checkpoint
-    result: NOT_RUN
-    evidence: exact-candidate validation pending
+  - command: Agent Governance run 37294231720
+    result: PASS
+    evidence: exact PR #1444 head 67b7da958e66ddebb265625e10b62bb7fd7d6044 passed governance
+  - command: CI run 37294231870
+    result: PASS
+    evidence: exact PR #1444 head 67b7da958e66ddebb265625e10b62bb7fd7d6044 passed CI
 blockers:
   - none
-next_action: archive this task after PR #1444 reaches protected main; do not start new implementation in this task
+next_action: none; implementation merged to protected main and task is terminal
 ```
 
 ## Source branch closeout
@@ -121,7 +117,7 @@ next_action: archive this task after PR #1444 reaches protected main; do not sta
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository prompt-governance corrective PR
-source_branch_evidence: pending protected integration
+source_branch_evidence: PR #1444 merged as 12d6c79c9c746357b336ff56b22b6656795ef1fe and source branch docs/platform-lead-self-execution-1443 is absent from canonical remote
 ```
 
 ## Notes
