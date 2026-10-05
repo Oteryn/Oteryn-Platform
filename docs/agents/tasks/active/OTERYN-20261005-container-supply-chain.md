@@ -35,11 +35,12 @@ owned_paths:
   - deploy/synology/runner/Dockerfile
   - .github/dependabot.yml
   - .github/workflows/build-synology-staging-images.yml
+  - scripts/ci/classify_synology_builds.py
   - scripts/ci/container_supply_chain.py
   - tests/ci/test_container_supply_chain.py
   - docs/security/CONTAINER_SUPPLY_CHAIN_POLICY.json
   - docs/security/CONTAINER_VULNERABILITY_EXCEPTIONS.json
-  - docs/operations/SYNOLOGY_STAGING.md
+  - deploy/synology/README.md
   - docs/agents/tasks/active/OTERYN-20261005-container-supply-chain.md
 modules:
   - Synology staging container build
@@ -67,6 +68,7 @@ owned_paths:
   - deploy/synology/docker/platform.Dockerfile
   - .github/dependabot.yml
   - .github/workflows/build-synology-staging-images.yml
+  - scripts/ci/classify_synology_builds.py
   - scripts/ci/container_supply_chain.py
   - tests/ci/test_container_supply_chain.py
   - docs/security/CONTAINER_SUPPLY_CHAIN_POLICY.json
@@ -89,7 +91,16 @@ rejected_hypotheses:
   - a second standalone release workflow is required
   - signing is required to satisfy provenance when deterministic source-to-image evidence is already available
 changed_paths:
+  - .github/dependabot.yml
+  - .github/workflows/build-synology-staging-images.yml
+  - deploy/synology/README.md
+  - deploy/synology/docker/platform.Dockerfile
   - docs/agents/tasks/active/OTERYN-20261005-container-supply-chain.md
+  - docs/security/CONTAINER_SUPPLY_CHAIN_POLICY.json
+  - docs/security/CONTAINER_VULNERABILITY_EXCEPTIONS.json
+  - scripts/ci/classify_synology_builds.py
+  - scripts/ci/container_supply_chain.py
+  - tests/ci/test_container_supply_chain.py
 validation:
   - command: not-run
     result: NOT_RUN
