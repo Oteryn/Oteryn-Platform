@@ -124,6 +124,7 @@ def evaluate_gate(
             passed=False,
             outcome="failed",
             runtime_tests_required=False,
+            runtime_evidence_reused=False,
             message=(
                 "Runtime tests were classified NOT_APPLICABLE but the conditional job "
                 f"did not report skipped (runtime-tests={runtime_result or 'missing'})."
