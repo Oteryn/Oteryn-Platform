@@ -9,7 +9,7 @@ optional_reads:
   - none
 ---
 
-# OTERYN-20260914-ci-mq-canary-v2
+# OTERYN-20260914 CI + Merge Queue canary V2 preparation — terminal archive
 
 ## Goal
 
@@ -57,8 +57,8 @@ updated_at: 2026-09-23T18:34:00Z
 head: efd0ef80734d7e0c3e6c85ffdccace66e95f2914
 branch: docs/issue-1399-ci-mq-canary-v2
 pr: 1400
-status: validating
-terminal_pr_policy: archive_pending
+status: completed
+terminal_pr_policy: terminal
 context_routes:
   - CI validation
   - Merge Queue integration capability
@@ -104,17 +104,21 @@ blockers:
   - Platform #1398
   - Game #592
   - Atlas #492/#493
-next_action: archive this terminal preparation packet; continue Issue #1399 live V2 execution only under a fresh bounded task and branch after current repository preflight is re-established
+next_action: none in this packet; Issue #1399 continues under a fresh bounded Platform preflight/execution task
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: V2 preparation is active and awaiting clean live generations before later execution
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: preparation PR #1400 merged and this historical preparation branch has no remaining execution or recovery purpose
+source_branch_evidence: PR #1400 merged as bbc44f0f774ddc55d10120af5c5a64b3a78554cf from exact head efd0ef80734d7e0c3e6c85ffdccace66e95f2914; remote source branch docs/issue-1399-ci-mq-canary-v2 is absent
 ```
 
 ## Notes
 
 Do not convert this preparation branch into a live canary. Live measurement remains a separate stage controlled by #1399 and fresh repository-specific preflight.
+
+## Terminal transition — 2026-10-05
+
+Preparation scope is terminal. Platform blocker #1398 and Game blocker #592 are closed; Atlas #492/#493 remain open, but Issue #1399 explicitly allows repository-by-repository execution. Current continuation is intentionally bounded to META read-only capability evidence plus Oteryn-Platform preflight/execution. No Oteryn-Game or Oteryn-Atlas mutation is transferred from this archive.
