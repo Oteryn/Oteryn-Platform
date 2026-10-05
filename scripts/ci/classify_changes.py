@@ -213,6 +213,18 @@ def classify_path(raw_path: str) -> PathClassification:
     ):
         return PathClassification("frontend", frozenset(("ci",)))
 
+    if _matches(
+        path,
+        (
+            "app/CharacterProfiles/**",
+            "tests/Feature/CharacterProfiles/Concurrency/**",
+        ),
+    ):
+        return PathClassification(
+            "backend",
+            frozenset(("ci", "phase7", "game_auth_concurrency")),
+        )
+
     if _matches(path, ("app/**", "tests/**")):
         return PathClassification("backend", frozenset(("ci", "phase7")))
 
