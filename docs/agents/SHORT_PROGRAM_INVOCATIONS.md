@@ -158,13 +158,18 @@ Oteryn: platform lead
 programme_id: OTERYN_PLATFORM_COMPLETION_LEAD
 canonical_prompt: docs/agents/prompts/OTERYN_PLATFORM_COMPLETION_LEAD.md
 programme_state: docs/agents/programs/OTERYN_PLATFORM_COMPLETION_LEAD_PROGRAMME.md
-governing_issue: 1441
+prompt_eval: docs/agents/evals/oteryn-platform-completion-lead-v2.json
+registration_issue: 1441
+contract_correction_issue: 1443
 programme_story: KAN-41
+execution_model: first_line_platform_self_execution
 game_control_plane: Oteryn/Oteryn-Game#1622 -> OTV2_WORK_DELIVERY_COORDINATOR
 game_architect_route: OTV2_SOL_SUPERVISING_ARCHITECT via Game coordinator
 ```
 
-The alias resolves the canonical subordinate technical Platform Completion Lead. It coordinates existing Platform programmes/owners rather than replacing them, and it never creates a second Oteryn Game control plane. Game-owned implementation or architecture blockers are packaged and routed through the Game Work Coordinator; material Game architecture reaches the Supervising Architect only through that coordinator.
+The alias resolves the canonical first-line Platform Completion Lead. For eligible unowned Platform work it executes the lifecycle itself rather than acting as a coordination-only router. It preserves valid active owners, escalates Platform architecture only for genuinely new/conflicting durable decisions, and routes only Game-owned implementation/architecture blockers through the Game Work Coordinator. Owner interruption is last resort.
+
+The alias does not create a second Oteryn Game control plane and grants no Game mutation, production, payment, secret, protected-environment or merge authority beyond current repository governance.
 
 ## Platform parallel completion wave
 
