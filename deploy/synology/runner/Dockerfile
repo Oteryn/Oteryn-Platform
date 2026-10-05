@@ -1,9 +1,9 @@
-FROM docker:29.6.2-cli@sha256:feb2d49bd65f274b3e4b4620beabe2f4691e5287e496da9fbc9830ed5f780676 AS docker-cli
+FROM docker:29.8.1-cli@sha256:6602978e2be3c20e530e33773b8cadcef5fe998a71a534ee24516f1176973cdf AS docker-cli
 
 FROM ubuntu:24.04@sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467
 
-ENV RUNNER_VERSION=2.336.0 \
-    RUNNER_SHA256=04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d \
+ENV RUNNER_VERSION=2.337.0 \
+    RUNNER_SHA256=70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613 \
     DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
@@ -20,6 +20,13 @@ RUN curl --fail --show-error --silent --location \
     && tar -xzf /tmp/actions-runner.tar.gz -C /opt/actions-runner-dist \
     && rm -f /tmp/actions-runner.tar.gz \
     && /opt/actions-runner-dist/bin/installdependencies.sh \
+    && for node_root in /opt/actions-runner-dist/externals/node20 /opt/actions-runner-dist/externals/node24; do \
+        test -x "$node_root/bin/node"; \
+        rm -rf "$node_root/lib/node_modules"; \
+        rm -f "$node_root/bin/npm" "$node_root/bin/npx" "$node_root/bin/corepack"; \
+    done \
+    && /opt/actions-runner-dist/externals/node24/bin/node --version \
+    && test ! -e /opt/actions-runner-dist/externals/node24/bin/npm \
     && test -x /opt/actions-runner-dist/externals/node24/bin/node \
     && test "$(/opt/actions-runner-dist/bin/Runner.Listener --version 2>/dev/null | tail -n 1)" = "$RUNNER_VERSION" \
     && chown -R runner:runner /opt/actions-runner-dist /runner /work
