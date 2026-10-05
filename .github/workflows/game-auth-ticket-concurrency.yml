@@ -12,6 +12,7 @@ on:
       - '.github/PULL_REQUEST_TEMPLATE.md'
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -27,7 +28,11 @@ jobs:
       phase7: ${{ steps.classify.outputs.phase7 }}
       edge: ${{ steps.classify.outputs.edge }}
       db_outage: ${{ steps.classify.outputs.db_outage }}
-      game_auth_concurrency: ${{ steps.classify.outputs.game_auth_concurrency }}
+      game_auth_concurrency: ${{ steps.generation.outputs.required }}
+      generation_decision: ${{ steps.generation.outputs.decision }}
+      reused_run_id: ${{ steps.generation.outputs.reused_run_id }}
+      reused_head_sha: ${{ steps.generation.outputs.reused_head_sha }}
+      material_digest: ${{ steps.generation.outputs.material_digest }}
       classes: ${{ steps.classify.outputs.classes }}
       paths_json: ${{ steps.classify.outputs.paths_json }}
     steps:
@@ -39,6 +44,9 @@ jobs:
 
       - name: Validate change classifier
         run: python tests/ci/test_classify_changes.py
+
+      - name: Validate PR generation reuse resolver
+        run: python tests/ci/test_pr_generation_reuse.py
 
       - name: Classify changed paths
         id: classify
@@ -52,6 +60,35 @@ jobs:
           else
             python scripts/ci/classify_changes.py               --all               --github-output "$GITHUB_OUTPUT"               --summary "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Resolve exact PR generation evidence
+        id: generation
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action || '' }}
+          BEFORE_SHA: ${{ github.event.before || '' }}
+          AFTER_SHA: ${{ github.event.after || '' }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ github.token }}
+          ACCUMULATED_REQUIRED: ${{ steps.classify.outputs.game_auth_concurrency }}
+        run: >-
+          python scripts/ci/pr_generation_reuse.py
+          --gate game_auth_concurrency
+          --workflow-file game-auth-ticket-concurrency.yml
+          --evidence-job concurrency-proof
+          --event-name "$EVENT_NAME"
+          --event-action "$EVENT_ACTION"
+          --accumulated-required "$ACCUMULATED_REQUIRED"
+          --before "$BEFORE_SHA"
+          --after "$AFTER_SHA"
+          --head "$HEAD_SHA"
+          --pr-number "$PR_NUMBER"
+          --repository "$REPOSITORY"
+          --github-output "$GITHUB_OUTPUT"
+          --summary "$GITHUB_STEP_SUMMARY"
+
 
   concurrency-proof:
     needs: classify_changes
