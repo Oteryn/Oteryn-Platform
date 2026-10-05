@@ -14,6 +14,12 @@ HEAVY_WORKFLOWS = (
     "phase7-production-like-validation.yml",
     "game-auth-ticket-concurrency.yml",
 )
+HEAVY_REUSE_CONTRACT = {
+    "edge-security-emulation.yml": ("edge", "validate"),
+    "platform-db-outage-validation.yml": ("db_outage", "validate"),
+    "phase7-production-like-validation.yml": ("phase7", "validate"),
+    "game-auth-ticket-concurrency.yml": ("game_auth_concurrency", "concurrency-proof"),
+}
 
 REQUIRED_IGNORES = (
     "'AGENTS.md'",
@@ -170,6 +176,19 @@ for filename in HEAVY_WORKFLOWS:
     assert "scripts/ci/classify_changes.py" in text, (
         f"{filename}: internal fail-closed path classification was removed"
     )
+    gate, evidence_job = HEAVY_REUSE_CONTRACT[filename]
+    assert "actions: read" in text, (
+        f"{filename}: generation reuse cannot prove prior workflow evidence"
+    )
+    assert "scripts/ci/pr_generation_reuse.py" in text
+    assert "github.event.before || ''" in text
+    assert "github.event.after || ''" in text
+    assert f"--gate {gate}" in text
+    assert f"--workflow-file {filename}" in text
+    assert f"--evidence-job {evidence_job}" in text
+    assert f"{gate}: ${{{{ steps.generation.outputs.required }}}}" in text
+    assert "reused_run_id: ${{ steps.generation.outputs.reused_run_id }}" in text
+    assert "reused_head_sha: ${{ steps.generation.outputs.reused_head_sha }}" in text
 
 for filename in RETIRED_WORKFLOWS:
     assert not (WORKFLOW_ROOT / filename).exists(), (
@@ -254,6 +273,14 @@ assert "group: ci-${{ github.workflow }}-${{ github.ref }}" not in ci, (
 )
 assert "scripts/ci/classify_changes.py" in ci
 assert "scripts/ci/classify_push_changes.py" in ci
+assert "scripts/ci/pr_generation_reuse.py" in ci
+assert "python tests/ci/test_pr_generation_reuse.py" in ci
+assert "actions: read" in ci
+assert "github.event.before || ''" in ci
+assert "github.event.after || ''" in ci
+assert "ci: ${{ steps.generation.outputs.required }}" in ci
+assert "--workflow-file ci.yml" in ci
+assert "--evidence-job runtime-tests" in ci
 assert (
     "ref: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha || github.sha }}"
     in ci
