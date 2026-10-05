@@ -100,42 +100,6 @@ rejected_hypotheses:
 changed_paths:
   - docs/agents/tasks/archive/OTERYN-20260914-ci-mq-canary-v2.md
   - docs/agents/tasks/active/OTERYN-20261005-platform-ci-mq-canary-v2.md
-matrix:
-  r0_docs_agents_only:
-    expected_pull_request:
-      - CI
-      - Agent Governance
-    opened_trusted_base:
-      - Historical Branch Audit
-    close_housekeeping:
-      - GitHub Actions Storage Hygiene
-      - Terminal Branch Lifecycle
-    forbidden_or_not_applicable:
-      - CodeQL
-      - Edge Security Emulation
-      - Platform DB Outage Validation
-      - Game Auth Ticket Concurrency
-      - Phase 7 Production-Like Validation
-      - php-coverage-report
-      - runtime-tests
-    observed_reference:
-      pr: 1448
-      exact_head: 989c4f207fe1c25324fc82026d6a20a0fd35c3a8
-      ci: 37305682464
-      agent_governance: 37305682341
-      historical_branch_audit: 37305574333
-      storage_hygiene_close: 37305850971
-      terminal_branch_close: 37305850961
-  merge_queue_reference:
-    pr: 1448
-    merge_group_run: 37305783477
-    merge_group_sha: b143cff5dd19f622990791d2f9b93d2c483020f8
-    protected_merge: b143cff5dd19f622990791d2f9b93d2c483020f8
-  evidence_classification:
-    ELIGIBLE: fresh delivery PR exact-head green state still required
-    AUTO_ENQUEUE: INSUFFICIENT from #1447/#1448 because generic auto-merge transport is not the governed #196 executor contract
-    MERGE_GROUP_PROVEN: REUSABLE from #1448 current-generation merge_group run 37305783477
-    AUTO_MERGE_AFTER_ENQUEUE: REUSABLE from #1448 protected merge b143cff5dd19f622990791d2f9b93d2c483020f8
 validation:
   - command: live GitHub readback of META main and governed executor run 37118716936
     result: PASS
@@ -145,6 +109,46 @@ validation:
     evidence: no open PR changes current pull_request/merge_group CI routing surface; #1211 workflow is push-main/workflow_dispatch only
 blockers: []
 next_action: open this docs-only delivery PR as the single R0 probe; after exact-head gates pass, issue exactly one governed META #196 request for that exact head to prove AUTO_ENQUEUE, then observe provider merge_group and protected merge without any second integration mutation
+```
+
+## Frozen Platform R0 / Merge Queue matrix
+
+```yaml
+r0_docs_agents_only:
+  expected_pull_request:
+    - CI
+    - Agent Governance
+  opened_trusted_base:
+    - Historical Branch Audit
+  close_housekeeping:
+    - GitHub Actions Storage Hygiene
+    - Terminal Branch Lifecycle
+  forbidden_or_not_applicable:
+    - CodeQL
+    - Edge Security Emulation
+    - Platform DB Outage Validation
+    - Game Auth Ticket Concurrency
+    - Phase 7 Production-Like Validation
+    - php-coverage-report
+    - runtime-tests
+  observed_reference:
+    pr: 1448
+    exact_head: 989c4f207fe1c25324fc82026d6a20a0fd35c3a8
+    ci: 37305682464
+    agent_governance: 37305682341
+    historical_branch_audit: 37305574333
+    storage_hygiene_close: 37305850971
+    terminal_branch_close: 37305850961
+merge_queue_reference:
+  pr: 1448
+  merge_group_run: 37305783477
+  merge_group_sha: b143cff5dd19f622990791d2f9b93d2c483020f8
+  protected_merge: b143cff5dd19f622990791d2f9b93d2c483020f8
+evidence_classification:
+  ELIGIBLE: fresh delivery PR exact-head green state still required
+  AUTO_ENQUEUE: INSUFFICIENT from #1447/#1448 because generic auto-merge transport is not the governed #196 executor contract
+  MERGE_GROUP_PROVEN: REUSABLE from #1448 current-generation merge_group run 37305783477
+  AUTO_MERGE_AFTER_ENQUEUE: REUSABLE from #1448 protected merge b143cff5dd19f622990791d2f9b93d2c483020f8
 ```
 
 ## Source branch closeout
