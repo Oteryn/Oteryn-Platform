@@ -50,10 +50,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-05T10:30:00Z
-head: 12d6c79c9c746357b336ff56b22b6656795ef1fe
+head: 7c906877f0cc10d6c37ad8b31a4c74e8ed30eab8
 branch: test/issue-1010-php-coverage-enforcement
-pr: none
-status: implementing
+pr: 1445
+status: validating
 context_routes:
   - ci
 owned_paths:
@@ -76,14 +76,20 @@ first_failure:
   evidence: none
 rejected_hypotheses:
   - Coverage observability is missing entirely; disproven by current ci.yml and five successful main-branch coverage runs.
-changed_paths: []
+changed_paths:
+  - docs/agents/CI_COVERAGE_POLICY.json
+  - tools/validation/php_coverage_policy.py
+  - tools/validation/test_php_coverage_policy.py
+  - .github/workflows/ci.yml
+  - tests/ci/test_workflow_trigger_economy.py
+  - docs/agents/tasks/active/OTERYN-20261005-php-coverage-enforcement.md
 validation:
-  - command: not-run
+  - command: PR #1445 required GitHub checks
     result: NOT_RUN
-    evidence: implementation not yet committed
+    evidence: waiting for exact-head CI after task/PR binding
 blockers:
   - none
-next_action: implement the enforcement policy and Merge Queue routing, then open a PR and validate exact head
+next_action: wait for PR #1445 exact-head checks, inspect any first failure, and repair before readiness
 ```
 
 ## Source branch closeout
