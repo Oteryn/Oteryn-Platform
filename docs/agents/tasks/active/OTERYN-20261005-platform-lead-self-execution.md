@@ -62,6 +62,7 @@ head: UNKNOWN
 branch: docs/platform-lead-self-execution-1443
 pr: 1444
 status: validating
+terminal_pr_policy: archive_pending
 context_routes:
   - agent-governance
 owned_paths:
@@ -112,7 +113,7 @@ validation:
     evidence: exact-candidate validation pending
 blockers:
   - none
-next_action: qualify PR #1444 exact head and reconcile required CI
+next_action: archive this task after PR #1444 reaches protected main; do not start new implementation in this task
 ```
 
 ## Source branch closeout
