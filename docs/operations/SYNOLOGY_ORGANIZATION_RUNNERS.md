@@ -126,7 +126,7 @@ Do not route by custom label alone and do not add generic `self-hosted` eligibil
 
 ### Platform
 
-Prove exact runner name/group/label, expected Docker access, Platform staging-state access and an existing trusted Platform Synology operation before retiring the repository-scoped rollback runner.
+Platform replacement is terminally proven. PR #1221 migrated retained Platform jobs to `platform-runners` + `oteryn-platform`; subsequent trusted-main diagnostics passed on `oteryn-synology-platform`, and the legacy repository runner/container was retired while recovery volumes/state were preserved. Current Platform host-repair automation therefore targets Compose project `oteryn-organization-runners`, service `platform`.
 
 ### Atlas
 
@@ -138,15 +138,8 @@ Identify and prove the smallest real Game-owned local runtime/integration path t
 
 ## Rollback and retirement
 
-Keep `oteryn-synology-staging` as rollback until all three replacement provider routes are terminally proven and no retained workflow targets it. Preserve its registration/config state and persistent product data while that condition remains false.
+The legacy **Platform repository runner** `oteryn-synology-staging` is already retired. Terminal task `OTERYN-20260822-retire-legacy-runner-selectors` records: no retained Platform workflow targets it, repository runner count is zero, the legacy Synology container is absent, and its config/work volumes plus Platform state were preserved for recovery evidence.
 
-Retirement requires all of:
+Do not recreate that legacy container merely to satisfy old automation. Current Platform recovery/autostart must operate on the organization-scoped `oteryn-synology-platform` registration represented by Compose project/service `oteryn-organization-runners/platform`.
 
-- Platform replacement PASS;
-- Atlas replacement and owner-workflow transfer PASS;
-- Game replacement and owner-workflow transfer PASS;
-- no retained workflow targets `oteryn-staging`;
-- rollback evidence recorded;
-- provider Issues and `Oteryn/Oteryn#34` agree that the old runner has no remaining workload owner.
-
-Do not delete the legacy runner merely because the new split containers exist.
+Atlas and Game provider retirement/rollback decisions remain separately owned by their provider programme; this Platform runbook does not use those repositories as fallback execution authority.
