@@ -154,5 +154,5 @@ next_action: validate and merge PR #1448, verify its source branch is absent, th
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: lifecycle-only closeout branch has no retention or recovery purpose after archive integration
-source_branch_evidence: pending closeout PR merge and post-merge branch absence verification
+source_branch_evidence: PR #1447 merged as a29c0f990cbac725e47e9f0407a16fbc9eaf333c and its source branch test/issue-1010-php-coverage-enforcement-v2 is absent; superseded PR #1445 source branch was deleted by Terminal Branch Lifecycle run 37299329825
 ```
