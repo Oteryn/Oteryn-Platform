@@ -29,8 +29,14 @@
       "owner": "OTERYN-RUNTIME-DIAGNOSTICS-CLOSEOUT",
       "scope": "One-time continuation and closeout handoff for OTERYN-20260823 runtime diagnostics hardening",
       "executable": false,
-      "supersession": {"target": "issue:1262", "reason": "Task-specific closeout prompt; live Issue #1262 and the task packet are canonical authority, so this handoff must not be replayed after terminal closeout."},
-      "provenance": ["issue:1262", "docs/agents/tasks/archive/OTERYN-20260823-runtime-diagnostics-hardening.md"]
+      "supersession": {
+        "target": "issue:1262",
+        "reason": "Task-specific closeout prompt; live Issue #1262 and the task packet are canonical authority, so this handoff must not be replayed after terminal closeout."
+      },
+      "provenance": [
+        "issue:1262",
+        "docs/agents/tasks/archive/OTERYN-20260823-runtime-diagnostics-hardening.md"
+      ]
     },
     {
       "id": "OTERYN_PLATFORM_REMEDIATION",
@@ -41,8 +47,13 @@
       "owner": "OTERYN_PLATFORM_REMEDIATION",
       "scope": "Platform end-to-end remediation of one eligible live Issue under current governance",
       "executable": true,
-      "supersession": {"target": null, "reason": "Canonical short-program prompt; live state is resolved at invocation."},
-      "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md"]
+      "supersession": {
+        "target": null,
+        "reason": "Canonical short-program prompt; live state is resolved at invocation."
+      },
+      "provenance": [
+        "docs/agents/SHORT_PROGRAM_INVOCATIONS.md"
+      ]
     },
     {
       "id": "OTERYN-GAME-CATALOG-COMPLETION",
@@ -53,8 +64,13 @@
       "owner": "OTERYN-GAME-CATALOG-COMPLETION",
       "scope": "Platform-side Game Catalog completion/barrier work resolved from live Issues and producer authority",
       "executable": true,
-      "supersession": {"target": null, "reason": "Registered current parallel-wave role; live state overrides embedded examples."},
-      "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md"]
+      "supersession": {
+        "target": null,
+        "reason": "Registered current parallel-wave role; live state overrides embedded examples."
+      },
+      "provenance": [
+        "docs/agents/SHORT_PROGRAM_INVOCATIONS.md"
+      ]
     },
     {
       "id": "OTERYN-CHARACTER-LIFECYCLE-BARRIER",
@@ -65,8 +81,13 @@
       "owner": "OTERYN-CHARACTER-LIFECYCLE-BARRIER",
       "scope": "Platform Character Lifecycle dependency/barrier discovery for current live authority",
       "executable": true,
-      "supersession": {"target": null, "reason": "Registered current parallel-wave role; live state is required before work."},
-      "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md"]
+      "supersession": {
+        "target": null,
+        "reason": "Registered current parallel-wave role; live state is required before work."
+      },
+      "provenance": [
+        "docs/agents/SHORT_PROGRAM_INVOCATIONS.md"
+      ]
     },
     {
       "id": "OTERYN_PLATFORM_CONTINUOUS_AUDIT",
@@ -77,20 +98,34 @@
       "owner": "OTERYN_PLATFORM_CONTINUOUS_AUDIT",
       "scope": "Continuous Platform audit and finding creation without product repair ownership",
       "executable": true,
-      "supersession": {"target": null, "reason": "Canonical short-program prompt."},
-      "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md"]
+      "supersession": {
+        "target": null,
+        "reason": "Canonical short-program prompt."
+      },
+      "provenance": [
+        "docs/agents/SHORT_PROGRAM_INVOCATIONS.md"
+      ]
     },
     {
       "id": "OTERYN_PLATFORM_COMPLETION_LEAD",
       "path": "docs/agents/prompts/OTERYN_PLATFORM_COMPLETION_LEAD.md",
-      "version": "1.0",
+      "version": "2.0",
       "classification": "reusable",
       "status": "active_reusable",
       "owner": "Oteryn: platform lead",
-      "scope": "Subordinate technical lead for Platform completion, preserving existing Platform ownership and routing Game-owned blockers through the Game control plane",
+      "scope": "First-line autonomous Platform completion lead that self-executes eligible Platform work, preserves live ownership, and escalates only real Platform-architecture or Game-owned boundaries",
       "executable": true,
-      "supersession": {"target": null, "reason": "Canonical reusable short invocation for Platform completion leadership and cross-repository escalation routing."},
-      "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md", "docs/agents/programs/OTERYN_PLATFORM_COMPLETION_LEAD_PROGRAMME.md", "issue:1441", "KAN-41"]
+      "supersession": {
+        "target": null,
+        "reason": "Canonical reusable short invocation for first-line Platform execution with exception-only architecture/Game escalation."
+      },
+      "provenance": [
+        "docs/agents/SHORT_PROGRAM_INVOCATIONS.md",
+        "docs/agents/programs/OTERYN_PLATFORM_COMPLETION_LEAD_PROGRAMME.md",
+        "issue:1441",
+        "issue:1443",
+        "KAN-41"
+      ]
     },
     {
       "id": "OTERYN-PLATFORM-WAVE-COORD",
@@ -101,8 +136,13 @@
       "owner": "OTERYN-PLATFORM-WAVE-COORD",
       "scope": "Coordination-only Platform parallel completion wave resolved from current live state",
       "executable": true,
-      "supersession": {"target": null, "reason": "Registered current coordination role; embedded wave facts are examples only."},
-      "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md"]
+      "supersession": {
+        "target": null,
+        "reason": "Registered current coordination role; embedded wave facts are examples only."
+      },
+      "provenance": [
+        "docs/agents/SHORT_PROGRAM_INVOCATIONS.md"
+      ]
     },
     {
       "id": "OTERYN_PORTAL_COMPLETION",
@@ -113,8 +153,13 @@
       "owner": "PORTAL-CLOSEOUT",
       "scope": "Canonical bounded Portal Completion selector/execution programme",
       "executable": true,
-      "supersession": {"target": null, "reason": "Canonical short-program prompt."},
-      "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md"]
+      "supersession": {
+        "target": null,
+        "reason": "Canonical short-program prompt."
+      },
+      "provenance": [
+        "docs/agents/SHORT_PROGRAM_INVOCATIONS.md"
+      ]
     },
     {
       "id": "OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION_ULTRA",
@@ -125,8 +170,14 @@
       "owner": "OTERYN-REPO-MIGRATION-ULTRA",
       "scope": "Execution overlay for the canonical repository-migration programme",
       "executable": true,
-      "supersession": {"target": null, "reason": "Still registered as a current short-program overlay; this IA closeout does not execute migration work."},
-      "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md", "docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md"]
+      "supersession": {
+        "target": null,
+        "reason": "Still registered as a current short-program overlay; this IA closeout does not execute migration work."
+      },
+      "provenance": [
+        "docs/agents/SHORT_PROGRAM_INVOCATIONS.md",
+        "docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md"
+      ]
     },
     {
       "id": "OTERYN_PLATFORM_ARCHITECTURE_REVIEW",
@@ -137,8 +188,13 @@
       "owner": "OTERYN_PLATFORM_ARCHITECTURE_REVIEW",
       "scope": "Continuous Platform architecture/structure/CI review and durable decision handoff",
       "executable": true,
-      "supersession": {"target": null, "reason": "Canonical short-program prompt."},
-      "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md"]
+      "supersession": {
+        "target": null,
+        "reason": "Canonical short-program prompt."
+      },
+      "provenance": [
+        "docs/agents/SHORT_PROGRAM_INVOCATIONS.md"
+      ]
     },
     {
       "id": "OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION",
@@ -149,8 +205,14 @@
       "owner": "OTERYN-REPO-MIGRATION",
       "scope": "Canonical bounded ecosystem repository-migration programme",
       "executable": true,
-      "supersession": {"target": null, "reason": "Still registered as a current short program; migration execution is outside this IA closeout."},
-      "provenance": ["docs/agents/SHORT_PROGRAM_INVOCATIONS.md", "docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md"]
+      "supersession": {
+        "target": null,
+        "reason": "Still registered as a current short program; migration execution is outside this IA closeout."
+      },
+      "provenance": [
+        "docs/agents/SHORT_PROGRAM_INVOCATIONS.md",
+        "docs/agents/programs/OTERYN_ECOSYSTEM_REPOSITORY_MIGRATION.md"
+      ]
     },
     {
       "id": "OTERYN-PORTAL-COMPLETION-PARALLEL",
@@ -161,8 +223,13 @@
       "owner": "OTERYN-PORTAL-COMPLETION-PARALLEL",
       "scope": "Standalone parallel coordinator/integrator for current Portal Completion lanes",
       "executable": true,
-      "supersession": {"target": null, "reason": "Standalone operator prompt subordinate to the canonical Portal Completion selector."},
-      "provenance": ["docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md"]
+      "supersession": {
+        "target": null,
+        "reason": "Standalone operator prompt subordinate to the canonical Portal Completion selector."
+      },
+      "provenance": [
+        "docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md"
+      ]
     },
     {
       "id": "OTERYN-PAYMENTS-FOUNDATION",
@@ -173,8 +240,14 @@
       "owner": "OTERYN-PAYMENTS-FOUNDATION",
       "scope": "Completed provider-neutral payment foundation lane",
       "executable": false,
-      "supersession": {"target": "issue:1236", "reason": "Terminal Issue #321 foundation is complete; provider work has separate live authority."},
-      "provenance": ["issue:321", "docs/agents/SHORT_PROGRAM_INVOCATIONS.md"]
+      "supersession": {
+        "target": "issue:1236",
+        "reason": "Terminal Issue #321 foundation is complete; provider work has separate live authority."
+      },
+      "provenance": [
+        "issue:321",
+        "docs/agents/SHORT_PROGRAM_INVOCATIONS.md"
+      ]
     },
     {
       "id": "OTERYN-HISTORICAL-WORK-RECONCILIATION",
@@ -185,8 +258,14 @@
       "owner": "OTERYN-HISTORICAL-WORK-RECONCILIATION",
       "scope": "Completed one-time historical branch/work reconciliation",
       "executable": false,
-      "supersession": {"target": "steady-state branch hygiene governance", "reason": "Issue #1072 is terminal; future branch findings use current governance."},
-      "provenance": ["issue:1072", "docs/agents/HISTORICAL_WORK_RECONCILIATION_REGISTRY.json"]
+      "supersession": {
+        "target": "steady-state branch hygiene governance",
+        "reason": "Issue #1072 is terminal; future branch findings use current governance."
+      },
+      "provenance": [
+        "issue:1072",
+        "docs/agents/HISTORICAL_WORK_RECONCILIATION_REGISTRY.json"
+      ]
     },
     {
       "id": "OTS-RUST-NATIVE-PROTOCOL-IMPLEMENTATION",
@@ -197,8 +276,13 @@
       "owner": "OTS-20260804-native-protocol-selection",
       "scope": "Legacy Rust protocol-oteryn adapter package under pre-canonical repository topology",
       "executable": false,
-      "supersession": {"target": "current Oteryn organization topology and repository-local native protocol governance", "reason": "Targets legacy blakinio/otclient authority and is not a current Platform execution route."},
-      "provenance": ["coordination:OTS-20260804-native-protocol-selection"]
+      "supersession": {
+        "target": "current Oteryn organization topology and repository-local native protocol governance",
+        "reason": "Targets legacy blakinio/otclient authority and is not a current Platform execution route."
+      },
+      "provenance": [
+        "coordination:OTS-20260804-native-protocol-selection"
+      ]
     },
     {
       "id": "OTERYN-WIKI-IMPLEMENTATION-LEGACY",
@@ -209,8 +293,13 @@
       "owner": "legacy-wiki-implementation",
       "scope": "Legacy first-slice Wiki implementation starter",
       "executable": false,
-      "supersession": {"target": "OTERYN_PORTAL_COMPLETION", "reason": "Not registered as a current short program; new Wiki work must enter through live Issue/task governance."},
-      "provenance": ["docs/architecture/WIKI_IMPLEMENTATION_PLAN.md"]
+      "supersession": {
+        "target": "OTERYN_PORTAL_COMPLETION",
+        "reason": "Not registered as a current short program; new Wiki work must enter through live Issue/task governance."
+      },
+      "provenance": [
+        "docs/architecture/WIKI_IMPLEMENTATION_PLAN.md"
+      ]
     },
     {
       "id": "OTS-NATIVE-SELECTION-E2E",
@@ -221,8 +310,13 @@
       "owner": "OTS-20260804-native-protocol-selection",
       "scope": "Legacy cross-repository native selection/E2E integration",
       "executable": false,
-      "supersession": {"target": "current Oteryn organization topology and repository-local native protocol governance", "reason": "File explicitly declares HISTORICAL_SUPERSEDED / DO NOT EXECUTE."},
-      "provenance": ["coordination:OTS-20260804-native-protocol-selection"]
+      "supersession": {
+        "target": "current Oteryn organization topology and repository-local native protocol governance",
+        "reason": "File explicitly declares HISTORICAL_SUPERSEDED / DO NOT EXECUTE."
+      },
+      "provenance": [
+        "coordination:OTS-20260804-native-protocol-selection"
+      ]
     },
     {
       "id": "OTERYN-GAME-CATALOG-IMPLEMENTATION-LEGACY",
@@ -233,8 +327,13 @@
       "owner": "legacy-game-catalog-implementation",
       "scope": "Legacy cross-repository first Game Catalog vertical-slice prompt",
       "executable": false,
-      "supersession": {"target": "OTERYN-GAME-CATALOG-COMPLETION", "reason": "Superseded by the current Platform-only Game Catalog completion role and live producer authority."},
-      "provenance": ["docs/agents/prompts/OTERYN-GAME-CATALOG-COMPLETION-AGENT.md"]
+      "supersession": {
+        "target": "OTERYN-GAME-CATALOG-COMPLETION",
+        "reason": "Superseded by the current Platform-only Game Catalog completion role and live producer authority."
+      },
+      "provenance": [
+        "docs/agents/prompts/OTERYN-GAME-CATALOG-COMPLETION-AGENT.md"
+      ]
     },
     {
       "id": "OTS-OTHERYN-NATIVE-PROTOCOL-IMPLEMENTATION",
@@ -245,8 +344,13 @@
       "owner": "OTS-20260804-native-protocol-selection",
       "scope": "Legacy Otheryn native gameplay producer/session package",
       "executable": false,
-      "supersession": {"target": "current Oteryn organization topology and repository-local native protocol governance", "reason": "File explicitly declares HISTORICAL_SUPERSEDED / DO NOT EXECUTE."},
-      "provenance": ["coordination:OTS-20260804-native-protocol-selection"]
+      "supersession": {
+        "target": "current Oteryn organization topology and repository-local native protocol governance",
+        "reason": "File explicitly declares HISTORICAL_SUPERSEDED / DO NOT EXECUTE."
+      },
+      "provenance": [
+        "coordination:OTS-20260804-native-protocol-selection"
+      ]
     },
     {
       "id": "OTERYN-PRODUCT-AUDIT-REMEDIATION-LEGACY",
@@ -257,8 +361,13 @@
       "owner": "legacy-product-audit-remediation",
       "scope": "Legacy audit-backlog implementation programme pinned to old PR/Issue state",
       "executable": false,
-      "supersession": {"target": "OTERYN_PLATFORM_REMEDIATION", "reason": "Current remediation programme owns live Issue selection and end-to-end repair."},
-      "provenance": ["docs/agents/prompts/OTERYN_PLATFORM_REMEDIATION_PROGRAM.md"]
+      "supersession": {
+        "target": "OTERYN_PLATFORM_REMEDIATION",
+        "reason": "Current remediation programme owns live Issue selection and end-to-end repair."
+      },
+      "provenance": [
+        "docs/agents/prompts/OTERYN_PLATFORM_REMEDIATION_PROGRAM.md"
+      ]
     },
     {
       "id": "OTERYN-EXHAUSTIVE-PORTAL-ACCEPTANCE-LEGACY",
@@ -269,8 +378,13 @@
       "owner": "legacy-exhaustive-portal-acceptance",
       "scope": "Legacy one-time portal coverage closure prompt",
       "executable": false,
-      "supersession": {"target": "OTERYN_PORTAL_COMPLETION", "reason": "Future acceptance gaps route through current Portal Completion or live remediation authority."},
-      "provenance": ["docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md"]
+      "supersession": {
+        "target": "OTERYN_PORTAL_COMPLETION",
+        "reason": "Future acceptance gaps route through current Portal Completion or live remediation authority."
+      },
+      "provenance": [
+        "docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md"
+      ]
     },
     {
       "id": "OTERYN-PUBLIC-WEBSITE-IMPLEMENTATION-LEGACY",
@@ -281,8 +395,13 @@
       "owner": "legacy-public-website-implementation",
       "scope": "Legacy first-slice public website implementation starter",
       "executable": false,
-      "supersession": {"target": "OTERYN_PORTAL_COMPLETION", "reason": "Not a current short-program route; public portal work is selected from current live Portal Completion state."},
-      "provenance": ["docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md"]
+      "supersession": {
+        "target": "OTERYN_PORTAL_COMPLETION",
+        "reason": "Not a current short-program route; public portal work is selected from current live Portal Completion state."
+      },
+      "provenance": [
+        "docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md"
+      ]
     },
     {
       "id": "OTS-NATIVE-PROTOCOL-SINGLE-VERSION-COMPLETION",
@@ -293,8 +412,13 @@
       "owner": "OTS-20260804-native-protocol-selection",
       "scope": "Legacy cross-repository native protocol completion programme",
       "executable": false,
-      "supersession": {"target": "current Oteryn organization topology and repository-local native protocol governance", "reason": "File explicitly declares HISTORICAL_SUPERSEDED / DO NOT EXECUTE."},
-      "provenance": ["coordination:OTS-20260804-native-protocol-selection"]
+      "supersession": {
+        "target": "current Oteryn organization topology and repository-local native protocol governance",
+        "reason": "File explicitly declares HISTORICAL_SUPERSEDED / DO NOT EXECUTE."
+      },
+      "provenance": [
+        "coordination:OTS-20260804-native-protocol-selection"
+      ]
     },
     {
       "id": "OTS-PLATFORM-GATEWAY-NATIVE-PROTOCOL-IMPLEMENTATION",
@@ -305,8 +429,13 @@
       "owner": "OTS-20260804-native-protocol-selection",
       "scope": "Legacy Platform/Game Gateway native protocol producer package",
       "executable": false,
-      "supersession": {"target": "current Oteryn organization topology and repository-local native protocol governance", "reason": "Pinned to legacy coordination and pre-cutover native authority; not a current registered execution route."},
-      "provenance": ["coordination:OTS-20260804-native-protocol-selection"]
+      "supersession": {
+        "target": "current Oteryn organization topology and repository-local native protocol governance",
+        "reason": "Pinned to legacy coordination and pre-cutover native authority; not a current registered execution route."
+      },
+      "provenance": [
+        "coordination:OTS-20260804-native-protocol-selection"
+      ]
     }
   ],
   "handovers": [
@@ -317,7 +446,10 @@
       "authoritative": false,
       "lifecycle": "expired",
       "superseded_by": "live GitHub Issue/PR/task state and current protected-main governance",
-      "provenance": ["phase:6", "date:2026-07-20"]
+      "provenance": [
+        "phase:6",
+        "date:2026-07-20"
+      ]
     },
     {
       "id": "OTERYN-20260720-phase7-handover",
@@ -326,7 +458,10 @@
       "authoritative": false,
       "lifecycle": "expired",
       "superseded_by": "live GitHub Issue/PR/task state and current protected-main governance",
-      "provenance": ["phase:7", "date:2026-07-20"]
+      "provenance": [
+        "phase:7",
+        "date:2026-07-20"
+      ]
     },
     {
       "id": "OTERYN-20260816-content-audit-to-coordinator",
@@ -335,7 +470,11 @@
       "authoritative": false,
       "lifecycle": "supersede_on_live_transition",
       "superseded_by": "newer live state for parent Issue #1115, PR #1117, owned tasks/PRs, or current coordinator state",
-      "provenance": ["issue:1115", "pr:1117", "date:2026-08-16"]
+      "provenance": [
+        "issue:1115",
+        "pr:1117",
+        "date:2026-08-16"
+      ]
     }
   ]
 }

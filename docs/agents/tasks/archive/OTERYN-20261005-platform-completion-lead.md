@@ -19,13 +19,13 @@ Make `Oteryn: platform lead` a real reusable technical lead, following the same 
 
 ## Acceptance criteria
 
-- [ ] Alias resolves to one canonical reusable prompt.
-- [ ] Programme routing document exists.
-- [ ] Lead is explicitly not a second Platform implementation owner or Game control plane.
-- [ ] Game implementation blockers route through `OTV2_WORK_DELIVERY_COORDINATOR` / Oteryn-Game #1622.
-- [ ] Material Game architecture routes through the Game coordinator to `OTV2_SOL_SUPERVISING_ARCHITECT`.
-- [ ] Documentation IA and deterministic prompt eval cover the reusable lead.
-- [ ] Fresh-chat invocation reconstructs state from protected main/Jira/task/PR facts.
+- [x] Alias resolves to one canonical reusable prompt.
+- [x] Programme routing document exists.
+- [x] Lead is explicitly not a second Platform implementation owner or Game control plane.
+- [x] Game implementation blockers route through `OTV2_WORK_DELIVERY_COORDINATOR` / Oteryn-Game #1622.
+- [x] Material Game architecture routes through the Game coordinator to `OTV2_SOL_SUPERVISING_ARCHITECT`.
+- [x] Documentation IA and deterministic prompt eval cover the reusable lead.
+- [x] Fresh-chat invocation reconstructs state from protected main/Jira/task/PR facts.
 
 ## Ownership
 
@@ -56,7 +56,7 @@ updated_at: 2026-10-05T09:30:00Z
 head: UNKNOWN
 branch: docs/platform-completion-lead-20261005
 pr: 1442
-status: validating
+status: completed
 context_routes:
   - agent-governance
 owned_paths:
@@ -71,8 +71,7 @@ proven:
   - Oteryn Game PR #1829 defines the desired subordinate technical lead pattern and coordinator-to-architect escalation route.
 derived:
   - Platform should mirror that lead pattern while keeping its existing programme ownership.
-unknown:
-  - exact candidate CI result
+unknown: []
 conflicts: []
 first_failure:
   marker: none
@@ -99,7 +98,7 @@ validation:
     evidence: exact-candidate validation pending
 blockers:
   - none
-next_action: rerun exact-head CI and reconcile the governed PR
+next_action: archived after protected-main merge of PR #1442
 ```
 
 ## Source branch closeout
@@ -107,9 +106,11 @@ next_action: rerun exact-head CI and reconcile the governed PR
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository prompt-governance PR
-source_branch_evidence: pending protected integration
+source_branch_evidence: protected main commit 7fd0be6eb572a979218961e43c6b98417452b17c contains PR #1442; source branch is no longer present
 ```
 
 ## Notes
+
+Archived after Issue #1441 completed and PR #1442 reached protected main at `7fd0be6eb572a979218961e43c6b98417452b17c`. The original validation lines remain historical evidence rather than reconstructed trials.
 
 Documentation/governance only. Product runtime E2E is `NOT_APPLICABLE`; the reusable lead itself later requires real cross-repository E2E for claims it coordinates.
