@@ -12,6 +12,7 @@ on:
       - checks_requested
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -23,7 +24,11 @@ jobs:
     name: classify-changes
     runs-on: ubuntu-latest
     outputs:
-      ci: ${{ steps.classify.outputs.ci }}
+      ci: ${{ steps.generation.outputs.required }}
+      generation_decision: ${{ steps.generation.outputs.decision }}
+      reused_run_id: ${{ steps.generation.outputs.reused_run_id }}
+      reused_head_sha: ${{ steps.generation.outputs.reused_head_sha }}
+      material_digest: ${{ steps.generation.outputs.material_digest }}
       phase7: ${{ steps.classify.outputs.phase7 }}
       edge: ${{ steps.classify.outputs.edge }}
       db_outage: ${{ steps.classify.outputs.db_outage }}
@@ -40,6 +45,7 @@ jobs:
       - name: Validate CI routing contracts
         run: |
           python tests/ci/test_classify_changes.py
+          python tests/ci/test_pr_generation_reuse.py
           python tests/ci/test_push_change_routing.py
           python tests/ci/test_required_test_gate.py
           python tests/ci/test_workflow_trigger_economy.py
@@ -103,6 +109,35 @@ jobs:
               --github-output "$GITHUB_OUTPUT" \
               --summary "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Resolve exact PR generation runtime evidence
+        id: generation
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action || '' }}
+          BEFORE_SHA: ${{ github.event.before || '' }}
+          AFTER_SHA: ${{ github.event.after || '' }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha || github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ github.token }}
+          ACCUMULATED_REQUIRED: ${{ steps.classify.outputs.ci }}
+        run: >-
+          python scripts/ci/pr_generation_reuse.py
+          --gate ci
+          --workflow-file ci.yml
+          --evidence-job runtime-tests
+          --event-name "$EVENT_NAME"
+          --event-action "$EVENT_ACTION"
+          --accumulated-required "$ACCUMULATED_REQUIRED"
+          --before "$BEFORE_SHA"
+          --after "$AFTER_SHA"
+          --head "$HEAD_SHA"
+          --pr-number "$PR_NUMBER"
+          --repository "$REPOSITORY"
+          --github-output "$GITHUB_OUTPUT"
+          --summary "$GITHUB_STEP_SUMMARY"
+
 
   runtime_tests:
     name: runtime-tests
