@@ -68,10 +68,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-05T15:28:00Z
+updated_at: 2026-10-05T15:32:00Z
 head: 372659cea4507ec21645fa20a791d20bb35ef504
 branch: test/issue-1012-heavy-evidence-reuse
-pr: none
+pr: 1452
 status: validating
 terminal_pr_policy: active
 context_routes:
@@ -124,7 +124,7 @@ validation:
     result: PASS
     evidence: Issue #1012 has no active PR or branch
 blockers: []
-next_action: open the implementation PR, repair any exact-head CI first failure, require all heavy lanes to pass once, then publish one checkpoint-only successor and prove unchanged heavy internals reuse the prior exact-head evidence
+next_action: validate PR #1452; because no prior same-PR heavy success exists yet, all materially affected heavy internals must run fail-closed on this synchronized generation
 ```
 
 ## Source branch closeout
