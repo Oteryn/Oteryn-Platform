@@ -72,11 +72,11 @@ blockers: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-05T19:20:19Z
+updated_at: 2026-10-05T19:26:00Z
 status: validating
 phase: exact_head_ci
 branch: feat/liveops-world-status-1458
-head: 1d24fa9e88975154c48f16fb8a65984423103e6b
+head: 1c6681360940426e248e596746b4745e556049ce
 pr: 1459
 context_routes:
   - api
@@ -137,6 +137,9 @@ validation:
   - command: php -l on new PHP implementation/test files
     result: PASS
     evidence: local syntax validation before first branch commit
+  - command: independent exact-diff review
+    result: PASS_AFTER_REMEDIATION
+    evidence: review found acceptance fixture leakage risk and swallowed LiveOps query exceptions; functional head 1c6681360940426e248e596746b4745e556049ce creates/cleans the fixture per test and reports query failures before rendering truthful unavailable state
 blockers: []
-next_action: Inspect PR #1459 exact-head CI/review. Repair only evidence-backed failures; if all required checks and zero-retry browser profiles pass, classify READY_FOR_INTEGRATION.
+next_action: Freeze the repaired functional head, inspect PR #1459 exact-head CI and review threads, and repair only evidence-backed failures before READY_FOR_INTEGRATION.
 ```
