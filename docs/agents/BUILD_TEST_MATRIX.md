@@ -17,6 +17,7 @@ Validation must be proportional to changed paths, risk and the current project m
 - Heavy workflows use trigger-level governance/checkpoint exclusions plus internal fail-closed path classification where applicable.
 - Final applicable validation runs once on the exact candidate head; focused checks may run earlier.
 - A checkpoint-only or agent-governance-only commit does not start unrelated edge, outage, production-like, browser or concurrency workflows.
+- When a heavy workflow is already present because the PR's accumulated diff is material, a later checkpoint/docs/governance-only successor may skip unchanged heavy internals only after same-PR evidence reuse proves an earlier equivalent head has the identical gate-specific material-tree digest and a successful concrete heavy job. Missing ancestry, API data, run identity, job success or digest equivalence fails closed to rerunning the heavy validation.
 - A workflow-file edit does not imply every runtime risk changed: ordinary workflow definitions route to core CI, heavy workflow definitions route to core CI plus their own lane, and only central routing-control changes fail closed to every gate.
 - Workflow definitions are durable architecture, not task history. New or retained workflow files must satisfy `CI_WORKFLOW_LIFECYCLE.md` and the machine lifecycle registry.
 
