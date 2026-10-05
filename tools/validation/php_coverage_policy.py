@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
@@ -48,6 +49,60 @@ def _load_policy(path: Path) -> dict[str, Any]:
         raise CoveragePolicyError(
             "report_only minimum_statement_percent must be null or 0..100"
         )
+
+    if mode == "enforce":
+        if raw.get("baseline_state") != "VERIFIED_STABLE":
+            raise CoveragePolicyError(
+                "enforce mode requires baseline_state VERIFIED_STABLE"
+            )
+        baseline = raw.get("baseline_statement_percent")
+        if (
+            not isinstance(baseline, (int, float))
+            or isinstance(baseline, bool)
+            or baseline < 0
+            or baseline > 100
+        ):
+            raise CoveragePolicyError(
+                "enforce mode requires numeric baseline_statement_percent"
+            )
+        assert isinstance(minimum, (int, float))
+        if float(minimum) > float(baseline):
+            raise CoveragePolicyError(
+                "minimum_statement_percent cannot exceed the verified baseline"
+            )
+
+        evidence = raw.get("baseline_evidence")
+        if not isinstance(evidence, list) or len(evidence) < 2:
+            raise CoveragePolicyError(
+                "enforce mode requires at least two verified baseline evidence runs"
+            )
+        for index, sample in enumerate(evidence):
+            if not isinstance(sample, dict):
+                raise CoveragePolicyError(
+                    f"baseline_evidence[{index}] must be an object"
+                )
+            run_id = sample.get("run_id")
+            head_sha = sample.get("head_sha")
+            statement_percent = sample.get("statement_percent")
+            if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1:
+                raise CoveragePolicyError(
+                    f"baseline_evidence[{index}].run_id must be a positive integer"
+                )
+            if (
+                not isinstance(head_sha, str)
+                or re.fullmatch(r"[0-9a-f]{40}", head_sha) is None
+            ):
+                raise CoveragePolicyError(
+                    f"baseline_evidence[{index}].head_sha must be a 40-character lowercase SHA"
+                )
+            if (
+                not isinstance(statement_percent, (int, float))
+                or isinstance(statement_percent, bool)
+                or float(statement_percent) != float(baseline)
+            ):
+                raise CoveragePolicyError(
+                    f"baseline_evidence[{index}].statement_percent must match the verified baseline"
+                )
     return raw
 
 
