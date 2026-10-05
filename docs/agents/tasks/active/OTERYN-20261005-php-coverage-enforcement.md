@@ -49,10 +49,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-05T10:49:00Z
-head: f5821c619269865a334cb24d48e9ef7758207143
+updated_at: 2026-10-05T10:51:00Z
+head: 58a29936ae7360ca65f05422b887d80097a6c11d
 branch: test/issue-1010-php-coverage-enforcement-v2
-pr: none
+pr: 1447
 status: validating
 context_routes:
   - ci
