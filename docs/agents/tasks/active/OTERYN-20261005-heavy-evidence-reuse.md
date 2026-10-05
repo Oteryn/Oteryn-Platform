@@ -52,11 +52,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-05T16:45:00Z
-head: b402fdf769a78f30ee6c54574900a37b2530b4cf
+updated_at: 2026-10-05T16:55:00Z
+head: 6339b0b8648bfe6176ff223848e10e59cec37aa9
 branch: ci/issue-1012-heavy-evidence-reuse
-pr: none
-status: implementing
+pr: 1453
+status: validating
 terminal_pr_policy: active
 context_routes:
   - ci
@@ -74,6 +74,11 @@ owned_paths:
 proven:
   - Issue #1012 is open with no existing branch or PR owner.
   - current heavy workflows classify the accumulated PR base-to-head range, so a later docs/checkpoint commit can still emit unchanged heavy internals.
+  - material implementation head 6339b0b8648bfe6176ff223848e10e59cec37aa9 passed core CI runtime-tests in run 37344020823
+  - material implementation head 6339b0b8648bfe6176ff223848e10e59cec37aa9 passed Edge Security Emulation run 37344020756
+  - material implementation head 6339b0b8648bfe6176ff223848e10e59cec37aa9 passed Platform DB Outage Validation run 37344020734
+  - material implementation head 6339b0b8648bfe6176ff223848e10e59cec37aa9 passed Game Auth Ticket Concurrency run 37344020775
+  - material implementation head 6339b0b8648bfe6176ff223848e10e59cec37aa9 passed Phase 7 Production-Like Validation run 37344020696
   - BUILD_TEST_MATRIX requires later docs-only commits to run only path-selected checks while later runtime/build changes invalidate prior heavy evidence.
 derived:
   - reuse must be attributable to an exact prior PR head and successful heavy job, not inferred only from latest path names
@@ -90,11 +95,14 @@ rejected_hypotheses:
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20261005-heavy-evidence-reuse.md
 validation:
-  - command: not-run
-    result: NOT_RUN
-    evidence: implementation pending
+  - command: material-head CI run 37344020823
+    result: PASS
+    evidence: runtime-tests PASS; required test PASS; platform-gate PASS on 6339b0b8648bfe6176ff223848e10e59cec37aa9
+  - command: material-head heavy domain workflows
+    result: PASS
+    evidence: Edge 37344020756; DB Outage 37344020734; Game Auth Concurrency 37344020775; Phase 7 37344020696
 blockers: []
-next_action: implement reusable evidence resolver, wire four heavy workflows, add fail-closed tests, then open and validate PR
+next_action: publish this checkpoint-only successor, prove prior material head/run reuse on the exact new PR head, then send the proven final candidate through Merge Queue
 ```
 
 ## Source branch closeout
