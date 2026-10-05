@@ -13,6 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -25,7 +26,11 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       ci: ${{ steps.classify.outputs.ci }}
-      phase7: ${{ steps.classify.outputs.phase7 }}
+      phase7: ${{ steps.generation.outputs.required }}
+      generation_decision: ${{ steps.generation.outputs.decision }}
+      reused_run_id: ${{ steps.generation.outputs.reused_run_id }}
+      reused_head_sha: ${{ steps.generation.outputs.reused_head_sha }}
+      material_digest: ${{ steps.generation.outputs.material_digest }}
       edge: ${{ steps.classify.outputs.edge }}
       db_outage: ${{ steps.classify.outputs.db_outage }}
       game_auth_concurrency: ${{ steps.classify.outputs.game_auth_concurrency }}
@@ -36,6 +41,9 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+
+      - name: Validate PR generation reuse resolver
+        run: python tests/ci/test_pr_generation_reuse.py
 
       - name: Classify changed paths
         id: classify
@@ -49,6 +57,35 @@ jobs:
           else
             python scripts/ci/classify_changes.py               --all               --github-output "$GITHUB_OUTPUT"               --summary "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Resolve exact PR generation evidence
+        id: generation
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action || '' }}
+          BEFORE_SHA: ${{ github.event.before || '' }}
+          AFTER_SHA: ${{ github.event.after || '' }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ github.token }}
+          ACCUMULATED_REQUIRED: ${{ steps.classify.outputs.phase7 }}
+        run: >-
+          python scripts/ci/pr_generation_reuse.py
+          --gate phase7
+          --workflow-file phase7-production-like-validation.yml
+          --evidence-job validate
+          --event-name "$EVENT_NAME"
+          --event-action "$EVENT_ACTION"
+          --accumulated-required "$ACCUMULATED_REQUIRED"
+          --before "$BEFORE_SHA"
+          --after "$AFTER_SHA"
+          --head "$HEAD_SHA"
+          --pr-number "$PR_NUMBER"
+          --repository "$REPOSITORY"
+          --github-output "$GITHUB_OUTPUT"
+          --summary "$GITHUB_STEP_SUMMARY"
+
 
   validate:
     needs: classify_changes
