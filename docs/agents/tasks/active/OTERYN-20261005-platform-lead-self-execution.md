@@ -60,7 +60,7 @@ checkpoint_version: 1
 updated_at: 2026-10-05T09:50:54Z
 head: UNKNOWN
 branch: docs/platform-lead-self-execution-1443
-pr: none
+pr: 1444
 status: validating
 context_routes:
   - agent-governance
@@ -85,8 +85,8 @@ unknown:
   - exact candidate CI result
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: branch_pr_identity_omitted
+  evidence: Agent Governance run 37293744572 rejected the initial candidate because the live open PR #1444 was not yet recorded in the active task packet
 rejected_hypotheses:
   - Coordination-only behavior is the intended Platform Lead model.
   - Every Platform problem should be delegated to a specialist alias.
@@ -112,7 +112,7 @@ validation:
     evidence: exact-candidate validation pending
 blockers:
   - none
-next_action: open the governed PR and qualify the exact candidate
+next_action: qualify PR #1444 exact head and reconcile required CI
 ```
 
 ## Source branch closeout
