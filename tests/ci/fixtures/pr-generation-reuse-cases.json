@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "material_change_runs",
+      "accumulated_required": "true",
+      "event_action": "synchronize",
+      "before": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "after": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "generation_paths": [
+        "app/Http/Controllers/AccountController.php"
+      ],
+      "before_digest": "sha256:same",
+      "head_digest": "sha256:same",
+      "prior_success": true,
+      "expected_required": true,
+      "expected_decision": "run",
+      "expected_reason": "generation_changes_gate_material"
+    },
+    {
+      "name": "checkpoint_successor_reuses",
+      "accumulated_required": "true",
+      "event_action": "synchronize",
+      "before": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "after": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "generation_paths": [
+        "docs/agents/tasks/active/OTERYN-checkpoint.md"
+      ],
+      "before_digest": "sha256:same",
+      "head_digest": "sha256:same",
+      "prior_success": true,
+      "expected_required": false,
+      "expected_decision": "reuse",
+      "expected_reason": "prior_success_same_material_tree"
+    },
+    {
+      "name": "material_after_checkpoint_runs",
+      "accumulated_required": "true",
+      "event_action": "synchronize",
+      "before": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "after": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "generation_paths": [
+        "database/migrations/2026_10_05_000000_test.php"
+      ],
+      "before_digest": "sha256:same",
+      "head_digest": "sha256:same",
+      "prior_success": true,
+      "expected_required": true,
+      "expected_decision": "run",
+      "expected_reason": "generation_changes_gate_material"
+    },
+    {
+      "name": "ambiguous_generation_runs",
+      "accumulated_required": "true",
+      "event_action": "synchronize",
+      "before": "",
+      "after": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "generation_paths": [
+        "docs/agents/tasks/active/OTERYN-checkpoint.md"
+      ],
+      "before_digest": "sha256:same",
+      "head_digest": "sha256:same",
+      "prior_success": true,
+      "expected_required": true,
+      "expected_decision": "run",
+      "expected_reason": "missing_or_invalid_generation_sha"
+    },
+    {
+      "name": "no_prior_success_runs",
+      "accumulated_required": "true",
+      "event_action": "synchronize",
+      "before": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "after": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "generation_paths": [
+        "docs/agents/tasks/active/OTERYN-checkpoint.md"
+      ],
+      "before_digest": "sha256:same",
+      "head_digest": "sha256:same",
+      "prior_success": false,
+      "expected_required": true,
+      "expected_decision": "run",
+      "expected_reason": "no_proven_prior_success"
+    },
+    {
+      "name": "digest_mismatch_runs",
+      "accumulated_required": "true",
+      "event_action": "synchronize",
+      "before": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "after": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "generation_paths": [
+        "docs/agents/tasks/active/OTERYN-checkpoint.md"
+      ],
+      "before_digest": "sha256:before",
+      "head_digest": "sha256:after",
+      "prior_success": true,
+      "expected_required": true,
+      "expected_decision": "run",
+      "expected_reason": "material_digest_changed"
+    },
+    {
+      "name": "accumulated_not_required_skips",
+      "accumulated_required": "false",
+      "event_action": "synchronize",
+      "before": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "after": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "generation_paths": [
+        "docs/agents/tasks/active/OTERYN-checkpoint.md"
+      ],
+      "before_digest": "sha256:same",
+      "head_digest": "sha256:same",
+      "prior_success": false,
+      "expected_required": false,
+      "expected_decision": "skip",
+      "expected_reason": "accumulated_scope_not_required"
+    },
+    {
+      "name": "api_failure_runs",
+      "accumulated_required": "true",
+      "event_action": "synchronize",
+      "before": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "after": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "generation_paths": [
+        "docs/agents/tasks/active/OTERYN-checkpoint.md"
+      ],
+      "before_digest": "sha256:same",
+      "head_digest": "sha256:same",
+      "prior_success": "error",
+      "expected_required": true,
+      "expected_decision": "run",
+      "expected_reason": "no_proven_prior_success"
+    }
+  ]
+}
