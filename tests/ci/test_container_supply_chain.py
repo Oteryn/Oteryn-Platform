@@ -246,6 +246,40 @@ class ContainerSupplyChainTest(unittest.TestCase):
             )
             self.assertRegex(first["provenance_digest"], r"^sha256:[0-9a-f]{64}$")
 
+    def test_supply_chain_policy_changes_force_all_synology_image_validation(self) -> None:
+        classifier_path = ROOT / "scripts/ci/classify_synology_builds.py"
+        classifier_spec = importlib.util.spec_from_file_location(
+            "classify_synology_builds_supply_chain", classifier_path
+        )
+        if classifier_spec is None or classifier_spec.loader is None:
+            raise RuntimeError(f"cannot load {classifier_path}")
+        classifier = importlib.util.module_from_spec(classifier_spec)
+        sys.modules[classifier_spec.name] = classifier
+        classifier_spec.loader.exec_module(classifier)
+        for changed_path in (
+            "scripts/ci/container_supply_chain.py",
+            "docs/security/CONTAINER_SUPPLY_CHAIN_POLICY.json",
+            "docs/security/CONTAINER_VULNERABILITY_EXCEPTIONS.json",
+        ):
+            with self.subTest(changed_path=changed_path):
+                result = classifier.classify(
+                    [changed_path],
+                    event_name="pull_request",
+                    head="a" * 40,
+                )
+                modes = {
+                    item["name"]: item["mode"]
+                    for item in result["matrix"]["include"]
+                }
+                self.assertEqual(
+                    {
+                        "platform": "full",
+                        "game-gateway": "full",
+                        "deploy-runner": "full",
+                    },
+                    modes,
+                )
+
     def test_workflow_and_dependabot_keep_enforcement_wired(self) -> None:
         workflow = (ROOT / ".github/workflows/build-synology-staging-images.yml").read_text(
             encoding="utf-8"
