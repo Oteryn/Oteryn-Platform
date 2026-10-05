@@ -113,10 +113,10 @@ This archive proves only the **Oteryn-Platform** lane of organization V2.
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-05T12:06:00Z
+updated_at: 2026-10-05T12:07:00Z
 head: 05eeb6c6b8fbba762c9e783b173e2e30ca0e53e6
 branch: docs/issue-1399-platform-v2-closeout-20261005
-pr: none
+pr: 1450
 status: completed
 terminal_pr_policy: archive_pending
 context_routes:
@@ -164,7 +164,7 @@ validation:
     result: PASS
     evidence: PR #1449 merged; protected main equals 05eeb6c6b8fbba762c9e783b173e2e30ca0e53e6; source branch absent
 blockers: []
-next_action: merge the sequential Platform evidence/archive closeout PR, then leave Issue #1399 open for current Game/Atlas lanes
+next_action: validate and merge PR #1450, verify its source branch is absent, then leave Issue #1399 open for current Game/Atlas lanes
 ```
 
 ## Source branch closeout
