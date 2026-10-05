@@ -59,7 +59,7 @@ updated_at: 2026-10-05T22:00:00+02:00
 status: implementing
 phase: repository_repair
 branch: fix/1339-synology-autostart-org-runner
-head: 46ed77d5799a8c0019e9fecf9178aafe13584115
+head: 0dd62b08d0249e67321eaeaf91899411e02bc79e
 pr: none
 context_routes:
   - ci-repair
@@ -85,9 +85,20 @@ first_failure:
 rejected_hypotheses:
   - Recreate the retired repository runner merely to satisfy old autostart automation.
   - Modify Atlas or Game organization runner containers from Platform repair automation.
-changed_paths: []
-validation: []
+changed_paths:
+  - .github/workflows/repair-synology-autostart.yml
+  - tests/ci/test_synology_autostart_contract.py
+  - docs/operations/SYNOLOGY_ORGANIZATION_RUNNERS.md
+  - deploy/synology/README.md
+  - docs/agents/tasks/active/OTERYN-20261005-synology-autostart-org-runner.md
+validation:
+  - command: exact branch compare against main
+    result: PASS
+    evidence: commit 0dd62b08d0249e67321eaeaf91899411e02bc79e is one commit ahead of main and changes exactly the five owned paths
+  - command: post-write GitHub readback
+    result: PASS
+    evidence: workflow resolves oteryn-organization-runners/platform, legacy selector is absent, focused contract test and ownership packet are present
 blockers:
   - final live-host verification requires separately authorized protected-environment execution
-next_action: Publish the repository repair branch without opening a PR while PR #1459 is consuming the current Actions queue; run focused tests/CI when capacity is available.
+next_action: Hold this repository candidate while GitHub-hosted Actions is degraded; open the PR and run focused/exact-head CI after #1459 releases the queue, then request separately authorized live-host verification.
 ```
