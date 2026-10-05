@@ -68,11 +68,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-05T15:20:00Z
-head: b402fdf769a78f30ee6c54574900a37b2530b4cf
+updated_at: 2026-10-05T15:28:00Z
+head: 372659cea4507ec21645fa20a791d20bb35ef504
 branch: test/issue-1012-heavy-evidence-reuse
 pr: none
-status: implementing
+status: validating
 terminal_pr_policy: active
 context_routes:
   - ci
@@ -107,13 +107,24 @@ rejected_hypotheses:
   - generic workflow success is sufficient without proving the heavy evidence job succeeded
   - final-head governance may be skipped when heavy evidence is reused
 changed_paths:
+  - scripts/ci/heavy_evidence_reuse.py
+  - tests/ci/test_heavy_evidence_reuse.py
+  - scripts/ci/required_test_gate.py
+  - tests/ci/test_required_test_gate.py
+  - tests/ci/test_workflow_trigger_economy.py
+  - .github/workflows/ci.yml
+  - .github/workflows/phase7-production-like-validation.yml
+  - .github/workflows/edge-security-emulation.yml
+  - .github/workflows/platform-db-outage-validation.yml
+  - .github/workflows/game-auth-ticket-concurrency.yml
+  - docs/agents/BUILD_TEST_MATRIX.md
   - docs/agents/tasks/active/OTERYN-20261005-heavy-evidence-reuse.md
 validation:
   - command: live ownership readback
     result: PASS
     evidence: Issue #1012 has no active PR or branch
 blockers: []
-next_action: implement shared fail-closed heavy evidence reuse helper, integrate it into central/domain heavy workflows, and add deterministic routing tests
+next_action: open the implementation PR, repair any exact-head CI first failure, require all heavy lanes to pass once, then publish one checkpoint-only successor and prove unchanged heavy internals reuse the prior exact-head evidence
 ```
 
 ## Source branch closeout
