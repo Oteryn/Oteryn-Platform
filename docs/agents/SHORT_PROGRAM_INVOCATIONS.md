@@ -148,6 +148,20 @@ merge_method: merge_queue
 
 `PORTAL-POLISH` is a task-pinned continuation alias for the already-owned visual-polish lifecycle. It must resolve Issue #1333, the active task, current branch/PR, current protected `main` and exact checks live before work. When ownership is valid it resumes that writer and the checkpoint's `next_action`; it never starts a second Portal selector, Issue, branch, PR or parallel writer. If the task or Issue is terminal, the alias is status-only and must not resurrect the task; ordinary new Portal selection remains `PORTAL-CLOSEOUT`.
 
+## Platform completion lead
+
+```text
+Oteryn: platform lead
+```
+
+```yaml
+alias_id: OTERYN_PLATFORM_COMPLETION_LEAD
+programme_story: KAN-41
+game_escalation: Oteryn/Oteryn-Game#1622 -> OTV2_WORK_DELIVERY_COORDINATOR
+```
+
+This entry registers the invocation alias only. It does not add Game repository write, allocation, architecture, merge, production, payment or secret authority and does not create a second Game control plane.
+
 ## Platform parallel completion wave
 
 These aliases are intentionally separate sibling roles. Start the three product/dependency workers first; start the coordinator after their ownership is visible when running them concurrently.
