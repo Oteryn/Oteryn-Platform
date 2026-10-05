@@ -26,11 +26,17 @@ class RequiredTestGateTest(unittest.TestCase):
         classification: str = "success",
         ci_required: str = "true",
         runtime_tests: str = "success",
+        runtime_validation_required: str = "true",
+        reused_material_head: str = "",
+        reused_run_id: str = "",
     ):
         return gate.evaluate_gate(
             classification_result=classification,
             ci_required=ci_required,
             runtime_tests_result=runtime_tests,
+            runtime_validation_required=runtime_validation_required,
+            reused_material_head=reused_material_head,
+            reused_run_id=reused_run_id,
         )
 
     def test_documentation_only_change_passes_with_explicit_not_applicable(self) -> None:
@@ -76,6 +82,43 @@ class RequiredTestGateTest(unittest.TestCase):
         self.assertFalse(decision.passed)
         self.assertIn("did not succeed", decision.message)
 
+    def test_reused_runtime_evidence_passes_with_exact_material_head_and_run(self) -> None:
+        decision = self.evaluate(
+            ci_required="true",
+            runtime_tests="skipped",
+            runtime_validation_required="false",
+            reused_material_head="a" * 40,
+            reused_run_id="12345",
+        )
+
+        self.assertTrue(decision.passed)
+        self.assertEqual("runtime-tests-reused", decision.outcome)
+        self.assertTrue(decision.runtime_evidence_reused)
+        self.assertIn("12345", decision.message)
+
+    def test_reused_runtime_evidence_fails_closed_without_complete_proof(self) -> None:
+        decision = self.evaluate(
+            ci_required="true",
+            runtime_tests="skipped",
+            runtime_validation_required="false",
+            reused_material_head="not-a-sha",
+            reused_run_id="",
+        )
+
+        self.assertFalse(decision.passed)
+        self.assertFalse(decision.runtime_evidence_reused)
+        self.assertIn("without a complete", decision.message)
+
+    def test_invalid_runtime_evidence_decision_fails_closed(self) -> None:
+        decision = self.evaluate(
+            ci_required="true",
+            runtime_tests="skipped",
+            runtime_validation_required="maybe",
+        )
+
+        self.assertFalse(decision.passed)
+        self.assertIn("Runtime evidence decision is invalid", decision.message)
+
     def test_not_applicable_path_requires_the_conditional_job_to_be_skipped(self) -> None:
         decision = self.evaluate(ci_required="false", runtime_tests="success")
 
@@ -93,6 +136,7 @@ class RequiredTestGateTest(unittest.TestCase):
         self.assertIn("result: `PASS`", summary)
         self.assertIn("outcome: `not-applicable`", summary)
         self.assertIn("runtime tests required: `NO`", summary)
+        self.assertIn("prior runtime evidence reused: `NO`", summary)
 
 
 class RequiredTestWorkflowContractTest(unittest.TestCase):
