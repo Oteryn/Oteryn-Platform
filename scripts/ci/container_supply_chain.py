@@ -77,7 +77,9 @@ def dockerfile_references(path: Path) -> tuple[list[ExternalReference], str | No
     return references, final_user
 
 
-def validate_exception_registry(policy: dict[str, Any], root: Path = ROOT) -> None:
+def validate_exception_registry(
+    policy: dict[str, Any], root: Path = ROOT, today: date | None = None
+) -> None:
     vuln = policy.get("vulnerability_policy")
     if not isinstance(vuln, dict):
         raise SupplyChainError("policy.vulnerability_policy must be an object")
@@ -91,7 +93,7 @@ def validate_exception_registry(policy: dict[str, Any], root: Path = ROOT) -> No
     exceptions = registry.get("exceptions")
     if not isinstance(exceptions, list):
         raise SupplyChainError("exception registry exceptions must be a list")
-    today = date.today()
+    current = today or date.today()
     for index, item in enumerate(exceptions):
         if not isinstance(item, dict):
             raise SupplyChainError(f"exception {index} must be an object")
@@ -103,7 +105,7 @@ def validate_exception_registry(policy: dict[str, Any], root: Path = ROOT) -> No
             expires = date.fromisoformat(str(item["expires_on"]))
         except ValueError as exc:
             raise SupplyChainError(f"exception {index} has invalid expires_on") from exc
-        if expires < today:
+        if expires < current:
             raise SupplyChainError(
                 f"exception {index} expired on {expires.isoformat()}: {item['vulnerability_id']}"
             )
@@ -184,7 +186,7 @@ def evaluate_trivy(
     today: date | None = None,
 ) -> dict[str, Any]:
     policy = load_json(policy_path)
-    validate_exception_registry(policy, root)
+    validate_exception_registry(policy, root, today)
     vuln_policy = policy["vulnerability_policy"]
     severities = {str(item).upper() for item in vuln_policy.get("severities", [])}
     if not severities:
