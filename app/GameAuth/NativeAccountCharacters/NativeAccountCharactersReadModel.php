@@ -14,24 +14,46 @@ final class NativeAccountCharactersReadModel
     public const UNAVAILABLE = 'unavailable';
 
     /**
-     * @return list<NativeAccountCharacterSummary>|null null means unavailable/stale/invalid, [] is an authoritative empty snapshot.
+     * Compatibility helper for callers that need only a usable snapshot.
+     *
+     * @return list<NativeAccountCharacterSummary>|null
      */
     public function forAccount(string $accountId, int $now): ?array
     {
+        $view = $this->viewForAccount($accountId, $now);
+
+        return $view->state === NativeAccountCharactersAccountView::READY ? $view->characters : null;
+    }
+
+    public function viewForAccount(string $accountId, int $now, bool $lock = false): NativeAccountCharactersAccountView
+    {
         $settings = NativeAccountCharactersSettings::current();
-        if ($settings === null || $this->feedState($settings, $now) !== self::LIVE) {
-            return null;
+        if ($settings === null) {
+            return new NativeAccountCharactersAccountView(NativeAccountCharactersAccountView::UNAVAILABLE);
         }
 
-        $state = DB::table('native_account_character_projection_state')->where('id', 1)->first();
-        $snapshot = DB::table('native_account_character_snapshots')->where('account_id', $accountId)->first();
-        if ($state === null || $snapshot === null
-            || $this->bool($snapshot, 'invalid')
-            || ! hash_equals($this->string($state, 'highest_epoch'), $this->string($snapshot, 'projection_epoch'))) {
-            return null;
+        [$feed, $highestEpoch] = $this->projectionState($settings, $now, $lock);
+        if ($feed === self::UNAVAILABLE) {
+            return new NativeAccountCharactersAccountView(NativeAccountCharactersAccountView::UNAVAILABLE);
+        }
+        if ($feed !== self::LIVE || $highestEpoch === null) {
+            return new NativeAccountCharactersAccountView(NativeAccountCharactersAccountView::STALE);
         }
 
-        return DB::table('native_account_character_rows')
+        $snapshotQuery = DB::table('native_account_character_snapshots')->where('account_id', $accountId);
+        if ($lock) {
+            $snapshotQuery->lockForShare();
+        }
+        $snapshot = $snapshotQuery->first();
+        if ($snapshot === null) {
+            return new NativeAccountCharactersAccountView(NativeAccountCharactersAccountView::MISSING);
+        }
+        if ($this->bool($snapshot, 'invalid')
+            || ! hash_equals($highestEpoch, $this->string($snapshot, 'projection_epoch'))) {
+            return new NativeAccountCharactersAccountView(NativeAccountCharactersAccountView::INVALID);
+        }
+
+        $characters = DB::table('native_account_character_rows')
             ->where('account_id', $accountId)
             ->orderBy('character_id')
             ->get()
@@ -42,32 +64,48 @@ final class NativeAccountCharactersReadModel
                 $this->string($row, 'availability'),
             ))
             ->all();
+
+        return new NativeAccountCharactersAccountView(NativeAccountCharactersAccountView::READY, $characters);
     }
 
     public function feedEvidence(int $now): string
     {
         $settings = NativeAccountCharactersSettings::current();
+        if ($settings === null) {
+            return self::UNAVAILABLE;
+        }
 
-        return $settings === null ? self::UNAVAILABLE : $this->feedState($settings, $now);
+        return $this->projectionState($settings, $now)[0];
     }
 
-    private function feedState(NativeAccountCharactersSettings $settings, int $now): string
+    /** @return array{0:string,1:string|null} */
+    private function projectionState(NativeAccountCharactersSettings $settings, int $now, bool $lock = false): array
     {
-        $row = DB::table('native_account_character_projection_state')->where('id', 1)->first();
+        if ($lock && DB::transactionLevel() < 1) {
+            throw new UnexpectedValueException('Locking native account-character reads require a transaction.');
+        }
+
+        $query = DB::table('native_account_character_projection_state')->where('id', 1);
+        if ($lock) {
+            $query->lockForShare();
+        }
+        $row = $query->first();
         if ($row === null) {
-            return self::UNAVAILABLE;
+            return [self::UNAVAILABLE, null];
         }
 
         $highest = $this->nullableString($row, 'highest_epoch');
         $watermarkEpoch = $this->nullableString($row, 'watermark_epoch');
         $completeThrough = $this->nullableInt($row, 'complete_through');
         if ($highest === null || $watermarkEpoch === null || $completeThrough === null || ! hash_equals($highest, $watermarkEpoch)) {
-            return self::STALE;
+            return [self::STALE, $highest];
         }
 
-        return $now - $completeThrough + $settings->clockUncertaintySeconds <= $settings->freshnessSeconds
+        $feed = $now - $completeThrough + $settings->clockUncertaintySeconds <= $settings->freshnessSeconds
             ? self::LIVE
             : self::STALE;
+
+        return [$feed, $highest];
     }
 
     private function string(object $row, string $column): string
