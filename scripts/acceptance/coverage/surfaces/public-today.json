@@ -15,10 +15,13 @@
         "authoritative-editorial-present",
         "healthy-editorial-empty",
         "partial-provider-unavailable",
-        "liveops-not-yet-provided",
+        "liveops-unavailable",
         "localized-en",
         "localized-pl",
-        "explicit-no-store"
+        "explicit-no-store",
+        "liveops-ready",
+        "liveops-configured-maintenance",
+        "liveops-stale-invalid-degraded-recovery"
       ],
       "viewports": [
         "desktop-1440x1000",
@@ -40,6 +43,16 @@
       ],
       "evidence": [
         {
+          "file": "tests/Feature/LiveOps/PublicWorldStatusQueryTest.php",
+          "markers": [
+            "test_fresh_ready_evidence_projects_ready_without_private_runtime_fields",
+            "test_configured_maintenance_remains_separate_and_overrides_public_runtime_label",
+            "test_stale_unavailable_and_invalid_evidence_never_become_offline",
+            "test_mixed_channel_evidence_is_degraded_and_recovery_requires_fresh_authoritative_evidence",
+            "test_public_today_consumes_liveops_query_and_redacts_runtime_owner_details"
+          ]
+        },
+        {
           "file": "tests/Feature/PublicPortal/PublicTodayTest.php",
           "markers": [
             "test_public_today_composes_real_public_sources_in_deterministic_order_without_fabricating_liveops",
@@ -52,7 +65,7 @@
         {
           "file": "scripts/acceptance/tests/homepage-navigation-seo.spec.mjs",
           "markers": [
-            "@portal-today public guest command centre preserves source truth empty partial LiveOps absence localization and no-store"
+            "@portal-today public guest command centre preserves source truth LiveOps freshness partial recovery localization and no-store"
           ]
         }
       ],

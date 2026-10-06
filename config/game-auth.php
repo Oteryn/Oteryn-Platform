@@ -3,6 +3,11 @@
 $nativeEvidenceClockUncertainty = env('GAME_AUTH_NATIVE_EVIDENCE_CLOCK_UNCERTAINTY_SECONDS');
 $nativeEvidenceActivated = env('GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED', false);
 $nativeEvidenceRequestsPerMinute = env('GAME_AUTH_NATIVE_EVIDENCE_REQUESTS_PER_MINUTE', '120');
+$acceptanceNativeRuntime = env('APP_ENV') === 'acceptance';
+$acceptanceNativeRuntimeScope = '018f0f1e-7b2c-7a31-8d4e-1234567890ab/018f0f1e-7b2c-7a32-8d4e-1234567890ac';
+$acceptanceNativeRuntimeIdentities = $acceptanceNativeRuntime
+    ? ['CN=acceptance-runtime-node' => [$acceptanceNativeRuntimeScope]]
+    : null;
 
 return [
     'protocol_version' => 1,
@@ -62,10 +67,11 @@ return [
 
     'native_runtime_status' => [
         // Default off (N4P rollout step 4). While off, ReportRuntimeStatusV1 answers 503, stores nothing and no scope routes.
-        'enabled' => env('GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED', false),
+        'enabled' => env('GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED', $acceptanceNativeRuntime),
         // JSON object: runtime-status client certificate subject => ["<world_id>/<channel_id>", ...] it may serve.
         // Never another purpose's identity (native evidence, character bootstrap); U15 PKI is not decided.
-        'identities' => env('GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES'),
+        // The acceptance-only default binds one deterministic isolated fixture; every other environment remains off by default.
+        'identities' => env('GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES', $acceptanceNativeRuntimeIdentities),
         // F and Platform clock uncertainty (U5; Game heartbeat H = 5 s).
         'freshness_seconds' => env('GAME_AUTH_NATIVE_RUNTIME_STATUS_FRESHNESS_SECONDS', 15),
         'clock_uncertainty_seconds' => env('GAME_AUTH_NATIVE_RUNTIME_STATUS_CLOCK_UNCERTAINTY_SECONDS', 1),

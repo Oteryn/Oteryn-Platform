@@ -191,6 +191,7 @@ DB::transaction(function () use ($now): void {
         'created_at' => $now,
         'updated_at' => $now,
     ]);
+
 });
 
 fwrite(STDOUT, "acceptance-state: homepage navigation SEO and public Today seeded\n");
