@@ -18,18 +18,18 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-14T22:53:07+02:00
+updated_at: 2026-10-06T22:58:00+02:00
 status: ready
-current_review_domain: next-risk-based-rotation
-active_task: null
-issue: null
-branch: null
+current_review_domain: native-game-catalog-persistence-composition
+active_task: OTERYN-20261006-native-game-catalog-persistence-architecture
+issue: 1460
+branch: docs/1460-native-catalog-persistence-architecture
 pull_request: null
 last_completed_domain: public-edge-evidence-boundary
 last_completed_issue: 490
 last_completed_pull_request: 1063
 last_completed_merge: 780ad6c8178206b13d001537ba651b6e0bd22219
-latest_review_finding_issue: 490
+latest_review_finding_issue: 1460
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
   authority_adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
@@ -63,7 +63,7 @@ accepted_authority:
 implementation_handoffs:
   - issue: 1039
     scope: Platform implementation of accepted TUF client distribution boundary
-active_architecture_decision_ids: []
+active_architecture_decision_ids: ["ARCH-DEC-0006"]
 architecture_conflicts:
   - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021, but the exact accepted path sets are machine-enforced and cannot expand silently.
   - Issue 586 retains historical evidence that delete_branch_on_merge was disabled; ADR 0024 and current metadata prove the accepted current state is enabled.
@@ -128,7 +128,7 @@ unknown:
   - Exact current certificate, redirect, WAF/Bot/Access, HSTS and direct-origin state remains protected-environment evidence and cannot be inferred while the active Cloudflare audit token lacks required read scopes.
 conflicts: []
 blockers: []
-next_action: Select the next highest-risk unresolved and unowned Platform architecture question from current main.
+next_action: Repository owner reviews ARCH-DEC-0006 / Proposed ADR 0043 and selects Option A, B or C; runtime implementation remains unauthorized until acceptance.
 ```
 
 ## Programme rules
