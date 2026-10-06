@@ -19,7 +19,11 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }, testInfo) => {
-  await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
+  try {
+    await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
+  } finally {
+    runBinary('php', ['scripts/acceptance/set-liveops-state.php', 'cleanup']);
+  }
 });
 
 test('@homepage-seo homepage navigation metadata and crawl policy remain responsive and keyboard operable', async ({ page, request }) => {
@@ -62,14 +66,17 @@ test('@homepage-seo homepage navigation metadata and crawl policy remain respons
   expect(robotsBody).toContain('Sitemap:');
 });
 
-test('@portal-today public guest command centre preserves source truth empty partial LiveOps absence localization and no-store', async ({ page, request }) => {
+test('@portal-today public guest command centre preserves source truth LiveOps freshness partial recovery localization and no-store', async ({ page, request }) => {
+  runBinary('php', ['scripts/acceptance/set-liveops-state.php', 'ready']);
   let response = await page.goto('/en/today');
   expect(response?.status()).toBe(200);
   expect(response?.headers()['cache-control']).toContain('no-store');
-  await expect(page.locator('[data-today-state="partial"]')).toBeVisible();
-  await expect(page.locator('[data-today-card="liveops"]')).toHaveAttribute('data-content-state', 'unavailable');
-  await expect(page.locator('[data-today-card="liveops"]')).toHaveAttribute('data-today-runtime-evidence', 'absent');
-  await expect(page.locator('[data-today-card="liveops"] [data-today-item]')).toHaveCount(0);
+  await expect(page.locator('[data-today-state="complete"]')).toBeVisible();
+  await expect(page.locator('[data-today-card="liveops"]')).toHaveAttribute('data-content-state', 'present');
+  await expect(page.locator('[data-today-card="liveops"]')).toHaveAttribute('data-today-runtime-evidence', 'present');
+  await expect(page.locator('[data-today-card="liveops"] [data-today-item]')).toHaveCount(1);
+  await expect(page.locator('[data-today-card="liveops"]').getByText('Acceptance LiveOps')).toBeVisible();
+  await expect(page.locator('[data-today-card="liveops"]').getByText('Ready', { exact: true })).toBeVisible();
   await expect(page.getByText('Acceptance Today maintenance')).toBeVisible();
   await expect(page.getByText('Acceptance Today event')).toBeVisible();
   await expect(page.getByText('Acceptance Today update')).toBeVisible();
@@ -93,7 +100,8 @@ test('@portal-today public guest command centre preserves source truth empty par
     await expect(page.locator(`[data-today-card="${kind}"]`)).toHaveAttribute('data-content-state', 'empty');
   }
   await expect(page.getByText('Acceptance Today maintenance')).toHaveCount(0);
-  await expect(page.locator('[data-today-card="liveops"]')).toHaveAttribute('data-content-state', 'unavailable');
+  await expect(page.locator('[data-today-card="liveops"]')).toHaveAttribute('data-content-state', 'present');
+  await expect(page.locator('[data-today-card="liveops"]').getByText('Ready', { exact: true })).toBeVisible();
 
   await page.setExtraHTTPHeaders({ 'X-Oteryn-Acceptance-Today-Scenario': 'news-outage' });
   response = await page.goto('/en/today');
@@ -105,9 +113,38 @@ test('@portal-today public guest command centre preserves source truth empty par
   await expect(page.getByText('Published news is temporarily unavailable.')).toBeVisible();
 
   await page.setExtraHTTPHeaders({});
+  runBinary('php', ['scripts/acceptance/set-liveops-state.php', 'stale']);
+  response = await page.goto('/en/today');
+  expect(response?.status()).toBe(200);
+  await expect(page.locator('[data-today-state="partial"]')).toBeVisible();
+  await expect(page.locator('[data-today-card="liveops"]')).toHaveAttribute('data-content-state', 'partial');
+  await expect(page.locator('[data-today-card="liveops"]')).toHaveAttribute('data-today-runtime-evidence', 'partial');
+  await expect(page.locator('[data-today-card="liveops"]').getByText('Stale', { exact: true })).toBeVisible();
+
+  runBinary('php', ['scripts/acceptance/set-liveops-state.php', 'unavailable']);
+  response = await page.goto('/en/today');
+  expect(response?.status()).toBe(200);
+  await expect(page.locator('[data-today-state="partial"]')).toBeVisible();
+  await expect(page.locator('[data-today-card="liveops"]').getByText('Unavailable', { exact: true })).toBeVisible();
+
+  runBinary('php', ['scripts/acceptance/set-liveops-state.php', 'maintenance']);
+  response = await page.goto('/en/today');
+  expect(response?.status()).toBe(200);
+  await expect(page.locator('[data-today-state="complete"]')).toBeVisible();
+  await expect(page.locator('[data-today-card="liveops"]')).toHaveAttribute('data-content-state', 'present');
+  await expect(page.locator('[data-today-card="liveops"]').getByText('Maintenance', { exact: true })).toBeVisible();
+
+  runBinary('php', ['scripts/acceptance/set-liveops-state.php', 'recovery']);
+  response = await page.goto('/en/today');
+  expect(response?.status()).toBe(200);
+  await expect(page.locator('[data-today-state="complete"]')).toBeVisible();
+  await expect(page.locator('[data-today-card="liveops"]')).toHaveAttribute('data-content-state', 'present');
+  await expect(page.locator('[data-today-card="liveops"]').getByText('Ready', { exact: true })).toBeVisible();
+
   response = await page.goto('/pl/today');
   expect(response?.status()).toBe(200);
   await expect(page.getByRole('heading', { level: 1, name: 'Dzisiaj' })).toBeVisible();
+  await expect(page.locator('[data-today-card="liveops"]').getByText('Gotowy', { exact: true })).toBeVisible();
   await expect(page.getByText('Testowa konserwacja Dzisiaj')).toBeVisible();
   await expect(page.getByText('Testowe wydarzenie Dzisiaj')).toBeVisible();
   await expect(page.getByText('Testowa aktualność Dzisiaj')).toBeVisible();

@@ -59,7 +59,7 @@ updated_at: 2026-10-05T22:00:00+02:00
 status: validating
 phase: exact_head_ci
 branch: fix/1339-synology-autostart-org-runner
-head: 37a4c55ff161ac9a8322450fc73bb1024cb1f140
+head: 36e745deed88224992e9755dc627be52e2762c7b
 pr: 1461
 context_routes:
   - ci-repair
@@ -101,7 +101,10 @@ validation:
   - command: focused Synology autostart contract assertions against exact branch head a670ed2c85385310ac8412cc4ce7c055c42cf205
     result: PASS
     evidence: 20/20 assertions passed for current org-runner selector/group/label, org-compose trigger, restart=always on platform runner and six persistent staging services, exclusion of tls-init/Atlas/Game, and exact-one fail-closed behavior
+  - command: first PR #1461 exact-head repository validation on 36e745deed88224992e9755dc627be52e2762c7b
+    result: BLOCKED
+    evidence: all non-governance repository gates completed SUCCESS; Agent Governance was blocked only by stale LiveOps active ownership inherited from main, resolved separately by merged closeout PR #1464
 blockers:
   - final live-host verification requires separately authorized protected-environment execution
-next_action: Inspect PR #1461 exact-head CI/review and repair only evidence-backed repository failures; after repository gates pass, request separately authorized live-host verification without claiming protected-host completion.
+next_action: Validate the main-synchronized #1461 exact head. If repository gates pass, classify REPO_READY_FOR_AUTHORIZED_HOST_VERIFICATION; live Synology execution/readback remains separately authorized and unclaimed.
 ```
