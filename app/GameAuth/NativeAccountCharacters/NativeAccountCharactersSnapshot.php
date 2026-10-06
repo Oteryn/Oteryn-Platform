@@ -7,7 +7,7 @@ use InvalidArgumentException;
 final readonly class NativeAccountCharactersSnapshot
 {
     /**
-     * @param list<NativeAccountCharacterSummary> $characters
+     * @param  list<NativeAccountCharacterSummary>  $characters
      */
     private function __construct(
         public string $sourceAuthority,
