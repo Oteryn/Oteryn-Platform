@@ -42,7 +42,7 @@ final class NativeAccountCharactersReadModel
 
         $snapshotQuery = DB::table('native_account_character_snapshots')->where('account_id', $accountId);
         if ($lock) {
-            $snapshotQuery->lockForShare();
+            $snapshotQuery->sharedLock();
         }
         $snapshot = $snapshotQuery->first();
         if ($snapshot === null) {
@@ -63,6 +63,7 @@ final class NativeAccountCharactersReadModel
                 $this->string($row, 'name'),
                 $this->string($row, 'availability'),
             ))
+            ->values()
             ->all();
 
         return new NativeAccountCharactersAccountView(NativeAccountCharactersAccountView::READY, $characters);
@@ -87,7 +88,7 @@ final class NativeAccountCharactersReadModel
 
         $query = DB::table('native_account_character_projection_state')->where('id', 1);
         if ($lock) {
-            $query->lockForShare();
+            $query->sharedLock();
         }
         $row = $query->first();
         if ($row === null) {

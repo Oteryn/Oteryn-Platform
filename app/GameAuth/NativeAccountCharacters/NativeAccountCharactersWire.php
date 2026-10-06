@@ -24,7 +24,7 @@ final class NativeAccountCharactersWire
         return (strlen($left) <=> strlen($right)) ?: (strcmp($left, $right) <=> 0);
     }
 
-    /** @return array<mixed> */
+    /** @return array<string, mixed> */
     public static function decodeExact(string $raw, int $maxBytes): array
     {
         if ($raw === '' || strlen($raw) > $maxBytes || str_contains($raw, "\n") || str_contains($raw, "\r") || str_contains($raw, "\t")) {
@@ -41,14 +41,17 @@ final class NativeAccountCharactersWire
         }
 
         $canonical = json_encode($decoded, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if (! is_string($canonical) || ! hash_equals($canonical, $raw)) {
+        if (! hash_equals($canonical, $raw)) {
             throw new InvalidArgumentException('Native account-character publication is not canonical JSON.');
         }
 
         return $decoded;
     }
 
-    /** @param array<mixed> $object @param list<string> $keys */
+    /**
+     * @param  array<string, mixed>  $object
+     * @param  list<string>  $keys
+     */
     public static function exactKeys(array $object, array $keys): void
     {
         $actual = array_keys($object);
@@ -59,6 +62,7 @@ final class NativeAccountCharactersWire
         }
     }
 
+    /** @param array<string, mixed> $object */
     public static function text(array $object, string $key, string $pattern): string
     {
         $value = $object[$key] ?? null;
@@ -69,16 +73,19 @@ final class NativeAccountCharactersWire
         return $value;
     }
 
+    /** @param array<string, mixed> $object */
     public static function uuid7(array $object, string $key): string
     {
         return self::text($object, $key, self::UUID7);
     }
 
+    /** @param array<string, mixed> $object */
     public static function authority(array $object): string
     {
         return self::text($object, 'source_authority', self::AUTHORITY);
     }
 
+    /** @param array<string, mixed> $object */
     public static function uint64(array $object, string $key): string
     {
         $value = $object[$key] ?? null;
@@ -91,6 +98,7 @@ final class NativeAccountCharactersWire
         return $value;
     }
 
+    /** @param array<string, mixed> $object */
     public static function unixTime(array $object, string $key): int
     {
         $value = $object[$key] ?? null;

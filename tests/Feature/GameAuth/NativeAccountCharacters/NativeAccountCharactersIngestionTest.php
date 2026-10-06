@@ -89,7 +89,7 @@ final class NativeAccountCharactersIngestionTest extends TestCase
         } catch (NativeAccountCharactersRefused $refused) {
             self::assertSame(409, $refused->status);
         }
-        self::assertSame(1, (int) DB::table('native_account_character_snapshots')->where('account_id', self::ACCOUNT)->value('invalid'));
+        self::assertSame(1, DB::table('native_account_character_snapshots')->where('account_id', self::ACCOUNT)->value('invalid'));
 
         self::assertSame('accepted', $ingestion->snapshot($settings, self::IDENTITY, NativeAccountCharactersSnapshot::fromWire($this->snapshotWire([
             'projection_revision' => '43',
@@ -97,7 +97,7 @@ final class NativeAccountCharactersIngestionTest extends TestCase
         ], [
             ['character_id' => self::CHARACTER, 'world_id' => self::WORLD, 'name' => 'Aldric Prime', 'availability' => 'AVAILABLE'],
         ])), $this->now()));
-        self::assertSame(0, (int) DB::table('native_account_character_snapshots')->where('account_id', self::ACCOUNT)->value('invalid'));
+        self::assertSame(0, DB::table('native_account_character_snapshots')->where('account_id', self::ACCOUNT)->value('invalid'));
     }
 
     public function test_higher_epoch_from_watermark_invalidates_every_old_account_until_resync(): void
@@ -159,7 +159,7 @@ final class NativeAccountCharactersIngestionTest extends TestCase
                 NativeAccountCharactersSnapshot::fromWire($wire);
                 self::fail('Invalid LCFA wire must be rejected.');
             } catch (InvalidArgumentException) {
-                self::assertTrue(true);
+                continue;
             }
         }
     }
@@ -184,7 +184,10 @@ final class NativeAccountCharactersIngestionTest extends TestCase
         $this->ingestion()->snapshot($this->settings(), self::IDENTITY, $snapshot, $this->now());
     }
 
-    /** @param array<string, mixed> $changes @param list<array<string, string>>|null $characters */
+    /**
+     * @param  array<string, mixed>  $changes
+     * @param  list<array<string, string>>|null  $characters
+     */
     private function snapshotWire(array $changes = [], ?array $characters = null): string
     {
         $body = [

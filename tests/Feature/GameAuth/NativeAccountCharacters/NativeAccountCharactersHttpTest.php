@@ -127,7 +127,10 @@ final class NativeAccountCharactersHttpTest extends TestCase
         self::assertNotNull($limited->headers->get('Retry-After'));
     }
 
-    /** @param array<string, string> $server */
+    /**
+     * @param  array<string, string>  $server
+     * @return TestResponse<Response>
+     */
     private function publish(string $path, string $body, string $identity = self::IDENTITY, array $server = []): TestResponse
     {
         return $this->call('POST', $path, [], [], [], $this->server($server + [
@@ -135,7 +138,10 @@ final class NativeAccountCharactersHttpTest extends TestCase
         ]), $body);
     }
 
-    /** @param array<string, string> $changes @return array<string, string> */
+    /**
+     * @param  array<string, string>  $changes
+     * @return array<string, string>
+     */
     private function server(array $changes = []): array
     {
         return $changes + [
