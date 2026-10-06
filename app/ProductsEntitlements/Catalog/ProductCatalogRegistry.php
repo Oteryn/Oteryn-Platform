@@ -13,7 +13,7 @@ final class ProductCatalogRegistry
      * reuse of one (product_id, version) is a conflict. Registration does not publish or activate
      * a product and does not authorize payment or entitlement delivery.
      *
-     * @param array<string, array{name:string,description:string}> $presentations
+     * @param  array<string, array{name:string,description:string}>  $presentations
      */
     public function register(
         string $productId,
@@ -199,7 +199,7 @@ final class ProductCatalogRegistry
     }
 
     /**
-     * @param array<string, array{name:string,description:string}> $presentations
+     * @param  array<string, array{name:string,description:string}>  $presentations
      * @return array<string, array{name:string,description:string}>
      */
     private function validate(

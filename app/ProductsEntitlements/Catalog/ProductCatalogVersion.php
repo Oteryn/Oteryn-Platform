@@ -5,7 +5,7 @@ namespace App\ProductsEntitlements\Catalog;
 final readonly class ProductCatalogVersion
 {
     /**
-     * @param array<string, array{name:string,description:string}> $presentations
+     * @param  array<string, array{name:string,description:string}>  $presentations
      */
     public function __construct(
         public string $productId,
