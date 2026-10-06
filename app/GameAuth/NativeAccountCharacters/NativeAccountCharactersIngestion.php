@@ -6,6 +6,8 @@ use Illuminate\Support\Facades\DB;
 
 final class NativeAccountCharactersIngestion
 {
+    private const CONFLICT = 'conflict';
+
     /** @return 'accepted'|'superseded' */
     public function snapshot(NativeAccountCharactersSettings $settings, string $identity, NativeAccountCharactersSnapshot $snapshot, int $now): string
     {
@@ -16,7 +18,7 @@ final class NativeAccountCharactersIngestion
             throw new NativeAccountCharactersRefused(400);
         }
 
-        return DB::transaction(function () use ($snapshot): string {
+        $result = DB::transaction(function () use ($snapshot): string {
             $state = DB::table('native_account_character_projection_state')->where('id', 1)->lockForUpdate()->first();
             if ($state === null) {
                 throw new NativeAccountCharactersRefused(503);
@@ -45,12 +47,14 @@ final class NativeAccountCharactersIngestion
                     return 'superseded';
                 }
                 if ($revisionOrder === 0) {
-                    if (! hash_equals($this->string($current, 'content_digest'), $snapshot->contentDigest)) {
+                    if ($this->bool($current, 'invalid')
+                        || ! hash_equals($this->string($current, 'content_digest'), $snapshot->contentDigest)) {
                         DB::table('native_account_character_snapshots')->where('account_id', $snapshot->accountId)->update([
                             'invalid' => true,
                             'updated_at' => now(),
                         ]);
-                        throw new NativeAccountCharactersRefused(409);
+
+                        return self::CONFLICT;
                     }
 
                     return 'accepted';
@@ -93,6 +97,12 @@ final class NativeAccountCharactersIngestion
 
             return 'accepted';
         });
+
+        if ($result === self::CONFLICT) {
+            throw new NativeAccountCharactersRefused(409);
+        }
+
+        return $result;
     }
 
     /** @return 'accepted'|'superseded' */
@@ -182,6 +192,19 @@ final class NativeAccountCharactersIngestion
         }
 
         return $value;
+    }
+
+    private function bool(object $row, string $column): bool
+    {
+        $value = get_object_vars($row)[$column] ?? null;
+        if ($value === true || $value === 1 || $value === '1') {
+            return true;
+        }
+        if ($value === false || $value === 0 || $value === '0') {
+            return false;
+        }
+
+        throw new NativeAccountCharactersRefused(503);
     }
 
     private function nullableInt(object $row, string $column): ?int
