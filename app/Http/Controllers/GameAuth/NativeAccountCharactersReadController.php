@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers\GameAuth;
 
-use App\GameAuth\NativeAccountCharacters\NativeAccountCharacterSummary;
 use App\GameAuth\NativeAccountCharacters\NativeAccountCharactersAccountView;
 use App\GameAuth\NativeAccountCharacters\NativeAccountCharactersReadModel;
+use App\GameAuth\NativeAccountCharacters\NativeAccountCharacterSummary;
 use App\GameAuth\OAuth\OAuthBootstrapDenied;
 use App\GameAuth\OAuth\VerifyNativeOAuthAccess;
 use App\Identity\Models\Identity;
