@@ -382,7 +382,8 @@ final class NativeAdmissionIssuerTest extends TestCase
 
         config([
             'game-auth.native_account_characters.enabled' => true,
-            'game-auth.native_account_characters.publishers' => [self::LCFA_IDENTITY => self::LCFA_AUTHORITY],
+            'game-auth.native_account_characters.identities' => [self::LCFA_IDENTITY],
+            'game-auth.native_account_characters.source_authority' => self::LCFA_AUTHORITY,
             'game-auth.native_account_characters.freshness_seconds' => 30,
             'game-auth.native_account_characters.clock_uncertainty_seconds' => 1,
             'game-auth.native_account_characters.requests_per_minute' => 120,

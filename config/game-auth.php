@@ -90,8 +90,10 @@ return [
     'native_account_characters' => [
         // Testing/preproduction push consumer only. Production remains blocked on Decision P1/U12.
         'enabled' => env('GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED', false),
-        // JSON object: dedicated Character Authority projection certificate subject => source_authority namespace.
-        'publishers' => env('GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_PUBLISHERS'),
+        // JSON list of dedicated Character Authority projection certificate subjects (one per authority host).
+        'identities' => env('GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_IDENTITIES'),
+        // One expected Character Authority namespace shared by every configured projection identity.
+        'source_authority' => env('GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_SOURCE_AUTHORITY'),
         // Accepted internal-build liveness bound; release acceptance remains a separate decision.
         'freshness_seconds' => env('GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_FRESHNESS_SECONDS', 30),
         'clock_uncertainty_seconds' => env('GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_CLOCK_UNCERTAINTY_SECONDS', 1),

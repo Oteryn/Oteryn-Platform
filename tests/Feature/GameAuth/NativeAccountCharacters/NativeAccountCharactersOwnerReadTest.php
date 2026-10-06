@@ -39,7 +39,8 @@ final class NativeAccountCharactersOwnerReadTest extends TestCase
         $this->travelTo(CarbonImmutable::createFromTimestamp(1_790_000_020));
         config([
             'game-auth.native_account_characters.enabled' => true,
-            'game-auth.native_account_characters.publishers' => [self::IDENTITY => self::AUTHORITY],
+            'game-auth.native_account_characters.identities' => [self::IDENTITY],
+            'game-auth.native_account_characters.source_authority' => self::AUTHORITY,
             'game-auth.native_account_characters.freshness_seconds' => 30,
             'game-auth.native_account_characters.clock_uncertainty_seconds' => 1,
             'game-auth.native_account_characters.requests_per_minute' => 120,

@@ -140,6 +140,10 @@ final class NativeAccountCharactersIngestionTest extends TestCase
 
         self::assertSame(NativeAccountCharactersReadModel::STALE, $this->readModel()->feedEvidence($this->now()));
         self::assertNull($this->readModel()->forAccount(self::ACCOUNT, $this->now()));
+
+        // A later Platform clock rollback must not turn a stored future watermark into live evidence.
+        self::assertSame(NativeAccountCharactersReadModel::STALE, $this->readModel()->feedEvidence(1_790_000_008));
+        self::assertNull($this->readModel()->forAccount(self::ACCOUNT, 1_790_000_008));
     }
 
     public function test_strict_wire_rejects_unsorted_characters_invalid_names_and_noncanonical_json(): void
@@ -179,7 +183,7 @@ final class NativeAccountCharactersIngestionTest extends TestCase
             }
         }
 
-        config(['game-auth.native_account_characters.publishers' => [self::IDENTITY => 'other-authority']]);
+        config(['game-auth.native_account_characters.source_authority' => 'other-authority']);
         $this->expectException(NativeAccountCharactersRefused::class);
         $this->ingestion()->snapshot($this->settings(), self::IDENTITY, $snapshot, $this->now());
     }

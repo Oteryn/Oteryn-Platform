@@ -13,9 +13,10 @@ use JsonException;
  */
 final readonly class NativeAccountCharactersSettings
 {
-    /** @param array<string, string> $publishers */
+    /** @param list<string> $identities */
     private function __construct(
-        private array $publishers,
+        private array $identities,
+        private string $sourceAuthority,
         public int $freshnessSeconds,
         public int $clockUncertaintySeconds,
         public int $requestsPerMinute,
@@ -27,54 +28,53 @@ final readonly class NativeAccountCharactersSettings
             return null;
         }
 
-        $publishers = self::publishers(config('game-auth.native_account_characters.publishers'));
+        $identities = self::identities(config('game-auth.native_account_characters.identities'));
+        $sourceAuthority = self::sourceAuthority(config('game-auth.native_account_characters.source_authority'));
         $freshness = NativeRuntimeStatusSettings::bounded(config('game-auth.native_account_characters.freshness_seconds'), 1, 120);
         $uncertainty = NativeRuntimeStatusSettings::bounded(config('game-auth.native_account_characters.clock_uncertainty_seconds'), 0, 5);
         $rate = NativeRuntimeStatusSettings::bounded(config('game-auth.native_account_characters.requests_per_minute'), 1, 600);
-        if ($publishers === null || $freshness === null || $uncertainty === null || $rate === null || $uncertainty >= $freshness) {
+        if ($identities === null || $sourceAuthority === null || $freshness === null || $uncertainty === null || $rate === null || $uncertainty >= $freshness) {
             return null;
         }
 
-        return new self($publishers, $freshness, $uncertainty, $rate);
+        return new self($identities, $sourceAuthority, $freshness, $uncertainty, $rate);
     }
 
     /** @return list<string> Configured publisher subjects, even while the LCFA switch is off. */
     public static function configuredPublisherIdentities(): array
     {
-        $raw = config('game-auth.native_account_characters.publishers');
+        $raw = config('game-auth.native_account_characters.identities');
         try {
             $decoded = is_string($raw) ? json_decode($raw, true, 3, JSON_THROW_ON_ERROR) : $raw;
         } catch (JsonException) {
             return [];
         }
-        if (! is_array($decoded) || array_is_list($decoded)) {
+        if (! is_array($decoded) || ! array_is_list($decoded)) {
             return [];
         }
 
-        return array_values(array_filter(array_keys($decoded), 'is_string'));
+        return array_values(array_filter($decoded, 'is_string'));
     }
 
     public function knows(string $identity): bool
     {
-        return isset($this->publishers[$identity]);
+        return in_array($identity, $this->identities, true);
     }
 
     public function allows(string $identity, string $sourceAuthority): bool
     {
-        $authority = $this->publishers[$identity] ?? null;
-
-        return is_string($authority) && hash_equals($authority, $sourceAuthority);
+        return $this->knows($identity) && hash_equals($this->sourceAuthority, $sourceAuthority);
     }
 
-    /** @return array<string, string>|null */
-    private static function publishers(mixed $raw): ?array
+    /** @return list<string>|null */
+    private static function identities(mixed $raw): ?array
     {
         try {
             $decoded = is_string($raw) ? json_decode($raw, true, 3, JSON_THROW_ON_ERROR) : $raw;
         } catch (JsonException) {
             return null;
         }
-        if (! is_array($decoded) || $decoded === [] || array_is_list($decoded)) {
+        if (! is_array($decoded) || $decoded === [] || ! array_is_list($decoded)) {
             return null;
         }
 

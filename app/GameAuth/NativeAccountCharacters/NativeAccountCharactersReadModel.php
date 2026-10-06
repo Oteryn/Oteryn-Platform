@@ -100,6 +100,9 @@ final class NativeAccountCharactersReadModel
         if ($highest === null || $watermarkEpoch === null || $completeThrough === null || ! hash_equals($highest, $watermarkEpoch)) {
             return [self::STALE, $highest];
         }
+        if ($completeThrough > $now + $settings->clockUncertaintySeconds) {
+            return [self::STALE, $highest];
+        }
 
         $feed = $now - $completeThrough + $settings->clockUncertaintySeconds <= $settings->freshnessSeconds
             ? self::LIVE

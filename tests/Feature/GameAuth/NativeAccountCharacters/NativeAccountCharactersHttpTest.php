@@ -27,7 +27,8 @@ final class NativeAccountCharactersHttpTest extends TestCase
         parent::setUp();
         config([
             'game-auth.native_account_characters.enabled' => true,
-            'game-auth.native_account_characters.publishers' => [self::IDENTITY => self::AUTHORITY],
+            'game-auth.native_account_characters.identities' => [self::IDENTITY],
+            'game-auth.native_account_characters.source_authority' => self::AUTHORITY,
             'game-auth.native_account_characters.freshness_seconds' => 30,
             'game-auth.native_account_characters.clock_uncertainty_seconds' => 1,
             'game-auth.native_account_characters.requests_per_minute' => 120,
@@ -110,6 +111,20 @@ final class NativeAccountCharactersHttpTest extends TestCase
         ]);
         self::assertSame(503, app(RequireNativeEvidenceMtlsPeer::class)->handle($request, fn (): Response => response('', 204))->getStatusCode());
         self::assertSame(503, app(RequireCharacterBootstrapIntentMtlsPeer::class)->handle($request, fn (): Response => response('', 204))->getStatusCode());
+    }
+
+    public function test_configuration_uses_one_authority_namespace_for_all_projection_identities(): void
+    {
+        config([
+            'game-auth.native_account_characters.identities' => [self::IDENTITY, 'CN=character-authority-projection-b'],
+            'game-auth.native_account_characters.source_authority' => self::AUTHORITY,
+        ]);
+        $settings = \App\GameAuth\NativeAccountCharacters\NativeAccountCharactersSettings::current();
+        self::assertNotNull($settings);
+        self::assertTrue($settings->knows(self::IDENTITY));
+        self::assertTrue($settings->knows('CN=character-authority-projection-b'));
+        self::assertTrue($settings->allows(self::IDENTITY, self::AUTHORITY));
+        self::assertFalse($settings->allows(self::IDENTITY, 'other-authority'));
     }
 
     public function test_switch_is_default_off_and_rate_limit_is_per_projection_identity(): void
