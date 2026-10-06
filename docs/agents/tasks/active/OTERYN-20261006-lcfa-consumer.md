@@ -73,11 +73,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
+updated_at: 2026-10-06T07:53:27Z
 status: validating
 phase: pre_pr_validation
 branch: feat/1419-lcfa-consumer
-head: 5ef182be2c7e7546903d634a119a2655d2081f28
-pr: none
+head: c26cd688f124cf3041e33f4ecaf5865baf0b05b3
+pr: 1465
 context_routes:
   - game-auth
   - testing
@@ -147,8 +148,11 @@ validation:
     evidence: reviewed against Platform §5 and current Game LCFA v1 for strict wire, characters-only equal-key digest, epoch/watermark rules, symmetric mTLS purpose isolation, bearer-only owner rate key, no-revocation OAuth read and §5.4 failure mapping
   - command: focused PHP/feature validation
     result: NOT_RUN
-    evidence: repository checkout is unavailable in this chat runtime; exact candidate validation will run through normal PR CI before integration
+    evidence: PR #1465 exact-head validation was emitted; first classifier failed before runtime tests because this checkpoint omitted updated_at and PR identity, so no product test result is claimed yet
+  - command: PR #1465 initial governance/classification
+    result: FAIL
+    evidence: Agent Governance and CI classifier both rejected the task checkpoint for missing updated_at; task liveness also required pr: 1465 after the PR opened
 blockers:
   - production release only: Decision P1/U12
-next_action: Open the bounded LCFA consumer PR, hold the exact head, and repair only evidence-backed CI/review failures.
+next_action: Publish this checkpoint-only repair, freeze the successor head, and rerun/inspect exact-head CI; repair only evidence-backed product failures.
 ```
