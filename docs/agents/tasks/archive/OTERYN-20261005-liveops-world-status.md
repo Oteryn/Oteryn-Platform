@@ -34,7 +34,7 @@ The former selector blocker is resolved on protected main `46ed77d5799a8c0019e9f
 - [x] EN/PL Today presentation uses public-safe state labels and keeps partial evidence explicit.
 - [x] Focused feature tests cover fresh, maintenance, stale/unavailable/invalid, mixed-channel degraded, recovery and public redaction.
 - [x] Zero-retry browser acceptance covers the delivered public route on exact candidate.
-- [ ] Exact-head required CI is green.
+- [x] Exact-head required CI is green.
 - [x] Independent exact-head review has no open material finding.
 
 ## Ownership
@@ -57,7 +57,7 @@ owned_paths:
   - scripts/acceptance/tests/homepage-navigation-seo.spec.mjs
   - config/game-auth.php
   - docs/architecture/MODULE_CATALOG.md
-  - docs/agents/tasks/active/OTERYN-20261005-liveops-world-status.md
+  - docs/agents/tasks/archive/OTERYN-20261005-liveops-world-status.md
 modules:
   - LiveOps
   - PublicPortal/Today
@@ -72,11 +72,12 @@ blockers: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-05T19:29:00Z
-status: validating
-phase: exact_head_ci
+updated_at: 2026-10-06T06:19:07Z
+status: completed
+phase: terminal_closeout
+terminal_pr_policy: archive_pending
 branch: feat/liveops-world-status-1458
-head: cfef690a56982dc8dceddef1416e52b3086cc688
+head: a41b2210e3c433176f3843be5758d22def63386d
 pr: 1459
 context_routes:
   - api
@@ -99,14 +100,14 @@ owned_paths:
   - scripts/acceptance/tests/homepage-navigation-seo.spec.mjs
   - config/game-auth.php
   - docs/architecture/MODULE_CATALOG.md
-  - docs/agents/tasks/active/OTERYN-20261005-liveops-world-status.md
+  - docs/agents/tasks/archive/OTERYN-20261005-liveops-world-status.md
 proven:
   - Protected main 46ed77d5799a8c0019e9fecf9178aafe13584115 contains native runtime-status ingestion/read-model and canonical topology required by the accepted LiveOps first-slice gate.
   - Public Today is already delivered and explicitly carries LiveOps as unavailable until an App\LiveOps provider exists.
 derived:
   - A bounded Platform-only WorldStatus projection can now be implemented without Game mutation or new Game semantics.
 unknown:
-  - Production runtime-status activation/configuration; this task makes no production claim.
+  - Production runtime-status activation/configuration remains outside this completed non-production/public-projection task and is not claimed by the merge.
 conflicts: []
 first_failure:
   marker: phase7_exact_sha_regression_fixture_duplicate_assignment
@@ -149,6 +150,28 @@ validation:
   - command: CI checkpoint validation on exact head e7c414276714f521f6953edc9cd59138ae592bb2
     result: FAIL
     evidence: classifier reached checkpoint validation and rejected unsupported task-result enum values PASS_AFTER_REMEDIATION and FAIL_REPAIRED; this checkpoint-only repair replaces them with contract-valid PASS semantics while preserving the remediation evidence
+  - command: final PR exact-head workflow set on a41b2210e3c433176f3843be5758d22def63386d
+    result: PASS
+    evidence: 12/12 emitted workflows completed SUCCESS, including CI, Phase 7, zero-retry Acceptance E2E and Visual UX, Portal Acceptance, Agent Governance, CodeQL, DB outage, GameAuth concurrency, native protocol checks and Synology image build
+  - command: protected integration of PR #1459
+    result: PASS
+    evidence: PR #1459 merged at 2026-10-06T06:19:06Z as main merge commit 73138cb10bdea17a1127363cbaa299177c0593e1; exact validated feature head was a41b2210e3c433176f3843be5758d22def63386d
 blockers: []
-next_action: Publish this checkpoint-schema-only repair, then inspect PR #1459 exact-head CI and repair only evidence-backed failures before READY_FOR_INTEGRATION.
+next_action: none.
 ```
+
+
+## Terminal closeout
+
+```yaml
+implementation_pr: 1459
+implementation_head: a41b2210e3c433176f3843be5758d22def63386d
+merge_sha: 73138cb10bdea17a1127363cbaa299177c0593e1
+merged_at: 2026-10-06T06:19:06Z
+source_branch: feat/liveops-world-status-1458
+source_branch_disposition: deleted_after_merge
+governing_issue: 1458
+governing_issue_state: closed
+```
+
+The task is terminal. No production runtime-status activation, protected-environment mutation, Game repository mutation or deployment authority is implied by this archive.
