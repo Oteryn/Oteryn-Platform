@@ -40,6 +40,53 @@ final class PublicNewsQuery
             ->get();
     }
 
+    /** @return Collection<int, NewsPost> */
+    public function searchPublished(
+        string $search,
+        int $page = 1,
+        int $perPage = 5,
+        ?DateTimeInterface $readTime = null,
+    ): Collection {
+        if ($page < 1 || $page > 100 || $perPage < 1 || $perPage > 10) {
+            throw new InvalidArgumentException('Published news search pagination is outside bounds.');
+        }
+
+        $normalized = trim(preg_replace('/\\s+/u', ' ', $search) ?? $search);
+        if ($normalized === '') {
+            return collect();
+        }
+
+        $readTime ??= now();
+        $needle = mb_strtolower($normalized);
+        $escaped = str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $needle);
+        $prefix = $escaped.'%';
+        $contains = '%'.$escaped.'%';
+        $translated = app()->getLocale() === 'pl';
+        $title = $translated ? 'public_news_translation.title' : 'news_posts.title';
+        $body = $translated ? 'public_news_translation.body' : 'news_posts.body';
+
+        return $this->visibleAt($readTime)
+            ->where(function (Builder $matches) use ($title, $body, $contains): void {
+                $matches
+                    ->whereRaw("LOWER({$title}) LIKE ? ESCAPE '!'", [$contains])
+                    ->orWhereRaw("LOWER({$body}) LIKE ? ESCAPE '!'", [$contains]);
+            })
+            ->orderByRaw(
+                "CASE
+                    WHEN LOWER({$title}) = ? THEN 0
+                    WHEN LOWER({$title}) LIKE ? ESCAPE '!' THEN 1
+                    WHEN LOWER({$title}) LIKE ? ESCAPE '!' THEN 2
+                    ELSE 3
+                END",
+                [$needle, $prefix, $contains],
+            )
+            ->orderByDesc('news_posts.published_at')
+            ->orderBy('news_posts.id')
+            ->offset(($page - 1) * $perPage)
+            ->limit($perPage)
+            ->get();
+    }
+
     public function findPublishedBySlug(string $slug, ?DateTimeInterface $readTime = null): ?NewsPost
     {
         $readTime ??= now();

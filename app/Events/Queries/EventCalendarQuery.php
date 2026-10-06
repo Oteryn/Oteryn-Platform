@@ -153,6 +153,71 @@ final class EventCalendarQuery
     }
 
     /**
+     * @return list<EventSummary>
+     */
+    public function searchPublic(
+        string $locale,
+        string $search,
+        int $page = 1,
+        int $perPage = 5,
+        ?DateTimeInterface $readTime = null,
+    ): array {
+        $this->assertLocale($locale);
+        if ($page < 1 || $page > 100 || $perPage < 1 || $perPage > 10) {
+            throw new InvalidArgumentException('Event search pagination is outside bounds.');
+        }
+
+        $normalized = trim(preg_replace('/\\s+/u', ' ', $search) ?? $search);
+        if ($normalized === '') {
+            return [];
+        }
+
+        $needle = mb_strtolower($normalized);
+        $calendar = $this->calendar($locale, $readTime);
+        $matches = [];
+
+        foreach (['active', 'upcoming', 'archived', 'cancelled'] as $group) {
+            foreach ($calendar[$group] as $event) {
+                $title = mb_strtolower($event['title']);
+                $summary = mb_strtolower($event['summary']);
+                if (! str_contains($title, $needle) && ! str_contains($summary, $needle)) {
+                    continue;
+                }
+
+                $rank = match (true) {
+                    $title === $needle => 0,
+                    str_starts_with($title, $needle) => 1,
+                    str_contains($title, $needle) => 2,
+                    default => 3,
+                };
+                $matches[] = ['rank' => $rank, 'event' => $event];
+            }
+        }
+
+        usort($matches, static function (array $left, array $right): int {
+            $rank = $left['rank'] <=> $right['rank'];
+            if ($rank !== 0) {
+                return $rank;
+            }
+
+            /** @var EventSummary $leftEvent */
+            $leftEvent = $left['event'];
+            /** @var EventSummary $rightEvent */
+            $rightEvent = $right['event'];
+
+            return [$rightEvent['featured'], $leftEvent['title'], $leftEvent['id']]
+                <=> [$leftEvent['featured'], $rightEvent['title'], $rightEvent['id']];
+        });
+
+        $offset = ($page - 1) * $perPage;
+
+        return array_values(array_map(
+            static fn (array $match): array => $match['event'],
+            array_slice($matches, $offset, $perPage),
+        ));
+    }
+
+    /**
      * @return EventSummary|null
      */
     public function upcomingSummary(string $locale, ?DateTimeInterface $readTime = null): ?array
