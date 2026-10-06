@@ -133,7 +133,7 @@ changed_paths:
   - scripts/acceptance/tests/homepage-navigation-seo.spec.mjs
   - config/game-auth.php
   - docs/architecture/MODULE_CATALOG.md
-  - docs/agents/tasks/active/OTERYN-20261005-liveops-world-status.md
+  - docs/agents/tasks/archive/OTERYN-20261005-liveops-world-status.md
 validation:
   - command: php -l on new PHP implementation/test files
     result: PASS
