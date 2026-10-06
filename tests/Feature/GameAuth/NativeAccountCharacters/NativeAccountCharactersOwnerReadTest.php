@@ -13,9 +13,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use Laravel\Passport\RefreshToken;
 use Laravel\Passport\Token;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\Feature\GameAuth\OAuth\Concerns\ConfiguresEphemeralPassportKeys;
 use Tests\Feature\GameAuth\OAuth\Concerns\CreatesNativeOAuthBootstrapToken;
-use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
 final class NativeAccountCharactersOwnerReadTest extends TestCase
