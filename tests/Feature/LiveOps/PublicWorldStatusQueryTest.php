@@ -15,9 +15,13 @@ final class PublicWorldStatusQueryTest extends TestCase
     use RefreshDatabase;
 
     private const WORLD = '018f0f1e-7b2c-7a31-8d4e-1234567890ab';
+
     private const CHANNEL_A = '018f0f1e-7b2c-7a32-8d4e-1234567890ac';
+
     private const CHANNEL_B = '018f0f1e-7b2c-7a33-8d4e-1234567890ad';
+
     private const NODE_IDENTITY = 'CN=acceptance-runtime-node';
+
     private const ASSIGNMENT_IDENTITY = 'CN=acceptance-runtime-owner';
 
     protected function setUp(): void

@@ -5,16 +5,25 @@ namespace App\LiveOps\WorldStatus;
 final readonly class PublicWorldStatus
 {
     public const POLICY_ONLINE = 'online';
+
     public const POLICY_MAINTENANCE = 'maintenance';
+
     public const POLICY_OFFLINE = 'offline';
+
     public const POLICY_DISABLED = 'disabled';
+
     public const POLICY_UNKNOWN = 'unknown';
 
     public const RUNTIME_READY = 'ready';
+
     public const RUNTIME_NOT_READY = 'not_ready';
+
     public const RUNTIME_DEGRADED = 'degraded';
+
     public const RUNTIME_STALE = 'stale';
+
     public const RUNTIME_UNAVAILABLE = 'unavailable';
+
     public const RUNTIME_INVALID = 'invalid';
 
     public function __construct(
