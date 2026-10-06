@@ -97,6 +97,13 @@ class ChangeRoutingTest(unittest.TestCase):
                 enabled = {gate for gate, value in result["gates"].items() if value}
                 self.assertEqual({"ci", own_gate}, enabled)
 
+    def test_premium_physical_e2e_routes_as_payment(self) -> None:
+        result = classifier.classify_paths(
+            ["tests/e2e/premium_physical_e2e/run.sh"]
+        )
+        self.assertEqual(["payment"], result["classes"])
+        self.assertTrue(all(result["gates"].values()))
+
     def test_central_routing_changes_fail_closed(self) -> None:
         for path in (
             ".github/workflows/ci.yml",
