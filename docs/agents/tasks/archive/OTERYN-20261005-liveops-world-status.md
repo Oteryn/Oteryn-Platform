@@ -169,7 +169,7 @@ implementation_head: a41b2210e3c433176f3843be5758d22def63386d
 merge_sha: 73138cb10bdea17a1127363cbaa299177c0593e1
 merged_at: 2026-10-06T06:19:06Z
 source_branch: feat/liveops-world-status-1458
-source_branch_disposition: deleted_after_merge
+source_branch_disposition: auto_delete_after_merge
 governing_issue: 1458
 governing_issue_state: closed
 ```
@@ -179,7 +179,7 @@ The task is terminal. No production runtime-status activation, protected-environ
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: deleted_after_merge
+source_branch_disposition: auto_delete_after_merge
 source_branch_reason: implementation PR #1459 merged successfully and the dedicated implementation branch has no remaining ownership purpose
 source_branch_evidence: branch search after merge returned no feat/liveops-world-status-1458 ref; PR #1459 is merged at exact validated head a41b2210e3c433176f3843be5758d22def63386d
 ```
