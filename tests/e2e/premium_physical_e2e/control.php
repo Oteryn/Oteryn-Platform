@@ -5,13 +5,17 @@ declare(strict_types=1);
 use App\Identity\Models\Identity;
 use App\ProductsEntitlements\Premium\PremiumTimeLedger;
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 require __DIR__.'/../../../vendor/autoload.php';
 
+/** @var Application $app */
 $app = require __DIR__.'/../../../bootstrap/app.php';
-$app->make(Kernel::class)->bootstrap();
+/** @var Kernel $kernel */
+$kernel = $app->make(Kernel::class);
+$kernel->bootstrap();
 
 if (! $app->environment('testing')) {
     fwrite(STDERR, "Premium physical E2E control is restricted to testing.\n");
@@ -37,6 +41,7 @@ if ($mode === 'seed') {
     exit(0);
 }
 
+/** @var PremiumTimeLedger $ledger */
 $ledger = $app->make(PremiumTimeLedger::class);
 if ($mode === 'grant') {
     $ledger->grant(
