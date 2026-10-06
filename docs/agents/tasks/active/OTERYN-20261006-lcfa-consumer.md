@@ -23,13 +23,13 @@ This slice consumes the accepted Game-authored projection contract. It does not 
 
 ## Acceptance criteria
 
-- [ ] Dedicated mTLS ingestion routes accept only the Character Authority projection identity and reject identity reuse across all internal purposes.
-- [ ] Snapshot and watermark bodies are bounded and strictly decoded per the v1 contract.
-- [ ] Additive persistence enforces monotonic epoch/revision, idempotent equal snapshots, equal-key conflict invalidation and global highest-epoch invalidation.
-- [ ] Feed freshness is derived from the accepted testing/preproduction bound and fails closed when stale/unavailable.
-- [ ] Native admission §5.4 validates account row, highest epoch, conflict state, AVAILABLE character and authoritative world before route selection.
-- [ ] Public owner endpoint GET /api/v1/game-auth/native-characters uses the native OAuth client/scope/generation policy without revoking the bearer token.
-- [ ] Sensitive responses are no-cache and all failure surfaces use the contract's empty/typed failure vocabulary.
+- [x] Dedicated mTLS ingestion routes accept only the Character Authority projection identity and reject identity reuse across all internal purposes.
+- [x] Snapshot and watermark bodies are bounded and strictly decoded per the v1 contract.
+- [x] Additive persistence enforces monotonic epoch/revision, idempotent equal snapshots, equal-key conflict invalidation and global highest-epoch invalidation.
+- [x] Feed freshness is derived from the accepted testing/preproduction bound and fails closed when stale/unavailable.
+- [x] Native admission §5.4 validates account row, highest epoch, conflict state, AVAILABLE character and authoritative world before route selection.
+- [x] Public owner endpoint GET /api/v1/game-auth/native-characters uses the native OAuth client/scope/generation policy without revoking the bearer token.
+- [x] Sensitive responses are no-cache and all failure surfaces use the contract's empty/typed failure vocabulary.
 - [ ] Focused endpoint, monotonicity, auth, freshness and admission tests pass.
 - [ ] Exact-head CI/Phase 7/Game Auth concurrency and security gates pass.
 
@@ -45,15 +45,17 @@ owned_paths:
   - app/Http/Middleware/GameAuth/RequireCharacterBootstrapIntentMtlsPeer.php
   - app/ProductsEntitlements/Premium/PremiumSnapshotSettings.php
   - app/GameAuth/OAuth/VerifyNativeOAuthAccess.php
+  - app/GameAuth/OAuth/VerifiedNativeOAuthAccess.php
   - app/GameAuth/OAuth/IssueGameLoginTicketFromOAuth.php
   - app/GameAuth/NativeLogin/RegistryNativeAdmissionScopeResolver.php
   - app/Http/Middleware/GameAuth/PreventSensitiveGameAuthResponseCaching.php
+  - app/Providers/AppServiceProvider.php
   - config/game-auth.php
   - routes/internal.php
   - routes/api.php
   - database/migrations/2026_10_06_090000_add_native_account_character_projection.php
   - tests/Feature/GameAuth/NativeAccountCharacters/**
-  - tests/Feature/GameAuth/NativeAdmission/**
+  - tests/Feature/GameAuth/NativeLogin/NativeAdmissionIssuerTest.php
   - docs/agents/tasks/active/OTERYN-20261006-lcfa-consumer.md
 modules:
   - GameAuth
@@ -71,10 +73,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-status: implementing
-phase: lcfa_consumer
+status: validating
+phase: pre_pr_validation
 branch: feat/1419-lcfa-consumer
-head: 3896bcdf75a511f1e386ac645303eaf8f234ffcf
+head: 5ef182be2c7e7546903d634a119a2655d2081f28
 pr: none
 context_routes:
   - game-auth
@@ -99,11 +101,14 @@ proven:
   - Issue #1419 has no open PR or competing 1419 branch at claim time.
   - Platform #1459 merged and released config/game-auth.php ownership.
   - Game LCFA v1 defines dedicated projection mTLS, monotonic epoch/revision, watermark freshness, owner read and §5.4 admission semantics.
-  - Current RegistryNativeAdmissionScopeResolver still uses D171 testing/preproduction unverified_character_world_id and explicitly names LCFA as the release replacement.
+  - RegistryNativeAdmissionScopeResolver now requires a live LCFA highest-epoch account view whenever LCFA is enabled; D171 remains available only while LCFA is explicitly disabled in testing/preproduction.
+  - Owner read reuses the exact native OAuth client/scope/generation verifier but does not revoke the bearer or refresh token.
+  - Projection certificate subjects are rejected symmetrically by runtime-status, scope-assignment, native-evidence, character-bootstrap and Premium purposes.
 derived:
   - The implementation can be additive and Platform-owned as a private read model without direct Game persistence access.
 unknown:
   - Production freshness bound acceptance P1/U12; this slice must not promote testing/preproduction evidence to production.
+  - U1 native OAuth selection/issuance of an oteryn-native-game-gateway ticket remains a separate #1419 successor; this LCFA slice does not alter public ticket kind semantics.
 conflicts: []
 first_failure:
   marker: none
@@ -114,23 +119,36 @@ rejected_hypotheses:
   - Store or mutate authoritative Character rows in Platform.
 changed_paths:
   - app/GameAuth/NativeAccountCharacters/**
-  - app/Http/Controllers/GameAuth/NativeAccountCharacters*.php
-  - app/Http/Middleware/GameAuth/GuardNativeAccountCharactersPeer.php
-  - app/Http/Middleware/GameAuth/EnforceNativeAccountCharactersHttpBounds.php
+  - app/GameAuth/NativeLogin/RegistryNativeAdmissionScopeResolver.php
   - app/GameAuth/NativeRuntimeStatus/NativeRuntimeStatusSettings.php
-  - app/Http/Middleware/GameAuth/RequireNativeEvidenceMtlsPeer.php
+  - app/GameAuth/OAuth/IssueGameLoginTicketFromOAuth.php
+  - app/GameAuth/OAuth/VerifiedNativeOAuthAccess.php
+  - app/GameAuth/OAuth/VerifyNativeOAuthAccess.php
+  - app/Http/Controllers/GameAuth/NativeAccountCharacters*.php
+  - app/Http/Middleware/GameAuth/EnforceNativeAccountCharactersHttpBounds.php
+  - app/Http/Middleware/GameAuth/GuardNativeAccountCharactersPeer.php
   - app/Http/Middleware/GameAuth/RequireCharacterBootstrapIntentMtlsPeer.php
+  - app/Http/Middleware/GameAuth/RequireNativeEvidenceMtlsPeer.php
   - app/ProductsEntitlements/Premium/PremiumSnapshotSettings.php
+  - app/Providers/AppServiceProvider.php
   - config/game-auth.php
+  - routes/api.php
   - routes/internal.php
   - database/migrations/2026_10_06_090000_add_native_account_character_projection.php
   - tests/Feature/GameAuth/NativeAccountCharacters/**
+  - tests/Feature/GameAuth/NativeLogin/NativeAdmissionIssuerTest.php
   - docs/agents/tasks/active/OTERYN-20261006-lcfa-consumer.md
 validation:
   - command: live ownership reconstruction
     result: PASS
-    evidence: no open #1419 PR/branch and #1459 is terminal
+    evidence: no competing #1419 PR exists, this branch is the sole claimed LCFA lane, and #1459 is merged
+  - command: contract-to-diff whole-slice review
+    result: PASS
+    evidence: reviewed against Platform §5 and current Game LCFA v1 for strict wire, characters-only equal-key digest, epoch/watermark rules, symmetric mTLS purpose isolation, bearer-only owner rate key, no-revocation OAuth read and §5.4 failure mapping
+  - command: focused PHP/feature validation
+    result: NOT_RUN
+    evidence: repository checkout is unavailable in this chat runtime; exact candidate validation will run through normal PR CI before integration
 blockers:
   - production release only: Decision P1/U12
-next_action: Finish the owner OAuth read and §5.4 admission integration, then run focused/exact-head validation before opening the PR.
+next_action: Open the bounded LCFA consumer PR, hold the exact head, and repair only evidence-backed CI/review failures.
 ```
