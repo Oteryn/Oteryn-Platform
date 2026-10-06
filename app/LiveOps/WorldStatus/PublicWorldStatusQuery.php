@@ -23,22 +23,24 @@ final readonly class PublicWorldStatusQuery
         $worlds = GameWorld::query()->whereNotNull('world_id')->orderBy('id')->get();
 
         foreach ($worlds as $world) {
-            if (! NativeTopologyReceipt::isCanonicalId($world->world_id)) {
+            $worldId = $world->world_id;
+            if (! is_string($worldId) || ! NativeTopologyReceipt::isCanonicalId($worldId)) {
                 continue;
             }
 
             $evidence = [];
             foreach ($world->channels()->orderBy('id')->get() as $channel) {
-                if (! NativeTopologyReceipt::isCanonicalId($channel->channel_id)
-                    || $channel->channel_id === $world->world_id) {
+                $channelId = $channel->channel_id;
+                if (! NativeTopologyReceipt::isCanonicalId($channelId)
+                    || $channelId === $worldId) {
                     continue;
                 }
-                $evidence[] = $this->runtime->publicEvidence($world->world_id, $channel->channel_id, $now);
+                $evidence[] = $this->runtime->publicEvidence($worldId, $channelId, $now);
             }
 
             [$runtimeState, $observedAt] = $this->aggregate($evidence);
             $projected[] = new PublicWorldStatus(
-                worldId: $world->world_id,
+                worldId: $worldId,
                 slug: $world->slug,
                 name: $world->name,
                 policyState: $this->policyState($world),
@@ -87,9 +89,6 @@ final readonly class PublicWorldStatusQuery
         }
 
         $state = array_key_first($states);
-        if ($state === null) {
-            return [PublicWorldStatus::RUNTIME_UNAVAILABLE, $observedAt];
-        }
         if ($state !== NativeRuntimeStatusReadModel::FRESH) {
             return [match ($state) {
                 NativeRuntimeStatusReadModel::STALE => PublicWorldStatus::RUNTIME_STALE,
