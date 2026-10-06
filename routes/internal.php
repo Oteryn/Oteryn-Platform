@@ -4,11 +4,15 @@ use App\GameAuth\NativeRuntimeStatus\NativeRuntimeStatusReport;
 use App\Http\Controllers\GameAuth\CharacterBootstrapIntentController;
 use App\Http\Controllers\GameAuth\GameLoginContextController;
 use App\Http\Controllers\GameAuth\GameLoginTicketRedeemController;
+use App\Http\Controllers\GameAuth\NativeAccountCharactersController;
+use App\Http\Controllers\GameAuth\NativeAccountCharactersWatermarkController;
 use App\Http\Controllers\GameAuth\NativeAdmissionController;
 use App\Http\Controllers\GameAuth\NativeEvidenceController;
 use App\Http\Controllers\GameAuth\NativeRuntimeStatusController;
 use App\Http\Controllers\GameAuth\NativeScopeAssignmentController;
+use App\Http\Middleware\GameAuth\EnforceNativeAccountCharactersHttpBounds;
 use App\Http\Middleware\GameAuth\EnforceNativeEvidenceHttpBounds;
+use App\Http\Middleware\GameAuth\GuardNativeAccountCharactersPeer;
 use App\Http\Middleware\GameAuth\GuardNativeRuntimeStatusPeer;
 use App\Http\Middleware\GameAuth\PreventSensitiveGameAuthResponseCaching;
 use App\Http\Middleware\GameAuth\RequireCharacterBootstrapIntentMtlsPeer;
@@ -56,6 +60,20 @@ Route::post('/internal/v1/game-auth/native-scope-assignments', NativeScopeAssign
         PreventSensitiveGameAuthResponseCaching::class,
         GuardNativeRuntimeStatusPeer::class.':assignment',
         EnforceNativeEvidenceHttpBounds::class.':'.NativeRuntimeStatusReport::MAX_REQUEST_BYTES,
+    ]);
+
+Route::post('/internal/v1/game-auth/native-account-characters', NativeAccountCharactersController::class)
+    ->middleware([
+        PreventSensitiveGameAuthResponseCaching::class,
+        GuardNativeAccountCharactersPeer::class,
+        EnforceNativeAccountCharactersHttpBounds::class.':snapshot',
+    ]);
+
+Route::post('/internal/v1/game-auth/native-account-characters/watermark', NativeAccountCharactersWatermarkController::class)
+    ->middleware([
+        PreventSensitiveGameAuthResponseCaching::class,
+        GuardNativeAccountCharactersPeer::class,
+        EnforceNativeAccountCharactersHttpBounds::class.':watermark',
     ]);
 
 Route::post('/internal/v1/game-auth/character-bootstrap-intents/read', CharacterBootstrapIntentController::class)
