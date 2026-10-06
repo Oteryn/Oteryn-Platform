@@ -141,8 +141,10 @@ final class NativeAccountCharactersIngestionTest extends TestCase
         self::assertNull($this->readModel()->forAccount(self::ACCOUNT, $this->now()));
 
         // A later Platform clock rollback must not turn a stored future watermark into live evidence.
-        self::assertSame(NativeAccountCharactersReadModel::STALE, $this->readModel()->feedEvidence(1_790_000_008));
-        self::assertNull($this->readModel()->forAccount(self::ACCOUNT, 1_790_000_008));
+        // Stored complete_through is 1_789_999_989 and uncertainty is 1 s, so this now is
+        // deliberately earlier than complete_through - uncertainty.
+        self::assertSame(NativeAccountCharactersReadModel::STALE, $this->readModel()->feedEvidence(1_789_999_987));
+        self::assertNull($this->readModel()->forAccount(self::ACCOUNT, 1_789_999_987));
     }
 
     public function test_strict_wire_rejects_unsorted_characters_invalid_names_and_noncanonical_json(): void
