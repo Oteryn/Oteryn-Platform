@@ -52,11 +52,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-06T19:45:00Z
-head: 93865c3 (implementation); packet PR link follows
+updated_at: 2026-10-06T20:00:00Z
+head: 6c439dbffc516969f3620defe07c61ff937e1f37
 branch: claude/platform-native-preprod-ops-1
 pr: 1469
-status: validating
+status: completed
 context_routes:
   - auth-identity
   - security
@@ -72,8 +72,7 @@ proven:
   - main 3896bcd unchanged in the owned files since the spec reassessment
   - moved predicate is textually identical to the removed isolatedConnection() body
 derived: []
-unknown:
-  - independent review verdict on the frozen head
+unknown: []
 conflicts: []
 first_failure:
   marker: none
@@ -102,17 +101,17 @@ validation:
     evidence: operator CLI for disposable preproduction runs; the joint E2E (contract §14 step 6) is the separate Game node-boot job that consumes it
 blockers:
   - none
-next_action: open the PR, report FREEZE to the control plane, then await independent review on the frozen head
+next_action: none; PR #1469 merged as 81898fc1 after all exact-head required checks passed, and this task is archived.
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR #1469 is terminal and the same-repository implementation branch has no durable post-merge purpose.
+source_branch_evidence: PR #1469 merged from exact head 6c439dbffc516969f3620defe07c61ff937e1f37 and live branch lookup confirms claude/platform-native-preprod-ops-1 is absent.
 ```
 
 ## Notes
 
-Jira synchronization: pending/unknown (no mapped Story was resolved for this workstream in this session).
+Jira synchronization: pending/unknown (no mapped Story).
