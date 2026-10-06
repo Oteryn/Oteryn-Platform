@@ -49,12 +49,7 @@ final class ProductCatalogRegistry
             'available_until' => $availableUntil,
             'presentations' => $canonicalPresentations,
         ];
-        try {
-            $encoded = json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        } catch (JsonException $exception) {
-            throw new ProductCatalogException('catalog_invalid', 'The product catalogue version is invalid.', $exception);
-        }
-        $digest = hash('sha256', $encoded);
+        $digest = $this->digest($payload);
 
         return DB::transaction(function () use (
             $productId,
@@ -149,6 +144,7 @@ final class ProductCatalogRegistry
             return null;
         }
 
+        /** @var array<string, array{name:string,description:string}> $presentations */
         $presentations = [];
         foreach (DB::table('product_catalog_presentations')
             ->where('product_id', $productId)
@@ -160,17 +156,44 @@ final class ProductCatalogRegistry
                 'description' => $this->string($presentation, 'description'),
             ];
         }
+        if (array_keys($presentations) !== ['en', 'pl']) {
+            throw new ProductCatalogException('catalog_integrity_failed', 'The product catalogue version is invalid.');
+        }
+
+        $storedProductId = $this->string($row, 'product_id');
+        $storedVersion = $this->integer($row, 'version');
+        $deliveryProfile = $this->string($row, 'delivery_profile');
+        $targetScope = $this->string($row, 'target_scope');
+        $currency = $this->string($row, 'currency');
+        $priceMinor = $this->integer($row, 'price_minor');
+        $availableFrom = $this->nullableInteger($row, 'available_from');
+        $availableUntil = $this->nullableInteger($row, 'available_until');
+        $storedDigest = $this->string($row, 'payload_sha256');
+        $calculatedDigest = $this->digest([
+            'product_id' => $storedProductId,
+            'version' => $storedVersion,
+            'delivery_profile' => $deliveryProfile,
+            'target_scope' => $targetScope,
+            'currency' => $currency,
+            'price_minor' => $priceMinor,
+            'available_from' => $availableFrom,
+            'available_until' => $availableUntil,
+            'presentations' => $presentations,
+        ]);
+        if (! hash_equals($storedDigest, $calculatedDigest)) {
+            throw new ProductCatalogException('catalog_integrity_failed', 'The product catalogue version is invalid.');
+        }
 
         return new ProductCatalogVersion(
-            $this->string($row, 'product_id'),
-            $this->integer($row, 'version'),
-            $this->string($row, 'delivery_profile'),
-            $this->string($row, 'target_scope'),
-            $this->string($row, 'currency'),
-            $this->integer($row, 'price_minor'),
-            $this->nullableInteger($row, 'available_from'),
-            $this->nullableInteger($row, 'available_until'),
-            $this->string($row, 'payload_sha256'),
+            $storedProductId,
+            $storedVersion,
+            $deliveryProfile,
+            $targetScope,
+            $currency,
+            $priceMinor,
+            $availableFrom,
+            $availableUntil,
+            $storedDigest,
             $presentations,
         );
     }
@@ -217,8 +240,12 @@ final class ProductCatalogRegistry
             throw new ProductCatalogException('price_invalid', 'The product price is invalid.');
         }
 
-        if (($availableFrom === null) !== ($availableUntil === null)
-            || ($availableFrom !== null && ($availableFrom < 0 || $availableUntil <= $availableFrom))) {
+        if (($availableFrom === null) !== ($availableUntil === null)) {
+            throw new ProductCatalogException('availability_invalid', 'The product availability window is invalid.');
+        }
+        if ($availableFrom !== null
+            && $availableUntil !== null
+            && ($availableFrom < 0 || $availableUntil <= $availableFrom)) {
             throw new ProductCatalogException('availability_invalid', 'The product availability window is invalid.');
         }
 
@@ -230,7 +257,10 @@ final class ProductCatalogRegistry
         $canonical = [];
         foreach ($presentations as $locale => $presentation) {
             if (! is_array($presentation)
-                || array_keys($presentation) !== ['name', 'description']) {
+                || array_is_list($presentation)
+                || count($presentation) !== 2
+                || ! array_key_exists('name', $presentation)
+                || ! array_key_exists('description', $presentation)) {
                 throw new ProductCatalogException('presentation_invalid', 'The product presentation is invalid.');
             }
             $name = $this->plainText($presentation['name'], 1, 120);
@@ -239,6 +269,18 @@ final class ProductCatalogRegistry
         }
 
         return $canonical;
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function digest(array $payload): string
+    {
+        try {
+            $encoded = json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        } catch (JsonException $exception) {
+            throw new ProductCatalogException('catalog_integrity_failed', 'The product catalogue version is invalid.', $exception);
+        }
+
+        return hash('sha256', $encoded);
     }
 
     private function plainText(mixed $value, int $minimum, int $maximum): string

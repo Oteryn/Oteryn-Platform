@@ -5,6 +5,7 @@ namespace Tests\Feature\ProductsEntitlements;
 use App\ProductsEntitlements\Catalog\ProductCatalogContract;
 use App\ProductsEntitlements\Catalog\ProductCatalogException;
 use App\ProductsEntitlements\Catalog\ProductCatalogRegistry;
+use App\ProductsEntitlements\Catalog\ProductCatalogVersion;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -115,14 +116,19 @@ final class ProductCatalogRegistryTest extends TestCase
             $this->presentations('Account tier plus', 'Poziom konta plus'),
         );
 
-        self::assertSame(1_000, $registry->find('oteryn.account_tier', 1)?->priceMinor);
-        self::assertSame('Account tier', $registry->find('oteryn.account_tier', 1)?->presentations['en']['name'] ?? null);
-        self::assertSame(1_500, $registry->find('oteryn.account_tier', 2)?->priceMinor);
+        $first = $registry->find('oteryn.account_tier', 1);
+        $second = $registry->find('oteryn.account_tier', 2);
+        self::assertInstanceOf(ProductCatalogVersion::class, $first);
+        self::assertInstanceOf(ProductCatalogVersion::class, $second);
+        self::assertSame(1_000, $first->priceMinor);
+        self::assertSame('Account tier', $first->presentations['en']['name']);
+        self::assertSame(1_500, $second->priceMinor);
         self::assertSame(2, DB::table('product_catalog_versions')->count());
     }
 
     public function test_rejects_unsupported_currency_invalid_window_and_missing_locale(): void
     {
+        /** @var list<array{string,string,int,array<string, array{name:string,description:string}>,int|null,int|null}> $cases */
         $cases = [
             ['currency_unsupported', 'USD', 1_000, $this->presentations(), null, null],
             ['availability_invalid', 'PLN', 1_000, $this->presentations(), 200, 100],
