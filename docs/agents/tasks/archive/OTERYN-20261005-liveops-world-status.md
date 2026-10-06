@@ -34,7 +34,7 @@ The former selector blocker is resolved on protected main `46ed77d5799a8c0019e9f
 - [x] EN/PL Today presentation uses public-safe state labels and keeps partial evidence explicit.
 - [x] Focused feature tests cover fresh, maintenance, stale/unavailable/invalid, mixed-channel degraded, recovery and public redaction.
 - [x] Zero-retry browser acceptance covers the delivered public route on exact candidate.
-- [ ] Exact-head required CI is green.
+- [x] Exact-head required CI is green.
 - [x] Independent exact-head review has no open material finding.
 
 ## Ownership
@@ -73,10 +73,10 @@ blockers: []
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-05T19:29:00Z
-status: validating
-phase: exact_head_ci
+status: completed
+phase: terminal
 branch: feat/liveops-world-status-1458
-head: cfef690a56982dc8dceddef1416e52b3086cc688
+head: a41b2210e3c433176f3843be5758d22def63386d
 pr: 1459
 context_routes:
   - api
@@ -150,5 +150,22 @@ validation:
     result: FAIL
     evidence: classifier reached checkpoint validation and rejected unsupported task-result enum values PASS_AFTER_REMEDIATION and FAIL_REPAIRED; this checkpoint-only repair replaces them with contract-valid PASS semantics while preserving the remediation evidence
 blockers: []
-next_action: Publish this checkpoint-schema-only repair, then inspect PR #1459 exact-head CI and repair only evidence-backed failures before READY_FOR_INTEGRATION.
+next_action: none; PR #1459 merged after all exact-head required checks passed, and this task is archived.
+```
+
+
+## Terminal closeout
+
+- PR #1459 merged from exact head `a41b2210e3c433176f3843be5758d22def63386d` on 2026-10-06.
+- Exact-head CI, Phase 7, Acceptance E2E and Visual UX, Portal Acceptance Contract, Agent Governance, CodeQL, Edge Security, DB Outage, Game Auth Ticket Concurrency, Synology staging image build and native protocol checks passed.
+- Governing Issue #1458 is closed.
+- No production runtime-status activation/configuration is claimed by this archive.
+
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR #1459 is terminal and the same-repository implementation branch has no durable post-merge purpose.
+source_branch_evidence: PR #1459 merged from exact head a41b2210e3c433176f3843be5758d22def63386d and live branch lookup confirms feat/liveops-world-status-1458 is absent.
 ```
