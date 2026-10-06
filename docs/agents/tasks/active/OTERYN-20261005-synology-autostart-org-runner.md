@@ -56,11 +56,11 @@ blockers:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-05T22:00:00+02:00
-status: implementing
-phase: repository_repair
+status: validating
+phase: exact_head_ci
 branch: fix/1339-synology-autostart-org-runner
-head: a670ed2c85385310ac8412cc4ce7c055c42cf205
-pr: none
+head: 37a4c55ff161ac9a8322450fc73bb1024cb1f140
+pr: 1461
 context_routes:
   - ci-repair
   - deployment-operations
@@ -103,5 +103,5 @@ validation:
     evidence: 20/20 assertions passed for current org-runner selector/group/label, org-compose trigger, restart=always on platform runner and six persistent staging services, exclusion of tls-init/Atlas/Game, and exact-one fail-closed behavior
 blockers:
   - final live-host verification requires separately authorized protected-environment execution
-next_action: Hold this validated repository candidate while #1459 required checks are externally queued; open the PR when Actions scheduling is healthy enough to obtain exact-head CI, then request separately authorized live-host verification.
+next_action: Inspect PR #1461 exact-head CI/review and repair only evidence-backed repository failures; after repository gates pass, request separately authorized live-host verification without claiming protected-host completion.
 ```
