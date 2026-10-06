@@ -48,6 +48,7 @@ final readonly class NativeAccountCharactersSnapshot
             if (! is_array($entry) || array_is_list($entry)) {
                 throw new InvalidArgumentException('Native account-character entry is invalid.');
             }
+            /** @var array<string, mixed> $entry */
             NativeAccountCharactersWire::exactKeys($entry, ['character_id', 'world_id', 'name', 'availability']);
             $characterId = NativeAccountCharactersWire::uuid7($entry, 'character_id');
             if ($previous !== null && strcmp($previous, $characterId) >= 0) {

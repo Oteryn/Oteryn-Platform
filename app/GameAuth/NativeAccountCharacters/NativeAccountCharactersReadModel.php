@@ -53,7 +53,7 @@ final class NativeAccountCharactersReadModel
             return new NativeAccountCharactersAccountView(NativeAccountCharactersAccountView::INVALID);
         }
 
-        $characters = DB::table('native_account_character_rows')
+        $characters = array_values(DB::table('native_account_character_rows')
             ->where('account_id', $accountId)
             ->orderBy('character_id')
             ->get()
@@ -63,8 +63,7 @@ final class NativeAccountCharactersReadModel
                 $this->string($row, 'name'),
                 $this->string($row, 'availability'),
             ))
-            ->values()
-            ->all();
+            ->all());
 
         return new NativeAccountCharactersAccountView(NativeAccountCharactersAccountView::READY, $characters);
     }

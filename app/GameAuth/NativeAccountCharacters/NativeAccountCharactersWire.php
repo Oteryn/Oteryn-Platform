@@ -39,6 +39,7 @@ final class NativeAccountCharactersWire
         if (! is_array($decoded) || array_is_list($decoded)) {
             throw new InvalidArgumentException('Native account-character publication root is invalid.');
         }
+        /** @var array<string, mixed> $decoded */
 
         $canonical = json_encode($decoded, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if (! hash_equals($canonical, $raw)) {
