@@ -52,10 +52,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-06T00:00:00Z
-head: UNKNOWN
+updated_at: 2026-10-06T19:45:00Z
+head: 93865c3 (implementation); packet PR link follows
 branch: claude/platform-native-preprod-ops-1
-pr: none
+pr: 1469
 status: validating
 context_routes:
   - auth-identity
