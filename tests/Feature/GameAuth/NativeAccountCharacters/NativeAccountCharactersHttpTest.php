@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\GameAuth\NativeAccountCharacters;
 
+use App\GameAuth\NativeAccountCharacters\NativeAccountCharactersSettings;
 use App\GameAuth\NativeRuntimeStatus\NativeRuntimeStatusSettings;
 use App\GameAuth\NativeRuntimeStatus\NativeScopeAssignmentSettings;
 use App\Http\Middleware\GameAuth\RequireCharacterBootstrapIntentMtlsPeer;
@@ -119,7 +120,7 @@ final class NativeAccountCharactersHttpTest extends TestCase
             'game-auth.native_account_characters.identities' => [self::IDENTITY, 'CN=character-authority-projection-b'],
             'game-auth.native_account_characters.source_authority' => self::AUTHORITY,
         ]);
-        $settings = \App\GameAuth\NativeAccountCharacters\NativeAccountCharactersSettings::current();
+        $settings = NativeAccountCharactersSettings::current();
         self::assertNotNull($settings);
         self::assertTrue($settings->knows(self::IDENTITY));
         self::assertTrue($settings->knows('CN=character-authority-projection-b'));
