@@ -7,9 +7,10 @@ use App\GameAuth\NativeRuntimeStatus\NativeScopeAssignmentReport;
 use JsonException;
 
 /**
- * Testing/preproduction-only LCFA push consumer configuration. Publishers are bound as
- * certificate-subject => Character Authority namespace; any identity shared with another internal
- * purpose makes the whole consumer unavailable.
+ * Testing/preproduction-only LCFA push consumer configuration. Multiple Character Authority hosts
+ * may hold dedicated projection certificates, but every configured identity shares one expected
+ * Character Authority namespace. Any identity reused by another internal purpose makes the whole
+ * consumer unavailable.
  */
 final readonly class NativeAccountCharactersSettings
 {
@@ -90,23 +91,31 @@ final readonly class NativeAccountCharactersSettings
             } catch (JsonException) {
                 $other = null;
             }
-            if (is_array($other)) {
+            if (is_array($other) && ! array_is_list($other)) {
                 array_push($otherIdentities, ...array_map('strval', array_keys($other)));
             }
         }
 
-        $publishers = [];
-        foreach ($decoded as $identity => $authority) {
+        $identities = [];
+        foreach ($decoded as $identity) {
             if (! is_string($identity)
                 || preg_match(NativeScopeAssignmentReport::IDENTITY, $identity) !== 1
                 || in_array($identity, $otherIdentities, true)
-                || ! is_string($authority)
-                || preg_match('/^[A-Za-z0-9._:\/-]{1,128}$/D', $authority) !== 1) {
+                || in_array($identity, $identities, true)) {
                 return null;
             }
-            $publishers[$identity] = $authority;
+            $identities[] = $identity;
         }
 
-        return $publishers;
+        return $identities;
+    }
+
+    private static function sourceAuthority(mixed $raw): ?string
+    {
+        if (! is_string($raw) || preg_match('/^[A-Za-z0-9._:\\/-]{1,128}$/D', $raw) !== 1) {
+            return null;
+        }
+
+        return $raw;
     }
 }
