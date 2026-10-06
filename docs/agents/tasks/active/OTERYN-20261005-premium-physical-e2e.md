@@ -35,7 +35,7 @@ The harness runs the real Platform Premium snapshot endpoint behind a real TLS 1
 
 ```yaml
 owned_paths:
-  - .github/workflows/premium-physical-e2e.yml
+  - .github/workflows/phase7-production-like-validation.yml
   - tests/e2e/premium_physical_e2e/**
   - docs/agents/tasks/active/OTERYN-20261005-premium-physical-e2e.md
 modules:
@@ -56,16 +56,16 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-05T23:20:00+02:00
-status: prepared
-phase: rebased_candidate
+status: validating
+phase: exact_head_validation
 branch: test/1431-premium-physical-e2e
-head: 3896bcdf75a511f1e386ac645303eaf8f234ffcf
-pr: none
+head: 883994de56b247750d77e1e870a5d1e59f0750f3
+pr: 1462
 context_routes:
   - products-entitlements
   - cross-repository-e2e
 owned_paths:
-  - .github/workflows/premium-physical-e2e.yml
+  - .github/workflows/phase7-production-like-validation.yml
   - tests/e2e/premium_physical_e2e/**
   - docs/agents/tasks/active/OTERYN-20261005-premium-physical-e2e.md
 proven:
@@ -85,7 +85,7 @@ rejected_hypotheses:
   - Inject synthetic SSL headers into Laravel instead of negotiating mutual TLS.
   - Use a custom curl client as a substitute for the Game PremiumSnapshotClient.
 changed_paths:
-  - .github/workflows/premium-physical-e2e.yml
+  - .github/workflows/phase7-production-like-validation.yml
   - tests/e2e/premium_physical_e2e/Dockerfile.platform-fpm
   - tests/e2e/premium_physical_e2e/nginx.conf
   - tests/e2e/premium_physical_e2e/control.php
@@ -93,10 +93,13 @@ changed_paths:
   - tests/e2e/premium_physical_e2e/run.sh
   - docs/agents/tasks/active/OTERYN-20261005-premium-physical-e2e.md
 validation:
-  - command: exact-head Premium Physical Cross-Repository E2E workflow
-    result: NOT_RUN
-    evidence: PR intentionally not opened while PR #1459 rerun gates are still queued; no validation result is claimed
+  - command: initial PR #1462 governance/CI validation on head 7b1eade0e2a73e14bf4e4a9f8b5e60b81f31ab2b
+    result: FAIL
+    evidence: Agent Governance rejected unsupported checkpoint status prepared and omitted PR identity; CI rejected an unregistered 54th workflow against lifecycle budget 53
+  - command: workflow-lifecycle remediation on functional head 883994de56b247750d77e1e870a5d1e59f0750f3
+    result: PASS
+    evidence: dedicated workflow removed; Premium physical job is routed through existing Phase 7 only for classifier class payment; workflow inventory remains bounded at 53
 blockers:
-  - exact-head CI is pending only on opening the PR after current Actions congestion clears
-next_action: Open a normal PR from this rebased candidate, then execute exact-head repository CI and the physical Premium workflow; repair only evidence-backed failures.
+  - exact-head repository and physical E2E validation pending on this remediated candidate
+next_action: Hold exact head after checkpoint commit, inspect Phase 7 premium-physical-e2e and repository CI; repair only evidence-backed harness failures, then classify READY_FOR_INTEGRATION.
 ```
