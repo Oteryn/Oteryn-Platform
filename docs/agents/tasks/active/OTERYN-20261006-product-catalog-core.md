@@ -67,11 +67,11 @@ blockers:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-06T08:24:00Z
-status: implementing
-phase: catalog_core
+status: validating
+phase: exact_head_ci
 branch: feat/322-product-catalog-core
-head: 3896bcdf75a511f1e386ac645303eaf8f234ffcf
-pr: none
+head: 762d4cad4e4d72c8fb7920b356c6d7e6a572aec6
+pr: 1466
 context_routes:
   - payments
   - testing
@@ -106,10 +106,13 @@ changed_paths:
   - tests/Feature/ProductsEntitlements/ProductCatalogRegistryTest.php
   - docs/agents/tasks/active/OTERYN-20261006-product-catalog-core.md
 validation:
+  - command: pre-PR whole-diff self-review
+    result: PASS
+    evidence: bounded seven-path candidate is disjoint from active Premium/LCFA lanes; integrity readback, presentation key-order independence, nullable-window narrowing and test typing were hardened before PR creation
   - command: exact-head required repository workflows
     result: NOT_RUN
-    evidence: candidate is being prepared before PR creation
+    evidence: PR #1466 is open; exact-head workflow results are pending
 blockers:
   - production activation only; implementation slice is unblocked
-next_action: Publish the bounded branch candidate, inspect the exact diff, then open a normal PR and repair only evidence-backed validation findings.
+next_action: Freeze this checkpoint successor, inspect PR #1466 exact-head CI/Phase7/governance, and repair only evidence-backed validation findings.
 ```
