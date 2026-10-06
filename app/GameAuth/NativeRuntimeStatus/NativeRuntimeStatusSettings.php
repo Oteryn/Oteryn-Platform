@@ -2,6 +2,7 @@
 
 namespace App\GameAuth\NativeRuntimeStatus;
 
+use App\GameAuth\NativeAccountCharacters\NativeAccountCharactersSettings;
 use JsonException;
 
 /**
@@ -69,6 +70,7 @@ final readonly class NativeRuntimeStatusSettings
             config('game-auth.native_evidence.mtls_client_identity'),
             config('game-auth.character_bootstrap_intent.mtls_client_identity'),
             config('products-entitlements.premium_snapshot.mtls_client_identity'),
+            ...NativeAccountCharactersSettings::configuredPublisherIdentities(),
             ...(is_array($other) ? array_map('strval', array_keys($other)) : []),
         ];
         $identities = [];

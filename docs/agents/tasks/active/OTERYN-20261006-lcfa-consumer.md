@@ -40,6 +40,10 @@ owned_paths:
   - app/GameAuth/NativeAccountCharacters/**
   - app/Http/Controllers/GameAuth/NativeAccountCharacters*.php
   - app/Http/Middleware/GameAuth/GuardNativeAccountCharactersPeer.php
+  - app/GameAuth/NativeRuntimeStatus/NativeRuntimeStatusSettings.php
+  - app/Http/Middleware/GameAuth/RequireNativeEvidenceMtlsPeer.php
+  - app/Http/Middleware/GameAuth/RequireCharacterBootstrapIntentMtlsPeer.php
+  - app/ProductsEntitlements/Premium/PremiumSnapshotSettings.php
   - app/GameAuth/OAuth/VerifyNativeOAuthAccess.php
   - app/GameAuth/OAuth/IssueGameLoginTicketFromOAuth.php
   - app/GameAuth/NativeLogin/RegistryNativeAdmissionScopeResolver.php
@@ -109,6 +113,18 @@ rejected_hypotheses:
   - Call IssueGameLoginTicketFromOAuth::execute() from the native-characters read and revoke the bearer token.
   - Store or mutate authoritative Character rows in Platform.
 changed_paths:
+  - app/GameAuth/NativeAccountCharacters/**
+  - app/Http/Controllers/GameAuth/NativeAccountCharacters*.php
+  - app/Http/Middleware/GameAuth/GuardNativeAccountCharactersPeer.php
+  - app/Http/Middleware/GameAuth/EnforceNativeAccountCharactersHttpBounds.php
+  - app/GameAuth/NativeRuntimeStatus/NativeRuntimeStatusSettings.php
+  - app/Http/Middleware/GameAuth/RequireNativeEvidenceMtlsPeer.php
+  - app/Http/Middleware/GameAuth/RequireCharacterBootstrapIntentMtlsPeer.php
+  - app/ProductsEntitlements/Premium/PremiumSnapshotSettings.php
+  - config/game-auth.php
+  - routes/internal.php
+  - database/migrations/2026_10_06_090000_add_native_account_character_projection.php
+  - tests/Feature/GameAuth/NativeAccountCharacters/**
   - docs/agents/tasks/active/OTERYN-20261006-lcfa-consumer.md
 validation:
   - command: live ownership reconstruction
@@ -116,5 +132,5 @@ validation:
     evidence: no open #1419 PR/branch and #1459 is terminal
 blockers:
   - production release only: Decision P1/U12
-next_action: Implement the additive LCFA read model and strict ingestion decoder first, then wire admission and owner OAuth read.
+next_action: Finish the owner OAuth read and §5.4 admission integration, then run focused/exact-head validation before opening the PR.
 ```

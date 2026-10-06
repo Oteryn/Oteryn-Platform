@@ -2,8 +2,14 @@
 
 namespace Tests\Feature\GameAuth\NativeAccountCharacters;
 
+use App\GameAuth\NativeRuntimeStatus\NativeRuntimeStatusSettings;
+use App\GameAuth\NativeRuntimeStatus\NativeScopeAssignmentSettings;
+use App\Http\Middleware\GameAuth\RequireCharacterBootstrapIntentMtlsPeer;
+use App\Http\Middleware\GameAuth\RequireNativeEvidenceMtlsPeer;
+use App\ProductsEntitlements\Premium\PremiumSnapshotSettings;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Testing\TestResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
@@ -67,6 +73,43 @@ final class NativeAccountCharactersHttpTest extends TestCase
             '/internal/v1/game-auth/native-account-characters/watermark',
             str_repeat('x', 513),
         ), 413);
+    }
+
+    public function test_projection_identity_is_refused_by_every_other_internal_mtls_purpose(): void
+    {
+        config([
+            'game-auth.native_account_characters.enabled' => false,
+            'game-auth.native_evidence.mtls_client_identity' => self::IDENTITY,
+            'game-auth.character_bootstrap_intent.mtls_client_identity' => self::IDENTITY,
+            'products-entitlements.premium_snapshot.enabled' => true,
+            'products-entitlements.premium_snapshot.mtls_client_identity' => self::IDENTITY,
+            'products-entitlements.premium_snapshot.producer_revision' => str_repeat('a', 40),
+            'products-entitlements.premium_snapshot.requests_per_minute' => 120,
+            'game-auth.native_runtime_status.enabled' => true,
+            'game-auth.native_runtime_status.identities' => [
+                self::IDENTITY => ['01934f10-7c02-7001-805b-3b1122334401/01934f10-7c02-7001-805b-3b1122334402'],
+            ],
+            'game-auth.native_runtime_status.freshness_seconds' => 15,
+            'game-auth.native_runtime_status.clock_uncertainty_seconds' => 1,
+            'game-auth.native_runtime_status.requests_per_minute' => 120,
+            'game-auth.native_scope_assignment.enabled' => true,
+            'game-auth.native_scope_assignment.identities' => [
+                self::IDENTITY => ['01934f10-7c02-7001-805b-3b1122334401/01934f10-7c02-7001-805b-3b1122334402'],
+            ],
+            'game-auth.native_scope_assignment.requests_per_minute' => 120,
+        ]);
+
+        self::assertNull(NativeRuntimeStatusSettings::current());
+        self::assertNull(NativeScopeAssignmentSettings::current());
+        self::assertNull(PremiumSnapshotSettings::current());
+
+        $request = Request::create('/internal', 'POST', server: [
+            'SSL_CLIENT_VERIFY' => 'SUCCESS',
+            'SSL_PROTOCOL' => 'TLSv1.3',
+            'SSL_CLIENT_S_DN' => self::IDENTITY,
+        ]);
+        self::assertSame(503, app(RequireNativeEvidenceMtlsPeer::class)->handle($request, fn (): Response => response('', 204))->getStatusCode());
+        self::assertSame(503, app(RequireCharacterBootstrapIntentMtlsPeer::class)->handle($request, fn (): Response => response('', 204))->getStatusCode());
     }
 
     public function test_switch_is_default_off_and_rate_limit_is_per_projection_identity(): void

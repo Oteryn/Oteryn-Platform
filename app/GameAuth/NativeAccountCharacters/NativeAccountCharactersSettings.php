@@ -38,6 +38,22 @@ final readonly class NativeAccountCharactersSettings
         return new self($publishers, $freshness, $uncertainty, $rate);
     }
 
+    /** @return list<string> Configured publisher subjects, even while the LCFA switch is off. */
+    public static function configuredPublisherIdentities(): array
+    {
+        $raw = config('game-auth.native_account_characters.publishers');
+        try {
+            $decoded = is_string($raw) ? json_decode($raw, true, 3, JSON_THROW_ON_ERROR) : $raw;
+        } catch (JsonException) {
+            return [];
+        }
+        if (! is_array($decoded) || array_is_list($decoded)) {
+            return [];
+        }
+
+        return array_values(array_filter(array_keys($decoded), 'is_string'));
+    }
+
     public function knows(string $identity): bool
     {
         return isset($this->publishers[$identity]);
