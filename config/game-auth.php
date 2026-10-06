@@ -87,6 +87,17 @@ return [
         'requests_per_minute' => env('GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_REQUESTS_PER_MINUTE', 120),
     ],
 
+    'native_account_characters' => [
+        // Testing/preproduction push consumer only. Production remains blocked on Decision P1/U12.
+        'enabled' => env('GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED', false),
+        // JSON object: dedicated Character Authority projection certificate subject => source_authority namespace.
+        'publishers' => env('GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_PUBLISHERS'),
+        // Accepted internal-build liveness bound; release acceptance remains a separate decision.
+        'freshness_seconds' => env('GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_FRESHNESS_SECONDS', 30),
+        'clock_uncertainty_seconds' => env('GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_CLOCK_UNCERTAINTY_SECONDS', 1),
+        'requests_per_minute' => env('GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_REQUESTS_PER_MINUTE', 120),
+    ],
+
     'character_bootstrap_intent' => [
         'ttl_seconds' => env('GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS'),
         'mtls_client_identity' => env('GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY'),
