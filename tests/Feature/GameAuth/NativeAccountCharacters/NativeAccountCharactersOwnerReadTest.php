@@ -10,10 +10,12 @@ use App\Identity\Models\Identity;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Testing\TestResponse;
 use Laravel\Passport\RefreshToken;
 use Laravel\Passport\Token;
 use Tests\Feature\GameAuth\OAuth\Concerns\ConfiguresEphemeralPassportKeys;
 use Tests\Feature\GameAuth\OAuth\Concerns\CreatesNativeOAuthBootstrapToken;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
 final class NativeAccountCharactersOwnerReadTest extends TestCase
@@ -147,7 +149,8 @@ final class NativeAccountCharactersOwnerReadTest extends TestCase
             ?? throw new \RuntimeException('LCFA settings must be valid in the owner-read test.');
     }
 
-    private function assertNoStore($response): void
+    /** @param TestResponse<Response> $response */
+    private function assertNoStore(TestResponse $response): void
     {
         self::assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
     }
