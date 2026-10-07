@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\GameAuth\GameLoginTicketIssueController;
+use App\Http\Controllers\GameAuth\NativeAccountCharactersReadController;
 use App\Http\Middleware\GameAuth\PreventSensitiveGameAuthResponseCaching;
 use App\Payments\Http\TestPaymentProviderEventController;
 use Illuminate\Support\Facades\Route;
@@ -10,6 +11,13 @@ Route::post('/v1/game-auth/tickets', GameLoginTicketIssueController::class)
         PreventSensitiveGameAuthResponseCaching::class,
         'auth:api',
         'throttle:game-auth-ticket-issue',
+    ]);
+
+Route::get('/v1/game-auth/native-characters', NativeAccountCharactersReadController::class)
+    ->middleware([
+        PreventSensitiveGameAuthResponseCaching::class,
+        'auth:api',
+        'throttle:game-auth-native-characters',
     ]);
 
 if (! app()->environment('production')) {

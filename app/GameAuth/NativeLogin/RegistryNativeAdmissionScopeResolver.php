@@ -2,23 +2,18 @@
 
 namespace App\GameAuth\NativeLogin;
 
+use App\GameAuth\NativeAccountCharacters\NativeAccountCharactersAccountView;
+use App\GameAuth\NativeAccountCharacters\NativeAccountCharactersReadModel;
 use App\GameAuth\NativeRuntimeStatus\NativeRuntimeStatusReadModel;
 use App\GameAuth\Worlds\NativeRouteRecord;
 use App\GameAuth\Worlds\NativeRouteRecords;
 use UnexpectedValueException;
 
 /**
- * Character check (§5.4) and native route selection (§7.4) over the Registry route records and the
- * fresh, ownership-bound runtime status read model.
+ * Character check (§5.4) and native route selection (§7.4) over Platform's read-only Game projections.
  *
- * No Character read model exists yet (Q17a). D171 allows issuance without verifying AccountId ->
- * CharacterId ownership only in `testing`/`preproduction`, only while
- * `game-auth.native_admission.unverified_character_ownership` is on, and only for the configured
- * `unverified_character_world_id`; Game FND-04A §5 admission stays the fail-closed guard (it rejects a
- * foreign or moved Character with ADMISSION_ACCOUNT_CHARACTER_CONFLICT / ADMISSION_GRANT_WORLD_STALE).
- * With the mode off there is no source of Character facts, so issuance fails closed (ROUTE_UNAVAILABLE,
- * §5.4 "account read model unavailable"); with the mode on outside those environments, UNAVAILABLE.
- * Release gate: CHAR-NAME-1 -> LCFA-1 and the full §5.4 check replace this mode.
+ * When the LCFA consumer is enabled, its live highest-epoch account view is mandatory and D171 is never
+ * used as a fallback. D171 remains testing/preproduction-only while LCFA is explicitly disabled.
  */
 final class RegistryNativeAdmissionScopeResolver implements NativeAdmissionScopeResolver
 {
@@ -27,17 +22,18 @@ final class RegistryNativeAdmissionScopeResolver implements NativeAdmissionScope
     public function __construct(
         private readonly NativeRouteRecords $routes,
         private readonly NativeRuntimeStatusReadModel $runtime,
+        private readonly NativeAccountCharactersReadModel $characters,
     ) {}
 
     public function resolve(RedeemedNativeAccount $account, NativeAdmissionRequest $request): NativeAdmissionScope
     {
-        $worldId = self::unverifiedCharacterWorld();
-
-        // The caller (NativeAdmissionAttempts::issue) already holds the shared epoch lock, taken before any
-        // non-locking read of its transaction: an epoch raise cannot land between the ownership check of the
-        // selected report and signing, and these reads see every raise committed before the lock.
+        // The caller (NativeAdmissionAttempts::issue) already holds the runtime shared epoch lock before
+        // any non-locking issuer read. LCFA then takes its own shared state->snapshot locks in the same
+        // order as LCFA ingestion, so a projection epoch raise cannot split this ownership check.
         try {
             $now = now()->getTimestamp();
+            $worldId = $this->characterWorld($account, $request, $now);
+
             foreach ($this->routes->forWorld($worldId) as $route) {
                 if ($request->channelId !== null && $route->channelId !== $request->channelId) {
                     continue;
@@ -54,6 +50,34 @@ final class RegistryNativeAdmissionScopeResolver implements NativeAdmissionScope
         throw new NativeLoginRefused(NativeLoginError::RouteUnavailable);
     }
 
+    private function characterWorld(RedeemedNativeAccount $account, NativeAdmissionRequest $request, int $now): string
+    {
+        if (filter_var(config('game-auth.native_account_characters.enabled'), FILTER_VALIDATE_BOOL) !== true) {
+            return self::unverifiedCharacterWorld();
+        }
+
+        $view = $this->characters->viewForAccount($account->accountId, $now, lock: true);
+        if ($view->state === NativeAccountCharactersAccountView::MISSING) {
+            throw new NativeLoginRefused(NativeLoginError::CharacterConflict);
+        }
+        if ($view->state !== NativeAccountCharactersAccountView::READY) {
+            throw new NativeLoginRefused(NativeLoginError::RouteUnavailable);
+        }
+
+        foreach ($view->characters as $character) {
+            if (! hash_equals($character->characterId, $request->characterId)) {
+                continue;
+            }
+            if ($character->availability !== 'AVAILABLE') {
+                throw new NativeLoginRefused(NativeLoginError::CharacterConflict);
+            }
+
+            return $character->worldId;
+        }
+
+        throw new NativeLoginRefused(NativeLoginError::CharacterConflict);
+    }
+
     /** §7.4 conditions 3 to 5 for one login-enabled Registry route (conditions 1 and 2). */
     private function candidate(NativeRouteRecord $route, string $characterId, int $now): ?NativeAdmissionScope
     {
@@ -65,7 +89,6 @@ final class RegistryNativeAdmissionScopeResolver implements NativeAdmissionScope
             return null;
         }
 
-        // The request's offer was already required to contain (1, 1, oteryn-game/1), the only route transport.
         return new NativeAdmissionScope(
             characterId: $characterId,
             worldId: $route->worldId,
@@ -81,7 +104,7 @@ final class RegistryNativeAdmissionScopeResolver implements NativeAdmissionScope
         );
     }
 
-    /** D171 gate; the Character's world in the unverified testing mode. */
+    /** D171 gate; used only while LCFA is explicitly disabled. */
     private static function unverifiedCharacterWorld(): string
     {
         if (filter_var(config('game-auth.native_admission.unverified_character_ownership'), FILTER_VALIDATE_BOOL) !== true) {
