@@ -57,6 +57,10 @@ final class RegistryNativeAdmissionScopeResolver implements NativeAdmissionScope
         }
 
         $view = $this->characters->viewForAccount($account->accountId, $now, lock: true);
+        if ($view->state === NativeAccountCharactersAccountView::UNAVAILABLE) {
+            // Enabled outside testing/preproduction, or misconfigured: a Platform fault, not a route state.
+            throw new NativeLoginRefused(NativeLoginError::Unavailable);
+        }
         if ($view->state === NativeAccountCharactersAccountView::MISSING) {
             throw new NativeLoginRefused(NativeLoginError::CharacterConflict);
         }

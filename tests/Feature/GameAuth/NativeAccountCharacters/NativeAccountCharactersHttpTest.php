@@ -11,6 +11,7 @@ use App\ProductsEntitlements\Premium\PremiumSnapshotSettings;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
@@ -141,6 +142,21 @@ final class NativeAccountCharactersHttpTest extends TestCase
         $limited = $this->publish('/internal/v1/game-auth/native-account-characters', $this->snapshotWire());
         $this->assertEmptyFailure($limited, 429);
         self::assertNotNull($limited->headers->get('Retry-After'));
+    }
+
+    public function test_publications_are_refused_when_enabled_outside_testing_and_preproduction(): void
+    {
+        foreach (['local', 'staging', 'production'] as $environment) {
+            $this->app->detectEnvironment(fn (): string => $environment);
+            self::assertNull(NativeAccountCharactersSettings::current());
+            $this->assertEmptyFailure($this->publish('/internal/v1/game-auth/native-account-characters', $this->snapshotWire()), 503);
+            $this->assertEmptyFailure($this->publish('/internal/v1/game-auth/native-account-characters/watermark', $this->watermarkWire()), 503);
+        }
+
+        $this->app->detectEnvironment(fn (): string => 'preproduction');
+        self::assertNotNull(NativeAccountCharactersSettings::current());
+        $this->app->detectEnvironment(fn (): string => 'testing');
+        self::assertSame(0, DB::table('native_account_character_snapshots')->count());
     }
 
     /**
