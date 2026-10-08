@@ -33,6 +33,30 @@ return new class extends Migration
 
     public function down(): void
     {
+        // Rollback runs only with the application down so no request or worker writes native ids mid-rollback.
+        // The test runner is exempt because DatabaseMigrations rolls every migration back after each test.
+        if (! app()->isDownForMaintenance() && ! app()->runningUnitTests()) {
+            throw new LogicException('Run "php artisan down" before rolling back native account and character ids; rollback refused before DDL.');
+        }
+
+        $locking = in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true);
+
+        if ($locking) {
+            // The checks and the DDL share one table lock so no writer can add a native id between them.
+            DB::unprepared('LOCK TABLES character_auctions WRITE, character_profile_preferences WRITE');
+        }
+
+        try {
+            $this->dropNativeIds();
+        } finally {
+            if ($locking) {
+                DB::unprepared('UNLOCK TABLES');
+            }
+        }
+    }
+
+    private function dropNativeIds(): void
+    {
         // Native ids must survive: refuse before any DDL once a native id has been written.
         if (DB::table('character_auctions')->whereNotNull('seller_account_id')->exists()
             || DB::table('character_auctions')->whereNotNull('escrow_account_id')->exists()
