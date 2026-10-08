@@ -27,9 +27,9 @@ When used, classify the task and load only the matching route context. The activ
 | `architecture` | new module, durable boundary, major dependency, product architecture | Read `ARCHITECTURE_AUTHORITY.md` first, then the focused owner named there, relevant ADRs and contracts. Create or supersede an ADR when a decision outlives one task. |
 | `web-cms` | Blade/views/CMS/news/public pages | Read relevant module catalog section; search affected routes, controllers, views and tests. Check escaping, sanitization, authorization and CSRF boundaries. |
 | `auth-identity` | login, password, sessions, MFA, verification, recovery | Read `SECURITY_ARCHITECTURE.md` and `AUTH_GAME_LOGIN_CONTRACT.md`, then relevant auth config/code/tests. Treat unresolved game-login compatibility as a blocker for global-security claims. |
-| `accounts-characters` | account/player creation or management | Read `DATA_OWNERSHIP.md` and `CANARY_DATA_CONTRACT.md`; load affected models/services/tests only after required contract fields are proven. |
-| `public-game-data` | highscores, characters, guilds, online/status | Read relevant `CANARY_DATA_CONTRACT.md` sections and query/read-model code. Prefer read-only boundaries. |
-| `canary-integration` | shared DB, login-server, Canary schema/protocol contract | Read matching documents in `docs/contracts/**`; verify live Canary/login-server evidence before compatibility claims. |
+| `accounts-characters` | **LEGACY / COMPATIBILITY** — account/player creation or management on the Canary-compatible path | Read `DATA_OWNERSHIP.md` (section `Native Oteryn-v2 Character Authority boundary`) first; read `CANARY_DATA_CONTRACT.md` only as compatibility evidence. Native target is the Game character authority boundary, not Canary rows; load affected models/services/tests only after required contract fields are proven. |
+| `public-game-data` | **LEGACY / COMPATIBILITY** — highscores, characters, guilds, online/status read from Canary tables | Native target is game-owned public projections pushed to Platform read models (see `DATA_OWNERSHIP.md`); read relevant `CANARY_DATA_CONTRACT.md` sections only as compatibility evidence and query/read-model code. Prefer read-only boundaries. |
+| `canary-integration` | **LEGACY / COMPATIBILITY** — shared DB, login-server, Canary schema/protocol contract | Native replacements live in the Game contracts (LCFA, native login, character authority boundary); read matching `*CANARY*` documents in `docs/contracts/**` only for the compatibility path; verify live Canary/login-server evidence before compatibility claims. |
 | `database` | migration, transaction, locking, schema, query behavior | Read `DATA_OWNERSHIP.md`, matching migrations/models and concurrency tests. Require rollback thinking for destructive changes. |
 | `admin-rbac` | admin panel, roles, policies, privileged actions | Read `SECURITY_ARCHITECTURE.md`, Admin module catalog section, authorization policies and audit requirements. Deny by default. |
 | `api` | REST/API endpoints, external clients | Load routes, request validation, auth middleware, rate limits and API tests. Reuse module services rather than duplicating business logic. |
@@ -40,6 +40,20 @@ When used, classify the task and load only the matching route context. The activ
 | `execution-resources` | create or control containers, services, runners, volumes or persistent temporary infrastructure | Read `EXECUTION_RESOURCE_HYGIENE.md` and apply its ownership-scoped inventory and cleanup rules. |
 
 Multiple routes may apply, but each must be justified by task scope or evidence.
+
+## Canary routes are legacy
+
+The `accounts-characters`, `public-game-data` and `canary-integration` routes cover the Canary compatibility path only. The native target is defined by the Game contracts: LCFA, native login and the character authority boundary (`DATA_OWNERSHIP.md`, section `Native Oteryn-v2 Character Authority boundary`). Do not extend the shared-DB path for new work without an explicit task.
+
+## Model tiers
+
+Roles only; this repository does not name model identifiers. Pick the lowest tier that is safe for the work.
+
+| Work | Tier |
+|---|---|
+| Lookup, search, listing, summarising | Small / fast tier |
+| Ordinary implementation, tests, docs | Middle tier |
+| Persistence, auth, wire/protocol, money | Top tier |
 
 ## Authoritative architecture documents
 
