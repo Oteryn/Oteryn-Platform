@@ -21,9 +21,10 @@ then complete inside the client while this narrowly scoped device family remains
 
 `NativeRememberedDeviceSessions` requires strict Boolean
 `game-auth.device_sessions.enabled === true` and environment `testing` or
-`preproduction`. A missing key is false. This batch does not add the configuration key,
-HTTP routes, middleware exceptions, production activation, or changes to existing ticket
-issuance. Production is refused even if an operator sets the feature key to true.
+`preproduction`. A missing key is false. This batch does not add
+production activation or changes to existing ticket issuance. Additive candidate HTTP
+adapters/configuration now exist, but every route refuses the default disabled state.
+Production is refused even if an operator sets the feature key to true.
 
 Enabling a future complete feature requires an owning contract/ADR and independent
 security review covering the producer, consumer, credential storage, HTTP protection,
@@ -185,7 +186,7 @@ does not by itself qualify the remembered-device feature for activation.
 
 ## HTTP and client integration requirements
 
-New HTTP adapters must remain disabled with this feature, validate an exact versioned
+The candidate HTTP adapters remain disabled with this feature, validate an exact versioned
 request shape, reject client-selected authority fields, rate-limit enrollment/rotation/
 revocation and apply the existing sensitive-response no-cache policy to success and failure.
 Serve HTTPS in deployment. A bounded explicit localhost exception may support authorized
@@ -209,6 +210,92 @@ Suggested integration sequence (route names are selected by the owning adapter):
    remembered credential to the Game Gateway or game node.
 6. On logout/cancellation request family revocation and remove the vault entry.
 
+### Candidate HTTP wire version 1
+
+All four routes use POST and `Content-Type: application/json`. Bodies are bounded to
+1024 bytes, flat JSON objects with the exact fields below. Duplicate keys (including
+escaped spellings), unknown fields, query parameters, nested values, string versions,
+non-Boolean consent, compressed/transfer-encoded payloads and inconsistent lengths are
+refused. There are no caller-selected Identity/AccountId/generation/purpose fields.
+The existing sensitive-cache middleware covers these paths globally, including error
+and unexpected nested-path responses.
+
+| Path | Authorization | Exact JSON body |
+| --- | --- | --- |
+| `/api/v1/game-auth/device-sessions` | `Bearer <normal PKCE access token>` | `{"protocol_version":1,"remember_device":true}` |
+| `/api/v1/game-auth/device-sessions/native-characters` | `OterynDevice <device credential>` | `{"protocol_version":1,"client_id":"<Rust OAuth client UUID>"}` |
+| `/api/v1/game-auth/device-sessions/tickets` | `OterynDevice <device credential>` | `{"protocol_version":1,"client_id":"<Rust OAuth client UUID>"}` |
+| `/api/v1/game-auth/device-sessions/revoke` | `OterynDevice <device credential>` | `{"protocol_version":1,"client_id":"<Rust OAuth client UUID>"}` |
+
+The device scheme uses exactly one ASCII space and the exact `OterynDevice` spelling.
+The credential is accepted only in this Authorization header, never a request JSON
+field or URL. The public client UUID is canonical lowercase; it is binding context,
+not a confidential client secret. A device credential does not authenticate on any
+Passport Bearer endpoint. Enrollment resolves the standard Passport `api` guard inside
+the controller's sanitized exception boundary and then uses the locked core OAuth verifier.
+It does not create a competing authenticator or accept a web cookie as native authority.
+
+Enrollment response (HTTP 200):
+
+```json
+{
+  "protocol_version": 1,
+  "device_credential": "<opaque secret>",
+  "family_id": "<Platform family UUID>",
+  "absolute_expires_at": 1794132000,
+  "idle_expires_at": 1792144800
+}
+```
+
+All expiry fields are UTC Unix seconds as JSON integers. The family UUID is metadata,
+not account/character authority. Rotation responses contain the same fields with the
+new credential and original family/absolute deadline. The character response additionally
+contains `characters`, whose entries preserve the owning native read contract's
+`character_id`, `world_id`, `name` and `availability`. Its wrapper version is 1; this
+does not change the original OAuth character endpoint's protocol version 2.
+
+The ticket response additionally contains `ticket`, integer `expires_in` bounded by the
+existing native ticket lifetime (at most 60 seconds), and integer UTC `expires_at`.
+No OAuth token is minted or returned. The character callback uses the canonical owner's
+existing projection with transaction locks and verifies projection state and JSON response
+bounds before rotation commits. The native ticket callback is fixed in server code and
+cannot issue Canary/legacy tickets. Responses are bounded to 16 KiB.
+
+Revocation returns HTTP 200 with exactly `{"protocol_version":1,"revoked":true}`;
+it does not rotate or reveal the owner/family state. Revoking again with the same correctly
+bound credential remains idempotent.
+
+Failures contain only an `error` field:
+
+- HTTP 400 `invalid_request`: request shape/type/encoding/query rejection;
+- HTTP 413 `invalid_request`: declared or actual body exceeds bounds;
+- HTTP 401 `device_authorization_unavailable`: missing/wrong credential, owner/client/scope
+  refusal, revoked/expired/replayed family or unusable native ticket authority;
+- HTTP 429 `too_many_requests`: source throttle, with a positive `Retry-After`;
+- HTTP 503 `device_authorization_unavailable`: disabled/production/transport gate,
+  invalid configuration, unavailable projection/database or unexpected application failure.
+
+No failure response echoes input, exception messages, credentials, account identifiers or
+stack traces, including when application debug is enabled. Application exceptions within
+the candidate controller are deliberately not reported with a credential-bearing request.
+Deployment logging and tracing must still redact Authorization and successful credential
+responses; these adapters do not qualify unrelated logging infrastructure.
+
+A source throttle independently covers enrollment, reads, ticket issuance and revocation;
+rotating a token cannot reset it. The default is 30 requests/minute and configuration must
+be an integer in 1..60. This shared source policy is a candidate availability/security
+tradeoff for players behind NAT, not a claimed final production abuse policy.
+
+Plain HTTP is refused unless strict `allow_insecure_loopback` is true, environment is
+testing/preproduction, request host is the literal `127.0.0.1`, both the raw transport
+peer `REMOTE_ADDR` and effective request IP are literal loopback, and the complete request
+origin exactly matches configured `APP_URL`. Different ports, `localhost`, remote hosts
+or remote source addresses fail closed. A trusted remote proxy claiming a forwarded
+loopback client cannot use this exception; neither can a local proxy describing a remote
+client. HTTPS deployment behind a proxy depends on the
+existing bounded trusted-proxy configuration; this batch does not alter it. The local
+exception is false by default and is not a remote-HTTP or production exception.
+
 ## Validation boundary
 
 The scoped Feature suite covers real PKCE enrollment ordering, unchanged OAuth-family
@@ -226,3 +313,19 @@ OS-vault restart/cross-process behavior, complete HTTP/client E2E and security r
 required evidence before activation. This document must record actual runner results
 separately from source capabilities; no test pass or production qualification is implied
 by listing a case here.
+
+`NativeDeviceSessionHttpTest` adds actual PKCE-to-HTTP enrollment, owner-scoped projection
+read, native ticket issuance without new OAuth tokens, durable HTTP replay revocation,
+idempotent logout, input authority/type/duplicate/size rejection, no-cache errors, source
+throttle boundaries, strict transport/default/production gates, transactional projection
+failure and generic unreported unexpected dependency errors. These are isolated actor-to-
+HTTP-result tests, not deployment/browser/vault/game-world E2E proof.
+
+
+Isolated source qualification on 2026-10-09: HTTP/core/MFA/cache suites pass
+64 tests/657 assertions, affected Pint and scoped PHPStan level10 pass. This
+includes enrollment followed by the original native OAuth ticket route consuming
+both access and refresh credentials, followed by remembered continuation without
+new OAuth tokens. Full-string JWT Bearer parsing and raw-plus-effective loopback
+peer checks have regressions. These SQLite-memory results do not establish
+deployment-database race safety or activate this candidate.
