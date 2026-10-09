@@ -8,13 +8,27 @@ use LogicException;
 
 final class NativeOAuthClientManager
 {
+    public const RUST_CLIENT_NAME = 'Oteryn Rust Client';
+
     public function __construct(
         private readonly ClientRepository $clients,
     ) {}
 
     public function ensure(): Client
     {
-        $name = $this->configString('game-auth.oauth.native_client_name');
+        return $this->ensureNamed($this->configString('game-auth.oauth.native_client_name'));
+    }
+
+    public function ensureRust(): Client
+    {
+        return $this->ensureNamed(self::RUST_CLIENT_NAME);
+    }
+
+    private function ensureNamed(string $name): Client
+    {
+        if ($this->configString('game-auth.oauth.native_client_name') === self::RUST_CLIENT_NAME) {
+            throw new LogicException('Canary and Rust OAuth clients must have distinct names.');
+        }
         $redirectUri = $this->nativeRedirectUri();
 
         $matches = Client::query()
@@ -46,7 +60,7 @@ final class NativeOAuthClientManager
         $redirectUris = $client->getAttribute('redirect_uris');
 
         if (! is_array($redirectUris)
-            || $client->name !== $this->configString('game-auth.oauth.native_client_name')
+            || ! in_array($client->name, [$this->configString('game-auth.oauth.native_client_name'), self::RUST_CLIENT_NAME], true)
             || $client->revoked
             || $client->confidential()
             || $client->getAttribute('owner_id') !== null
@@ -56,6 +70,17 @@ final class NativeOAuthClientManager
         ) {
             throw new LogicException('OAuth client does not match the required Oteryn native public-client contract.');
         }
+    }
+
+    public function usesNativeTicket(Client $client): bool
+    {
+        $this->assertExpected($client);
+
+        if ($this->configString('game-auth.oauth.native_client_name') === self::RUST_CLIENT_NAME) {
+            throw new LogicException('Canary and Rust OAuth clients must have distinct names.');
+        }
+
+        return $client->name === self::RUST_CLIENT_NAME;
     }
 
     private function nativeRedirectUri(): string

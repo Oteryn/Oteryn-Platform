@@ -6,6 +6,8 @@ use App\GameAuth\Worlds\GameWorld;
 use App\GameAuth\Worlds\GameWorldStatus;
 use App\LiveOps\WorldStatus\PublicWorldStatus;
 use App\LiveOps\WorldStatus\PublicWorldStatusQuery;
+use App\PublicPortal\HomePageQuery;
+use App\PublicPortal\PublicContentState;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -55,6 +57,31 @@ final class PublicWorldStatusQueryTest extends TestCase
         self::assertSame('ready', $worlds[0]->publicState());
         self::assertSame($now - 2, $worlds[0]->observedAt);
         self::assertSame('Acceptance', $worlds[0]->name);
+    }
+
+    public function test_homepage_reads_native_world_without_canary_or_invented_population(): void
+    {
+        $this->travelTo(now()->setTimestamp(1_800_000_000));
+        $this->world(GameWorldStatus::Online, true, [self::CHANNEL_A]);
+        $this->runtime(self::CHANNEL_A, true, now()->getTimestamp() - 2);
+
+        $summary = app(HomePageQuery::class)->get()->world;
+        self::assertNull($summary->playersOnline);
+        self::assertSame('ready', $summary->nativeWorlds[0]->publicState());
+        $this->get('/')->assertOk()->assertSee('data-native-world-state="ready"', false);
+    }
+
+    public function test_homepage_keeps_expired_native_evidence_stale(): void
+    {
+        $this->travelTo(now()->setTimestamp(1_800_000_000));
+        $this->world(GameWorldStatus::Online, true, [self::CHANNEL_A]);
+        $this->runtime(self::CHANNEL_A, true, now()->getTimestamp() - 60);
+
+        $summary = app(HomePageQuery::class)->get()->world;
+        self::assertSame(PublicContentState::STALE, $summary->state);
+        self::assertNull($summary->playersOnline);
+        $this->get('/')->assertOk()->assertSee('data-native-world-state="stale"', false)
+            ->assertDontSee('data-native-world-state="ready"', false);
     }
 
     public function test_configured_maintenance_remains_separate_and_overrides_public_runtime_label(): void

@@ -4,7 +4,9 @@ namespace App\GameAuth\NativeLogin;
 
 use App\Audit\SecurityEventRecorder;
 use App\GameAuth\Tickets\GameLoginTicket;
+use App\GameAuth\Tickets\GameLoginTicketDenied;
 use App\GameAuth\Tickets\GameLoginTicketSecrets;
+use App\GameAuth\Tickets\IssuedGameLoginTicket;
 use App\Identity\Models\Identity;
 use Illuminate\Support\Facades\DB;
 use LogicException;
@@ -13,7 +15,7 @@ use SensitiveParameter;
 /**
  * Native Game Login Ticket redemption (contract §4.2). A native ticket has audience
  * oteryn-native-game-gateway, the canonical AccountId and native_security_generation of its
- * Identity and no Canary binding; issuing it through an OAuth client waits for U1 (§4.1).
+ * Identity and no Canary binding; the separate first-party Rust OAuth client selects issuance.
  * Redemption yields the AccountId and runs only inside the issuer transaction (§6.2).
  */
 final class NativeGameLoginTickets
@@ -30,6 +32,40 @@ final class NativeGameLoginTickets
     public function hash(#[SensitiveParameter] string $ticket): string
     {
         return $this->secrets->hash($ticket);
+    }
+
+    public function issue(Identity $identity): IssuedGameLoginTicket
+    {
+        if (DB::transactionLevel() < 1) {
+            throw new LogicException('Native ticket issuance must run inside the OAuth transaction.');
+        }
+        if (! app()->environment(['testing', 'preproduction'])
+            || config('game-auth.native_admission.enabled') !== true) {
+            throw new GameLoginTicketDenied;
+        }
+        $lockedIdentity = Identity::query()->lockForUpdate()->find($identity->id);
+        if (! $lockedIdentity instanceof Identity || ! self::usable($lockedIdentity)) {
+            throw new GameLoginTicketDenied;
+        }
+        $ttl = config('game-auth.ticket.ttl_seconds', 60);
+        if (! is_int($ttl) || $ttl < 1 || $ttl > 60) {
+            throw new LogicException('Native ticket TTL must be between one and sixty seconds.');
+        }
+        $ticket = $this->secrets->generate();
+        $expiresAt = now()->addSeconds($ttl);
+        GameLoginTicket::query()->create([
+            'ticket_hash' => $this->secrets->hash($ticket),
+            'identity_id' => $lockedIdentity->id,
+            'canary_account_id' => null,
+            'account_id' => $lockedIdentity->account_id,
+            'audience' => self::AUDIENCE,
+            'security_generation' => $lockedIdentity->game_auth_generation,
+            'native_security_generation' => $lockedIdentity->native_security_generation,
+            'expires_at' => $expiresAt,
+        ]);
+        $this->securityEvents->recordGameLoginTicketIssued($lockedIdentity->id);
+
+        return new IssuedGameLoginTicket($ticket, $expiresAt);
     }
 
     /**

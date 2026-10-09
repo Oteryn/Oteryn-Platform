@@ -76,7 +76,8 @@ final class NativeRememberedDeviceSessions
      * Denial is thrown AFTER commit so replay/expiry/security revocation is durable.
      *
      * @template TResult
-     * @param Closure(VerifiedRememberedDeviceAuthorization): TResult $consume
+     *
+     * @param  Closure(VerifiedRememberedDeviceAuthorization): TResult  $consume
      * @return RotatedDeviceSessionResult<TResult>
      */
     public function rotateAndUse(

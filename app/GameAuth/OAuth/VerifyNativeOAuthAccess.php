@@ -63,12 +63,12 @@ final class VerifyNativeOAuthAccess
         }
 
         try {
-            $this->nativeClients->assertExpected($client);
+            $nativeTicket = $this->nativeClients->usesNativeTicket($client);
         } catch (LogicException) {
             throw new OAuthBootstrapDenied;
         }
 
-        return new VerifiedNativeOAuthAccess($lockedIdentity, $accessToken);
+        return new VerifiedNativeOAuthAccess($lockedIdentity, $accessToken, $nativeTicket);
     }
 
     private function generation(mixed $generation): ?int
