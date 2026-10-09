@@ -41,8 +41,12 @@ final class ClientDirectoryTest extends TestCase
             ], 'characters' => []],
         ], $response->json('worlds'));
         self::assertGreaterThan(0, $response->json('epoch'));
-        self::assertStringContainsString('no-store', $response->headers->get('Cache-Control'));
-        self::assertSame(['epoch', 'worlds'], array_keys($response->json()));
+        $cacheControl = $response->headers->get('Cache-Control');
+        self::assertIsString($cacheControl);
+        self::assertStringContainsString('no-store', $cacheControl);
+        $payload = $response->json();
+        self::assertIsArray($payload);
+        self::assertSame(['epoch', 'worlds'], array_keys($payload));
     }
 
     public function test_missing_stale_not_ready_and_mismatched_route_evidence_fail_closed(): void

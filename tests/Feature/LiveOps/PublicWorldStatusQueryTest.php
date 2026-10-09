@@ -67,6 +67,8 @@ final class PublicWorldStatusQueryTest extends TestCase
 
         $summary = app(HomePageQuery::class)->get()->world;
         self::assertNull($summary->playersOnline);
+        self::assertNotNull($summary->nativeWorlds);
+        self::assertCount(1, $summary->nativeWorlds);
         self::assertSame('ready', $summary->nativeWorlds[0]->publicState());
         $this->get('/')->assertOk()->assertSee('data-native-world-state="ready"', false);
     }

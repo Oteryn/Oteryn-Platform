@@ -18,6 +18,7 @@ use App\Identity\Mfa\StartIdentityMfaEnrollment;
 use App\Identity\Models\Identity;
 use Carbon\CarbonImmutable;
 use Closure;
+use Illuminate\Database\Migrations\Migration;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -28,6 +29,7 @@ use Laravel\Passport\Token;
 use LogicException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PragmaRX\Google2FA\Google2FA;
+use ReflectionMethod;
 use RuntimeException;
 use Tests\Feature\GameAuth\OAuth\Concerns\ConfiguresEphemeralPassportKeys;
 use Tests\Feature\GameAuth\OAuth\Concerns\CreatesNativeOAuthBootstrapToken;
@@ -120,15 +122,15 @@ final class NativeRememberedDeviceSessionsTest extends TestCase
         $client = app(NativeOAuthClientManager::class)->ensureRust();
         $this->issueNativeOAuthBootstrapToken($identity, client: $client);
         $token = Token::query()->where('user_id', $identity->id)->sole();
-        $tokenId = (string) $token->getKey();
+        $tokenId = $this->oauthIdentifier($token);
         $issued = $this->service()->enroll($identity, $tokenId, true);
 
         app(IssueGameLoginTicketFromOAuth::class)->execute($identity, $tokenId);
 
-        self::assertTrue($token->fresh()->revoked);
+        self::assertTrue($token->refresh()->revoked);
         self::assertSame(0, DB::table('oauth_refresh_tokens')->where('revoked', false)->count());
         self::assertNull(DeviceSessionFamily::query()->findOrFail($issued->familyId)->revoked_at);
-        $rotated = $this->service()->rotateAndUse($issued->secret(), (string) $client->getKey(), DeviceSessionPurpose::NativeTicketIssue,
+        $rotated = $this->service()->rotateAndUse($issued->secret(), $this->oauthIdentifier($client), DeviceSessionPurpose::NativeTicketIssue,
             fn (VerifiedRememberedDeviceAuthorization $authorization) => app(NativeGameLoginTickets::class)->issue($authorization->identity()));
         self::assertSame(2, DB::table('game_login_tickets')->count());
         self::assertNotSame($issued->secret(), $rotated->credential()->secret());
@@ -146,8 +148,8 @@ final class NativeRememberedDeviceSessionsTest extends TestCase
         self::assertSame(0, DeviceSessionFamily::query()->count());
     }
 
-    #[DataProvider('oauthDefects')]
     /** @param array<string, mixed> $mutation */
+    #[DataProvider('oauthDefects')]
     public function test_invalid_oauth_authority_cannot_enroll(array $mutation): void
     {
         [$identity, $token] = $this->fixture();
@@ -171,11 +173,11 @@ final class NativeRememberedDeviceSessionsTest extends TestCase
     {
         [$identity, $token, $client] = $this->fixture();
         $issued = $this->service()->enroll($identity, $token, true);
-        $rotated = $this->service()->rotateAndUse($issued->secret(), (string) $client->getKey(), DeviceSessionPurpose::NativeCharactersRead,
+        $rotated = $this->service()->rotateAndUse($issued->secret(), $this->oauthIdentifier($client), DeviceSessionPurpose::NativeCharactersRead,
             function (VerifiedRememberedDeviceAuthorization $authorization) use ($identity, $client, $issued): string {
                 self::assertSame($identity->id, $authorization->identityId);
                 self::assertSame($identity->account_id, $authorization->accountId);
-                self::assertSame((string) $client->getKey(), $authorization->oauthClientId);
+                self::assertSame($this->oauthIdentifier($client), $authorization->oauthClientId);
                 self::assertSame($identity->game_auth_generation, $authorization->gameAuthGeneration);
                 self::assertSame($identity->native_security_generation, $authorization->nativeSecurityGeneration);
                 self::assertSame($issued->familyId, $authorization->familyId);
@@ -198,13 +200,13 @@ final class NativeRememberedDeviceSessionsTest extends TestCase
         $issued = $this->service()->enroll($identity, $token, true);
         $current = $issued;
         for ($index = 0; $index < 3; $index++) {
-            $current = $this->service()->rotateAndUse($current->secret(), (string) $client->getKey(), DeviceSessionPurpose::NativeCharactersRead,
+            $current = $this->service()->rotateAndUse($current->secret(), $this->oauthIdentifier($client), DeviceSessionPurpose::NativeCharactersRead,
                 fn () => 'result')->credential();
         }
-        $this->denied(fn () => $this->service()->rotateAndUse($issued->secret(), (string) $client->getKey(), DeviceSessionPurpose::NativeCharactersRead,
+        $this->denied(fn () => $this->service()->rotateAndUse($issued->secret(), $this->oauthIdentifier($client), DeviceSessionPurpose::NativeCharactersRead,
             fn () => self::fail('Replayed credentials must not reach native application code.')));
         self::assertSame('credential_replay', DeviceSessionFamily::query()->findOrFail($issued->familyId)->revocation_reason);
-        $this->denied(fn () => $this->service()->rotateAndUse($current->secret(), (string) $client->getKey(), DeviceSessionPurpose::NativeTicketIssue,
+        $this->denied(fn () => $this->service()->rotateAndUse($current->secret(), $this->oauthIdentifier($client), DeviceSessionPurpose::NativeTicketIssue,
             fn () => self::fail('A replay must revoke the current successor too.')));
         self::assertSame(0, DB::table('game_login_tickets')->count());
     }
@@ -215,20 +217,20 @@ final class NativeRememberedDeviceSessionsTest extends TestCase
         $issued = $this->service()->enroll($identity, $token, true);
         $this->denied(fn () => $this->service()->rotateAndUse($issued->secret(), 'wrong-client', DeviceSessionPurpose::NativeCharactersRead, fn () => null));
         foreach (['', str_repeat('x', 4096), app(DeviceSessionSecrets::class)->generate()] as $secret) {
-            $this->denied(fn () => $this->service()->rotateAndUse($secret, (string) $client->getKey(), DeviceSessionPurpose::NativeCharactersRead, fn () => null));
+            $this->denied(fn () => $this->service()->rotateAndUse($secret, $this->oauthIdentifier($client), DeviceSessionPurpose::NativeCharactersRead, fn () => null));
         }
         self::assertNull(DeviceSessionFamily::query()->findOrFail($issued->familyId)->revoked_at);
         self::assertSame(1, DeviceSessionCredential::query()->count());
     }
 
-    #[DataProvider('identityDefects')]
     /** @param array<string, mixed> $mutation */
+    #[DataProvider('identityDefects')]
     public function test_security_change_rejects_authority_and_commits_family_revocation(array $mutation): void
     {
         [$identity, $token, $client] = $this->fixture();
         $issued = $this->service()->enroll($identity, $token, true);
         $identity->forceFill($mutation)->save();
-        $this->denied(fn () => $this->service()->rotateAndUse($issued->secret(), (string) $client->getKey(), DeviceSessionPurpose::NativeTicketIssue,
+        $this->denied(fn () => $this->service()->rotateAndUse($issued->secret(), $this->oauthIdentifier($client), DeviceSessionPurpose::NativeTicketIssue,
             fn () => self::fail('Changed security context cannot issue a ticket.')));
         self::assertSame('authorization_changed', DeviceSessionFamily::query()->findOrFail($issued->familyId)->revocation_reason);
         self::assertSame(1, DeviceSessionCredential::query()->count());
@@ -250,7 +252,7 @@ final class NativeRememberedDeviceSessionsTest extends TestCase
         [$identity, $token, $client] = $this->fixture();
         $issued = $this->service()->enroll($identity, $token, true);
         $client->forceFill(['revoked' => true])->save();
-        $this->denied(fn () => $this->service()->rotateAndUse($issued->secret(), (string) $client->getKey(), DeviceSessionPurpose::NativeCharactersRead, fn () => null));
+        $this->denied(fn () => $this->service()->rotateAndUse($issued->secret(), $this->oauthIdentifier($client), DeviceSessionPurpose::NativeCharactersRead, fn () => null));
         self::assertSame('authorization_changed', DeviceSessionFamily::query()->findOrFail($issued->familyId)->revocation_reason);
     }
 
@@ -281,7 +283,7 @@ final class NativeRememberedDeviceSessionsTest extends TestCase
         self::assertTrue(Token::query()->findOrFail($token)->revoked);
         $this->denied(fn () => $this->service()->rotateAndUse(
             $issued->secret(),
-            (string) $client->getKey(),
+            $this->oauthIdentifier($client),
             DeviceSessionPurpose::NativeTicketIssue,
             fn () => self::fail('A remembered device authenticated before MFA confirmation cannot bypass the new factor.'),
         ));
@@ -296,14 +298,14 @@ final class NativeRememberedDeviceSessionsTest extends TestCase
         [$identity, $token, $client] = $this->fixture();
         $issued = $this->service()->enroll($identity, $token, true);
         $this->freezeClock('2026-10-09 10:00:59');
-        $rotated = $this->service()->rotateAndUse($issued->secret(), (string) $client->getKey(), DeviceSessionPurpose::NativeCharactersRead, fn () => null)->credential();
+        $rotated = $this->service()->rotateAndUse($issued->secret(), $this->oauthIdentifier($client), DeviceSessionPurpose::NativeCharactersRead, fn () => null)->credential();
         self::assertSame('2026-10-09 10:01:59', $rotated->idleExpiresAt->format('Y-m-d H:i:s'));
         $this->freezeClock('2026-10-09 10:01:58');
-        $rotated = $this->service()->rotateAndUse($rotated->secret(), (string) $client->getKey(), DeviceSessionPurpose::NativeCharactersRead, fn () => null)->credential();
+        $rotated = $this->service()->rotateAndUse($rotated->secret(), $this->oauthIdentifier($client), DeviceSessionPurpose::NativeCharactersRead, fn () => null)->credential();
         self::assertSame('2026-10-09 10:02:00', $rotated->idleExpiresAt->format('Y-m-d H:i:s'));
         self::assertSame('2026-10-09 10:02:00', $rotated->absoluteExpiresAt->format('Y-m-d H:i:s'));
         $this->freezeClock('2026-10-09 10:02:00');
-        $this->denied(fn () => $this->service()->rotateAndUse($rotated->secret(), (string) $client->getKey(), DeviceSessionPurpose::NativeCharactersRead, fn () => null));
+        $this->denied(fn () => $this->service()->rotateAndUse($rotated->secret(), $this->oauthIdentifier($client), DeviceSessionPurpose::NativeCharactersRead, fn () => null));
         self::assertSame('expired', DeviceSessionFamily::query()->findOrFail($issued->familyId)->revocation_reason);
     }
 
@@ -314,7 +316,7 @@ final class NativeRememberedDeviceSessionsTest extends TestCase
         [$identity, $token, $client] = $this->fixture();
         $issued = $this->service()->enroll($identity, $token, true);
         $this->freezeClock('2026-10-09 10:01:00');
-        $this->denied(fn () => $this->service()->rotateAndUse($issued->secret(), (string) $client->getKey(), DeviceSessionPurpose::NativeCharactersRead, fn () => null));
+        $this->denied(fn () => $this->service()->rotateAndUse($issued->secret(), $this->oauthIdentifier($client), DeviceSessionPurpose::NativeCharactersRead, fn () => null));
         self::assertSame('expired', DeviceSessionFamily::query()->findOrFail($issued->familyId)->revocation_reason);
     }
 
@@ -323,7 +325,7 @@ final class NativeRememberedDeviceSessionsTest extends TestCase
         [$identity, $token, $client] = $this->fixture();
         $issued = $this->service()->enroll($identity, $token, true);
         try {
-            $this->service()->rotateAndUse($issued->secret(), (string) $client->getKey(), DeviceSessionPurpose::NativeTicketIssue,
+            $this->service()->rotateAndUse($issued->secret(), $this->oauthIdentifier($client), DeviceSessionPurpose::NativeTicketIssue,
                 function (VerifiedRememberedDeviceAuthorization $authorization): never {
                     app(NativeGameLoginTickets::class)->issue($authorization->identity());
                     throw new RuntimeException('Test operation failed before commit.');
@@ -348,7 +350,7 @@ final class NativeRememberedDeviceSessionsTest extends TestCase
         self::assertNull(DeviceSessionFamily::query()->findOrFail($issued->familyId)->revoked_at);
         $this->service()->revokeForOwner($identity, $issued->familyId);
         $this->service()->revokeForOwner($identity, $issued->familyId);
-        $this->denied(fn () => $this->service()->rotateAndUse($issued->secret(), (string) $client->getKey(), DeviceSessionPurpose::NativeCharactersRead, fn () => null));
+        $this->denied(fn () => $this->service()->rotateAndUse($issued->secret(), $this->oauthIdentifier($client), DeviceSessionPurpose::NativeCharactersRead, fn () => null));
         self::assertSame('owner_revoked', DeviceSessionFamily::query()->findOrFail($issued->familyId)->revocation_reason);
     }
 
@@ -356,10 +358,10 @@ final class NativeRememberedDeviceSessionsTest extends TestCase
     {
         [$identity, $token, $client] = $this->fixture();
         $issued = $this->service()->enroll($identity, $token, true);
-        $successor = $this->service()->rotateAndUse($issued->secret(), (string) $client->getKey(), DeviceSessionPurpose::NativeCharactersRead, fn () => null)->credential();
-        $this->service()->revokeCredential($issued->secret(), (string) $client->getKey());
-        $this->service()->revokeCredential($issued->secret(), (string) $client->getKey());
-        $this->denied(fn () => $this->service()->rotateAndUse($successor->secret(), (string) $client->getKey(), DeviceSessionPurpose::NativeTicketIssue, fn () => null));
+        $successor = $this->service()->rotateAndUse($issued->secret(), $this->oauthIdentifier($client), DeviceSessionPurpose::NativeCharactersRead, fn () => null)->credential();
+        $this->service()->revokeCredential($issued->secret(), $this->oauthIdentifier($client));
+        $this->service()->revokeCredential($issued->secret(), $this->oauthIdentifier($client));
+        $this->denied(fn () => $this->service()->rotateAndUse($successor->secret(), $this->oauthIdentifier($client), DeviceSessionPurpose::NativeTicketIssue, fn () => null));
         self::assertSame('client_revoked', DeviceSessionFamily::query()->findOrFail($issued->familyId)->revocation_reason);
     }
 
@@ -397,8 +399,9 @@ final class NativeRememberedDeviceSessionsTest extends TestCase
         [$identity, $token] = $this->fixture();
         $this->service()->enroll($identity, $token, true);
         $migration = require database_path('migrations/2026_10_09_220000_create_native_device_sessions.php');
+        self::assertInstanceOf(Migration::class, $migration);
         try {
-            $migration->down();
+            (new ReflectionMethod($migration, 'down'))->invoke($migration);
             self::fail('Rollback must not erase credential replay history.');
         } catch (RuntimeException $exception) {
             self::assertStringContainsString('authorized retirement', $exception->getMessage());
@@ -418,7 +421,7 @@ final class NativeRememberedDeviceSessionsTest extends TestCase
         $identity = Identity::query()->create([
             'email' => 'device-'.bin2hex(random_bytes(8)).'@example.invalid',
             'password' => Hash::make('Correct-Horse-9!Battery'),
-        ])->fresh();
+        ])->refresh();
         $client ??= app(NativeOAuthClientManager::class)->ensureRust();
         $tokenId = bin2hex(random_bytes(40));
         $token = new Token;
@@ -433,6 +436,14 @@ final class NativeRememberedDeviceSessionsTest extends TestCase
         ])->save();
 
         return [$identity, $tokenId, $client];
+    }
+
+    private function oauthIdentifier(Client|Token $model): string
+    {
+        $identifier = $model->getKey();
+        self::assertIsString($identifier);
+
+        return $identifier;
     }
 
     private function assertStoredSecretIsOnlyHash(IssuedDeviceSessionCredential $issued): void

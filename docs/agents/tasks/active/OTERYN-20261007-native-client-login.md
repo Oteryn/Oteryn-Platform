@@ -117,6 +117,9 @@ validation:
   - command: Complete remembered-device native client integration
     result: NOT_RUN
     evidence: Concrete exclusive lock, durable journal, HTTPS and monotonic-ticket adapters remain unwired.
+  - command: Full composer analyse; affected test Pint; expanded isolated directory/status/device/MFA/cache suites
+    result: PASS
+    evidence: All PHPStan level10 application/test paths pass; 75 tests and737 assertions pass after task-owned fixture typing fixes. Memory database only; remembered candidate remains OFF.
 blockers:
   - Complete native client integration and applicable contract/security qualification remain outstanding.
   - Existing unrelated LCFA task lifecycle and eight trusted-main unexplained branch findings remain outside these two scoped task-record repairs.
