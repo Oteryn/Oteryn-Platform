@@ -56,10 +56,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-06T22:58:00+02:00
+updated_at: 2026-10-10T22:00:00Z
 head: UNKNOWN
 branch: docs/1460-native-catalog-persistence-architecture
-pr: none
+pr: 1487
 status: waiting
 context_routes:
   - architecture
@@ -100,18 +100,17 @@ validation:
     evidence: review package changes documentation/governance only and no executable behavior
   - command: repository exact-head CI
     result: NOT_RUN
-    evidence: branch-only candidate intentionally has no PR because current connector publication cannot add the future numeric PR identity without a second candidate commit
+    evidence: PR 1487 opened; exact-head CI is read by the integrating lead
 blockers:
   - repository owner decision on ARCH-DEC-0006
-  - PR publication requires a route that can record the numeric PR identity without violating single-candidate connector publication integrity
-next_action: Repository owner reviews Issue #1460 and Proposed ADR 0043 and selects Option A, B or C; then reconcile the decision and PR identity through the normal task publication route.
+next_action: Repository owner reviews Issue #1460, PR 1487 and Proposed ADR 0043 and selects Option A, B or C; then reconcile the decision.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: pending
-source_branch_reason: Proposed architecture decision is awaiting owner selection and has no PR yet.
+source_branch_reason: Proposed architecture decision is awaiting owner selection; PR 1487 carries the package.
 source_branch_evidence: pending
 ```
 
