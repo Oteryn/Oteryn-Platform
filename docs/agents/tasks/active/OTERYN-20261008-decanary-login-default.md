@@ -55,12 +55,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-10T14:30:00Z
+updated_at: 2026-10-10T21:45:00Z
 status: validating
 terminal_pr_policy: archive_pending
 phase: pre_merge_validation
 branch: claude/decanary-login-default-1-20261008
-head: d398c28ac23732142788694c6f34750536c12f7c
+head: e3446d5e0d65921ba1636256b151eef54619c011
 pr: 1479
 context_routes:
   - game-auth
@@ -74,18 +74,22 @@ proven:
   - PR #1479 touches only config/game-auth.php and the game-gateway config package and its test.
   - Issue #1476 is open and governs this rollout; the LCFA packet governs #1419 only.
   - With GATEWAY_NATIVE_LOGIN_ENABLED unset the gateway keeps native login off (config.go and config_test.go).
+  - On head e3446d5 the checkpoint-validation, test, runtime-tests, platform-gate and Build game-gateway component checks passed.
 derived:
   - The Platform default change is limited to preproduction and leaves production behavior unchanged.
+  - The only failing check on head e3446d5, acceptance, failed in a WebKit portal portability test (editorial-media-acceptance, WebKit internal error loading portal CSS) that this diff does not touch.
 unknown:
-  - Exact-head CI result for the head that carries this record.
+  - Exact-head CI result for the head that carries this record; this record commit is a child of the head recorded above.
   - Whether the preproduction gateway deployment already sets GATEWAY_NATIVE_LOGIN_ENABLED.
+  - Whether the acceptance WebKit failure is flaky; a rerun on the new head decides.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: acceptance
+  evidence: head e3446d5 acceptance job failed with 1 failed portability-webkit editorial-media-acceptance test and unexpected WebKit console errors; unrelated to the owned paths
 rejected_hypotheses:
   - Extend the LCFA packet ownership to services/game-gateway.
   - Treat the gateway as defaulting native login on in preproduction.
+  - Attribute the acceptance failure to the config default change.
 changed_paths:
   - config/game-auth.php
   - services/game-gateway/internal/config/config.go
@@ -96,12 +100,15 @@ validation:
     result: NOT_RUN
     evidence: validation is delegated to CI on the PR head
   - command: python3 tools/agents/checkpoint.py and task liveness validation
-    result: NOT_RUN
-    evidence: validation is delegated to CI on the PR head
+    result: PASS
+    evidence: checkpoint-validation check succeeded on head e3446d5
+  - command: acceptance (portal portability e2e)
+    result: FAIL
+    evidence: WebKit editorial-media-acceptance failure on head e3446d5, outside the owned paths; rerun required
 blockers:
   - production release only: Decision P1/U12
   - gateway deployment opt-in via GATEWAY_NATIVE_LOGIN_ENABLED
-next_action: Run exact-head CI for PR #1479, then hand the review packet to the lead; archive this record when the PR ends the task.
+next_action: Rerun acceptance on the new PR head; if it still fails, report the unrelated WebKit portal failure to the lead, otherwise hand the review packet to the lead and archive this record when the PR ends the task.
 ```
 
 ## Source branch closeout
