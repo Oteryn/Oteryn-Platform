@@ -2,6 +2,11 @@
 
 namespace Tests\Feature\GameAuth\NativeLogin;
 
+use App\GameAuth\NativeAccountCharacters\NativeAccountCharactersIngestion;
+use App\GameAuth\NativeAccountCharacters\NativeAccountCharactersRefused;
+use App\GameAuth\NativeAccountCharacters\NativeAccountCharactersSettings;
+use App\GameAuth\NativeAccountCharacters\NativeAccountCharactersSnapshot;
+use App\GameAuth\NativeAccountCharacters\NativeAccountCharactersWatermark;
 use App\GameAuth\NativeEvidence\NativeEvidenceContract;
 use App\GameAuth\NativeEvidence\NativeSigningTrustRegistry;
 use App\GameAuth\NativeLogin\NativeAdmissionAttempt;
@@ -44,6 +49,10 @@ final class NativeAdmissionIssuerTest extends TestCase
     private const PURPOSE = 'fresh_admission';
 
     private const NODE = 'CN=node-a.runtime-status';
+
+    private const LCFA_IDENTITY = 'CN=character-authority-projection';
+
+    private const LCFA_AUTHORITY = 'oteryn:character-authority:primary';
 
     private const ATTEMPT = '0192b3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b';
 
@@ -121,7 +130,7 @@ final class NativeAdmissionIssuerTest extends TestCase
                 DB::table('game_channels')->delete();
                 DB::table('game_worlds')->update(['world_id' => null]);
             }
-            foreach (['native_admission_attempts', 'game_login_tickets', 'native_runtime_status_reports', 'native_scope_assignments'] as $table) {
+            foreach (['native_account_character_rows', 'native_account_character_snapshots', 'native_admission_attempts', 'game_login_tickets', 'native_runtime_status_reports', 'native_scope_assignments'] as $table) {
                 Schema::hasTable($table) && DB::table($table)->delete();
             }
         }
@@ -364,6 +373,88 @@ final class NativeAdmissionIssuerTest extends TestCase
         $this->admit($this->body($ticket))->assertOk();
     }
 
+    public function test_lcfa_projection_replaces_d171_and_maps_character_and_feed_failures(): void
+    {
+        $alpha = $this->publish('alpha');
+        $this->report('alpha', $alpha->routeRevision);
+        $ticket = $this->ticket();
+        $accountId = Identity::query()->sole()->account_id;
+
+        $this->enableLcfa();
+
+        // LCFA is enabled, so the configured D171 fallback must not bypass a missing/stale projection.
+        $this->assertError($this->admit($this->body($ticket)), 503, 'NATIVE_LOGIN_ROUTE_UNAVAILABLE');
+        self::assertNull(GameLoginTicket::query()->sole()->used_at);
+
+        $this->lcfaSnapshot($accountId, '1', 'UNAVAILABLE');
+        $this->lcfaWatermark();
+        $this->assertError($this->admit($this->body($ticket)), 409, 'NATIVE_LOGIN_CHARACTER_CONFLICT');
+        self::assertNull(GameLoginTicket::query()->sole()->used_at);
+
+        try {
+            $this->lcfaSnapshot($accountId, '1', 'AVAILABLE', 'Aldric Conflict');
+            self::fail('Equal LCFA key with different character content must conflict.');
+        } catch (NativeAccountCharactersRefused $refused) {
+            self::assertSame(409, $refused->status);
+        }
+        $this->assertError($this->admit($this->body($ticket)), 503, 'NATIVE_LOGIN_ROUTE_UNAVAILABLE');
+
+        $this->lcfaSnapshot($accountId, '2', 'AVAILABLE');
+        $response = $this->admit($this->body($ticket));
+        $response->assertOk()
+            ->assertJsonPath('world_id', $this->worldId)
+            ->assertJsonPath('channel_id', $alpha->channelId);
+    }
+
+    public function test_lcfa_issuance_refuses_unlisted_other_world_and_old_epoch_characters(): void
+    {
+        $alpha = $this->publish('alpha');
+        $this->report('alpha', $alpha->routeRevision);
+        $ticket = $this->ticket();
+        $accountId = Identity::query()->sole()->account_id;
+        $this->enableLcfa();
+        // Mode 33a stays configured and would admit any character into this World; LCFA must ignore it.
+        self::assertTrue(config('game-auth.native_admission.unverified_character_ownership'));
+
+        $this->lcfaWatermark();
+        $this->lcfaSnapshot($accountId, '1', 'AVAILABLE', characterId: '0192b3c4-5d6e-7f80-8a1b-2c3d4e5f6a7d');
+        $this->assertError($this->admit($this->body($ticket)), 409, 'NATIVE_LOGIN_CHARACTER_CONFLICT');
+
+        // Listed, but in another World: the grant follows the projection's World, never the D171 World,
+        // so the requested channel of this World is not a candidate and nothing is issued.
+        $this->lcfaSnapshot($accountId, '2', 'AVAILABLE', worldId: '01934f10-7c02-7001-805b-3b11223344ff');
+        $this->assertError($this->admit($this->body($ticket, $alpha->channelId)), 503, 'NATIVE_LOGIN_ROUTE_UNAVAILABLE');
+        self::assertNull(GameLoginTicket::query()->sole()->used_at);
+
+        $this->lcfaSnapshot($accountId, '3', 'AVAILABLE');
+        // A higher epoch from the watermark leaves the account below the highest epoch until it resyncs.
+        $this->lcfaWatermark('2');
+        $this->assertError($this->admit($this->body($ticket)), 503, 'NATIVE_LOGIN_ROUTE_UNAVAILABLE');
+        self::assertNull(GameLoginTicket::query()->sole()->used_at);
+
+        $this->lcfaSnapshot($accountId, '1', 'AVAILABLE', epoch: '2');
+        $this->admit($this->body($ticket))->assertOk()->assertJsonPath('world_id', $this->worldId);
+    }
+
+    public function test_lcfa_enabled_outside_testing_and_preproduction_or_misconfigured_is_unavailable(): void
+    {
+        $alpha = $this->publish('alpha');
+        $this->report('alpha', $alpha->routeRevision);
+        $ticket = $this->ticket();
+        $this->enableLcfa();
+
+        foreach (['local', 'staging', 'production'] as $environment) {
+            $this->app->detectEnvironment(fn (): string => $environment);
+            $this->assertError($this->admit($this->body($ticket)), 503, 'NATIVE_LOGIN_UNAVAILABLE');
+        }
+        $this->app->detectEnvironment(fn (): string => 'testing');
+
+        config(['game-auth.native_account_characters.freshness_seconds' => 0]);
+        $this->assertError($this->admit($this->body($ticket)), 503, 'NATIVE_LOGIN_UNAVAILABLE');
+        self::assertNull(GameLoginTicket::query()->sole()->used_at);
+        self::assertSame(0, NativeAdmissionAttempt::query()->count());
+    }
+
     public function test_unverified_character_mode_is_config_gated_and_refused_outside_testing_and_preproduction(): void
     {
         $alpha = $this->publish('alpha');
@@ -473,6 +564,68 @@ final class NativeAdmissionIssuerTest extends TestCase
             'content_digest' => str_repeat('0', 64),
             'invalid' => false,
         ]);
+    }
+
+    private function enableLcfa(): void
+    {
+        config([
+            'game-auth.native_account_characters.enabled' => true,
+            'game-auth.native_account_characters.identities' => [self::LCFA_IDENTITY],
+            'game-auth.native_account_characters.source_authority' => self::LCFA_AUTHORITY,
+            'game-auth.native_account_characters.freshness_seconds' => 30,
+            'game-auth.native_account_characters.clock_uncertainty_seconds' => 1,
+            'game-auth.native_account_characters.requests_per_minute' => 120,
+        ]);
+    }
+
+    private function lcfaSnapshot(
+        string $accountId,
+        string $revision,
+        string $availability,
+        string $name = 'Aldric',
+        string $characterId = self::CHARACTER,
+        ?string $worldId = null,
+        string $epoch = '1',
+    ): void {
+        $wire = json_encode([
+            'contract_version' => 1,
+            'operation' => 'PublishAccountCharactersV1',
+            'source_authority' => self::LCFA_AUTHORITY,
+            'account_id' => $accountId,
+            'projection_epoch' => $epoch,
+            'projection_revision' => $revision,
+            'source_observed_at' => (string) (self::NOW - 1),
+            'characters' => [[
+                'character_id' => $characterId,
+                'world_id' => $worldId ?? $this->worldId,
+                'name' => $name,
+                'availability' => $availability,
+            ]],
+        ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $this->app->make(NativeAccountCharactersIngestion::class)->snapshot(
+            NativeAccountCharactersSettings::current() ?? throw new LogicException('LCFA settings unavailable in issuer test.'),
+            self::LCFA_IDENTITY,
+            NativeAccountCharactersSnapshot::fromWire($wire),
+            self::NOW,
+        );
+    }
+
+    private function lcfaWatermark(string $epoch = '1'): void
+    {
+        $wire = json_encode([
+            'contract_version' => 1,
+            'operation' => 'PublishProjectionWatermarkV1',
+            'source_authority' => self::LCFA_AUTHORITY,
+            'projection_epoch' => $epoch,
+            'complete_through' => (string) (self::NOW - 1),
+            'observed_at' => (string) self::NOW,
+        ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+        $this->app->make(NativeAccountCharactersIngestion::class)->watermark(
+            NativeAccountCharactersSettings::current() ?? throw new LogicException('LCFA settings unavailable in issuer test.'),
+            self::LCFA_IDENTITY,
+            NativeAccountCharactersWatermark::fromWire($wire),
+            self::NOW,
+        );
     }
 
     private function ticket(): string

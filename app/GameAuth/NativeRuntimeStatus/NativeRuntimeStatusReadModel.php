@@ -26,6 +26,22 @@ final class NativeRuntimeStatusReadModel
         return $this->read($worldId, $channelId, $now)[0];
     }
 
+    /**
+     * Public-safe evidence for LiveOps/public projections. Invalid/unavailable reports expose no claimed
+     * readiness or observation time; stale evidence may retain its last-known ready flag with stale state.
+     */
+    public function publicEvidence(string $worldId, string $channelId, int $now): NativeRuntimePublicEvidence
+    {
+        [$state, $report] = $this->read($worldId, $channelId, $now);
+        $accepted = $state === self::FRESH || $state === self::STALE;
+
+        return new NativeRuntimePublicEvidence(
+            state: $state,
+            ready: $accepted && $report !== null ? NativeRuntimeStatusRow::bool($report, 'ready') : null,
+            observedAt: $accepted && $report !== null ? NativeRuntimeStatusRow::int($report, 'observed_at') : null,
+        );
+    }
+
     /** The report when it is fresh and `ready = true`; otherwise null and the scope routes nowhere. */
     public function routable(string $worldId, string $channelId, int $now): ?NativeRuntimeStatusRecord
     {

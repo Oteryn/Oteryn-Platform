@@ -31,7 +31,7 @@ The frozen PR #453 production-completion baseline and later exact merged PRs pro
 | Events | AVAILABLE | Localized editorial event schedule/detail and audited administration lifecycle | Runtime raid/service truth unless consumed from an explicit LiveOps contract |
 | Downloads | AVAILABLE | Approved client release/artifact metadata, platform variants, checksums and publication lifecycle | Arbitrary executable upload/proxy, release signing authority or client updater runtime without a contract |
 | PublicGameData | AVAILABLE | Read models/queries for characters, guilds, highscores, online/status | Privileged mutations |
-| LiveOps | PLANNED | Authoritative time-sensitive world/service status, maintenance, server save, raid schedules, runtime events/boost freshness and service history | Free-form editorial content, gameplay mutation or fabricated offline/zero state |
+| LiveOps | AVAILABLE | Public-safe native WorldStatus projection and configured maintenance composition; later authoritative server-save/raid/rotation/runtime-event capabilities remain separately gated | Free-form editorial content, gameplay mutation or fabricated offline/zero state |
 | CMS | AVAILABLE | Public content reads and permission-scoped Platform content management | Identity policy, game state, unreviewed rich/upload surfaces |
 | Support | AVAILABLE | Platform tickets, reports, moderation decisions, enforcement orchestration/records, appeals, notifications, retention and privacy-safe user/moderator presentation | Authoritative game sanction state/effect, direct game-ban mutation, file attachments, disclosure of reporter identity or private moderator notes |
 | EditorialMedia | AVAILABLE | Private normalized raster-image objects, integrity metadata, bounded consumer references and administrator lifecycle | Generic public file hosting, executable uploads, arbitrary documents, consumer-specific publication rules |
@@ -303,7 +303,10 @@ Character Bazaar listing creation uses its own operation-specific transfer conne
 - Character Bazaar snapshots exclude Canary account IDs, IPs, sessions, credentials and arbitrary blobs;
 - exact-name character lookup retains its existing privacy/enumeration semantics and is not implicitly widened by PublicPortal federated content search.
 
-## LiveOps — planned
+## LiveOps — available foundation
+
+- Initial executable slice: public-safe native WorldStatus projection over canonical WorldId/ChannelId plus configured Platform maintenance/policy, preserving fresh/stale/unavailable/invalid/degraded semantics without exposing runtime owner/fencing details.
+- ServerSave, raid/boss schedules, boosts/rotations and other current-state capabilities remain unavailable until their own authoritative producer/applicability/freshness contracts are proven.
 
 ### Responsibilities
 

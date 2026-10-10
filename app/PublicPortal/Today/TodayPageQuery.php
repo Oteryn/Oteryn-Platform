@@ -9,6 +9,8 @@ use App\Cms\Models\NewsPost;
 use App\Cms\PublicNewsQuery;
 use App\Events\Queries\UpcomingEventProvider;
 use App\Events\ViewModels\UpcomingEventState;
+use App\LiveOps\WorldStatus\PublicWorldStatus;
+use App\LiveOps\WorldStatus\PublicWorldStatusQuery;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use Illuminate\Support\Str;
@@ -22,6 +24,7 @@ final readonly class TodayPageQuery
         private AnnouncementTickerProvider $announcements,
         private UpcomingEventProvider $events,
         private PublicNewsQuery $news,
+        private PublicWorldStatusQuery $liveOps,
     ) {}
 
     public function get(?DateTimeInterface $readTime = null, ?string $validationScenario = null): TodayPageViewModel
@@ -43,14 +46,18 @@ final readonly class TodayPageQuery
             $cards,
             static fn (TodayCard $card): bool => $card->state !== TodayCardState::UNAVAILABLE,
         );
-        $unavailableProviders = array_filter(
+        $degradedProviders = array_filter(
             $cards,
-            static fn (TodayCard $card): bool => $card->state === TodayCardState::UNAVAILABLE,
+            static fn (TodayCard $card): bool => in_array(
+                $card->state,
+                [TodayCardState::UNAVAILABLE, TodayCardState::PARTIAL],
+                true,
+            ),
         );
 
         $state = match (true) {
             $availableProviders === [] => TodayPageState::UNAVAILABLE,
-            $unavailableProviders !== [] => TodayPageState::PARTIAL,
+            $degradedProviders !== [] => TodayPageState::PARTIAL,
             default => TodayPageState::COMPLETE,
         };
 
@@ -59,14 +66,51 @@ final readonly class TodayPageQuery
 
     private function liveOpsCard(DateTimeInterface $evaluatedAt): TodayCard
     {
-        return new TodayCard(
-            kind: 'liveops',
-            sourceOwner: 'LiveOps',
-            sourceIdentity: 'LiveOps.public-runtime-summary',
-            canonicalSourceUrl: null,
-            state: TodayCardState::UNAVAILABLE,
-            priority: 10,
-            evaluatedAt: $evaluatedAt,
+        try {
+            $worlds = $this->liveOps->get($evaluatedAt->getTimestamp());
+        } catch (Throwable $exception) {
+            report($exception);
+            $worlds = [];
+        }
+        if ($worlds === []) {
+            return new TodayCard(
+                kind: 'liveops',
+                sourceOwner: 'LiveOps',
+                sourceIdentity: 'LiveOps.public-runtime-summary',
+                canonicalSourceUrl: null,
+                state: TodayCardState::UNAVAILABLE,
+                priority: 10,
+                evaluatedAt: $evaluatedAt,
+            );
+        }
+
+        $partial = false;
+        $items = [];
+        foreach ($worlds as $world) {
+            $state = $world->publicState();
+            $partial = $partial || $world->isPartial();
+            $items[] = new TodayItem(
+                publicId: 'liveops-world-'.$world->slug,
+                title: $world->name,
+                summary: (string) __('today.cards.liveops.states.'.$state.'.summary'),
+                url: null,
+                actionLabel: null,
+                effectiveAt: $world->policyState === PublicWorldStatus::POLICY_ONLINE && $world->observedAt !== null
+                    ? CarbonImmutable::createFromTimestampUTC($world->observedAt)
+                    : null,
+                badge: (string) __('today.cards.liveops.states.'.$state.'.label'),
+            );
+        }
+
+        return $this->card(
+            'liveops',
+            'LiveOps',
+            'LiveOps.public-runtime-summary',
+            null,
+            $partial ? TodayCardState::PARTIAL : TodayCardState::PRESENT,
+            10,
+            $evaluatedAt,
+            $items,
         );
     }
 
