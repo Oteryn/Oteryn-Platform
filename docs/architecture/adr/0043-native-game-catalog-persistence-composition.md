@@ -89,7 +89,7 @@ Native entity identity must be authority-scoped (declared authority + type + nat
 
 ### One profile and activation lifecycle
 
-`game_catalog_profiles` should evolve additively to bind a declared authority and an `active_snapshot_root_id`. Existing `active_snapshot_id` and target-release semantics remain authoritative for legacy profiles during migration and must agree 1:1 with the root binding before cutover.
+`game_catalog_profiles` should evolve additively to bind a declared authority and an `active_snapshot_root_id`. Because `game_catalog_profiles.target_release_id` is currently a non-null foreign key to a Canary release, the Canary release binding must not be reused or weakened for native profiles: profile storage is split into authority-specific profile detail (a Legacy Canary detail that keeps `target_release_id` strict and non-null, and a native detail carrying `ruleset_id` and `content_profile_id`), with a database constraint that exactly one detail matches the declared authority, so no fabricated release or nullable legacy column is needed. Existing `active_snapshot_id` and target-release semantics remain authoritative for legacy profiles during migration and must agree 1:1 with the root binding before cutover.
 
 A generalized activation transaction should lock the profile, require authority match, invoke authority-specific validation/projection rules, atomically switch the shared root pointer and write one common audit event. No cross-authority fallback is allowed.
 
@@ -105,7 +105,7 @@ Public and admin reads should ultimately consume profile projections bound to th
 
 If Option B is accepted, the first implementation package is intentionally limited to:
 
-1. add shared root, Legacy 1:1 binding and native detail/identity/relation persistence;
+1. add shared root, Legacy 1:1 binding, authority-specific profile detail and native detail/identity/relation persistence;
 2. backfill exactly one root per existing Legacy Canary snapshot;
 3. prove row counts, hashes, active-profile mapping and legacy public output are unchanged;
 4. add/backfill `active_snapshot_root_id` while retaining the legacy active pointer, and make `CatalogActivationService` write `active_snapshot_id` and `active_snapshot_root_id` in the same transaction so a legacy activation or rollback can never diverge the two pointers;

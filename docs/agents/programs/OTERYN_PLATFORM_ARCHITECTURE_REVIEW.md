@@ -18,13 +18,13 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-10-06T22:58:00+02:00
+updated_at: 2026-10-10T23:56:53Z
 status: ready
 current_review_domain: native-game-catalog-persistence-composition
 active_task: OTERYN-20261006-native-game-catalog-persistence-architecture
 issue: 1460
 branch: docs/1460-native-catalog-persistence-architecture
-pull_request: null
+pull_request: 1487
 last_completed_domain: public-edge-evidence-boundary
 last_completed_issue: 490
 last_completed_pull_request: 1063
