@@ -2,6 +2,7 @@
 
 namespace App\ProductsEntitlements\Premium;
 
+use App\GameAuth\NativeAccountCharacters\NativeAccountCharactersSettings;
 use App\GameAuth\NativeRuntimeStatus\NativeRuntimeStatusSettings;
 use JsonException;
 
@@ -57,6 +58,7 @@ final readonly class PremiumSnapshotSettings
             config('game-auth.native_evidence.mtls_client_identity'),
             config('game-auth.character_bootstrap_intent.mtls_client_identity'),
         ];
+        array_push($identities, ...NativeAccountCharactersSettings::configuredPublisherIdentities());
         foreach (['native_runtime_status', 'native_scope_assignment'] as $section) {
             $raw = config('game-auth.'.$section.'.identities');
             try {
