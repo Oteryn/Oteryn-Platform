@@ -12,7 +12,7 @@ Task: DECANARY-PLAN-1 (task record `docs/agents/tasks/active/OTERYN-20261008-dec
 
 | v1 position | v2 position (this plan) | Why |
 |---|---|---|
-| P14: retire Canary docs by *supersede, not delete* | Zero-occurrence target for the whole tree, history rule §5 | Owner decision 2026-10-08 |
+| P14: retire Canary docs by *supersede, not delete* | Zero occurrences in file contents and tracked path names for the whole tree, except preserved historical records (H2, §5) | Owner decision 2026-10-08 |
 | Q2 rec A (disable create/transfer until Game impl) | Kept, now mandatory for removal ordering | Canary writes cannot remain as a fallback (#1475: no automatic Canary fallback) |
 | Q6 open | **D963 Q6=A**: archive then drop; no mapping to `AccountId` (as stated in #1477) | Owner ruling cited by #1477 |
 | Name collisions (deploy/MQ "canary" rollout) out of scope | In scope, renamed | "everything containing 'canary'" |
@@ -79,7 +79,7 @@ Not in the tree but affected: rows in `security_events` whose type is `identity.
 |---|---|---|
 | Normative contracts | `docs/contracts/*` (incl. `CANARY_DATA_CONTRACT`, `GAME_SESSION_CANARY_CONTRACT`, `IDENTITY_CANARY_ACCOUNT_BINDING_CONTRACT`, `PLATFORM_CANARY_ACCOUNT_PROVISIONING_CONTRACT`, `AUTH_GAME_LOGIN`, `CHARACTER_{CREATION,TRANSFER,DELETION}`, catalog, gateway, OTCLIENT, V2 contracts that mention Canary as legacy) | 35 |
 | Architecture + ADRs | `docs/architecture/*.md` (25), `adr/*` (37, incl. 0002 *separate-platform-and-canary-repositories*, 0021 *require-canary-owned-character-deletion-lifecycle*), `migration/`, `character-lifecycle/` | 67 |
-| Operations / testing / misc live docs | `docs/operations/*` (17), `docs/testing/**` (19), `docs/{acceptance,design,maps,evidence}` (4), `README.md`, `THIRD_PARTY_NOTICES.md` | ~42 |
+| Operations / testing / misc live docs | `docs/operations/*` (17), `docs/testing/**` (19), `docs/{acceptance,design,maps,evidence}` (4; dated records in `docs/evidence` follow H2, §5), `README.md`, `THIRD_PARTY_NOTICES.md` | ~42 |
 | Agent control plane (live) | `docs/agents/{ACTIVE_WORK,CONTEXT_HANDOFF,CONTEXT_ROUTING,OTERYN_PLATFORM_PROGRAM_SCOPE,PROJECT_STATE,REPOSITORY_MAP,SHORT_PROGRAM_INVOCATIONS}.md`, `CI_WORKFLOW_LIFECYCLE.json`, `GOVERNANCE_CONTRACT.json`, `programs/*` (2), `prompts/*` (12), `tools/validation/adr_registry.py` | ~25 |
 | Historical record | `docs/agents/tasks/archive/*` (172), `reports/*` (23), `evidence/*` (11), `handovers/*` (2), `CHANGELOG.md` | ~210 |
 | Name collision (deploy/MQ "canary" rollout, not the game engine) | `docs/maintenance/{DELEGATED_MQ_CANARY_20260913,OTERYN_CI_MQ_CANARY_V2}.md`, workflow name `native-auth-canary-cache-build.yml` referenced in `tests/ci/test_workflow_trigger_economy.py` | 3 |
@@ -141,7 +141,7 @@ Small, serial, one domain per PR. Target diff per PR: ≤ ~400 changed lines exc
 
 | # | Packet | Change | Dep |
 |---|---|---|---|
-| A1 | DECANARY-GUARD-1 | CI ratchet: per-group occurrence baseline (JSON); fails when a group count rises; regex written as `c[a]nary` so the guard itself does not count. Report-only for docs groups at first | — |
+| A1 | DECANARY-GUARD-1 | CI ratchet: per-group occurrence baseline (JSON) for file contents plus one group for tracked path names (`git ls-files`); fails when a group count rises; regex written as `c[a]nary` so the guard itself does not count. Report-only for docs groups at first | — |
 
 ### Phase B — cutover per domain (switch reads/writes to native, or disable)
 
@@ -155,7 +155,7 @@ Small, serial, one domain per PR. Target diff per PR: ≤ ~400 changed lines exc
 | B6 | DECANARY-CATALOG-1 | Additive `game_catalog_snapshots.source_commit_sha`, copy from old column, code reads new field; accept native export only behind config | #1460 disposition | catalog export field name | Medium (wire) |
 | B7 | DECANARY-LOGIN-NATIVE-ONLY-1 | Synology/compose gateway in native-only mode; Platform v1 login-context route returns 410; native ticket issuance on `POST /v1/game-auth/tickets` without an `IdentityCanaryAccount` binding (native login contract §4.1, U1) unless delivered earlier | #1479 soak in preprod, native E2E | — | High (auth) |
 
-**B1 note.** Provisioning stays until native-only login runs everywhere. At `db1ddec`, `IssueGameLoginTicket` (the only issuer behind `POST /v1/game-auth/tickets`, via `IssueGameLoginTicketFromOAuth`) denies any Identity without a ready `identity_canary_accounts` binding, and the v1 login context is keyed by the Canary account id. Stopping provisioning earlier would lock every new account out of game login. B1 therefore depends on B7, including binding-free native ticket issuance, being deployed in every environment.
+**B1 note.** Provisioning stays until native-only login runs everywhere. At `db1ddec`, `IssueGameLoginTicket` (the only issuer behind `POST /v1/game-auth/tickets`, via `IssueGameLoginTicketFromOAuth`) denies any Identity without a ready `identity_canary_accounts` binding, and the v1 login context is keyed by the Canary account id. Stopping provisioning earlier would lock every new account out of game login. B1 therefore depends on B7, including binding-free native ticket issuance, being deployed in every environment. Since #1484, `main` has binding-free native issuance (`NativeLogin/NativeGameLoginTickets::issue`, chosen by `IssueGameLoginTicketFromOAuth` for native requests), so that B7 item is delivered; B1 still waits for B7's native-only mode in every environment.
 
 ### Phase C — native capability (needs Game)
 
@@ -179,19 +179,23 @@ Small, serial, one domain per PR. Target diff per PR: ≤ ~400 changed lines exc
 
 | # | Packet | Change | Dep |
 |---|---|---|---|
-| D-1 | DECANARY-ACCEPT-1a | Acceptance bootstrap/seed/assert on native fixtures | C2–C7 (or B-phase unavailable states) |
+| D-1 | DECANARY-ACCEPT-1a | Acceptance bootstrap/seed/assert on native fixtures | C2–C7 (or B-phase unavailable states); C8 or the preference off-state (see note) |
 | D-2 | DECANARY-ACCEPT-1b | Playwright specs + coverage manifests | D-1 |
-| D-3 | DECANARY-ACCEPT-1c | Acceptance workflows drop `canary_acceptance` service (R9) | D-2 |
-| D-4 | DECANARY-DEPLOY-1a | `deploy/synology/compose*.yml`, `.env.example`, nginx, tls: remove Canary container, DB, env | Each deployed in every environment: B1, B2, B3 (or C2), B5 (or C5–C7), Bazaar drained (B4 drained, or C3), B7; owner Q4 (see note) |
-| D-5 | DECANARY-DEPLOY-1b | Deploy/rollback/health/preflight scripts + `tests/ci/test_synology_*` + `deploy/synology/tests` | D-4 |
-| D-6 | DECANARY-DEPLOY-1c | Synology workflows (image pin, staging, bazaar staging, schema recovery) (R9) | D-5 |
-| D-7 | DECANARY-GATEWAY-1 | Go gateway: delete legacy session client and protocol v1 branch | B7, D-4 |
+| D-3 | DECANARY-ACCEPT-1c | Acceptance workflows drop `canary_acceptance` service (R9) | D-2, C8 or the preference off-state (see note) |
+| D-4 | DECANARY-DEPLOY-1a | Dual-compatible tooling, no service removed: deploy/rollback/health/preflight scripts (incl. `deploy-impact.sh`), Synology workflows (image pin, staging, bazaar staging, schema recovery) and their tests treat the Canary service, its `CANARY_*` variables and the `canary_image` input as optional: present → current behaviour; absent from the compose topology → skipped, not validated. `tests/ci/test_synology_*` and `deploy/synology/tests` cover both topologies (R9) | A1 |
+| D-5 | DECANARY-DEPLOY-1b | Cutover: `deploy/synology/compose*.yml`, `.env.example`, nginx, tls: remove Canary container, DB, env. Released and validated (staging deploy + rollback dry run) with D-4 tooling; rolling D-5 back restores the service without a tooling revert | D-4 deployed; each deployed in every environment: B1, B2, B3 (or C2), B5 (or C5–C7), Bazaar drained (B4 drained, or C3), B7, C8 or the preference off-state; owner Q4 (see notes) |
+| D-6 | DECANARY-DEPLOY-1c | Remove the Canary-present branch from the D-4 scripts, workflows and tests (`canary_image` input deleted) (R9) | D-5 deployed in every environment |
+| D-7 | DECANARY-GATEWAY-1 | Go gateway: delete legacy session client and protocol v1 branch | B7, D-5 |
 | D-8 | DECANARY-DELETE-LOGIN-1 | Delete only the legacy v1 path: `GameAuth/{Context,Sessions}`, the legacy redeemer (`Tickets/{RedeemGameLoginTicket,RedeemedGameLoginTicket}`, `GameLoginTicketRedeemController`, `/internal/v1/game-auth/tickets/redeem`), the Canary branch of `Tickets/IssueGameLoginTicket`, `GameLoginContextController` and the `{canaryAccountId}` route, the Canary-keyed `WorldRegistry::forAccount` lookup (`Worlds/{WorldRegistry,DatabaseWorldRegistry}`, v1 login context only) and the Canary wording in `Worlds/GameWorldProtocolCandidate`, tests. Retain, or relocate in the same PR, the ticket model and secret service (`Tickets/{GameLoginTicket,GameLoginTicketSecrets}` plus `GameLoginTicketDenied`, `IssuedGameLoginTicket`) and native issuance (`POST /v1/game-auth/tickets`, `GameLoginTicketIssueController`, `IssueGameLoginTicketFromOAuth`), which `NativeLogin/NativeGameLoginTickets` depends on | B7, D-7 |
 | D-9 | DECANARY-DELETE-CODE-1 | Delete `app/CanaryIntegration/**`, `Accounts/*Canary*`, gateway contracts, bindings, console commands, verifier entries, audit constants (R6), tests; reword the `FinalizeIdentityTerminations` command description | B1–B5, C2/C3 or their off-states, C8 (`CharacterProfilePreferenceService` still imports `IdentityCanaryAccount` and `CanaryGameDataRepository`), D-8 |
 | D-10 | DECANARY-DELETE-CONFIG-1 | `config/database.php` connections, `config/marketplace.php`, `.env.example`, `database/provisioning/canary-*` | D-9, D-6 |
 | D-11 | DECANARY-TEXT-1 | `lang/**`, wiki catalog text, views | C5–C7 or B5 |
 
-**D-4 note.** The Synology `platform` service still reaches the Canary DB through `CANARY_DB_*` (public data, account overview), `CANARY_PROVISIONING_DB_*` (registration provisioning), `CANARY_CHARACTER_CREATE_DB_*` (creation), `CANARY_CHARACTER_TRANSFER_DB_*` (Bazaar, `compose.marketplace.yml`) and the Canary runtime Redis. D-4 removes these only after every caller is off or cut over in every environment and no Bazaar saga is non-terminal (R3).
+**D-5 note.** The Synology `platform` service still reaches the Canary DB through `CANARY_DB_*` (public data, account overview), `CANARY_PROVISIONING_DB_*` (registration provisioning), `CANARY_CHARACTER_CREATE_DB_*` (creation), `CANARY_CHARACTER_TRANSFER_DB_*` (Bazaar, `compose.marketplace.yml`) and the Canary runtime Redis. D-5 removes these only after every caller is off or cut over in every environment and no Bazaar saga is non-terminal (R3). That includes profile preference edits: `CharacterProfilePreferenceService::ownedActiveCharacter()` still resolves the character through `CanaryGameDataRepository`, so D-5 waits for C8 or the preference off-state.
+
+**D-4 note.** At `898b28c`, `.github/workflows/deploy-synology-staging.yml` requires and resolves `canary_image`, and `deploy/synology/scripts/deploy-impact.sh` validates the Canary variables and operates on that service. Removing the service before the tooling accepts its absence would leave no working release or staging validation path, so the tooling becomes dual-compatible first (D-4), the topology changes second (D-5) and the compatibility branch goes last (D-6).
+
+**Preference off-state note.** Where C8 cannot land before D-1, D-3 or D-5, a preference off-state is the only accepted substitute: profile preference edits answer "unavailable" without opening the Canary connection, and `tests/Feature/CharacterProfiles/CharacterProfilePreferenceTest.php`, `scripts/acceptance/update-character-profile-preference.php` (with its concurrency use in `community-data-acceptance.yml`) and `scripts/acceptance/coverage/surfaces/character-profile-preferences.json` assert that state in the same PR. It is the first stage of C8, inside C8's owned paths. Removing preference coverage without that rewrite does not satisfy D-1 or D-3.
 
 ### Phase E — data (protected; owner authority per environment)
 
@@ -210,31 +214,33 @@ Small, serial, one domain per PR. Target diff per PR: ≤ ~400 changed lines exc
 | F-1 | DECANARY-DOCS-2a | Contracts: delete Canary contracts, rewrite remaining contracts to native terms | D-9 |
 | F-2 | DECANARY-DOCS-2b | Architecture docs + ADR retirement (0002, 0021 deleted, `adr_registry.py` + ADR README + backlog updated, recorded in DECISION-INDEX-1) | F-1 |
 | F-3 | DECANARY-DOCS-2c | Operations, testing, README, THIRD_PARTY_NOTICES, agent control-plane docs, `CONTEXT_ROUTING.md` (`canary-integration` route removed) | F-2 |
-| F-4 | DECANARY-HISTORY-1 | Apply §5 to archive/reports/evidence/handovers/prompts/CHANGELOG; IA catalog + reconciliation registry paths | F-3, owner Q-H |
+| F-4 | DECANARY-HISTORY-1 | Apply the Q-H decision to H2 (§5). Recommended: list the H2 path prefixes as exclusions in the guard baseline (contents and path names); no H2 file is changed or renamed. Alternative only: scripted redaction or deletion, including renaming H2 paths that contain the token (e.g. `tasks/archive/OTERYN-20260718-canary-schema-discovery.md`, `docs/evidence/OTERYN-NATIVE-MERGE-ASYNC-CANARY-20260909.md`) with IA catalog + reconciliation registry updates | F-3, owner Q-H |
 | F-5 | DECANARY-RENAME-1 | Name collisions: MQ rollout docs and workflow renamed to `pilot` (R9) | A1 |
-| F-6 | DECANARY-FINAL-1 | Guard becomes blocking at zero for all groups; this plan and any remaining `DECANARY-*` packet text moved out of tree under §5 | everything above |
+| F-6 | DECANARY-FINAL-1 | Guard becomes blocking at zero for all groups, contents and tracked path names, outside the H2 exclusions; this plan and any remaining live `DECANARY-*` text become H2 records or are deleted (see path-name note) | everything above |
 
-Parallel lanes: A1 first; then B3, B4, B5, F-5 in parallel (disjoint paths); B6/B7 as their deps land; B1 after B7 is deployed everywhere, then B2; C0 before C3 and C8; PREFS-INVENTORY and Q-PREFS before C8; D-9 after C8; C-phase follows Game; D after B/C per domain; E strictly serial; F last.
+**Path-name note.** The F-6 gate checks `git ls-files` path names as well as contents. Tracked paths outside H2 that contain the token at `898b28c` leave with their packet: `app/**`, their tests and `database/provisioning/canary-*` with the C/D packet that deletes or replaces that code (D-9, D-10 at the latest); `database/migrations/*canary*` and `tests/Feature/Decanary/**` with E5; `docs/contracts/*CANARY*` with F-1; ADRs 0002 and 0021 with F-2; `docs/maintenance/*MQ_CANARY*` with F-5; this plan and the programme's active task records with F-6 (archived as H2 records or deleted). H2 paths keep their names under the recommended rule.
+
+Parallel lanes: A1 first; then B3, B4, B5, F-5 in parallel (disjoint paths); B6/B7 as their deps land; B1 after B7 is deployed everywhere, then B2; C0 before C3 and C8; PREFS-INVENTORY and Q-PREFS before C8; D-9 after C8; D-4 any time after A1; C-phase follows Game; D after B/C per domain; E strictly serial; F last.
 
 ## 5. History rule (proposal, owner decision Q-H)
 
 | Class | Rule |
 |---|---|
 | H1 Live normative docs (contracts, architecture, ADRs, operations, testing, routing, prompts marked reusable) | Rewrite in native terms or delete. A doc whose subject is Canary is deleted; its supersession is recorded once in DECISION-INDEX-1 v2 by ADR/contract id, without the token |
-| H2 Historical records (`tasks/archive`, `reports`, `evidence`, `handovers`, one-shot prompts, `CHANGELOG.md`) | **Recommended:** tag `archive/pre-native-only` at the commit before F-4 (immutable provenance), then a scripted deterministic redaction: token → `legacy engine` (identifiers: `legacy_engine`), plus one header line `Redacted 2026-10 (native-only); original at tag archive/pre-native-only`. The script and its mapping are committed and re-runnable; the PR contains nothing else |
-| H2 alternative | Delete H2 files from the tree and keep them only at the tag. Smaller risk of rewording evidence, but loses in-tree history for unrelated work |
+| H2 Historical records (`docs/agents/tasks/archive`, `docs/agents/reports`, `docs/agents/evidence`, `docs/agents/handovers`, `docs/evidence` dated records, one-shot prompts, `CHANGELOG.md`) | **Recommended:** preserve unchanged, contents and path names (`docs/agents/AGENTS.md`: preserve historical evidence as history), and exclude these path prefixes from the zero-occurrence gate. The exclusion list lives in the guard baseline and names prefixes only, never live docs. Historical records do not become current authority by remaining in the tree |
+| H2 alternative | Tag `archive/pre-native-only` at the commit before F-4, then either a scripted deterministic redaction (token → `legacy engine`, header line naming the tag) or deletion from the tree. Both rewrite or remove evidence in the default branch and need path renames plus IA catalog and reconciliation registry updates; not recommended |
 | H3 Git history, closed Issues/PRs, Jira | Untouched; out of the zero-occurrence scope |
 | H4 Data at rest (audit rows, backups from E1) | Untouched (R6); not repository content |
 
-Rationale for the recommendation: redaction keeps 170+ unrelated task records searchable, the tag preserves exact evidence, and evidence-integrity tooling (`HISTORICAL_WORK_RECONCILIATION_REGISTRY.json`, `DOCUMENTATION_IA_CATALOG.json`) keeps valid paths.
+Rationale for the recommendation: redacting identifiers, commands, branch names and paths inside historical tasks, reports and evidence would leave the default branch describing artifacts that never existed, and a tag does not keep the in-tree evidence truthful for readers or reconciliation tooling. Preserving H2 keeps 170+ task records exact and searchable and keeps evidence-integrity tooling (`HISTORICAL_WORK_RECONCILIATION_REGISTRY.json`, `DOCUMENTATION_IA_CATALOG.json`) valid without edits. The cost is that the owner's whole-tree target holds for live content only; Q-H asks the owner to accept that.
 
 ## 6. Owner questions
 
 | # | Question | Recommendation |
 |---|---|---|
-| Q-H | History rule for H2 | Redaction + tag (§5) |
+| Q-H | History rule for H2 | Preserve H2 unchanged and exclude it from the zero gate (§5); redaction or deletion only as the alternative |
 | Q-ID | Programme ID contains the token | New packets use prefix `NATIVE-ONLY-` from F-phase onward; existing `DECANARY-*` stay in git history |
-| Q4 (v1) | Remove Canary container and legacy login rollback port in D-4 | Yes (v1 rec A) |
+| Q4 (v1) | Remove Canary container and legacy login rollback port in D-5 | Yes (v1 rec A) |
 | Q-PREFS | Accept loss of profile preferences keyed by Canary player id | Yes, unless the pre-C8 row counts (PREFS-INVENTORY, §4 C8 note) say otherwise. Must be decided before C8 starts |
 | Q-CAT | Stop accepting catalog schemas v1–v1.2 | Yes, after the native export is qualified (B6) |
 
@@ -260,9 +266,11 @@ Packets marked **hard** in the tier column stay with a senior architect/worker; 
 | C5 PUBLIC-1a | standard | `app/PublicGameData/**` (highscores/profile), tests | Feature tests on projection fixtures; acceptance pages |
 | C6 PUBLIC-1b | standard | `app/PublicGameData/GuildIndexQuery.php` + deaths, tests | as C5 |
 | C7 PUBLIC-1c | standard | `app/PublicGameData/*Runtime*`, `app/PublicGameData/*Channel*`, tests | Online/status pages without Redis runtime connection |
-| C8 PREFS-1 | standard | `app/CharacterProfiles/**`, `tests/Feature/CharacterProfiles/**` | Concurrency test on `character_id` |
+| C8 PREFS-1 | standard | `app/CharacterProfiles/**`, `tests/Feature/CharacterProfiles/**`, `scripts/acceptance/update-character-profile-preference.php`, `scripts/acceptance/coverage/surfaces/character-profile-preferences.json` | Concurrency test on `character_id` (or, for the off-state stage, tests and acceptance asserting the unavailable state) |
 | D-1..D-3 ACCEPT-1a/b/c | standard | `scripts/acceptance/**` (a, b); acceptance workflows (c) | Acceptance runs green without `canary_acceptance`; workflow inventory test |
-| D-4..D-6 DEPLOY-1a/b/c | standard (hard review) | `deploy/synology/**`, `tests/ci/test_synology_*`, Synology workflows | `python -m pytest tests/ci deploy/synology/tests`; staging deploy + rollback dry run (protected, owner) |
+| D-4 DEPLOY-1a | standard (hard review) | `deploy/synology/scripts/**`, `deploy/synology/tests/**`, `tests/ci/test_synology_*`, Synology workflows | `python -m pytest tests/ci deploy/synology/tests` for both topologies; staging deploy with the service present |
+| D-5 DEPLOY-1b | standard (hard review) | `deploy/synology/compose*.yml`, `deploy/synology/.env.example`, nginx, tls | Same tests; staging deploy + rollback dry run without the service (protected, owner) |
+| D-6 DEPLOY-1c | standard | D-4 paths | Same tests; workflow inventory test |
 | D-7 GATEWAY-1 | **hard** | `services/game-gateway/**` | `go test ./...`, `go vet`; native E2E |
 | D-8 DELETE-LOGIN-1 | **hard** | `app/GameAuth/{Context,Sessions}/**`, `app/GameAuth/Tickets/{RedeemGameLoginTicket,RedeemedGameLoginTicket,IssueGameLoginTicket}.php`, `app/GameAuth/Worlds/{DatabaseWorldRegistry,GameWorldProtocolCandidate,WorldRegistry}.php`, `app/Http/Controllers/GameAuth/{GameLoginContextController,GameLoginTicketRedeemController}.php`, `routes/internal.php`, matching tests | Full suite; no route references `canaryAccountId`; native issuance and `NativeGameLoginTickets` redemption tests stay green |
 | D-9 DELETE-CODE-1 | standard (hard review) | `app/CanaryIntegration/**`, `app/Accounts/**/*Canary*`, `app/Characters/Contracts/*`, `app/Marketplace/Contracts/*`, `app/Providers/AppServiceProvider.php`, `app/Audit/SecurityEventRecorder.php`, `app/Operations/ProductionConfigurationVerifier.php`, `routes/console.php`, `app/Console/Commands/FinalizeIdentityTerminations.php` and its tests, `tests/Unit/CanaryIntegration/**` and Canary feature tests | Full suite; `composer analyse`; config verifier test |
@@ -271,9 +279,9 @@ Packets marked **hard** in the tier column stay with a senior architect/worker; 
 | E2..E4 DROP-1a/b/c | **hard** | one new migration each | Up/down on MariaDB with seeded data; E1 evidence linked |
 | E5 SQUASH-1 | **hard** | `database/schema/**`, `database/migrations/**`, migration rollback tests | Fresh `migrate` from dump equals post-drop schema (diff of `SHOW CREATE TABLE`) |
 | F-1..F-3 DOCS-2a/b/c | standard | listed docs per §4 F; `tools/validation/adr_registry.py` (F-2) | `python -m pytest tools/validation tools/agents`; docs IA tests |
-| F-4 HISTORY-1 | standard | `tools/agents/redact_legacy_token.py`, H2 paths | Script idempotent (second run no diff); IA catalog + reconciliation tests |
+| F-4 HISTORY-1 | standard | guard baseline exclusions (recommended); alternative adds `tools/agents/redact_legacy_token.py`, H2 paths, IA catalog, reconciliation registry | Recommended: no diff under H2 prefixes; guard counts zero outside them. Alternative: script idempotent, IA catalog + reconciliation tests |
 | F-5 RENAME-1 | standard | `docs/maintenance/*MQ*`, `.github/workflows/native-auth-*-cache-build.yml`, `tests/ci/test_workflow_trigger_economy.py` | Workflow inventory/trigger-economy tests |
-| F-6 FINAL-1 | standard | guard baseline, this file | `git grep -i` for the token returns nothing; guard blocking |
+| F-6 FINAL-1 | standard | guard baseline, this file | Outside the H2 prefixes, `git grep -i` for the token returns nothing and `git ls-files` lists no path containing it; guard blocking |
 
 ## 8. Closeout
 
