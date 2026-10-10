@@ -3,157 +3,47 @@
   "pattern": "c[a]nary",
   "case_insensitive": true,
   "metric": "matching lines (git grep -ic) per group; paths = tracked path names (git ls-files)",
+  "notes": [
+    "Later packets must use token-free names for task files, branch-visible text and docs they add; any rise in an enforced group fails CI (decision D607).",
+    "The history group is report-only: historical records are preserved and excluded from the zero gate."
+  ],
   "rules": [
-    [
-      "docs/agents/tasks/archive/",
-      "history"
-    ],
-    [
-      "docs/agents/reports/",
-      "history"
-    ],
-    [
-      "docs/agents/evidence/",
-      "history"
-    ],
-    [
-      "docs/agents/handovers/",
-      "history"
-    ],
-    [
-      "docs/evidence/",
-      "history"
-    ],
-    [
-      "CHANGELOG.md",
-      "history"
-    ],
-    [
-      "config/",
-      "config"
-    ],
-    [
-      ".env.example",
-      "config"
-    ],
-    [
-      "deploy/synology/.env.example",
-      "config"
-    ],
-    [
-      "database/",
-      "database"
-    ],
-    [
-      "tests/ci/",
-      "ci_deploy"
-    ],
-    [
-      ".github/",
-      "ci_deploy"
-    ],
-    [
-      "scripts/",
-      "ci_deploy"
-    ],
-    [
-      "deploy/",
-      "ci_deploy"
-    ],
-    [
-      "ops/",
-      "ci_deploy"
-    ],
-    [
-      "tests/",
-      "tests"
-    ],
-    [
-      "app/",
-      "runtime"
-    ],
-    [
-      "resources/",
-      "runtime"
-    ],
-    [
-      "routes/",
-      "runtime"
-    ],
-    [
-      "lang/",
-      "runtime"
-    ],
-    [
-      "services/",
-      "runtime"
-    ],
-    [
-      "bootstrap/",
-      "runtime"
-    ],
-    [
-      "public/",
-      "runtime"
-    ],
-    [
-      "docs/",
-      "docs"
-    ],
-    [
-      "README.md",
-      "docs"
-    ],
-    [
-      "THIRD_PARTY_NOTICES.md",
-      "docs"
-    ]
+    ["docs/agents/tasks/archive/", "history"],
+    ["docs/agents/reports/", "history"],
+    ["docs/agents/evidence/", "history"],
+    ["docs/agents/handovers/", "history"],
+    ["docs/evidence/", "history"],
+    ["CHANGELOG.md", "history"],
+    ["config/", "config"],
+    [".env.example", "config"],
+    ["deploy/synology/.env.example", "config"],
+    ["database/", "database"],
+    ["tests/ci/", "ci_deploy"],
+    [".github/", "ci_deploy"],
+    ["scripts/", "ci_deploy"],
+    ["deploy/", "ci_deploy"],
+    ["ops/", "ci_deploy"],
+    ["tests/", "tests"],
+    ["app/", "runtime"],
+    ["resources/", "runtime"],
+    ["routes/", "runtime"],
+    ["lang/", "runtime"],
+    ["services/", "runtime"],
+    ["bootstrap/", "runtime"],
+    ["public/", "runtime"],
+    ["docs/", "docs"],
+    ["README.md", "docs"],
+    ["THIRD_PARTY_NOTICES.md", "docs"]
   ],
   "groups": {
-    "ci_deploy": {
-      "count": 1189,
-      "files": 72,
-      "enforce": true
-    },
-    "config": {
-      "count": 131,
-      "files": 4,
-      "enforce": true
-    },
-    "database": {
-      "count": 97,
-      "files": 11,
-      "enforce": true
-    },
-    "docs": {
-      "count": 1692,
-      "files": 171,
-      "enforce": true
-    },
-    "history": {
-      "count": 1340,
-      "files": 211,
-      "enforce": true
-    },
-    "other": {
-      "count": 2,
-      "files": 2,
-      "enforce": true
-    },
-    "paths": {
-      "count": 53,
-      "files": 53,
-      "enforce": true
-    },
-    "runtime": {
-      "count": 497,
-      "files": 93,
-      "enforce": true
-    },
-    "tests": {
-      "count": 712,
-      "files": 58,
-      "enforce": true
-    }
+    "ci_deploy": {"count": 1189, "files": 72, "enforce": true},
+    "config": {"count": 131, "files": 4, "enforce": true},
+    "database": {"count": 97, "files": 11, "enforce": true},
+    "docs": {"count": 1692, "files": 171, "enforce": true},
+    "history": {"count": 1340, "files": 211, "enforce": false},
+    "other": {"count": 2, "files": 2, "enforce": true},
+    "paths": {"count": 53, "files": 53, "enforce": true},
+    "runtime": {"count": 497, "files": 93, "enforce": true},
+    "tests": {"count": 712, "files": 58, "enforce": true}
   }
 }
