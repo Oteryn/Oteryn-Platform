@@ -25,6 +25,15 @@ return [
         'ttl_seconds' => (int) env('GAME_AUTH_TICKET_TTL_SECONDS', 60),
     ],
 
+    'device_sessions' => [
+        // Candidate only: default OFF and refused outside testing/preproduction by both HTTP and service guards.
+        'enabled' => env('GAME_AUTH_DEVICE_SESSIONS_ENABLED', false),
+        'allow_insecure_loopback' => env('GAME_AUTH_DEVICE_SESSIONS_ALLOW_INSECURE_LOOPBACK', false),
+        'absolute_ttl_seconds' => filter_var(env('GAME_AUTH_DEVICE_SESSIONS_ABSOLUTE_TTL_SECONDS', 2592000), FILTER_VALIDATE_INT),
+        'idle_ttl_seconds' => filter_var(env('GAME_AUTH_DEVICE_SESSIONS_IDLE_TTL_SECONDS', 604800), FILTER_VALIDATE_INT),
+        'requests_per_minute' => filter_var(env('GAME_AUTH_DEVICE_SESSIONS_REQUESTS_PER_MINUTE', 30), FILTER_VALIDATE_INT),
+    ],
+
     'gateway' => [
         'service_token_sha256' => env('GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256'),
         'previous_service_token_sha256' => env('GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256'),
@@ -85,6 +94,19 @@ return [
         // whose assignments it may report. Never another purpose's identity, including a runtime-status identity.
         'identities' => env('GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES'),
         'requests_per_minute' => env('GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_REQUESTS_PER_MINUTE', 120),
+    ],
+
+    'native_account_characters' => [
+        // Testing/preproduction push consumer only. Production remains blocked on Decision P1/U12.
+        'enabled' => env('GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED', false),
+        // JSON list of dedicated Character Authority projection certificate subjects (one per authority host).
+        'identities' => env('GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_IDENTITIES'),
+        // One expected Character Authority namespace shared by every configured projection identity.
+        'source_authority' => env('GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_SOURCE_AUTHORITY'),
+        // Accepted internal-build liveness bound; release acceptance remains a separate decision.
+        'freshness_seconds' => env('GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_FRESHNESS_SECONDS', 30),
+        'clock_uncertainty_seconds' => env('GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_CLOCK_UNCERTAINTY_SECONDS', 1),
+        'requests_per_minute' => env('GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_REQUESTS_PER_MINUTE', 120),
     ],
 
     'character_bootstrap_intent' => [

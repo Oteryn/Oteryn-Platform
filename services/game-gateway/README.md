@@ -143,6 +143,8 @@ The concrete Canary-compatible Session Issuer is delivered by Canary PR #722. It
 
 With `GATEWAY_NATIVE_LOGIN_ENABLED=true` (exactly `true` or `false`; default off), a request whose top-level `protocol_version` is the integer `2` is served by the native branch (`internal/nativelogin`). Every other request keeps the Canary-compatible path above unchanged, and a native request never reaches the ticket redeem, login-context or Game Session issuer calls. With the switch off, `protocol_version: 2` keeps its previous `400 {"error":"invalid_request"}` answer.
 
+Native-only mode: with the switch on and both `GAME_SESSION_SERVICE_BASE_URL` and `GAME_SESSION_SERVICE_TOKEN` unset, the Gateway builds no Game Session client. Legacy requests then fail closed with `503 {"error":"login_unavailable"}` before the ticket is redeemed, and `/ready` depends only on the Platform. Setting exactly one of the two variables is a configuration error in every mode. With the switch off, both remain required.
+
 The native branch:
 
 1. applies the contract §10 Gateway limits in process: 30 requests per minute per connection source address (no forwarding header is trusted) and 6 requests in total per (`attempt_ref`, ticket hash), retained for 2 minutes (longer than a ticket's 60 s plus a grant's 30 s); the limiter refuses new keys when its bounded table is full;
