@@ -1,6 +1,6 @@
 # DECANARY removal plan (v2)
 
-Task: DECANARY-PLAN-1. Mode: PLAN ONLY. This document changes no code, schema, configuration, deployment or data and grants no runtime, DDL, production, Game-repository or merge authority.
+Task: DECANARY-PLAN-1 (task record `docs/agents/tasks/active/OTERYN-20261008-decanary-plan.md`). Mode: PLAN ONLY. This document changes no code, schema, configuration, deployment or data and grants no runtime, DDL, production, Game-repository or merge authority.
 
 - Owner decision (2026-10-08): **everything about Canary leaves Oteryn-Platform; every capability is re-pointed at Oteryn-Game (native server).**
 - Governing Issues: [#1474](https://github.com/Oteryn/Oteryn-Platform/issues/1474) (native-only migration, Jira `KAN-41`) and [#1476](https://github.com/Oteryn/Oteryn-Platform/issues/1476) (ARCH-PLATFORM-DECANARY-0, decoupling plan v1).
@@ -30,7 +30,7 @@ Counts are files containing the token (case-insensitive) at `db1ddec`.
 | Integration adapters | `app/CanaryIntegration/*` (8: provisioner, creator, transfer, 4 privilege verifiers, runtime Redis reader) | C2, C3, C7, C8, C10 |
 | Account provisioning | `app/Accounts/Actions/ProvisionCanaryAccount.php`, `Contracts/CanaryAccountProvisioningGateway.php`, `Exceptions/CanaryAccountProvisioning*.php` (3), `Models/IdentityCanaryAccount.php`, `app/Identity/Actions/RegisterIdentity.php`, `app/Console/Commands/FinalizeIdentityTerminations.php` (description text) | C3 |
 | Account read model | `app/Accounts/ReadModels/AccountOverviewReadModel.php`, `app/Http/Controllers/Accounts/AccountOverviewController.php` | C9 |
-| Game auth v1 | `app/GameAuth/Context/GameLoginContextProvider.php`, `Tickets/*` (4), `Sessions/*` (2), `Worlds/*` (3), `NativeLogin/NativeGameLoginTickets.php`, `app/Http/Controllers/GameAuth/GameLogin*` (3), `routes/internal.php` (`{canaryAccountId}`) | C4, C5 |
+| Game auth v1 | `app/GameAuth/Context/GameLoginContextProvider.php`, `Tickets/*` (4), `Sessions/*` (2), `Worlds/*` (3), `NativeLogin/NativeGameLoginTickets.php`, `app/Http/Controllers/GameAuth/GameLogin*` (3), `routes/internal.php` (`{canaryAccountId}`). Not all of this is deleted: native redemption (`NativeGameLoginTickets`) imports `Tickets/GameLoginTicket` and `Tickets/GameLoginTicketSecrets`, and native issuance shares `POST /v1/game-auth/tickets`; these stay and lose only their Canary fields/branches (D-8, E2) | C4, C5 |
 | Characters | `app/Characters/Actions/CreateCharacter.php`, `Contracts/CanaryCharacterCreationGateway.php`, `Policies/CharacterNamePolicy.php`, `app/CharacterProfiles/*` (2) | C7, C11 |
 | Bazaar | `app/Marketplace/Actions/{CreateCharacterAuction,PlaceAuctionBid,ReconcileCharacterAuctions,RecoverCharacterAuction}.php`, `Contracts/CanaryCharacterTransferGateway.php`, `Http/MarketplaceListingController.php`, `Models/CharacterAuction.php`, `resources/views/admin/marketplace/index.blade.php` | C8, C11 |
 | Public data | `app/PublicGameData/*` (6: `CanaryGameDataRepository`, `CanaryChannelRuntimeService`, `CanaryRuntimeSnapshot`, `CanaryRuntimeStatus`, `GuildIndexQuery`, `PublicCharacterProfileService`), `app/PublicPortal/HomePageQuery.php`, `app/Http/Controllers/PublicGameData/PublicGameDataController.php` | C9, C10 |
@@ -84,7 +84,7 @@ Not in the tree but affected: rows in `security_events` whose type is `identity.
 | Historical record | `docs/agents/tasks/archive/*` (172), `reports/*` (23), `evidence/*` (11), `handovers/*` (2), `CHANGELOG.md` | ~210 |
 | Name collision (deploy/MQ "canary" rollout, not the game engine) | `docs/maintenance/{DELEGATED_MQ_CANARY_20260913,OTERYN_CI_MQ_CANARY_V2}.md`, workflow name `native-auth-canary-cache-build.yml` referenced in `tests/ci/test_workflow_trigger_economy.py` | 3 |
 
-The task IDs of this programme (`DECANARY-*`) and this file contain the token too; see §4 F1.
+The task IDs of this programme (`DECANARY-*`), this file (`docs/agents/programs/DECANARY_REMOVAL_PLAN.md`) and its task record contain the token too; see §4 F-6.
 
 ## 2. Native replacement per group
 
@@ -147,13 +147,15 @@ Small, serial, one domain per PR. Target diff per PR: ≤ ~400 changed lines exc
 
 | # | Packet | Change | Dep (Platform) | Dep (Game) | Risk |
 |---|---|---|---|---|---|
-| B1 | DECANARY-REG-1 | Stop creating `identity_canary_accounts` at registration; unschedule/disable `canary:provision-pending-accounts`; account page stops showing binding state | A1 | — | Medium (account) |
+| B1 | DECANARY-REG-1 | Stop creating `identity_canary_accounts` at registration; unschedule/disable `canary:provision-pending-accounts`; account page stops showing binding state | A1, B7 deployed in every environment (see note) | — | Medium (account) |
 | B2 | DECANARY-ACCOUNT-1 | Account overview reads LCFA read model instead of Canary `players` | #1479, B1 | LCFA producer live in env | Medium |
 | B3 | DECANARY-CREATE-OFF-1 | Character creation returns typed unavailable; remove Canary creator binding | A1 | — | Low |
 | B4 | DECANARY-BAZAAR-FREEZE-1 | Freeze new listings + drain command/report for in-flight auctions (R3) | #1477 | — | High (money) |
 | B5 | DECANARY-PUBLIC-OFF-1 | Public pages (highscores, profiles, guilds, deaths, online) render unavailable when the Canary connection is absent; no Canary queries when `PUBLIC_GAME_DATA_SOURCE=native` | A1 | — | Low |
 | B6 | DECANARY-CATALOG-1 | Additive `game_catalog_snapshots.source_commit_sha`, copy from old column, code reads new field; accept native export only behind config | #1460 disposition | catalog export field name | Medium (wire) |
-| B7 | DECANARY-LOGIN-NATIVE-ONLY-1 | Synology/compose gateway in native-only mode; Platform v1 login-context route returns 410 | #1479 soak in preprod, native E2E | — | High (auth) |
+| B7 | DECANARY-LOGIN-NATIVE-ONLY-1 | Synology/compose gateway in native-only mode; Platform v1 login-context route returns 410; native ticket issuance on `POST /v1/game-auth/tickets` without an `IdentityCanaryAccount` binding (native login contract §4.1, U1) unless delivered earlier | #1479 soak in preprod, native E2E | — | High (auth) |
+
+**B1 note.** Provisioning stays until native-only login runs everywhere. At `db1ddec`, `IssueGameLoginTicket` (the only issuer behind `POST /v1/game-auth/tickets`, via `IssueGameLoginTicketFromOAuth`) denies any Identity without a ready `identity_canary_accounts` binding, and the v1 login context is keyed by the Canary account id. Stopping provisioning earlier would lock every new account out of game login. B1 therefore depends on B7, including binding-free native ticket issuance, being deployed in every environment.
 
 ### Phase C — native capability (needs Game)
 
@@ -166,7 +168,9 @@ Small, serial, one domain per PR. Target diff per PR: ≤ ~400 changed lines exc
 | C5 | DECANARY-PUBLIC-1a | Highscores + profiles from C4 | B5, C4 | #1937 producer | Low |
 | C6 | DECANARY-PUBLIC-1b | Guilds + deaths from C4 | C5 | #1937 producer | Low |
 | C7 | DECANARY-PUBLIC-1c | Online list from C4; channel status from native runtime status; drop Redis reader usage | C5 | #1937 online | Low |
-| C8 | DECANARY-PREFS-1 | Profile preferences keyed by `character_id`; old rows ignored (Q6=A, no mapping) | #1477, C5 | — | Medium (user-visible reset) |
+| C8 | DECANARY-PREFS-1 | Profile preferences keyed by `character_id`; old rows ignored (Q6=A, no mapping) | #1477, C5, PREFS-INVENTORY, owner decision Q-PREFS (see note) | — | Medium (user-visible reset) |
+
+**C8 note.** C8 makes the preference reset visible, so its evidence cannot wait for E1 (which runs only after D-9). PREFS-INVENTORY is a read-only operation, not a code PR, run before C8: for each environment, count the `character_profile_preferences` rows with non-null `canary_player_id` and record the counts only (no row data in the repository) on the governing Issue. The owner decides Q-PREFS on those counts. C8 does not start until that decision is recorded.
 
 ### Phase D — remove code, config, CI, deploy
 
@@ -175,14 +179,16 @@ Small, serial, one domain per PR. Target diff per PR: ≤ ~400 changed lines exc
 | D-1 | DECANARY-ACCEPT-1a | Acceptance bootstrap/seed/assert on native fixtures | C2–C7 (or B-phase unavailable states) |
 | D-2 | DECANARY-ACCEPT-1b | Playwright specs + coverage manifests | D-1 |
 | D-3 | DECANARY-ACCEPT-1c | Acceptance workflows drop `canary_acceptance` service (R9) | D-2 |
-| D-4 | DECANARY-DEPLOY-1a | `deploy/synology/compose*.yml`, `.env.example`, nginx, tls: remove Canary container, DB, env | B7, owner Q4 |
+| D-4 | DECANARY-DEPLOY-1a | `deploy/synology/compose*.yml`, `.env.example`, nginx, tls: remove Canary container, DB, env | Each deployed in every environment: B1, B2, B3 (or C2), B5 (or C5–C7), Bazaar drained (B4 drained, or C3), B7; owner Q4 (see note) |
 | D-5 | DECANARY-DEPLOY-1b | Deploy/rollback/health/preflight scripts + `tests/ci/test_synology_*` + `deploy/synology/tests` | D-4 |
 | D-6 | DECANARY-DEPLOY-1c | Synology workflows (image pin, staging, bazaar staging, schema recovery) (R9) | D-5 |
 | D-7 | DECANARY-GATEWAY-1 | Go gateway: delete legacy session client and protocol v1 branch | B7, D-4 |
-| D-8 | DECANARY-DELETE-LOGIN-1 | Delete `GameAuth/{Context,Tickets,Sessions}` v1, controllers, internal route, tests | B7, D-7 |
+| D-8 | DECANARY-DELETE-LOGIN-1 | Delete only the legacy v1 path: `GameAuth/{Context,Sessions}`, the legacy redeemer (`Tickets/{RedeemGameLoginTicket,RedeemedGameLoginTicket}`, `GameLoginTicketRedeemController`, `/internal/v1/game-auth/tickets/redeem`), the Canary branch of `Tickets/IssueGameLoginTicket`, `GameLoginContextController` and the `{canaryAccountId}` route, tests. Retain, or relocate in the same PR, the ticket model and secret service (`Tickets/{GameLoginTicket,GameLoginTicketSecrets}` plus `GameLoginTicketDenied`, `IssuedGameLoginTicket`) and native issuance (`POST /v1/game-auth/tickets`, `GameLoginTicketIssueController`, `IssueGameLoginTicketFromOAuth`), which `NativeLogin/NativeGameLoginTickets` depends on | B7, D-7 |
 | D-9 | DECANARY-DELETE-CODE-1 | Delete `app/CanaryIntegration/**`, `Accounts/*Canary*`, gateway contracts, bindings, console commands, verifier entries, audit constants (R6), tests | B1–B5, C2/C3 or their off-states, D-8 |
 | D-10 | DECANARY-DELETE-CONFIG-1 | `config/database.php` connections, `config/marketplace.php`, `.env.example`, `database/provisioning/canary-*` | D-9, D-6 |
 | D-11 | DECANARY-TEXT-1 | `lang/**`, wiki catalog text, views | C5–C7 or B5 |
+
+**D-4 note.** The Synology `platform` service still reaches the Canary DB through `CANARY_DB_*` (public data, account overview), `CANARY_PROVISIONING_DB_*` (registration provisioning), `CANARY_CHARACTER_CREATE_DB_*` (creation), `CANARY_CHARACTER_TRANSFER_DB_*` (Bazaar, `compose.marketplace.yml`) and the Canary runtime Redis. D-4 removes these only after every caller is off or cut over in every environment and no Bazaar saga is non-terminal (R3).
 
 ### Phase E — data (protected; owner authority per environment)
 
@@ -205,7 +211,7 @@ Small, serial, one domain per PR. Target diff per PR: ≤ ~400 changed lines exc
 | F-5 | DECANARY-RENAME-1 | Name collisions: MQ rollout docs and workflow renamed to `pilot` (R9) | A1 |
 | F-6 | DECANARY-FINAL-1 | Guard becomes blocking at zero for all groups; this plan and any remaining `DECANARY-*` packet text moved out of tree under §5 | everything above |
 
-Parallel lanes: A1 first; then B1, B3, B4, B5, F-5 in parallel (disjoint paths); B2/B6/B7 as their deps land; C-phase follows Game; D after B/C per domain; E strictly serial; F last.
+Parallel lanes: A1 first; then B3, B4, B5, F-5 in parallel (disjoint paths); B6/B7 as their deps land; B1 after B7 is deployed everywhere, then B2; PREFS-INVENTORY and Q-PREFS before C8; C-phase follows Game; D after B/C per domain; E strictly serial; F last.
 
 ## 5. History rule (proposal, owner decision Q-H)
 
@@ -226,7 +232,7 @@ Rationale for the recommendation: redaction keeps 170+ unrelated task records se
 | Q-H | History rule for H2 | Redaction + tag (§5) |
 | Q-ID | Programme ID contains the token | New packets use prefix `NATIVE-ONLY-` from F-phase onward; existing `DECANARY-*` stay in git history |
 | Q4 (v1) | Remove Canary container and legacy login rollback port in D-4 | Yes (v1 rec A) |
-| Q-PREFS | Accept loss of profile preferences keyed by Canary player id | Yes, unless a production row count says otherwise (E1 evidence) |
+| Q-PREFS | Accept loss of profile preferences keyed by Canary player id | Yes, unless the pre-C8 row counts (PREFS-INVENTORY, §4 C8 note) say otherwise. Must be decided before C8 starts |
 | Q-CAT | Stop accepting catalog schemas v1–v1.2 | Yes, after the native export is qualified (B6) |
 
 ## 7. Worker packets (Sonnet-tier)
@@ -242,7 +248,7 @@ Packets marked **Opus** in the tier column stay with a top-tier architect/worker
 | B4 BAZAAR-FREEZE-1 | **Opus** | `app/Marketplace/**`, `config/marketplace.php`, `tests/Feature/Marketplace/**` | Settlement recovery, idempotency, concurrency (MariaDB) suites |
 | B5 PUBLIC-OFF-1 | Sonnet | `app/PublicGameData/**`, `app/PublicPortal/HomePageQuery.php`, `app/Http/Controllers/PublicGameData/**`, `tests/Feature/PublicGameData/**`, `tests/Feature/HomeTest.php` | Pages 200 with unavailable state and no Canary connection |
 | B6 CATALOG-1 | **Opus** | `app/GameCatalog/**`, new additive migration, `resources/schemas/game-catalog/**`, `tests/Feature/GameCatalog/**`, `tests/Fixtures/GameCatalog/**` | Up/down on MariaDB with non-empty snapshots; import of native fixture |
-| B7 LOGIN-NATIVE-ONLY-1 | **Opus** | `deploy/synology/compose.yml` (gateway service env only), `routes/internal.php`, `config/game-auth.php` | `tests/e2e/native_auth_ephemeral_cutover`, gateway CI |
+| B7 LOGIN-NATIVE-ONLY-1 | **Opus** | `deploy/synology/compose.yml` (gateway service env only), `routes/internal.php`, `config/game-auth.php`, `app/GameAuth/Tickets/IssueGameLoginTicket.php`, `app/GameAuth/OAuth/**` (native issuance only), `tests/Feature/GameAuth/**` | `tests/e2e/native_auth_ephemeral_cutover`, gateway CI; native ticket issued for an Identity without a Canary binding |
 | C1 CMD-CLIENT-1 | **Opus** | new `app/CharacterAuthority/**`, `config/character-authority.php`, tests | Timeout, retry with same idempotency key, receipt replay |
 | C2 CREATE-1 | **Opus** | `app/Characters/**`, tests | MariaDB concurrency; duplicate-name rejection via receipt |
 | C3 BAZAAR-1 | **Opus** | `app/Marketplace/**`, tests | Full Marketplace suites; drain report zero before switch |
@@ -254,7 +260,7 @@ Packets marked **Opus** in the tier column stay with a top-tier architect/worker
 | D-1..D-3 ACCEPT-1a/b/c | Sonnet | `scripts/acceptance/**` (a, b); acceptance workflows (c) | Acceptance runs green without `canary_acceptance`; workflow inventory test |
 | D-4..D-6 DEPLOY-1a/b/c | Sonnet (Opus review) | `deploy/synology/**`, `tests/ci/test_synology_*`, Synology workflows | `python -m pytest tests/ci deploy/synology/tests`; staging deploy + rollback dry run (protected, owner) |
 | D-7 GATEWAY-1 | **Opus** | `services/game-gateway/**` | `go test ./...`, `go vet`; native E2E |
-| D-8 DELETE-LOGIN-1 | **Opus** | `app/GameAuth/{Context,Tickets,Sessions}/**`, `app/Http/Controllers/GameAuth/GameLogin*`, `routes/internal.php`, matching tests | Full suite; no route references `canaryAccountId` |
+| D-8 DELETE-LOGIN-1 | **Opus** | `app/GameAuth/{Context,Sessions}/**`, `app/GameAuth/Tickets/{RedeemGameLoginTicket,RedeemedGameLoginTicket,IssueGameLoginTicket}.php`, `app/Http/Controllers/GameAuth/{GameLoginContextController,GameLoginTicketRedeemController}.php`, `routes/internal.php`, matching tests | Full suite; no route references `canaryAccountId`; native issuance and `NativeGameLoginTickets` redemption tests stay green |
 | D-9 DELETE-CODE-1 | Sonnet (Opus review) | `app/CanaryIntegration/**`, `app/Accounts/**/*Canary*`, `app/Characters/Contracts/*`, `app/Marketplace/Contracts/*`, `app/Providers/AppServiceProvider.php`, `app/Audit/SecurityEventRecorder.php`, `app/Operations/ProductionConfigurationVerifier.php`, `routes/console.php`, `tests/Unit/CanaryIntegration/**` and Canary feature tests | Full suite; `composer analyse`; config verifier test |
 | D-10 DELETE-CONFIG-1 | Sonnet | `config/database.php`, `config/marketplace.php`, `.env.example`, `database/provisioning/**` | `php artisan config:cache` in CI; full suite |
 | D-11 TEXT-1 | Sonnet | `lang/**`, `app/Wiki/Content/WikiLaunchContentCatalog.php`, `resources/views/**` | Lang key parity en/pl; wiki content tests |
