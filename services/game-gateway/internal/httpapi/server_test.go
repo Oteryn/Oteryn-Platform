@@ -327,3 +327,31 @@ func TestNativeLoginRoutesOnlyProtocolVersionTwo(t *testing.T) {
 		t.Fatalf("protocol_version 1 must keep the Canary path, got %d sessions=%d native=%d", response.Code, sessions.calls, len(native.bodies))
 	}
 }
+
+func TestNativeOnlyModeRefusesV1LoginAndStillRoutesNative(t *testing.T) {
+	platform := legacyTestPlatform()
+	server := NewServer(gateway.NewService(platform, nil), "test", slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
+	native := &recordingNativeHandler{}
+	server.EnableNativeLogin(native)
+
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/login", strings.NewReader(`{"protocol_version":1,"game_login_ticket":"ticket"}`)))
+	if response.Code != http.StatusServiceUnavailable || strings.TrimSpace(response.Body.String()) != `{"error":"login_unavailable"}` {
+		t.Fatalf("expected login_unavailable for v1 in native-only mode, got %d %s", response.Code, response.Body.String())
+	}
+	if platform.redeemCalls != 0 {
+		t.Fatal("native-only mode must not redeem a v1 ticket")
+	}
+
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/login", strings.NewReader(nativeLoginBody)))
+	if response.Code != http.StatusTeapot || len(native.bodies) != 1 {
+		t.Fatalf("protocol_version 2 must still reach the native branch, got %d", response.Code)
+	}
+
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/ready", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("native-only readiness must not depend on a session service, got %d", response.Code)
+	}
+}
