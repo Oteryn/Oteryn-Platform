@@ -21,6 +21,10 @@ type Config struct {
 	// issuer. Default off; the Canary path is unchanged either way.
 	NativeLoginEnabled     bool
 	NativeAdmissionTimeout time.Duration
+	// LegacySessionEnabled is false only in native-only mode: native login enabled and both
+	// GAME_SESSION_SERVICE_* variables unset. The gateway then builds no session client and
+	// refuses legacy logins.
+	LegacySessionEnabled bool
 }
 
 // maxNativeAdmissionTimeout keeps one issuer exchange inside the server write timeout.
@@ -62,14 +66,24 @@ func Load() (Config, error) {
 		cfg.NativeAdmissionTimeout = parsed
 	}
 
-	if cfg.PlatformServiceToken == "" || cfg.SessionServiceToken == "" {
+	if cfg.PlatformServiceToken == "" {
 		return Config{}, fmt.Errorf("service credentials are required")
 	}
 	if err := validateBaseURL(cfg.PlatformBaseURL); err != nil {
 		return Config{}, fmt.Errorf("invalid OTERYN_PLATFORM_BASE_URL: %w", err)
 	}
-	if err := validateBaseURL(cfg.SessionBaseURL); err != nil {
-		return Config{}, fmt.Errorf("invalid GAME_SESSION_SERVICE_BASE_URL: %w", err)
+
+	sessionURLSet, sessionTokenSet := cfg.SessionBaseURL != "", cfg.SessionServiceToken != ""
+	switch {
+	case !sessionURLSet && !sessionTokenSet && cfg.NativeLoginEnabled:
+		cfg.LegacySessionEnabled = false
+	case !sessionURLSet || !sessionTokenSet:
+		return Config{}, fmt.Errorf("GAME_SESSION_SERVICE_BASE_URL and GAME_SESSION_SERVICE_TOKEN are required together")
+	default:
+		if err := validateBaseURL(cfg.SessionBaseURL); err != nil {
+			return Config{}, fmt.Errorf("invalid GAME_SESSION_SERVICE_BASE_URL: %w", err)
+		}
+		cfg.LegacySessionEnabled = true
 	}
 	if strings.TrimSpace(cfg.ListenAddress) == "" {
 		return Config{}, fmt.Errorf("GATEWAY_LISTEN_ADDR is empty")

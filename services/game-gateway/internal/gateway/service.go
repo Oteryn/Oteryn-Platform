@@ -14,6 +14,8 @@ type Service struct {
 	now      func() time.Time
 }
 
+// NewService builds the login service. A nil sessions issuer is native-only mode: every
+// legacy login is refused with ErrUnavailable before the ticket is redeemed.
 func NewService(platform PlatformClient, sessions SessionIssuer) *Service {
 	return &Service{
 		platform: platform,
@@ -32,6 +34,9 @@ func (s *Service) Login(ctx context.Context, ticket string) (LoginResponse, erro
 func (s *Service) LoginWithRequest(ctx context.Context, request LoginRequest) (LoginResponse, error) {
 	if err := ValidateLoginRequest(request); err != nil {
 		return LoginResponse{}, err
+	}
+	if s.sessions == nil {
+		return LoginResponse{}, ErrUnavailable
 	}
 
 	authorization, err := s.platform.Redeem(ctx, request.GameLoginTicket)
@@ -148,10 +153,10 @@ func (s *Service) Ready(ctx context.Context) error {
 	if err := s.platform.Ready(ctx); err != nil {
 		return err
 	}
-	if err := s.sessions.Ready(ctx); err != nil {
-		return err
+	if s.sessions == nil {
+		return nil
 	}
-	return nil
+	return s.sessions.Ready(ctx)
 }
 
 func randomID(bytes int) (string, error) {

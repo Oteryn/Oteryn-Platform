@@ -239,6 +239,10 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(5)->by($this->bearerSourceKey($request));
         });
 
+        RateLimiter::for('game-auth-native-characters', function (Request $request): Limit {
+            return Limit::perMinute(10)->by($this->bearerCredentialKey($request));
+        });
+
         RateLimiter::for('game-auth-ticket-redeem-source', function (Request $request): Limit {
             return Limit::perMinute(60)->by($request->ip() ?? 'unknown');
         });
@@ -304,13 +308,17 @@ class AppServiceProvider extends ServiceProvider
         return $tokenKey.'|'.($request->ip() ?? 'unknown');
     }
 
-    private function bearerSourceKey(Request $request): string
+    private function bearerCredentialKey(Request $request): string
     {
         $credential = $request->bearerToken();
-        $credentialKey = is_string($credential) && $credential !== ''
+
+        return is_string($credential) && $credential !== ''
             ? hash('sha256', $credential)
             : 'missing';
+    }
 
-        return $credentialKey.'|'.($request->ip() ?? 'unknown');
+    private function bearerSourceKey(Request $request): string
+    {
+        return $this->bearerCredentialKey($request).'|'.($request->ip() ?? 'unknown');
     }
 }

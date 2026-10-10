@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware\GameAuth;
 
+use App\GameAuth\NativeAccountCharacters\NativeAccountCharactersSettings;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -15,8 +16,9 @@ final class RequireNativeEvidenceMtlsPeer
             || $expectedIdentity === ''
             || strlen($expectedIdentity) > 128
             || preg_match('/^[\x20-\x7e]+$/', $expectedIdentity) !== 1
-            // A subject shared with the Premium snapshot read is ambiguous; neither purpose accepts it.
-            || $expectedIdentity === config('products-entitlements.premium_snapshot.mtls_client_identity')) {
+            // A subject shared with another internal purpose is ambiguous; neither purpose accepts it.
+            || $expectedIdentity === config('products-entitlements.premium_snapshot.mtls_client_identity')
+            || in_array($expectedIdentity, NativeAccountCharactersSettings::configuredPublisherIdentities(), true)) {
             return response('', 503);
         }
 
