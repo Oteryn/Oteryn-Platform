@@ -11,7 +11,11 @@ optional_reads:
   - docs/contracts/OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md
 ---
 
-# OTERYN-20261005 Premium physical cross-repository E2E
+# OTERYN-20261005 Premium physical cross-repository E2E — terminal archive
+
+## Terminal outcome
+
+PR #1462 (`test/1431-premium-physical-e2e`) merged into `main` at 2026-10-10T20:50:49Z. This record is archived by lifecycle closeout; the acceptance items below that were still open at the last checkpoint were resolved by the merged PR's exact-head validation.
 
 ## Goal
 
@@ -28,8 +32,8 @@ The harness runs the real Platform Premium snapshot endpoint behind a real TLS 1
 - [x] Successful snapshots are parsed and validated by Game `snapshot::validate`, including exact Platform `producer_revision`.
 - [x] Platform and Game revisions are pinned and emitted in test evidence.
 - [x] No production/staging/protected-environment, secret, certificate-issuance or Game-repository mutation is performed.
-- [ ] Exact-head workflow passes after the PR is opened.
-- [ ] Whole-diff review has no unresolved material finding.
+- [x] Exact-head workflow passes after the PR is opened (PR #1462 merged through protected checks).
+- [x] Whole-diff review has no unresolved material finding (PR #1462 merged).
 
 ## Ownership
 
@@ -37,7 +41,7 @@ The harness runs the real Platform Premium snapshot endpoint behind a real TLS 1
 owned_paths:
   - .github/workflows/phase7-production-like-validation.yml
   - tests/e2e/premium_physical_e2e/**
-  - docs/agents/tasks/active/OTERYN-20261005-premium-physical-e2e.md
+  - docs/agents/tasks/archive/OTERYN-20261005-premium-physical-e2e.md
 modules:
   - ProductsEntitlements
   - cross-repository qualification
@@ -45,8 +49,7 @@ dependencies:
   - Oteryn/Oteryn-Platform#1432
   - Oteryn/Oteryn-Platform#1433
   - Oteryn/Oteryn-Game#1774
-blockers:
-  - GitHub Actions capacity for exact-head validation
+blockers: []
 cross_repository_tasks:
   - OTV2-PREMIUM-DELIVERY (Game read-only at 0fceef1f2cc311ed21eda96d168e1f8b2b298f83)
 ```
@@ -55,11 +58,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-05T23:20:00+02:00
-status: validating
-phase: exact_head_validation
+updated_at: 2026-10-10T21:00:00Z
+status: completed
+terminal_pr_policy: archive_pending
+phase: terminal_archive
 branch: test/1431-premium-physical-e2e
-head: 883994de56b247750d77e1e870a5d1e59f0750f3
+head: 630f58e58a22a8050cbac04d5ac10cda85a40765
 pr: 1462
 context_routes:
   - products-entitlements
@@ -67,15 +71,14 @@ context_routes:
 owned_paths:
   - .github/workflows/phase7-production-like-validation.yml
   - tests/e2e/premium_physical_e2e/**
-  - docs/agents/tasks/active/OTERYN-20261005-premium-physical-e2e.md
+  - docs/agents/tasks/archive/OTERYN-20261005-premium-physical-e2e.md
 proven:
   - Platform PREM-P contract and producer are merged through PRs #1432 and #1433.
   - Game PR #1774 merged the real PremiumSnapshotClient path/TLS reconciliation and exact Platform fixture validation as merge 0fceef1f2cc311ed21eda96d168e1f8b2b298f83.
-  - Game activation record keeps the real-endpoint non-production run open and explicitly requires 503, 404, NONE, ACTIVE and REVOKED physical cases before activation.
+  - PR #1462 merged into main at 2026-10-10T20:50:49Z from head 630f58e58a22a8050cbac04d5ac10cda85a40765.
 derived:
-  - A Platform-owned ephemeral harness can close the physical producer/consumer evidence without any Game write by compiling the pinned public Game library and calling the real private Platform endpoint.
-unknown:
-  - Exact-head workflow result until a PR is opened and GitHub-hosted runners execute the candidate.
+  - A Platform-owned ephemeral harness closes the physical producer/consumer evidence without any Game write by compiling the pinned public Game library and calling the real private Platform endpoint.
+unknown: []
 conflicts: []
 first_failure:
   marker: none
@@ -91,7 +94,7 @@ changed_paths:
   - tests/e2e/premium_physical_e2e/control.php
   - tests/e2e/premium_physical_e2e/game_client.rs
   - tests/e2e/premium_physical_e2e/run.sh
-  - docs/agents/tasks/active/OTERYN-20261005-premium-physical-e2e.md
+  - docs/agents/tasks/archive/OTERYN-20261005-premium-physical-e2e.md
 validation:
   - command: initial PR #1462 governance/CI validation on head 7b1eade0e2a73e14bf4e4a9f8b5e60b81f31ab2b
     result: FAIL
@@ -99,7 +102,17 @@ validation:
   - command: workflow-lifecycle remediation on functional head 883994de56b247750d77e1e870a5d1e59f0750f3
     result: PASS
     evidence: dedicated workflow removed; Premium physical job is routed through existing Phase 7 only for classifier class payment; workflow inventory remains bounded at 53
-blockers:
-  - exact-head repository and physical E2E validation pending on this remediated candidate
-next_action: Hold exact head after checkpoint commit, inspect Phase 7 premium-physical-e2e and repository CI; repair only evidence-backed harness failures, then classify READY_FOR_INTEGRATION.
+  - command: PR #1462 protected merge
+    result: PASS
+    evidence: PR #1462 state closed, merged true, merged_at 2026-10-10T20:50:49Z
+blockers: []
+next_action: Archive this terminal task record; PR #1462 is already merged and no further delivery work remains.
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1462 merged (REST pulls/1462 state closed, merged true) as bceb7a6ffeadac6e6aa69358a3ffbe90286aa62a at 2026-10-10T20:50:49Z from exact head 630f58e58a22a8050cbac04d5ac10cda85a40765 and source branch test/1431-premium-physical-e2e is absent (REST branches API returns 404 Branch not found)
 ```

@@ -14,7 +14,11 @@ optional_reads:
   - docs/operations/PAYMENTS_SECURITY_FOUNDATION.md
 ---
 
-# OTERYN-20261006 Product catalogue immutable version core
+# OTERYN-20261006 Product catalogue immutable version core — terminal archive
+
+## Terminal outcome
+
+PR #1466 (`feat/322-product-catalog-core`) merged into `main` at 2026-10-10T20:50:49Z. This record is archived by lifecycle closeout. Production activation remains separately blocked by #1236 provider sandbox/production evidence and LegalCommerce decisions.
 
 ## Goal
 
@@ -40,9 +44,9 @@ Deliver an additive immutable product/version registry carrying the accepted Pro
 - [x] Exact semantic retry is idempotent and changed version reuse fails closed.
 - [x] Price/currency reuse the Payments configuration boundary rather than inventing provider truth.
 - [x] No catalogue publication or product activation is possible from this slice.
-- [ ] Focused feature tests pass on exact candidate.
-- [ ] Exact-head required CI/Phase7/governance is green.
-- [ ] Whole-diff review has no material finding.
+- [x] Focused feature tests pass on exact candidate (PR #1466 merged through protected checks).
+- [x] Exact-head required CI/Phase7/governance is green (PR #1466 merged).
+- [x] Whole-diff review has no material finding (PR #1466 merged).
 
 ## Ownership
 
@@ -51,7 +55,7 @@ owned_paths:
   - app/ProductsEntitlements/Catalog/**
   - database/migrations/2026_10_06_110000_create_product_catalog_core.php
   - tests/Feature/ProductsEntitlements/ProductCatalogRegistryTest.php
-  - docs/agents/tasks/active/OTERYN-20261006-product-catalog-core.md
+  - docs/agents/tasks/archive/OTERYN-20261006-product-catalog-core.md
 modules:
   - ProductsEntitlements/Catalog
 dependencies:
@@ -66,11 +70,12 @@ blockers:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-06T08:24:00Z
-status: validating
-phase: exact_head_ci
+updated_at: 2026-10-10T21:00:00Z
+status: completed
+terminal_pr_policy: archive_pending
+phase: terminal_archive
 branch: feat/322-product-catalog-core
-head: 762d4cad4e4d72c8fb7920b356c6d7e6a572aec6
+head: 3dbca2f50a9cb095cca6a8db7b5eaa2ee6be5c2a
 pr: 1466
 context_routes:
   - payments
@@ -79,14 +84,13 @@ owned_paths:
   - app/ProductsEntitlements/Catalog/**
   - database/migrations/2026_10_06_110000_create_product_catalog_core.php
   - tests/Feature/ProductsEntitlements/ProductCatalogRegistryTest.php
-  - docs/agents/tasks/active/OTERYN-20261006-product-catalog-core.md
+  - docs/agents/tasks/archive/OTERYN-20261006-product-catalog-core.md
 proven:
   - Issue #321 is closed and its provider-neutral payment/security foundation is terminal.
   - PR #925 established the accepted A-E delivery-profile authority split.
-  - Premium time is already a bounded ProductsEntitlements subdomain; no general product catalogue/order/voucher/service tables exist on current main.
-  - No open PR or branch owns Issue #322 product-catalogue paths at claim time.
+  - PR #1466 merged into main at 2026-10-10T20:50:49Z from head 3dbca2f50a9cb095cca6a8db7b5eaa2ee6be5c2a.
 derived:
-  - Non-production catalogue/version implementation can proceed independently of real-provider activation and without touching Payments, Wallet, Premium or game authority.
+  - Non-production catalogue/version implementation proceeds independently of real-provider activation and without touching Payments, Wallet, Premium or game authority.
 unknown:
   - Real provider, merchant/tax/legal activation policy and actual sellable catalogue contents; none are invented here.
 conflicts: []
@@ -104,15 +108,23 @@ changed_paths:
   - app/ProductsEntitlements/Catalog/ProductCatalogVersion.php
   - database/migrations/2026_10_06_110000_create_product_catalog_core.php
   - tests/Feature/ProductsEntitlements/ProductCatalogRegistryTest.php
-  - docs/agents/tasks/active/OTERYN-20261006-product-catalog-core.md
+  - docs/agents/tasks/archive/OTERYN-20261006-product-catalog-core.md
 validation:
   - command: pre-PR whole-diff self-review
     result: PASS
     evidence: bounded seven-path candidate is disjoint from active Premium/LCFA lanes; integrity readback, presentation key-order independence, nullable-window narrowing and test typing were hardened before PR creation
-  - command: exact-head required repository workflows
-    result: NOT_RUN
-    evidence: PR #1466 is open; exact-head workflow results are pending
+  - command: PR #1466 protected merge
+    result: PASS
+    evidence: PR #1466 state closed, merged true, merged_at 2026-10-10T20:50:49Z
 blockers:
-  - production activation only; implementation slice is unblocked
-next_action: Freeze this checkpoint successor, inspect PR #1466 exact-head CI/Phase7/governance, and repair only evidence-backed validation findings.
+  - production activation only; implementation slice is delivered
+next_action: Archive this terminal task record; PR #1466 is already merged and no further delivery work remains.
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1466 merged (REST pulls/1466 state closed, merged true) as e9ade4fc3d6fb13745d34845f62d0b2d6b6f959a at 2026-10-10T20:50:49Z from exact head 3dbca2f50a9cb095cca6a8db7b5eaa2ee6be5c2a and source branch feat/322-product-catalog-core is absent (REST branches API returns 404 Branch not found)
 ```

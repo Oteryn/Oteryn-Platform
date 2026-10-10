@@ -6,10 +6,14 @@ search_first: []
 optional_reads: []
 ---
 
-# Disabled native remembered-device candidate
+# Disabled native remembered-device candidate — terminal archive
 
-Root owns publication on branch `fix/native-client-login-20261007`, draft PR #1484.
-Delegated source and metadata workers have disjoint scoped ownership. Authoring only; no
+## Terminal outcome
+
+Draft PR #1484 (`fix/native-client-login-20261007`) merged into `main` at 2026-10-10T20:51:06Z, delivering this workstream as a default-OFF testing/preproduction candidate. This record is archived by lifecycle closeout. No contract acceptance, runtime migration, client integration, production activation or exact-head independent security review is claimed; those require a new task record.
+
+Root owned publication on branch `fix/native-client-login-20261007`, PR #1484.
+Delegated source and metadata workers had disjoint scoped ownership. Authoring only; no
 production deployment, runtime migration, DB reset or contract acceptance. Owner
 explicitly authorized both Platform and Game client work and asks to avoid
 recurring browser redirection without lowering security.
@@ -23,7 +27,7 @@ Service candidate is testing/preproduction-only and default OFF. Opaque hashed
 device credentials have immutable owner/client/security-generation binding,
 absolute/idle expiry, transactional rotation and retained replay lineage. No
 HTTP credential enrollment or client token persistence is active. HTTP adapter
-source is being authored separately and is not yet qualified; the existing
+source was authored separately and was not independently qualified; the existing
 OAuth/ticket revocation semantics remain unchanged.
 
 Independent local security sweep identified an MFA transition gap: successful
@@ -41,17 +45,18 @@ client rotation/crash recovery/cross-process locking, secure HTTP adapters,
 logout/revocation integration, accepted owning contract and exact-head independent
 security review remain pending. Existing first-device browser PKCE remains.
 
-Jira mapping pending; live Platform Issue #1473 is open. No merge readiness claimed.
+Jira mapping pending; live Platform Issue #1473 lifecycle is tracked separately. No merge readiness or activation claimed.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-09T10:23:05Z
-head: 549de370bbb00e389f0c49fa2b780be623056806
+updated_at: 2026-10-10T21:00:00Z
+head: e6305777c2f9ec7b9ec588212f49c4fe1cac54ca
 branch: fix/native-client-login-20261007
 pr: 1484
-status: implementing
+status: completed
+terminal_pr_policy: archive_pending
 context_routes:
   - docs/agents/BUILD_TEST_MATRIX.md
 owned_paths:
@@ -66,10 +71,10 @@ owned_paths:
   - database/migrations/2026_10_09_220000_create_native_device_sessions.php
   - tests/Feature/GameAuth/DeviceSessions/**
   - docs/contracts/NATIVE_REMEMBERED_DEVICE_SESSION_CONTRACT_CANDIDATE.md
-  - docs/agents/tasks/active/OTERYN-20261009-remembered-device-candidate.md
+  - docs/agents/tasks/archive/OTERYN-20261009-remembered-device-candidate.md
 proven:
-  - Draft PR 1484 is open on fix/native-client-login-20261007 at observed remote head 549de370bbb00e389f0c49fa2b780be623056806; governing Issue 1473 remains open.
   - Actual Windows browser PKCE, owner character selection and native Game admission completed locally on 2026-10-09 with a normally registered test identity and fenced Game character bootstrap.
+  - PR 1484 merged into main at 2026-10-10T20:51:06Z from head e6305777c2f9ec7b9ec588212f49c4fe1cac54ca; governing Issue 1473 lifecycle is tracked separately.
   - The disabled remembered-device service and existing Identity MFA suites passed 41 tests and 315 assertions in isolated owner-PC Docker SQLite memory; affected Pint passed.
   - Real MFA enrollment confirmation invokes existing game-authorization revocation in the same transaction and the regression denies prior OAuth and device credentials afterward.
   - The remembered-device contract remains a candidate; no HTTP credential enrollment, runtime migration, client integration or production activation has occurred.
@@ -99,11 +104,8 @@ changed_paths:
   - database/migrations/2026_10_09_220000_create_native_device_sessions.php
   - tests/Feature/GameAuth/DeviceSessions/**
   - docs/contracts/NATIVE_REMEMBERED_DEVICE_SESSION_CONTRACT_CANDIDATE.md
-  - docs/agents/tasks/active/OTERYN-20261009-remembered-device-candidate.md
+  - docs/agents/tasks/archive/OTERYN-20261009-remembered-device-candidate.md
 validation:
-  - command: Repository checkpoint validator for both owned packets; bounded task_liveness.evaluate_task against live GitHub
-    result: PASS
-    evidence: Both Context checkpoints validate against contract v1 and both owned task records report DRAFT_PR with no findings for live PR 1484; this does not clear unrelated repository-wide CI findings.
   - command: Isolated owner-PC DeviceSessions and existing Identity MFA suites; affected Pint
     result: PASS
     evidence: 41 tests and 315 assertions passed in Docker SQLite memory, including real MFA confirmation invalidating prior OAuth and device credentials; no runtime database migration.
@@ -112,20 +114,26 @@ validation:
     evidence: Baseline local flow completed on 2026-10-09; it does not prove remembered-device enrollment or resumed login.
   - command: Isolated HTTP/core/MFA/cache suites; scoped Pint and PHPStan level10
     result: PASS
-    evidence: 64 tests and657 assertions; strict Bearer parsing, raw-peer loopback checks and original OAuth ticket consumption verified. Memory fixtures only; candidate OFF.
-  - command: Complete remembered-device native client integration
-    result: NOT_RUN
-    evidence: Concrete exclusive lock, durable journal, HTTPS and monotonic-ticket adapters remain unwired.
+    evidence: 64 tests and 657 assertions; strict Bearer parsing, raw-peer loopback checks and original OAuth ticket consumption verified. Memory fixtures only; candidate OFF.
   - command: Full composer analyse; affected test Pint; expanded isolated directory/status/device/MFA/cache suites
     result: PASS
-    evidence: All PHPStan level10 application/test paths pass; 75 tests and737 assertions pass after task-owned fixture typing fixes. Memory database only; remembered candidate remains OFF.
+    evidence: All PHPStan level10 application/test paths pass; 75 tests and 737 assertions pass after task-owned fixture typing fixes. Memory database only; remembered candidate remains OFF.
+  - command: Complete remembered-device native client integration
+    result: NOT_RUN
+    evidence: Concrete exclusive lock, durable journal, HTTPS and monotonic-ticket adapters remain unwired; not claimed by this record.
+  - command: PR #1484 protected merge
+    result: PASS
+    evidence: PR #1484 state closed, merged true, merged_at 2026-10-10T20:51:06Z
 blockers:
-  - Complete secure-vault native client integration and deployment-database race qualification remain outstanding.
-  - Accepted owning contract, deployment-database race evidence and exact-head independent security review are required before activation.
-  - Existing unrelated LCFA lifecycle and eight trusted-main unexplained branch findings are outside this scoped metadata correction.
-next_action: Publish the qualified disabled HTTP successor on the draft authoring branch, then complete native consumer bindings without activating credentials or claiming contract acceptance.
+  - Complete secure-vault native client integration and deployment-database race qualification remain outstanding and require a new task record.
+  - Accepted owning contract, deployment-database race evidence and exact-head independent security review are required before any activation.
+next_action: Archive this terminal task record; PR #1484 is already merged. Client integration, contract acceptance and security review need a new task record.
 ```
 
-The checkpoint head is the observed remote authoring anchor. Ongoing local HTTP
-successor source is not frozen or validated by that head, and baseline browser
-admission evidence is separate from remembered-device qualification.
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1484 merged (REST pulls/1484 state closed, merged true) as cdd562bf52fa98e427227c4ccb52b9023b318f63 at 2026-10-10T20:51:06Z from exact head e6305777c2f9ec7b9ec588212f49c4fe1cac54ca and source branch fix/native-client-login-20261007 is absent (REST branches API returns 404 Branch not found)
+```

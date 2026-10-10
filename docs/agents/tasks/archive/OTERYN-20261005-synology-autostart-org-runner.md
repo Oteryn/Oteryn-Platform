@@ -13,7 +13,11 @@ optional_reads:
   - deploy/synology/README.md
 ---
 
-# OTERYN-20261005 Synology autostart organization-runner reconciliation
+# OTERYN-20261005 Synology autostart organization-runner reconciliation — terminal archive
+
+## Terminal outcome
+
+PR #1461 (`fix/1339-synology-autostart-org-runner`) merged into `main` at 2026-10-10T20:50:49Z. The repository repair is delivered. Authorized real Synology host execution/readback remains separately authorized and is not claimed by this record.
 
 ## Goal
 
@@ -30,8 +34,8 @@ Repository terminal target: `REPO_READY_FOR_AUTHORIZED_HOST_VERIFICATION`.
 - [x] Atlas/Game organization runner services remain outside Platform autostart mutation.
 - [x] Runbook and Synology README distinguish retired repository runner from current organization runner.
 - [x] Focused static test binds workflow selectors to both Compose contracts.
-- [ ] Exact-head repository CI passes once a PR is opened.
-- [ ] Authorized real Synology host execution verifies the corrected workflow; this alias has no protected-environment authority and does not claim it.
+- [x] Exact-head repository CI passes (PR #1461 merged through protected checks).
+- [ ] Authorized real Synology host execution verifies the corrected workflow; this record has no protected-environment authority and does not claim it. Tracked by Issue #1339.
 
 ## Ownership
 
@@ -41,7 +45,7 @@ owned_paths:
   - tests/ci/test_synology_autostart_contract.py
   - docs/operations/SYNOLOGY_ORGANIZATION_RUNNERS.md
   - deploy/synology/README.md
-  - docs/agents/tasks/active/OTERYN-20261005-synology-autostart-org-runner.md
+  - docs/agents/tasks/archive/OTERYN-20261005-synology-autostart-org-runner.md
 modules:
   - Synology runner operations
   - CI repair capability
@@ -55,11 +59,12 @@ blockers:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-05T22:00:00+02:00
-status: validating
-phase: exact_head_ci
+updated_at: 2026-10-10T21:00:00Z
+status: completed
+terminal_pr_policy: archive_pending
+phase: terminal_archive
 branch: fix/1339-synology-autostart-org-runner
-head: 36e745deed88224992e9755dc627be52e2762c7b
+head: 0e2cc3a4e1053f10e264eaaf46f5e3052a43773d
 pr: 1461
 context_routes:
   - ci-repair
@@ -69,15 +74,15 @@ owned_paths:
   - tests/ci/test_synology_autostart_contract.py
   - docs/operations/SYNOLOGY_ORGANIZATION_RUNNERS.md
   - deploy/synology/README.md
-  - docs/agents/tasks/active/OTERYN-20261005-synology-autostart-org-runner.md
+  - docs/agents/tasks/archive/OTERYN-20261005-synology-autostart-org-runner.md
 proven:
   - Terminal task OTERYN-20260822-retire-legacy-runner-selectors records that repository runner oteryn-synology-staging was deleted and its legacy Synology container removed after replacement PASS.
   - Current organization Compose defines project oteryn-organization-runners and service platform with runner group platform-runners, runner name oteryn-synology-platform, label oteryn-platform and restart always.
-  - repair-synology-autostart.yml still requires the retired oteryn-deploy-runner/runner selector.
+  - PR #1461 merged into main at 2026-10-10T20:50:49Z from head 0e2cc3a4e1053f10e264eaaf46f5e3052a43773d.
 derived:
-  - The repository repair selector is stale and can be corrected without recreating the retired runner.
+  - The repository repair selector was stale and is corrected without recreating the retired runner.
 unknown:
-  - Current live Synology container/readback state after the historical terminal proof; protected-environment read/mutation is not authorized by this alias.
+  - Current live Synology container/readback state; protected-environment read/mutation is not authorized by this record.
 conflicts: []
 first_failure:
   marker: stale_legacy_runner_selector
@@ -90,21 +95,26 @@ changed_paths:
   - tests/ci/test_synology_autostart_contract.py
   - docs/operations/SYNOLOGY_ORGANIZATION_RUNNERS.md
   - deploy/synology/README.md
-  - docs/agents/tasks/active/OTERYN-20261005-synology-autostart-org-runner.md
+  - docs/agents/tasks/archive/OTERYN-20261005-synology-autostart-org-runner.md
 validation:
-  - command: exact branch compare against main
-    result: PASS
-    evidence: commit 0dd62b08d0249e67321eaeaf91899411e02bc79e is one commit ahead of main and changes exactly the five owned paths
-  - command: post-write GitHub readback
-    result: PASS
-    evidence: workflow resolves oteryn-organization-runners/platform, legacy selector is absent, focused contract test and ownership packet are present
   - command: focused Synology autostart contract assertions against exact branch head a670ed2c85385310ac8412cc4ce7c055c42cf205
     result: PASS
     evidence: 20/20 assertions passed for current org-runner selector/group/label, org-compose trigger, restart=always on platform runner and six persistent staging services, exclusion of tls-init/Atlas/Game, and exact-one fail-closed behavior
   - command: first PR #1461 exact-head repository validation on 36e745deed88224992e9755dc627be52e2762c7b
     result: BLOCKED
     evidence: all non-governance repository gates completed SUCCESS; Agent Governance was blocked only by stale LiveOps active ownership inherited from main, resolved separately by merged closeout PR #1464
+  - command: PR #1461 protected merge
+    result: PASS
+    evidence: PR #1461 state closed, merged true, merged_at 2026-10-10T20:50:49Z
 blockers:
-  - final live-host verification requires separately authorized protected-environment execution
-next_action: Validate the main-synchronized #1461 exact head. If repository gates pass, classify REPO_READY_FOR_AUTHORIZED_HOST_VERIFICATION; live Synology execution/readback remains separately authorized and unclaimed.
+  - final live-host verification requires separately authorized protected-environment execution (tracked by Issue #1339)
+next_action: Archive this terminal task record; PR #1461 is already merged. Live Synology execution/readback remains separately authorized under Issue #1339 and is unclaimed.
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged repair branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1461 merged (REST pulls/1461 state closed, merged true) as 015e3ebb8d36c98984dbbae0803d39de98f3e8ae at 2026-10-10T20:50:49Z from exact head 0e2cc3a4e1053f10e264eaaf46f5e3052a43773d and source branch fix/1339-synology-autostart-org-runner is absent (REST branches API returns 404 Branch not found)
 ```
