@@ -662,3 +662,42 @@ jobs:
             /tmp/phase7-existing-data-upgrade-evidence.json
           retention-days: 7
           if-no-files-found: error
+
+  premium-physical-e2e:
+    name: premium-physical-e2e
+    needs: classify_changes
+    if: ${{ always() && needs.classify_changes.result == 'success' && contains(needs.classify_changes.outputs.classes, 'payment') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PLATFORM_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      OTERYN_GAME_SHA: 0fceef1f2cc311ed21eda96d168e1f8b2b298f83
+    steps:
+      - name: Checkout exact Platform candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Checkout pinned Game consumer read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          GAME_ROOT="${RUNNER_TEMP}/oteryn-game"
+          rm -rf "$GAME_ROOT"
+          git init "$GAME_ROOT"
+          git -C "$GAME_ROOT" remote add origin https://github.com/Oteryn/Oteryn-Game.git
+          git -C "$GAME_ROOT" -c protocol.version=2 fetch --no-tags --depth=1 origin "$OTERYN_GAME_SHA"
+          git -C "$GAME_ROOT" checkout --detach FETCH_HEAD
+          test "$(git -C "$GAME_ROOT" rev-parse HEAD)" = "$OTERYN_GAME_SHA"
+
+      - name: Install pinned Game Rust toolchain
+        shell: bash
+        run: rustup toolchain install 1.94.0 --profile minimal
+
+      - name: Execute real Platform producer to real Game consumer E2E
+        shell: bash
+        env:
+          GAME_ROOT: ${{ runner.temp }}/oteryn-game
+        run: bash tests/e2e/premium_physical_e2e/run.sh
+
