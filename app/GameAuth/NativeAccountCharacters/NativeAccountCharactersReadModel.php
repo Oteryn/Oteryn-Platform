@@ -53,9 +53,16 @@ final class NativeAccountCharactersReadModel
             return new NativeAccountCharactersAccountView(NativeAccountCharactersAccountView::INVALID);
         }
 
-        $characters = array_values(DB::table('native_account_character_rows')
+        // Under InnoDB REPEATABLE READ a plain read uses the transaction's first consistent view, which can
+        // predate the locked snapshot row; the rows must be a locking read too so they match that snapshot.
+        // (With MariaDB innodb_snapshot_isolation the locked snapshot read itself fails with ER_CHECKREAD.)
+        $rowsQuery = DB::table('native_account_character_rows')
             ->where('account_id', $accountId)
-            ->orderBy('character_id')
+            ->orderBy('character_id');
+        if ($lock) {
+            $rowsQuery->sharedLock();
+        }
+        $characters = array_values($rowsQuery
             ->get()
             ->map(fn (object $row): NativeAccountCharacterSummary => new NativeAccountCharacterSummary(
                 $this->string($row, 'character_id'),
