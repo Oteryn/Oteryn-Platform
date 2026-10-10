@@ -37,8 +37,8 @@ The user-visible Platform origin is a separate concern from the private origin b
 ## Repository workflows
 
 - `Build Synology Staging Images` runs on GitHub-hosted runners. Pull requests build without publishing. Trusted `main` pushes and explicit manual runs publish GHCR images tagged with `sha-<full-sha>`; `main` also receives the moving `main` tag.
-- `Deploy Synology Staging` is manual only, refuses non-`main` workflow dispatches and targets only the custom runner label `oteryn-staging`.
-- The deployment runner is registered with `--no-default-labels`, so generic repository jobs targeting ordinary `self-hosted` runners do not match it.
+- `Deploy Synology Staging` is `workflow_dispatch`-only at its own boundary, refuses non-`main` dispatches and runs through organization runner group `platform-runners` with custom label `oteryn-platform`; guarded trusted-main build automation may dispatch it with exact release inputs.
+- The Platform runner is `oteryn-synology-platform`, registered at organization scope with `--runnergroup platform-runners` and `--no-default-labels`. Generic `self-hosted` jobs do not match it.
 - Any temporary one-shot deployment workflow must be removed after its bounded deployment and sanitized evidence are complete.
 
 ## First-time setup order
@@ -48,37 +48,26 @@ The user-visible Platform origin is a separate concern from the private origin b
    - `ghcr.io/blakinio/oteryn-game-gateway`;
    - `ghcr.io/blakinio/oteryn-deploy-runner`.
 2. Provide a compatible prebuilt Canary image that includes the required Game Session issuer. Do not silently substitute the generic upstream image when native-auth testing is expected.
-3. Register the dedicated runner on Synology using the procedure below.
+3. Register/recover the Platform organization runner on Synology using `docs/operations/SYNOLOGY_ORGANIZATION_RUNNERS.md`.
 4. Create the GitHub Environment `synology-staging` and configure its staging-only secrets/variables.
 5. Run `Deploy Synology Staging` manually from `main`, preferably with an exact `sha-<full-sha>` Platform/Gateway image tag.
 
-## Register the dedicated Synology runner
+## Register or recover the Platform organization runner
 
-The one remaining non-repository bootstrap action is obtaining a short-lived repository runner registration token from:
+The current Platform execution route is not the retired repository runner. Follow `docs/operations/SYNOLOGY_ORGANIZATION_RUNNERS.md` and use:
 
-```text
-Oteryn-Platform -> Settings -> Actions -> Runners -> New self-hosted runner
-```
+- Compose reference: `deploy/synology/runner/compose.organization.example.yml`;
+- Compose project/service: `oteryn-organization-runners/platform`;
+- organization URL: `https://github.com/Oteryn`;
+- runner group: `platform-runners`;
+- runner name: `oteryn-synology-platform`;
+- custom label: `oteryn-platform`.
 
-Do not commit or paste that token into issues, PRs, logs or chat.
+The Platform runner retains Docker-socket access and the Platform staging-state mount because current trusted staging operations require them. Docker-socket access is host-equivalent privilege; selected-repository runner-group policy and trusted-main/protected-environment workflow gates remain mandatory.
 
-The supplied runner project is `deploy/synology/runner/compose.yml`. It mounts the Docker socket because its only responsibility is deploying the Oteryn staging stack. Docker-socket access is effectively host-level container control, so keep this runner repository-scoped, private and dedicated to the `oteryn-staging` label.
+First registration uses a one-time organization registration token from a local file as documented in the organization-runner runbook. After registration, truncate the token file and prove restart from the persistent `/runner` state without re-registration.
 
-Before creating the Container Manager project, create a persistent state directory on Synology, for example:
-
-```text
-/volume1/docker/oteryn/state
-```
-
-Copy `deploy/synology/runner/.env.example` to a local `.env` and set the one-time `RUNNER_TOKEN`. If GHCR requires authentication to pull the private runner package, configure Container Manager with a GitHub credential that has only the package-read access needed for this pull. Do not store that credential in Git.
-
-Create/start the runner project. When GitHub shows `oteryn-synology-staging` online with label `oteryn-staging`:
-
-1. remove `RUNNER_TOKEN` from the Container Manager project environment;
-2. restart the runner container;
-3. confirm the runner returns online without the registration token.
-
-The persistent `runner_config` volume retains the registered runner credentials. The short-lived registration token is not needed after first registration.
+The old `oteryn-synology-staging` repository runner/container was retired after the replacement route passed. Its preserved recovery volumes/state are evidence, not an active container that autostart repair should recreate.
 
 ## GitHub Environment configuration
 
