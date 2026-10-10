@@ -1,6 +1,6 @@
 # Platform-originated Canary Account Provisioning Contract
 
-> **LEGACY / COMPATIBILITY** — Canary compatibility path; native target is defined by the Game contracts (LCFA, native login, character authority boundary).
+> **LEGACY / COMPATIBILITY** — Canary compatibility path; native target is defined by the Game contracts (LCFA, native login, character authority boundary). Platform Identity authority for `AccountId`, credential security, login-ticket issuance and Canary mapping is defined by `docs/contracts/OTERYN_V2_ACCOUNT_IDENTITY_CONTRACT.md`.
 
 ## Status
 
