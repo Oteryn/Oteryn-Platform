@@ -31,7 +31,7 @@ owned_paths:
   - tools/validation/test_legacy_token_ratchet.py
   - docs/agents/LEGACY_TOKEN_BASELINE.json
   - .github/workflows/ci.yml
-  - docs/agents/tasks/active/OTERYN-20261010-legacy-token-guard.md
+  - docs/agents/tasks/archive/OTERYN-20261010-legacy-token-guard.md
 modules:
   - validation tooling
 dependencies:
@@ -46,11 +46,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-10T22:00:00Z
-head: UNKNOWN
+updated_at: 2026-10-10T23:00:00Z
+head: 67b0437e5c30b175fe1e4922baa9a9de05ec5be9
 branch: claude/decanary-guard-1-20261010
 pr: 1490
-status: validating
+status: completed
 context_routes:
   - validation-tooling
 owned_paths:
@@ -58,7 +58,7 @@ owned_paths:
   - tools/validation/test_legacy_token_ratchet.py
   - docs/agents/LEGACY_TOKEN_BASELINE.json
   - .github/workflows/ci.yml
-  - docs/agents/tasks/active/OTERYN-20261010-legacy-token-guard.md
+  - docs/agents/tasks/archive/OTERYN-20261010-legacy-token-guard.md
 proven:
   - Baseline totals equal git grep -I -i -c per group on the base head.
 derived: []
@@ -74,7 +74,7 @@ changed_paths:
   - tools/validation/test_legacy_token_ratchet.py
   - docs/agents/LEGACY_TOKEN_BASELINE.json
   - .github/workflows/ci.yml
-  - docs/agents/tasks/active/OTERYN-20261010-legacy-token-guard.md
+  - docs/agents/tasks/archive/OTERYN-20261010-legacy-token-guard.md
 validation:
   - command: python tools/validation/test_legacy_token_ratchet.py
     result: PASS
@@ -87,15 +87,15 @@ validation:
     evidence: CI tooling only, no runtime behavior changes
 blockers:
   - none
-next_action: Read exact-head CI and hand the review packet to the lead.
+next_action: none; terminal PR merged and record archived.
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1490 merged (REST pulls/1490 state closed, merged true) as d00056209c194fe303012880a30b358f1eecb7be at 2026-10-10T22:12:03Z from exact head 67b0437e5c30b175fe1e4922baa9a9de05ec5be9; source branch (named in the checkpoint branch field) absent (REST branches API returns 404)
 ```
 
 ## Notes

@@ -32,7 +32,7 @@ Write the plan-only document `docs/agents/programs/DECANARY_REMOVAL_PLAN.md` for
 ```yaml
 owned_paths:
   - docs/agents/programs/DECANARY_REMOVAL_PLAN.md
-  - docs/agents/tasks/active/OTERYN-20261008-decanary-plan.md
+  - docs/agents/tasks/archive/OTERYN-20261008-decanary-plan.md
 modules:
   - none (documentation only)
 dependencies:
@@ -48,19 +48,19 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-10T21:30:00Z
-status: validating
+updated_at: 2026-10-10T23:00:00Z
+status: completed
 terminal_pr_policy: archive_pending
 phase: pre_merge_validation
 branch: claude/decanary-plan-1-20261008
-head: 3215a788d4759735b2266363b8db31d29b69c9f8
+head: 382b0849866fbddfb772aa9700c62a6ea50b1b20
 pr: 1480
 context_routes:
   - agent-governance
   - architecture
 owned_paths:
   - docs/agents/programs/DECANARY_REMOVAL_PLAN.md
-  - docs/agents/tasks/active/OTERYN-20261008-decanary-plan.md
+  - docs/agents/tasks/archive/OTERYN-20261008-decanary-plan.md
 proven:
   - PR #1480 changes documentation only.
   - IssueGameLoginTicket denies an Identity without a ready identity_canary_accounts binding.
@@ -78,9 +78,9 @@ rejected_hypotheses:
   - Change tools/agents/control_room.py to ignore the plan file.
 changed_paths:
   - docs/agents/programs/DECANARY_REMOVAL_PLAN.md
-  - docs/agents/tasks/active/OTERYN-20261008-decanary-plan.md
+  - docs/agents/tasks/archive/OTERYN-20261008-decanary-plan.md
 validation:
-  - command: python3 tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20261008-decanary-plan.md --require-checkpoint
+  - command: python3 tools/agents/checkpoint.py docs/agents/tasks/archive/OTERYN-20261008-decanary-plan.md --require-checkpoint
     result: NOT_RUN
     evidence: validation is delegated to CI on the PR head
   - command: product runtime E2E
@@ -88,15 +88,15 @@ validation:
     evidence: planning document only, no runtime behavior changes
 blockers:
   - none
-next_action: Run exact-head CI for PR #1480 and hand the review packet to the lead; archive this record when the PR ends the task.
+next_action: none; terminal PR merged and record archived.
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1480 merged (REST pulls/1480 state closed, merged true) as 95c606e8149911c188293090c8309e5b41c0eea6 at 2026-10-10T21:47:23Z from exact head 382b0849866fbddfb772aa9700c62a6ea50b1b20; source branch absent (REST branches API returns 404)
 ```
 
 ## Notes
