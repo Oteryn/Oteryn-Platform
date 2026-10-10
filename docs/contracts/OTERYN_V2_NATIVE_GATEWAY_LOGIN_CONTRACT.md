@@ -155,6 +155,8 @@ Inside the issuer transaction (§6), under row locks, equivalent to:
 
 ## 5. Character selection (Q17a)
 
+**Status (PLATFORM-LCFA-1, Oteryn/Oteryn-Platform#1465):** the §5.2 ingestion, the §5.3 read and the §5.4 issuance check are implemented for `testing`/`preproduction` only, default off (`GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED`); enabled in any other environment or misconfigured, ingestion and the read answer `503` and issuance fails closed with `NATIVE_LOGIN_UNAVAILABLE`. Decision P1 and U12 stay open for the release entry.
+
 ### 5.1 Source
 
 Platform stores a read model of the Game-owned projection `ListCharactersForAccount(AccountId) -> CharacterSummary[]`, pushed by Game over mTLS as defined in the Game candidate `OTERYN_GAME_LIST_CHARACTERS_FOR_ACCOUNT_PROJECTION_V1.md`. Platform is read-only toward Character Authority: it never creates, edits or deletes a Character and never writes native character tables.
@@ -179,7 +181,7 @@ Platform stores a read model of the Game-owned projection `ListCharactersForAcco
 { "protocol_version": 2, "characters": [ { "character_id": "…", "world_id": "…", "name": "…", "availability": "AVAILABLE" } ] }
 ```
 
-Empty list when the account has no snapshot. `503` when the account's read model is `invalid`. Never another account's data; never public. Rate limit §10.
+Empty list when the account has no snapshot. `503` (empty body) when the projection feed is `stale` (§5.2), the account's read model is `invalid`, or its snapshot is in an epoch below the highest seen (after an epoch raise, until its resync arrives). Never another account's data; never public. Rate limit §10.
 
 Alternative considered: a two-phase Gateway call (redeem, return characters and a one-time selection handle, then select). Rejected here because it adds a second bearer credential; the architect may choose it instead.
 
@@ -477,6 +479,8 @@ The operator path of this mode is `game-auth:native-route:publish` and, for the 
 Selection follows §7.4 over these records, using the runtime-status read model under the shared epoch lock. The issuer takes that lock before redeeming the ticket and before any non-locking read, so its snapshot sees every committed epoch raise (lock order: attempt row, epoch, ticket, Identity; ingestion: epoch, assignment, report). A report that is not `fresh` (stale, invalid, superseded or not ownership-bound), not ready, or whose `route_revision` differs from the record routes nowhere (`NATIVE_LOGIN_ROUTE_UNAVAILABLE`). The response `endpoint` is the record whose `route_revision` is bound in the grant. If that record changed after issuance, the retry answers `NATIVE_LOGIN_ROUTE_UNAVAILABLE` until `exp`, then `NATIVE_LOGIN_GRANT_EXPIRED`.
 
 Issuer limits in this amendment: every InnoDB lock wait inside the issuer transaction is bounded by `GAME_AUTH_NATIVE_ADMISSION_LOCK_WAIT_TIMEOUT_SECONDS` (default 3 s, 1..10), and a timeout rolls back as `NATIVE_LOGIN_UNAVAILABLE`. The per-Gateway-credential limit is 120/minute (§10). The `native-scope-assignments` ingestion default is now 120/minute, matching §10. The Go Gateway forwarding of the native branch is a separate later change.
+
+**Status (PLATFORM-LCFA-1, Oteryn/Oteryn-Platform#1465):** with the §5 read model enabled, the issuer applies the full §5.4 check and mode 33a is not consulted; with it disabled, mode 33a applies as above. The release gate of mode 33a is unchanged.
 
 ## 18. Non-authorization
 
