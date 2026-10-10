@@ -49,7 +49,7 @@ checkpoint_version: 1
 updated_at: 2026-10-10T23:00:00Z
 head: UNKNOWN
 branch: claude/decanary-create-off-1-20261010
-pr: 1491
+pr: 1492
 status: validating
 context_routes:
   - characters
