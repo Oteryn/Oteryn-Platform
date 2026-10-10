@@ -73,8 +73,9 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-06T07:53:27Z
+updated_at: 2026-10-10T13:10:00Z
 status: validating
+terminal_pr_policy: archive_pending
 phase: pre_pr_validation
 branch: feat/1419-lcfa-consumer
 head: c26cd688f124cf3041e33f4ecaf5865baf0b05b3
@@ -154,5 +155,5 @@ validation:
     evidence: Agent Governance and CI classifier both rejected the task checkpoint for missing updated_at; task liveness also required pr: 1465 after the PR opened
 blockers:
   - production release only: Decision P1/U12
-next_action: Publish this checkpoint-only repair, freeze the successor head, and rerun/inspect exact-head CI; repair only evidence-backed product failures.
+next_action: PR #1465 is terminal; archive this record after the remaining LCFA acceptance evidence is closed or explicitly carried to a successor.
 ```
