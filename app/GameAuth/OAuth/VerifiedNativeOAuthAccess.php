@@ -10,5 +10,6 @@ final readonly class VerifiedNativeOAuthAccess
     public function __construct(
         public Identity $identity,
         public Token $token,
+        public bool $nativeTicket,
     ) {}
 }

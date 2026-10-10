@@ -8,6 +8,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Passport\Client;
+use Laravel\Passport\ClientRepository;
 use PragmaRX\Google2FA\Google2FA;
 use Tests\Feature\GameAuth\OAuth\Concerns\ConfiguresEphemeralPassportKeys;
 use Tests\TestCase;
@@ -59,6 +60,10 @@ final class NativeOAuthPkceTest extends TestCase
         $authorization->assertOk();
         $authorization->assertSee('Authorize Oteryn game login');
         $authorization->assertSee('Request a one-time Oteryn game login ticket.');
+        $csp = $authorization->headers->get('Content-Security-Policy');
+        self::assertIsString($csp);
+        self::assertStringContainsString("form-action 'self' {$redirectUri};", $csp);
+        self::assertStringNotContainsString('127.0.0.1:*', $csp);
 
         $authToken = $this->extractAuthToken($this->responseBody($authorization->getContent()));
         $approval = $this->post(route('passport.authorizations.approve'), [
@@ -120,6 +125,21 @@ final class NativeOAuthPkceTest extends TestCase
         $refresh = DB::table('oauth_refresh_tokens')->first();
         self::assertNotNull($refresh);
         self::assertNotNull($refresh->expires_at);
+    }
+
+    public function test_other_public_oauth_clients_do_not_receive_native_loopback_csp_permission(): void
+    {
+        $this->loginIdentity($this->createIdentity());
+        $client = $this->app->make(ClientRepository::class)
+            ->createAuthorizationCodeGrantClient('Other application', ['http://127.0.0.1/callback'], false);
+        [, $challenge] = $this->pkcePair();
+        $response = $this->get($this->authorizationUrl($client, 'http://127.0.0.1:49155/callback', $challenge, 'other-client'));
+
+        $response->assertOk();
+        $csp = $response->headers->get('Content-Security-Policy');
+        self::assertIsString($csp);
+        self::assertStringContainsString("form-action 'self';", $csp);
+        self::assertStringNotContainsString('127.0.0.1', $csp);
     }
 
     public function test_wrong_pkce_verifier_fails_closed(): void
