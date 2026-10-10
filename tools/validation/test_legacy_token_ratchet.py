@@ -96,6 +96,17 @@ class RatchetTest(unittest.TestCase):
         self.add("docs/note.md", f"{TOKEN}\n{TOKEN}\n")
         self.assertEqual(self.main(), 0)
 
+    def test_write_keeps_notes_and_enforce_flags(self) -> None:
+        self.seed()
+        data = self.baseline()
+        data["notes"] = ["keep me"]
+        data["groups"]["docs"]["enforce"] = False
+        (self.root / ratchet.DEFAULT_BASELINE).write_text(json.dumps(data))
+        self.assertEqual(self.main("--write"), 0)
+        rewritten = self.baseline()
+        self.assertEqual(rewritten["notes"], ["keep me"])
+        self.assertFalse(rewritten["groups"]["docs"]["enforce"])
+
     def test_missing_baseline_is_error(self) -> None:
         self.assertEqual(self.main(), 2)
 

@@ -145,6 +145,7 @@ def build_baseline(
         "pattern": PATTERN,
         "case_insensitive": True,
         "metric": "matching lines (git grep -ic) per group; paths = tracked path names (git ls-files)",
+        "notes": list((previous or {}).get("notes", [])),
         "rules": [list(r) for r in rules],
         "groups": {
             name: {
