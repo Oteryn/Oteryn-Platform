@@ -37,6 +37,17 @@ Existing Platform programmes/selectors are specialist context and reusable execu
 
 ## 3. Completion focus
 
+### Native-only target — owner direction 2026-10-08
+
+Governing migration: [#1474](https://github.com/Oteryn/Oteryn-Platform/issues/1474).
+
+Complete retirement of Canary runtime dependencies is a required completion condition. Oteryn Game is the sole target game integration. Existing compatibility adapters, database/Redis connections, OTClient/session paths and deployment services are migration inputs, not permanent supported targets.
+
+Sequence replacements through accepted Game-owned contracts, then remove the legacy paths. Do not introduce automatic Canary fallback. Completion requires isolated Platform deployment and real native world-entry with Canary absent. Historical evidence and retained migration data are not executable dependencies and need explicit disposition.
+
+The initial dependency matrix is [OTERYN-20261008-native-only-migration-baseline.md](../reports/OTERYN-20261008-native-only-migration-baseline.md). Reconcile existing #1419, #1460 and deployment work rather than duplicating their ownership.
+
+
 The completion DAG remains centered on:
 
 - Premium producer/consumer physical E2E;
