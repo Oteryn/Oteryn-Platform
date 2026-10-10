@@ -1,5 +1,7 @@
 # Game Session to Canary Contract
 
+> **LEGACY / COMPATIBILITY** — Canary compatibility path; native target is defined by the Game contracts (LCFA, native login, character authority boundary).
+
 ## Status
 
 `CANDIDATE B SELECTED — IMPLEMENTED, BOUNDED E2E PROVEN, PRODUCTION ACTIVATION GATED`

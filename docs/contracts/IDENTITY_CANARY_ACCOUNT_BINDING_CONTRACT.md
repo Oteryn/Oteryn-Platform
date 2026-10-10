@@ -1,5 +1,7 @@
 # Identity to Canary Account Binding Contract
 
+> **LEGACY / COMPATIBILITY** — Canary compatibility path; native target is defined by the Game contracts (LCFA, native login, character authority boundary).
+
 ## Status
 
 `IMPLEMENTED FOR GREENFIELD ACCOUNTS — IMMUTABLE 1:1 PLATFORM-OWNED BINDING`

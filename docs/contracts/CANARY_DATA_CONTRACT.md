@@ -1,5 +1,7 @@
 # Canary Data Integration Contract
 
+> **LEGACY / COMPATIBILITY** — Canary compatibility path; native target is defined by the Game contracts (LCFA, native login, character authority boundary).
+
 ## Status
 
 `PARTIALLY PROVEN BROAD CONTRACT — READ BOUNDARIES AVAILABLE / TWO OPERATION-SPECIFIC PHASE 5 WRITES APPROVED`

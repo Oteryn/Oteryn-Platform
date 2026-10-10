@@ -1,5 +1,7 @@
 # Platform-originated Canary Account Provisioning Contract
 
+> **LEGACY / COMPATIBILITY** — Canary compatibility path; native target is defined by the Game contracts (LCFA, native login, character authority boundary).
+
 ## Status
 
 `IMPLEMENTED — GREENFIELD ACCOUNT PROVISIONING AND IMMUTABLE BINDING`
