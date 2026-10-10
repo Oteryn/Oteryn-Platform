@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
@@ -44,9 +45,9 @@ class SynologyAutostartContractTest(unittest.TestCase):
         self.assertIn(loop, self.workflow)
         for service in expected:
             block = self.staging_compose.split(f"  {service}:\n", 1)[1]
-            next_service = block.find("\n  ")
-            if next_service >= 0:
-                block = block[:next_service]
+            next_service = re.search(r"\n  (?! )", block)
+            if next_service:
+                block = block[: next_service.start()]
             self.assertIn("    restart: always", block)
         self.assertNotIn("resolve_one oteryn-staging tls-init", self.workflow)
         self.assertNotIn("resolve_one oteryn-organization-runners atlas", self.workflow)
