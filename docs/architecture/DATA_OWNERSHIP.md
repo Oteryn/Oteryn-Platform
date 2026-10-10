@@ -19,7 +19,8 @@ The steady-state boundary between Platform and Game, with no shared database:
 | `AccountId`, identity, authentication, tickets | Oteryn Platform |
 | Character Bazaar commercial saga, CMS content | Oteryn Platform |
 | `CharacterId`, character lifecycle, character names | Game (Character Authority) |
-| Public game-data projections (highscores, characters, guilds, online/status) | Game; pushed to Platform read models |
+| Authoritative game facts behind public game data (highscores, characters, guilds, online/status) | Game |
+| Public game-data projection, read model, indexing and freshness | Oteryn Platform |
 
 Platform read models are non-authoritative copies and never authorize a game-domain mutation. Platform and Game exchange data only through versioned contracts, not a shared database. The Canary shared-database sections below describe the legacy / compatibility path until a separately authorized cutover.
 
