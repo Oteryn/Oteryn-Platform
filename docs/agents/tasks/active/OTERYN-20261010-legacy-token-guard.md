@@ -49,7 +49,7 @@ checkpoint_version: 1
 updated_at: 2026-10-10T22:00:00Z
 head: UNKNOWN
 branch: claude/decanary-guard-1-20261010
-pr: none
+pr: 1490
 status: validating
 context_routes:
   - validation-tooling
