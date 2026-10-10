@@ -12,6 +12,13 @@ optional_reads: []
 
 Record the owner-directed native-only completion target under #1474; PR #1475.
 
+## Acceptance criteria
+
+- [ ] The programme and baseline report record the owner-directed native-only completion target under #1474.
+- [ ] Only the three owned documents change; no runtime path is touched.
+- [ ] `python tools/agents/checkpoint.py --require-checkpoint` and the legacy-token ratchet pass on the exact head.
+- [ ] Exact-head PR checks are green and all review threads are resolved.
+
 ## Ownership
 
 Only the three documents changed by this PR are owned. No runtime paths are claimed.
@@ -26,7 +33,8 @@ branch: docs/1474-native-only-migration-baseline
 pr: 1475
 status: validating
 context_routes:
-  - native-only-migration
+  - agent-governance
+  - architecture
 owned_paths:
   - docs/agents/programs/OTERYN_PLATFORM_COMPLETION_LEAD_PROGRAMME.md
   - docs/agents/reports/OTERYN-20261008-native-only-migration-baseline.md
