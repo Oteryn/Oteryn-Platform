@@ -1,5 +1,7 @@
 # Oteryn Platform Lead — continuation snapshot (2026-10-06)
 
+> **Historical snapshot, not authority.** This report is a point-in-time snapshot written against `main` `a834ef54b154c48b119da20c3bdb6fca74178750`. It is superseded by the current `main` and by `OTERYN-20261005-platform-lead-continuation.md` wherever they differ. Its body is preserved unchanged below and must not be treated as current state or as a source of rules.
+
 This file is a continuation aid only. Live GitHub/Jira state, repository instructions and current protected `main` remain authoritative.
 
 ## Protected baseline at snapshot
