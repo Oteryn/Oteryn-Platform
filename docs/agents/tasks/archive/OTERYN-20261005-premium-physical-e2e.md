@@ -108,3 +108,11 @@ validation:
 blockers: []
 next_action: Archive this terminal task record; PR #1462 is already merged and no further delivery work remains.
 ```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1462 merged (REST pulls/1462 state closed, merged true) as bceb7a6ffeadac6e6aa69358a3ffbe90286aa62a at 2026-10-10T20:50:49Z from exact head 630f58e58a22a8050cbac04d5ac10cda85a40765 and source branch test/1431-premium-physical-e2e is absent (REST branches API returns 404 Branch not found)
+```

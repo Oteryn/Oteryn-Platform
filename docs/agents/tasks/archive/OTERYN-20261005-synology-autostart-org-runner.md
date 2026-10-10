@@ -110,3 +110,11 @@ blockers:
   - final live-host verification requires separately authorized protected-environment execution (tracked by Issue #1339)
 next_action: Archive this terminal task record; PR #1461 is already merged. Live Synology execution/readback remains separately authorized under Issue #1339 and is unclaimed.
 ```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged repair branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1461 merged (REST pulls/1461 state closed, merged true) as 015e3ebb8d36c98984dbbae0803d39de98f3e8ae at 2026-10-10T20:50:49Z from exact head 0e2cc3a4e1053f10e264eaaf46f5e3052a43773d and source branch fix/1339-synology-autostart-org-runner is absent (REST branches API returns 404 Branch not found)
+```

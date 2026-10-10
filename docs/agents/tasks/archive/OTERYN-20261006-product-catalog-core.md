@@ -120,3 +120,11 @@ blockers:
   - production activation only; implementation slice is delivered
 next_action: Archive this terminal task record; PR #1466 is already merged and no further delivery work remains.
 ```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1466 merged (REST pulls/1466 state closed, merged true) as e9ade4fc3d6fb13745d34845f62d0b2d6b6f959a at 2026-10-10T20:50:49Z from exact head 3dbca2f50a9cb095cca6a8db7b5eaa2ee6be5c2a and source branch feat/322-product-catalog-core is absent (REST branches API returns 404 Branch not found)
+```
