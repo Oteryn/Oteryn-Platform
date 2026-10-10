@@ -108,7 +108,7 @@ If Option B is accepted, the first implementation package is intentionally limit
 1. add shared root, Legacy 1:1 binding and native detail/identity/relation persistence;
 2. backfill exactly one root per existing Legacy Canary snapshot;
 3. prove row counts, hashes, active-profile mapping and legacy public output are unchanged;
-4. add/backfill `active_snapshot_root_id` while retaining the legacy active pointer;
+4. add/backfill `active_snapshot_root_id` while retaining the legacy active pointer, and make `CatalogActivationService` write `active_snapshot_id` and `active_snapshot_root_id` in the same transaction so a legacy activation or rollback can never diverge the two pointers;
 5. prove dual-read equivalence for Legacy Canary;
 6. enable persistence of validated native snapshots only as inactive candidates;
 7. stop before native activation/public publication.
@@ -131,7 +131,7 @@ Select **Option A, B or C** for the durable persistence composition. The recomme
 
 ## Conditional implementation handoff
 
-If Option B is accepted, the first remediation Issue/task owns only additive schema, Legacy backfill/equivalence and native inactive-candidate persistence. Activation, publication, Game capability-adapter work, production transport and protected-environment actions remain separate tasks/gates.
+If Option B is accepted, the first remediation Issue/task owns only additive schema, Legacy backfill/equivalence, transactional synchronization of both active pointers (`active_snapshot_id` and `active_snapshot_root_id`) in the existing `CatalogActivationService` for every legacy activation and rollback, and native inactive-candidate persistence. Native activation, publication, Game capability-adapter work, production transport and protected-environment actions remain separate tasks/gates.
 
 ## Related records
 
