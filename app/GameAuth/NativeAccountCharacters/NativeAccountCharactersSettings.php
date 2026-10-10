@@ -25,7 +25,7 @@ final readonly class NativeAccountCharactersSettings
 
     public static function current(): ?self
     {
-        if (config('game-auth.native_account_characters.enabled') !== true || app()->environment('production')) {
+        if (config('game-auth.native_account_characters.enabled') !== true || ! app()->environment(['testing', 'preproduction'])) {
             return null;
         }
 

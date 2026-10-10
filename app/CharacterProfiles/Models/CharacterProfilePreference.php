@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $id
  * @property int $identity_id
  * @property int $canary_player_id
+ * @property string|null $character_id
  * @property string|null $public_comment
  * @property bool $show_account_association
  * @property bool $show_status
