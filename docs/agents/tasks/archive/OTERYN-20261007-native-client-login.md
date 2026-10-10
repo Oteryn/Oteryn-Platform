@@ -128,3 +128,11 @@ next_action: Archive this terminal task record; PR #1484 is already merged. Reme
 ```
 
 Latest local qualification (2026-10-09): fresh test identity/character created through normal registration and fenced Game ops. Actual Windows native client completed browser PKCE, owner character selection and admitted gameplay. Runtime PKI renewed locally without password/database reset. Remembered-device extension remains an OFF candidate with no HTTP/client activation; see OTERYN-20261009-remembered-device-candidate.md.
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1484 merged (REST pulls/1484 state closed, merged true) as cdd562bf52fa98e427227c4ccb52b9023b318f63 at 2026-10-10T20:51:06Z from exact head e6305777c2f9ec7b9ec588212f49c4fe1cac54ca and source branch fix/native-client-login-20261007 is absent (REST branches API returns 404 Branch not found)
+```
