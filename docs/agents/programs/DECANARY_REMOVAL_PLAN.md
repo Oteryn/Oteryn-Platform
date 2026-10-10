@@ -161,14 +161,17 @@ Small, serial, one domain per PR. Target diff per PR: ≤ ~400 changed lines exc
 
 | # | Packet | Change | Dep (Platform) | Dep (Game) | Risk |
 |---|---|---|---|---|---|
+| C0 | DECANARY-LEGACY-NULLABLE-1 | Backward-compatible migration: make `character_auctions.seller_canary_account_id`, `escrow_canary_account_id`, `player_id` and `character_profile_preferences.canary_player_id` nullable; add native guards that replace the legacy ones (`character_profile_preferences` unique `(identity_id, character_id)`; an active-listing uniqueness on the native character id equivalent to `active_player_id`); `down()` refuses while any row has NULL in a relaxed column | #1477 | — | High (persistence, money) |
 | C1 | DECANARY-CMD-CLIENT-1 | Platform Character Authority command client (transport, auth, idempotency key, receipt store) | #1477 | #1936 accepted | High (wire) |
 | C2 | DECANARY-CREATE-1 | Re-enable creation through C1 | B3, C1 | #1936 Create implemented | High |
-| C3 | DECANARY-BAZAAR-1 | Escrow saga uses C1 `TransferCharacterOwnership`; writes native ids; unfreeze | B4 drained, C1 | #1936 Transfer implemented | High (money) |
+| C3 | DECANARY-BAZAAR-1 | Escrow saga uses C1 `TransferCharacterOwnership`; writes native ids; unfreeze | B4 drained, C0, C1 | #1936 Transfer implemented | High (money) |
 | C4 | DECANARY-PROJ-INGEST-1 | Projection ingest endpoint (mTLS, watermark, LCFA style) + read-model tables | A1 | #1937 accepted | High (wire) |
 | C5 | DECANARY-PUBLIC-1a | Highscores + profiles from C4 | B5, C4 | #1937 producer | Low |
 | C6 | DECANARY-PUBLIC-1b | Guilds + deaths from C4 | C5 | #1937 producer | Low |
 | C7 | DECANARY-PUBLIC-1c | Online list from C4; channel status from native runtime status; drop Redis reader usage | C5 | #1937 online | Low |
-| C8 | DECANARY-PREFS-1 | Profile preferences keyed by `character_id`; old rows ignored (Q6=A, no mapping) | #1477, C5, PREFS-INVENTORY, owner decision Q-PREFS (see note) | — | Medium (user-visible reset) |
+| C8 | DECANARY-PREFS-1 | Profile preferences keyed by `character_id`; old rows ignored (Q6=A, no mapping) | #1477, C0, C5, PREFS-INVENTORY, owner decision Q-PREFS (see note) | — | Medium (user-visible reset) |
+
+**C0 note.** At `main` after #1477, the legacy Canary columns `character_auctions.seller_canary_account_id`, `escrow_canary_account_id`, `player_id` and `character_profile_preferences.canary_player_id` are still `NOT NULL`; #1477 only added nullable native columns (`seller_account_id`, `escrow_account_id`, `character_id`). The first native-only insert in C3 or C8 would fail without C0. C0 changes no reads or writes; the legacy unique `(identity_id, canary_player_id)` stops guarding rows whose Canary id is NULL, so the native guard ships in the same migration.
 
 **C8 note.** C8 makes the preference reset visible, so its evidence cannot wait for E1 (which runs only after D-9). PREFS-INVENTORY is a read-only operation, not a code PR, run before C8: for each environment, count the `character_profile_preferences` rows with non-null `canary_player_id` and record the counts only (no row data in the repository) on the governing Issue. The owner decides Q-PREFS on those counts. C8 does not start until that decision is recorded.
 
@@ -183,8 +186,8 @@ Small, serial, one domain per PR. Target diff per PR: ≤ ~400 changed lines exc
 | D-5 | DECANARY-DEPLOY-1b | Deploy/rollback/health/preflight scripts + `tests/ci/test_synology_*` + `deploy/synology/tests` | D-4 |
 | D-6 | DECANARY-DEPLOY-1c | Synology workflows (image pin, staging, bazaar staging, schema recovery) (R9) | D-5 |
 | D-7 | DECANARY-GATEWAY-1 | Go gateway: delete legacy session client and protocol v1 branch | B7, D-4 |
-| D-8 | DECANARY-DELETE-LOGIN-1 | Delete only the legacy v1 path: `GameAuth/{Context,Sessions}`, the legacy redeemer (`Tickets/{RedeemGameLoginTicket,RedeemedGameLoginTicket}`, `GameLoginTicketRedeemController`, `/internal/v1/game-auth/tickets/redeem`), the Canary branch of `Tickets/IssueGameLoginTicket`, `GameLoginContextController` and the `{canaryAccountId}` route, tests. Retain, or relocate in the same PR, the ticket model and secret service (`Tickets/{GameLoginTicket,GameLoginTicketSecrets}` plus `GameLoginTicketDenied`, `IssuedGameLoginTicket`) and native issuance (`POST /v1/game-auth/tickets`, `GameLoginTicketIssueController`, `IssueGameLoginTicketFromOAuth`), which `NativeLogin/NativeGameLoginTickets` depends on | B7, D-7 |
-| D-9 | DECANARY-DELETE-CODE-1 | Delete `app/CanaryIntegration/**`, `Accounts/*Canary*`, gateway contracts, bindings, console commands, verifier entries, audit constants (R6), tests | B1–B5, C2/C3 or their off-states, D-8 |
+| D-8 | DECANARY-DELETE-LOGIN-1 | Delete only the legacy v1 path: `GameAuth/{Context,Sessions}`, the legacy redeemer (`Tickets/{RedeemGameLoginTicket,RedeemedGameLoginTicket}`, `GameLoginTicketRedeemController`, `/internal/v1/game-auth/tickets/redeem`), the Canary branch of `Tickets/IssueGameLoginTicket`, `GameLoginContextController` and the `{canaryAccountId}` route, the Canary-keyed `WorldRegistry::forAccount` lookup (`Worlds/{WorldRegistry,DatabaseWorldRegistry}`, v1 login context only) and the Canary wording in `Worlds/GameWorldProtocolCandidate`, tests. Retain, or relocate in the same PR, the ticket model and secret service (`Tickets/{GameLoginTicket,GameLoginTicketSecrets}` plus `GameLoginTicketDenied`, `IssuedGameLoginTicket`) and native issuance (`POST /v1/game-auth/tickets`, `GameLoginTicketIssueController`, `IssueGameLoginTicketFromOAuth`), which `NativeLogin/NativeGameLoginTickets` depends on | B7, D-7 |
+| D-9 | DECANARY-DELETE-CODE-1 | Delete `app/CanaryIntegration/**`, `Accounts/*Canary*`, gateway contracts, bindings, console commands, verifier entries, audit constants (R6), tests; reword the `FinalizeIdentityTerminations` command description | B1–B5, C2/C3 or their off-states, C8 (`CharacterProfilePreferenceService` still imports `IdentityCanaryAccount` and `CanaryGameDataRepository`), D-8 |
 | D-10 | DECANARY-DELETE-CONFIG-1 | `config/database.php` connections, `config/marketplace.php`, `.env.example`, `database/provisioning/canary-*` | D-9, D-6 |
 | D-11 | DECANARY-TEXT-1 | `lang/**`, wiki catalog text, views | C5–C7 or B5 |
 
@@ -196,7 +199,7 @@ Small, serial, one domain per PR. Target diff per PR: ≤ ~400 changed lines exc
 |---|---|---|---|---|
 | E1 | DECANARY-ARCHIVE-1 (operation, not a code PR) | Export `identity_canary_accounts`, Canary id columns and `canary_commit_sha` per environment to an access-controlled backup outside the repo; record row counts and checksums as evidence (no data in repo) | Read-only | D-9 deployed everywhere |
 | E2 | DECANARY-DROP-1a | Migration: drop `game_login_tickets.canary_account_id` (after all v1 tickets expired) and `identity_canary_accounts` | `down()` recreates structure empty; data only from E1 | E1 |
-| E3 | DECANARY-DROP-1b | Migration: drop `character_auctions.{seller,escrow}_canary_account_id`, `character_profile_preferences.canary_player_id` (+ index/unique) | as E2; refuse `down()` never needed (no data loss on recreate) | E1, C3, C8 |
+| E3 | DECANARY-DROP-1b | Migration: drop `character_auctions.{seller,escrow}_canary_account_id`, `player_id`, `active_player_id` (+ unique), `character_profile_preferences.canary_player_id` (+ index/unique) | `down()` recreates the columns nullable (as left by C0) and empty; data only from E1 | E1, C0, C3, C8 |
 | E4 | DECANARY-DROP-1c | Migration: drop `game_catalog_snapshots.canary_commit_sha` | as E2 | E1, B6 |
 | E5 | DECANARY-SQUASH-1 | `php artisan schema:dump --prune` (MariaDB) once E2–E4 ran in every environment; delete historical migration files; rewrite migration-specific rollback tests | Not reversible by `down()`; restore = revert PR (old files) on a DB that already has the post-drop schema | E2–E4 confirmed in all envs, CI has `mysql` client |
 
@@ -211,7 +214,7 @@ Small, serial, one domain per PR. Target diff per PR: ≤ ~400 changed lines exc
 | F-5 | DECANARY-RENAME-1 | Name collisions: MQ rollout docs and workflow renamed to `pilot` (R9) | A1 |
 | F-6 | DECANARY-FINAL-1 | Guard becomes blocking at zero for all groups; this plan and any remaining `DECANARY-*` packet text moved out of tree under §5 | everything above |
 
-Parallel lanes: A1 first; then B3, B4, B5, F-5 in parallel (disjoint paths); B6/B7 as their deps land; B1 after B7 is deployed everywhere, then B2; PREFS-INVENTORY and Q-PREFS before C8; C-phase follows Game; D after B/C per domain; E strictly serial; F last.
+Parallel lanes: A1 first; then B3, B4, B5, F-5 in parallel (disjoint paths); B6/B7 as their deps land; B1 after B7 is deployed everywhere, then B2; C0 before C3 and C8; PREFS-INVENTORY and Q-PREFS before C8; D-9 after C8; C-phase follows Game; D after B/C per domain; E strictly serial; F last.
 
 ## 5. History rule (proposal, owner decision Q-H)
 
@@ -235,41 +238,42 @@ Rationale for the recommendation: redaction keeps 170+ unrelated task records se
 | Q-PREFS | Accept loss of profile preferences keyed by Canary player id | Yes, unless the pre-C8 row counts (PREFS-INVENTORY, §4 C8 note) say otherwise. Must be decided before C8 starts |
 | Q-CAT | Stop accepting catalog schemas v1–v1.2 | Yes, after the native export is qualified (B6) |
 
-## 7. Worker packets (Sonnet-tier)
+## 7. Worker packets
 
-Packets marked **Opus** in the tier column stay with a top-tier architect/worker (auth, wire, persistence, money). Every packet: one branch, one PR, active packet from `TASK_TEMPLATE.md`, Conventional Commit, ratchet count for its group must drop and no other group may rise. Common validation for PHP packets: `vendor/bin/pint --test`, `composer analyse`, focused `php artisan test --filter=...`, required CI on exact head.
+Packets marked **hard** in the tier column stay with a senior architect/worker; **standard** packets suit any worker (auth, wire, persistence, money). Every packet: one branch, one PR, active packet from `TASK_TEMPLATE.md`, Conventional Commit, ratchet count for its group must drop and no other group may rise. Common validation for PHP packets: `vendor/bin/pint --test`, `composer analyse`, focused `php artisan test --filter=...`, required CI on exact head.
 
 | Packet | Tier | owned_paths | Validation (in addition to common) |
 |---|---|---|---|
-| A1 GUARD-1 | Sonnet | `tools/validation/legacy_token_ratchet.py`, `tools/validation/test_legacy_token_ratchet.py`, `docs/agents/LEGACY_TOKEN_BASELINE.json`, one step in `.github/workflows/ci.yml` | `python -m pytest tools/validation/test_legacy_token_ratchet.py`; baseline equals `git grep -ic` per group |
-| B1 REG-1 | **Opus** | `app/Identity/Actions/RegisterIdentity.php`, `routes/console.php` (provision command only), `tests/Feature/Identity/RegistrationTest.php` | Registration test without any Canary connection configured |
-| B2 ACCOUNT-1 | Sonnet | `app/Accounts/ReadModels/**`, `app/Http/Controllers/Accounts/AccountOverviewController.php`, `tests/Feature/Accounts/AccountOverviewTest.php` | Account overview from LCFA fixture; owner-only read test |
-| B3 CREATE-OFF-1 | Sonnet | `app/Characters/**`, `app/Providers/AppServiceProvider.php` (creator binding line), `tests/Feature/Characters/CharacterCreationTest.php` | Creation returns typed unavailable; no write attempted |
-| B4 BAZAAR-FREEZE-1 | **Opus** | `app/Marketplace/**`, `config/marketplace.php`, `tests/Feature/Marketplace/**` | Settlement recovery, idempotency, concurrency (MariaDB) suites |
-| B5 PUBLIC-OFF-1 | Sonnet | `app/PublicGameData/**`, `app/PublicPortal/HomePageQuery.php`, `app/Http/Controllers/PublicGameData/**`, `tests/Feature/PublicGameData/**`, `tests/Feature/HomeTest.php` | Pages 200 with unavailable state and no Canary connection |
-| B6 CATALOG-1 | **Opus** | `app/GameCatalog/**`, new additive migration, `resources/schemas/game-catalog/**`, `tests/Feature/GameCatalog/**`, `tests/Fixtures/GameCatalog/**` | Up/down on MariaDB with non-empty snapshots; import of native fixture |
-| B7 LOGIN-NATIVE-ONLY-1 | **Opus** | `deploy/synology/compose.yml` (gateway service env only), `routes/internal.php`, `config/game-auth.php`, `app/GameAuth/Tickets/IssueGameLoginTicket.php`, `app/GameAuth/OAuth/**` (native issuance only), `tests/Feature/GameAuth/**` | `tests/e2e/native_auth_ephemeral_cutover`, gateway CI; native ticket issued for an Identity without a Canary binding |
-| C1 CMD-CLIENT-1 | **Opus** | new `app/CharacterAuthority/**`, `config/character-authority.php`, tests | Timeout, retry with same idempotency key, receipt replay |
-| C2 CREATE-1 | **Opus** | `app/Characters/**`, tests | MariaDB concurrency; duplicate-name rejection via receipt |
-| C3 BAZAAR-1 | **Opus** | `app/Marketplace/**`, tests | Full Marketplace suites; drain report zero before switch |
-| C4 PROJ-INGEST-1 | **Opus** | new `app/GameProjections/**`, migration (read models), `routes/internal.php` (ingest route), tests | mTLS identity, watermark monotonicity, replay rejection |
-| C5 PUBLIC-1a | Sonnet | `app/PublicGameData/**` (highscores/profile), tests | Feature tests on projection fixtures; acceptance pages |
-| C6 PUBLIC-1b | Sonnet | `app/PublicGameData/GuildIndexQuery.php` + deaths, tests | as C5 |
-| C7 PUBLIC-1c | Sonnet | `app/PublicGameData/*Runtime*`, `app/PublicGameData/*Channel*`, tests | Online/status pages without Redis runtime connection |
-| C8 PREFS-1 | Sonnet | `app/CharacterProfiles/**`, `tests/Feature/CharacterProfiles/**` | Concurrency test on `character_id` |
-| D-1..D-3 ACCEPT-1a/b/c | Sonnet | `scripts/acceptance/**` (a, b); acceptance workflows (c) | Acceptance runs green without `canary_acceptance`; workflow inventory test |
-| D-4..D-6 DEPLOY-1a/b/c | Sonnet (Opus review) | `deploy/synology/**`, `tests/ci/test_synology_*`, Synology workflows | `python -m pytest tests/ci deploy/synology/tests`; staging deploy + rollback dry run (protected, owner) |
-| D-7 GATEWAY-1 | **Opus** | `services/game-gateway/**` | `go test ./...`, `go vet`; native E2E |
-| D-8 DELETE-LOGIN-1 | **Opus** | `app/GameAuth/{Context,Sessions}/**`, `app/GameAuth/Tickets/{RedeemGameLoginTicket,RedeemedGameLoginTicket,IssueGameLoginTicket}.php`, `app/Http/Controllers/GameAuth/{GameLoginContextController,GameLoginTicketRedeemController}.php`, `routes/internal.php`, matching tests | Full suite; no route references `canaryAccountId`; native issuance and `NativeGameLoginTickets` redemption tests stay green |
-| D-9 DELETE-CODE-1 | Sonnet (Opus review) | `app/CanaryIntegration/**`, `app/Accounts/**/*Canary*`, `app/Characters/Contracts/*`, `app/Marketplace/Contracts/*`, `app/Providers/AppServiceProvider.php`, `app/Audit/SecurityEventRecorder.php`, `app/Operations/ProductionConfigurationVerifier.php`, `routes/console.php`, `tests/Unit/CanaryIntegration/**` and Canary feature tests | Full suite; `composer analyse`; config verifier test |
-| D-10 DELETE-CONFIG-1 | Sonnet | `config/database.php`, `config/marketplace.php`, `.env.example`, `database/provisioning/**` | `php artisan config:cache` in CI; full suite |
-| D-11 TEXT-1 | Sonnet | `lang/**`, `app/Wiki/Content/WikiLaunchContentCatalog.php`, `resources/views/**` | Lang key parity en/pl; wiki content tests |
-| E2..E4 DROP-1a/b/c | **Opus** | one new migration each | Up/down on MariaDB with seeded data; E1 evidence linked |
-| E5 SQUASH-1 | **Opus** | `database/schema/**`, `database/migrations/**`, migration rollback tests | Fresh `migrate` from dump equals post-drop schema (diff of `SHOW CREATE TABLE`) |
-| F-1..F-3 DOCS-2a/b/c | Sonnet | listed docs per §4 F; `tools/validation/adr_registry.py` (F-2) | `python -m pytest tools/validation tools/agents`; docs IA tests |
-| F-4 HISTORY-1 | Sonnet | `tools/agents/redact_legacy_token.py`, H2 paths | Script idempotent (second run no diff); IA catalog + reconciliation tests |
-| F-5 RENAME-1 | Sonnet | `docs/maintenance/*MQ*`, `.github/workflows/native-auth-*-cache-build.yml`, `tests/ci/test_workflow_trigger_economy.py` | Workflow inventory/trigger-economy tests |
-| F-6 FINAL-1 | Sonnet | guard baseline, this file | `git grep -i` for the token returns nothing; guard blocking |
+| A1 GUARD-1 | standard | `tools/validation/legacy_token_ratchet.py`, `tools/validation/test_legacy_token_ratchet.py`, `docs/agents/LEGACY_TOKEN_BASELINE.json`, one step in `.github/workflows/ci.yml` | `python -m pytest tools/validation/test_legacy_token_ratchet.py`; baseline equals `git grep -ic` per group |
+| B1 REG-1 | **hard** | `app/Identity/Actions/RegisterIdentity.php`, `routes/console.php` (provision command only), `tests/Feature/Identity/RegistrationTest.php` | Registration test without any Canary connection configured |
+| B2 ACCOUNT-1 | standard | `app/Accounts/ReadModels/**`, `app/Http/Controllers/Accounts/AccountOverviewController.php`, `tests/Feature/Accounts/AccountOverviewTest.php` | Account overview from LCFA fixture; owner-only read test |
+| B3 CREATE-OFF-1 | standard | `app/Characters/**`, `app/Providers/AppServiceProvider.php` (creator binding line), `tests/Feature/Characters/CharacterCreationTest.php` | Creation returns typed unavailable; no write attempted |
+| B4 BAZAAR-FREEZE-1 | **hard** | `app/Marketplace/**`, `config/marketplace.php`, `tests/Feature/Marketplace/**` | Settlement recovery, idempotency, concurrency (MariaDB) suites |
+| B5 PUBLIC-OFF-1 | standard | `app/PublicGameData/**`, `app/PublicPortal/HomePageQuery.php`, `app/Http/Controllers/PublicGameData/**`, `tests/Feature/PublicGameData/**`, `tests/Feature/HomeTest.php` | Pages 200 with unavailable state and no Canary connection |
+| B6 CATALOG-1 | **hard** | `app/GameCatalog/**`, new additive migration, `resources/schemas/game-catalog/**`, `tests/Feature/GameCatalog/**`, `tests/Fixtures/GameCatalog/**` | Up/down on MariaDB with non-empty snapshots; import of native fixture |
+| B7 LOGIN-NATIVE-ONLY-1 | **hard** | `deploy/synology/compose.yml` (gateway service env only), `routes/internal.php`, `config/game-auth.php`, `app/GameAuth/Tickets/IssueGameLoginTicket.php`, `app/GameAuth/OAuth/**` (native issuance only), `tests/Feature/GameAuth/**` | `tests/e2e/native_auth_ephemeral_cutover`, gateway CI; native ticket issued for an Identity without a Canary binding |
+| C0 LEGACY-NULLABLE-1 | **hard** | one new migration, `tests/Feature/Decanary/**` | Up/down on MariaDB with existing rows; insert with native ids only and NULL legacy ids; `down()` refuses while NULL legacy ids exist; native uniqueness guards hold under concurrency |
+| C1 CMD-CLIENT-1 | **hard** | new `app/CharacterAuthority/**`, `config/character-authority.php`, tests | Timeout, retry with same idempotency key, receipt replay |
+| C2 CREATE-1 | **hard** | `app/Characters/**`, tests | MariaDB concurrency; duplicate-name rejection via receipt |
+| C3 BAZAAR-1 | **hard** | `app/Marketplace/**`, tests | Full Marketplace suites; drain report zero before switch |
+| C4 PROJ-INGEST-1 | **hard** | new `app/GameProjections/**`, migration (read models), `routes/internal.php` (ingest route), tests | mTLS identity, watermark monotonicity, replay rejection |
+| C5 PUBLIC-1a | standard | `app/PublicGameData/**` (highscores/profile), tests | Feature tests on projection fixtures; acceptance pages |
+| C6 PUBLIC-1b | standard | `app/PublicGameData/GuildIndexQuery.php` + deaths, tests | as C5 |
+| C7 PUBLIC-1c | standard | `app/PublicGameData/*Runtime*`, `app/PublicGameData/*Channel*`, tests | Online/status pages without Redis runtime connection |
+| C8 PREFS-1 | standard | `app/CharacterProfiles/**`, `tests/Feature/CharacterProfiles/**` | Concurrency test on `character_id` |
+| D-1..D-3 ACCEPT-1a/b/c | standard | `scripts/acceptance/**` (a, b); acceptance workflows (c) | Acceptance runs green without `canary_acceptance`; workflow inventory test |
+| D-4..D-6 DEPLOY-1a/b/c | standard (hard review) | `deploy/synology/**`, `tests/ci/test_synology_*`, Synology workflows | `python -m pytest tests/ci deploy/synology/tests`; staging deploy + rollback dry run (protected, owner) |
+| D-7 GATEWAY-1 | **hard** | `services/game-gateway/**` | `go test ./...`, `go vet`; native E2E |
+| D-8 DELETE-LOGIN-1 | **hard** | `app/GameAuth/{Context,Sessions}/**`, `app/GameAuth/Tickets/{RedeemGameLoginTicket,RedeemedGameLoginTicket,IssueGameLoginTicket}.php`, `app/GameAuth/Worlds/{DatabaseWorldRegistry,GameWorldProtocolCandidate,WorldRegistry}.php`, `app/Http/Controllers/GameAuth/{GameLoginContextController,GameLoginTicketRedeemController}.php`, `routes/internal.php`, matching tests | Full suite; no route references `canaryAccountId`; native issuance and `NativeGameLoginTickets` redemption tests stay green |
+| D-9 DELETE-CODE-1 | standard (hard review) | `app/CanaryIntegration/**`, `app/Accounts/**/*Canary*`, `app/Characters/Contracts/*`, `app/Marketplace/Contracts/*`, `app/Providers/AppServiceProvider.php`, `app/Audit/SecurityEventRecorder.php`, `app/Operations/ProductionConfigurationVerifier.php`, `routes/console.php`, `app/Console/Commands/FinalizeIdentityTerminations.php` and its tests, `tests/Unit/CanaryIntegration/**` and Canary feature tests | Full suite; `composer analyse`; config verifier test |
+| D-10 DELETE-CONFIG-1 | standard | `config/database.php`, `config/marketplace.php`, `.env.example`, `database/provisioning/**` | `php artisan config:cache` in CI; full suite |
+| D-11 TEXT-1 | standard | `lang/**`, `app/Wiki/Content/WikiLaunchContentCatalog.php`, `resources/views/**` | Lang key parity en/pl; wiki content tests |
+| E2..E4 DROP-1a/b/c | **hard** | one new migration each | Up/down on MariaDB with seeded data; E1 evidence linked |
+| E5 SQUASH-1 | **hard** | `database/schema/**`, `database/migrations/**`, migration rollback tests | Fresh `migrate` from dump equals post-drop schema (diff of `SHOW CREATE TABLE`) |
+| F-1..F-3 DOCS-2a/b/c | standard | listed docs per §4 F; `tools/validation/adr_registry.py` (F-2) | `python -m pytest tools/validation tools/agents`; docs IA tests |
+| F-4 HISTORY-1 | standard | `tools/agents/redact_legacy_token.py`, H2 paths | Script idempotent (second run no diff); IA catalog + reconciliation tests |
+| F-5 RENAME-1 | standard | `docs/maintenance/*MQ*`, `.github/workflows/native-auth-*-cache-build.yml`, `tests/ci/test_workflow_trigger_economy.py` | Workflow inventory/trigger-economy tests |
+| F-6 FINAL-1 | standard | guard baseline, this file | `git grep -i` for the token returns nothing; guard blocking |
 
 ## 8. Closeout
 
