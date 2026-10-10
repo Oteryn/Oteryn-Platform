@@ -185,6 +185,9 @@ def classify_path(raw_path: str) -> PathClassification:
     if any(token in lowered for token in auth_tokens):
         return PathClassification("auth_security", ALL_GATES)
 
+    if _matches(path, ("tests/e2e/premium_physical_e2e/**",)):
+        return PathClassification("payment", ALL_GATES)
+
     payment_tokens = (
         "payment",
         "webhook",
