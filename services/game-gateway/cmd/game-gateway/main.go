@@ -28,8 +28,12 @@ func main() {
 
 	httpClient := &http.Client{Timeout: cfg.RequestTimeout}
 	platformClient := platform.NewClient(cfg.PlatformBaseURL, cfg.PlatformServiceToken, httpClient)
-	sessionClient := session.NewClient(cfg.SessionBaseURL, cfg.SessionServiceToken, httpClient)
-	service := gateway.NewService(platformClient, sessionClient)
+	// Native-only mode keeps sessions a nil interface so legacy logins fail closed.
+	var sessionIssuer gateway.SessionIssuer
+	if cfg.LegacySessionEnabled {
+		sessionIssuer = session.NewClient(cfg.SessionBaseURL, cfg.SessionServiceToken, httpClient)
+	}
+	service := gateway.NewService(platformClient, sessionIssuer)
 	api := httpapi.NewServer(service, cfg.Version, logger)
 	if cfg.NativeLoginEnabled {
 		issuer := nativelogin.NewIssuerClient(cfg.PlatformBaseURL, cfg.PlatformServiceToken, cfg.NativeAdmissionTimeout, nil)
@@ -56,7 +60,7 @@ func main() {
 		}
 	}()
 
-	logger.Info("gateway_started", "version", cfg.Version, "listen_address", cfg.ListenAddress, "native_login_enabled", cfg.NativeLoginEnabled)
+	logger.Info("gateway_started", "version", cfg.Version, "listen_address", cfg.ListenAddress, "native_login_enabled", cfg.NativeLoginEnabled, "legacy_session_enabled", cfg.LegacySessionEnabled)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("gateway_stopped_unexpectedly")
 		os.Exit(1)
