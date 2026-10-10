@@ -97,7 +97,14 @@ def validate_exception_registry(
     for index, item in enumerate(exceptions):
         if not isinstance(item, dict):
             raise SupplyChainError(f"exception {index} must be an object")
-        required = ("component", "vulnerability_id", "package_name", "expires_on", "evidence")
+        required = (
+            "component",
+            "vulnerability_id",
+            "package_name",
+            "created_on",
+            "expires_on",
+            "evidence",
+        )
         missing = [name for name in required if not str(item.get(name, "")).strip()]
         if missing:
             raise SupplyChainError(f"exception {index} missing fields: {missing}")
@@ -109,16 +116,14 @@ def validate_exception_registry(
             raise SupplyChainError(
                 f"exception {index} expired on {expires.isoformat()}: {item['vulnerability_id']}"
             )
-        created_raw = item.get("created_on")
-        if created_raw:
-            try:
-                created = date.fromisoformat(str(created_raw))
-            except ValueError as exc:
-                raise SupplyChainError(f"exception {index} has invalid created_on") from exc
-            if (expires - created).days > max_days:
-                raise SupplyChainError(
-                    f"exception {index} exceeds maximum {max_days}-day lifetime"
-                )
+        try:
+            created = date.fromisoformat(str(item["created_on"]))
+        except ValueError as exc:
+            raise SupplyChainError(f"exception {index} has invalid created_on") from exc
+        if created > current:
+            raise SupplyChainError(f"exception {index} has a future created_on")
+        if expires < created or (expires - created).days > max_days:
+            raise SupplyChainError(f"exception {index} exceeds maximum {max_days}-day lifetime")
 
 
 def validate_repository(policy_path: Path = DEFAULT_POLICY, root: Path = ROOT) -> dict[str, Any]:
@@ -196,12 +201,24 @@ def evaluate_trivy(
     report = load_json(report_path)
     blocked: list[dict[str, str]] = []
     excepted: list[dict[str, str]] = []
-    for result in report.get("Results") or []:
+    if not isinstance(report, dict):
+        raise SupplyChainError("Trivy report must be a JSON object")
+    results = report.get("Results")
+    if results is None and "ArtifactName" in report:
+        results = []  # Trivy omits Results when a scanned artifact has no result targets.
+    if not isinstance(results, list):
+        raise SupplyChainError("Trivy report Results must be a list")
+    for result in results:
         if not isinstance(result, dict):
-            continue
-        for finding in result.get("Vulnerabilities") or []:
+            raise SupplyChainError("Trivy report Results entries must be objects")
+        findings = result.get("Vulnerabilities")
+        if findings is None:
+            findings = []
+        if not isinstance(findings, list):
+            raise SupplyChainError("Trivy report Vulnerabilities must be a list")
+        for finding in findings:
             if not isinstance(finding, dict):
-                continue
+                raise SupplyChainError("Trivy report vulnerability entries must be objects")
             severity = str(finding.get("Severity", "")).upper()
             if severity not in severities:
                 continue

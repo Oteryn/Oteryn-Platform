@@ -211,6 +211,36 @@ class ContainerSupplyChainTest(unittest.TestCase):
                     report, policy, "platform", root, today=date(2026, 10, 5)
                 )
 
+    def test_exception_without_valid_created_on_fails_closed(self) -> None:
+        for created in (None, "2026-10-09", "2026-10-30"):
+            with self.subTest(created=created), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                report = self.write_scan_fixture(root)
+                entry = {
+                    "component": "platform",
+                    "vulnerability_id": "CVE-TEST-1",
+                    "package_name": "demo",
+                    "expires_on": "2027-12-31",
+                    "evidence": "https://github.com/Oteryn/Oteryn-Platform/issues/1011",
+                }
+                if created:
+                    entry["created_on"] = created
+                policy = self.write_scan_policy(root, [entry])
+                with self.assertRaises(supply.SupplyChainError):
+                    supply.evaluate_trivy(
+                        report, policy, "platform", root, today=date(2026, 10, 5)
+                    )
+
+    def test_malformed_trivy_results_fail_closed(self) -> None:
+        for payload in ({}, {"Results": None}, {"Results": {}}, {"Results": ["x"]}):
+            with self.subTest(payload=payload), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                report = root / "trivy.json"
+                report.write_text(json.dumps(payload), encoding="utf-8")
+                policy = self.write_scan_policy(root, [])
+                with self.assertRaises(supply.SupplyChainError):
+                    supply.evaluate_trivy(report, policy, "platform", root)
+
     def test_provenance_is_deterministic_and_binds_all_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
