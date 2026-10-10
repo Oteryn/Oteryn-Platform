@@ -16,7 +16,7 @@ Record the owner-directed native-only completion target under #1474; PR #1475.
 
 - [ ] The programme and baseline report record the owner-directed native-only completion target under #1474.
 - [ ] Only the three owned documents change; no runtime path is touched.
-- [ ] `python tools/agents/checkpoint.py --require-checkpoint` and the legacy-token ratchet pass on the exact head.
+- [ ] `python tools/agents/checkpoint.py --require-checkpoint docs/agents/tasks/active/OTERYN-20261008-native-only-migration-baseline.md` and the legacy-token ratchet pass on the exact head.
 - [ ] Exact-head PR checks are green and all review threads are resolved.
 
 ## Ownership
