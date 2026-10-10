@@ -7,7 +7,7 @@ on:
     paths:
       - .github/workflows/repair-synology-autostart.yml
       - deploy/synology/compose.yml
-      - deploy/synology/runner/compose.yml
+      - deploy/synology/runner/compose.organization.example.yml
   workflow_dispatch:
 
 permissions: {}
@@ -46,7 +46,7 @@ jobs:
           }
 
           declare -a containers=()
-          containers+=("$(resolve_one oteryn-deploy-runner runner)")
+          containers+=("$(resolve_one oteryn-organization-runners platform)")
           for service in mariadb redis platform canary internal-proxy gateway; do
             containers+=("$(resolve_one oteryn-staging "$service")")
           done

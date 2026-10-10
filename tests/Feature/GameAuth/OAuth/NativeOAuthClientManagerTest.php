@@ -56,6 +56,17 @@ final class NativeOAuthClientManagerTest extends TestCase
         $this->app->make(NativeOAuthClientManager::class)->ensure();
     }
 
+    public function test_rust_ensure_command_creates_an_idempotent_separate_public_client(): void
+    {
+        $this->assertArtisanSuccess($this->artisan('game-auth:oauth-client:ensure', ['--rust' => true]));
+        $this->assertArtisanSuccess($this->artisan('game-auth:oauth-client:ensure', ['--rust' => true]));
+
+        $client = Client::query()->sole();
+        self::assertSame(NativeOAuthClientManager::RUST_CLIENT_NAME, $client->name);
+        self::assertFalse($client->confidential());
+        self::assertNull($client->getAttribute('secret'));
+    }
+
     private function assertArtisanSuccess(PendingCommand|int $result): void
     {
         if (is_int($result)) {

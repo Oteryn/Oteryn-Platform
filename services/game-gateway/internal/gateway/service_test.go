@@ -282,3 +282,22 @@ func policyCandidate(family string, identity any, transport, endpoint string, po
 	}
 	return candidate
 }
+
+func TestNativeOnlyServiceRefusesLegacyLoginBeforeRedeemingTheTicket(t *testing.T) {
+	platform := successfulPlatform()
+	service := NewService(platform, nil)
+
+	if _, err := service.Login(context.Background(), "one-time-ticket"); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("expected ErrUnavailable, got %v", err)
+	}
+	if platform.redeemCalls != 0 || platform.contextCalls != 0 {
+		t.Fatalf("native-only mode must not consume the ticket: redeem=%d context=%d", platform.redeemCalls, platform.contextCalls)
+	}
+	if err := service.Ready(context.Background()); err != nil {
+		t.Fatalf("native-only readiness depends only on the platform: %v", err)
+	}
+	platform.readyErr = ErrUnavailable
+	if err := service.Ready(context.Background()); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("platform readiness must still gate native-only mode, got %v", err)
+	}
+}
