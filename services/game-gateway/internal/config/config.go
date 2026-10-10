@@ -18,7 +18,9 @@ type Config struct {
 	RequestTimeout       time.Duration
 	Version              string
 	// NativeLoginEnabled routes protocol_version 2 logins to the Platform native admission
-	// issuer. Default off; the Canary path is unchanged either way.
+	// issuer. The built-in default stays off: the gateway cannot tell preproduction from
+	// production, so each deployment opts in with GATEWAY_NATIVE_LOGIN_ENABLED=true (D963 Q1=A,
+	// D607). The Canary path is unchanged either way.
 	NativeLoginEnabled     bool
 	NativeAdmissionTimeout time.Duration
 	// LegacySessionEnabled is false only in native-only mode: native login enabled and both

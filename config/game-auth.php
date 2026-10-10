@@ -4,6 +4,7 @@ $nativeEvidenceClockUncertainty = env('GAME_AUTH_NATIVE_EVIDENCE_CLOCK_UNCERTAIN
 $nativeEvidenceActivated = env('GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED', false);
 $nativeEvidenceRequestsPerMinute = env('GAME_AUTH_NATIVE_EVIDENCE_REQUESTS_PER_MINUTE', '120');
 $acceptanceNativeRuntime = env('APP_ENV') === 'acceptance';
+$preproductionNativeLogin = env('APP_ENV') === 'preproduction';
 $acceptanceNativeRuntimeScope = '018f0f1e-7b2c-7a31-8d4e-1234567890ab/018f0f1e-7b2c-7a32-8d4e-1234567890ac';
 $acceptanceNativeRuntimeIdentities = $acceptanceNativeRuntime
     ? ['CN=acceptance-runtime-node' => [$acceptanceNativeRuntimeScope]]
@@ -89,7 +90,9 @@ return [
 
     'native_account_characters' => [
         // Testing/preproduction push consumer only. Production remains blocked on Decision P1/U12.
-        'enabled' => env('GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED', false),
+        // Default on only for APP_ENV=preproduction (D963 Q1=A, D607); every other environment stays off
+        // by default. Setting it to false is the explicit opt-out back to the D171 path.
+        'enabled' => env('GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED', $preproductionNativeLogin),
         // JSON list of dedicated Character Authority projection certificate subjects (one per authority host).
         'identities' => env('GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_IDENTITIES'),
         // One expected Character Authority namespace shared by every configured projection identity.

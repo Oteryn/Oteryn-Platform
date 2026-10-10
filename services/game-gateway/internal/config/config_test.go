@@ -225,3 +225,22 @@ func TestLoadRejectsNonLoopbackHTTPSessionServiceAndAcceptsHTTPS(t *testing.T) {
 		t.Fatalf("https session service on a non-loopback host must be accepted: %v", err)
 	}
 }
+
+func TestLoadUnsetNativeLoginNeverSelectsNativeOnlyMode(t *testing.T) {
+	t.Setenv("OTERYN_PLATFORM_BASE_URL", "https://platform.example.test")
+	t.Setenv("OTERYN_PLATFORM_SERVICE_TOKEN", "platform-token")
+	t.Setenv("GATEWAY_NATIVE_LOGIN_ENABLED", "")
+	t.Setenv("GAME_SESSION_SERVICE_BASE_URL", "")
+	t.Setenv("GAME_SESSION_SERVICE_TOKEN", "")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("without an explicit GATEWAY_NATIVE_LOGIN_ENABLED=true the session service must stay required")
+	}
+
+	t.Setenv("GAME_SESSION_SERVICE_BASE_URL", "https://session.example.test")
+	t.Setenv("GAME_SESSION_SERVICE_TOKEN", "session-token")
+	cfg, err := Load()
+	if err != nil || cfg.NativeLoginEnabled || !cfg.LegacySessionEnabled {
+		t.Fatalf("expected the built-in default to keep native login off and the Canary path on, got %#v err=%v", cfg, err)
+	}
+}
