@@ -1,6 +1,6 @@
 # Game Session to Canary Contract
 
-> **LEGACY / COMPATIBILITY** — Canary compatibility path; native target is defined by the Game contracts (LCFA, native login, character authority boundary).
+> **LEGACY / COMPATIBILITY** — Canary compatibility path. The native target is split by owner: Platform owns `AccountId`, Game Login Ticket issuance/redemption, routing policy and Gateway pre-admission (`docs/architecture/OTERYN_V2_INTEGRATION_ARCHITECTURE.md`, `docs/contracts/OTERYN_V2_ACCOUNT_IDENTITY_CONTRACT.md`, `docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md`); the Game contracts (LCFA, native login, character authority boundary) own final admission and session authority.
 
 ## Status
 
