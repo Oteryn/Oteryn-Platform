@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\GameAuth\ClientDirectoryController;
 use App\Http\Middleware\DetectPublicLocaleFromPath;
 use App\Http\Middleware\EnsureConfirmedMfa;
 use App\Http\Middleware\EnsureIdentitySessionIsCurrent;
@@ -27,6 +28,8 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/health',
         then: function (): void {
+            Route::middleware(['api', 'throttle:60,1'])
+                ->get('/v1/client/directory', ClientDirectoryController::class);
             Route::middleware('api')->group(base_path('routes/internal.php'));
             require base_path('routes/localization.php');
         },

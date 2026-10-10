@@ -6,6 +6,7 @@ use App\Announcements\Queries\AnnouncementTickerProvider;
 use App\Cms\Models\NewsPost;
 use App\Cms\PublicNewsQuery;
 use App\Events\Queries\UpcomingEventProvider;
+use App\LiveOps\WorldStatus\PublicWorldStatusQuery;
 use App\PublicGameData\CanaryChannelRuntimeService;
 use App\PublicGameData\CanaryGameDataRepository;
 use App\PublicPortal\ViewModels\HomeNewsSummary;
@@ -24,6 +25,7 @@ final readonly class HomePageQuery
         private CanaryChannelRuntimeService $runtime,
         private AnnouncementTickerProvider $announcements,
         private UpcomingEventProvider $events,
+        private PublicWorldStatusQuery $nativeWorlds,
     ) {}
 
     public function get(): HomePageViewModel
@@ -57,6 +59,20 @@ final readonly class HomePageQuery
     private function worldSummary(): HomeWorldSummary
     {
         try {
+            $nativeWorlds = $this->nativeWorlds->get(now()->getTimestamp());
+            if ($nativeWorlds !== []) {
+                $state = PublicContentState::AVAILABLE;
+                foreach ($nativeWorlds as $world) {
+                    if ($world->isPartial()) {
+                        $state = PublicContentState::STALE;
+                        break;
+                    }
+                }
+
+                // Native readiness reports do not contain a player population.
+                return new HomeWorldSummary($state, [], null, $nativeWorlds);
+            }
+
             $channels = $this->gameData->configuredChannels();
 
             if ($channels->isEmpty()) {
