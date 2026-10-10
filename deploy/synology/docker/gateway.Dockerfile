@@ -1,4 +1,4 @@
-FROM golang:1.24-alpine@sha256:8bee1901f1e530bfb4a7850aa7a479d17ae3a18beb6e09064ed54cfd245b7191 AS build
+FROM golang:1.26.7-alpine@sha256:28d89ee9cc0ff9fec75c82ca201e6bf7fdf9a679d4b7b24dfa04f2bb766bb468 AS build
 
 WORKDIR /src/services/game-gateway
 COPY services/game-gateway/go.mod ./
@@ -10,7 +10,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /out/game-gateway \
     ./cmd/game-gateway
 
-FROM alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+FROM alpine:3.24.2@sha256:31b6477333eb8257db9e5d7c3a7264fd0467928756f0bbcc27d35bea5d28cdbd
 
 RUN apk add --no-cache ca-certificates \
     && addgroup -S -g 10001 oteryn \
