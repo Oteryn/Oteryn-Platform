@@ -21,7 +21,7 @@ Character creation returns the typed unavailable state after input validation. T
 - [x] The creator gateway container binding is removed from `AppServiceProvider`.
 - [x] `CharacterCreationTest` asserts the unavailable response, an unbound gateway and no opened legacy connection.
 - [x] The legacy token ratchet passes with falling runtime and tests counts.
-- [ ] Actor-to-result browser path asserts the unavailable submission result.
+- [x] Actor-to-result browser path asserts the unavailable submission result (four acceptance specs updated; the lead approved extending owned paths).
 - [ ] Exact-head CI passes.
 
 ## Ownership
@@ -33,12 +33,16 @@ owned_paths:
   - tests/Feature/Characters/CharacterCreationTest.php
   - docs/agents/tasks/active/OTERYN-20261010-create-off.md
   - docs/agents/tasks/archive/OTERYN-20261010-create-off.md
+  - scripts/acceptance/tests/full-acceptance.spec.mjs
+  - scripts/acceptance/tests/player-journey-acceptance.spec.mjs
+  - scripts/acceptance/tests/character-boundaries-acceptance.spec.mjs
+  - scripts/acceptance/tests/security-boundary-critical.spec.mjs
 modules:
   - characters
 dependencies:
   - none
 blockers:
-  - acceptance specs under scripts/acceptance/tests need an owned-path expansion
+  - none
 cross_repository_tasks:
   - none
 ```
@@ -51,7 +55,7 @@ updated_at: 2026-10-10T23:30:00Z
 head: UNKNOWN
 branch: head branch of PR 1492
 pr: 1492
-status: blocked
+status: validating
 context_routes:
   - characters
 owned_paths:
@@ -60,6 +64,10 @@ owned_paths:
   - tests/Feature/Characters/CharacterCreationTest.php
   - docs/agents/tasks/active/OTERYN-20261010-create-off.md
   - docs/agents/tasks/archive/OTERYN-20261010-create-off.md
+  - scripts/acceptance/tests/full-acceptance.spec.mjs
+  - scripts/acceptance/tests/player-journey-acceptance.spec.mjs
+  - scripts/acceptance/tests/character-boundaries-acceptance.spec.mjs
+  - scripts/acceptance/tests/security-boundary-critical.spec.mjs
 proven:
   - Legacy token ratchet passes locally; runtime 497 to 488, tests 712 to 701.
 derived:
@@ -69,12 +77,16 @@ unknown:
 conflicts: []
 first_failure:
   marker: acceptance browser job
-  evidence: specs full-acceptance, player-journey, character-boundaries and security-boundary-critical expect a created character at 023bb5ad
+  evidence: four acceptance specs expected a created character at the previous head; updated in this commit
 rejected_hypotheses: []
 changed_paths:
   - app/Characters/Actions/CreateCharacter.php
   - app/Providers/AppServiceProvider.php
   - tests/Feature/Characters/CharacterCreationTest.php
+  - scripts/acceptance/tests/full-acceptance.spec.mjs
+  - scripts/acceptance/tests/player-journey-acceptance.spec.mjs
+  - scripts/acceptance/tests/character-boundaries-acceptance.spec.mjs
+  - scripts/acceptance/tests/security-boundary-critical.spec.mjs
   - docs/agents/tasks/active/OTERYN-20261010-create-off.md
 validation:
   - command: python tools/validation/legacy_token_ratchet.py
@@ -87,11 +99,11 @@ validation:
     result: PASS
     evidence: no syntax errors
   - command: product runtime E2E
-    result: FAIL
-    evidence: the acceptance browser job runs the real create-character submission and fails because four specs under scripts/acceptance/tests still expect a created character; they are outside this packet and need an owned-path expansion to assert the unavailable result
+    result: NOT_RUN
+    evidence: the acceptance browser job runs the real login, create-character submission and result path; four specs now assert the unavailable alert after valid input while validation checks, MFA, sessions and logout stay unchanged; the browser job did not run in the sandbox, exact-head CI is the first run
 blockers:
-  - acceptance specs under scripts/acceptance/tests (full-acceptance, player-journey, character-boundaries, security-boundary-critical) expect character creation to succeed; owned paths must be extended to update them
-next_action: Extend owned paths to the four acceptance specs, assert the unavailable submission result, then re-read exact-head CI.
+  - none
+next_action: Read exact-head CI for the acceptance job and hand the review packet to the lead.
 ```
 
 ## Source branch closeout
