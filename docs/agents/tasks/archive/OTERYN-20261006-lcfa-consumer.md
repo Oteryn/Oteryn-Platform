@@ -157,3 +157,11 @@ blockers:
   - production release only: Decision P1/U12
 next_action: none; terminal PR merged and record archived.
 ```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1465 merged (REST pulls/1465 state closed, merged true) as db1ddecbe5559065a961bb1edd11794b5a40e214 at 2026-10-07T14:07:52Z from exact head a3ff6fe520c51cb16b43e58a36ecaa295e68f68f; source branch absent (REST branches API returns 404)
+```
