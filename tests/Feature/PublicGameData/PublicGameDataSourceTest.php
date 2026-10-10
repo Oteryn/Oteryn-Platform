@@ -63,6 +63,33 @@ final class PublicGameDataSourceTest extends TestCase
         $this->assertSame([], $connection->getQueryLog());
     }
 
+    /**
+     * Mirrors the deployed shape: only the process environment variable is set and
+     * no application config override exists.
+     *
+     * @param  array<string, string>  $parameters
+     */
+    #[DataProvider('publicPages')]
+    public function test_process_environment_variable_alone_switches_pages_to_the_unavailable_state(string $route, array $parameters): void
+    {
+        $this->configureLegacyConnection();
+        config()->set('public_game_data.source', null);
+        Redis::shouldReceive('connection')->never();
+        $connection = DB::connection(PublicGameDataSource::CONNECTION);
+        $connection->enableQueryLog();
+        putenv('PUBLIC_GAME_DATA_SOURCE=native');
+
+        try {
+            $this->get(route($route, $parameters))
+                ->assertOk()
+                ->assertSee('community-unavailable', false);
+        } finally {
+            putenv('PUBLIC_GAME_DATA_SOURCE');
+        }
+
+        $this->assertSame([], $connection->getQueryLog());
+    }
+
     public function test_homepage_is_ok_with_unavailable_world_state_when_source_is_native_or_absent(): void
     {
         config()->set('database.connections.'.PublicGameDataSource::CONNECTION, null);

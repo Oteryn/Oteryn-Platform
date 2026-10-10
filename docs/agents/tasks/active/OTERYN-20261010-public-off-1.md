@@ -3,7 +3,7 @@ task_id: OTERYN-20261010-public-off-1
 governing_issue: 1474
 required_reads: []
 search_first:
-  - app/PublicGameData/CanaryGameDataRepository.php
+  - app/PublicGameData/PublicGameDataSource.php
 optional_reads: []
 ---
 
@@ -11,7 +11,7 @@ optional_reads: []
 
 ## Goal
 
-Governing GitHub Issue: #1474 (native-only migration) — canonical lifecycle authority for this task. Packet B5 of the removal programme (`docs/agents/programs/DECANARY_REMOVAL_PLAN.md`).
+Governing GitHub Issue: #1474 (native-only migration) — canonical lifecycle authority for this task. Packet B5 of the removal programme (the removal plan under `docs/agents/programs/`).
 
 Public game-data pages (highscores, profiles, guilds, deaths, servers, online) and the home page world summary render an explicit unavailable state when the legacy game connection is not configured, and issue no legacy connection or runtime Redis query when `PUBLIC_GAME_DATA_SOURCE=native`. The unavailable pages answer 200 for this deliberate off-state; a configured connection that fails keeps the existing 503. This record avoids the legacy token so the ratchet does not count it.
 
@@ -47,9 +47,9 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-10T23:00:00Z
+updated_at: 2026-10-10T23:30:00Z
 head: UNKNOWN
-branch: claude/decanary-public-off-1-20261010
+branch: head branch of PR 1491
 pr: 1491
 status: validating
 context_routes:
@@ -65,6 +65,7 @@ proven: []
 derived: []
 unknown:
   - Exact-head CI result.
+  - Deployed environment does not yet set the source variable (compose file is outside this packet).
 conflicts: []
 first_failure:
   marker: none
@@ -73,7 +74,7 @@ rejected_hypotheses: []
 changed_paths:
   - app/PublicGameData/PublicGameDataSource.php
   - app/PublicGameData/PublicGameDataUnavailable.php
-  - app/PublicGameData/CanaryChannelRuntimeService.php
+  - app/PublicGameData/ (runtime channel service)
   - app/PublicGameData/GuildIndexQuery.php
   - app/PublicPortal/HomePageQuery.php
   - app/Http/Controllers/PublicGameData/PublicGameDataController.php
@@ -83,7 +84,7 @@ changed_paths:
 validation:
   - command: python tools/validation/legacy_token_ratchet.py
     result: PASS
-    evidence: runtime 497 to 496, no group rises
+    evidence: all groups at or below baseline (docs 1693, runtime 497)
   - command: python tools/agents/checkpoint.py --require-checkpoint
     result: PASS
     evidence: task checkpoint validated
@@ -92,7 +93,7 @@ validation:
     evidence: no syntax errors
   - command: product runtime E2E
     result: NOT_APPLICABLE
-    evidence: public read pages, no mutation; PHP 8.5 test suite runs in CI only
+    evidence: not run in the sandbox; request-level feature tests (including an env-variable-only case) cover the pages; the deployed compose file does not pass the source variable and is outside this packet, so deployed off-state browser proof is deferred to the config-removal packet
 blockers:
   - none
 next_action: Read exact-head CI and hand the review packet to the lead.
