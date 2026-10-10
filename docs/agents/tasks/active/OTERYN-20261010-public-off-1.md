@@ -47,7 +47,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-10T23:30:00Z
+updated_at: 2026-10-10T23:45:00Z
 head: UNKNOWN
 branch: head branch of PR 1491
 pr: 1491
@@ -66,6 +66,7 @@ derived: []
 unknown:
   - Exact-head CI result.
   - Deployed environment does not yet set the source variable (compose file is outside this packet).
+  - The branch field cannot hold the real head branch without adding a ratchet match, because the branch name itself contains the legacy token; the live task check therefore reports a branch mismatch until the lead resolves it.
 conflicts: []
 first_failure:
   marker: none
@@ -85,7 +86,7 @@ validation:
   - command: python tools/validation/legacy_token_ratchet.py
     result: PASS
     evidence: all groups at or below baseline (docs 1693, runtime 497)
-  - command: python tools/agents/checkpoint.py --require-checkpoint
+  - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20261010-public-off-1.md --require-checkpoint
     result: PASS
     evidence: task checkpoint validated
   - command: php -l on changed PHP files
