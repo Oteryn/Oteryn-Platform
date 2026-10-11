@@ -22,7 +22,7 @@ Canonical contract: `../contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md`
 | 3 | Rust `protocol-oteryn` adapter and codec support | not offered by production `Auto` | `client-first-safe`, `backward-compatible` | parser/encoder fixtures, fuzzing, normalized replay, no Tokio/API leakage |
 | 4 | automatic selection integration | staging-only exact manifest | `atomic-required` | exact client/Platform/Gateway/Otheryn revisions and schema hash |
 | 5 | bounded staging enablement | one controlled world/channel | `atomic-required`, initially `unverified` | real login, bind, snapshot, commands, deltas, disconnect and downgrade-negative E2E |
-| 6 | bounded production pilot | low percentage or explicit test cohort | `atomic-required` | security/observability/rollback rehearsal and owner authorization |
+| 6 | bounded production canary | low percentage or explicit test cohort | `atomic-required` | security/observability/rollback rehearsal and owner authorization |
 | 7 | broader native preference | native first, legacy engine retained | `backward-compatible` for supported clients | measured success/error/latency/resource thresholds |
 | 8 | any legacy engine compatibility-profile removal | not authorized by this programme | `breaking-migration` | separate ADR, population evidence, notice and rollback plan |
 

@@ -138,10 +138,6 @@ class RatchetTest(unittest.TestCase):
         self.assertEqual(ratchet.group_of("docs/agents/reports/x.md", rules), "history")
         self.assertEqual(ratchet.group_of("composer.json", rules), "other")
 
-
-if __name__ == "__main__":
-    unittest.main()
-
     def test_history_prefixes_are_excluded_from_paths_and_enforced_groups(self) -> None:
         self.add("docs/agents/tasks/archive/OLD.md", f"{TOKEN}\n")
         self.add(f"docs/agents/tasks/archive/{TOKEN}-old.md", "clean\n")
@@ -171,3 +167,7 @@ if __name__ == "__main__":
         self.assertFalse(ratchet.is_excluded("CHANGELOG.md.bak", ["CHANGELOG.md"]))
         self.assertFalse(ratchet.is_excluded("docs/agents/tasks/active/T.md", ratchet.DEFAULT_EXCLUSIONS))
         self.assertTrue(ratchet.is_excluded("docs/agents/tasks/archive/T.md", ratchet.DEFAULT_EXCLUSIONS))
+
+
+if __name__ == "__main__":
+    unittest.main()

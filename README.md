@@ -49,7 +49,7 @@ Game-server behavior is an external contract documented in the Oteryn-Game docs.
 
 Shared writes are allowed only through separately documented operation-specific contracts and adapters. Current bounded examples include greenfield account provisioning, character creation and Character Bazaar ownership transfer. No module may infer generic TFS/MyAAC schema or silently broaden those privileges.
 
-Configure applicable `LEGACY_DB_*` and runtime values in local environment files. Do not reuse game-server credentials or database root/admin accounts.
+Configure applicable `CANARY_DB_*` and runtime values in local environment files. Do not reuse game-server credentials or database root/admin accounts.
 
 ## Validation
 

@@ -77,7 +77,7 @@ Repository audits also retain the former package's exact defensive bounds so the
 - historical ClientHello deadline: `5 seconds` after TLS completion;
 - historical selection/admission behavior was fail closed, single admission, replay resistant and terminal after a binding/transport failure;
 - the package used `bind_on_first_admission`, allowed no second candidate after selection, required no plaintext or cross-family fallback, and required credential/identifier redaction;
-- production pilot enablement required separate owner authorization.
+- production canary enablement required separate owner authorization.
 
 These bounds remain useful regression evidence for the bytes that the repository already produced. They must not be copied into Oteryn-v2 as current protocol requirements unless the Oteryn-v2 authority independently accepts them.
 
