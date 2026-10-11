@@ -6,7 +6,6 @@
   "notes": [
     "Later packets must use token-free names for task files, branch-visible text and docs they add; any rise in an enforced group fails CI (decision D607).",
     "The docs count includes the one line naming this guard's own task branch in its task record.",
-    "The docs count also includes one line per active task record that names its real task branch, because the branch must match the pull request head (decision D986).",
     "The history group is report-only: historical records are preserved and excluded from the zero gate."
   ],
   "rules": [
@@ -132,7 +131,7 @@
       "enforce": true
     },
     "docs": {
-      "count": 1694,
+      "count": 1693,
       "files": 172,
       "enforce": true
     },

@@ -13,7 +13,7 @@ optional_reads: []
 
 Governing GitHub Issue: #1474 (native-only migration) — canonical lifecycle authority for this task. Packet B5 of the removal programme (the removal plan under `docs/agents/programs/`).
 
-Public game-data pages (highscores, profiles, guilds, deaths, servers, online) and the home page world summary render an explicit unavailable state when the legacy game connection is not configured, and issue no legacy connection or runtime Redis query when `PUBLIC_GAME_DATA_SOURCE=native`. The unavailable pages answer 200 for this deliberate off-state; a configured connection that fails keeps the existing 503. This record avoids the legacy token so the ratchet does not count it.
+Public game-data pages (highscores, profiles, guilds, deaths, servers, online) and the home page world summary render an explicit unavailable state when the legacy game connection is not configured, and issue no legacy connection or runtime Redis query when `PUBLIC_GAME_DATA_SOURCE=native`. The unavailable pages answer 200 for this deliberate off-state; a configured connection that fails keeps the existing 503. The ratchet does not count the checkpoint `branch:` line of a task record, because the task check requires the real branch name (decision D989).
 
 ## Acceptance criteria
 
@@ -32,6 +32,8 @@ owned_paths:
   - app/Http/Controllers/PublicGameData/**
   - tests/Feature/PublicGameData/**
   - tests/Feature/HomeTest.php
+  - tools/validation/legacy_token_ratchet.py
+  - tools/validation/test_legacy_token_ratchet.py
   - docs/agents/tasks/active/OTERYN-20261010-public-off-1.md
 modules:
   - public game data
@@ -60,6 +62,8 @@ owned_paths:
   - app/Http/Controllers/PublicGameData/**
   - tests/Feature/PublicGameData/**
   - tests/Feature/HomeTest.php
+  - tools/validation/legacy_token_ratchet.py
+  - tools/validation/test_legacy_token_ratchet.py
   - docs/agents/tasks/active/OTERYN-20261010-public-off-1.md
 proven: []
 derived: []
@@ -80,11 +84,13 @@ changed_paths:
   - app/Http/Controllers/PublicGameData/PublicGameDataController.php
   - app/Http/Controllers/PublicGameData/GuildIndexController.php
   - tests/Feature/PublicGameData/PublicGameDataSourceTest.php
+  - tools/validation/legacy_token_ratchet.py
+  - tools/validation/test_legacy_token_ratchet.py
   - docs/agents/tasks/active/OTERYN-20261010-public-off-1.md
 validation:
   - command: python tools/validation/legacy_token_ratchet.py
     result: PASS
-    evidence: all groups at or below baseline (docs 1694, runtime 497)
+    evidence: all groups at or below baseline (docs 1691 under baseline 1693, runtime 497)
   - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20261010-public-off-1.md --require-checkpoint
     result: PASS
     evidence: task checkpoint validated
