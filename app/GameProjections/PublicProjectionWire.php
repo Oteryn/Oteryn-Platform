@@ -97,7 +97,7 @@ final class PublicProjectionWire
     /**
      * Canonical non-zero decimal uint64 string.
      *
-     * @param array<string, mixed> $object
+     * @param  array<string, mixed>  $object
      */
     public static function uint64(array $object, string $key): string
     {
@@ -107,7 +107,7 @@ final class PublicProjectionWire
     /**
      * Canonical decimal uint64 string where the contract allows `0`.
      *
-     * @param array<string, mixed> $object
+     * @param  array<string, mixed>  $object
      */
     public static function uint64OrZero(array $object, string $key): string
     {
@@ -121,7 +121,7 @@ final class PublicProjectionWire
     /**
      * Unix seconds; `0` allowed (envelope and watermark times, LCFA §4).
      *
-     * @param array<string, mixed> $object
+     * @param  array<string, mixed>  $object
      */
     public static function unixTime(array $object, string $key): int
     {
@@ -131,7 +131,7 @@ final class PublicProjectionWire
     /**
      * Non-zero Unix seconds (body times, §4.0).
      *
-     * @param array<string, mixed> $object
+     * @param  array<string, mixed>  $object
      */
     public static function bodyTime(array $object, string $key): int
     {
@@ -146,7 +146,7 @@ final class PublicProjectionWire
     /**
      * Canonical JSON integer in a closed range.
      *
-     * @param array<string, mixed> $object
+     * @param  array<string, mixed>  $object
      */
     public static function int(array $object, string $key, int $min, int $max): int
     {

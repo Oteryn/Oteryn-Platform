@@ -16,22 +16,7 @@ final class PublicProjectionReadModel
 {
     public function fresh(PublicProjectionFamily $family, int $now): bool
     {
-        if (PublicProjectionSettings::current() === null) {
-            return false;
-        }
-
-        $highest = $this->highestEpoch();
-        $watermark = DB::table('game_public_projection_watermarks')->where('family', $family->value)->first();
-        if ($highest === null || $watermark === null
-            || ! hash_equals($highest, PublicProjectionIngestion::string($watermark, 'projection_epoch'))) {
-            return false;
-        }
-
-        $completeThrough = PublicProjectionIngestion::int($watermark, 'complete_through');
-        $uncertainty = PublicProjectionSettings::CLOCK_UNCERTAINTY_SECONDS;
-
-        return $completeThrough <= $now + $uncertainty
-            && $now - $completeThrough + $uncertainty <= PublicProjectionSettings::STALE_SECONDS;
+        return $this->freshEpoch($family, $now) !== null;
     }
 
     /**
@@ -42,7 +27,10 @@ final class PublicProjectionReadModel
      */
     public function entry(PublicProjectionFamily $family, string $subjectKey, int $now): ?array
     {
-        if (! $this->fresh($family, $now)) {
+        // The entry must carry the very epoch the watermark check validated: re-reading the highest
+        // epoch here could see a raise that committed after the watermark was read.
+        $epoch = $this->freshEpoch($family, $now);
+        if ($epoch === null) {
             return null;
         }
 
@@ -52,7 +40,7 @@ final class PublicProjectionReadModel
             ->first();
         if ($row === null
             || ! in_array(get_object_vars($row)['present'] ?? null, [true, 1, '1'], true)
-            || $this->highestEpoch() !== PublicProjectionIngestion::string($row, 'projection_epoch')) {
+            || ! hash_equals($epoch, PublicProjectionIngestion::string($row, 'projection_epoch'))) {
             return null;
         }
 
@@ -67,6 +55,30 @@ final class PublicProjectionReadModel
 
         /** @var array<string, mixed> $payload */
         return $payload;
+    }
+
+    /** The highest epoch when the family's watermark is at that epoch and fresh, otherwise null. */
+    private function freshEpoch(PublicProjectionFamily $family, int $now): ?string
+    {
+        if (PublicProjectionSettings::current() === null) {
+            return null;
+        }
+
+        $highest = $this->highestEpoch();
+        $watermark = DB::table('game_public_projection_watermarks')->where('family', $family->value)->first();
+        if ($highest === null || $watermark === null
+            || ! hash_equals($highest, PublicProjectionIngestion::string($watermark, 'projection_epoch'))) {
+            return null;
+        }
+
+        $completeThrough = PublicProjectionIngestion::int($watermark, 'complete_through');
+        $uncertainty = PublicProjectionSettings::CLOCK_UNCERTAINTY_SECONDS;
+        if ($completeThrough > $now + $uncertainty
+            || $now - $completeThrough + $uncertainty > PublicProjectionSettings::STALE_SECONDS) {
+            return null;
+        }
+
+        return $highest;
     }
 
     private function highestEpoch(): ?string

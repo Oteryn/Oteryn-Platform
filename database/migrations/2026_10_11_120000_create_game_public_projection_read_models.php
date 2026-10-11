@@ -49,7 +49,7 @@ return new class extends Migration
             $table->timestamps();
 
             $table->unique(['family', 'subject_key']);
-            $table->index(['family', 'world_id', 'lookup_name']);
+            $table->index(['family', 'world_id', 'lookup_name'], 'game_public_projection_snapshots_lookup_index');
         });
     }
 

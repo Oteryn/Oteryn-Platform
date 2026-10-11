@@ -478,8 +478,10 @@ final class PublicProjectionIngestTest extends TestCase
             ->where('subject_key', $subjectKey)
             ->first();
         self::assertNotNull($row);
+        /** @var array<string, mixed> $columns */
+        $columns = get_object_vars($row);
 
-        return get_object_vars($row);
+        return $columns;
     }
 
     /**
