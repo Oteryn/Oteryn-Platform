@@ -80,6 +80,11 @@ jobs:
           python tools/validation/test_github_actions_pinning.py
           python tools/validation/github_actions_pinning.py --inventory-json
 
+      - name: Validate legacy token ratchet
+        run: |
+          python tools/validation/test_legacy_token_ratchet.py
+          python tools/validation/legacy_token_ratchet.py
+
       - name: Validate active task checkpoint contract
         shell: bash
         run: |
