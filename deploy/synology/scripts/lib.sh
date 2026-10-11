@@ -318,11 +318,30 @@ OTERYN_RETIRED_MARKETPLACE_STATE_KEYS=(
     CANARY_CHARACTER_TRANSFER_DB_PASSWORD
 )
 
-# Rewrites a durable state file that still carries retired keys to the current
-# format (MARKETPLACE_ENABLED=false only: the runtime is disabled with the keys). Needs no database proof. Idempotent; a no-op
-# for a file already in the current format.
+_oteryn_marketplace_non_terminal_auction_count() {
+    local -a db=(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T
+        -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb mariadb -uroot -N -B -e)
+    local table_count pending
+
+    table_count="$("${db[@]}" "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$PLATFORM_DB_NAME' AND table_name='character_auctions';")" || return 1
+    [[ "$table_count" =~ ^[0-9]+$ ]] || return 1
+    if [[ "$table_count" == 0 ]]; then
+        printf '0\n'
+        return 0
+    fi
+    pending="$("${db[@]}" "SELECT COUNT(*) FROM \`$PLATFORM_DB_NAME\`.character_auctions WHERE status IN ('escrow_pending','active','settlement_pending','cancel_pending','recovery_required');")" || return 1
+    [[ "$pending" =~ ^[0-9]+$ ]] || return 1
+    printf '%s\n' "$pending"
+}
+
+# Rewrites a durable state file to the current format (MARKETPLACE_ENABLED=false
+# only): the retired keys are dropped and any enabled runtime is disabled, because
+# the transfer contract is gone. Dropping the retired keys is refused while the
+# database reports non-terminal auctions; when no count can be obtained (the
+# database is not running) nothing is recorded as pending and the rewrite proceeds,
+# so a deploy is never deadlocked on a Platform that cannot start. Idempotent.
 _oteryn_migrate_legacy_marketplace_state() {
-    local durable_file line key value enabled='' legacy=0 retired tmp
+    local durable_file line key value enabled='' legacy=0 retired pending tmp
 
     durable_file="$(_oteryn_marketplace_state_file)"
     [[ -f "$durable_file" ]] || return 0
@@ -348,18 +367,25 @@ _oteryn_migrate_legacy_marketplace_state() {
         return 1
     done < "$durable_file"
 
-    [[ "$legacy" == 1 ]] || return 0
+    [[ "$legacy" == 1 || "$enabled" == true ]] || return 0
     [[ "$enabled" == true || "$enabled" == false ]] || {
         echo "Marketplace runtime state has invalid enabled flag." >&2
         return 1
     }
-    # The retired transfer contract is gone, so the runtime is disabled together with
-    # the keys: nothing may re-enable the Bazaar from a legacy file.
+
+    if [[ "$legacy" == 1 ]]; then
+        pending="$(_oteryn_marketplace_non_terminal_auction_count 2>/dev/null)" || pending=''
+        if [[ "$pending" =~ ^[0-9]+$ && "$pending" -gt 0 ]]; then
+            echo "Legacy Character Bazaar has $pending non-terminal auctions; drain them before dropping the retired escrow and transfer keys." >&2
+            return 1
+        fi
+    fi
+
     tmp="$durable_file.tmp"
     ( umask 077; printf 'MARKETPLACE_ENABLED=false\n' >"$tmp" )
     chmod 600 "$tmp"
     mv "$tmp" "$durable_file"
-    echo "Dropped retired Marketplace state keys from the durable state file."
+    echo "Rewrote the durable Marketplace state as disabled without the retired keys."
 }
 
 _oteryn_load_marketplace_runtime_state() {

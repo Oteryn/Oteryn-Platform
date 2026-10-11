@@ -74,12 +74,12 @@ def run_loader(state: str, *, pending: str = "0", tables: str = "1") -> tuple[su
 FIVE_KEYS = "".join(LEGACY_KEYS.splitlines(keepends=True)[:4])
 
 
-def test_legacy_keys_are_dropped_without_database_proof() -> None:
+def test_legacy_keys_are_dropped_when_no_auction_is_pending() -> None:
     result, state, log = run_loader("MARKETPLACE_ENABLED=false\n" + LEGACY_KEYS)
     assert result.returncode == 0, result.stderr
     assert "enabled=false" in result.stdout
     assert state == "MARKETPLACE_ENABLED=false\n"
-    assert log == ""
+    assert "character_auctions" in log
 
 
 def test_enabled_legacy_state_with_the_five_staging_keys_is_rewritten_disabled() -> None:
@@ -89,14 +89,20 @@ def test_enabled_legacy_state_with_the_five_staging_keys_is_rewritten_disabled()
     assert "enabled=false" in result.stdout
     assert state == "MARKETPLACE_ENABLED=false\n"
     assert state.count("=") == 1
-    assert log == ""
 
 
-def test_legacy_state_with_pending_auctions_is_not_blocked() -> None:
-    result, state, log = run_loader("MARKETPLACE_ENABLED=false\n" + LEGACY_KEYS, pending="3")
+def test_legacy_state_with_pending_auctions_refuses_to_drop_keys() -> None:
+    original = "MARKETPLACE_ENABLED=false\n" + LEGACY_KEYS
+    result, state, _ = run_loader(original, pending="3")
+    assert result.returncode != 0
+    assert "3 non-terminal auctions" in result.stderr
+    assert state == original
+
+
+def test_legacy_state_proceeds_when_no_database_count_is_available() -> None:
+    result, state, _ = run_loader("MARKETPLACE_ENABLED=true\n" + FIVE_KEYS, tables="not-a-number")
     assert result.returncode == 0, result.stderr
     assert state == "MARKETPLACE_ENABLED=false\n"
-    assert log == ""
 
 
 def test_legacy_keys_without_a_valid_enabled_flag_still_fail_closed() -> None:
@@ -115,11 +121,18 @@ def test_unknown_durable_key_still_fails_closed() -> None:
     assert log == ""
 
 
-def test_native_only_state_needs_no_database_proof() -> None:
+def test_flag_only_enabled_state_is_rewritten_disabled_without_database_proof() -> None:
     result, state, log = run_loader("MARKETPLACE_ENABLED=true\n")
     assert result.returncode == 0, result.stderr
-    assert "enabled=true" in result.stdout
-    assert state == "MARKETPLACE_ENABLED=true\n"
+    assert "enabled=false" in result.stdout
+    assert state == "MARKETPLACE_ENABLED=false\n"
+    assert log == ""
+
+
+def test_flag_only_disabled_state_is_untouched() -> None:
+    result, state, log = run_loader("MARKETPLACE_ENABLED=false\n")
+    assert result.returncode == 0, result.stderr
+    assert state == "MARKETPLACE_ENABLED=false\n"
     assert log == ""
 
 

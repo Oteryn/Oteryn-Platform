@@ -15,12 +15,9 @@ on:
       action:
         description: Guarded Character Bazaar staging action
         required: true
-        default: verify
+        default: prepare-rollback
         type: choice
         options:
-          - deploy-enable
-          - enable
-          - verify
           - prepare-rollback
           - rollback
       release_tag:
@@ -77,7 +74,11 @@ jobs:
           fi
 
           case "$action" in
-            deploy-enable|enable|verify|prepare-rollback|rollback) ;;
+            deploy-enable|enable|verify)
+              echo "Character Bazaar $action is refused: no character transfer/escrow contract is available after the native-only cut." >&2
+              exit 1
+              ;;
+            prepare-rollback|rollback) ;;
             *) echo "Unsupported staging control action." >&2; exit 1 ;;
           esac
           if [[ ! "$release_tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
