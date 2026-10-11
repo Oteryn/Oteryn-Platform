@@ -382,3 +382,13 @@ def test_every_non_full_deploy_route_requires_projection_readiness() -> None:
         assert "native admission projection settings incomplete" in text
     market = (scripts / "marketplace-staging.sh").read_text(encoding="utf-8")
     assert "oteryn_native_admission_projection_ready || exit 1" in market
+
+
+def test_identity_maps_are_proven_with_the_application_settings_and_bazaar_control_renders_native_env() -> None:
+    lib = LIB.read_text(encoding="utf-8").split("oteryn_run_native_admission_self_check()")[1]
+    assert "NativeRuntimeStatusSettings::current()" in lib and "NativeScopeAssignmentSettings::current()" in lib
+    workflow = (WORKFLOWS / "character-bazaar-staging-control.yml").read_text(encoding="utf-8")
+    for name in ("OTERYN_NATIVE_ADMISSION_ENABLED=", "GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES=", "GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES=", "GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID="):
+        assert name in workflow
+    task = (ROOT / "docs" / "agents" / "tasks" / "active" / "OTERYN-20261011-b7-deploy-native-login.md").read_text(encoding="utf-8")
+    assert "## Closure audit" in task

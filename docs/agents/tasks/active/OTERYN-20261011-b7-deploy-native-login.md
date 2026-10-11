@@ -24,6 +24,24 @@ Governing GitHub Issue: #1474 (native-only migration), packet B7-DEPLOY of the r
 - [x] `docs/agents/LEGACY_TOKEN_BASELINE.json` is untouched and the ratchet passes.
 - [ ] Exact-head CI passes.
 
+## Closure audit (route x failure mode x flag/projection/env)
+
+Effective flag = `OTERYN_NATIVE_ADMISSION_ENABLED` (default false) AND, for rollback and candidate recovery, image capability (`oteryn_native_admission_flag_for_image`: key export, self-check, publish-trust) AND projection readiness (`oteryn_native_admission_projection_ready`). The self-check helper additionally proves the identity maps with the application settings classes.
+
+| Route | Flag changed vs running | Projection var cleared, flag true | Image lacks capability | Identity maps malformed |
+| --- | --- | --- | --- | --- |
+| Full deploy (`deploy.sh`) | recreates both services | refused before any mutation (projection gate) | self-check fails closed | self-check (settings classes) fails closed |
+| Platform fast path | rejected, full deploy | rejected, full deploy | self-check fails, restore trap | self-check fails, restore trap |
+| Platform reconcile (`deploy-impact.sh`) | rejected, full deploy | rejected, full deploy | health-check self-check fails, restore trap | health-check self-check fails, restore trap |
+| Finalize previous candidate | refused before recreating Gateway | pinned flag is false, so mismatch refused | pinned flag false, mismatch refused | health-check self-check fails |
+| `rollback.sh` | flag pinned per image into the bounded env file | flag pinned false | flag pinned false | n/a (flag false) or health-check fails |
+| Marketplace reconciler (lib.sh, from rollback/candidate env file) | uses the pinned env file | uses the pinned env file | uses the pinned env file | n/a |
+| `marketplace-staging.sh` (enable, prepare-rollback) | reads the rendered `.env`; workflow now renders the native variables | refused (projection gate) | image from the gated deploy | health-check self-check |
+| `recover-schema.sh` / recover workflow | placeholder images, both services flag false | n/a | n/a | n/a |
+| `health-check.sh` | pairing check fails if Platform and Gateway differ | self-check proves settings | self-check fails | self-check fails |
+| Key `rotate` / `drop-retiring` | rotate refused while live without `--maintenance` | n/a | n/a | n/a |
+| Workflows rendering `.env` | deploy and Bazaar control render the same native variables; recover renders none (flag false) | | | |
+
 ## Ownership
 
 ```yaml

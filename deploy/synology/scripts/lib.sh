@@ -781,6 +781,20 @@ oteryn_run_native_admission_self_check() {
         return 1
     fi
     echo "Native admission signing self-check passed: ${output}"
+
+    # The deploy gate only proves the identity variables are non-empty. Prove the running Platform really
+    # accepts them with the application's own settings logic (valid JSON, scope format, no overlap with
+    # another purpose's identity): a null result means ingestion answers 503 and no scope routes.
+    if ! docker exec "$container_id" /usr/local/bin/oteryn-platform-entrypoint php -r '
+        require "vendor/autoload.php";
+        $app = require "bootstrap/app.php";
+        $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+        exit(App\GameAuth\NativeRuntimeStatus\NativeRuntimeStatusSettings::current() !== null
+            && App\GameAuth\NativeRuntimeStatus\NativeScopeAssignmentSettings::current() !== null ? 0 : 1);
+    ' >/dev/null 2>&1; then
+        echo "Native admission projection identities are invalid in the running Platform (runtime status or scope assignment settings are not usable); refusing to enable native game login." >&2
+        return 1
+    fi
 }
 
 # Validates the projection settings native login needs besides a signing key: the native World UUIDv7
