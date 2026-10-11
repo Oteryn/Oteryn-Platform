@@ -162,6 +162,7 @@ final class AccountOverviewTest extends TestCase
         $response = $this->get('/account');
 
         $response->assertOk();
+        $response->assertSee('data-account-state="none"', false);
         $response->assertDontSee('Support required');
         $response->assertDontSee('We cannot confirm your game account setup');
         $response->assertDontSee('Connection status');

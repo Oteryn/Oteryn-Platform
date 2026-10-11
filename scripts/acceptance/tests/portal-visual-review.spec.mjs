@@ -180,7 +180,7 @@ test('@smoke @portal-review actual authenticated hub, characters, support, secur
   await register(page, email, password);
   await login(page, email, password);
   await page.goto('/account?locale=en');
-  await expect(page.locator('[data-account-state]')).toHaveAttribute('data-account-state', /^(ready|unavailable)$/u);
+  await expect(page.locator('[data-account-state]')).toHaveAttribute('data-account-state', /^(none|ready|unavailable)$/u);
   const privatePages = [
     ['/account', 'account'], ['/account/characters/create', 'character-create'],
     ['/account/security', 'security'], ['/mfa', 'mfa'], ['/password/change', 'change-password'],

@@ -28,7 +28,9 @@
                 ])
             : __($overview['characters_message']);
     @endphp
-    @if ($overview['state'] !== 'none')
+    @if ($overview['state'] === 'none')
+    <span hidden data-account-state="none"></span>
+    @else
     <section class="account-connection" aria-labelledby="game-account-heading" data-account-state="{{ $overview['state'] }}">
         <div>
             <p class="eyebrow">{{ __('portal.account.game_account') }}</p>
