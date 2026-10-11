@@ -9,6 +9,7 @@ use App\Events\Queries\UpcomingEventProvider;
 use App\LiveOps\WorldStatus\PublicWorldStatusQuery;
 use App\PublicGameData\CanaryChannelRuntimeService;
 use App\PublicGameData\CanaryGameDataRepository;
+use App\PublicGameData\PublicGameDataSource;
 use App\PublicPortal\ViewModels\HomeNewsSummary;
 use App\PublicPortal\ViewModels\HomePageViewModel;
 use App\PublicPortal\ViewModels\HomeWorldChannel;
@@ -71,6 +72,10 @@ final readonly class HomePageQuery
 
                 // Native readiness reports do not contain a player population.
                 return new HomeWorldSummary($state, [], null, $nativeWorlds);
+            }
+
+            if (! PublicGameDataSource::isAvailable()) {
+                return new HomeWorldSummary(PublicContentState::UNAVAILABLE, [], null);
             }
 
             $channels = $this->gameData->configuredChannels();

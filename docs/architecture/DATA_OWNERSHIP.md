@@ -10,6 +10,20 @@ Every persistent data set has exactly one documented **primary owner**. Other co
 
 At bootstrap, exact Canary table ownership is not yet proven. Do not infer ownership from MyAAC or generic TFS conventions.
 
+## Target ownership boundary
+
+The steady-state boundary between Platform and Game, with no shared database:
+
+| Concern | Owner |
+|---|---|
+| `AccountId`, identity, authentication, tickets | Oteryn Platform |
+| Character Bazaar commercial saga, CMS content | Oteryn Platform |
+| `CharacterId`, character lifecycle, character names | Game (Character Authority) |
+| Authoritative game facts behind public game data (highscores, characters, guilds, online/status) | Game |
+| Public game-data projection, read model, indexing and freshness | Oteryn Platform |
+
+Platform read models are non-authoritative copies and never authorize a game-domain mutation. Platform and Game exchange data only through versioned contracts, not a shared database. The Canary shared-database sections below describe the legacy / compatibility path until a separately authorized cutover.
+
 ## Ownership categories
 
 ### Platform-owned

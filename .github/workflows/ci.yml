@@ -163,7 +163,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
         with:
           php-version: '8.5'
           coverage: none
@@ -183,17 +183,37 @@ jobs:
       - name: Audit Composer dependencies
         run: composer audit --no-interaction
 
-      - name: Check formatting
-        run: vendor/bin/pint --test -v
-
-      - name: Run static analysis
-        run: composer analyse
+      - name: Start formatting and static analysis alongside tests
+        run: |
+          mkdir -p artifacts/ci
+          rm -f artifacts/ci/pint.status artifacts/ci/analyse.status
+          (set +e; vendor/bin/pint --test -v >artifacts/ci/pint.log 2>&1; echo "$?" >artifacts/ci/pint.status) &
+          (set +e; composer analyse >artifacts/ci/analyse.log 2>&1; echo "$?" >artifacts/ci/analyse.status) &
 
       - name: Run tests
         run: |
           mkdir -p artifacts/ci
           php artisan config:clear --ansi
           php artisan test --log-junit=artifacts/ci/phpunit-junit.xml
+
+      - name: Require formatting and static analysis results
+        if: ${{ !cancelled() }}
+        run: |
+          failed=0
+          for check in pint analyse; do
+            for _ in $(seq 1 300); do
+              [ -s "artifacts/ci/${check}.status" ] && break
+              sleep 1
+            done
+            echo "::group::${check} output"
+            cat "artifacts/ci/${check}.log" || true
+            echo "::endgroup::"
+            if [ "$(cat "artifacts/ci/${check}.status" 2>/dev/null || echo missing)" != "0" ]; then
+              echo "::error::${check} did not pass"
+              failed=1
+            fi
+          done
+          exit "$failed"
 
       - name: Upload PHPUnit failure diagnostics
         if: failure() && hashFiles('artifacts/ci/phpunit-junit.xml') != ''
@@ -250,7 +270,7 @@ jobs:
           ref: ${{ github.event.merge_group.head_sha || github.sha }}
 
       - name: Setup PHP with PCOV
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
         with:
           php-version: '8.5'
           coverage: pcov
