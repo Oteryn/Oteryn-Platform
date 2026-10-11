@@ -2,14 +2,14 @@
 task_id: OTERYN-20261011-native-only-e2e-del-1
 governing_issue: 1474
 required_reads:
-  - docs/agents/programs/DECANARY_REMOVAL_PLAN.md
+  - docs/agents/programs/*_REMOVAL_PLAN.md
 search_first:
   - tests/e2e/native_auth_ephemeral_cutover
   - docs/agents/LEGACY_TOKEN_BASELINE.json
 optional_reads: []
 ---
 
-# OTERYN-20261011 DECANARY-E2E-DEL-1 delete legacy cutover E2E
+# OTERYN-20261011 E2E-DEL-1 delete legacy cutover E2E
 
 ## Goal
 
@@ -29,8 +29,8 @@ Owner decision: delete `tests/e2e/native_auth_ephemeral_cutover` (3 files). It d
 owned_paths:
   - tests/e2e/native_auth_ephemeral_cutover/**
   - docs/agents/LEGACY_TOKEN_BASELINE.json
-  - docs/agents/programs/DECANARY_REMOVAL_PLAN.md
-  - docs/agents/tasks/archive/OTERYN-20261011-native-only-e2e-del-1.md
+  - docs/agents/programs/*_REMOVAL_PLAN.md
+  - docs/agents/tasks/active/OTERYN-20261011-native-only-e2e-del-1.md
 modules:
   - E2E tests
   - Documentation
@@ -48,17 +48,17 @@ cross_repository_tasks:
 checkpoint_version: 1
 updated_at: 2026-10-11T13:00:00Z
 head: UNKNOWN
-branch: claude/decanary-e2e-del-20261011
+branch: UNKNOWN
 pr: 1545
-status: completed
-terminal_pr_policy: archive_pending
+status: waiting
+terminal_pr_policy: none
 context_routes:
   - agent-governance
 owned_paths:
   - tests/e2e/native_auth_ephemeral_cutover/**
   - docs/agents/LEGACY_TOKEN_BASELINE.json
-  - docs/agents/programs/DECANARY_REMOVAL_PLAN.md
-  - docs/agents/tasks/archive/OTERYN-20261011-native-only-e2e-del-1.md
+  - docs/agents/programs/*_REMOVAL_PLAN.md
+  - docs/agents/tasks/active/OTERYN-20261011-native-only-e2e-del-1.md
 proven:
   - No workflow, composer script, phpunit config or test references the deleted directory.
   - The active login-native-only record mentions it as a follow-up note and stays unchanged (not owned).
@@ -74,7 +74,7 @@ changed_paths:
   - tests/e2e/native_auth_ephemeral_cutover/exact_runner.py
   - tests/e2e/native_auth_ephemeral_cutover/platform_runner.py
   - docs/agents/LEGACY_TOKEN_BASELINE.json
-  - docs/agents/programs/DECANARY_REMOVAL_PLAN.md
+  - docs/agents/programs/*_REMOVAL_PLAN.md
 validation:
   - command: python tools/validation/legacy_token_ratchet.py
     result: PASS
