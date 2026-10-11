@@ -373,3 +373,12 @@ def test_finalize_previous_candidate_checks_the_flag_before_recreating_gateway()
     deploy = DEPLOY.read_text(encoding="utf-8")
     fin = deploy.split("finalize_previous_candidate_if_healthy() {")[1]
     assert fin.index("running_platform_flag") < fin.index("up -d --no-deps --force-recreate internal-proxy gateway")
+
+
+def test_every_non_full_deploy_route_requires_projection_readiness() -> None:
+    scripts = ROOT / "deploy" / "synology" / "scripts"
+    for name in ("deploy.sh", "deploy-impact.sh"):
+        text = (scripts / name).read_text(encoding="utf-8")
+        assert "native admission projection settings incomplete" in text
+    market = (scripts / "marketplace-staging.sh").read_text(encoding="utf-8")
+    assert "oteryn_native_admission_projection_ready || exit 1" in market

@@ -303,6 +303,10 @@ _oteryn_fast_candidate() {
         FAST_DEPLOY_REASON='native admission flag changed'
         return 1
     fi
+    if [[ "$want_native" == true ]] && ! oteryn_native_admission_projection_ready; then
+        FAST_DEPLOY_REASON='native admission projection settings incomplete'
+        return 1
+    fi
     FAST_MARIADB_ID="$(_oteryn_fast_running_service_id mariadb)" || return 2
     FAST_REDIS_ID="$(_oteryn_fast_running_service_id redis)" || return 2
     FAST_PROXY_ID="$(_oteryn_fast_running_service_id internal-proxy)" || return 2

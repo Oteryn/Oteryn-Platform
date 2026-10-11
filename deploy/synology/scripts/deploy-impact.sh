@@ -300,6 +300,10 @@ _oteryn_platform_reconcile_candidate() {
         RECONCILE_REASON='native admission flag changed'
         return 1
     fi
+    if [[ "$want_native" == true ]] && ! oteryn_native_admission_projection_ready; then
+        RECONCILE_REASON='native admission projection settings incomplete'
+        return 1
+    fi
     RECONCILE_MARIADB_ID="$(_oteryn_running_service_id mariadb)" || return 2
     RECONCILE_REDIS_ID="$(_oteryn_running_service_id redis)" || return 2
     RECONCILE_PROXY_ID="$(_oteryn_running_service_id internal-proxy)" || return 2
