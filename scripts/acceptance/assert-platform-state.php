@@ -54,7 +54,7 @@ if ($command === 'character-owner') {
 
     $binding = IdentityCanaryAccount::query()->find($identity->id);
     if (! $binding instanceof IdentityCanaryAccount || ! $binding->isReady()) {
-        $fail('Identity Canary account binding is not ready.');
+        $fail('Identity game account binding is not ready.');
     }
 
     $player = DB::connection('canary')
@@ -64,7 +64,7 @@ if ($command === 'character-owner') {
         ->first();
 
     if ($player === null || (int) $player->account_id !== $binding->canary_account_id) {
-        $fail('Character is not owned by the expected bound Canary account.');
+        $fail('Character is not owned by the expected bound game account.');
     }
 
     $json([

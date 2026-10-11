@@ -17,7 +17,7 @@ return [
     ],
     'profile' => [
         'eyebrow' => 'Character profile',
-        'description' => 'Public gameplay information from the read-only Canary data boundary.',
+        'description' => 'Public gameplay information from the read-only game data boundary.',
         'no_guild' => 'No guild',
         'explore' => 'Explore the realm',
         'highscores' => 'View highscores',
