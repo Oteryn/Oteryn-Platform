@@ -28,7 +28,7 @@ Only the three documents changed by this PR are owned. No runtime paths are clai
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-08T08:19:00Z
-head: adc69c61d936d70e005c52d90c89f432ad8332e6
+head: 2f4e7db2f1417237526ff320d804dab408bd451c
 branch: docs/1474-native-only-migration-baseline
 pr: 1475
 status: validating
