@@ -40,7 +40,7 @@ owned_paths:
   - docs/agents/reports/OTERYN-20261008-native-only-migration-baseline.md
   - docs/agents/tasks/active/OTERYN-20261008-native-only-migration-baseline.md
 proven:
-  - Inspected main retains Canary configuration and deployment dependencies.
+  - Inspected main retains legacy-engine configuration and deployment dependencies.
 derived: []
 unknown:
   - Complete executable dependency and native replacement coverage.
