@@ -48,7 +48,7 @@ checkpoint_version: 1
 updated_at: 2026-10-11T19:00:00Z
 head: UNKNOWN
 branch: claude/native-staging-enable-1-20261011
-pr: none
+pr: 1554
 status: validating
 context_routes:
   - deploy/synology
