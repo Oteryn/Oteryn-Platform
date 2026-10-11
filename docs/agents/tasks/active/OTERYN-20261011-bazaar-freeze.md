@@ -52,7 +52,7 @@ checkpoint_version: 1
 updated_at: 2026-10-11T05:00:00Z
 head: UNKNOWN
 branch: claude/decanary-b4-bazaar-freeze-20261011
-pr: pending
+pr: 1513
 status: validating
 context_routes:
   - marketplace
