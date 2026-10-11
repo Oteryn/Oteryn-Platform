@@ -67,7 +67,7 @@ checkpoint_version: 1
 updated_at: 2026-10-11T18:00:00Z
 head: UNKNOWN
 branch: claude/native-admission-deploy-followup-20261011
-pr: none
+pr: 1548
 status: validating
 context_routes:
   - deploy

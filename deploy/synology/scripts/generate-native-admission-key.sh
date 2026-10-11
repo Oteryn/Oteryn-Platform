@@ -245,10 +245,26 @@ switch ($action) {
         if (load($dir, 'retiring', $uid) !== null) {
             fail('A retiring key is still present; run drop-retiring once its grants have expired.');
         }
+        // Transactional: every rename is undone in reverse order when one fails. Exit 4 tells the
+        // caller custody may have changed (it must keep ingress closed); exit 1 means nothing changed.
+        $moves = [];
         foreach (['key', 'kid'] as $suffix) {
-            if (! rename("$dir/current.$suffix", "$dir/retiring.$suffix") || ! rename("$dir/next.$suffix", "$dir/current.$suffix")) {
-                fail('Unable to promote the staged key.');
+            $moves[] = ["$dir/current.$suffix", "$dir/retiring.$suffix"];
+        }
+        foreach (['key', 'kid'] as $suffix) {
+            $moves[] = ["$dir/next.$suffix", "$dir/current.$suffix"];
+        }
+        $done = [];
+        foreach ($moves as [$from, $to]) {
+            if (! rename($from, $to)) {
+                $clean = true;
+                foreach (array_reverse($done) as [$undoFrom, $undoTo]) {
+                    $clean = rename($undoTo, $undoFrom) && $clean;
+                }
+                fwrite(STDERR, $clean ? "Unable to promote the staged key; custody restored.\n" : "Unable to promote the staged key and custody could not be restored.\n");
+                exit($clean && $done === [] ? 1 : 4);
             }
+            $done[] = [$from, $to];
         }
         fwrite(STDERR, "Promoted: the staged key is now current and the previous key is retiring.\n");
         break;
@@ -304,26 +320,47 @@ run_key_tool() {
 }
 
 if [[ "$ACTION" == promote ]]; then
-    # Staged rotation: the new key is generated and published to Game's trust configuration first
-    # (stage). Promotion never lets Platform sign with an untrusted key: ingress stays stopped until
-    # the recreated Platform has published the new key to the trust registry and passed the self-check.
+    # Staged rotation. Before promoting, add the key printed by stage to Game's trust configuration and
+    # wait for it to propagate (contract 9.3). Promotion never lets Platform sign with an untrusted
+    # key: ingress stays stopped until the recreated Platform has published the new key to the trust
+    # registry, passed the self-check and the Game trust cache interval (default 10 s, five seconds
+    # plus the clock uncertainty bound) has elapsed.
     [[ -n "${OTERYN_ENV_FILE:-}" ]] || { echo "promote needs OTERYN_ENV_FILE (the deployment environment file)." >&2; exit 2; }
     # shellcheck source=deploy/synology/scripts/lib.sh
     source "$SCRIPT_DIR/lib.sh"
-    promote_compose=(command docker compose --env-file "$OTERYN_ENV_FILE" -f "$SCRIPT_DIR/../compose.yml")
+    # The deployment environment decides the flag, whatever PLATFORM_IMAGE was preselected.
+    load_oteryn_env_file "$OTERYN_ENV_FILE"
+    DEPLOY_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+    ENV_FILE="$OTERYN_ENV_FILE"
+    COMPOSE_FILE="$DEPLOY_DIR/compose.yml"
+    promote_compose=(command docker compose --env-file "$OTERYN_ENV_FILE" -f "$COMPOSE_FILE")
     ingress="$(oteryn_native_admission_ingress_stop "${promote_compose[@]}")"
-    if ! run_key_tool promote; then
+    promote_rc=0
+    run_key_tool promote || promote_rc=$?
+    if ((promote_rc == 1)); then
+        # Nothing changed: the preserved ingress starts again.
         # shellcheck disable=SC2086 # container ids, one per line
         oteryn_native_admission_ingress_start $ingress
         exit 1
     fi
+    # From here on custody may have changed. Any failure removes Platform, the internal proxy and
+    # Gateway (they are `restart: always`), so nothing can start behind an unproven key.
+    promote_fail_closed() {
+        echo "Promotion failed; removing Platform, internal proxy and Gateway (fail closed)." >&2
+        "${promote_compose[@]}" rm -s -f gateway internal-proxy platform >&2 || true
+    }
+    trap 'rc=$?; ((rc == 0)) || promote_fail_closed; exit "$rc"' EXIT
+    ((promote_rc == 0)) || exit "$promote_rc"
     "${promote_compose[@]}" up -d --no-deps --force-recreate platform
     oteryn_publish_native_admission_trust_or_stop "${promote_compose[@]}" || exit 1
     if [[ "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" == true ]]; then
         oteryn_run_native_admission_self_check "$("${promote_compose[@]}" ps -q platform)" || exit 1
     fi
+    _oteryn_reconcile_marketplace_scheduler_after_runtime_change || exit 1
+    sleep "${OTERYN_NATIVE_TRUST_PROPAGATION_SECONDS:-10}"
     # shellcheck disable=SC2086
-    oteryn_native_admission_ingress_start $ingress
+    oteryn_native_admission_ingress_start $ingress || exit 1
+    trap - EXIT
     echo "Promoted the staged key; Platform restarted behind the trust gate and ingress is back." >&2
     exit 0
 fi

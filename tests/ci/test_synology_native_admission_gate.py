@@ -398,7 +398,7 @@ def test_staged_key_rotation_is_a_separate_path_and_the_rotate_guard_stays() -> 
     key = KEY_SCRIPT.read_text(encoding="utf-8")
     assert "stage | promote" in key and "case 'stage':" in key and "case 'promote':" in key
     promote = key.split('if [[ "$ACTION" == promote ]]; then')[1].split("docker run --rm")[0]
-    order = [promote.index(x) for x in ("oteryn_native_admission_ingress_stop", "run_key_tool promote", "force-recreate platform", "oteryn_publish_native_admission_trust_or_stop", "oteryn_run_native_admission_self_check", "oteryn_native_admission_ingress_start $ingress\n    echo")]
+    order = [promote.index(x) for x in ("oteryn_native_admission_ingress_stop", "run_key_tool promote", "force-recreate platform", "oteryn_publish_native_admission_trust_or_stop", "oteryn_run_native_admission_self_check", "_oteryn_reconcile_marketplace_scheduler_after_runtime_change", "sleep ", "oteryn_native_admission_ingress_start $ingress ||")]
     assert order == sorted(order)
     assert '"$MAINTENANCE" != --maintenance' in key
     assert "next.key" not in ENTRYPOINT.read_text(encoding="utf-8")
@@ -412,3 +412,15 @@ def test_previous_platform_restore_propagates_ingress_and_scheduler_failures() -
 def test_autostart_repair_shares_the_deploy_concurrency_group() -> None:
     text = (WORKFLOWS / "repair-synology-autostart.yml").read_text(encoding="utf-8")
     assert "group: synology-staging-deployment" in text
+
+
+def test_promote_fails_closed_loads_the_env_and_propagates_trust() -> None:
+    key = KEY_SCRIPT.read_text(encoding="utf-8")
+    promote = key.split('if [[ "$ACTION" == promote ]]; then')[1].split("docker run --rm")[0]
+    assert promote.index('load_oteryn_env_file "$OTERYN_ENV_FILE"') < promote.index("OTERYN_NATIVE_ADMISSION_ENABLED:-false")
+    assert "trap 'rc=$?; ((rc == 0)) || promote_fail_closed" in promote
+    assert "rm -s -f gateway internal-proxy platform" in promote
+    assert "OTERYN_NATIVE_TRUST_PROPAGATION_SECONDS:-10" in promote
+    assert "((promote_rc == 1))" in promote
+    tool = key.split("case 'promote':")[1].split("case 'rotate':")[0]
+    assert "array_reverse($done)" in tool and "exit($clean && $done === [] ? 1 : 4)" in tool
