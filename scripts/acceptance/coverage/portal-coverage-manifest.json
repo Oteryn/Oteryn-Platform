@@ -334,13 +334,9 @@
       ],
       "states": [
         "form",
-        "success",
         "invalid-name",
         "reserved-name",
-        "duplicate-idempotent-outcome",
-        "foreign-account-id-injection-denied",
-        "quota",
-        "public-character-visible",
+        "creation-unavailable",
         "logout-denial"
       ],
       "viewports": [
