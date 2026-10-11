@@ -58,7 +58,7 @@ checkpoint_version: 1
 updated_at: 2026-10-11T12:00:00Z
 head: UNKNOWN
 branch: claude/decanary-cmd-client-1-20261011
-pr: pending
+pr: 1532
 status: validating
 context_routes:
   - game-auth
