@@ -14,10 +14,10 @@ use Illuminate\Testing\PendingCommand;
 use Tests\TestCase;
 
 final class MarketplaceListingFreezeTest extends TestCase
+{
     use RefreshDatabase;
 
     private int $auctionSequence = 0;
-    use RefreshDatabase;
 
     public function test_frozen_listing_is_refused_without_escrow_or_database_write(): void
     {
