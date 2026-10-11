@@ -60,7 +60,7 @@ Only Platform Identity may mint canonical `AccountId` values.
 Oteryn-v2, Game Gateway, game servers, clients, legacy engine adapters and migration tooling must not:
 
 - derive `AccountId` from `identities.id`;
-- derive `AccountId` from `canary_account_id`;
+- derive `AccountId` from the legacy engine account id;
 - mint replacement account UUIDs;
 - treat an account email/name as account identity;
 - infer ownership from equality of non-canonical identifiers.
@@ -97,7 +97,7 @@ Removal of the legacy engine mapping is not authorized by this ADR.
 
 ### 5. Native Game Login Ticket binding
 
-The native Oteryn-v2 Game Login Ticket binds to canonical `AccountId`, not to `canary_account_id`.
+The native Oteryn-v2 Game Login Ticket binds to canonical `AccountId`, not to the legacy engine account id.
 
 All existing security properties of the approved ticket model remain required unless a later accepted security contract strengthens them, including:
 
@@ -194,7 +194,7 @@ Rejected as the native cross-boundary contract because it exposes local persiste
 
 Rejected because canonical external identity does not require rewriting all internal persistence relations. The migration cost and risk would not provide corresponding product value.
 
-### Reuse `canary_account_id` as native AccountId
+### Reuse the legacy engine account id as native AccountId
 
 Rejected because legacy engine account identity belongs to a legacy compatibility model and would permanently couple the native Rust game domain to legacy engine schema/history.
 

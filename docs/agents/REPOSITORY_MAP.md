@@ -73,7 +73,7 @@ Then verify the actual external repository/schema evidence. Documentation placeh
 find . -name AGENTS.md -print
 find docs/agents/tasks/active -maxdepth 1 -type f -print
 rg -n "UNKNOWN|CONFLICT|DISCOVERY" docs/architecture docs/contracts docs/agents
-rg -n "auth|session|mfa|password|account|player|guild|canary|legacy|login-server" app routes config database tests docs
+rg -n "auth|session|mfa|password|account|player|guild|legacy|login-server" app routes config database tests docs
 rg -n "PlayerCompanion|LiveOps|calculator|ruleset_version|catalog_snapshot" app routes config database tests docs
 rg -n "Route::|middleware|Gate::|Policy|Hash::|DB::transaction" app routes tests
 ```
