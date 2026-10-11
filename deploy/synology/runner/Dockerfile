@@ -25,6 +25,7 @@ RUN curl --fail --show-error --silent --location \
         rm -rf "$node_root/lib/node_modules"; \
         rm -f "$node_root/bin/npm" "$node_root/bin/npx" "$node_root/bin/corepack"; \
     done \
+    && printf '%s\n' "${RUNNER_VERSION}-pruned-1" > /opt/actions-runner-dist/.oteryn-dist-revision \
     && /opt/actions-runner-dist/externals/node24/bin/node --version \
     && test ! -e /opt/actions-runner-dist/externals/node24/bin/npm \
     && test -x /opt/actions-runner-dist/externals/node24/bin/node \

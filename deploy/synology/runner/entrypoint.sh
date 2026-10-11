@@ -13,7 +13,16 @@ RUNNER_TOKEN_FILE="${RUNNER_TOKEN_FILE:-}"
 
 mkdir -p "$RUNNER_CONFIG_DIR" "$RUNNER_WORKDIR"
 
+DIST_REVISION_FILE=".oteryn-dist-revision"
+
 if [[ ! -x "$RUNNER_CONFIG_DIR/run.sh" ]]; then
+    cp -a "$RUNNER_DIST_DIR/." "$RUNNER_CONFIG_DIR/"
+elif [[ -f "$RUNNER_DIST_DIR/$DIST_REVISION_FILE" ]] \
+    && ! cmp -s "$RUNNER_DIST_DIR/$DIST_REVISION_FILE" "$RUNNER_CONFIG_DIR/$DIST_REVISION_FILE"; then
+    # A persisted /runner volume predates this image: replace the runner code trees
+    # (dropping any stale npm/corepack) while preserving registration and work state
+    # (.runner, .credentials*, .env, .path, _diag, _work), which the dist never contains.
+    rm -rf "$RUNNER_CONFIG_DIR/bin" "$RUNNER_CONFIG_DIR/externals"
     cp -a "$RUNNER_DIST_DIR/." "$RUNNER_CONFIG_DIR/"
 fi
 

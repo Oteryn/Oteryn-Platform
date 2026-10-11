@@ -172,4 +172,50 @@ RUNNER_DIST_DIR="$restart/dist" \
 "$ENTRYPOINT" > "$restart/out"
 assert_line RESTART_OK "$restart/out"
 
+# A persisted volume from an older image is synchronized to the new distribution
+# (stale npm removed, new files installed) while registration state is preserved.
+stale="$TMP/stale"
+make_dist "$stale/dist"
+mkdir -p "$stale/dist/externals/node24/bin" "$stale/config/externals/node24/bin" "$stale/config/bin" "$stale/work"
+printf 'new\n' > "$stale/dist/.oteryn-dist-revision"
+printf 'new-listener\n' > "$stale/dist/externals/node24/bin/node"
+printf 'old\n' > "$stale/config/.oteryn-dist-revision"
+printf 'registration\n' > "$stale/config/.runner"
+printf 'credential\n' > "$stale/config/.credentials"
+printf 'npm\n' > "$stale/config/externals/node24/bin/npm"
+printf 'stale-bin\n' > "$stale/config/bin/stale"
+cp "$stale/dist/run.sh" "$stale/config/run.sh"
+RUNNER_CONFIG_DIR="$stale/config" \
+RUNNER_WORKDIR="$stale/work" \
+RUNNER_DIST_DIR="$stale/dist" \
+"$ENTRYPOINT" > "$stale/out"
+assert_line RUN_OK "$stale/out"
+test ! -e "$stale/config/externals/node24/bin/npm"
+test ! -e "$stale/config/bin/stale"
+assert_line new-listener "$stale/config/externals/node24/bin/node"
+assert_line new "$stale/config/.oteryn-dist-revision"
+assert_line registration "$stale/config/.runner"
+assert_line credential "$stale/config/.credentials"
+
+# An up-to-date persisted volume is left untouched.
+fresh="$TMP/fresh"
+make_dist "$fresh/dist"
+mkdir -p "$fresh/config" "$fresh/work"
+printf 'same\n' > "$fresh/dist/.oteryn-dist-revision"
+printf 'same\n' > "$fresh/config/.oteryn-dist-revision"
+touch "$fresh/config/.runner"
+cat > "$fresh/config/run.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'FRESH_OK\n'
+SH
+chmod 0755 "$fresh/config/run.sh"
+printf 'kept\n' > "$fresh/config/local-marker"
+RUNNER_CONFIG_DIR="$fresh/config" \
+RUNNER_WORKDIR="$fresh/work" \
+RUNNER_DIST_DIR="$fresh/dist" \
+"$ENTRYPOINT" > "$fresh/out"
+assert_line FRESH_OK "$fresh/out"
+assert_line kept "$fresh/config/local-marker"
+
 printf 'runner-entrypoint-contract=PASS\n'
