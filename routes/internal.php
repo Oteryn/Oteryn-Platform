@@ -2,6 +2,7 @@
 
 use App\GameAuth\NativeRuntimeStatus\NativeRuntimeStatusReport;
 use App\Http\Controllers\GameAuth\CharacterBootstrapIntentController;
+use App\Http\Controllers\GameAuth\GameLoginContextController;
 use App\Http\Controllers\GameAuth\GameLoginTicketRedeemController;
 use App\Http\Controllers\GameAuth\NativeAccountCharactersController;
 use App\Http\Controllers\GameAuth\NativeAccountCharactersWatermarkController;
@@ -30,10 +31,16 @@ Route::post('/internal/v1/game-auth/tickets/redeem', GameLoginTicketRedeemContro
         'throttle:game-auth-ticket-redeem',
     ]);
 
-// Retired v1 login context (native-only login, plan step B7): answers 410 and reads nothing.
-// The gateway in native-only mode never calls it; D-8 deletes the route.
-Route::get('/internal/v1/game-auth/accounts/{legacyAccountId}/login-context', static fn () => response()->json(['error' => 'login_context_retired'], 410))
-    ->middleware([RequireGatewayServiceCredential::class, 'throttle:game-auth-ticket-redeem']);
+// v1 login context (native-only login, plan step B7). While game-auth.legacy_login.enabled is on (the
+// default, for gateways still on the legacy flow) the controller answers; once a deployment sets
+// GAME_AUTH_LEGACY_LOGIN_ENABLED=false the route answers 410 and reads nothing. D-8 deletes the route.
+Route::get('/internal/v1/game-auth/accounts/{canaryAccountId}/login-context', static function (string $canaryAccountId) {
+    if (config('game-auth.legacy_login.enabled')) {
+        return app()->call(GameLoginContextController::class, ['canaryAccountId' => $canaryAccountId]);
+    }
+
+    return response()->json(['error' => 'login_context_retired'], 410);
+})->middleware([RequireGatewayServiceCredential::class, 'throttle:game-auth-ticket-redeem']);
 
 Route::post('/internal/v1/game-auth/native-admissions', NativeAdmissionController::class)
     ->middleware([

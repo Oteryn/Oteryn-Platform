@@ -20,6 +20,7 @@ The Platform v1 login-context route answers 410 and the Platform ticket issuer g
 - [x] `deploy/synology/compose.yml` is unchanged: the gateway keeps its legacy session service variables. Flipping it to native-only is deferred to B7-DEPLOY because `NativeGameLoginTickets::issue()` accepts only `testing`/`preproduction` with `game-auth.native_admission.enabled` on, while the Synology staging path runs `APP_ENV=staging`; native-only there would reject every game login.
 - [x] `GET /internal/v1/game-auth/accounts/{legacyAccountId}/login-context` answers 410 behind the gateway credential and reads no data.
 - [x] `game-auth.legacy_login.enabled` (env `GAME_AUTH_LEGACY_LOGIN_ENABLED`, default on) set to false makes the legacy-client issuance branch deny without consuming the bearer; native issuance is unaffected and issues for an Identity without a legacy binding.
+- [x] `/internal/v1/game-auth/accounts/{id}/login-context` answers through the original controller while `game-auth.legacy_login.enabled` is on (default) and 410 `login_context_retired` once it is off, so a legacy-mode gateway keeps working; both modes tested.
 - [x] Tests: retired route, switch-off denial, native issuance in native-only mode.
 - [x] The legacy token ratchet passes with no group rising.
 - [ ] Exact-head CI passes (PHP tests were not runnable in the authoring sandbox: PHP 8.5 is required).
