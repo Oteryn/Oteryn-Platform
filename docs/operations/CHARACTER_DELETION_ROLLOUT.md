@@ -2,9 +2,9 @@
 
 ## Status
 
-`BLOCKED — CANARY PREREQUISITE REQUIRED`
+`BLOCKED — LEGACY PREREQUISITE REQUIRED`
 
-This runbook does not authorize deployment. It records the only safe producer/consumer order after the Canary-owned prerequisite in Issue #344 is explicitly authorized and implemented.
+This runbook does not authorize deployment. It records the only safe producer/consumer order after the game-server-owned prerequisite in Issue #344 is explicitly authorized and implemented.
 
 ## Current hold
 
@@ -13,26 +13,26 @@ Do not:
 - add an Oteryn character-deletion route, controller, job or command;
 - provision a deletion database principal;
 - grant `UPDATE(players.deletion)` or `DELETE(players)`;
-- change the Canary startup cleanup from this repository;
+- change the legacy engine startup cleanup from this repository;
 - expose pending-deletion UI as functional;
 - claim staging or production readiness.
 
 ## Required rollout order
 
-1. **Canary contract and implementation**
-   - merge the operation-safe schedule/cancel/finalize lifecycle in `blakinio/canary`;
+1. **Legacy engine contract and implementation**
+   - merge the operation-safe schedule/cancel/finalize lifecycle in `the legacy game-server repository`;
    - fence or replace the legacy startup raw-delete path;
    - publish exact schema, interface, bounded results, side effects and rollback behavior;
-   - pass Canary unit, real-MariaDB concurrency, destructive-side-effect and recovery tests.
+   - pass legacy engine unit, real-MariaDB concurrency, destructive-side-effect and recovery tests.
 
-2. **Canary deployment compatibility window**
+2. **Legacy engine deployment compatibility window**
    - deploy the producer while no Platform caller exists;
    - keep the legacy caller surface disabled or read-only;
    - verify the exact deployed revision and effective privileges;
    - prove old server nodes cannot bypass the new finalizer contract.
 
 3. **Oteryn contract revalidation**
-   - pin the deployed-compatible Canary revision;
+   - pin the deployed-compatible legacy engine revision;
    - update `docs/contracts/CHARACTER_DELETION_CONTRACT.md` from NO-GO to an approved bounded operation only if every invariant is proven;
    - approve the exact Platform schema, credential/interface, saga, reconciliation and audit design in a new task.
 
@@ -48,7 +48,7 @@ Do not:
    - pass English/Polish desktop, tablet and mobile zero-retry acceptance.
 
 6. **Production activation**
-   - run preflight against the exact Canary and Platform revisions;
+   - run preflight against the exact legacy engine and Platform revisions;
    - verify no in-flight incompatible operations;
    - enable the feature flag for a bounded cohort;
    - observe reconciliation and failure classifications before wider activation.
@@ -60,7 +60,7 @@ Do not:
 3. do not revoke the operation interface while pending operations exist;
 4. drain or deterministically classify every in-flight operation;
 5. roll back the Platform consumer;
-6. roll back the Canary producer only after proving no pending operation depends on it;
+6. roll back the legacy engine producer only after proving no pending operation depends on it;
 7. never restore the legacy raw startup delete path while contracted operation rows remain active.
 
 Rollback must not convert an ambiguous state into success or directly modify player rows outside the approved lifecycle.
@@ -69,7 +69,7 @@ Rollback must not convert an ambiguous state into success or directly modify pla
 
 Production activation requires recorded evidence for:
 
-- exact Canary and Oteryn revisions;
+- exact legacy engine and Oteryn revisions;
 - schema compatibility;
 - effective required and forbidden privileges;
 - finalizer exclusivity;

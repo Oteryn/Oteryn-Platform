@@ -18,6 +18,8 @@ from pathlib import Path
 
 PATTERN = "c[a]nary"
 PATHS_GROUP = "paths"
+HISTORY_PATHS_GROUP = "history_paths"
+HISTORY_GROUP = "history"
 DEFAULT_BASELINE = "docs/agents/LEGACY_TOKEN_BASELINE.json"
 TOKEN_RE = re.compile(PATTERN, re.IGNORECASE)
 
@@ -52,6 +54,20 @@ DEFAULT_RULES: list[tuple[str, str]] = [
     ("THIRD_PARTY_NOTICES.md", "docs"),
 ]
 OTHER_GROUP = "other"
+
+# Historical-record prefixes (decision Q-H): preserved unchanged, contents and
+# path names. Their file contents are counted in the report-only "history"
+# group and their path names in the report-only "history_paths" group, so the
+# enforced groups and the "paths" group never include them. Prefixes only,
+# never live documents. The baseline stores this list under "exclusions".
+DEFAULT_EXCLUSIONS: list[str] = [
+    "docs/agents/tasks/archive/",
+    "docs/agents/reports/",
+    "docs/agents/evidence/",
+    "docs/agents/handovers/",
+    "docs/evidence/",
+    "CHANGELOG.md",
+]
 
 # Task records must name their real head branch (checked against the pull
 # request by tools/agents), and that name can contain the token. Only the
@@ -114,9 +130,21 @@ def group_of(path: str, rules: list[tuple[str, str]]) -> str:
     return OTHER_GROUP
 
 
-def measure(root: Path, rules: list[tuple[str, str]]) -> dict[str, dict[str, int]]:
+def is_excluded(path: str, exclusions: list[str]) -> bool:
+    return any(
+        path == prefix or (prefix.endswith("/") and path.startswith(prefix))
+        for prefix in exclusions
+    )
+
+
+def measure(
+    root: Path,
+    rules: list[tuple[str, str]],
+    exclusions: list[str] | None = None,
+) -> dict[str, dict[str, int]]:
     """Return {group: {"count": lines, "files": files}} for the tracked tree."""
-    groups = sorted({g for _, g in rules} | {OTHER_GROUP})
+    exclusions = list(exclusions or [])
+    groups = sorted({g for _, g in rules} | {OTHER_GROUP, HISTORY_GROUP})
     result = {g: {"count": 0, "files": 0} for g in groups}
     out = git(root, "grep", "-I", "-i", "-c", "-z", "-e", PATTERN)
     for record in out.split(b"\n"):
@@ -127,12 +155,20 @@ def measure(root: Path, rules: list[tuple[str, str]]) -> dict[str, dict[str, int
         count -= exempt_lines(root, path)
         if count <= 0:
             continue
-        entry = result[group_of(path, rules)]
+        name = HISTORY_GROUP if is_excluded(path, exclusions) else group_of(path, rules)
+        entry = result[name]
         entry["count"] += count
         entry["files"] += 1
     names = git(root, "ls-files", "-z").split(b"\0")
-    hits = [n for n in names if n and TOKEN_RE.search(n.decode("utf-8", "surrogateescape"))]
-    result[PATHS_GROUP] = {"count": len(hits), "files": len(hits)}
+    hits = [
+        n.decode("utf-8", "surrogateescape")
+        for n in names
+        if n and TOKEN_RE.search(n.decode("utf-8", "surrogateescape"))
+    ]
+    live = [h for h in hits if not is_excluded(h, exclusions)]
+    result[PATHS_GROUP] = {"count": len(live), "files": len(live)}
+    kept = len(hits) - len(live)
+    result[HISTORY_PATHS_GROUP] = {"count": kept, "files": kept}
     return result
 
 
@@ -146,6 +182,10 @@ def load_baseline(path: Path) -> dict:
     if data.get("pattern") != PATTERN:
         raise RatchetError(f"baseline pattern must be {PATTERN!r}")
     return data
+
+
+def exclusions_from(baseline: dict) -> list[str]:
+    return [str(p) for p in baseline.get("exclusions", [])]
 
 
 def rules_from(baseline: dict) -> list[tuple[str, str]]:
@@ -181,6 +221,7 @@ def build_baseline(
     current: dict[str, dict[str, int]],
     rules: list[tuple[str, str]],
     previous: dict | None,
+    exclusions: list[str] | None = None,
 ) -> dict:
     old = (previous or {}).get("groups", {})
     return {
@@ -190,11 +231,16 @@ def build_baseline(
         "metric": "matching lines (git grep -ic) per group; paths = tracked path names (git ls-files)",
         "notes": list((previous or {}).get("notes", [])),
         "rules": [list(r) for r in rules],
+        "exclusions": list(exclusions or []),
         "groups": {
             name: {
                 "count": data["count"],
                 "files": data["files"],
-                "enforce": bool(old.get(name, {}).get("enforce", True)),
+                "enforce": bool(
+                    old.get(name, {}).get(
+                        "enforce", name not in (HISTORY_GROUP, HISTORY_PATHS_GROUP)
+                    )
+                ),
             }
             for name, data in sorted(current.items())
         },
@@ -215,16 +261,21 @@ def main(argv: list[str] | None = None) -> int:
     baseline_path = root / args.baseline
     try:
         if args.write and not baseline_path.exists():
-            current = measure(root, DEFAULT_RULES)
+            current = measure(root, DEFAULT_RULES, DEFAULT_EXCLUSIONS)
             baseline_path.write_text(
-                json.dumps(build_baseline(current, DEFAULT_RULES, None), indent=2) + "\n",
+                json.dumps(
+                    build_baseline(current, DEFAULT_RULES, None, DEFAULT_EXCLUSIONS),
+                    indent=2,
+                )
+                + "\n",
                 encoding="utf-8",
             )
             print(f"wrote initial baseline {args.baseline}")
             return 0
         baseline = load_baseline(baseline_path)
         rules = rules_from(baseline)
-        current = measure(root, rules)
+        exclusions = exclusions_from(baseline)
+        current = measure(root, rules, exclusions)
         failures, notes = compare(baseline, current)
         for note in notes:
             print(f"note: {note}")
@@ -234,7 +285,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         if args.write:
             baseline_path.write_text(
-                json.dumps(build_baseline(current, rules, baseline), indent=2) + "\n",
+                json.dumps(build_baseline(current, rules, baseline, exclusions), indent=2) + "\n",
                 encoding="utf-8",
             )
             print(f"rewrote baseline {args.baseline}")

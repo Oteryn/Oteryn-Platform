@@ -10,7 +10,7 @@ Do not store production credentials, tokens, reset links, TOTP secrets, recovery
 
 ## Preconditions
 
-- [ ] `UNKNOWN` — Record the exact deployed Oteryn Platform commit SHA and relevant Canary/login-server versions without secrets.
+- [ ] `UNKNOWN` — Record the exact deployed Oteryn Platform commit SHA and relevant legacy engine/login-server versions without secrets.
 - [ ] `UNKNOWN` — Confirm required CI/security/governance checks passed for the exact deployed candidate.
 - [ ] `UNKNOWN` — Confirm the authorized production operator and rollback path are available before smoke begins.
 - [ ] `UNKNOWN` — Confirm production backup scope and latest usable restore evidence are available before exercising mutations.
@@ -23,20 +23,20 @@ Do not store production credentials, tokens, reset links, TOTP secrets, recovery
 - [ ] `UNKNOWN` — One confirmed-MFA Identity completes a real MFA login challenge; do not persist the TOTP secret or recovery code in evidence.
 - [ ] `UNKNOWN` — One password-recovery message is delivered through the real production mail provider/domain and the reset completes successfully.
 
-## Canary/public game-data smoke
+## Legacy engine/public game-data smoke
 
-- [ ] `UNKNOWN` — One read-only public game-data flow returns expected data through the generic least-privilege Canary read principal.
-- [ ] `UNKNOWN` — Effective generic Canary DB grants pass `canary:verify-db-privileges` on the production credential/network path.
+- [ ] `UNKNOWN` — One read-only public game-data flow returns expected data through the generic least-privilege legacy engine read principal.
+- [ ] `UNKNOWN` — Effective generic legacy engine DB grants pass `legacy:verify-db-privileges` on the production credential/network path.
 - [ ] `UNKNOWN` — Runtime server state, when enabled, is read through the dedicated production Redis principal and effective ACL/freshness behavior is evidenced.
 
 ## Account and character smoke
 
 Run only if these launch-scope mutation surfaces are enabled in final production.
 
-- [ ] `UNKNOWN` — One new Platform Identity completes Platform-originated Canary account provisioning and reaches a ready immutable 1:1 binding.
-- [ ] `UNKNOWN` — Effective provisioning grants pass `canary:verify-provisioning-db-privileges` on the production credential/network path.
+- [ ] `UNKNOWN` — One new Platform Identity completes Platform-originated legacy engine account provisioning and reaches a ready immutable 1:1 binding.
+- [ ] `UNKNOWN` — Effective provisioning grants pass `legacy:verify-provisioning-db-privileges` on the production credential/network path.
 - [ ] `UNKNOWN` — The bound Identity creates one character through the dedicated character-create principal without client-controlled account ownership.
-- [ ] `UNKNOWN` — Effective character-create grants pass `canary:verify-character-create-db-privileges` on the production credential/network path.
+- [ ] `UNKNOWN` — Effective character-create grants pass `legacy:verify-character-create-db-privileges` on the production credential/network path.
 - [ ] `UNKNOWN` — The created character becomes visible through the expected public exact-name search/profile flow.
 
 ## Administrator/RBAC/CMS smoke

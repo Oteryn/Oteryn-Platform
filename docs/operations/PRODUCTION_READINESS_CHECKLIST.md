@@ -46,7 +46,7 @@ The final-head controlled restore measured `105 ms` with `13/13` tables, `11/11`
 Before any production-ready or go-live `PASS` claim:
 
 - [ ] Record the exact Oteryn Platform commit SHA being evaluated. `ENV-EVIDENCE-REQUIRED`
-- [ ] Record exact deployed Canary/login-server versions relevant to authentication/game-login behavior. `ENV-EVIDENCE-REQUIRED`
+- [ ] Record exact deployed legacy engine/login-server versions relevant to authentication/game-login behavior. `ENV-EVIDENCE-REQUIRED`
 - [ ] Prove the evaluated commit passed required CI, including Composer advisory audit, Pint, PHPStan and the full test suite. `REPO-PROVEN`
 - [ ] Confirm there is no newer unreviewed production-only code/config divergence outside the declared deployment mechanism. `ENV-EVIDENCE-REQUIRED`
 
@@ -108,24 +108,24 @@ The application intentionally does not hard-code HSTS before this evidence exist
 
 Go-live `PASS` is blocked until the applicable production restore evidence exists. Staging restore measurements do not establish production RTO/RPO.
 
-## 6. Canary SQL privilege boundaries
+## 6. Legacy engine SQL privilege boundaries
 
 The repository provides these verifiers:
 
 ```text
-php artisan canary:verify-db-privileges
-php artisan canary:verify-provisioning-db-privileges
-php artisan canary:verify-character-create-db-privileges
+php artisan legacy:verify-db-privileges
+php artisan legacy:verify-provisioning-db-privileges
+php artisan legacy:verify-character-create-db-privileges
 ```
 
-- [ ] Run the generic Canary read-only verifier against the effective production credential. `ENV-EVIDENCE-REQUIRED`
+- [ ] Run the generic legacy engine read-only verifier against the effective production credential. `ENV-EVIDENCE-REQUIRED`
 - [ ] Run the provisioning verifier against the effective production provisioning credential before enabling provisioning writes. `ENV-EVIDENCE-REQUIRED`
 - [ ] Run the character-create verifier against the effective production character-create credential before enabling character creation writes. `ENV-EVIDENCE-REQUIRED`
 - [ ] Prove production network paths and credential classes are separate as designed. `ENV-EVIDENCE-REQUIRED`
 
 Failure of any effective-grant verifier is a fail-closed deployment blocker for that capability. Staging principals do not prove production effective grants.
 
-## 7. Canary runtime Redis
+## 7. Legacy engine runtime Redis
 
 - [ ] Prove the production runtime Redis endpoint and network boundary without secrets. `ENV-EVIDENCE-REQUIRED`
 - [ ] Prove the dedicated read-only ACL/user is provisioned in production. `ENV-EVIDENCE-REQUIRED`

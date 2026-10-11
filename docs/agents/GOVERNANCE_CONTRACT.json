@@ -6,8 +6,8 @@
   "shared_checkpoint_contract": {
     "version": 1,
     "reference": {
-      "repository": "blakinio/canary",
-      "observed_at_canary_commit": "c1c0d10ed1e758cb72728be5fe22458cd9d9e61a",
+      "repository": "the legacy game-server repository",
+      "observed_at_legacy_commit": "c1c0d10ed1e758cb72728be5fe22458cd9d9e61a",
       "checkpoint_version": 1,
       "note": "The structural checkpoint version remains 1; policy revision 4 adds governing-Issue liveness without invalidating existing checkpoint structure."
     },

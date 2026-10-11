@@ -65,7 +65,7 @@ Oteryn Platform owns:
 
 No administrator role is assigned by database migration or normal user registration.
 
-Canary account identity, group fields or game-server privileges are not administrator authorization evidence for Oteryn Platform.
+Legacy engine account identity, group fields or game-server privileges are not administrator authorization evidence for Oteryn Platform.
 
 ### 4. Privileged web access composes three independent gates
 

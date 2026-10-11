@@ -64,7 +64,7 @@ GameEnforcementCommand
 
 Exact wire names are deferred. Free-form private case bodies, reporter identity, moderator notes, raw network identifiers, credentials and secrets are not command payload or ordinary telemetry. Evidence references are opaque, least-privilege handles; the game service receives only fields required to execute and audit its bounded responsibility.
 
-Canonical native `AccountId` and game-owned `CharacterId` are used where applicable. Legacy Canary numeric IDs remain inside compatibility adapters and cannot leak into the native contract as canonical identity.
+Canonical native `AccountId` and game-owned `CharacterId` are used where applicable. Legacy engine numeric IDs remain inside compatibility adapters and cannot leak into the native contract as canonical identity.
 
 ## Command families and capability negotiation
 
@@ -185,7 +185,7 @@ A read projection may expose current authoritative game-sanction state to author
 
 ## Legacy compatibility, rollout and rollback
 
-Current `enforcement_records` remain Platform workflow/communication records. Existing Canary bans/account status remain Legacy Canary Compatibility authority and are not rewritten by this contract.
+Current `enforcement_records` remain Platform workflow/communication records. Existing legacy engine bans/account status remain Legacy Engine Compatibility authority and are not rewritten by this contract.
 
 Activation requires:
 
@@ -198,7 +198,7 @@ Activation requires:
 7. shadow evidence that compares behavior without dual-writing authoritative sanctions;
 8. an explicit per-profile cutover and rollback gate.
 
-Rollback disables new native dispatch while preserving reconciliation of already accepted operations and authoritative game sanctions. It must not revert to an older decision revision, silently dual-write Canary and native authorities, or report a Platform record as game enforcement.
+Rollback disables new native dispatch while preserving reconciliation of already accepted operations and authoritative game sanctions. It must not revert to an older decision revision, silently dual-write legacy engine and native authorities, or report a Platform record as game enforcement.
 
 ## Required contract tests
 

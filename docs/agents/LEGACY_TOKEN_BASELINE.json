@@ -5,8 +5,8 @@
   "metric": "matching lines (git grep -ic) per group; paths = tracked path names (git ls-files)",
   "notes": [
     "Later packets must use token-free names for task files, branch-visible text and docs they add; any rise in an enforced group fails CI (decision D607).",
-    "The docs count includes the one line naming this guard's own task branch in its task record.",
-    "The history group is report-only: historical records are preserved and excluded from the zero gate."
+    "The history group is report-only: historical records are preserved and excluded from the zero gate.",
+    "Q-H: historical-record prefixes listed under exclusions are preserved unchanged (contents and path names); their contents count in the report-only history group and their path names in the report-only history_paths group; the paths group counts live tracked paths only."
   ],
   "rules": [
     [
@@ -114,6 +114,14 @@
       "docs"
     ]
   ],
+  "exclusions": [
+    "docs/agents/tasks/archive/",
+    "docs/agents/reports/",
+    "docs/agents/evidence/",
+    "docs/agents/handovers/",
+    "docs/evidence/",
+    "CHANGELOG.md"
+  ],
   "groups": {
     "ci_deploy": {
       "count": 1189,
@@ -131,23 +139,28 @@
       "enforce": true
     },
     "docs": {
-      "count": 1693,
-      "files": 172,
+      "count": 120,
+      "files": 15,
       "enforce": true
     },
     "history": {
-      "count": 1340,
-      "files": 211,
+      "count": 1373,
+      "files": 219,
+      "enforce": false
+    },
+    "history_paths": {
+      "count": 7,
+      "files": 7,
       "enforce": false
     },
     "other": {
-      "count": 2,
-      "files": 2,
+      "count": 1,
+      "files": 1,
       "enforce": true
     },
     "paths": {
-      "count": 53,
-      "files": 53,
+      "count": 40,
+      "files": 40,
       "enforce": true
     },
     "runtime": {

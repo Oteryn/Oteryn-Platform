@@ -25,7 +25,7 @@ The proof must show that a browser renderer can consume a deterministic semantic
 - Preserve the existing main Atlas product assumptions and visual/reference baseline.
 - Game remains canonical World/Content authority.
 - Atlas runtime model is a derived semantic projection/read model only.
-- Do not read OTBM/Legacy IR/Canary/Crystal files in the browser runtime as a fallback source of truth.
+- Do not read OTBM/Legacy IR/legacy engine/Crystal files in the browser runtime as a fallback source of truth.
 - Do not invent canonical coordinate/floor/stack semantics from Tibia/OTBM conventions if the owning Game profile is still missing.
 - Do not freeze FlatBuffers, Protobuf, JSON/JSONL, compression, permanent chunk size or floor packing merely because one candidate works.
 - Svelte 5 + TypeScript + PixiJS 8 + WebGL2 is the preferred browser proof candidate, not an irreversible architecture decision.

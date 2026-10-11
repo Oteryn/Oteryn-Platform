@@ -22,11 +22,11 @@ The frozen PR #453 production-completion baseline and later exact merged PRs pro
 
 | Module | Status | Owns | Must not own |
 |---|---|---|---|
-| Identity | AVAILABLE | Platform web authentication policy, credentials lifecycle, registered sessions, MFA, confirmed email changes, privacy, recovery and Platform termination | Payments, game runtime, arbitrary Canary account or character mutations |
-| Accounts | AVAILABLE | Greenfield account provisioning/binding and future explicitly contracted account-level operations | Canary password verification logic, undocumented shared writes, game runtime |
-| Characters | AVAILABLE | Contract-approved web-triggered character operations; currently create plus Character Bazaar ownership transfer | Direct undocumented Canary writes; uncontracted rename/delete |
-| CharacterProfiles | AVAILABLE | Platform-stored character presentation/privacy preferences: public comment, per-character field visibility and optional main-character selection, with server-side owner verification and projection into PublicGameData | Authoritative character identity/current ownership, gameplay state, Canary/Oteryn-v2 mutation authority, or claiming canonical CharacterId migration completion |
-| PublicPortal | AVAILABLE | Homepage/shared-shell composition, SEO/discoverability, federated public content-search orchestration and authorized view models, including future Today/command-centre and World Hub composition over bounded source modules | Authentication policy, raw Canary queries, arbitrary CMS persistence, source-module publication/search rules, module business rules, runtime/game-data truth, or routing/admission authority |
+| Identity | AVAILABLE | Platform web authentication policy, credentials lifecycle, registered sessions, MFA, confirmed email changes, privacy, recovery and Platform termination | Payments, game runtime, arbitrary legacy engine account or character mutations |
+| Accounts | AVAILABLE | Greenfield account provisioning/binding and future explicitly contracted account-level operations | legacy engine password verification logic, undocumented shared writes, game runtime |
+| Characters | AVAILABLE | Contract-approved web-triggered character operations; currently create plus Character Bazaar ownership transfer | Direct undocumented legacy engine writes; uncontracted rename/delete |
+| CharacterProfiles | AVAILABLE | Platform-stored character presentation/privacy preferences: public comment, per-character field visibility and optional main-character selection, with server-side owner verification and projection into PublicGameData | Authoritative character identity/current ownership, gameplay state, legacy engine/Oteryn-v2 mutation authority, or claiming canonical CharacterId migration completion |
+| PublicPortal | AVAILABLE | Homepage/shared-shell composition, SEO/discoverability, federated public content-search orchestration and authorized view models, including future Today/command-centre and World Hub composition over bounded source modules | Authentication policy, raw legacy engine queries, arbitrary CMS persistence, source-module publication/search rules, module business rules, runtime/game-data truth, or routing/admission authority |
 | Announcements | AVAILABLE | Typed scheduled public announcements and permission-scoped publication lifecycle | Authoritative runtime world/service state or unrestricted site settings |
 | Events | AVAILABLE | Localized editorial event schedule/detail and audited administration lifecycle | Runtime raid/service truth unless consumed from an explicit LiveOps contract |
 | Downloads | AVAILABLE | Approved client release/artifact metadata, platform variants, checksums and publication lifecycle | Arbitrary executable upload/proxy, release signing authority or client updater runtime without a contract |
@@ -37,18 +37,18 @@ The frozen PR #453 production-completion baseline and later exact merged PRs pro
 | EditorialMedia | AVAILABLE | Private normalized raster-image objects, integrity metadata, bounded consumer references and administrator lifecycle | Generic public file hosting, executable uploads, arbitrary documents, consumer-specific publication rules |
 | Wiki | AVAILABLE | Localized Wiki public reads/search, categories, lifecycle, trusted administration, revisions and approved media references | Generic CMS pages, arbitrary HTML, player editing, claims of complete authoritative game content |
 | GameCatalog | AVAILABLE | Versioned deterministic game-catalogue snapshots/projections, exact authority provenance and, where authoritative, stable typed server-specific system definitions with version/profile/ruleset/season applicability | Executable native game-content authority, inventing missing content, editorial strategy, current runtime/rotation truth, silent producer assumptions, or production activation without a gate |
-| PlayerCompanion | AVAILABLE | Versioned calculators, build plans, hunt guidance, session analysis, progression goals, owner-private tracking/routines/change signals, shareable plans and explained recommendations | Canonical game/source facts, raw Canary access, notification transport, public follower graphs, game mutation, payment settlement or hidden balance policy |
+| PlayerCompanion | AVAILABLE | Versioned calculators, build plans, hunt guidance, session analysis, progression goals, owner-private tracking/routines/change signals, shareable plans and explained recommendations | Canonical game/source facts, raw legacy engine access, notification transport, public follower graphs, game mutation, payment settlement or hidden balance policy |
 | Admin | AVAILABLE | Admin UI, explicit RBAC/policies, privileged Platform use cases | Bypassing domain/application invariants or granting implicit wildcard authority |
 | Audit | AVAILABLE | Security/admin audit primitives, privileged-action audit and bounded admin audit visibility | Secrets, raw credentials, business-rule authorization decisions |
-| Integration | AVAILABLE | Implemented Canary read/write adapters, schema translation and contract enforcement; the bounded Identity -> Game Gateway -> private Platform login-context -> Game Session v1 bridge is merged, while native v2 and production cutover remain separate gated work | Product policy that belongs in domain modules, direct credential policy duplication or production-activation claims without exact evidence |
-| Wallet | AVAILABLE | Oteryn Coins available/reserved projection and append-oriented idempotent ledger | Canary coins, payment-provider settlement, arbitrary balance edits |
-| Marketplace | AVAILABLE | Character Bazaar listings, escrow saga, bids, watches, settlement, history and recovery policy | Canary gameplay state, generic character mutation, payment-provider commerce |
+| Integration | AVAILABLE | Implemented legacy engine read/write adapters, schema translation and contract enforcement; the bounded Identity -> Game Gateway -> private Platform login-context -> Game Session v1 bridge is merged, while native v2 and production cutover remain separate gated work | Product policy that belongs in domain modules, direct credential policy duplication or production-activation claims without exact evidence |
+| Wallet | AVAILABLE | Oteryn Coins available/reserved projection and append-oriented idempotent ledger | legacy engine coins, payment-provider settlement, arbitrary balance edits |
+| Marketplace | AVAILABLE | Character Bazaar listings, escrow saga, bids, watches, settlement, history and recovery policy | legacy engine gameplay state, generic character mutation, payment-provider commerce |
 | Notifications | AVAILABLE | Formatting/transport and deterministic delivery state for already-authorized notifications, including existing account-security/support mail | Domain subscription/tracking ownership, source-change/threshold decisions, core auth decisions, token validation, domain rollback on mail failure or payment settlement |
 | OperationsObservability | AVAILABLE | Repository/runtime health, release identity, structured observability, queue/mail/cache/session operational contracts, backup/restore/rollback expectations | Business policy, production-proof claims without exact environment evidence |
 | PublicEdge | AVAILABLE | Repository-owned DNS/TLS/redirect/HSTS/WAF/tunnel/origin/private-ingress contracts and verification tooling | Application authorization, implicit live-state truth, production mutation without authority |
 | QualityE2E | AVAILABLE | Capability/route ledgers, deterministic validators, exact-head browser/integration evidence and delivery-state classification | Product policy, weakening acceptance to obtain green CI, treating staging evidence as production proof |
 | PlatformAPI | PLANNED | Stable first-party API endpoints and API-specific auth/limits | Duplicating business logic from modules or misclassifying bounded internal/game-auth endpoints as a general API |
-| ProductsEntitlements | PLANNED | Product catalogue, premium/VIP/package/voucher entitlements, fulfilment, expiry and revocation | Provider payment settlement, Wallet gameplay policy, undocumented Canary premium mutations |
+| ProductsEntitlements | PLANNED | Product catalogue, premium/VIP/package/voucher entitlements, fulfilment, expiry and revocation | Provider payment settlement, Wallet gameplay policy, undocumented legacy engine premium mutations |
 | LegalCommerce | PLANNED | Commerce-specific consumer presentation, payment-data privacy, retention, refund/complaint and invoice/tax decision boundaries | Generic CMS publishing, payment settlement, silent legal assumptions |
 | Payments | PLANNED-LATER | Provider adapters, payments, signed webhooks, reconciliation, refunds/chargebacks and regulated commerce when approved | Identity core, basic account/login dependencies, Oteryn Coins gameplay marketplace policy, product fulfilment |
 
@@ -84,75 +84,75 @@ The account-security lifecycle additionally provides:
 - Platform termination grace period, cancellation and idempotent due finalization;
 - scoped session-backed `en`/`pl` localization for protected and token account-security routes.
 
-Phase 5 makes Platform Identity the ownership authority for supported greenfield game accounts, but it does not mean native Canary/external login-server game authentication has already been replaced by Platform authorization.
+Phase 5 makes Platform Identity the ownership authority for supported greenfield game accounts, but it does not mean native legacy engine/external login-server game authentication has already been replaced by Platform authorization.
 
 ### Invariants
 
 - one authoritative Platform Identity policy for supported product users;
 - user credentials and raw recovery keys are never stored reversibly;
 - email-change, recovery-key and termination operations revoke the exact Platform web/game authorization state defined by policy;
-- browser-supplied session, Canary account or token-adjacent identifiers never establish ownership;
+- browser-supplied session, legacy engine account or token-adjacent identifiers never establish ownership;
 - stale or revoked registered sessions are invalidated before protected controller execution;
 - account-security audit metadata excludes raw passwords, session IDs, email/reset tokens, MFA secrets, recovery keys and complete source addresses;
 - privileged/Admin routes combine authentication, explicit authorization and `mfa.confirmed`;
 - MFA never grants authorization by itself;
 - email-code MFA is intentionally not adopted while email remains the recovery channel;
-- the ready Platform-to-Canary binding remains immutable without a separate operation contract;
-- Platform termination does not delete, unlink, rebind or transfer Canary-owned accounts or characters;
+- the ready Platform-to-legacy engine binding remains immutable without a separate operation contract;
+- Platform termination does not delete, unlink, rebind or transfer game-server-owned accounts or characters;
 - game-login compatibility/migration remains contract-driven.
 
 ## Accounts
 
 ### Responsibilities
 
-- durable mapping from authenticated Platform Identity to supported Canary game account;
-- greenfield Canary account provisioning;
+- durable mapping from authenticated Platform Identity to supported legacy engine game account;
+- greenfield legacy engine account provisioning;
 - account state/preferences and future lifecycle operations only when explicitly contracted.
 
 ### Current available boundary
 
 Phase 5 implements:
 
-- immutable `1 Platform Identity <-> 1 Canary accounts.id` greenfield ownership model;
+- immutable `1 Platform Identity <-> 1 legacy engine accounts.id` greenfield ownership model;
 - durable pending/ready/conflict provisioning/binding state;
-- dedicated least-privilege `canary_provisioning` adapter;
+- dedicated least-privilege `legacy_provisioning` adapter;
 - forward-recoverable account-create saga;
 - non-user sink credential compatibility representation;
 - fail-closed effective-grant verification and real MariaDB integration coverage.
 
-The Identity account-security lifecycle may disable and anonymize Platform login while preserving this binding. It does not mutate the bound Canary account.
+The Identity account-security lifecycle may disable and anonymize Platform login while preserving this binding. It does not mutate the bound legacy engine account.
 
-Existing Canary account claim/import, Canary account deletion, unlink/rebind/transfer and broader Canary account profile mutations are not implied by `AVAILABLE` and require separate contracts.
+Existing legacy engine account claim/import, legacy engine account deletion, unlink/rebind/transfer and broader legacy engine account profile mutations are not implied by `AVAILABLE` and require separate contracts.
 
 ### Invariants
 
 - every account mutation requires authenticated/authorized Platform context;
 - browser-supplied account IDs are never ownership proof;
-- ready immutable binding is the trusted source for user-scoped Canary authorization;
-- generic `canary` remains read-only;
+- ready immutable binding is the trusted source for user-scoped legacy engine authorization;
+- generic `legacy` remains read-only;
 - account write capability is operation-specific and least-privileged;
-- Platform does not duplicate Canary reusable-password verification.
+- Platform does not duplicate legacy engine reusable-password verification.
 
 ## Characters
 
 ### Responsibilities
 
-- web-triggered character lifecycle and ownership operations explicitly approved by product/Canary contracts.
+- web-triggered character lifecycle and ownership operations explicitly approved by product/legacy engine contracts.
 
 ### Current available boundary
 
 Phase 5 implements character creation:
 
-- authorization through the authenticated Identity's ready immutable Canary account binding;
+- authorization through the authenticated Identity's ready immutable legacy engine account binding;
 - ADR 0005 canonical-name, vocation/sex, starter-state and quota policy;
-- dedicated least-privilege `canary_character_create` adapter;
+- dedicated least-privilege `legacy_character_create` adapter;
 - account-row locking, same-name idempotent recovery, maximum-10-active-character enforcement and unique-name race handling;
 - real MariaDB privilege/concurrency coverage.
 
 Character Bazaar adds one separate ownership-transfer operation under `docs/contracts/CHARACTER_TRANSFER_CONTRACT.md`:
 
 - seller, escrow and winner account IDs are resolved server-side;
-- only `players.account_id` may be updated by `canary_character_transfer`;
+- only `players.account_id` may be updated by `legacy_character_transfer`;
 - source/target account rows and the player row are locked deterministically;
 - deleted characters and every existing `cluster_sessions` row fail closed;
 - normal target character quota is enforced while the non-login escrow account is explicitly exempt;
@@ -195,7 +195,7 @@ Current compatibility debt is explicit: `Announcements` and `Events` homepage pr
 ### Invariants
 
 - PublicPortal is presentation/orchestration, not a generic source-of-truth domain module;
-- controllers and templates do not create raw Canary or cross-module persistence/model access paths;
+- controllers and templates do not create raw legacy engine or cross-module persistence/model access paths;
 - source modules retain public/search eligibility, publication, localization, source-local relevance and canonical source identity/URL semantics;
 - the target federated-search provider edge is `PublicPortal -> source-module application query`; before Announcements or Events are onboarded as federated-search providers, their existing `PublicContentState` reverse imports must be removed or replaced by source-owned response/availability types that PublicPortal maps into its composition state;
 - source modules must not depend on PublicPortal search contracts, search result types or presentation/view types;
@@ -290,9 +290,9 @@ The merged Download Center provides a public platform-filtered route and permiss
 
 ### Current available boundary
 
-Implemented Phase 4 read-only surfaces use explicit field allowlists, bounded pagination and the database-enforced `canary` / `oteryn_readonly` SQL boundary. Runtime availability uses the separate read-only `canary_runtime` Redis boundary with TTL freshness and fail-closed semantics.
+Implemented Phase 4 read-only surfaces use explicit field allowlists, bounded pagination and the database-enforced `legacy` / `oteryn_readonly` SQL boundary. Runtime availability uses the separate read-only `legacy_runtime` Redis boundary with TTL freshness and fail-closed semantics.
 
-Character Bazaar listing creation uses its own operation-specific transfer connection to capture an immutable public-safe allowlisted character snapshot before escrow. Public catalogue/detail reads use the Platform snapshot rather than live mutable Canary data.
+Character Bazaar listing creation uses its own operation-specific transfer connection to capture an immutable public-safe allowlisted character snapshot before escrow. Public catalogue/detail reads use the Platform snapshot rather than live mutable legacy engine data.
 
 ### Invariants
 
@@ -300,7 +300,7 @@ Character Bazaar listing creation uses its own operation-specific transfer conne
 - private account/session/security fields are never public output;
 - dependency failure is explicit, not fabricated empty/offline state;
 - freshness boundaries are not extended by unbounded caching;
-- Character Bazaar snapshots exclude Canary account IDs, IPs, sessions, credentials and arbitrary blobs;
+- Character Bazaar snapshots exclude legacy engine account IDs, IPs, sessions, credentials and arbitrary blobs;
 - exact-name character lookup retains its existing privacy/enumeration semantics and is not implicitly widened by PublicPortal federated content search.
 
 ## LiveOps — available foundation
@@ -431,7 +431,7 @@ Player editing, comments, arbitrary HTML and a complete authoritative game-conte
 
 ### Invariants
 
-- Wiki persistence is Platform-owned and does not modify Canary/login-server data;
+- Wiki persistence is Platform-owned and does not modify legacy engine/login-server data;
 - missing or unsupported locale fails explicitly;
 - localized slugs are unique by `(locale, slug)`;
 - stale updates never silently overwrite newer content;
@@ -444,11 +444,11 @@ Player editing, comments, arbitrary HTML and a complete authoritative game-conte
 
 ## Game Catalog
 
-ADR 0034 and `OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md` define the native target: the game domain owns canonical native content identity, executable definitions/applicability and authority revisions; `GameCatalog` owns validated immutable imported persistence, profiles, projections, presentation and transactional activation/rollback. Current Canary schemas/importers remain Legacy Canary Compatibility and do not define the native domain model. One profile cannot blend native, Canary and editorial fields into an apparently co-authoritative record.
+ADR 0034 and `OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md` define the native target: the game domain owns canonical native content identity, executable definitions/applicability and authority revisions; `GameCatalog` owns validated immutable imported persistence, profiles, projections, presentation and transactional activation/rollback. Current legacy engine schemas/importers remain Legacy Engine Compatibility and do not define the native domain model. One profile cannot blend native, legacy engine and editorial fields into an apparently co-authoritative record.
 
 ### Responsibilities
 
-- validate versioned deterministic Canary catalogue snapshots against pinned byte-identical schemas;
+- validate versioned deterministic legacy engine catalogue snapshots against pinned byte-identical schemas;
 - import immutable snapshots transactionally and inactive by default;
 - preserve release, completeness, availability and provenance facts without inventing missing evidence;
 - activate and roll back only compatible snapshots with a concrete verified-content boundary;
@@ -458,7 +458,7 @@ ADR 0034 and `OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md` define the native targ
 
 ### Current available boundary
 
-Schema `1.0.0` remains supported for retained imports and rollback. Schema `1.1.0` additionally represents an unknown `verified_content_through_release` as null. Schema `1.2.0` preserves exact Canary `canary_dynamic_threshold_v1` loot thresholds and declared roll maxima without presenting contextual thresholds as static probabilities. Unknown-boundary snapshots may be imported for review but cannot be activated or exposed publicly.
+Schema `1.0.0` remains supported for retained imports and rollback. Schema `1.1.0` additionally represents an unknown `verified_content_through_release` as null. Schema `1.2.0` preserves exact legacy engine `canary_dynamic_threshold_v1` loot thresholds and declared roll maxima without presenting contextual thresholds as static probabilities. Unknown-boundary snapshots may be imported for review but cannot be activated or exposed publicly.
 
 Open draft PR #338 contains an inactive schema `1.3.0` NPC-shop consumer and remains outside the current `main` boundary until its separate producer/compatibility gate is terminal. Issue #489 retains authoritative expected-inventory, capability, failure/recovery and portability gaps.
 
@@ -541,7 +541,7 @@ Hunt Session Analyzer v1 is the first implemented PlayerCompanion capability. It
 
 The delivered lifecycle provides server-generated public identifiers, idempotent request keys, owner-scoped reads, optimistic locking, explicit report transitions, exact `support.tickets.manage`, `support.reports.manage` and `support.enforcement.manage` permissions behind confirmed MFA, EN/PL desktop/tablet/mobile UI and isolated mail-delivery failure state.
 
-Support attachments are disabled. Current Canary bans/account status remain Legacy Canary Compatibility authority and no delivered support action writes game data. For the native target, `OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md` makes Support an authorized decision/orchestration consumer while Oteryn-v2 owns sanction applicability, game mutation, active-session/runtime effect and authoritative receipts; that accepted semantic boundary is not runtime implementation or activation proof.
+Support attachments are disabled. Current legacy engine bans/account status remain Legacy Engine Compatibility authority and no delivered support action writes game data. For the native target, `OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md` makes Support an authorized decision/orchestration consumer while Oteryn-v2 owns sanction applicability, game mutation, active-session/runtime effect and authoritative receipts; that accepted semantic boundary is not runtime implementation or activation proof.
 
 ### Invariants
 
@@ -550,11 +550,11 @@ Support attachments are disabled. Current Canary bans/account status remain Lega
 - privileged mutations require authentication, confirmed MFA, one exact permission, row locking/version checks and bounded audit metadata;
 - notification failure never rolls back a committed support transition;
 - raw ticket bodies, report evidence, appeal bodies and moderator notes do not enter audit metadata;
-- pruning/anonymization follows configured Platform retention and never deletes Canary-owned data;
+- pruning/anonymization follows configured Platform retention and never deletes game-server-owned data;
 - native game-effect claims require an authoritative current game result; dispatch, Platform workflow state and notification are insufficient;
 - retries and ambiguous outcomes preserve one stable operation identity, while newer decision revisions fence stale apply/revoke/expire commands;
 - appeal submission alone never mutates game state; an authorized appeal outcome creates a newer bounded decision;
-- file attachments and any compatibility-mode Canary ban mutation require separate reviewed contracts.
+- file attachments and any compatibility-mode legacy engine ban mutation require separate reviewed contracts.
 
 ## Admin
 
@@ -614,7 +614,7 @@ Audit storage is not a replacement for infrastructure/application logs and must 
 
 ### Responsibilities
 
-- explicit interfaces to Canary/login-server/shared schema;
+- explicit interfaces to legacy engine/login-server/shared schema;
 - mapping/translation between Platform domain models and external schema;
 - compatibility assertions;
 - operation-specific least-privilege database adapters;
@@ -624,11 +624,11 @@ Audit storage is not a replacement for infrastructure/application logs and must 
 
 Implemented adapters include:
 
-- read-only Canary SQL game-data access;
-- read-only Canary runtime Redis access;
-- greenfield account provisioning through `canary_provisioning`;
-- greenfield character creation through `canary_character_create`;
-- Character Bazaar snapshot/ownership/transfer through `canary_character_transfer`, restricted to approved reads and `UPDATE (account_id)` only.
+- read-only legacy engine SQL game-data access;
+- read-only legacy engine runtime Redis access;
+- greenfield account provisioning through `legacy_provisioning`;
+- greenfield character creation through `legacy_character_create`;
+- Character Bazaar snapshot/ownership/transfer through `legacy_character_transfer`, restricted to approved reads and `UPDATE (account_id)` only.
 
 The authoritative Platform game-login bridge remains a separate cross-repository integration task and is not implied by the module being `AVAILABLE`.
 
@@ -636,7 +636,7 @@ The authoritative Platform game-login bridge remains a separate cross-repository
 
 - external schema assumptions documented in `docs/contracts/**`;
 - no hidden shared-table usage outside agreed read/operation boundaries;
-- generic Canary access remains deny-by-default for mutations;
+- generic legacy engine access remains deny-by-default for mutations;
 - every write adapter has an effective-grant verifier and reviewed provisioning template;
 - breaking changes require contract updates and cross-repository coordination;
 - external repository changes require explicit authorization.
@@ -668,7 +668,7 @@ Initial funding is administrator-controlled. Payment-provider purchase, refund a
 - available and reserved balances never become negative;
 - ledger idempotency keys are unique and checked inside the locked transaction;
 - no routine direct update of balances outside `WalletMutator`;
-- Oteryn Coins are not Canary account coins, transferable coins, tournament coins or character bank gold;
+- Oteryn Coins are not legacy engine account coins, transferable coins, tournament coins or character bank gold;
 - payment-provider records, if later approved, remain a separate Payments responsibility.
 
 ## Marketplace
@@ -688,7 +688,7 @@ The merged Character Bazaar provides:
 
 - Platform-owned auction, bid and watch persistence;
 - immutable public-safe snapshot captured before escrow;
-- non-login Canary escrow account deployment boundary;
+- non-login legacy engine escrow account deployment boundary;
 - delayed activation after ownership/session quiescence confirmation;
 - auction-row and wallet-row locking for direct bids;
 - seller self-bid denial and minimum start/increment rules;
@@ -704,7 +704,7 @@ PR #270 proves repository and isolated acceptance. PR #368 proves a bounded stag
 ### Invariants
 
 - only an authenticated ready binding may list or bid;
-- browser-supplied Canary account IDs never authorize ownership;
+- browser-supplied legacy engine account IDs never authorize ownership;
 - active auctions are backed by an escrow-owned, active character with no cluster session;
 - the current leading bid alone remains reserved;
 - an auction reaches `completed` only after actual winner ownership and wallet ledger settlement are reconciled;
@@ -824,7 +824,7 @@ Federated public content search is another concrete future candidate under ADR 0
 
 This boundary will own product definitions and fulfilment state such as premium/VIP, packages, vouchers/codes, expiry, revocation and customer-visible entitlement history when accepted.
 
-It must define idempotent fulfilment, reconciliation and rollback separately from provider payment settlement. Direct Canary premium mutations, product policy and activation require explicit contracts. Issue #489 retains the missing-capability decisions.
+It must define idempotent fulfilment, reconciliation and rollback separately from provider payment settlement. Direct legacy engine premium mutations, product policy and activation require explicit contracts. Issue #489 retains the missing-capability decisions.
 
 ## Legal Commerce — planned
 
@@ -838,7 +838,7 @@ No payment-provider implementation belongs in the current core platform or Chara
 
 Future requirements include provider abstraction, signed webhook verification, provider-event idempotency, immutable provider/financial ledgers, reconciliation, refunds/chargebacks, tax/legal review and explicit separation from Oteryn Coins gameplay policy.
 
-Payments must not become a dependency of basic Identity/account creation/login, must not own product fulfilment and must not reuse Canary mutable coin fields as the provider settlement source of truth. Issue #489 retains the missing provider/commerce capability decisions.
+Payments must not become a dependency of basic Identity/account creation/login, must not own product fulfilment and must not reuse legacy engine mutable coin fields as the provider settlement source of truth. Issue #489 retains the missing provider/commerce capability decisions.
 
 ## PublicGameData community completeness
 
@@ -850,7 +850,7 @@ ADR 0018 and `docs/contracts/PUBLIC_COMMUNITY_DATA_CONTRACT.md` extend the avail
 - privacy-aware character profiles containing approved comment, skills, guild/rank, house, deaths and kill statistics;
 - related-account characters and status timestamps only when Platform Identity privacy flags permit disclosure;
 - latest-death pagination and guild directory search/detail with deterministic empty, not-found and unavailable states;
-- direct-table `SELECT` grants for `houses` and `player_deaths`, with no Canary write capability.
+- direct-table `SELECT` grants for `houses` and `player_deaths`, with no legacy engine write capability.
 
 Guild administration, world/channel transfer history, selectable achievements, polls and public enforcement publication are not owned by this boundary. They require separate authoritative product, ownership and security contracts.
 
@@ -859,10 +859,10 @@ Guild administration, world/channel transfer history, selectable achievements, p
 - browser input never establishes account association, status visibility or guild authority;
 - highscore columns are selected only from a server-side allowlist;
 - characters are ranked globally because the authoritative schema stores no per-channel character ownership;
-- public output excludes Identity email/IDs, Canary account IDs, raw death participants, house coordinates, runtime leases and moderator data;
+- public output excludes Identity email/IDs, legacy engine account IDs, raw death participants, house coordinates, runtime leases and moderator data;
 - dependency failure returns localized sanitized `503`, never fabricated empty data;
 - collections use bounded limits, deterministic ordering and documented index expectations.
 
 ## Character Profile Preferences
 
-The CharacterProfiles module owns authenticated management of Platform-stored character comments, per-character public visibility and optional main-character selection. It verifies ownership from the immutable ready binding plus a fresh read-only Canary character lookup on every edit/update, records bounded audit events and projects effective privacy into PublicGameData. It does not mutate Canary or implement rename, delete, restore, transfer or achievements. Contract: `docs/contracts/CHARACTER_PROFILE_PREFERENCES_CONTRACT.md`.
+The CharacterProfiles module owns authenticated management of Platform-stored character comments, per-character public visibility and optional main-character selection. It verifies ownership from the immutable ready binding plus a fresh read-only legacy engine character lookup on every edit/update, records bounded audit events and projects effective privacy into PublicGameData. It does not mutate legacy engine or implement rename, delete, restore, transfer or achievements. Contract: `docs/contracts/CHARACTER_PROFILE_PREFERENCES_CONTRACT.md`.

@@ -14,9 +14,9 @@ The evidence artifact contains:
 
 - exact trusted workflow source SHA;
 - exact currently deployed Platform/Gateway release SHA;
-- immutable Canary digest;
+- immutable legacy engine digest;
 - status values for container singleton/running state, restart policies, network and binding restrictions;
-- status values for named volumes, runtime health, Canary effective-grant verifiers, Redis AOF/ACL and rollback snapshot readiness;
+- status values for named volumes, runtime health, legacy engine effective-grant verifiers, Redis AOF/ACL and rollback snapshot readiness;
 - isolated restore-drill status, duration and aggregate base-table counts;
 - `production_environment_proven: false`;
 - a bounded list of remaining public-production gaps.
@@ -27,16 +27,16 @@ It contains no secret, environment variable, private key, database row, dump byt
 
 The workflow fails closed unless all applicable assertions pass:
 
-1. exactly one running `mariadb`, `redis`, `canary`, `platform`, `internal-proxy` and `gateway` container belongs to the expected Compose project;
+1. exactly one running `mariadb`, `redis`, `legacy`, `platform`, `internal-proxy` and `gateway` container belongs to the expected Compose project;
 2. all long-running services use `unless-stopped`, while MariaDB and Redis report healthy;
 3. all services use the expected private bridge network;
-4. Platform `8000`, Gateway `8080` and Canary legacy login `7171` bind only to `127.0.0.1`;
-5. Canary game TCP `7172` binds only to loopback or one exact private IPv4 address;
+4. Platform `8000`, Gateway `8080` and legacy engine legacy login `7171` bind only to `127.0.0.1`;
+5. Legacy engine game TCP `7172` binds only to loopback or one exact private IPv4 address;
 6. no wildcard binding exists and MariaDB, Redis and the internal TLS proxy publish no host ports;
-7. Platform and Gateway use the same exact `sha-<40 hex>` release tag and Canary uses an immutable digest;
-8. MariaDB, Redis, Platform storage, Canary data and internal TLS use named local volumes;
+7. Platform and Gateway use the same exact `sha-<40 hex>` release tag and legacy engine uses an immutable digest;
+8. MariaDB, Redis, Platform storage, legacy engine data and internal TLS use named local volumes;
 9. the persistent runner state directory and permission-restricted last-good image snapshot exist;
-10. Platform/Gateway health and readiness, Canary TCP and all three Canary database privilege verifiers pass;
+10. Platform/Gateway health and readiness, legacy engine TCP and all three legacy engine database privilege verifiers pass;
 11. Redis AOF is enabled, the dedicated runtime ACL user can `PING`, and a write attempt is denied;
 12. the restore drill streams each live staging database directly into a temporary isolated database, compares deterministic dump digests plus aggregate base-table counts, and drops temporary databases on every exit path.
 
@@ -70,7 +70,7 @@ Platform image: `ghcr.io/blakinio/oteryn-platform:sha-415aa3febd04c8d9c61082d4a7
 
 Gateway image: `ghcr.io/blakinio/oteryn-game-gateway:sha-415aa3febd04c8d9c61082d4a7451352bf084013`
 
-Canary image digest: `sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f`
+Legacy engine image digest: `sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f`
 
 Result: `PASS`
 
@@ -91,16 +91,16 @@ Production environment proven: `false`
 | Named persistent volumes | `PASS` |
 | Runner state and last-good rollback snapshot | `PASS` |
 | Platform and Gateway health/readiness | `PASS` |
-| Canary game TCP | `PASS` |
-| Canary effective-grant verifiers | `PASS` |
+| Legacy engine game TCP | `PASS` |
+| Legacy engine effective-grant verifiers | `PASS` |
 | Redis AOF and ACL boundary | `PASS` |
-| Platform and Canary streaming restore drill | `PASS` |
+| Platform and legacy engine streaming restore drill | `PASS` |
 
 Restore drill duration: `717610 ms` for this local staging dataset. This is controlled staging evidence and is not a production RTO or RPO.
 
 Platform base-table count: `34`
 
-Canary base-table count: `59`
+Legacy engine base-table count: `59`
 
 The inspected local runtime uses the bounded single-instance profile `file` sessions, `file` cache and synchronous queue execution. The current local mail profile is Laravel `array` non-delivery. Those values are recorded as the current local-target facts, not as proof of a future multi-instance or real-mail production design.
 

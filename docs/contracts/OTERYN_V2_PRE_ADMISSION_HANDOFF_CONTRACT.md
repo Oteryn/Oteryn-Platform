@@ -93,7 +93,7 @@ Requirements:
 - `AccountId` is the canonical Platform identity from ADR 0028/ADR 0031;
 - `CharacterId` is the canonical game-owned identity accepted by ADR 0030/ADR 0031;
 - `WorldId` and `ChannelId` are canonical Platform topology identities from ADR 0029;
-- Canary numeric account/player IDs are forbidden as native authority fields;
+- Legacy engine numeric account/player IDs are forbidden as native authority fields;
 - compatibility mappings may exist outside this native contract only inside explicitly named migration/compatibility adapters.
 
 No client-supplied account/character/world/channel claim can establish authority merely by being present in a request.
@@ -163,7 +163,7 @@ It must not be accepted as:
 - a Platform web session;
 - a Game Login Ticket;
 - a generic Platform service credential;
-- a credential for Canary compatibility admission;
+- a credential for legacy engine compatibility admission;
 - a credential for a different World/Channel/route;
 - a post-admission gameplay reconnect credential unless the game-domain contract explicitly and separately defines such behavior.
 
@@ -321,7 +321,7 @@ Public client errors may collapse sensitive distinctions to avoid enumeration. C
 
 - no failure falls back to password authentication;
 - no failure falls back to direct OAuth authentication by the game server;
-- no native failure falls back to Canary compatibility admission implicitly;
+- no native failure falls back to legacy engine compatibility admission implicitly;
 - no wrong-route failure causes silent alternate-server retry with the same capability;
 - no stale runtime observation is converted into authoritative `offline` state merely to produce an error;
 - dependency `UNKNOWN` fails closed for issuance/admission where the dependency is required for safety.

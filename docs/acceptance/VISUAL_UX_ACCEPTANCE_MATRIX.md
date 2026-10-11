@@ -47,7 +47,7 @@ Full evidence result:
 | Raw technical-message surfaces | 0 |
 | Browser-error surfaces | 6 expected resource messages for intentional 403/404/503 responses; 0 page errors |
 
-The Account Overview acceptance matrix directly exercised desktop `1440x1000` and mobile `390x844` states for `ready`, `pending`, `recoverable`, `conflict` and `missing`, plus a successful recoverable retry. It verified that synthetic Canary account IDs and provisioning names are not present in rendered page text.
+The Account Overview acceptance matrix directly exercised desktop `1440x1000` and mobile `390x844` states for `ready`, `pending`, `recoverable`, `conflict` and `missing`, plus a successful recoverable retry. It verified that synthetic legacy engine account IDs and provisioning names are not present in rendered page text.
 
 The 71-screen exploratory collector also covered desktop/mobile and materially distinct tablet surfaces at `768x1024`. Browser authentication used loopback HTTP with `SESSION_SECURE_COOKIE=false` only because `php artisan serve` does not terminate TLS; secure-cookie production behavior remains covered by the independent Phase 7 staging evidence.
 
@@ -134,7 +134,7 @@ No current delivered surface is classified `UX_BLOCKER` or `VISUAL_BLOCKER` by t
 | Account Overview — pending | D/M | Explicit in-progress state; no unauthorized retry/character action | `PRODUCTION_READY` |
 | Account Overview — recoverable | D/M + retry success | Safe retry of persisted provisioning intent only | `PRODUCTION_READY` |
 | Account Overview — conflict | D/M | Fail-closed support guidance; no retry/rebind/replacement action | `PRODUCTION_READY` |
-| Account Overview — missing binding | D/M | Safe non-actionable support state; no inferred Canary ownership | `PRODUCTION_READY` |
+| Account Overview — missing binding | D/M | Safe non-actionable support state; no inferred legacy engine ownership | `PRODUCTION_READY` |
 | Character creation | D/M | User-facing labels and coherent account context | `PRODUCTION_READY` |
 | Admin dashboard | D/M | Oriented admin shell with account/logout path | `PRODUCTION_READY` |
 | CMS news list/form | D/M | Responsive table/form and action hierarchy | `PRODUCTION_READY` |
@@ -151,13 +151,13 @@ No current delivered surface is classified `UX_BLOCKER` or `VISUAL_BLOCKER` by t
 
 | Authoritative Platform state | User-facing state | Character creation | Retry | Safety result |
 |---|---|---:|---:|---|
-| binding `ready` | `Ready` | allowed | not shown | Uses ready Platform binding; no raw Canary ID/name shown |
+| binding `ready` | `Ready` | allowed | not shown | Uses ready Platform binding; no raw legacy engine ID/name shown |
 | binding `pending`, no recoverable dependency code | `Setup in progress` | blocked | not shown | Fails closed until ready |
 | binding `pending` + `dependency_unavailable` | `Setup interrupted` | blocked | allowed | Reuses existing idempotent provisioning action and persisted immutable intent |
 | binding `conflict` | `Support required` | blocked | not shown | No self-service rebind/unlink/replacement account |
-| missing/unknown binding state | `Support required` | blocked | not shown | Does not infer ownership from Canary data |
+| missing/unknown binding state | `Support required` | blocked | not shown | Does not infer ownership from legacy engine data |
 
-The Account Overview reads Platform-owned `identity_canary_accounts` state only. It does not expose raw Canary account IDs, provisioning names, credentials, tokens, hashes or internal exception details. Hard conflict and unknown/missing states remain fail-closed.
+The Account Overview reads Platform-owned `identity_legacy_accounts` state only. It does not expose raw legacy engine account IDs, provisioning names, credentials, tokens, hashes or internal exception details. Hard conflict and unknown/missing states remain fail-closed.
 
 ## Cross-cutting UX assessment
 

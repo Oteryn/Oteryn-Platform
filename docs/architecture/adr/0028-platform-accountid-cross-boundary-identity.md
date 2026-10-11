@@ -6,7 +6,7 @@ Accepted — 2026-08-07
 
 ## Context
 
-Oteryn Platform is already the authoritative owner of user Identity, reusable credentials, account-security policy and the Game Login Ticket lifecycle. Historical Platform integration was built around a greenfield compatibility relation to Canary and therefore many current contracts use the local Platform `identities.id` integer together with `canary_account_id` / Canary `accounts.id`.
+Oteryn Platform is already the authoritative owner of user Identity, reusable credentials, account-security policy and the Game Login Ticket lifecycle. Historical Platform integration was built around a greenfield compatibility relation to legacy engine and therefore many current contracts use the local Platform `identities.id` integer together with `legacy_account_id` / legacy engine `accounts.id`.
 
 Oteryn v2 is a separate native game domain. Its accepted foundation keeps `AccountId` owned by Oteryn Platform, `CharacterId` owned by the game-domain Character authority and the canonical gameplay `GameSessionId` owned by the game-domain Game Session / Admission authority. Oteryn v2 explicitly forbids silently re-keying externally owned Platform account identity.
 
@@ -30,7 +30,7 @@ AccountId = strongly typed UUIDv7, full 128 bits
 - globally unique for Platform account identity;
 - immutable for the lifetime of the Platform Identity;
 - never reused for a different account;
-- semantically opaque and independent from email, account name, Canary account number, database row position, current world, security state or entitlement state;
+- semantically opaque and independent from email, account name, legacy engine account number, database row position, current world, security state or entitlement state;
 - preserved losslessly at every authorized Platform <-> Gateway <-> Oteryn-v2 boundary;
 - not a credential, bearer capability or proof of authorization by itself.
 
@@ -57,19 +57,19 @@ The exact column name, backfill, uniqueness constraint, rollout order and migrat
 
 Only Platform Identity may mint canonical `AccountId` values.
 
-Oteryn-v2, Game Gateway, game servers, clients, Canary adapters and migration tooling must not:
+Oteryn-v2, Game Gateway, game servers, clients, legacy engine adapters and migration tooling must not:
 
 - derive `AccountId` from `identities.id`;
-- derive `AccountId` from `canary_account_id`;
+- derive `AccountId` from `legacy_account_id`;
 - mint replacement account UUIDs;
 - treat an account email/name as account identity;
 - infer ownership from equality of non-canonical identifiers.
 
 Where an external consumer requires account identity, Platform emits the canonical `AccountId` under an explicit versioned contract.
 
-### 4. Canary account IDs are legacy compatibility / ACL state
+### 4. Legacy engine account IDs are legacy compatibility / ACL state
 
-`canary_account_id` / Canary `accounts.id` remains valid only inside the explicit Canary compatibility and anti-corruption layer.
+`legacy_account_id` / legacy engine `accounts.id` remains valid only inside the explicit legacy engine compatibility and anti-corruption layer.
 
 It is not:
 
@@ -79,7 +79,7 @@ It is not:
 - a public user identifier;
 - proof of account ownership outside the compatibility contract.
 
-Existing delivered Canary provisioning, character-management, Bazaar and legacy Game Session contracts may continue to use the verified Canary identifier while those compatibility paths remain supported. They must be labelled and interpreted as legacy/current implementation boundaries rather than the native Oteryn-v2 identity model.
+Existing delivered legacy engine provisioning, character-management, Bazaar and legacy Game Session contracts may continue to use the verified legacy engine identifier while those compatibility paths remain supported. They must be labelled and interpreted as legacy/current implementation boundaries rather than the native Oteryn-v2 identity model.
 
 The mapping conceptually becomes:
 
@@ -90,14 +90,14 @@ Platform Identity
         |
         +--> native Oteryn-v2 contracts use AccountId
         |
-        +--> Legacy Canary ACL mapping may resolve canary_account_id
+        +--> Legacy engine ACL mapping may resolve legacy_account_id
 ```
 
-Removal of the Canary mapping is not authorized by this ADR.
+Removal of the legacy engine mapping is not authorized by this ADR.
 
 ### 5. Native Game Login Ticket binding
 
-The native Oteryn-v2 Game Login Ticket binds to canonical `AccountId`, not to `canary_account_id`.
+The native Oteryn-v2 Game Login Ticket binds to canonical `AccountId`, not to `legacy_account_id`.
 
 All existing security properties of the approved ticket model remain required unless a later accepted security contract strengthens them, including:
 
@@ -144,8 +144,8 @@ This is an architecture decision, not an implementation or activation claim.
 Until a separately authorized migration is implemented and proven:
 
 - current Platform database schema remains unchanged;
-- current Canary-compatible ticket/redeem/session contracts may continue to use `identity_id` and `canary_account_id` where their declared scope is explicitly Canary compatibility;
-- native Oteryn-v2 integration must not copy those Canary-specific identifiers into its target contract;
+- current legacy-compatible ticket/redeem/session contracts may continue to use `identity_id` and `legacy_account_id` where their declared scope is explicitly legacy engine compatibility;
+- native Oteryn-v2 integration must not copy those legacy-engine-specific identifiers into its target contract;
 - mixed-version ambiguity fails closed rather than silently translating identities.
 
 The migration must be additive and backward compatible first. It must not require rewriting all existing Platform foreign keys solely to expose native `AccountId`.
@@ -154,7 +154,7 @@ The migration must be additive and backward compatible first. It must not requir
 
 This ADR refines ADR 0004 and ADR 0009 for the native Oteryn-v2 boundary.
 
-Where those earlier ADRs use `1 Platform Identity <-> 1 Canary accounts.id` or bind the Game Login Ticket to `canary_account_id`, that remains valid evidence and policy for the declared Canary compatibility model, but it no longer defines canonical native cross-boundary account identity.
+Where those earlier ADRs use `1 Platform Identity <-> 1 legacy engine accounts.id` or bind the Game Login Ticket to `legacy_account_id`, that remains valid evidence and policy for the declared legacy engine compatibility model, but it no longer defines canonical native cross-boundary account identity.
 
 All still-compatible decisions remain in force, especially:
 
@@ -162,7 +162,7 @@ All still-compatible decisions remain in force, especially:
 - Game Gateway does not verify user passwords;
 - authorization identifiers supplied by clients are never ownership proof;
 - Game Login Tickets remain short-lived, one-time and fail closed;
-- Canary remains the semantic owner of legacy Canary gameplay data while the compatibility path exists.
+- Legacy engine remains the semantic owner of legacy engine gameplay data while the compatibility path exists.
 
 This ADR does not supersede those decisions outside the narrower identity-representation/native-boundary conflict resolved here.
 
@@ -172,7 +172,7 @@ This ADR does not supersede those decisions outside the narrower identity-repres
 
 - the native game domain receives a stable Platform-owned account identity independent from Laravel persistence layout;
 - Platform can evolve internal storage without re-keying every external game contract;
-- Canary numeric IDs cannot leak into the native domain as accidental permanent identity;
+- Legacy engine numeric IDs cannot leak into the native domain as accidental permanent identity;
 - existing Laravel foreign keys do not require an unnecessary broad migration;
 - AccountId, CharacterId and GameSessionId retain separate owners and lifecycle semantics;
 - security-sensitive ticket and admission boundaries become easier to type-check, audit and reason about across languages.
@@ -180,8 +180,8 @@ This ADR does not supersede those decisions outside the narrower identity-repres
 ### Costs
 
 - Platform needs an additive UUIDv7 account-identity migration before native runtime consumption;
-- compatibility adapters must maintain explicit mappings while Canary support exists;
-- Gateway/private APIs require a versioned migration from Canary-specific authorization results to native AccountId results;
+- compatibility adapters must maintain explicit mappings while legacy engine support exists;
+- Gateway/private APIs require a versioned migration from legacy-engine-specific authorization results to native AccountId results;
 - cross-repository fixtures and conformance tests must prove lossless 128-bit representation and reject mixed identifier types.
 
 ## Rejected alternatives
@@ -194,9 +194,9 @@ Rejected as the native cross-boundary contract because it exposes local persiste
 
 Rejected because canonical external identity does not require rewriting all internal persistence relations. The migration cost and risk would not provide corresponding product value.
 
-### Reuse `canary_account_id` as native AccountId
+### Reuse `legacy_account_id` as native AccountId
 
-Rejected because Canary account identity belongs to a legacy compatibility model and would permanently couple the native Rust game domain to Canary schema/history.
+Rejected because legacy engine account identity belongs to a legacy compatibility model and would permanently couple the native Rust game domain to legacy engine schema/history.
 
 ### Let Oteryn-v2 mint its own account UUID and map it to Platform
 
@@ -210,7 +210,7 @@ A separately authorized implementation/migration task must later define and prov
 2. UUIDv7 generation and uniqueness/collision behavior;
 3. deterministic backfill for existing Platform Identities without changing `identities.id`;
 4. versioned native ticket redeem/login-context schema using `AccountId`;
-5. explicit Canary ACL mapping and legacy endpoint/version retention during rollout;
+5. explicit legacy engine ACL mapping and legacy endpoint/version retention during rollout;
 6. cross-language UUID representation/canonicalization fixtures;
 7. rollback and mixed-version failure behavior;
 8. coordinated Oteryn-v2 consumer adoption only after its owning foundation gates permit implementation.

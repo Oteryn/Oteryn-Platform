@@ -4,13 +4,13 @@
 
 Public community pages use:
 
-- the Platform database for Identity privacy flags and ready Identity-to-Canary bindings;
-- the dedicated read-only Canary MariaDB principal for character, guild, house and death data;
-- the dedicated Canary runtime Redis principal only for current online/server state.
+- the Platform database for Identity privacy flags and ready Identity-to-legacy engine bindings;
+- the dedicated read-only legacy engine MariaDB principal for character, guild, house and death data;
+- the dedicated legacy engine runtime Redis principal only for current online/server state.
 
-No page in this lifecycle writes to Canary.
+No page in this lifecycle writes to legacy engine.
 
-## Required Canary grants
+## Required legacy engine grants
 
 Render and execute `database/provisioning/canary-readonly.sql.template` only through a reviewed deployment procedure. The resulting principal must have direct `SELECT` on exactly:
 
@@ -26,7 +26,7 @@ Render and execute `database/provisioning/canary-readonly.sql.template` only thr
 After configuration, run:
 
 ```bash
-php artisan canary:verify-db-privileges
+php artisan legacy:verify-db-privileges
 ```
 
 Do not copy raw `SHOW GRANTS` output into tickets or logs because some database variants include authentication metadata.
@@ -49,17 +49,17 @@ Never perform grant revocation or mutation probes against production without an 
 Track HTTP `503` rates for community routes and correlate them with structured request IDs. A dependency failure must not produce SQL text or credentials in the response. During an incident:
 
 - confirm Platform database health before investigating privacy-binding reads;
-- verify the dedicated Canary credential and direct table grants without widening them;
+- verify the dedicated legacy engine credential and direct table grants without widening them;
 - verify MariaDB reachability and query latency;
 - verify Redis only for online/server state; deaths, profiles, guilds and highscores do not depend on Redis;
 - restore the missing dependency or grant rather than replacing authoritative values with cached guesses.
 
 ## Privacy review
 
-When changing public profile fields, inspect both the Canary source and Platform privacy policy. Do not expose:
+When changing public profile fields, inspect both the legacy engine source and Platform privacy policy. Do not expose:
 
 - Identity email or internal IDs;
-- Canary account IDs;
+- Legacy engine account IDs;
 - binding/provisioning details;
 - IP addresses or runtime lease values;
 - moderator-only notes or account enforcement records;
@@ -68,7 +68,7 @@ When changing public profile fields, inspect both the Canary source and Platform
 
 ## Rollback
 
-Application rollback is code-only because this slice adds no database migration and performs no Canary mutation. If the prior application revision does not read `houses` or `player_deaths`, its operation remains compatible with the expanded read-only grants. Removing grants requires a separate security/deployment review and must not happen while any deployed revision still requires those tables.
+Application rollback is code-only because this slice adds no database migration and performs no legacy engine mutation. If the prior application revision does not read `houses` or `player_deaths`, its operation remains compatible with the expanded read-only grants. Removing grants requires a separate security/deployment review and must not happen while any deployed revision still requires those tables.
 
 ## Evidence classification
 

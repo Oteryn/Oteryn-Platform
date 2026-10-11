@@ -2,9 +2,9 @@
 
 Status: Proposed  
 Contract: `oteryn.game-catalog/v1`  
-Repositories: `Oteryn/Oteryn-Platform`, `blakinio/canary`
+Repositories: `Oteryn/Oteryn-Platform`, `the legacy game-server repository`
 
-> Compatibility scope: this document describes the delivered/planned Legacy Canary Compatibility catalogue. ADR 0034 and `docs/contracts/OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md` own the separate native Oteryn-v2 target and supersede any implication that Canary schemas or identifiers define native content authority.
+> Compatibility scope: this document describes the delivered/planned Legacy Engine Compatibility catalogue. ADR 0034 and `docs/contracts/OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md` own the separate native Oteryn-v2 target and supersede any implication that legacy engine schemas or identifiers define native content authority.
 
 ## 1. Purpose
 
@@ -16,10 +16,10 @@ External sites such as Tibiopedia, RubinOT Wiki and Tibia Fandom are useful UX r
 
 Create a dedicated Platform-owned `GameCatalog` module integrated with Wiki navigation and editorial links, but separate from the Wiki article persistence model.
 
-Use immutable, provenance-pinned snapshots exported from Canary. Import, validate and retain snapshots in Oteryn Platform. An administrator-controlled content profile selects one validated snapshot and a target release. Public queries use a precomputed visibility projection for that exact profile and snapshot.
+Use immutable, provenance-pinned snapshots exported from legacy engine. Import, validate and retain snapshots in Oteryn Platform. An administrator-controlled content profile selects one validated snapshot and a target release. Public queries use a precomputed visibility projection for that exact profile and snapshot.
 
 ```text
-Canary final runtime definitions
+Legacy engine final runtime definitions
   + reviewed datapack catalogue metadata
   -> deterministic JSON snapshot + SHA-256
   -> Platform schema and semantic validation
@@ -31,7 +31,7 @@ Canary final runtime definitions
 
 ## 3. Responsibility boundary
 
-### Canary owns
+### Legacy engine owns
 
 - final item runtime definitions after appearances and item configuration are loaded;
 - final creature definitions and loot;
@@ -89,7 +89,7 @@ The architecture separates:
 - `datapack_revision`;
 - `appearances_revision` or hash;
 - `map_sha256`;
-- `canary_commit_sha`.
+- `legacy_commit_sha`.
 
 A server may accept a 15.25 protocol while exposing only content verified through 15.20. These facts must not be collapsed into one `server_version` field.
 
@@ -174,7 +174,7 @@ Snapshot-specific identifiers are separate namespaced values:
 
 ```json
 {
-  "namespace": "canary.server_item_id",
+  "namespace": "legacy.server_item_id",
   "value": "2516"
 }
 ```
@@ -190,7 +190,7 @@ id
 contract_version
 schema_version
 content_sha256 UNIQUE
-canary_commit_sha
+legacy_commit_sha
 datapack_commit_sha nullable
 protocol_profile
 runtime_release_id
@@ -800,7 +800,7 @@ Cover desktop, tablet, mobile and keyboard interaction for:
 
 ### Slice 1 — items, creatures and loot
 
-- Canary offline deterministic export;
+- Legacy engine offline deterministic export;
 - Platform validation and immutable import;
 - profiles and visibility projections;
 - activation and rollback;
@@ -809,7 +809,7 @@ Cover desktop, tablet, mobile and keyboard interaction for:
 
 ### Slice 2 — NPCs
 
-- safe read-only Canary NPC registry iteration;
+- safe read-only legacy engine NPC registry iteration;
 - NPC details;
 - versioned buy/sell offers;
 - availability evidence.
@@ -838,7 +838,7 @@ Cover desktop, tablet, mobile and keyboard interaction for:
 
 The first implementation slice is complete only when:
 
-1. Canary produces a deterministic items, creatures and loot snapshot.
+1. Legacy engine produces a deterministic items, creatures and loot snapshot.
 2. Export does not start world services or mutate the database.
 3. Both repositories use the same schema version and schema hash.
 4. Platform rejects malformed and semantically invalid snapshots.

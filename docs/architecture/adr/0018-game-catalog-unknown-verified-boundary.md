@@ -5,7 +5,7 @@ Date: 2026-07-29
 
 ## Context
 
-Game Catalog schema `1.0.0` requires `snapshot.verified_content_through_release` to reference a concrete release. Canary proves its protocol version and bounded runtime records, but those facts do not prove a datapack-wide reviewed completeness boundary. Reusing the protocol version or inventing a sentinel release would turn missing evidence into a false fact.
+Game Catalog schema `1.0.0` requires `snapshot.verified_content_through_release` to reference a concrete release. Legacy engine proves its protocol version and bounded runtime records, but those facts do not prove a datapack-wide reviewed completeness boundary. Reusing the protocol version or inventing a sentinel release would turn missing evidence into a false fact.
 
 Platform persistence also requires a non-null release foreign key, and activation does not need to handle an unknown value because schema `1.0.0` cannot express one.
 
@@ -42,5 +42,5 @@ Platform persistence also requires a non-null release foreign key, and activatio
 - `docs/architecture/adr/0016-versioned-game-catalog-snapshots.md`
 - `docs/contracts/GAME_CATALOG_IMPORT_CONTRACT.md`
 - Platform task `OTERYN-20260729-game-catalog-null-boundary`
-- Canary task `CAN-20260729-game-catalog-schema-1-1`
+- Legacy engine task `CAN-20260729-game-catalog-schema-1-1`
 - Coordination ID `OTS-20260728-game-catalog-v1`

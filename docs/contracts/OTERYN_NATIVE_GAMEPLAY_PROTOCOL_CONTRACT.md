@@ -17,11 +17,11 @@ It is **not** the current architecture authority for Oteryn-v2 gameplay protocol
 
 Apply the repository architecture authority order before using this historical package:
 
-1. `docs/architecture/adr/0031-native-oteryn-v2-integration-boundary.md` is the accepted durable decision for the Platform native-v2 versus Legacy Canary Compatibility boundary.
+1. `docs/architecture/adr/0031-native-oteryn-v2-integration-boundary.md` is the accepted durable decision for the Platform native-v2 versus Legacy Engine Compatibility boundary.
 2. `docs/architecture/OTERYN_V2_INTEGRATION_ARCHITECTURE.md` is the focused current Platform-side target architecture.
 3. Oteryn-v2 owns authoritative gameplay admission/session/lease/fencing and `protocol-oteryn` gameplay semantics. Exact Oteryn-v2 contract bytes and unfinished admission/session details must come from the accepted Oteryn-v2 authority, not from this file.
 4. Platform owns Identity, OAuth/PKCE, one-time Game Login Ticket lifecycle, World Registry policy/routing and Game Gateway pre-admission orchestration within ADR 0031.
-5. Current Canary-compatible Game Session v1 remains separately governed by `GAME_SESSION_CANARY_CONTRACT.md` for its declared compatibility scope.
+5. Current legacy-compatible Game Session v1 remains separately governed by the retired legacy-engine contracts (see the ADR index) for its declared compatibility scope.
 
 ADR 0031 supersedes the former target ownership model in this document wherever this file assigned gameplay protocol semantics, final admission or authoritative admitted-session behavior to Platform/Gateway or to the historical Otheryn correspondence package.
 
@@ -61,7 +61,7 @@ The following text is intentionally retained because repository validators use i
 - At most one candidate may have `family = oteryn`; when present, its `native_protocol_version` is exactly `1`.
 - It contains no `profile` key, alias or placeholder.
 - The current contract has no placeholder for that future work.
-- `protocol-canary` and `protocol-oteryn` were separate historical adapter families; no profile-shaped alias joined them.
+- `protocol-legacy` and `protocol-oteryn` were separate historical adapter families; no profile-shaped alias joined them.
 
 Future Oteryn-v2 protocol evolution follows Oteryn-v2-owned authority plus an explicit Platform consumer contract where Platform must carry selection metadata. It does not extend this historical file.
 
@@ -77,7 +77,7 @@ Repository audits also retain the former package's exact defensive bounds so the
 - historical ClientHello deadline: `5 seconds` after TLS completion;
 - historical selection/admission behavior was fail closed, single admission, replay resistant and terminal after a binding/transport failure;
 - the package used `bind_on_first_admission`, allowed no second candidate after selection, required no plaintext or cross-family fallback, and required credential/identifier redaction;
-- production canary enablement required separate owner authorization.
+- production pilot enablement required separate owner authorization.
 
 These bounds remain useful regression evidence for the bytes that the repository already produced. They must not be copied into Oteryn-v2 as current protocol requirements unless the Oteryn-v2 authority independently accepts them.
 
@@ -94,7 +94,7 @@ Before any native-v2 Platform producer is enabled or treated as ready:
 3. classify every historical field as reusable Platform metadata, mapped compatibility data, rejected legacy ownership, or newly required consumer data;
 4. implement only separately accepted Platform-side changes;
 5. prove producer/consumer compatibility on exact revisions;
-6. retain rollback and keep Legacy Canary Compatibility explicitly separated;
+6. retain rollback and keep Legacy Engine Compatibility explicitly separated;
 7. perform staging/E2E and production activation only under their separate authorization gates.
 
 Missing Oteryn-v2 contract evidence remains `UNKNOWN`; it is never filled from this historical document by analogy.

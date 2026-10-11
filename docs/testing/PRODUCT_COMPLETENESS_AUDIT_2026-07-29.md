@@ -160,12 +160,12 @@ The current role administration page paginates Platform identities and assigns/r
 | MFA email code | `NOT_APPLICABLE` | explicitly rejected because email is already the recovery channel | retain security rationale |
 | MFA challenge | `IMPLEMENTED` | challenge, invalid/replay/recovery-code states | none |
 | Active sessions | `IMPLEMENTED` | bounded inventory plus targeted/current/all-other revocation | none |
-| Connected account inventory/unlink/rebind | `NOT_APPLICABLE` | immutable `1 Identity <-> 1 Canary account` binding; no safe self-service mutation contract | exceptional operation requires separate review |
+| Connected account inventory/unlink/rebind | `NOT_APPLICABLE` | immutable `1 Identity <-> 1 legacy engine account` binding; no safe self-service mutation contract | exceptional operation requires separate review |
 | Account status/VIP/loyalty/badges | `MISSING_OPTIONAL` / `PLANNED` | no product-owned model; premium depends on commerce | #325 and #322 |
 | Account privacy | `IMPLEMENTED` | private-by-default association/status controls | none |
-| Punishment history | `IMPLEMENTED` | Platform warning/restriction/suspension history and appeals | Canary-native ban mutation remains separate |
+| Punishment history | `IMPLEMENTED` | Platform warning/restriction/suspension history and appeals | legacy-engine-native ban mutation remains separate |
 | Report history | `IMPLEMENTED` | owner-only report history and public-safe outcome | none |
-| Account termination | `IMPLEMENTED` | grace, cancel, idempotent finalization, Platform anonymization/retention and audit | preserves Canary-owned data |
+| Account termination | `IMPLEMENTED` | grace, cancel, idempotent finalization, Platform anonymization/retention and audit | preserves game-server-owned data |
 | Authoritative game-login bridge | `PLANNED` | explicitly excluded from delivered portal route contract | separate cross-repository authorization required |
 
 ### Character management
@@ -177,7 +177,7 @@ The current role administration page paginates Platform identities and assigns/r
 | Vocation, sex and name selection | `IMPLEMENTED` | canonical validation and starter policy | none |
 | Name validation/conflict | `IMPLEMENTED` for creation | reserved/duplicate/concurrent name handling | rename remains #319 |
 | Character quota | `IMPLEMENTED` | maximum active-character enforcement | none |
-| Owner public comment | `IMPLEMENTED` | Platform-owned bounded escaped text; no Canary `players.comment` mutation | none |
+| Owner public comment | `IMPLEMENTED` | Platform-owned bounded escaped text; no legacy engine `players.comment` mutation | none |
 | Character/account privacy | `IMPLEMENTED` | account upper bound plus per-field narrowing | none |
 | Featured achievements | `PLANNED` | no authoritative earned-achievement source or selection | #301 and #323 |
 | Delete/grace/finalize/restore | `MISSING_REQUIRED` | no operation contract or UI | #317 |
@@ -187,7 +187,7 @@ The current role administration page paginates Platform identities and assigns/r
 | Main character | `IMPLEMENTED` | optional single-main preference with Identity-row locking and real-MariaDB race proof | none |
 | Account character list | `IMPLEMENTED` | Account Center states and current ownership | none |
 | Public profile core | `IMPLEMENTED` | level, vocation, status, residence/house, guild/rank, deaths/kills, related characters under privacy | achievements remain planned |
-| Canary linkage | `IMPLEMENTED` for approved operations | read-only public data, create adapter and Bazaar transfer adapter | new mutations require new principals/contracts |
+| Legacy engine linkage | `IMPLEMENTED` for approved operations | read-only public data, create adapter and Bazaar transfer adapter | new mutations require new principals/contracts |
 | Idempotency/rollback | `IMPLEMENTED` for create and Bazaar | operation-specific recovery and saga evidence | must be designed separately for #317/#319/#320 |
 
 ### Commerce and entitlements
@@ -220,7 +220,7 @@ No fictional provider was implemented. #321 explicitly requires a real provider 
 | Limits/anti-spam | `IMPLEMENTED` | bounded pending/report limits and throttling | none |
 | Player/content/guild reports | `IMPLEMENTED` | private reporter identity and moderated outcomes | none |
 | Report and punishment history | `IMPLEMENTED` | owner-only histories and appeals | none |
-| Canary bans | `NOT_APPLICABLE` to delivered Platform moderation | Platform does not mutate native game bans | separate least-privilege contract if ever required |
+| Legacy engine bans | `NOT_APPLICABLE` to delivered Platform moderation | Platform does not mutate native game bans | separate least-privilege contract if ever required |
 | Moderator/admin queues | `IMPLEMENTED` | exact permissions plus confirmed MFA | none |
 | Authorization denied/object scope | `IMPLEMENTED` | guest/no-MFA/no-permission/foreign-owner denial | none |
 | Operation audit | `IMPLEMENTED` | bounded metadata; private bodies excluded | none |
@@ -276,7 +276,7 @@ External Wikis are never sources of truth for Oteryn availability. Oteryn must u
 | Seller character selection/eligibility | `IMPLEMENTED` | ready binding, ownership, active/session/quota and escrow checks |
 | Price, fee, duration, bidding/buy-now | `IMPLEMENTED` | configured minimum/increment/commission and transactional reservations |
 | Wallet/blocked funds/outbid release | `IMPLEMENTED` | locked available/reserved balances and exactly-once release |
-| Completion/ownership transfer | `IMPLEMENTED` | dedicated least-privilege Canary transfer adapter and settlement saga |
+| Completion/ownership transfer | `IMPLEMENTED` | dedicated least-privilege legacy engine transfer adapter and settlement saga |
 | Failed/no-bid/cancel | `IMPLEMENTED` | no-bid expiry return, pre-bid cancellation and recovery-required state |
 | History/privacy/audit | `IMPLEMENTED` | customer/admin history; internal IDs and integration errors excluded |
 | Rollback/recovery/concurrency | `IMPLEMENTED` | cross-database reconciliation, real-MariaDB races and bounded admin recovery |
@@ -293,7 +293,7 @@ External Wikis are never sources of truth for Oteryn availability. Oteryn must u
 | Wiki/media administration | `IMPLEMENTED` | editor/reviewer/publisher lifecycle, signed preview, integrity controls | none |
 | Game Catalog synchronization/inspection | `IMPLEMENTED` for first scope | immutable import, activation/rollback and secured inspection | #301 for expansion |
 | Announcements/events/downloads | `IMPLEMENTED` | lifecycle, conflict and EN/PL evidence | none |
-| Support/reports/punishments | `IMPLEMENTED` for Platform boundary | exact permission/MFA queues and audit | no Canary ban mutation |
+| Support/reports/punishments | `IMPLEMENTED` for Platform boundary | exact permission/MFA queues and audit | no legacy engine ban mutation |
 | Payments | `PLANNED` | absent | #321/#322 |
 | Character services | `PLANNED` | create and Bazaar delivered; delete/rename/transfer absent | #317/#319/#320/#323 |
 | Char Bazaar admin | `IMPLEMENTED` | wallet adjustment and recovery queue behind exact permission/MFA | none |
@@ -396,7 +396,7 @@ At report creation time, no local command or browser suite was run. Required exa
 - #325 — loyalty/badge/status product decision;
 - #326 — exhaustive visual/state acceptance matrix.
 
-The child issues contain scope, domain/data model, API/UI, security, migration/rollout, tests, acceptance criteria and dependencies. They explicitly prohibit unapproved Canary, payment-provider and production mutation.
+The child issues contain scope, domain/data model, API/UI, security, migration/rollout, tests, acceptance criteria and dependencies. They explicitly prohibit unapproved legacy engine, payment-provider and production mutation.
 
 ## Risks
 

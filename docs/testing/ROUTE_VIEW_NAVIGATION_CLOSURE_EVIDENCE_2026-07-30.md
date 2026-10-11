@@ -83,5 +83,5 @@ The fixture suite passed 12 fail-closed mutations covering:
 
 - Repository closure does not prove deployment or production reachability.
 - Static route/view/navigation closure does not prove every runtime data state, role, viewport, browser or assistive-technology permutation.
-- No production, staging, Canary, schema, payment-provider or user-data mutation was performed.
+- No production, staging, legacy engine, schema, payment-provider or user-data mutation was performed.
 - Parent Issue #326 remains open for independent review and unrelated completeness gaps.

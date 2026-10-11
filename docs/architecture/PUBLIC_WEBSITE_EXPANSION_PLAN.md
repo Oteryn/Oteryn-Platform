@@ -25,7 +25,7 @@ Turn the current Oteryn website into a complete MMORPG portal that helps a visit
 - enter the Oteryn Wiki;
 - join the community.
 
-The programme must preserve the existing Laravel modular monolith, Platform-owned Identity, deny-by-default RBAC, confirmed-MFA administrator access, administrator audit and read-only Canary integration boundaries.
+The programme must preserve the existing Laravel modular monolith, Platform-owned Identity, deny-by-default RBAC, confirmed-MFA administrator access, administrator audit and read-only legacy engine integration boundaries.
 
 ## Current reusable capabilities
 
@@ -89,7 +89,7 @@ The following are not part of the initial public-site programme:
 - Battle Pass;
 - promotions, affiliate or influencer systems.
 
-These require the separately deferred Payments programme, transaction ledger, refund/chargeback handling, fraud controls and explicit Canary fulfilment contracts.
+These require the separately deferred Payments programme, transaction ledger, refund/chargeback handling, fraud controls and explicit legacy engine fulfilment contracts.
 
 ## Information architecture
 
@@ -178,7 +178,7 @@ Owns:
 Must not own:
 
 - authentication policy;
-- Canary queries;
+- Legacy engine queries;
 - CMS persistence;
 - payment state;
 - game-runtime mutations.
@@ -216,7 +216,7 @@ Existing PublicGameData continues to own read-only game/runtime projections:
 - highscores;
 - later latest-death and kill-statistic projections after schema and privacy contracts are verified.
 
-Homepage and other portal pages consume this module through explicit query/view-model interfaces. They must not perform new raw Canary queries directly from Blade templates or homepage controllers.
+Homepage and other portal pages consume this module through explicit query/view-model interfaces. They must not perform new raw legacy engine queries directly from Blade templates or homepage controllers.
 
 #### Downloads module
 
@@ -800,7 +800,7 @@ Candidate capabilities:
 
 Before implementation:
 
-- verify Canary schema and semantics;
+- verify legacy engine schema and semantics;
 - define field allowlists;
 - verify privacy and moderation policy;
 - use read-only integration;

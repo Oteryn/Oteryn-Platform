@@ -37,7 +37,7 @@ Use the smallest deterministic layer that can prove the required property:
 - unit tests for pure policy and transformations;
 - Laravel feature/HTTP tests for middleware, validation, authorization, rate limits and server-rendered behavior;
 - real-database integration tests for transactions, locking, uniqueness, concurrency and data integrity;
-- contract tests for Canary/login-server/shared-interface assumptions;
+- contract tests for legacy engine/login-server/shared-interface assumptions;
 - production-like browser/system E2E for composed user journeys, browser-specific behavior, user-visible failure/recovery and cross-surface authorization;
 - deployment/operations validation for migration, rollback, backup/restore and service-topology behavior;
 - final production smoke/E2E only for facts that require the actual deployed production environment.
@@ -114,7 +114,7 @@ Cross-browser, chaos, migration, observability or soak success in repository/sta
 
 When the separately authorized Platform-originated game-login bridge exists, its critical end-to-end properties must be added to the validation architecture, including credential authority, expiry/replay, revocation, disabled/banned state and character usability.
 
-This ADR does not authorize writes to Canary or login-server repositories.
+This ADR does not authorize writes to legacy engine or login-server repositories.
 
 ## Consequences
 

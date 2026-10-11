@@ -8,7 +8,7 @@
 
 ## Context
 
-Oteryn already has a browser OAuth/PKCE, one-time Game Login Ticket, private ticket redeem, World Registry, Game Gateway and Game Session chain. Otheryn already serves profile-driven Canary-compatible gameplay through ASIO. The Rust client is designed for independent `protocol-canary` and future `protocol-oteryn` adapters.
+Oteryn already has a browser OAuth/PKCE, one-time Game Login Ticket, private ticket redeem, World Registry, Game Gateway and Game Session chain. Otheryn already serves profile-driven legacy-compatible gameplay through ASIO. The Rust client is designed for independent `protocol-legacy` and future `protocol-oteryn` adapters.
 
 Automatic native selection must not create a second login authority, overload Gateway API `protocol_version`, infer protocol from attacker-controlled gameplay bytes or permit a post-authentication downgrade.
 
@@ -19,7 +19,7 @@ Automatic native selection must not create a second login authority, overload Ga
 3. Gateway performs the sole final deterministic selection after ticket redeem and binds it to Game Session contract version 2.
 4. Otheryn validates and atomically consumes the exact bound session at first character admission.
 5. Native v1 uses a separate TLS 1.3 endpoint, ALPN `oteryn-game/1`, big-endian 32-bit length framing and protobuf schema revision 2.
-6. Native and Canary are independent adapter families. No wrapping, packet translation or byte-guess fallback is allowed.
+6. Native and legacy engine are independent adapter families. No wrapping, packet translation or byte-guess fallback is allowed.
 7. Native v1 has explicit command IDs, command and stream sequences, action results, authoritative state revisions, initial snapshots, deltas and bounded resynchronization.
 8. Native v1 has no session resume, command replay after disconnect or in-session adapter switch.
 9. Native identity is exactly `family = oteryn` and `native_protocol_version = 1`; there is no native profile field, placeholder, catalogue, ordering or selector.
@@ -36,9 +36,9 @@ ADR 0031 replaces this ADR as the target authority for native gameplay protocol 
 - selection stays inside the existing authoritative entry chain;
 - downgrade decisions occur once and are session-bound;
 - client/server responsibilities are explicit;
-- native semantics do not inherit Canary packet constraints;
+- native semantics do not inherit legacy engine packet constraints;
 - server-first deployment is possible while advertisement remains disabled;
-- legacy Canary compatibility remains available as an explicit selected candidate.
+- legacy engine compatibility remains available as an explicit selected candidate.
 
 ### Costs
 
@@ -53,9 +53,9 @@ ADR 0031 replaces this ADR as the target authority for native gameplay protocol 
 - Gateway candidate set followed by client selection: adds state and downgrade ambiguity after ticket consumption.
 - game-server wire negotiation: duplicates Gateway/World Registry authority and occurs too late.
 - protocol sniffing/fallback: attacker-controlled, ambiguous and not session-bound.
-- native-over-Canary translation: preserves the wrong packet constraints and duplicates failure semantics.
+- native-over-legacy engine translation: preserves the wrong packet constraints and duplicates failure semantics.
 - replacing Otheryn ASIO with Tokio: unrelated and unsupported by profiling evidence.
 
 ## Rollback
 
-Disable native advertisement in World Registry/Gateway first. Existing native sessions drain or close according to operator policy; they never switch to Canary. Canary remains separately selectable for fresh sessions. Runtime packages must retain feature flags and old contract acceptance until the bounded rollback window closes.
+Disable native advertisement in World Registry/Gateway first. Existing native sessions drain or close according to operator policy; they never switch to legacy engine. Legacy engine remains separately selectable for fresh sessions. Runtime packages must retain feature flags and old contract acceptance until the bounded rollback window closes.

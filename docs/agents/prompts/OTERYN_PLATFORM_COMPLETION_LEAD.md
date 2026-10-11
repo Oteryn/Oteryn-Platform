@@ -103,7 +103,7 @@ Do not:
 - claim Game paths;
 - alter Game architecture/contracts/gameplay semantics;
 - create a competing Character/content authority in Platform;
-- treat stale Canary/Crystal assumptions as higher authority than current accepted Oteryn Game contracts.
+- treat stale legacy engine/Crystal assumptions as higher authority than current accepted Oteryn Game contracts.
 
 If Platform can adapt to an already accepted Game contract, adapt Platform and continue without escalation.
 

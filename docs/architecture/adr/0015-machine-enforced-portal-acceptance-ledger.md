@@ -8,7 +8,7 @@ Accepted — 2026-07-27
 
 Oteryn Platform has an exact-SHA production-like Playwright harness, a full primary Chromium baseline, bounded Chromium/Firefox/WebKit portability, representative desktop/tablet/mobile coverage, public dependency recovery, keyboard/focus interaction, migration/rollback validation and visual evidence. That architecture is governed by ADR 0008 and remains valid.
 
-The delivered portal has grown beyond the original acceptance inventory. Identity, Account Overview, Canary provisioning, characters, CMS, RBAC, audit, Downloads, Events, Announcements, Support/Legal, Wiki and Editorial Media now expose many browser-visible routes and materially different states. Existing proof is real but distributed across browser specs, Laravel feature tests, database/integration tests, module-specific security tests, release validation and operations evidence.
+The delivered portal has grown beyond the original acceptance inventory. Identity, Account Overview, legacy engine provisioning, characters, CMS, RBAC, audit, Downloads, Events, Announcements, Support/Legal, Wiki and Editorial Media now expose many browser-visible routes and materially different states. Existing proof is real but distributed across browser specs, Laravel feature tests, database/integration tests, module-specific security tests, release validation and operations evidence.
 
 A green browser suite alone therefore does not answer all of these questions deterministically:
 
@@ -66,7 +66,7 @@ The initial required CI gate enforces **classification completeness** and manife
 - unit tests for pure policies and transformations;
 - Laravel feature/HTTP tests for routes, middleware, validation, authorization, rate limits and server-rendered states;
 - database/integration tests for transactions, uniqueness, locking, races, retries and persisted integrity;
-- contract tests for Canary/login-server/shared interfaces;
+- contract tests for legacy engine/login-server/shared interfaces;
 - Playwright E2E for composed journeys, browser behavior, user-visible state transitions, cross-surface authorization and recovery;
 - visual/responsive/accessibility evidence for presentation risk;
 - deployment/operations validation for topology, migration, rollback, backup/restore and service lifecycle;
@@ -83,7 +83,7 @@ The profile composes existing and new browser scenarios covering:
 1. registration success, validation and duplicate identity handling;
 2. login success/failure, redirect behavior and logout;
 3. Account Overview authorization and navigation;
-4. Canary binding/provisioning states: ready, pending, recoverable, conflict and missing;
+4. Legacy engine binding/provisioning states: ready, pending, recoverable, conflict and missing;
 5. safe provisioning retry and absence of raw internal identifiers;
 6. password recovery through real test SMTP, expiration/replay and session revocation;
 7. authenticated password change and revocation of other sessions;
@@ -128,7 +128,7 @@ Environment classification remains unchanged:
 The ledger and account profile do not authorize or claim:
 
 - the still-separate authoritative Platform-to-game login bridge;
-- writes to Canary, login-server, OTClient or another repository;
+- writes to legacy engine, login-server, OTClient or another repository;
 - final production DNS/TLS/WAF/origin/database/Redis/mail/deployment behavior;
 - existing-account import/claim, account deletion, unlink/rebind/transfer, character rename/deletion or other deferred product functions;
 - screen-reader conformance from automated keyboard/focus checks alone;

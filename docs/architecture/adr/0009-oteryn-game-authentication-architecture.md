@@ -9,16 +9,16 @@ Accepted — 2026-07-21
 Oteryn Platform already owns the supported product Identity lifecycle, including framework-hashed credentials, revocable web sessions, password recovery/change, TOTP MFA and the immutable greenfield mapping:
 
 ```text
-1 Platform Identity <-> 1 Canary accounts.id
+1 Platform Identity <-> 1 legacy engine accounts.id
 ```
 
 The authoritative game-login bridge is not implemented.
 
 The current repository-supported game authentication landscape contains parallel password/session authorities:
 
-- native Canary `ProtocolLogin` can validate reusable credentials;
+- native legacy engine `ProtocolLogin` can validate reusable credentials;
 - upstream `opentibiabr/login-server` validates SHA-1 credentials and creates replayable DB-backed `account_sessions`;
-- Canary can issue process-local short-lived `LoginSessionManager` tokens in `authType=session` mode;
+- Legacy engine can issue process-local short-lived `LoginSessionManager` tokens in `authType=session` mode;
 - legacy protocol layouts can carry account/password directly;
 - current OTClient still reads account/password into global login state, can persist encrypted password material, sends the password through HTTP login, and passes it to `ProtocolLogin`.
 
@@ -26,16 +26,16 @@ Fresh Phase 0 evidence pins:
 
 - Oteryn Platform `main`: `09450e6f96638ae2dbf6d18c9585e7ccc5f6d24f`;
 - OTClient `main`: `a6868920443dc285656bd016acdb2c1ea566e511`;
-- Canary `main`: `d760ce44c55b9aa6f01e80d2d407f6833938bdce`;
+- Legacy engine `main`: `d760ce44c55b9aa6f01e80d2d407f6833938bdce`;
 - upstream login-server `main`: `2612930de4d97123a397f8f2cd0d5f784094af40`.
 
-The upstream login-server pin is unchanged from the existing game-auth discovery contract. Canary is 122 commits ahead of that contract's original Canary pin; the compare delta does not list authentication/runtime source files, so the existing mapped auth behavior remains the current evidence baseline for this decision.
+The upstream login-server pin is unchanged from the existing game-auth discovery contract. Legacy engine is 122 commits ahead of that contract's original legacy engine pin; the compare delta does not list authentication/runtime source files, so the existing mapped auth behavior remains the current evidence baseline for this decision.
 
 Oteryn requires a target architecture in which:
 
 - Oteryn Identity is the only reusable user-credential authority;
-- OTClient does not submit the user's main password to Game Gateway or Canary;
-- browser-based password/MFA/passkey policy can evolve without Canary changes;
+- OTClient does not submit the user's main password to Game Gateway or legacy engine;
+- browser-based password/MFA/passkey policy can evolve without legacy engine changes;
 - login is ready for multiworld and multiregion;
 - the login layer can scale independently;
 - legacy password paths remain available only during controlled migration and cannot be described as globally authoritative once the new policy is claimed.
@@ -53,9 +53,9 @@ Only Oteryn Platform Identity may authenticate reusable user credentials and app
 - disabled-account policy;
 - Identity security state and revocation generation.
 
-Game Gateway and Canary must not become independent password verifiers in the target architecture.
+Game Gateway and legacy engine must not become independent password verifiers in the target architecture.
 
-The existing random Canary sink credential used for greenfield account compatibility is not an authentication credential and must never become a login fallback.
+The existing random legacy engine sink credential used for greenfield account compatibility is not an authentication credential and must never become a login fallback.
 
 ### 2. Native-client authorization uses standards-based Authorization Code + PKCE
 
@@ -101,7 +101,7 @@ OTClient uses that credential only to request a Game Login Ticket from Oteryn Pl
 The OAuth access credential:
 
 - is never sent to Game Gateway;
-- is never sent to Canary;
+- is never sent to legacy engine;
 - is never used as a game session credential;
 - must have a bounded short lifetime suitable for bootstrap use;
 - must not provide long-lived launcher login semantics in the first release.
@@ -122,7 +122,7 @@ Required properties:
 - single-use;
 - atomically consumed;
 - bound to exact `identity_id`;
-- bound to exact ready immutable `canary_account_id`;
+- bound to exact ready immutable `legacy_account_id`;
 - bound to audience `oteryn-game-gateway`;
 - bound to the current `game_auth_generation` or equivalent monotonic revocation generation;
 - optionally constrained by client/protocol version policy;
@@ -133,7 +133,7 @@ The ticket is not:
 - an OAuth access token;
 - an OAuth refresh token;
 - a Laravel web session;
-- a Canary password;
+- a legacy engine password;
 - a Game Session.
 
 ### 5. Ticket redeem is a private server-to-server Identity operation
@@ -188,7 +188,7 @@ Gateway owns orchestration for:
 
 1. accepting Game Login Ticket login requests;
 2. redeeming tickets through Identity;
-3. resolving the authorized Canary account ID returned by redeem;
+3. resolving the authorized legacy engine account ID returned by redeem;
 4. loading worlds available to that account;
 5. loading the account's listable characters through an approved narrow read boundary;
 6. creating a Game Session through an approved compatibility adapter;
@@ -201,7 +201,7 @@ Gateway does not own:
 - registration;
 - CMS/admin;
 - general Platform database access;
-- generic Canary database access.
+- generic legacy engine database access.
 
 ### 8. Game Session is a distinct credential lifecycle
 
@@ -212,7 +212,7 @@ Logical minimum state:
 ```text
 session_id
 session_secret_hash
-canary_account_id
+legacy_account_id
 world_id
 created_at
 expires_at
@@ -221,19 +221,19 @@ revoked_at
 
 A Game Session is not the Game Login Ticket and not an OAuth credential.
 
-The first Canary compatibility adapter may use Canary's existing `account_sessions` mechanism **only if** a separate operation-specific contract proves:
+The first legacy engine compatibility adapter may use legacy engine's existing `account_sessions` mechanism **only if** a separate operation-specific contract proves:
 
 - exact schema and hash semantics;
-- exact Canary version compatibility;
+- exact legacy engine version compatibility;
 - bounded session TTL;
 - dedicated least-privilege INSERT/SELECT/DELETE privileges as required;
 - deterministic revocation/cleanup behavior;
-- no fallback to the Canary sink password;
+- no fallback to the legacy engine sink password;
 - no privilege expansion into generic account/player writes.
 
 Using `account_sessions` does not make the Game Login Ticket replayable; ticket redeem remains one-time. The known replayability of an issued `account_sessions` credential until expiry/revocation must be treated as a separate Game Session risk and bounded explicitly.
 
-If these requirements cannot be satisfied without unacceptable replay or revocation behavior, a separately authorized Canary protocol/session change is required.
+If these requirements cannot be satisfied without unacceptable replay or revocation behavior, a separately authorized legacy engine protocol/session change is required.
 
 ### 9. World Registry is a first-class, versioned domain from day one
 
@@ -298,7 +298,7 @@ new Oteryn login      = candidate authoritative path
 
 After E2E proof and rollout readiness:
 
-1. direct public native Canary login is disabled or network-fenced;
+1. direct public native legacy engine login is disabled or network-fenced;
 2. upstream login-server password authentication is removed/replaced/fenced for Oteryn clients;
 3. unsupported legacy protocol direct-password login is disabled by default or explicitly documented as a lower-security compatibility tier;
 4. long-lived DB-session fallback is not silently accepted when one-time authorization fails.
@@ -313,7 +313,7 @@ Public:
 Browser
 OTClient
 Gateway public game-login endpoint
-Canary game endpoint
+Legacy engine game endpoint
 ```
 
 Private:
@@ -327,7 +327,7 @@ shared ticket/session state
 administrative endpoints
 ```
 
-Gateway must use separate least-privilege service/database credentials per capability. A single credential with broad Platform + Canary database access is rejected.
+Gateway must use separate least-privilege service/database credentials per capability. A single credential with broad Platform + legacy engine database access is rejected.
 
 Ticket/session shared state must support horizontal Gateway/Identity deployment without process-local correctness assumptions.
 
@@ -354,18 +354,18 @@ OTClient
   -> private atomic ticket redeem at Identity
   -> World Registry + Character List
   -> Game Session creation
-  -> selected Canary endpoint
+  -> selected legacy engine endpoint
   -> player enters game
 ```
 
-The user's main password never reaches Game Gateway or Canary in this flow.
+The user's main password never reaches Game Gateway or legacy engine in this flow.
 
 ## Consequences
 
 ### Positive
 
 - password/MFA/passkey policy remains centralized in Identity;
-- Canary can evolve independently from reusable user credential policy;
+- Legacy engine can evolve independently from reusable user credential policy;
 - OTClient becomes a public native OAuth client rather than a password custodian;
 - one-time ticket replay is deterministically blocked;
 - Gateway can scale independently and route multiworld/multiregion sessions;
@@ -377,7 +377,7 @@ The user's main password never reaches Game Gateway or Canary in this flow.
 - Laravel Passport and OAuth key lifecycle become new Platform security dependencies;
 - a second runtime/toolchain (Go) is introduced in the repository;
 - Gateway availability and Identity redeem availability join the login critical path;
-- Game Session compatibility with current Canary still requires a dedicated operation contract and may require a separately authorized Canary change;
+- Game Session compatibility with current legacy engine still requires a dedicated operation contract and may require a separately authorized legacy engine change;
 - legacy bypass closure requires coordinated deployment/network changes after E2E proof.
 
 ## Rejected alternatives
@@ -390,7 +390,7 @@ Rejected. It duplicates reusable credential handling outside Identity and preven
 
 Rejected. It breaks the single authoritative Identity boundary and expands credential exposure.
 
-### Canary validates the Oteryn password directly
+### Legacy engine validates the Oteryn password directly
 
 Rejected as the target architecture. It preserves the current distributed password authority and makes Identity-only MFA/revocation bypassable.
 
@@ -402,7 +402,7 @@ Rejected for the first release. Opaque random tickets make single-use consume, i
 
 Rejected. Browser session lifecycle, CSRF/cookie semantics and game-entry credential lifecycle are different trust domains.
 
-### Send OAuth access/refresh tokens to Gateway or Canary
+### Send OAuth access/refresh tokens to Gateway or legacy engine
 
 Rejected. OAuth credentials terminate at Oteryn Identity/Platform APIs; game components receive only game-specific credentials.
 
@@ -426,7 +426,7 @@ Rejected. Authentication/routing readiness for a future `channel_id` is required
 4. Phase 3 — Game Login Ticket issuance, atomic redeem and revocation generation.
 5. Phase 4 — Go Game Gateway MVP.
 6. Phase 5 — OTClient implementation under a separately scoped OTClient task.
-7. Phase 6 — Canary/Game Session compatibility implementation after exact contract proof and separate authorization if Canary changes are needed.
+7. Phase 6 — legacy engine/Game Session compatibility implementation after exact contract proof and separate authorization if legacy engine changes are needed.
 8. Phase 7 — cross-repository staging E2E.
 9. Phase 8 — legacy path fencing/deprecation/removal.
 10. Phase 9 — multiworld expansion.
@@ -441,25 +441,22 @@ The architecture is not production-proven until all of the following are demonst
 - expired/reused authorization code denial;
 - Game Login Ticket expiry and atomic concurrent replay denial;
 - disabled/revoked Identity denial;
-- ready immutable Canary binding enforcement;
+- ready immutable legacy engine binding enforcement;
 - wrong-account/wrong-character denial;
 - Game Session expiry/revocation behavior;
-- Gateway/Identity/session-store/Canary outage fail-closed behavior;
+- Gateway/Identity/session-store/legacy engine outage fail-closed behavior;
 - direct legacy/native bypass attempts;
 - no secrets/credentials in logs;
 - exact deployed network fencing and service authentication;
-- full browser -> client -> ticket -> gateway -> session -> Canary -> player entry E2E.
+- full browser -> client -> ticket -> gateway -> session -> legacy engine -> player entry E2E.
 
 Production deployment remains a separate manual verification gate.
 
 ## Related contracts
 
 - `docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md` — current-state/bypass evidence baseline;
-- `docs/contracts/IDENTITY_CANARY_ACCOUNT_BINDING_CONTRACT.md` — authoritative Identity to exact Canary account ownership;
-- `docs/contracts/CANARY_DATA_CONTRACT.md` — shared-data deny-by-default boundary;
 - `docs/contracts/OTCLIENT_GAME_AUTH_CONTRACT.md`;
 - `docs/contracts/GAME_GATEWAY_IDENTITY_CONTRACT.md`;
-- `docs/contracts/GAME_SESSION_CANARY_CONTRACT.md`;
 - `docs/contracts/WORLD_REGISTRY_CONTRACT.md`;
 - `docs/architecture/GAME_AUTH_THREAT_MODEL.md`;
 - `docs/architecture/GAME_AUTH_SEQUENCE_DIAGRAMS.md`;

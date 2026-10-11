@@ -39,7 +39,7 @@ Security-critical surfaces include:
 - Preferred target is Argon2id when operational compatibility is proven.
 - Never store plaintext or reversibly encrypted passwords.
 - Never log passwords.
-- Legacy/hash migration must be designed against the actual login-server/Canary contract before implementation.
+- Legacy/hash migration must be designed against the actual login-server/legacy engine contract before implementation.
 
 ### Sessions
 
@@ -82,8 +82,8 @@ The delivered Platform-owned lifecycle additionally requires:
 - a high-assurance recovery key is shown once, stored only as a keyed verifier and becomes unusable after rotation, revocation or successful use;
 - successful recovery-key use resets password and MFA and revokes every Platform web session and game authorization;
 - Platform account termination uses a grace period, explicit confirmation, cancellation and audited finalization;
-- finalization disables and anonymizes Platform login but never deletes, unlinks, rebinds or transfers Canary-owned accounts or characters;
-- the ready Platform-to-Canary binding remains immutable unless a separate reviewed operation contract authorizes a narrowly scoped exceptional mutation;
+- finalization disables and anonymizes Platform login but never deletes, unlinks, rebinds or transfers game-server-owned accounts or characters;
+- the ready Platform-to-legacy engine binding remains immutable unless a separate reviewed operation contract authorizes a narrowly scoped exceptional mutation;
 - security UI, validation, token errors and notification links support exactly English and Polish without persisting raw security tokens as locale state.
 
 ## Authorization and RBAC
@@ -112,7 +112,7 @@ The delivered Platform-only support boundary requires:
 - audit metadata limited to identifiers, categories, status, booleans and lock versions, never private bodies or complete network identifiers;
 - notification delivery failure recorded independently after the domain transaction;
 - configurable retention with supported pruning/anonymization rather than direct SQL;
-- no attachment upload and no compatibility-mode Canary ban mutation without separate reviewed contracts;
+- no attachment upload and no compatibility-mode legacy engine ban mutation without separate reviewed contracts;
 - native game sanctions cross only the accepted game-enforcement command/result boundary: exact moderator authorization and confirmed MFA gate the Platform decision, while service identity separately authenticates the bounded game command;
 - free-form reports, appeal bodies, reporter identity, moderator-private notes, raw network/device values, credentials and secrets do not enter commands or ordinary cross-system telemetry;
 - dispatch, queue acceptance, Platform state and notification never prove game enforcement; ambiguous outcomes reconcile the same operation identity and user-visible state remains truthful;
@@ -177,7 +177,7 @@ Recommended production direction:
 - restrict origin firewall to approved ingress paths when practical;
 - database is not publicly exposed;
 - internal services use private/explicit network rules;
-- Canary game TCP protection requires a separate decision because standard HTTP proxying does not automatically protect arbitrary game ports.
+- Legacy engine game TCP protection requires a separate decision because standard HTTP proxying does not automatically protect arbitrary game ports.
 
 These are target directions. Actual deployed Cloudflare, TLS and origin controls remain unproven until the Phase 7 topology evidence requirements are satisfied.
 
@@ -251,7 +251,7 @@ Never record:
 - credentials should be rotated when exposure is suspected.
 - different components should use different least-privilege database/service credentials where practical.
 
-## Shared Canary/login-server security
+## Shared legacy engine/login-server security
 
 No security guarantee may rely on a rule enforced only by Oteryn Platform if another exposed path can bypass it.
 
@@ -264,7 +264,7 @@ Before production, prove end-to-end behavior for:
 - session/token creation;
 - session/token replay behavior;
 - password-change/reset revocation;
-- direct Canary/login-server bypass paths.
+- direct legacy engine/login-server bypass paths.
 
 Any unresolved bypass is a blocker for claiming the policy is enforced globally.
 
@@ -319,13 +319,13 @@ A production release must not be called security-ready until at least:
 
 ## Public community data controls
 
-Public community reads use a dedicated Canary credential with direct `SELECT` only on `players`, `guilds`, `guild_membership`, `guild_ranks`, `houses`, `player_deaths`, `channels` and `cluster_sessions`. Effective grants are verified without write probes; schema-wide, role-indirect, grant-option and write privileges fail closed.
+Public community reads use a dedicated legacy engine credential with direct `SELECT` only on `players`, `guilds`, `guild_membership`, `guild_ranks`, `houses`, `player_deaths`, `channels` and `cluster_sessions`. Effective grants are verified without write probes; schema-wide, role-indirect, grant-option and write privileges fail closed.
 
 Public profile assembly applies Platform privacy flags before presentation and excludes internal Identity/binding IDs, account IDs, email, IP data, runtime lease internals, raw death participant payloads, house coordinates and moderator-only enforcement data. Highscore sort columns come from a fixed application allowlist, while category/vocation inputs are validated against bounded enumerations.
 
-Canary/Platform query failures render localized `503` states without SQL or credential disclosure. Empty and not-found responses are never used to hide dependency failure. Guild administration, public enforcement publication and every Canary mutation remain outside this read-only boundary.
+Legacy engine/Platform query failures render localized `503` states without SQL or credential disclosure. Empty and not-found responses are never used to hide dependency failure. Guild administration, public enforcement publication and every legacy engine mutation remain outside this read-only boundary.
 
 
 ## Character profile preference security
 
-Character-profile management is authenticated and owner-scoped by server-resolved ready binding plus current read-only Canary ownership. Browser-supplied player/account identifiers do not authorize writes. Public comments are length-bounded, control-normalized and escaped at render time; audit events exclude comment content. Account privacy remains an upper bound, hidden sibling associations are filtered and generic dependency failures do not disclose SQL details. Main-character selection locks the Identity row and real-MariaDB race acceptance must leave exactly one main. No Canary mutation is authorized.
+Character-profile management is authenticated and owner-scoped by server-resolved ready binding plus current read-only legacy engine ownership. Browser-supplied player/account identifiers do not authorize writes. Public comments are length-bounded, control-normalized and escaped at render time; audit events exclude comment content. Account privacy remains an upper bound, hidden sibling associations are filtered and generic dependency failures do not disclose SQL details. Main-character selection locks the Identity row and real-MariaDB race acceptance must leave exactly one main. No legacy engine mutation is authorized.

@@ -25,7 +25,7 @@ In scope:
 - issuance of the FND-04 fresh-entry grant and custody of its signing key;
 - `attempt_ref` idempotency and replay protection;
 - the error mapping to FND-04 classes;
-- what stays Canary-only.
+- what stays legacy-engine-only.
 
 Out of scope: game admission itself (Game FND-04A), reconnect/recovery grants (`oteryn-reauth-recovery-v1`), channel switch, public status pages, capacity-aware balancing, production PKI, deployment.
 
@@ -48,7 +48,7 @@ Rust client (native OAuth client, U1)
  7. client -> game node: TLS 1.3, ALPN oteryn-game/1, FND-04 admission with the grant
 ```
 
-No step falls back to password login, OAuth-token authentication at the game server, the Canary Game Session issuer or a Canary route.
+No step falls back to password login, OAuth-token authentication at the game server, the legacy engine Game Session issuer or a legacy engine route.
 
 ## 3. Public Gateway native branch
 
@@ -71,7 +71,7 @@ No step falls back to password login, OAuth-token authentication at the game ser
 }
 ```
 
-- `protocol_version: 2` selects the native branch. Version 1 keeps its current Canary-compatible meaning (§12). Any other value: `NATIVE_LOGIN_UNSUPPORTED_VERSION`.
+- `protocol_version: 2` selects the native branch. Version 1 keeps its current legacy-compatible meaning (§12). Any other value: `NATIVE_LOGIN_UNSUPPORTED_VERSION`.
 - `game_login_ticket`: the opaque ticket, 1..256 ASCII bytes; never logged.
 - `attempt_ref`: canonical lowercase RFC 9562 UUIDv7 (version 7, RFC variant, non-nil). The client generates it once per logical login attempt and reuses it byte-for-byte on every retry of that attempt (§6). It is the FND-04 `attempt_ref` claim.
 - `character_id`: canonical lowercase UUIDv7 chosen from step 2. It is a claim to validate, never authority.
@@ -127,17 +127,17 @@ Rationale: one atomic Platform decision removes the three-call ambiguity (redeem
 
 A native ticket is a Game Login Ticket with:
 
-- audience `oteryn-native-game-gateway` (distinct from the Canary audience `oteryn-game-gateway`);
+- audience `oteryn-native-game-gateway` (distinct from the legacy engine audience `oteryn-game-gateway`);
 - binding to the persisted Identity, its canonical `identities.account_id` (lowercase UUIDv7, non-null) and its `native_security_generation` at issuance;
 - the existing properties: at least 256 bits of CSPRNG entropy, hash-at-rest, single use, TTL at most 60 seconds (default 60), never logged.
 
 Issuance is the existing `POST /v1/game-auth/tickets` under the existing OAuth checks (valid bearer, allowed first-party client, scope `game:ticket`, current `game_auth_generation`, Identity enabled and not terminated), with these native differences:
 
 - the ticket kind is selected by the authenticated OAuth client, never by a request parameter: the native Rust client receives native tickets only (U1: whether this is a separate Passport client or the existing native public client);
-- native issuance requires a canonical non-null `account_id` and does **not** require an `IdentityCanaryAccount` binding;
-- `canary_account_id` is not stored on a native ticket.
+- native issuance requires a canonical non-null `account_id` and does **not** require an `IdentityLegacyAccount` binding;
+- `legacy_account_id` is not stored on a native ticket.
 
-A Canary ticket never redeems on the native branch and a native ticket never redeems on the Canary branch (audience mismatch → `NATIVE_LOGIN_TICKET_REJECTED`).
+A legacy engine ticket never redeems on the native branch and a native ticket never redeems on the legacy engine branch (audience mismatch → `NATIVE_LOGIN_TICKET_REJECTED`).
 
 ### 4.2 Native redemption
 
@@ -151,7 +151,7 @@ Inside the issuer transaction (§6), under row locks, equivalent to:
 6. mark the ticket used and record `attempt_ref` on it;
 7. yield `AccountId` and `account_security_generation` (decimal of `native_security_generation`).
 
-`AccountId` is Platform-owned (Platform ADR 0028) and is never derived from Canary ids or integer Identity ids. Any failure in steps 1–5 is `NATIVE_LOGIN_TICKET_REJECTED` or `NATIVE_LOGIN_ACCOUNT_SECURITY_DENIED` and rolls the transaction back.
+`AccountId` is Platform-owned (Platform ADR 0028) and is never derived from legacy engine ids or integer Identity ids. Any failure in steps 1–5 is `NATIVE_LOGIN_TICKET_REJECTED` or `NATIVE_LOGIN_ACCOUNT_SECURITY_DENIED` and rolls the transaction back.
 
 ## 5. Character selection (Q17a)
 
@@ -267,7 +267,7 @@ route descriptor = {world_id, channel_id, host, port, tls_server_name, alpn, pro
 For the Character's current `world_id` W, a channel C is a candidate only if all hold at issuance time:
 
 1. (W, C) is a canonical Registry-issued pair (`NativeTopologyRegistry`) with a current route record (§7.3);
-2. Platform native login policy for (W, C) allows login (not maintenance, not disabled). Its representation is `UNKNOWN` (U7); Canary `game_worlds.status`/`login_enabled` alone is not native readiness;
+2. Platform native login policy for (W, C) allows login (not maintenance, not disabled). Its representation is `UNKNOWN` (U7); legacy engine `game_worlds.status`/`login_enabled` alone is not native readiness;
 3. the latest accepted runtime report for (W, C) is `fresh`, ownership-bound (§7.2), not superseded, not `invalid`, and `ready = true`;
 4. the report's `route_revision` **equals** the Registry route record's `route_revision`;
 5. the route's `protocol_major`/`transport_profile`/ALPN appear in `offer.transports`, and the report's `protocol_major`/`transport_profile` equal the route's.
@@ -309,7 +309,7 @@ Exactly these claims, serialized in this order without whitespace, so the signin
 | `transport_profile` | integer `1` |
 | `ruleset_revision`, `content_revision`, `map_revision`, `world_policy_revision`, `offer_revision` | selected report, each separately |
 
-The response `endpoint` is the same Registry route record the `route_revision` digest covers. Every string value must already satisfy the FND-04 §5 grammar; a report value that does not is rejected at ingestion, and the issuer re-checks before signing (fail closed with `NATIVE_LOGIN_UNAVAILABLE`). No `compatibility_revision`, no `schema_revision`, no Canary id, no claim not listed. Token at most 4096 bytes, header at most 512 and payload at most 3072 bytes decoded.
+The response `endpoint` is the same Registry route record the `route_revision` digest covers. Every string value must already satisfy the FND-04 §5 grammar; a report value that does not is rejected at ingestion, and the issuer re-checks before signing (fail closed with `NATIVE_LOGIN_UNAVAILABLE`). No `compatibility_revision`, no `schema_revision`, no legacy engine id, no claim not listed. Token at most 4096 bytes, header at most 512 and payload at most 3072 bytes decoded.
 
 ### 8.3 Signing
 
@@ -393,18 +393,18 @@ Each code maps to exactly one Foundation category, progression and FND-04 public
 
 "Class of" means the row has the same category, progression and public class as that FND-04A code, but a different cause at a different boundary. Game admission errors after the client presents the grant are FND-04A codes returned by the game node (ADR-0020 N8), not by this contract.
 
-## 12. What stays Canary-only
+## 12. What stays legacy-engine-only
 
 Unchanged and never used by the native branch:
 
-- `POST /v1/login` with `protocol_version: 1`, the Canary `gameplay_offer`, `canary_account_id`, integer world/channel ids;
-- `/internal/v1/game-auth/tickets/redeem` and its Canary binding requirement, audience `oteryn-game-gateway`;
-- `/internal/v1/game-auth/accounts/{canaryAccountId}/login-context` and `GameLoginContextProvider`;
-- the Game Session v1 issuer and the historical Game Session v2 producer (`GAME_SESSION_CANARY_CONTRACT.md`, `OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md`);
+- `POST /v1/login` with `protocol_version: 1`, the legacy engine `gameplay_offer`, `legacy_account_id`, integer world/channel ids;
+- `/internal/v1/game-auth/tickets/redeem` and its legacy engine binding requirement, audience `oteryn-game-gateway`;
+- `/internal/v1/game-auth/accounts/{legacyAccountId}/login-context` and `GameLoginContextProvider`;
+- the Game Session v1 issuer and the historical Game Session v2 producer (the retired legacy-engine contracts (see the ADR index), `OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md`);
 - `game_worlds.status`/`login_enabled` as compatibility state;
 - the OTClient OAuth client and OTClient tickets.
 
-A native failure never falls back to any of these, and a Canary request never reaches the native issuer.
+A native failure never falls back to any of these, and a legacy engine request never reaches the native issuer.
 
 ## 13. Security and logging
 
@@ -426,7 +426,7 @@ Classification per step (`CROSS_REPO_CONTRACTS.md` vocabulary):
 6. joint E2E: Game node-boot qualification through the real Gateway and issuer (#1419 item 5);
 7. enablement for internal builds in `testing`/`preproduction` only (Q18a); production needs separate authority and U8.
 
-Rollback: switch the native branch off; outstanding grants expire within 30 s; Canary paths are untouched. A new claim, header member, profile or algorithm needs a new Game profile revision first; Platform never emits a claim the pinned Game verifier does not accept.
+Rollback: switch the native branch off; outstanding grants expire within 30 s; legacy engine paths are untouched. A new claim, header member, profile or algorithm needs a new Game profile revision first; Platform never emits a claim the pinned Game verifier does not accept.
 
 ## 15. UNKNOWN register
 
@@ -454,7 +454,7 @@ Rollback: switch the native branch off; outstanding grants expire within 30 s; C
 ## 16. Required contract tests before activation
 
 - request/response exact-schema acceptance and rejection (unknown member, duplicate, non-canonical UUID, wrong version);
-- native vs Canary ticket audience isolation in both directions;
+- native vs legacy engine ticket audience isolation in both directions;
 - redemption races: generation advanced, Identity disabled, `account_id` changed, concurrent redeem (one winner);
 - `attempt_ref` retry returns a byte-identical token with decreasing `valid_for_seconds`; conflict on changed ticket/character/channel/offer (JCS digest); unknown-commit reconciliation; retry after `exp`; retirement at `exp + 5 s + uncertainty`;
 - Character not listed, not available, read model invalid;

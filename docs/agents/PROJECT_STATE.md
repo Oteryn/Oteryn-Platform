@@ -16,7 +16,7 @@ At the selector-reconciliation base `166561fe066b12310fb534172542e60b51484c46`, 
 
 - **Phase 0 — Architecture and agent bootstrap: COMPLETE**
 - **Phase 1 — Laravel application bootstrap: COMPLETE**
-- **Phase 2 — Canary/login authentication discovery for current implementation boundaries: COMPLETE**
+- **Phase 2 — legacy engine/login authentication discovery for current implementation boundaries: COMPLETE**
 - **Phase 3 — Identity foundation: COMPLETE**
 - **Phase 4 — Public website and read-only game data: COMPLETE for the delivered route contract**
 - **Phase 5 — Account and character management: COMPLETE for the delivered route contract**
@@ -45,9 +45,9 @@ Oteryn Platform is a Laravel 13 / PHP 8.5 modular monolith with Platform-owned I
 
 Supported game accounts remain greenfield and use the immutable current binding model:
 
-`1 Platform Identity <-> 1 Canary accounts.id`
+`1 Platform Identity <-> 1 legacy engine accounts.id`
 
-Existing Canary accounts are not imported or claimed. The browser does not communicate directly with Canary or Freqtrade-like private runtimes. Shared state changes use explicit operation-specific contracts and credentials.
+Existing legacy engine accounts are not imported or claimed. The browser does not communicate directly with legacy engine or Freqtrade-like private runtimes. Shared state changes use explicit operation-specific contracts and credentials.
 
 ## Delivered product surfaces
 
@@ -62,13 +62,13 @@ Existing Canary accounts are not imported or claimed. The browser does not commu
 - registered active-session inventory with targeted, current and all-other revocation;
 - private-by-default account association and status controls;
 - verifier-only high-assurance recovery key generation, rotation, revocation, single use and replay denial;
-- bounded Platform account termination with grace, cancellation and idempotent finalization that preserves Canary-owned data;
+- bounded Platform account termination with grace, cancellation and idempotent finalization that preserves game-server-owned data;
 - English and Polish account-security UI, validation, token errors and notification links;
 - character creation for a ready immutable binding.
 
 PR #283 merged the complete approved account-security lifecycle as `28faad47f95df10d1a9b437a16a1be91556671c6` after all 12 exact-final-head workflows passed.
 
-The ready Platform-to-Canary binding remains immutable. Self-service import, unlink, rebind or transfer is intentionally not applicable without a separately reviewed operation contract. Email-code MFA is intentionally not adopted because email is the recovery channel. Optional account badge/loyalty/status presentation is tracked by #325; premium status depends on #322.
+The ready Platform-to-legacy engine binding remains immutable. Self-service import, unlink, rebind or transfer is intentionally not applicable without a separately reviewed operation contract. Email-code MFA is intentionally not adopted because email is the recovery channel. Optional account badge/loyalty/status presentation is tracked by #325; premium status depends on #322.
 
 ### Public portal and game data
 
@@ -82,7 +82,7 @@ The ready Platform-to-Canary binding remains immutable. Self-service import, unl
 - online players and configured server/channel status;
 - explicit validation, empty, not-found, unavailable, restoration and responsive states.
 
-PR #298 merged the approved read-only community-data boundary as `7533b12b1e1c6d266c6bf5a8800e584fad23a01e` after all 11 exact-final-head workflows passed. Canary mutation, guild administration, selectable achievements, world-transfer history, polls and public enforcement publication remain excluded until authoritative ownership and privacy contracts exist.
+PR #298 merged the approved read-only community-data boundary as `7533b12b1e1c6d266c6bf5a8800e584fad23a01e` after all 11 exact-final-head workflows passed. Legacy engine mutation, guild administration, selectable achievements, world-transfer history, polls and public enforcement publication remain excluded until authoritative ownership and privacy contracts exist.
 
 PR #351 completed Issue #350 as merge `923933222050999fec368bc2db1be6e546f13c12`. Its zero-retry Chromium desktop/tablet/mobile scenario proves long externally sourced values, more than one 50-row result page, a genuine non-debug Laravel `500` without sensitive disclosure and deterministic recovery for the public game-data surface. This is one bounded #326 state slice, not universal state completeness.
 
@@ -96,7 +96,7 @@ PR #308 completed owner-editable Platform comments, character-level privacy and 
 - first-party Wiki public search/category/article flows plus editor/reviewer/publisher, revisions, signed preview and media integration;
 - reviewed bilingual launch content.
 
-Authenticated owner-scoped tickets, bounded reports, exact-MFA/RBAC moderation, Platform enforcement/appeals, notifications and retention are delivered through PR #293. PR #293 squash-merged as `02aa4ab8180c0e9cecb0d42bc1f8f5af6db640a1` after all exact-final-head workflows passed. Canary ban mutation and attachments remain excluded. The Wiki is editorially complete for delivered articles. PR #272 delivered the first authoritative versioned item/weapon/creature/loot Game Catalog scope. Structured spells/NPCs/quests/achievements remain #301 and optional map/hunt/discovery decisions remain #302.
+Authenticated owner-scoped tickets, bounded reports, exact-MFA/RBAC moderation, Platform enforcement/appeals, notifications and retention are delivered through PR #293. PR #293 squash-merged as `02aa4ab8180c0e9cecb0d42bc1f8f5af6db640a1` after all exact-final-head workflows passed. Legacy engine ban mutation and attachments remain excluded. The Wiki is editorially complete for delivered articles. PR #272 delivered the first authoritative versioned item/weapon/creature/loot Game Catalog scope. Structured spells/NPCs/quests/achievements remain #301 and optional map/hunt/discovery decisions remain #302.
 
 ### Support and moderation
 
@@ -106,7 +106,7 @@ Authenticated owner-scoped tickets, bounded reports, exact-MFA/RBAC moderation, 
 - Platform-owned warnings/restrictions/suspensions with acknowledgement and appeal states;
 - deterministic notification delivery status, bounded audit metadata and configurable retention;
 - English/Polish desktop/tablet/mobile acceptance;
-- no Canary ban mutation and no support attachments.
+- no legacy engine ban mutation and no support attachments.
 
 ### Character Bazaar and Wallet
 
@@ -118,13 +118,13 @@ Delivered boundaries:
 - authenticated watchlist, listing, bidding, buy-now, cancellation and history;
 - Platform-owned Oteryn Coins wallet with append-oriented ledger and available/reserved balances;
 - transactional bid reservation and deterministic outbid release;
-- dedicated least-privilege Canary character-transfer connection;
+- dedicated least-privilege legacy engine character-transfer connection;
 - non-login escrow account, session/offline/quota checks, deterministic locking and idempotency;
 - recoverable cross-database listing/cancellation/settlement saga;
 - MFA/permission/audit-protected administrator wallet adjustment and recovery queue;
 - desktop/tablet/mobile Chromium acceptance, accessibility and real-MariaDB concurrency evidence.
 
-The wallet is not a payment system. Provider-neutral payment truth is delivered under terminal #321; real-provider/sandbox/production integration remains #1236, while customer coin purchase, premium/VIP, products and entitlement delivery remain #322 under parent #278. Canary tournament coins are not used.
+The wallet is not a payment system. Provider-neutral payment truth is delivered under terminal #321; real-provider/sandbox/production integration remains #1236, while customer coin purchase, premium/VIP, products and entitlement delivery remain #322 under parent #278. Legacy engine tournament coins are not used.
 
 ## Delivered-surface acceptance contract
 
@@ -211,7 +211,7 @@ Scheduled E2E calibration is now backed by completed exact-SHA runtime evidence.
 
 The authoritative production gate remains `docs/operations/PRODUCTION_READINESS_CHECKLIST.md` and issue #91. Direct production facts remain unknown until verified, including:
 
-- exact deployed Platform, Gateway and Canary identities;
+- exact deployed Platform, Gateway and legacy engine identities;
 - production DNS/edge/TLS/WAF/origin and private ingress;
 - production database topology, effective grants, backup and dated restore evidence;
 - production Redis, session/cache/queue and mail topology;
@@ -235,14 +235,14 @@ For portal completion, do not execute this numbered history as a queue. Run `OTE
 
 ## Community data delivery
 
-PR #298 completed Issue #280's approved read-only boundary: categorized/vocation highscores, privacy-aware rich profiles, latest deaths/kill statistics, guild directory search/detail, direct-table grant verification and EN/PL zero-retry desktop/tablet/mobile acceptance. Exact final head `45efd2a8f0162df22313e141e973c6a8c3ffb5d1` passed all 11 required workflows before squash merge `7533b12b1e1c6d266c6bf5a8800e584fad23a01e`. Canary mutation, guild administration, transfer history, polls and public enforcement publication remain explicitly excluded, and no production-verification claim was made.
+PR #298 completed Issue #280's approved read-only boundary: categorized/vocation highscores, privacy-aware rich profiles, latest deaths/kill statistics, guild directory search/detail, direct-table grant verification and EN/PL zero-retry desktop/tablet/mobile acceptance. Exact final head `45efd2a8f0162df22313e141e973c6a8c3ffb5d1` passed all 11 required workflows before squash merge `7533b12b1e1c6d266c6bf5a8800e584fad23a01e`. Legacy engine mutation, guild administration, transfer history, polls and public enforcement publication remain explicitly excluded, and no production-verification claim was made.
 
 PR #351 later added the bounded Issue #350 stress/error evidence without changing the delivered product boundary: 76 acceptance-only active characters proved deterministic page two, long values rendered without document-level overflow, a genuine non-debug 500 exposed no internal details, and restoration returned the same route to 200. Parent #326 remains open for other surfaces and permutations.
 
 ## Game Catalog first-scope closeout
 
-PR #303 completed Issue #281's accepted first scope by reconciling the versioned item/weapon/creature/loot delivery from PR #272 with the 43-capability benchmark. Exact final head `7c6bd2b46f3c29d5a2bd4862d59614fcaec423bc` passed all eight required workflows before squash merge `e1df0608eb6a8321f47fe51da65233a613a27b25`. Deferred spells/NPCs/quests/achievements remain #301, optional map/hunt/discovery decisions remain #302, and no runtime, Canary, producer, activation or production change occurred.
+PR #303 completed Issue #281's accepted first scope by reconciling the versioned item/weapon/creature/loot delivery from PR #272 with the 43-capability benchmark. Exact final head `7c6bd2b46f3c29d5a2bd4862d59614fcaec423bc` passed all eight required workflows before squash merge `e1df0608eb6a8321f47fe51da65233a613a27b25`. Deferred spells/NPCs/quests/achievements remain #301, optional map/hunt/discovery decisions remain #302, and no runtime, legacy engine, producer, activation or production change occurred.
 
 ## Character profile preferences delivery
 
-PR #308 completed the Platform-owned Issue #307 slice as merge `86847d0068e470274b6c3ee5523fe41cbb9663af`. Exact final head `3797a094cfa522f5147d624786f49fee5027c77b` passed all 11 required workflows, including real-MariaDB main-character concurrency and zero-retry EN/PL desktop/tablet/mobile browser acceptance. Canary remained read-only; rename, deletion, restore, transfer and selected achievements remain outside this contract under parent #277, and no production claim was made.
+PR #308 completed the Platform-owned Issue #307 slice as merge `86847d0068e470274b6c3ee5523fe41cbb9663af`. Exact final head `3797a094cfa522f5147d624786f49fee5027c77b` passed all 11 required workflows, including real-MariaDB main-character concurrency and zero-retry EN/PL desktop/tablet/mobile browser acceptance. Legacy engine remained read-only; rename, deletion, restore, transfer and selected achievements remain outside this contract under parent #277, and no production claim was made.

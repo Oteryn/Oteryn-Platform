@@ -1,6 +1,6 @@
 # Oteryn Platform
 
-Oteryn Platform is the first-party web/application platform for the Oteryn Open Tibia Server ecosystem. It is intended to replace MyAAC as the long-term web platform while Canary remains a separate game-server project.
+Oteryn Platform is the first-party web/application platform for the Oteryn Open Tibia Server ecosystem. It is intended to replace MyAAC as the long-term web platform while the Oteryn game server remains a separate project owned by Oteryn-Game.
 
 ## Current implementation
 
@@ -43,13 +43,13 @@ The application is then available at `http://localhost:8000`.
 
 The health endpoint is available at `GET /health`. It reports only application availability and does not expose environment variables, configuration, version details or secrets.
 
-## Canary and integration boundaries
+## Game server and integration boundaries
 
-Canary and login-server behavior are external contracts. The generic `canary` database connection is read-only and must use an externally provisioned least-privilege principal.
+Game-server behavior is an external contract documented in the Oteryn-Game docs. The remaining generic `legacy` database connection is read-only and being retired and must use an externally provisioned least-privilege principal.
 
 Shared writes are allowed only through separately documented operation-specific contracts and adapters. Current bounded examples include greenfield account provisioning, character creation and Character Bazaar ownership transfer. No module may infer generic TFS/MyAAC schema or silently broaden those privileges.
 
-Configure applicable `CANARY_DB_*` and runtime values in local environment files. Do not reuse Canary server credentials or database root/admin accounts.
+Configure applicable `LEGACY_DB_*` and runtime values in local environment files. Do not reuse game-server credentials or database root/admin accounts.
 
 ## Validation
 
@@ -91,7 +91,7 @@ A future source-available, open-source, dual-license or component-specific polic
 - `docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md` — accepted player-tools architecture and delivery priorities.
 - `docs/architecture/SECURITY_ARCHITECTURE.md` — mandatory security invariants.
 - `docs/architecture/DATA_OWNERSHIP.md` — persistent-data ownership rules.
-- `docs/contracts/` — Canary/login-server and operation-specific integration contracts.
+- `docs/contracts/` — Platform/Game integration and operation-specific contracts.
 - `docs/agents/tasks/active/` — active implementation/task records.
 
 Repository state, accepted ADRs, focused architecture, task records, Git and live PR/CI state are authoritative over chat history.

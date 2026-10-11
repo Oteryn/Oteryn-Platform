@@ -6,7 +6,7 @@
 
 This contract defines the native world/channel identity and topology boundary owned by Oteryn Platform World Registry and consumed by Game Gateway and Oteryn-v2.
 
-It is intentionally separate from the currently implemented Canary-compatible World Registry representation. Current numeric IDs, `channel_id = 1`, Canary account filtering and direct world host/port fields remain current implementation/compatibility state until a separately authorized migration changes them.
+It is intentionally separate from the currently implemented legacy-compatible World Registry representation. Current numeric IDs, `channel_id = 1`, legacy engine account filtering and direct world host/port fields remain current implementation/compatibility state until a separately authorized migration changes them.
 
 ## Canonical owner and consumers
 
@@ -141,7 +141,7 @@ AuthorizedTopologyForAccount(AccountId)
 
 The client may express a requested world/character/channel choice only as input to validate. It cannot grant itself access by supplying a valid-looking UUID, host or port.
 
-The existing logical interface based on `canary_account_id` remains Canary compatibility only.
+The existing logical interface based on `legacy_account_id` remains legacy engine compatibility only.
 
 ## Native topology projection
 
@@ -183,9 +183,9 @@ Endpoint change != World identity change
 
 World Registry may reject or advertise routes based on readiness, rollout and compatibility policy, but it must not redefine topology identity because a route changes.
 
-## Canary anti-corruption boundary
+## Legacy engine anti-corruption boundary
 
-Current Canary-oriented state is classified as:
+Current legacy-engine-oriented state is classified as:
 
 ```text
 LEGACY / CURRENT IMPLEMENTATION COMPATIBILITY STATE
@@ -195,8 +195,8 @@ This includes:
 
 - numeric `game_worlds.id` used by existing Gateway routes;
 - `game_world_protocol_candidates.channel_id` and the current `1` convention;
-- Canary account-scoped world lookup;
-- Canary process/endpoint routing assumptions.
+- Legacy engine account-scoped world lookup;
+- Legacy engine process/endpoint routing assumptions.
 
 A compatibility adapter may resolve these values to a canonical Platform-owned `WorldId + ChannelId` during migration.
 
@@ -204,7 +204,7 @@ It must not:
 
 - expose the numeric value as native WorldId/ChannelId;
 - hash/truncate a legacy integer into a UUID outside the authoritative migration;
-- let Canary mint canonical Platform topology identity;
+- let legacy engine mint canonical Platform topology identity;
 - infer current GameNode writer authority from ChannelId.
 
 ## Fail-closed rules
@@ -257,7 +257,7 @@ A later implementation must use an explicit additive migration sequence, expecte
 3. introduce first-class Channel records and Platform-issued ChannelId values;
 4. map the current single-channel compatibility state to an explicit ChannelRef;
 5. version Gateway/private APIs to emit canonical AccountId/WorldId/ChannelId for native consumers;
-6. keep legacy Canary-compatible contracts during the bounded coexistence window;
+6. keep legacy-compatible contracts during the bounded coexistence window;
 7. coordinate Oteryn-v2 consumer adoption only under that repository's authority;
 8. reject unsupported mixed old/new identifiers;
 9. prove rollback without reusing or changing already issued WorldId/ChannelId values;
@@ -351,7 +351,7 @@ This architecture contract alone grants no mutation authority. The separately au
 - Gateway API/runtime change;
 - route activation;
 - GameNode allocator/fencing implementation;
-- Canary data/runtime mutation;
+- Legacy engine data/runtime mutation;
 - Oteryn-v2 repository write;
 - protocol-oteryn implementation;
 - staging or production deployment.

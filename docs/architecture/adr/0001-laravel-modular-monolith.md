@@ -5,7 +5,7 @@
 
 ## Context
 
-Oteryn Platform is intended to replace MyAAC as the long-term web/application platform for Oteryn while Canary remains the game server. The project needs secure identity/account handling, CMS/public pages, administration, game-data integration and future business modules.
+Oteryn Platform is intended to replace MyAAC as the long-term web/application platform for Oteryn while legacy engine remains the game server. The project needs secure identity/account handling, CMS/public pages, administration, game-data integration and future business modules.
 
 The initial team/project context favors a coherent first-party application with strong framework support and low operational complexity.
 

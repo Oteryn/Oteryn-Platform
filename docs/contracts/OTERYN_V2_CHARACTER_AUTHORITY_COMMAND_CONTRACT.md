@@ -16,8 +16,8 @@ For the native target:
 
 - Oteryn Platform owns authenticated Account Center/portal UX, Platform authorization, security/business/product gates, orchestration/saga state, notifications, audit and Platform-owned projections/preferences;
 - Oteryn-v2 Character Authority owns canonical `CharacterId`, current `AccountId <-> CharacterId` ownership, authoritative character lifecycle/game-state eligibility, mutation execution and authoritative mutation outcome;
-- Platform operation rows, caches, public projections and historical Canary rows never prove current ownership or successful native mutation;
-- direct/shared SQL, `canary_account_id`, `canary_player_id` and operation-specific Canary write principals remain `Legacy Canary Compatibility` only.
+- Platform operation rows, caches, public projections and historical legacy engine rows never prove current ownership or successful native mutation;
+- direct/shared SQL, `legacy_account_id`, `legacy_player_id` and operation-specific legacy engine write principals remain `Legacy Engine Compatibility` only.
 
 A Platform command authorizes an **attempt to perform one semantic mutation**. It does not transfer game-domain authority to Platform.
 
@@ -90,7 +90,7 @@ Rules:
 - browser-supplied identifiers are request input only and never establish authorization;
 - Platform resolves/authorizes the initiating Identity to the applicable canonical AccountId server-side;
 - Oteryn-v2 revalidates current AccountId↔CharacterId ownership before executing an owner-scoped mutation;
-- Canary numeric IDs may be carried only inside an explicitly named compatibility adapter and never become native authority;
+- Legacy engine numeric IDs may be carried only inside an explicitly named compatibility adapter and never become native authority;
 - display name is mutable presentation data, not stable command identity.
 
 ### Intent payload
@@ -337,7 +337,7 @@ Request identifies the current AccountId/CharacterId and the stable operation. P
 
 `COMPLETED` must expose the authoritative resulting lifecycle state and effective/grace/finalization semantics only if the native lifecycle contract actually supports them.
 
-Platform must not invent a deletion deadline from a compatibility-era Canary timestamp rule.
+Platform must not invent a deletion deadline from a compatibility-era legacy engine timestamp rule.
 
 Public/account presentation updates only after authoritative lifecycle/result evidence and under the projection/privacy contracts.
 
@@ -372,7 +372,7 @@ When adopted:
 - `COMPLETED` returns authoritative resulting placement using canonical identifiers;
 - timeout after potential commit enters reconciliation by operation identity.
 
-No Canary world column or numeric channel ID defines native capability semantics.
+No legacy engine world column or numeric channel ID defines native capability semantics.
 
 ### 7. Account / Bazaar ownership transfer
 
@@ -473,14 +473,14 @@ Future implementations should expose bounded metrics/traces for:
 
 Logs must not contain credentials, bearer tokens, voucher/payment payloads or unnecessary private gameplay state.
 
-## Legacy Canary Compatibility
+## Legacy Engine Compatibility
 
-Existing Canary mutation/read contracts remain useful only inside explicitly named compatibility or migration tasks.
+Existing legacy engine mutation/read contracts remain useful only inside explicitly named compatibility or migration tasks.
 
 Rules:
 
-- Canary direct SQL cannot implement this native semantic contract by implication;
-- `canary_account_id`, `canary_player_id` and Canary numeric world/channel IDs remain adapter details;
+- Legacy engine direct SQL cannot implement this native semantic contract by implication;
+- `legacy_account_id`, `legacy_player_id` and legacy engine numeric world/channel IDs remain adapter details;
 - a compatibility path must name the remaining consumer, exact privileges, rollback and removal gate;
 - do not run native and legacy mutation paths concurrently for the same semantic operation without an explicit cutover/fencing design;
 - legacy fallback after a native command becomes ambiguous is forbidden because it could create a second authority/mutation;
@@ -562,7 +562,7 @@ This contract authorizes no:
 
 - Laravel runtime implementation;
 - Platform database migration;
-- Oteryn-v2 or Canary repository write;
+- Oteryn-v2 or legacy engine repository write;
 - command endpoint or message-broker deployment;
 - deletion/rename/world-transfer product activation;
 - Character Bazaar ownership-transfer cutover;
@@ -572,7 +572,7 @@ This contract authorizes no:
 ## References
 
 - ADR 0030 — Native Character Portfolio / Account Center v2
-- ADR 0031 — Native Oteryn-v2 Integration vs Legacy Canary Compatibility
+- ADR 0031 — Native Oteryn-v2 Integration vs Legacy Engine Compatibility
 - `docs/architecture/character-lifecycle/NATIVE_CHARACTER_LIFECYCLE_AUTHORITY.md`
 - `docs/contracts/OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md`
 - `docs/contracts/CHARACTER_TRANSFER_CONTRACT.md` — accepted transfer-before-wallet-settlement saga ordering for the current Bazaar boundary

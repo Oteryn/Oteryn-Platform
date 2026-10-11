@@ -12,7 +12,7 @@ family. Embedded credential webviews and password grants remain prohibited.
 The candidate introduces a **separate native remembered-device credential**, not a
 Passport refresh token. It is usable only for the same Identity, canonical AccountId,
 first-party Rust OAuth client, and original game/security generations. It cannot
-authorize Canary/legacy login, web account management, MFA or recovery, arbitrary API
+authorize legacy engine/legacy login, web account management, MFA or recovery, arbitrary API
 scopes, or character ownership supplied by the client. The first browser authentication
 retains existing Identity login/MFA/security controls. Routine subsequent game entry can
 then complete inside the client while this narrowly scoped device family remains valid.
@@ -259,7 +259,7 @@ existing native ticket lifetime (at most 60 seconds), and integer UTC `expires_a
 No OAuth token is minted or returned. The character callback uses the canonical owner's
 existing projection with transaction locks and verifies projection state and JSON response
 bounds before rotation commits. The native ticket callback is fixed in server code and
-cannot issue Canary/legacy tickets. Responses are bounded to 16 KiB.
+cannot issue legacy engine/legacy tickets. Responses are bounded to 16 KiB.
 
 Revocation returns HTTP 200 with exactly `{"protocol_version":1,"revoked":true}`;
 it does not rotate or reveal the owner/family state. Revoking again with the same correctly

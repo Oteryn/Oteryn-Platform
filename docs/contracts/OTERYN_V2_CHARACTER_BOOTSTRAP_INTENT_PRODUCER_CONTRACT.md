@@ -2,7 +2,7 @@
 
 ## Status and boundary
 
-This contract defines the Platform-owned producer (contract version 2 since CHAR-NAME-1; version 1 is retired) and private reconciliation read for the bounded `OPERATOR_CONTROL_PLANE_BOOTSTRAP` variant. It does not authorize a browser flow, allocate `CharacterId`, mutate Game or Canary, select product naming/quota policy, or replace account-security evidence.
+This contract defines the Platform-owned producer (contract version 2 since CHAR-NAME-1; version 1 is retired) and private reconciliation read for the bounded `OPERATOR_CONTROL_PLANE_BOOTSTRAP` variant. It does not authorize a browser flow, allocate `CharacterId`, mutate Game or legacy engine, select product naming/quota policy, or replace account-security evidence.
 
 Platform resolves the authoritative subject from a persisted Identity primary-key lookup. The issuer has no `account_id` input: a caller-provided AccountId, operation identity, world identifier or interpretation revision is never authentication or authorization. Issuance rejects a missing, disabled, terminated, null-AccountId or non-canonical Identity.
 

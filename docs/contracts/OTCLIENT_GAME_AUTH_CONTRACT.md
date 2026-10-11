@@ -35,14 +35,14 @@ For Oteryn-supported modern login:
 - OTClient receives only short-lived bootstrap/game credentials;
 - Game Login Ticket is sent to Oteryn Game Gateway;
 - Gateway returns character/world routing and Game Session material;
-- OTClient connects directly to the selected Canary game endpoint.
+- OTClient connects directly to the selected legacy engine game endpoint.
 
 ## Non-goals
 
 This contract does not:
 
 - replace generic/third-party OTClient server compatibility globally;
-- define Canary gameplay protocol internals;
+- define legacy engine gameplay protocol internals;
 - implement MFA inside OTClient;
 - give OTClient a confidential client secret;
 - authorize OTClient to verify Game Login Tickets;
@@ -179,7 +179,7 @@ First-release OTClient behavior:
 
 - do not persist the OAuth access token beyond the login bootstrap lifecycle;
 - do not persist or use an OAuth refresh token;
-- do not send OAuth tokens to Game Gateway or Canary;
+- do not send OAuth tokens to Game Gateway or legacy engine;
 - clear bootstrap OAuth material after Game Login Ticket issuance or terminal failure.
 
 ## Game Login Ticket issuance
@@ -201,7 +201,7 @@ The client must not send:
 
 - password;
 - `identity_id` as ownership evidence;
-- Canary `account_id` as ownership evidence;
+- Legacy engine `account_id` as ownership evidence;
 - MFA code/secret;
 - recovery code;
 - refresh token.
@@ -294,7 +294,7 @@ Fields shown are illustrative. The implementation may include additional non-sen
 
 Required semantics:
 
-- every character belongs to the exact redeemed Canary account;
+- every character belongs to the exact redeemed legacy engine account;
 - every returned world is login-enabled and authorized for that account;
 - each character references a returned/known world;
 - routing comes from World Registry, not user input;
@@ -310,7 +310,7 @@ After response:
 1. user selects a character;
 2. client resolves the character's `world_id` against returned world data;
 3. client uses the authoritative `host`/`port` returned for that world;
-4. client connects to Canary with the Game Session credential using the exact game protocol mapping defined by `GAME_SESSION_CANARY_CONTRACT.md`.
+4. client connects to legacy engine with the Game Session credential using the exact game protocol mapping defined by the retired legacy-engine contracts (see the ADR index).
 
 Client must not rewrite a session for another world merely by changing host/port.
 
@@ -326,7 +326,7 @@ Client must not rewrite a session for another world merely by changing host/port
 | OAuth access token | Yes | Memory only, bootstrap | Platform ticket endpoint only |
 | OAuth refresh token | Must not be used in first release | Never | None |
 | Game Login Ticket | Yes | Memory only, immediate | Game Gateway only |
-| Game Session credential | Yes | Memory for game connection; any optional bounded reconnect behavior requires explicit contract | Canary only |
+| Game Session credential | Yes | Memory for game connection; any optional bounded reconnect behavior requires explicit contract | legacy engine only |
 
 ## UI behavior
 
@@ -428,7 +428,7 @@ With exact Platform/Gateway versions:
 - expired/reused ticket;
 - successful character/world list;
 - multiworld-shaped response even when only one world is configured;
-- successful Canary connection with selected Game Session contract.
+- successful legacy engine connection with selected Game Session contract.
 
 ## Version compatibility
 
@@ -446,7 +446,7 @@ During migration, the compatibility matrix must identify at least:
 OTClient build
 Platform auth API version
 Gateway API version
-Canary version
+Legacy engine version
 Game Session adapter version
 ```
 
@@ -456,4 +456,4 @@ The future OTClient task must inspect current repository modules/services before
 
 It must not assume this contract dictates an internal module layout.
 
-It must update OTClient's own cross-repository contract/task records and validate the exact Canary/Platform versions used in integration tests.
+It must update OTClient's own cross-repository contract/task records and validate the exact legacy engine/Platform versions used in integration tests.

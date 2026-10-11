@@ -10,12 +10,12 @@ The slice complements existing failure-only evidence by proving the complete con
 
 The tests use only acceptance-scoped MariaDB and Redis principals and run on one Chromium project with zero retries.
 
-## Canary read dependency recovery
+## Legacy engine read dependency recovery
 
 The `/online` resilience scenario:
 
 1. requests `/online` with normal acceptance grants and proves HTTP `200` plus the seeded `Acceptance Hero` row;
-2. revokes `SELECT` on `canary_acceptance.cluster_sessions` from the acceptance read-only principal;
+2. revokes `SELECT` on `legacy_acceptance.cluster_sessions` from the acceptance read-only principal;
 3. requests `/online` again and requires HTTP `503`;
 4. verifies the error response does not expose `SQLSTATE` or the acceptance MariaDB root password;
 5. restores the `SELECT` grant in `finally` cleanup;
@@ -76,7 +76,7 @@ They do not prove:
 - production recovery time or RTO/RPO;
 - production network partition behavior;
 - production Redis ACL provisioning or credential rotation;
-- production Canary DB grants/endpoints;
+- production legacy engine DB grants/endpoints;
 - cross-region recovery or provider restart behavior.
 
 Those facts remain environment-specific and, where applicable, require direct production evidence under issue #91.

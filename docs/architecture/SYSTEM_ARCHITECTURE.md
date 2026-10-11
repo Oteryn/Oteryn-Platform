@@ -52,12 +52,12 @@ Microservices are not the default. A module may be extracted later only when the
               +-----------------+-----------------+       |
               |                                   |       |
               v                                   v       v
-      login-server / auth path         Canary-compatible DB   cache/queue/mail
+      login-server / auth path         legacy-compatible DB   cache/queue/mail
               |                                   |
               +-----------------+-----------------+
                                 |
                                 v
-                           Canary server
+                           Legacy engine server
                         (separate repository)
 
 Cross-cutting repository boundaries:
@@ -92,17 +92,17 @@ Oteryn Identity / OAuth + PKCE
             +--> private Platform ticket redeem
             +--> private Platform login context
             |       +--> Platform World Registry
-            |       +--> read-only account-scoped Canary character projection
+            |       +--> read-only account-scoped legacy engine character projection
             |
             +--> Game Session issuer contract v1
                     |
                     v
-              Canary world-entry admission
+              Legacy engine world-entry admission
 ```
 
-This is a repository-delivered bounded path, not proof of one exact deployed production topology. Oteryn Platform PR #122 merged the Gateway producer as `8006534108d835474dadd208b0ec934e4a12528b`; the detailed identity and world-entry semantics remain owned by `GAME_GATEWAY_IDENTITY_CONTRACT.md` and `GAME_SESSION_CANARY_CONTRACT.md`.
+This is a repository-delivered bounded path, not proof of one exact deployed production topology. Oteryn Platform PR #122 merged the Gateway producer as `8006534108d835474dadd208b0ec934e4a12528b`; the detailed identity and world-entry semantics remain owned by `GAME_GATEWAY_IDENTITY_CONTRACT.md` and the retired legacy-engine contracts (see the ADR index).
 
-The earlier `login-server / auth path` in the broad system-context diagram represents retained legacy/external compatibility paths, not the only current authentication topology. Exact exposure or isolation of native Canary login, external login-server and old-protocol password paths remains environment-specific and `UNKNOWN` without deployment/network evidence.
+The earlier `login-server / auth path` in the broad system-context diagram represents retained legacy/external compatibility paths, not the only current authentication topology. Exact exposure or isolation of native legacy engine login, external login-server and old-protocol password paths remains environment-specific and `UNKNOWN` without deployment/network evidence.
 
 Native Game Session contract version 2 is a separate disabled-by-default rollout. The producer package associated with PR #542 does not by itself prove an Otheryn/OTClient consumer, cross-repository cutover or production activation. `PRODUCTION_PROVEN=false` until exact deployed revisions, edge/private ingress, service authentication/rotation and legacy-path disposition are verified together.
 
@@ -137,7 +137,7 @@ Never trust client-provided identity, role, account ID, character ownership or p
 
 ### Boundary C — Oteryn Platform to shared game data
 
-Any table also read or written by Canary/login-server is a cross-repository contract.
+Any table also read or written by legacy engine/login-server is a cross-repository contract.
 
 Before implementation, every shared write path must define:
 
@@ -191,7 +191,7 @@ See `MODULE_CATALOG.md` for current responsibility, ownership and capability sta
 5. `CMS` — news and managed public content.
 6. `Admin` — privileged application operations and RBAC.
 7. `Audit` — immutable/security-relevant audit events.
-8. `Integration` — Canary/login-server adapters and contract enforcement.
+8. `Integration` — legacy engine/login-server adapters and contract enforcement.
 9. `Notifications` — mail and asynchronous user notifications.
 10. `Payments` — originally deferred; current payment scope and activation limits are governed by later ADRs and the module catalogue.
 
@@ -201,8 +201,8 @@ See `MODULE_CATALOG.md` for current responsibility, ownership and capability sta
 - Security-critical authorization lives in policies/gates/domain rules, not only in UI visibility.
 - `Identity` must not depend on payment settlement, product fulfilment or commerce delivery.
 - `Accounts` may depend on `Identity` identity references, but must not implement authentication itself.
-- `Characters` may mutate Canary-owned/shared data only through a documented integration boundary.
-- `PublicPortal` composes already-authorized module view models and must not own domain policy or raw Canary queries.
+- `Characters` may mutate game-server-owned/shared data only through a documented integration boundary.
+- `PublicPortal` composes already-authorized module view models and must not own domain policy or raw legacy engine queries.
 - `Announcements` and `Events` own typed editorial schedules/publication; they do not own runtime world state.
 - `Downloads` owns approved release metadata and provenance policy; it must not become an arbitrary executable upload/proxy surface.
 - `PublicGameData` should prefer read-only models/query services and must not become a hidden mutation path.
@@ -241,11 +241,11 @@ Examples:
 
 Oteryn Platform owns migrations and lifecycle for these tables unless a focused contract states otherwise.
 
-### Shared/Canary-compatible data
+### Shared/legacy-compatible data
 
 Accounts, players, guilds and game-specific state may cross repository boundaries. Exact ownership and writer rules are defined by `DATA_OWNERSHIP.md` and operation-specific contracts.
 
-No agent may assume shared table names or columns from MyAAC conventions without verifying the actual Oteryn Canary schema and current contract evidence.
+No agent may assume shared table names or columns from MyAAC conventions without verifying the actual Oteryn legacy engine schema and current contract evidence.
 
 PlayerCompanion must consume approved projections/interfaces rather than reading arbitrary shared tables directly.
 
@@ -306,7 +306,7 @@ Laravel web instances
    |
 Database reachable only from approved private/application paths
    |
-Canary / login-server on explicitly allowed network paths
+Legacy engine / login-server on explicitly allowed network paths
 ```
 
 This is an architecture boundary, not proof of a specific live deployment. Production database, cache and game services must not be publicly exposed unless technically unavoidable and explicitly secured and accepted.
@@ -334,8 +334,8 @@ The original first-release plan excluded:
 - marketplace/auction systems;
 - microservice decomposition;
 - complex real-time frontend architecture;
-- replacing Canary gameplay/runtime responsibilities;
-- silent modifications to Canary or login-server repositories.
+- replacing legacy engine gameplay/runtime responsibilities;
+- silent modifications to legacy engine or login-server repositories.
 
 This list is historical planning context. It does not override later accepted ADRs, module ownership, contracts or merged implementation. Wallet/Marketplace foundations now exist, while regulated provider Payments, products/entitlements and their activation gates remain separate. The enduring constraints are explicit cross-repository contracts, no silent external mutation and no production activation without its own evidence and authorization.
 
@@ -343,9 +343,9 @@ This list is historical planning context. It does not override later accepted AD
 
 The first-phase plan required proof of:
 
-1. actual Oteryn Canary account/player/guild schema;
+1. actual Oteryn legacy engine account/player/guild schema;
 2. password hashing expectations;
-3. login-server and/or Canary session authentication path;
+3. login-server and/or legacy engine session authentication path;
 4. the component that creates/revokes game sessions;
 5. required account flags/status fields;
 6. transaction/concurrency expectations for character/account mutations;

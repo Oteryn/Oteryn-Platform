@@ -4,15 +4,15 @@
 
 `APPROVED FOR IMPLEMENTATION — OPERATION-SPECIFIC CHARACTER BAZAAR TRANSFER`
 
-This contract defines the only approved Oteryn Platform operation for changing an existing Canary `players.account_id`: Character Bazaar escrow, cancellation return and winner settlement.
+This contract defines the only approved Oteryn Platform operation for changing an existing legacy engine `players.account_id`: Character Bazaar escrow, cancellation return and winner settlement.
 
-Evidence is pinned to read-only `blakinio/canary@885afae89946a56dddc2041bb335b6a900f206c9`, including `schema.sql@4e3d7e4b87ac51d1f664328b5399a78226153dc8` and the inspected login/session/save behavior at that revision. A materially different deployed Canary revision or schema requires revalidation.
+Evidence is pinned to read-only `the legacy game-server repository at `885afae89946a56dddc2041bb335b6a900f206c9``, including `schema.sql@4e3d7e4b87ac51d1f664328b5399a78226153dc8` and the inspected login/session/save behavior at that revision. A materially different deployed legacy engine revision or schema requires revalidation.
 
 ## Ownership and authorization
 
 Normal user ownership is established only by the ready immutable Platform binding:
 
-`1 Platform Identity <-> 1 Canary accounts.id`
+`1 Platform Identity <-> 1 legacy engine accounts.id`
 
 For seller-to-escrow transfer:
 
@@ -29,7 +29,7 @@ For escrow-to-buyer settlement:
 
 For cancellation return, the target is the auction's immutable seller account captured at listing and revalidated against the seller's ready binding before return.
 
-## Proven Canary behavior
+## Proven legacy engine behavior
 
 At the evidence revision:
 
@@ -45,7 +45,7 @@ At the evidence revision:
 
 Connection:
 
-`canary_character_transfer`
+`legacy_character_transfer`
 
 Supported intents:
 
@@ -61,11 +61,11 @@ It does not modify:
 - accounts credentials, type, premium state or any coin field;
 - account or cluster sessions;
 - Redis state;
-- Canary schema.
+- Legacy engine schema.
 
 ## Required transaction
 
-Every transfer executes on the dedicated Canary connection:
+Every transfer executes on the dedicated legacy engine connection:
 
 1. begin transaction;
 2. lock source and target account rows with `SELECT id FROM accounts WHERE id IN (?, ?) ORDER BY id FOR UPDATE`;
@@ -144,21 +144,21 @@ Approved UPDATE:
 Forbidden:
 
 - table-level `SELECT` or `UPDATE`;
-- INSERT or DELETE on any Canary table;
+- INSERT or DELETE on any legacy engine table;
 - account password, email, coin or security-field access;
 - player deletion/name/inventory/state mutation;
 - session writes;
 - DDL, administrative privileges or `GRANT OPTION`.
 
-`database/provisioning/canary-character-transfer.sql.template` is the reviewed deployment template. Production credentials remain outside Git. `php artisan canary:verify-character-transfer-db-privileges` must fail closed on missing or excessive privileges.
+`database/provisioning/canary-character-transfer.sql.template` is the reviewed deployment template. Production credentials remain outside Git. `php artisan legacy:verify-character-transfer-db-privileges` must fail closed on missing or excessive privileges.
 
 ## Cross-database saga
 
-Platform wallet and auction rows cannot commit atomically with Canary. Marketplace actions therefore use deterministic operation IDs and durable state:
+Platform wallet and auction rows cannot commit atomically with legacy engine. Marketplace actions therefore use deterministic operation IDs and durable state:
 
-- listing: Platform pending row -> Canary escrow -> delayed ownership/session reconciliation -> active;
-- cancellation: mark cancellation pending -> Canary return -> Platform terminal state;
-- settlement: mark settlement pending -> Canary winner transfer -> Platform wallet settlement -> completed.
+- listing: Platform pending row -> legacy engine escrow -> delayed ownership/session reconciliation -> active;
+- cancellation: mark cancellation pending -> legacy engine return -> Platform terminal state;
+- settlement: mark settlement pending -> legacy engine winner transfer -> Platform wallet settlement -> completed.
 
 Reconciliation must inspect actual player owner and append-only wallet idempotency keys before retrying a step. It must never reverse or duplicate a wallet effect based only on a timeout.
 
@@ -171,12 +171,12 @@ Before launch:
 - real MariaDB tests for exact grants, forbidden privileges, owner/account/player lock ordering, active-session rejection, target quota and idempotent retry;
 - a composed interruption/reconciliation test for transfer-success-before-Platform-commit and Platform-pending-before-transfer;
 - browser acceptance for pending, active, cancellation, winning and recovery-visible states;
-- deployment verification against the exact Canary schema/version and configured escrow account.
+- deployment verification against the exact legacy engine schema/version and configured escrow account.
 
 ## Deployment prerequisites
 
-1. provision a non-login Canary escrow account out of band;
-2. inject its numeric ID as `MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID`;
+1. provision a non-login legacy engine escrow account out of band;
+2. inject its numeric ID as `MARKETPLACE_ESCROW_LEGACY_ACCOUNT_ID`;
 3. provision the dedicated transfer principal from the reviewed SQL template;
 4. inject credentials through approved secret management;
 5. run the privilege verifier;

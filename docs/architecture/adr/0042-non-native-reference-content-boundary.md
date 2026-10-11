@@ -8,13 +8,13 @@ Accepted — 2026-08-16
 - Decision Issue: #1121
 - Decision PR: #1122
 - Applies to: provenance-pinned, non-native, non-executable reference content used for offline reconciliation, structured Wiki reference and PlayerCompanion inputs
-- Does not authorize: Oteryn-v2 or Canary access, runtime implementation, database migration, deployment, production/staging mutation, native GameCatalog activation, external producer implementation, or publication of third-party prose/dialogue/maps/media
+- Does not authorize: Oteryn-v2 or legacy engine access, runtime implementation, database migration, deployment, production/staging mutation, native GameCatalog activation, external producer implementation, or publication of third-party prose/dialogue/maps/media
 
 ## Context
 
-ADR 0034 already settles the authoritative game-content boundary: Oteryn-v2 owns native gameplay-content truth and Platform `GameCatalog` owns validated immutable catalogue lifecycle/projections rather than executable game truth. Legacy Canary Compatibility remains a separate anti-corruption boundary.
+ADR 0034 already settles the authoritative game-content boundary: Oteryn-v2 owns native gameplay-content truth and Platform `GameCatalog` owns validated immutable catalogue lifecycle/projections rather than executable game truth. Legacy Engine Compatibility remains a separate anti-corruption boundary.
 
-The content-completion programme has an owner-supplied `crystalserver-main.zip` archive pinned by SHA-256 `920a59e15175a5f53721f60b17f4bb37370bf0b61cd91abb4c909bf0d85e5f26`. The archive contains useful structured and transformable source material, but neither possession of the archive nor its root license text makes it native Oteryn authority, Legacy Canary Compatibility authority, current-runtime evidence, or a blanket publication-rights grant.
+The content-completion programme has an owner-supplied `crystalserver-main.zip` archive pinned by SHA-256 `920a59e15175a5f53721f60b17f4bb37370bf0b61cd91abb4c909bf0d85e5f26`. The archive contains useful structured and transformable source material, but neither possession of the archive nor its root license text makes it native Oteryn authority, Legacy Engine Compatibility authority, current-runtime evidence, or a blanket publication-rights grant.
 
 Issue #1121 therefore asks only whether a third source class may exist as explicitly non-authoritative reference evidence for research and player-facing reference/tooling without weakening ADR 0034.
 
@@ -26,7 +26,7 @@ Keep the archive as ad hoc audit material only. This minimizes new architecture,
 
 ### Option B — add a reference-only `GameCatalog` authority/profile
 
-Reuse the existing immutable snapshot/profile machinery but mark the source non-authoritative. This appears operationally convenient, but `GameCatalog` profile activation, visibility and authority semantics are deliberately tied to native or explicit Legacy Canary Compatibility source profiles. A third profile class creates avoidable risk of accidental fallback, mixed authority and public presentation as current game truth.
+Reuse the existing immutable snapshot/profile machinery but mark the source non-authoritative. This appears operationally convenient, but `GameCatalog` profile activation, visibility and authority semantics are deliberately tied to native or explicit Legacy Engine Compatibility source profiles. A third profile class creates avoidable risk of accidental fallback, mixed authority and public presentation as current game truth.
 
 ### Option C — separate `ReferenceContent` read-model boundary
 
@@ -45,7 +45,7 @@ It is part of the existing Laravel modular-monolith architecture. This decision 
 A `ReferenceContent` snapshot is never:
 
 - a native `GameCatalog` authority profile;
-- a `legacy-canary` profile;
+- a `legacy-engine` profile;
 - an active gameplay-content fallback;
 - evidence that source definitions execute in Oteryn-v2;
 - evidence of runtime availability, reachability, spawn state, schedule state or current balance applicability.
@@ -116,7 +116,7 @@ This ADR does **not** decide rights to republish third-party descriptions, dialo
 For native gameplay-content claims:
 
 1. accepted Oteryn-v2 authority evidence wins;
-2. an exact Legacy Canary Compatibility profile remains compatibility evidence only within its contract;
+2. an exact Legacy Engine Compatibility profile remains compatibility evidence only within its contract;
 3. `ReferenceContent` remains non-authoritative comparison/reference evidence.
 
 Conflicting reference sources or profiles are retained as separate evidence. Platform does not pick a winner by recency, name match, record count or convenience.
@@ -169,9 +169,9 @@ Failure of native/compatibility authority never triggers automatic `ReferenceCon
 ## Rejected shortcuts
 
 - Rename CrystalServer data as native Oteryn content.
-- Reuse the `legacy-canary` authority name or schema semantics for CrystalServer.
+- Reuse the `legacy-engine` authority name or schema semantics for CrystalServer.
 - Activate a reference snapshot as an authoritative `GameCatalog` profile.
-- Merge native/Canary/reference fields into one apparently authoritative record.
+- Merge native/legacy engine/reference fields into one apparently authoritative record.
 - Infer native identity from matching names, source-local numeric IDs or source paths.
 - Treat a successful parser as proof of semantic completeness.
 - Execute source Lua or other code to derive facts inside the Platform reference pipeline.

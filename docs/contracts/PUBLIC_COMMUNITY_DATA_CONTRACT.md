@@ -2,8 +2,8 @@
 
 ## Ownership
 
-- Canary owns character, skill, guild, house, death and runtime records.
-- Oteryn Platform reads only through the dedicated `canary` connection.
+- Legacy engine owns character, skill, guild, house, death and runtime records.
+- Oteryn Platform reads only through the dedicated `legacy` connection.
 - Platform Identity owns public account-association and public status visibility flags.
 - Browser input never establishes character ownership, account association, status visibility or guild authority.
 
@@ -28,7 +28,7 @@ A public profile may expose:
 
 - name, level and vocation;
 - magic level and approved skill values;
-- public Canary comment and boss points;
+- public legacy engine comment and boss points;
 - guild name and rank;
 - house name and size only;
 - bounded recent deaths;
@@ -36,7 +36,7 @@ A public profile may expose:
 - related active characters only when Platform public account association is enabled;
 - online/last login/last logout only when Platform public status visibility is enabled.
 
-It must never expose Canary account ID, Platform Identity ID/email, binding state internals, IP data, moderator records, raw participant payloads, house coordinates or runtime lease internals.
+It must never expose legacy engine account ID, Platform Identity ID/email, binding state internals, IP data, moderator records, raw participant payloads, house coordinates or runtime lease internals.
 
 ### Guilds
 
@@ -48,7 +48,7 @@ Latest deaths include active victim name, level, cause and timestamp. Character 
 
 ## Explicit exclusions
 
-- guild administration: no approved Canary write contract;
+- guild administration: no approved legacy engine write contract;
 - world/channel transfer history: no authoritative transfer service or source;
 - selectable achievements: no authoritative selection source in the current schema;
 - polls: not adopted for the current launch contract;

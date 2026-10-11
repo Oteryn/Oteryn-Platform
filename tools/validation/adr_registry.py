@@ -68,10 +68,6 @@ LEGACY_DUPLICATE_PATHS: dict[str, tuple[str, ...]] = {
         "0018-game-catalog-unknown-verified-boundary.md",
         "0018-read-only-community-data-boundary.md",
     ),
-    "0021": (
-        "0021-provider-neutral-payment-security-core.md",
-        "0021-require-canary-owned-character-deletion-lifecycle.md",
-    ),
 }
 
 

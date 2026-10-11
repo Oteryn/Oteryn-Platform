@@ -69,7 +69,7 @@ Gateway API `protocol_version: 1` remains the Gateway login API version and MUST
 
 ## Offer and selection cardinality
 
-The cross-family offer may contain independently supported families, including Canary compatibility and native Oteryn.
+The cross-family offer may contain independently supported families, including legacy engine compatibility and native Oteryn.
 
 For the initial native family:
 
@@ -136,11 +136,11 @@ A future profile/variant concept may be introduced only by a later ADR and contr
 
 Extensibility is preserved by contract and schema evolution, reserved protobuf fields and distinct version dimensions—not by maintaining an unused current profile catalogue.
 
-## Canary compatibility
+## Legacy engine compatibility
 
-This amendment does not remove or rename Canary compatibility profiles used by existing Canary/Otheryn compatibility code. It applies only to the new native Oteryn gameplay contract.
+This amendment does not remove or rename legacy engine compatibility profiles used by existing legacy engine/Otheryn compatibility code. It applies only to the new native Oteryn gameplay contract.
 
-`protocol-canary` and `protocol-oteryn` remain independent adapters.
+`protocol-legacy` and `protocol-oteryn` remain independent adapters.
 
 ## Activation gate
 
@@ -150,4 +150,4 @@ Native advertisement, Game Session v2 native issuance, Otheryn native admission 
 2. Otheryn and Rust correspondence adopt this amendment;
 3. Otheryn and Rust runtime packages implement the corrected identity;
 4. exact cross-repository tests prove there is no profile field or profile selection in the native v1 path;
-5. downgrade-negative, rollback and Canary regression tests pass.
+5. downgrade-negative, rollback and legacy engine regression tests pass.

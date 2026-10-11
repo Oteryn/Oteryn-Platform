@@ -12,7 +12,7 @@ The bounded contract producer is delivered on `main`:
 
 - Oteryn Platform PR #121 delivered Game Login Ticket issuance and the private atomic redeem endpoint;
 - Oteryn Platform PR #122 delivered the separately buildable Game Gateway, authoritative login-context orchestration, World Registry use, account-scoped character projection and the Game Session issuer boundary, merged as `8006534108d835474dadd208b0ec934e4a12528b`;
-- `GAME_SESSION_CANARY_CONTRACT.md` is the current operation-specific authority for the legacy-compatible Game Session contract version 1 and records its bounded cross-repository E2E evidence.
+- the retired legacy-engine contracts (see the ADR index) is the current operation-specific authority for the legacy-compatible Game Session contract version 1 and records its bounded cross-repository E2E evidence.
 
 Repository delivery proves the application and service contract, not a production deployment. Exact public/private ingress, TLS termination, service identity, credential rotation, deployed revisions, global legacy-path retirement and effective network isolation remain `UNKNOWN` until verified against one exact environment.
 
@@ -30,7 +30,7 @@ Game Login Ticket
   != game-domain canonical GameSessionId / lease / fencing state
 ```
 
-This document's delivered Canary-compatible `canary_account_id` response and legacy Game Session v1 behavior remain compatibility evidence. They do not authorize Canary numeric IDs, historical Game Session v2 claims or Platform-issued canonical gameplay-session identity in the native Oteryn-v2 path.
+This document's delivered legacy-compatible `legacy_account_id` response and legacy Game Session v1 behavior remain compatibility evidence. They do not authorize legacy engine numeric IDs, historical Game Session v2 claims or Platform-issued canonical gameplay-session identity in the native Oteryn-v2 path.
 
 The native focused contract does not change this delivered ticket-redeem API and does not prove a native producer/consumer implementation, staging E2E or production activation.
 
@@ -46,7 +46,7 @@ It covers Game Login Ticket issuance semantics insofar as they determine redeem 
 - password/MFA/passkey/recovery policy;
 - Identity disabled/security state;
 - OAuth native-client authorization;
-- exact ready Identity -> Canary account binding;
+- exact ready Identity -> legacy engine account binding;
 - Game Login Ticket issuance;
 - Game Login Ticket authoritative storage/consume state;
 - `game_auth_generation` or equivalent revocation generation.
@@ -80,7 +80,7 @@ A Game Login Ticket is:
 - short-lived, default 60 seconds;
 - audience-bound to `oteryn-game-gateway`;
 - bound to exact `identity_id` internally;
-- bound to exact ready `canary_account_id` internally;
+- bound to exact ready `legacy_account_id` internally;
 - bound to the Identity game-auth security generation current at issuance;
 - persisted only as a cryptographic hash/HMAC-derived lookup representation;
 - never logged in plaintext.
@@ -99,11 +99,11 @@ AND OAuth client is the allowed first-party native client
 AND scope includes game:ticket
 AND Identity is enabled
 AND current security policy is satisfied
-AND IdentityCanaryAccount binding is READY
-AND canary_account_id is non-null and exact
+AND IdentityLegacyAccount binding is READY
+AND legacy_account_id is non-null and exact
 ```
 
-Client-supplied `identity_id` or `canary_account_id` cannot establish ownership.
+Client-supplied `identity_id` or `legacy_account_id` cannot establish ownership.
 
 ## Private redeem request
 
@@ -157,7 +157,7 @@ The authoritative operation must be equivalent to one atomic/transactionally saf
 7. verify stored audience equals `oteryn-game-gateway`;
 8. verify current Identity exists and is enabled;
 9. verify stored ticket generation equals current Identity `game_auth_generation`;
-10. verify Identity's current Canary binding remains ready and still resolves to the exact ticket-bound `canary_account_id`;
+10. verify Identity's current legacy engine binding remains ready and still resolves to the exact ticket-bound `legacy_account_id`;
 11. atomically mark ticket used/consumed;
 12. return the minimum successful authorization result.
 
@@ -189,14 +189,14 @@ Semantic response:
 {
   "protocol_version": 1,
   "authorization": {
-    "canary_account_id": 12345,
+    "legacy_account_id": 12345,
     "security_generation": 7,
     "redeemed_at": "2026-07-21T21:45:00Z"
   }
 }
 ```
 
-`canary_account_id` is authoritative for this login attempt.
+`legacy_account_id` is authoritative for this login attempt.
 
 Gateway must not need:
 

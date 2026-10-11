@@ -8,25 +8,25 @@ Accepted — 2026-08-08
 - Decision Issue: #857
 - Accepted option: A
 - Coordination ID: `OTV2-CHARACTER-LIFECYCLE-BOUNDARY`
-- Applies to: authenticated Account Center character portfolio composition, native character identity references, Platform presentation/privacy preferences, character-command orchestration, capability/freshness semantics and Canary compatibility migration direction
-- Does not authorize: Laravel runtime changes, database migrations, Oteryn-v2/Canary writes, protocol wire-format changes, deployment or production activation
+- Applies to: authenticated Account Center character portfolio composition, native character identity references, Platform presentation/privacy preferences, character-command orchestration, capability/freshness semantics and legacy engine compatibility migration direction
+- Does not authorize: Laravel runtime changes, database migrations, Oteryn-v2/legacy engine writes, protocol wire-format changes, deployment or production activation
 
 ## Context
 
-Oteryn Platform already has a delivered authenticated Account Center. Its current `AccountOverviewReadModel` is valid for the Canary compatibility path, but it resolves `IdentityCanaryAccount`, uses numeric `canary_account_id`, queries `CanaryGameDataRepository::activeCharactersForAccount()` and derives character-creation availability from a Platform-local `CHARACTER_LIMIT = 10`.
+Oteryn Platform already has a delivered authenticated Account Center. Its current `AccountOverviewReadModel` is valid for the legacy engine compatibility path, but it resolves `IdentityLegacyAccount`, uses numeric `legacy_account_id`, queries `LegacyGameDataRepository::activeCharactersForAccount()` and derives character-creation availability from a Platform-local `CHARACTER_LIMIT = 10`.
 
-Platform also owns `character_profile_preferences`. The current persistence model identifies the game character with numeric `canary_player_id`. Those records are valid current compatibility state, but the numeric Canary identifier is not the native Oteryn-v2 character identity.
+Platform also owns `character_profile_preferences`. The current persistence model identifies the game character with numeric `legacy_player_id`. Those records are valid current compatibility state, but the numeric legacy engine identifier is not the native Oteryn-v2 character identity.
 
 Accepted architecture has since established:
 
 - ADR 0001: keep the Laravel modular monolith unless measured evidence justifies extraction;
 - ADR 0008: Account Center is a distinct portal application surface; its statement that Account Overview was not delivered is historical evidence from its acceptance date, not current implementation truth;
 - ADR 0025: PlayerCompanion is a bounded Platform module and must not become character/game-state authority;
-- ADR 0028: Platform owns and issues canonical native `AccountId`; Canary account IDs are legacy compatibility state;
+- ADR 0028: Platform owns and issues canonical native `AccountId`; legacy engine account IDs are legacy compatibility state;
 - ADR 0029: Platform owns and issues canonical `WorldId`/`ChannelId`, while game-domain state decides the character's current logical world membership;
 - Oteryn-v2 ADR-0012 / merged PR #90: Character Authority owns canonical `CharacterId`, authoritative current `AccountId <-> CharacterId` ownership and native create/rename/delete/restore/world-transfer/account-transfer mutations; Platform reads are authorized projections and Platform direct writes to native character tables are not the steady-state design.
 
-The Platform therefore needs a durable native consumer boundary before PlayerCompanion, PlatformAPI and future account features copy Canary-specific identifiers or policy inference into new code.
+The Platform therefore needs a durable native consumer boundary before PlayerCompanion, PlatformAPI and future account features copy legacy-engine-specific identifiers or policy inference into new code.
 
 ## Options considered
 
@@ -59,7 +59,7 @@ The repository owner accepted **Option A** on 2026-08-08 and the decision is dur
 
 ### 1. Accounts owns the authenticated portfolio use case
 
-The native Account Center reads a semantic application result rather than raw Oteryn-v2/Canary rows:
+The native Account Center reads a semantic application result rather than raw Oteryn-v2/legacy engine rows:
 
 ```text
 Authenticated Platform Identity
@@ -173,19 +173,19 @@ In the native target those preferences reference canonical `CharacterId`.
 
 Platform-local `identity_id` may remain an internal persistence surrogate under ADR 0028. A preference row may associate the local Platform owner with `CharacterId`, but neither that association nor `is_main_character` proves current game ownership.
 
-The current `canary_player_id` remains compatibility state until a separately authorized migration.
+The current `legacy_player_id` remains compatibility state until a separately authorized migration.
 
-### 7. Canary compatibility migration is additive and fail-closed
+### 7. Legacy engine compatibility migration is additive and fail-closed
 
 Do not replace numeric identifiers in place.
 
 A later migration must provide an explicit anti-corruption/mapping boundary with these invariants:
 
 - canonical `CharacterId` is added before legacy removal;
-- Canary player ID -> `CharacterId` mapping comes from authoritative migration/projection evidence, never hashing, truncation or undocumented derivation;
+- Legacy engine player ID -> `CharacterId` mapping comes from authoritative migration/projection evidence, never hashing, truncation or undocumented derivation;
 - unresolved or conflicting mappings remain unmapped and cannot be attached to another character by inference;
 - canonical `CharacterId` becomes the preferred native reference after verified backfill/cutover;
-- legacy reads/writes remain only in the declared Canary compatibility path during coexistence;
+- legacy reads/writes remain only in the declared legacy engine compatibility path during coexistence;
 - rollback is possible while compatibility columns/mappings are retained;
 - legacy-column removal occurs only in a later gated task after consumers and rollback criteria are proven.
 
@@ -214,19 +214,19 @@ PlayerCompanion
 
 Marketplace / Support / PlatformAPI
   -> module application services
-  -> never raw Canary/Oteryn-v2 character tables
+  -> never raw legacy engine/Oteryn-v2 character tables
 ```
 
 This refines the authenticated ownership-context boundary without making `Accounts` the owner of gameplay facts that ADR 0025 assigns to GameCatalog/PublicGameData/LiveOps/GameAnalytics.
 
-### 9. Current Canary paths remain supported compatibility evidence
+### 9. Current legacy engine paths remain supported compatibility evidence
 
-This accepted decision does not invalidate delivered Canary compatibility behavior.
+This accepted decision does not invalidate delivered legacy engine compatibility behavior.
 
 Until separately authorized native implementation and migration tasks are merged and proven:
 
-- `IdentityCanaryAccount`, `canary_account_id`, `canary_player_id` and operation-specific Canary adapters may remain in their declared current paths;
-- existing Canary character-create/Bazaar contracts remain valid for their current compatibility scope;
+- `IdentityLegacyAccount`, `legacy_account_id`, `legacy_player_id` and operation-specific legacy engine adapters may remain in their declared current paths;
+- existing legacy engine character-create/Bazaar contracts remain valid for their current compatibility scope;
 - new native consumers must not treat those numeric IDs as permanent Oteryn-v2 identities;
 - no existing path is deleted merely because the target architecture is accepted.
 
@@ -242,7 +242,7 @@ Its statement that Account Overview was not yet delivered was true for its accep
 
 - Account Center gets one stable native application boundary without creating a microservice.
 - `AccountId`, `CharacterId`, `WorldId` and `ChannelId` retain distinct owners and semantics.
-- PlayerCompanion and PlatformAPI avoid inheriting Canary numeric IDs.
+- PlayerCompanion and PlatformAPI avoid inheriting legacy engine numeric IDs.
 - Platform presentation/privacy data remains clearly Platform-owned.
 - Character policy cannot silently drift into Blade/read-model row-count logic.
 - stale/unavailable/empty states become architecturally distinct.
@@ -253,20 +253,20 @@ Its statement that Account Overview was not yet delivered was true for its accep
 - a native authorized Character Authority projection/command adapter is still required;
 - CharacterProfiles needs a later additive CharacterId migration;
 - capability composition needs typed cross-domain failure semantics;
-- current Canary compatibility code remains until an explicit cutover;
+- current legacy engine compatibility code remains until an explicit cutover;
 - exact entitlement integration and projection freshness require later decisions.
 
 ## Rejected shortcuts
 
 - make Platform authoritative for native character ownership because it authenticates the account;
-- reuse `canary_player_id` or `canary_account_id` as native identifiers;
+- reuse `legacy_player_id` or `legacy_account_id` as native identifiers;
 - treat a cached portfolio as mutation authorization;
 - derive native create eligibility from a hard-coded row count;
 - make PublicGameData the owner of private Account Center composition;
 - create a new microservice without measured isolation/scaling/lifecycle need;
 - put `ChannelId` into the durable character identity model by default;
 - rewrite accepted historical ADRs to match later implementation;
-- remove Canary compatibility before a proven migration/cutover.
+- remove legacy engine compatibility before a proven migration/cutover.
 
 ## Implementation and activation boundary
 
@@ -275,13 +275,13 @@ Acceptance of this ADR is architecture authority only.
 It does not authorize:
 
 - Laravel runtime implementation of the native Character Portfolio;
-- database migration from `canary_player_id` to `CharacterId`;
+- database migration from `legacy_player_id` to `CharacterId`;
 - native Character Authority HTTP/gRPC/protocol endpoints;
-- Oteryn-v2 or Canary repository writes;
+- Oteryn-v2 or legacy engine repository writes;
 - changes to FND-02 wire encoding;
 - production deployment or activation;
 - entitlement/product implementation;
-- deletion of any current Canary compatibility path.
+- deletion of any current legacy engine compatibility path.
 
 Separately authorized follow-up tasks must later define and prove:
 

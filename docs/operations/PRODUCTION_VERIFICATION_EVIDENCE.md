@@ -34,7 +34,7 @@ The gate fails closed. Blank evidence, staging evidence, repository evidence or 
 | Verification operator | `UNKNOWN` | Record role or approved operator identity without credentials. |
 | Oteryn Platform deployed SHA | `UNKNOWN` | Mandatory exact immutable commit SHA. |
 | Oteryn Platform candidate CI evidence | `UNKNOWN` | Link/run identifiers for required checks on the exact deployed SHA. |
-| Canary deployed version/SHA/image digest | `UNKNOWN` | Record the immutable deployed identity relevant to production behavior. |
+| Legacy engine deployed version/SHA/image digest | `UNKNOWN` | Record the immutable deployed identity relevant to production behavior. |
 | Login-server deployed version/SHA/image digest | `UNKNOWN` | Record when present/relevant; do not infer from `latest`. |
 | Production hostname(s) under verification | `UNKNOWN` | Public hostname only; do not record private endpoints. |
 | Deployment/release identifier | `UNKNOWN` | Sanitized provider release ID or equivalent. |
@@ -62,7 +62,7 @@ If any mandatory precondition is `UNKNOWN`, mutation smoke is blocked.
 | Gate item | State | Evidence |
 |---|---|---|
 | Exact deployed Oteryn Platform SHA recorded | `UNKNOWN` | |
-| Relevant deployed Canary/login-server identities recorded | `UNKNOWN` | |
+| Relevant deployed legacy engine/login-server identities recorded | `UNKNOWN` | |
 | Required CI passed for the exact deployed candidate SHA | `UNKNOWN` | |
 | No unreviewed production-only code/config divergence outside the declared deployment mechanism | `UNKNOWN` | |
 
@@ -113,26 +113,26 @@ Suggested non-destructive public checks may include response/header inspection t
 
 A staging restore duration is never production RTO/RPO evidence.
 
-## 6. Canary SQL effective privilege boundaries
+## 6. Legacy engine SQL effective privilege boundaries
 
 Run only with the effective production credential classes already provisioned outside Git:
 
 ```text
-php artisan canary:verify-db-privileges
-php artisan canary:verify-provisioning-db-privileges
-php artisan canary:verify-character-create-db-privileges
+php artisan legacy:verify-db-privileges
+php artisan legacy:verify-provisioning-db-privileges
+php artisan legacy:verify-character-create-db-privileges
 ```
 
 | Gate item | State | Evidence |
 |---|---|---|
-| Generic Canary read-only verifier passes on production credential/network path | `UNKNOWN` | |
+| Generic legacy engine read-only verifier passes on production credential/network path | `UNKNOWN` | |
 | Provisioning verifier passes before provisioning writes are enabled | `UNKNOWN` | |
 | Character-create verifier passes before character-create writes are enabled | `UNKNOWN` | |
 | Production network paths and credential classes are separate as designed | `UNKNOWN` | |
 
 A failed effective-grant verifier blocks the affected capability.
 
-## 7. Canary runtime Redis
+## 7. Legacy engine runtime Redis
 
 | Gate item | State | Evidence |
 |---|---|---|
@@ -202,9 +202,9 @@ Execute only after hard preconditions are satisfied.
 
 | Smoke item | State | Evidence |
 |---|---|---|
-| Read-only public game-data flow works through generic least-privilege Canary principal | `UNKNOWN` | |
+| Read-only public game-data flow works through generic least-privilege legacy engine principal | `UNKNOWN` | |
 | Runtime server state works through dedicated Redis principal when enabled | `UNKNOWN` | |
-| New Platform Identity reaches ready immutable 1:1 Canary binding when provisioning is launch-enabled | `UNKNOWN` | |
+| New Platform Identity reaches ready immutable 1:1 legacy engine binding when provisioning is launch-enabled | `UNKNOWN` | |
 | Provisioning retry/recovery behavior is operationally understood | `UNKNOWN` | |
 | Bound Identity creates one character through dedicated character-create principal when enabled | `UNKNOWN` | |
 | Character quota/name-conflict behavior matches deployed production schema/version | `UNKNOWN` | |
@@ -251,7 +251,7 @@ Complete before final smoke:
 | Scope decision | Value | Rationale |
 |---|---|---|
 | Registration enabled at launch | `UNKNOWN` | |
-| Canary account provisioning enabled at launch | `UNKNOWN` | |
+| Legacy engine account provisioning enabled at launch | `UNKNOWN` | |
 | Character creation enabled at launch | `UNKNOWN` | |
 | Runtime Redis-backed server status enabled at launch | `UNKNOWN` | |
 | Administrator/CMS production mutations included in smoke | `UNKNOWN` | |

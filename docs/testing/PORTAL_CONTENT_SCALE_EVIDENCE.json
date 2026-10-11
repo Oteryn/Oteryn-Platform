@@ -78,6 +78,6 @@
   "nonclaims": [
     "The bounded synthetic fixtures are not an unbounded load or performance test.",
     "The mapped browser evidence does not prove every unrelated state permutation owned by parent Issue #326.",
-    "No staging, production, Canary, schema, payment-provider or user-data behavior is proven or mutated."
+    "No staging, production, legacy engine, schema, payment-provider or user-data behavior is proven or mutated."
   ]
 }

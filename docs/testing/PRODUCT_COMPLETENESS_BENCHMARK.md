@@ -153,7 +153,7 @@ External Wiki content is reference-only. It is never Oteryn server availability 
 - #325 — loyalty/badge/status decision;
 - #326 — exhaustive visual/state matrix.
 
-Every child issue defines scope, data model, API/UI, security, migration/rollout, tests, acceptance criteria and dependencies. None authorizes Canary, payment-provider or production mutation.
+Every child issue defines scope, data model, API/UI, security, migration/rollout, tests, acceptance criteria and dependencies. None authorizes legacy engine, payment-provider or production mutation.
 
 ## Exact evidence boundary
 

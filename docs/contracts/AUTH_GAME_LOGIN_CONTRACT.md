@@ -11,7 +11,7 @@ This document separates:
 3. source/documentation disagreements marked `CONFLICT`;
 4. a **recommended target contract** that is design direction, not implemented behavior.
 
-Do not implement shared credential migration, global game-login MFA/email enforcement or a new game-login token path until a separately approved implementation task satisfies the rollout gates in this document. Platform-local web Identity controls may be implemented without changing that global-auth boundary, but they must not be represented as Canary/login-server enforcement.
+Do not implement shared credential migration, global game-login MFA/email enforcement or a new game-login token path until a separately approved implementation task satisfies the rollout gates in this document. Platform-local web Identity controls may be implemented without changing that global-auth boundary, but they must not be represented as legacy engine/login-server enforcement.
 
 ## Current Oteryn path overlay
 
@@ -30,16 +30,16 @@ OTClient
        -> account-scoped active character projection
   -> Game Session issuer contract version 1
   -> opaque short-lived Game Session credential
-  -> Canary world-entry admission
+  -> Legacy engine world-entry admission
 ```
 
-The Platform/Gateway producer boundary was delivered through PR #121 and PR #122; PR #122 merged as `8006534108d835474dadd208b0ec934e4a12528b`. The operation-specific world-entry authority is `GAME_SESSION_CANARY_CONTRACT.md`, which records the bounded Canary and OTClient consumer evidence for legacy-compatible Game Session contract version 1.
+The Platform/Gateway producer boundary was delivered through PR #121 and PR #122; PR #122 merged as `8006534108d835474dadd208b0ec934e4a12528b`. The operation-specific world-entry authority is the retired legacy-engine contracts (see the ADR index), which records the bounded legacy engine and OTClient consumer evidence for legacy-compatible Game Session contract version 1.
 
-The delivered path does not send the user's Oteryn password across the Gateway-to-Canary boundary. Gateway authorization is derived from authoritative ticket redeem and the exact ready Platform-to-Canary account binding; client-supplied account or character ownership data cannot establish authority.
+The delivered path does not send the user's Oteryn password across the Gateway-to-legacy engine boundary. Gateway authorization is derived from authoritative ticket redeem and the exact ready Platform-to-legacy engine account binding; client-supplied account or character ownership data cannot establish authority.
 
 ### Still retained or unresolved
 
-The legacy native Canary, external login-server, reusable `account_sessions`, old-protocol direct-password and source-level alternate-path findings below remain relevant until exact deployment evidence proves that each unsupported path is disabled, isolated or intentionally retained.
+The legacy native legacy engine, external login-server, reusable `account_sessions`, old-protocol direct-password and source-level alternate-path findings below remain relevant until exact deployment evidence proves that each unsupported path is disabled, isolated or intentionally retained.
 
 ```yaml
 repository_gateway_path: PROVEN
@@ -61,11 +61,11 @@ No repository document may infer global MFA, email-verification, password-migrat
 
 - Repository: `Oteryn/Oteryn-Platform`
 - Base revision at discovery start: `f968681732ec3e0688ff29426108b49dce79af16`
-- Current state: Platform-owned web Identity is implemented for registration, framework-hashed credentials, login/logout, revocable web sessions, password recovery/change and opt-in web MFA. It is authoritative for the delivered Oteryn Game Gateway path, but it is not yet the sole global game-login credential authority while native Canary, external login-server and other legacy password/session paths may remain reachable.
+- Current state: Platform-owned web Identity is implemented for registration, framework-hashed credentials, login/logout, revocable web sessions, password recovery/change and opt-in web MFA. It is authoritative for the delivered Oteryn Game Gateway path, but it is not yet the sole global game-login credential authority while native legacy engine, external login-server and other legacy password/session paths may remain reachable.
 
-### Canary
+### Legacy engine
 
-- Repository: `blakinio/canary`
+- Repository: `the legacy game-server repository`
 - Pinned revision: `096f6445b29f69a62f03d391a2c02c4dcee74feb`
 - Access mode: read-only
 
@@ -77,7 +77,7 @@ No repository document may infer global MFA, email-verification, password-migrat
 
 ### Deployment-version limitation — UNKNOWN
 
-The Canary Docker quickstart uses `opentibiabr/login-server:latest`, not an immutable image digest or source SHA. Therefore the pinned upstream login-server source is valid compatibility evidence for current upstream source, but **is not proof that any deployed `latest` image or production environment runs exactly that revision**.
+The legacy engine Docker quickstart uses `opentibiabr/login-server:latest`, not an immutable image digest or source SHA. Therefore the pinned upstream login-server source is valid compatibility evidence for current upstream source, but **is not proof that any deployed `latest` image or production environment runs exactly that revision**.
 
 No production deployment topology, firewall policy, container digest or live configuration was provided during this task.
 
@@ -96,9 +96,9 @@ There is **not one single current authentication path** across all repository-su
 
 The inspected source supports/coexists with:
 
-1. native Canary `ProtocolLogin` password authentication;
+1. native legacy engine `ProtocolLogin` password authentication;
 2. external HTTP/gRPC `opentibiabr/login-server` password authentication and DB-backed `account_sessions` issuance;
-3. modern Canary `LoginSessionManager` short-lived, single-use in-memory tokens when `authType=session`;
+3. modern legacy engine `LoginSessionManager` short-lived, single-use in-memory tokens when `authType=session`;
 4. DB-backed `account_sessions` fallback when the one-time token is not accepted;
 5. modern `authType=password` game login that carries an `accountDescriptor + "\n" + password` session-key string and revalidates the password;
 6. old-protocol clients that send account descriptor/password directly on both login and game connections;
@@ -120,16 +120,16 @@ This is especially relevant to any future claim of global enforcement for:
 
 ## Current supported topology
 
-### Native Canary login path — PROVEN
+### Native legacy engine login path — PROVEN
 
-Canary `Game::start` registers:
+Legacy engine `Game::start` registers:
 
 - `ProtocolGame` on the modern game port;
 - optional legacy game protocol ports;
 - `ProtocolLogin` on `loginProtocolPort`;
 - `ProtocolStatus` on the status port.
 
-Therefore Canary itself contains and starts a login protocol implementation.
+Therefore legacy engine itself contains and starts a login protocol implementation.
 
 Native character-list flow:
 
@@ -137,7 +137,7 @@ Native character-list flow:
 Game client
    |
    v
-Canary ProtocolLogin
+Legacy engine ProtocolLogin
    |
    +--> account lookup
    +--> password verification
@@ -147,16 +147,16 @@ Canary ProtocolLogin
 
 ### Docker quickstart external login path — PROVEN
 
-The current Canary repository Docker quickstart simultaneously starts:
+The current legacy engine repository Docker quickstart simultaneously starts:
 
 - MariaDB;
-- Canary runtime;
+- Legacy engine runtime;
 - MyAAC website/admin;
 - `opentibiabr/login-server` as HTTP/gRPC client login webservice.
 
 The quickstart documentation says MyAAC `login.php` is removed and clients should use the external login-server webservice.
 
-The compose file nevertheless also publishes Canary's native `loginProtocolPort` in addition to the game ports.
+The compose file nevertheless also publishes legacy engine's native `loginProtocolPort` in addition to the game ports.
 
 External flow:
 
@@ -172,7 +172,7 @@ opentibiabr/login-server
    +--> character/world response + raw session key
    |
    v
-Canary ProtocolGame
+Legacy engine ProtocolGame
    |
    +--> DB session lookup / validation
    +--> character ownership/deletion check
@@ -181,7 +181,7 @@ Canary ProtocolGame
 
 ### CONFLICT / bypass risk
 
-The repository-supported quickstart intends the external login-server to be the client login webservice, while the same compose topology publishes the native Canary login port and Canary registers `ProtocolLogin` directly.
+The repository-supported quickstart intends the external login-server to be the client login webservice, while the same compose topology publishes the native legacy engine login port and legacy engine registers `ProtocolLogin` directly.
 
 Unless production networking prevents direct access, this is an alternate password-validation path.
 
@@ -191,7 +191,7 @@ The discovery does not prove whether the flag is enforced elsewhere in a product
 
 ## Account descriptor rules
 
-### Native Canary — PROVEN
+### Native legacy engine — PROVEN
 
 `AccountRepositoryDB::loadByEmailOrName` uses:
 
@@ -214,11 +214,11 @@ The supported descriptor contract is inconsistent across paths. A future authori
 
 ## Password verification and hash compatibility
 
-### Native Canary accepted verification paths — PROVEN
+### Native legacy engine accepted verification paths — PROVEN
 
 `Account::authenticatePassword`:
 
-1. tries Canary's custom Argon2id verifier;
+1. tries legacy engine's custom Argon2id verifier;
 2. if that fails, compares `SHA1(plaintext password)` with the stored `accounts.password` value.
 
 The default distributed config includes:
@@ -227,9 +227,9 @@ The default distributed config includes:
 - Argon memory/time/parallelism parameters;
 - a comment that the Argon settings must match between website and server.
 
-### Canary custom Argon2 representation — PROVEN
+### Legacy engine custom Argon2 representation — PROVEN
 
-The pinned Canary Argon verifier does **not** delegate stored-string parsing to the standard Argon2 PHC verifier.
+The pinned legacy engine Argon verifier does **not** delegate stored-string parsing to the standard Argon2 PHC verifier.
 
 It:
 
@@ -238,25 +238,25 @@ It:
 - calls `argon2id_hash_raw` using configured memory/time/parallelism;
 - compares the computed raw bytes with the decoded stored hash.
 
-The inspected Canary code provides verification behavior; this discovery did not prove a corresponding canonical password-hash writer/encoder used by the current Oteryn website.
+The inspected legacy engine code provides verification behavior; this discovery did not prove a corresponding canonical password-hash writer/encoder used by the current Oteryn website.
 
 ### External login-server password verification — PROVEN
 
 Current upstream `opentibiabr/login-server` computes SHA-1 of the submitted plaintext password and queries `accounts.password` for an exact SHA-1 match.
 
-It does not use Canary's custom Argon2 verifier in the inspected source.
+It does not use legacy engine's custom Argon2 verifier in the inspected source.
 
 ### Compatibility conclusion — CONFLICT
 
-Current native Canary can verify SHA-1 and its custom Argon2 representation, while current upstream external login-server verifies SHA-1 only.
+Current native legacy engine can verify SHA-1 and its custom Argon2 representation, while current upstream external login-server verifies SHA-1 only.
 
-Therefore an account converted only to the Canary custom Argon2 representation would not be authenticated by the inspected external login-server source.
+Therefore an account converted only to the legacy engine custom Argon2 representation would not be authenticated by the inspected external login-server source.
 
 ### Laravel Argon2id compatibility — UNKNOWN / BLOCKED
 
-A standard Laravel/PHP Argon2id PHC string has **not** been proven compatible with Canary's custom parser/verification format.
+A standard Laravel/PHP Argon2id PHC string has **not** been proven compatible with legacy engine's custom parser/verification format.
 
-Oteryn Platform must not write Laravel's default Argon2id representation directly into the shared `accounts.password` field until a deterministic compatibility test or a deliberate authentication-authority redesign removes Canary/login-server direct password verification.
+Oteryn Platform must not write Laravel's default Argon2id representation directly into the shared `accounts.password` field until a deterministic compatibility test or a deliberate authentication-authority redesign removes legacy engine/login-server direct password verification.
 
 ### Password migration gate
 
@@ -274,19 +274,19 @@ Credential migration is blocked until all of the following are true:
 
 ### PROVEN
 
-On failed native Canary password authentication, the pinned `Account::authenticatePassword` implementation logs the stored credential value returned by `getPassword()`.
+On failed native legacy engine password authentication, the pinned `Account::authenticatePassword` implementation logs the stored credential value returned by `getPassword()`.
 
 The stored value may be a password hash and is therefore credential-sensitive data.
 
 ### Security requirement
 
-This must be removed/redacted in a separately authorized Canary security fix before a production security-ready claim.
+This must be removed/redacted in a separately authorized legacy engine security fix before a production security-ready claim.
 
 No real credential value was copied into this contract.
 
 ## Character-list authentication paths
 
-### Native Canary `ProtocolLogin` — PROVEN
+### Native legacy engine `ProtocolLogin` — PROVEN
 
 The native login connection:
 
@@ -312,11 +312,11 @@ The current upstream external login-server:
 
 ### Character-list deletion inconsistency — CONFLICT
 
-Native Canary account player loading excludes players with `deletion != 0`.
+Native legacy engine account player loading excludes players with `deletion != 0`.
 
 The inspected external login-server `LoadPlayers` query selects players by `account_id` without a `deletion` filter.
 
-Canary game-world authentication still rejects deleted/unavailable characters before world entry, so this does not bypass the final ownership/deletion gate, but the external character list can expose entries that native Canary would omit.
+Legacy engine game-world authentication still rejects deleted/unavailable characters before world entry, so this does not bypass the final ownership/deletion gate, but the external character list can expose entries that native legacy engine would omit.
 
 ## Game-world authentication
 
@@ -328,7 +328,7 @@ Regardless of whether the account was authenticated by:
 - DB-backed session;
 - redeemed in-memory one-time token;
 
-Canary game-world authentication still verifies:
+Legacy engine game-world authentication still verifies:
 
 - selected character belongs to the authenticated account;
 - account loads successfully;
@@ -342,25 +342,25 @@ A pre-authenticated one-time token does not bypass these checks.
 
 Default distributed `authType` is `password`.
 
-For modern layouts that carry a session-key string, native Canary character-list response uses the ad-hoc value:
+For modern layouts that carry a session-key string, native legacy engine character-list response uses the ad-hoc value:
 
 ```text
 accountDescriptor + "\n" + password
 ```
 
-On game connection, Canary splits the value and revalidates the real password.
+On game connection, legacy engine splits the value and revalidates the real password.
 
 ### Security consequence — DERIVED
 
 The password remains the game-login credential and is sent through both authentication stages in an encoded/encrypted protocol context rather than being replaced by a server-side session authorization.
 
-This mode cannot support a Platform-only MFA/email-verification policy unless Canary password login is also gated by the authoritative policy.
+This mode cannot support a Platform-only MFA/email-verification policy unless legacy engine password login is also gated by the authoritative policy.
 
 ## Mode B — modern `authType=session` + LoginSessionManager token
 
 ### Token issuance — PROVEN
 
-For a modern non-old protocol profile with a session-key field and `authType=session`, native Canary `ProtocolLogin` may replace the ad-hoc password string with a `LoginSessionManager` token.
+For a modern non-old protocol profile with a session-key field and `authType=session`, native legacy engine `ProtocolLogin` may replace the ad-hoc password string with a `LoginSessionManager` token.
 
 Token properties:
 
@@ -400,7 +400,7 @@ Password change/reset does not inherently invalidate a still-pending token in th
 
 ### Multi-process limitation — DERIVED
 
-The token store is process-local in-memory state. A token issued by one Canary process cannot be assumed redeemable by another process without sticky routing/shared state. The current multichannel target therefore requires explicit routing or a shared atomic token store if this primitive becomes the authoritative cross-process game-login token.
+The token store is process-local in-memory state. A token issued by one legacy engine process cannot be assumed redeemable by another process without sticky routing/shared state. The current multichannel target therefore requires explicit routing or a shared atomic token store if this primitive becomes the authoritative cross-process game-login token.
 
 ## Mode C — DB-backed `account_sessions`
 
@@ -415,9 +415,9 @@ Current upstream login-server:
 - sets expiry to current time + 24 hours;
 - fails the login response if session persistence fails.
 
-### Canary lookup — PROVEN
+### Legacy engine lookup — PROVEN
 
-Canary hashes the presented session key with:
+Legacy engine hashes the presented session key with:
 
 - SHA-256;
 - legacy SHA-1 fallback;
@@ -439,7 +439,7 @@ Therefore the raw session key is replayable until:
 
 Current upstream login-server source inspection proves session creation but did not find an account-session deletion/revocation flow.
 
-Canary loads and validates DB sessions but the inspected game authentication path does not delete them after use.
+Legacy engine loads and validates DB sessions but the inspected game authentication path does not delete them after use.
 
 `resetSessionsOnStartup` is present and loaded from configuration, but this discovery did not prove its runtime effect at the pinned revision.
 
@@ -460,7 +460,7 @@ They send account descriptor/password directly on:
 - login connection;
 - game connection.
 
-The distributed config defaults `allowOldProtocol=true` in the pinned Oteryn Canary fork.
+The distributed config defaults `allowOldProtocol=true` in the pinned Oteryn legacy engine fork.
 
 ### Target-policy consequence — DERIVED
 
@@ -478,7 +478,7 @@ A production security-ready claim must not silently leave the legacy direct-pass
 
 ### PROVEN scope
 
-Canary also stores reusable protocol/session hints associated with IP/profile/session-key/character data to resolve protocol compatibility across connections.
+Legacy engine also stores reusable protocol/session hints associated with IP/profile/session-key/character data to resolve protocol compatibility across connections.
 
 ### DERIVED
 
@@ -494,20 +494,20 @@ Therefore:
 
 - a banned account may pass password/session authentication;
 - a character list/session may be issued;
-- final world entry is still rejected by Canary's account-ban gate.
+- final world entry is still rejected by legacy engine's account-ban gate.
 
 ### IP bans — PROVEN
 
 IP bans are checked on:
 
-- native Canary `ProtocolLogin`;
-- Canary `ProtocolGame` connection.
+- native legacy engine `ProtocolLogin`;
+- Legacy engine `ProtocolGame` connection.
 
 The external login-server source inspected in this task did not prove equivalent IP/account-ban enforcement before session issuance.
 
 ### Name locks — PROVEN
 
-Character namelocks are checked during Canary world login and block world entry.
+Character namelocks are checked during legacy engine world login and block world entry.
 
 ### Disabled-account model — UNKNOWN
 
@@ -519,30 +519,30 @@ No separate universally enforced account-disabled field/policy was proven by the
 
 No MFA/TOTP or email-verification gate is present in the inspected:
 
-- native Canary `ProtocolLogin` password flow;
-- Canary `ProtocolGame` password/session flow;
+- native legacy engine `ProtocolLogin` password flow;
+- Legacy engine `ProtocolGame` password/session flow;
 - current upstream external login-server authentication flow.
 
-Oteryn Platform now has a Platform-owned web Identity implementation with password recovery/change, revocable web sessions and opt-in MFA. These controls govern Platform web authentication only and do not change the inspected Canary or external login-server paths listed above.
+Oteryn Platform now has a Platform-owned web Identity implementation with password recovery/change, revocable web sessions and opt-in MFA. These controls govern Platform web authentication only and do not change the inspected legacy engine or external login-server paths listed above.
 
 ### Platform policy status — PARTIALLY PROVEN / GLOBAL GAME POLICY UNKNOWN
 
-Oteryn Platform web Identity now implements opt-in MFA for identities that enroll. Current Phase 3 product policy does not require email verification, so no Platform email-verification gate is enabled. No evidence proves that Platform MFA or any future email-verification policy gates every native Canary or external login-server authentication path.
+Oteryn Platform web Identity now implements opt-in MFA for identities that enroll. Current Phase 3 product policy does not require email verification, so no Platform email-verification gate is enabled. No evidence proves that Platform MFA or any future email-verification policy gates every native legacy engine or external login-server authentication path.
 
 ### Security consequence — DERIVED
 
-Platform-only MFA or email verification would not become a global game-login requirement while native Canary password/session paths or an external login-server can authenticate without consulting that state.
+Platform-only MFA or email verification would not become a global game-login requirement while native legacy engine password/session paths or an external login-server can authenticate without consulting that state.
 
 ## Password change and password reset
 
 ### Current global end-to-end behavior — PARTIALLY PROVEN / GAME REVOCATION UNKNOWN
 
-Oteryn Platform web Identity implements password change and password reset and revokes Platform web sessions according to its `web_session_generation` policy. The inspected Canary and upstream login-server paths remain separate reusable-credential/session authorities.
+Oteryn Platform web Identity implements password change and password reset and revokes Platform web sessions according to its `web_session_generation` policy. The inspected legacy engine and upstream login-server paths remain separate reusable-credential/session authorities.
 
 No evidence proves that Platform password change/reset currently:
 
-- deletes Canary/login-server `account_sessions`;
-- invalidates pending Canary LoginSessionManager tokens;
+- deletes legacy engine/login-server `account_sessions`;
+- invalidates pending legacy engine LoginSessionManager tokens;
 - disconnects active game sessions;
 - enforces Platform email-verification or MFA policy across every game-login path.
 
@@ -560,7 +560,7 @@ Without explicit revocation, changing the password alone is insufficient to inva
 
 ### Current authentication-credential revocation — NOT PROVEN
 
-The inspected Canary `ProtocolGame::release` clears reusable protocol session hints and disconnects/releases the game protocol/player association.
+The inspected legacy engine `ProtocolGame::release` clears reusable protocol session hints and disconnects/releases the game protocol/player association.
 
 No evidence in the inspected paths proves that normal game logout deletes DB `account_sessions`.
 
@@ -570,7 +570,7 @@ A LoginSessionManager token is already single-use by the time the game session s
 
 ### PROVEN
 
-After successful game authentication, Canary uses a separate cluster-session/lease mechanism in multichannel mode to prevent split-brain/concurrent character presence.
+After successful game authentication, legacy engine uses a separate cluster-session/lease mechanism in multichannel mode to prevent split-brain/concurrent character presence.
 
 This is not the login credential itself.
 
@@ -582,9 +582,9 @@ Ban checks are proven at login entry; automatic immediate disconnection of an al
 
 ## Outage and failure behavior
 
-### Canary database unavailable — PROVEN
+### Legacy engine database unavailable — PROVEN
 
-Canary startup fails if it cannot connect to its database.
+Legacy engine startup fails if it cannot connect to its database.
 
 ### External login-server database unavailable — PROVEN
 
@@ -600,13 +600,13 @@ LoginSessionManager token issuance fails closed if CSPRNG seeding/generation fai
 
 ### Multichannel cluster dependency failure — PROVEN for world entry
 
-Canary cluster runtime can fail closed for new sessions when it cannot safely verify cluster session state.
+Legacy engine cluster runtime can fail closed for new sessions when it cannot safely verify cluster session state.
 
 ### Platform outage — PATH-DEPENDENT
 
 For the delivered Oteryn Gateway path, Oteryn Platform Identity is in the game-authentication critical path: ticket issuance, private ticket redeem and private login-context dependencies fail closed when Platform is unavailable.
 
-Native Canary, external login-server and other retained legacy password/session paths may still authenticate independently when deployed and reachable. Therefore a Platform outage is not yet a proven global game-login shutdown condition, and exact production exposure or isolation of those alternate paths remains `UNKNOWN`.
+Native legacy engine, external login-server and other retained legacy password/session paths may still authenticate independently when deployed and reachable. Therefore a Platform outage is not yet a proven global game-login shutdown condition, and exact production exposure or isolation of those alternate paths remains `UNKNOWN`.
 
 ### DERIVED sole-authority implication
 
@@ -618,10 +618,10 @@ If Platform Identity becomes the sole global credential authority, its availabil
 
 | Path | Password checked by | Game credential | Current bypass concern |
 |---|---|---|---|
-| Native modern Canary, `authType=password` | Canary | embedded descriptor/password string | Bypasses Platform-only policy |
-| Native modern Canary, `authType=session` | Canary at character-list stage | 60s single-use token, then DB-session fallback | DB fallback remains alternate credential |
+| Native modern legacy engine, `authType=password` | legacy engine | embedded descriptor/password string | Bypasses Platform-only policy |
+| Native modern legacy engine, `authType=session` | legacy engine at character-list stage | 60s single-use token, then DB-session fallback | DB fallback remains alternate credential |
 | External HTTP/gRPC login-server | login-server SHA-1 verifier | 24h DB `account_sessions` token | Bypasses Platform unless integrated |
-| Old protocol | Canary | password on both connections | Cannot carry modern opaque-token policy |
+| Old protocol | legacy engine | password on both connections | Cannot carry modern opaque-token policy |
 | Livestream path | special non-account flow | special account/password marker | Separate capability; must remain isolated from normal account auth |
 
 ### Production-readiness rule
@@ -639,13 +639,13 @@ A future policy cannot be called globally enforced until every externally reacha
 
 `PROVEN / HIGH PRIORITY`
 
-Failed native Canary password authentication logs the stored credential value. Remove/redact it before production security readiness.
+Failed native legacy engine password authentication logs the stored credential value. Remove/redact it before production security readiness.
 
 ### Finding B — parallel authentication paths
 
 `PROVEN / HIGH PRIORITY ARCHITECTURAL RISK`
 
-Native Canary login and external login-server can coexist in repository-supported topology. Stronger policy added to only one path is bypassable through another reachable path.
+Native legacy engine login and external login-server can coexist in repository-supported topology. Stronger policy added to only one path is bypassable through another reachable path.
 
 ### Finding C — SHA-1 compatibility dependency
 
@@ -665,11 +665,11 @@ Source behavior is authoritative for this contract.
 
 `CONFLICT`
 
-Native Canary excludes deleted players from account player lists; current upstream external login-server does not filter `players.deletion` in its list query.
+Native legacy engine excludes deleted players from account player lists; current upstream external login-server does not filter `players.deletion` in its list query.
 
 ## Current revocation matrix
 
-| Event | Platform web sessions | Pending 60s Canary one-time tokens | DB `account_sessions` | Active game session | Current evidence |
+| Event | Platform web sessions | Pending 60s legacy engine one-time tokens | DB `account_sessions` | Active game session | Current evidence |
 |---|---|---|---|---|---|
 | Password change | Revoked by Platform `web_session_generation` policy | Not proven revoked | Not proven revoked | Not proven disconnected | PROVEN for Platform web / game revocation UNKNOWN |
 | Password reset | Revoked by Platform `web_session_generation` policy | Not proven revoked | Not proven revoked | Not proven disconnected | PROVEN for Platform web / game revocation UNKNOWN |
@@ -677,7 +677,7 @@ Native Canary excludes deleted players from account player lists; current upstre
 | Account banned | N/A current Platform | Not proven revoked | Not proven revoked | New world entry rejected; existing-session effect unknown | PARTIALLY PROVEN |
 | Email changed | NOT_IMPLEMENTED/UNKNOWN | Token binds account ID, not email | Session binds account ID | No proven effect | PARTIALLY PROVEN |
 | Normal game logout | N/A | Consumed login token already gone; other tokens unaffected | Not proven deleted | Connection/player session ends | PARTIALLY PROVEN |
-| Canary process restart | N/A | In-memory tokens lost | DB sessions persist unless separate reset behavior occurs | Process sessions end | PARTIALLY PROVEN |
+| Legacy engine process restart | N/A | In-memory tokens lost | DB sessions persist unless separate reset behavior occurs | Process sessions end | PARTIALLY PROVEN |
 
 ## Recommended target contract
 
@@ -695,7 +695,7 @@ Oteryn Platform Identity should become the only component that verifies reusable
 - recovery/reset policy;
 - web-session revocation.
 
-Canary and login-server should not independently verify reusable passwords once migration completes.
+Legacy engine and login-server should not independently verify reusable passwords once migration completes.
 
 ### Principle 2 — separate reusable credentials from game-login authorization
 
@@ -715,7 +715,7 @@ short-lived single-use game-login authorization
 login compatibility endpoint / adapter
         |
         v
-Canary ProtocolGame
+Legacy engine ProtocolGame
 (atomic consume + account/character/ban validation)
         |
         v
@@ -752,11 +752,11 @@ A target architecture should either:
 
 A failed one-time token should not silently fall back to a longer-lived credential in the production-authoritative path.
 
-### Principle 5 — direct Canary login must not bypass Identity
+### Principle 5 — direct legacy engine login must not bypass Identity
 
 Before enforcing MFA/email verification globally:
 
-- native Canary `ProtocolLogin` must be disabled for public modern auth, or restricted behind trusted network boundaries and integrated with authoritative Identity;
+- native legacy engine `ProtocolLogin` must be disabled for public modern auth, or restricted behind trusted network boundaries and integrated with authoritative Identity;
 - `loginProtocolEnabled`/service registration behavior must be made unambiguous if used as the control;
 - published firewall/container ports must match the intended trust boundary;
 - direct password mode must be disabled for production modern clients once token migration is complete.
@@ -802,9 +802,9 @@ can invalidate pending authorizations deterministically.
 Recommended defense in depth:
 
 - check account disabled/ban state before issuing game authorization;
-- check it again atomically at Canary game-world entry.
+- check it again atomically at legacy engine game-world entry.
 
-This prevents unnecessary credential/session issuance while retaining Canary as a final safety gate.
+This prevents unnecessary credential/session issuance while retaining legacy engine as a final safety gate.
 
 ### Principle 10 — MFA/email verification cannot be website-only when intended to gate game login
 
@@ -827,9 +827,9 @@ A UI-only or website-session-only check is insufficient.
 
 The discovery task does not implement these. Separate approved tasks are required for:
 
-1. **Canary security fix** — stop logging stored credential hashes on failed password authentication.
+1. **Legacy engine security fix** — stop logging stored credential hashes on failed password authentication.
 2. **Deployment/auth topology decision ADR** — choose authoritative Identity/login path and legacy-client policy.
-3. **Credential compatibility test task** — deterministic fixtures for SHA-1, Canary custom Argon2 and proposed Laravel hash handling.
+3. **Credential compatibility test task** — deterministic fixtures for SHA-1, legacy engine custom Argon2 and proposed Laravel hash handling.
 4. **Identity implementation** — web login/logout, secure hashing, verification, MFA, reset/recovery and server-side authorization.
 5. **Game-login token implementation** — shared atomic one-time token issuance/consumption and exact routing contract.
 6. **Revocation implementation** — password/reset/MFA/ban events revoke all intended session classes.
@@ -840,11 +840,11 @@ The discovery task does not implement these. Separate approved tasks are require
 
 Authentication must not be called production-ready while any of these remain unresolved:
 
-- stored credential hash logging in Canary;
+- stored credential hash logging in legacy engine;
 - unpinned/unknown deployed login-server image/version;
 - public alternate native password login path not governed by authoritative Identity;
 - SHA-1-only external login-server compatibility requirement;
-- unproven Laravel/Canary password-hash compatibility;
+- unproven Laravel/legacy engine password-hash compatibility;
 - no global session/token revocation on password reset/change;
 - no proven MFA/email-verification enforcement across all game-login paths when those policies are required;
 - legacy direct-password path retained without an explicit accepted security policy;
@@ -870,13 +870,13 @@ Before merging any future production auth migration, test exact deployed version
 - password reset revocation;
 - MFA reset/recovery revocation;
 - email-verification gate if required;
-- native Canary direct-login attempt;
+- native legacy engine direct-login attempt;
 - legacy client direct-login attempt;
 - login-server outage;
 - Platform Identity outage;
 - DB session-store outage;
 - shared token-store outage;
-- Canary restart;
+- Legacy engine restart;
 - multi-process/channel token routing;
 - normal logout;
 - active-session ban/disable behavior.
@@ -893,4 +893,4 @@ Game-ticket bootstrap locks the current Identity and access token, fails closed 
 
 The Passport generation columns are nullable for additive-schema compatibility. For `game:ticket` bootstrap, a missing generation is intentionally invalid, so pre-binding or stale game-ticket access tokens fail closed rather than being grandfathered.
 
-This proof is limited to the Platform-owned native OAuth producer/bootstrap path. It does not prove revocation of retained Canary `LoginSessionManager` tokens, external `account_sessions`, legacy direct-password paths, active game sessions, or production deployment/cutover.
+This proof is limited to the Platform-owned native OAuth producer/bootstrap path. It does not prove revocation of retained legacy engine `LoginSessionManager` tokens, external `account_sessions`, legacy direct-password paths, active game sessions, or production deployment/cutover.

@@ -201,7 +201,7 @@ ADR 0032 is the controlling focused decision. This architecture does not claim a
 
 The architectural owner is resolved by ADR 0030; runtime implementation remains intentionally separate.
 
-The native target must replace new reliance on Canary numeric identifiers with canonical cross-boundary identities and an authorized game-owned projection/command boundary:
+The native target must replace new reliance on legacy engine numeric identifiers with canonical cross-boundary identities and an authorized game-owned projection/command boundary:
 
 ```text
 Platform Identity / AccountId
@@ -221,12 +221,12 @@ Required implementation decisions and evidence before native activation include:
 - authoritative revision/observation and freshness policy;
 - the versioned Character Authority projection adapter;
 - command orchestration and idempotent mutation receipt/result handling;
-- additive `canary_player_id` -> `CharacterId` preference migration, backfill, rollback and removal gates;
+- additive `legacy_player_id` -> `CharacterId` preference migration, backfill, rollback and removal gates;
 - game-owned versus Platform-owned capability/denial semantics;
 - entitlement-to-game capability exchange if product policy needs it;
 - integration, migration, negative-path and real E2E proof before activation.
 
-PlayerCompanion P0 should not create a parallel Canary-numeric ownership model while this native boundary is unimplemented. It should consume owned-character context through `Accounts` and consume game facts/rules through its accepted GameCatalog/PublicGameData/LiveOps/GameAnalytics dependencies.
+PlayerCompanion P0 should not create a parallel legacy-engine-numeric ownership model while this native boundary is unimplemented. It should consume owned-character context through `Accounts` and consume game facts/rules through its accepted GameCatalog/PublicGameData/LiveOps/GameAnalytics dependencies.
 
 ### Multi-world, profiles and seasons
 
@@ -268,7 +268,7 @@ A versioned first-party API becomes justified by concrete consumers such as:
 
 The API must reuse module application services, authorization, validation and version/freshness semantics. It must not serialize raw database models or recreate formulas and domain decisions.
 
-For owned-character consumers the API must reuse the ADR 0030 Accounts Character Portfolio service rather than exposing `canary_account_id`, `canary_player_id` or raw game-owned tables as a permanent contract.
+For owned-character consumers the API must reuse the ADR 0030 Accounts Character Portfolio service rather than exposing `legacy_account_id`, `legacy_player_id` or raw game-owned tables as a permanent contract.
 
 For federated public content search, PlatformAPI reuses the ADR 0033 `PublicPortal` federated-search application service instead of independently fan-out querying CMS/Wiki/GameCatalog/etc. or recreating cross-source grouping/ranking policy.
 
@@ -441,7 +441,7 @@ The architecture subject may be considered closed for a named release scope only
 7. client distribution has an accepted provenance/update policy for the release;
 8. LiveOps sources and stale/unavailable semantics are explicit for every displayed runtime claim, including composed Today/World Hub cards;
 9. multi-world/profile/season applicability is explicit or validly not applicable;
-10. native Character Portfolio consumers use the accepted AccountId/CharacterId boundary or are explicitly compatibility-scoped; no new permanent Canary-numeric ownership contract is introduced;
+10. native Character Portfolio consumers use the accepted AccountId/CharacterId boundary or are explicitly compatibility-scoped; no new permanent legacy-engine-numeric ownership contract is introduced;
 11. personalized tracking/subscription behavior, when implemented, has explicit source, privacy, retention, refresh, abuse and notification-delivery semantics;
 12. personalized Today, when implemented, classifies any private-influenced mixed response as owner-private, bypasses shared/CDN/anonymous caches, uses owner/security-revision fencing for any private representation cache, fences logout/session/ownership/privacy/tracking transitions and passes two-user/auth-transition/CDN/private-fragment negative-path evidence;
 13. typed server-specific systems do not blur GameCatalog deterministic definition, Wiki editorial explanation and LiveOps current-state ownership;

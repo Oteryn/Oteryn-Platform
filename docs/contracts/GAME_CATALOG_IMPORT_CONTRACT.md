@@ -4,18 +4,18 @@ Status: Proposed
 Contract ID: `oteryn.game-catalog`  
 Initial schema version: `1.0.0`  
 Current additive schema version: `1.2.0`
-Producer: `blakinio/canary`  
+Producer: `the legacy game-server repository`  
 Consumer: `Oteryn/Oteryn-Platform`
 
 ## 1. Purpose
 
-This contract defines the only supported **Legacy Canary Compatibility** boundary for importing structured game catalogue data from Canary into Oteryn Platform. It is read-only with respect to Canary and Platform-owned after import. ADR 0034 and `OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md` define the separate native target; this contract does not define native identity or producer semantics.
+This contract defines the only supported **Legacy Engine Compatibility** boundary for importing structured game catalogue data from legacy engine into Oteryn Platform. It is read-only with respect to legacy engine and Platform-owned after import. ADR 0034 and `OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md` define the separate native target; this contract does not define native identity or producer semantics.
 
-It does not authorize Platform to mutate Canary gameplay data, infer missing content, import external wiki data, or claim historical parity.
+It does not authorize Platform to mutate legacy engine gameplay data, infer missing content, import external wiki data, or claim historical parity.
 
 ## 2. Ownership
 
-- Canary owns source runtime semantics and snapshot production.
+- Legacy engine owns source runtime semantics and snapshot production.
 - Platform owns imported snapshot persistence, profiles, visibility, localization, UI and administration. This lifecycle ownership does not transfer authority for executable gameplay content.
 - One snapshot is an immutable representation of one exact producer state.
 - Platform never silently repairs producer facts. A corrected producer result is a new snapshot.
@@ -61,7 +61,7 @@ Required fields:
 
 ```text
 generated_at
-canary_commit_sha
+legacy_commit_sha
 protocol_profile
 runtime_release
 content_target_release
@@ -281,7 +281,7 @@ Rules:
 - `maximum_count >= minimum_count`;
 - the consumer must not assume one universal denominator.
 
-Schema `1.2.0` uses the versioned Canary runtime-threshold model:
+Schema `1.2.0` uses the versioned legacy engine runtime-threshold model:
 
 ```text
 chance_model = canary_dynamic_threshold_v1
@@ -293,7 +293,7 @@ container_path nullable
 condition_data nullable
 ```
 
-For this model, `chance_threshold` is the exact configured runtime threshold and may exceed `roll_maximum`. `roll_maximum` is the selected export profile's declared base roll ceiling; it is not an upper bound on the configured threshold. Canary applies runtime rate, schedule, dynamic and other contextual modifiers before comparing the roll against an adjusted threshold. Therefore threshold divided by roll maximum is not exported or displayed as one context-free effective probability.
+For this model, `chance_threshold` is the exact configured runtime threshold and may exceed `roll_maximum`. `roll_maximum` is the selected export profile's declared base roll ceiling; it is not an upper bound on the configured threshold. Legacy engine applies runtime rate, schedule, dynamic and other contextual modifiers before comparing the roll against an adjusted threshold. Therefore threshold divided by roll maximum is not exported or displayed as one context-free effective probability.
 
 Schema 1.2 rejects legacy probability fields in threshold records, and schemas 1.0/1.1 reject threshold-model fields. Platform persists the representations separately and never clamps or synthesizes one from the other.
 
@@ -375,7 +375,7 @@ resources/schemas/game-catalog/v1.1/game-catalog-snapshot.schema.json
 resources/schemas/game-catalog/v1.2/game-catalog-snapshot.schema.json
 ```
 
-Matching Canary path:
+Matching legacy engine path:
 
 ```text
 schemas/game-catalog/v1/game-catalog-snapshot.schema.json
@@ -405,14 +405,14 @@ The first implementation fixture must contain:
 - one future loot relation.
 - for schema 1.2, at least one valid configured threshold greater than its roll maximum.
 
-Canary validates or generates the fixture. Platform imports it and proves the expected visibility for at least two profiles or target releases.
+Legacy engine validates or generates the fixture. Platform imports it and proves the expected visibility for at least two profiles or target releases.
 
 ## 19. Rollout order
 
 Schema `1.1.0` uses a consumer-first-safe rollout:
 
 1. merge Platform dual-schema validation and nullable inactive persistence while retaining stored `1.0.0` activation/rollback compatibility;
-2. merge Canary `1.1.0` output support;
+2. merge legacy engine `1.1.0` output support;
 3. generate and review a schema `1.1.0` staging snapshot;
 4. require a concrete verified boundary before any non-production activation;
 5. add NPCs, quests, map availability and historical profiles as separate slices.
@@ -422,7 +422,7 @@ An older consumer rejects `1.1.0` fail closed. A newer consumer continues to val
 Schema `1.2.0` also uses consumer-first rollout:
 
 1. merge Platform schema, persistence, rollback guard and truthful read support;
-2. merge a separate Canary producer task with byte-identical schema and fixture files;
+2. merge a separate legacy engine producer task with byte-identical schema and fixture files;
 3. require a full default-datapack export with no dangling endpoints or probability coercion;
 4. review the inactive snapshot before any staging activation.
 

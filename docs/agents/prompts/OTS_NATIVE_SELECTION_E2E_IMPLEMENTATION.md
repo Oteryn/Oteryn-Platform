@@ -53,7 +53,7 @@ Forbidden unless separately explicitly authorized:
 - broad production activation;
 - Internet exposure, router/firewall changes or public endpoint creation;
 - password/OAuth/ticket bypass or replay;
-- removing Canary support;
+- removing legacy engine support;
 - changing canonical wire semantics inside integration;
 - accepting mismatched revisions/schema/capabilities;
 - hiding failures through fallback;
@@ -84,13 +84,13 @@ If bounded staging is the authorized endpoint, report `staging_complete` and `pr
 6. Action lifecycle and authoritative deltas are visible to the real client; no socket-write success claim substitutes for effects.
 7. Revision gap causes one bounded resync and a complete replacement snapshot.
 8. Disconnect/relog uses a fresh ticket/selection/session/full snapshot and replays no old command.
-9. Current Canary selection remains functional when explicitly offered/allowed.
-10. Every post-selection native failure is terminal for that ticket/session and never switches to Canary.
+9. Current legacy engine selection remains functional when explicitly offered/allowed.
+10. Every post-selection native failure is terminal for that ticket/session and never switches to legacy engine.
 11. No password fallback, direct OAuth/Otheryn auth or direct Game Login Ticket/Otheryn path exists.
 12. Cross-character/world/channel/profile/schema/capability/endpoint replay and contradiction tests fail closed.
 13. Exact deployed revisions/image digests, schema hash, policy revision, capability digest and fixture manifest are recorded.
 14. Performance/resource/error/telemetry thresholds are measured and bounded; secrets/identifiers/payloads remain redacted.
-15. Rollback disables advertisement first, prevents new native sessions, drains/closes active sessions, disables listener and leaves Canary available for fresh sessions.
+15. Rollback disables advertisement first, prevents new native sessions, drains/closes active sessions, disables listener and leaves legacy engine available for fresh sessions.
 16. Production remains disabled unless the task has explicit environment-specific activation authority and all rollout gates pass.
 
 ## Cross-repository implementation sequence
@@ -150,7 +150,7 @@ Never persist secrets, tickets, credentials, account/character identifiers, chat
 - chat delivery/rejection and logout;
 - state revision gap -> bounded resync;
 - disconnect/ambiguous failure -> fresh complete login, no replay;
-- explicit Canary candidate journey remains valid;
+- explicit legacy engine candidate journey remains valid;
 - selected-not-offered, stale policy, readiness contradiction, schema/capability mismatch, TLS mismatch, session replay/cross-binding and post-selection downgrade negatives;
 - rollback rehearsal.
 
@@ -170,7 +170,7 @@ Thresholds must be declared before the final run and cannot be weakened after se
 
 ## Audit and closeout
 
-Use a fresh independent validator with all three exact diffs and environment evidence. Audit contract consistency, authority, session replay, downgrade paths, TLS/private service boundaries, parser limits, redaction, rollback, Canary regression and exact deployed identity.
+Use a fresh independent validator with all three exact diffs and environment evidence. Audit contract consistency, authority, session replay, downgrade paths, TLS/private service boundaries, parser limits, redaction, rollback, legacy engine regression and exact deployed identity.
 
 Critical/high/material-medium findings block completion. Final CI must pass on every exact PR head. Every related PR/review must become terminal. Archive each repository task separately and release ownership.
 

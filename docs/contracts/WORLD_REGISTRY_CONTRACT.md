@@ -6,7 +6,7 @@
 
 ## Native Oteryn-v2 authority note
 
-This document remains authoritative implementation/compatibility evidence for the currently delivered Canary-oriented World Registry and Gateway producer.
+This document remains authoritative implementation/compatibility evidence for the currently delivered legacy-engine-oriented World Registry and Gateway producer.
 
 For **native Oteryn-v2 world/channel identity and topology semantics**, the narrower accepted authorities are:
 
@@ -17,9 +17,9 @@ For **native Oteryn-v2 runtime status/readiness semantics**, the narrower accept
 
 - `OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md`.
 
-Accordingly, statements below that equate `world_id` with the `game_worlds` database primary key, use `WorldRegistry::forAccount(canary_account_id)`, hard-code integer `channel_id = 1`, couple a channel to protocol-candidate/endpoint storage, or treat persisted `status` as sufficient live readiness describe **LEGACY / CURRENT IMPLEMENTATION COMPATIBILITY STATE**. They do not define the native target identity or runtime-status model.
+Accordingly, statements below that equate `world_id` with the `game_worlds` database primary key, use `WorldRegistry::forAccount(legacy_account_id)`, hard-code integer `channel_id = 1`, couple a channel to protocol-candidate/endpoint storage, or treat persisted `status` as sufficient live readiness describe **LEGACY / CURRENT IMPLEMENTATION COMPATIBILITY STATE**. They do not define the native target identity or runtime-status model.
 
-No current runtime payload, database schema or Canary path is changed by this authority clarification.
+No current runtime payload, database schema or legacy engine path is changed by this authority clarification.
 
 This contract defines the authoritative world-routing and ordered gameplay-candidate policy consumed by the Oteryn Game Gateway.
 
@@ -47,7 +47,7 @@ Sections below that retain the label “Phase 1” describe the original foundat
 Current world authorization policy:
 
 ```text
-positive redeemed Canary account ID
+positive redeemed legacy engine account ID
     -> all worlds where status=online
     -> AND login_enabled=true
     -> AND route fields are syntactically valid
@@ -70,7 +70,7 @@ Oteryn Platform owns World Registry configuration and policy.
 
 Game Gateway consumes World Registry through a narrow interface.
 
-Canary remains the runtime owner of each current compatibility game world/process.
+Legacy engine remains the runtime owner of each current compatibility game world/process.
 
 For the native target, Oteryn-v2 owns authoritative game-runtime status/readiness source facts while Platform consumes validated projections under `OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md`.
 
@@ -90,7 +90,7 @@ OTClient consumes only sanitized routing data returned by Gateway.
 
 The first release does not implement:
 
-- gameplay-state synchronization across Canary instances;
+- gameplay-state synchronization across legacy engine instances;
 - channel allocation;
 - dynamic autoscaling;
 - queues/capacity balancing;
@@ -195,19 +195,19 @@ invalid/missing route     -> deny
 
 For native Oteryn-v2, the fail-closed gate is stricter: missing/stale/unavailable/invalid required runtime evidence, superseded runtime ownership, incompatible revisions or explicit non-readiness deny new routing/admission even when Platform configuration is enabled.
 
-The exact compatibility implementation relationship between Canary runtime health and persisted `status` remains unchanged. The native semantic relationship is now defined by `OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md`; exact Oteryn-v2 producer transport/cadence/health algorithms remain deferred to their owner.
+The exact compatibility implementation relationship between legacy engine runtime health and persisted `status` remains unchanged. The native semantic relationship is now defined by `OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md`; exact Oteryn-v2 producer transport/cadence/health algorithms remain deferred to their owner.
 
 ## World authorization
 
 Logical interface:
 
 ```text
-WorldRegistry::forAccount(canary_account_id) -> list<GameWorldRoute>
+WorldRegistry::forAccount(legacy_account_id) -> list<GameWorldRoute>
 ```
 
 The interface is account-aware from the first implementation.
 
-Current MVP behavior accepts only a positive Canary account ID and then projects all eligible worlds. Future policy may narrow results for:
+Current MVP behavior accepts only a positive legacy engine account ID and then projects all eligible worlds. Future policy may narrow results for:
 
 - test/preview access;
 - tournament eligibility;
@@ -228,7 +228,7 @@ character_name
 world_id
 ```
 
-For a single shared Canary database where existing `players` records do not encode world identity, a later single-world adapter may derive all current characters as belonging to the one configured world.
+For a single shared legacy engine database where existing `players` records do not encode world identity, a later single-world adapter may derive all current characters as belonging to the one configured world.
 
 That would be explicit adapter behavior, not a claim that `players` intrinsically stores `world_id`.
 
@@ -238,13 +238,13 @@ Before true multiworld rollout, character-to-world persistence/ownership must be
 
 Every target Game Session is logically bound to one `world_id`.
 
-The Phase 1 Game Session value/interface contract carries `worldId`, but no Canary persistence adapter is implemented yet.
+The Phase 1 Game Session value/interface contract carries `worldId`, but no legacy engine persistence adapter is implemented yet.
 
 Gateway must eventually create/return routing only for the bound world.
 
 OTClient cannot transform a session into authorization for another world by editing host/port.
 
-Exact enforcement depends on the selected Game Session↔Canary adapter and remains an implementation gate.
+Exact enforcement depends on the selected Game Session↔legacy engine adapter and remains an implementation gate.
 
 ## Sanitized Gateway projection
 
@@ -270,7 +270,7 @@ Do not expose:
 - database connection data;
 - management ports;
 - health-check secrets;
-- Canary service credentials;
+- Legacy engine service credentials;
 - private channel/process identifiers not required by the client;
 - native GameNode identity, ownership/fencing details or private runtime diagnostics not explicitly public-safe.
 
@@ -356,7 +356,7 @@ status=online AND login_enabled=true
 
 means the registry considers the world eligible for new routing under current policy.
 
-It does not guarantee the Canary endpoint will still be reachable milliseconds later.
+It does not guarantee the legacy engine endpoint will still be reachable milliseconds later.
 
 For native Oteryn-v2, the accepted model is explicitly two-source:
 
@@ -390,7 +390,7 @@ Required before enabling multiple worlds:
 - separate routing endpoints;
 - maintenance behavior;
 - cross-world character name semantics if databases are separated;
-- exact Canary database/runtime topology;
+- exact legacy engine database/runtime topology;
 - E2E per world.
 
 Native multiworld runtime-status projections additionally require canonical WorldId/ChannelId scope, current topology revision and explicit per-channel freshness/aggregation semantics.
@@ -455,7 +455,7 @@ Effects:
 
 - no new Game Sessions;
 - Gateway does not return the world as login-available;
-- existing player connections are governed by separate operational/Canary policy;
+- existing player connections are governed by separate operational/legacy engine policy;
 - Registry alone does not imply forced disconnect.
 
 For native Oteryn-v2, configured maintenance remains a Platform control-plane admission denial independent of current runtime health. Runtime health/readiness does not override Platform maintenance, and an editorial maintenance message does not itself establish runtime truth.
@@ -509,7 +509,7 @@ Native-v2 implementation additionally requires the exact runtime-status validati
 
 - account sees only authorized worlds;
 - character lists preserve correct world association;
-- session for world A cannot be used for world B according to the selected Canary adapter;
+- session for world A cannot be used for world B according to the selected legacy engine adapter;
 - maintenance world denies new sessions;
 - one world outage does not corrupt other world routing;
 - region/routing fields are returned correctly;
@@ -536,7 +536,7 @@ Native WorldId/ChannelId identity and runtime-status projection versioning are g
 
 1. Exact production Oteryn world public hostname/port.
 2. Character-to-world persistence model for true multiworld.
-3. Exact Game Session world-scope enforcement in Canary.
+3. Exact Game Session world-scope enforcement in legacy engine.
 4. Exact Oteryn-v2 runtime-status producer schema/transport, reporting cadence/TTL, health/readiness algorithm and ownership-generation encoding; the Platform consumer semantics are defined by `OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md`.
 5. Future admin/world-management surface and its privileged write workflow.
 6. Future per-account world entitlement persistence/policy beyond the current single-world-ready MVP.

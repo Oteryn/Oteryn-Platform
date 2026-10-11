@@ -74,7 +74,7 @@ Every delivered LiveOps fact must carry or be able to establish the dimensions n
 - source observation/revision identity;
 - source observation time and freshness/expiry semantics.
 
-A hostname, port, slug, deployment identity, process identity, Canary integer identifier or cached route must never substitute for canonical native scope identity.
+A hostname, port, slug, deployment identity, process identity, legacy engine integer identifier or cached route must never substitute for canonical native scope identity.
 
 ## Evidence state is separate from business/runtime state
 

@@ -57,9 +57,9 @@ Route/source owner; user purpose/actions; data source/privacy/freshness; populat
 | Password recovery/reset/change | `UNKNOWN_PENDING_AUDIT` | Enumeration resistance, mail failure, token lifecycle, policy and session revocation. |
 | MFA enrollment/settings/challenge/recovery | `PARTIAL` | Prove all lifecycle states, replay/rate limits, recovery-code policy and responsive behavior. |
 | Account Center | `PARTIAL` | Current slice adds owned active characters, slot use and populated/empty/not-ready/unavailable/limit states. Exact-head and staging proof remain; future profile/account actions require explicit product decisions. |
-| Canary provisioning | `PARTIAL` | Existing ready/pending/recoverable/conflict/unavailable states need complete browser/live evidence and support path verification. |
+| Legacy engine provisioning | `PARTIAL` | Existing ready/pending/recoverable/conflict/unavailable states need complete browser/live evidence and support path verification. |
 | Character creation | `UNKNOWN_PENDING_AUDIT` | Ready/not-ready, validation, duplicate, quota, races, dependency failure, success destination, EN/PL/mobile. |
-| Character rename/delete | `DEFERRED_WITH_PRODUCT_DECISION` | Not authorized by the Canary contract; UI must not imply availability. |
+| Character rename/delete | `DEFERRED_WITH_PRODUCT_DECISION` | Not authorized by the legacy engine contract; UI must not imply availability. |
 | Existing account claim/import | `DEFERRED_WITH_PRODUCT_DECISION` | Greenfield-only ownership is the approved model. |
 | Authoritative game login | `DEFERRED_WITH_PRODUCT_DECISION` or launch `BROKEN` | A launch-scope decision is mandatory. Platform-authoritative game login remains a separate cross-repository bridge. |
 

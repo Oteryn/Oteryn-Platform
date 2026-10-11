@@ -8,7 +8,7 @@ Accepted — 2026-08-07
 
 Oteryn Platform already owns the World Registry and Game Gateway control-plane boundary. The current implementation predates the native Oteryn-v2 topology model and therefore exposes Platform-local integer persistence identities: `game_worlds.id` is used as route/world identity, `GameWorldRoute.id` is an integer, and protocol policy currently carries an integer `channel_id` that is hard-coded to `1` by `DatabaseWorldRegistry`.
 
-Those values are valid implementation evidence for the existing Canary-compatible/single-channel path, but they are not a safe long-lived identity contract for the native Rust game domain. They couple external semantics to Laravel row layout, conflate channel identity with a protocol-candidate record, and make failover, relocation, rolling deployment and future multi-channel operation unnecessarily identity-breaking.
+Those values are valid implementation evidence for the existing legacy-compatible/single-channel path, but they are not a safe long-lived identity contract for the native Rust game domain. They couple external semantics to Laravel row layout, conflate channel identity with a protocol-candidate record, and make failover, relocation, rolling deployment and future multi-channel operation unnecessarily identity-breaking.
 
 Oteryn-v2 foundation architecture already distinguishes durable logical world/channel identity from GameNode process incarnation, runtime ownership generations, endpoint routes and protocol details. Platform is the owner of the World Registry/topology-control boundary and therefore must be the canonical issuer of the externally consumed world/channel identities.
 
@@ -119,11 +119,11 @@ Conceptually:
 WorldRegistry::forAccount(AccountId) -> authorized topology projection
 ```
 
-The existing `forAccount(canary_account_id)` implementation remains valid only inside the declared Canary compatibility path. `canary_account_id` must not become the native topology authorization identity.
+The existing `forAccount(legacy_account_id)` implementation remains valid only inside the declared legacy engine compatibility path. `legacy_account_id` must not become the native topology authorization identity.
 
-### 8. Canary numeric world/channel state is compatibility-only
+### 8. Legacy engine numeric world/channel state is compatibility-only
 
-Current numeric world identity, hard-coded `channel_id = 1`, Canary process mapping and Canary route configuration are classified as:
+Current numeric world identity, hard-coded `channel_id = 1`, legacy engine process mapping and legacy engine route configuration are classified as:
 
 ```text
 LEGACY / CURRENT IMPLEMENTATION COMPATIBILITY STATE
@@ -167,9 +167,9 @@ This ADR does not itself authorize an Oteryn-v2 repository write.
 
 ## Relationship to existing Platform contracts
 
-`WORLD_REGISTRY_CONTRACT.md` remains authoritative evidence for the currently implemented Canary-compatible registry, including its current numeric IDs and single-channel behavior.
+`WORLD_REGISTRY_CONTRACT.md` remains authoritative evidence for the currently implemented legacy-compatible registry, including its current numeric IDs and single-channel behavior.
 
-For native Oteryn-v2 identity/topology semantics, this ADR and `OTERYN_V2_WORLD_TOPOLOGY_CONTRACT.md` are narrower and authoritative where the older contract equates `world_id` with a database primary key, uses `canary_account_id` as account identity or treats integer channel `1` as the target model.
+For native Oteryn-v2 identity/topology semantics, this ADR and `OTERYN_V2_WORLD_TOPOLOGY_CONTRACT.md` are narrower and authoritative where the older contract equates `world_id` with a database primary key, uses `legacy_account_id` as account identity or treats integer channel `1` as the target model.
 
 No current runtime payload or database schema is changed by this decision alone.
 
@@ -182,7 +182,7 @@ No current runtime payload or database schema is changed by this decision alone.
 - failover and rolling deployment can replace GameNodes/routes without re-keying channels;
 - split-brain prevention can use explicit fencing generations instead of abusing identity values;
 - protocol evolution is decoupled from topology identity;
-- Canary-specific numeric IDs remain contained in an anti-corruption boundary;
+- Legacy-engine-specific numeric IDs remain contained in an anti-corruption boundary;
 - Platform and Rust domains get a type-safe, durable vocabulary for routing/admission contracts.
 
 ### Costs
@@ -228,6 +228,6 @@ Separately authorized implementation/contract tasks must later define and prove:
 8. route-set rollout/drain/failover/rollback semantics;
 9. cross-language UUID fixtures and mixed-version fail-closed behavior;
 10. coordinated Oteryn-v2 consumer reconciliation under its own repository authority;
-11. explicit retirement criteria for hard-coded `channel_id=1` and legacy Canary mappings.
+11. explicit retirement criteria for hard-coded `channel_id=1` and legacy engine mappings.
 
 No Laravel/PHP runtime change, database migration, Oteryn-v2 repository write, protocol activation, channel allocator, deployment or production operation is authorized by this ADR alone.

@@ -14,7 +14,7 @@ Treat an event as potentially critical when it involves any of:
 
 - suspected credential/token/session/MFA-secret exposure;
 - administrator privilege escalation or unauthorized role changes;
-- unauthorized Canary shared writes;
+- unauthorized legacy engine shared writes;
 - database corruption/loss or unverified restore state;
 - broad authentication failure/bypass;
 - confirmed remote code execution;
@@ -68,7 +68,7 @@ Immediate containment:
 3. For administrator identities, review administrator audit events and role assignments.
 4. Require MFA recovery/reset handling as a privileged security action when MFA factors are suspected compromised.
 5. Review relevant request IDs and bounded application logs for the incident window.
-6. Do not assume Canary/login-server sessions are revoked by Platform session revocation; cross-path revocation remains a separate contract boundary.
+6. Do not assume legacy engine/login-server sessions are revoked by Platform session revocation; cross-path revocation remains a separate contract boundary.
 
 Recovery verification:
 
@@ -89,15 +89,15 @@ Recovery verification:
 
 Cloudflare Access may be an additional containment layer only if deployment evidence proves it is actually configured. Do not rely on it otherwise.
 
-## Suspected Canary generic read credential over-privilege
+## Suspected legacy engine generic read credential over-privilege
 
 Run:
 
 ```text
-php artisan canary:verify-db-privileges
+php artisan legacy:verify-db-privileges
 ```
 
-Expected behavior: fail closed if the effective generic Canary credential exceeds the approved read-only boundary.
+Expected behavior: fail closed if the effective generic legacy engine credential exceeds the approved read-only boundary.
 
 Actions on failure:
 
@@ -108,12 +108,12 @@ Actions on failure:
 
 Do not broaden application permissions to accommodate an over-privileged credential.
 
-## Suspected Canary provisioning credential compromise/over-privilege
+## Suspected legacy engine provisioning credential compromise/over-privilege
 
 Run:
 
 ```text
-php artisan canary:verify-provisioning-db-privileges
+php artisan legacy:verify-provisioning-db-privileges
 ```
 
 If compromise is suspected or the verifier fails:
@@ -125,19 +125,19 @@ If compromise is suspected or the verifier fails:
 5. Review provisioning/binding state for incomplete `pending` records and use the supported bounded recovery command only after the credential boundary is restored:
 
 ```text
-php artisan canary:provision-pending-accounts --limit=100
+php artisan legacy:provision-pending-accounts --limit=100
 ```
 
-6. Investigate unexpected Canary account rows using authorized database evidence.
+6. Investigate unexpected legacy engine account rows using authorized database evidence.
 
 Never expose the internal random compatibility credential to users.
 
-## Suspected Canary character-create credential compromise/over-privilege
+## Suspected legacy engine character-create credential compromise/over-privilege
 
 Run:
 
 ```text
-php artisan canary:verify-character-create-db-privileges
+php artisan legacy:verify-character-create-db-privileges
 ```
 
 If compromise is suspected or the verifier fails:
@@ -145,17 +145,17 @@ If compromise is suspected or the verifier fails:
 1. Disable/fence character creation capability where possible.
 2. Rotate/reprovision only the dedicated character-create credential.
 3. Re-run the verifier before re-enabling character creation.
-4. Review unexpected player rows/name/quota anomalies against the exact deployed Canary schema/version.
+4. Review unexpected player rows/name/quota anomalies against the exact deployed legacy engine schema/version.
 5. Do not use this credential for rename/delete/account mutations; those operations are not authorized by Phase 5 contracts.
 
-## Canary runtime Redis degradation
+## Legacy engine runtime Redis degradation
 
 Symptoms may include unavailable/fail-closed runtime availability rather than fabricated offline/empty state.
 
 Actions:
 
 1. Confirm the application health route separately from runtime Redis behavior.
-2. Verify whether the `canary_runtime` dependency is reachable using the actual approved operational tooling; do not expose Redis credentials.
+2. Verify whether the `legacy_runtime` dependency is reachable using the actual approved operational tooling; do not expose Redis credentials.
 3. Confirm dedicated read-only ACL/user status if deployment evidence is available.
 4. Treat stale/missing runtime data as dependency failure according to the application contract; do not extend freshness artificially with manual cache edits.
 5. Escalate network/Redis/provider failures to the actual infrastructure owner.
@@ -202,7 +202,7 @@ Decision order:
 6. Re-run:
    - required CI on the recovery SHA;
    - `production:verify-configuration` against effective runtime configuration;
-   - applicable Canary privilege verifiers;
+   - applicable legacy engine privilege verifiers;
    - targeted critical flows.
 7. Record the incident timeline and root cause.
 
@@ -219,7 +219,7 @@ Do not improvise a restore from undocumented backups.
 5. Restore only through the documented operational backup procedure.
 6. After restore, verify at minimum:
    - Platform Identity/RBAC/CMS/audit/provisioning migrations/state;
-   - immutable Identity-to-Canary bindings;
+   - immutable Identity-to-legacy engine bindings;
    - pending provisioning state consistency;
    - administrator role assignments;
    - recent security/admin audit availability.
@@ -228,7 +228,7 @@ Do not improvise a restore from undocumented backups.
 
 Current repository state does not prove that an operational backup/restore mechanism exists. Until a dated restore test succeeds, production readiness remains blocked.
 
-## Canary shared-data inconsistency after partial failure
+## Legacy engine shared-data inconsistency after partial failure
 
 For account provisioning, use the existing forward-recovery model and bounded pending-provisioning command after verifying database privileges.
 
@@ -248,7 +248,7 @@ The Platform-authoritative game-login bridge is not implemented.
 
 Do not claim that Platform password reset, MFA or session revocation controls current native/external game-login sessions globally.
 
-Incidents involving game-login authentication/revocation require the actual Canary/login-server contract and may require separately authorized cross-repository action.
+Incidents involving game-login authentication/revocation require the actual legacy engine/login-server contract and may require separately authorized cross-repository action.
 
 ## Post-incident closure
 

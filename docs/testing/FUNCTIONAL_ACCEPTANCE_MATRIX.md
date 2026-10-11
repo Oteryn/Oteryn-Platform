@@ -41,7 +41,7 @@ Visual / UI / UX Acceptance is a separate gate and remains `FAIL` until the dedi
 | Feature | Repository evidence | Live staging E2E | Negative/failure | Authorization | Production smoke |
 |---|---|---|---|---|---|
 | Registration | `PROVEN` | `STAGING_PROVEN` | `PROVEN` | guest-only / server-owned binding | yes |
-| Client-controlled Canary/account identifiers rejected or ignored | `PROVEN` | `STAGING_PROVEN` in cross-surface ownership checks | `PROVEN` | `PROVEN` | no |
+| Client-controlled legacy engine/account identifiers rejected or ignored | `PROVEN` | `STAGING_PROVEN` in cross-surface ownership checks | `PROVEN` | `PROVEN` | no |
 | Login and logout | `PROVEN` | `STAGING_PROVEN` | `PROVEN` | guest/authenticated boundaries proven | yes |
 | Password recovery through SMTP reset link | `PROVEN` | `STAGING_PROVEN` with MailHog SMTP | `PROVEN` generic request behavior and token replay rejection | token-authorized flow | yes |
 | Password reset | `PROVEN` | `STAGING_PROVEN` | `PROVEN` expired/replayed token rejection | token-authorized flow | yes |
@@ -66,13 +66,13 @@ Visual / UI / UX Acceptance is a separate gate and remains `FAIL` until the dedi
 
 | Feature | Repository/integration evidence | Live staging E2E | Negative/failure | Authorization | Production smoke |
 |---|---|---|---|---|---|
-| Platform-originated Canary provisioning | `PROVEN` with real MariaDB integration and privilege validation | `STAGING_PROVEN` | `PROVEN` | no client-selected account authority | yes |
-| Identity -> Canary ready 1:1 binding | `PROVEN` | `STAGING_PROVEN` | `PROVEN` uniqueness constraints | server-owned | yes |
+| Platform-originated legacy engine provisioning | `PROVEN` with real MariaDB integration and privilege validation | `STAGING_PROVEN` | `PROVEN` | no client-selected account authority | yes |
+| Identity -> legacy engine ready 1:1 binding | `PROVEN` | `STAGING_PROVEN` | `PROVEN` uniqueness constraints | server-owned | yes |
 | Provisioning retry/idempotency | `PROVEN` | `STAGING_PROVEN` where deterministic | `PROVEN` | server-owned | no |
 | Duplicate provisioning recovery | `PROVEN` real MariaDB | `STAGING_PROVEN` acceptance composition | `PROVEN` | dedicated principal | no |
 | Partial-failure forward recovery | `PROVEN` real MariaDB | `DERIVED` from integration plus accepted live chain | `PROVEN` | dedicated principal | no |
 | Provisioning dependency failure/pending state | `PROVEN` | `STAGING_PROVEN` fail-closed acceptance composition | `PROVEN` | `PROVEN` | no |
-| Dedicated `canary_provisioning` least privilege | `STAGING_PROVEN` real MariaDB grants | boundary validation `STAGING_PROVEN` | `PROVEN` prohibited writes/reads | DB enforced | yes |
+| Dedicated `legacy_provisioning` least privilege | `STAGING_PROVEN` real MariaDB grants | boundary validation `STAGING_PROVEN` | `PROVEN` prohibited writes/reads | DB enforced | yes |
 
 ## Character management
 
@@ -87,7 +87,7 @@ Character deletion and rename are not delivered and are intentionally excluded f
 | Binding/account ownership; foreign `account_id` ignored | `PROVEN` | `STAGING_PROVEN` | `PROVEN` pending/foreign authority denial | `PROVEN` | yes |
 | Same-account and cross-account concurrency | `PROVEN` real MariaDB + `pcntl` | — | `PROVEN` | DB/application enforced | no |
 | Idempotent retry/ambiguous-commit recovery | `PROVEN` | `STAGING_PROVEN` acceptance composition | `PROVEN` | dedicated principal | no |
-| Dedicated `canary_character_create` privilege shape | `STAGING_PROVEN` | boundary validation `STAGING_PROVEN` | `PROVEN` prohibited cross-surface writes | DB enforced | yes |
+| Dedicated `legacy_character_create` privilege shape | `STAGING_PROVEN` | boundary validation `STAGING_PROVEN` | `PROVEN` prohibited cross-surface writes | DB enforced | yes |
 
 ## Public game data and public content
 
@@ -101,7 +101,7 @@ Character deletion and rename are not delivered and are intentionally excluded f
 | Servers static/runtime state | `PROVEN` | `STAGING_PROVEN` including fresh, missing and malformed runtime states | `PROVEN` | public read-only | yes |
 | Public news list/detail | `PROVEN` | `STAGING_PROVEN` through CMS lifecycle/public visibility acceptance | `PROVEN` | public | yes |
 | Managed public pages | `PROVEN` | `STAGING_PROVEN` through CMS lifecycle/public visibility acceptance | `PROVEN` | public | yes |
-| Generic Canary read-only DB boundary | `STAGING_PROVEN` real MariaDB grants | boundary validation `STAGING_PROVEN` | `PROVEN` writes/excess privilege denied | DB enforced | yes |
+| Generic legacy engine read-only DB boundary | `STAGING_PROVEN` real MariaDB grants | boundary validation `STAGING_PROVEN` | `PROVEN` writes/excess privilege denied | DB enforced | yes |
 
 ## Administrator and RBAC
 
@@ -156,9 +156,9 @@ Character deletion and rename are not delivered and are intentionally excluded f
 | Feature | Evidence | Staging classification | Production smoke |
 |---|---|---|---|
 | Platform DB unavailable | PR #73 controlled exact-SHA HTTP outage validation: no false-success mutation, Platform state unchanged, bounded response/log secret checks, recovery read | `STAGING_PROVEN` | yes |
-| Canary DB unavailable / failing public read | Phase 7 verifier evidence plus explicit public failure behavior | `STAGING_PROVEN` at documented boundaries | yes |
+| Legacy engine DB unavailable / failing public read | Phase 7 verifier evidence plus explicit public failure behavior | `STAGING_PROVEN` at documented boundaries | yes |
 | Insufficient provisioning DB privileges | real MariaDB grant mutation/verifier | `STAGING_PROVEN` | yes |
-| Excessive generic Canary DB privileges | real MariaDB grant mutation/verifier | `STAGING_PROVEN` | yes |
+| Excessive generic legacy engine DB privileges | real MariaDB grant mutation/verifier | `STAGING_PROVEN` | yes |
 | Excessive/denied character-create privileges | MariaDB integration and Phase 7 prohibited-write checks | `STAGING_PROVEN` | yes |
 | Redis unavailable/malformed/missing | runtime tests + Phase 7 + live server-state acceptance | `STAGING_PROVEN` | yes |
 | Mail unavailable | password-recovery tests + Phase 7 unavailable SMTP endpoint | `STAGING_PROVEN` at transport/failure boundary | yes |
@@ -171,7 +171,7 @@ Character deletion and rename are not delivered and are intentionally excluded f
 
 | Scenario | Status | Evidence |
 |---|---|---|
-| New Identity -> login -> MFA -> Canary provisioning -> ready binding -> character creation -> public character visibility | `STAGING_PROVEN` | merged PR #67 production-like browser acceptance on exact final PR head plus real-MariaDB privilege/integration evidence |
+| New Identity -> login -> MFA -> legacy engine provisioning -> ready binding -> character creation -> public character visibility | `STAGING_PROVEN` | merged PR #67 production-like browser acceptance on exact final PR head plus real-MariaDB privilege/integration evidence |
 | Returning Identity -> password recovery/change -> stale-session invalidation -> MFA challenge | `STAGING_PROVEN` | merged PR #67 live HTTP + MailHog browser acceptance |
 | Admin bootstrap -> MFA/RBAC -> role management -> CMS create/edit/publish/unpublish -> public visibility/hiding -> audit visibility | `STAGING_PROVEN` | merged PR #67 live browser acceptance plus PR #74 focused regressions |
 | Representative authorization/failure abuse: CSRF, guest/stale session, invalid/replayed MFA, foreign account authority, last-admin removal, unauthorized CMS | `STAGING_PROVEN` | merged PR #67 acceptance plus repository/integration regressions |
@@ -184,7 +184,7 @@ The following remain outside the delivered functional surface and must not be in
 - public existing-account claim/import flow;
 - character deletion;
 - character rename;
-- self-service Canary binding unlink/rebind/transfer;
+- self-service legacy engine binding unlink/rebind/transfer;
 - account deletion;
 - authoritative Platform game-login bridge unless separately authorized and implemented.
 

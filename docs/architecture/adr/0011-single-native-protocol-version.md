@@ -4,7 +4,7 @@
 - Date: 2026-08-05
 - Coordination ID: `OTS-20260804-native-protocol-selection`
 - Supersedes: the native-profile dimension in ADR 0010 and canonical contract revision 1
-- Does not supersede: Canary compatibility profiles, login/API versions, transport/schema versioning, authority, downgrade or rollout rules
+- Does not supersede: Legacy engine compatibility profiles, login/API versions, transport/schema versioning, authority, downgrade or rollout rules
 - Superseded by: `docs/architecture/adr/0031-native-oteryn-v2-integration-boundary.md`
 
 ## Context
@@ -43,7 +43,7 @@ The following concepts remain distinct:
 - schema revision and hash;
 - capability list and digest.
 
-Selection may still choose between independently supported protocol families such as Canary compatibility and native Oteryn. For native Oteryn v1, however, `family = oteryn` plus `native_protocol_version = 1` identifies the sole native gameplay contract. No second native alternative exists in the current offer or World Registry policy.
+Selection may still choose between independently supported protocol families such as legacy engine compatibility and native Oteryn. For native Oteryn v1, however, `family = oteryn` plus `native_protocol_version = 1` identifies the sole native gameplay contract. No second native alternative exists in the current offer or World Registry policy.
 
 ## Transitional producer state
 
@@ -54,7 +54,7 @@ That producer MUST NOT be enabled for native gameplay until a corrective impleme
 1. replaces current native `profile` fields and storage with `native_protocol_version` or an equally explicit single-version field;
 2. updates Gateway offer/selection, World Registry policy, Game Session v2 claims, readiness and tests consistently;
 3. updates Otheryn and Rust correspondence before their runtime implementations merge;
-4. proves no legacy Gateway v1 or Canary-compatible behavior regresses;
+4. proves no legacy Gateway v1 or legacy-compatible behavior regresses;
 5. passes exact cross-repository compatibility and downgrade-negative evidence.
 
 Because the producer is disabled and initially stores no candidate, this correction should occur before consumer activation. Implementations must still inspect real persisted and deployed state before choosing a migration strategy; repository defaults are not proof that every environment has no rows.
@@ -73,9 +73,9 @@ A future need for multiple variants requires all of:
 
 Protobuf field numbers removed during the correction remain `reserved`. JSON and database fields are introduced later only when the need is real. This preserves extensibility without carrying unused complexity in the initial implementation.
 
-## Canary boundary
+## Legacy engine boundary
 
-Existing Canary-compatible server/client profiles are legacy compatibility implementation details and are not removed by this ADR. They must remain isolated inside Canary compatibility boundaries and must not be copied into the native Oteryn design.
+Existing legacy-compatible server/client profiles are legacy compatibility implementation details and are not removed by this ADR. They must remain isolated inside legacy engine compatibility boundaries and must not be copied into the native Oteryn design.
 
 ## Supersession note
 

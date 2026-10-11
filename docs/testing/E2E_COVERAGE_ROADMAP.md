@@ -21,8 +21,8 @@ The production-like acceptance system now provides:
 
 - exact tested SHA execution;
 - real Laravel HTTP runtime;
-- isolated MariaDB Platform and Canary acceptance schemas;
-- operation-specific Canary principals;
+- isolated MariaDB Platform and legacy engine acceptance schemas;
+- operation-specific legacy engine principals;
 - dedicated Redis runtime ACL principal;
 - MailHog SMTP;
 - full primary Chromium functional acceptance;
@@ -141,7 +141,7 @@ PR #106 merged as `8030f98d7280c16705f34f2d29c8ebd7fc85f285` and added the first
 
 It proves two full dependency lifecycles on the same exact application SHA:
 
-### Canary read recovery
+### Legacy engine read recovery
 
 `/online`:
 
@@ -258,7 +258,7 @@ Do not add browser tests solely to increase test count.
 | Soak | Long-running runtime behavior degrades | Production-like runtime/monitoring | Repeated non-secret public journeys plus calibration metrics | P2 | Scheduled/manual |
 | Volume | Repeated usage exposes leaks or stale state | Integration/performance harness | Browser only for representative sampling | P2 | Scheduled/manual |
 | Performance budgets | User-visible latency regresses | Dedicated performance tooling | Optional calibrated navigation checks | P2 | Non-blocking until calibrated |
-| Authoritative game login | Platform Identity cannot reliably enter game | Cross-repository contract/system E2E | Full Platform -> login-server -> Canary journey when authorized | Future launch-dependent | Separate programme |
+| Authoritative game login | Platform Identity cannot reliably enter game | Cross-repository contract/system E2E | Full Platform -> login-server -> legacy engine journey when authorized | Future launch-dependent | Separate programme |
 | Final production | Real deployed topology differs from staging | Production smoke/E2E | Exact deployed SHA only | Production-only | Issue #91 |
 
 ## P0 — bounded release-critical hardening
@@ -291,7 +291,7 @@ Every migration-bearing candidate traversing Phase 7 release validation using th
 
 ### P1.1 Controlled dependency interruption/recovery
 
-Status: **implemented for the first bounded public Canary-read and Redis-runtime recovery slice through PR #106**.
+Status: **implemented for the first bounded public legacy-engine-read and Redis-runtime recovery slice through PR #106**.
 
 Every future resilience scenario must prove:
 

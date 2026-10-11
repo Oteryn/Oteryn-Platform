@@ -18,7 +18,7 @@ Launch content is mutable editorial data. A schema migration that silently inser
 
 `WikiLaunchContentCatalog` owns one reviewed bilingual package and an explicit content version. Each article records the repository files that support its substantive claims.
 
-The package contains the thirteen minimum launch topics. Where product facts remain unknown, the article names the current authoritative public surface or explicitly says that no approved value is present. It does not substitute Canary examples, another server's behavior or an inferred default.
+The package contains the thirteen minimum launch topics. Where product facts remain unknown, the article names the current authoritative public surface or explicitly says that no approved value is present. It does not substitute legacy engine examples, another server's behavior or an inferred default.
 
 ### 2. Installation is an explicit operator action
 
@@ -99,7 +99,7 @@ Rejected. It would overwrite later editorial work and bypass optimistic-locking 
 
 Rejected. Initial publication must remain attributable to one existing, MFA-confirmed Identity with every exact Wiki permission.
 
-### Fill missing gameplay facts from Canary examples
+### Fill missing gameplay facts from legacy engine examples
 
 Rejected. Configuration examples and generic upstream defaults are not Oteryn product approval.
 

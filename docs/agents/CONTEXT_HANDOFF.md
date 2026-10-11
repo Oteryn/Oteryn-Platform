@@ -32,7 +32,7 @@ DONE | WAITING | BLOCKED | ROTATE
 
 `ROTATE` must never be written as checkpoint task status. Before returning `ROTATE`, persist `ready`, `waiting`, or `blocked` with one concrete `next_action`.
 
-`blakinio/canary` is a read-only compatibility reference for shared checkpoint semantics. Oteryn Platform allowlists, delivery policy, architecture routing, Laravel, database, security, and other repository-specific governance remain independent and must not be mechanically synchronized.
+`the legacy game-server repository` is a read-only compatibility reference for shared checkpoint semantics. Oteryn Platform allowlists, delivery policy, architecture routing, Laravel, database, security, and other repository-specific governance remain independent and must not be mechanically synchronized.
 
 A structural version upgrade is required only for an incompatible checkpoint change, such as adding or removing a required field, changing a field type, removing an accepted value, or invalidating an existing valid checkpoint. Backward-compatible additive values and repository-specific live-state invariants use a synchronized policy revision instead.
 

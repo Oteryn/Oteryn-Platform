@@ -1,4 +1,4 @@
-# ADR 0031 — Native Oteryn-v2 integration and legacy Canary compatibility boundary
+# ADR 0031 — Native Oteryn-v2 integration and legacy engine compatibility boundary
 
 ## Status
 
@@ -6,17 +6,17 @@ Accepted — 2026-08-08
 
 - Decision owner: repository owner
 - Decision Issue: #863
-- Applies to: Oteryn Platform integration ownership, native-v2 versus Canary compatibility separation, game admission/control-plane responsibilities, native gameplay protocol ownership, cross-system persistence boundaries, public game-data projections and game-analytics consumption
-- Does not authorize: Laravel/runtime implementation, database migration, Oteryn-v2 or Canary repository writes, wire-protocol implementation, deployment, production activation or removal of existing compatibility paths
+- Applies to: Oteryn Platform integration ownership, native-v2 versus legacy engine compatibility separation, game admission/control-plane responsibilities, native gameplay protocol ownership, cross-system persistence boundaries, public game-data projections and game-analytics consumption
+- Does not authorize: Laravel/runtime implementation, database migration, Oteryn-v2 or legacy engine repository writes, wire-protocol implementation, deployment, production activation or removal of existing compatibility paths
 
 ## Context
 
 Oteryn Platform is architecturally sound as a Laravel modular monolith, but its delivered integration history contains two different models that must not be treated as one architecture:
 
-1. **current Canary compatibility** — direct/shared-schema reads, operation-specific Canary writes, Canary numeric account/player identifiers, Canary-compatible Game Session paths and compatibility protocol adapters;
+1. **current legacy engine compatibility** — direct/shared-schema reads, operation-specific legacy engine writes, legacy engine numeric account/player identifiers, legacy-compatible Game Session paths and compatibility protocol adapters;
 2. **target native Oteryn-v2 integration** — canonical Platform and game-domain identities, explicit service contracts, separate authority/persistence, game-owned authoritative gameplay admission/session state and native `protocol-oteryn` gameplay semantics.
 
-Current compatibility code is real delivered behavior and must not be rewritten out of history. It is also not permission to make Canary table shape, Canary IDs or Canary wire/session semantics permanent dependencies of new native Platform capabilities.
+Current compatibility code is real delivered behavior and must not be rewritten out of history. It is also not permission to make legacy engine table shape, legacy engine IDs or legacy engine wire/session semantics permanent dependencies of new native Platform capabilities.
 
 ADR 0030 already establishes the same principle for character portfolio and lifecycle integration: Platform composes/orchestrates, while Oteryn-v2 Character Authority remains authoritative for canonical `CharacterId`, current `AccountId <-> CharacterId` ownership and native character mutations.
 
@@ -43,17 +43,17 @@ Oteryn Platform
 │   ├── projections/read models
 │   └── explicit admission/control-plane contracts
 │
-└── Legacy Canary Compatibility
-    ├── Canary numeric-ID mappings
+└── Legacy Engine Compatibility
+    ├── legacy engine numeric-ID mappings
     ├── direct/read-only SQL contracts
     ├── operation-specific legacy writes
-    ├── Canary-compatible session/protocol adapters
+    ├── legacy-compatible session/protocol adapters
     └── migration/rollback bridges
 ```
 
-`Legacy Canary Compatibility` is an anti-corruption/migration boundary, not the native target domain model.
+`Legacy Engine Compatibility` is an anti-corruption/migration boundary, not the native target domain model.
 
-Existing Canary behavior may remain until separately authorized cutover criteria are proven. New native consumers must not adopt compatibility identifiers or table/protocol assumptions as canonical design.
+Existing legacy engine behavior may remain until separately authorized cutover criteria are proven. New native consumers must not adopt compatibility identifiers or table/protocol assumptions as canonical design.
 
 ### 3. Platform authority
 
@@ -120,7 +120,7 @@ The target native runtime uses `protocol-oteryn` between the Rust client and the
 
 Platform may bind and transport **selection metadata** required for secure routing/pre-admission, such as a supported protocol family/version/capability identity. Platform does not own gameplay packet semantics, state-reconciliation semantics or the canonical gameplay IDL merely because Gateway carries the selected tuple.
 
-Canary/Tibia gameplay protocols remain compatibility/reference mechanisms only. They are not a second target native runtime family.
+Legacy engine/Tibia gameplay protocols remain compatibility/reference mechanisms only. They are not a second target native runtime family.
 
 The initial native design retains the useful ADR 0011 simplification: one initial native protocol version and no speculative native profile catalogue. Future incompatible native variants require a new explicit decision and contract revision.
 
@@ -139,7 +139,7 @@ Platform persistence             Oteryn-v2 persistence
         +---- events / projections -------+
 ```
 
-Direct/shared SQL may remain only inside explicitly named Canary compatibility or migration contracts with narrow privileges, compatibility windows, rollback and removal criteria.
+Direct/shared SQL may remain only inside explicitly named legacy engine compatibility or migration contracts with narrow privileges, compatibility windows, rollback and removal criteria.
 
 No new native Platform capability may infer authority merely from game-table shape or directly update native game-owned rows.
 
@@ -170,7 +170,7 @@ Every projection defines source, revision/observation marker, freshness, stale b
 
 This prevents normal website availability from depending directly on synchronous access to mutable game runtime persistence.
 
-Current direct Canary read services remain valid only for their declared compatibility scope until replaced.
+Current direct legacy engine read services remain valid only for their declared compatibility scope until replaced.
 
 ### 10. Game Analytics source/consumer split
 
@@ -206,7 +206,7 @@ One repository may consume or reference another repository's accepted contract; 
 
 ### 12. Migration and removal policy
 
-Acceptance of the target architecture does **not** delete existing Canary compatibility.
+Acceptance of the target architecture does **not** delete existing legacy engine compatibility.
 
 Every compatibility path is removed only through a later bounded task that proves:
 
@@ -224,7 +224,7 @@ Until then, current and target states must be labelled explicitly.
 
 ### Positive
 
-- new Platform capabilities no longer inherit Canary schema/ID/protocol coupling by accident;
+- new Platform capabilities no longer inherit legacy engine schema/ID/protocol coupling by accident;
 - identity, business/control-plane and gameplay authorities are unambiguous;
 - native persistence can evolve independently from Platform persistence;
 - website read availability can be decoupled from mutable game runtime storage;
@@ -250,7 +250,7 @@ This ADR does not invent the following details:
 - exact public game-data event catalogue and per-projection freshness SLA;
 - exact Game Analytics schemas/retention tiers;
 - exact World Registry runtime-status projection contract;
-- exact Canary adapter sunset dates;
+- exact legacy engine adapter sunset dates;
 - exact cross-system trace/security envelope beyond the stated invariants.
 
 These remain focused follow-up architecture decisions.
@@ -259,10 +259,10 @@ These remain focused follow-up architecture decisions.
 
 - rebuild Oteryn Platform as microservices solely to solve the compatibility transition;
 - keep shared/direct game SQL as the default native integration model;
-- reuse `canary_account_id` / `canary_player_id` as canonical native identities;
+- reuse `legacy_account_id` / `legacy_player_id` as canonical native identities;
 - make Platform a second authoritative owner of characters or gameplay sessions;
 - keep Platform as canonical owner of gameplay wire semantics because Gateway carries protocol metadata;
-- keep Canary/Tibia gameplay protocol as a permanent equal target family in native Oteryn-v2 architecture;
+- keep legacy engine/Tibia gameplay protocol as a permanent equal target family in native Oteryn-v2 architecture;
 - delete compatibility code before replacement/cutover/rollback evidence exists;
 - derive native game policy from stale row counts or presentation projections.
 

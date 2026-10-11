@@ -78,7 +78,8 @@ class RatchetTest(unittest.TestCase):
         self.assertEqual(groups["runtime"]["count"], 2)
         self.assertEqual(groups["docs"]["count"], 1)
         self.assertEqual(groups["tests"]["count"], 0)
-        self.assertEqual(groups["paths"]["count"], 1)
+        self.assertEqual(groups["paths"]["count"], 0)
+        self.assertEqual(groups["history_paths"]["count"], 1)
         self.assertEqual(groups["history"]["count"], 0)
 
     def test_unchanged_passes(self) -> None:
@@ -140,3 +141,33 @@ class RatchetTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_history_prefixes_are_excluded_from_paths_and_enforced_groups(self) -> None:
+        self.add("docs/agents/tasks/archive/OLD.md", f"{TOKEN}\n")
+        self.add(f"docs/agents/tasks/archive/{TOKEN}-old.md", "clean\n")
+        self.add(f"docs/evidence/{TOKEN}-run.md", f"{TOKEN}\n")
+        self.add("docs/live.md", "clean\n")
+        self.assertEqual(self.main("--write"), 0)
+        data = self.baseline()
+        self.assertEqual(data["exclusions"], ratchet.DEFAULT_EXCLUSIONS)
+        self.assertEqual(data["groups"]["paths"]["count"], 0)
+        self.assertEqual(data["groups"]["history_paths"]["count"], 2)
+        self.assertEqual(data["groups"]["history"]["count"], 2)
+        self.assertEqual(data["groups"]["docs"]["count"], 0)
+        self.assertFalse(data["groups"]["history"]["enforce"])
+        self.assertFalse(data["groups"]["history_paths"]["enforce"])
+        self.assertEqual(self.main(), 0)
+
+    def test_new_excluded_history_path_does_not_fail_but_live_path_does(self) -> None:
+        self.add("docs/live.md", "clean\n")
+        self.assertEqual(self.main("--write"), 0)
+        self.add(f"docs/agents/reports/{TOKEN}.md", f"{TOKEN}\n")
+        self.assertEqual(self.main(), 0)
+        self.add(f"docs/{TOKEN}-live.md", "clean\n")
+        self.assertEqual(self.main(), 1)
+
+    def test_exclusion_applies_only_to_listed_prefixes(self) -> None:
+        self.assertTrue(ratchet.is_excluded("CHANGELOG.md", ["CHANGELOG.md"]))
+        self.assertFalse(ratchet.is_excluded("CHANGELOG.md.bak", ["CHANGELOG.md"]))
+        self.assertFalse(ratchet.is_excluded("docs/agents/tasks/active/T.md", ratchet.DEFAULT_EXCLUSIONS))
+        self.assertTrue(ratchet.is_excluded("docs/agents/tasks/archive/T.md", ratchet.DEFAULT_EXCLUSIONS))

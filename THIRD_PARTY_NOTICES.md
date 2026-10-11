@@ -15,7 +15,7 @@ The proprietary notice in `LICENSE.md` does not claim ownership of or grant righ
 - fonts, icons, images, audio, video or other media;
 - game names, characters, creatures, items, maps, texts, statistics or other game data;
 - fixtures, samples, screenshots and test evidence derived from external systems;
-- network, protocol or compatibility information derived from Canary, OpenTibia, Tibia or other projects;
+- network, protocol or compatibility information derived from the legacy upstream server, OpenTibia, Tibia or other projects;
 - copied, adapted or generated material that carries a separate notice or whose provenance is not yet proven.
 
 A technical need to interoperate with another component does not imply permission to redistribute that component or its protected content.

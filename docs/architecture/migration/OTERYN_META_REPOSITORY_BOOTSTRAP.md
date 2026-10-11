@@ -162,6 +162,6 @@ The create transaction is not complete when the UI reports success. Verify:
 - no `Oteryn-v2` / `Oteryn-Game` inspection or cutover;
 - no Platform transfer;
 - no Atlas extraction or deployment;
-- no Canary/otclient access;
+- no legacy engine/otclient access;
 - no package/GHCR/release mutation;
 - no DNS, Synology, Cloudflare, production, auth/session, secret or live-game operation.

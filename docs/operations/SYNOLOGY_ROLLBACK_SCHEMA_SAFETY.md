@@ -36,7 +36,7 @@ The deployment state directory stores:
 - matching `evidence.env`: release/baseline kind, source/target identity as applicable, the schema identity that actually existed at dump time, the exact Compose project and Platform database target, and SHA-256 of the backup;
 - `marketplace.env` when Character Bazaar staging has been configured: the bounded durable Marketplace enablement/escrow/transfer settings used to reconstruct its Platform/scheduler runtime without losing staging secrets or state.
 
-Before pulling candidate images, `deploy.sh` snapshots any currently running Platform, Gateway and Canary containers by Docker image ID and immediately resolves those images to immutable repository digests. This prevents a later pull of a mutable tag from changing the meaning of the recorded last-good runtime.
+Before pulling candidate images, `deploy.sh` snapshots any currently running Platform, Gateway and legacy engine containers by Docker image ID and immediately resolves those images to immutable repository digests. This prevents a later pull of a mutable tag from changing the meaning of the recorded last-good runtime.
 
 On the first deployment that introduces managed release state to an existing staging installation, a complete running-image snapshot is required. Platform and Gateway must expose the same valid OCI application revision. The existing pre-migration database/application pairing is recorded with a synthetic `observed-<release-sha>` schema identity in both application and schema state, then the normal pre-migration backup is created before migration begins. This synthetic identity describes the observed pre-migration state only; it is not presented as an application-authored compatibility contract.
 

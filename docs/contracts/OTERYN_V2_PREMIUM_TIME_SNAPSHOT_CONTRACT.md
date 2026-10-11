@@ -9,7 +9,7 @@
 - Consumer proposal: Oteryn-Game `PREMIUM-DELIVERY-0` (Oteryn/Oteryn-Game#1369, `docs/architecture/reviews/OTERYN_GAME_PREMIUM_DELIVERY0_PREMIUM_EVIDENCE_TRANSPORT_DECISION_2026-09-30.md`), as relayed to Platform. Platform did not read that file. Section 9 records every point where this contract accepts, amends or overrides the proposal.
 - Subordinate to `OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md` (the generic contract). This document selects the product/version values and the one wire transport that the generic contract defers. It does not relax any generic Profile-B rule.
 
-This contract authorizes no payment, voucher, production activation, deployment, certificate issuance, secret handling, Canary mutation or Oteryn-Game write.
+This contract authorizes no payment, voucher, production activation, deployment, certificate issuance, secret handling, legacy engine mutation or Oteryn-Game write.
 
 ## 1. Product
 
@@ -319,4 +319,4 @@ Joint Platform/Game end-to-end qualification is a Game-side task using the secti
 
 ## 11. Non-authorization
 
-This contract authorizes no payment or voucher issuance, no production or staging activation, no certificate or secret operation, no Canary or Oteryn-Game write, and no Premium gameplay benefit definition.
+This contract authorizes no payment or voucher issuance, no production or staging activation, no certificate or secret operation, no legacy engine or Oteryn-Game write, and no Premium gameplay benefit definition.

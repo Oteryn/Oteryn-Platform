@@ -17,14 +17,14 @@ Canonical contract: `../contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md`
 | Stage | Repository/package | Default state | Classification | Merge/activation gate |
 |---:|---|---|---|---|
 | 0 | canonical contract and three correspondence PRs | documentation only | `backward-compatible` | exact-head docs CI, independent consistency/security PASS |
-| 1 | Platform World Registry + Gateway offer/selection + Game Session v2 producer | native candidate disabled | `server-first-safe`, `backward-compatible` | current Gateway v1/Canary regression plus contract fixtures |
-| 2 | Otheryn Game Session v2 consumer + native TLS/protobuf producer | listener/candidate disabled | `server-first-safe`, `backward-compatible` | Canary compatibility-profile regression, native golden producer tests, admission-negative tests |
+| 1 | Platform World Registry + Gateway offer/selection + Game Session v2 producer | native candidate disabled | `server-first-safe`, `backward-compatible` | current Gateway v1/legacy engine regression plus contract fixtures |
+| 2 | Otheryn Game Session v2 consumer + native TLS/protobuf producer | listener/candidate disabled | `server-first-safe`, `backward-compatible` | legacy engine compatibility-profile regression, native golden producer tests, admission-negative tests |
 | 3 | Rust `protocol-oteryn` adapter and codec support | not offered by production `Auto` | `client-first-safe`, `backward-compatible` | parser/encoder fixtures, fuzzing, normalized replay, no Tokio/API leakage |
 | 4 | automatic selection integration | staging-only exact manifest | `atomic-required` | exact client/Platform/Gateway/Otheryn revisions and schema hash |
 | 5 | bounded staging enablement | one controlled world/channel | `atomic-required`, initially `unverified` | real login, bind, snapshot, commands, deltas, disconnect and downgrade-negative E2E |
-| 6 | bounded production canary | low percentage or explicit test cohort | `atomic-required` | security/observability/rollback rehearsal and owner authorization |
-| 7 | broader native preference | native first, Canary retained | `backward-compatible` for supported clients | measured success/error/latency/resource thresholds |
-| 8 | any Canary compatibility-profile removal | not authorized by this programme | `breaking-migration` | separate ADR, population evidence, notice and rollback plan |
+| 6 | bounded production pilot | low percentage or explicit test cohort | `atomic-required` | security/observability/rollback rehearsal and owner authorization |
+| 7 | broader native preference | native first, legacy engine retained | `backward-compatible` for supported clients | measured success/error/latency/resource thresholds |
+| 8 | any legacy engine compatibility-profile removal | not authorized by this programme | `breaking-migration` | separate ADR, population evidence, notice and rollback plan |
 
 ## Safe merge order for the contract task
 
@@ -40,12 +40,12 @@ No runtime order is implied by documentation merge alone.
 Required disabled-default controls:
 
 - World Registry contains versioned gameplay candidate policy but native entries are disabled;
-- Gateway accepts the optional bounded offer while preserving requests without it according to the current Canary contract;
+- Gateway accepts the optional bounded offer while preserving requests without it according to the current legacy engine contract;
 - Gateway never advertises native unless the world policy, Otheryn deployment readiness and Game Session v2 issuer are all true;
 - Game Session v2 is produced only for an explicitly selected candidate;
 - all current ticket redeem, one-time semantics, response secrecy and private service identity tests remain.
 
-Rollback: disable v2/native policy and retain current Gateway API/Canary behavior. No client change is required.
+Rollback: disable v2/native policy and retain current Gateway API/legacy engine behavior. No client change is required.
 
 ## Stage 2: Otheryn producer/session enforcement
 
@@ -53,23 +53,23 @@ Required disabled-default controls:
 
 - native TLS listener is separately configured and off by default;
 - Game Session v2 validation is available before native advertisement;
-- Canary listeners/profiles and ASIO architecture remain unchanged;
-- native frames cannot enter Canary parsers and Canary frames cannot enter the native parser;
+- Legacy engine listeners/profiles and ASIO architecture remain unchanged;
+- native frames cannot enter legacy engine parsers and legacy engine frames cannot enter the native parser;
 - listener readiness reports exact native protocol version/schema/capability digest to deployment validation.
 
-Rollback: stop advertising native, drain/close native sessions, disable listener. Never convert an active native session to Canary.
+Rollback: stop advertising native, drain/close native sessions, disable listener. Never convert an active native session to legacy engine.
 
 ## Stage 3: Rust adapter
 
 Required disabled-default controls:
 
-- `protocol-oteryn` is independent from `protocol-canary`;
+- `protocol-oteryn` is independent from `protocol-legacy`;
 - production `Auto` offers only candidates backed by exact compiled support and schema hash;
 - before Stage 4, native offer is disabled outside tests/development;
 - unsupported Gateway selection fails before connection;
 - no password path, protocol sniffing or post-failure fallback is added.
 
-Rollback: remove native from local production offer; retain Canary adapter. Existing active native sessions end normally or are closed; no adapter switch.
+Rollback: remove native from local production offer; retain legacy engine adapter. Existing active native sessions end normally or are closed; no adapter switch.
 
 ## Stage 4/5 integrated staging manifest
 
@@ -113,7 +113,7 @@ Native advertisement is allowed only when:
 - the client build is in the exact supported-pair matrix;
 - integrated staging evidence is from the exact candidate revisions;
 - error, latency, CPU, memory, frame, command and resync metrics have bounded thresholds;
-- rollback has been rehearsed without Canary removal;
+- rollback has been rehearsed without legacy engine removal;
 - owner authorization exists for the target environment.
 
 ## Rollback sequence
@@ -124,8 +124,8 @@ Native advertisement is allowed only when:
 4. Keep native listener available during the drain window, then disable it.
 5. Keep Rust native code installed but remove it from production offers if client-side rollback is needed.
 6. Preserve all evidence and exact revision manifests.
-7. Fresh logins may select explicitly advertised Canary; an active/failed native session never switches adapters.
+7. Fresh logins may select explicitly advertised legacy engine; an active/failed native session never switches adapters.
 
 ## Stop/hold conditions
 
-Hold or roll back on any cross-native-protocol-version admission, session replay, credential leakage, unbounded allocation/CPU, incompatible schema selection, state corruption, command double-apply, unexplained revision conflict, material Canary regression, missing observability, failed rollback rehearsal or inability to identify exact deployed revisions.
+Hold or roll back on any cross-native-protocol-version admission, session replay, credential leakage, unbounded allocation/CPU, incompatible schema selection, state corruption, command double-apply, unexplained revision conflict, material legacy engine regression, missing observability, failed rollback rehearsal or inability to identify exact deployed revisions.

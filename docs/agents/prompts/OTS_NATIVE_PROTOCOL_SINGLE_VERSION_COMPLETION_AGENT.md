@@ -52,7 +52,7 @@ Forbidden in the native v1 path:
 - aliasing `profile` and `native_protocol_version` indefinitely;
 - treating transport, schema or Gateway API versions as a gameplay profile.
 
-Canary compatibility profiles remain unchanged and isolated inside Canary compatibility code. Do not remove, rename or redesign them merely because native Oteryn uses no profile catalogue.
+Legacy engine compatibility profiles remain unchanged and isolated inside legacy engine compatibility code. Do not remove, rename or redesign them merely because native Oteryn uses no profile catalogue.
 
 Future native profiles or variants remain possible only through a new reviewed ADR, contract revision, schema/API field and cross-repository migration after a real incompatibility is proven. Native v1 keeps no placeholder profile field.
 
@@ -81,7 +81,7 @@ At minimum read:
 - `docs/architecture/oteryn-native-gameplay-protocol.md`;
 - current Game Session issuer/consumer and admission implementation;
 - ASIO service/listener/connection architecture;
-- current Canary compatibility profile code;
+- current legacy engine compatibility profile code;
 - authoritative movement, combat, spell, item, loot, chat, state and save seams;
 - current build systems, protobuf dependencies, test harnesses and active ownership.
 
@@ -93,7 +93,7 @@ At minimum read:
 - `oteryn-client/docs/architecture/PLATFORM_GATEWAY_GAME_ENTRY.md`;
 - `oteryn-client/docs/architecture/DUAL_PROTOCOL_EXECUTION_PLAN.md`;
 - the merged Tokio transport implementation and evidence;
-- current `protocol-core`, `protocol-canary`, game-domain, game-session, runtime and selection code;
+- current `protocol-core`, `protocol-legacy`, game-domain, game-session, runtime and selection code;
 - current active tasks, PRs and leases.
 
 Resolve current main heads, exact merged revisions, live PRs, branches, workflow requirements and deployed-state uncertainty. Do not rely on commit IDs embedded in this prompt.
@@ -108,13 +108,13 @@ Treat these as delivered only after verifying current repository state:
 - disabled-by-default Platform/Gateway native producer;
 - protocol-neutral Tokio transport in the Rust client;
 - canonical native contract and Otheryn/Rust correspondence;
-- current independent `protocol-canary` implementation.
+- current independent `protocol-legacy` implementation.
 
 The existing producer contains a transitional native `profile` dimension. It remains disabled and must be corrected before native enablement.
 
 ## Programme objective
 
-Deliver one exact native Oteryn v1 pair from browser login through authoritative gameplay while preserving the existing Identity/Gateway/Game Session authority chain and Canary compatibility:
+Deliver one exact native Oteryn v1 pair from browser login through authoritative gameplay while preserving the existing Identity/Gateway/Game Session authority chain and legacy engine compatibility:
 
 ```text
 Rust client
@@ -135,7 +135,7 @@ At completion:
 - Otheryn implements Game Session v2 native readiness, storage/admission and gameplay production;
 - Rust implements independent `protocol-oteryn` and production-safe automatic family selection;
 - one exact cross-repository staging pair passes positive, negative, downgrade and rollback E2E;
-- Canary remains independently functional;
+- Legacy engine remains independently functional;
 - production remains disabled unless explicit environment-specific activation authority exists.
 
 ## Phase 0 — linked tasks and exact dependency manifest
@@ -286,7 +286,7 @@ Provide exact private readiness for the configured native listener:
 - separate TLS 1.3 endpoint;
 - ALPN `oteryn-game/1`;
 - exact family/version/transport/schema/list/digest;
-- no native/Canary byte sniffing;
+- no native/legacy engine byte sniffing;
 - no profile field;
 - no live World Registry dependency during admission.
 
@@ -326,7 +326,7 @@ Include:
 - golden cross-language frames;
 - parser malformed/truncated/fuzz regressions;
 - action/result and snapshot/delta tests;
-- Canary regression suite;
+- Legacy engine regression suite;
 - build entry-point consistency for every added source;
 - exact-head CI and independent security audit.
 
@@ -351,7 +351,7 @@ Do not create:
 - `ForceOteryn(profile)`;
 - user-facing profile selection;
 - native profile factories/maps;
-- native-to-Canary translation.
+- native-to-legacy engine translation.
 
 A development override may restrict the family/version offer only when clearly non-production and cannot force Gateway acceptance.
 
@@ -397,7 +397,7 @@ Cover:
 - session replacement and stale commands;
 - snapshot/delta/resync;
 - action lifecycle;
-- exact independent Canary regression;
+- exact independent legacy engine regression;
 - workspace format, strict Clippy, tests, architecture policy, supply-chain and independent audit.
 
 Merge client-first only while production native offers remain disabled.
@@ -449,7 +449,7 @@ Prove through the real bounded stack:
 - chat and logout;
 - revision gap and bounded replacement snapshot;
 - disconnect/relog with fresh ticket/session and no replay;
-- explicit Canary journey for a fresh session;
+- explicit legacy engine journey for a fresh session;
 - unsupported version, selected-not-offered, readiness, schema/capability, TLS and replay/cross-binding negatives;
 - no post-selection fallback;
 - no native profile field in request, response, session, readiness, bootstrap, logs or manifest;
@@ -483,8 +483,8 @@ Rollback:
 3. verify Gateway selects no native session;
 4. drain or close native sessions according to the contract;
 5. disable Otheryn native listener;
-6. preserve Canary for fresh explicitly allowed sessions;
-7. never switch an active/failed native session to Canary.
+6. preserve legacy engine for fresh explicitly allowed sessions;
+7. never switch an active/failed native session to legacy engine.
 
 ## Security invariants
 
@@ -503,7 +503,7 @@ Rollback:
 
 Use a fresh independent validator after each repository's final implementation head and again for the integrated manifest.
 
-Critical, high or material-medium findings block merge/completion. Resolve every review thread. Validate exact changed paths, contract consistency, migration safety, parser limits, replay/downgrade, authority, redaction, Canary regression, rollout and rollback.
+Critical, high or material-medium findings block merge/completion. Resolve every review thread. Validate exact changed paths, contract consistency, migration safety, parser limits, replay/downgrade, authority, redaction, legacy engine regression, rollout and rollback.
 
 ## Completion definition
 
@@ -544,7 +544,7 @@ PLATFORM: <task, PR, exact head, merge, validation>
 OTHERYN: <task, PR, exact head, merge, validation>
 RUST_CLIENT: <task, PR, exact head, merge, validation>
 E2E: <exact manifest, journeys and performance evidence>
-CANARY_REGRESSION: <result>
+LEGACY_REGRESSION: <result>
 AUDIT: <independent result and findings>
 ROLLBACK: <rehearsal result>
 PRODUCTION_ENABLED: true | false

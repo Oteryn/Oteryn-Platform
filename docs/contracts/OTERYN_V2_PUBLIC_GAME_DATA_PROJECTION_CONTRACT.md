@@ -48,7 +48,7 @@ For native Oteryn-v2:
 - Platform owns the consumer projection, public allowlist, pagination/search indexing, presentation policy, cache/CDN behavior and truthful freshness/degraded state;
 - persisted Platform projection rows are disposable/read-model state, not game authority;
 - a successful Platform projection update does not transfer game-domain ownership to Platform;
-- current direct Canary SQL/Redis readers remain `Legacy Canary Compatibility`, not the target native source-of-truth model.
+- current direct legacy engine SQL/Redis readers remain `Legacy Engine Compatibility`, not the target native source-of-truth model.
 
 A projection may be rebuilt, replaced or rolled back without writing derived state back into Oteryn-v2.
 
@@ -62,7 +62,7 @@ Native projection records use accepted canonical cross-boundary identities where
 
 Rules:
 
-- Canary numeric player/account/world/channel identifiers are compatibility-only and cannot become native projection authority;
+- Legacy engine numeric player/account/world/channel identifiers are compatibility-only and cannot become native projection authority;
 - character display name is presentation/search data, not stable identity;
 - `AccountId` is not public merely because Platform possesses a character projection;
 - account/ownership relationships belong to their accepted authority and privacy contracts rather than being inferred from public projection rows.
@@ -74,7 +74,7 @@ A native guild/public-membership projection requires a stable game-owned canonic
 Until that identifier is accepted:
 
 - a mutable guild name cannot be treated as stable identity;
-- a Canary numeric guild ID cannot be promoted into native authority;
+- a legacy engine numeric guild ID cannot be promoted into native authority;
 - the Platform architecture contract may define guild projection semantics, but native producer/consumer implementation remains gated on the accepted game-owned guild identity contract.
 
 This deferred identifier does not transfer guild authority to Platform.
@@ -354,7 +354,7 @@ Rules:
 - Platform may hide information that is otherwise available from the game source;
 - Platform may not fabricate a game fact merely because privacy permits displaying one;
 - AccountId/current owner/private association is not published by default;
-- current CharacterProfiles controls must eventually bind to canonical CharacterId rather than Canary numeric player IDs before native cutover;
+- current CharacterProfiles controls must eventually bind to canonical CharacterId rather than legacy engine numeric player IDs before native cutover;
 - privacy changes must invalidate/rebuild affected public presentation/cache/search state without mutating authoritative game facts.
 
 ### Privacy decision authority and monotonic ordering
@@ -493,9 +493,9 @@ Recommended observable signals include:
 
 Public output should expose only the minimum age/degraded context needed for truthful presentation and must not expose internal privacy/security generations unless a separate public contract requires a safe representation.
 
-## Legacy Canary Compatibility and migration
+## Legacy Engine Compatibility and migration
 
-Current delivered PublicGameData may continue to read Canary SQL/Redis under existing compatibility contracts while native replacement is unimplemented.
+Current delivered PublicGameData may continue to read legacy engine SQL/Redis under existing compatibility contracts while native replacement is unimplemented.
 
 Every projection family has an independent cutover gate.
 
@@ -513,12 +513,12 @@ Before switching one family to native authority, prove:
 
 During migration:
 
-- tag provenance explicitly as `legacy_canary` or `native_oteryn_v2` internally;
+- tag provenance explicitly as `legacy_engine` or `native_oteryn_v2` internally;
 - do not merge incompatible records from two authorities into one apparently authoritative row set;
 - shadow comparison may report differences but must not silently choose values field by field;
 - cutover is per family/scope only after its gate passes;
 - rollback returns Platform game-fact reads to the previous known-good source/generation, but privacy-controlled output remains fenced by the newest accepted Platform privacy decision and may not reuse an older `allow` variant;
-- a post-cutover legacy fallback, if temporarily retained, must be explicit policy and must not reinterpret Canary IDs as canonical native IDs or bypass the current Platform privacy floor.
+- a post-cutover legacy fallback, if temporarily retained, must be explicit policy and must not reinterpret legacy engine IDs as canonical native IDs or bypass the current Platform privacy floor.
 
 Legacy compatibility retirement requires a separately evidenced remaining-consumer review and removal criteria.
 
@@ -542,9 +542,9 @@ Implementation must ensure:
 
 The current `PublicCharacterProfileService` pattern contains one architectural property worth preserving during native migration: game facts and Platform-owned privacy/presentation state are composed at the Platform boundary.
 
-The legacy implementation currently keys parts of that composition through `canary_account_id` / `canary_player_id`. Native cutover must replace those compatibility identifiers with accepted canonical identities before treating the path as native.
+The legacy implementation currently keys parts of that composition through `legacy_account_id` / `legacy_player_id`. Native cutover must replace those compatibility identifiers with accepted canonical identities before treating the path as native.
 
-The current Canary-compatible direct-read path is not classified as defective by this contract repair merely because it does not already persist the future native privacy-revision fence. Its existing composition reads Platform-owned privacy state at the Platform boundary; the monotonic privacy floor defined here is a prerequisite for future native projection/cache/CDN cutover where privacy-controlled variants may be materialized or served asynchronously.
+The current legacy-compatible direct-read path is not classified as defective by this contract repair merely because it does not already persist the future native privacy-revision fence. Its existing composition reads Platform-owned privacy state at the Platform boundary; the monotonic privacy floor defined here is a prerequisite for future native projection/cache/CDN cutover where privacy-controlled variants may be materialized or served asynchronously.
 
 The target is **not** to copy the current SQL schema into a new projection database. The target is to preserve product semantics while changing authority and integration boundaries.
 
@@ -617,7 +617,7 @@ This contract authorizes no:
 - Oteryn-v2 repository or producer implementation;
 - Laravel projection model/migration/worker/job implementation;
 - message broker/event bus selection;
-- replacement or removal of current Canary readers;
+- replacement or removal of current legacy engine readers;
 - schema/data migration;
 - public route/API behavior change;
 - cache/search/CDN implementation or configuration change;

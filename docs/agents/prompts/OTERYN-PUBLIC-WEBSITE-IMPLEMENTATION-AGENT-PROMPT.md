@@ -7,7 +7,7 @@ Continue Oteryn Platform work by starting the public website expansion programme
 
 REPOSITORY WRITE ALLOWLIST:
 - Writes are allowed only in blakinio/Oteryn-Platform.
-- Treat Canary, login-server, OTClient and all other repositories as read-only unless the user explicitly authorizes a separate write task.
+- Treat legacy engine, login-server, OTClient and all other repositories as read-only unless the user explicitly authorizes a separate write task.
 
 PROGRAM: Oteryn Public Website Expansion
 RECOMMENDED_MODE: CODEX
@@ -31,7 +31,7 @@ The first implementation PR should:
 9. implement explicit empty, stale and unavailable states without fabricating game data;
 10. add focused feature, authorization/security where relevant, responsive, keyboard/focus and visual acceptance coverage.
 
-Do not add Downloads, Events, Wiki, media uploads, polls, support tickets, new Canary queries or commerce in the first implementation PR.
+Do not add Downloads, Events, Wiki, media uploads, polls, support tickets, new legacy engine queries or commerce in the first implementation PR.
 
 MANDATORY READS:
 - AGENTS.md
@@ -72,9 +72,9 @@ SEARCH FIRST:
 
 ARCHITECTURE CONSTRAINTS:
 - Keep the solution inside the existing Laravel modular monolith.
-- PublicPortal/homepage code is presentation/orchestration only; it must not own Canary query logic or CMS persistence.
+- PublicPortal/homepage code is presentation/orchestration only; it must not own legacy engine query logic or CMS persistence.
 - Reuse existing PublicGameData and CMS boundaries.
-- Do not query Canary or Redis directly from Blade templates.
+- Do not query legacy engine or Redis directly from Blade templates.
 - Do not represent unavailable runtime data as zero players or authoritative offline state.
 - Do not expose drafts or unpublished CMS content.
 - Do not create dead links or placeholder routes presented as implemented.

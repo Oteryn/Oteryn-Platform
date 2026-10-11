@@ -10,7 +10,7 @@ This record is retained as the initial ecosystem-topology decision and provenanc
 
 - Decision owner: repository owner
 - Applies to: target Oteryn repository topology, temporary cross-repository architecture authority, Atlas extraction/ownership, canonical world versus Atlas product boundaries, Platform integration ownership, legacy repository disposition and future meta-repository handoff
-- Does not authorize: creating or transferring repositories, changing GitHub organizations, reading or mutating external/server repositories, moving Git history, changing runtime code, changing Synology, deploying Atlas, changing DNS, activating `/map`, deleting legacy repositories, or removing Canary compatibility
+- Does not authorize: creating or transferring repositories, changing GitHub organizations, reading or mutating external/server repositories, moving Git history, changing runtime code, changing Synology, deploying Atlas, changing DNS, activating `/map`, deleting legacy repositories, or removing legacy engine compatibility
 
 ## Context
 
@@ -19,12 +19,12 @@ Oteryn currently has architecture and implementation concerns spread across mult
 The repository owner supplied the following correction on 2026-08-15:
 
 - the current OTBM Atlas lives in the legacy `blakinio/Otheryn` project;
-- that project is an old Canary/Crystal Server lineage;
+- that project is an old legacy engine/Crystal Server lineage;
 - Atlas should be moved out of that legacy project rather than making the legacy project part of the target Oteryn architecture.
 
 This owner decision supersedes the premise of closed draft PR #1065, which proposed keeping Otheryn as the canonical Atlas producer/source of truth. Proposed ADR 0038 from that PR was never merged or accepted and has no canonical authority.
 
-Accepted Platform ADR 0031 already separates target native Oteryn-v2 game-domain ownership from Legacy Canary Compatibility. This decision applies the same principle at repository/product level: legacy server lineage may remain a migration source, compatibility source or historical reference, but it must not silently define target native repository ownership.
+Accepted Platform ADR 0031 already separates target native Oteryn-v2 game-domain ownership from Legacy Engine Compatibility. This decision applies the same principle at repository/product level: legacy server lineage may remain a migration source, compatibility source or historical reference, but it must not silently define target native repository ownership.
 
 The future `Oteryn` meta repository does not yet exist. Until it exists, this ADR is the temporary highest-scope cross-repository record for the decisions below. Component-local architecture remains owned by each component repository.
 
@@ -168,7 +168,7 @@ Target native world ownership remains with the game/world domain, not the browse
 - world validation and authoring semantics;
 - the project-owned Studio/editor boundary;
 - bounded legacy OTBM import/migration into the canonical native world model;
-- any legacy intermediate representation needed to prevent OTBM bytes or Canary/Crystal assumptions from becoming native runtime truth.
+- any legacy intermediate representation needed to prevent OTBM bytes or legacy engine/Crystal assumptions from becoming native runtime truth.
 
 OTBM is therefore a **legacy import format**, not the target shared runtime contract between Game and Atlas.
 
@@ -176,7 +176,7 @@ During actual extraction, code currently located inside the legacy Atlas tree mu
 
 - OTBM/world semantics required to create or validate canonical native world state -> `Oteryn-Game`;
 - viewer/search/layers/presentation and consumption of a derived map artifact -> `Oteryn-Atlas`;
-- direct Canary/Crystal runtime coupling -> legacy adapter, rewrite candidate or removal candidate, subject to migration evidence.
+- direct legacy engine/Crystal runtime coupling -> legacy adapter, rewrite candidate or removal candidate, subject to migration evidence.
 
 ### 8. Game-to-Atlas data flow uses a versioned derived artifact or contract
 
@@ -247,11 +247,11 @@ Expected migration evidence includes:
 
 The target permanent topology does not turn current compatibility/reference repositories into permanent first-class product repositories.
 
-- Canary remains a legacy/transitional game-runtime dependency until native replacement/cutover criteria are separately proven.
+- Legacy engine remains a legacy/transitional game-runtime dependency until native replacement/cutover criteria are separately proven.
 - `otclient` remains migration/reference material for the native client unless a later decision proves another target role.
 - legacy `blakinio/Otheryn` remains migration/reference material after Atlas extraction until its remaining dependencies reach terminal disposition.
 
-Do not rename Canary to `Oteryn-Server` or the legacy Otheryn repository to `Oteryn-Atlas` as a shortcut around real responsibility extraction.
+Do not rename legacy engine to `Oteryn-Server` or the legacy Otheryn repository to `Oteryn-Atlas` as a shortcut around real responsibility extraction.
 
 ### 12. Temporary authority and future handoff
 
@@ -281,7 +281,7 @@ Until that happens, this ADR is authoritative for the target repository topology
 
 - Atlas extraction requires a deliberate history/code responsibility audit rather than a simple repository rename;
 - Game and Atlas need a new versioned derived-data contract;
-- existing legacy Atlas code may need splitting or rewriting where viewer and Canary/Crystal/OTBM concerns are mixed;
+- existing legacy Atlas code may need splitting or rewriting where viewer and legacy engine/Crystal/OTBM concerns are mixed;
 - cross-repository release/compatibility manifests become required as the ecosystem matures;
 - the temporary cross-repository ADR must later be handed off cleanly to the meta repository.
 
@@ -297,14 +297,14 @@ This ADR does not decide:
 - exact Atlas hosting/CDN/object-storage strategy;
 - exact public `/map` serving mechanism;
 - exact Atlas routing-graph semantics;
-- exact retirement date of Canary, `otclient` or legacy Otheryn;
+- exact retirement date of legacy engine, `otclient` or legacy Otheryn;
 - production activation or DNS changes.
 
 These require bounded follow-up work with exact repository/environment evidence.
 
 ## Rejected alternatives
 
-- keep Atlas permanently inside the legacy Otheryn/Canary/Crystal project;
+- keep Atlas permanently inside the legacy Otheryn/legacy engine/Crystal project;
 - rename the whole legacy Otheryn repository to `Oteryn-Atlas`;
 - copy Atlas into Oteryn Platform and make Platform own the map implementation;
 - create separate permanent Client, Server and Protocol repositories by default;
@@ -334,6 +334,6 @@ No step above is executed by this ADR.
 - repository-owner decision, 2026-08-15
 - closed superseded PR #1065 — historical public Map/Otheryn-producer draft; never accepted
 - Issue #302 — prior optional map/discovery disposition
-- ADR 0031 — Native Oteryn-v2 integration and legacy Canary compatibility boundary
+- ADR 0031 — Native Oteryn-v2 integration and legacy engine compatibility boundary
 - `docs/architecture/ARCHITECTURE_AUTHORITY.md`
 - `docs/architecture/adr/README.md`

@@ -88,7 +88,7 @@ Wiki may reuse shared Platform capabilities, but it owns its own content model a
 - arbitrary raw HTML;
 - arbitrary iframe or script embedding;
 - plugin installation or executable uploads;
-- automatic import of all Canary or client data;
+- automatic import of all legacy engine or client data;
 - interactive world map;
 - fully structured item, monster, quest or NPC database;
 - AI-generated content publication without human review;

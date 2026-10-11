@@ -7,7 +7,7 @@ Date: 2026-07-28
 
 Oteryn Wiki currently owns localized editorial articles and categories. The requested catalogue must additionally present structured items, weapons, creatures, loot, NPCs and quests that match the selected server content version and completeness boundary.
 
-The current Canary repository is the runtime authority for item and creature definitions. External wikis may describe Real Tibia or other servers, but they cannot prove what the deployed Oteryn server actually loads or exposes.
+The current legacy engine repository is the runtime authority for item and creature definitions. External wikis may describe Real Tibia or other servers, but they cannot prove what the deployed Oteryn server actually loads or exposes.
 
 One global version field is insufficient. Protocol support, runtime release, datapack content, map content and verified completeness can differ. Entity definitions and relationships such as loot or NPC offers can also begin or end in different releases.
 
@@ -15,8 +15,8 @@ One global version field is insufficient. Protocol support, runtime release, dat
 
 1. Create a dedicated Platform-owned `GameCatalog` module instead of storing structured catalogue records as ordinary Wiki articles.
 2. Integrate catalogue pages with Wiki navigation and explicit editorial links.
-3. Consume deterministic immutable snapshots exported by Canary through `oteryn.game-catalog/v1`.
-4. Preserve separate provenance fields for protocol, runtime, target content release, verified content release, datapack, appearances, map and Canary commit.
+3. Consume deterministic immutable snapshots exported by legacy engine through `oteryn.game-catalog/v1`.
+4. Preserve separate provenance fields for protocol, runtime, target content release, verified content release, datapack, appearances, map and legacy engine commit.
 5. Register releases explicitly and compare by `release_order`, never floating-point values.
 6. Give every entity and every relation independent `introduced` and exclusive `removed` bounds.
 7. Separate completeness from availability.
@@ -55,7 +55,7 @@ Rejected because those sites do not prove Oteryn runtime state, local customizat
 
 Rejected because structured filtering, exact statistics, relationships, version gating and deterministic updates are not editorial article responsibilities.
 
-### Query Canary source files directly from web requests
+### Query legacy engine source files directly from web requests
 
 Rejected because it couples public request handling to repository layout, duplicates loader semantics and cannot safely guarantee final runtime values.
 
@@ -90,5 +90,5 @@ NPCs, quests, map availability, sprite sourcing and historical profiles are sepa
 - `docs/architecture/GAME_CATALOG_ARCHITECTURE.md`
 - `docs/contracts/GAME_CATALOG_IMPORT_CONTRACT.md`
 - `docs/agents/tasks/active/OTERYN-20260728-versioned-game-catalog-architecture.md`
-- Canary contract `docs/contracts/GAME_CATALOG_EXPORT_CONTRACT.md`
-- Canary task `CAN-20260728-game-catalog-export-architecture`
+- Legacy engine contract `docs/contracts/GAME_CATALOG_EXPORT_CONTRACT.md`
+- Legacy engine task `CAN-20260728-game-catalog-export-architecture`

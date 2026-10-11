@@ -53,7 +53,7 @@ Oteryn Platform is publicly readable but proprietary. The current repository pol
 
 ## Rejected shortcuts
 
-- Copy a license from another Oteryn, Canary, OpenTibia or unrelated repository without proving that its ownership and distribution assumptions apply here.
+- Copy a license from another Oteryn, legacy engine, OpenTibia or unrelated repository without proving that its ownership and distribution assumptions apply here.
 - Interpret public visibility or GitHub forking as an open-source grant.
 - Name a legal entity or copyright holder not proven by authoritative repository evidence.
 - Claim ownership of third-party dependencies, assets, game data or protocol-derived material.

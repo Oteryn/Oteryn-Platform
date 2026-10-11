@@ -52,7 +52,7 @@ Product benchmark delivery states are different: `implemented`, `partial`, `miss
 | Login | invalid credentials, success, guest/auth redirects, session rotation where observable | Feature/security | account lifecycle + existing security portability evidence |
 | Logout | authenticated POST, protected route denied afterward | Feature/CSRF + browser | account lifecycle + player journey |
 | Account Overview | guest denial; ready, pending, recoverable, conflict and missing binding states | Feature + read-model/integration | `account-overview-acceptance.spec.mjs` |
-| Provisioning retry | retry only for persisted recoverable intent, success, no raw Canary ID/name exposure | Database/integration + feature | Account Overview retry scenario |
+| Provisioning retry | retry only for persisted recoverable intent, success, no raw legacy engine ID/name exposure | Database/integration + feature | Account Overview retry scenario |
 | Password recovery | real test SMTP, reset success, old-session invalidation, old password denial, token replay/expiry denial | Feature/security + SMTP | `password-recovery-acceptance.spec.mjs` |
 | Password change | current password, success, old password denial, all existing sessions revoked | Feature/security | `password-change-acceptance.spec.mjs` |
 | MFA enrollment | QR-first provisioning, manual fallback boundary, current-password confirmation, recovery codes | Unit + feature/security | player journey and MFA lifecycle |
@@ -62,14 +62,14 @@ Product benchmark delivery states are different: `implemented`, `partial`, `miss
 | Registered sessions | current/remote inventory, owner-scoped targeted revoke, revoke all others, current-session sign-out, foreign/stale denial | Feature/session registry | account-security lifecycle |
 | Account privacy | private defaults, two persisted controls, invalid-value denial and audit | Feature/database | account-security lifecycle |
 | Recovery key | one-time display, verifier-only storage, rotate/revoke/use, replay denial, password/MFA reset and session revocation | Feature/domain | account-security lifecycle |
-| Account termination | confirmation, marketplace/reservation/email-change guards, grace schedule, sign-out, cancel, due finalization and Canary preservation | Feature/domain/command | account-security lifecycle |
+| Account termination | confirmation, marketplace/reservation/email-change guards, grace schedule, sign-out, cancel, due finalization and legacy engine preservation | Feature/domain/command | account-security lifecycle |
 | Account security localization | EN/PL UI, validation, token errors, email links and protected-route redirect; D/T/M no overflow | Feature + language files | zero-retry Polish acceptance scenario |
 | Character creation | ready binding only, validation, reserved/duplicate, quota, foreign account injection ignored, idempotent visible result | Contract + database/integration + feature | player journey + character boundaries |
 | Public character visibility | newly created character shown through public read route | Contract + browser | player journey |
 | Returning player | login, MFA challenge, account/character action remains reachable | Browser/system | player journey |
 | Session invalidation | reset/change/MFA disable/email change/recovery key/termination invalidates applicable browser contexts | Feature/security + browser | password, MFA and account-security lifecycle |
 
-The delivered account profile is primary-Chromium only because it contains reset links, MFA secrets, recovery codes, recovery keys and authenticated session material. Cross-browser expansion remains bounded to representative non-secret or safely isolated flows under ADR 0008. Exceptional Canary account unlink/rebind is intentionally not a self-service product and requires a separate operation contract.
+The delivered account profile is primary-Chromium only because it contains reset links, MFA secrets, recovery codes, recovery keys and authenticated session material. Cross-browser expansion remains bounded to representative non-secret or safely isolated flows under ADR 0008. Exceptional legacy engine account unlink/rebind is intentionally not a self-service product and requires a separate operation contract.
 
 ## Character Bazaar lifecycle matrix
 
@@ -98,7 +98,7 @@ Character Bazaar concurrency and cross-database failure safety are proved at the
 | Retention and privacy | dry-run, ticket/report prune, enforcement anonymization, no private bodies in audit | Command/domain tests | visible privacy boundary |
 | Responsive/accessibility | EN/PL desktop/tablet/mobile, no horizontal overflow, semantic forms/tables and keyboard reachability | CSS + Playwright | two zero-retry scenarios across three viewports |
 
-The lifecycle persists only Platform-owned records. It does not mutate Canary bans, accept file attachments or expose reporter identity and moderator-private notes outside exact authorized administrator surfaces.
+The lifecycle persists only Platform-owned records. It does not mutate legacy engine bans, accept file attachments or expose reporter identity and moderator-private notes outside exact authorized administrator surfaces.
 
 ## Portal surface status
 
@@ -107,20 +107,20 @@ The lifecycle persists only Platform-owned records. It does not mutate Canary ba
 | Identity registration/login/logout | `covered` | guest/authenticated; validation, duplicate, invalid credentials, redirect/logout; D/T/M; bounded portability | None in delivered route contract |
 | Password lifecycle | `covered` | recovery/change, SMTP, replay/expiry, multi-session revocation; D/M | None in delivered route contract |
 | MFA lifecycle | `covered` | enroll/confirm/challenge/replay/recovery/disable; D/M; bounded portability | TOTP is complete; email-code method is intentionally not adopted |
-| Account Overview and Canary provisioning | `covered` | ready/pending/recoverable/conflict/missing; retry; no internal identifiers; D/M | Binding remains immutable; no self-service import/unlink/rebind |
-| Account security and lifecycle | `covered` | EN/PL, email confirmation/recovery/cooldown, sessions, privacy, recovery key, termination, stale-session redirect; D/T/M | Finalization preserves Canary-owned account and character data |
+| Account Overview and legacy engine provisioning | `covered` | ready/pending/recoverable/conflict/missing; retry; no internal identifiers; D/M | Binding remains immutable; no self-service import/unlink/rebind |
+| Account security and lifecycle | `covered` | EN/PL, email confirmation/recovery/cooldown, sessions, privacy, recovery key, termination, stale-session redirect; D/T/M | Finalization preserves game-server-owned account and character data |
 | Character creation and public visibility | `covered` | authorization, validation, ownership injection, quota/idempotency, public read; D/M | Character owner-management remains #277 |
 | Character Bazaar public/account/admin | `covered` | public catalogue/detail/filter/empty/EN/PL; watch/list/bid/wallet/history; MFA/RBAC adjustment/recovery; escrow/session/quota/idempotency/concurrency; D/T/M | Coin purchasing and commerce remain #278 |
 | Homepage, navigation and SEO | `covered` | available/empty/stale/unavailable, EN/PL, sitemap/robots; D/T/M; bounded engines | Template selector remains #244 |
 | News and managed public pages | `covered` | published/hidden/empty/not-found/long/localized; D/M | None in delivered contract |
-| Public game data | `covered` for current read model | search/detail/index, pagination/empty/not-found, Redis/Canary failure and recovery; D/T/M | Benchmark completeness remains #280 |
+| Public game data | `covered` for current read model | search/detail/index, pagination/empty/not-found, Redis/legacy engine failure and recovery; D/T/M | Benchmark completeness remains #280 |
 | Core Admin, RBAC, CMS and Audit | `covered` | guest/no-MFA/no-permission/exact roles, mutations, publish/hide, audit and final-admin protection; D/T/M | Support moderation uses three exact permissions |
 | Public/admin localization core | `covered` | EN/PL, missing/incomplete/draft/published/stale, route-preserving switch | Account security uses a scoped session locale because its routes are not public locale prefixes |
 | Downloads | `covered` | public/admin/localization/URL-policy/failure-recovery/audit; D/T/M; bounded engines | None in delivered contract |
 | Events | `covered` | public lifecycle, localization, RBAC, conflict and audit; D/T/M; bounded engines | Server-backed annual-event catalogue remains #281 |
 | Announcements | `covered` | time windows, escaping, localization, RBAC, conflict and audit; D/T/M; bounded engines | None in delivered contract |
 | Support and legal content | `covered` | typed CMS routes, publication, legal version, approved links, translation and audit | Separate from authenticated support records |
-| Authenticated support and moderation | `covered` | owner tickets/reports/enforcement, exact MFA/RBAC moderator queues, notifications, retention, privacy, EN/PL; D/T/M | Canary ban mutation and attachments excluded |
+| Authenticated support and moderation | `covered` | owner tickets/reports/enforcement, exact MFA/RBAC moderator queues, notifications, retention, privacy, EN/PL; D/T/M | legacy engine ban mutation and attachments excluded |
 | Public Wiki | `covered` | article/category/search/error/recovery/EN/PL; D/T/M; bounded engines | Editorial content remains separate from Game Catalog |
 | Game Catalog | `covered` | active item/weapon/creature/loot projections, visibility, provenance, EN/PL, admin MFA/RBAC; D/T/M | First #281 slice; NPC/quest/spawn/history remain |
 | Wiki administration | `covered` | draft/review/publish/archive/revision/conflict/preview/audit; D/T/M; bounded engines | Data ingestion/provenance remains #281 |
@@ -186,8 +186,8 @@ The matrix does not claim:
 - benchmark product completeness while required gaps remain;
 - full screen-reader compatibility from automated checks;
 - the authoritative Platform-to-game login path;
-- imported/claimed legacy Canary accounts or self-service unlink/rebind;
-- Canary account or character deletion through Platform termination;
+- imported/claimed legacy engine accounts or self-service unlink/rebind;
+- Legacy engine account or character deletion through Platform termination;
 - character profile editing/privacy, rename, deletion/restore or general world transfer;
 - authenticated support tickets, player-report queues or enforcement histories;
 - rich highscore categories, deaths, kill statistics or guild administration;
@@ -198,4 +198,4 @@ The matrix does not claim:
 
 Issue #280 adds exact-shape evidence for allowlisted highscore categories/vocation filters, explicit global scope, privacy-aware rich profiles, latest deaths, kill statistics, guild directory search/detail and localized dependency failure/recovery. `scripts/acceptance/coverage/surfaces/community-data-completeness.json` classifies the new localized deaths routes; existing public game-data routes retain their single manifest owner and gain focused feature/browser evidence through `CommunityDataCompletenessTest` and the zero-retry desktop/tablet/mobile Community Data workflow.
 
-Canary remains read-only. Guild administration, transfer history, achievements without an authoritative source, polls and public enforcement are explicit contract decisions rather than silently missing route states.
+Legacy engine remains read-only. Guild administration, transfer history, achievements without an authoritative source, polls and public enforcement are explicit contract decisions rather than silently missing route states.

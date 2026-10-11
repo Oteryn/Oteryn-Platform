@@ -111,7 +111,7 @@ Issue #362 / PR #363 adds a fail-closed content-scale applicability and evidence
 
 The complete Content Scale implementation profile passed all 15 browser tests on exact head `04a45d6ff311610fdcc4b323e7541f34f49f1d6d` in workflow run `30589498015`. The inventory also exposed and repaired a genuine mobile event-heading containment defect and strengthened long translation-source containment without weakening the assertions.
 
-This slice closes Issue #362 only for the mapped synthetic long-content and bounded collection boundaries. It is not an unbounded load or performance test, does not prove unrelated Issue #326 state permutations, and makes no staging, production, Canary, schema, payment-provider or user-data claim.
+This slice closes Issue #362 only for the mapped synthetic long-content and bounded collection boundaries. It is not an unbounded load or performance test, does not prove unrelated Issue #326 state permutations, and makes no staging, production, legacy engine, schema, payment-provider or user-data claim.
 
 ## Current backend–frontend reconciliation
 

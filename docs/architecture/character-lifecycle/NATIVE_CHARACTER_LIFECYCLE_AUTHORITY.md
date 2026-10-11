@@ -4,7 +4,7 @@
 
 `CURRENT ROUTING GUIDE — SUBORDINATE TO ACCEPTED ADR 0030 AND ADR 0031`
 
-This document prevents stale Canary compatibility work from being interpreted as the target native Oteryn-v2 character lifecycle architecture.
+This document prevents stale legacy engine compatibility work from being interpreted as the target native Oteryn-v2 character lifecycle architecture.
 
 It does not create a new source of authority. If this guide conflicts with ADR 0030 or ADR 0031, the accepted ADRs control.
 
@@ -19,19 +19,19 @@ For the native Oteryn-v2 target:
 - native create, rename, schedule-delete, restore, finalize-delete, world transfer and account/Character Bazaar ownership transfer cross the boundary through versioned game-owned command/result or command/receipt contracts;
 - all such native mutations inherit the stable-operation, idempotency, typed-outcome, ambiguity/reconciliation and concurrency invariants from `OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md`;
 - Platform read models, operation rows and caches are never proof of current character ownership or successful game-domain mutation;
-- direct/shared SQL and Canary numeric identifiers are Legacy Canary Compatibility or migration mechanisms only, not native steady-state design.
+- direct/shared SQL and legacy engine numeric identifiers are Legacy Engine Compatibility or migration mechanisms only, not native steady-state design.
 
 ## Lifecycle ownership matrix
 
 | Lifecycle capability | Native authority | Platform role | Compatibility note |
 |---|---|---|---|
-| Create character | Oteryn-v2 Character Authority | authorize AccountId context, collect validated product input, orchestrate command, project result | existing Canary create SQL remains compatibility-only until migrated |
-| Rename character | Oteryn-v2 Character Authority | Account Center flow, Platform business/security gates, orchestration, history/projection reconciliation | Canary rename discovery may be retained only as explicit compatibility evidence |
-| Schedule deletion | Oteryn-v2 Character Authority | owner confirmation, Platform policy, orchestration, user-visible saga/projection | `players.deletion` discovery is Canary compatibility evidence only |
-| Cancel / restore deletion | Oteryn-v2 Character Authority | authenticated orchestration and projection reconciliation | direct Canary restore is not the native target |
-| Finalize deletion | Oteryn-v2 Character Authority | request/reconcile approved lifecycle command only when native lifecycle exposes one; preserve Platform audit/business state | raw Canary startup deletion must not define native semantics |
-| World transfer | Oteryn-v2 Character Authority | destination/product policy orchestration using canonical Platform `WorldId` / `ChannelId` references where applicable | capability remains separately gated; Canary world/schema assumptions do not define it |
-| Account / Bazaar ownership transfer | Oteryn-v2 Character Authority for ownership mutation | Platform owns Bazaar/commercial saga, wallet reservation/settlement and customer workflow; ownership transfer completes before wallet settlement | existing `players.account_id` transfer is Legacy Canary Compatibility only |
+| Create character | Oteryn-v2 Character Authority | authorize AccountId context, collect validated product input, orchestrate command, project result | existing legacy engine create SQL remains compatibility-only until migrated |
+| Rename character | Oteryn-v2 Character Authority | Account Center flow, Platform business/security gates, orchestration, history/projection reconciliation | legacy engine rename discovery may be retained only as explicit compatibility evidence |
+| Schedule deletion | Oteryn-v2 Character Authority | owner confirmation, Platform policy, orchestration, user-visible saga/projection | `players.deletion` discovery is legacy engine compatibility evidence only |
+| Cancel / restore deletion | Oteryn-v2 Character Authority | authenticated orchestration and projection reconciliation | direct legacy engine restore is not the native target |
+| Finalize deletion | Oteryn-v2 Character Authority | request/reconcile approved lifecycle command only when native lifecycle exposes one; preserve Platform audit/business state | raw legacy engine startup deletion must not define native semantics |
+| World transfer | Oteryn-v2 Character Authority | destination/product policy orchestration using canonical Platform `WorldId` / `ChannelId` references where applicable | capability remains separately gated; legacy engine world/schema assumptions do not define it |
+| Account / Bazaar ownership transfer | Oteryn-v2 Character Authority for ownership mutation | Platform owns Bazaar/commercial saga, wallet reservation/settlement and customer workflow; ownership transfer completes before wallet settlement | existing `players.account_id` transfer is Legacy Engine Compatibility only |
 
 ## Native command and result baseline
 
@@ -39,7 +39,7 @@ The focused command/result contract is now the canonical reusable Platform-side 
 
 Every future native lifecycle implementation must preserve at least:
 
-1. canonical Platform `AccountId` and game-owned `CharacterId` instead of `canary_account_id` / `canary_player_id` as native identities;
+1. canonical Platform `AccountId` and game-owned `CharacterId` instead of `legacy_account_id` / `legacy_player_id` as native identities;
 2. canonical `WorldId` / `ChannelId` where topology context is applicable;
 3. Platform server-side authentication/authorization and Platform-owned business/security gates before command submission;
 4. Oteryn-v2 revalidation of current authoritative ownership, lifecycle and game-state eligibility before mutation;
@@ -73,7 +73,7 @@ request operation X
                            never blindly mint X2 or execute direct SQL fallback
 ```
 
-An ambiguous native result must not be retried through Canary/direct SQL because the native command may already have committed.
+An ambiguous native result must not be retried through legacy engine/direct SQL because the native command may already have committed.
 
 A terminal `REJECTED` operation identity stays terminal. A later deliberate user/business attempt may use a new operation identity only after current Platform gates are re-evaluated.
 
@@ -130,7 +130,7 @@ The focused command contract does not require one global command queue or global
 
 - Oteryn-v2 owns authoritative lifecycle state and schedule/restore/finalize transitions;
 - Platform owns confirmation, workflow, notifications and presentation;
-- Canary deletion timestamps remain compatibility evidence only;
+- Legacy engine deletion timestamps remain compatibility evidence only;
 - finalization is an explicit external command only if the accepted native lifecycle actually defines it that way.
 
 ### World/channel transfer
@@ -160,19 +160,19 @@ Completed character mutations often affect public/account read models, but the c
 - a completed mutation must eventually reconcile affected indexes/caches/search variants by stable identity;
 - stale projection data cannot reverse a newer game mutation or a newer restrictive privacy decision.
 
-## Legacy Canary Compatibility
+## Legacy Engine Compatibility
 
-Existing Canary integration work remains useful only inside an explicitly named compatibility/migration scope.
+Existing legacy engine integration work remains useful only inside an explicitly named compatibility/migration scope.
 
 Compatibility rules:
 
-- `canary_account_id`, `canary_player_id`, direct/shared SQL and operation-specific Canary principals are legacy adapter details;
-- historical schema/runtime discovery may be preserved for supporting current privately operated Canary compatibility paths or migration analysis;
-- a Canary compatibility task must say explicitly that it is compatibility-only, name the consumer that still requires it and define rollback/removal criteria;
-- Canary compatibility work cannot block or define the native Oteryn-v2 lifecycle target unless a higher-ranked owner decision explicitly retains that compatibility feature;
-- no new native feature may be justified by “the Canary table already has a column”;
+- `legacy_account_id`, `legacy_player_id`, direct/shared SQL and operation-specific legacy engine principals are legacy adapter details;
+- historical schema/runtime discovery may be preserved for supporting current privately operated legacy engine compatibility paths or migration analysis;
+- a legacy engine compatibility task must say explicitly that it is compatibility-only, name the consumer that still requires it and define rollback/removal criteria;
+- Legacy engine compatibility work cannot block or define the native Oteryn-v2 lifecycle target unless a higher-ranked owner decision explicitly retains that compatibility feature;
+- no new native feature may be justified by “the legacy engine table already has a column”;
 - legacy fallback after an ambiguous native mutation is forbidden unless an explicit fencing/cancellation contract proves the native operation cannot commit;
-- no Canary repository write is authorized by this Platform routing guide.
+- no legacy engine repository write is authorized by this Platform routing guide.
 
 ## Existing backlog routing
 
@@ -182,10 +182,10 @@ After Issue #919:
 - #317 remains the deletion/restore product owner and consumes the shared command/result contract rather than inventing independent idempotency/reconciliation semantics;
 - #319 remains the rename product owner and consumes the shared command/result contract;
 - #320 remains a conditional world-transfer product owner; its generic command profile exists but the product/capability decision and game placement semantics are still required;
-- #324 remains obsolete as an unqualified Canary-safe rename prerequisite for the native target;
-- #344 remains historical Legacy Canary Compatibility dependency evidence and must not block native #317 work.
+- #324 remains obsolete as an unqualified legacy-engine-safe rename prerequisite for the native target;
+- #344 remains historical Legacy Engine Compatibility dependency evidence and must not block native #317 work.
 
-A future explicit decision to keep one of those operations available on the Canary compatibility stack must create or reopen a bounded compatibility-only task. It must not reuse the native task as authorization for direct Canary mutation.
+A future explicit decision to keep one of those operations available on the legacy engine compatibility stack must create or reopen a bounded compatibility-only task. It must not reuse the native task as authorization for direct legacy engine mutation.
 
 ## Migration / cutover
 
@@ -197,7 +197,7 @@ Required principles:
 - fail closed on missing/conflicting identity mapping;
 - prove native producer/consumer command version, idempotency, conflicting-reuse, typed terminal/non-terminal result and reconciliation behavior before disabling a legacy operation;
 - cut over per command family rather than treating all lifecycle commands as one global activation;
-- retain rollback for **new** operations while any active consumer depends on Canary compatibility;
+- retain rollback for **new** operations while any active consumer depends on legacy engine compatibility;
 - reconcile/fence every already submitted native operation before routing future business intent through a compatibility path;
 - retire legacy credentials/write privileges after the final compatibility consumer is proven absent;
 - do not interpret this target architecture as proof that runtime migration has already happened.
@@ -208,7 +208,7 @@ This document authorizes no:
 
 - Laravel runtime implementation;
 - database migration;
-- Canary or Oteryn-v2 repository write;
+- Legacy engine or Oteryn-v2 repository write;
 - command transport/IDL choice;
 - game-internal lifecycle state machine;
 - production activation;
@@ -218,11 +218,11 @@ This document authorizes no:
 ## References
 
 - ADR 0030 — Native Character Portfolio / Account Center v2 boundary
-- ADR 0031 — Native Oteryn-v2 integration and Legacy Canary Compatibility boundary
+- ADR 0031 — Native Oteryn-v2 integration and Legacy Engine Compatibility boundary
 - ADR 0029 — Platform-owned WorldId / ChannelId topology identity
 - `docs/contracts/OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md` — shared native command/result semantic contract
 - `docs/contracts/OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md` — downstream public projection/privacy authority
 - `docs/contracts/CHARACTER_TRANSFER_CONTRACT.md` — accepted transfer-before-wallet-settlement saga ordering
-- `docs/contracts/CHARACTER_DELETION_CONTRACT.md` — Canary deletion discovery retained only for Legacy Canary Compatibility evidence
+- `docs/contracts/CHARACTER_DELETION_CONTRACT.md` — legacy engine deletion discovery retained only for Legacy Engine Compatibility evidence
 - Issue #890 — authority reconciliation finding
 - Issue #919 — shared native Character Authority command/result boundary

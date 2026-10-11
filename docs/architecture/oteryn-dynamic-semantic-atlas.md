@@ -63,7 +63,7 @@ Oteryn-Platform
 
 Atlas MUST NOT become a second canonical `Semantic World Model`. The browser/runtime model is an **Atlas Semantic Projection / Atlas Scene Read Model**, deterministically derived from Game-owned canonical semantics.
 
-Atlas MUST NOT use OTBM, Legacy IR, Canary/Crystal Lua/XML, undocumented Game database tables, live GameNode memory or Platform tables as a fallback world authority when the Game export omits a fact.
+Atlas MUST NOT use OTBM, Legacy IR, legacy engine/Crystal Lua/XML, undocumented Game database tables, live GameNode memory or Platform tables as a fallback world authority when the Game export omits a fact.
 
 ## Four data planes
 
@@ -356,7 +356,7 @@ The server/producer must enforce privacy before transmission; hiding already-del
 
 ## Live-state bridge
 
-The future live bridge is a dedicated public-safe semantic projection, not raw `protocol-oteryn` or Canary/Tibia protocol exposure to the browser.
+The future live bridge is a dedicated public-safe semantic projection, not raw `protocol-oteryn` or legacy engine/Tibia protocol exposure to the browser.
 
 Conceptually:
 

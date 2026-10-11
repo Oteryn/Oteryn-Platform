@@ -6,9 +6,9 @@
 
 ## Context
 
-Oteryn Platform already owns web credentials, password recovery/change, TOTP MFA with recovery codes, revocable web-session generations and a one-to-one immutable binding to a greenfield Canary account. The benchmark audit in Issue #268 identified missing account-management capabilities: confirmed email change, user-visible session management, privacy/status controls, account termination and a separately issued high-assurance recovery artifact.
+Oteryn Platform already owns web credentials, password recovery/change, TOTP MFA with recovery codes, revocable web-session generations and a one-to-one immutable binding to a greenfield legacy engine account. The benchmark audit in Issue #268 identified missing account-management capabilities: confirmed email change, user-visible session management, privacy/status controls, account termination and a separately issued high-assurance recovery artifact.
 
-The current Laravel session backend is configurable and may be file, database or another supported driver. Targeted revocation therefore cannot safely depend on deleting one backend-specific session row. Canary account ownership is outside the Platform database and no unlink, rebind or account-deletion write contract is authorized.
+The current Laravel session backend is configurable and may be file, database or another supported driver. Targeted revocation therefore cannot safely depend on deleting one backend-specific session row. Legacy engine account ownership is outside the Platform database and no unlink, rebind or account-deletion write contract is authorized.
 
 ## Decision
 
@@ -55,21 +55,21 @@ Platform Identity owns conservative booleans for public account association and 
 
 ### Account termination
 
-Termination is a Platform lifecycle, not a Canary deletion:
+Termination is a Platform lifecycle, not a legacy engine deletion:
 
 - request requires current password and an explicit confirmation phrase;
 - a configurable grace period is stored on the identity;
 - the user may cancel before finalization with current-password verification;
 - request and finalization both fail closed when the identity owns or leads a non-terminal Character Bazaar operation, has reserved wallet funds, or has a pending email change;
 - a scheduled idempotent command finalizes due requests under row locks;
-- finalization disables Platform login, anonymizes the primary email, replaces the password, clears MFA and recovery-key material, revokes web/game authorizations and password-reset tokens, and preserves the Identity ID, Canary binding and audit records;
-- Canary accounts and characters are neither deleted nor reassigned.
+- finalization disables Platform login, anonymizes the primary email, replaces the password, clears MFA and recovery-key material, revokes web/game authorizations and password-reset tokens, and preserves the Identity ID, legacy engine binding and audit records;
+- Legacy engine accounts and characters are neither deleted nor reassigned.
 
 The old canonical email is retained only as an application-keyed hash for security and duplicate-abuse investigation; it is not exposed to users or ordinary administrators.
 
-### Canary binding policy
+### Legacy engine binding policy
 
-Self-service unlink or rebind is not adopted. The immutable one-to-one binding remains the security boundary. Browser requests cannot name a Canary account as ownership proof. Any future exceptional rebind requires a separate support/moderation workflow, explicit Canary ownership evidence, least-privilege mutation contract, MFA/permission guard, audit, deterministic locking and rollout approval.
+Self-service unlink or rebind is not adopted. The immutable one-to-one binding remains the security boundary. Browser requests cannot name a legacy engine account as ownership proof. Any future exceptional rebind requires a separate support/moderation workflow, explicit legacy engine ownership evidence, least-privilege mutation contract, MFA/permission guard, audit, deterministic locking and rollout approval.
 
 The account center will expose the binding as locked by policy rather than presenting a nonfunctional action.
 
@@ -88,4 +88,4 @@ Email-code MFA is not adopted. Email is already the primary recovery channel; tr
 
 ## Nonclaims
 
-This ADR does not authorize Canary repository writes, production deployment, direct production verification, irreversible game-account deletion or transfer of game ownership.
+This ADR does not authorize legacy engine repository writes, production deployment, direct production verification, irreversible game-account deletion or transfer of game ownership.

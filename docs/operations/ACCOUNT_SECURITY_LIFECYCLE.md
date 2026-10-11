@@ -11,13 +11,13 @@ This runbook covers the Platform-owned account-security lifecycle delivered by P
 - bounded account-termination request, grace period, cancellation and finalization;
 - English and Polish account-security presentation.
 
-This runbook does not authorize Canary schema writes, Canary account deletion, character deletion or transfer, account unlink/rebind, production deployment or direct production verification.
+This runbook does not authorize legacy engine schema writes, legacy engine account deletion, character deletion or transfer, account unlink/rebind, production deployment or direct production verification.
 
 ## Ownership boundary
 
-Oteryn Platform owns the Identity security records, migrations, web-session registry, security events, notifications, privacy flags, recovery-key verifier and termination state. The ready Platform-to-Canary account binding remains immutable for this lifecycle.
+Oteryn Platform owns the Identity security records, migrations, web-session registry, security events, notifications, privacy flags, recovery-key verifier and termination state. The ready Platform-to-legacy engine account binding remains immutable for this lifecycle.
 
-Canary remains the semantic owner of its account and character data. Finalizing Platform termination disables and anonymizes Platform login; it does not delete, unlink, rebind or transfer Canary-owned data.
+Legacy engine remains the semantic owner of its account and character data. Finalizing Platform termination disables and anonymizes Platform login; it does not delete, unlink, rebind or transfer game-server-owned data.
 
 ## Configuration
 
@@ -42,7 +42,7 @@ Apply the Platform-owned migration before enabling the new routes:
 php artisan migrate --force
 ```
 
-The migration is additive for Platform-owned Identity state. It does not migrate Canary or login-server tables.
+The migration is additive for Platform-owned Identity state. It does not migrate legacy engine or login-server tables.
 
 Rollback must be evaluated against live lifecycle records. Do not remove the new tables or columns while pending email changes, active recovery keys, registered sessions or termination requests still require operator visibility or recovery.
 
@@ -62,7 +62,7 @@ Operational requirements:
 4. Treat a non-zero command result as an operational failure requiring investigation.
 5. Do not replace the command with direct SQL updates.
 
-The finalizer locks each due Identity, rechecks termination eligibility, revokes Platform web sessions and game authorizations, anonymizes the Platform email and records a security event. It leaves the Canary binding and Canary-owned account and character rows unchanged.
+The finalizer locks each due Identity, rechecks termination eligibility, revokes Platform web sessions and game authorizations, anonymizes the Platform email and records a security event. It leaves the legacy engine binding and game-server-owned account and character rows unchanged.
 
 ## Email-change operations
 
@@ -130,7 +130,7 @@ Record the command result and affected batch boundary, restore the dependency or
 
 ### Suspected account compromise
 
-Revoke all Platform web sessions and game authorizations through supported application actions, protect the old-address recovery channel, rotate credentials and recovery key, and review bounded security events. Canary-side incident actions require their own approved operational contract.
+Revoke all Platform web sessions and game authorizations through supported application actions, protect the old-address recovery channel, rotate credentials and recovery key, and review bounded security events. Legacy-engine-side incident actions require their own approved operational contract.
 
 ## Validation before release
 

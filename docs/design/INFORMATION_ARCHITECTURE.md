@@ -79,7 +79,7 @@ The public portal and Account Center should feel like one product. The Admin Con
 ### Identity and account — missing current screens
 
 - General Account Center/Account Overview: `DEPENDENCY` / not delivered.
-- User-visible Canary provisioning-status surface: `DEPENDENCY` / not delivered.
+- User-visible legacy engine provisioning-status surface: `DEPENDENCY` / not delivered.
 - Character list owned by the authenticated user: `DEPENDENCY` unless an existing authoritative read path is exposed for the account context.
 - Session-management surface: `FUTURE-READY`; no current route should be implied.
 - Account settings surface beyond existing password/MFA actions: `FUTURE-READY`.

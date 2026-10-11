@@ -24,13 +24,13 @@ System Browser
   -> private ticket redeem at Identity
   -> World/Character resolution
   -> Game Session creation
-  -> Canary world entry
+  -> Legacy engine world entry
 ```
 
 Out of scope for the first implementation:
 
 - multichannel gameplay-state synchronization;
-- gameplay protocol confidentiality beyond the existing Canary protocol contract;
+- gameplay protocol confidentiality beyond the existing legacy engine protocol contract;
 - production DDoS provider selection;
 - passkey implementation details;
 - existing-account import/claim;
@@ -45,7 +45,7 @@ Highest-value assets:
 3. OAuth authorization codes and bootstrap access credentials;
 4. Game Login Tickets;
 5. Game Session secrets;
-6. exact Identity -> Canary account binding;
+6. exact Identity -> legacy engine account binding;
 7. character ownership and world authorization;
 8. Identity security/revocation generation;
 9. service-to-service credentials between Gateway and Identity;
@@ -100,7 +100,7 @@ The public Gateway login endpoint receives attacker-controlled network traffic.
 
 The presented Game Login Ticket is a bearer secret until consumed.
 
-Gateway must not infer Identity or Canary account ownership from any client-supplied `identity_id`, `account_id`, character ownership field or world claim.
+Gateway must not infer Identity or legacy engine account ownership from any client-supplied `identity_id`, `account_id`, character ownership field or world claim.
 
 ### Boundary E — Gateway -> Identity internal redeem
 
@@ -110,17 +110,17 @@ Only authenticated Gateway instances may call ticket redeem.
 
 Private networking is defense in depth, not authentication by itself.
 
-### Boundary F — Gateway -> Canary/read/session integration
+### Boundary F — Gateway -> legacy engine/read/session integration
 
-Canary-owned data and session persistence are separate trust domains.
+Game-server-owned data and session persistence are separate trust domains.
 
-Gateway must use narrowly scoped capabilities and must not receive generic Canary database privileges.
+Gateway must use narrowly scoped capabilities and must not receive generic legacy engine database privileges.
 
-### Boundary G — OTClient -> Canary game endpoint
+### Boundary G — OTClient -> legacy engine game endpoint
 
 The client presents only the Game Session credential required by the selected compatibility contract plus the selected character/world context.
 
-Canary remains the final owner of world-entry checks such as account/character ownership, deletion state, ban/name-lock and runtime admission rules supported by the exact deployed version.
+Legacy engine remains the final owner of world-entry checks such as account/character ownership, deletion state, ban/name-lock and runtime admission rules supported by the exact deployed version.
 
 ## Adversaries
 
@@ -133,7 +133,7 @@ Assume:
 - one Gateway instance may fail while another continues;
 - concurrent replay requests can arrive at different instances;
 - databases/Redis/service dependencies can be unavailable or partially fail;
-- legacy Canary/login-server password endpoints may remain reachable during migration unless explicitly fenced;
+- legacy engine/login-server password endpoints may remain reachable during migration unless explicitly fenced;
 - a service credential may eventually need rotation or revocation.
 
 Do not assume:
@@ -148,7 +148,7 @@ Do not assume:
 
 | ID | Threat | Attack / failure | Required controls | Residual / status |
 |---|---|---|---|---|
-| GA-001 | Password exposure to game components | Client submits Oteryn password to Gateway/Canary or password is copied into Canary-compatible storage | Password entry only on Oteryn Identity browser surface; no password field in Gateway/Canary contracts; random sink credential never exposed or accepted for login | Target control; legacy paths remain migration risk |
+| GA-001 | Password exposure to game components | Client submits Oteryn password to Gateway/legacy engine or password is copied into legacy-compatible storage | Password entry only on Oteryn Identity browser surface; no password field in Gateway/legacy engine contracts; random sink credential never exposed or accepted for login | Target control; legacy paths remain migration risk |
 | GA-002 | Authorization request CSRF / login swap | Attacker causes victim client to accept another authorization response | High-entropy `state`, client-side exact comparison, one pending flow per attempt, discard callback on mismatch | Implementation required |
 | GA-003 | Authorization-code interception | Local process intercepts loopback authorization code | PKCE S256 with high-entropy verifier; one-time short-lived code; verifier never leaves client except token exchange | Implementation required |
 | GA-004 | Loopback listener hijack | Malicious local app binds callback port first or races callback | OS-selected ephemeral port, IP-literal loopback, PKCE, state, bounded listener lifetime, fail closed on bind failure | PKCE prevents intercepted code redemption without verifier; local DoS remains possible |
@@ -156,15 +156,15 @@ Do not assume:
 | GA-006 | Embedded webview credential theft | Game client embeds a webview capable of intercepting credentials | Use system/default browser; do not collect Identity password/MFA in OTClient UI | Implementation required |
 | GA-007 | Public-client secret illusion | Static client secret is shipped and treated as authenticating OTClient | Register OTClient as public client; no confidential secret; authorize user/session, not binary possession | Architecture decision |
 | GA-008 | Excessive OAuth token lifetime | Stolen bootstrap access/refresh token provides durable account access | Narrow `game:ticket` scope; short access-token TTL; no long-lived refresh-token use; revoke family after ticket issuance if library cannot suppress refresh issuance safely | Exact Passport implementation mechanism remains to be proven |
-| GA-009 | OAuth token sent to game layer | Access/refresh token leaks to Gateway or Canary and expands trust | Gateway contract accepts only Game Login Ticket; Canary contract accepts only Game Session material | Contract-enforced target |
+| GA-009 | OAuth token sent to game layer | Access/refresh token leaks to Gateway or legacy engine and expands trust | Gateway contract accepts only Game Login Ticket; legacy engine contract accepts only Game Session material | Contract-enforced target |
 | GA-010 | Ticket prediction | Attacker guesses a valid Game Login Ticket | At least 256 bits CSPRNG entropy; opaque token | Implementation required |
 | GA-011 | Ticket database disclosure | Read access to ticket store yields redeemable plaintext tickets | Store only cryptographic hash/HMAC-derived lookup value; plaintext returned once; never persist plaintext | Implementation required |
 | GA-012 | Ticket replay | Stolen ticket is redeemed twice | Atomic single-use consume in shared authoritative store; exactly one concurrent request succeeds | Critical regression test required |
 | GA-013 | Cross-instance replay race | Two Gateway instances redeem same ticket concurrently | Shared atomic storage/transaction/conditional update; no process-local authoritative consume | Critical regression test required |
 | GA-014 | Expired ticket use | Delayed or stolen ticket used after intended window | Default 60s TTL; authoritative server clock; expiry checked atomically during redeem | Implementation required |
 | GA-015 | Confused deputy / wrong audience | Ticket minted for another consumer is accepted by Gateway/redeem API | Explicit audience `oteryn-game-gateway`; redeem verifies audience; no generic bearer-token endpoint | Implementation required |
-| GA-016 | Client-controlled account substitution | Client supplies another `account_id` with its ticket | Ticket binds exact ready immutable `canary_account_id`; redeem result is authoritative; ignore/reject client account identifiers | Existing binding supports target |
-| GA-017 | Binding not ready / conflict | Identity has pending/conflicting Canary mapping but receives game access | Ticket issuance and redeem fail closed unless immutable binding is ready with non-null exact account ID | Implementation required |
+| GA-016 | Client-controlled account substitution | Client supplies another `account_id` with its ticket | Ticket binds exact ready immutable `legacy_account_id`; redeem result is authoritative; ignore/reject client account identifiers | Existing binding supports target |
+| GA-017 | Binding not ready / conflict | Identity has pending/conflicting legacy engine mapping but receives game access | Ticket issuance and redeem fail closed unless immutable binding is ready with non-null exact account ID | Implementation required |
 | GA-018 | Stale authorization after password reset/change | Ticket remains usable after security-sensitive account change | Monotonic `game_auth_generation`; ticket captures generation; redeem compares current generation | New Platform state required |
 | GA-019 | Disabled Identity still enters game | Identity disabled after ticket issuance | Check disabled state at issuance and again at redeem; advance generation/revoke pending tickets | Implementation required |
 | GA-020 | MFA bypass | User with enrolled/required MFA obtains ticket via a password-only alternate path | OAuth authorization uses normal Identity login/MFA flow; all external legacy password paths must be fenced before global-authority claim | Legacy bypass remains blocker until migration closure |
@@ -173,32 +173,32 @@ Do not assume:
 | GA-023 | Internal endpoint public exposure | Redeem API reachable from public internet | Private ingress/network policy plus application service authentication; fail closed even if network boundary fails | Production topology UNKNOWN |
 | GA-024 | Service credential leakage | Gateway service secret appears in repo/log/error | External secret management; no secrets in Git/logs; rotation procedure; separate credential from other services | Production secret manager UNKNOWN |
 | GA-025 | Ticket leakage in logs | Request body/header/URL containing ticket is logged | Ticket in request body, never URL; redact credential fields; bounded request logging; avoid reverse-proxy body logging; regression tests | App request-completion logger already excludes bodies/headers; full deployment logging UNKNOWN |
-| GA-026 | Session-secret leakage | Game Session secret logged by Gateway/Canary/proxy | Never log raw session credential; store hash where compatibility permits; sanitize errors/metrics | Canary exact behavior must be revalidated for chosen adapter |
+| GA-026 | Session-secret leakage | Game Session secret logged by Gateway/legacy engine/proxy | Never log raw session credential; store hash where compatibility permits; sanitize errors/metrics | legacy engine exact behavior must be revalidated for chosen adapter |
 | GA-027 | Session replay | DB-backed Game Session remains replayable until expiry | Bound TTL; revocation/delete semantics; single active intended use where feasible; final contract must document unavoidable replay characteristics | Existing `account_sessions` replayability is proven risk; adapter not yet approved |
 | GA-028 | Session fixation/substitution | Client chooses or reuses session ID tied to another account | Server-generated high-entropy secret; authoritative account/world binding; no client-selected session ownership fields | Implementation required |
-| GA-029 | Wrong-world session use | Session created for EU world is accepted by another world | Bind Game Session to `world_id`; route/adapter verifies world audience where protocol permits; per-world credentials if necessary | Exact Canary mechanism UNKNOWN |
-| GA-030 | Wrong-character use | Session intended for one account used to enter character belonging to another | Gateway list from authoritative account; Canary final ownership/deletion checks; never trust client ownership assertion | Current Canary final ownership gate is proven baseline |
+| GA-029 | Wrong-world session use | Session created for EU world is accepted by another world | Bind Game Session to `world_id`; route/adapter verifies world audience where protocol permits; per-world credentials if necessary | Exact legacy engine mechanism UNKNOWN |
+| GA-030 | Wrong-character use | Session intended for one account used to enter character belonging to another | Gateway list from authoritative account; legacy engine final ownership/deletion checks; never trust client ownership assertion | Current legacy engine final ownership gate is proven baseline |
 | GA-031 | Character-list data leak | Gateway lists deleted/foreign characters | Narrow allowlisted query with `account_id` and active/listable-state filtering proven by contract; do not reuse inconsistent upstream login-server query blindly | New Gateway read contract required |
 | GA-032 | World-routing injection | Client supplies arbitrary game host/port | Gateway returns routing from authoritative World Registry; client cannot create registry entries | Implementation required |
 | GA-033 | Unauthorized world access | Client requests test/tournament world without entitlement | Gateway filters by account/world policy and `login_enabled`; Game Session world-scoped | First release may have one world |
 | GA-034 | Registry tampering | Compromised admin/config redirects clients to hostile server | Restrict registry writes; audit privileged changes; validate endpoint shape; deployment/config review | Registry administration policy deferred if registry is static/config-backed initially |
-| GA-035 | Gateway broad DB compromise | Gateway credential can read password hashes or mutate unrelated Canary data | Separate least-privilege credentials/capabilities for character read and session persistence; no generic Platform/Canary DB access | New operation-specific contract required |
+| GA-035 | Gateway broad DB compromise | Gateway credential can read password hashes or mutate unrelated legacy engine data | Separate least-privilege credentials/capabilities for character read and session persistence; no generic Platform/legacy engine DB access | New operation-specific contract required |
 | GA-036 | Identity DB coupling | Gateway directly queries Platform Identity tables and bypasses policy | Redeem through versioned private Identity API; no direct Identity DB credential | Architecture decision |
 | GA-037 | Fail-open on Identity outage | Gateway accepts ticket without successful authoritative redeem | Redeem dependency failure returns login failure; no cached success fallback | Required outage test |
 | GA-038 | Fail-open on ticket store outage | Gateway/Identity guesses ticket validity | No session creation without atomic consume success | Required outage test |
 | GA-039 | Partial commit: ticket consumed, session not created | User loses ticket after downstream failure | Ticket remains consumed; client must restart authorization/ticket flow or receive a narrowly designed retry token only if separately specified; never un-consume a ticket | Expected safe failure; UX retry behavior required |
 | GA-040 | Partial commit: session created, response lost | Client retries and creates multiple sessions | Session-create adapter requires idempotency key or deterministic bounded recovery tied to redeem transaction/result; exact mechanism contract required | UNKNOWN until Game Session adapter design |
-| GA-041 | Legacy native Canary bypass | Attacker skips Identity and uses exposed native login port/password flow | Fence/disable public native login after new E2E proof; verify process registration and network exposure | Current source-level alternate path capability proven; production exposure UNKNOWN |
+| GA-041 | Legacy native legacy engine bypass | Attacker skips Identity and uses exposed native login port/password flow | Fence/disable public native login after new E2E proof; verify process registration and network exposure | Current source-level alternate path capability proven; production exposure UNKNOWN |
 | GA-042 | Upstream login-server password bypass | Attacker uses SHA-1 password login endpoint instead of Identity | Replace/fence endpoint for Oteryn clients; no sink-password fallback | Migration blocker |
 | GA-043 | Old-protocol direct-password bypass | Legacy client cannot carry target opaque credentials | Disable by default for production secure surface or document separately accepted lower-security tier | Product rollout decision required before production claim |
 | GA-044 | Silent fallback to replayable credential | Failed one-time auth falls back to long-lived `account_sessions` or password | Authoritative target path has no fallback; compatibility adapter only after successful ticket redeem | Required contract/test |
-| GA-045 | Canary stored-hash logging | Failed native password auth logs stored credential material | Separately authorized Canary security fix before production security-ready claim | Existing contract marks high priority; external fix not in this task |
+| GA-045 | legacy engine stored-hash logging | Failed native password auth logs stored credential material | Separately authorized legacy engine security fix before production security-ready claim | Existing contract marks high priority; external fix not in this task |
 | GA-046 | Replay after process restart | Process-local ticket state disappears or loses consume history | Shared durable/controlled state with atomic semantics; restart must not resurrect consumed tickets | Implementation/storage choice required |
 | GA-047 | Clock skew | Different services disagree on ticket/session expiry | Server-authoritative timestamps, bounded synchronized clocks, validation against authoritative store; no client clock trust | Deployment monitoring required |
 | GA-048 | Rate-limit bypass / brute force | Attackers flood authorization, ticket issuance or Gateway redeem | Application-level rate limits per identity/source/endpoint; edge controls as supplement; avoid account enumeration | Concrete limits to be set from runtime evidence |
 | GA-049 | Error oracle | Different public errors reveal identity/binding/security state | Public errors are coarse and non-enumerating; internal structured codes remain bounded and credential-free | Contract required |
 | GA-050 | Sensitive observability | Metrics/traces capture tickets/tokens/account PII | Structured allowlist logging; no bodies/headers; hash/pseudonymous IDs only where necessary; trace attribute denylist | Production observability sink UNKNOWN |
-| GA-051 | Dependency SSRF / arbitrary routing | Gateway uses client-supplied Identity/Canary endpoint | Endpoints come only from trusted configuration/World Registry; no user URL fetching | Implementation required |
+| GA-051 | Dependency SSRF / arbitrary routing | Gateway uses client-supplied Identity/legacy engine endpoint | Endpoints come only from trusted configuration/World Registry; no user URL fetching | Implementation required |
 | GA-052 | Protocol downgrade | Client forces legacy password mode when modern flow should be mandatory | Server-side supported-version policy and explicit migration feature flag; no client-only security decision | Rollout control required |
 | GA-053 | Version confusion | Old/new client interprets credential fields differently | Explicit API/protocol version, compatibility matrix, fail closed on unsupported version | Contracts required |
 | GA-054 | Unauthorized ticket mint via stolen web session | Attacker with ordinary browser session mints game ticket without intended native authorization context | Ticket issuance requires OAuth bearer with `game:ticket` scope/client context, not generic Laravel web session alone | Implementation required |
@@ -209,12 +209,12 @@ Do not assume:
 
 The following are non-negotiable:
 
-1. **No user password beyond Identity.** The target Gateway and Canary contracts contain no reusable Oteryn password.
+1. **No user password beyond Identity.** The target Gateway and legacy engine contracts contain no reusable Oteryn password.
 2. **No client-secret trust for OTClient.** OTClient is a public native client.
 3. **PKCE S256 + state are mandatory.** Missing or invalid values fail closed.
 4. **Ticket consume is atomic and shared.** Exactly one concurrent redeem succeeds.
-5. **Ownership comes from Platform trusted state.** Client input never establishes `canary_account_id` ownership.
-6. **Ticket and Game Session are different credentials.** A ticket is one-time bootstrap authorization; a Game Session is the Canary-entry credential.
+5. **Ownership comes from Platform trusted state.** Client input never establishes `legacy_account_id` ownership.
+6. **Ticket and Game Session are different credentials.** A ticket is one-time bootstrap authorization; a Game Session is the legacy-engine-entry credential.
 7. **Security-state changes invalidate pending authorization.** A stale generation cannot redeem.
 8. **No credential logging.** Passwords, OAuth codes/tokens, tickets, session secrets and service credentials are never logged.
 9. **No fail-open dependency fallback.** Identity/ticket/session-store failure prevents new login.
@@ -282,9 +282,9 @@ Required first-release policy must explicitly define behavior for:
 - password reset;
 - MFA reset/recovery;
 - Identity disablement;
-- Canary account ban;
+- Legacy engine account ban;
 - normal logout;
-- Gateway/Canary restart.
+- Gateway/legacy engine restart.
 
 Until the Game Session compatibility adapter is proven, these effects are `UNKNOWN` and must not be represented as implemented.
 
@@ -324,7 +324,7 @@ Ticket redeem response should contain only fields required by Gateway, for examp
 
 ```text
 identity_subject        # opaque/pseudonymous identifier only if Gateway truly needs it
-canary_account_id
+legacy_account_id
 security_generation
 issued_at
 redeemed_at
@@ -359,7 +359,7 @@ The final contract may omit `identity_subject` entirely if account resolution an
 | World disabled/unavailable | No session for that world |
 | Character missing/foreign/deleted | Deny selection/entry |
 | Session-store persistence fails | No successful login response |
-| Canary unavailable | Do not claim successful world entry; session cleanup/retry follows explicit adapter policy |
+| Legacy engine unavailable | Do not claim successful world entry; session cleanup/retry follows explicit adapter policy |
 
 ## Security test requirements
 
@@ -378,23 +378,23 @@ Minimum focused regression tests before production-auth readiness:
 - two concurrent redeems with exactly one success;
 - identity disabled between issue and redeem;
 - generation advanced between issue and redeem;
-- missing/pending/conflict Canary binding;
+- missing/pending/conflict legacy engine binding;
 - client-supplied wrong `account_id` ignored/rejected;
 - wrong/foreign/deleted character;
 - unauthorized/disabled world;
 - Identity/ticket-store/session-store outage;
 - sensitive-token redaction/log assertions;
-- direct native Canary password bypass attempt after fencing phase;
+- direct native legacy engine password bypass attempt after fencing phase;
 - upstream login-server password bypass attempt after fencing phase;
 - unsupported legacy protocol downgrade attempt.
 
 ## Remaining architecture unknowns
 
-1. Exact production network topology and whether native Canary/login-server password endpoints are externally reachable.
+1. Exact production network topology and whether native legacy engine/login-server password endpoints are externally reachable.
 2. Exact production secret-management and service-identity mechanism.
 3. Exact shared storage selected for Game Login Ticket atomic consume.
 4. Exact Game Session compatibility adapter and its replay/revocation/idempotency semantics.
-5. Whether current Canary can enforce world-scoped session audience without a code change.
+5. Whether current legacy engine can enforce world-scoped session audience without a code change.
 6. Exact active-game-session revocation/disconnect policy for each Identity security event.
 7. Exact Passport configuration needed to prevent long-lived refresh semantics for the first-party native client while preserving standards-compliant PKCE behavior.
 8. Exact production rate limits based on measured legitimate login behavior.
