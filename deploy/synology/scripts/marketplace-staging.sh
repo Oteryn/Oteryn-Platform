@@ -21,6 +21,15 @@ case "$ACTION" in
         ;;
 esac
 
+# The native-only cut removed the character transfer and escrow contract that auction
+# creation and reconciliation depend on. Enabling or verifying the Bazaar would report
+# success while escrow and settlement cannot run, so refuse until a native replacement
+# exists. prepare-rollback stays available to drain and disable an existing deployment.
+if [[ "$ACTION" == enable || "$ACTION" == verify ]]; then
+    echo "Character Bazaar $ACTION refused: no character transfer/escrow contract is available after the native-only cut." >&2
+    exit 1
+fi
+
 required_vars=(
     PLATFORM_IMAGE
     APP_NAME APP_ENV APP_KEY APP_DEBUG APP_URL LOG_LEVEL

@@ -10,7 +10,6 @@ const baseUrl = process.env.ACCEPTANCE_BASE_URL || 'http://127.0.0.1:8080';
 const outputDir = process.env.ACCEPTANCE_OUTPUT_DIR || '/tmp/oteryn-visual-acceptance';
 const screenshotDir = path.join(outputDir, 'screenshots');
 const validationSha = process.env.VALIDATION_SHA || 'UNKNOWN';
-const mariadbRootPassword = process.env.MARIADB_ROOT_PASSWORD || '';
 
 const regularEmail = 'visual.user@example.test';
 const regularPassword = 'Acceptance-User-9!Pass';
@@ -480,21 +479,7 @@ async function captureRepresentativeFailureStates(browser) {
     await openAndRecord(desktopContext, 'servers-runtime-dependency-failure', 'desktop', '/servers');
     await openAndRecord(mobileContext, 'servers-runtime-dependency-failure', 'mobile', '/servers');
 
-    if (!mariadbRootPassword) {
-        throw new Error('MARIADB_ROOT_PASSWORD is required for the online dependency failure probe.');
-    }
-    execFileSync(
-        'mariadb',
-        [
-            '--protocol=tcp',
-            '-h127.0.0.1',
-            '-uroot',
-            `-p${mariadbRootPassword}`,
-            '-e',
-            'DROP TABLE canary.cluster_sessions;',
-        ],
-        { stdio: 'inherit' },
-    );
+    // Game data has no native source yet, so /online already answers the contained unavailable state.
     await openAndRecord(desktopContext, 'online-dependency-failure-503', 'desktop', '/online', { expectedStatus: 503 });
     await openAndRecord(mobileContext, 'online-dependency-failure-503', 'mobile', '/online', { expectedStatus: 503 });
 

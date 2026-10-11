@@ -120,6 +120,25 @@ def test_compatible_rollback_is_accepted() -> None:
         assert run_compatible(current, old).returncode == 0
 
 
+def test_pre_cut_canary_topology_release_is_rollback_ineligible() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = pathlib.Path(td)
+        current, old = root / "candidate.env", root / "last-good.env"
+        release(current, sha=NEW_SHA, schema="schema-v2", accepts="schema-v2")
+        release(old, sha=OLD_SHA, schema="schema-v1", accepts="schema-v1,schema-v2")
+        old.write_text(old.read_text() + f"CANARY_IMAGE=example/canary@sha256:{DIGEST_C}\n")
+        result = run_compatible(current, old)
+        assert result.returncode != 0
+        assert "predates the native-only cut" in result.stderr
+
+
+def test_legacy_release_state_is_recorded_rollback_ineligible() -> None:
+    legacy_upgrade = (SCRIPTS / "upgrade-legacy-release-state.sh").read_text(encoding="utf-8")
+    assert "    eligible=0\n" in legacy_upgrade
+    lib = LIB.read_text(encoding="utf-8")
+    assert '"$observed_schema" "$observed_schema" "$old_platform" "$old_gateway" 0\n' in lib
+
+
 def test_incompatible_schema_rollback_is_rejected() -> None:
     with tempfile.TemporaryDirectory() as td:
         root = pathlib.Path(td)
@@ -450,3 +469,22 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def test_marketplace_enable_and_verify_are_refused_without_transfer_contract() -> None:
+    script = SCRIPTS / "marketplace-staging.sh"
+    with tempfile.TemporaryDirectory() as td:
+        root = pathlib.Path(td)
+        env_file = root / ".env"
+        env_file.write_text("MARKETPLACE_ENABLED=false\n")
+        docker = root / "docker"
+        docker.write_text("#!/usr/bin/env bash\necho docker-called >&2\nexit 97\n")
+        docker.chmod(0o755)
+        env = os.environ.copy()
+        env.update({"PATH": f"{root}:{env['PATH']}", "OTERYN_ENV_FILE": str(env_file)})
+        for action in ("enable", "verify"):
+            result = subprocess.run(["bash", str(script), action], text=True, capture_output=True, check=False, env=env)
+            assert result.returncode == 1, action
+            assert "no character transfer/escrow contract" in result.stderr, action
+            assert "docker-called" not in result.stderr, action
+        assert env_file.read_text() == "MARKETPLACE_ENABLED=false\n"

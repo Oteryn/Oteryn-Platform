@@ -83,6 +83,10 @@ upgrade_one_release_state() {
     cp "$state_file" "$backup"
     chmod 600 "$backup"
 
+    # Legacy-format state always describes a release from before the native-only cut,
+    # which needs the retired Canary topology, so the upgraded record is never a
+    # rollback target regardless of its persisted eligibility.
+    eligible=0
     if ! bash "$SCRIPT_DIR/release-state.sh" write "$state_file" \
         "$release_sha" "$release_sha" "$release_sha" \
         "$schema_id" "$accepts" "$platform_image" "$gateway_image" "$eligible"; then

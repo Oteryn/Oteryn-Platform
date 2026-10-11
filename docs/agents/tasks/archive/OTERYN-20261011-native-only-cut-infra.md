@@ -67,6 +67,8 @@ proven:
   - Legacy token ratchet passes locally.
 derived:
   - Release-state slots after the removed image shift down by one in the fast-deploy and resume paths.
+  - Release state written before the cut (retired game-server image line, or legacy-format state) is rollback-ineligible; rollback and schema recovery refuse it.
+  - Character Bazaar enable and verify are refused until a native transfer and escrow contract exists; prepare-rollback stays available.
 unknown:
   - Acceptance specs and coverage manifests that assert Canary-sourced data (public game data, community data, resilience, character-owner checks) are unchanged and need native fixtures or an unavailable state from the C-phase; they are not run locally.
   - Gateway startup without the game-session issuer configuration depends on the gateway packet (D-7).
@@ -88,7 +90,7 @@ changed_paths:
 validation:
   - command: python -m pytest tests/ci deploy/synology/tests tools/validation
     result: PASS
-    evidence: 349 passed
+    evidence: 352 passed
   - command: python tools/validation/legacy_token_ratchet.py
     result: PASS
     evidence: no group above baseline

@@ -276,8 +276,10 @@ _oteryn_bootstrap_legacy_current_release() {
     old_sha="$(_oteryn_release_sha_for_images "$old_platform" "$old_gateway")" || return 1
 
     observed_schema="observed-${old_sha}"
+    # A legacy snapshot predates the native-only cut and needs the retired Canary
+    # topology, so it is recorded as ineligible for image rollback.
     bash "$SCRIPT_DIR/release-state.sh" write "$current_file" "$old_sha" "$old_sha" "$old_sha" \
-        "$observed_schema" "$observed_schema" "$old_platform" "$old_gateway" 1
+        "$observed_schema" "$observed_schema" "$old_platform" "$old_gateway" 0
     _oteryn_write_schema_state_known "$state_dir" "$observed_schema" "$old_sha"
 }
 
