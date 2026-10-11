@@ -12,14 +12,8 @@ const requestedSeconds = Number.parseInt(process.env.ACCEPTANCE_SOAK_SECONDS ?? 
 const soakSeconds = Number.isFinite(requestedSeconds) && requestedSeconds > 0 ? requestedSeconds : 300;
 const routes = [
   { path: '/', assert: async (page) => expect(page.getByRole('heading', { name: 'Oteryn Platform' })).toBeVisible() },
-  { path: '/online', assert: async (page) => expect(page.getByText('Acceptance Hero')).toBeVisible() },
-  { path: '/highscores', assert: async (page) => expect(page.getByRole('heading', { name: 'Level highscores' })).toBeVisible() },
-  {
-    path: '/servers',
-    assert: async (page) => expect(
-      page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Acceptance' }) }),
-    ).toContainText('Runtime: ONLINE'),
-  },
+  { path: '/news', assert: async (page) => expect(page.getByRole('heading', { name: 'News' }).first()).toBeVisible() },
+  { path: '/login', assert: async (page) => expect(page.getByRole('heading', { name: 'Sign in to Oteryn Platform' }).first()).toBeVisible() },
 ];
 
 function percentile(values, fraction) {

@@ -713,9 +713,18 @@ OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/health-check.sh"
     --status=online \
     --login-enabled=1
 
-# Retired legacy containers stay available for rollback until the native-only
-# Gateway has passed the full health contract; only then are orphans removed.
-"${compose[@]}" up -d --remove-orphans mariadb redis
+# The retired legacy "canary" container stays available for rollback until the
+# native-only Gateway has passed the full health contract. Only that service is
+# then removed by label; a compose orphan sweep is never used because it would also
+# remove services defined only in overlay files (marketplace-scheduler).
+legacy_project="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$("${compose[@]}" ps -q mariadb)" 2>/dev/null || true)"
+if [[ -n "$legacy_project" ]]; then
+    while IFS= read -r legacy_id; do
+        [[ -n "$legacy_id" ]] && docker rm -f "$legacy_id" >/dev/null
+    done < <(docker ps -aq \
+        --filter "label=com.docker.compose.project=$legacy_project" \
+        --filter "label=com.docker.compose.service=canary")
+fi
 
 rm -f "$state_dir/backups/fresh-empty-before-"*/evidence.env "$state_dir/backups/fresh-empty-before-"*/platform.sql 2>/dev/null || true
 rmdir "$state_dir/backups/fresh-empty-before-"* 2>/dev/null || true
