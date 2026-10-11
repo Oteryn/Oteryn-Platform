@@ -9,11 +9,17 @@
 # printed, logged, passed on a command line or written anywhere else. Only the key id and the PUBLIC
 # key (base64url, the encoding of the Platform trust registry and Game's trust config) are printed.
 #
-# Usage: generate-native-admission-key.sh [ensure|rotate|drop-retiring|show]
+# Usage: generate-native-admission-key.sh [ensure|rotate|drop-retiring|show|check]
 #   ensure         create the current key if none exists; otherwise change nothing (idempotent)
 #   rotate         current -> retiring, then a new current with a never-used key id
 #   drop-retiring  remove the retiring key once every attempt it signed has passed exp
 #   show           print the key ids and public keys, changing nothing
+#   check          run the Platform signing self-check in the running Platform container
+#
+# rotate and drop-retiring restart the running Platform container(s): the entrypoint exports the key
+# ids once at start, so a running container would otherwise keep ids that now name other files.
+# After rotate, signing needs the new public key in the Platform trust registry (a redeploy publishes
+# it); run check to confirm.
 #
 # The Platform image comes from PLATFORM_IMAGE (or OTERYN_ENV_FILE). Rotation order follows the
 # native login contract 9.3: rotate, publish the new public key to the Platform trust registry and
@@ -26,9 +32,9 @@ VOLUME_NAME="oteryn-native-admission-keys"
 ACTION="${1:-ensure}"
 
 case "$ACTION" in
-    ensure | rotate | drop-retiring | show) ;;
+    ensure | rotate | drop-retiring | show | check) ;;
     *)
-        echo "Usage: $0 [ensure|rotate|drop-retiring|show]" >&2
+        echo "Usage: $0 [ensure|rotate|drop-retiring|show|check]" >&2
         exit 2
         ;;
 esac
@@ -46,6 +52,20 @@ fi
 if [[ -z "${PLATFORM_IMAGE:-}" || "$PLATFORM_IMAGE" == REQUIRED_* ]]; then
     echo "PLATFORM_IMAGE (or OTERYN_ENV_FILE) must name the Platform image that provides PHP and libsodium." >&2
     exit 1
+fi
+
+platform_containers() {
+    docker ps -q \
+        --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-oteryn-staging}" \
+        --filter "label=com.docker.compose.service=platform"
+}
+
+if [[ "$ACTION" == check ]]; then
+    # shellcheck source=deploy/synology/scripts/lib.sh
+    source "$SCRIPT_DIR/lib.sh"
+    container="$(platform_containers | head -n 1)"
+    oteryn_run_native_admission_self_check "$container"
+    exit $?
 fi
 
 docker volume create "$VOLUME_NAME" >/dev/null
@@ -220,7 +240,7 @@ switch ($action) {
 report($dir, $uid);
 PHP
 
-exec docker run --rm \
+docker run --rm \
     --user 0:0 \
     --network none \
     --read-only \
@@ -229,3 +249,10 @@ exec docker run --rm \
     --entrypoint php \
     --volume "$VOLUME_NAME:/keys" \
     "$PLATFORM_IMAGE" -d display_errors=stderr -r "$PHP_TOOL" -- "$ACTION"
+
+if [[ "$ACTION" == rotate || "$ACTION" == drop-retiring ]]; then
+    while IFS= read -r container; do
+        [[ -n "$container" ]] && docker restart "$container" >/dev/null
+    done < <(platform_containers)
+    echo "Platform restarted so it loads the new key roles; run '$0 check' once the new public key is trusted." >&2
+fi

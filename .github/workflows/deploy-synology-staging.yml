@@ -370,6 +370,7 @@ jobs:
           GATEWAY_IMAGE_REF: ${{ steps.release_images.outputs.gateway_ref }}
           GAME_WORLD_HOST_INPUT: ${{ inputs.game_world_host }}
           GAME_WORLD_ID_INPUT: ${{ inputs.game_world_id }}
+          NATIVE_WORLD_ID_INPUT: ${{ vars.OTERYN_STAGING_NATIVE_WORLD_ID }}
           GAME_WORLD_SLUG_INPUT: ${{ inputs.game_world_slug }}
           GAME_WORLD_NAME_INPUT: ${{ inputs.game_world_name }}
           GAME_WORLD_REGION_INPUT: ${{ inputs.game_world_region }}
@@ -420,6 +421,7 @@ jobs:
           GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256=$GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256
           GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256=$GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256
           GATEWAY_VERSION=$gateway_version
+          GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID=$NATIVE_WORLD_ID_INPUT
           OTERYN_STATE_DIR=$state_dir
           EOF
           chmod 600 deploy/synology/.env

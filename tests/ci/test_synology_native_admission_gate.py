@@ -35,7 +35,12 @@ def test_gateway_native_login_is_the_platform_admission_flag() -> None:
     text = COMPOSE.read_text(encoding="utf-8")
     # On for the preproduction stack: deploy.sh and health-check.sh refuse unless the key volume,
     # key id and Platform signing self-check prove the issuer can sign (tests below).
-    assert 'x-native-admission-enabled: &native_admission_enabled "true"' in text
+    # Default true; rollback of an image that predates the self-check overrides it for that image only.
+    assert 'x-native-admission-enabled: &native_admission_enabled "${OTERYN_NATIVE_ADMISSION_ENABLED:-true}"' in text
+    # LCFA has no producer here: it is off and the D171 fallback is explicitly selected and configured.
+    assert 'GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED: "false"' in text
+    assert 'GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_OWNERSHIP: "true"' in text
+    assert "GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID: ${GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID:-}" in text
     assert "GAME_AUTH_NATIVE_ADMISSION_ENABLED: *native_admission_enabled" in text
     assert "GATEWAY_NATIVE_LOGIN_ENABLED: *native_admission_enabled" in text
     # No literal flag value may bypass the shared anchor.
@@ -130,6 +135,26 @@ def test_deploy_ensures_the_key_before_changes_and_self_checks_before_the_gatewa
     # The fast path recreates Platform only, so it re-proves signing before it can finish.
     fast = script.index("_oteryn_fast_platform_smoke\n    # Native game login")
     assert "oteryn_run_native_admission_self_check" in script[fast : fast + 300]
+
+
+def test_rollback_and_candidate_recovery_gate_the_flag_on_the_image() -> None:
+    rollback = (ROOT / "deploy" / "synology" / "scripts" / "rollback.sh").read_text(encoding="utf-8")
+    assert 'oteryn_native_admission_flag_for_image "$PLATFORM_IMAGE"' in rollback
+    assert "oteryn_native_admission_flag_for_image" in DEPLOY.read_text(encoding="utf-8")
+    assert "game-auth:native-admission:self-check" in LIB.read_text(encoding="utf-8").split("oteryn_native_admission_flag_for_image()")[1]
+
+
+def test_deploy_requires_the_native_world_uuid_and_workflow_renders_it() -> None:
+    script = DEPLOY.read_text(encoding="utf-8")
+    assert script.index("GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID:-") < script.index("oteryn_ensure_native_admission_key || exit 1")
+    workflow = (WORKFLOWS / "deploy-synology-staging.yml").read_text(encoding="utf-8")
+    assert "GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID=$NATIVE_WORLD_ID_INPUT" in workflow
+
+
+def test_key_rotation_restarts_platform_so_key_ids_are_reloaded() -> None:
+    script = KEY_SCRIPT.read_text(encoding="utf-8")
+    assert 'docker restart "$container"' in script
+    assert '[[ "$ACTION" == rotate || "$ACTION" == drop-retiring ]]' in script
 
 
 def test_self_check_command_name_is_the_merged_artisan_command() -> None:

@@ -783,4 +783,18 @@ oteryn_run_native_admission_self_check() {
     echo "Native admission signing self-check passed: ${output}"
 }
 
+# Prints true when the given Platform image carries the native admission self-check command and
+# false when it predates it (rollback or previous-candidate recovery of an older release must not
+# be held to a check that image cannot run).
+oteryn_native_admission_flag_for_image() {
+    local image="$1"
+
+    if docker run --rm --network none --entrypoint php "$image" artisan list --raw 2>/dev/null \
+        | grep -q '^game-auth:native-admission:self-check '; then
+        echo true
+    else
+        echo false
+    fi
+}
+
 trap _oteryn_finalize_release_on_exit EXIT

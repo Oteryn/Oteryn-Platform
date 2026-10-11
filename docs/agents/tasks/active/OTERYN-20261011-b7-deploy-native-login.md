@@ -33,7 +33,7 @@ owned_paths:
   - .github/workflows/character-bazaar-staging-control.yml
   - deploy/synology/**
   - tests/ci/test_synology_native_admission_gate.py
-  - docs/agents/tasks/archive/OTERYN-20261011-b7-deploy-native-login.md
+  - docs/agents/tasks/active/OTERYN-20261011-b7-deploy-native-login.md
 modules:
   - game-auth
   - deploy
@@ -52,8 +52,8 @@ checkpoint_version: 1
 updated_at: 2026-10-11T15:00:00Z
 head: UNKNOWN
 branch: claude/b7-deploy-20261011
-pr: 0
-status: completed
+pr: 1544
+status: validating
 context_routes:
   - deploy
   - security
@@ -63,7 +63,7 @@ owned_paths:
   - .github/workflows/character-bazaar-staging-control.yml
   - deploy/synology/**
   - tests/ci/test_synology_native_admission_gate.py
-  - docs/agents/tasks/archive/OTERYN-20261011-b7-deploy-native-login.md
+  - docs/agents/tasks/active/OTERYN-20261011-b7-deploy-native-login.md
 proven:
   - The keyring requires a regular non-symlink file owned by the process user with no group or other bits holding a canonical base64url 32-byte seed; the key tool writes exactly that.
   - The self-check needs a trusted registry row for the key id; the only publish command refuses outside the disposable store.
@@ -95,13 +95,6 @@ validation:
     evidence: 0600 files owned by www-data, idempotent, no seed in output
 blockers:
   - trust registry publication path for the generated public key (see Ownership)
-next_action: none after merge; publish the printed public key to the trust registry and Game.
+next_action: wait for CI and review; trust publication (#1546) and the OTERYN_STAGING_NATIVE_WORLD_ID variable are prerequisites for a passing deploy; then fill closeout and archive.
 ```
 
-## Source branch closeout
-
-```yaml
-source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository feature branch with no retention purpose after merge
-source_branch_evidence: same-repository PR from this branch; the repository setting delete_branch_on_merge is true, so a merge removes the ref; confirm it is absent after merge
-```

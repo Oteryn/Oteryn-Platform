@@ -149,7 +149,11 @@ PLATFORM_IMAGE=<image> deploy/synology/scripts/generate-native-admission-key.sh 
 PLATFORM_IMAGE=<image> deploy/synology/scripts/generate-native-admission-key.sh drop-retiring  # after the retiring key's grants expired
 ```
 
-`show` prints the current ids and public keys without changing anything. Key ids are never reused.
+`rotate` and `drop-retiring` restart the running Platform container, because the entrypoint exports the key ids once at start. After `rotate` signing needs the new public key in the Platform trust registry; `check` runs the signing self-check in the running container. `show` prints the current ids and public keys without changing anything. Key ids are never reused.
+
+Account-character projection has no producer on Synology, so `GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED` is `false` and the D171 fallback is selected for the one native World: set the repository variable `OTERYN_STAGING_NATIVE_WORLD_ID` to that World's UUIDv7; deploy refuses without it.
+
+Rollback of a Platform image that predates the self-check sets `OTERYN_NATIVE_ADMISSION_ENABLED=false` for that image only (both flags stay paired), so the older release restores with native login off.
 
 ## Early workstation testing through loopback
 

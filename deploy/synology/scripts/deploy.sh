@@ -428,6 +428,10 @@ docker image inspect "$PLATFORM_IMAGE" >/dev/null 2>&1 || {
     echo "Guarded workflow did not leave a resolved Platform image locally: $PLATFORM_IMAGE" >&2
     exit 1
 }
+if [[ ! "${GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID:-}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; then
+    echo "GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID (repository variable OTERYN_STAGING_NATIVE_WORLD_ID) must be the UUIDv7 of the native World; native login cannot admit characters without it." >&2
+    exit 1
+fi
 oteryn_ensure_native_admission_key || exit 1
 
 fast_candidate_rc=0
@@ -612,6 +616,7 @@ finalize_previous_candidate_if_healthy() {
         "PLATFORM_IMAGE=${candidate_state[3]}"
         "GATEWAY_IMAGE=${candidate_state[4]}"
         "GATEWAY_VERSION=sha-${candidate_state[2]}"
+        "OTERYN_NATIVE_ADMISSION_ENABLED=$(oteryn_native_admission_flag_for_image "${candidate_state[3]}")"
         docker compose --env-file "$candidate_env" -f "$COMPOSE_FILE"
     )
     if ! "${candidate_compose[@]}" config --quiet; then
