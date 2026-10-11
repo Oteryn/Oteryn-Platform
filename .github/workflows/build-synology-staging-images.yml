@@ -33,6 +33,7 @@ on:
       - deploy/synology/compose.yml
       - deploy/synology/compose.marketplace.yml
       - deploy/synology/release-contract.env
+      - deploy/synology/native-defaults.env
       - deploy/synology/docker/platform.Dockerfile
       - deploy/synology/docker/platform.Dockerfile.dockerignore
       - deploy/synology/docker/platform-entrypoint.sh
@@ -106,6 +107,7 @@ on:
       - deploy/synology/compose.yml
       - deploy/synology/compose.marketplace.yml
       - deploy/synology/release-contract.env
+      - deploy/synology/native-defaults.env
       - deploy/synology/docker/platform.Dockerfile
       - deploy/synology/docker/platform.Dockerfile.dockerignore
       - deploy/synology/docker/platform-entrypoint.sh

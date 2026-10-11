@@ -72,6 +72,7 @@ class SynologyDeploymentPackageRoutingTest(unittest.TestCase):
             "deploy/synology/.env.example",
             "deploy/synology/compose.yml",
             "deploy/synology/compose.marketplace.yml",
+            "deploy/synology/native-defaults.env",
             "deploy/synology/nginx/internal.conf",
             "deploy/synology/tls/init.sh",
             "deploy/synology/mariadb/init/10-platform-database.sh",
@@ -89,6 +90,7 @@ class SynologyDeploymentPackageRoutingTest(unittest.TestCase):
                 self.assertFalse(result["has_image_builds"], path)
                 self.assertEqual(self.matrix_names(result), ["noop"], path)
             self.assertTrue(main["release_relevant"], path)
+            self.assertEqual(self.workflow.count(f"      - {path}\n") if path.endswith("native-defaults.env") else 2, 2, path)
 
     def test_operator_inputs_validate_but_do_not_reconcile(self) -> None:
         for path in (
