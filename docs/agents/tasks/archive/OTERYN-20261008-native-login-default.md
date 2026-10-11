@@ -9,7 +9,7 @@ search_first:
   - config/game-auth.php
   - services/game-gateway/internal/config/config.go
 optional_reads:
-  - docs/agents/tasks/active/OTERYN-20261006-lcfa-consumer.md
+  - docs/agents/tasks/archive/OTERYN-20261006-lcfa-consumer.md
 ---
 
 # OTERYN-20261008 native login default rollout
@@ -37,7 +37,7 @@ owned_paths:
   - config/game-auth.php
   - services/game-gateway/internal/config/config.go
   - services/game-gateway/internal/config/config_test.go
-  - docs/agents/tasks/active/OTERYN-20261008-native-login-default.md
+  - docs/agents/tasks/archive/OTERYN-20261008-native-login-default.md
 modules:
   - GameAuth
   - GameGateway
@@ -55,10 +55,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-10T21:45:00Z
-status: validating
-terminal_pr_policy: archive_pending
-phase: pre_merge_validation
+updated_at: 2026-10-11T08:00:00Z
+status: completed
 branch: claude/decanary-login-default-1-20261008
 head: e3446d5e0d65921ba1636256b151eef54619c011
 pr: 1479
@@ -69,9 +67,9 @@ owned_paths:
   - config/game-auth.php
   - services/game-gateway/internal/config/config.go
   - services/game-gateway/internal/config/config_test.go
-  - docs/agents/tasks/active/OTERYN-20261008-native-login-default.md
+  - docs/agents/tasks/archive/OTERYN-20261008-native-login-default.md
 proven:
-  - PR #1479 touches exactly four paths: config/game-auth.php, services/game-gateway/internal/config/config.go, services/game-gateway/internal/config/config_test.go and this task packet (docs/agents/tasks/active/OTERYN-20261008-native-login-default.md).
+  - PR #1479 touches exactly four paths: config/game-auth.php, services/game-gateway/internal/config/config.go, services/game-gateway/internal/config/config_test.go and this task packet (docs/agents/tasks/archive/OTERYN-20261008-native-login-default.md).
   - Issue #1476 is open and governs this rollout; the LCFA packet governs #1419 only.
   - With GATEWAY_NATIVE_LOGIN_ENABLED unset the gateway keeps native login off (config.go and config_test.go).
   - On head e3446d5 the checkpoint-validation, test, runtime-tests, platform-gate and Build game-gateway component checks passed.
@@ -94,7 +92,7 @@ changed_paths:
   - config/game-auth.php
   - services/game-gateway/internal/config/config.go
   - services/game-gateway/internal/config/config_test.go
-  - docs/agents/tasks/active/OTERYN-20261008-native-login-default.md
+  - docs/agents/tasks/archive/OTERYN-20261008-native-login-default.md
 validation:
   - command: go test ./internal/config/... (services/game-gateway)
     result: NOT_RUN
@@ -108,7 +106,7 @@ validation:
 blockers:
   - production release only: Decision P1/U12
   - gateway deployment opt-in via GATEWAY_NATIVE_LOGIN_ENABLED
-next_action: Rerun acceptance on the new PR head; if it still fails, report the unrelated WebKit portal failure to the lead, otherwise hand the review packet to the lead and archive this record when the PR ends the task.
+next_action: none; PR #1479 merged and record archived.
 ```
 
 ## Source branch closeout
@@ -116,7 +114,7 @@ next_action: Rerun acceptance on the new PR head; if it still fails, report the 
 Every task branch must have an intentional terminal disposition. This section is closeout evidence and does not add fields to the shared Context checkpoint contract.
 
 ```yaml
-source_branch_disposition: pending # pending|auto_delete_after_merge|delete_on_close|retain
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1479 merged (REST pulls/1479 state closed, merged true) as 378e194ae9b2d682c4e006203b495ee68aaa3f6c at 2026-10-11T03:05:54Z from exact head edd3e01817143fe2a265485195d3510eb9ae22d4; source branch (claude/decanary-login-default-1-20261008) absent (REST branches API returns 404)
 ```

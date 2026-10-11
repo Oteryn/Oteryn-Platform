@@ -363,7 +363,7 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
         self.assertIn("Upload immutable current-run provenance", self.build_workflow)
         self.assertIn("Download immutable current-run component provenance", self.build_workflow)
         self.assertIn("actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9", self.build_workflow)
-        self.assertIn("actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", self.build_workflow)
+        self.assertIn("actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333", self.build_workflow)
         self.assertNotIn('docker pull "$SOURCE_REF"', self.build_workflow)
 
     def test_main_dispatch_marks_changed_components_and_leaves_reuse_inputs_empty(self) -> None:

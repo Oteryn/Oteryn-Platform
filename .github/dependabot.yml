@@ -8,6 +8,11 @@ updates:
       time: "06:00"
       timezone: Europe/Warsaw
     open-pull-requests-limit: 5
+    groups:
+      composer-minor-patch:
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: npm
     directory: "/scripts/acceptance"
@@ -17,6 +22,11 @@ updates:
       time: "06:10"
       timezone: Europe/Warsaw
     open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: github-actions
     directory: "/"
@@ -30,6 +40,10 @@ updates:
       codeql-actions:
         patterns:
           - "github/codeql-action/*"
+      github-actions-minor-patch:
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: docker
     directory: "/deploy/synology/docker"
@@ -39,6 +53,11 @@ updates:
       time: "06:20"
       timezone: Europe/Warsaw
     open-pull-requests-limit: 5
+    groups:
+      docker-synology-minor-patch:
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: docker
     directory: "/deploy/synology/runner"
@@ -48,3 +67,8 @@ updates:
       time: "06:25"
       timezone: Europe/Warsaw
     open-pull-requests-limit: 5
+    groups:
+      docker-runner-minor-patch:
+        update-types:
+          - minor
+          - patch
