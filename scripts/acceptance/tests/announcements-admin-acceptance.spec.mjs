@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   assertAccessibilitySmoke,
   attachDiagnostics,
   completeMfaChallenge,
@@ -121,6 +122,11 @@ test.afterEach(async ({ page }, testInfo) => {
 test('@portal-announcements guest, MFA and exact permission boundaries fail closed', async ({ page }) => {
   announcementFixture('reset');
 
+  // Fail-closed 403 responses on the administrator index are the behaviour under test: the
+  // post-login redirect to the intended URL and the explicit navigation for the identity without
+  // confirmed MFA, plus the explicit navigation for the identity without the exact permission.
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 403, pathname: '/admin/announcements', count: 3 });
+
   await page.goto('/admin/announcements');
   await expect(page).toHaveURL(/\/login$/u);
 
@@ -181,6 +187,8 @@ test('@portal-announcements administrator validation, publication, Polish transl
   const editUrl = page.url();
   const announcementId = editUrl.match(/\/admin\/announcements\/(\d+)\/edit$/u)?.[1];
   expect(announcementId).toBeTruthy();
+  // The stale optimistic-lock save below must be rejected with 409; that conflict is asserted.
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 409, pathname: `/admin/announcements/${announcementId}` });
 
   let response = await page.goto('/en');
   expect(response?.status()).toBe(200);
