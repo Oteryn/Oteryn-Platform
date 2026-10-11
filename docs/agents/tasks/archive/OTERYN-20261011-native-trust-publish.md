@@ -23,7 +23,7 @@ Add `game-auth:native-admission:publish-trust`, which trusts the public half of 
 - [x] The command takes no input and derives the public key from the key the issuer loads, through the keyring's owner and mode checks.
 - [x] It refuses outside `testing`/`preproduction`, with native admission off, or with no fresh key purpose. A refusal writes nothing and prints one reason line.
 - [x] It writes only through `NativeSigningTrustRegistry::publishTrustedKey`, so every registry rule and the high-water witness apply.
-- [x] It is idempotent: an already trusted kid with the same key gives `already_trusted` and no write.
+- [x] It is idempotent: an already trusted kid with the same key gives `already_trusted` and writes no registry row. Every run still goes through the witnessed write path, so a lost witness or a database restored below it fails closed (review P1 on PR #1546).
 - [x] It prints one JSON line with the trust scope, key id and public key. No seed, private key or signature bytes are printed or logged.
 - [x] Compose sets `GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE=fresh_admission` and puts the witness directory on the retained `platform_storage` volume.
 - [x] Full and fast deploy publish after the Platform runs the new image and before smoke, OAuth ensure and any signing self-check. With native admission off, publication is skipped.
@@ -60,7 +60,7 @@ checkpoint_version: 1
 updated_at: 2026-10-11T18:00:00Z
 head: see PR head
 branch: claude/native-trust-publish-20261011
-pr: see PR
+pr: 1546
 status: completed
 context_routes:
   - auth-identity
@@ -78,6 +78,7 @@ owned_paths:
 proven:
   - The self-check fails before publication and passes after it (feature test).
   - A second run writes nothing. A rotation keeps the retiring key and trusts the new current key.
+  - An already trusted key fails closed when the witness was lost or the database was restored below it; both tests fail against the first head 6237e61d.
   - Thirteen refusal cases exit 1 with no registry change and no secret in output or logs. They cover environment, switch, purpose, key file, key id, file mode, seed, a kid bound to another key, a revoked kid, two trusted keys, and an unset or missing witness.
 derived:
   - On main, native admission is off, so deploy skips publication. Once #1544 is on, publication runs before the self-check that #1544 adds. The hunks sit away from #1544's insertions, so either merge order works.
@@ -108,7 +109,7 @@ validation:
     evidence: no errors
   - command: php8.5 vendor/bin/phpunit tests/Feature/GameAuth
     result: PASS
-    evidence: 281 tests, 22 skipped, 1 pre-existing risky; NativeAdmission 47 tests, 423 assertions
+    evidence: 283 tests, 22 skipped, 1 pre-existing risky; NativeAdmission 49 tests
   - command: python3 -m pytest tests/ci -k synology
     result: PASS
     evidence: 145 passed
@@ -125,5 +126,5 @@ next_action: none in Platform. Game consumes the published trust values; a revok
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository feature branch with no retention purpose after merge
-source_branch_evidence: same-repository PR from this branch; the repository setting delete_branch_on_merge is true, so a merge removes the ref; confirm it is absent after merge
+source_branch_evidence: same-repository PR #1546 from this branch; the repository setting delete_branch_on_merge is true, so a merge removes the ref; confirm it is absent after merge
 ```

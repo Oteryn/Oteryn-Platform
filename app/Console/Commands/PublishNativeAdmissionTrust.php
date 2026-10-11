@@ -26,7 +26,8 @@ use Throwable;
  * a kid is bound to one public key forever, a revoked kid is never re-trusted, at most two keys
  * are trusted at once, and every write passes the trust-state high-water witness.
  *
- * Idempotent: a kid already trusted for the same public key is reported and nothing is written.
+ * Idempotent: a kid already trusted for the same public key is reported and no registry row is
+ * written, but the high-water witness is still checked on every run.
  * Output is one JSON line with the trust scope, key id and PUBLIC key, or one reason line; never
  * seed, private key or signature bytes.
  */
@@ -73,32 +74,33 @@ final class PublishNativeAdmissionTrust extends Command
         $publicKeyBytes = $keys->publicKey($keyId);
         $publicKey = NativeEvidenceContract::encodePublicKey($publicKeyBytes);
 
-        $result = 'already_trusted';
+        $before = $trust->trustedPublicKey(
+            NativeEvidenceContract::FRESH_ISSUER,
+            NativeEvidenceContract::FRESH_PROFILE,
+            $keyPurpose,
+            $keyId,
+        );
+        // Always take the witnessed write path, even for a kid that already reads as trusted: only
+        // publishTrustedKey checks the trust-state high-water, so a lost, replaced or rolled-back
+        // witness (or a database restored below it) fails closed here instead of reporting trust.
+        // For the same kid and public key it writes no registry row.
+        $stored = $trust->publishTrustedKey(
+            NativeEvidenceContract::FRESH_ISSUER,
+            NativeEvidenceContract::FRESH_PROFILE,
+            $keyPurpose,
+            $keyId,
+            $publicKeyBytes,
+        );
+        if (($stored->key_id ?? null) !== $keyId) {
+            throw new LogicException('The trusted key does not read back.');
+        }
         $trusted = $trust->trustedPublicKey(
             NativeEvidenceContract::FRESH_ISSUER,
             NativeEvidenceContract::FRESH_PROFILE,
             $keyPurpose,
             $keyId,
         );
-        if ($trusted === null) {
-            $stored = $trust->publishTrustedKey(
-                NativeEvidenceContract::FRESH_ISSUER,
-                NativeEvidenceContract::FRESH_PROFILE,
-                $keyPurpose,
-                $keyId,
-                $publicKeyBytes,
-            );
-            if (($stored->key_id ?? null) !== $keyId) {
-                throw new LogicException('The trusted key does not read back.');
-            }
-            $trusted = $trust->trustedPublicKey(
-                NativeEvidenceContract::FRESH_ISSUER,
-                NativeEvidenceContract::FRESH_PROFILE,
-                $keyPurpose,
-                $keyId,
-            );
-            $result = 'published';
-        }
+        $result = $before === null ? 'published' : 'already_trusted';
         if ($trusted === null || ! hash_equals($trusted, $publicKey)) {
             throw new InvalidArgumentException('Native admission key id is trusted for a different public key; a kid is bound to one public key forever.');
         }

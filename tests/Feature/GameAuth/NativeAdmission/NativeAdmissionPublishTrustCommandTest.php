@@ -109,6 +109,58 @@ final class NativeAdmissionPublishTrustCommandTest extends TestCase
         self::assertSame(0, $this->exitCode(self::SELF_CHECK));
     }
 
+    public function test_already_trusted_key_fails_closed_when_the_witness_was_lost(): void
+    {
+        $seed = $this->installKey('admission-1');
+        self::assertSame(0, $this->exitCode(self::COMMAND));
+        foreach (glob($this->directory.'/witness/*') ?: [] as $path) {
+            unlink($path);
+        }
+        $before = $this->registryState();
+
+        self::assertSame(1, $this->exitCode(self::COMMAND));
+        $output = Artisan::output();
+
+        self::assertStringContainsString('Native admission trust publication failed:', $output);
+        self::assertStringNotContainsString('already_trusted', $output);
+        $this->assertNoSecretMaterial($seed, $output);
+        self::assertSame($before, $this->registryState());
+    }
+
+    public function test_already_trusted_key_fails_closed_when_the_database_was_restored_below_the_witness(): void
+    {
+        $retiring = $this->installKey('admission-1');
+        self::assertSame(0, $this->exitCode(self::COMMAND));
+        $restored = $this->registryState();
+        $this->installKey('admission-1', 'retiring', $retiring);
+        $this->installKey('admission-2');
+        self::assertSame(0, $this->exitCode(self::COMMAND));
+
+        // Simulate restoring the pre-rotation database while the witness keeps its high-water.
+        DB::table('native_game_signing_trust_key_versions')->where('key_id', 'admission-2')->delete();
+        foreach ($restored['profiles'] as $profile) {
+            DB::table('native_game_signing_trust_profiles')->where('id', $profile['id'])->update([
+                'profile_version' => $profile['profile_version'],
+                'issuer_revision' => $profile['issuer_revision'],
+                'revoked_at' => $profile['revoked_at'],
+                'updated_at' => $profile['updated_at'],
+            ]);
+        }
+        self::assertSame($restored, $this->registryState());
+        config([
+            'game-auth.native_admission.retiring_signing_key_file' => null,
+            'game-auth.native_admission.retiring_signing_key_id' => null,
+        ]);
+        $this->installKey('admission-1', 'current', $retiring);
+
+        self::assertSame(1, $this->exitCode(self::COMMAND));
+        $output = Artisan::output();
+
+        self::assertStringContainsString('does not match retained high-water', $output);
+        self::assertStringNotContainsString('already_trusted', $output);
+        self::assertSame($restored, $this->registryState());
+    }
+
     #[DataProvider('refusals')]
     public function test_refusal_exits_one_with_a_reason_writes_nothing_and_prints_no_secret(string $case, string $reason): void
     {
@@ -201,15 +253,22 @@ final class NativeAdmissionPublishTrustCommandTest extends TestCase
     /** @return array{profiles: list<array<mixed>>, keys: list<array<mixed>>} */
     private function registryState(): array
     {
-        $rows = static fn (string $table): array => array_map(
-            static fn (stdClass $row): array => (array) $row,
-            DB::table($table)->orderBy('id')->get()->all(),
-        );
-
         return [
-            'profiles' => array_values($rows('native_game_signing_trust_profiles')),
-            'keys' => array_values($rows('native_game_signing_trust_key_versions')),
+            'profiles' => $this->rows('native_game_signing_trust_profiles'),
+            'keys' => $this->rows('native_game_signing_trust_key_versions'),
         ];
+    }
+
+    /** @return list<array<mixed>> */
+    private function rows(string $table): array
+    {
+        $rows = [];
+        foreach (DB::table($table)->orderBy('id')->get() as $row) {
+            self::assertInstanceOf(stdClass::class, $row);
+            $rows[] = get_object_vars($row);
+        }
+
+        return $rows;
     }
 
     private function trustedPublicKey(string $keyId): ?string
