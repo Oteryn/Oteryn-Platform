@@ -20,7 +20,7 @@ Governing GitHub Issue: #1474 (native-only migration). The Synology staging depl
 - [x] Deploy and Bazaar control workflows resolve all four through `oteryn_native_default` (variable > file > empty).
 - [x] No secret, key or model identifier added; `docs/agents/LEGACY_TOKEN_BASELINE.json` untouched.
 - [x] `tests/ci/test_synology_native_admission_gate.py` passes.
-- [ ] Exact-head CI passes.
+- [x] Exact-head CI passes.
 
 ## Ownership
 
@@ -52,10 +52,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-11T18:00:00Z
-head: UNKNOWN
+head: 136bdfe2306096f3ea2b3266fc2c12b8b0ad3fd0
 branch: claude/staging-native-defaults-1-20261011
 pr: 1552
-status: validating
+status: completed
 terminal_pr_policy: archive_pending
 context_routes:
   - deploy/synology
@@ -71,7 +71,7 @@ proven:
   - Native admission gate tests pass locally (39 tests).
 derived: []
 unknown:
-  - Exact-head CI result.
+  - none
 conflicts: []
 first_failure:
   marker: none
@@ -93,7 +93,7 @@ validation:
     evidence: all tests passed locally
 blockers:
   - none
-next_action: Archive this task record; PR #1552 is terminal.
+next_action: none; PR #1552 merged and this task is archived.
 ```
 
 ## Source branch closeout
@@ -101,7 +101,7 @@ next_action: Archive this task record; PR #1552 is terminal.
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: pending
+source_branch_evidence: PR #1552 merged from exact head 136bdfe2306096f3ea2b3266fc2c12b8b0ad3fd0.
 ```
 
 ## Notes

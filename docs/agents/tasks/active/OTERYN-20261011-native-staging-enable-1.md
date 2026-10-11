@@ -31,6 +31,8 @@ owned_paths:
   - tests/ci/test_synology_native_admission_gate.py
   - docs/agents/tasks/active/OTERYN-20261011-native-staging-enable-1.md
   - docs/agents/tasks/archive/OTERYN-20261011-native-staging-enable-1.md
+  - docs/agents/tasks/active/OTERYN-20261011-staging-native-defaults-1.md
+  - docs/agents/tasks/archive/OTERYN-20261011-staging-native-defaults-1.md
 modules:
   - deploy
 dependencies:
@@ -90,3 +92,5 @@ source_branch_evidence: pending
 ## Notes
 
 A repository variable of the same name still overrides the file. Rolling back means reverting this file.
+
+Handoff: the predecessor packet OTERYN-20261011-staging-native-defaults-1 (PR #1552, merged) is archived in this change, so this task is the single owner of the native defaults inputs.
