@@ -5,6 +5,7 @@ namespace App\Events\Queries;
 use App\Events\Models\Event;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Query\JoinClause;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -186,7 +187,7 @@ final class EventCalendarQuery
                     ->where('event_translations.locale', '=', $locale);
             })
             ->whereIn('events.status', Event::publicStatuses())
-            ->where(function (\Illuminate\Database\Query\Builder $matches) use ($like): void {
+            ->where(function (Builder $matches) use ($like): void {
                 $matches
                     ->whereRaw("LOWER(event_translations.title) LIKE ? ESCAPE '!'", [$like])
                     ->orWhereRaw("LOWER(event_translations.summary) LIKE ? ESCAPE '!'", [$like]);
