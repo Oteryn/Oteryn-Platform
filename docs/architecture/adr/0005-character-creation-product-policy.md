@@ -205,7 +205,7 @@ Two concurrent creates for the same account must not both observe slot 10 as ava
 
 - Character ownership authorization is always derived from the authenticated Identity's ready immutable binding.
 - Browser-supplied `account_id` remains forbidden as authorization evidence.
-- The existing `legacy` read-only connection and `canary_provisioning` account-create connection must not gain character-write privileges.
+- The existing `canary` read-only connection and `canary_provisioning` account-create connection must not gain character-write privileges.
 - Character creation requires a third dedicated least-privilege operation credential/connection after the successor operation contract defines its exact grants.
 - Name canonicalization must run server-side before any availability query or insert.
 - The reserved-name policy is enforced server-side and must be covered by regression tests.

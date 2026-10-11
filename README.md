@@ -45,7 +45,7 @@ The health endpoint is available at `GET /health`. It reports only application a
 
 ## Game server and integration boundaries
 
-Game-server behavior is an external contract documented in the Oteryn-Game docs. The remaining generic `legacy` database connection is read-only and being retired and must use an externally provisioned least-privilege principal.
+Game-server behavior is an external contract documented in the Oteryn-Game docs. The remaining generic `canary` database connection is read-only and being retired and must use an externally provisioned least-privilege principal.
 
 Shared writes are allowed only through separately documented operation-specific contracts and adapters. Current bounded examples include greenfield account provisioning, character creation and Character Bazaar ownership transfer. No module may infer generic TFS/MyAAC schema or silently broaden those privileges.
 

@@ -63,7 +63,7 @@ Rollback: stop advertising native, drain/close native sessions, disable listener
 
 Required disabled-default controls:
 
-- `protocol-oteryn` is independent from `protocol-legacy`;
+- `protocol-oteryn` is independent from `protocol-canary`;
 - production `Auto` offers only candidates backed by exact compiled support and schema hash;
 - before Stage 4, native offer is disabled outside tests/development;
 - unsupported Gateway selection fails before connection;

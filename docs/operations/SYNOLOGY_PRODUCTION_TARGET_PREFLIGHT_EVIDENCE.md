@@ -27,7 +27,7 @@ It contains no secret, environment variable, private key, database row, dump byt
 
 The workflow fails closed unless all applicable assertions pass:
 
-1. exactly one running `mariadb`, `redis`, `legacy`, `platform`, `internal-proxy` and `gateway` container belongs to the expected Compose project;
+1. exactly one running `mariadb`, `redis`, `canary`, `platform`, `internal-proxy` and `gateway` container belongs to the expected Compose project;
 2. all long-running services use `unless-stopped`, while MariaDB and Redis report healthy;
 3. all services use the expected private bridge network;
 4. Platform `8000`, Gateway `8080` and legacy engine legacy login `7171` bind only to `127.0.0.1`;

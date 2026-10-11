@@ -57,7 +57,7 @@ Disabling or deleting a Platform Identity must not silently transfer its legacy 
 
 - Oteryn Platform becomes the authoritative source for user credential policy and account ownership.
 - Legacy engine remains the semantic owner of game state and game-server-owned schema.
-- The existing `legacy` SQL connection remains read-only and must never be expanded for account creation.
+- The existing `canary` SQL connection remains read-only and must never be expanded for account creation.
 - Platform-originated legacy engine account creation requires a separate least-privilege write credential/connection scoped only to the approved operation.
 - Platform must not implement legacy engine password verification merely to establish ownership.
 - Current native legacy engine/external login-server password paths are legacy/current implementation dependencies, not the target authority model.

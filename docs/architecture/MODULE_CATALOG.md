@@ -129,7 +129,7 @@ Existing legacy engine account claim/import, legacy engine account deletion, unl
 - every account mutation requires authenticated/authorized Platform context;
 - browser-supplied account IDs are never ownership proof;
 - ready immutable binding is the trusted source for user-scoped legacy engine authorization;
-- generic `legacy` remains read-only;
+- generic `canary` remains read-only;
 - account write capability is operation-specific and least-privileged;
 - Platform does not duplicate legacy engine reusable-password verification.
 

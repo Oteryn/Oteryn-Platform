@@ -1,5 +1,5 @@
 ---
-task_id: OTERYN-20261011-decanary-cut-docs
+task_id: OTERYN-20261011-legacy-term-cut-docs
 governing_issue: 1478
 required_reads:
   - docs/agents/programs/DECANARY_REMOVAL_PLAN.md
@@ -8,7 +8,7 @@ search_first:
 optional_reads: []
 ---
 
-# OTERYN-20261011-decanary-cut-docs
+# OTERYN-20261011-legacy-term-cut-docs
 
 ## Goal
 

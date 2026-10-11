@@ -155,7 +155,7 @@ Exit gate — satisfied by closure revalidation:
 
 - every implemented shared write is documented by an explicit operation-specific contract;
 - authorization, idempotency/failure and concurrency invariants are covered by unit/feature and real MariaDB integration tests;
-- the generic `legacy` connection remains database-enforced read-only;
+- the generic `canary` connection remains database-enforced read-only;
 - shared mutations are isolated to the two dedicated operation-specific least-privilege connections above;
 - no additional undocumented raw legacy engine write path is approved or claimed by Phase 5.
 

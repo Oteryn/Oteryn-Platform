@@ -140,7 +140,7 @@ Extensibility is preserved by contract and schema evolution, reserved protobuf f
 
 This amendment does not remove or rename legacy engine compatibility profiles used by existing legacy engine/Otheryn compatibility code. It applies only to the new native Oteryn gameplay contract.
 
-`protocol-legacy` and `protocol-oteryn` remain independent adapters.
+`protocol-canary` and `protocol-oteryn` remain independent adapters.
 
 ## Activation gate
 

@@ -8,7 +8,7 @@
 
 ## Context
 
-Oteryn already has a browser OAuth/PKCE, one-time Game Login Ticket, private ticket redeem, World Registry, Game Gateway and Game Session chain. Otheryn already serves profile-driven legacy-compatible gameplay through ASIO. The Rust client is designed for independent `protocol-legacy` and future `protocol-oteryn` adapters.
+Oteryn already has a browser OAuth/PKCE, one-time Game Login Ticket, private ticket redeem, World Registry, Game Gateway and Game Session chain. Otheryn already serves profile-driven legacy-compatible gameplay through ASIO. The Rust client is designed for independent `protocol-canary` and future `protocol-oteryn` adapters.
 
 Automatic native selection must not create a second login authority, overload Gateway API `protocol_version`, infer protocol from attacker-controlled gameplay bytes or permit a post-authentication downgrade.
 

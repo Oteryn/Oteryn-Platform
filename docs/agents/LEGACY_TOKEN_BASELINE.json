@@ -189,18 +189,18 @@
       "enforce": true
     },
     "docs": {
-      "count": 332,
-      "files": 26,
+      "count": 310,
+      "files": 70,
       "enforce": true
     },
     "history": {
-      "count": 1376,
-      "files": 220,
+      "count": 1441,
+      "files": 229,
       "enforce": false
     },
     "history_paths": {
-      "count": 8,
-      "files": 8,
+      "count": 7,
+      "files": 7,
       "enforce": false
     },
     "other": {
