@@ -194,13 +194,13 @@ case "$ACTION" in
         update_env_value MARKETPLACE_ENABLED false
         "${compose[@]}" up -d --no-deps --force-recreate platform
         "${compose[@]}" exec -T platform php artisan migrate --force --no-interaction
-        oteryn_publish_native_admission_trust "$("${compose[@]}" ps -q platform)" || exit 1
+        oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || exit 1
         "${compose[@]}" exec -T platform php artisan marketplace:reconcile --limit=1000
 
         export MARKETPLACE_ENABLED=true
         update_env_value MARKETPLACE_ENABLED true
         "${compose[@]}" up -d --no-deps --force-recreate platform
-        oteryn_publish_native_admission_trust "$("${compose[@]}" ps -q platform)" || exit 1
+        oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || exit 1
         "${compose[@]}" up -d marketplace-scheduler
         "${compose[@]}" up -d --no-deps --force-recreate internal-proxy
         verify_enabled_runtime
@@ -217,7 +217,7 @@ case "$ACTION" in
         export MARKETPLACE_ENABLED=false
         update_env_value MARKETPLACE_ENABLED false
         "${compose[@]}" up -d --no-deps --force-recreate platform
-        oteryn_publish_native_admission_trust "$("${compose[@]}" ps -q platform)" || exit 1
+        oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || exit 1
         "${compose[@]}" stop marketplace-scheduler >/dev/null 2>&1 || true
         "${compose[@]}" rm -f marketplace-scheduler >/dev/null 2>&1 || true
         "${compose[@]}" up -d --no-deps --force-recreate internal-proxy

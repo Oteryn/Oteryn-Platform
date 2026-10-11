@@ -433,7 +433,7 @@ _oteryn_recreate_marketplace_runtime() {
     [[ "$MARKETPLACE_ENABLED" == true ]] || { echo "Refusing to recreate Marketplace runtime while durable/effective state is disabled." >&2; return 1; }
 
     "${marketplace_compose[@]}" up -d --no-deps --force-recreate platform
-    oteryn_publish_native_admission_trust "$("${marketplace_compose[@]}" ps -q platform)" || return 1
+    oteryn_publish_native_admission_trust_or_stop "${marketplace_compose[@]}" || return 1
     "${marketplace_compose[@]}" up -d --force-recreate marketplace-scheduler
 
     platform_id="$("${marketplace_compose[@]}" ps -a -q platform)" || return 1
@@ -765,6 +765,22 @@ oteryn_publish_native_admission_trust() {
         return 1
     fi
     echo "Native admission signing key trusted (PUBLIC values for Game's trust configuration): $output"
+}
+
+# Every route that (re)creates Platform gates on this, including the failure-restore traps. The
+# arguments are the route's Compose command words (for example "${compose[@]}"). When publication
+# or witness preparation fails, the route must not leave an unvalidated Platform, internal proxy or
+# Gateway serving: they are stopped (fail closed), and the caller stops before health-check,
+# promotion or scheduler restart. A later deploy or rollback starts them again through this gate.
+oteryn_publish_native_admission_trust_or_stop() {
+    (($# > 0)) || { echo "Native admission trust gate needs the Compose command." >&2; return 1; }
+    if oteryn_publish_native_admission_trust "$("$@" ps -q platform)"; then
+        return 0
+    fi
+    echo "Native admission trust gate failed; stopping Platform, internal proxy and Gateway (fail closed)." >&2
+    "$@" stop gateway internal-proxy platform >&2 || \
+        echo "Unable to stop Platform, internal proxy and Gateway after the failed trust gate." >&2
+    return 1
 }
 
 # Native (protocol_version 2) login needs the Gateway branch and the Platform issuer switched

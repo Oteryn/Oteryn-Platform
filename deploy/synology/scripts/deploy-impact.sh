@@ -323,8 +323,18 @@ _oteryn_reconcile_restore_on_exit() {
     command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
         up -d --no-deps --force-recreate platform >/dev/null 2>&1 || \
         echo "Platform reconcile recovery could not recreate the previous Platform container." >&2
-    _oteryn_reconcile_marketplace_scheduler_after_runtime_change >/dev/null 2>&1 || \
-        echo "Platform reconcile recovery could not reconcile the previous Marketplace runtime." >&2
+    # The restored Platform passes the same trust gate as a release; if it fails, the gate stops
+    # Platform, internal proxy and Gateway and recovery leaves them stopped (fail closed).
+    if oteryn_publish_native_admission_trust_or_stop command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE"; then
+        # A failed forward gate stopped the preserved internal proxy and Gateway; start them again.
+        command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+            start internal-proxy gateway >/dev/null 2>&1 || \
+            echo "Platform reconcile recovery could not start the preserved internal proxy and Gateway." >&2
+        _oteryn_reconcile_marketplace_scheduler_after_runtime_change >/dev/null 2>&1 || \
+            echo "Platform reconcile recovery could not reconcile the previous Marketplace runtime." >&2
+    else
+        echo "Platform reconcile recovery left Platform, internal proxy and Gateway stopped: the previous Platform failed the native admission trust gate." >&2
+    fi
 
     restored_platform_id="$(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps -q platform 2>/dev/null || true)"
     expected_old_id="$(command docker image inspect --format '{{.Id}}' "$RECONCILE_OLD_PLATFORM_IMAGE" 2>/dev/null || true)"
@@ -395,7 +405,7 @@ _oteryn_platform_reconcile() {
     "${compose[@]}" config --quiet
     "${compose[@]}" up -d --no-deps --force-recreate platform
     # Witnessed trust publication (and witness directory) on every Platform runtime change.
-    oteryn_publish_native_admission_trust "$("${compose[@]}" ps -q platform)" || return 1
+    oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || return 1
     _oteryn_reconcile_marketplace_scheduler_after_runtime_change
     _oteryn_platform_smoke
 

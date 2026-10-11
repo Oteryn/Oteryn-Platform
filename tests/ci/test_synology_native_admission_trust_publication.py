@@ -20,7 +20,11 @@ ROLLBACK = ROOT / "deploy" / "synology" / "scripts" / "rollback.sh"
 MARKETPLACE_STAGING = ROOT / "deploy" / "synology" / "scripts" / "marketplace-staging.sh"
 COMMAND = ROOT / "app" / "Console" / "Commands" / "PublishNativeAdmissionTrust.php"
 
-PUBLISH_CALL = 'oteryn_publish_native_admission_trust "$("${compose[@]}" ps -q platform)"'
+GATE = "oteryn_publish_native_admission_trust_or_stop"
+PUBLISH_CALL = GATE + ' "${compose[@]}"'
+CANDIDATE_CALL = GATE + ' "${candidate_compose[@]}"'
+RESTORE_CALL = GATE + ' command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE"'
+SCRIPTS = (LIB, DEPLOY, DEPLOY_IMPACT, ROLLBACK, MARKETPLACE_STAGING)
 WITNESS = "/var/www/html/storage/app/native-evidence-witness"
 TRUSTED = json.dumps(
     {
@@ -37,6 +41,8 @@ TRUSTED = json.dumps(
 FAKE_DOCKER = """#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$FAKE_DOCKER_LOG"
 case "$*" in
+    *' ps -q platform') printf '%s\\n' "${FAKE_PS-platform-1}"; exit "${FAKE_PS_RC:-0}" ;;
+    *' stop gateway internal-proxy platform') exit "${FAKE_STOP_RC:-0}" ;;
     *'GAME_AUTH_NATIVE_ADMISSION_ENABLED'*) printf %s "$FAKE_FLAG"; exit "${FAKE_FLAG_RC:-0}" ;;
     *'publish-trust'*) printf '%s\\n' "$FAKE_OUTPUT"; exit "${FAKE_PUBLISH_RC:-0}" ;;
 esac
@@ -128,13 +134,52 @@ def test_platform_reconcile_publishes_after_platform_recreate_and_before_schedul
 def test_every_platform_deploy_route_publishes_trust() -> None:
     # Each script that (re)creates Platform for a release, rollback or Marketplace switch passes the
     # witnessed publication before it promotes or reports success.
-    assert deploy_text().count(PUBLISH_CALL) == 2
-    assert deploy_text().count('oteryn_publish_native_admission_trust "$("${candidate_compose[@]}" ps -q platform)"') == 1
-    assert DEPLOY_IMPACT.read_text(encoding="utf-8").count(PUBLISH_CALL) == 1
+    # Every one goes through the fail-closed gate, which stops Platform, internal proxy and Gateway
+    # when publication fails; the failure-restore traps gate the restored Platform the same way.
+    assert deploy_text().count(PUBLISH_CALL + " || exit 1") == 1
+    assert deploy_text().count(PUBLISH_CALL + " || return 1") == 1
+    assert deploy_text().count("if ! " + CANDIDATE_CALL + "; then") == 1
+    assert deploy_text().count("if " + RESTORE_CALL + "; then") == 1
+    impact = DEPLOY_IMPACT.read_text(encoding="utf-8")
+    assert impact.count(PUBLISH_CALL + " || return 1") == 1
+    assert impact.count("if " + RESTORE_CALL + "; then") == 1
     assert ROLLBACK.read_text(encoding="utf-8").count(PUBLISH_CALL + " || exit 1") == 1
     assert MARKETPLACE_STAGING.read_text(encoding="utf-8").count(PUBLISH_CALL + " || exit 1") == 3
     lib = LIB.read_text(encoding="utf-8")
-    assert lib.count('oteryn_publish_native_admission_trust "$("${marketplace_compose[@]}" ps -q platform)" || return 1') == 1
+    assert lib.count(GATE + ' "${marketplace_compose[@]}" || return 1') == 1
+
+
+def test_only_the_fail_closed_gate_calls_the_bare_publication() -> None:
+    bare = 'oteryn_publish_native_admission_trust "'
+    assert sum(path.read_text(encoding="utf-8").count(bare) for path in SCRIPTS) == 1
+    lib = LIB.read_text(encoding="utf-8")
+    gate = lib[lib.index(GATE + "() {") :]
+    gate = gate[: gate.index("\n}\n")]
+    ordered(gate, 'oteryn_publish_native_admission_trust "$("$@" ps -q platform)"', '"$@" stop gateway internal-proxy platform')
+    assert gate.rstrip().endswith("return 1")
+
+
+@pytest.mark.parametrize(
+    ("path", "function", "label"),
+    [
+        (DEPLOY, "_oteryn_fast_restore_on_exit() {", "Fast deploy recovery"),
+        (DEPLOY_IMPACT, "_oteryn_reconcile_restore_on_exit() {", "Platform reconcile recovery"),
+    ],
+)
+def test_failure_restore_gates_the_restored_platform(path: pathlib.Path, function: str, label: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    body = text[text.index(function) :]
+    body = body[: body.index("\n}\n")]
+    ordered(
+        body,
+        "up -d --no-deps --force-recreate platform",
+        "if " + RESTORE_CALL + "; then",
+        "start internal-proxy gateway",
+        "_oteryn_reconcile_marketplace_scheduler_after_runtime_change",
+        "else",
+        label + " left Platform, internal proxy and Gateway stopped",
+        'restored_platform_id="$(',
+    )
 
 
 def ordered(text: str, *needles: str) -> None:
@@ -149,7 +194,7 @@ def test_previous_candidate_is_promoted_only_after_trust_publication() -> None:
     ordered(
         body,
         '"${candidate_compose[@]}" up -d --no-deps --force-recreate internal-proxy gateway',
-        'oteryn_publish_native_admission_trust "$("${candidate_compose[@]}" ps -q platform)"',
+        CANDIDATE_CALL,
         'bash "$SCRIPT_DIR/health-check.sh"',
         'cp "$candidate_file" "$current_file.tmp"',
     )
@@ -190,7 +235,7 @@ def test_marketplace_runtime_recreation_publishes_before_the_scheduler_restarts(
     ordered(
         body,
         '"${marketplace_compose[@]}" up -d --no-deps --force-recreate platform',
-        "oteryn_publish_native_admission_trust",
+        GATE + ' "${marketplace_compose[@]}" || return 1',
         '"${marketplace_compose[@]}" up -d --force-recreate marketplace-scheduler',
     )
 
@@ -283,4 +328,79 @@ def test_missing_container_fails_closed(fake_docker: pathlib.Path) -> None:
     result, calls = run_publish(fake_docker, container="")
     assert result.returncode == 1
     assert "needs the Platform container" in result.stderr
+    assert calls == []
+
+
+def run_gate(tmp: pathlib.Path, *compose: str, **fake: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    log = tmp / "docker.log"
+    env = {
+        **os.environ,
+        "PATH": f"{tmp / 'bin'}:{os.environ['PATH']}",
+        "FAKE_DOCKER_LOG": str(log),
+        "FAKE_FLAG": "true",
+        "FAKE_OUTPUT": TRUSTED,
+        **fake,
+    }
+    result = subprocess.run(
+        ["bash", "-c", 'source "$1"; shift; ' + GATE + ' "$@"', "bash", str(LIB), *compose],
+        text=True,
+        capture_output=True,
+        check=False,
+        env=env,
+    )
+    calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+    return result, calls
+
+
+STOP = "compose -f staging.yml stop gateway internal-proxy platform"
+
+
+def test_gate_passes_without_stopping_anything(fake_docker: pathlib.Path) -> None:
+    result, calls = run_gate(fake_docker, "docker", "compose", "-f", "staging.yml")
+    assert result.returncode == 0, result.stderr
+    assert calls[0] == "compose -f staging.yml ps -q platform"
+    assert calls[-1].endswith("publish-trust --no-interaction")
+    assert STOP not in calls
+
+
+@pytest.mark.parametrize(
+    "fake",
+    [
+        {"FAKE_PUBLISH_RC": "1", "FAKE_OUTPUT": "failed: restricted"},
+        {"FAKE_OUTPUT": '{"result":"ignored"}'},
+        {"FAKE_FLAG_RC": "1"},
+        {"FAKE_PS": ""},
+        {"FAKE_PS_RC": "1", "FAKE_PS": ""},
+    ],
+)
+def test_gate_failure_stops_platform_proxy_and_gateway(fake_docker: pathlib.Path, fake: dict[str, str]) -> None:
+    result, calls = run_gate(fake_docker, "docker", "compose", "-f", "staging.yml", **fake)
+    assert result.returncode == 1
+    assert "stopping Platform, internal proxy and Gateway (fail closed)" in result.stderr
+    assert calls[-1] == STOP
+
+
+def test_gate_still_fails_when_the_stop_fails(fake_docker: pathlib.Path) -> None:
+    result, calls = run_gate(
+        fake_docker, "docker", "compose", "-f", "staging.yml", FAKE_PUBLISH_RC="1", FAKE_STOP_RC="1"
+    )
+    assert result.returncode == 1
+    assert "Unable to stop Platform, internal proxy and Gateway" in result.stderr
+    assert calls[-1] == STOP
+
+
+def test_gate_accepts_env_prefixed_and_builtin_compose_commands(fake_docker: pathlib.Path) -> None:
+    for prefix in (("env", "PLATFORM_IMAGE=x"), ("command",)):
+        log = fake_docker / "docker.log"
+        log.unlink(missing_ok=True)
+        result, calls = run_gate(fake_docker, *prefix, "docker", "compose", "-f", "staging.yml", FAKE_PUBLISH_RC="1")
+        assert result.returncode == 1
+        assert calls[0] == "compose -f staging.yml ps -q platform"
+        assert calls[-1] == STOP
+
+
+def test_gate_needs_the_compose_command(fake_docker: pathlib.Path) -> None:
+    result, calls = run_gate(fake_docker)
+    assert result.returncode == 1
+    assert "needs the Compose command" in result.stderr
     assert calls == []
