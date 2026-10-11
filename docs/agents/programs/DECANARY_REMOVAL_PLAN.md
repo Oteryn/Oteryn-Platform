@@ -61,7 +61,7 @@ Not in the tree but affected: rows in `security_events` whose type is `identity.
 - Feature: `tests/Feature/{Accounts,Characters,CharacterProfiles,GameAuth,Marketplace,PublicGameData,Identity,Operations,Payments}/**` (38), `HomeTest.php`.
 - Unit: `tests/Unit/CanaryIntegration/*` (5), `tests/Unit/PublicGameData/CanaryChannelRuntimeServiceTest.php`, `tests/Unit/Characters/CharacterNamePolicyTest.php`.
 - Integration/fixtures: `tests/Integration/GameCatalog/CrossRepositoryGameCatalogTest.php`, `tests/Integration/REGISTRY.json`, `tests/Fixtures/GameCatalog/v1*/` (3).
-- E2E: `tests/e2e/native_auth_ephemeral_cutover/*` (3).
+- E2E: `tests/e2e/native_auth_ephemeral_cutover/*` (3) - deleted by E2E-DEL-1 (record: OTERYN-20261011-native-only-e2e-del-1).
 - CI contract tests: `tests/ci/test_synology_*` (4, Canary image in release/rollback identity), `tests/ci/test_workflow_trigger_economy.py` (name collision: `native-auth-canary-cache-build.yml`).
 
 ### G5 CI, acceptance, deploy — ~70 files
@@ -257,7 +257,7 @@ Packets marked **hard** in the tier column stay with a senior architect/worker; 
 | B4 BAZAAR-FREEZE-1 | **hard** | `app/Marketplace/**`, `config/marketplace.php`, `tests/Feature/Marketplace/**` | Settlement recovery, idempotency, concurrency (MariaDB) suites |
 | B5 PUBLIC-OFF-1 | standard | `app/PublicGameData/**`, `app/PublicPortal/HomePageQuery.php`, `app/Http/Controllers/PublicGameData/**`, `tests/Feature/PublicGameData/**`, `tests/Feature/HomeTest.php` | Pages 200 with unavailable state and no Canary connection |
 | B6 CATALOG-1 | **hard** | `app/GameCatalog/**`, new additive migration, `resources/schemas/game-catalog/**`, `tests/Feature/GameCatalog/**`, `tests/Fixtures/GameCatalog/**` | Up/down on MariaDB with non-empty snapshots; import of native fixture |
-| B7 LOGIN-NATIVE-ONLY-1 | **hard** | `deploy/synology/compose.yml` (gateway service env only), `routes/internal.php`, `config/game-auth.php`, `app/GameAuth/Tickets/IssueGameLoginTicket.php`, `app/GameAuth/OAuth/**` (native issuance only), `tests/Feature/GameAuth/**` | `tests/e2e/native_auth_ephemeral_cutover`, gateway CI; native ticket issued for an Identity without a Canary binding |
+| B7 LOGIN-NATIVE-ONLY-1 | **hard** | `deploy/synology/compose.yml` (gateway service env only), `routes/internal.php`, `config/game-auth.php`, `app/GameAuth/Tickets/IssueGameLoginTicket.php`, `app/GameAuth/OAuth/**` (native issuance only), `tests/Feature/GameAuth/**` | gateway CI (the legacy cutover E2E was deleted by E2E-DEL-1; a native-only gateway E2E belongs to D-1..D-3); native ticket issued for an Identity without a Canary binding |
 | C0 LEGACY-NULLABLE-1 | **hard** | one new migration, `tests/Feature/Decanary/**` | Up/down on MariaDB with existing rows; insert with native ids only and NULL legacy ids; `down()` refuses while NULL legacy ids exist; native uniqueness guards hold under concurrency |
 | C1 CMD-CLIENT-1 | **hard** | new `app/CharacterAuthority/**`, `config/character-authority.php`, tests | Timeout, retry with same idempotency key, receipt replay |
 | C2 CREATE-1 | **hard** | `app/Characters/**`, tests | MariaDB concurrency; duplicate-name rejection via receipt |
