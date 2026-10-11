@@ -20,7 +20,7 @@ Governing GitHub Issue: #1474 (native-only migration). The native World, channel
 - [ ] Values satisfy `oteryn_native_admission_projection_ready`.
 - [ ] No secret or model identifier added; `docs/agents/LEGACY_TOKEN_BASELINE.json` untouched.
 - [ ] `tests/ci/test_synology_native_admission_gate.py` passes.
-- [ ] Exact-head CI passes.
+- [x] Exact-head CI passes.
 
 ## Ownership
 
@@ -48,10 +48,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-11T19:00:00Z
-head: UNKNOWN
+head: 75972d04d3abafd3827a657a41e8b3373d7ea577
 branch: claude/native-staging-enable-1-20261011
 pr: 1554
-status: validating
+status: completed
 context_routes:
   - deploy/synology
 owned_paths:
@@ -62,7 +62,7 @@ proven:
   - Resolver returns the new values and the identity maps parse as JSON.
 derived: []
 unknown:
-  - Exact-head CI result.
+  - none
 conflicts: []
 first_failure:
   marker: none
@@ -78,7 +78,7 @@ validation:
     evidence: 237 synology CI tests passed locally
 blockers:
   - none
-next_action: Run local checks, push once, wait for CI.
+next_action: none; PR #1554 merged as db9e246afd03629c865d9ed4833e33130f40a8c1 and this task is archived.
 ```
 
 ## Source branch closeout
@@ -86,7 +86,7 @@ next_action: Run local checks, push once, wait for CI.
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: pending
+source_branch_evidence: PR #1554 merged from exact head 75972d04d3abafd3827a657a41e8b3373d7ea577.
 ```
 
 ## Notes
