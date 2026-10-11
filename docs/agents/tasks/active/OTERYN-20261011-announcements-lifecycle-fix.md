@@ -44,7 +44,7 @@ checkpoint_version: 1
 updated_at: 2026-10-11T08:00:00Z
 head: UNKNOWN
 branch: claude/announcements-lifecycle-fix-20261011
-pr: none
+pr: 1519
 status: validating
 context_routes:
   - testing
