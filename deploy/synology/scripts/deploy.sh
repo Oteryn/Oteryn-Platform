@@ -691,6 +691,10 @@ finalize_previous_candidate_if_healthy() {
         rm -f "$candidate_env"
         return 1
     fi
+    if ! oteryn_publish_native_route "${candidate_compose[@]}"; then
+        rm -f "$candidate_env"
+        return 1
+    fi
     rm -f "$candidate_env"
 
     if [[ -f "$current_file" ]]; then
@@ -764,6 +768,9 @@ if ! "${compose[@]}" exec -T platform sh -ec 'test -s storage/oauth-private.key 
 fi
 oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || exit 1
 "${compose[@]}" exec -T platform php artisan game-auth:oauth-client:ensure
+# The native Rust client (OTERYN_OAUTH_CLIENT_ID of the client environment) is a separate public client;
+# its id is not a secret and is printed for the owner checklist (docs/operations/NATIVE_LOGIN_OWNER_STEPS.md).
+"${compose[@]}" exec -T platform php artisan game-auth:oauth-client:ensure --rust
 
 # Refuse before the Gateway starts routing native logins: the Platform issuer must sign a
 # throwaway grant with the configured key and verify it against the trust registry (fail closed).
@@ -785,6 +792,9 @@ OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/health-check.sh"
     --port="$GAME_WORLD_PORT" \
     --status=online \
     --login-enabled=1
+
+# Native login needs the Game world's native route record; opt-in and fail closed (lib.sh).
+oteryn_publish_native_route "${compose[@]}" || exit 1
 
 # The retired legacy-engine container stays available for rollback until the
 # native-only Gateway has passed the full health contract. Only that service is

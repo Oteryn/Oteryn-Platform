@@ -812,6 +812,98 @@ oteryn_publish_native_admission_trust() {
     echo "Native admission signing key trusted (PUBLIC values for Game's trust configuration): $output"
 }
 
+# NATIVE-LOGIN-E2E-1: publishes the Game world's native route record (game-auth:native-route:publish)
+# as part of the deploy, driven by repository variables (no secret, no key). Opt-in:
+# OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED=true (repository variable OTERYN_STAGING_NATIVE_ROUTE_PUBLISH_ENABLED).
+# When on, every required value must be present and well-formed or the deploy refuses (fail closed);
+# nothing is guessed. Order: the Registry row must exist (game-auth:world:ensure ran), then
+# game-auth:native-topology:issue (idempotent) issues the WorldId/ChannelId, which must equal the
+# configured native World (OTERYN_STAGING_NATIVE_WORLD_ID, the D171 World), then the route is
+# published and read back. Descriptor reference: Game deploy/synology-game/preprod-topology.toml
+# ([scope] channel_key, [route] host, port, tls_server_name). Arguments: the route's Compose
+# command words.
+oteryn_native_route_publish_validate() {
+    local missing=() name
+    for name in OTERYN_NATIVE_CHANNEL_KEY OTERYN_NATIVE_ROUTE_HOST OTERYN_NATIVE_ROUTE_PORT OTERYN_NATIVE_ROUTE_TLS_SERVER_NAME GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID; do
+        [[ -n "${!name:-}" ]] || missing+=("$name")
+    done
+    if ((${#missing[@]} > 0)); then
+        echo "Native route publication is enabled but required values are missing: ${missing[*]} (repository variables OTERYN_STAGING_NATIVE_CHANNEL_KEY, OTERYN_STAGING_NATIVE_ROUTE_HOST, OTERYN_STAGING_NATIVE_ROUTE_PORT, OTERYN_STAGING_NATIVE_ROUTE_TLS_SERVER_NAME, OTERYN_STAGING_NATIVE_WORLD_ID)." >&2
+        return 1
+    fi
+    if [[ "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" != true ]]; then
+        echo "Native route publication needs native admission enabled (OTERYN_STAGING_NATIVE_ADMISSION_ENABLED=true)." >&2
+        return 1
+    fi
+    if [[ ! "$OTERYN_NATIVE_CHANNEL_KEY" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]]; then
+        echo "OTERYN_STAGING_NATIVE_CHANNEL_KEY must be a lower-case channel key of at most 64 characters (a-z, 0-9, hyphen)." >&2
+        return 1
+    fi
+    if [[ ! "$OTERYN_NATIVE_ROUTE_PORT" =~ ^[1-9][0-9]{0,4}$ ]] || ((OTERYN_NATIVE_ROUTE_PORT > 65535)); then
+        echo "OTERYN_STAGING_NATIVE_ROUTE_PORT must be a TCP port from 1 to 65535." >&2
+        return 1
+    fi
+    if [[ ! "$OTERYN_NATIVE_ROUTE_HOST" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$ ]]; then
+        echo "OTERYN_STAGING_NATIVE_ROUTE_HOST must be a host name or IPv4 address without scheme, port or path." >&2
+        return 1
+    fi
+    if [[ ! "$OTERYN_NATIVE_ROUTE_TLS_SERVER_NAME" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$ ]]; then
+        echo "OTERYN_STAGING_NATIVE_ROUTE_TLS_SERVER_NAME must be a DNS name the Game client verifies." >&2
+        return 1
+    fi
+    case "${OTERYN_NATIVE_ROUTE_LOGIN_ENABLED:-true}" in
+        true | false) ;;
+        *) echo "OTERYN_STAGING_NATIVE_ROUTE_LOGIN_ENABLED must be true or false." >&2; return 1 ;;
+    esac
+    if [[ ! "${GAME_WORLD_ID:-}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "GAME_WORLD_ID (the Registry world row) must be a positive integer for native route publication." >&2
+        return 1
+    fi
+}
+
+oteryn_publish_native_route() {
+    local issued published issued_world
+    (($# > 0)) || { echo "Native route publication needs the Compose command." >&2; return 1; }
+    case "${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}" in
+        true) ;;
+        false | '') echo "Native route publication is off (OTERYN_STAGING_NATIVE_ROUTE_PUBLISH_ENABLED is not true)."; return 0 ;;
+        *) echo "OTERYN_STAGING_NATIVE_ROUTE_PUBLISH_ENABLED must be true or false." >&2; return 1 ;;
+    esac
+    oteryn_native_route_publish_validate || return 1
+
+    if ! issued="$("$@" exec -T platform php artisan game-auth:native-topology:issue \
+        --world-row-id="$GAME_WORLD_ID" --channel-key="$OTERYN_NATIVE_CHANNEL_KEY" --no-interaction 2>&1)"; then
+        printf '%s\n' "$issued" >&2
+        echo "Native topology issuance/readback failed; the native route was not published." >&2
+        return 1
+    fi
+    issued_world="$(sed -n 's/.*"world_id":"\([^"]*\)".*/\1/p' <<<"$issued" | head -n1)"
+    if [[ -z "$issued_world" ]]; then
+        echo "Native topology issuance returned no WorldId; the native route was not published." >&2
+        return 1
+    fi
+    if [[ "$issued_world" != "$GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID" ]]; then
+        echo "The Registry issued native WorldId $issued_world, which differs from OTERYN_STAGING_NATIVE_WORLD_ID; set that repository variable to the issued WorldId (not a secret) and redeploy. The native route was not published." >&2
+        return 1
+    fi
+
+    echo "Native topology (non-secret receipt for the Game topology descriptor [scope]): $issued"
+    if ! published="$("$@" exec -T platform php artisan game-auth:native-route:publish \
+        --world-row-id="$GAME_WORLD_ID" --channel-key="$OTERYN_NATIVE_CHANNEL_KEY" \
+        --host="$OTERYN_NATIVE_ROUTE_HOST" --port="$OTERYN_NATIVE_ROUTE_PORT" \
+        --tls-server-name="$OTERYN_NATIVE_ROUTE_TLS_SERVER_NAME" \
+        --login-enabled="${OTERYN_NATIVE_ROUTE_LOGIN_ENABLED:-true}" --no-interaction 2>&1)"; then
+        printf '%s\n' "$published" >&2
+        echo "Native route publication refused; native login has no route record." >&2
+        return 1
+    fi
+    if [[ ! "$published" =~ \"route_revision\":\"[^\"]+\" ]]; then
+        echo "Native route publication returned no route revision." >&2
+        return 1
+    fi
+    echo "Native route record published (non-secret receipt for the Game topology descriptor): $published"
+}
+
 # Native admission grants reach Platform only through the internal proxy and Gateway (ingress):
 # NativeAdmissionGrantIssuer reads the trusted key without consulting the witness. So every route
 # that (re)creates Platform follows one order: stop ingress, (re)create Platform, pass the trust
