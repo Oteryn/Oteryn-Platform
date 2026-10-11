@@ -120,9 +120,6 @@ Route::put('/password/change', [PasswordChangeController::class, 'update'])
 Route::get('/account', [AccountOverviewController::class, 'show'])
     ->middleware('auth')
     ->name('account.overview');
-Route::post('/account/provisioning/retry', [AccountOverviewController::class, 'retry'])
-    ->middleware(['auth', 'throttle:6,1'])
-    ->name('account.provisioning.retry');
 Route::get('/account/characters/create', [CharacterCreationController::class, 'create'])
     ->middleware('auth')
     ->name('account.characters.create');

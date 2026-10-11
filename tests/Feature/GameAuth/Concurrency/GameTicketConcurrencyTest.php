@@ -2,7 +2,6 @@
 
 namespace Tests\Feature\GameAuth\Concurrency;
 
-use App\Accounts\Models\IdentityCanaryAccount;
 use App\GameAuth\NativeEvidence\NativeEvidenceContract;
 use App\GameAuth\NativeEvidence\NativeEvidenceHighWaterWitness;
 use App\GameAuth\NativeEvidence\NativeEvidenceNamespace;
@@ -12,8 +11,6 @@ use App\GameAuth\OAuth\NativeOAuthClientManager;
 use App\GameAuth\OAuth\OAuthBootstrapDenied;
 use App\GameAuth\Tickets\GameLoginTicket;
 use App\GameAuth\Tickets\GameLoginTicketDenied;
-use App\GameAuth\Tickets\IssueGameLoginTicket;
-use App\GameAuth\Tickets\RedeemGameLoginTicket;
 use App\Identity\Actions\RevokeIdentityGameAuthorizations;
 use App\Identity\Models\Identity;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
@@ -39,31 +36,10 @@ final class GameTicketConcurrencyTest extends TestCase
         }
     }
 
-    public function test_exactly_one_concurrent_ticket_redeem_succeeds_across_independent_processes(): void
-    {
-        $identity = $this->createIdentityWithReadyBinding(1001);
-        $issued = $this->app->make(IssueGameLoginTicket::class)->execute($identity);
-
-        $results = $this->race(function () use ($issued): string {
-            try {
-                $this->app->make(RedeemGameLoginTicket::class)
-                    ->execute($issued->ticket, 'oteryn-game-gateway');
-
-                return 'success';
-            } catch (GameLoginTicketDenied) {
-                return 'denied';
-            }
-        });
-
-        sort($results);
-        self::assertSame(['denied', 'success'], $results);
-        self::assertNotNull(GameLoginTicket::query()->firstOrFail()->used_at);
-    }
-
     public function test_exactly_one_concurrent_oauth_exchange_mints_a_ticket_and_revokes_token_family(): void
     {
-        $identity = $this->createIdentityWithReadyBinding(1001);
-        $client = $this->app->make(NativeOAuthClientManager::class)->ensure();
+        $identity = $this->createNativeIdentity();
+        $client = $this->app->make(NativeOAuthClientManager::class)->ensureRust();
         $accessTokenId = $this->createBootstrapTokenFamily($identity, $this->clientId($client->getKey()));
 
         $results = $this->race(function () use ($identity, $accessTokenId): string {
@@ -90,8 +66,8 @@ final class GameTicketConcurrencyTest extends TestCase
 
     public function test_game_authorization_revocation_serializes_against_oauth_bootstrap(): void
     {
-        $identity = $this->createIdentityWithReadyBinding(1001);
-        $client = $this->app->make(NativeOAuthClientManager::class)->ensure();
+        $identity = $this->createNativeIdentity();
+        $client = $this->app->make(NativeOAuthClientManager::class)->ensureRust();
         $accessTokenId = $this->createBootstrapTokenFamily($identity, $this->clientId($client->getKey()));
 
         $results = $this->racePair(
@@ -468,22 +444,13 @@ final class GameTicketConcurrencyTest extends TestCase
         return (string) $key;
     }
 
-    private function createIdentityWithReadyBinding(int $canaryAccountId): Identity
+    private function createNativeIdentity(): Identity
     {
-        $identity = Identity::query()->create([
+        config(['game-auth.native_admission.enabled' => true]);
+
+        return Identity::query()->create([
             'email' => 'person@example.com',
             'password' => Hash::make('Correct-Horse-9!Battery'),
-        ]);
-
-        IdentityCanaryAccount::query()->create([
-            'identity_id' => $identity->id,
-            'canary_account_id' => $canaryAccountId,
-            'provisioning_name' => 'ready_'.$identity->id,
-            'canary_creation_epoch' => 1,
-            'status' => IdentityCanaryAccount::STATUS_READY,
-            'ready_at' => now(),
-        ]);
-
-        return $identity->refresh();
+        ])->refresh();
     }
 }

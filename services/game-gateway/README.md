@@ -13,22 +13,9 @@ GET  /version
 POST /v1/login
 ```
 
-`POST /v1/login` retains Gateway API `protocol_version: 1` and one opaque Game Login Ticket. It also accepts the optional bounded `gameplay_offer` defined by the native gameplay contract.
+`POST /v1/login` serves native admission only: a request whose top-level `protocol_version` is the integer `2` is handled by the native login branch of `docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md`; see [Native login branch](#native-login-branch). The retired `protocol_version: 1` login, the Game Session issuer and the ticket redeem and login-context calls no longer exist; every other body is answered `400 {"error":"invalid_request"}` without reaching a dependency.
 
-The Gateway:
-
-1. redeems the ticket through the Oteryn Platform private Identity API;
-2. receives the exact authorized Canary account ID;
-3. obtains the single-world-ready World Registry/character login context through a separate narrow Platform private API;
-4. preserves the existing Game Session v1 issuer for legacy requests;
-5. for an extended request, selects the first exact authoritative World Registry candidate, verifies its v2 readiness identity and invokes exactly one Game Session v2 issuance;
-6. returns the Game Session plus sanitized world, character and immutable selection data.
-
-The Gateway has no Platform or Canary database credentials.
-
-`POST /v1/login` with `protocol_version: 2` is the native login branch of `docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md`. It is off by default; see [Native login branch](#native-login-branch).
-
-Native candidate persistence is empty and disabled by default. Producer rollout and rollback are documented in `docs/operations/OTERYN_NATIVE_PROTOCOL_PRODUCER.md`. Otheryn and Rust native consumers remain required before activation.
+The Gateway has no Platform or game database credentials.
 
 ## Environment
 
@@ -37,8 +24,6 @@ Required:
 ```text
 OTERYN_PLATFORM_BASE_URL
 OTERYN_PLATFORM_SERVICE_TOKEN
-GAME_SESSION_SERVICE_BASE_URL
-GAME_SESSION_SERVICE_TOKEN
 ```
 
 Optional:
@@ -51,15 +36,15 @@ GATEWAY_NATIVE_LOGIN_ENABLED=false
 GATEWAY_NATIVE_ADMISSION_TIMEOUT=5s
 ```
 
-Service credentials are injected runtime secrets. Do not commit them or place them in URLs.
+Service credentials are injected runtime secrets. Do not commit them or place them in URLs. The retired `GAME_SESSION_SERVICE_BASE_URL` and `GAME_SESSION_SERVICE_TOKEN` variables are ignored.
 
 Dependency URL policy is fail-closed:
 
-- non-loopback Platform and Game Session service URLs must use `https://`;
+- a non-loopback Platform URL must use `https://`;
 - plain `http://` is accepted only for `localhost`, `127.0.0.0/8` and `::1` loopback development/test dependencies;
 - standard Go HTTPS certificate and hostname verification remains enabled because the Gateway does not install an insecure TLS transport.
 
-A private network is defense in depth, not a replacement for TLS or service authentication. Production routing should expose the Platform private API and Canary Game Session issuer only to the Gateway through explicit internal ingress/firewall rules.
+A private network is defense in depth, not a replacement for TLS or service authentication. Production routing should expose the Platform private API only to the Gateway through explicit internal ingress/firewall rules.
 
 ## Service credential rotation
 
@@ -83,67 +68,13 @@ Safe rotation order:
 5. verify all Gateway instances use the new credential;
 6. clear the Platform `PREVIOUS` hash and redeploy/reload Platform.
 
-Never reuse the same service credential for Gateway -> Platform and Gateway -> Canary.
-
-### Gateway -> Canary Game Session issuer
-
-`GAME_SESSION_SERVICE_TOKEN` is a separate runtime secret. The Canary issuer must be configured with the matching SHA-256 service-credential hash set before the Gateway token is rotated. Use the same overlap sequence: add the new hash while retaining the old hash, roll Gateway, verify, then remove the old hash.
-
 ## Dependency contracts
 
-### Platform ticket redeem
-
-```text
-POST /internal/v1/game-auth/tickets/redeem
-Authorization: Bearer <platform service credential>
-```
-
-### Platform login context
-
-```text
-GET /internal/v1/game-auth/accounts/{canaryAccountId}/login-context
-Authorization: Bearer <platform service credential>
-```
-
-The Phase 4 Platform endpoint is intentionally single-world-ready and fails closed when zero or more than one eligible world exists because persistent character-to-world ownership is not yet defined for true multiworld.
-
-### Game Session issuer
-
-```text
-POST /internal/v1/game-sessions
-Authorization: Bearer <session service credential>
-```
-
-Request semantics:
-
-```json
-{
-  "protocol_version": 1,
-  "canary_account_id": 1001,
-  "world_id": 1,
-  "login_attempt_id": "server-generated-id"
-}
-```
-
-Response semantics:
-
-```json
-{
-  "protocol_version": 1,
-  "session": {
-    "credential": "<opaque-game-session-secret>",
-    "expires_at": "2026-07-22T08:30:00Z"
-  }
-}
-```
-
-The concrete Canary-compatible Session Issuer is delivered by Canary PR #722. Its bounded OTClient -> Gateway -> Canary E2E is proven, but production activation still requires exact private/TLS routing, injected credential rotation and production-like re-verification against the deployed revisions.
+`/ready` depends only on the Platform `GET /health` answer. Login traffic uses the private native admission issuer described below.
 
 ### Native login branch
 
-With `GATEWAY_NATIVE_LOGIN_ENABLED=true` (exactly `true` or `false`; default off), a request whose top-level `protocol_version` is the integer `2` is served by the native branch (`internal/nativelogin`). Every other request keeps the Canary-compatible path above unchanged, and a native request never reaches the ticket redeem, login-context or Game Session issuer calls. With the switch off, `protocol_version: 2` keeps its previous `400 {"error":"invalid_request"}` answer.
-
-Native-only mode: with the switch on and both `GAME_SESSION_SERVICE_BASE_URL` and `GAME_SESSION_SERVICE_TOKEN` unset, the Gateway builds no Game Session client. Legacy requests then fail closed with `503 {"error":"login_unavailable"}` before the ticket is redeemed, and `/ready` depends only on the Platform. Setting exactly one of the two variables is a configuration error in every mode. With the switch off, both remain required.
+With `GATEWAY_NATIVE_LOGIN_ENABLED=true` (exactly `true` or `false`; default off), a request whose top-level `protocol_version` is the integer `2` is served by the native branch (`internal/nativelogin`). With the switch off, every login request keeps the `400 {"error":"invalid_request"}` answer.
 
 The native branch:
 
@@ -164,7 +95,7 @@ The Gateway holds no database or signing credential and no grant state. Enableme
 
 ## Response caching
 
-`POST /v1/login` returns opaque Game Session material and therefore sets `Cache-Control: no-store, no-cache, must-revalidate, private`, `Pragma: no-cache` and `Expires: 0` on success and bounded failure responses.
+`POST /v1/login` returns opaque admission grant material and therefore sets `Cache-Control: no-store, no-cache, must-revalidate, private`, `Pragma: no-cache` and `Expires: 0` on success and bounded failure responses.
 
 ## Logging
 
@@ -178,7 +109,7 @@ Structured logs contain bounded request metadata only:
 
 The native branch adds one `native_login_result` line with the canonical `attempt_ref` (or empty) and the result code.
 
-The service does not log request/response bodies, headers, Game Login Tickets, grants, service credentials or Game Session secrets.
+The service does not log request/response bodies, headers, Game Login Tickets, grants, service credentials or admission secrets.
 
 ## Local validation
 

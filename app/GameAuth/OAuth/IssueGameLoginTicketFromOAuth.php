@@ -3,8 +3,8 @@
 namespace App\GameAuth\OAuth;
 
 use App\GameAuth\NativeLogin\NativeGameLoginTickets;
+use App\GameAuth\Tickets\GameLoginTicketDenied;
 use App\GameAuth\Tickets\IssuedGameLoginTicket;
-use App\GameAuth\Tickets\IssueGameLoginTicket;
 use App\Identity\Models\Identity;
 use Illuminate\Support\Facades\DB;
 use Laravel\Passport\RefreshToken;
@@ -12,7 +12,6 @@ use Laravel\Passport\RefreshToken;
 final class IssueGameLoginTicketFromOAuth
 {
     public function __construct(
-        private readonly IssueGameLoginTicket $tickets,
         private readonly VerifyNativeOAuthAccess $access,
         private readonly NativeGameLoginTickets $nativeTickets,
     ) {}
@@ -21,9 +20,13 @@ final class IssueGameLoginTicketFromOAuth
     {
         return DB::transaction(function () use ($identity, $accessTokenId): IssuedGameLoginTicket {
             $verified = $this->access->locked($identity, $accessTokenId);
-            $issued = $verified->nativeTicket
-                ? $this->nativeTickets->issue($verified->identity)
-                : $this->tickets->execute($verified->identity);
+
+            // Only the first-party native client may bootstrap a ticket; any other client is denied.
+            if (! $verified->nativeTicket) {
+                throw new GameLoginTicketDenied;
+            }
+
+            $issued = $this->nativeTickets->issue($verified->identity);
 
             RefreshToken::query()
                 ->where('access_token_id', $verified->token->getKey())
