@@ -294,6 +294,15 @@ _oteryn_fast_candidate() {
 
     FAST_OLD_PLATFORM_ID="$(_oteryn_fast_running_service_id platform "$FAST_OLD_PLATFORM_IMAGE")" || return 2
     FAST_GATEWAY_ID="$(_oteryn_fast_running_service_id gateway "$FAST_OLD_GATEWAY_IMAGE")" || return 2
+    # The fast path recreates Platform only. If the effective native admission flag differs from what
+    # the running Platform or Gateway carries, the two would disagree: take the full path instead.
+    local want_native="${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" running_platform_native running_gateway_native
+    running_platform_native="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$FAST_OLD_PLATFORM_ID" | sed -n 's/^GAME_AUTH_NATIVE_ADMISSION_ENABLED=//p')" || return 2
+    running_gateway_native="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$FAST_GATEWAY_ID" | sed -n 's/^GATEWAY_NATIVE_LOGIN_ENABLED=//p')" || return 2
+    if [[ "$running_platform_native" != "$want_native" || "$running_gateway_native" != "$want_native" ]]; then
+        FAST_DEPLOY_REASON='native admission flag changed'
+        return 1
+    fi
     FAST_MARIADB_ID="$(_oteryn_fast_running_service_id mariadb)" || return 2
     FAST_REDIS_ID="$(_oteryn_fast_running_service_id redis)" || return 2
     FAST_PROXY_ID="$(_oteryn_fast_running_service_id internal-proxy)" || return 2

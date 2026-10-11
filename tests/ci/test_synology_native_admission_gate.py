@@ -330,3 +330,11 @@ def test_native_admission_is_opt_in_and_needs_runtime_identities_and_key_export(
     assert "OTERYN_STAGING_NATIVE_ADMISSION_ENABLED" in workflow
     assert "OTERYN_STAGING_NATIVE_RUNTIME_STATUS_IDENTITIES" in workflow
     assert "OTERYN_STAGING_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES" in workflow
+
+
+def test_fast_path_is_rejected_when_the_native_admission_flag_changed() -> None:
+    deploy = DEPLOY.read_text(encoding="utf-8")
+    fast = deploy.split("_oteryn_fast_candidate() {")[1].split("_oteryn_fast_restore_on_exit()")[0]
+    assert "GATEWAY_NATIVE_LOGIN_ENABLED=" in fast
+    assert "GAME_AUTH_NATIVE_ADMISSION_ENABLED=" in fast
+    assert "native admission flag changed" in fast
