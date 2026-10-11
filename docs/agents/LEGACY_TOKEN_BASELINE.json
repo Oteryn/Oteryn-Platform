@@ -144,13 +144,13 @@
       "enforce": true
     },
     "history": {
-      "count": 1373,
-      "files": 219,
+      "count": 1376,
+      "files": 220,
       "enforce": false
     },
     "history_paths": {
-      "count": 7,
-      "files": 7,
+      "count": 8,
+      "files": 8,
       "enforce": false
     },
     "other": {
