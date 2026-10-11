@@ -94,7 +94,7 @@ Cloudflare Access may be an additional containment layer only if deployment evid
 Run:
 
 ```text
-php artisan legacy:verify-db-privileges
+php artisan canary:verify-db-privileges
 ```
 
 Expected behavior: fail closed if the effective generic legacy engine credential exceeds the approved read-only boundary.
@@ -113,7 +113,7 @@ Do not broaden application permissions to accommodate an over-privileged credent
 Run:
 
 ```text
-php artisan legacy:verify-provisioning-db-privileges
+php artisan canary:verify-provisioning-db-privileges
 ```
 
 If compromise is suspected or the verifier fails:
@@ -137,7 +137,7 @@ Never expose the internal random compatibility credential to users.
 Run:
 
 ```text
-php artisan legacy:verify-character-create-db-privileges
+php artisan canary:verify-character-create-db-privileges
 ```
 
 If compromise is suspected or the verifier fails:

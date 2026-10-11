@@ -113,9 +113,9 @@ Go-live `PASS` is blocked until the applicable production restore evidence exist
 The repository provides these verifiers:
 
 ```text
-php artisan legacy:verify-db-privileges
-php artisan legacy:verify-provisioning-db-privileges
-php artisan legacy:verify-character-create-db-privileges
+php artisan canary:verify-db-privileges
+php artisan canary:verify-provisioning-db-privileges
+php artisan canary:verify-character-create-db-privileges
 ```
 
 - [ ] Run the generic legacy engine read-only verifier against the effective production credential. `ENV-EVIDENCE-REQUIRED`

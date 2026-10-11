@@ -52,13 +52,13 @@ An earlier successful controlled run #5 on SHA `b6dcd6ed95c55f400206864ffd6ff799
 | Rollback | `STAGING_PROVEN` | Release pointer switched to `b6878c4775eda542738c78ea99fd5d2e19d2b35f`; configuration and migration-state smoke passed. |
 | Interrupted deployment isolation | `STAGING_PROVEN` | An incomplete release directory was created without changing the active release pointer. |
 | Redeploy current SHA | `STAGING_PROVEN` | Release pointer returned to `7842f78ec4ac2d07d3800ffe8bde9809b055822d`; migrations/configuration passed again. |
-| Generic legacy engine read-only effective grants | `STAGING_PROVEN` | Real MariaDB principal provisioned from the reviewed SQL template; `legacy:verify-db-privileges` passed. |
+| Generic legacy engine read-only effective grants | `STAGING_PROVEN` | Real MariaDB principal provisioned from the reviewed SQL template; `canary:verify-db-privileges` passed. |
 | Generic legacy engine write denial | `STAGING_PROVEN` | The read-only principal was denied an `UPDATE` attempt. |
 | Generic legacy engine excess privilege fail-closed | `STAGING_PROVEN` | Temporary `UPDATE` privilege caused the application verifier to fail; privilege was revoked and the verifier passed again. |
-| Provisioning effective grants | `STAGING_PROVEN` | Real MariaDB column-level principal provisioned from the reviewed SQL template; `legacy:verify-provisioning-db-privileges` passed. |
+| Provisioning effective grants | `STAGING_PROVEN` | Real MariaDB column-level principal provisioned from the reviewed SQL template; `canary:verify-provisioning-db-privileges` passed. |
 | Provisioning insufficient privilege fail-closed | `STAGING_PROVEN` | A required column-level `SELECT` privilege was removed; the verifier failed, then passed after restoration. |
 | Provisioning cross-surface write denial | `STAGING_PROVEN` | Provisioning principal was denied an attempted `players` insert. |
-| Character-create effective grants | `STAGING_PROVEN` | Real MariaDB column-level principal provisioned from the reviewed SQL template; `legacy:verify-character-create-db-privileges` passed. |
+| Character-create effective grants | `STAGING_PROVEN` | Real MariaDB column-level principal provisioned from the reviewed SQL template; `canary:verify-character-create-db-privileges` passed. |
 | Character-create cross-surface write denial | `STAGING_PROVEN` | Character-create principal was denied an attempted `accounts` update. |
 | Legacy engine DB unavailable behavior | `STAGING_PROVEN` | Privilege verification against an unavailable legacy engine endpoint failed closed. Application-level dependency degradation remains covered by the exact-SHA regression suite. |
 | Runtime Redis ACL/key/command boundary | `STAGING_PROVEN` | Real Redis ACL user restricted to `cluster:channel:*:runtime` plus the required read commands successfully read valid runtime data; `SET` was denied with `NOPERM`. |
@@ -124,9 +124,9 @@ The following items remain `UNKNOWN` until directly proven in the final producti
 - [ ] `PRODUCTION_PROVEN` — production DNS/proxy/Cloudflare/WAF/Access state and actual TLS termination/certificate behavior; make the HSTS decision from the real hostname/TLS policy.
 - [ ] `PRODUCTION_PROVEN` — direct-origin exposure decision and effective ingress firewall/reverse-proxy restrictions.
 - [ ] `PRODUCTION_PROVEN` — production Platform DB endpoint/topology/network isolation/HA and effective credential ownership/rotation.
-- [ ] `PRODUCTION_PROVEN` — production generic legacy engine DB effective grants using `legacy:verify-db-privileges` plus actual network-path separation.
-- [ ] `PRODUCTION_PROVEN` — production provisioning DB effective grants using `legacy:verify-provisioning-db-privileges`, if provisioning is enabled, plus actual dedicated credential/network-path separation.
-- [ ] `PRODUCTION_PROVEN` — production character-create DB effective grants using `legacy:verify-character-create-db-privileges`, if character creation is enabled, plus actual dedicated credential/network-path separation.
+- [ ] `PRODUCTION_PROVEN` — production generic legacy engine DB effective grants using `canary:verify-db-privileges` plus actual network-path separation.
+- [ ] `PRODUCTION_PROVEN` — production provisioning DB effective grants using `canary:verify-provisioning-db-privileges`, if provisioning is enabled, plus actual dedicated credential/network-path separation.
+- [ ] `PRODUCTION_PROVEN` — production character-create DB effective grants using `canary:verify-character-create-db-privileges`, if character creation is enabled, plus actual dedicated credential/network-path separation.
 - [ ] `PRODUCTION_PROVEN` — production runtime Redis endpoint, network/TLS state and effective ACL for the dedicated read principal; prove dependency/freshness monitoring.
 - [ ] `PRODUCTION_PROVEN` — effective production session/cache/queue choices, multi-instance suitability and worker supervision/retry/failed-job handling if asynchronous queues are introduced.
 - [ ] `PRODUCTION_PROVEN` — production mail provider, sender-domain readiness, password-recovery delivery and delivery/bounce monitoring.

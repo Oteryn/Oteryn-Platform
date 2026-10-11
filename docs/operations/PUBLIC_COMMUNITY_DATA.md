@@ -26,7 +26,7 @@ Render and execute `database/provisioning/canary-readonly.sql.template` only thr
 After configuration, run:
 
 ```bash
-php artisan legacy:verify-db-privileges
+php artisan canary:verify-db-privileges
 ```
 
 Do not copy raw `SHOW GRANTS` output into tickets or logs because some database variants include authentication metadata.

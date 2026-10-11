@@ -4,7 +4,7 @@
 
 `IMPLEMENTED — GREENFIELD CHARACTER CREATION ON MAIN`
 
-This contract defines the only approved Phase 5 operation for creating a greenfield Canary `players` row for an authenticated Oteryn Platform Identity under ADR 0005.
+This contract defines the only approved Phase 5 operation for creating a greenfield legacy engine `players` row for an authenticated Oteryn Platform Identity under ADR 0005.
 
 PR #41 implemented the operation and was squash-merged to `main` as `9839822b8e445c0e9828e73d2d7767bb237e587f` after final CI #568 and Agent Governance #489 passed.
 
@@ -14,9 +14,9 @@ PR #41 implemented the operation and was squash-merged to `main` as `9839822b8e4
 
 Canonical ownership model:
 
-`1 Platform Identity <-> 1 Canary accounts.id`
+`1 Platform Identity <-> 1 legacy engine accounts.id`
 
-Before any character-create Canary transaction:
+Before any character-create legacy engine transaction:
 
 1. caller is an authenticated Platform Identity;
 2. Platform-owned `identity_canary_accounts` binding exists and is `ready`;
@@ -120,7 +120,7 @@ Exact server-selected values include:
 
 Other current `players` columns intentionally use current schema defaults/nullable behavior. Real MariaDB tests assert representative relied-upon defaults including active deletion state, save flag, balance, stamina, offline-training state, reward state and forge dust level.
 
-A material Canary schema/default change requires revalidation before deployment.
+A material legacy engine schema/default change requires revalidation before deployment.
 
 ## No dependent starter writes
 
@@ -139,7 +139,7 @@ No incidental first-login script is part of the atomic creation contract.
 
 Natural v1 operation identity:
 
-`(authorized Canary accounts.id, canonical players.name)`
+`(authorized legacy engine accounts.id, canonical players.name)`
 
 Existing exact-name classification after locking the account row:
 
@@ -151,7 +151,7 @@ The first successful creation fixes vocation/sex/starter state. Repeated same-na
 
 No player UPDATE, ownership reassignment or destructive compensation is permitted for recovery.
 
-## Exact Canary transaction
+## Exact legacy engine transaction
 
 Using only `canary_character_create`:
 
@@ -174,7 +174,7 @@ Same-account create operations serialize on the same account row lock before quo
 
 Real MariaDB coverage proves the nine-to-ten concurrent last-slot race results in exactly one new active character and one limit outcome.
 
-Global name uniqueness is protected by the Canary `players.name` unique constraint. Real MariaDB coverage proves two accounts racing the same canonical name produce exactly one committed row and one deterministic conflict outcome.
+Global name uniqueness is protected by the legacy engine `players.name` unique constraint. Real MariaDB coverage proves two accounts racing the same canonical name produce exactly one committed row and one deterministic conflict outcome.
 
 The implementation retries the whole transaction up to three total attempts only for explicitly recognized deadlock/serialization failures. Permanent authorization, validation, conflict, quota and privilege errors are not retried.
 
@@ -258,7 +258,7 @@ Before enabling character creation in an environment:
 2. provide credentials through approved secret management;
 3. run `php artisan canary:verify-character-create-db-privileges`;
 4. fail closed on missing/excessive grants;
-5. revalidate if deployed Canary schema materially differs from the evidence baseline.
+5. revalidate if deployed legacy engine schema materially differs from the evidence baseline.
 
 ## Cross-repository decision
 

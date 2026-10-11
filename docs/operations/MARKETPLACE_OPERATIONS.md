@@ -17,7 +17,7 @@ Before exposing `/bazaar` in any environment:
 5. provision `oteryn_character_transfer` from `database/provisioning/canary-character-transfer.sql.template` using secret management;
 6. set `MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID` to the escrow account ID;
 7. set the `CANARY_CHARACTER_TRANSFER_DB_*` secrets;
-8. run `php artisan legacy:verify-character-transfer-db-privileges`;
+8. run `php artisan canary:verify-character-transfer-db-privileges`;
 9. run `php artisan production:verify-configuration` in production configuration;
 10. run `php artisan marketplace:reconcile --limit=1000` before enabling traffic;
 11. confirm the scheduler invokes `marketplace:reconcile` every minute and prevents overlap.
@@ -83,7 +83,7 @@ For each recovery auction:
 
 1. record the auction ID, public character name, failure code and saga state;
 2. check application/database health and correct the dependency before retrying;
-3. verify the transfer credential with `legacy:verify-character-transfer-db-privileges`;
+3. verify the transfer credential with `canary:verify-character-transfer-db-privileges`;
 4. verify the configured escrow account ID has not changed;
 5. use **Run bounded recovery** once;
 6. refresh and confirm the resulting state;

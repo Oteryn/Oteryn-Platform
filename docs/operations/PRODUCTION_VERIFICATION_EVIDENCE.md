@@ -118,9 +118,9 @@ A staging restore duration is never production RTO/RPO evidence.
 Run only with the effective production credential classes already provisioned outside Git:
 
 ```text
-php artisan legacy:verify-db-privileges
-php artisan legacy:verify-provisioning-db-privileges
-php artisan legacy:verify-character-create-db-privileges
+php artisan canary:verify-db-privileges
+php artisan canary:verify-provisioning-db-privileges
+php artisan canary:verify-character-create-db-privileges
 ```
 
 | Gate item | State | Evidence |

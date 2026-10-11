@@ -13,7 +13,7 @@ Accepted — 2026-08-08
 
 ## Context
 
-Oteryn Platform already has a delivered authenticated Account Center. Its current `AccountOverviewReadModel` is valid for the legacy engine compatibility path, but it resolves `IdentityLegacyAccount`, uses numeric `legacy_account_id`, queries `LegacyGameDataRepository::activeCharactersForAccount()` and derives character-creation availability from a Platform-local `CHARACTER_LIMIT = 10`.
+Oteryn Platform already has a delivered authenticated Account Center. Its current `AccountOverviewReadModel` is valid for the legacy engine compatibility path, but it resolves `IdentityCanaryAccount`, uses numeric `canary_account_id`, queries `CanaryGameDataRepository::activeCharactersForAccount()` and derives character-creation availability from a Platform-local `CHARACTER_LIMIT = 10`.
 
 Platform also owns `character_profile_preferences`. The current persistence model identifies the game character with numeric `legacy_player_id`. Those records are valid current compatibility state, but the numeric legacy engine identifier is not the native Oteryn-v2 character identity.
 

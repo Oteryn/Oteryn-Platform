@@ -26,7 +26,7 @@ Do not store production credentials, tokens, reset links, TOTP secrets, recovery
 ## Legacy engine/public game-data smoke
 
 - [ ] `UNKNOWN` — One read-only public game-data flow returns expected data through the generic least-privilege legacy engine read principal.
-- [ ] `UNKNOWN` — Effective generic legacy engine DB grants pass `legacy:verify-db-privileges` on the production credential/network path.
+- [ ] `UNKNOWN` — Effective generic legacy engine DB grants pass `canary:verify-db-privileges` on the production credential/network path.
 - [ ] `UNKNOWN` — Runtime server state, when enabled, is read through the dedicated production Redis principal and effective ACL/freshness behavior is evidenced.
 
 ## Account and character smoke
@@ -34,9 +34,9 @@ Do not store production credentials, tokens, reset links, TOTP secrets, recovery
 Run only if these launch-scope mutation surfaces are enabled in final production.
 
 - [ ] `UNKNOWN` — One new Platform Identity completes Platform-originated legacy engine account provisioning and reaches a ready immutable 1:1 binding.
-- [ ] `UNKNOWN` — Effective provisioning grants pass `legacy:verify-provisioning-db-privileges` on the production credential/network path.
+- [ ] `UNKNOWN` — Effective provisioning grants pass `canary:verify-provisioning-db-privileges` on the production credential/network path.
 - [ ] `UNKNOWN` — The bound Identity creates one character through the dedicated character-create principal without client-controlled account ownership.
-- [ ] `UNKNOWN` — Effective character-create grants pass `legacy:verify-character-create-db-privileges` on the production credential/network path.
+- [ ] `UNKNOWN` — Effective character-create grants pass `canary:verify-character-create-db-privileges` on the production credential/network path.
 - [ ] `UNKNOWN` — The created character becomes visible through the expected public exact-name search/profile flow.
 
 ## Administrator/RBAC/CMS smoke
