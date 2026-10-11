@@ -15,6 +15,7 @@ COMPOSE = ROOT / "deploy" / "synology" / "compose.yml"
 MARKETPLACE = ROOT / "deploy" / "synology" / "compose.marketplace.yml"
 LIB = ROOT / "deploy" / "synology" / "scripts" / "lib.sh"
 DEPLOY = ROOT / "deploy" / "synology" / "scripts" / "deploy.sh"
+DEPLOY_IMPACT = ROOT / "deploy" / "synology" / "scripts" / "deploy-impact.sh"
 COMMAND = ROOT / "app" / "Console" / "Commands" / "PublishNativeAdmissionTrust.php"
 
 PUBLISH_CALL = 'oteryn_publish_native_admission_trust "$("${compose[@]}" ps -q platform)"'
@@ -105,6 +106,27 @@ def test_fast_deploy_publishes_after_platform_recreate_and_before_smoke() -> Non
     assert recreate < publish < scheduler < smoke
     self_check = body.find("game-auth:native-admission:self-check")
     assert self_check == -1 or publish < self_check
+
+
+def test_platform_reconcile_publishes_after_platform_recreate_and_before_scheduler_and_smoke() -> None:
+    text = DEPLOY_IMPACT.read_text(encoding="utf-8")
+    body = text[text.index("_oteryn_platform_reconcile() {") :]
+    body = body[: body.index("\n}\n")]
+    recreate = body.index('"${compose[@]}" up -d --no-deps --force-recreate platform')
+    publish = body.index(PUBLISH_CALL + " || return 1")
+    scheduler = body.index("_oteryn_reconcile_marketplace_scheduler_after_runtime_change")
+    smoke = body.index("_oteryn_platform_smoke")
+    health = body.index('bash "$SCRIPT_DIR/health-check.sh"')
+    # This route exits before deploy.sh, so it must take the witnessed publication itself.
+    assert recreate < publish < scheduler < smoke < health
+    self_check = body.find("game-auth:native-admission:self-check")
+    assert self_check == -1 or publish < self_check
+
+
+def test_every_platform_deploy_route_publishes_trust() -> None:
+    # Each script that recreates Platform on a new image for a release passes the witnessed publication.
+    assert deploy_text().count(PUBLISH_CALL) == 2
+    assert DEPLOY_IMPACT.read_text(encoding="utf-8").count(PUBLISH_CALL) == 1
 
 
 @pytest.fixture()

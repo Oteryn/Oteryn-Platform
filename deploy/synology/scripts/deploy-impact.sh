@@ -394,6 +394,8 @@ _oteryn_platform_reconcile() {
 
     "${compose[@]}" config --quiet
     "${compose[@]}" up -d --no-deps --force-recreate platform
+    # Witnessed trust publication (and witness directory) on every Platform runtime change.
+    oteryn_publish_native_admission_trust "$("${compose[@]}" ps -q platform)" || return 1
     _oteryn_reconcile_marketplace_scheduler_after_runtime_change
     _oteryn_platform_smoke
 
