@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { revealPublicNavigationLink } from './portal-navigation.mjs';
 import {
+  allowExpectedHttpFailure,
   assertAccessibilitySmoke,
   attachDiagnostics,
   completeMfaChallenge,
@@ -96,16 +97,15 @@ test('@responsive public homepage navigation footer and Identity entry forms sta
 test('@responsive public game data navigation and character discovery remain usable at representative viewports', async ({ page }) => {
   seedVisualFixtures();
 
-  await page.goto('/highscores');
-  await expect(page.getByRole('heading', { name: 'Highscores' })).toBeVisible();
-  await expect(page.getByText('Acceptance Hero')).toBeVisible();
+  // Game-world data has no native source yet: the world pages keep a usable contained unavailable state.
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: '/highscores' });
+  const response = await page.goto('/highscores');
+  expect(response?.status()).toBe(503);
+  await expect(page.locator('.community-unavailable h1')).toBeVisible();
   await assertAccessibilitySmoke(page);
 
   await page.goto('/');
-  await page.getByLabel('Character name').fill('Acceptance Hero');
-  await page.getByRole('button', { name: 'Search' }).click();
-  await expect(page).toHaveURL(/\/characters\/Acceptance%20Hero$/u);
-  await expect(page.getByRole('heading', { name: 'Acceptance Hero' })).toBeVisible();
+  await expect(page.getByLabel('Character name')).toBeVisible();
   await assertAccessibilitySmoke(page);
 });
 

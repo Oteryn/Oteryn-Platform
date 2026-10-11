@@ -70,7 +70,6 @@ def test_release_state_requires_candidate_to_accept_its_primary_schema() -> None
                 "schema-v1",
                 f"example/platform@sha256:{digest}",
                 f"example/gateway@sha256:{digest}",
-                f"example/canary@sha256:{digest}",
                 "1",
             ],
             text=True,
@@ -106,17 +105,15 @@ def test_fast_deploy_uses_accumulated_impact_and_a_narrow_presentation_allowlist
 def test_provenance_preflight_reuses_local_immutable_images_before_network_pull() -> None:
     workflow = DEPLOY_WORKFLOW.read_text()
     resolver = workflow[
-        workflow.index("ensure_runtime_image()") : workflow.index("resolve_any_digest_ref()")
+        workflow.index("ensure_runtime_image()") : workflow.index("platform_revision=")
     ]
     assert 'if [[ "$image_ref" == *@sha256:* ]] && docker image inspect "$image_ref" >/dev/null 2>&1; then' in resolver
     assert "Using locally available immutable $component image" in resolver
     assert 'docker pull "$image_ref" >/dev/null' in resolver
     assert 'ensure_runtime_image "$platform_image" Platform' in resolver
     assert 'ensure_runtime_image "$gateway_image" Gateway' in resolver
-    assert 'ensure_runtime_image "$CANARY_IMAGE_INPUT" Canary' in resolver
     assert 'docker pull "$platform_image" >/dev/null' not in resolver
     assert 'docker pull "$gateway_image" >/dev/null' not in resolver
-    assert 'docker pull "$CANARY_IMAGE_INPUT" >/dev/null' not in resolver
 
 
 def test_fast_deploy_recreates_platform_but_not_full_stack_services() -> None:
@@ -127,12 +124,11 @@ def test_fast_deploy_recreates_platform_but_not_full_stack_services() -> None:
     assert '"${compose[@]}" up -d --no-deps --force-recreate platform' in fast
     assert "_oteryn_reconcile_marketplace_scheduler_after_runtime_change" in fast
     assert "_oteryn_fast_platform_smoke" in fast
-    for service in ("mariadb", "redis", "canary", "internal-proxy", "gateway"):
+    for service in ("mariadb", "redis", "internal-proxy", "gateway"):
         assert f"_oteryn_fast_assert_preserved_service {service}" in fast
     for forbidden in (
         "php artisan migrate",
         '"${compose[@]}" up -d mariadb redis',
-        '"${compose[@]}" up -d canary',
         'bash "$SCRIPT_DIR/health-check.sh"',
         '"${compose[@]}" up -d gateway',
         "tls-init",
@@ -140,8 +136,10 @@ def test_fast_deploy_recreates_platform_but_not_full_stack_services() -> None:
         assert forbidden not in fast
 
     full = deploy[deploy.index("stage_bootstrap_files()") :]
-    assert '"${compose[@]}" up -d mariadb redis' in full
-    assert '"${compose[@]}" up -d canary' in full
+    assert "--remove-orphans" not in full  # an orphan sweep would remove overlay-only marketplace-scheduler
+    legacy_cleanup = "label=com.docker.compose.service=canary"
+    assert legacy_cleanup in full
+    assert full.index(legacy_cleanup) > full.rindex('bash "$SCRIPT_DIR/health-check.sh"')
     assert 'php artisan migrate --force --no-interaction' in full
     assert 'bash "$SCRIPT_DIR/health-check.sh"' in full
     assert '"${compose[@]}" up -d gateway' in full
@@ -156,7 +154,6 @@ def test_fast_deploy_fails_closed_and_restores_previous_release_on_failure() -> 
     assert '[[ ! -f "$state_dir/candidate-release.env" ]]' in preflight
     assert "candidate primary schema identity changed" in preflight
     assert "Gateway provenance changed" in preflight
-    assert "Canary provenance changed" in preflight
     assert "staging world identity changed" in preflight
     assert "Fast deploy recovery marker already exists" in preflight
 
@@ -286,7 +283,6 @@ def test_platform_reconcile_uses_accumulated_exact_release_impact() -> None:
     assert "candidate primary schema identity changed" in preflight
     assert "candidate does not accept the current schema" in preflight
     assert "Gateway provenance changed" in preflight
-    assert "Canary provenance changed" in preflight
     assert "staging world identity changed" in preflight
     assert "Platform reconcile recovery marker already exists" in preflight
 
@@ -300,7 +296,7 @@ def test_platform_reconcile_restarts_only_platform_and_runs_full_health_before_p
     assert "_oteryn_reconcile_marketplace_scheduler_after_runtime_change" in reconcile
     assert "_oteryn_platform_smoke" in reconcile
     health = reconcile.index('bash "$SCRIPT_DIR/health-check.sh"')
-    for service in ("mariadb", "redis", "canary", "internal-proxy", "gateway"):
+    for service in ("mariadb", "redis", "internal-proxy", "gateway"):
         marker = f"_oteryn_assert_preserved_service {service}"
         assert marker in reconcile
         assert reconcile.index(marker) > health
@@ -310,7 +306,6 @@ def test_platform_reconcile_restarts_only_platform_and_runs_full_health_before_p
     for forbidden in (
         "php artisan migrate",
         '"${compose[@]}" up -d mariadb redis',
-        '"${compose[@]}" up -d canary',
         '"${compose[@]}" up -d gateway',
         "tls-init",
     ):

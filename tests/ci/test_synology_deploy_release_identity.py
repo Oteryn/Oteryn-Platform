@@ -465,19 +465,9 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
         self.assertIn("gateway_source_sha", self.preflight)
         self.assertNotIn("Gateway OCI revision does not match the Platform release SHA", self.preflight)
 
-    def test_character_bazaar_keeps_owner_neutral_platform_coordinates_and_canary_pin(self) -> None:
+    def test_character_bazaar_keeps_owner_neutral_platform_coordinates(self) -> None:
         self.assertIn("repository-ghcr-image.sh oteryn-platform", self.character_workflow)
         self.assertIn("repository-ghcr-image.sh oteryn-game-gateway", self.character_workflow)
-        self.assertIn(
-            "ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f",
-            self.character_workflow,
-        )
-
-    def test_build_auto_deploy_keeps_approved_canary_immutable(self) -> None:
-        self.assertIn(
-            "CANARY_IMAGE_DIGEST: ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f",
-            self.build_workflow,
-        )
 
     def test_runner_registration_remains_repository_scoped_and_restart_safe(self) -> None:
         self.assertIn("RUNNER_URL=REQUIRED_REPOSITORY_URL", self.runner_env)

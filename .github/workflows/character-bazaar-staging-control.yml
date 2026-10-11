@@ -50,18 +50,10 @@ jobs:
       APP_KEY: ${{ secrets.OTERYN_STAGING_APP_KEY }}
       MARIADB_ROOT_PASSWORD: ${{ secrets.OTERYN_STAGING_MARIADB_ROOT_PASSWORD }}
       PLATFORM_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_DB_PASSWORD }}
-      CANARY_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_DB_PASSWORD }}
-      CANARY_READONLY_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_READONLY_DB_PASSWORD }}
-      CANARY_PROVISIONING_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_PROVISIONING_DB_PASSWORD }}
-      CANARY_CHARACTER_CREATE_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_CHARACTER_CREATE_DB_PASSWORD }}
       REDIS_PASSWORD: ${{ secrets.OTERYN_STAGING_REDIS_PASSWORD }}
-      CANARY_RUNTIME_REDIS_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_RUNTIME_REDIS_PASSWORD }}
       OTERYN_PLATFORM_SERVICE_TOKEN: ${{ secrets.OTERYN_STAGING_PLATFORM_SERVICE_TOKEN }}
       GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256: ${{ secrets.OTERYN_STAGING_PLATFORM_SERVICE_TOKEN_SHA256 }}
       GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256: ${{ secrets.OTERYN_STAGING_PLATFORM_PREVIOUS_SERVICE_TOKEN_SHA256 }}
-      GAME_SESSION_SERVICE_TOKEN: ${{ secrets.OTERYN_STAGING_GAME_SESSION_SERVICE_TOKEN }}
-      CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256: ${{ secrets.OTERYN_STAGING_GAME_SESSION_SERVICE_TOKEN_SHA256 }}
-      CANARY_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256: ${{ secrets.OTERYN_STAGING_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256 }}
 
     steps:
       - name: Checkout exact trusted source
@@ -169,19 +161,10 @@ jobs:
           fi
 
           marketplace_enabled="${MARKETPLACE_ENABLED:-false}"
-          escrow_id="${MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID:-0}"
-          escrow_name="${MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME:-oteryn_bazaar_escrow}"
-          escrow_epoch="${MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH:-1785456000}"
-          transfer_user="${CANARY_CHARACTER_TRANSFER_DB_USER:-oteryn_character_transfer}"
-          transfer_password="${CANARY_CHARACTER_TRANSFER_DB_PASSWORD:-}"
-          if [[ -z "$transfer_password" ]]; then
-            transfer_password="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
-          fi
 
           if [[ "$CONTROL_ACTION" == 'deploy-enable' ]]; then
             platform_image="${PLATFORM_REPO}:${RELEASE_TAG}"
             gateway_image="${GATEWAY_REPO}:${RELEASE_TAG}"
-            canary_image='ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f'
           else
             resolve_image() {
               local service="$1"
@@ -195,19 +178,14 @@ jobs:
             }
             platform_image="$(resolve_image platform)"
             gateway_image="$(resolve_image gateway)"
-            canary_image="$(resolve_image canary)"
           fi
 
           cat > deploy/synology/.env <<EOF
           COMPOSE_PROJECT_NAME=oteryn-staging
           PLATFORM_BIND_ADDRESS=127.0.0.1
           GATEWAY_BIND_ADDRESS=127.0.0.1
-          CANARY_LOGIN_BIND_ADDRESS=127.0.0.1
-          CANARY_GAME_BIND_ADDRESS=192.168.1.2
           PLATFORM_PORT=8000
           GATEWAY_PORT=8080
-          CANARY_LOGIN_PORT=7171
-          CANARY_GAME_PORT=7172
           GAME_WORLD_ID=1
           GAME_WORLD_SLUG=oteryn-staging
           GAME_WORLD_NAME=Oteryn Staging
@@ -216,7 +194,6 @@ jobs:
           GAME_WORLD_PORT=7172
           PLATFORM_IMAGE=$platform_image
           GATEWAY_IMAGE=$gateway_image
-          CANARY_IMAGE=$canary_image
           APP_NAME=Oteryn Platform Staging
           APP_ENV=staging
           APP_DEBUG=false
@@ -228,35 +205,11 @@ jobs:
           PLATFORM_DB_NAME=oteryn_platform
           PLATFORM_DB_USER=oteryn_platform
           PLATFORM_DB_PASSWORD=$PLATFORM_DB_PASSWORD
-          CANARY_DB_NAME=canary
-          CANARY_DB_USER=canary
-          CANARY_DB_PASSWORD=$CANARY_DB_PASSWORD
-          CANARY_READONLY_DB_USER=oteryn_readonly
-          CANARY_READONLY_DB_PASSWORD=$CANARY_READONLY_DB_PASSWORD
-          CANARY_PROVISIONING_DB_USER=oteryn_provisioning
-          CANARY_PROVISIONING_DB_PASSWORD=$CANARY_PROVISIONING_DB_PASSWORD
-          CANARY_CHARACTER_CREATE_DB_USER=oteryn_character_create
-          CANARY_CHARACTER_CREATE_DB_PASSWORD=$CANARY_CHARACTER_CREATE_DB_PASSWORD
           MARKETPLACE_ENABLED=$marketplace_enabled
-          MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID=$escrow_id
-          MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME=$escrow_name
-          MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH=$escrow_epoch
-          CANARY_CHARACTER_TRANSFER_DB_USER=$transfer_user
-          CANARY_CHARACTER_TRANSFER_DB_PASSWORD=$transfer_password
           REDIS_PASSWORD=$REDIS_PASSWORD
-          CANARY_RUNTIME_REDIS_USERNAME=oteryn_runtime
-          CANARY_RUNTIME_REDIS_PASSWORD=$CANARY_RUNTIME_REDIS_PASSWORD
           OTERYN_PLATFORM_SERVICE_TOKEN=$OTERYN_PLATFORM_SERVICE_TOKEN
           GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256=$GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256
           GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256=$GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256
-          GAME_SESSION_SERVICE_TOKEN=$GAME_SESSION_SERVICE_TOKEN
-          CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256=$CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256
-          CANARY_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256=$CANARY_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256
-          CANARY_SERVER_NAME=Oteryn Staging
-          CANARY_SERVER_IP=192.168.1.2
-          CANARY_TEST_ACCOUNTS=false
-          CANARY_DATA_PACK=data-otservbr-global
-          CANARY_MAP_URL=https://github.com/opentibiabr/canary/releases/download/v3.6.1/otservbr.otbm
           GATEWAY_VERSION=$RELEASE_TAG
           OTERYN_STATE_DIR=$state_dir
           EOF
@@ -271,11 +224,6 @@ jobs:
           target = Path(sys.argv[2])
           allowed = [
               'MARKETPLACE_ENABLED',
-              'MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID',
-              'MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME',
-              'MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH',
-              'CANARY_CHARACTER_TRANSFER_DB_USER',
-              'CANARY_CHARACTER_TRANSFER_DB_PASSWORD',
           ]
           values = {}
           for line in source.read_text().splitlines():
@@ -334,11 +282,6 @@ jobs:
           target = Path(sys.argv[2])
           allowed = [
               'MARKETPLACE_ENABLED',
-              'MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID',
-              'MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME',
-              'MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH',
-              'CANARY_CHARACTER_TRANSFER_DB_USER',
-              'CANARY_CHARACTER_TRANSFER_DB_PASSWORD',
           ]
           values = {}
           for line in source.read_text().splitlines():
@@ -347,10 +290,6 @@ jobs:
               key, value = line.split('=', 1)
               if key in allowed:
                   values[key] = value
-          if values.get('MARKETPLACE_ENABLED') == 'true':
-              escrow_id = values.get('MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID', '')
-              if not escrow_id.isdigit() or int(escrow_id) <= 0:
-                  raise SystemExit('enabled Marketplace state has no positive escrow identifier')
           temporary = target.with_suffix('.env.tmp')
           temporary.write_text(''.join(f'{key}={values[key]}\n' for key in allowed))
           os.chmod(temporary, 0o600)
@@ -380,8 +319,6 @@ jobs:
               'platform_image': platform_image,
               'marketplace_enabled': enabled == 'true',
               'scheduler_running_count': int(scheduler_count),
-              'transfer_privileges': 'verified-by-guarded-action',
-              'escrow_identity': 'reviewed-unbound-non-login-account-verified',
               'production_environment_proven': False,
           }
           Path('character-bazaar-staging-evidence.json').write_text(json.dumps(evidence, indent=2) + '\n')

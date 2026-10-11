@@ -155,7 +155,7 @@ jobs:
           set -euo pipefail
 
           project=oteryn-staging
-          runtime_services=(mariadb redis platform canary internal-proxy gateway marketplace-scheduler)
+          runtime_services=(mariadb redis platform internal-proxy gateway marketplace-scheduler)
           mapfile -t compose_sources < <(
             find deploy/synology -maxdepth 1 -type f -name 'compose*.yml' -print | sort
           )

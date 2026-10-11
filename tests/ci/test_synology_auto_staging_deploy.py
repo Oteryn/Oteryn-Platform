@@ -78,15 +78,11 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         self.assertIn('exec bash "$CORE_DEPLOY"', self.impact_deploy_script)
 
     def test_automatic_deploy_is_exact_sha_and_preserves_approved_staging_identity(self) -> None:
-        expected = (
-            "ghcr.io/blakinio/canary@sha256:"
-            "784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f"
-        )
         self.assertIn("inputs[release_sha]=${GITHUB_SHA}", self.build_workflow)
         self.assertIn("inputs[platform_changed]=${PLATFORM_CHANGED}", self.build_workflow)
         self.assertIn("inputs[gateway_changed]=${GATEWAY_CHANGED}", self.build_workflow)
-        self.assertIn(expected, self.build_workflow)
-        self.assertIn("inputs[canary_game_bind_address]=192.168.1.2", self.build_workflow)
+        self.assertNotIn("canary_image", self.build_workflow)
+        self.assertIn("inputs[game_world_host]=192.168.1.2", self.build_workflow)
         self.assertIn("inputs[game_world_id]=1", self.build_workflow)
         self.assertIn("inputs[game_world_slug]=oteryn-staging", self.build_workflow)
         self.assertIn("inputs[game_world_name]=Oteryn Staging", self.build_workflow)
@@ -156,7 +152,7 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
         self.assertNotIn("python3 --version", self.deploy_workflow)
         self.assertNotIn("python3 -", self.deploy_workflow)
         self.assertIn(
-            'bash deploy/synology/scripts/validate-ipv4.sh "$CANARY_GAME_BIND_ADDRESS_INPUT" private-or-loopback',
+            'bash deploy/synology/scripts/validate-ipv4.sh "$GAME_WORLD_HOST_INPUT" private-or-loopback',
             self.deploy_workflow,
         )
 
@@ -209,22 +205,17 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
 
     def test_runtime_health_names_gateway_dependency_failures_before_ready(self) -> None:
         health = (ROOT / "deploy/synology/scripts/health-check.sh").read_text(encoding="utf-8")
-        self.assertIn("Canary session issuer /health", health)
         self.assertIn("Gateway -> Platform", health)
-        self.assertIn("Gateway -> Canary session issuer", health)
-        self.assertIn("Gateway aggregate readiness failed after both internal dependencies passed.", health)
+        self.assertIn("Gateway aggregate readiness failed after the internal dependency passed.", health)
 
     def test_internal_proxy_re_resolves_recreated_compose_service_ips(self) -> None:
         self.assertIn("resolver 127.0.0.11 valid=10s ipv6=off;", self.internal_proxy)
         self.assertIn("resolver_timeout 5s;", self.internal_proxy)
         self.assertIn("zone platform_backend 64k;", self.internal_proxy)
         self.assertIn("server platform:8000 resolve;", self.internal_proxy)
-        self.assertIn("zone canary_session_backend 64k;", self.internal_proxy)
-        self.assertIn("server canary:7180 resolve;", self.internal_proxy)
         self.assertIn("proxy_pass http://platform_backend;", self.internal_proxy)
-        self.assertIn("proxy_pass http://canary_session_backend;", self.internal_proxy)
         self.assertNotIn("proxy_pass http://platform:8000;", self.internal_proxy)
-        self.assertNotIn("proxy_pass http://canary:7180;", self.internal_proxy)
+        self.assertNotIn("canary", self.internal_proxy)
 
     def test_new_main_can_finalize_a_proven_previous_candidate_before_transition(self) -> None:
         self.assertIn("finalize_previous_candidate_if_healthy()", self.deploy_script)

@@ -89,7 +89,11 @@ async function capture(page, name, status) {
   expect.soft(defects.scrollWidth, `${name}: document overflow`).toBeLessThanOrEqual(defects.width + 1);
 }
 
-async function visit(page, path, name, expectedStatus = 200) {
+// Game-world pages (highscores, online, guilds, deaths, servers, characters) have no native data source yet.
+// They render the truthful unavailable state (503) until native fixtures return.
+const gameWorldUnavailable = /^\/[a-z]{2}\/(highscores|online|guilds|deaths|servers|characters)(\/|\?|$)/u;
+
+async function visit(page, path, name, expectedStatus = gameWorldUnavailable.test(path) ? 503 : 200) {
   const response = await page.goto(path);
   expect.soft(response?.status(), name).toBe(expectedStatus);
   await capture(page, name, response?.status());
@@ -176,7 +180,7 @@ test('@smoke @portal-review actual authenticated hub, characters, support, secur
   await register(page, email, password);
   await login(page, email, password);
   await page.goto('/account?locale=en');
-  await expect(page.locator('[data-account-state]')).toHaveAttribute('data-account-state', 'ready');
+  await expect(page.locator('[data-account-state]')).toHaveAttribute('data-account-state', /^(ready|recoverable)$/u);
   const privatePages = [
     ['/account', 'account'], ['/account/characters/create', 'character-create'],
     ['/account/security', 'security'], ['/mfa', 'mfa'], ['/password/change', 'change-password'],
@@ -199,26 +203,6 @@ test('@smoke @portal-review actual authenticated hub, characters, support, secur
   await page.locator('select[name="sex"]').selectOption('1');
   await page.locator('form[method="POST"] button[type="submit"]').last().click();
   await expect(page.getByRole('alert')).toContainText('Character creation is temporarily unavailable.');
-  // Creation is closed, so the roster fixture is seeded through the game database.
-  const rootPassword = process.env.MARIADB_ROOT_PASSWORD;
-  const gameDb = process.env.CANARY_DB_DATABASE;
-  expect(rootPassword).toBeTruthy();
-  expect(gameDb).toBeTruthy();
-  const accountId = Number(runPhpState('binding', email).canary_account_id);
-  expect(accountId).toBeGreaterThan(0);
-  runBinary('mariadb', [
-    '--protocol=tcp', '-h127.0.0.1', '-uroot', `-p${rootPassword}`, '-e',
-    `INSERT INTO \`${gameDb}\`.players (name, account_id) VALUES ('${characterName}', ${accountId});`,
-  ]);
-  await page.goto('/account?locale=en');
-  await expect(page.locator('.character-roster-row')).toContainText(characterName);
-  const profilePath = `/account/characters/${encodeURIComponent(characterName)}/profile?locale=en`;
-  for (const [name, viewport] of viewports.filter(([name]) => ['desktop', 'phone'].includes(name))) {
-    await page.setViewportSize(viewport);
-    await visit(page, '/account?locale=en', `${name}-account-populated`);
-    await visit(page, profilePath, `${name}-character-profile-settings`);
-  }
-
   await page.goto('/support/tickets/create?locale=en');
   await page.getByLabel('Category').selectOption('technical');
   await page.getByLabel('Subject').fill('Portal review help request');

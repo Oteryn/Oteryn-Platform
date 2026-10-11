@@ -247,7 +247,7 @@ _oteryn_known_schema_identity() {
 
 _oteryn_bootstrap_legacy_current_release() {
     local state_dir="$1" current_file="$state_dir/current-release.env" legacy_file="$state_dir/last-good.env"
-    local old_platform old_gateway old_canary old_sha observed_schema table_count
+    local old_platform old_gateway old_sha observed_schema table_count
     local -a legacy_images
     [[ ! -f "$current_file" ]] || return 0
 
@@ -266,19 +266,20 @@ _oteryn_bootstrap_legacy_current_release() {
         return 0
     fi
 
-    mapfile -t legacy_images < <(bash -c 'set -euo pipefail; source "$1"; printf "%s\n%s\n%s\n" "${PLATFORM_IMAGE:-}" "${GATEWAY_IMAGE:-}" "${CANARY_IMAGE:-}"' bash "$legacy_file")
+    mapfile -t legacy_images < <(bash -c 'set -euo pipefail; source "$1"; printf "%s\n%s\n" "${PLATFORM_IMAGE:-}" "${GATEWAY_IMAGE:-}"' bash "$legacy_file")
     old_platform="${legacy_images[0]:-}"
     old_gateway="${legacy_images[1]:-}"
-    old_canary="${legacy_images[2]:-}"
-    [[ -n "$old_platform" && -n "$old_gateway" && -n "$old_canary" ]] || {
+    [[ -n "$old_platform" && -n "$old_gateway" ]] || {
         echo "Legacy running-release snapshot is incomplete; refusing migration." >&2
         return 1
     }
     old_sha="$(_oteryn_release_sha_for_images "$old_platform" "$old_gateway")" || return 1
 
     observed_schema="observed-${old_sha}"
+    # A legacy snapshot predates the native-only cut and needs the retired Canary
+    # topology, so it is recorded as ineligible for image rollback.
     bash "$SCRIPT_DIR/release-state.sh" write "$current_file" "$old_sha" "$old_sha" "$old_sha" \
-        "$observed_schema" "$observed_schema" "$old_platform" "$old_gateway" "$old_canary" 1
+        "$observed_schema" "$observed_schema" "$old_platform" "$old_gateway" 0
     _oteryn_write_schema_state_known "$state_dir" "$observed_schema" "$old_sha"
 }
 
@@ -286,15 +287,89 @@ _oteryn_marketplace_state_file() {
     printf '%s/marketplace.env\n' "$(_oteryn_deploy_state_dir)"
 }
 
+# Durable Marketplace state written before the native-only cut also carries the
+# escrow account and character-transfer credentials. Those five keys are retired;
+# every other unknown key still fails closed.
+OTERYN_RETIRED_MARKETPLACE_STATE_KEYS=(
+    MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID
+    MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME
+    MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH
+    CANARY_CHARACTER_TRANSFER_DB_USER
+    CANARY_CHARACTER_TRANSFER_DB_PASSWORD
+)
+
+_oteryn_marketplace_non_terminal_auction_count() {
+    local -a db=(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T
+        -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb mariadb -uroot -N -B -e)
+    local table_count pending
+
+    table_count="$("${db[@]}" "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$PLATFORM_DB_NAME' AND table_name='character_auctions';")" || return 1
+    [[ "$table_count" =~ ^[0-9]+$ ]] || return 1
+    if [[ "$table_count" == 0 ]]; then
+        printf '0\n'
+        return 0
+    fi
+    pending="$("${db[@]}" "SELECT COUNT(*) FROM \`$PLATFORM_DB_NAME\`.character_auctions WHERE status IN ('escrow_pending','active','settlement_pending','cancel_pending','recovery_required');")" || return 1
+    [[ "$pending" =~ ^[0-9]+$ ]] || return 1
+    printf '%s\n' "$pending"
+}
+
+# Strips the retired keys from a legacy durable state file, only after proving the
+# Bazaar is disabled and has no non-terminal auctions. Idempotent; a no-op for a
+# file already in the native-only format.
+_oteryn_migrate_legacy_marketplace_state() {
+    local durable_file line key value enabled='' legacy=0 retired pending tmp
+
+    durable_file="$(_oteryn_marketplace_state_file)"
+    [[ -f "$durable_file" ]] || return 0
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ "$line" == *=* ]] || { echo "Invalid Marketplace state line." >&2; return 1; }
+        key="${line%%=*}"
+        value="${line#*=}"
+        if [[ "$key" == MARKETPLACE_ENABLED ]]; then
+            [[ -z "$enabled" ]] || { echo "Duplicate Marketplace state key: $key" >&2; return 1; }
+            enabled="$value"
+            continue
+        fi
+        for retired in "${OTERYN_RETIRED_MARKETPLACE_STATE_KEYS[@]}"; do
+            if [[ "$key" == "$retired" ]]; then
+                legacy=1
+                continue 2
+            fi
+        done
+        echo "Unexpected durable Marketplace state key: $key" >&2
+        return 1
+    done < "$durable_file"
+
+    [[ "$legacy" == 1 ]] || return 0
+
+    [[ "$enabled" == false ]] || {
+        echo "Legacy Character Bazaar state is not disabled; run the Character Bazaar staging control prepare-rollback before deploying the native-only cut." >&2
+        return 1
+    }
+    pending="$(_oteryn_marketplace_non_terminal_auction_count)" || {
+        echo "Cannot prove the legacy Character Bazaar is drained; refusing Marketplace state migration." >&2
+        return 1
+    }
+    [[ "$pending" == 0 ]] || {
+        echo "Legacy Character Bazaar has $pending non-terminal auctions; drain it before deploying the native-only cut." >&2
+        return 1
+    }
+
+    tmp="$durable_file.tmp"
+    ( umask 077; printf 'MARKETPLACE_ENABLED=false\n' >"$tmp" )
+    chmod 600 "$tmp"
+    mv "$tmp" "$durable_file"
+    echo "Migrated legacy Character Bazaar state: disabled and drained; retired escrow and transfer keys removed."
+}
+
 _oteryn_load_marketplace_runtime_state() {
     local durable_file source_file line key value seen='|'
     local -a required=(
         MARKETPLACE_ENABLED
-        MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID
-        MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME
-        MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH
-        CANARY_CHARACTER_TRANSFER_DB_USER
-        CANARY_CHARACTER_TRANSFER_DB_PASSWORD
     )
     durable_file="$(_oteryn_marketplace_state_file)"
     source_file="$durable_file"
@@ -302,9 +377,11 @@ _oteryn_load_marketplace_runtime_state() {
         source_file="$ENV_FILE"
     fi
     [[ -f "$source_file" ]] || return 2
+    if [[ "$source_file" == "$durable_file" ]]; then
+        _oteryn_migrate_legacy_marketplace_state || return 1
+    fi
 
-    unset MARKETPLACE_ENABLED MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME
-    unset MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH CANARY_CHARACTER_TRANSFER_DB_USER CANARY_CHARACTER_TRANSFER_DB_PASSWORD
+    unset MARKETPLACE_ENABLED
 
     while IFS= read -r line || [[ -n "$line" ]]; do
         line="${line%$'\r'}"
@@ -313,7 +390,7 @@ _oteryn_load_marketplace_runtime_state() {
         key="${line%%=*}"
         value="${line#*=}"
         case "$key" in
-            MARKETPLACE_ENABLED|MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID|MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME|MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH|CANARY_CHARACTER_TRANSFER_DB_USER|CANARY_CHARACTER_TRANSFER_DB_PASSWORD)
+            MARKETPLACE_ENABLED)
                 if [[ "$seen" == *"|$key|"* ]]; then
                     echo "Duplicate Marketplace state key: $key" >&2
                     return 1
@@ -333,10 +410,6 @@ _oteryn_load_marketplace_runtime_state() {
         [[ -n "${!name:-}" ]] || { echo "Marketplace runtime state is incomplete: $name" >&2; return 1; }
     done
     [[ "$MARKETPLACE_ENABLED" == true || "$MARKETPLACE_ENABLED" == false ]] || { echo "Marketplace runtime state has invalid enabled flag." >&2; return 1; }
-    if [[ "$MARKETPLACE_ENABLED" == true ]]; then
-        [[ "$MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID" =~ ^[1-9][0-9]*$ ]] || { echo "Enabled Marketplace runtime state has invalid escrow id." >&2; return 1; }
-        [[ -n "$CANARY_CHARACTER_TRANSFER_DB_USER" && -n "$CANARY_CHARACTER_TRANSFER_DB_PASSWORD" ]] || { echo "Enabled Marketplace runtime state lacks transfer credentials." >&2; return 1; }
-    fi
 }
 
 _oteryn_marketplace_scheduler_id() {
@@ -453,7 +526,7 @@ _oteryn_resume_candidate_if_safe() {
         source "$1"
         printf "%s\n" \
             "$RELEASE_SHA" "$PLATFORM_SOURCE_SHA" "$GATEWAY_SOURCE_SHA" \
-            "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE" \
+            "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" \
             "${GAME_WORLD_ID:-}" "${GAME_WORLD_SLUG:-}" "${GAME_WORLD_NAME:-}" \
             "${GAME_WORLD_REGION:-}" "${GAME_WORLD_HOST:-}" "${GAME_WORLD_PORT:-}"
     ' bash "$candidate_file")
@@ -468,17 +541,16 @@ _oteryn_resume_candidate_if_safe() {
         return 1
     }
     [[ "${candidate_runtime[3]:-}" == "$PLATFORM_IMAGE" \
-        && "${candidate_runtime[4]:-}" == "$GATEWAY_IMAGE" \
-        && "${candidate_runtime[5]:-}" == "$CANARY_IMAGE" ]] || {
+        && "${candidate_runtime[4]:-}" == "$GATEWAY_IMAGE" ]] || {
         echo "Candidate resume rejected: immutable runtime image identity drifted." >&2
         return 1
     }
-    [[ "${candidate_runtime[6]:-}" == "${GAME_WORLD_ID:-}" \
-        && "${candidate_runtime[7]:-}" == "${GAME_WORLD_SLUG:-}" \
-        && "${candidate_runtime[8]:-}" == "${GAME_WORLD_NAME:-}" \
-        && "${candidate_runtime[9]:-}" == "${GAME_WORLD_REGION:-}" \
-        && "${candidate_runtime[10]:-}" == "${GAME_WORLD_HOST:-}" \
-        && "${candidate_runtime[11]:-}" == "${GAME_WORLD_PORT:-}" ]] || {
+    [[ "${candidate_runtime[5]:-}" == "${GAME_WORLD_ID:-}" \
+        && "${candidate_runtime[6]:-}" == "${GAME_WORLD_SLUG:-}" \
+        && "${candidate_runtime[7]:-}" == "${GAME_WORLD_NAME:-}" \
+        && "${candidate_runtime[8]:-}" == "${GAME_WORLD_REGION:-}" \
+        && "${candidate_runtime[9]:-}" == "${GAME_WORLD_HOST:-}" \
+        && "${candidate_runtime[10]:-}" == "${GAME_WORLD_PORT:-}" ]] || {
         echo "Candidate resume rejected: staged world identity drifted." >&2
         return 1
     }
@@ -509,6 +581,12 @@ _oteryn_before_platform_migrate() {
     state_dir="$(_oteryn_deploy_state_dir)"
     release_sha="$(_oteryn_release_sha)" || return 1
 
+    # Prove and migrate legacy durable Marketplace state before any schema change,
+    # so a stale escrow/transfer record cannot abort the deploy after migration.
+    if ! { [[ -f "$ENV_FILE" ]] && grep -q '^MARKETPLACE_ENABLED=' "$ENV_FILE"; }; then
+        _oteryn_migrate_legacy_marketplace_state || return 1
+    fi
+
     if [[ -f "$state_dir/candidate-release.env" ]]; then
         _oteryn_resume_candidate_if_safe "$state_dir" "$release_sha" || return 1
         return 0
@@ -523,7 +601,7 @@ _oteryn_before_platform_migrate() {
     bash "$SCRIPT_DIR/release-state.sh" write "$state_dir/candidate-release.env" "$release_sha" \
         "$PLATFORM_SOURCE_SHA" "$GATEWAY_SOURCE_SHA" \
         "$OTERYN_SCHEMA_COMPATIBILITY_ID" "$OTERYN_APP_ACCEPTS_SCHEMA_IDS" \
-        "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE" 1
+        "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" 1
 
     current_file="$state_dir/current-release.env"
     if [[ -f "$current_file" ]]; then

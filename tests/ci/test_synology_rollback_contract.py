@@ -26,7 +26,6 @@ def release(path: pathlib.Path, *, sha: str, schema: str, accepts: str, eligible
                 f"GATEWAY_SOURCE_SHA={sha}",
                 f"PLATFORM_IMAGE=example/platform@sha256:{DIGEST_A}",
                 f"GATEWAY_IMAGE=example/gateway@sha256:{DIGEST_B}",
-                f"CANARY_IMAGE=example/canary@sha256:{DIGEST_C}",
                 f"SCHEMA_COMPATIBILITY_ID={schema}",
                 f"APP_ACCEPTS_SCHEMA_IDS={accepts}",
                 "MIGRATION_POLICY=expand-contract",
@@ -121,6 +120,25 @@ def test_compatible_rollback_is_accepted() -> None:
         assert run_compatible(current, old).returncode == 0
 
 
+def test_pre_cut_canary_topology_release_is_rollback_ineligible() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = pathlib.Path(td)
+        current, old = root / "candidate.env", root / "last-good.env"
+        release(current, sha=NEW_SHA, schema="schema-v2", accepts="schema-v2")
+        release(old, sha=OLD_SHA, schema="schema-v1", accepts="schema-v1,schema-v2")
+        old.write_text(old.read_text() + f"CANARY_IMAGE=example/canary@sha256:{DIGEST_C}\n")
+        result = run_compatible(current, old)
+        assert result.returncode != 0
+        assert "predates the native-only cut" in result.stderr
+
+
+def test_legacy_release_state_is_recorded_rollback_ineligible() -> None:
+    legacy_upgrade = (SCRIPTS / "upgrade-legacy-release-state.sh").read_text(encoding="utf-8")
+    assert "    eligible=0\n" in legacy_upgrade
+    lib = LIB.read_text(encoding="utf-8")
+    assert '"$observed_schema" "$observed_schema" "$old_platform" "$old_gateway" 0\n' in lib
+
+
 def test_incompatible_schema_rollback_is_rejected() -> None:
     with tempfile.TemporaryDirectory() as td:
         root = pathlib.Path(td)
@@ -180,7 +198,6 @@ def test_release_state_round_trips_world_name_with_spaces() -> None:
                 "schema-v1,schema-v2",
                 f"example/platform@sha256:{DIGEST_A}",
                 f"example/gateway@sha256:{DIGEST_B}",
-                f"example/canary@sha256:{DIGEST_C}",
                 "1",
             ],
             text=True,
@@ -265,7 +282,6 @@ def test_failed_exact_candidate_resume_requires_known_matching_schema_and_identi
     assert '"${candidate_runtime[2]:-}" == "$GATEWAY_SOURCE_SHA"' in lib
     assert '"${candidate_runtime[3]:-}" == "$PLATFORM_IMAGE"' in lib
     assert '"${candidate_runtime[4]:-}" == "$GATEWAY_IMAGE"' in lib
-    assert '"${candidate_runtime[5]:-}" == "$CANARY_IMAGE"' in lib
     assert '[[ "$schema_state" == known && "$schema_target" == "$release_sha" && "$schema_id" == "$candidate_schema" ]]' in lib
     assert "prior migration is not proven complete" in lib
     assert "preserving recovery evidence until health checks pass" in lib
@@ -282,11 +298,9 @@ def test_deploy_does_not_pull_all_images_twice_and_forces_tls_bootstrap_refresh(
 
 def test_health_check_proves_each_gateway_dependency_before_aggregate_ready() -> None:
     health = (SCRIPTS / "health-check.sh").read_text()
-    canary = health.index('probe_url canary 7180 /health "Canary session issuer /health"')
     platform_tls = health.index('probe_internal_tls "https://platform-internal:8443/health"')
-    canary_tls = health.index('probe_internal_tls "https://canary-session-internal:8444/health"')
     gateway_ready = health.index('probe_url gateway 8080 /ready "Gateway /ready"')
-    assert canary < platform_tls < canary_tls < gateway_ready
+    assert platform_tls < gateway_ready
     assert "ssl.create_default_context(cafile='/etc/oteryn/tls/ca.crt')" in health
     assert 'docker logs --tail 80 "${container_ids[internal-proxy]}"' in health
     assert 'docker logs --tail 80 "${container_ids[gateway]}"' in health
@@ -298,7 +312,7 @@ def test_legacy_bootstrap_does_not_replace_candidate_image_variables() -> None:
     end = lib.index("_oteryn_marketplace_state_file()", start)
     bootstrap = lib[start:end]
     assert "mapfile -t legacy_images" in bootstrap
-    assert "unset PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE" not in bootstrap
+    assert "unset PLATFORM_IMAGE GATEWAY_IMAGE" not in bootstrap
     assert "source \"$legacy_file\"" not in bootstrap
 
 
@@ -455,3 +469,22 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def test_marketplace_enable_and_verify_are_refused_without_transfer_contract() -> None:
+    script = SCRIPTS / "marketplace-staging.sh"
+    with tempfile.TemporaryDirectory() as td:
+        root = pathlib.Path(td)
+        env_file = root / ".env"
+        env_file.write_text("MARKETPLACE_ENABLED=false\n")
+        docker = root / "docker"
+        docker.write_text("#!/usr/bin/env bash\necho docker-called >&2\nexit 97\n")
+        docker.chmod(0o755)
+        env = os.environ.copy()
+        env.update({"PATH": f"{root}:{env['PATH']}", "OTERYN_ENV_FILE": str(env_file)})
+        for action in ("enable", "verify"):
+            result = subprocess.run(["bash", str(script), action], text=True, capture_output=True, check=False, env=env)
+            assert result.returncode == 1, action
+            assert "no character transfer/escrow contract" in result.stderr, action
+            assert "docker-called" not in result.stderr, action
+        assert env_file.read_text() == "MARKETPLACE_ENABLED=false\n"

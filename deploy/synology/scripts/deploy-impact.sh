@@ -14,18 +14,13 @@ load_oteryn_env_file "$ENV_FILE"
 
 required_vars=(
     OTERYN_RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA
-    PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE
-    PLATFORM_BIND_ADDRESS GATEWAY_BIND_ADDRESS CANARY_LOGIN_BIND_ADDRESS CANARY_GAME_BIND_ADDRESS
-    PLATFORM_PORT GATEWAY_PORT CANARY_LOGIN_PORT CANARY_GAME_PORT CANARY_SERVER_IP
+    PLATFORM_IMAGE GATEWAY_IMAGE
+    PLATFORM_BIND_ADDRESS GATEWAY_BIND_ADDRESS
+    PLATFORM_PORT GATEWAY_PORT
     GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT
     APP_KEY MARIADB_ROOT_PASSWORD PLATFORM_DB_NAME PLATFORM_DB_USER PLATFORM_DB_PASSWORD
-    CANARY_DB_NAME CANARY_DB_USER CANARY_DB_PASSWORD
-    CANARY_READONLY_DB_USER CANARY_READONLY_DB_PASSWORD
-    CANARY_PROVISIONING_DB_USER CANARY_PROVISIONING_DB_PASSWORD
-    CANARY_CHARACTER_CREATE_DB_USER CANARY_CHARACTER_CREATE_DB_PASSWORD
-    REDIS_PASSWORD CANARY_RUNTIME_REDIS_USERNAME CANARY_RUNTIME_REDIS_PASSWORD
+    REDIS_PASSWORD
     OTERYN_PLATFORM_SERVICE_TOKEN GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256
-    GAME_SESSION_SERVICE_TOKEN CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256
 )
 for name in "${required_vars[@]}"; do
     value="${!name:-}"
@@ -37,12 +32,8 @@ done
 
 safe_credential_vars=(
     PLATFORM_DB_NAME PLATFORM_DB_USER PLATFORM_DB_PASSWORD
-    CANARY_DB_NAME CANARY_DB_USER CANARY_DB_PASSWORD
-    CANARY_READONLY_DB_USER CANARY_READONLY_DB_PASSWORD
-    CANARY_PROVISIONING_DB_USER CANARY_PROVISIONING_DB_PASSWORD
-    CANARY_CHARACTER_CREATE_DB_USER CANARY_CHARACTER_CREATE_DB_PASSWORD
-    REDIS_PASSWORD CANARY_RUNTIME_REDIS_USERNAME CANARY_RUNTIME_REDIS_PASSWORD
-    OTERYN_PLATFORM_SERVICE_TOKEN GAME_SESSION_SERVICE_TOKEN
+    REDIS_PASSWORD
+    OTERYN_PLATFORM_SERVICE_TOKEN
 )
 for name in "${safe_credential_vars[@]}"; do
     value="${!name}"
@@ -60,19 +51,10 @@ if [[ ! "$GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256" =~ ^[A-Fa-f0-9]{64}$ ]]; then
     echo "GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256 must be a 64-character SHA-256 hex digest." >&2
     exit 1
 fi
-if [[ ! "$CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256" =~ ^[A-Fa-f0-9]{64}$ ]]; then
-    echo "CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256 must be a 64-character SHA-256 hex digest." >&2
-    exit 1
-fi
 
 expected_platform_hash="$(printf '%s' "$OTERYN_PLATFORM_SERVICE_TOKEN" | sha256sum | awk '{print $1}')"
-expected_session_hash="$(printf '%s' "$GAME_SESSION_SERVICE_TOKEN" | sha256sum | awk '{print $1}')"
 if [[ "$expected_platform_hash" != "${GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256,,}" ]]; then
     echo "Gateway -> Platform service token/hash mismatch." >&2
-    exit 1
-fi
-if [[ "$expected_session_hash" != "${CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256,,}" ]]; then
-    echo "Gateway -> Canary service token/hash mismatch." >&2
     exit 1
 fi
 
@@ -95,14 +77,10 @@ validate_port() {
 
 validate_ipv4_policy "$PLATFORM_BIND_ADDRESS" loopback || { echo "PLATFORM_BIND_ADDRESS is invalid; Platform must remain loopback-only." >&2; exit 1; }
 validate_ipv4_policy "$GATEWAY_BIND_ADDRESS" loopback || { echo "GATEWAY_BIND_ADDRESS is invalid; Gateway must remain loopback-only." >&2; exit 1; }
-validate_ipv4_policy "$CANARY_LOGIN_BIND_ADDRESS" loopback || { echo "CANARY_LOGIN_BIND_ADDRESS is invalid; legacy login must remain loopback-only." >&2; exit 1; }
-validate_ipv4_policy "$CANARY_GAME_BIND_ADDRESS" private-or-loopback || { echo "CANARY_GAME_BIND_ADDRESS must be loopback or an exact private LAN IPv4 address." >&2; exit 1; }
-[[ "$CANARY_SERVER_IP" == "$CANARY_GAME_BIND_ADDRESS" ]] || { echo "CANARY_SERVER_IP must exactly match CANARY_GAME_BIND_ADDRESS." >&2; exit 1; }
-[[ "$GAME_WORLD_HOST" == "$CANARY_GAME_BIND_ADDRESS" ]] || { echo "GAME_WORLD_HOST must exactly match CANARY_GAME_BIND_ADDRESS." >&2; exit 1; }
-for port_name in PLATFORM_PORT GATEWAY_PORT CANARY_LOGIN_PORT CANARY_GAME_PORT GAME_WORLD_PORT; do
+validate_ipv4_policy "$GAME_WORLD_HOST" private-or-loopback || { echo "GAME_WORLD_HOST must be loopback or an exact private LAN IPv4 address." >&2; exit 1; }
+for port_name in PLATFORM_PORT GATEWAY_PORT GAME_WORLD_PORT; do
     validate_port "$port_name"
 done
-[[ "$GAME_WORLD_PORT" == "$CANARY_GAME_PORT" ]] || { echo "GAME_WORLD_PORT must exactly match CANARY_GAME_PORT." >&2; exit 1; }
 [[ "$GAME_WORLD_ID" =~ ^[1-9][0-9]*$ ]] || { echo "GAME_WORLD_ID must be a positive integer." >&2; exit 1; }
 [[ "$GAME_WORLD_SLUG" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || { echo "GAME_WORLD_SLUG must be a bounded lower-case slug." >&2; exit 1; }
 [[ "$GAME_WORLD_REGION" =~ ^[A-Za-z0-9_-]{1,32}$ ]] || { echo "GAME_WORLD_REGION must be a simple bounded label." >&2; exit 1; }
@@ -206,11 +184,9 @@ RECONCILE_OLD_PLATFORM_SOURCE_SHA=''
 RECONCILE_OLD_GATEWAY_SOURCE_SHA=''
 RECONCILE_OLD_PLATFORM_IMAGE=''
 RECONCILE_OLD_GATEWAY_IMAGE=''
-RECONCILE_OLD_CANARY_IMAGE=''
 RECONCILE_SCHEMA_ID=''
 RECONCILE_MARIADB_ID=''
 RECONCILE_REDIS_ID=''
-RECONCILE_CANARY_ID=''
 RECONCILE_PROXY_ID=''
 RECONCILE_GATEWAY_ID=''
 RECONCILE_OLD_PLATFORM_ID=''
@@ -242,7 +218,7 @@ _oteryn_platform_reconcile_candidate() {
         source "$1"
         printf "%s\n" \
             "$RELEASE_SHA" "$PLATFORM_SOURCE_SHA" "$GATEWAY_SOURCE_SHA" \
-            "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE" \
+            "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" \
             "$SCHEMA_COMPATIBILITY_ID" "$APP_ACCEPTS_SCHEMA_IDS" \
             "${GAME_WORLD_ID:-}" "${GAME_WORLD_SLUG:-}" "${GAME_WORLD_NAME:-}" \
             "${GAME_WORLD_REGION:-}" "${GAME_WORLD_HOST:-}" "${GAME_WORLD_PORT:-}"
@@ -253,7 +229,6 @@ _oteryn_platform_reconcile_candidate() {
     RECONCILE_OLD_GATEWAY_SOURCE_SHA="${current_state[2]:-}"
     RECONCILE_OLD_PLATFORM_IMAGE="${current_state[3]:-}"
     RECONCILE_OLD_GATEWAY_IMAGE="${current_state[4]:-}"
-    RECONCILE_OLD_CANARY_IMAGE="${current_state[5]:-}"
 
     [[ "$RECONCILE_OLD_RELEASE_SHA" != "$OTERYN_RELEASE_SHA" ]] || { RECONCILE_REASON='target release is already current'; return 1; }
     checked_out="$(git -C "$REPO_ROOT" rev-parse HEAD)"
@@ -291,13 +266,12 @@ _oteryn_platform_reconcile_candidate() {
     [[ "$GATEWAY_SOURCE_SHA" == "$RECONCILE_OLD_GATEWAY_SOURCE_SHA" && "$GATEWAY_IMAGE" == "$RECONCILE_OLD_GATEWAY_IMAGE" ]] || {
         RECONCILE_REASON='Gateway provenance changed'; return 1;
     }
-    [[ "$CANARY_IMAGE" == "$RECONCILE_OLD_CANARY_IMAGE" ]] || { RECONCILE_REASON='Canary provenance changed'; return 1; }
-    [[ "${current_state[8]:-}" == "$GAME_WORLD_ID" \
-        && "${current_state[9]:-}" == "$GAME_WORLD_SLUG" \
-        && "${current_state[10]:-}" == "$GAME_WORLD_NAME" \
-        && "${current_state[11]:-}" == "$GAME_WORLD_REGION" \
-        && "${current_state[12]:-}" == "$GAME_WORLD_HOST" \
-        && "${current_state[13]:-}" == "$GAME_WORLD_PORT" ]] || {
+    [[ "${current_state[7]:-}" == "$GAME_WORLD_ID" \
+        && "${current_state[8]:-}" == "$GAME_WORLD_SLUG" \
+        && "${current_state[9]:-}" == "$GAME_WORLD_NAME" \
+        && "${current_state[10]:-}" == "$GAME_WORLD_REGION" \
+        && "${current_state[11]:-}" == "$GAME_WORLD_HOST" \
+        && "${current_state[12]:-}" == "$GAME_WORLD_PORT" ]] || {
         RECONCILE_REASON='staging world identity changed'; return 1;
     }
 
@@ -305,7 +279,7 @@ _oteryn_platform_reconcile_candidate() {
     current_schema_state="$(_oteryn_read_state_key "$schema_file" SCHEMA_STATE)" || return 2
     current_schema_id="$(_oteryn_read_state_key "$schema_file" SCHEMA_COMPATIBILITY_ID)" || return 2
     [[ "$current_schema_state" == known ]] || { RECONCILE_REASON='managed schema state is not known'; return 1; }
-    [[ "$current_schema_id" == "${current_state[6]:-}" ]] || { RECONCILE_REASON='current release/schema identity is not exact'; return 1; }
+    [[ "$current_schema_id" == "${current_state[5]:-}" ]] || { RECONCILE_REASON='current release/schema identity is not exact'; return 1; }
 
     _oteryn_release_sha >/dev/null || return 2
     _oteryn_load_candidate_contract || return 2
@@ -317,7 +291,6 @@ _oteryn_platform_reconcile_candidate() {
 
     RECONCILE_OLD_PLATFORM_ID="$(_oteryn_running_service_id platform "$RECONCILE_OLD_PLATFORM_IMAGE")" || return 2
     RECONCILE_GATEWAY_ID="$(_oteryn_running_service_id gateway "$RECONCILE_OLD_GATEWAY_IMAGE")" || return 2
-    RECONCILE_CANARY_ID="$(_oteryn_running_service_id canary "$RECONCILE_OLD_CANARY_IMAGE")" || return 2
     RECONCILE_MARIADB_ID="$(_oteryn_running_service_id mariadb)" || return 2
     RECONCILE_REDIS_ID="$(_oteryn_running_service_id redis)" || return 2
     RECONCILE_PROXY_ID="$(_oteryn_running_service_id internal-proxy)" || return 2
@@ -345,7 +318,6 @@ _oteryn_reconcile_restore_on_exit() {
     export GATEWAY_SOURCE_SHA="$RECONCILE_OLD_GATEWAY_SOURCE_SHA"
     export PLATFORM_IMAGE="$RECONCILE_OLD_PLATFORM_IMAGE"
     export GATEWAY_IMAGE="$RECONCILE_OLD_GATEWAY_IMAGE"
-    export CANARY_IMAGE="$RECONCILE_OLD_CANARY_IMAGE"
     export GATEWAY_VERSION="sha-$RECONCILE_OLD_GATEWAY_SOURCE_SHA"
 
     command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
@@ -431,21 +403,20 @@ _oteryn_platform_reconcile() {
 
     _oteryn_assert_preserved_service mariadb "$RECONCILE_MARIADB_ID"
     _oteryn_assert_preserved_service redis "$RECONCILE_REDIS_ID"
-    _oteryn_assert_preserved_service canary "$RECONCILE_CANARY_ID"
     _oteryn_assert_preserved_service internal-proxy "$RECONCILE_PROXY_ID"
     _oteryn_assert_preserved_service gateway "$RECONCILE_GATEWAY_ID"
 
     bash "$SCRIPT_DIR/release-state.sh" write "$state_dir/current-release.env.reconcile" \
         "$OTERYN_RELEASE_SHA" "$PLATFORM_SOURCE_SHA" "$GATEWAY_SOURCE_SHA" \
         "$RECONCILE_SCHEMA_ID" "$OTERYN_APP_ACCEPTS_SCHEMA_IDS" \
-        "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE" 1
+        "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" 1
     mv "$state_dir/current-release.env.reconcile" "$current_file"
     RECONCILE_STATE_PROMOTED=1
 
     rm -f "$RECONCILE_PREVIOUS_LAST_GOOD"
     RECONCILE_SWAP_STARTED=0
     trap - EXIT
-    echo "Oteryn Synology staging Platform reconcile is healthy in $((SECONDS - started))s; MariaDB, Redis, Canary, internal proxy and Gateway were preserved."
+    echo "Oteryn Synology staging Platform reconcile is healthy in $((SECONDS - started))s; MariaDB, Redis, internal proxy and Gateway were preserved."
 }
 
 reconcile_rc=0

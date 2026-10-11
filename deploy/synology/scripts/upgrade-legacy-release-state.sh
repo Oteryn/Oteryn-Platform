@@ -6,7 +6,7 @@ state_dir="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
 
 upgrade_one_release_state() {
     local state_file="$1" label="$2"
-    local release_sha platform_image gateway_image canary_image schema_id accepts eligible
+    local release_sha platform_image gateway_image schema_id accepts eligible
     local platform_revision gateway_revision backup
 
     [[ -f "$state_file" ]] || return 0
@@ -27,7 +27,7 @@ upgrade_one_release_state() {
         set -euo pipefail
         source "$1"
         printf "%s\n" \
-            "${RELEASE_SHA:-}" "${PLATFORM_IMAGE:-}" "${GATEWAY_IMAGE:-}" "${CANARY_IMAGE:-}" \
+            "${RELEASE_SHA:-}" "${PLATFORM_IMAGE:-}" "${GATEWAY_IMAGE:-}" \
             "${SCHEMA_COMPATIBILITY_ID:-}" "${APP_ACCEPTS_SCHEMA_IDS:-}" "${ROLLBACK_ELIGIBLE:-}" \
             "${GAME_WORLD_ID:-}" "${GAME_WORLD_SLUG:-}" "${GAME_WORLD_NAME:-}" \
             "${GAME_WORLD_REGION:-}" "${GAME_WORLD_HOST:-}" "${GAME_WORLD_PORT:-}"
@@ -36,10 +36,9 @@ upgrade_one_release_state() {
     release_sha="${legacy[0]:-}"
     platform_image="${legacy[1]:-}"
     gateway_image="${legacy[2]:-}"
-    canary_image="${legacy[3]:-}"
-    schema_id="${legacy[4]:-}"
-    accepts="${legacy[5]:-}"
-    eligible="${legacy[6]:-}"
+    schema_id="${legacy[3]:-}"
+    accepts="${legacy[4]:-}"
+    eligible="${legacy[5]:-}"
 
     [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]] || {
         echo "$label legacy release state has invalid RELEASE_SHA." >&2
@@ -51,10 +50,6 @@ upgrade_one_release_state() {
     }
     [[ "$gateway_image" =~ @sha256:[0-9a-f]{64}$ ]] || {
         echo "$label legacy Gateway image is not immutable." >&2
-        return 1
-    }
-    [[ "$canary_image" =~ @sha256:[0-9a-f]{64}$ ]] || {
-        echo "$label legacy Canary image is not immutable." >&2
         return 1
     }
 
@@ -72,12 +67,12 @@ upgrade_one_release_state() {
         return 1
     }
 
-    GAME_WORLD_ID="${legacy[7]:-}"
-    GAME_WORLD_SLUG="${legacy[8]:-}"
-    GAME_WORLD_NAME="${legacy[9]:-}"
-    GAME_WORLD_REGION="${legacy[10]:-}"
-    GAME_WORLD_HOST="${legacy[11]:-}"
-    GAME_WORLD_PORT="${legacy[12]:-}"
+    GAME_WORLD_ID="${legacy[6]:-}"
+    GAME_WORLD_SLUG="${legacy[7]:-}"
+    GAME_WORLD_NAME="${legacy[8]:-}"
+    GAME_WORLD_REGION="${legacy[9]:-}"
+    GAME_WORLD_HOST="${legacy[10]:-}"
+    GAME_WORLD_PORT="${legacy[11]:-}"
     export GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT
 
     backup="$state_file.legacy-v1"
@@ -88,9 +83,13 @@ upgrade_one_release_state() {
     cp "$state_file" "$backup"
     chmod 600 "$backup"
 
+    # Legacy-format state always describes a release from before the native-only cut,
+    # which needs the retired Canary topology, so the upgraded record is never a
+    # rollback target regardless of its persisted eligibility.
+    eligible=0
     if ! bash "$SCRIPT_DIR/release-state.sh" write "$state_file" \
         "$release_sha" "$release_sha" "$release_sha" \
-        "$schema_id" "$accepts" "$platform_image" "$gateway_image" "$canary_image" "$eligible"; then
+        "$schema_id" "$accepts" "$platform_image" "$gateway_image" "$eligible"; then
         cp "$backup" "$state_file"
         chmod 600 "$state_file"
         echo "$label legacy release-state upgrade failed; original state restored." >&2

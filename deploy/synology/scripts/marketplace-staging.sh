@@ -21,12 +21,19 @@ case "$ACTION" in
         ;;
 esac
 
+# The native-only cut removed the character transfer and escrow contract that auction
+# creation and reconciliation depend on. Enabling or verifying the Bazaar would report
+# success while escrow and settlement cannot run, so refuse until a native replacement
+# exists. prepare-rollback stays available to drain and disable an existing deployment.
+if [[ "$ACTION" == enable || "$ACTION" == verify ]]; then
+    echo "Character Bazaar $ACTION refused: no character transfer/escrow contract is available after the native-only cut." >&2
+    exit 1
+fi
+
 required_vars=(
     PLATFORM_IMAGE
     APP_NAME APP_ENV APP_KEY APP_DEBUG APP_URL LOG_LEVEL
     MARIADB_ROOT_PASSWORD PLATFORM_DB_NAME PLATFORM_DB_USER PLATFORM_DB_PASSWORD
-    CANARY_DB_NAME CANARY_CHARACTER_TRANSFER_DB_USER CANARY_CHARACTER_TRANSFER_DB_PASSWORD
-    MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH
 )
 for name in "${required_vars[@]}"; do
     value="${!name:-}"
@@ -38,8 +45,6 @@ done
 
 safe_value_vars=(
     PLATFORM_DB_NAME PLATFORM_DB_USER PLATFORM_DB_PASSWORD
-    CANARY_DB_NAME CANARY_CHARACTER_TRANSFER_DB_USER CANARY_CHARACTER_TRANSFER_DB_PASSWORD
-    MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME
 )
 for name in "${safe_value_vars[@]}"; do
     value="${!name}"
@@ -48,19 +53,6 @@ for name in "${safe_value_vars[@]}"; do
         exit 1
     fi
 done
-
-if [[ ! "$MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME" =~ ^[a-z0-9_]{8,64}$ ]]; then
-    echo "MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME must be a bounded lower-case staging account name." >&2
-    exit 1
-fi
-if [[ ! "$MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH" =~ ^[1-9][0-9]*$ ]]; then
-    echo "MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH must be a positive immutable marker." >&2
-    exit 1
-fi
-if [[ "$CANARY_CHARACTER_TRANSFER_DB_USER" == "root" || "$CANARY_CHARACTER_TRANSFER_DB_USER" == "$CANARY_DB_USER" ]]; then
-    echo "The Character Bazaar transfer principal must be dedicated and must not be root or the Canary game-process user." >&2
-    exit 1
-fi
 
 compose=(
     docker compose
@@ -125,110 +117,12 @@ root_sql() {
         mariadb -uroot "$@"
 }
 
-apply_transfer_grants() {
-    export OTERYN_CANARY_CHARACTER_TRANSFER_DB_USER="$CANARY_CHARACTER_TRANSFER_DB_USER"
-    export OTERYN_CANARY_CHARACTER_TRANSFER_DB_HOST="%"
-    export OTERYN_CANARY_CHARACTER_TRANSFER_DB_PASSWORD="$CANARY_CHARACTER_TRANSFER_DB_PASSWORD"
-
-    awk '
-        !/^SHOW GRANTS/ {
-            gsub(/\{\{OTERYN_CANARY_CHARACTER_TRANSFER_DB_USER\}\}/, ENVIRON["OTERYN_CANARY_CHARACTER_TRANSFER_DB_USER"])
-            gsub(/\{\{OTERYN_CANARY_CHARACTER_TRANSFER_DB_HOST\}\}/, ENVIRON["OTERYN_CANARY_CHARACTER_TRANSFER_DB_HOST"])
-            gsub(/\{\{OTERYN_CANARY_CHARACTER_TRANSFER_DB_PASSWORD\}\}/, ENVIRON["OTERYN_CANARY_CHARACTER_TRANSFER_DB_PASSWORD"])
-            gsub(/\{\{CANARY_DB_NAME\}\}/, ENVIRON["CANARY_DB_NAME"])
-            print
-        }' "$REPO_ROOT/database/provisioning/canary-character-transfer.sql.template" \
-        | root_sql
-}
-
-resolve_escrow_account_read_only() {
-    local row
-    local account_id
-    local creation_epoch
-    local email_length
-
-    row="$(root_sql -N -B -e \
-        "SELECT id, creation, CHAR_LENGTH(email) FROM \`$CANARY_DB_NAME\`.accounts WHERE name='$MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME';")"
-    if [[ -z "$row" || "$(printf '%s\n' "$row" | sed '/^$/d' | wc -l | tr -d ' ')" != "1" ]]; then
-        echo "The dedicated Character Bazaar escrow account is missing or ambiguous." >&2
-        exit 1
-    fi
-
-    IFS=$'\t' read -r account_id creation_epoch email_length <<<"$row"
-    if [[ ! "$account_id" =~ ^[1-9][0-9]*$ ]]; then
-        echo "The Character Bazaar escrow account returned an invalid identifier." >&2
-        exit 1
-    fi
-    if [[ "$creation_epoch" != "$MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH" ]]; then
-        echo "The Character Bazaar escrow account creation marker conflicts with the reviewed staging identity." >&2
-        exit 1
-    fi
-    if [[ "$email_length" != "0" ]]; then
-        echo "The Character Bazaar escrow account must not expose an email login/recovery path." >&2
-        exit 1
-    fi
-
-    MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID="$account_id"
-    export MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID
-    update_env_value MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID "$account_id"
-}
-
-ensure_escrow_account() {
-    local existing_count
-    local sink_hash
-
-    existing_count="$(root_sql -N -B -e \
-        "SELECT COUNT(*) FROM \`$CANARY_DB_NAME\`.accounts WHERE name='$MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME';")"
-    if [[ "$existing_count" != "0" && "$existing_count" != "1" ]]; then
-        echo "The dedicated Character Bazaar escrow account name is ambiguous." >&2
-        exit 1
-    fi
-
-    sink_hash="$(python3 - <<'PY'
-import hashlib
-import secrets
-print(hashlib.sha1(secrets.token_bytes(32)).hexdigest())
-PY
-)"
-
-    if [[ "$existing_count" == "0" ]]; then
-        root_sql <<SQL
-INSERT INTO \`$CANARY_DB_NAME\`.accounts (name, password, email, creation)
-VALUES (
-    '$MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME',
-    '$sink_hash',
-    '',
-    $MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH
-);
-SQL
-    fi
-
-    resolve_escrow_account_read_only
-
-    # Rotate to a fresh one-way sink on every explicitly authorized enablement.
-    # No usable plaintext credential is retained or emitted.
-    root_sql -e \
-        "UPDATE \`$CANARY_DB_NAME\`.accounts SET password='$sink_hash', email='' WHERE id=$MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID AND name='$MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME' AND creation=$MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH;"
-}
-
-verify_escrow_is_unbound() {
-    local binding_count
-
-    binding_count="$(root_sql -N -B -e \
-        "SELECT COUNT(*) FROM \`$PLATFORM_DB_NAME\`.identity_canary_accounts WHERE canary_account_id=$MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID;")"
-    if [[ "$binding_count" != "0" ]]; then
-        echo "The Character Bazaar escrow account is bound to a Platform Identity." >&2
-        exit 1
-    fi
-}
-
 verify_current_image_supports_marketplace() {
     local platform_container
 
     platform_container="$(service_container_id platform)"
     docker exec "$platform_container" sh -ec '
         test -f /var/www/html/app/Marketplace/Actions/ReconcileCharacterAuctions.php
-        test -f /var/www/html/database/provisioning/canary-character-transfer.sql.template
         grep -q "marketplace:reconcile" /var/www/html/routes/console.php
     '
 }
@@ -279,17 +173,13 @@ verify_enabled_runtime() {
 
     docker exec "$platform_container" php -r '
         $enabled = getenv("MARKETPLACE_ENABLED");
-        $escrow = getenv("MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID");
-        exit($enabled === "true" && is_string($escrow) && ctype_digit($escrow) && (int) $escrow > 0 ? 0 : 1);
+        exit($enabled === "true" ? 0 : 1);
     '
     docker exec "$scheduler_container" php -r '
         $enabled = getenv("MARKETPLACE_ENABLED");
-        $escrow = getenv("MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID");
-        exit($enabled === "true" && is_string($escrow) && ctype_digit($escrow) && (int) $escrow > 0 ? 0 : 1);
+        exit($enabled === "true" ? 0 : 1);
     '
 
-    "${compose[@]}" exec -T platform php artisan canary:verify-character-transfer-db-privileges
-    verify_escrow_is_unbound
     probe_marketplace_route
 }
 
@@ -300,15 +190,10 @@ verify_current_image_supports_marketplace
 
 case "$ACTION" in
     enable)
-        apply_transfer_grants
-        ensure_escrow_account
-
         export MARKETPLACE_ENABLED=false
         update_env_value MARKETPLACE_ENABLED false
         "${compose[@]}" up -d --no-deps --force-recreate platform
         "${compose[@]}" exec -T platform php artisan migrate --force --no-interaction
-        "${compose[@]}" exec -T platform php artisan canary:verify-character-transfer-db-privileges
-        verify_escrow_is_unbound
         "${compose[@]}" exec -T platform php artisan marketplace:reconcile --limit=1000
 
         export MARKETPLACE_ENABLED=true
@@ -320,14 +205,12 @@ case "$ACTION" in
         echo "Character Bazaar staging enablement passed."
         ;;
     verify)
-        resolve_escrow_account_read_only
         export MARKETPLACE_ENABLED=true
         update_env_value MARKETPLACE_ENABLED true
         verify_enabled_runtime
         echo "Character Bazaar staging verification passed."
         ;;
     prepare-rollback)
-        resolve_escrow_account_read_only
         assert_no_pending_marketplace_work
         export MARKETPLACE_ENABLED=false
         update_env_value MARKETPLACE_ENABLED false

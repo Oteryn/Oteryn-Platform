@@ -554,7 +554,7 @@
         {
           "file": "scripts/acceptance/tests/smoke.spec.mjs",
           "markers": [
-            "@smoke character search reaches the seeded public character detail"
+            "@smoke character search reaches the truthful unavailable state until native data returns"
           ]
         }
       ],
