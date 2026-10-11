@@ -336,10 +336,10 @@ _oteryn_marketplace_non_terminal_auction_count() {
 
 # Rewrites a durable state file to the current format (MARKETPLACE_ENABLED=false
 # only): the retired keys are dropped and any enabled runtime is disabled, because
-# the transfer contract is gone. Dropping the retired keys is refused while the
-# database reports non-terminal auctions; when no count can be obtained (the
-# database is not running) nothing is recorded as pending and the rewrite proceeds,
-# so a deploy is never deadlocked on a Platform that cannot start. Idempotent.
+# the transfer contract is gone. Dropping the retired keys needs a verified zero
+# count of non-terminal auctions (N > 0 is refused). When no count can be obtained
+# (database not running), it fails closed unless the operator attests, with
+# OTERYN_ATTEST_NO_PENDING_AUCTIONS=1, that no auction can be pending. Idempotent.
 _oteryn_migrate_legacy_marketplace_state() {
     local durable_file line key value enabled='' legacy=0 retired pending tmp
 
@@ -374,9 +374,13 @@ _oteryn_migrate_legacy_marketplace_state() {
     }
 
     if [[ "$legacy" == 1 ]]; then
-        pending="$(_oteryn_marketplace_non_terminal_auction_count 2>/dev/null)" || pending=''
-        if [[ "$pending" =~ ^[0-9]+$ && "$pending" -gt 0 ]]; then
-            echo "Legacy Character Bazaar has $pending non-terminal auctions; drain them before dropping the retired escrow and transfer keys." >&2
+        if pending="$(_oteryn_marketplace_non_terminal_auction_count 2>/dev/null)" && [[ "$pending" =~ ^[0-9]+$ ]]; then
+            if [[ "$pending" -gt 0 ]]; then
+                echo "Legacy Character Bazaar has $pending non-terminal auctions; drain them before dropping the retired escrow and transfer keys." >&2
+                return 1
+            fi
+        elif [[ "${OTERYN_ATTEST_NO_PENDING_AUCTIONS:-}" != 1 ]]; then
+            echo "Cannot prove the legacy Character Bazaar is drained; refusing to drop the retired escrow and transfer keys. If no auction can be pending, set OTERYN_ATTEST_NO_PENDING_AUCTIONS=1 to attest that." >&2
             return 1
         fi
     fi

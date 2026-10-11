@@ -99,7 +99,16 @@ def test_legacy_state_with_pending_auctions_refuses_to_drop_keys() -> None:
     assert state == original
 
 
-def test_legacy_state_proceeds_when_no_database_count_is_available() -> None:
+def test_unavailable_count_without_attestation_fails_closed_unchanged() -> None:
+    original = "MARKETPLACE_ENABLED=true\n" + FIVE_KEYS
+    result, state, _ = run_loader(original, tables="not-a-number")
+    assert result.returncode != 0
+    assert "OTERYN_ATTEST_NO_PENDING_AUCTIONS=1" in result.stderr
+    assert state == original
+
+
+def test_unavailable_count_with_attestation_rewrites_disabled(monkeypatch) -> None:
+    monkeypatch.setenv("OTERYN_ATTEST_NO_PENDING_AUCTIONS", "1")
     result, state, _ = run_loader("MARKETPLACE_ENABLED=true\n" + FIVE_KEYS, tables="not-a-number")
     assert result.returncode == 0, result.stderr
     assert state == "MARKETPLACE_ENABLED=false\n"
