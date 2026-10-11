@@ -83,7 +83,7 @@
     "account-security-static-diagnostics.yml": "ci.yml blocking PHPStan/Larastan check",
     "deep-system-validation.yml": "risk-routed CI/domain workflows plus portal-e2e-audit.yml for explicit comprehensive orchestration",
     "merge-queue-enqueue.yml": "META-governed direct authenticated native merge-async execution surface with exact-head preflight, Merge Queue verification, and protected-main readback",
-    "native-auth-canary-cache-build.yml": "terminal historical Canary cache-header build proof preserved in Git/task provenance; current native protocol and release workflows own durable validation",
+    "native-auth-canary-cache-build.yml": "terminal historical legacy-engine cache-header build proof preserved in Git/task provenance; current native protocol and release workflows own durable validation",
     "native-auth-ephemeral-cutover-rehearsal.yml": "terminal migration rehearsal proof preserved in Git/task provenance after native-auth production-verification closeout; current native protocol and product CI remain authoritative",
     "portal-exhaustive-acceptance.yml": "acceptance-validation.yml critical profile selected directly by relevant workflows or manual audit",
     "portal-exhaustive-audit.yml": "current strict coverage/product ledgers, focused domain workflows, and portal-e2e-audit.yml when comprehensive orchestration is explicitly requested",

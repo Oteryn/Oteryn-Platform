@@ -1,34 +1,34 @@
 package httpapi
 
 import (
-	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
 	"time"
 
-	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/gateway"
 	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/nativelogin"
 )
 
-const (
-	legacyLoginRequestLimit   = 4096
-	extendedLoginRequestLimit = 16 * 1024
-)
+const loginRequestLimit = 16 * 1024
 
 var safeRequestID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
 type Server struct {
-	service *gateway.Service
+	checker Readiness
 	native  NativeLoginHandler
 	version string
 	logger  *slog.Logger
 	mux     *http.ServeMux
+}
+
+// Readiness reports whether the gateway's dependencies are reachable.
+type Readiness interface {
+	Ready(ctx context.Context) error
 }
 
 // NativeLoginHandler serves the native branch (protocol_version 2) of POST /v1/login.
@@ -36,9 +36,9 @@ type NativeLoginHandler interface {
 	Serve(w http.ResponseWriter, r *http.Request, body []byte)
 }
 
-func NewServer(service *gateway.Service, version string, logger *slog.Logger) *Server {
+func NewServer(ready Readiness, version string, logger *slog.Logger) *Server {
 	server := &Server{
-		service: service,
+		checker: ready,
 		version: version,
 		logger:  logger,
 		mux:     http.NewServeMux(),
@@ -51,7 +51,7 @@ func NewServer(service *gateway.Service, version string, logger *slog.Logger) *S
 }
 
 // EnableNativeLogin routes protocol_version 2 login requests to the native branch. Without it
-// (the default) such requests keep the Canary-compatible invalid_request answer.
+// (the default) every login request is answered with invalid_request.
 func (s *Server) EnableNativeLogin(native NativeLoginHandler) {
 	s.native = native
 }
@@ -65,7 +65,7 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
-	if err := s.service.Ready(r.Context()); err != nil {
+	if err := s.checker.Ready(r.Context()); err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "not_ready"})
 		return
 	}
@@ -87,123 +87,15 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, extendedLoginRequestLimit))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, loginRequestLimit))
 	if err == nil && s.native != nil && nativelogin.IsNativeRequest(body) {
 		s.native.Serve(w, r, body)
 		return
 	}
-	if err != nil || len(body) == 0 || validateUniqueJSONKeys(body) != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
-		return
-	}
 
-	var request gateway.LoginRequest
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&request); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
-		return
-	}
-	if err := ensureJSONEOF(decoder); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
-		return
-	}
-	if request.GameplayOffer == nil && len(body) > legacyLoginRequestLimit {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
-		return
-	}
-	if err := gateway.ValidateLoginRequest(request); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
-		return
-	}
-
-	response, err := s.service.LoginWithRequest(r.Context(), request)
-	if err != nil {
-		switch {
-		case errors.Is(err, gateway.ErrInvalidRequest):
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
-		case errors.Is(err, gateway.ErrInvalidLogin):
-			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid_login"})
-		case errors.Is(err, gateway.ErrUnsupportedGameplayPair):
-			writeJSON(w, http.StatusConflict, map[string]any{"error": "unsupported_gameplay_pair"})
-		default:
-			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "login_unavailable"})
-		}
-		return
-	}
-
-	writeJSON(w, http.StatusOK, response)
-}
-
-func validateUniqueJSONKeys(body []byte) error {
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	if err := consumeJSONValue(decoder); err != nil {
-		return err
-	}
-	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
-		return errors.New("request contains trailing JSON")
-	}
-	return nil
-}
-
-func consumeJSONValue(decoder *json.Decoder) error {
-	token, err := decoder.Token()
-	if err != nil {
-		return err
-	}
-
-	delimiter, isDelimiter := token.(json.Delim)
-	if !isDelimiter {
-		return nil
-	}
-
-	switch delimiter {
-	case '{':
-		seen := map[string]struct{}{}
-		for decoder.More() {
-			keyToken, err := decoder.Token()
-			if err != nil {
-				return err
-			}
-			key, ok := keyToken.(string)
-			if !ok {
-				return errors.New("object key is not a string")
-			}
-			if _, exists := seen[key]; exists {
-				return errors.New("duplicate object key")
-			}
-			seen[key] = struct{}{}
-			if err := consumeJSONValue(decoder); err != nil {
-				return err
-			}
-		}
-		closing, err := decoder.Token()
-		if err != nil || closing != json.Delim('}') {
-			return errors.New("unterminated object")
-		}
-	case '[':
-		for decoder.More() {
-			if err := consumeJSONValue(decoder); err != nil {
-				return err
-			}
-		}
-		closing, err := decoder.Token()
-		if err != nil || closing != json.Delim(']') {
-			return errors.New("unterminated array")
-		}
-	default:
-		return errors.New("unexpected delimiter")
-	}
-
-	return nil
-}
-
-func ensureJSONEOF(decoder *json.Decoder) error {
-	var extra any
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		return errors.New("request contains trailing JSON")
-	}
-	return nil
+	// Native admission (protocol_version 2) is the only login protocol. Every other body,
+	// including the retired protocol_version 1, is refused without reaching a dependency.
+	writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
 }
 
 func setSensitiveResponseNoCache(w http.ResponseWriter) {
