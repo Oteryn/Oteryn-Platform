@@ -76,7 +76,8 @@ validation:
     evidence: Validated 1 task checkpoint against contract v1
 blockers:
   - none
-next_action: Wait for exact-head CI; archive this record after merge.
+next_action: Archive this record once the PR is closed.
+terminal_pr_policy: archive_pending
 ```
 
 ## Source branch closeout
