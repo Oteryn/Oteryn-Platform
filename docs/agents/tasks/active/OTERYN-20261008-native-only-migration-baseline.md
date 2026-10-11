@@ -33,7 +33,7 @@ modules:
 dependencies:
   - Issue #1474
 blockers:
-  - none
+  - Autonomous protected integration capability is unqualified.
 cross_repository_tasks:
   - none
 ```
