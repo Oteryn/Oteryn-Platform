@@ -36,6 +36,19 @@ final class GameTicketConcurrencyTest extends TestCase
         }
     }
 
+    protected function tearDown(): void
+    {
+        try {
+            // The redemption migration refuses rollback while native evidence exists.
+            DB::table('native_admission_attempts')->delete();
+            DB::table('game_login_tickets')->delete();
+        } catch (Throwable) {
+            // Skipped runs never reach the database.
+        }
+
+        parent::tearDown();
+    }
+
     public function test_exactly_one_concurrent_oauth_exchange_mints_a_ticket_and_revokes_token_family(): void
     {
         $identity = $this->createNativeIdentity();
