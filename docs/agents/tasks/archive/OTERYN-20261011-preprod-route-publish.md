@@ -68,7 +68,7 @@ checkpoint_version: 1
 updated_at: 2026-10-11T22:00:00Z
 head: see PR head
 branch: claude/preprod-route-publish-20261011
-pr: none
+pr: 1551
 status: completed
 context_routes:
   - auth-identity
@@ -145,5 +145,5 @@ next_action: none in Platform after merge. docs/operations/NATIVE_LOGIN_OWNER_ST
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository feature branch with no retention purpose after merge
-source_branch_evidence: same-repository PR from this branch; the repository setting delete_branch_on_merge is true, so a merge removes the ref; confirm it is absent after merge
+source_branch_evidence: same-repository PR #1551 from this branch; the repository setting delete_branch_on_merge is true, so a merge removes the ref; confirm it is absent after merge
 ```
