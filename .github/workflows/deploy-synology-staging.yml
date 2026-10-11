@@ -48,7 +48,7 @@ on:
         required: false
         type: string
       canary_image:
-        description: Full compatible prebuilt Canary image reference; required for deploy and resolved to an immutable digest
+        description: Full compatible prebuilt Canary image reference; required for deploy when the compose topology has a Canary service, otherwise must be empty
         required: false
         type: string
       canary_game_bind_address:
@@ -159,6 +159,7 @@ jobs:
           is_sha() { [[ "$1" =~ ^[0-9a-f]{40}$ ]]; }
           is_digest_ref() { [[ "$1" =~ ^ghcr\.io/[a-z0-9._-]+/[a-z0-9._-]+@sha256:[0-9a-f]{64}$ ]]; }
           is_bool() { [[ "$1" == true || "$1" == false ]]; }
+          engine_enabled="$(bash -c 'source deploy/synology/scripts/engine-topology.sh; oteryn_engine_enabled')"
 
           if [[ "$DEPLOY_ACTION" == deploy ]]; then
             is_sha "$RELEASE_SHA" || { echo "release_sha is required for deploy and must be an exact lower-case 40-character Git SHA." >&2; exit 1; }
@@ -181,7 +182,12 @@ jobs:
               exit 1
             fi
 
-            [[ -n "$CANARY_IMAGE_INPUT" && "$CANARY_IMAGE_INPUT" =~ ^[A-Za-z0-9./:@_-]+$ ]] || { echo "canary_image is required for deploy and must be a bounded container image reference." >&2; exit 1; }
+            if [[ "$engine_enabled" == 1 ]]; then
+              [[ -n "$CANARY_IMAGE_INPUT" && "$CANARY_IMAGE_INPUT" =~ ^[A-Za-z0-9./:@_-]+$ ]] || { echo "canary_image is required for deploy and must be a bounded container image reference." >&2; exit 1; }
+            elif [[ -n "$CANARY_IMAGE_INPUT" ]]; then
+              echo "canary_image must be empty because the compose topology has no Canary service." >&2
+              exit 1
+            fi
           else
             [[ -z "$RELEASE_SHA" ]] || is_sha "$RELEASE_SHA" || { echo "release_sha must be empty or an exact Git SHA." >&2; exit 1; }
           fi
@@ -218,17 +224,22 @@ jobs:
             APP_KEY
             MARIADB_ROOT_PASSWORD
             PLATFORM_DB_PASSWORD
+            REDIS_PASSWORD
+            OTERYN_PLATFORM_SERVICE_TOKEN
+            GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256
+            GAME_SESSION_SERVICE_TOKEN
+          )
+          engine_secret_names=(
             CANARY_DB_PASSWORD
             CANARY_READONLY_DB_PASSWORD
             CANARY_PROVISIONING_DB_PASSWORD
             CANARY_CHARACTER_CREATE_DB_PASSWORD
-            REDIS_PASSWORD
             CANARY_RUNTIME_REDIS_PASSWORD
-            OTERYN_PLATFORM_SERVICE_TOKEN
-            GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256
-            GAME_SESSION_SERVICE_TOKEN
             CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256
           )
+          if [[ "$engine_enabled" == 1 ]]; then
+            required_names+=("${engine_secret_names[@]}")
+          fi
           for name in "${required_names[@]}"; do
             if [[ -z "${!name:-}" ]]; then
               echo "Required synology-staging secret is missing: $name" >&2
@@ -239,15 +250,19 @@ jobs:
           safe_names=(
             MARIADB_ROOT_PASSWORD
             PLATFORM_DB_PASSWORD
-            CANARY_DB_PASSWORD
-            CANARY_READONLY_DB_PASSWORD
-            CANARY_PROVISIONING_DB_PASSWORD
-            CANARY_CHARACTER_CREATE_DB_PASSWORD
             REDIS_PASSWORD
-            CANARY_RUNTIME_REDIS_PASSWORD
             OTERYN_PLATFORM_SERVICE_TOKEN
             GAME_SESSION_SERVICE_TOKEN
           )
+          if [[ "$engine_enabled" == 1 ]]; then
+            safe_names+=(
+              CANARY_DB_PASSWORD
+              CANARY_READONLY_DB_PASSWORD
+              CANARY_PROVISIONING_DB_PASSWORD
+              CANARY_CHARACTER_CREATE_DB_PASSWORD
+              CANARY_RUNTIME_REDIS_PASSWORD
+            )
+          fi
           for name in "${safe_names[@]}"; do
             if [[ ! "${!name}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
               echo "$name must use generated hex/alphanumeric staging-safe characters." >&2
@@ -263,13 +278,15 @@ jobs:
             echo "Platform service-token hash must be a SHA-256 hex digest." >&2
             exit 1
           fi
-          if [[ ! "$CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256" =~ ^[A-Fa-f0-9]{64}$ ]]; then
+          if [[ "$engine_enabled" == 1 && ! "$CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256" =~ ^[A-Fa-f0-9]{64}$ ]]; then
             echo "Canary session service-token hash must be a SHA-256 hex digest." >&2
             exit 1
           fi
-          for optional_hash in \
-            "$GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256" \
-            "$CANARY_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256"; do
+          optional_hashes=("$GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256")
+          if [[ "$engine_enabled" == 1 ]]; then
+            optional_hashes+=("$CANARY_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256")
+          fi
+          for optional_hash in "${optional_hashes[@]}"; do
             if [[ -n "$optional_hash" && ! "$optional_hash" =~ ^[A-Fa-f0-9]{64}$ ]]; then
               echo "Optional previous service-token hashes must be empty or SHA-256 hex digests." >&2
               exit 1
@@ -299,6 +316,7 @@ jobs:
           OTERYN_STATE_DIR_INPUT: ${{ vars.OTERYN_STAGING_STATE_DIR }}
         run: |
           set -euo pipefail
+          engine_enabled="$(bash -c 'source deploy/synology/scripts/engine-topology.sh; oteryn_engine_enabled')"
           state_dir="${OTERYN_STATE_DIR_INPUT:-/var/lib/oteryn-staging-state}"
           platform_repo="$(bash deploy/synology/scripts/repository-ghcr-image.sh oteryn-platform)"
           gateway_repo="$(bash deploy/synology/scripts/repository-ghcr-image.sh oteryn-game-gateway)"
@@ -372,7 +390,9 @@ jobs:
 
           ensure_runtime_image "$platform_image" Platform
           ensure_runtime_image "$gateway_image" Gateway
-          ensure_runtime_image "$CANARY_IMAGE_INPUT" Canary
+          if [[ "$engine_enabled" == 1 ]]; then
+            ensure_runtime_image "$CANARY_IMAGE_INPUT" Canary
+          fi
 
           platform_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$platform_image")"
           gateway_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$gateway_image")"
@@ -402,7 +422,10 @@ jobs:
             return 1
           }
 
-          canary_ref="$(resolve_any_digest_ref "$CANARY_IMAGE_INPUT")"
+          canary_ref=""
+          if [[ "$engine_enabled" == 1 ]]; then
+            canary_ref="$(resolve_any_digest_ref "$CANARY_IMAGE_INPUT")"
+          fi
           {
             printf 'platform_source_sha=%s\n' "$platform_source_sha"
             printf 'platform_ref=%s\n' "$platform_image"
@@ -419,7 +442,11 @@ jobs:
             echo "- Platform digest: \`$platform_image\`"
             echo "- Gateway ($gateway_mode) source SHA: \`$gateway_source_sha\`"
             echo "- Gateway digest: \`$gateway_image\`"
-            echo "- Canary: \`$canary_ref\`"
+            if [[ "$engine_enabled" == 1 ]]; then
+              echo "- Canary: \`$canary_ref\`"
+            else
+              echo "- Canary: not part of the compose topology"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Write ephemeral staging environment
@@ -446,7 +473,12 @@ jobs:
           gateway_source_sha="${GATEWAY_SOURCE_SHA_RESOLVED:-rollback-placeholder}"
           platform_image="${PLATFORM_IMAGE_REF:-rollback-placeholder}"
           gateway_image="${GATEWAY_IMAGE_REF:-rollback-placeholder}"
-          canary_image="${CANARY_IMAGE_REF:-rollback-placeholder}"
+          engine_enabled="$(bash -c 'source deploy/synology/scripts/engine-topology.sh; oteryn_engine_enabled')"
+          if [[ "$engine_enabled" == 1 ]]; then
+            canary_image="${CANARY_IMAGE_REF:-rollback-placeholder}"
+          else
+            canary_image=""
+          fi
           gateway_version="${GATEWAY_SOURCE_SHA_RESOLVED:+sha-$GATEWAY_SOURCE_SHA_RESOLVED}"
           gateway_version="${gateway_version:-rollback}"
 
@@ -509,6 +541,10 @@ jobs:
           GATEWAY_VERSION=$gateway_version
           OTERYN_STATE_DIR=$state_dir
           EOF
+          if [[ "$engine_enabled" != 1 ]]; then
+            sed -i '/^CANARY_/d' deploy/synology/.env
+            printf 'CANARY_IMAGE=\n' >> deploy/synology/.env
+          fi
           chmod 600 deploy/synology/.env
 
       - name: Deploy prebuilt images

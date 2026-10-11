@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=deploy/synology/scripts/engine-topology.sh
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/engine-topology.sh"
+
 is_sha() { [[ "${1:-}" =~ ^[0-9a-f]{40}$ ]]; }
 is_schema_id() { [[ "${1:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; }
 is_immutable_image() { [[ "${1:-}" =~ @sha256:[0-9a-f]{64}$ ]]; }
@@ -37,7 +40,12 @@ validate_release_file() {
     }
     is_immutable_image "${PLATFORM_IMAGE:-}" || { echo "PLATFORM_IMAGE is not immutable" >&2; return 1; }
     is_immutable_image "${GATEWAY_IMAGE:-}" || { echo "GATEWAY_IMAGE is not immutable" >&2; return 1; }
-    is_immutable_image "${CANARY_IMAGE:-}" || { echo "CANARY_IMAGE is not immutable" >&2; return 1; }
+    # The engine image is required (immutable) only while the topology defines it.
+    if oteryn_engine_present; then
+        is_immutable_image "${CANARY_IMAGE:-}" || { echo "CANARY_IMAGE is not immutable" >&2; return 1; }
+    else
+        [[ -z "${CANARY_IMAGE:-}" ]] || is_immutable_image "${CANARY_IMAGE:-}" || { echo "CANARY_IMAGE is not immutable" >&2; return 1; }
+    fi
     [[ "${ROLLBACK_ELIGIBLE:-}" =~ ^[01]$ ]] || { echo "Missing/invalid ROLLBACK_ELIGIBLE" >&2; return 1; }
 }
 
@@ -80,7 +88,8 @@ write_release() {
         echo "Release contract must accept its own primary schema identity '$schema_id'." >&2
         return 1
     }
-    platform="$(resolve_image "$platform")"; gateway="$(resolve_image "$gateway")"; canary="$(resolve_image "$canary")"
+    platform="$(resolve_image "$platform")"; gateway="$(resolve_image "$gateway")"
+    if [[ -n "$canary" ]] || oteryn_engine_present; then canary="$(resolve_image "$canary")"; fi
     [[ "$eligible" =~ ^[01]$ ]] || return 1
     local tmp="${out}.tmp"
     umask 077

@@ -4,16 +4,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 ENV_FILE="${OTERYN_ENV_FILE:-$DEPLOY_DIR/.env}"
-COMPOSE_FILE="$DEPLOY_DIR/compose.yml"
+COMPOSE_FILE="${OTERYN_COMPOSE_FILE:-$DEPLOY_DIR/compose.yml}"
 
 # shellcheck source=deploy/synology/scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
 load_oteryn_env_file "$ENV_FILE"
+# Probes of the legacy engine run only when the topology defines it.
+engine_enabled="$(oteryn_engine_enabled "$COMPOSE_FILE")"
+health_services=(mariadb redis platform internal-proxy gateway)
+if [[ "$engine_enabled" == 1 ]]; then
+    health_services=(mariadb redis canary platform internal-proxy gateway)
+fi
 
 compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 
 declare -A container_ids=()
-for service in mariadb redis canary platform internal-proxy gateway; do
+for service in "${health_services[@]}"; do
     container_id="$("${compose[@]}" ps -q "$service")"
     if [[ -z "$container_id" ]]; then
         echo "Service is not created: $service" >&2
@@ -46,8 +52,10 @@ assert_binding() {
 
 assert_binding platform 8000 "$PLATFORM_BIND_ADDRESS" "$PLATFORM_PORT"
 assert_binding gateway 8080 "$GATEWAY_BIND_ADDRESS" "$GATEWAY_PORT"
-assert_binding canary "$CANARY_LOGIN_PORT" "$CANARY_LOGIN_BIND_ADDRESS" "$CANARY_LOGIN_PORT"
-assert_binding canary "$CANARY_GAME_PORT" "$CANARY_GAME_BIND_ADDRESS" "$CANARY_GAME_PORT"
+if [[ "$engine_enabled" == 1 ]]; then
+    assert_binding canary "$CANARY_LOGIN_PORT" "$CANARY_LOGIN_BIND_ADDRESS" "$CANARY_LOGIN_PORT"
+    assert_binding canary "$CANARY_GAME_PORT" "$CANARY_GAME_BIND_ADDRESS" "$CANARY_GAME_PORT"
+fi
 
 probe_url() {
     local service="$1"
@@ -113,9 +121,13 @@ PY
 }
 
 probe_url platform 8000 /health "Platform /health"
-probe_url canary 7180 /health "Canary session issuer /health"
+if [[ "$engine_enabled" == 1 ]]; then
+    probe_url canary 7180 /health "Canary session issuer /health"
+fi
 probe_internal_tls "https://platform-internal:8443/health" "Gateway -> Platform"
-probe_internal_tls "https://canary-session-internal:8444/health" "Gateway -> Canary session issuer"
+if [[ "$engine_enabled" == 1 ]]; then
+    probe_internal_tls "https://canary-session-internal:8444/health" "Gateway -> Canary session issuer"
+fi
 probe_url gateway 8080 /health "Gateway /health"
 if ! probe_url gateway 8080 /ready "Gateway /ready"; then
     echo "Gateway aggregate readiness failed after both internal dependencies passed." >&2
@@ -337,21 +349,27 @@ foreach ($urls as $url) {
 echo "Verified requestless login, password-reset and signed-route canonical origins.\n";
 PHP
 
-if ! docker run --rm \
-    --network "container:${container_ids[canary]}" \
-    alpine:3.22 \
-    /bin/sh -ec \
-    "nc -z -w 3 127.0.0.1 '${CANARY_GAME_PORT}'"; then
-    echo "Canary game TCP port is not reachable inside the Canary network namespace." >&2
-    exit 1
-fi
-
-if [[ "$CANARY_GAME_BIND_ADDRESS" != "127.0.0.1" ]]; then
-    if ! timeout 5 bash -c "exec 3<>/dev/tcp/${CANARY_GAME_BIND_ADDRESS}/${CANARY_GAME_PORT}"; then
-        echo "Canary game TCP port is not reachable through the configured Synology LAN address." >&2
+if [[ "$engine_enabled" == 1 ]]; then
+    if ! docker run --rm \
+        --network "container:${container_ids[canary]}" \
+        alpine:3.22 \
+        /bin/sh -ec \
+        "nc -z -w 3 127.0.0.1 '${CANARY_GAME_PORT}'"; then
+        echo "Canary game TCP port is not reachable inside the Canary network namespace." >&2
         exit 1
     fi
-    echo "Verified LAN game endpoint: ${CANARY_GAME_BIND_ADDRESS}:${CANARY_GAME_PORT}"
+
+    if [[ "$CANARY_GAME_BIND_ADDRESS" != "127.0.0.1" ]]; then
+        if ! timeout 5 bash -c "exec 3<>/dev/tcp/${CANARY_GAME_BIND_ADDRESS}/${CANARY_GAME_PORT}"; then
+            echo "Canary game TCP port is not reachable through the configured Synology LAN address." >&2
+            exit 1
+        fi
+        echo "Verified LAN game endpoint: ${CANARY_GAME_BIND_ADDRESS}:${CANARY_GAME_PORT}"
+    fi
 fi
 
-echo "Platform, Gateway, Canary, canonical URL, cache-control, isolation and MFA QR staging probes passed."
+if [[ "$engine_enabled" == 1 ]]; then
+    echo "Platform, Gateway, Canary, canonical URL, cache-control, isolation and MFA QR staging probes passed."
+else
+    echo "Platform, Gateway, canonical URL, cache-control, isolation and MFA QR staging probes passed (legacy engine absent from topology)."
+fi

@@ -74,14 +74,19 @@ jobs:
             exit 1
           fi
 
+          engine_enabled="$(bash -c 'source deploy/synology/scripts/engine-topology.sh; oteryn_engine_enabled')"
           required_names=(
-            APP_KEY MARIADB_ROOT_PASSWORD PLATFORM_DB_PASSWORD CANARY_DB_PASSWORD
-            CANARY_READONLY_DB_PASSWORD CANARY_PROVISIONING_DB_PASSWORD
-            CANARY_CHARACTER_CREATE_DB_PASSWORD REDIS_PASSWORD
-            CANARY_RUNTIME_REDIS_PASSWORD OTERYN_PLATFORM_SERVICE_TOKEN
+            APP_KEY MARIADB_ROOT_PASSWORD PLATFORM_DB_PASSWORD REDIS_PASSWORD
+            OTERYN_PLATFORM_SERVICE_TOKEN
             GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256 GAME_SESSION_SERVICE_TOKEN
-            CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256
           )
+          if [[ "$engine_enabled" == 1 ]]; then
+            required_names+=(
+              CANARY_DB_PASSWORD CANARY_READONLY_DB_PASSWORD
+              CANARY_PROVISIONING_DB_PASSWORD CANARY_CHARACTER_CREATE_DB_PASSWORD
+              CANARY_RUNTIME_REDIS_PASSWORD CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256
+            )
+          fi
           for name in "${required_names[@]}"; do
             [[ -n "${!name:-}" ]] || { echo "Required synology-staging secret is missing: $name" >&2; exit 1; }
           done
@@ -152,6 +157,11 @@ jobs:
           GATEWAY_VERSION=recovery
           OTERYN_STATE_DIR=$state_dir
           EOF
+          engine_enabled="$(bash -c 'source deploy/synology/scripts/engine-topology.sh; oteryn_engine_enabled')"
+          if [[ "$engine_enabled" != 1 ]]; then
+            sed -i '/^CANARY_/d' deploy/synology/.env
+            printf 'CANARY_IMAGE=\n' >> deploy/synology/.env
+          fi
           chmod 600 deploy/synology/.env
 
       - name: Recover verified pre-migration schema

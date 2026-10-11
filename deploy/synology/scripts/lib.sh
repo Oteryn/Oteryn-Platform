@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# shellcheck source=deploy/synology/scripts/engine-topology.sh
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/engine-topology.sh"
+
 # Docker Hub index digests verified 2026-08-12. Health probes keep their exact
 # historical behavior while the Docker boundary substitutes immutable identities.
 OTERYN_HEALTH_ALPINE_IMAGE='alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce'
@@ -270,7 +273,7 @@ _oteryn_bootstrap_legacy_current_release() {
     old_platform="${legacy_images[0]:-}"
     old_gateway="${legacy_images[1]:-}"
     old_canary="${legacy_images[2]:-}"
-    [[ -n "$old_platform" && -n "$old_gateway" && -n "$old_canary" ]] || {
+    [[ -n "$old_platform" && -n "$old_gateway" ]] && { [[ -n "$old_canary" ]] || ! oteryn_engine_present "$COMPOSE_FILE"; } || {
         echo "Legacy running-release snapshot is incomplete; refusing migration." >&2
         return 1
     }

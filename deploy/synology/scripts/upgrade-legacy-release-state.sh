@@ -2,6 +2,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=deploy/synology/scripts/engine-topology.sh
+source "$SCRIPT_DIR/engine-topology.sh"
 state_dir="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
 
 upgrade_one_release_state() {
@@ -53,7 +55,8 @@ upgrade_one_release_state() {
         echo "$label legacy Gateway image is not immutable." >&2
         return 1
     }
-    [[ "$canary_image" =~ @sha256:[0-9a-f]{64}$ ]] || {
+    # The engine image is required only while the topology defines the service.
+    [[ "$canary_image" =~ @sha256:[0-9a-f]{64}$ ]] || { [[ -z "$canary_image" ]] && ! oteryn_engine_present; } || {
         echo "$label legacy Canary image is not immutable." >&2
         return 1
     }

@@ -5,27 +5,43 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd -- "$DEPLOY_DIR/../.." && pwd)"
 ENV_FILE="${OTERYN_ENV_FILE:-$DEPLOY_DIR/.env}"
-COMPOSE_FILE="$DEPLOY_DIR/compose.yml"
+COMPOSE_FILE="${OTERYN_COMPOSE_FILE:-$DEPLOY_DIR/compose.yml}"
+export OTERYN_COMPOSE_FILE="$COMPOSE_FILE"
 
 # shellcheck source=deploy/synology/scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
 load_oteryn_env_file "$ENV_FILE"
 
+# The legacy engine service is optional: topology decides what is validated.
+engine_enabled="$(oteryn_engine_enabled "$COMPOSE_FILE")"
+
 required_vars=(
     OTERYN_RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA
-    PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE
-    PLATFORM_BIND_ADDRESS GATEWAY_BIND_ADDRESS CANARY_LOGIN_BIND_ADDRESS CANARY_GAME_BIND_ADDRESS
-    PLATFORM_PORT GATEWAY_PORT CANARY_LOGIN_PORT CANARY_GAME_PORT CANARY_SERVER_IP
+    PLATFORM_IMAGE GATEWAY_IMAGE
+    PLATFORM_BIND_ADDRESS GATEWAY_BIND_ADDRESS
+    PLATFORM_PORT GATEWAY_PORT
     GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT
     APP_KEY MARIADB_ROOT_PASSWORD PLATFORM_DB_NAME PLATFORM_DB_USER PLATFORM_DB_PASSWORD
+    REDIS_PASSWORD
+    OTERYN_PLATFORM_SERVICE_TOKEN GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256
+    GAME_SESSION_SERVICE_TOKEN
+)
+engine_required_vars=(
+    CANARY_IMAGE
+    CANARY_LOGIN_BIND_ADDRESS CANARY_GAME_BIND_ADDRESS
+    CANARY_LOGIN_PORT CANARY_GAME_PORT CANARY_SERVER_IP
     CANARY_DB_NAME CANARY_DB_USER CANARY_DB_PASSWORD
     CANARY_READONLY_DB_USER CANARY_READONLY_DB_PASSWORD
     CANARY_PROVISIONING_DB_USER CANARY_PROVISIONING_DB_PASSWORD
     CANARY_CHARACTER_CREATE_DB_USER CANARY_CHARACTER_CREATE_DB_PASSWORD
-    REDIS_PASSWORD CANARY_RUNTIME_REDIS_USERNAME CANARY_RUNTIME_REDIS_PASSWORD
-    OTERYN_PLATFORM_SERVICE_TOKEN GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256
-    GAME_SESSION_SERVICE_TOKEN CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256
+    CANARY_RUNTIME_REDIS_USERNAME CANARY_RUNTIME_REDIS_PASSWORD
+    CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256
 )
+if [[ "$engine_enabled" == 1 ]]; then
+    required_vars+=("${engine_required_vars[@]}")
+else
+    CANARY_IMAGE=''
+fi
 
 for name in "${required_vars[@]}"; do
     value="${!name:-}"
@@ -37,13 +53,18 @@ done
 
 safe_credential_vars=(
     PLATFORM_DB_NAME PLATFORM_DB_USER PLATFORM_DB_PASSWORD
-    CANARY_DB_NAME CANARY_DB_USER CANARY_DB_PASSWORD
-    CANARY_READONLY_DB_USER CANARY_READONLY_DB_PASSWORD
-    CANARY_PROVISIONING_DB_USER CANARY_PROVISIONING_DB_PASSWORD
-    CANARY_CHARACTER_CREATE_DB_USER CANARY_CHARACTER_CREATE_DB_PASSWORD
-    REDIS_PASSWORD CANARY_RUNTIME_REDIS_USERNAME CANARY_RUNTIME_REDIS_PASSWORD
+    REDIS_PASSWORD
     OTERYN_PLATFORM_SERVICE_TOKEN GAME_SESSION_SERVICE_TOKEN
 )
+if [[ "$engine_enabled" == 1 ]]; then
+    safe_credential_vars+=(
+        CANARY_DB_NAME CANARY_DB_USER CANARY_DB_PASSWORD
+        CANARY_READONLY_DB_USER CANARY_READONLY_DB_PASSWORD
+        CANARY_PROVISIONING_DB_USER CANARY_PROVISIONING_DB_PASSWORD
+        CANARY_CHARACTER_CREATE_DB_USER CANARY_CHARACTER_CREATE_DB_PASSWORD
+        CANARY_RUNTIME_REDIS_USERNAME CANARY_RUNTIME_REDIS_PASSWORD
+    )
+fi
 for name in "${safe_credential_vars[@]}"; do
     value="${!name}"
     if [[ ! "$value" =~ ^[A-Za-z0-9_.-]+$ ]]; then
@@ -60,7 +81,7 @@ if [[ ! "$GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256" =~ ^[A-Fa-f0-9]{64}$ ]]; then
     echo "GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256 must be a 64-character SHA-256 hex digest." >&2
     exit 1
 fi
-if [[ ! "$CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256" =~ ^[A-Fa-f0-9]{64}$ ]]; then
+if [[ "$engine_enabled" == 1 && ! "$CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256" =~ ^[A-Fa-f0-9]{64}$ ]]; then
     echo "CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256 must be a 64-character SHA-256 hex digest." >&2
     exit 1
 fi
@@ -71,7 +92,7 @@ if [[ "$expected_platform_hash" != "${GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256,,}"
     echo "Gateway -> Platform service token/hash mismatch." >&2
     exit 1
 fi
-if [[ "$expected_session_hash" != "${CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256,,}" ]]; then
+if [[ "$engine_enabled" == 1 && "$expected_session_hash" != "${CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256,,}" ]]; then
     echo "Gateway -> Canary service token/hash mismatch." >&2
     exit 1
 fi
@@ -107,29 +128,40 @@ if ! validate_ipv4_policy "$GATEWAY_BIND_ADDRESS" loopback; then
     echo "GATEWAY_BIND_ADDRESS is invalid; Gateway must remain loopback-only." >&2
     exit 1
 fi
-if ! validate_ipv4_policy "$CANARY_LOGIN_BIND_ADDRESS" loopback; then
-    echo "CANARY_LOGIN_BIND_ADDRESS is invalid; legacy login must remain loopback-only." >&2
-    exit 1
-fi
-if ! validate_ipv4_policy "$CANARY_GAME_BIND_ADDRESS" private-or-loopback; then
-    echo "CANARY_GAME_BIND_ADDRESS must be loopback or an exact private LAN IPv4 address." >&2
-    exit 1
-fi
-if [[ "$CANARY_SERVER_IP" != "$CANARY_GAME_BIND_ADDRESS" ]]; then
-    echo "CANARY_SERVER_IP must exactly match CANARY_GAME_BIND_ADDRESS." >&2
-    exit 1
-fi
-if [[ "$GAME_WORLD_HOST" != "$CANARY_GAME_BIND_ADDRESS" ]]; then
-    echo "GAME_WORLD_HOST must exactly match CANARY_GAME_BIND_ADDRESS." >&2
-    exit 1
-fi
+if [[ "$engine_enabled" == 1 ]]; then
+    if ! validate_ipv4_policy "$CANARY_LOGIN_BIND_ADDRESS" loopback; then
+        echo "CANARY_LOGIN_BIND_ADDRESS is invalid; legacy login must remain loopback-only." >&2
+        exit 1
+    fi
+    if ! validate_ipv4_policy "$CANARY_GAME_BIND_ADDRESS" private-or-loopback; then
+        echo "CANARY_GAME_BIND_ADDRESS must be loopback or an exact private LAN IPv4 address." >&2
+        exit 1
+    fi
+    if [[ "$CANARY_SERVER_IP" != "$CANARY_GAME_BIND_ADDRESS" ]]; then
+        echo "CANARY_SERVER_IP must exactly match CANARY_GAME_BIND_ADDRESS." >&2
+        exit 1
+    fi
+    if [[ "$GAME_WORLD_HOST" != "$CANARY_GAME_BIND_ADDRESS" ]]; then
+        echo "GAME_WORLD_HOST must exactly match CANARY_GAME_BIND_ADDRESS." >&2
+        exit 1
+    fi
 
-for port_name in PLATFORM_PORT GATEWAY_PORT CANARY_LOGIN_PORT CANARY_GAME_PORT GAME_WORLD_PORT; do
-    validate_port "$port_name"
-done
-if [[ "$GAME_WORLD_PORT" != "$CANARY_GAME_PORT" ]]; then
-    echo "GAME_WORLD_PORT must exactly match CANARY_GAME_PORT." >&2
-    exit 1
+    for port_name in PLATFORM_PORT GATEWAY_PORT CANARY_LOGIN_PORT CANARY_GAME_PORT GAME_WORLD_PORT; do
+        validate_port "$port_name"
+    done
+    if [[ "$GAME_WORLD_PORT" != "$CANARY_GAME_PORT" ]]; then
+        echo "GAME_WORLD_PORT must exactly match CANARY_GAME_PORT." >&2
+        exit 1
+    fi
+else
+    # Without the legacy engine the world endpoint is validated on its own.
+    if ! validate_ipv4_policy "$GAME_WORLD_HOST" private-or-loopback; then
+        echo "GAME_WORLD_HOST must be loopback or an exact private LAN IPv4 address." >&2
+        exit 1
+    fi
+    for port_name in PLATFORM_PORT GATEWAY_PORT GAME_WORLD_PORT; do
+        validate_port "$port_name"
+    done
 fi
 if [[ ! "$GAME_WORLD_ID" =~ ^[1-9][0-9]*$ ]]; then
     echo "GAME_WORLD_ID must be a positive integer." >&2
@@ -332,7 +364,9 @@ _oteryn_fast_candidate() {
 
     FAST_OLD_PLATFORM_ID="$(_oteryn_fast_running_service_id platform "$FAST_OLD_PLATFORM_IMAGE")" || return 2
     FAST_GATEWAY_ID="$(_oteryn_fast_running_service_id gateway "$FAST_OLD_GATEWAY_IMAGE")" || return 2
-    FAST_CANARY_ID="$(_oteryn_fast_running_service_id canary "$FAST_OLD_CANARY_IMAGE")" || return 2
+    if [[ "$engine_enabled" == 1 ]]; then
+        FAST_CANARY_ID="$(_oteryn_fast_running_service_id canary "$FAST_OLD_CANARY_IMAGE")" || return 2
+    fi
     FAST_MARIADB_ID="$(_oteryn_fast_running_service_id mariadb)" || return 2
     FAST_REDIS_ID="$(_oteryn_fast_running_service_id redis)" || return 2
     FAST_PROXY_ID="$(_oteryn_fast_running_service_id internal-proxy)" || return 2
@@ -442,7 +476,9 @@ _oteryn_fast_deploy_platform() {
 
     _oteryn_fast_assert_preserved_service mariadb "$FAST_MARIADB_ID"
     _oteryn_fast_assert_preserved_service redis "$FAST_REDIS_ID"
-    _oteryn_fast_assert_preserved_service canary "$FAST_CANARY_ID"
+    if [[ "$engine_enabled" == 1 ]]; then
+        _oteryn_fast_assert_preserved_service canary "$FAST_CANARY_ID"
+    fi
     _oteryn_fast_assert_preserved_service internal-proxy "$FAST_PROXY_ID"
     _oteryn_fast_assert_preserved_service gateway "$FAST_GATEWAY_ID"
 
@@ -493,7 +529,9 @@ snapshot_current_images() {
     : > "$tmp"
     chmod 600 "$tmp"
 
-    for service in platform gateway canary; do
+    local -a snapshot_services=(platform gateway)
+    [[ "$engine_enabled" != 1 ]] || snapshot_services+=(canary)
+    for service in "${snapshot_services[@]}"; do
         container_id="$("${compose[@]}" ps -q "$service" 2>/dev/null || true)"
         if [[ -n "$container_id" ]]; then
             image_id="$(docker inspect --format '{{.Image}}' "$container_id")"
@@ -576,8 +614,12 @@ finalize_previous_candidate_if_healthy() {
     _oteryn_verify_component_image_source "${candidate_state[3]}" "${candidate_state[1]}" Platform || return 1
     _oteryn_verify_component_image_source "${candidate_state[4]}" "${candidate_state[2]}" Gateway || return 1
 
-    services=(platform canary)
-    expected_images=("${candidate_state[3]}" "${candidate_state[5]}")
+    services=(platform)
+    expected_images=("${candidate_state[3]}")
+    if [[ "$engine_enabled" == 1 ]]; then
+        services=(platform canary)
+        expected_images=("${candidate_state[3]}" "${candidate_state[5]}")
+    fi
     for index in "${!services[@]}"; do
         service="${services[$index]}"
         expected_image="${expected_images[$index]}"
@@ -617,8 +659,9 @@ finalize_previous_candidate_if_healthy() {
         -v platform_image="${candidate_state[3]}" \
         -v gateway_image="${candidate_state[4]}" \
         -v canary_image="${candidate_state[5]}" \
+        -v engine_enabled="$engine_enabled" \
         -v gateway_version="sha-${candidate_state[2]}" '
-        BEGIN { r=0; ps=0; gs=0; p=0; g=0; c=0; v=0 }
+        BEGIN { r=0; ps=0; gs=0; p=0; g=0; c=(engine_enabled == 1 ? 0 : 1); v=0 }
         /^OTERYN_RELEASE_SHA=/ { print "OTERYN_RELEASE_SHA=" release_sha; r=1; next }
         /^PLATFORM_SOURCE_SHA=/ { print "PLATFORM_SOURCE_SHA=" platform_source_sha; ps=1; next }
         /^GATEWAY_SOURCE_SHA=/ { print "GATEWAY_SOURCE_SHA=" gateway_source_sha; gs=1; next }
@@ -704,7 +747,9 @@ apply_sql_template() {
 snapshot_current_images
 
 "${compose[@]}" config --quiet
-for runtime_image in "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE"; do
+runtime_images=("$PLATFORM_IMAGE" "$GATEWAY_IMAGE")
+[[ "$engine_enabled" != 1 ]] || runtime_images+=("$CANARY_IMAGE")
+for runtime_image in "${runtime_images[@]}"; do
     docker image inspect "$runtime_image" >/dev/null 2>&1 || {
         echo "Guarded workflow did not leave a resolved runtime image locally: $runtime_image" >&2
         exit 1
@@ -731,6 +776,11 @@ CREATE DATABASE IF NOT EXISTS \`$PLATFORM_DB_NAME\` CHARACTER SET utf8mb4 COLLAT
 CREATE USER IF NOT EXISTS '$PLATFORM_DB_USER'@'%' IDENTIFIED BY '$PLATFORM_DB_PASSWORD';
 ALTER USER '$PLATFORM_DB_USER'@'%' IDENTIFIED BY '$PLATFORM_DB_PASSWORD';
 GRANT ALL PRIVILEGES ON \`$PLATFORM_DB_NAME\`.* TO '$PLATFORM_DB_USER'@'%';
+FLUSH PRIVILEGES;
+SQL
+
+if [[ "$engine_enabled" == 1 ]]; then
+    "${compose[@]}" exec -T -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb mariadb -uroot <<SQL
 CREATE DATABASE IF NOT EXISTS \`$CANARY_DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '$CANARY_DB_USER'@'%' IDENTIFIED BY '$CANARY_DB_PASSWORD';
 ALTER USER '$CANARY_DB_USER'@'%' IDENTIFIED BY '$CANARY_DB_PASSWORD';
@@ -738,65 +788,66 @@ GRANT ALL PRIVILEGES ON \`$CANARY_DB_NAME\`.* TO '$CANARY_DB_USER'@'%';
 FLUSH PRIVILEGES;
 SQL
 
-"${compose[@]}" exec -T redis redis-cli -a "$REDIS_PASSWORD" \
-    ACL SETUSER "$CANARY_RUNTIME_REDIS_USERNAME" on \
-    ">${CANARY_RUNTIME_REDIS_PASSWORD}" resetkeys '~cluster:channel:*:runtime' \
-    -@all +hmget +pttl +ping +select >/dev/null
+    "${compose[@]}" exec -T redis redis-cli -a "$REDIS_PASSWORD" \
+        ACL SETUSER "$CANARY_RUNTIME_REDIS_USERNAME" on \
+        ">${CANARY_RUNTIME_REDIS_PASSWORD}" resetkeys '~cluster:channel:*:runtime' \
+        -@all +hmget +pttl +ping +select >/dev/null
 
-"${compose[@]}" up -d canary
+    "${compose[@]}" up -d canary
 
-schema_ready=0
-for _ in $(seq 1 90); do
-    if "${compose[@]}" exec -T -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb \
-        mariadb -uroot -N -e \
-        "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$CANARY_DB_NAME' AND table_name IN ('accounts','players','guilds','guild_membership','guild_ranks','channels','cluster_sessions');" \
-        | grep -qx '7'; then
-        schema_ready=1
-        break
+    schema_ready=0
+    for _ in $(seq 1 90); do
+        if "${compose[@]}" exec -T -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb \
+            mariadb -uroot -N -e \
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$CANARY_DB_NAME' AND table_name IN ('accounts','players','guilds','guild_membership','guild_ranks','channels','cluster_sessions');" \
+            | grep -qx '7'; then
+            schema_ready=1
+            break
+        fi
+        sleep 2
+    done
+    if [[ "$schema_ready" -ne 1 ]]; then
+        echo "Canary schema did not become ready; refusing to start Platform/Gateway." >&2
+        exit 1
     fi
-    sleep 2
-done
-if [[ "$schema_ready" -ne 1 ]]; then
-    echo "Canary schema did not become ready; refusing to start Platform/Gateway." >&2
-    exit 1
+
+    export OTERYN_CANARY_DB_USER="$CANARY_READONLY_DB_USER"
+    export OTERYN_CANARY_DB_HOST="%"
+    export OTERYN_CANARY_DB_PASSWORD="$CANARY_READONLY_DB_PASSWORD"
+    export OTERYN_CANARY_PROVISIONING_DB_USER="$CANARY_PROVISIONING_DB_USER"
+    export OTERYN_CANARY_PROVISIONING_DB_HOST="%"
+    export OTERYN_CANARY_PROVISIONING_DB_PASSWORD="$CANARY_PROVISIONING_DB_PASSWORD"
+    export OTERYN_CANARY_CHARACTER_CREATE_DB_USER="$CANARY_CHARACTER_CREATE_DB_USER"
+    export OTERYN_CANARY_CHARACTER_CREATE_DB_HOST="%"
+    export OTERYN_CANARY_CHARACTER_CREATE_DB_PASSWORD="$CANARY_CHARACTER_CREATE_DB_PASSWORD"
+
+    apply_sql_template "$REPO_ROOT/database/provisioning/canary-readonly.sql.template" '
+        !/^SHOW GRANTS/ {
+            gsub(/\{\{OTERYN_CANARY_DB_USER\}\}/, ENVIRON["OTERYN_CANARY_DB_USER"])
+            gsub(/\{\{OTERYN_CANARY_DB_HOST\}\}/, ENVIRON["OTERYN_CANARY_DB_HOST"])
+            gsub(/\{\{OTERYN_CANARY_DB_PASSWORD\}\}/, ENVIRON["OTERYN_CANARY_DB_PASSWORD"])
+            gsub(/\{\{CANARY_DB_NAME\}\}/, ENVIRON["CANARY_DB_NAME"])
+            print
+        }'
+
+    apply_sql_template "$REPO_ROOT/database/provisioning/canary-provisioning.sql.template" '
+        !/^SHOW GRANTS/ {
+            gsub(/\{\{OTERYN_CANARY_PROVISIONING_DB_USER\}\}/, ENVIRON["OTERYN_CANARY_PROVISIONING_DB_USER"])
+            gsub(/\{\{OTERYN_CANARY_PROVISIONING_DB_HOST\}\}/, ENVIRON["OTERYN_CANARY_PROVISIONING_DB_HOST"])
+            gsub(/\{\{OTERYN_CANARY_PROVISIONING_DB_PASSWORD\}\}/, ENVIRON["OTERYN_CANARY_PROVISIONING_DB_PASSWORD"])
+            gsub(/\{\{CANARY_DB_NAME\}\}/, ENVIRON["CANARY_DB_NAME"])
+            print
+        }'
+
+    apply_sql_template "$REPO_ROOT/database/provisioning/canary-character-create.sql.template" '
+        !/^SHOW GRANTS/ {
+            gsub(/\{\{OTERYN_CANARY_CHARACTER_CREATE_DB_USER\}\}/, ENVIRON["OTERYN_CANARY_CHARACTER_CREATE_DB_USER"])
+            gsub(/\{\{OTERYN_CANARY_CHARACTER_CREATE_DB_HOST\}\}/, ENVIRON["OTERYN_CANARY_CHARACTER_CREATE_DB_HOST"])
+            gsub(/\{\{OTERYN_CANARY_CHARACTER_CREATE_DB_PASSWORD\}\}/, ENVIRON["OTERYN_CANARY_CHARACTER_CREATE_DB_PASSWORD"])
+            gsub(/\{\{CANARY_DB_NAME\}\}/, ENVIRON["CANARY_DB_NAME"])
+            print
+        }'
 fi
-
-export OTERYN_CANARY_DB_USER="$CANARY_READONLY_DB_USER"
-export OTERYN_CANARY_DB_HOST="%"
-export OTERYN_CANARY_DB_PASSWORD="$CANARY_READONLY_DB_PASSWORD"
-export OTERYN_CANARY_PROVISIONING_DB_USER="$CANARY_PROVISIONING_DB_USER"
-export OTERYN_CANARY_PROVISIONING_DB_HOST="%"
-export OTERYN_CANARY_PROVISIONING_DB_PASSWORD="$CANARY_PROVISIONING_DB_PASSWORD"
-export OTERYN_CANARY_CHARACTER_CREATE_DB_USER="$CANARY_CHARACTER_CREATE_DB_USER"
-export OTERYN_CANARY_CHARACTER_CREATE_DB_HOST="%"
-export OTERYN_CANARY_CHARACTER_CREATE_DB_PASSWORD="$CANARY_CHARACTER_CREATE_DB_PASSWORD"
-
-apply_sql_template "$REPO_ROOT/database/provisioning/canary-readonly.sql.template" '
-    !/^SHOW GRANTS/ {
-        gsub(/\{\{OTERYN_CANARY_DB_USER\}\}/, ENVIRON["OTERYN_CANARY_DB_USER"])
-        gsub(/\{\{OTERYN_CANARY_DB_HOST\}\}/, ENVIRON["OTERYN_CANARY_DB_HOST"])
-        gsub(/\{\{OTERYN_CANARY_DB_PASSWORD\}\}/, ENVIRON["OTERYN_CANARY_DB_PASSWORD"])
-        gsub(/\{\{CANARY_DB_NAME\}\}/, ENVIRON["CANARY_DB_NAME"])
-        print
-    }'
-
-apply_sql_template "$REPO_ROOT/database/provisioning/canary-provisioning.sql.template" '
-    !/^SHOW GRANTS/ {
-        gsub(/\{\{OTERYN_CANARY_PROVISIONING_DB_USER\}\}/, ENVIRON["OTERYN_CANARY_PROVISIONING_DB_USER"])
-        gsub(/\{\{OTERYN_CANARY_PROVISIONING_DB_HOST\}\}/, ENVIRON["OTERYN_CANARY_PROVISIONING_DB_HOST"])
-        gsub(/\{\{OTERYN_CANARY_PROVISIONING_DB_PASSWORD\}\}/, ENVIRON["OTERYN_CANARY_PROVISIONING_DB_PASSWORD"])
-        gsub(/\{\{CANARY_DB_NAME\}\}/, ENVIRON["CANARY_DB_NAME"])
-        print
-    }'
-
-apply_sql_template "$REPO_ROOT/database/provisioning/canary-character-create.sql.template" '
-    !/^SHOW GRANTS/ {
-        gsub(/\{\{OTERYN_CANARY_CHARACTER_CREATE_DB_USER\}\}/, ENVIRON["OTERYN_CANARY_CHARACTER_CREATE_DB_USER"])
-        gsub(/\{\{OTERYN_CANARY_CHARACTER_CREATE_DB_HOST\}\}/, ENVIRON["OTERYN_CANARY_CHARACTER_CREATE_DB_HOST"])
-        gsub(/\{\{OTERYN_CANARY_CHARACTER_CREATE_DB_PASSWORD\}\}/, ENVIRON["OTERYN_CANARY_CHARACTER_CREATE_DB_PASSWORD"])
-        gsub(/\{\{CANARY_DB_NAME\}\}/, ENVIRON["CANARY_DB_NAME"])
-        print
-    }'
 
 # A previous candidate whose migration succeeded but whose post-migration health
 # gate failed must be resolved before a newer release can own recovery state.
@@ -815,9 +866,11 @@ if ! "${compose[@]}" exec -T platform sh -ec 'test -s storage/oauth-private.key 
     "${compose[@]}" exec -T platform php artisan passport:keys --no-interaction
 fi
 "${compose[@]}" exec -T platform php artisan game-auth:oauth-client:ensure
-"${compose[@]}" exec -T platform php artisan canary:verify-db-privileges
-"${compose[@]}" exec -T platform php artisan canary:verify-provisioning-db-privileges
-"${compose[@]}" exec -T platform php artisan canary:verify-character-create-db-privileges
+if [[ "$engine_enabled" == 1 ]]; then
+    "${compose[@]}" exec -T platform php artisan canary:verify-db-privileges
+    "${compose[@]}" exec -T platform php artisan canary:verify-provisioning-db-privileges
+    "${compose[@]}" exec -T platform php artisan canary:verify-character-create-db-privileges
+fi
 
 "${compose[@]}" up -d --no-deps --force-recreate internal-proxy
 "${compose[@]}" up -d gateway

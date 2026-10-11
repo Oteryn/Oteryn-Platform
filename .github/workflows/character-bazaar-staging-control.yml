@@ -178,10 +178,14 @@ jobs:
             transfer_password="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
           fi
 
+          engine_enabled="$(bash -c 'source deploy/synology/scripts/engine-topology.sh; oteryn_engine_enabled')"
           if [[ "$CONTROL_ACTION" == 'deploy-enable' ]]; then
             platform_image="${PLATFORM_REPO}:${RELEASE_TAG}"
             gateway_image="${GATEWAY_REPO}:${RELEASE_TAG}"
-            canary_image='ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f'
+            canary_image=''
+            if [[ "$engine_enabled" == 1 ]]; then
+              canary_image='ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f'
+            fi
           else
             resolve_image() {
               local service="$1"
@@ -195,7 +199,10 @@ jobs:
             }
             platform_image="$(resolve_image platform)"
             gateway_image="$(resolve_image gateway)"
-            canary_image="$(resolve_image canary)"
+            canary_image=''
+            if [[ "$engine_enabled" == 1 ]]; then
+              canary_image="$(resolve_image canary)"
+            fi
           fi
 
           cat > deploy/synology/.env <<EOF

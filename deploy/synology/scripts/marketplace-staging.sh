@@ -5,13 +5,19 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd -- "$DEPLOY_DIR/../.." && pwd)"
 ENV_FILE="${OTERYN_ENV_FILE:-$DEPLOY_DIR/.env}"
-BASE_COMPOSE_FILE="$DEPLOY_DIR/compose.yml"
+BASE_COMPOSE_FILE="${OTERYN_COMPOSE_FILE:-$DEPLOY_DIR/compose.yml}"
+export OTERYN_COMPOSE_FILE="$BASE_COMPOSE_FILE"
 MARKETPLACE_COMPOSE_FILE="$DEPLOY_DIR/compose.marketplace.yml"
 ACTION="${1:-verify}"
 
 # shellcheck source=deploy/synology/scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
 load_oteryn_env_file "$ENV_FILE"
+
+# The legacy engine is optional: the Bazaar escrow and transfer principal live
+# in its database, so without the service only the
+# drain/disable path (prepare-rollback) is available; enable/verify fail closed.
+engine_enabled="$(oteryn_engine_enabled "$BASE_COMPOSE_FILE")"
 
 case "$ACTION" in
     enable|verify|prepare-rollback) ;;
@@ -21,13 +27,23 @@ case "$ACTION" in
         ;;
 esac
 
+if [[ "$engine_enabled" != 1 && "$ACTION" != prepare-rollback ]]; then
+    echo "Character Bazaar $ACTION requires the legacy engine, which is absent from the compose topology; only prepare-rollback is available." >&2
+    exit 1
+fi
+
 required_vars=(
     PLATFORM_IMAGE
     APP_NAME APP_ENV APP_KEY APP_DEBUG APP_URL LOG_LEVEL
     MARIADB_ROOT_PASSWORD PLATFORM_DB_NAME PLATFORM_DB_USER PLATFORM_DB_PASSWORD
+)
+engine_required_vars=(
     CANARY_DB_NAME CANARY_CHARACTER_TRANSFER_DB_USER CANARY_CHARACTER_TRANSFER_DB_PASSWORD
     MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH
 )
+if [[ "$engine_enabled" == 1 ]]; then
+    required_vars+=("${engine_required_vars[@]}")
+fi
 for name in "${required_vars[@]}"; do
     value="${!name:-}"
     if [[ -z "$value" || "$value" == REQUIRED_* ]]; then
@@ -36,11 +52,13 @@ for name in "${required_vars[@]}"; do
     fi
 done
 
-safe_value_vars=(
-    PLATFORM_DB_NAME PLATFORM_DB_USER PLATFORM_DB_PASSWORD
-    CANARY_DB_NAME CANARY_CHARACTER_TRANSFER_DB_USER CANARY_CHARACTER_TRANSFER_DB_PASSWORD
-    MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME
-)
+safe_value_vars=(PLATFORM_DB_NAME PLATFORM_DB_USER PLATFORM_DB_PASSWORD)
+if [[ "$engine_enabled" == 1 ]]; then
+    safe_value_vars+=(
+        CANARY_DB_NAME CANARY_CHARACTER_TRANSFER_DB_USER CANARY_CHARACTER_TRANSFER_DB_PASSWORD
+        MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME
+    )
+fi
 for name in "${safe_value_vars[@]}"; do
     value="${!name}"
     if [[ ! "$value" =~ ^[A-Za-z0-9_.-]+$ ]]; then
@@ -49,17 +67,19 @@ for name in "${safe_value_vars[@]}"; do
     fi
 done
 
-if [[ ! "$MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME" =~ ^[a-z0-9_]{8,64}$ ]]; then
-    echo "MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME must be a bounded lower-case staging account name." >&2
-    exit 1
-fi
-if [[ ! "$MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH" =~ ^[1-9][0-9]*$ ]]; then
-    echo "MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH must be a positive immutable marker." >&2
-    exit 1
-fi
-if [[ "$CANARY_CHARACTER_TRANSFER_DB_USER" == "root" || "$CANARY_CHARACTER_TRANSFER_DB_USER" == "$CANARY_DB_USER" ]]; then
-    echo "The Character Bazaar transfer principal must be dedicated and must not be root or the Canary game-process user." >&2
-    exit 1
+if [[ "$engine_enabled" == 1 ]]; then
+    if [[ ! "$MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME" =~ ^[a-z0-9_]{8,64}$ ]]; then
+        echo "MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME must be a bounded lower-case staging account name." >&2
+        exit 1
+    fi
+    if [[ ! "$MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH" =~ ^[1-9][0-9]*$ ]]; then
+        echo "MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH must be a positive immutable marker." >&2
+        exit 1
+    fi
+    if [[ "$CANARY_CHARACTER_TRANSFER_DB_USER" == "root" || "$CANARY_CHARACTER_TRANSFER_DB_USER" == "$CANARY_DB_USER" ]]; then
+        echo "The Character Bazaar transfer principal must be dedicated and must not be root or the Canary game-process user." >&2
+        exit 1
+    fi
 fi
 
 compose=(
@@ -228,9 +248,13 @@ verify_current_image_supports_marketplace() {
     platform_container="$(service_container_id platform)"
     docker exec "$platform_container" sh -ec '
         test -f /var/www/html/app/Marketplace/Actions/ReconcileCharacterAuctions.php
-        test -f /var/www/html/database/provisioning/canary-character-transfer.sql.template
         grep -q "marketplace:reconcile" /var/www/html/routes/console.php
     '
+    if [[ "$engine_enabled" == 1 ]]; then
+        docker exec "$platform_container" sh -ec '
+            test -f /var/www/html/database/provisioning/canary-character-transfer.sql.template
+        '
+    fi
 }
 
 assert_no_pending_marketplace_work() {
@@ -327,7 +351,9 @@ case "$ACTION" in
         echo "Character Bazaar staging verification passed."
         ;;
     prepare-rollback)
-        resolve_escrow_account_read_only
+        if [[ "$engine_enabled" == 1 ]]; then
+            resolve_escrow_account_read_only
+        fi
         assert_no_pending_marketplace_work
         export MARKETPLACE_ENABLED=false
         update_env_value MARKETPLACE_ENABLED false

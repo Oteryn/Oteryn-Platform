@@ -296,6 +296,8 @@ jobs:
                   '7172': ('127.0.0.1', '7172'),
               },
           }
+          if 'canary' not in data['services']:
+              del expected['canary']
           for service, service_expected in expected.items():
               actual = bindings(service)
               if actual != service_expected:
@@ -338,16 +340,19 @@ jobs:
                   '7172': ('192.168.50.10', '7172'),
               },
           }
+          if 'canary' not in data['services']:
+              del expected['canary']
           for service, service_expected in expected.items():
               actual = bindings(service)
               if actual != service_expected:
                   raise SystemExit(f'LAN bindings for {service} are {actual}, expected {service_expected}')
 
-          canary_environment = data['services']['canary']['environment']
-          if str(canary_environment['CANARY_SERVER_IP']) != '192.168.50.10':
-              raise SystemExit('Canary advertised server IP does not match the LAN game bind')
-          if str(canary_environment['CANARY_GAME_SESSION_ISSUER_WORLD_ID']) != '1':
-              raise SystemExit('Canary issuer world ID does not match the staging World Registry ID')
+          if 'canary' in data['services']:
+              canary_environment = data['services']['canary']['environment']
+              if str(canary_environment['CANARY_SERVER_IP']) != '192.168.50.10':
+                  raise SystemExit('Canary advertised server IP does not match the LAN game bind')
+              if str(canary_environment['CANARY_GAME_SESSION_ISSUER_WORLD_ID']) != '1':
+                  raise SystemExit('Canary issuer world ID does not match the staging World Registry ID')
           PY
 
           "${runtime_compose[@]}" pull tls-init
@@ -682,6 +687,12 @@ jobs:
             exit 0
           fi
 
+          engine_enabled="$(bash -c 'source deploy/synology/scripts/engine-topology.sh; oteryn_engine_enabled')"
+          engine_dispatch_args=()
+          if [[ "$engine_enabled" == 1 ]]; then
+            engine_dispatch_args=(-f "inputs[canary_image]=${CANARY_IMAGE_DIGEST}")
+          fi
+
           gh api \
             --method POST \
             "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-synology-staging.yml/dispatches" \
@@ -694,7 +705,7 @@ jobs:
             -f "inputs[gateway_changed]=${GATEWAY_CHANGED}" \
             -f "inputs[gateway_source_sha]=${GATEWAY_SOURCE_SHA}" \
             -f "inputs[gateway_image]=${GATEWAY_IMAGE}" \
-            -f "inputs[canary_image]=${CANARY_IMAGE_DIGEST}" \
+            "${engine_dispatch_args[@]}" \
             -f 'inputs[canary_game_bind_address]=192.168.1.2' \
             -f 'inputs[game_world_id]=1' \
             -f 'inputs[game_world_slug]=oteryn-staging' \

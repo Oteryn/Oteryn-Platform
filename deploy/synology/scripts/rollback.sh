@@ -4,11 +4,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 ENV_FILE="${OTERYN_ENV_FILE:-$DEPLOY_DIR/.env}"
-COMPOSE_FILE="$DEPLOY_DIR/compose.yml"
+COMPOSE_FILE="${OTERYN_COMPOSE_FILE:-$DEPLOY_DIR/compose.yml}"
+export OTERYN_COMPOSE_FILE="$COMPOSE_FILE"
 
 # shellcheck source=deploy/synology/scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
 load_oteryn_env_file "$ENV_FILE"
+# The legacy engine is optional: topology comes from the compose file.
+engine_enabled="$(oteryn_engine_enabled "$COMPOSE_FILE")"
 
 state_dir="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
 last_good_file="$state_dir/last-good-release.env"
@@ -38,17 +41,22 @@ bash "$SCRIPT_DIR/release-state.sh" compatible-schema "$schema_identity" "$last_
 # shellcheck disable=SC1090
 source "$last_good_file"
 for name in RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT; do
+    if [[ "$name" == CANARY_IMAGE && "$engine_enabled" != 1 ]]; then continue; fi
     [[ -n "${!name:-}" ]] || { echo "Rollback configuration is incomplete: $name" >&2; exit 1; }
 done
 
-[[ "${CANARY_GAME_BIND_ADDRESS:-}" == "$GAME_WORLD_HOST" ]] || {
-    echo "Rollback rejected: configured Canary bind address does not match persisted last-good world host." >&2
-    exit 1
-}
-[[ "${CANARY_SERVER_IP:-}" == "$GAME_WORLD_HOST" ]] || {
-    echo "Rollback rejected: configured Canary server IP does not match persisted last-good world host." >&2
-    exit 1
-}
+if [[ "$engine_enabled" == 1 ]]; then
+    [[ "${CANARY_GAME_BIND_ADDRESS:-}" == "$GAME_WORLD_HOST" ]] || {
+        echo "Rollback rejected: configured Canary bind address does not match persisted last-good world host." >&2
+        exit 1
+    }
+    [[ "${CANARY_SERVER_IP:-}" == "$GAME_WORLD_HOST" ]] || {
+        echo "Rollback rejected: configured Canary server IP does not match persisted last-good world host." >&2
+        exit 1
+    }
+else
+    CANARY_IMAGE=''
+fi
 
 OTERYN_RELEASE_SHA="$RELEASE_SHA"
 GATEWAY_VERSION="sha-$GATEWAY_SOURCE_SHA"
@@ -64,8 +72,9 @@ awk \
     -v platform_image="$PLATFORM_IMAGE" \
     -v gateway_image="$GATEWAY_IMAGE" \
     -v canary_image="$CANARY_IMAGE" \
+    -v engine_enabled="$engine_enabled" \
     -v gateway_version="$GATEWAY_VERSION" '
-    BEGIN { r=0; ps=0; gs=0; p=0; g=0; c=0; v=0 }
+    BEGIN { r=0; ps=0; gs=0; p=0; g=0; c=(engine_enabled == 1 ? 0 : 1); v=0 }
     /^OTERYN_RELEASE_SHA=/ { print "OTERYN_RELEASE_SHA=" release_sha; r=1; next }
     /^PLATFORM_SOURCE_SHA=/ { print "PLATFORM_SOURCE_SHA=" platform_source_sha; ps=1; next }
     /^GATEWAY_SOURCE_SHA=/ { print "GATEWAY_SOURCE_SHA=" gateway_source_sha; gs=1; next }
@@ -93,14 +102,22 @@ compose=(
     "GATEWAY_VERSION=$GATEWAY_VERSION"
     docker compose --env-file "$rollback_env" -f "$COMPOSE_FILE"
 )
-"${compose[@]}" pull platform gateway canary
+if [[ "$engine_enabled" == 1 ]]; then
+    "${compose[@]}" pull platform gateway canary
+else
+    "${compose[@]}" pull platform gateway
+fi
 
 # Re-prove each immutable last-good artifact against its own persisted source
 # identity. The overall release SHA intentionally remains independent.
 _oteryn_verify_component_image_source "$PLATFORM_IMAGE" "$PLATFORM_SOURCE_SHA" Platform
 _oteryn_verify_component_image_source "$GATEWAY_IMAGE" "$GATEWAY_SOURCE_SHA" Gateway
 
-"${compose[@]}" up -d canary platform internal-proxy gateway
+if [[ "$engine_enabled" == 1 ]]; then
+    "${compose[@]}" up -d canary platform internal-proxy gateway
+else
+    "${compose[@]}" up -d platform internal-proxy gateway
+fi
 
 # Marketplace is an optional Platform-image consumer outside the base manifest.
 # Reconcile both the browser-facing Platform service and scheduler to the selected
