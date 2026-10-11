@@ -82,6 +82,7 @@ derived:
   - The existing controller already maps the unavailable exception to a bounded form error.
 unknown:
   - PHP suite result; composer dependencies could not be installed in the authoring sandbox, so CI is the first run.
+  - Follow-up CREATE-OFF-2: success, duplicate, foreign-id, quota and public-visibility creation states are not exercised while creation is off; the coverage manifest records the unavailable contract as covered, and these states return when creation is re-enabled (decision D993).
   - The account overview still reports character creation as allowed and shows a create button; that projection and view are outside this packet and need a follow-up, routed to the account backlog item B2 (account projection) (decision D988).
 conflicts: []
 first_failure:

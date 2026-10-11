@@ -323,7 +323,7 @@
     {
       "id": "account.character-creation-and-visibility",
       "owner": "Accounts / Characters",
-      "status": "partial",
+      "status": "covered",
       "route_names": [
         "account.characters.create",
         "account.characters.store"
@@ -336,6 +336,7 @@
         "form",
         "invalid-name",
         "reserved-name",
+        "creation-unavailable",
         "logout-denial"
       ],
       "viewports": [
@@ -366,9 +367,7 @@
           ]
         }
       ],
-      "gaps": [
-        "success, duplicate-idempotent-outcome, foreign-account-id-injection-denied, quota and public-character-visible are not covered while character creation is temporarily off (it answers the unavailable alert); restore these states when creation is re-enabled."
-      ]
+      "gaps": []
     },
     {
       "id": "public.home-and-seo",
