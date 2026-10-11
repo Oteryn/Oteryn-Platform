@@ -16,6 +16,13 @@
 #   show           print the key ids and public keys, changing nothing
 #   check          run the Platform signing self-check in the running Platform container
 #
+# rotate moves the trusted current key to retiring and restarts Platform with a new current key whose
+# public key is not trusted yet, so native login fails until it is published. While native admission
+# is live (a running Platform container has GAME_AUTH_NATIVE_ADMISSION_ENABLED=true) rotate therefore
+# refuses unless called as "rotate --maintenance": the operator accepts a native login outage from the
+# rotate until the new public key is published and check passes (set OTERYN_STAGING_NATIVE_ADMISSION_ENABLED
+# to false and redeploy first to avoid the outage).
+#
 # rotate and drop-retiring restart the running Platform container(s): the entrypoint exports the key
 # ids once at start, so a running container would otherwise keep ids that now name other files.
 # After rotate, signing needs the new public key in the Platform trust registry (a redeploy publishes
@@ -30,11 +37,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 VOLUME_NAME="oteryn-native-admission-keys"
 ACTION="${1:-ensure}"
+MAINTENANCE="${2:-}"
 
 case "$ACTION" in
     ensure | rotate | drop-retiring | show | check) ;;
     *)
-        echo "Usage: $0 [ensure|rotate|drop-retiring|show|check]" >&2
+        echo "Usage: $0 [ensure|rotate [--maintenance]|drop-retiring|show|check]" >&2
         exit 2
         ;;
 esac
@@ -239,6 +247,16 @@ switch ($action) {
 
 report($dir, $uid);
 PHP
+
+if [[ "$ACTION" == rotate && "$MAINTENANCE" != --maintenance ]]; then
+    while IFS= read -r container; do
+        if [[ -n "$container" ]] && docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container" \
+            | grep -qx 'GAME_AUTH_NATIVE_ADMISSION_ENABLED=true'; then
+            echo "Refusing to rotate while native admission is live: the new key is untrusted until its public key is published, so native login would fail. Disable native admission and redeploy, or run '$0 rotate --maintenance' to accept the outage." >&2
+            exit 3
+        fi
+    done < <(platform_containers)
+fi
 
 docker run --rm \
     --user 0:0 \

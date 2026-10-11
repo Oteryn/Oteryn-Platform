@@ -338,3 +338,14 @@ def test_fast_path_is_rejected_when_the_native_admission_flag_changed() -> None:
     assert "GATEWAY_NATIVE_LOGIN_ENABLED=" in fast
     assert "GAME_AUTH_NATIVE_ADMISSION_ENABLED=" in fast
     assert "native admission flag changed" in fast
+
+
+def test_reconcile_rejects_a_changed_flag_and_rotate_needs_maintenance_while_live() -> None:
+    impact = (ROOT / "deploy" / "synology" / "scripts" / "deploy-impact.sh").read_text(encoding="utf-8")
+    cand = impact.split("_oteryn_platform_reconcile_candidate() {")[1].split("\n}\n")[0]
+    assert "native admission flag changed" in cand
+    assert "GATEWAY_NATIVE_LOGIN_ENABLED=" in cand and "GAME_AUTH_NATIVE_ADMISSION_ENABLED=" in cand
+    key = KEY_SCRIPT.read_text(encoding="utf-8")
+    assert '"$MAINTENANCE" != --maintenance' in key
+    assert key.index("Refusing to rotate while native admission is live") < key.index("docker run --rm")
+    assert "default off" in README.read_text(encoding="utf-8")

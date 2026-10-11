@@ -133,7 +133,7 @@ GAME_AUTH_NATIVE_ADMISSION_ENABLED   (Platform issuer)
 GATEWAY_NATIVE_LOGIN_ENABLED         (Gateway native branch)
 ```
 
-On this package the value is `true`: Synology runs `APP_ENV=preproduction`, the only deployed environment in which the Platform issuer signs grants (`testing` is for CI; `production` still refuses native admission and the legacy login switch stays as configured). The deployment proves the issuer can sign, or it refuses:
+On this package native admission is opt-in (default off, see below): Synology runs `APP_ENV=preproduction`, the only deployed environment in which the Platform issuer signs grants (`testing` is for CI; `production` still refuses native admission and the legacy login switch stays as configured). The deployment proves the issuer can sign, or it refuses:
 
 1. Before any stack change, `deploy.sh` runs `generate-native-admission-key.sh ensure`. On first use this creates the Ed25519 signing key inside the Docker named volume `oteryn-native-admission-keys`, which Docker stores under its root-only data root, outside the repository, the Compose context, the rendered `.env` and the runner state directory. The volume directory is mode 0700 and every file 0600, owned by the Platform process user (the keyring refuses anything else). The private key is generated and read only inside a throwaway container with no network and is never printed, logged or written to CI output. The command is idempotent and prints only the key id and the public key (`current_key_id=`, `current_public_key=`), which is what Game's trust config needs.
 2. The Platform entrypoint exports `GAME_AUTH_NATIVE_ADMISSION_SIGNING_KEY_FILE` / `GAME_AUTH_NATIVE_ADMISSION_SIGNING_KEY_ID` (and, during rotation, `GAME_AUTH_NATIVE_ADMISSION_RETIRING_SIGNING_KEY_FILE` / `GAME_AUTH_NATIVE_ADMISSION_RETIRING_SIGNING_KEY_ID`) from the read-only volume mount. No key value is ever a Compose value, `.env` entry or repository file.
@@ -144,12 +144,12 @@ The signing key must also be trusted by the Platform registry and by Game (`curr
 Key rotation (native login contract 9.3), run on the Synology host with `PLATFORM_IMAGE` set to the deployed Platform image:
 
 ```bash
-PLATFORM_IMAGE=<image> deploy/synology/scripts/generate-native-admission-key.sh rotate         # current -> retiring, new current
+PLATFORM_IMAGE=<image> deploy/synology/scripts/generate-native-admission-key.sh rotate [--maintenance]  # current -> retiring, new current
 # publish the printed current_public_key to the Platform trust registry and Game, wait for propagation
 PLATFORM_IMAGE=<image> deploy/synology/scripts/generate-native-admission-key.sh drop-retiring  # after the retiring key's grants expired
 ```
 
-`rotate` and `drop-retiring` restart the running Platform container, because the entrypoint exports the key ids once at start. After `rotate` signing needs the new public key in the Platform trust registry; `check` runs the signing self-check in the running container. `show` prints the current ids and public keys without changing anything. Key ids are never reused.
+While native admission is live, `rotate` refuses (exit 3) unless run as `rotate --maintenance`, because the new key is untrusted until its public key is published; the safe order is to disable native admission and redeploy, rotate, publish and check, then re-enable. `rotate` and `drop-retiring` restart the running Platform container, because the entrypoint exports the key ids once at start. After `rotate` signing needs the new public key in the Platform trust registry; `check` runs the signing self-check in the running container. `show` prints the current ids and public keys without changing anything. Key ids are never reused.
 
 Native admission is opt-in. Set the repository variable `OTERYN_STAGING_NATIVE_ADMISSION_ENABLED=true` only together with `OTERYN_STAGING_NATIVE_RUNTIME_STATUS_IDENTITIES` and `OTERYN_STAGING_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES` (the Game identities that report runtime status and own scope assignment; without them no scope is routable); deploy refuses otherwise. Rollback enables it for an image only if that image has both the self-check command and the entrypoint key export.
 

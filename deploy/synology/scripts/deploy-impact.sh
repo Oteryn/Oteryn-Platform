@@ -291,6 +291,15 @@ _oteryn_platform_reconcile_candidate() {
 
     RECONCILE_OLD_PLATFORM_ID="$(_oteryn_running_service_id platform "$RECONCILE_OLD_PLATFORM_IMAGE")" || return 2
     RECONCILE_GATEWAY_ID="$(_oteryn_running_service_id gateway "$RECONCILE_OLD_GATEWAY_IMAGE")" || return 2
+    # Reconcile recreates Platform only: a changed native admission flag would leave Gateway and Platform
+    # disagreeing (and rollback would not repair Gateway), so that release takes the full path.
+    local want_native="${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" running_platform_native running_gateway_native
+    running_platform_native="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$RECONCILE_OLD_PLATFORM_ID" | sed -n 's/^GAME_AUTH_NATIVE_ADMISSION_ENABLED=//p')" || return 2
+    running_gateway_native="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$RECONCILE_GATEWAY_ID" | sed -n 's/^GATEWAY_NATIVE_LOGIN_ENABLED=//p')" || return 2
+    if [[ "$running_platform_native" != "$want_native" || "$running_gateway_native" != "$want_native" ]]; then
+        RECONCILE_REASON='native admission flag changed'
+        return 1
+    fi
     RECONCILE_MARIADB_ID="$(_oteryn_running_service_id mariadb)" || return 2
     RECONCILE_REDIS_ID="$(_oteryn_running_service_id redis)" || return 2
     RECONCILE_PROXY_ID="$(_oteryn_running_service_id internal-proxy)" || return 2
