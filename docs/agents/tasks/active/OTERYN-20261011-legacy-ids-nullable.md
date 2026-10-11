@@ -51,9 +51,9 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-11T12:00:00Z
-head: UNKNOWN
+head: 969e5ca5
 branch: claude/decanary-legacy-nullable-1-20261011
-pr: none
+pr: 1533
 status: validating
 context_routes:
   - marketplace
