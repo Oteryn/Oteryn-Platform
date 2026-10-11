@@ -433,6 +433,7 @@ _oteryn_recreate_marketplace_runtime() {
     [[ "$MARKETPLACE_ENABLED" == true ]] || { echo "Refusing to recreate Marketplace runtime while durable/effective state is disabled." >&2; return 1; }
 
     "${marketplace_compose[@]}" up -d --no-deps --force-recreate platform
+    oteryn_publish_native_admission_trust "$("${marketplace_compose[@]}" ps -q platform)" || return 1
     "${marketplace_compose[@]}" up -d --force-recreate marketplace-scheduler
 
     platform_id="$("${marketplace_compose[@]}" ps -a -q platform)" || return 1
@@ -720,7 +721,8 @@ docker() {
     command docker "${args[@]}"
 }
 
-# Owner decision D1006: with native admission switched on, deploy trusts the PUBLIC half of the
+# Owner decision D1006: with native admission switched on, every Platform (re)creation for a
+# release, rollback or Marketplace switch trusts the PUBLIC half of the
 # Platform issuer's current signing key in the deployment's own signing trust registry (MariaDB),
 # after the key exists and before the signing self-check verifies against that registry. The
 # command derives the public key from the loaded private key, refuses outside testing or

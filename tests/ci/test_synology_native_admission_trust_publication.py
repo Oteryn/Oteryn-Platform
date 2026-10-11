@@ -16,6 +16,8 @@ MARKETPLACE = ROOT / "deploy" / "synology" / "compose.marketplace.yml"
 LIB = ROOT / "deploy" / "synology" / "scripts" / "lib.sh"
 DEPLOY = ROOT / "deploy" / "synology" / "scripts" / "deploy.sh"
 DEPLOY_IMPACT = ROOT / "deploy" / "synology" / "scripts" / "deploy-impact.sh"
+ROLLBACK = ROOT / "deploy" / "synology" / "scripts" / "rollback.sh"
+MARKETPLACE_STAGING = ROOT / "deploy" / "synology" / "scripts" / "marketplace-staging.sh"
 COMMAND = ROOT / "app" / "Console" / "Commands" / "PublishNativeAdmissionTrust.php"
 
 PUBLISH_CALL = 'oteryn_publish_native_admission_trust "$("${compose[@]}" ps -q platform)"'
@@ -124,9 +126,59 @@ def test_platform_reconcile_publishes_after_platform_recreate_and_before_schedul
 
 
 def test_every_platform_deploy_route_publishes_trust() -> None:
-    # Each script that recreates Platform on a new image for a release passes the witnessed publication.
+    # Each script that (re)creates Platform for a release, rollback or Marketplace switch passes the
+    # witnessed publication before it promotes or reports success.
     assert deploy_text().count(PUBLISH_CALL) == 2
     assert DEPLOY_IMPACT.read_text(encoding="utf-8").count(PUBLISH_CALL) == 1
+    assert ROLLBACK.read_text(encoding="utf-8").count(PUBLISH_CALL + " || exit 1") == 1
+    assert MARKETPLACE_STAGING.read_text(encoding="utf-8").count(PUBLISH_CALL + " || exit 1") == 3
+    lib = LIB.read_text(encoding="utf-8")
+    assert lib.count('oteryn_publish_native_admission_trust "$("${marketplace_compose[@]}" ps -q platform)" || return 1') == 1
+
+
+def ordered(text: str, *needles: str) -> None:
+    positions = [text.index(needle) for needle in needles]
+    assert positions == sorted(positions), needles
+
+
+def test_rollback_publishes_after_starting_the_last_good_platform_and_before_promotion() -> None:
+    text = ROLLBACK.read_text(encoding="utf-8")
+    ordered(
+        text,
+        '"${compose[@]}" up -d platform internal-proxy gateway',
+        PUBLISH_CALL + " || exit 1",
+        "_oteryn_reconcile_marketplace_scheduler_after_runtime_change",
+        'bash "$SCRIPT_DIR/health-check.sh"',
+        '"$state_dir/current-release.env.tmp"',
+    )
+
+
+def test_marketplace_switches_publish_after_each_platform_recreation() -> None:
+    text = MARKETPLACE_STAGING.read_text(encoding="utf-8")
+    enable = text[text.index("    enable)\n") : text.index("    verify)\n")]
+    ordered(
+        enable,
+        "artisan migrate --force --no-interaction",
+        PUBLISH_CALL,
+        "marketplace:reconcile",
+        "export MARKETPLACE_ENABLED=true",
+    )
+    second = enable[enable.index("export MARKETPLACE_ENABLED=true") :]
+    ordered(second, "--force-recreate platform", PUBLISH_CALL, "up -d marketplace-scheduler", "verify_enabled_runtime")
+    rollback = text[text.index("    prepare-rollback)\n") :]
+    ordered(rollback, "--force-recreate platform", PUBLISH_CALL, "stop marketplace-scheduler", "Character Bazaar staging is drained")
+
+
+def test_marketplace_runtime_recreation_publishes_before_the_scheduler_restarts() -> None:
+    lib = LIB.read_text(encoding="utf-8")
+    body = lib[lib.index("_oteryn_recreate_marketplace_runtime() {") :]
+    body = body[: body.index("\n}\n")]
+    ordered(
+        body,
+        '"${marketplace_compose[@]}" up -d --no-deps --force-recreate platform',
+        "oteryn_publish_native_admission_trust",
+        '"${marketplace_compose[@]}" up -d --force-recreate marketplace-scheduler',
+    )
 
 
 @pytest.fixture()

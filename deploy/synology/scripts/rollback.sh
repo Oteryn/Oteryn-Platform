@@ -89,6 +89,7 @@ _oteryn_verify_component_image_source "$PLATFORM_IMAGE" "$PLATFORM_SOURCE_SHA" P
 _oteryn_verify_component_image_source "$GATEWAY_IMAGE" "$GATEWAY_SOURCE_SHA" Gateway
 
 "${compose[@]}" up -d platform internal-proxy gateway
+oteryn_publish_native_admission_trust "$("${compose[@]}" ps -q platform)" || exit 1
 
 # Marketplace is an optional Platform-image consumer outside the base manifest.
 # Reconcile both the browser-facing Platform service and scheduler to the selected

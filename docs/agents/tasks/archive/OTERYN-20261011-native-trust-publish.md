@@ -26,7 +26,7 @@ Add `game-auth:native-admission:publish-trust`, which trusts the public half of 
 - [x] It is idempotent: an already trusted kid with the same key gives `already_trusted` and writes no registry row. Every run still goes through the witnessed write path, so a lost witness or a database restored below it fails closed (review P1 on PR #1546).
 - [x] It prints one JSON line with the trust scope, key id and public key. No seed, private key or signature bytes are printed or logged.
 - [x] Compose sets `GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE=fresh_admission` and puts the witness directory on the retained `platform_storage` volume. `marketplace-scheduler` gets the same values, because scheduled `identity:finalize-terminations` writes through the witness (review P1 on PR #1546). Deploy creates the directory owner-only on every run, whatever the native admission switch says: once the witness is configured, every identity security revocation needs it.
-- [x] Full deploy, fast deploy and the `deploy-impact.sh` platform-reconcile route publish after the Platform runs the new image. Publication comes before scheduler reconciliation, smoke, OAuth ensure and any signing self-check. The reconcile route was added after review P1 4242250745 on PR #1546. With native admission off, publication is skipped.
+- [x] Full deploy, fast deploy and the `deploy-impact.sh` platform-reconcile route publish after the Platform runs the new image. Publication comes before scheduler reconciliation, smoke, OAuth ensure and any signing self-check. The reconcile route was added after review P1 4242250745 on PR #1546. After P1 4242266267, the same gate also runs after Platform starts in `rollback.sh` (before health-check and promotion), after each Platform recreation in `marketplace-staging.sh`, and inside `_oteryn_recreate_marketplace_runtime` (before the scheduler restarts). With native admission off, publication is skipped.
 - [x] The legacy token ratchet passes with no group rising.
 - [ ] Exact-head CI passes.
 
@@ -42,6 +42,8 @@ owned_paths:
   - deploy/synology/scripts/lib.sh
   - deploy/synology/scripts/deploy.sh
   - deploy/synology/scripts/deploy-impact.sh
+  - deploy/synology/scripts/rollback.sh
+  - deploy/synology/scripts/marketplace-staging.sh
   - docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md
   - docs/agents/tasks/archive/OTERYN-20261011-native-trust-publish.md
 modules:
@@ -77,6 +79,8 @@ owned_paths:
   - deploy/synology/scripts/lib.sh
   - deploy/synology/scripts/deploy.sh
   - deploy/synology/scripts/deploy-impact.sh
+  - deploy/synology/scripts/rollback.sh
+  - deploy/synology/scripts/marketplace-staging.sh
   - docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md
   - docs/agents/tasks/archive/OTERYN-20261011-native-trust-publish.md
 proven:
@@ -104,6 +108,8 @@ changed_paths:
   - deploy/synology/scripts/lib.sh
   - deploy/synology/scripts/deploy.sh
   - deploy/synology/scripts/deploy-impact.sh
+  - deploy/synology/scripts/rollback.sh
+  - deploy/synology/scripts/marketplace-staging.sh
   - docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md
   - docs/agents/tasks/archive/OTERYN-20261011-native-trust-publish.md
 validation:
@@ -118,7 +124,7 @@ validation:
     evidence: 283 tests, 22 skipped, 1 pre-existing risky; NativeAdmission 49 tests
   - command: python3 -m pytest tests/ci -k synology
     result: PASS
-    evidence: 148 passed; full tests/ci 228 passed; deploy/synology/tests 16 passed
+    evidence: tests/ci plus deploy/synology/tests 249 passed
   - command: python3 tools/validation/legacy_token_ratchet.py
     result: PASS
     evidence: no group above baseline; baseline not raised
