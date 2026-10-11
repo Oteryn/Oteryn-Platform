@@ -54,26 +54,44 @@ DEFAULT_RULES: list[tuple[str, str]] = [
 OTHER_GROUP = "other"
 
 # Task records must name their real head branch (checked against the pull
-# request by tools/agents), and that name can contain the token. Only lines
-# holding exactly a branch identifier under these keys, inside task records,
-# are not counted; free-form prose never is.
+# request by tools/agents), and that name can contain the token. Only the
+# top-level `branch:` key inside the fenced yaml block under the record's
+# "## Context checkpoint" heading is not counted; every other line, including
+# prose and notes, always is.
 TASK_RECORD_PREFIX = "docs/agents/tasks/"
-EXEMPT_LINE_RE = re.compile(r"^(branch|source_branch): [A-Za-z0-9._/-]+$")
+CHECKPOINT_HEADING_RE = re.compile(r"^## Context checkpoint\s*$")
+EXEMPT_LINE_RE = re.compile(r"^branch: [A-Za-z0-9._/-]+$")
+
+
+def checkpoint_branch_lines(text: str) -> list[str]:
+    """Return the exempt `branch:` lines of the checkpoint yaml block."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if not CHECKPOINT_HEADING_RE.match(line):
+            continue
+        rest = lines[index + 1 :]
+        start = next((i for i, item in enumerate(rest) if item.strip()), None)
+        if start is None or rest[start].strip() != "```yaml":
+            return []
+        found: list[str] = []
+        for item in rest[start + 1 :]:
+            if item.strip() == "```":
+                break
+            if EXEMPT_LINE_RE.match(item.rstrip()):
+                found.append(item)
+        return found[:1]
+    return []
 
 
 def exempt_lines(root: Path, path: str) -> int:
-    """Count token lines of a task record that are exempt branch-name lines."""
+    """Count token lines of a task record that are the exempt branch line."""
     if not path.startswith(TASK_RECORD_PREFIX):
         return 0
     try:
         text = (root / path).read_text(encoding="utf-8", errors="replace")
     except OSError:
         return 0
-    return sum(
-        1
-        for line in text.splitlines()
-        if TOKEN_RE.search(line) and EXEMPT_LINE_RE.match(line.rstrip())
-    )
+    return sum(1 for line in checkpoint_branch_lines(text) if TOKEN_RE.search(line))
 
 
 class RatchetError(Exception):
