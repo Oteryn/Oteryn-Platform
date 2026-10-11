@@ -11,11 +11,9 @@ import (
 	"time"
 
 	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/config"
-	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/gateway"
 	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/httpapi"
 	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/nativelogin"
 	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/platform"
-	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/session"
 )
 
 func main() {
@@ -27,14 +25,8 @@ func main() {
 	}
 
 	httpClient := &http.Client{Timeout: cfg.RequestTimeout}
-	platformClient := platform.NewClient(cfg.PlatformBaseURL, cfg.PlatformServiceToken, httpClient)
-	// Native-only mode keeps sessions a nil interface so legacy logins fail closed.
-	var sessionIssuer gateway.SessionIssuer
-	if cfg.LegacySessionEnabled {
-		sessionIssuer = session.NewClient(cfg.SessionBaseURL, cfg.SessionServiceToken, httpClient)
-	}
-	service := gateway.NewService(platformClient, sessionIssuer)
-	api := httpapi.NewServer(service, cfg.Version, logger)
+	platformClient := platform.NewClient(cfg.PlatformBaseURL, httpClient)
+	api := httpapi.NewServer(platformClient, cfg.Version, logger)
 	if cfg.NativeLoginEnabled {
 		issuer := nativelogin.NewIssuerClient(cfg.PlatformBaseURL, cfg.PlatformServiceToken, cfg.NativeAdmissionTimeout, nil)
 		api.EnableNativeLogin(nativelogin.NewHandler(issuer, logger))
@@ -60,7 +52,7 @@ func main() {
 		}
 	}()
 
-	logger.Info("gateway_started", "version", cfg.Version, "listen_address", cfg.ListenAddress, "native_login_enabled", cfg.NativeLoginEnabled, "legacy_session_enabled", cfg.LegacySessionEnabled)
+	logger.Info("gateway_started", "version", cfg.Version, "listen_address", cfg.ListenAddress, "native_login_enabled", cfg.NativeLoginEnabled)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("gateway_stopped_unexpectedly")
 		os.Exit(1)

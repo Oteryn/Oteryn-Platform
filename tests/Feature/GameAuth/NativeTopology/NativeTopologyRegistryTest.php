@@ -2,7 +2,6 @@
 
 namespace Tests\Feature\GameAuth\NativeTopology;
 
-use App\GameAuth\Worlds\DatabaseWorldRegistry;
 use App\GameAuth\Worlds\GameChannel;
 use App\GameAuth\Worlds\GameWorld;
 use App\GameAuth\Worlds\GameWorldStatus;
@@ -37,12 +36,11 @@ final class NativeTopologyRegistryTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_additive_schema_leaves_legacy_worlds_unissued_and_integer_routes_unchanged(): void
+    public function test_additive_schema_leaves_legacy_worlds_unissued_and_integer_ids_unchanged(): void
     {
         $world = $this->world('legacy', true);
         self::assertNull($world->world_id);
         self::assertSame(0, GameChannel::query()->count());
-        $before = serialize((new DatabaseWorldRegistry)->forAccount(1001));
         $attributes = $world->getAttributes();
 
         $receipt = (new NativeTopologyRegistry)->issueForPreproduction($world->id, 'entry-room');
@@ -55,7 +53,6 @@ final class NativeTopologyRegistryTest extends TestCase
             self::assertSame(strtolower($id), $id);
         }
         self::assertNotSame($receipt->worldId, $receipt->channelId);
-        self::assertSame($before, serialize((new DatabaseWorldRegistry)->forAccount(1001)));
         $attributes['world_id'] = $receipt->worldId;
         self::assertSame($attributes, $world->fresh()?->getAttributes());
         self::assertSame($world->id, GameChannel::query()->sole()->game_world_id);
@@ -88,7 +85,6 @@ final class NativeTopologyRegistryTest extends TestCase
         self::assertSame(0, Artisan::call('game-auth:native-topology:issue', $options));
         self::assertSame($first, json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR));
         self::assertSame(1, GameChannel::query()->count());
-        self::assertSame([], (new DatabaseWorldRegistry)->forAccount(1001));
         self::assertFalse(GameWorld::query()->findOrFail(17)->login_enabled);
     }
 

@@ -2,10 +2,9 @@
 
 namespace Tests\Feature\GameAuth\OAuth;
 
-use App\Accounts\Models\IdentityCanaryAccount;
+use App\GameAuth\OAuth\NativeOAuthClientManager;
 use App\GameAuth\Tickets\GameLoginTicket;
 use App\Identity\Actions\RevokeIdentityGameAuthorizations;
-use App\Identity\Models\Identity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Laravel\Passport\RefreshToken;
@@ -24,13 +23,13 @@ final class NativeOAuthRevocationGenerationTest extends TestCase
     {
         parent::setUp();
         $this->configureEphemeralPassportKeys();
+        config(['game-auth.native_admission.enabled' => true]);
     }
 
     public function test_pre_revocation_access_token_cannot_bootstrap_after_generation_change(): void
     {
         $identity = $this->createOAuthIdentity();
-        $this->createReadyBinding($identity);
-        $bootstrap = $this->issueNativeOAuthBootstrapToken($identity);
+        $bootstrap = $this->issueNativeOAuthBootstrapToken($identity, client: app(NativeOAuthClientManager::class)->ensureRust());
         $accessToken = Token::query()->where('user_id', $identity->id)->firstOrFail();
         $authCodeGeneration = DB::table('oauth_auth_codes')->value('game_auth_generation');
 
@@ -58,7 +57,7 @@ final class NativeOAuthRevocationGenerationTest extends TestCase
     public function test_pre_revocation_refresh_token_cannot_mint_descendant_after_generation_change(): void
     {
         $identity = $this->createOAuthIdentity();
-        $bootstrap = $this->issueNativeOAuthBootstrapToken($identity);
+        $bootstrap = $this->issueNativeOAuthBootstrapToken($identity, client: app(NativeOAuthClientManager::class)->ensureRust());
         $accessToken = Token::query()->where('user_id', $identity->id)->firstOrFail();
 
         $this->app->make(RevokeIdentityGameAuthorizations::class)->execute($identity);
@@ -77,7 +76,7 @@ final class NativeOAuthRevocationGenerationTest extends TestCase
     public function test_refresh_descendant_inherits_authorization_generation(): void
     {
         $identity = $this->createOAuthIdentity();
-        $bootstrap = $this->issueNativeOAuthBootstrapToken($identity);
+        $bootstrap = $this->issueNativeOAuthBootstrapToken($identity, client: app(NativeOAuthClientManager::class)->ensureRust());
 
         $refresh = $this->post('/oauth/token', [
             'grant_type' => 'refresh_token',
@@ -111,9 +110,8 @@ final class NativeOAuthRevocationGenerationTest extends TestCase
     public function test_new_authorization_after_revocation_uses_current_generation_and_can_bootstrap(): void
     {
         $identity = $this->createOAuthIdentity();
-        $this->createReadyBinding($identity);
         $this->app->make(RevokeIdentityGameAuthorizations::class)->execute($identity);
-        $bootstrap = $this->issueNativeOAuthBootstrapToken($identity->fresh() ?? $identity);
+        $bootstrap = $this->issueNativeOAuthBootstrapToken($identity->fresh() ?? $identity, client: app(NativeOAuthClientManager::class)->ensureRust());
         $accessToken = Token::query()->where('user_id', $identity->id)->firstOrFail();
 
         self::assertSame(1, $accessToken->getAttribute('game_auth_generation'));
@@ -128,8 +126,7 @@ final class NativeOAuthRevocationGenerationTest extends TestCase
     public function test_disabled_and_terminated_identities_fail_closed_before_bootstrap(): void
     {
         $identity = $this->createOAuthIdentity();
-        $this->createReadyBinding($identity);
-        $bootstrap = $this->issueNativeOAuthBootstrapToken($identity);
+        $bootstrap = $this->issueNativeOAuthBootstrapToken($identity, client: app(NativeOAuthClientManager::class)->ensureRust());
 
         $identity->forceFill(['disabled_at' => now()])->save();
 
@@ -147,17 +144,5 @@ final class NativeOAuthRevocationGenerationTest extends TestCase
             ->assertStatus(401);
 
         self::assertSame(0, GameLoginTicket::query()->count());
-    }
-
-    private function createReadyBinding(Identity $identity): void
-    {
-        IdentityCanaryAccount::query()->create([
-            'identity_id' => $identity->id,
-            'canary_account_id' => 1001,
-            'provisioning_name' => 'ready_'.$identity->id,
-            'canary_creation_epoch' => 1,
-            'status' => IdentityCanaryAccount::STATUS_READY,
-            'ready_at' => now(),
-        ]);
     }
 }

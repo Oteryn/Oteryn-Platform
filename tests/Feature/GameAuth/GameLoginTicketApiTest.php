@@ -2,7 +2,7 @@
 
 namespace Tests\Feature\GameAuth;
 
-use App\Accounts\Models\IdentityCanaryAccount;
+use App\GameAuth\OAuth\NativeOAuthClientManager;
 use App\GameAuth\Tickets\GameLoginTicket;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
@@ -23,13 +23,13 @@ final class GameLoginTicketApiTest extends TestCase
     {
         parent::setUp();
         $this->configureEphemeralPassportKeys();
+        config(['game-auth.native_admission.enabled' => true]);
     }
 
     public function test_scoped_native_oauth_token_is_exchanged_once_for_one_game_ticket_and_token_family_is_revoked(): void
     {
         $identity = $this->createOAuthIdentity();
-        $this->createReadyBinding($identity->id, 1001);
-        $bootstrap = $this->issueNativeOAuthBootstrapToken($identity);
+        $bootstrap = $this->issueNativeOAuthBootstrapToken($identity, client: app(NativeOAuthClientManager::class)->ensureRust());
 
         $response = $this->withToken($bootstrap['access_token'])
             ->postJson('/api/v1/game-auth/tickets', [
@@ -77,11 +77,9 @@ final class GameLoginTicketApiTest extends TestCase
         self::assertSame(1, GameLoginTicket::query()->count());
     }
 
-    public function test_legacy_issuance_is_denied_without_consuming_the_bearer_when_native_only_is_set(): void
+    public function test_non_native_client_issuance_is_denied_without_consuming_the_bearer(): void
     {
-        config(['game-auth.legacy_login.enabled' => false]);
         $identity = $this->createOAuthIdentity();
-        $this->createReadyBinding($identity->id, 1001);
         $bootstrap = $this->issueNativeOAuthBootstrapToken($identity);
 
         $this->withToken($bootstrap['access_token'])
@@ -93,11 +91,10 @@ final class GameLoginTicketApiTest extends TestCase
         self::assertFalse(Token::query()->where('user_id', $identity->id)->firstOrFail()->revoked);
     }
 
-    public function test_client_cannot_override_identity_or_canary_account_binding(): void
+    public function test_client_cannot_override_identity_or_account_fields(): void
     {
         $identity = $this->createOAuthIdentity();
-        $this->createReadyBinding($identity->id, 1001);
-        $bootstrap = $this->issueNativeOAuthBootstrapToken($identity);
+        $bootstrap = $this->issueNativeOAuthBootstrapToken($identity, client: app(NativeOAuthClientManager::class)->ensureRust());
 
         $response = $this->withToken($bootstrap['access_token'])
             ->postJson('/api/v1/game-auth/tickets', [
@@ -116,8 +113,7 @@ final class GameLoginTicketApiTest extends TestCase
     public function test_unscoped_oauth_token_cannot_mint_game_ticket(): void
     {
         $identity = $this->createOAuthIdentity();
-        $this->createReadyBinding($identity->id, 1001);
-        $bootstrap = $this->issueNativeOAuthBootstrapToken($identity, []);
+        $bootstrap = $this->issueNativeOAuthBootstrapToken($identity, [], app(NativeOAuthClientManager::class)->ensureRust());
 
         $response = $this->withToken($bootstrap['access_token'])
             ->postJson('/api/v1/game-auth/tickets', ['protocol_version' => 1]);
@@ -149,17 +145,5 @@ final class GameLoginTicketApiTest extends TestCase
         self::assertStringContainsString('private', $cacheControl);
         $response->assertHeader('Pragma', 'no-cache')
             ->assertHeader('Expires', '0');
-    }
-
-    private function createReadyBinding(int $identityId, int $canaryAccountId): IdentityCanaryAccount
-    {
-        return IdentityCanaryAccount::query()->create([
-            'identity_id' => $identityId,
-            'canary_account_id' => $canaryAccountId,
-            'provisioning_name' => 'ready_'.$identityId,
-            'canary_creation_epoch' => 1,
-            'status' => IdentityCanaryAccount::STATUS_READY,
-            'ready_at' => now(),
-        ]);
     }
 }

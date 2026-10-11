@@ -39,6 +39,13 @@ test.beforeAll(() => {
   auction = JSON.parse(runBinary('php', ['scripts/acceptance/seed-marketplace.php', uniqueEmail('portal.bazaar'), password]));
 });
 
+// The seed-public support-legal fixture publishes the editorial support/legal pages.
+// Reset it so later projects in the shared database (portal-487 expects an
+// unconfigured /support) do not inherit published editorial pages.
+test.afterAll(() => {
+  runBinary('php', ['scripts/acceptance/seed-browser-support-legal.php', 'reset']);
+});
+
 async function capture(page, name, status) {
   await page.evaluate(() => document.fonts.ready);
   const scrollPosition = await page.evaluate(() => ({ x: scrollX, y: scrollY }));

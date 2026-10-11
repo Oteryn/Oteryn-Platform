@@ -240,14 +240,6 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(10)->by($this->bearerCredentialKey($request));
         });
 
-        RateLimiter::for('game-auth-ticket-redeem-source', function (Request $request): Limit {
-            return Limit::perMinute(60)->by($request->ip() ?? 'unknown');
-        });
-
-        RateLimiter::for('game-auth-ticket-redeem', function (Request $request): Limit {
-            return Limit::perMinute(60)->by($this->bearerSourceKey($request));
-        });
-
         RateLimiter::for('wiki-search', function (Request $request): Limit {
             $locale = $request->route('locale', app()->getLocale());
             $localeKey = is_string($locale) ? $locale : 'unknown';
