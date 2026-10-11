@@ -38,6 +38,11 @@ final class RetiredLoginContextTest extends TestCase
             ->assertExactJson(['error' => 'invalid_account']);
     }
 
+    public function test_legacy_login_stays_enabled_by_default_until_a_deployment_opts_out(): void
+    {
+        $this->assertTrue(config('game-auth.legacy_login.enabled'));
+    }
+
     public function test_v1_login_context_still_requires_the_gateway_credential(): void
     {
         $this->getJson('/internal/v1/game-auth/accounts/1001/login-context')
