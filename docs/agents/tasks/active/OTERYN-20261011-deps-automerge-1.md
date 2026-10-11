@@ -48,7 +48,7 @@ checkpoint_version: 1
 updated_at: 2026-10-11T00:00:00Z
 head: UNKNOWN
 branch: claude/deps-automerge-1-20261011
-pr: UNKNOWN
+pr: 1511
 status: validating
 context_routes:
   - repository-automation
