@@ -111,6 +111,10 @@ services:
     environment:
       OTERYN_PLATFORM_BASE_URL: https://platform-internal:8443
       OTERYN_PLATFORM_SERVICE_TOKEN: ${OTERYN_PLATFORM_SERVICE_TOKEN}
+      # Legacy session client kept only so the Gateway still starts; the session service is gone, so calls fail closed.
+      # Removed together with the client when native admission lands.
+      GAME_SESSION_SERVICE_BASE_URL: https://retired-session-service.invalid:8444
+      GAME_SESSION_SERVICE_TOKEN: retired-legacy-session-client
       GATEWAY_LISTEN_ADDR: :8080
       GATEWAY_REQUEST_TIMEOUT: 5s
       GATEWAY_VERSION: ${GATEWAY_VERSION:-synology-staging}

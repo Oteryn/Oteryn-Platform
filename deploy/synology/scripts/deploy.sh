@@ -657,7 +657,7 @@ for runtime_image in "$PLATFORM_IMAGE" "$GATEWAY_IMAGE"; do
     }
 done
 stage_bootstrap_files
-"${compose[@]}" up -d mariadb redis
+"${compose[@]}" up -d --remove-orphans mariadb redis
 "${compose[@]}" up -d --force-recreate tls-init
 
 mariadb_deadline=$((SECONDS + mariadb_ready_timeout_seconds))
