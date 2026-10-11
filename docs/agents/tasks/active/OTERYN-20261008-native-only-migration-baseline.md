@@ -32,6 +32,7 @@ head: 2f4e7db2f1417237526ff320d804dab408bd451c
 branch: docs/1474-native-only-migration-baseline
 pr: 1475
 status: validating
+terminal_pr_policy: archive_pending
 context_routes:
   - agent-governance
   - architecture
@@ -59,7 +60,7 @@ validation:
     evidence: Documentation-only baseline changes no executable behavior.
 blockers:
   - Autonomous protected integration capability is unqualified.
-next_action: Inspect exact-head PR checks and resolve governance findings.
+next_action: Archive this record once the PR is closed.
 ```
 
 ## Source branch closeout
