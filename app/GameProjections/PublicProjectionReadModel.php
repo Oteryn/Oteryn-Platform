@@ -27,8 +27,8 @@ final class PublicProjectionReadModel
      */
     public function entry(PublicProjectionFamily $family, string $subjectKey, int $now): ?array
     {
-        // The entry must carry the very epoch the watermark check validated: re-reading the highest
-        // epoch here could see a raise that committed after the watermark was read.
+        // The entry must carry the very epoch the watermark check validated, and that epoch must
+        // still be the highest after the row is read (see freshEpoch()).
         $epoch = $this->freshEpoch($family, $now);
         if ($epoch === null) {
             return null;
@@ -40,7 +40,8 @@ final class PublicProjectionReadModel
             ->first();
         if ($row === null
             || ! in_array(get_object_vars($row)['present'] ?? null, [true, 1, '1'], true)
-            || ! hash_equals($epoch, PublicProjectionIngestion::string($row, 'projection_epoch'))) {
+            || ! hash_equals($epoch, PublicProjectionIngestion::string($row, 'projection_epoch'))
+            || $this->highestEpoch() !== $epoch) {
             return null;
         }
 
@@ -57,7 +58,11 @@ final class PublicProjectionReadModel
         return $payload;
     }
 
-    /** The highest epoch when the family's watermark is at that epoch and fresh, otherwise null. */
+    /**
+     * The highest epoch when the family's watermark is at that epoch and fresh, otherwise null.
+     * The highest epoch only rises, so reading the same value before and after the watermark (and,
+     * in entry(), after the row) proves every read in between saw that epoch as the highest.
+     */
     private function freshEpoch(PublicProjectionFamily $family, int $now): ?string
     {
         if (PublicProjectionSettings::current() === null) {
@@ -78,7 +83,7 @@ final class PublicProjectionReadModel
             return null;
         }
 
-        return $highest;
+        return $this->highestEpoch() === $highest ? $highest : null;
     }
 
     private function highestEpoch(): ?string
