@@ -52,7 +52,7 @@ owned_paths:
   - tests/Feature/GameAuth/**
   - docs/contracts/OTERYN_V2_NATIVE_EVIDENCE_PRODUCER_CONTRACT.md
   - docs/agents/evidence/OTERYN-20260912-platform-native-evidence-hardening/**
-  - docs/agents/tasks/active/OTERYN-20260912-platform-native-evidence-hardening.md
+  - docs/agents/tasks/archive/OTERYN-20260912-platform-native-evidence-hardening.md
 modules:
   - GameAuth/NativeEvidence
   - Identity security lifecycle
@@ -69,11 +69,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-09-12T21:25:46Z
+updated_at: 2026-10-11T02:00:00Z
 head: 8fef3b1833b9fbd8d598d21b25fd2985c238006a
 branch: agent/platform-native-evidence-hardening-1388
 pr: 1389
-status: validating
+status: completed
 terminal_pr_policy: archive_pending
 context_routes:
   - architecture
@@ -93,7 +93,7 @@ owned_paths:
   - tests/Feature/GameAuth/**
   - docs/contracts/OTERYN_V2_NATIVE_EVIDENCE_PRODUCER_CONTRACT.md
   - docs/agents/evidence/OTERYN-20260912-platform-native-evidence-hardening/**
-  - docs/agents/tasks/active/OTERYN-20260912-platform-native-evidence-hardening.md
+  - docs/agents/tasks/archive/OTERYN-20260912-platform-native-evidence-hardening.md
 proven:
   - protected Platform main readback is 224e5f0719114652a42f60ad63e28ce7559097c5 after terminal PR #1389 merged from exact source head 8fef3b1833b9fbd8d598d21b25fd2985c238006a
   - Issue #1388 remains open because real composed non-production interoperability remains separately gated
@@ -142,7 +142,7 @@ changed_paths:
   - app/GameAuth/NativeEvidence/NativeSigningTrustRegistry.php
   - database/migrations/2026_09_12_204800_harden_native_game_evidence_authority.php
   - docs/agents/evidence/OTERYN-20260912-platform-native-evidence-hardening/REAL_INTEROP_QUALIFICATION.md
-  - docs/agents/tasks/active/OTERYN-20260912-platform-native-evidence-hardening.md
+  - docs/agents/tasks/archive/OTERYN-20260912-platform-native-evidence-hardening.md
   - docs/contracts/OTERYN_V2_NATIVE_EVIDENCE_PRODUCER_CONTRACT.md
   - tests/Feature/GameAuth/NativeEvidenceHardeningTest.php
   - tests/Feature/GameAuth/Concurrency/GameTicketConcurrencyTest.php
@@ -179,17 +179,21 @@ validation:
     evidence: separately gated environment/PKI/consumer execution is intentionally not authorized by this repository task; procedure is recorded in REAL_INTEROP_QUALIFICATION.md
 blockers:
   - none for PLATFORM_NATIVE_EVIDENCE_READY_FOR_REAL_INTEROP
-next_action: archive this record only after the separately authorized REAL_INTEROP_QUALIFICATION and remaining Issue #1388 boundary is completed or explicitly closed
+next_action: none for this record; real non-production TLS 1.3 mTLS Platform-Game interoperability qualification (REAL_INTEROP_QUALIFICATION) remains open under Issue #1388 and needs a new task record (see Follow-up).
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: implementation PR #1389 merged through the protected integration path and the dedicated source branch has no retention purpose
-source_branch_evidence: PR #1389 merged at protected main 224e5f0719114652a42f60ad63e28ce7559097c5 from exact source head 8fef3b1833b9fbd8d598d21b25fd2985c238006a; remote source ref is absent
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1389 merged (REST pulls/1389 state closed, merged true) as 224e5f0719114652a42f60ad63e28ce7559097c5 at 2026-09-12T21:25:46Z from exact head 8fef3b1833b9fbd8d598d21b25fd2985c238006a; source branch absent (REST branches API returns 404)
 ```
 
 ## Notes
 
 Repository implementation/evidence terminal state is `PLATFORM_NATIVE_EVIDENCE_READY_FOR_REAL_INTEROP` from exact source head `8fef3b1833b9fbd8d598d21b25fd2985c238006a`, merged as protected `main@224e5f0719114652a42f60ad63e28ce7559097c5`. The record remains active only for the separately authorized real-interoperability boundary under open Issue #1388. `REAL_INTEROP_PROVEN` and `PRODUCTION_PROVEN` are explicitly not claimed. The owner-launched alias does not authorize Game writes, production deployment, PKI/certificate changes, secrets, protected-environment actions or live account/session mutation.
+
+## Follow-up
+
+Follow-up: real non-production TLS 1.3 mTLS Platform-Game interoperability qualification (REAL_INTEROP_QUALIFICATION) remains open under Issue #1388 and needs a new task record; this record is completed for the PR #1389 scope only.
