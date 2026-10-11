@@ -12,6 +12,7 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 COMPOSE = ROOT / "deploy" / "synology" / "compose.yml"
+MARKETPLACE = ROOT / "deploy" / "synology" / "compose.marketplace.yml"
 LIB = ROOT / "deploy" / "synology" / "scripts" / "lib.sh"
 DEPLOY = ROOT / "deploy" / "synology" / "scripts" / "deploy.sh"
 COMMAND = ROOT / "app" / "Console" / "Commands" / "PublishNativeAdmissionTrust.php"
@@ -54,6 +55,18 @@ def test_compose_scopes_the_trust_registry_and_keeps_the_witness_on_retained_sto
     assert "mariadb_data" not in platform
 
 
+def test_marketplace_scheduler_shares_the_platform_witness() -> None:
+    text = MARKETPLACE.read_text(encoding="utf-8")
+    scheduler = text[text.index("\n  marketplace-scheduler:\n") :]
+    platform = platform_environment()
+    for name in ("GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE", "GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY"):
+        expected = re.search(rf"\n      {name}: (\S+)\n", platform)
+        actual = re.search(rf"\n      {name}: (\S+)\n", scheduler)
+        assert expected is not None and actual is not None, name
+        assert actual.group(1) == expected.group(1), name
+    assert "- platform_storage:/var/www/html/storage\n" in scheduler
+
+
 def test_command_is_restricted_to_testing_or_preproduction_and_prints_one_json_line() -> None:
     source = COMMAND.read_text(encoding="utf-8")
     assert "protected $signature = 'game-auth:native-admission:publish-trust';" in source
@@ -86,8 +99,10 @@ def test_fast_deploy_publishes_after_platform_recreate_and_before_smoke() -> Non
     body = body[: body.index("\n}\n")]
     recreate = body.index('"${compose[@]}" up -d --no-deps --force-recreate platform')
     publish = body.index(PUBLISH_CALL + " || return 1")
+    scheduler = body.index("_oteryn_reconcile_marketplace_scheduler_after_runtime_change")
     smoke = body.index("_oteryn_fast_platform_smoke")
-    assert recreate < publish < smoke
+    # The witness directory exists before the scheduler restarts on the new image.
+    assert recreate < publish < scheduler < smoke
     self_check = body.find("game-auth:native-admission:self-check")
     assert self_check == -1 or publish < self_check
 
@@ -125,12 +140,21 @@ def run_publish(
     return result, calls
 
 
-def test_switch_off_skips_publication(fake_docker: pathlib.Path) -> None:
+WITNESS_SETUP = re.compile(
+    r"test -n \"\$\{GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY:-\}\"\s+umask 077\s+"
+    r"mkdir -p -- \"\$GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY\""
+)
+
+
+def test_switch_off_creates_the_witness_and_skips_publication(fake_docker: pathlib.Path) -> None:
     result, calls = run_publish(fake_docker, FAKE_FLAG="false")
     assert result.returncode == 0
     assert "Native admission is off" in result.stdout
-    assert len(calls) == 1
-    assert not any("publish-trust" in call for call in calls)
+    log = "\n".join(calls)
+    # Identity security revocations write through the configured witness even with native admission off.
+    assert log.startswith("exec platform-1 sh -ec ")
+    assert WITNESS_SETUP.search(log)
+    assert "publish-trust" not in log
 
 
 def test_switch_on_creates_the_witness_owner_only_and_publishes(fake_docker: pathlib.Path) -> None:
@@ -138,10 +162,10 @@ def test_switch_on_creates_the_witness_owner_only_and_publishes(fake_docker: pat
     assert result.returncode == 0, result.stderr
     assert TRUSTED in result.stdout
     assert "PUBLIC values for Game's trust configuration" in result.stdout
-    publish = "\n".join(calls)
-    assert "\nexec platform-1 sh -ec \n" in f"\n{publish}"
-    assert re.search(r"umask 077\s+mkdir -p -- \"\$GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY\"", publish)
-    assert "exec php artisan game-auth:native-admission:publish-trust --no-interaction" in publish
+    log = "\n".join(calls)
+    assert WITNESS_SETUP.search(log)
+    assert log.index("mkdir -p") < log.index("publish-trust")
+    assert calls[-1] == "exec platform-1 php artisan game-auth:native-admission:publish-trust --no-interaction"
 
 
 def test_already_trusted_is_accepted(fake_docker: pathlib.Path) -> None:
@@ -152,7 +176,7 @@ def test_already_trusted_is_accepted(fake_docker: pathlib.Path) -> None:
 @pytest.mark.parametrize(
     ("fake", "reason"),
     [
-        ({"FAKE_FLAG_RC": "1"}, "Unable to read the Platform native admission flag"),
+        ({"FAKE_FLAG_RC": "1"}, "Unable to prepare the native evidence witness directory"),
         ({"FAKE_PUBLISH_RC": "1", "FAKE_OUTPUT": "failed: restricted"}, "trust publication refused"),
         ({"FAKE_OUTPUT": '{"result":"ignored"}'}, "returned no trust result"),
     ],

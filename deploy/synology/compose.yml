@@ -73,10 +73,12 @@ services:
       GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256: ${GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256}
       GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256: ${GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256:-}
       GAME_AUTH_NATIVE_ADMISSION_ENABLED: *native_admission_enabled
-      # Signing trust registry scope and its trust-state high-water witness, needed by
-      # game-auth:native-admission:publish-trust (deploy trusts the issuer PUBLIC key) and by the
-      # signing self-check. The witness lives on the retained platform_storage volume, independent of
-      # MariaDB, so a restored database below the witness fails closed (README: Native login).
+      # Signing trust registry scope and the native evidence high-water witness, needed by
+      # game-auth:native-admission:publish-trust (deploy trusts the issuer PUBLIC key), the signing
+      # self-check and every identity security revocation. The witness lives on the retained
+      # platform_storage volume, independent of MariaDB, so a restored database below the witness
+      # fails closed (README: Native login). compose.marketplace.yml gives marketplace-scheduler the
+      # same values; deploy creates the directory on every run.
       GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE: fresh_admission
       GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY: /var/www/html/storage/app/native-evidence-witness
     ports:

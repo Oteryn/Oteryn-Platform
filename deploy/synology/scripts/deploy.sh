@@ -397,8 +397,8 @@ _oteryn_fast_deploy_platform() {
 
     "${compose[@]}" config --quiet
     "${compose[@]}" up -d --no-deps --force-recreate platform
-    _oteryn_reconcile_marketplace_scheduler_after_runtime_change
     oteryn_publish_native_admission_trust "$("${compose[@]}" ps -q platform)" || return 1
+    _oteryn_reconcile_marketplace_scheduler_after_runtime_change
     _oteryn_fast_platform_smoke
 
     _oteryn_fast_assert_preserved_service mariadb "$FAST_MARIADB_ID"

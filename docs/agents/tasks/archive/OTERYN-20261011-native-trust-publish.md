@@ -25,7 +25,7 @@ Add `game-auth:native-admission:publish-trust`, which trusts the public half of 
 - [x] It writes only through `NativeSigningTrustRegistry::publishTrustedKey`, so every registry rule and the high-water witness apply.
 - [x] It is idempotent: an already trusted kid with the same key gives `already_trusted` and writes no registry row. Every run still goes through the witnessed write path, so a lost witness or a database restored below it fails closed (review P1 on PR #1546).
 - [x] It prints one JSON line with the trust scope, key id and public key. No seed, private key or signature bytes are printed or logged.
-- [x] Compose sets `GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE=fresh_admission` and puts the witness directory on the retained `platform_storage` volume.
+- [x] Compose sets `GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE=fresh_admission` and puts the witness directory on the retained `platform_storage` volume. `marketplace-scheduler` gets the same values, because scheduled `identity:finalize-terminations` writes through the witness (review P1 on PR #1546). Deploy creates the directory owner-only on every run, whatever the native admission switch says: once the witness is configured, every identity security revocation needs it.
 - [x] Full and fast deploy publish after the Platform runs the new image and before smoke, OAuth ensure and any signing self-check. With native admission off, publication is skipped.
 - [x] The legacy token ratchet passes with no group rising.
 - [ ] Exact-head CI passes.
@@ -38,6 +38,7 @@ owned_paths:
   - tests/Feature/GameAuth/NativeAdmission/NativeAdmissionPublishTrustCommandTest.php
   - tests/ci/test_synology_native_admission_trust_publication.py
   - deploy/synology/compose.yml
+  - deploy/synology/compose.marketplace.yml
   - deploy/synology/scripts/lib.sh
   - deploy/synology/scripts/deploy.sh
   - docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md
@@ -71,6 +72,7 @@ owned_paths:
   - tests/Feature/GameAuth/NativeAdmission/NativeAdmissionPublishTrustCommandTest.php
   - tests/ci/test_synology_native_admission_trust_publication.py
   - deploy/synology/compose.yml
+  - deploy/synology/compose.marketplace.yml
   - deploy/synology/scripts/lib.sh
   - deploy/synology/scripts/deploy.sh
   - docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md
@@ -96,6 +98,7 @@ changed_paths:
   - tests/Feature/GameAuth/NativeAdmission/NativeAdmissionPublishTrustCommandTest.php
   - tests/ci/test_synology_native_admission_trust_publication.py
   - deploy/synology/compose.yml
+  - deploy/synology/compose.marketplace.yml
   - deploy/synology/scripts/lib.sh
   - deploy/synology/scripts/deploy.sh
   - docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md
@@ -112,7 +115,7 @@ validation:
     evidence: 283 tests, 22 skipped, 1 pre-existing risky; NativeAdmission 49 tests
   - command: python3 -m pytest tests/ci -k synology
     result: PASS
-    evidence: 145 passed
+    evidence: 146 passed; full tests/ci 228 passed; deploy/synology/tests 16 passed
   - command: python3 tools/validation/legacy_token_ratchet.py
     result: PASS
     evidence: no group above baseline; baseline not raised

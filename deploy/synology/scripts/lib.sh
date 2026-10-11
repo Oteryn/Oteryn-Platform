@@ -727,27 +727,30 @@ docker() {
 # preproduction, keeps every registry rule (a kid is bound to one key forever, revoked kids stay
 # revoked, at most two trusted keys, high-water witness on every write) and is idempotent. It
 # prints one JSON line with the trust scope, key id and public key only: the values Game's trust
-# configuration needs. The witness directory lives on the platform_storage volume and is created
-# owner-only on first use; a missing witness for a registry with trust history fails closed.
+# configuration needs.
+# The witness directory lives on the platform_storage volume shared by Platform and the
+# marketplace scheduler. Once it is configured, every identity security revocation writes through
+# it, so it is created owner-only on every deploy, whatever the native admission switch says. A
+# missing witness for a registry with trust history fails closed.
 oteryn_publish_native_admission_trust() {
     local container_id="${1:-}"
     local flag output
 
     [[ -n "$container_id" ]] || { echo "Native admission trust publication needs the Platform container." >&2; return 1; }
-    if ! flag="$(docker exec "$container_id" sh -c 'printf %s "${GAME_AUTH_NATIVE_ADMISSION_ENABLED:-}"')"; then
-        echo "Unable to read the Platform native admission flag." >&2
+    if ! flag="$(docker exec "$container_id" sh -ec '
+        test -n "${GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY:-}"
+        umask 077
+        mkdir -p -- "$GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY"
+        printf %s "${GAME_AUTH_NATIVE_ADMISSION_ENABLED:-}"
+    ')"; then
+        echo "Unable to prepare the native evidence witness directory or read the Platform native admission flag." >&2
         return 1
     fi
     if [[ "$flag" != true ]]; then
         echo "Native admission is off; no signing key is trusted."
         return 0
     fi
-    if ! output="$(docker exec "$container_id" sh -ec '
-        test -n "${GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY:-}"
-        umask 077
-        mkdir -p -- "$GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY"
-        exec php artisan game-auth:native-admission:publish-trust --no-interaction
-    ' 2>&1)"; then
+    if ! output="$(docker exec "$container_id" php artisan game-auth:native-admission:publish-trust --no-interaction 2>&1)"; then
         printf '%s\n' "$output" >&2
         echo "Native admission signing key trust publication refused; deploy stops before the signing self-check." >&2
         return 1
