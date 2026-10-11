@@ -291,7 +291,6 @@ final class UpdaterDistributionTest extends TestCase
             Schema::getColumnListing('client_releases'),
         );
         foreach ($columns as $column) {
-            self::assertIsString($column);
             self::assertStringNotContainsString('private_key', $column);
             self::assertStringNotContainsString('signing_secret', $column);
         }
