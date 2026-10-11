@@ -31,7 +31,7 @@ owned_paths:
   - app/Characters/**
   - app/Providers/AppServiceProvider.php
   - tests/Feature/Characters/CharacterCreationTest.php
-  - docs/agents/tasks/active/OTERYN-20261010-create-off.md
+  - docs/agents/tasks/archive/OTERYN-20261010-create-off.md
   - docs/agents/tasks/archive/OTERYN-20261010-create-off.md
   - scripts/acceptance/tests/full-acceptance.spec.mjs
   - scripts/acceptance/tests/player-journey-acceptance.spec.mjs
@@ -56,17 +56,17 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-10T23:45:00Z
-head: UNKNOWN
+head: 43db07fe80002a8c1f2d0939634e39ddbdef70a5
 branch: claude/decanary-create-off-1-20261010
 pr: 1492
-status: validating
+status: completed
 context_routes:
   - characters
 owned_paths:
   - app/Characters/**
   - app/Providers/AppServiceProvider.php
   - tests/Feature/Characters/CharacterCreationTest.php
-  - docs/agents/tasks/active/OTERYN-20261010-create-off.md
+  - docs/agents/tasks/archive/OTERYN-20261010-create-off.md
   - docs/agents/tasks/archive/OTERYN-20261010-create-off.md
   - scripts/acceptance/tests/full-acceptance.spec.mjs
   - scripts/acceptance/tests/player-journey-acceptance.spec.mjs
@@ -101,12 +101,12 @@ changed_paths:
   - scripts/acceptance/coverage/portal-coverage-manifest.json
   - tools/validation/legacy_token_ratchet.py
   - tools/validation/test_legacy_token_ratchet.py
-  - docs/agents/tasks/active/OTERYN-20261010-create-off.md
+  - docs/agents/tasks/archive/OTERYN-20261010-create-off.md
 validation:
   - command: python tools/validation/legacy_token_ratchet.py
     result: PASS
     evidence: counts at or below baseline; the ratchet ignores the task record branch line (decision D989), docs stays under 1693
-  - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20261010-create-off.md --require-checkpoint
+  - command: python tools/agents/checkpoint.py docs/agents/tasks/archive/OTERYN-20261010-create-off.md --require-checkpoint
     result: PASS
     evidence: task checkpoint validated
   - command: php -l on changed PHP files
@@ -117,13 +117,13 @@ validation:
     evidence: at 9984a8e8 the acceptance job passed 18 of 19 and failed only the portal visual review spec; that spec now asserts the unavailable alert and seeds its roster character through the game database, so no test is skipped; five specs now assert the unavailable alert; the browser job did not run in the sandbox, exact-head CI is the first run
 blockers:
   - none
-next_action: Read exact-head CI for the acceptance job; the account overview creation affordance stays open for backlog item B2 (account projection).
+next_action: none; terminal PR merged and record archived. Follow-up CREATE-OFF-2 and backlog item B2 (account projection) stay open.
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1492 merged (REST pulls/1492 state closed, merged true) as 8006fc8f6c9952d5ac3de77095d5a2e5f80d77c6 at 2026-10-11T04:00:12Z from exact head 43db07fe80002a8c1f2d0939634e39ddbdef70a5; source branch (claude/decanary-create-off-1-20261010) absent (REST branches API returns 404)
 ```
