@@ -21,7 +21,7 @@ Add a CI ratchet that counts the legacy-engine token per path group (file conten
 - [x] `docs/agents/LEGACY_TOKEN_BASELINE.json` equals the tool output and `git grep -ic` per group on the base head.
 - [x] `tools/validation/test_legacy_token_ratchet.py` covers rise, fall, path names, report-only groups and self-match.
 - [x] One CI step runs the tests and the guard.
-- [ ] Exact-head CI passes.
+- [x] Exact-head CI passes.
 
 ## Ownership
 
@@ -60,10 +60,10 @@ owned_paths:
   - .github/workflows/ci.yml
   - docs/agents/tasks/archive/OTERYN-20261010-legacy-token-guard.md
 proven:
+  - Exact-head CI passed on PR 1490 head 67b0437e5c30b175fe1e4922baa9a9de05ec5be9 (REST check-runs; checkpoint-validation, platform-gate, test, runtime-tests, concurrency-proof, CodeQL all success).
   - Baseline totals equal git grep -I -i -c per group on the base head.
 derived: []
-unknown:
-  - Exact-head CI result.
+unknown: []
 conflicts: []
 first_failure:
   marker: none

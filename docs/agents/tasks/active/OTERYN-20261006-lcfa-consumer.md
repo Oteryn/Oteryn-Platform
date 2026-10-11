@@ -56,7 +56,7 @@ owned_paths:
   - database/migrations/2026_10_06_090000_add_native_account_character_projection.php
   - tests/Feature/GameAuth/NativeAccountCharacters/**
   - tests/Feature/GameAuth/NativeLogin/NativeAdmissionIssuerTest.php
-  - docs/agents/tasks/archive/OTERYN-20261006-lcfa-consumer.md
+  - docs/agents/tasks/active/OTERYN-20261006-lcfa-consumer.md
 modules:
   - GameAuth
 dependencies:
@@ -73,12 +73,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-10T23:00:00Z
-status: completed
+updated_at: 2026-10-10T13:10:00Z
+status: validating
 terminal_pr_policy: archive_pending
 phase: pre_pr_validation
 branch: feat/1419-lcfa-consumer
-head: a3ff6fe520c51cb16b43e58a36ecaa295e68f68f
+head: c26cd688f124cf3041e33f4ecaf5865baf0b05b3
 pr: 1465
 context_routes:
   - game-auth
@@ -98,7 +98,7 @@ owned_paths:
   - database/migrations/2026_10_06_090000_add_native_account_character_projection.php
   - tests/Feature/GameAuth/NativeAccountCharacters/**
   - tests/Feature/GameAuth/NativeAdmission/**
-  - docs/agents/tasks/archive/OTERYN-20261006-lcfa-consumer.md
+  - docs/agents/tasks/active/OTERYN-20261006-lcfa-consumer.md
 proven:
   - Issue #1419 has no open PR or competing 1419 branch at claim time.
   - Platform #1459 merged and released config/game-auth.php ownership.
@@ -139,7 +139,7 @@ changed_paths:
   - database/migrations/2026_10_06_090000_add_native_account_character_projection.php
   - tests/Feature/GameAuth/NativeAccountCharacters/**
   - tests/Feature/GameAuth/NativeLogin/NativeAdmissionIssuerTest.php
-  - docs/agents/tasks/archive/OTERYN-20261006-lcfa-consumer.md
+  - docs/agents/tasks/active/OTERYN-20261006-lcfa-consumer.md
 validation:
   - command: live ownership reconstruction
     result: PASS
@@ -155,13 +155,5 @@ validation:
     evidence: Agent Governance and CI classifier both rejected the task checkpoint for missing updated_at; task liveness also required pr: 1465 after the PR opened
 blockers:
   - production release only: Decision P1/U12
-next_action: none; terminal PR merged and record archived.
-```
-
-## Source branch closeout
-
-```yaml
-source_branch_disposition: auto_delete_after_merge
-source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
-source_branch_evidence: PR #1465 merged (REST pulls/1465 state closed, merged true) as db1ddecbe5559065a961bb1edd11794b5a40e214 at 2026-10-07T14:07:52Z from exact head a3ff6fe520c51cb16b43e58a36ecaa295e68f68f; source branch absent (REST branches API returns 404)
+next_action: PR #1465 is terminal; archive this record after the remaining LCFA acceptance evidence is closed or explicitly carried to a successor.
 ```

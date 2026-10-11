@@ -25,7 +25,7 @@ Write the plan-only document `docs/agents/programs/DECANARY_REMOVAL_PLAN.md` for
 - [x] Inventory, native replacement, PR sequence, history rule and owner questions are present.
 - [x] Packet dependencies match the code at the inspected head (B1 after B7, D-4 after every Canary DB caller is off, D-8 keeps the native ticket model and issuance, C8 after the preference row inventory and Q-PREFS).
 - [x] The plan lives outside the task globs of `docs/agents/PROJECT_LANES.json`.
-- [ ] Exact-head CI, including checkpoint-validation, passes on PR #1480.
+- [x] Exact-head CI, including checkpoint-validation, passes on PR #1480.
 
 ## Ownership
 
@@ -62,14 +62,14 @@ owned_paths:
   - docs/agents/programs/DECANARY_REMOVAL_PLAN.md
   - docs/agents/tasks/archive/OTERYN-20261008-decanary-plan.md
 proven:
+  - Exact-head CI passed on PR 1480 head 382b0849866fbddfb772aa9700c62a6ea50b1b20 (REST check-runs; checkpoint-validation, platform-gate, test, classify-changes success).
   - PR #1480 changes documentation only.
   - IssueGameLoginTicket denies an Identity without a ready identity_canary_accounts binding.
   - NativeGameLoginTickets imports GameLoginTicket and GameLoginTicketSecrets from app/GameAuth/Tickets.
   - The Synology platform service reaches the Canary DB for public data, account overview, provisioning, creation and Bazaar transfer.
 derived:
   - The plan file must stay outside docs/agents/tasks/*.md, otherwise control_room.py loads it as a task.
-unknown:
-  - Exact-head CI result for the head that carries this record.
+unknown: []
 conflicts: []
 first_failure:
   marker: checkpoint-validation on 3215a78
@@ -81,8 +81,8 @@ changed_paths:
   - docs/agents/tasks/archive/OTERYN-20261008-decanary-plan.md
 validation:
   - command: python3 tools/agents/checkpoint.py docs/agents/tasks/archive/OTERYN-20261008-decanary-plan.md --require-checkpoint
-    result: NOT_RUN
-    evidence: validation is delegated to CI on the PR head
+    result: PASS
+    evidence: checkpoint-validation check-run success on PR 1480 head 382b0849866fbddfb772aa9700c62a6ea50b1b20
   - command: product runtime E2E
     result: NOT_APPLICABLE
     evidence: planning document only, no runtime behavior changes
