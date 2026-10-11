@@ -479,12 +479,16 @@ def test_every_route_runs_the_self_check_gate_before_ingress() -> None:
     assert "must be true or false" in KEY_SCRIPT.read_text(encoding="utf-8")
 
 
-def test_native_defaults_file_is_non_secret_default_off_and_overridable_by_variables() -> None:
+def test_native_defaults_file_is_non_secret_complete_and_overridable_by_variables() -> None:
     defaults = (ROOT / "deploy" / "synology" / "native-defaults.env").read_text(encoding="utf-8")
     values = dict(line.split("=", 1) for line in defaults.splitlines() if line and not line.startswith("#"))
-    assert values["OTERYN_STAGING_NATIVE_ADMISSION_ENABLED"] == "false"
-    for name in ("WORLD_ID", "RUNTIME_STATUS_IDENTITIES", "SCOPE_ASSIGNMENT_IDENTITIES"):
-        assert values[f"OTERYN_STAGING_NATIVE_{name}"] == ""
+    world = values["OTERYN_STAGING_NATIVE_WORLD_ID"]
+    assert re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", world)
+    assert values["OTERYN_STAGING_NATIVE_ADMISSION_ENABLED"] == "true"
+    for name in ("RUNTIME_STATUS_IDENTITIES", "SCOPE_ASSIGNMENT_IDENTITIES"):
+        identities = json.loads(values[f"OTERYN_STAGING_NATIVE_{name}"])
+        assert identities and all(s.startswith("CN=") and scopes for s, scopes in identities.items())
+        assert all(scope.startswith(f"{world}/") for scopes in identities.values() for scope in scopes)
     assert re.search(r"(?i)secret|password|token|private", "\n".join(f"{k}={v}" for k, v in values.items())) is None
     for name in ("deploy-synology-staging.yml", "character-bazaar-staging-control.yml"):
         workflow = (WORKFLOWS / name).read_text(encoding="utf-8")
