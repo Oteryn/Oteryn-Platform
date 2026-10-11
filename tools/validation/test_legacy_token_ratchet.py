@@ -48,6 +48,17 @@ class RatchetTest(unittest.TestCase):
         self.add("tests/t.php", "clean\n")
         self.assertEqual(self.main("--write"), 0)
 
+    def test_task_record_branch_lines_are_exempt(self) -> None:
+        record = "docs/agents/tasks/active/T.md"
+        self.add(record, f"branch: claude/{TOKEN}-x-1\nsource_branch_reason: {TOKEN} head\nclean\n")
+        self.add("docs/agents/tasks/active/U.md", f"note about {TOKEN}\nbranch: claude/{TOKEN}-y\n")
+        self.add("docs/other.md", f"branch: claude/{TOKEN}-z\n")
+        self.assertEqual(self.main("--write"), 0)
+        docs = self.baseline()["groups"]["docs"]
+        # Only U.md's prose line and docs/other.md count.
+        self.assertEqual(docs["count"], 2)
+        self.assertEqual(docs["files"], 2)
+
     def test_pattern_does_not_match_itself(self) -> None:
         source = Path(ratchet.__file__).read_text(encoding="utf-8")
         self.assertIsNone(ratchet.TOKEN_RE.search(source))

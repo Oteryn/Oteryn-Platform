@@ -53,6 +53,27 @@ DEFAULT_RULES: list[tuple[str, str]] = [
 ]
 OTHER_GROUP = "other"
 
+# Task records must name their real head branch (checked against the pull
+# request by tools/agents), and that name can contain the token. Only these
+# whole-line checkpoint keys, inside task records, are not counted.
+TASK_RECORD_PREFIX = "docs/agents/tasks/"
+EXEMPT_LINE_RE = re.compile(r"^(branch: \S+|source_branch(_\w+)?: .*)$")
+
+
+def exempt_lines(root: Path, path: str) -> int:
+    """Count token lines of a task record that are exempt branch-name lines."""
+    if not path.startswith(TASK_RECORD_PREFIX):
+        return 0
+    try:
+        text = (root / path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return 0
+    return sum(
+        1
+        for line in text.splitlines()
+        if TOKEN_RE.search(line) and EXEMPT_LINE_RE.match(line.rstrip())
+    )
+
 
 class RatchetError(Exception):
     pass
@@ -84,6 +105,9 @@ def measure(root: Path, rules: list[tuple[str, str]]) -> dict[str, dict[str, int
             continue
         raw_path, _, raw_count = record.rpartition(b"\0")
         path, count = raw_path.decode("utf-8", "surrogateescape"), int(raw_count)
+        count -= exempt_lines(root, path)
+        if count <= 0:
+            continue
         entry = result[group_of(path, rules)]
         entry["count"] += count
         entry["files"] += 1

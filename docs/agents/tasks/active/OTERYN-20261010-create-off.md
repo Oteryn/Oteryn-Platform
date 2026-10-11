@@ -38,6 +38,8 @@ owned_paths:
   - scripts/acceptance/tests/character-boundaries-acceptance.spec.mjs
   - scripts/acceptance/tests/security-boundary-critical.spec.mjs
   - scripts/acceptance/tests/portal-visual-review.spec.mjs
+  - tools/validation/legacy_token_ratchet.py
+  - tools/validation/test_legacy_token_ratchet.py
 modules:
   - characters
 dependencies:
@@ -70,6 +72,8 @@ owned_paths:
   - scripts/acceptance/tests/character-boundaries-acceptance.spec.mjs
   - scripts/acceptance/tests/security-boundary-critical.spec.mjs
   - scripts/acceptance/tests/portal-visual-review.spec.mjs
+  - tools/validation/legacy_token_ratchet.py
+  - tools/validation/test_legacy_token_ratchet.py
 proven:
   - Legacy token ratchet passes locally; runtime 497 to 488, tests 712 to 701.
 derived:
@@ -91,11 +95,13 @@ changed_paths:
   - scripts/acceptance/tests/character-boundaries-acceptance.spec.mjs
   - scripts/acceptance/tests/security-boundary-critical.spec.mjs
   - scripts/acceptance/tests/portal-visual-review.spec.mjs
+  - tools/validation/legacy_token_ratchet.py
+  - tools/validation/test_legacy_token_ratchet.py
   - docs/agents/tasks/active/OTERYN-20261010-create-off.md
 validation:
   - command: python tools/validation/legacy_token_ratchet.py
     result: PASS
-    evidence: counts at or below baseline
+    evidence: counts at or below baseline; the ratchet ignores the task record branch line (decision D989), docs stays under 1693
   - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20261010-create-off.md --require-checkpoint
     result: PASS
     evidence: task checkpoint validated
