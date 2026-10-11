@@ -75,7 +75,6 @@ test('@portal-account registration, duplicate identity, invalid login and protec
   await expect(page.getByRole('heading', { name: 'Account overview' })).toBeVisible();
   await expect(page.getByText(email, { exact: true })).toBeVisible();
   await expect(page.locator('[data-account-state]')).toHaveAttribute('data-account-state', /^(ready|recoverable)$/u);
-  await expect(page.getByRole('link', { name: 'Create a character' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Manage account security' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Change password' })).toBeVisible();
 

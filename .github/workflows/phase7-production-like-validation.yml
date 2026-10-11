@@ -122,6 +122,13 @@ jobs:
       DB_USERNAME: root
       DB_PASSWORD: phase7-ci-root-not-a-secret
       MARIADB_ROOT_PASSWORD: phase7-ci-root-not-a-secret
+      CANARY_RUNTIME_REDIS_CLIENT: phpredis
+      CANARY_RUNTIME_REDIS_SCHEME: tcp
+      CANARY_RUNTIME_REDIS_HOST: 127.0.0.1
+      CANARY_RUNTIME_REDIS_PORT: 6379
+      CANARY_RUNTIME_REDIS_DB: 0
+      CANARY_RUNTIME_REDIS_USERNAME: oteryn_runtime
+      CANARY_RUNTIME_REDIS_PASSWORD: phase7-ci-runtime-not-a-secret
 
     steps:
       - name: Require successful change classification
@@ -166,6 +173,12 @@ jobs:
           git cat-file -e "${BASE_SHA}^{commit}"
           echo "Validation SHA: ${VALIDATION_SHA}"
           echo "Previous known-good SHA: ${BASE_SHA}"
+
+      - name: Provision runtime Redis ACL principal
+        run: |
+          redis-cli ACL SETUSER oteryn_runtime on '>phase7-ci-runtime-not-a-secret' resetkeys '~cluster:channel:*:runtime' -@all +hmget +pttl +ping +select
+          redis-cli HSET cluster:channel:1:runtime channel_id 1 status ONLINE players_online 3
+          redis-cli PEXPIRE cluster:channel:1:runtime 600000
 
       - name: Provision production-like MariaDB schema
         run: |

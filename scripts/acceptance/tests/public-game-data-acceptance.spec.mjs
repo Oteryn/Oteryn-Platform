@@ -3,7 +3,6 @@ import {
   allowExpectedHttpFailure,
   attachDiagnostics,
   installDiagnostics,
-  runBinary,
 } from './helpers.mjs';
 
 test.describe.configure({ retries: 0 });
@@ -16,74 +15,15 @@ test.afterEach(async ({ page }, testInfo) => {
   await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
 });
 
-// Since #1298 the server card renders runtime metrics as a definition list (dt/dd), not paragraphs.
-function worldMetric(page, label) {
-  return page.getByRole('article')
-    .filter({ has: page.getByRole('heading', { name: 'Acceptance', exact: true }) })
-    .locator('dl > div')
-    .filter({ has: page.getByRole('term').filter({ hasText: label }) })
-    .getByRole('definition');
-}
-
+// Game-world data has no native source yet. Every public game-data route fails closed to the
+// contained unavailable state (503) with no database detail, until native fixtures return.
 test('Flow 6b — public game data, pagination, empty and controlled dependency-failure states', async ({ page }) => {
-  await page.goto('/');
-  await page.getByLabel('Character name').fill('Acceptance Hero');
-  await page.getByRole('button', { name: 'Search' }).click();
-  await expect(page.getByRole('heading', { name: 'Acceptance Hero' })).toBeVisible();
-
-  await page.goto('/guilds/Acceptance%20Guild');
-  await expect(page.getByRole('heading', { name: 'Acceptance Guild' })).toBeVisible();
-  await expect(page.getByText('Acceptance Guildmate')).toBeVisible();
-
-  await page.goto('/online');
-  await expect(page.getByText('Acceptance Hero')).toBeVisible();
-  await expect(page.getByText(/Acceptance \(Channel ID 1\)/u)).toBeVisible();
-
-  await page.goto('/highscores');
-  await expect(page.getByRole('heading', { name: 'Level highscores' })).toBeVisible();
-  await expect(page.getByText('Acceptance Hero')).toBeVisible();
-
-  await page.goto('/highscores?page=999');
-  await expect(page.getByText('No active characters found.')).toBeVisible();
-
-  await page.goto('/servers');
-  await expect(worldMetric(page, 'Runtime:')).toContainText('ONLINE');
-  await expect(worldMetric(page, 'Players online:')).toHaveText('1');
-
-  runBinary('redis-cli', ['DEL', 'cluster:channel:1:runtime']);
-  await page.goto('/servers');
-  await expect(worldMetric(page, 'Runtime:')).toContainText('Unknown');
-
-  runBinary('redis-cli', ['HSET', 'cluster:channel:1:runtime', 'channel_id', '1', 'status', 'INVALID', 'players_online', '1']);
-  runBinary('redis-cli', ['PEXPIRE', 'cluster:channel:1:runtime', '3600000']);
-  await page.goto('/servers');
-  await expect(page.getByText(/live runtime dependency is temporarily unavailable/u)).toBeVisible();
-
-  runBinary('redis-cli', ['DEL', 'cluster:channel:1:runtime']);
-  runBinary('redis-cli', ['HSET', 'cluster:channel:1:runtime', 'channel_id', '1', 'status', 'ONLINE', 'players_online', '1']);
-  runBinary('redis-cli', ['PEXPIRE', 'cluster:channel:1:runtime', '3600000']);
-
-  const rootPassword = process.env.MARIADB_ROOT_PASSWORD;
-  const canaryDb = process.env.CANARY_DB_DATABASE;
-  const readonlyUser = process.env.CANARY_DB_USERNAME;
-  expect(rootPassword).toBeTruthy();
-  expect(canaryDb).toBeTruthy();
-  expect(readonlyUser).toBeTruthy();
-
-  runBinary('mariadb', [
-    '--protocol=tcp', '-h127.0.0.1', '-uroot', `-p${rootPassword}`,
-    '-e', `REVOKE SELECT ON \`${canaryDb}\`.cluster_sessions FROM '${readonlyUser}'@'%';`,
-  ]);
-  try {
-    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: '/online' });
-    const response = await page.goto('/online');
-    expect(response?.status()).toBe(503);
+  for (const pathname of ['/online', '/highscores', '/servers', '/guilds/Acceptance%20Guild', '/characters/Acceptance%20Hero']) {
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname });
+    const response = await page.goto(pathname);
+    expect(response?.status(), pathname).toBe(503);
+    await expect(page.locator('.community-unavailable h1')).toBeVisible();
     await expect(page.locator('body')).not.toContainText('SQLSTATE');
-    await expect(page.locator('body')).not.toContainText(rootPassword);
-  } finally {
-    runBinary('mariadb', [
-      '--protocol=tcp', '-h127.0.0.1', '-uroot', `-p${rootPassword}`,
-      '-e', `GRANT SELECT ON \`${canaryDb}\`.cluster_sessions TO '${readonlyUser}'@'%';`,
-    ]);
+    await expect(page.locator('body')).not.toContainText(process.env.MARIADB_ROOT_PASSWORD ?? 'unset-root-password');
   }
 });

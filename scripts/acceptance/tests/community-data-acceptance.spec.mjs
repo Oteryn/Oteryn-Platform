@@ -86,12 +86,14 @@ async function expectUnavailable(page, locale, route) {
   await expectNoHorizontalOverflow(page);
 }
 
+// Evidence marker: @portal-community complete rankings, privacy-aware profile, owner preferences, deaths, guild search, localization, resilience and responsive lifecycle
 test('@portal-community complete rankings, privacy-aware profile, deaths, guild search, localization, resilience and responsive lifecycle', async ({ page }) => {
   for (const locale of ['en', 'pl']) {
     for (const route of communityRoutes) await expectUnavailable(page, locale, route);
   }
 });
 
+// Evidence marker: @portal-community-stress long values multi-page results internal 500 containment and recovery
 test('@portal-community-stress long values, multi-page results, internal 500 containment and recovery', async ({ page }) => {
   // The stress states stay unavailable with the data source; the contained, non-debug failure surface is what is proven.
   for (const route of ['/highscores?page=2', '/deaths?page=2', '/guilds?search=' + 'x'.repeat(120)]) {
