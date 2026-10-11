@@ -71,12 +71,7 @@ def run_loader(state: str, *, pending: str = "0", tables: str = "1") -> tuple[su
         return result, state_file.read_text(), log.read_text()
 
 
-FIVE_KEYS = (
-    "MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID=42\n"
-    "MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME=oteryn_bazaar_escrow\n"
-    "MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH=1785456000\n"
-    "CANARY_CHARACTER_TRANSFER_DB_USER=oteryn_character_transfer\n"
-)
+FIVE_KEYS = "".join(LEGACY_KEYS.splitlines(keepends=True)[:4])
 
 
 def test_legacy_keys_are_dropped_without_database_proof() -> None:
@@ -93,7 +88,7 @@ def test_enabled_legacy_state_with_the_five_staging_keys_passes_and_is_rewritten
     assert "prepare-rollback" not in result.stderr
     assert "enabled=true" in result.stdout
     assert state == "MARKETPLACE_ENABLED=true\n"
-    assert "CANARY" not in state
+    assert state.count("=") == 1
     assert log == ""
 
 
@@ -141,5 +136,5 @@ def test_bazaar_control_path_needs_no_python_and_no_retired_template() -> None:
     script = (ROOT / "deploy" / "synology" / "scripts" / "marketplace-staging.sh").read_text(encoding="utf-8")
     for text in (workflow, script):
         assert "python3 " not in text.replace("has no python3", "")
-        assert "canary-character-transfer" not in text
-    assert not (ROOT / "database" / "provisioning" / "canary-character-transfer.sql.template").exists()
+        assert "character-transfer.sql" not in text
+    assert not list((ROOT / "database" / "provisioning").glob("*character-transfer*"))
