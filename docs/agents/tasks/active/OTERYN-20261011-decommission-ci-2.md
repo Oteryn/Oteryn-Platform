@@ -11,7 +11,7 @@ optional_reads: []
 
 ## Goal
 
-Governing GitHub Issue: #1474 (native-only migration) — canonical lifecycle authority for this task. Packet DECANARY-CI-2 of the removal plan under `docs/agents/programs/`: remove the dead or purely descriptive legacy-engine mentions from CI workflows and deploy scripts. Behaviour is unchanged.
+Governing GitHub Issue: #1474 (native-only migration) — canonical lifecycle authority for this task. Packet CI-2 of the removal plan under `docs/agents/programs/`: remove the dead or purely descriptive legacy-engine mentions from CI workflows and deploy scripts. Behaviour is unchanged.
 
 ## Acceptance criteria
 
@@ -49,7 +49,7 @@ cross_repository_tasks:
 checkpoint_version: 1
 updated_at: 2026-10-11T18:00:00Z
 head: UNKNOWN
-branch: claude/decanary-ci-2-20261011
+branch: UNKNOWN
 pr: 1543
 status: validating
 context_routes:
