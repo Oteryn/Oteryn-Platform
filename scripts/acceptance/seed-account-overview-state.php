@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use App\Accounts\Actions\ProvisionCanaryAccount;
 use App\Accounts\Models\IdentityCanaryAccount;
 use App\Identity\Models\Identity;
 use Illuminate\Contracts\Console\Kernel;
@@ -39,7 +38,7 @@ if ($commandMode) {
     $state = $third;
 
     if ($email === '') {
-        $fail('Usage: php scripts/acceptance/seed-account-overview-state.php <seed|binding> <email> [ready|pending|recoverable|conflict|missing]', 2);
+        $fail('Usage: php scripts/acceptance/seed-account-overview-state.php <seed|binding> <email> [ready|pending|conflict|missing]', 2);
     }
 
     $identity = Identity::query()->where('email', $email)->first();
@@ -56,7 +55,7 @@ if ($commandMode) {
     $state = $third;
 
     if ($email === '' || $password === '') {
-        $fail('Usage: php scripts/acceptance/seed-account-overview-state.php <email> <password> <ready|pending|recoverable|conflict|missing>', 2);
+        $fail('Usage: php scripts/acceptance/seed-account-overview-state.php <email> <password> <ready|pending|conflict|missing>', 2);
     }
 
     $identity = Identity::query()->updateOrCreate(
@@ -88,8 +87,8 @@ if ($command !== 'seed') {
     $fail('Unknown Account Overview fixture command.', 2);
 }
 
-if (! in_array($state, ['ready', 'pending', 'recoverable', 'conflict', 'missing'], true)) {
-    $fail('Seed state must be ready, pending, recoverable, conflict or missing.', 2);
+if (! in_array($state, ['ready', 'pending', 'conflict', 'missing'], true)) {
+    $fail('Seed state must be ready, pending, conflict or missing.', 2);
 }
 
 if ($state === 'missing') {
@@ -121,11 +120,9 @@ if ($state === 'ready') {
     $attributes['canary_account_id'] = $accountId;
     $attributes['status'] = IdentityCanaryAccount::STATUS_READY;
     $attributes['ready_at'] = now()->subMinute();
-} elseif ($state === 'recoverable') {
-    $attributes['last_failure_code'] = ProvisionCanaryAccount::FAILURE_DEPENDENCY_UNAVAILABLE;
 } elseif ($state === 'conflict') {
     $attributes['status'] = IdentityCanaryAccount::STATUS_CONFLICT;
-    $attributes['last_failure_code'] = ProvisionCanaryAccount::FAILURE_BINDING_CONFLICT;
+    $attributes['last_failure_code'] = 'binding_conflict';
 }
 
 IdentityCanaryAccount::query()->updateOrCreate(

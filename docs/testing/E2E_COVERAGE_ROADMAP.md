@@ -176,7 +176,7 @@ Durable evidence:
 
 - `docs/testing/E2E_PUBLIC_DEPENDENCY_RECOVERY_EVIDENCE.md`.
 
-Further dependency recovery scenarios remain additive only when they provide unique evidence beyond Phase 7, Platform DB outage, feature and integration tests. Candidate examples include SMTP recovery or provisioning retry UI, but they are not automatically required.
+Further dependency recovery scenarios remain additive only when they provide unique evidence beyond Phase 7, Platform DB outage, feature and integration tests. A candidate example is SMTP recovery, but it is not automatically required.
 
 ## P1/P2 accessibility, stability and soak slice
 

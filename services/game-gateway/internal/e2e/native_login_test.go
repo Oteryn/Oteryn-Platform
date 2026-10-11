@@ -122,7 +122,7 @@ func TestNativeLoginJourneyForwardsToTheIssuerIdempotently(t *testing.T) {
 	lock.Lock()
 	defer lock.Unlock()
 	if issuerCalls != 3 || otherCalls != 0 {
-		t.Fatalf("expected three issuer calls and no other Platform call, got issuer=%d canary=%d", issuerCalls, otherCalls)
+		t.Fatalf("expected three issuer calls and no other Platform call, got issuer=%d other=%d", issuerCalls, otherCalls)
 	}
 	for _, secret := range []string{"native-ticket-secret", "another-ticket", grantToken, serviceToken} {
 		if strings.Contains(logs.String(), secret) {

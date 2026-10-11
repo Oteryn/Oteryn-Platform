@@ -183,7 +183,7 @@ Product-owned empty and representative 403/404/503 failure states provide safe u
 
 ### Confirmation after operations — PASS
 
-Existing account/admin mutations retain status/error feedback. Recoverable provisioning retry redirects back to Account Overview with completion status on success and safe preserved-request guidance on dependency failure.
+Existing account/admin mutations retain status/error feedback. Account Overview offers no provisioning retry; an unfinished game account setup renders the support-required state.
 
 ### Dead ends — PASS for launch-blocking criteria
 
@@ -209,7 +209,7 @@ The post-PR #77 frontend uses the documented Oteryn visual foundation across pub
 
 The full issue #81 artifact contains:
 
-- dedicated Account Overview evidence: `account-overview-ready-*`, `account-overview-pending-*`, `account-overview-recoverable-*`, `account-overview-conflict-*`, `account-overview-missing-*`, and `account-overview-retry-success-desktop.png`;
+- dedicated Account Overview evidence: `account-overview-ready-*`, `account-overview-pending-*`, `account-overview-conflict-*`, `account-overview-missing-*`;
 - the complete 71-screen exploratory Visual/Accessibility screenshot set and contact sheet covering public, identity/MFA, character, admin/CMS/RBAC/audit, error, empty and dependency-failure states;
 - machine-readable `evidence.json`, `junit.xml` and `visual/visual-acceptance-results.json`.
 

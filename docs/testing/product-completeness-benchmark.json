@@ -884,11 +884,6 @@
           "level": "repository_contract"
         },
         {
-          "file": "tests/Integration/GameCatalog/CrossRepositoryGameCatalogTest.php",
-          "marker": "activation",
-          "level": "integration_test"
-        },
-        {
           "file": "scripts/acceptance/tests/public-game-catalog-acceptance.spec.mjs",
           "marker": "@portal-game-catalog public routes projections localization responsive layout and accessibility",
           "level": "browser_acceptance"

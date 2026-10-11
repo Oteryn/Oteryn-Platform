@@ -21,7 +21,7 @@
             <div><dt>Status</dt><dd>{{ $snapshot->status }}</dd></div>
             <div><dt>Contract</dt><dd>{{ $snapshot->contract_version }} / {{ $snapshot->schema_version }}</dd></div>
             <div><dt>Content SHA-256</dt><dd><code>{{ $snapshot->content_sha256 }}</code></dd></div>
-            <div><dt>Canary commit</dt><dd><code>{{ $snapshot->canary_commit_sha }}</code></dd></div>
+            <div><dt>Source commit</dt><dd><code>{{ $snapshot->canary_commit_sha }}</code></dd></div>
             <div><dt>Datapack commit</dt><dd><code>{{ $snapshot->datapack_commit_sha ?? 'not declared' }}</code></dd></div>
             <div><dt>Protocol profile</dt><dd>{{ $snapshot->protocol_profile }}</dd></div>
             <div><dt>Runtime release</dt><dd>{{ $snapshot->runtime_release }}</dd></div>

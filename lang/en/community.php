@@ -3,7 +3,7 @@
 return [
     'highscores' => [
         'title' => 'Highscores',
-        'description' => 'Global character rankings from the read-only Canary data boundary.',
+        'description' => 'Global character rankings from the read-only game data boundary.',
         'filters' => 'Highscore filters',
         'category' => 'Category',
         'vocation' => 'Vocation',
@@ -83,21 +83,21 @@ return [
     ],
     'guilds' => [
         'title' => 'Guild directory',
-        'description' => 'Search public guild names and inspect active membership through the read-only Canary boundary.',
+        'description' => 'Search public guild names and inspect active membership through the read-only game data boundary.',
         'search_label' => 'Search guilds',
         'search_placeholder' => 'Enter part of a guild name…',
         'search' => 'Search',
         'clear' => 'Clear search',
         'empty' => 'No guilds match this search.',
         'owner' => 'Leader',
-        'read_only_policy' => 'Guild administration is not exposed by the Platform because Canary owns guild membership and rank mutations and no approved least-privilege write contract exists.',
+        'read_only_policy' => 'Guild administration is not exposed by the Platform because the game owns guild membership and rank mutations and no approved least-privilege write contract exists.',
     ],
     'policy' => [
         'title' => 'Current community feature policy',
         'world_transfer' => 'World or channel transfer history is not applicable until Oteryn adopts an authoritative transfer service.',
         'polls' => 'Polls are an optional differentiator and are not part of the current launch contract.',
         'public_enforcement' => 'Punishment information remains account-visible only. Public enforcement publication is excluded to protect privacy and moderation integrity.',
-        'achievements' => 'No authoritative selectable-achievement source exists in the current Canary schema; achievements are not guessed.',
+        'achievements' => 'No authoritative selectable-achievement source exists in the current game schema; achievements are not guessed.',
     ],
     'unavailable' => [
         'eyebrow' => 'Temporarily unavailable',

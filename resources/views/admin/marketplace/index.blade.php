@@ -81,7 +81,7 @@
         <div class="section-heading">
             <p class="eyebrow">Recovery queue</p>
             <h2 id="recovery-heading">Auctions requiring operator reconciliation</h2>
-            <p class="muted">Retry reads the actual Canary owner and append-only wallet ledger before deciding the next idempotent step.</p>
+            <p class="muted">Retry reads the actual game owner and append-only wallet ledger before deciding the next idempotent step.</p>
         </div>
 
         <div class="table-wrap">

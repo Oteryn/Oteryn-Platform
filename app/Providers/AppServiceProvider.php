@@ -2,8 +2,6 @@
 
 namespace App\Providers;
 
-use App\Accounts\Contracts\CanaryAccountProvisioningGateway;
-use App\CanaryIntegration\CanaryAccountProvisioner;
 use App\CanaryIntegration\CanaryCharacterTransfer;
 use App\GameAuth\NativeLogin\NativeAdmissionScopeResolver;
 use App\GameAuth\NativeLogin\RegistryNativeAdmissionScopeResolver;
@@ -35,7 +33,6 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->app->bind(CanaryAccountProvisioningGateway::class, CanaryAccountProvisioner::class);
         $this->app->bind(CanaryCharacterTransferGateway::class, CanaryCharacterTransfer::class);
         $this->app->bind(
             PaymentProviderGateway::class,

@@ -58,7 +58,6 @@
             "python3 tests/ci/test_workflow_trigger_economy.py",
             "python3 tests/ci/test_acceptance_lockfile_contract.py",
             "python3 tests/ci/test_dependency_update_contract.py",
-            "python3 tests/ci/test_game_catalog_cross_repo_trigger.py",
             "python3 tests/ci/test_synology_deploy_release_identity.py",
             "@test:integration-registration",
             "@test:prompt-contract",
