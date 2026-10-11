@@ -1,0 +1,104 @@
+---
+task_id: OTERYN-20261008-decanary-plan
+governing_issue: 1474
+required_reads:
+  - docs/agents/programs/DECANARY_REMOVAL_PLAN.md
+  - docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md
+search_first:
+  - app/GameAuth/Tickets
+  - app/GameAuth/NativeLogin/NativeGameLoginTickets.php
+  - deploy/synology/compose.yml
+optional_reads:
+  - docs/agents/tasks/active/OTERYN-20261008-decanary-login-default.md
+---
+
+# OTERYN-20261008 DECANARY-PLAN-1 removal plan
+
+## Goal
+
+Governing GitHub Issue: #1474 (native-only migration) — canonical lifecycle authority for this task. Plan v1 lives in Issue #1476; this task delivers plan v2 in PR #1480.
+
+Write the plan-only document `docs/agents/programs/DECANARY_REMOVAL_PLAN.md` for the owner decision of 2026-10-08 (remove everything about Canary from Oteryn-Platform and re-point every capability at Oteryn-Game): inventory, native replacement per group, serial PR sequence with dependencies, history rule and owner questions. The task changes no code, schema, configuration, deployment or data and grants no runtime, DDL, production, Game-repository or merge authority.
+
+## Acceptance criteria
+
+- [x] Inventory, native replacement, PR sequence, history rule and owner questions are present.
+- [x] Packet dependencies match the code at the inspected head (B1 after B7, D-4 after every Canary DB caller is off, D-8 keeps the native ticket model and issuance, C8 after the preference row inventory and Q-PREFS).
+- [x] The plan lives outside the task globs of `docs/agents/PROJECT_LANES.json`.
+- [x] Exact-head CI, including checkpoint-validation, passes on PR #1480.
+
+## Ownership
+
+```yaml
+owned_paths:
+  - docs/agents/programs/DECANARY_REMOVAL_PLAN.md
+  - docs/agents/tasks/archive/OTERYN-20261008-decanary-plan.md
+modules:
+  - none (documentation only)
+dependencies:
+  - Issue #1474
+  - Issue #1476 (plan v1)
+blockers:
+  - none
+cross_repository_tasks:
+  - none; the Game repository was not read and no Game write is authorized
+```
+
+## Context checkpoint
+
+```yaml
+checkpoint_version: 1
+updated_at: 2026-10-10T23:00:00Z
+status: completed
+terminal_pr_policy: archive_pending
+phase: pre_merge_validation
+branch: claude/decanary-plan-1-20261008
+head: 382b0849866fbddfb772aa9700c62a6ea50b1b20
+pr: 1480
+context_routes:
+  - agent-governance
+  - architecture
+owned_paths:
+  - docs/agents/programs/DECANARY_REMOVAL_PLAN.md
+  - docs/agents/tasks/archive/OTERYN-20261008-decanary-plan.md
+proven:
+  - Exact-head CI passed on PR 1480 head 382b0849866fbddfb772aa9700c62a6ea50b1b20 (REST check-runs; checkpoint-validation, platform-gate, test, classify-changes success).
+  - PR #1480 changes documentation only.
+  - IssueGameLoginTicket denies an Identity without a ready identity_canary_accounts binding.
+  - NativeGameLoginTickets imports GameLoginTicket and GameLoginTicketSecrets from app/GameAuth/Tickets.
+  - The Synology platform service reaches the Canary DB for public data, account overview, provisioning, creation and Bazaar transfer.
+derived:
+  - The plan file must stay outside docs/agents/tasks/*.md, otherwise control_room.py loads it as a task.
+unknown: []
+conflicts: []
+first_failure:
+  marker: checkpoint-validation on 3215a78
+  evidence: control_room.py exit 3, plan file loaded as a task and marked MISSING_FROM_REPORT
+rejected_hypotheses:
+  - Change tools/agents/control_room.py to ignore the plan file.
+changed_paths:
+  - docs/agents/programs/DECANARY_REMOVAL_PLAN.md
+  - docs/agents/tasks/archive/OTERYN-20261008-decanary-plan.md
+validation:
+  - command: python3 tools/agents/checkpoint.py docs/agents/tasks/archive/OTERYN-20261008-decanary-plan.md --require-checkpoint
+    result: PASS
+    evidence: checkpoint-validation check-run success on PR 1480 head 382b0849866fbddfb772aa9700c62a6ea50b1b20
+  - command: product runtime E2E
+    result: NOT_APPLICABLE
+    evidence: planning document only, no runtime behavior changes
+blockers:
+  - none
+next_action: none; terminal PR merged and record archived.
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1480 merged (REST pulls/1480 state closed, merged true) as 95c606e8149911c188293090c8309e5b41c0eea6 at 2026-10-10T21:47:23Z from exact head 382b0849866fbddfb772aa9700c62a6ea50b1b20; source branch absent (REST branches API returns 404)
+```
+
+## Notes
+
+Owner questions Q-H, Q-ID, Q4, Q-PREFS and Q-CAT stay open in §6 of the plan. Jira sync for `KAN-41` is pending.
