@@ -135,8 +135,8 @@ def test_deploy_ensures_the_key_before_changes_and_self_checks_before_the_gatewa
     self_check = script.index('oteryn_run_native_admission_self_check "$("${compose[@]}" ps -q platform)" || exit 1')
     assert script.index("game-auth:oauth-client:ensure") < self_check < script.index('"${compose[@]}" up -d gateway')
     # The fast path recreates Platform only, so it re-proves signing before it can finish.
-    fast = script.index("_oteryn_fast_platform_smoke\n    # Native game login")
-    assert "oteryn_run_native_admission_self_check" in script[fast : fast + 300]
+    fast_fn = script.split("_oteryn_fast_deploy_platform() {")[1]
+    assert fast_fn.index("oteryn_run_native_admission_self_check") < fast_fn.index("oteryn_native_admission_ingress_start")
 
 
 def test_rollback_and_candidate_recovery_gate_the_flag_on_the_image() -> None:
@@ -390,5 +390,25 @@ def test_identity_maps_are_proven_with_the_application_settings_and_bazaar_contr
     workflow = (WORKFLOWS / "character-bazaar-staging-control.yml").read_text(encoding="utf-8")
     for name in ("OTERYN_NATIVE_ADMISSION_ENABLED=", "GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES=", "GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES=", "GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID="):
         assert name in workflow
-    task = (ROOT / "docs" / "agents" / "tasks" / "active" / "OTERYN-20261011-b7-deploy-native-login.md").read_text(encoding="utf-8")
+    task = (ROOT / "docs" / "agents" / "tasks" / "archive" / "OTERYN-20261011-b7-deploy-native-login.md").read_text(encoding="utf-8")
     assert "## Closure audit" in task
+
+
+def test_staged_key_rotation_is_a_separate_path_and_the_rotate_guard_stays() -> None:
+    key = KEY_SCRIPT.read_text(encoding="utf-8")
+    assert "stage | promote" in key and "case 'stage':" in key and "case 'promote':" in key
+    promote = key.split('if [[ "$ACTION" == promote ]]; then')[1].split("docker run --rm")[0]
+    order = [promote.index(x) for x in ("oteryn_native_admission_ingress_stop", "run_key_tool promote", "force-recreate platform", "oteryn_publish_native_admission_trust_or_stop", "oteryn_run_native_admission_self_check", "oteryn_native_admission_ingress_start $ingress\n    echo")]
+    assert order == sorted(order)
+    assert '"$MAINTENANCE" != --maintenance' in key
+    assert "next.key" not in ENTRYPOINT.read_text(encoding="utf-8")
+
+
+def test_previous_platform_restore_propagates_ingress_and_scheduler_failures() -> None:
+    fn = LIB.read_text(encoding="utf-8").split("oteryn_restore_previous_platform_behind_trust_gate() {")[1].split("\n}\n")[0]
+    assert fn.count("rc=1") == 2 and 'return "$rc"' in fn
+
+
+def test_autostart_repair_shares_the_deploy_concurrency_group() -> None:
+    text = (WORKFLOWS / "repair-synology-autostart.yml").read_text(encoding="utf-8")
+    assert "group: synology-staging-deployment" in text

@@ -843,10 +843,16 @@ oteryn_restore_previous_platform_behind_trust_gate() {
         echo "$label left Platform, internal proxy and Gateway removed: the previous Platform failed the native admission trust gate." >&2
         return 1
     fi
-    "${base[@]}" up -d --no-deps internal-proxy gateway >/dev/null 2>&1 || \
+    local rc=0
+    "${base[@]}" up -d --no-deps internal-proxy gateway >/dev/null 2>&1 || {
         echo "$label could not start the internal proxy and Gateway." >&2
-    _oteryn_reconcile_marketplace_scheduler_after_runtime_change >/dev/null 2>&1 || \
+        rc=1
+    }
+    _oteryn_reconcile_marketplace_scheduler_after_runtime_change >/dev/null 2>&1 || {
         echo "$label could not reconcile the previous Marketplace runtime." >&2
+        rc=1
+    }
+    return "$rc"
 }
 
 # Native (protocol_version 2) login needs the Gateway branch and the Platform issuer switched

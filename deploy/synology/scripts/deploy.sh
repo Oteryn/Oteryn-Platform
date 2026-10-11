@@ -412,13 +412,14 @@ _oteryn_fast_deploy_platform() {
     oteryn_native_admission_ingress_stop "${compose[@]}" >/dev/null
     "${compose[@]}" up -d --no-deps --force-recreate platform
     oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || return 1
-    oteryn_native_admission_ingress_start "$FAST_PROXY_ID" "$FAST_GATEWAY_ID"
-    _oteryn_reconcile_marketplace_scheduler_after_runtime_change
-    _oteryn_fast_platform_smoke
-    # Native game login stays on only while the recreated Platform can really sign (fail closed).
+    # Native game login stays on only while the recreated Platform can really sign (fail closed):
+    # the self-check runs while ingress is still stopped.
     if [[ "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" == true ]]; then
         oteryn_run_native_admission_self_check "$("${compose[@]}" ps -q platform)"
     fi
+    oteryn_native_admission_ingress_start "$FAST_PROXY_ID" "$FAST_GATEWAY_ID"
+    _oteryn_reconcile_marketplace_scheduler_after_runtime_change
+    _oteryn_fast_platform_smoke
 
     _oteryn_fast_assert_preserved_service mariadb "$FAST_MARIADB_ID"
     _oteryn_fast_assert_preserved_service redis "$FAST_REDIS_ID"

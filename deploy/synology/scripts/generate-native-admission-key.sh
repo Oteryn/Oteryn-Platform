@@ -9,7 +9,12 @@
 # printed, logged, passed on a command line or written anywhere else. Only the key id and the PUBLIC
 # key (base64url, the encoding of the Platform trust registry and Game's trust config) are printed.
 #
-# Usage: generate-native-admission-key.sh [ensure|rotate|drop-retiring|show|check]
+# Usage: generate-native-admission-key.sh [ensure|stage|promote|rotate|drop-retiring|show|check]
+#   stage          generate the NEXT key (never loaded by Platform, so nothing changes at runtime);
+#                  idempotent; prints its key id and public key for Game's trust configuration
+#   promote        staged rotation: with ingress stopped, next -> current and current -> retiring,
+#                  recreate Platform, publish and prove trust, only then start ingress again
+#                  (needs OTERYN_ENV_FILE; no signing with an untrusted key, no maintenance flag)
 #   ensure         create the current key if none exists; otherwise change nothing (idempotent)
 #   rotate         current -> retiring, then a new current with a never-used key id
 #   drop-retiring  remove the retiring key once every attempt it signed has passed exp
@@ -40,9 +45,9 @@ ACTION="${1:-ensure}"
 MAINTENANCE="${2:-}"
 
 case "$ACTION" in
-    ensure | rotate | drop-retiring | show | check) ;;
+    ensure | stage | promote | rotate | drop-retiring | show | check) ;;
     *)
-        echo "Usage: $0 [ensure|rotate [--maintenance]|drop-retiring|show|check]" >&2
+        echo "Usage: $0 [ensure|stage|promote|rotate [--maintenance]|drop-retiring|show|check]" >&2
         exit 2
         ;;
 esac
@@ -200,6 +205,11 @@ function report(string $dir, int $uid): void
     }
     echo 'current_key_id=' . $current[0] . "\n";
     echo 'current_public_key=' . $current[1] . "\n";
+    $next = load($dir, 'next', $uid);
+    if ($next !== null) {
+        echo 'next_key_id=' . $next[0] . "\n";
+        echo 'next_public_key=' . $next[1] . "\n";
+    }
     $retiring = load($dir, 'retiring', $uid);
     if ($retiring !== null) {
         echo 'retiring_key_id=' . $retiring[0] . "\n";
@@ -218,6 +228,29 @@ switch ($action) {
             generate($dir, 'current', $uid, $gid);
             fwrite(STDERR, "Generated the native admission signing key.\n");
         }
+        break;
+    case 'stage':
+        if (load($dir, 'current', $uid) === null) {
+            fail('There is no current key; run ensure first.');
+        }
+        if (load($dir, 'next', $uid) === null) {
+            generate($dir, 'next', $uid, $gid);
+            fwrite(STDERR, "Staged the next native admission signing key.\n");
+        }
+        break;
+    case 'promote':
+        if (load($dir, 'next', $uid) === null) {
+            fail('No staged next key; run stage first.');
+        }
+        if (load($dir, 'retiring', $uid) !== null) {
+            fail('A retiring key is still present; run drop-retiring once its grants have expired.');
+        }
+        foreach (['key', 'kid'] as $suffix) {
+            if (! rename("$dir/current.$suffix", "$dir/retiring.$suffix") || ! rename("$dir/next.$suffix", "$dir/current.$suffix")) {
+                fail('Unable to promote the staged key.');
+            }
+        }
+        fwrite(STDERR, "Promoted: the staged key is now current and the previous key is retiring.\n");
         break;
     case 'rotate':
         if (load($dir, 'current', $uid) === null) {
@@ -256,6 +289,43 @@ if [[ "$ACTION" == rotate && "$MAINTENANCE" != --maintenance ]]; then
             exit 3
         fi
     done < <(platform_containers)
+fi
+
+run_key_tool() {
+    docker run --rm \
+        --user 0:0 \
+        --network none \
+        --read-only \
+        --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --cap-add DAC_OVERRIDE \
+        --security-opt no-new-privileges \
+        --entrypoint php \
+        --volume "$VOLUME_NAME:/keys" \
+        "$PLATFORM_IMAGE" -d display_errors=stderr -r "$PHP_TOOL" -- "$1"
+}
+
+if [[ "$ACTION" == promote ]]; then
+    # Staged rotation: the new key is generated and published to Game's trust configuration first
+    # (stage). Promotion never lets Platform sign with an untrusted key: ingress stays stopped until
+    # the recreated Platform has published the new key to the trust registry and passed the self-check.
+    [[ -n "${OTERYN_ENV_FILE:-}" ]] || { echo "promote needs OTERYN_ENV_FILE (the deployment environment file)." >&2; exit 2; }
+    # shellcheck source=deploy/synology/scripts/lib.sh
+    source "$SCRIPT_DIR/lib.sh"
+    promote_compose=(command docker compose --env-file "$OTERYN_ENV_FILE" -f "$SCRIPT_DIR/../compose.yml")
+    ingress="$(oteryn_native_admission_ingress_stop "${promote_compose[@]}")"
+    if ! run_key_tool promote; then
+        # shellcheck disable=SC2086 # container ids, one per line
+        oteryn_native_admission_ingress_start $ingress
+        exit 1
+    fi
+    "${promote_compose[@]}" up -d --no-deps --force-recreate platform
+    oteryn_publish_native_admission_trust_or_stop "${promote_compose[@]}" || exit 1
+    if [[ "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" == true ]]; then
+        oteryn_run_native_admission_self_check "$("${promote_compose[@]}" ps -q platform)" || exit 1
+    fi
+    # shellcheck disable=SC2086
+    oteryn_native_admission_ingress_start $ingress
+    echo "Promoted the staged key; Platform restarted behind the trust gate and ingress is back." >&2
+    exit 0
 fi
 
 docker run --rm \

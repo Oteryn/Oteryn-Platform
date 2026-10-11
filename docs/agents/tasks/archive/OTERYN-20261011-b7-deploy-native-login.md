@@ -22,7 +22,7 @@ Governing GitHub Issue: #1474 (native-only migration), packet B7-DEPLOY of the r
 - [x] `generate-native-admission-key.sh` idempotently creates the Ed25519 key in the root-only named volume `oteryn-native-admission-keys` (0700 directory, 0600 files owned by the Platform user), never prints the private key, prints only key ids and public keys, and supports `rotate`, `drop-retiring` and `show`.
 - [x] Native admission is opt-in (`native_admission_enabled` defaults to `"false"`; set `OTERYN_STAGING_NATIVE_ADMISSION_ENABLED=true`): deploy then refuses unless the projection identities, native World, key volume, key id and self-check pass, and fast, reconcile, rollback and candidate paths keep Platform and Gateway on the same flag. `tests/ci/test_synology_native_admission_gate.py` pins this.
 - [x] `docs/agents/LEGACY_TOKEN_BASELINE.json` is untouched and the ratchet passes.
-- [ ] Exact-head CI passes.
+- [x] Exact-head CI passes (PR #1544 merged).
 
 ## Closure audit (route x failure mode x flag/projection/env)
 
@@ -58,7 +58,7 @@ modules:
 dependencies:
   - PR #1542 (self-check command, merged)
 blockers:
-  - The signing key's public half must exist in the Platform trust registry (and Game) before the self-check can pass; no production-capable trust publication command exists yet (game-auth:native-trust:publish-key is limited to the disposable preproduction store).
+  - none (trust publication shipped in #1546)
 cross_repository_tasks:
   - Game trust config consumes the printed public key and key id.
 ```
@@ -71,7 +71,7 @@ updated_at: 2026-10-11T15:00:00Z
 head: UNKNOWN
 branch: claude/b7-deploy-20261011
 pr: 1544
-status: validating
+status: completed
 context_routes:
   - deploy
   - security
@@ -112,7 +112,14 @@ validation:
     result: PASS
     evidence: 0600 files owned by www-data, idempotent, no seed in output
 blockers:
-  - trust registry publication path for the generated public key (see Ownership)
-next_action: wait for CI and review; trust publication (#1546) and the OTERYN_STAGING_NATIVE_WORLD_ID variable are prerequisites for a passing deploy; then fill closeout and archive.
+  - none (trust publication shipped in #1546)
+next_action: none; trust publication shipped in #1546 and the staged-key follow-up is a separate task.
 ```
 
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository feature branch with no retention purpose after merge
+source_branch_evidence: same-repository PR #1544 from this branch; the repository setting delete_branch_on_merge is true, so a merge removes the ref
+```
