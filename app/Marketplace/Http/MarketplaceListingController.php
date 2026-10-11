@@ -23,10 +23,15 @@ final class MarketplaceListingController
         private readonly CancelCharacterAuction $cancel,
     ) {}
 
-    public function create(Request $request): View
+    public function create(Request $request): View|RedirectResponse
     {
         $identity = $request->user();
         abort_unless($identity instanceof Identity, 403);
+
+        if (config('marketplace.listing_frozen', true) !== false) {
+            return redirect()->route('marketplace.account')
+                ->withErrors(['marketplace' => 'New listings are paused while the Character Bazaar is being migrated.']);
+        }
 
         $binding = IdentityCanaryAccount::query()->whereKey($identity->id)->first();
         $bindingReady = $binding !== null && $binding->isReady() && is_int($binding->canary_account_id);

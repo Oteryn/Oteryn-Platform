@@ -9,6 +9,10 @@ return [
     // requires the reviewed escrow, transfer credential, scheduler and control gate.
     // Trusted-main staging refreshes still execute through that guarded control.
     'enabled' => (bool) env('MARKETPLACE_ENABLED', $isolatedTestDefault),
+    // Bazaar freeze (removal plan B4): new listings are refused while true. In-flight
+    // auctions keep settling through marketplace:reconcile; marketplace:drain
+    // reports when none are left. Fail-closed outside the isolated test harnesses.
+    'listing_frozen' => (bool) env('MARKETPLACE_LISTING_FROZEN', ! $isolatedTestDefault),
     'currency_name' => 'Oteryn Coins',
     'escrow_canary_account_id' => (int) env('MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID', 0),
     'allowed_duration_days' => [1, 3, 7],
