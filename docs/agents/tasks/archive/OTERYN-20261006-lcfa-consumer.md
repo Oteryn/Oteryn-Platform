@@ -30,8 +30,8 @@ This slice consumes the accepted Game-authored projection contract. It does not 
 - [x] Native admission §5.4 validates account row, highest epoch, conflict state, AVAILABLE character and authoritative world before route selection.
 - [x] Public owner endpoint GET /api/v1/game-auth/native-characters uses the native OAuth client/scope/generation policy without revoking the bearer token.
 - [x] Sensitive responses are no-cache and all failure surfaces use the contract's empty/typed failure vocabulary.
-- [ ] Focused endpoint, monotonicity, auth, freshness and admission tests pass.
-- [ ] Exact-head CI/Phase 7/Game Auth concurrency and security gates pass.
+- [x] Focused endpoint, monotonicity, auth, freshness and admission tests pass (runtime-tests and test check-runs success on merged head a3ff6fe5).
+- [x] Exact-head CI/Phase 7/Game Auth concurrency and security gates pass (platform-gate, concurrency-proof, checkpoint-validation, acceptance success on a3ff6fe5; production acceptance P1/U12 carried to follow-up).
 
 ## Ownership
 
@@ -56,7 +56,7 @@ owned_paths:
   - database/migrations/2026_10_06_090000_add_native_account_character_projection.php
   - tests/Feature/GameAuth/NativeAccountCharacters/**
   - tests/Feature/GameAuth/NativeLogin/NativeAdmissionIssuerTest.php
-  - docs/agents/tasks/active/OTERYN-20261006-lcfa-consumer.md
+  - docs/agents/tasks/archive/OTERYN-20261006-lcfa-consumer.md
 modules:
   - GameAuth
 dependencies:
@@ -73,12 +73,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-10T13:10:00Z
-status: validating
+updated_at: 2026-10-11T02:00:00Z
+status: completed
 terminal_pr_policy: archive_pending
 phase: pre_pr_validation
 branch: feat/1419-lcfa-consumer
-head: c26cd688f124cf3041e33f4ecaf5865baf0b05b3
+head: a3ff6fe520c51cb16b43e58a36ecaa295e68f68f
 pr: 1465
 context_routes:
   - game-auth
@@ -98,7 +98,7 @@ owned_paths:
   - database/migrations/2026_10_06_090000_add_native_account_character_projection.php
   - tests/Feature/GameAuth/NativeAccountCharacters/**
   - tests/Feature/GameAuth/NativeAdmission/**
-  - docs/agents/tasks/active/OTERYN-20261006-lcfa-consumer.md
+  - docs/agents/tasks/archive/OTERYN-20261006-lcfa-consumer.md
 proven:
   - Issue #1419 has no open PR or competing 1419 branch at claim time.
   - Platform #1459 merged and released config/game-auth.php ownership.
@@ -139,7 +139,7 @@ changed_paths:
   - database/migrations/2026_10_06_090000_add_native_account_character_projection.php
   - tests/Feature/GameAuth/NativeAccountCharacters/**
   - tests/Feature/GameAuth/NativeLogin/NativeAdmissionIssuerTest.php
-  - docs/agents/tasks/active/OTERYN-20261006-lcfa-consumer.md
+  - docs/agents/tasks/archive/OTERYN-20261006-lcfa-consumer.md
 validation:
   - command: live ownership reconstruction
     result: PASS
@@ -155,5 +155,17 @@ validation:
     evidence: Agent Governance and CI classifier both rejected the task checkpoint for missing updated_at; task liveness also required pr: 1465 after the PR opened
 blockers:
   - production release only: Decision P1/U12
-next_action: PR #1465 is terminal; archive this record after the remaining LCFA acceptance evidence is closed or explicitly carried to a successor.
+next_action: none for this record; U1 native OAuth selection/issuance of an oteryn-native-game-gateway ticket; production freshness bound acceptance P1/U12. (see Follow-up).
 ```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1465 merged (REST pulls/1465 state closed, merged true) as db1ddecbe5559065a961bb1edd11794b5a40e214 at 2026-10-07T14:07:52Z from exact head a3ff6fe520c51cb16b43e58a36ecaa295e68f68f; source branch absent (REST branches API returns 404)
+```
+
+## Follow-up
+
+Follow-ups under Issue #1419, each needing a new task record: U1 native OAuth selection/issuance of an oteryn-native-game-gateway ticket; production freshness bound acceptance P1/U12. This record is completed for the PR #1465 scope only.
