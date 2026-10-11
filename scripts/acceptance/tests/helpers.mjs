@@ -58,9 +58,17 @@ export function installDiagnostics(page) {
 
   Object.defineProperty(diagnostics, 'pendingChecks', { value: [], enumerable: false });
 
+  let documentId = 0;
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) {
+      documentId += 1;
+    }
+  });
+
   page.on('console', (message) => {
     if (message.type() === 'error') {
       const entry = {
+        documentId,
         text: message.text().slice(0, 1000),
         url: sanitizeUrl(message.location().url ?? ''),
       };

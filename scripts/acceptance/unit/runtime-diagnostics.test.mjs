@@ -467,6 +467,23 @@ test('WebKit select UA style CSP noise is bounded to webkit, the exact message a
     consoleErrors: [entry({ pageSelectCount: 2 }), entry({ pageSelectCount: 2 })],
   })));
 
+  // Same path reloaded: the budget is the select count per document load.
+  assert.doesNotThrow(() => helpers.assertNoUnexpectedRuntimeFailures(diagnostics({
+    browserName: 'webkit',
+    consoleErrors: [
+      entry({ pageSelectCount: 2, documentId: 1 }), entry({ pageSelectCount: 2, documentId: 1 }),
+      entry({ pageSelectCount: 2, documentId: 2 }), entry({ pageSelectCount: 2, documentId: 2 }),
+      entry({ pageSelectCount: 2, documentId: 3 }), entry({ pageSelectCount: 2, documentId: 3 }),
+    ],
+  })));
+  assert.throws(() => helpers.assertNoUnexpectedRuntimeFailures(diagnostics({
+    browserName: 'webkit',
+    consoleErrors: [
+      entry({ pageSelectCount: 2, documentId: 1 }), entry({ pageSelectCount: 2, documentId: 1 }),
+      entry({ pageSelectCount: 2, documentId: 1 }),
+    ],
+  })), /Unexpected browser\/runtime failures/u);
+
   for (const overrides of [
     { browserName: 'webkit', consoleErrors: [entry({ pageSelectCount: 0 })] },
     { browserName: 'webkit', consoleErrors: [entry()] },
@@ -488,6 +505,7 @@ test('installDiagnostics records the select count for a WebKit CSP console error
     let onConsole;
     const page = {
       context: () => ({ browser: () => ({ browserType: () => ({ name: () => 'webkit' }) }) }),
+      mainFrame: () => 'main',
       on: (event, handler) => { if (event === 'console') onConsole = handler; },
       evaluate: async () => selects,
     };
