@@ -131,9 +131,9 @@ The tool exits non-zero when drift or an unsupported/unverified control remains.
 
 Pure policy behavior is covered by `tests/ci/test_repository_policy.py`, which is imported by the existing change-classifier test entry point and therefore runs in the normal CI classification gate.
 
-## Dependabot grouping and auto-merge
+## Dependabot grouping
 
-`.github/dependabot.yml` groups minor and patch updates so each ecosystem opens one weekly pull request; major updates stay separate pull requests. `.github/workflows/dependabot-auto-merge.yml` runs on `pull_request_target` for `dependabot[bot]` only, reads update metadata through the pinned `dependabot/fetch-metadata` action, and for semver-patch or semver-minor updates runs `gh pr merge --auto --squash`. It only enables auto-merge: required checks and the merge queue still gate the merge, major updates are never auto-merged, and the workflow uses only `GITHUB_TOKEN` with `contents: write` and `pull-requests: write` and never checks out pull request code. The repository auto-merge setting must stay enabled for the step to take effect.
+`.github/dependabot.yml` groups minor and patch updates so each ecosystem opens one weekly pull request; major updates stay separate pull requests. Auto-merge is intentionally not automated: `GITHUB_TOKEN` cannot enqueue into the merge queue, so a workflow needs an owner-provisioned queue-capable token (GitHub App or PAT). That work is tracked as DEPS-AUTOMERGE-2 and is blocked on the owner decision.
 
 ## Completion rule
 

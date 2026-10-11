@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "workflow_budget": 54,
+  "workflow_budget": 53,
   "registered_workflows": [
     "acceptance-soak.yml",
     "acceptance-stability.yml",
@@ -19,7 +19,6 @@
     "cloudflare-oteryn-hsts-stage1.yml",
     "cloudflare-oteryn-public-edge-repair.yml",
     "cloudflare-zone-edge-audit.yml",
-    "dependabot-auto-merge.yml",
     "community-data-acceptance.yml",
     "content-scale-acceptance.yml",
     "deploy-synology-staging.yml",
