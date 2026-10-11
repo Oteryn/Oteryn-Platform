@@ -38,6 +38,7 @@ owned_paths:
   - scripts/acceptance/tests/character-boundaries-acceptance.spec.mjs
   - scripts/acceptance/tests/security-boundary-critical.spec.mjs
   - scripts/acceptance/tests/portal-visual-review.spec.mjs
+  - scripts/acceptance/coverage/portal-coverage-manifest.json
   - tools/validation/legacy_token_ratchet.py
   - tools/validation/test_legacy_token_ratchet.py
 modules:
@@ -72,6 +73,7 @@ owned_paths:
   - scripts/acceptance/tests/character-boundaries-acceptance.spec.mjs
   - scripts/acceptance/tests/security-boundary-critical.spec.mjs
   - scripts/acceptance/tests/portal-visual-review.spec.mjs
+  - scripts/acceptance/coverage/portal-coverage-manifest.json
   - tools/validation/legacy_token_ratchet.py
   - tools/validation/test_legacy_token_ratchet.py
 proven:
@@ -95,6 +97,7 @@ changed_paths:
   - scripts/acceptance/tests/character-boundaries-acceptance.spec.mjs
   - scripts/acceptance/tests/security-boundary-critical.spec.mjs
   - scripts/acceptance/tests/portal-visual-review.spec.mjs
+  - scripts/acceptance/coverage/portal-coverage-manifest.json
   - tools/validation/legacy_token_ratchet.py
   - tools/validation/test_legacy_token_ratchet.py
   - docs/agents/tasks/active/OTERYN-20261010-create-off.md
