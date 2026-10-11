@@ -175,7 +175,10 @@ DB::transaction(function () use ($now): void {
         'slug' => 'acceptance-today-news',
         'title' => 'Acceptance Today update',
         'body' => 'A deterministic published update for the public Today page.',
-        'published_at' => $now->copy()->subMinutes(2),
+        // Today shows only the three latest published news. Earlier fixtures in the same full run
+        // (content scale) publish at "seed time minus one minute", so this post must be newer than
+        // any of them to stay deterministic regardless of how quickly the suites follow each other.
+        'published_at' => $now->copy()->subSecond(),
         'created_at' => $now,
         'updated_at' => $now,
     ]);
