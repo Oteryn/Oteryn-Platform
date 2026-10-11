@@ -111,8 +111,8 @@ Controlled Production Readiness evidence records a clean Platform database resto
 The repository defines operation-specific SQL surfaces including:
 
 - `legacy` — generic read-only compatibility access;
-- `legacy_provisioning` — account provisioning boundary;
-- `legacy_character_create` — character-create boundary;
+- `canary_provisioning` — account provisioning boundary;
+- `canary_character_create` — character-create boundary;
 - additional operation-specific principals where later accepted contracts require them.
 
 Least-privilege grant templates/verifiers exist for approved write boundaries.
@@ -132,7 +132,7 @@ Controlled production-like verification has exercised least-privilege dependency
 
 `REPOSITORY_PROVEN`
 
-- A dedicated `legacy_runtime` Redis configuration surface exists.
+- A dedicated `canary_runtime` Redis configuration surface exists.
 - Its intended boundary is read-only runtime data with a dedicated ACL/user, separate from Platform cache/session credentials.
 
 `STAGING_PROVEN`

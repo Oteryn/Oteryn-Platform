@@ -221,7 +221,7 @@ Required implementation decisions and evidence before native activation include:
 - authoritative revision/observation and freshness policy;
 - the versioned Character Authority projection adapter;
 - command orchestration and idempotent mutation receipt/result handling;
-- additive `legacy_player_id` -> `CharacterId` preference migration, backfill, rollback and removal gates;
+- additive `canary_player_id` -> `CharacterId` preference migration, backfill, rollback and removal gates;
 - game-owned versus Platform-owned capability/denial semantics;
 - entitlement-to-game capability exchange if product policy needs it;
 - integration, migration, negative-path and real E2E proof before activation.
@@ -268,7 +268,7 @@ A versioned first-party API becomes justified by concrete consumers such as:
 
 The API must reuse module application services, authorization, validation and version/freshness semantics. It must not serialize raw database models or recreate formulas and domain decisions.
 
-For owned-character consumers the API must reuse the ADR 0030 Accounts Character Portfolio service rather than exposing `legacy_account_id`, `legacy_player_id` or raw game-owned tables as a permanent contract.
+For owned-character consumers the API must reuse the ADR 0030 Accounts Character Portfolio service rather than exposing `canary_account_id`, `canary_player_id` or raw game-owned tables as a permanent contract.
 
 For federated public content search, PlatformAPI reuses the ADR 0033 `PublicPortal` federated-search application service instead of independently fan-out querying CMS/Wiki/GameCatalog/etc. or recreating cross-source grouping/ranking policy.
 

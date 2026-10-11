@@ -39,7 +39,7 @@ The focused command/result contract is now the canonical reusable Platform-side 
 
 Every future native lifecycle implementation must preserve at least:
 
-1. canonical Platform `AccountId` and game-owned `CharacterId` instead of `legacy_account_id` / `legacy_player_id` as native identities;
+1. canonical Platform `AccountId` and game-owned `CharacterId` instead of `canary_account_id` / `canary_player_id` as native identities;
 2. canonical `WorldId` / `ChannelId` where topology context is applicable;
 3. Platform server-side authentication/authorization and Platform-owned business/security gates before command submission;
 4. Oteryn-v2 revalidation of current authoritative ownership, lifecycle and game-state eligibility before mutation;
@@ -166,7 +166,7 @@ Existing legacy engine integration work remains useful only inside an explicitly
 
 Compatibility rules:
 
-- `legacy_account_id`, `legacy_player_id`, direct/shared SQL and operation-specific legacy engine principals are legacy adapter details;
+- `canary_account_id`, `canary_player_id`, direct/shared SQL and operation-specific legacy engine principals are legacy adapter details;
 - historical schema/runtime discovery may be preserved for supporting current privately operated legacy engine compatibility paths or migration analysis;
 - a legacy engine compatibility task must say explicitly that it is compatibility-only, name the consumer that still requires it and define rollback/removal criteria;
 - Legacy engine compatibility work cannot block or define the native Oteryn-v2 lifecycle target unless a higher-ranked owner decision explicitly retains that compatibility feature;

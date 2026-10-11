@@ -205,7 +205,7 @@ Two concurrent creates for the same account must not both observe slot 10 as ava
 
 - Character ownership authorization is always derived from the authenticated Identity's ready immutable binding.
 - Browser-supplied `account_id` remains forbidden as authorization evidence.
-- The existing `legacy` read-only connection and `legacy_provisioning` account-create connection must not gain character-write privileges.
+- The existing `legacy` read-only connection and `canary_provisioning` account-create connection must not gain character-write privileges.
 - Character creation requires a third dedicated least-privilege operation credential/connection after the successor operation contract defines its exact grants.
 - Name canonicalization must run server-side before any availability query or insert.
 - The reserved-name policy is enforced server-side and must be covered by regression tests.
@@ -242,7 +242,7 @@ The next Phase 5 task is a bounded character-create operation contract. It must 
 - loadability of `town_id = 8` plus `(0,0,0)` temple fallback for all allowed base vocations and both sex values;
 - exact account-row lock and active-character count query;
 - exact duplicate-name, same-account retry/idempotency and ambiguous-commit recovery semantics;
-- exact dedicated `legacy_character_create` column/table grants;
+- exact dedicated `canary_character_create` column/table grants;
 - real MariaDB integration coverage for locking, limit races, unique-name races, privilege denial and player load-shape assumptions.
 
 `CHARACTER CREATION: BLOCKED` until that operation contract is approved and its implementation is tested.

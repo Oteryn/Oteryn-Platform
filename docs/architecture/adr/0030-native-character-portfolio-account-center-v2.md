@@ -15,7 +15,7 @@ Accepted — 2026-08-08
 
 Oteryn Platform already has a delivered authenticated Account Center. Its current `AccountOverviewReadModel` is valid for the legacy engine compatibility path, but it resolves `IdentityCanaryAccount`, uses numeric `canary_account_id`, queries `CanaryGameDataRepository::activeCharactersForAccount()` and derives character-creation availability from a Platform-local `CHARACTER_LIMIT = 10`.
 
-Platform also owns `character_profile_preferences`. The current persistence model identifies the game character with numeric `legacy_player_id`. Those records are valid current compatibility state, but the numeric legacy engine identifier is not the native Oteryn-v2 character identity.
+Platform also owns `character_profile_preferences`. The current persistence model identifies the game character with numeric `canary_player_id`. Those records are valid current compatibility state, but the numeric legacy engine identifier is not the native Oteryn-v2 character identity.
 
 Accepted architecture has since established:
 
@@ -173,7 +173,7 @@ In the native target those preferences reference canonical `CharacterId`.
 
 Platform-local `identity_id` may remain an internal persistence surrogate under ADR 0028. A preference row may associate the local Platform owner with `CharacterId`, but neither that association nor `is_main_character` proves current game ownership.
 
-The current `legacy_player_id` remains compatibility state until a separately authorized migration.
+The current `canary_player_id` remains compatibility state until a separately authorized migration.
 
 ### 7. Legacy engine compatibility migration is additive and fail-closed
 
@@ -225,7 +225,7 @@ This accepted decision does not invalidate delivered legacy engine compatibility
 
 Until separately authorized native implementation and migration tasks are merged and proven:
 
-- `IdentityLegacyAccount`, `legacy_account_id`, `legacy_player_id` and operation-specific legacy engine adapters may remain in their declared current paths;
+- `IdentityCanaryAccount`, `canary_account_id`, `canary_player_id` and operation-specific legacy engine adapters may remain in their declared current paths;
 - existing legacy engine character-create/Bazaar contracts remain valid for their current compatibility scope;
 - new native consumers must not treat those numeric IDs as permanent Oteryn-v2 identities;
 - no existing path is deleted merely because the target architecture is accepted.
@@ -259,7 +259,7 @@ Its statement that Account Overview was not yet delivered was true for its accep
 ## Rejected shortcuts
 
 - make Platform authoritative for native character ownership because it authenticates the account;
-- reuse `legacy_player_id` or `legacy_account_id` as native identifiers;
+- reuse `canary_player_id` or `canary_account_id` as native identifiers;
 - treat a cached portfolio as mutation authorization;
 - derive native create eligibility from a hard-coded row count;
 - make PublicGameData the owner of private Account Center composition;
@@ -275,7 +275,7 @@ Acceptance of this ADR is architecture authority only.
 It does not authorize:
 
 - Laravel runtime implementation of the native Character Portfolio;
-- database migration from `legacy_player_id` to `CharacterId`;
+- database migration from `canary_player_id` to `CharacterId`;
 - native Character Authority HTTP/gRPC/protocol endpoints;
 - Oteryn-v2 or legacy engine repository writes;
 - changes to FND-02 wire encoding;

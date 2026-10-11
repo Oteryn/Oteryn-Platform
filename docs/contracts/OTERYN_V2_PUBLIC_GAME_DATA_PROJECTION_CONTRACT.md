@@ -542,7 +542,7 @@ Implementation must ensure:
 
 The current `PublicCharacterProfileService` pattern contains one architectural property worth preserving during native migration: game facts and Platform-owned privacy/presentation state are composed at the Platform boundary.
 
-The legacy implementation currently keys parts of that composition through `legacy_account_id` / `legacy_player_id`. Native cutover must replace those compatibility identifiers with accepted canonical identities before treating the path as native.
+The legacy implementation currently keys parts of that composition through `canary_account_id` / `canary_player_id`. Native cutover must replace those compatibility identifiers with accepted canonical identities before treating the path as native.
 
 The current legacy-compatible direct-read path is not classified as defective by this contract repair merely because it does not already persist the future native privacy-revision fence. Its existing composition reads Platform-owned privacy state at the Platform boundary; the monotonic privacy floor defined here is a prerequisite for future native projection/cache/CDN cutover where privacy-controlled variants may be materialized or served asynchronously.
 

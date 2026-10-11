@@ -122,7 +122,7 @@ Required properties:
 - single-use;
 - atomically consumed;
 - bound to exact `identity_id`;
-- bound to exact ready immutable `legacy_account_id`;
+- bound to exact ready immutable `canary_account_id`;
 - bound to audience `oteryn-game-gateway`;
 - bound to the current `game_auth_generation` or equivalent monotonic revocation generation;
 - optionally constrained by client/protocol version policy;
@@ -212,7 +212,7 @@ Logical minimum state:
 ```text
 session_id
 session_secret_hash
-legacy_account_id
+canary_account_id
 world_id
 created_at
 expires_at

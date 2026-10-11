@@ -134,8 +134,8 @@ A native ticket is a Game Login Ticket with:
 Issuance is the existing `POST /v1/game-auth/tickets` under the existing OAuth checks (valid bearer, allowed first-party client, scope `game:ticket`, current `game_auth_generation`, Identity enabled and not terminated), with these native differences:
 
 - the ticket kind is selected by the authenticated OAuth client, never by a request parameter: the native Rust client receives native tickets only (U1: whether this is a separate Passport client or the existing native public client);
-- native issuance requires a canonical non-null `account_id` and does **not** require an `IdentityLegacyAccount` binding;
-- `legacy_account_id` is not stored on a native ticket.
+- native issuance requires a canonical non-null `account_id` and does **not** require an `IdentityCanaryAccount` binding;
+- `canary_account_id` is not stored on a native ticket.
 
 A legacy engine ticket never redeems on the native branch and a native ticket never redeems on the legacy engine branch (audience mismatch → `NATIVE_LOGIN_TICKET_REJECTED`).
 
@@ -397,10 +397,10 @@ Each code maps to exactly one Foundation category, progression and FND-04 public
 
 Unchanged and never used by the native branch:
 
-- `POST /v1/login` with `protocol_version: 1`, the legacy engine `gameplay_offer`, `legacy_account_id`, integer world/channel ids;
+- `POST /v1/login` with `protocol_version: 1`, the legacy engine `gameplay_offer`, `canary_account_id`, integer world/channel ids;
 - `/internal/v1/game-auth/tickets/redeem` and its legacy engine binding requirement, audience `oteryn-game-gateway`;
-- `/internal/v1/game-auth/accounts/{legacyAccountId}/login-context` and `GameLoginContextProvider`;
-- the Game Session v1 issuer and the historical Game Session v2 producer (the retired legacy-engine contracts (see the ADR index), `OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md`);
+- `/internal/v1/game-auth/accounts/{canaryAccountId}/login-context` and `GameLoginContextProvider`;
+- the Game Session v1 issuer and the historical Game Session v2 producer (`GAME_SESSION_CANARY_CONTRACT.md`, `OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md`);
 - `game_worlds.status`/`login_enabled` as compatibility state;
 - the OTClient OAuth client and OTClient tickets.
 

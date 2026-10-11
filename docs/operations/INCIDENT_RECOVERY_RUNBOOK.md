@@ -125,7 +125,7 @@ If compromise is suspected or the verifier fails:
 5. Review provisioning/binding state for incomplete `pending` records and use the supported bounded recovery command only after the credential boundary is restored:
 
 ```text
-php artisan legacy:provision-pending-accounts --limit=100
+php artisan canary:provision-pending-accounts --limit=100
 ```
 
 6. Investigate unexpected legacy engine account rows using authorized database evidence.
@@ -155,7 +155,7 @@ Symptoms may include unavailable/fail-closed runtime availability rather than fa
 Actions:
 
 1. Confirm the application health route separately from runtime Redis behavior.
-2. Verify whether the `legacy_runtime` dependency is reachable using the actual approved operational tooling; do not expose Redis credentials.
+2. Verify whether the `canary_runtime` dependency is reachable using the actual approved operational tooling; do not expose Redis credentials.
 3. Confirm dedicated read-only ACL/user status if deployment evidence is available.
 4. Treat stale/missing runtime data as dependency failure according to the application contract; do not extend freshness artificially with manual cache edits.
 5. Escalate network/Redis/provider failures to the actual infrastructure owner.

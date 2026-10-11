@@ -17,7 +17,7 @@ For the native target:
 - Oteryn Platform owns authenticated Account Center/portal UX, Platform authorization, security/business/product gates, orchestration/saga state, notifications, audit and Platform-owned projections/preferences;
 - Oteryn-v2 Character Authority owns canonical `CharacterId`, current `AccountId <-> CharacterId` ownership, authoritative character lifecycle/game-state eligibility, mutation execution and authoritative mutation outcome;
 - Platform operation rows, caches, public projections and historical legacy engine rows never prove current ownership or successful native mutation;
-- direct/shared SQL, `legacy_account_id`, `legacy_player_id` and operation-specific legacy engine write principals remain `Legacy Engine Compatibility` only.
+- direct/shared SQL, `canary_account_id`, `canary_player_id` and operation-specific legacy engine write principals remain `Legacy Engine Compatibility` only.
 
 A Platform command authorizes an **attempt to perform one semantic mutation**. It does not transfer game-domain authority to Platform.
 
@@ -480,7 +480,7 @@ Existing legacy engine mutation/read contracts remain useful only inside explici
 Rules:
 
 - Legacy engine direct SQL cannot implement this native semantic contract by implication;
-- `legacy_account_id`, `legacy_player_id` and legacy engine numeric world/channel IDs remain adapter details;
+- `canary_account_id`, `canary_player_id` and legacy engine numeric world/channel IDs remain adapter details;
 - a compatibility path must name the remaining consumer, exact privileges, rollback and removal gate;
 - do not run native and legacy mutation paths concurrently for the same semantic operation without an explicit cutover/fencing design;
 - legacy fallback after a native command becomes ambiguous is forbidden because it could create a second authority/mutation;

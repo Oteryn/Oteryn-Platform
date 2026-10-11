@@ -17,7 +17,7 @@ For **native Oteryn-v2 runtime status/readiness semantics**, the narrower accept
 
 - `OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md`.
 
-Accordingly, statements below that equate `world_id` with the `game_worlds` database primary key, use `WorldRegistry::forAccount(legacy_account_id)`, hard-code integer `channel_id = 1`, couple a channel to protocol-candidate/endpoint storage, or treat persisted `status` as sufficient live readiness describe **LEGACY / CURRENT IMPLEMENTATION COMPATIBILITY STATE**. They do not define the native target identity or runtime-status model.
+Accordingly, statements below that equate `world_id` with the `game_worlds` database primary key, use `WorldRegistry::forAccount(canary_account_id)`, hard-code integer `channel_id = 1`, couple a channel to protocol-candidate/endpoint storage, or treat persisted `status` as sufficient live readiness describe **LEGACY / CURRENT IMPLEMENTATION COMPATIBILITY STATE**. They do not define the native target identity or runtime-status model.
 
 No current runtime payload, database schema or legacy engine path is changed by this authority clarification.
 
@@ -202,7 +202,7 @@ The exact compatibility implementation relationship between legacy engine runtim
 Logical interface:
 
 ```text
-WorldRegistry::forAccount(legacy_account_id) -> list<GameWorldRoute>
+WorldRegistry::forAccount(canary_account_id) -> list<GameWorldRoute>
 ```
 
 The interface is account-aware from the first implementation.

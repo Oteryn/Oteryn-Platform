@@ -157,7 +157,7 @@ No current delivered surface is classified `UX_BLOCKER` or `VISUAL_BLOCKER` by t
 | binding `conflict` | `Support required` | blocked | not shown | No self-service rebind/unlink/replacement account |
 | missing/unknown binding state | `Support required` | blocked | not shown | Does not infer ownership from legacy engine data |
 
-The Account Overview reads Platform-owned `identity_legacy_accounts` state only. It does not expose raw legacy engine account IDs, provisioning names, credentials, tokens, hashes or internal exception details. Hard conflict and unknown/missing states remain fail-closed.
+The Account Overview reads Platform-owned `identity_canary_accounts` state only. It does not expose raw legacy engine account IDs, provisioning names, credentials, tokens, hashes or internal exception details. Hard conflict and unknown/missing states remain fail-closed.
 
 ## Cross-cutting UX assessment
 

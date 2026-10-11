@@ -163,7 +163,7 @@ Do not assume:
 | GA-013 | Cross-instance replay race | Two Gateway instances redeem same ticket concurrently | Shared atomic storage/transaction/conditional update; no process-local authoritative consume | Critical regression test required |
 | GA-014 | Expired ticket use | Delayed or stolen ticket used after intended window | Default 60s TTL; authoritative server clock; expiry checked atomically during redeem | Implementation required |
 | GA-015 | Confused deputy / wrong audience | Ticket minted for another consumer is accepted by Gateway/redeem API | Explicit audience `oteryn-game-gateway`; redeem verifies audience; no generic bearer-token endpoint | Implementation required |
-| GA-016 | Client-controlled account substitution | Client supplies another `account_id` with its ticket | Ticket binds exact ready immutable `legacy_account_id`; redeem result is authoritative; ignore/reject client account identifiers | Existing binding supports target |
+| GA-016 | Client-controlled account substitution | Client supplies another `account_id` with its ticket | Ticket binds exact ready immutable `canary_account_id`; redeem result is authoritative; ignore/reject client account identifiers | Existing binding supports target |
 | GA-017 | Binding not ready / conflict | Identity has pending/conflicting legacy engine mapping but receives game access | Ticket issuance and redeem fail closed unless immutable binding is ready with non-null exact account ID | Implementation required |
 | GA-018 | Stale authorization after password reset/change | Ticket remains usable after security-sensitive account change | Monotonic `game_auth_generation`; ticket captures generation; redeem compares current generation | New Platform state required |
 | GA-019 | Disabled Identity still enters game | Identity disabled after ticket issuance | Check disabled state at issuance and again at redeem; advance generation/revoke pending tickets | Implementation required |
@@ -213,7 +213,7 @@ The following are non-negotiable:
 2. **No client-secret trust for OTClient.** OTClient is a public native client.
 3. **PKCE S256 + state are mandatory.** Missing or invalid values fail closed.
 4. **Ticket consume is atomic and shared.** Exactly one concurrent redeem succeeds.
-5. **Ownership comes from Platform trusted state.** Client input never establishes `legacy_account_id` ownership.
+5. **Ownership comes from Platform trusted state.** Client input never establishes `canary_account_id` ownership.
 6. **Ticket and Game Session are different credentials.** A ticket is one-time bootstrap authorization; a Game Session is the legacy-engine-entry credential.
 7. **Security-state changes invalidate pending authorization.** A stale generation cannot redeem.
 8. **No credential logging.** Passwords, OAuth codes/tokens, tickets, session secrets and service credentials are never logged.
@@ -324,7 +324,7 @@ Ticket redeem response should contain only fields required by Gateway, for examp
 
 ```text
 identity_subject        # opaque/pseudonymous identifier only if Gateway truly needs it
-legacy_account_id
+canary_account_id
 security_generation
 issued_at
 redeemed_at

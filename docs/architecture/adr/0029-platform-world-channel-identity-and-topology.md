@@ -119,7 +119,7 @@ Conceptually:
 WorldRegistry::forAccount(AccountId) -> authorized topology projection
 ```
 
-The existing `forAccount(legacy_account_id)` implementation remains valid only inside the declared legacy engine compatibility path. `legacy_account_id` must not become the native topology authorization identity.
+The existing `forAccount(canary_account_id)` implementation remains valid only inside the declared legacy engine compatibility path. `canary_account_id` must not become the native topology authorization identity.
 
 ### 8. Legacy engine numeric world/channel state is compatibility-only
 
@@ -169,7 +169,7 @@ This ADR does not itself authorize an Oteryn-v2 repository write.
 
 `WORLD_REGISTRY_CONTRACT.md` remains authoritative evidence for the currently implemented legacy-compatible registry, including its current numeric IDs and single-channel behavior.
 
-For native Oteryn-v2 identity/topology semantics, this ADR and `OTERYN_V2_WORLD_TOPOLOGY_CONTRACT.md` are narrower and authoritative where the older contract equates `world_id` with a database primary key, uses `legacy_account_id` as account identity or treats integer channel `1` as the target model.
+For native Oteryn-v2 identity/topology semantics, this ADR and `OTERYN_V2_WORLD_TOPOLOGY_CONTRACT.md` are narrower and authoritative where the older contract equates `world_id` with a database primary key, uses `canary_account_id` as account identity or treats integer channel `1` as the target model.
 
 No current runtime payload or database schema is changed by this decision alone.
 

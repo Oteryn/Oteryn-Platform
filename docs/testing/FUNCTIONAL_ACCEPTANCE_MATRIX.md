@@ -72,7 +72,7 @@ Visual / UI / UX Acceptance is a separate gate and remains `FAIL` until the dedi
 | Duplicate provisioning recovery | `PROVEN` real MariaDB | `STAGING_PROVEN` acceptance composition | `PROVEN` | dedicated principal | no |
 | Partial-failure forward recovery | `PROVEN` real MariaDB | `DERIVED` from integration plus accepted live chain | `PROVEN` | dedicated principal | no |
 | Provisioning dependency failure/pending state | `PROVEN` | `STAGING_PROVEN` fail-closed acceptance composition | `PROVEN` | `PROVEN` | no |
-| Dedicated `legacy_provisioning` least privilege | `STAGING_PROVEN` real MariaDB grants | boundary validation `STAGING_PROVEN` | `PROVEN` prohibited writes/reads | DB enforced | yes |
+| Dedicated `canary_provisioning` least privilege | `STAGING_PROVEN` real MariaDB grants | boundary validation `STAGING_PROVEN` | `PROVEN` prohibited writes/reads | DB enforced | yes |
 
 ## Character management
 
@@ -87,7 +87,7 @@ Character deletion and rename are not delivered and are intentionally excluded f
 | Binding/account ownership; foreign `account_id` ignored | `PROVEN` | `STAGING_PROVEN` | `PROVEN` pending/foreign authority denial | `PROVEN` | yes |
 | Same-account and cross-account concurrency | `PROVEN` real MariaDB + `pcntl` | — | `PROVEN` | DB/application enforced | no |
 | Idempotent retry/ambiguous-commit recovery | `PROVEN` | `STAGING_PROVEN` acceptance composition | `PROVEN` | dedicated principal | no |
-| Dedicated `legacy_character_create` privilege shape | `STAGING_PROVEN` | boundary validation `STAGING_PROVEN` | `PROVEN` prohibited cross-surface writes | DB enforced | yes |
+| Dedicated `canary_character_create` privilege shape | `STAGING_PROVEN` | boundary validation `STAGING_PROVEN` | `PROVEN` prohibited cross-surface writes | DB enforced | yes |
 
 ## Public game data and public content
 

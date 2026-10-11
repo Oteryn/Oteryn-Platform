@@ -15,7 +15,7 @@ The tests use only acceptance-scoped MariaDB and Redis principals and run on one
 The `/online` resilience scenario:
 
 1. requests `/online` with normal acceptance grants and proves HTTP `200` plus the seeded `Acceptance Hero` row;
-2. revokes `SELECT` on `legacy_acceptance.cluster_sessions` from the acceptance read-only principal;
+2. revokes `SELECT` on `canary_acceptance.cluster_sessions` from the acceptance read-only principal;
 3. requests `/online` again and requires HTTP `503`;
 4. verifies the error response does not expose `SQLSTATE` or the acceptance MariaDB root password;
 5. restores the `SELECT` grant in `finally` cleanup;

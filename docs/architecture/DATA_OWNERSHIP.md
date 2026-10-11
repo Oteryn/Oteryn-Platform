@@ -142,7 +142,7 @@ A required shared schema change must:
 
 Character Bazaar v1 requires no legacy engine schema migration. It uses the verified existing `players.account_id`, `accounts.id` and `cluster_sessions` schema at the pinned evidence revision.
 
-ADR 0030 does not authorize a CharacterId migration. A later Platform-owned preference migration must be additive: canonical `CharacterId` is added before legacy `legacy_player_id` removal, mapping must come from authoritative migration/projection evidence, unresolved mappings fail closed, rollback remains possible while compatibility references are retained and legacy removal occurs only after all consumers and rollback gates are proven.
+ADR 0030 does not authorize a CharacterId migration. A later Platform-owned preference migration must be additive: canonical `CharacterId` is added before legacy `canary_player_id` removal, mapping must come from authoritative migration/projection evidence, unresolved mappings fail closed, rollback remains possible while compatibility references are retained and legacy removal occurs only after all consumers and rollback gates are proven.
 
 ## Identity data special rule
 
@@ -159,7 +159,7 @@ Platform Identity is the authority for supported web-user credentials and the Pl
 
 The authenticated Identity and its ready server-resolved binding establish the user-scoped legacy engine account relationship. Browser-supplied legacy engine account IDs, web-session IDs or email-change identifiers never establish ownership.
 
-For native Oteryn-v2 integration, canonical cross-boundary account identity is the Platform-issued `AccountId` defined by ADR 0028. Current `legacy_account_id` remains compatibility state and must not be promoted to native account identity.
+For native Oteryn-v2 integration, canonical cross-boundary account identity is the Platform-issued `AccountId` defined by ADR 0028. Current `canary_account_id` remains compatibility state and must not be promoted to native account identity.
 
 Account-security operations may revoke Platform web sessions and the separately contracted game-authorization generation. They do not delete, unlink, rebind or transfer the bound legacy engine account or any game-server-owned character data. Platform termination disables and anonymizes Platform login while preserving the immutable binding for audit and safety.
 
@@ -305,10 +305,10 @@ For the native target, public/general projections remain a `PublicGameData` conc
 
 Platform owns `character_profile_preferences`: the owner-authored public comment, per-character visibility flags and optional main-character selection.
 
-Current legacy engine compatibility behavior uses numeric `legacy_player_id`. Legacy engine remains the source of current character identity, account ownership and gameplay/profile facts for that delivered path. Every management write re-resolves the ready binding and reads the active legacy engine character before changing Platform state; stored player IDs never become ownership proof.
+Current legacy engine compatibility behavior uses numeric `canary_player_id`. Legacy engine remains the source of current character identity, account ownership and gameplay/profile facts for that delivered path. Every management write re-resolves the ready binding and reads the active legacy engine character before changing Platform state; stored player IDs never become ownership proof.
 
 The accepted native target under ADR 0030 uses canonical `CharacterId` for the game-character reference while Platform-local `identity_id` may remain an internal persistence surrogate. The preference record remains Platform-owned presentation/privacy state only. It never proves current game ownership, lifecycle eligibility or mutation authority, and `is_main_character` is presentation preference rather than game state.
 
-Migration from `legacy_player_id` must be additive and mapping-driven. Canonical `CharacterId` is added before legacy removal; mapping comes from authoritative migration/projection evidence; missing/conflicting mapping fails closed; rollback remains possible while compatibility state is retained; legacy removal is a later gated task.
+Migration from `canary_player_id` must be additive and mapping-driven. Canonical `CharacterId` is added before legacy removal; mapping comes from authoritative migration/projection evidence; missing/conflicting mapping fails closed; rollback remains possible while compatibility state is retained; legacy removal is a later gated task.
 
 Account-level association and status flags are disclosure upper bounds. Per-character preferences may only narrow them. Platform comments are bounded plain text rendered escaped and do not update `players.comment`. Main-character replacement locks the Platform Identity row, writes atomically and is proven under concurrent real-MariaDB processes. This boundary authorizes no legacy engine/native rename, deletion, restore, transfer, achievement or generic player update.

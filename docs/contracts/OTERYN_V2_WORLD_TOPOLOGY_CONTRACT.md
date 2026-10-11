@@ -141,7 +141,7 @@ AuthorizedTopologyForAccount(AccountId)
 
 The client may express a requested world/character/channel choice only as input to validate. It cannot grant itself access by supplying a valid-looking UUID, host or port.
 
-The existing logical interface based on `legacy_account_id` remains legacy engine compatibility only.
+The existing logical interface based on `canary_account_id` remains legacy engine compatibility only.
 
 ## Native topology projection
 

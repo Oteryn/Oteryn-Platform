@@ -41,7 +41,7 @@ The delayed activation closes the bounded in-flight-login window between legacy 
 
 ### 3. Use an operation-specific legacy engine transfer boundary
 
-The dedicated `legacy_character_transfer` principal receives only:
+The dedicated `canary_character_transfer` principal receives only:
 
 - column-level `SELECT` on the exact account, player and cluster-session fields required by the contract;
 - column-level `UPDATE (account_id)` on `players`;

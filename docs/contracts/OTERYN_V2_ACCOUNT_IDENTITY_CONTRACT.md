@@ -57,7 +57,7 @@ Exact additive schema/backfill implementation remains a separate migration task.
 
 ## Legacy engine anti-corruption boundary
 
-`legacy_account_id` / legacy engine `accounts.id` is classified as:
+`canary_account_id` / legacy engine `accounts.id` is classified as:
 
 ```text
 LEGACY COMPATIBILITY / ACL IDENTIFIER
@@ -89,7 +89,7 @@ AccountId
 not:
 
 ```text
-legacy_account_id
+canary_account_id
 identities.id
 email
 account name
@@ -124,9 +124,9 @@ NativeRedeemAuthorization
 
 This section does not freeze a protocol version number, JSON field layout, endpoint path, transport or implementation rollout. Those remain future implementation-contract work.
 
-A native response must not require `legacy_account_id`.
+A native response must not require `canary_account_id`.
 
-A legacy engine response may continue returning `legacy_account_id` under its existing versioned compatibility contract.
+A legacy engine response may continue returning `canary_account_id` under its existing versioned compatibility contract.
 
 ## Account to character boundary
 
@@ -162,7 +162,7 @@ At every boundary:
 
 Current documents such as `GAME_GATEWAY_IDENTITY_CONTRACT.md`, the retired legacy-engine contracts (see the ADR index), legacy engine provisioning contracts and legacy engine character-operation contracts remain authoritative for the legacy/current legacy engine compatibility slices they explicitly govern.
 
-For native Oteryn-v2 account identity, this contract together with ADR 0028 is narrower and authoritative where historical contracts bind account authority to `legacy_account_id` or expose Platform persistence IDs as cross-boundary identity.
+For native Oteryn-v2 account identity, this contract together with ADR 0028 is narrower and authoritative where historical contracts bind account authority to `canary_account_id` or expose Platform persistence IDs as cross-boundary identity.
 
 This contract does not silently change current runtime payloads or database schema.
 

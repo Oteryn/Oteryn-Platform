@@ -6,7 +6,7 @@ Accepted — 2026-08-07
 
 ## Context
 
-Oteryn Platform is already the authoritative owner of user Identity, reusable credentials, account-security policy and the Game Login Ticket lifecycle. Historical Platform integration was built around a greenfield compatibility relation to legacy engine and therefore many current contracts use the local Platform `identities.id` integer together with `legacy_account_id` / legacy engine `accounts.id`.
+Oteryn Platform is already the authoritative owner of user Identity, reusable credentials, account-security policy and the Game Login Ticket lifecycle. Historical Platform integration was built around a greenfield compatibility relation to legacy engine and therefore many current contracts use the local Platform `identities.id` integer together with `canary_account_id` / legacy engine `accounts.id`.
 
 Oteryn v2 is a separate native game domain. Its accepted foundation keeps `AccountId` owned by Oteryn Platform, `CharacterId` owned by the game-domain Character authority and the canonical gameplay `GameSessionId` owned by the game-domain Game Session / Admission authority. Oteryn v2 explicitly forbids silently re-keying externally owned Platform account identity.
 
@@ -60,7 +60,7 @@ Only Platform Identity may mint canonical `AccountId` values.
 Oteryn-v2, Game Gateway, game servers, clients, legacy engine adapters and migration tooling must not:
 
 - derive `AccountId` from `identities.id`;
-- derive `AccountId` from `legacy_account_id`;
+- derive `AccountId` from `canary_account_id`;
 - mint replacement account UUIDs;
 - treat an account email/name as account identity;
 - infer ownership from equality of non-canonical identifiers.
@@ -69,7 +69,7 @@ Where an external consumer requires account identity, Platform emits the canonic
 
 ### 4. Legacy engine account IDs are legacy compatibility / ACL state
 
-`legacy_account_id` / legacy engine `accounts.id` remains valid only inside the explicit legacy engine compatibility and anti-corruption layer.
+`canary_account_id` / legacy engine `accounts.id` remains valid only inside the explicit legacy engine compatibility and anti-corruption layer.
 
 It is not:
 
@@ -90,14 +90,14 @@ Platform Identity
         |
         +--> native Oteryn-v2 contracts use AccountId
         |
-        +--> Legacy engine ACL mapping may resolve legacy_account_id
+        +--> Legacy engine ACL mapping may resolve canary_account_id
 ```
 
 Removal of the legacy engine mapping is not authorized by this ADR.
 
 ### 5. Native Game Login Ticket binding
 
-The native Oteryn-v2 Game Login Ticket binds to canonical `AccountId`, not to `legacy_account_id`.
+The native Oteryn-v2 Game Login Ticket binds to canonical `AccountId`, not to `canary_account_id`.
 
 All existing security properties of the approved ticket model remain required unless a later accepted security contract strengthens them, including:
 
@@ -144,7 +144,7 @@ This is an architecture decision, not an implementation or activation claim.
 Until a separately authorized migration is implemented and proven:
 
 - current Platform database schema remains unchanged;
-- current legacy-compatible ticket/redeem/session contracts may continue to use `identity_id` and `legacy_account_id` where their declared scope is explicitly legacy engine compatibility;
+- current legacy-compatible ticket/redeem/session contracts may continue to use `identity_id` and `canary_account_id` where their declared scope is explicitly legacy engine compatibility;
 - native Oteryn-v2 integration must not copy those legacy-engine-specific identifiers into its target contract;
 - mixed-version ambiguity fails closed rather than silently translating identities.
 
@@ -154,7 +154,7 @@ The migration must be additive and backward compatible first. It must not requir
 
 This ADR refines ADR 0004 and ADR 0009 for the native Oteryn-v2 boundary.
 
-Where those earlier ADRs use `1 Platform Identity <-> 1 legacy engine accounts.id` or bind the Game Login Ticket to `legacy_account_id`, that remains valid evidence and policy for the declared legacy engine compatibility model, but it no longer defines canonical native cross-boundary account identity.
+Where those earlier ADRs use `1 Platform Identity <-> 1 legacy engine accounts.id` or bind the Game Login Ticket to `canary_account_id`, that remains valid evidence and policy for the declared legacy engine compatibility model, but it no longer defines canonical native cross-boundary account identity.
 
 All still-compatible decisions remain in force, especially:
 
@@ -194,7 +194,7 @@ Rejected as the native cross-boundary contract because it exposes local persiste
 
 Rejected because canonical external identity does not require rewriting all internal persistence relations. The migration cost and risk would not provide corresponding product value.
 
-### Reuse `legacy_account_id` as native AccountId
+### Reuse `canary_account_id` as native AccountId
 
 Rejected because legacy engine account identity belongs to a legacy compatibility model and would permanently couple the native Rust game domain to legacy engine schema/history.
 

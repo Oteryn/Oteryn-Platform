@@ -178,7 +178,7 @@ It must not independently fan out to CMS, Announcements, Events, Wiki or GameCat
 
 ### Account / character clients
 
-A future first-party authenticated client must consume owner context through accepted `Identity`/`Accounts`/Character Portfolio application boundaries and canonical identifiers. It must not make `legacy_account_id`, `legacy_player_id` or raw game tables permanent external contracts.
+A future first-party authenticated client must consume owner context through accepted `Identity`/`Accounts`/Character Portfolio application boundaries and canonical identifiers. It must not make `canary_account_id`, `canary_player_id` or raw game tables permanent external contracts.
 
 ## Security ownership
 

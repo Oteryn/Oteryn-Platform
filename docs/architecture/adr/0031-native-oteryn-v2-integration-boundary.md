@@ -259,7 +259,7 @@ These remain focused follow-up architecture decisions.
 
 - rebuild Oteryn Platform as microservices solely to solve the compatibility transition;
 - keep shared/direct game SQL as the default native integration model;
-- reuse `legacy_account_id` / `legacy_player_id` as canonical native identities;
+- reuse `canary_account_id` / `canary_player_id` as canonical native identities;
 - make Platform a second authoritative owner of characters or gameplay sessions;
 - keep Platform as canonical owner of gameplay wire semantics because Gateway carries protocol metadata;
 - keep legacy engine/Tibia gameplay protocol as a permanent equal target family in native Oteryn-v2 architecture;

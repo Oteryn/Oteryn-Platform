@@ -71,7 +71,7 @@ Oteryn Platform
 │   └── Platform observability / reconciliation
 │
 └── Legacy Engine Compatibility
-    ├── legacy_account_id / legacy_player_id
+    ├── canary_account_id / canary_player_id
     ├── direct read-only SQL contracts
     ├── operation-specific legacy write credentials
     ├── legacy-compatible Game Session paths
