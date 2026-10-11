@@ -77,6 +77,22 @@ final class GameLoginTicketApiTest extends TestCase
         self::assertSame(1, GameLoginTicket::query()->count());
     }
 
+    public function test_legacy_issuance_is_denied_without_consuming_the_bearer_when_native_only_is_set(): void
+    {
+        config(['game-auth.legacy_login.enabled' => false]);
+        $identity = $this->createOAuthIdentity();
+        $this->createReadyBinding($identity->id, 1001);
+        $bootstrap = $this->issueNativeOAuthBootstrapToken($identity);
+
+        $this->withToken($bootstrap['access_token'])
+            ->postJson('/api/v1/game-auth/tickets', ['protocol_version' => 1])
+            ->assertStatus(401)
+            ->assertJsonPath('error', 'game_login_unavailable');
+
+        self::assertSame(0, GameLoginTicket::query()->count());
+        self::assertFalse(Token::query()->where('user_id', $identity->id)->firstOrFail()->revoked);
+    }
+
     public function test_client_cannot_override_identity_or_canary_account_binding(): void
     {
         $identity = $this->createOAuthIdentity();
