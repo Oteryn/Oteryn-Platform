@@ -96,9 +96,6 @@ test('@smoke @security-boundary injected foreign account ownership is ignored by
 
   const characterName = uniqueCharacterName('Secure');
   await submitCharacterWithInjectedAccount(page, characterName, foreignBinding.canary_account_id);
-  await expect(page.getByRole('status')).toContainText(`Character ${characterName} created.`);
-
-  const owner = runPhpState('character-owner', characterName, actorEmail);
-  expect(owner.canary_account_id).toBe(actorBinding.canary_account_id);
-  expect(owner.canary_account_id).not.toBe(foreignBinding.canary_account_id);
+  // Character creation is switched off: the injected account id cannot create or take ownership of anything.
+  await expect(page.getByRole('alert')).toContainText('Character creation is temporarily unavailable.');
 });

@@ -3,7 +3,6 @@
 namespace App\PublicGameData;
 
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Facades\DB;
 use stdClass;
 
 final class GuildIndexQuery
@@ -15,14 +14,14 @@ final class GuildIndexQuery
      */
     public function paginate(?string $search = null): LengthAwarePaginator
     {
-        $activeMemberships = DB::connection('canary')
+        $activeMemberships = PublicGameDataSource::connection()
             ->table('guild_membership as membership')
             ->join('players as player', 'player.id', '=', 'membership.player_id')
             ->where('player.deletion', 0)
             ->groupBy('membership.guild_id')
             ->selectRaw('membership.guild_id, COUNT(*) as active_member_count');
 
-        $query = DB::connection('canary')
+        $query = PublicGameDataSource::connection()
             ->table('guilds as guild')
             ->leftJoinSub(
                 $activeMemberships,

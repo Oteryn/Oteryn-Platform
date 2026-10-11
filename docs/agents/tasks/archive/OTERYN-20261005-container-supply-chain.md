@@ -41,7 +41,7 @@ owned_paths:
   - docs/security/CONTAINER_SUPPLY_CHAIN_POLICY.json
   - docs/security/CONTAINER_VULNERABILITY_EXCEPTIONS.json
   - deploy/synology/README.md
-  - docs/agents/tasks/active/OTERYN-20261005-container-supply-chain.md
+  - docs/agents/tasks/archive/OTERYN-20261005-container-supply-chain.md
 modules:
   - Synology staging container build
   - CI supply-chain evidence
@@ -56,11 +56,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-05T19:45:00+02:00
-head: f73ae5bbc3816d0e64aa52d0ec4de8c6d7b9662e
+head: 206f67d034d44e2c2ead62de08aca5aa9e541fb0
 branch: security/issue-1011-container-supply-chain
 pr: 1456
-status: validating
-terminal_pr_policy: active
+status: completed
 context_routes:
   - ci
   - security
@@ -95,7 +94,7 @@ changed_paths:
   - .github/workflows/build-synology-staging-images.yml
   - deploy/synology/README.md
   - deploy/synology/docker/platform.Dockerfile
-  - docs/agents/tasks/active/OTERYN-20261005-container-supply-chain.md
+  - docs/agents/tasks/archive/OTERYN-20261005-container-supply-chain.md
   - docs/security/CONTAINER_SUPPLY_CHAIN_POLICY.json
   - docs/security/CONTAINER_VULNERABILITY_EXCEPTIONS.json
   - scripts/ci/classify_synology_builds.py
@@ -106,7 +105,7 @@ validation:
     result: NOT_RUN
     evidence: implementation not yet committed
 blockers: []
-next_action: validate PR #1456 exact head, repair first failures, then integrate through Merge Queue
+next_action: Follow-up SUPPLY-CHAIN-POLICY-2 stays open (see Follow-up); record archived.
 ```
 
 ## Follow-up
@@ -117,6 +116,6 @@ next_action: validate PR #1456 exact head, repair first failures, then integrate
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository security hardening branch
-source_branch_evidence: pending
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1456 merged (REST pulls/1456 state closed, merged true) as 8d80c94fc2640560d0c68aae70a75f7a5a2ddd0c at 2026-10-11T01:41:50Z from exact head 206f67d034d44e2c2ead62de08aca5aa9e541fb0; source branch (security/issue-1011-container-supply-chain) absent (REST branches API returns 404)
 ```
