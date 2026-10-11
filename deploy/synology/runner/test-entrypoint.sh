@@ -67,7 +67,21 @@ assert_line atlas-runners "$org/args"
 assert_line --labels "$org/args"
 assert_line oteryn-atlas "$org/args"
 assert_line --no-default-labels "$org/args"
+assert_line --disableupdate "$org/args"
 assert_line RUN_OK "$org/out"
+
+# An existing registration is migrated to disabled self-update at startup.
+legacy="$TMP/legacy"
+make_dist "$legacy/dist"
+mkdir -p "$legacy/config"
+cp -a "$legacy/dist/." "$legacy/config/"
+printf '{"agentName":"x","DisableUpdate":false}\n' > "$legacy/config/.runner"
+RUNNER_DIST_DIR="$legacy/dist" \
+RUNNER_CONFIG_DIR="$legacy/config" \
+RUNNER_WORKDIR="$legacy/work" \
+"$ENTRYPOINT" > "$legacy/out"
+jq -e '.disableUpdate == true and .agentName == "x"' "$legacy/config/.runner" >/dev/null
+assert_line RUN_OK "$legacy/out"
 
 # Repository mode remains backward compatible and must not carry runnergroup.
 repo="$TMP/repo"

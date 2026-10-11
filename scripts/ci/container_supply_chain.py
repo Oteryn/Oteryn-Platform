@@ -81,6 +81,18 @@ def dockerfile_references(path: Path) -> tuple[list[ExternalReference], str | No
     return references, final_user
 
 
+def policy_severities(vuln: dict[str, Any]) -> set[str]:
+    configured = vuln.get("severities")
+    if not isinstance(configured, list) or not configured:
+        raise SupplyChainError("vulnerability_policy.severities must be a non-empty list")
+    result: set[str] = set()
+    for item in configured:
+        if not isinstance(item, str) or item.upper() not in KNOWN_SEVERITIES:
+            raise SupplyChainError(f"unknown configured severity: {item!r}")
+        result.add(item.upper())
+    return result
+
+
 def validate_exception_registry(
     policy: dict[str, Any], root: Path = ROOT, today: date | None = None
 ) -> None:
@@ -93,6 +105,7 @@ def validate_exception_registry(
         raise SupplyChainError("vulnerability_policy.exception_file is required")
     if not isinstance(max_days, int) or isinstance(max_days, bool) or max_days < 1:
         raise SupplyChainError("maximum_exception_days must be a positive integer")
+    policy_severities(vuln)
     registry = load_json(root / exception_rel)
     exceptions = registry.get("exceptions")
     if not isinstance(exceptions, list):
@@ -109,7 +122,11 @@ def validate_exception_registry(
             "expires_on",
             "evidence",
         )
-        missing = [name for name in required if not str(item.get(name, "")).strip()]
+        missing = [
+            name
+            for name in required
+            if not isinstance(item.get(name), str) or not item[name].strip()
+        ]
         if missing:
             raise SupplyChainError(f"exception {index} missing fields: {missing}")
         try:
@@ -197,9 +214,7 @@ def evaluate_trivy(
     policy = load_json(policy_path)
     validate_exception_registry(policy, root, today)
     vuln_policy = policy["vulnerability_policy"]
-    severities = {str(item).upper() for item in vuln_policy.get("severities", [])}
-    if not severities:
-        raise SupplyChainError("vulnerability_policy.severities must be non-empty")
+    severities = policy_severities(vuln_policy)
     ignore_unfixed = bool(vuln_policy.get("ignore_unfixed", False))
     exceptions = active_exceptions(policy, component, root, today)
     report = load_json(report_path)

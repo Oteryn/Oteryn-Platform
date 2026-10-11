@@ -256,6 +256,39 @@ class ContainerSupplyChainTest(unittest.TestCase):
                 with self.assertRaises(supply.SupplyChainError):
                     supply.evaluate_trivy(report, policy, "platform", root)
 
+    def test_unknown_configured_severity_fails_closed(self) -> None:
+        for severities in (["HGIH"], [], "HIGH", [7], ["HIGH", "bogus"]):
+            with self.subTest(severities=severities), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                report = self.write_scan_fixture(root)
+                policy = self.write_scan_policy(root, [])
+                data = json.loads(policy.read_text(encoding="utf-8"))
+                data["vulnerability_policy"]["severities"] = severities
+                policy.write_text(json.dumps(data), encoding="utf-8")
+                with self.assertRaises(supply.SupplyChainError):
+                    supply.evaluate_trivy(report, policy, "platform", root)
+
+    def test_exception_text_fields_must_be_strings(self) -> None:
+        for field in ("evidence", "vulnerability_id", "package_name"):
+            for bad in (None, False, 7, ["x"]):
+                with self.subTest(field=field, bad=bad), tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    report = self.write_scan_fixture(root)
+                    entry = {
+                        "component": "platform",
+                        "vulnerability_id": "CVE-TEST-1",
+                        "package_name": "demo",
+                        "created_on": "2026-10-01",
+                        "expires_on": "2026-10-20",
+                        "evidence": "https://github.com/Oteryn/Oteryn-Platform/issues/1011",
+                    }
+                    entry[field] = bad
+                    policy = self.write_scan_policy(root, [entry])
+                    with self.assertRaises(supply.SupplyChainError):
+                        supply.evaluate_trivy(
+                            report, policy, "platform", root, today=date(2026, 10, 5)
+                        )
+
     def test_user_resets_at_each_stage(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "Dockerfile"
@@ -276,6 +309,8 @@ class ContainerSupplyChainTest(unittest.TestCase):
         publish = workflow.index("name: Publish the scanned image")
         self.assertLess(build, enforce)
         self.assertLess(enforce, publish)
+        validate = workflow.index("name: Validate repository supply-chain policy before publishing")
+        self.assertLess(validate, build)
         self.assertIn("push: false", workflow)
         self.assertIn(
             "if: ${{ always() && steps.supply-chain-image.outcome == 'success' }}", workflow

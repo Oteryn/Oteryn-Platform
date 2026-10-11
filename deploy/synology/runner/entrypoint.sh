@@ -115,6 +115,7 @@ if [[ ! -f .runner ]]; then
         --no-default-labels
         --work "$RUNNER_WORKDIR"
         --unattended
+        --disableupdate
         --replace
     )
     if [[ "$RUNNER_SCOPE" == "organization" ]]; then
@@ -124,6 +125,18 @@ if [[ ! -f .runner ]]; then
     ./config.sh "${config_args[@]}"
 
     unset token RUNNER_TOKEN
+fi
+
+# Runner code changes only through a newly pruned image: keep automatic self-update off,
+# including for registrations created before --disableupdate was passed.
+if [[ -s .runner ]] && ! sed '1s/^\xEF\xBB\xBF//' .runner | jq -e '.disableUpdate == true' >/dev/null 2>&1; then
+    runner_tmp="$(mktemp)"
+    if sed '1s/^\xEF\xBB\xBF//' .runner \
+        | jq 'with_entries(select(.key | ascii_downcase != "disableupdate")) + {disableUpdate: true}' 2>/dev/null \
+        > "$runner_tmp" && [[ -s "$runner_tmp" ]]; then
+        cat "$runner_tmp" > .runner
+    fi
+    rm -f "$runner_tmp"
 fi
 
 exec ./run.sh

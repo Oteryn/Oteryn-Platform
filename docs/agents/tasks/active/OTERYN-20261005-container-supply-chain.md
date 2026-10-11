@@ -109,6 +109,10 @@ blockers: []
 next_action: validate PR #1456 exact head, repair first failures, then integrate through Merge Queue
 ```
 
+## Follow-up
+
+- SUPPLY-CHAIN-POLICY-2 (carry-forward, not merge-blocking): (a) persist the blocked policy decision (`--json-output`) before `evaluate-trivy` exits nonzero so rejected builds retain a structured decision record; (b) make the evaluator the sole vulnerability filter by scanning the full relevant result set, or deriving the Trivy action severity/unfixed inputs from the validated policy, so tightening the JSON policy cannot be bypassed by the scan step. Review threads 4239863117 and 4239863119.
+
 ## Source branch closeout
 
 ```yaml
