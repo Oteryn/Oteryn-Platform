@@ -422,14 +422,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build affected component
-        id: build-image
+      - name: Build affected component locally
+        id: build-local
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          push: ${{ github.event_name != 'pull_request' }}
-          load: ${{ github.event_name == 'pull_request' }}
+          push: false
+          load: true
           tags: ${{ steps.image.outputs.tags }}
           labels: |
             org.opencontainers.image.revision=${{ matrix.source_sha }}
@@ -459,21 +459,16 @@ jobs:
               ;;
           esac
 
-      - name: Resolve immutable supply-chain scan identity
+      - name: Resolve local supply-chain scan identity
         id: supply-chain-image
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          IMAGE: ${{ steps.image.outputs.image }}
           SOURCE_REF: ${{ steps.image.outputs.source_ref }}
-          DIGEST: ${{ steps.build-image.outputs.digest }}
+          DIGEST: ${{ steps.build-local.outputs.digest }}
         run: |
           set -euo pipefail
           [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            scan_ref="$SOURCE_REF"
-          else
-            scan_ref="${IMAGE}@${DIGEST}"
-          fi
+          # The image is scanned from the local daemon; no tag is published before the gate passes.
+          scan_ref="$SOURCE_REF"
           mkdir -p artifacts/security
           echo "scan_ref=$scan_ref" >> "$GITHUB_OUTPUT"
 
@@ -507,12 +502,36 @@ jobs:
           --policy docs/security/CONTAINER_SUPPLY_CHAIN_POLICY.json
           --json-output "artifacts/security/${COMPONENT}.policy.json"
 
+      - name: Publish the scanned image after the vulnerability gate passes
+        id: build-image
+        if: ${{ github.event_name != 'pull_request' }}
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          TAGS: ${{ steps.image.outputs.tags }}
+        run: |
+          set -euo pipefail
+          digest=""
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] || continue
+            out="$(docker push "$tag")"
+            printf '%s\n' "$out"
+            pushed="$(printf '%s\n' "$out" | sed -n 's/.*digest: \(sha256:[0-9a-f]\{64\}\).*/\1/p' | tail -n 1)"
+            [[ "$pushed" =~ ^sha256:[0-9a-f]{64}$ ]]
+            if [[ -n "$digest" && "$digest" != "$pushed" ]]; then
+              echo "Tags resolved to different digests: $digest vs $pushed." >&2
+              exit 1
+            fi
+            digest="$pushed"
+          done <<< "$TAGS"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
       - name: Record source-to-image provenance
         env:
           SOURCE_SHA: ${{ matrix.source_sha }}
           DOCKERFILE: ${{ matrix.dockerfile }}
           IMAGE: ${{ steps.image.outputs.image }}
-          DIGEST: ${{ steps.build-image.outputs.digest }}
+          DIGEST: ${{ steps.build-image.outputs.digest || steps.build-local.outputs.digest }}
           COMPONENT: ${{ matrix.name }}
         run: >-
           python3 scripts/ci/container_supply_chain.py provenance
@@ -527,6 +546,7 @@ jobs:
           --output "artifacts/security/${COMPONENT}.provenance.json"
 
       - name: Upload bounded supply-chain evidence
+        if: ${{ always() && steps.supply-chain-image.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: synology-supply-chain-${{ matrix.name }}-${{ github.sha }}-${{ github.run_attempt }}
