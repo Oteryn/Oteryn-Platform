@@ -37,7 +37,12 @@ final class PublicProjectionWire
         }
         // Re-encoding refuses duplicate members (collapsed on decode), escapes, insignificant
         // whitespace and non-canonical numbers; `null` members are refused by the typed readers.
-        $canonical = json_encode($decoded, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        // A number that overflows to INF (e.g. 1e400) cannot be re-encoded and is refused too.
+        try {
+            $canonical = json_encode($decoded, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        } catch (JsonException $exception) {
+            throw new InvalidArgumentException('Public projection is not canonical JSON.', 0, $exception);
+        }
         if (! hash_equals($canonical, $raw)) {
             throw new InvalidArgumentException('Public projection is not canonical JSON.');
         }

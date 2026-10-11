@@ -156,6 +156,7 @@ final class PublicProjectionIngestTest extends TestCase
             'string escape' => ['highscores', str_replace('"Aldric"', '"Ald'.chr(92).'u0072ic"', $hs)],
             'whitespace' => ['highscores', str_replace('"filter":0', '"filter": 0', $hs)],
             'newline' => ['highscores', $hs."\n"],
+            'number overflowing to INF' => ['highscores', str_replace('"category":1', '"category":1e400', $hs)],
             'category out of range' => ['highscores', $this->snapshot(PublicProjectionFamily::Highscores, ['category' => 13])],
             'integer as string' => ['highscores', $this->snapshot(PublicProjectionFamily::Highscores, ['filter' => '0'])],
             'zero revision' => ['highscores', $this->snapshot(PublicProjectionFamily::Highscores, ['projection_revision' => '0'])],
@@ -287,6 +288,7 @@ final class PublicProjectionIngestTest extends TestCase
         $this->assertEmptyFailure($this->publish('watermark', $this->watermark($online, ['complete_through' => '1790000022', 'observed_at' => '1790000022'])), 400);
         $this->assertEmptyFailure($this->publish('watermark', $this->watermark($online, ['complete_through' => '1790000010', 'observed_at' => '1790000009'])), 400);
         $this->assertEmptyFailure($this->publish('watermark', $this->watermark($online, ['family' => 'loyalty'])), 400);
+        $this->assertEmptyFailure($this->publish('watermark', str_replace('"contract_version":1', '"contract_version":1e400', $this->watermark($online))), 400);
 
         // A stopped watermark makes the family stale and unserved: S = 30 s with 1 s uncertainty.
         $this->travelTo(CarbonImmutable::createFromTimestamp(1_790_000_029));
