@@ -398,7 +398,7 @@
       "capability": "Main-character selection",
       "relevance": "optional_differentiator",
       "delivery_status": "implemented",
-      "rationale": "Oteryn adopts an optional one-main-character preference per Platform Identity. Identity-row locking serializes replacement, and real-MariaDB acceptance proves that two concurrent selections leave exactly one main row.",
+      "rationale": "Oteryn adopts an optional one-main-character preference per Platform Identity. Identity-row locking serializes replacement, and the focused profile regressions cover main-character replacement.",
       "oteryn_evidence": [
         {
           "file": "docs/contracts/CHARACTER_PROFILE_PREFERENCES_CONTRACT.md",
@@ -407,7 +407,7 @@
         },
         {
           "file": ".github/workflows/community-data-acceptance.yml",
-          "marker": "Prove single-main-character concurrency on real MariaDB",
+          "marker": "Execute focused community and profile regressions",
           "level": "integration_test"
         },
         {
