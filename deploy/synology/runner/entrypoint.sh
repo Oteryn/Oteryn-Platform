@@ -13,7 +13,16 @@ RUNNER_TOKEN_FILE="${RUNNER_TOKEN_FILE:-}"
 
 mkdir -p "$RUNNER_CONFIG_DIR" "$RUNNER_WORKDIR"
 
+DIST_REVISION_FILE=".oteryn-dist-revision"
+
 if [[ ! -x "$RUNNER_CONFIG_DIR/run.sh" ]]; then
+    cp -a "$RUNNER_DIST_DIR/." "$RUNNER_CONFIG_DIR/"
+elif [[ -f "$RUNNER_DIST_DIR/$DIST_REVISION_FILE" ]] \
+    && ! cmp -s "$RUNNER_DIST_DIR/$DIST_REVISION_FILE" "$RUNNER_CONFIG_DIR/$DIST_REVISION_FILE"; then
+    # A persisted /runner volume predates this image: replace the runner code trees
+    # (dropping any stale npm/corepack) while preserving registration and work state
+    # (.runner, .credentials*, .env, .path, _diag, _work), which the dist never contains.
+    rm -rf "$RUNNER_CONFIG_DIR/bin" "$RUNNER_CONFIG_DIR/externals"
     cp -a "$RUNNER_DIST_DIR/." "$RUNNER_CONFIG_DIR/"
 fi
 
@@ -106,6 +115,7 @@ if [[ ! -f .runner ]]; then
         --no-default-labels
         --work "$RUNNER_WORKDIR"
         --unattended
+        --disableupdate
         --replace
     )
     if [[ "$RUNNER_SCOPE" == "organization" ]]; then
@@ -115,6 +125,18 @@ if [[ ! -f .runner ]]; then
     ./config.sh "${config_args[@]}"
 
     unset token RUNNER_TOKEN
+fi
+
+# Runner code changes only through a newly pruned image: keep automatic self-update off,
+# including for registrations created before --disableupdate was passed.
+if [[ -s .runner ]] && ! sed '1s/^\xEF\xBB\xBF//' .runner | jq -e '.disableUpdate == true' >/dev/null 2>&1; then
+    runner_tmp="$(mktemp)"
+    if sed '1s/^\xEF\xBB\xBF//' .runner \
+        | jq 'with_entries(select(.key | ascii_downcase != "disableupdate")) + {disableUpdate: true}' 2>/dev/null \
+        > "$runner_tmp" && [[ -s "$runner_tmp" ]]; then
+        cat "$runner_tmp" > .runner
+    fi
+    rm -f "$runner_tmp"
 fi
 
 exec ./run.sh

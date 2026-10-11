@@ -30,3 +30,21 @@ updates:
       codeql-actions:
         patterns:
           - "github/codeql-action/*"
+
+  - package-ecosystem: docker
+    directory: "/deploy/synology/docker"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:20"
+      timezone: Europe/Warsaw
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: docker
+    directory: "/deploy/synology/runner"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:25"
+      timezone: Europe/Warsaw
+    open-pull-requests-limit: 5
