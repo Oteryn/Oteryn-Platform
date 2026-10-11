@@ -17,15 +17,15 @@ Prepare four original bilingual plain-text pages for existing ManagedPage/Editor
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-11T02:00:00Z
-head: 2f606c2cfef97ffd3e148ad0b8386e7b9cf950da
+head: 08e8384c0859e52dc81bed8755343b249f4163c3
 branch: content/1481-editorial-starter-pl-en
 pr: 1482
-status: validating
+status: completed
 context_routes:
   - portal-editorial-content
 owned_paths:
   - docs/content/portal-editorial-starter-20261008.json
-  - docs/agents/tasks/active/OTERYN-20261008-portal-editorial-starter.md
+  - docs/agents/tasks/archive/OTERYN-20261008-portal-editorial-starter.md
 proven:
   - Four public editorial routes and existing CMS plain-text rendering were inspected.
 derived: []
@@ -38,7 +38,7 @@ first_failure:
 rejected_hypotheses: []
 changed_paths:
   - docs/content/portal-editorial-starter-20261008.json
-  - docs/agents/tasks/active/OTERYN-20261008-portal-editorial-starter.md
+  - docs/agents/tasks/archive/OTERYN-20261008-portal-editorial-starter.md
 validation:
   - command: bilingual-content-structure
     result: PASS
@@ -48,7 +48,7 @@ validation:
     evidence: This candidate contains draft text only; no executable or live CMS changes.
 blockers:
   - Live draft inventory and publication are unverified.
-next_action: Review draft text; publication is tracked as follow-up PORTAL-CONTENT-PUBLISH-1 (authorized publisher actor required).
+next_action: none; terminal PR merged and record archived. Publication continues as follow-up PORTAL-CONTENT-PUBLISH-1 (authorized publisher actor required).
 ```
 
 ## Publication handoff
@@ -58,7 +58,7 @@ Use existing SaveManagedPage and SaveEditorialTranslation with an authorized act
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: Draft content awaits review and publication qualification.
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1482 merged (REST pulls/1482 state closed, merged true) as 1f40fbb6e7ddf0ed81a478699ed316ef0d63201c at 2026-10-11T01:41:50Z from exact head 08e8384c0859e52dc81bed8755343b249f4163c3; source branch (content/1481-editorial-starter-pl-en) absent (REST branches API returns 404)
 ```
