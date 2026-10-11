@@ -95,6 +95,9 @@ services:
       GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED: "false"
       GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_OWNERSHIP: "true"
       GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID: ${GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID:-}
+      # ADR 0044: the route publication switch also admits this stack's MariaDB for the native topology
+      # and route commands (preproduction-store mode, allowlisted store and configured World only).
+      GAME_AUTH_NATIVE_ROUTE_PREPRODUCTION_STORE_ENABLED: ${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}
     ports:
       - ${PLATFORM_BIND_ADDRESS}:${PLATFORM_PORT}:8000
     volumes:

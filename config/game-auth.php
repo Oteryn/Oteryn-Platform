@@ -75,6 +75,15 @@ return [
         'requests_per_minute' => env('GAME_AUTH_NATIVE_ADMISSION_REQUESTS_PER_MINUTE', 120),
     ],
 
+    'native_route_preproduction_store' => [
+        // ADR 0044 (owner option a, 2026-10-11). Default off. When true, game-auth:native-topology:issue and
+        // game-auth:native-route:publish run their preproduction-store mode instead of the disposable store:
+        // APP_ENV=preproduction only, the allowlisted deployed MariaDB store only (fixed in code), and route
+        // publication only for the configured native World (native_admission.unverified_character_world_id).
+        // Any other value than true/false refuses. Synology sets it from OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED.
+        'enabled' => env('GAME_AUTH_NATIVE_ROUTE_PREPRODUCTION_STORE_ENABLED', false),
+    ],
+
     'native_runtime_status' => [
         // Default off (N4P rollout step 4). While off, ReportRuntimeStatusV1 answers 503, stores nothing and no scope routes.
         'enabled' => env('GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED', $acceptanceNativeRuntime),

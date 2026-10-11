@@ -3,12 +3,21 @@
 namespace App\Console\Commands;
 
 use App\GameAuth\Worlds\DisposableNativeStore;
+use App\GameAuth\Worlds\NativePreproductionStoreRefused;
 use App\GameAuth\Worlds\NativeRouteRecords;
 use App\GameAuth\Worlds\NativeTopologyRegistry;
+use App\GameAuth\Worlds\PreproductionNativeRouteStore;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 use LogicException;
 use Throwable;
 
+/**
+ * Default path: the retained per-run SQLite store behind `DisposableNativeStore` (ARCH-PREPROD-ROUTE-PUBLISH-AUTH-V1 §2),
+ * unchanged. With the explicit preproduction-store switch on (ADR 0044) the command instead publishes exactly one
+ * route record, for the configured native World, on the allowlisted deployed preproduction store, and refuses with a
+ * named reason whenever one of that mode's conditions fails.
+ */
 final class PublishNativeRoute extends Command
 {
     protected $signature = 'game-auth:native-route:publish
@@ -21,7 +30,7 @@ final class PublishNativeRoute extends Command
 
     protected $description = 'Publish and read back one disposable preproduction native route record (testing/preproduction only).';
 
-    public function handle(NativeTopologyRegistry $registry, DisposableNativeStore $store): int
+    public function handle(NativeTopologyRegistry $registry, DisposableNativeStore $store, PreproductionNativeRouteStore $preproduction): int
     {
         $rowId = $this->option('world-row-id');
         $channelKey = $this->option('channel-key');
@@ -37,6 +46,15 @@ final class PublishNativeRoute extends Command
             $this->components->error('Supply --world-row-id, --channel-key, --host, --port, --tls-server-name and --login-enabled=<true|false>.');
 
             return self::FAILURE;
+        }
+
+        try {
+            $preproductionStore = $preproduction->requested();
+        } catch (NativePreproductionStoreRefused $refused) {
+            return $this->refusePreproductionStore($refused);
+        }
+        if ($preproductionStore) {
+            return $this->publishOnPreproductionStore($registry, (int) $rowId, $channelKey, $host, (int) $port, $tlsServerName, $loginEnabled === 'true');
         }
 
         try {
@@ -76,5 +94,48 @@ final class PublishNativeRoute extends Command
         $this->line($json);
 
         return self::SUCCESS;
+    }
+
+    private function publishOnPreproductionStore(
+        NativeTopologyRegistry $registry,
+        int $rowId,
+        string $channelKey,
+        string $host,
+        int $port,
+        string $tlsServerName,
+        bool $loginEnabled,
+    ): int {
+        try {
+            $published = $registry->publishRouteOnPreproductionStore($rowId, $channelKey, $host, $port, $tlsServerName, $loginEnabled);
+            $record = $published['record'];
+            $json = json_encode([
+                'world_id' => $record->worldId,
+                'channel_id' => $record->channelId,
+                'route_version' => $record->version,
+                'route_revision' => $record->routeRevision,
+                'native_login_enabled' => $published['native_login_enabled'],
+                'store' => 'preproduction',
+                'result' => $published['result'],
+            ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+        } catch (NativePreproductionStoreRefused $refused) {
+            return $this->refusePreproductionStore($refused);
+        } catch (Throwable $exception) {
+            Log::warning('Preproduction-store native route publication failed.', ['exception' => class_basename($exception)]);
+            $this->components->error('Preproduction-store native route publication failed.');
+
+            return self::FAILURE;
+        }
+
+        $this->line($json);
+
+        return self::SUCCESS;
+    }
+
+    private function refusePreproductionStore(NativePreproductionStoreRefused $refused): int
+    {
+        Log::warning('Preproduction-store native route publication refused.', ['reason' => $refused->reason]);
+        $this->components->error('Preproduction-store native route publication refused: '.$refused->reason.'. '.$refused->getMessage());
+
+        return self::FAILURE;
     }
 }
