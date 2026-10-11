@@ -344,6 +344,10 @@ if [[ "$ACTION" == promote ]]; then
     DEPLOY_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
     ENV_FILE="$OTERYN_ENV_FILE"
     COMPOSE_FILE="$DEPLOY_DIR/compose.yml"
+    case "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" in
+        true | false) ;;
+        *) echo "OTERYN_NATIVE_ADMISSION_ENABLED must be true or false." >&2; exit 2 ;;
+    esac
     promote_compose=(command docker compose --env-file "$OTERYN_ENV_FILE" -f "$COMPOSE_FILE")
     ingress="$(oteryn_native_admission_ingress_stop "${promote_compose[@]}")"
     promote_rc=0
@@ -368,9 +372,7 @@ if [[ "$ACTION" == promote ]]; then
     # replacement itself (lib.sh) before ingress can return, so the reconcile runs first and the
     # self-check below proves the Platform that will really serve.
     _oteryn_reconcile_marketplace_scheduler_after_runtime_change || exit 1
-    if [[ "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" == true ]]; then
-        oteryn_run_native_admission_self_check "$("${promote_compose[@]}" ps -q platform)" || exit 1
-    fi
+    oteryn_native_admission_self_check_or_stop "${promote_compose[@]}" || exit 1
     sleep "$propagation_seconds"
     # shellcheck disable=SC2086
     oteryn_native_admission_ingress_start $ingress || exit 1

@@ -248,12 +248,13 @@ def test_marketplace_switches_start_ingress_only_after_the_final_trust_gate() ->
 
 
 def test_marketplace_runtime_recreation_restarts_only_previously_running_ingress_after_the_gate() -> None:
-    body = function_body(LIB.read_text(encoding="utf-8"), "_oteryn_recreate_marketplace_runtime() {")
+    body = function_body(LIB.read_text(encoding="utf-8"), "_oteryn_recreate_marketplace_runtime_gated() {")
     ordered(
         body,
         'ingress="$(oteryn_native_admission_ingress_stop "${marketplace_compose[@]}")" || return 1',
         '"${marketplace_compose[@]}" up -d --no-deps --force-recreate platform',
         GATE + ' "${marketplace_compose[@]}" || return 1',
+        'oteryn_native_admission_self_check_or_stop "${marketplace_compose[@]}" || return 1',
         "oteryn_native_admission_ingress_start $ingress || return 1",
         '"${marketplace_compose[@]}" up -d --force-recreate marketplace-scheduler',
     )

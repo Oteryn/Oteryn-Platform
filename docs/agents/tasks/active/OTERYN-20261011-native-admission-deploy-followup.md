@@ -40,6 +40,9 @@ Governing GitHub Issue: #1474 (native-only migration). Close the follow-ups left
 | Marketplace runtime recreation (all routes: full deploy, fast path, reconcile, rollback, promote) | the final Platform is self-checked before ingress returns | `_oteryn_recreate_marketplace_runtime` self-checks the replacement (when its env has admission on) before `ingress_start`; promote reconciles Marketplace before its own self-check |
 | `drop-retiring` | retired key stays trusted in the registry | revokes the retiring kid in the trust registry (permanent) and verifies it is untrusted before the key files are destroyed; refuses and keeps the key if no Platform runs or revocation fails, so the next staged promotion has a free trust slot |
 | `promote` propagation wait | garbage or short value reopens ingress at once | `OTERYN_NATIVE_TRUST_PROPAGATION_SECONDS` must be an integer of at least 10; validated before any mutation (exit 2) |
+| Every caller of `_oteryn_recreate_marketplace_runtime` (deploy fast path, impact reconcile, rollback, promote, same-release redeploy, restore helpers) | ingress left restartable on failure | the helper fails closed from the ingress stop on: any failure removes Platform, internal proxy and Gateway |
+| Self-check gate (`oteryn_native_admission_self_check_or_stop`) | docker inspect or ps failure read as "disabled" | the Platform container env decides; an inspect failure or missing container is a gate failure that removes ingress; used by Marketplace recreation, rollback, marketplace-staging enable/prepare-rollback and promote |
+| `promote` env | invalid `OTERYN_NATIVE_ADMISSION_ENABLED` | must be true or false, checked before any mutation |
 
 Follow-up, out of scope here (owned by PHP paths): a witness check in `NativeAdmissionGrantIssuer::assertSignable`.
 

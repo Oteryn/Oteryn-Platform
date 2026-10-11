@@ -209,6 +209,7 @@ case "$ACTION" in
         update_env_value MARKETPLACE_ENABLED true
         "${compose[@]}" up -d --no-deps --force-recreate platform
         oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || exit 1
+        oteryn_native_admission_self_check_or_stop "${compose[@]}" || exit 1
         "${compose[@]}" up -d marketplace-scheduler
         "${compose[@]}" up -d --no-deps --force-recreate internal-proxy
         "${compose[@]}" start gateway
@@ -229,6 +230,7 @@ case "$ACTION" in
         oteryn_native_admission_ingress_stop "${compose[@]}" >/dev/null
         "${compose[@]}" up -d --no-deps --force-recreate platform
         oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || exit 1
+        oteryn_native_admission_self_check_or_stop "${compose[@]}" || exit 1
         "${compose[@]}" stop marketplace-scheduler >/dev/null 2>&1 || true
         "${compose[@]}" rm -f marketplace-scheduler >/dev/null 2>&1 || true
         "${compose[@]}" up -d --no-deps --force-recreate internal-proxy
