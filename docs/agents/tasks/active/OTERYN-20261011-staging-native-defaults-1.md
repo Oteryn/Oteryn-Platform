@@ -32,6 +32,9 @@ owned_paths:
   - deploy/synology/scripts/lib.sh
   - deploy/synology/README.md
   - tests/ci/test_synology_native_admission_gate.py
+  - .github/workflows/build-synology-staging-images.yml
+  - scripts/ci/classify_synology_builds.py
+  - tests/ci/test_synology_deployment_package_routing.py
   - docs/agents/tasks/active/OTERYN-20261011-staging-native-defaults-1.md
   - docs/agents/tasks/archive/OTERYN-20261011-staging-native-defaults-1.md
 modules:
@@ -60,6 +63,9 @@ owned_paths:
   - .github/workflows/character-bazaar-staging-control.yml
   - deploy/synology/**
   - tests/ci/test_synology_native_admission_gate.py
+  - .github/workflows/build-synology-staging-images.yml
+  - scripts/ci/classify_synology_builds.py
+  - tests/ci/test_synology_deployment_package_routing.py
 proven:
   - Native admission gate tests pass locally (39 tests).
 derived: []
@@ -73,6 +79,13 @@ rejected_hypotheses: []
 changed_paths:
   - deploy/synology/native-defaults.env
   - deploy/synology/scripts/lib.sh
+  - deploy/synology/README.md
+  - .github/workflows/deploy-synology-staging.yml
+  - .github/workflows/character-bazaar-staging-control.yml
+  - .github/workflows/build-synology-staging-images.yml
+  - scripts/ci/classify_synology_builds.py
+  - tests/ci/test_synology_deployment_package_routing.py
+  - tests/ci/test_synology_native_admission_gate.py
 validation:
   - command: python3 -m pytest -q tests/ci/test_synology_native_admission_gate.py
     result: PASS
@@ -91,5 +104,7 @@ source_branch_evidence: pending
 ```
 
 ## Notes
+
+Scope note: native-defaults.env is a runtime deployment input, so the image build workflow, its build classifier and the deployment package routing test are owned here to route it as a deployment-package change rather than a component image rebuild.
 
 Still owner or after first deploy: native World id, runtime-status and scope-assignment identity maps (need WorldId/ChannelId from the first route publish), then flipping admission to true. Set them by editing the defaults file in a PR, or by repository variable override.
