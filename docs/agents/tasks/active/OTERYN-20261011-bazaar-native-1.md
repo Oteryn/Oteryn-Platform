@@ -54,7 +54,7 @@ checkpoint_version: 1
 updated_at: 2026-10-11T18:00:00Z
 head: UNKNOWN
 branch: claude/bazaar-1-20261011
-pr: UNKNOWN
+pr: 1541
 status: validating
 context_routes:
   - marketplace
