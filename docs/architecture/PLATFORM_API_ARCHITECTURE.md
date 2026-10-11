@@ -157,7 +157,7 @@ Forbidden directions include:
 PlatformAPI -> raw module tables/models as a shortcut
 source module -> PlatformAPI transport types
 PlatformAPI -> duplicate formula/policy implementation
-PlatformAPI -> raw Canary/Oteryn-v2 persistence
+PlatformAPI -> raw legacy engine/Oteryn-v2 persistence
 ```
 
 PlatformAPI may normalize transport concerns, but source modules retain business authority.

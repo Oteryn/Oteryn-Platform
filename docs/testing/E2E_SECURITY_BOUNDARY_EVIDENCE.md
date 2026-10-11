@@ -52,9 +52,9 @@ The acceptance runtime intentionally uses plain local HTTP with `SESSION_SECURE_
 The ownership-manipulation scenario:
 
 1. creates two disposable Platform Identities through the real acceptance registration/provisioning flow;
-2. confirms each has a distinct ready Canary binding;
+2. confirms each has a distinct ready legacy engine binding;
 3. authenticates as the first Identity;
-4. injects the second Identity's Canary `account_id` into the browser character-creation form as a hidden field;
+4. injects the second Identity's legacy engine `account_id` into the browser character-creation form as a hidden field;
 5. submits the normal character-create request;
 6. verifies the character is created for the authenticated Identity's server-owned binding, not for the injected foreign account.
 
@@ -64,9 +64,9 @@ This proves the composed browser/request boundary remains fail closed against cl
 
 Initial security-slice head `f9af89dfd017bfa0417d88503277a535e6f9b7a4` ran acceptance workflow `29841948505`.
 
-The session-rotation scenario passed, but the ownership scenario failed before reaching the ownership assertion because it used `seed-account-overview-state.php`. That fixture can represent a Platform `ready` Account Overview state but does not provide the real Canary account row required by character creation. The UI correctly failed with `Your bound game account is unavailable.`
+The session-rotation scenario passed, but the ownership scenario failed before reaching the ownership assertion because it used `seed-account-overview-state.php`. That fixture can represent a Platform `ready` Account Overview state but does not provide the real legacy engine account row required by character creation. The UI correctly failed with `Your bound game account is unavailable.`
 
-The correction replaced that fixture for the ownership scenario with the real acceptance registration/provisioning flow for both disposable identities. No application authorization, provisioning, session, rate-limit or Canary contract behavior was weakened or bypassed.
+The correction replaced that fixture for the ownership scenario with the real acceptance registration/provisioning flow for both disposable identities. No application authorization, provisioning, session, rate-limit or legacy engine contract behavior was weakened or bypassed.
 
 The corrected exact-SHA run `29842195691` passed the complete required critical profile.
 

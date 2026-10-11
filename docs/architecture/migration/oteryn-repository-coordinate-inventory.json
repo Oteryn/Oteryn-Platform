@@ -90,8 +90,8 @@
       "cutoverAction": "do not global-rewrite; change only documents that explicitly claim current routing/authority"
     },
     {
-      "surface": "Legacy Canary/OTClient reference coordinates",
-      "location": "blakinio/canary and blakinio/otclient",
+      "surface": "Legacy engine/OTClient reference coordinates",
+      "location": "the legacy game-server repository and blakinio/otclient",
       "classification": "F",
       "evidence": "programme declares these repositories legacy read-only reference sources",
       "cutoverAction": "preserve intentionally; no writes or migration into target product authority"

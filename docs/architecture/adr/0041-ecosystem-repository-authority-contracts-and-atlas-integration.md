@@ -16,7 +16,7 @@ Superseded for ecosystem repository-topology and META coordination authority —
 
 ## Context
 
-ADR 0040 established the first durable target repository topology after the repository owner clarified that the existing OTBM Atlas lives inside the legacy `blakinio/Otheryn` Canary/Crystal lineage and must not make that legacy repository part of the target architecture.
+ADR 0040 established the first durable target repository topology after the repository owner clarified that the existing OTBM Atlas lives inside the legacy `blakinio/Otheryn` legacy engine/Crystal lineage and must not make that legacy repository part of the target architecture.
 
 The owner then requested independent review from the target product perspectives. The following merged evidence now exists:
 
@@ -25,7 +25,7 @@ The owner then requested independent review from the target product perspectives
 - `blakinio/Oteryn-Platform` ADR 0040 review, PR #1100: `ACCEPT_WITH_CHANGES` and strengthens authority-transfer, Atlas release/origin and API-boundary rules;
 - `blakinio/Otheryn` Atlas extraction audit, PR #407: `EXTRACTABLE_WITH_REFACTOR` and proves the current Atlas namespace mixes future Game-owned legacy/world semantics with future Atlas-owned browser/publication concerns.
 
-The repository owner additionally decided on 2026-08-15 that `blakinio/canary` and `blakinio/otclient` are legacy/transitional/migration-reference repositories only and are **not** normative reviewers of the target Oteryn repository architecture. Their code, tests, fixtures and history may be used as bounded evidence during migration, but their historical architecture cannot veto or redefine the target topology.
+The repository owner additionally decided on 2026-08-15 that `the legacy game-server repository` and `blakinio/otclient` are legacy/transitional/migration-reference repositories only and are **not** normative reviewers of the target Oteryn repository architecture. Their code, tests, fixtures and history may be used as bounded evidence during migration, but their historical architecture cannot veto or redefine the target topology.
 
 The review outcome therefore has no target-product disagreement about the four principal boundaries. The required changes are refinements to authority, contracts, browser trust, release independence and migration execution rather than a different repository split.
 
@@ -162,7 +162,7 @@ Existing GameAuth, internal Gateway transports and operational probes remain spe
 - authoritative game content identities/rules;
 - Game persistence;
 - World Bundle compilation;
-- Crystal/Canary source-tree interpretation;
+- Crystal/legacy engine source-tree interpretation;
 - a second canonical copy of Game-owned schemas.
 
 ### 7. Existing Otheryn Atlas is extractable only after responsibility separation
@@ -324,12 +324,12 @@ Recommended validation placement:
 
 Game retains native Client/Server/protocol test harness ownership. Platform retains Platform-local contract/integration evidence. Atlas retains Atlas-local ingestion/UI evidence. Meta composes immutable product evidence; it does not relocate every test implementation.
 
-### 14. Canary and otclient are explicitly non-normative legacy sources
+### 14. Legacy engine and otclient are explicitly non-normative legacy sources
 
 For target repository architecture:
 
 ```text
-blakinio/canary   -> LEGACY / TRANSITIONAL / MIGRATION REFERENCE
+the legacy game-server repository   -> LEGACY / TRANSITIONAL / MIGRATION REFERENCE
 blakinio/otclient -> LEGACY / MIGRATION / REFERENCE
 ```
 
@@ -437,7 +437,7 @@ Design stable seams now; do not pre-split source repositories in anticipation of
 | `Oteryn-Client` | DO NOT CREATE NOW | Atomic Client/Server/Protocol changes remain high value. |
 | `Oteryn-Server` | DO NOT CREATE NOW | Native authoritative Server remains in Game source repo. |
 | `Oteryn-Protocol` | DO NOT CREATE NOW | Highest drift risk if prematurely split. |
-| `blakinio/canary` | LEGACY ONLY | Transitional/reference source; non-normative for target topology. |
+| `the legacy game-server repository` | LEGACY ONLY | Transitional/reference source; non-normative for target topology. |
 | `blakinio/otclient` | LEGACY ONLY | Migration/reference source; non-normative for target topology. |
 | `blakinio/Otheryn` | MIGRATION SOURCE, then LEGACY | Source of current Atlas and legacy semantics; not a target repository after extraction. |
 
@@ -452,7 +452,7 @@ Design stable seams now; do not pre-split source repositories in anticipation of
 - Game -> Atlas becomes deterministic, public-safe and reproducible;
 - future meta authority is narrow and cannot silently duplicate provider schemas;
 - Atlas browser security is based on origin/trust boundaries rather than repository names or proxy assumptions;
-- legacy Canary/otclient architecture no longer creates false governance vetoes;
+- legacy engine/otclient architecture no longer creates false governance vetoes;
 - physical migration can proceed without starving native runtime delivery.
 
 ### Costs
@@ -480,7 +480,7 @@ This ADR intentionally leaves the following to bounded follow-up work:
 
 ## Rejected alternatives
 
-- require Canary or otclient approval before the target architecture can proceed;
+- require legacy engine or otclient approval before the target architecture can proceed;
 - use legacy repository layout as target ownership proof;
 - split Client, Server or `protocol-oteryn` now;
 - split Identity or Gateway only because they are security-sensitive or separately deployable;
@@ -532,7 +532,7 @@ There must never be two normative copies of the same ecosystem ADR.
 
 - `blakinio/Oteryn-Platform` PR #1100 — ADR 0040 Platform review (`ACCEPT_WITH_CHANGES`)
 - `docs/architecture/reviews/OTERYN_ECOSYSTEM_REPOSITORY_TOPOLOGY_PLATFORM_REVIEW_2026-08-15.md`
-- ADR 0031 — native Oteryn-v2 integration and Legacy Canary compatibility boundary
+- ADR 0031 — native Oteryn-v2 integration and Legacy engine compatibility boundary
 - ADR 0036 — deferred general PlatformAPI activation
 
 ### Legacy Atlas extraction evidence
@@ -542,4 +542,4 @@ There must never be two normative copies of the same ecosystem ADR.
 
 ### Owner classification
 
-- repository-owner decision, 2026-08-15: Canary and otclient are legacy/reference only and are excluded from normative target-topology review
+- repository-owner decision, 2026-08-15: Legacy engine and otclient are legacy/reference only and are excluded from normative target-topology review

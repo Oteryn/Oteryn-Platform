@@ -72,7 +72,7 @@ Before `CANDIDATE_SELECTED`, Gateway chooses at most one exact intersection cand
 - Normal disablement removes native from new World Registry/Gateway selections.
 - Already-issued unexpired credentials may bind and active sessions may drain while the exact listener/readiness identity remains enabled.
 - An explicit admission-revocation generation rejects not-yet-bound credentials.
-- Emergency listener shutdown closes native sessions; it does not migrate them to Canary.
+- Emergency listener shutdown closes native sessions; it does not migrate them to legacy engine.
 - No Otheryn live query to World Registry is required during admission; the signed/stored session tuple and local readiness identity are the enforcement inputs.
 
 ## Abuse limits

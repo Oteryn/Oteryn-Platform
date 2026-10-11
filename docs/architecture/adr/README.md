@@ -55,10 +55,9 @@ The historical exception is a closed exact-path allowlist, not permission to cre
 
 ## Inventory
 
-Inventory reconciled on 2026-08-16. Duplicate prefixes are intentionally shown rather than hidden. Prefix `0038` remains intentionally absent because the only proposal using it was closed unmerged in PR #1065 and must not be resurrected merely to fill a numbering gap. ADR 0040 is retained with `Superseded` lifecycle; ADR 0041 is the current ecosystem-topology successor; ADR 0042 defines the non-native reference-content boundary. ADR 0043 is the current Proposed native GameCatalog persistence-composition decision under Issue #1460 and is non-authoritative until accepted.
+Inventory reconciled on 2026-10-11. Duplicate prefixes are intentionally shown rather than hidden. Prefix `0038` remains intentionally absent because the only proposal using it was closed unmerged in PR #1065 and must not be resurrected merely to fill a numbering gap. ADR 0040 is retained with `Superseded` lifecycle; ADR 0041 is the current ecosystem-topology successor; ADR 0042 defines the non-native reference-content boundary. ADR 0043 is the current Proposed native GameCatalog persistence-composition decision under Issue #1460 and is non-authoritative until accepted.
 
 - `0001-laravel-modular-monolith.md`
-- `0002-separate-platform-and-canary-repositories.md`
 - `0003-defer-payments-module.md`
 - `0004-authoritative-platform-account-ownership.md`
 - `0005-character-creation-product-policy.md`
@@ -85,7 +84,6 @@ Inventory reconciled on 2026-08-16. Duplicate prefixes are intentionally shown r
 - `0019-game-catalog-runtime-loot-thresholds.md`
 - `0020-use-single-level-gateway-public-hostname.md`
 - `0021-provider-neutral-payment-security-core.md`
-- `0021-require-canary-owned-character-deletion-lifecycle.md`
 - `0022-architecture-authority-index-and-focused-canonical-documents.md`
 - `0023-machine-readable-architecture-decision-backlog.md`
 - `0024-merged-source-branch-lifecycle-policy.md`
@@ -119,8 +117,11 @@ The validator permits exactly these historical sets:
 - `0016`: `0016-character-bazaar-wallet-and-escrow.md`, `0016-versioned-game-catalog-snapshots.md`
 - `0017`: `0017-account-security-lifecycle.md`, `0017-platform-support-moderation-boundary.md`
 - `0018`: `0018-game-catalog-unknown-verified-boundary.md`, `0018-read-only-community-data-boundary.md`
-- `0021`: `0021-provider-neutral-payment-security-core.md`, `0021-require-canary-owned-character-deletion-lifecycle.md`
 
 Changing one of these exact sets requires an explicit compatibility review. Every other duplicate prefix is rejected.
 
 When a decision changes, add a new ADR and mark the old one `Superseded` rather than rewriting history silently.
+
+## Retired decisions
+
+ADR 0002 (separate Platform and legacy game-server repositories) and the legacy ADR 0021 (game-server-owned character deletion lifecycle) were retired on 2026-10-11 as part of the native-only decision recorded in the owner decision index. Their files are deleted; Git history keeps them. Prefix `0021` is no longer a duplicate: the single remaining ADR is `0021-provider-neutral-payment-security-core.md`. Current boundaries are owned by ADR 0031, ADR 0041 and the Oteryn-Game contracts.

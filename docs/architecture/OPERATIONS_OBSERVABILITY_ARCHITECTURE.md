@@ -107,7 +107,7 @@ Screenshots or provider exports may supplement evidence, but raw credentials, co
 | Metrics | source module/runtime | require named operational metrics only where implemented | effective backend and samples for active release |
 | Alerts/on-call | operations | define ownership/escalation and verify delivery | active rules, destination/rotation identity and dated delivery proof |
 | Platform database | persistence/runtime owner | backup/restore/availability evidence and recovery runbooks | effective engine/topology, backup policy, dated restore proof |
-| Canary SQL/Redis | Integration/game compatibility boundary | observe connectivity/least-privilege/failure without taking source authority | effective endpoint/network/ACL/grant evidence without secrets |
+| Legacy engine SQL/Redis | Integration/game compatibility boundary | observe connectivity/least-privilege/failure without taking source authority | effective endpoint/network/ACL/grant evidence without secrets |
 | Sessions/cache | runtime/configuration | prove effective backend and scaling assumptions | current deployed config and failure/recovery behavior |
 | Queue/mail | Notifications/runtime configuration | prove effective transport/worker requirements and failure handling | actual provider/worker config and monitoring when enabled |
 | Deployment/migrations/rollback | release/operations | prove ordered deploy, migration and rollback/redeploy procedure | exact production deployment mechanism and a bounded validated procedure |
@@ -119,7 +119,7 @@ Screenshots or provider exports may supplement evidence, but raw credentials, co
 
 The current repository configures Laravel's framework health route at `/health` in `bootstrap/app.php`. That is `REPOSITORY_PROVEN` application liveness capability.
 
-A successful `/health` response **does not** prove that Platform SQL, Canary SQL, runtime Redis, mail, queue workers, external game services or PublicEdge are ready. The current repository does not prove a separate dependency-aware readiness endpoint as a general production contract.
+A successful `/health` response **does not** prove that Platform SQL, legacy engine SQL, runtime Redis, mail, queue workers, external game services or PublicEdge are ready. The current repository does not prove a separate dependency-aware readiness endpoint as a general production contract.
 
 Therefore:
 

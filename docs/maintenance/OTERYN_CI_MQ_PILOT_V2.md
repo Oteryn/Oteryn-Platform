@@ -43,7 +43,7 @@ The executor receipt is non-terminal. Terminal proof still requires real `merge_
 
 ## Existing evidence reuse
 
-Prefer recent exact attributable real evidence over new mergeable canaries.
+Prefer recent exact attributable real evidence over new mergeable pilots.
 
 Known current-generation evidence to revalidate before generating new MQ probes:
 

@@ -77,10 +77,10 @@ An owner may explicitly accept an eligible operational or security risk where re
 
 The Production Go-Live Gate continues to require direct production evidence for the applicable launch scope, including:
 
-- exact deployed Oteryn Platform SHA and relevant Canary/login-server versions;
+- exact deployed Oteryn Platform SHA and relevant legacy engine/login-server versions;
 - production DNS, Cloudflare/edge/WAF/Access and TLS behavior;
 - direct-origin exposure and effective ingress firewall/reverse-proxy restrictions;
-- production Platform and Canary DB topology, network isolation and effective grants;
+- production Platform and legacy engine DB topology, network isolation and effective grants;
 - production runtime Redis endpoint, ACL, network and TLS state;
 - production session/cache/queue topology and worker behavior where applicable;
 - production mail provider/domain/delivery monitoring;
@@ -97,7 +97,7 @@ The authoritative Platform game-login bridge is not retroactively made part of P
 
 If Platform-originated game login is required for the selected launch scope, the Production Go-Live Gate remains blocked until the separately authorized cross-repository game-login requirement is resolved and its required end-to-end properties are proven.
 
-This decision does not authorize any Canary/login-server repository write.
+This decision does not authorize any legacy engine/login-server repository write.
 
 ### 6. Material candidate changes may require revalidation without reopening the historical phase
 

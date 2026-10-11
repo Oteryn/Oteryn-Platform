@@ -66,7 +66,7 @@ Missing, unpublished, hidden and stale resources return not found without reveal
 - Safe Markdown behavior is security-critical and covered by focused regression tests.
 - Search relevance is intentionally bounded and portable; it does not claim language-specific full-text stemming.
 - Wiki media remains disabled until a separate consumer integration adopts the approved EditorialMedia boundary.
-- No Canary/login-server schema, credential, session or protocol changes occur.
+- No legacy engine/login-server schema, credential, session or protocol changes occur.
 
 ## Rejected alternatives
 

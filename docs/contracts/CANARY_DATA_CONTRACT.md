@@ -1,12 +1,12 @@
-# Canary Data Integration Contract
+# legacy engine Data Integration Contract
 
-> **LEGACY / COMPATIBILITY** — Canary compatibility path; the native target is split by owner: Platform owns `AccountId`, Game Login Ticket issuance/redemption, routing policy and Gateway pre-admission (`docs/contracts/OTERYN_V2_ACCOUNT_IDENTITY_CONTRACT.md`, `docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md`); the Game contracts (LCFA, native login, character authority boundary) own final admission, session and character authority.
+> **LEGACY / COMPATIBILITY** — legacy engine compatibility path; the native target is split by owner: Platform owns `AccountId`, Game Login Ticket issuance/redemption, routing policy and Gateway pre-admission (`docs/contracts/OTERYN_V2_ACCOUNT_IDENTITY_CONTRACT.md`, `docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md`); the Game contracts (LCFA, native login, character authority boundary) own final admission, session and character authority.
 
 ## Status
 
 `PARTIALLY PROVEN BROAD CONTRACT — READ BOUNDARIES AVAILABLE / TWO OPERATION-SPECIFIC PHASE 5 WRITES APPROVED`
 
-This document is the broad evidence-backed Canary integration baseline for Oteryn Platform.
+This document is the broad evidence-backed legacy engine integration baseline for Oteryn Platform.
 
 Default rule:
 
@@ -17,13 +17,13 @@ Phase 5 currently has exactly two such exceptions:
 1. greenfield account provisioning through `canary_provisioning`, governed by `PLATFORM_CANARY_ACCOUNT_PROVISIONING_CONTRACT.md` and `IDENTITY_CANARY_ACCOUNT_BINDING_CONTRACT.md`;
 2. greenfield character creation through `canary_character_create`, governed by `CHARACTER_CREATION_CONTRACT.md` and ADR 0005.
 
-No other direct Canary mutation is approved by this broad contract or by Phase 5.
+No other direct legacy engine mutation is approved by this broad contract or by Phase 5.
 
 ## Evidence baseline
 
 The original broad discovery was evidence-backed against inspected `blakinio/canary` source/schema and revalidated during later Phase 5 operation-contract tasks before each approved mutation was implemented.
 
-Canary and login-server repositories remained read-only during Oteryn Platform Phase 5 work.
+legacy engine and login-server repositories remained read-only during Oteryn Platform Phase 5 work.
 
 Operation-specific contracts carry the exact evidence pins relevant to their write surfaces.
 
@@ -31,7 +31,7 @@ Operation-specific contracts carry the exact evidence pins relevant to their wri
 
 ### Proven
 
-- Canary persists game-side account, player, guild, ban, session and multichannel structures.
+- legacy engine persists game-side account, player, guild, ban, session and multichannel structures.
 - `accounts` and `players` are global tables.
 - `players.account_id` references `accounts.id`.
 - persistent channel identity is `channels.id`.
@@ -42,7 +42,7 @@ Operation-specific contracts carry the exact evidence pins relevant to their wri
 
 ### Derived default
 
-Any Canary mutation outside the two explicitly approved Phase 5 operations remains cross-repository integration work and must not be inferred from apparently simple SQL constraints.
+Any legacy engine mutation outside the two explicitly approved Phase 5 operations remains cross-repository integration work and must not be inferred from apparently simple SQL constraints.
 
 ## Generic read boundary
 
@@ -72,7 +72,7 @@ Relevant constraints:
 
 Current Canary account insert has Canary-owned trigger side effects that create default VIP groups.
 
-Canary itself owns broader premium/type/coin and other account-state mutations.
+legacy engine itself owns broader premium/type/coin and other account-state mutations.
 
 ### Broad default account-write rule
 
@@ -105,14 +105,14 @@ All additional account lifecycle/profile mutations require separate operation co
 
 Supported Phase 5 product ownership is greenfield only:
 
-`1 Platform Identity <-> 1 Canary accounts.id`
+`1 Platform Identity <-> 1 legacy engine accounts.id`
 
 The authoritative ownership proof for Platform user-scoped operations is the ready immutable Platform-owned binding.
 
 Not ownership evidence:
 
 - email equality;
-- Canary account name;
+- legacy engine account name;
 - browser-supplied account ID;
 - existing legacy account credentials.
 
@@ -126,7 +126,7 @@ Consequence:
 
 - tournament-coin reads/writes that depend on the conflicting field name are not approved for Oteryn Platform;
 - Platform must not guess the deployed column shape;
-- any future coin/payment work requires a separately revalidated contract and, if needed, separately authorized Canary fix.
+- any future coin/payment work requires a separately revalidated contract and, if needed, separately authorized legacy engine fix.
 
 Phase 5 does not mutate account coins.
 
@@ -170,7 +170,7 @@ Character deletion/soft deletion and rename remain unapproved and require new op
 
 The approved operation:
 
-- authorizes only through the authenticated Platform Identity's ready immutable Canary account binding;
+- authorizes only through the authenticated Platform Identity's ready immutable legacy engine account binding;
 - applies ADR 0005 canonical-name, starter-state and quota policy;
 - locks the exact authorized account row before same-name recovery and quota evaluation;
 - inserts only the exact approved starter fields;
@@ -256,15 +256,15 @@ Required future properties include:
 - replay-resistant consumption/session semantics;
 - deterministic revocation/failure behavior;
 - no dependence on the internal sink credential;
-- no duplicate Canary password verification in Oteryn Platform.
+- no duplicate legacy engine password verification in Oteryn Platform.
 
-Expected primary external work is in `opentibiabr/login-server`. Canary changes are required only if the final protocol needs direct assertion verification or stronger replay/revocation/fencing behavior.
+Expected primary external work is in `opentibiabr/login-server`. legacy engine changes are required only if the final protocol needs direct assertion verification or stronger replay/revocation/fencing behavior.
 
 No external repository modification is authorized by this broad data contract.
 
 ## Decision
 
-Broad Canary integration remains deny-by-default for shared mutations.
+Broad legacy engine integration remains deny-by-default for shared mutations.
 
 The only Phase 5 exceptions are the two explicitly contracted, least-privileged and tested greenfield operations listed above.
 

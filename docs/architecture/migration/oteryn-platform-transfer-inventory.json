@@ -180,9 +180,9 @@
       {
         "path": ".github/workflows/character-bazaar-staging-control.yml",
         "surface": "Platform/Gateway staging image consumer",
-        "coordinate": "current Platform repository owner; external Canary digest remains pinned",
+        "coordinate": "current Platform repository owner; external legacy engine digest remains pinned",
         "classification": "PASS_REPOSITORY_HARDENING_EXTERNAL_DEPENDENCY_PRESERVED",
-        "reason": "Platform-owned images follow the Platform repository owner; the external pinned Canary image remains historical/compatibility provenance rather than being rewritten."
+        "reason": "Platform-owned images follow the Platform repository owner; the external pinned legacy engine image remains historical/compatibility provenance rather than being rewritten."
       },
       {
         "path": "deploy/synology/scripts/production-target-preflight.sh",

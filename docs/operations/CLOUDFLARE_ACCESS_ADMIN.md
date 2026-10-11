@@ -54,4 +54,4 @@ This option does not introduce:
 - trust in arbitrary request headers;
 - bypass tokens for Oteryn RBAC/MFA;
 - arbitrary plugin/code upload;
-- Canary or login-server authentication changes.
+- Legacy engine or login-server authentication changes.

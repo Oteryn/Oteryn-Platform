@@ -8,7 +8,7 @@ Implementation: deferred
 
 ## Purpose
 
-This contract defines the Platform-side semantics for consuming authoritative native game-content snapshots without assigning Oteryn-v2 implementation, transport or wire bytes. It is distinct from `GAME_CATALOG_IMPORT_CONTRACT.md`, which remains the Canary compatibility contract.
+This contract defines the Platform-side semantics for consuming authoritative native game-content snapshots without assigning Oteryn-v2 implementation, transport or wire bytes. It is distinct from `GAME_CATALOG_IMPORT_CONTRACT.md`, which remains the legacy engine compatibility contract.
 
 ## Authority split
 
@@ -71,7 +71,7 @@ Automatic import never means automatic activation. Platform requires authoritati
 
 ## Multiple sources and editorial metadata
 
-One active profile has one declared authoritative gameplay-content source. Native, Canary and historical snapshots may coexist for comparison or different profiles, but records from different authorities are not combined field by field into a single authoritative entity.
+One active profile has one declared authoritative gameplay-content source. Native, legacy engine and historical snapshots may coexist for comparison or different profiles, but records from different authorities are not combined field by field into a single authoritative entity.
 
 Reviewed Platform metadata may supplement only allowlisted presentation fields. Each supplemented field carries its source/revision and an explicit precedence rule. It cannot change identifiers, executable parameters, relations, availability, completeness, tombstones or ruleset applicability.
 
@@ -82,7 +82,7 @@ ADR 0042 and `NON_NATIVE_REFERENCE_CONTENT_CONTRACT.md` define a separate `Refer
 A `ReferenceContent` snapshot:
 
 - is not a `GameCatalog` authority profile and cannot be activated through this contract;
-- cannot use the `legacy-canary` authority name or inherit Canary compatibility identity semantics;
+- cannot use the `legacy-engine` authority name or inherit legacy engine compatibility identity semantics;
 - may be compared offline against an authoritative native/compatibility snapshot without rewriting either side;
 - may hold candidate crosswalks, but cannot mint or infer canonical native identity;
 - cannot supply executable gameplay definitions, availability/reachability or authoritative tombstones;
@@ -91,14 +91,14 @@ A `ReferenceContent` snapshot:
 
 A verified mapping from a reference entity to a native entity changes only the mapping state. It does not transfer native authority to the reference fields. For native claims, this contract remains the controlling source boundary.
 
-## Legacy Canary Compatibility
+## Legacy Engine Compatibility
 
-`GAME_CATALOG_IMPORT_CONTRACT.md` and supported schemas `1.0.0`–`1.2.0` remain current Canary compatibility artifacts. Programme #330 and draft PR #338 carry proposed schema `1.3.0`; it remains inactive and non-authoritative until its separate consumer/producer compatibility gate is terminal. Final-registry assumptions and canonical keys are valid only for the exact supported Canary source profile/schema.
+`GAME_CATALOG_IMPORT_CONTRACT.md` and supported schemas `1.0.0`–`1.2.0` remain current legacy engine compatibility artifacts. Programme #330 and draft PR #338 carry proposed schema `1.3.0`; it remains inactive and non-authoritative until its separate consumer/producer compatibility gate is terminal. Final-registry assumptions and canonical keys are valid only for the exact supported legacy engine source profile/schema.
 
 Compatibility adapters must:
 
-- declare `legacy-canary` authority and exact schema/source revision;
-- keep Canary aliases and provenance namespaced;
+- declare `legacy-engine` authority and exact schema/source revision;
+- keep legacy engine aliases and provenance namespaced;
 - fail closed on unsupported producer/consumer combinations;
 - preserve inactive import, transactional activation and rollback;
 - never present compatibility availability as native authority;
@@ -108,7 +108,7 @@ Compatibility adapters must:
 
 Rollout is consumer-first: register support, import inactive, validate, shadow/diff, prove mixed-version behavior, then activate one exact profile. Cutover requires an explicit authority switch and prevents concurrent co-authoritative publication.
 
-Rollback disables new native activation and restores a retained compatible snapshot/profile while preserving provenance and operator visibility. It must not merge newer native facts into an older Canary snapshot, discard tombstones or claim that compatibility fallback is native truth.
+Rollback disables new native activation and restores a retained compatible snapshot/profile while preserving provenance and operator visibility. It must not merge newer native facts into an older legacy engine snapshot, discard tombstones or claim that compatibility fallback is native truth.
 
 ## Security and operations
 
@@ -126,7 +126,7 @@ The external producer owner must separately select exact identity forms, capabil
 ## Acceptance invariants
 
 1. Platform never becomes authoritative for executable gameplay content by importing it.
-2. Native identity never depends on Canary numeric IDs, table names or schema keys.
+2. Native identity never depends on legacy engine numeric IDs, table names or schema keys.
 3. One profile never exposes records from two co-authoritative content sources.
 4. Partial/stale/unavailable evidence never becomes authoritative absence.
 5. Activation and rollback are exact-snapshot, transactional and auditable.

@@ -8,7 +8,7 @@ Scope: repository state only; no live environment access
 
 The existing Game Catalog is a working first vertical slice, not a complete production catalogue.
 
-Canary produces deterministic export-only schema `1.2.0` snapshots for final runtime items, creatures and creature loot. Platform can validate and transactionally import supported snapshots inactive, compare candidates, activate a validated compatible snapshot, roll back through the same checks, expose read-only administrator inspection and serve public items/creatures/loot only from an enabled active profile.
+Legacy engine produces deterministic export-only schema `1.2.0` snapshots for final runtime items, creatures and creature loot. Platform can validate and transactionally import supported snapshots inactive, compare candidates, activate a validated compatible snapshot, roll back through the same checks, expose read-only administrator inspection and serve public items/creatures/loot only from an enabled active profile.
 
 NPCs, shop offers, quests, rewards, spawns, raids and broader creation/availability evidence are not implemented in the current producer or consumer contract. The next compatible schema must be consumer first. Live staging and production catalogue contents are unknown.
 
@@ -16,7 +16,7 @@ NPCs, shop offers, quests, rewards, spawns, raids and broader creation/availabil
 
 | Repository | `main` at audit | Drift after latest catalogue merge |
 |---|---|---|
-| `blakinio/canary` | `09209bae26b2bb7e14346f08677e2cd8724aa7ae` | two later commits; no Game Catalog source/schema/workflow changes |
+| `the legacy game-server repository` | `09209bae26b2bb7e14346f08677e2cd8724aa7ae` | two later commits; no Game Catalog source/schema/workflow changes |
 | `blakinio/Oteryn-Platform` | `f90bb8075b300569b7d493c84f0080e6b3295c35` | three later commits; no Game Catalog source/schema/workflow changes except archival/governance references |
 
 No open Game Catalog PR or matching `game-catalog` branch was found in either authorized repository during preflight.
@@ -25,7 +25,7 @@ The commit-status and PR-workflow lookup for both current `main` heads returned 
 
 ## Relevant merged evidence
 
-### Canary
+### Legacy engine
 
 | PR | Delivered |
 |---|---|
@@ -46,7 +46,7 @@ The commit-status and PR-workflow lookup for both current `main` heads returned 
 
 ## Schema integrity
 
-The current Canary and Platform Git blob SHA values match for all three schema paths, proving byte-identical files at the audited heads:
+The current legacy engine and Platform Git blob SHA values match for all three schema paths, proving byte-identical files at the audited heads:
 
 | Schema | Git blob SHA | Pinned content SHA-256 |
 |---|---|---|
@@ -56,7 +56,7 @@ The current Canary and Platform Git blob SHA values match for all three schema p
 
 No task in this programme may modify those files or reinterpret their semantics.
 
-## Canary producer inventory
+## Legacy engine producer inventory
 
 ### Export lifecycle
 
@@ -103,7 +103,7 @@ This is valid inactive review output, not activation evidence. It does not prove
 
 ### Confirmed NPC runtime authority
 
-Current Canary source provides a final `Npcs` registry backed by a private ordered map from lowercase registry key to `NpcType`.
+Current legacy engine source provides a final `Npcs` registry backed by a private ordered map from lowercase registry key to `NpcType`.
 
 `NpcType` contains final loaded runtime fields including:
 
@@ -167,7 +167,7 @@ The current importer has two hard type assumptions:
 
 The persisted-count verification also derives creature count as `total entities - items` and loot count as `all relations`.
 
-Therefore schema `1.3.0` cannot be safely added by producer-only changes or schema-only registration. The Platform consumer requires typed NPC and shop persistence, dispatch by explicit type, typed count verification and fail-closed unknown-type handling before Canary may emit the new version.
+Therefore schema `1.3.0` cannot be safely added by producer-only changes or schema-only registration. The Platform consumer requires typed NPC and shop persistence, dispatch by explicit type, typed count verification and fail-closed unknown-type handling before legacy engine may emit the new version.
 
 ### Snapshot lifecycle
 
@@ -223,7 +223,7 @@ The repository proves this policy and code path. It does not prove that a live e
 | Which snapshot rows exist in production? | `UNKNOWN` |
 | Is a production profile active/public? | `UNKNOWN` |
 | Does production currently render the catalogue? | `UNKNOWN` |
-| Which Canary/Platform commits are deployed? | `UNKNOWN` |
+| Which legacy engine/Platform commits are deployed? | `UNKNOWN` |
 | Is a rollback target backed up in production? | `UNKNOWN` |
 
 No repository-only statement may replace these unknowns.
@@ -239,11 +239,11 @@ game-catalog.json.sha256
 
 There is no network push and no browser upload in the current version.
 
-PR #272 additionally proved one bounded cross-repository staging lifecycle using a specific Canary workflow artifact, a staging branch containing chunked base64 payload data, exact hashes and a MariaDB import/activate/candidate/rollback test. The current workflow is hard-coded to Platform PR #272 and schema `1.0.0` evidence.
+PR #272 additionally proved one bounded cross-repository staging lifecycle using a specific legacy engine workflow artifact, a staging branch containing chunked base64 payload data, exact hashes and a MariaDB import/activate/candidate/rollback test. The current workflow is hard-coded to Platform PR #272 and schema `1.0.0` evidence.
 
 This is historical proof that the lifecycle can work. It is not a reusable current staging or production transport mechanism for schema `1.2.0` or future schemas.
 
-A later transport task must define an immutable artifact manifest with exact Canary commit, datapack revision, schema hash, artifact digest, generation timestamp and profile key, then import it as an inactive candidate without using a public unauthenticated endpoint.
+A later transport task must define an immutable artifact manifest with exact legacy engine commit, datapack revision, schema hash, artifact digest, generation timestamp and profile key, then import it as an inactive candidate without using a public unauthenticated endpoint.
 
 ## Public versus administrative facts
 
@@ -281,7 +281,7 @@ A later transport task must define an immutable artifact manifest with exact Can
 | No NPC entity in schemas `1.0`–`1.2` | PROVEN | schema `1.3` consumer first |
 | No shop relations in schemas `1.0`–`1.2` | PROVEN | schema `1.3` consumer first |
 | Platform type dispatch assumes item/creature and loot only | PROVEN | typed consumer persistence |
-| Canary NPC registry has no proven iteration API | PROVEN | NPC runtime-authority task |
+| Legacy engine NPC registry has no proven iteration API | PROVEN | NPC runtime-authority task |
 | NPC location/reachability | UNKNOWN | separate schema `1.5` source/reachability tasks |
 | Quest canonical authority | UNKNOWN | quest authority audit before schema `1.4` |
 | Full historical introduced/removed metadata | UNKNOWN | historical evidence programme |
@@ -311,8 +311,8 @@ The first schema-next task must propose `1.3.0` for NPCs and shop offers only.
 
 1. Merge exact Platform schema `1.3.0` architecture and fixture proposal without registering support.
 2. Implement Platform parser, semantic validation, typed persistence, inactive import, admin preview and rollback preservation.
-3. Prove Canary final NPC registry iteration and stable offer identity.
-4. Pin byte-identical schema and fixture in Canary and implement the collector.
+3. Prove legacy engine final NPC registry iteration and stable offer identity.
+4. Pin byte-identical schema and fixture in legacy engine and implement the collector.
 5. Generate one exact immutable candidate artifact and sidecar.
 6. Run MariaDB cross-repository import, candidate activation and rollback in staging-only context.
 7. Review unknown/unverified counts and endpoint integrity.
@@ -334,11 +334,11 @@ The first schema-next task must propose `1.3.0` for NPCs and shop offers only.
 ### PROVEN
 
 - The three existing schemas are byte-identical across repositories and pinned by hash.
-- Canary exports final runtime items, creatures and loot only.
-- Canary has a final NPC registry and final per-NPC shop vector with exact price, subtype, storage and nesting fields.
+- Legacy engine exports final runtime items, creatures and loot only.
+- Legacy engine has a final NPC registry and final per-NPC shop vector with exact price, subtype, storage and nesting fields.
 - Platform supports inactive transactional import, activation, rollback, diff, admin read-only inspection and public item/creature/loot projection.
 - Platform current persistence cannot dispatch NPC/shop types safely.
-- The default Canary profile has a null verified boundary.
+- The default legacy engine profile has a null verified boundary.
 - The existing cross-repository staging workflow is historical and PR-#272/schema-`1.0.0` specific.
 
 ### DERIVED
@@ -357,7 +357,7 @@ The first schema-next task must propose `1.3.0` for NPCs and shop offers only.
 
 ### CONFLICT
 
-- Platform issue #301 records producer-before-consumer and Canary-read-only assumptions; current programme issue #330 and explicit user authorization require consumer-first work with writes allowed in both repositories.
+- Platform issue #301 records producer-before-consumer and legacy-engine-read-only assumptions; current programme issue #330 and explicit user authorization require consumer-first work with writes allowed in both repositories.
 
 ## Next action
 

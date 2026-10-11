@@ -104,7 +104,7 @@ Controlled Production Readiness evidence records a clean Platform database resto
 - production backup technology, schedule, retention and owner;
 - dated production restore exercise and recovery measurements.
 
-### Canary SQL boundaries
+### Legacy engine SQL boundaries
 
 `REPOSITORY_PROVEN`
 
@@ -128,7 +128,7 @@ Controlled production-like verification has exercised least-privilege dependency
 - production verifier results for each active credential class;
 - credential rotation/secret-management mechanism.
 
-### Canary runtime Redis
+### Legacy engine runtime Redis
 
 `REPOSITORY_PROVEN`
 
@@ -275,7 +275,7 @@ Evidence must be non-secret, dated where practical, and bound to the exact envir
 | Origin ingress | sanitized firewall/security-group/reverse-proxy evidence proving intended ingress and direct-origin disposition |
 | Web runtime | deployment manifest/runbook/effective platform summary proving runtime, process model, instance strategy, release and rollback procedure |
 | Platform DB | sanitized effective engine/network/backup topology summary; no passwords or connection strings |
-| Canary SQL | sanitized endpoint/network boundary plus successful least-privilege verifier evidence for each active production credential class |
+| Legacy engine SQL | sanitized endpoint/network boundary plus successful least-privilege verifier evidence for each active production credential class |
 | Runtime Redis | sanitized endpoint/network/ACL summary plus effective dedicated read-only ACL evidence |
 | Sessions/cache | sanitized effective runtime configuration and scaling model |
 | Queue | effective configuration plus worker/supervision/retry evidence if asynchronous workers are enabled |

@@ -80,7 +80,7 @@ Rules:
 
 - browser-supplied account/character/world identifiers are request input only and never establish authorization;
 - target ownership and eligibility are resolved/revalidated server-side;
-- Canary numeric account/player/world IDs remain Legacy Canary Compatibility details only;
+- Legacy engine numeric account/player/world IDs remain Legacy Engine Compatibility details only;
 - product SKU/display name is not stable entitlement identity;
 - a game receipt binds to the exact entitlement/delivery operation and target so it cannot be replayed for another account, character or product revision.
 
@@ -157,7 +157,7 @@ Rules:
 Current architecture keeps the Oteryn Coins Wallet Platform-owned.
 
 - delivery uses the approved Platform Wallet mutator/append-oriented idempotent ledger;
-- it does not directly mutate Canary/Oteryn-v2 coin fields;
+- it does not directly mutate legacy engine/Oteryn-v2 coin fields;
 - payment/entitlement delivery and Wallet ledger result remain independently auditable;
 - duplicate payment/provider/delivery events cannot credit the Wallet twice;
 - refund/chargeback follows explicit commerce/Wallet policy rather than direct negative balance edits.
@@ -497,14 +497,14 @@ Future implementation should expose bounded metrics for:
 
 Logs must not contain payment secrets, voucher plaintext, bearer credentials, complete provider payloads or unnecessary game/private state.
 
-## Legacy Canary Compatibility
+## Legacy Engine Compatibility
 
-Current/historical Canary premium/account/coin fields or direct write adapters do not define the native target.
+Current/historical legacy engine premium/account/coin fields or direct write adapters do not define the native target.
 
-- no new native product is delivered by direct/shared Canary SQL by implication;
-- Canary numeric IDs remain adapter details;
+- no new native product is delivered by direct/shared legacy engine SQL by implication;
+- Legacy engine numeric IDs remain adapter details;
 - compatibility delivery must be explicitly named, least-privileged, reversible and have removal criteria;
-- an ambiguous native delivery cannot fail over blindly to Canary/direct SQL;
+- an ambiguous native delivery cannot fail over blindly to legacy engine/direct SQL;
 - migration occurs per delivery profile after native producer/consumer idempotency and reconciliation are proven.
 
 ## Rollout and rollback
@@ -613,13 +613,13 @@ This contract authorizes no:
 - premium/VIP activation;
 - item/cosmetic/game-resource grant;
 - character-service launch;
-- Oteryn-v2 or Canary repository write;
+- Oteryn-v2 or legacy engine repository write;
 - game-delivery endpoint deployment;
 - staging/production mutation.
 
 ## References
 
-- ADR 0031 — Native Oteryn-v2 Integration vs Legacy Canary Compatibility
+- ADR 0031 — Native Oteryn-v2 Integration vs Legacy Engine Compatibility
 - Issue #321 — Payments foundation owner
 - Issue #322 — Products/Entitlements/Vouchers implementation owner
 - Issue #924 — focused native game-delivery architecture owner

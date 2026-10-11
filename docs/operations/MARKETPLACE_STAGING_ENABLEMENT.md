@@ -19,8 +19,8 @@ Trusted-main control run `30633745660` completed successfully on 2026-07-31 with
 - exact source SHA `717977f252b09b9b2e979f8110b7f48b88682223`;
 - exact Platform image `ghcr.io/blakinio/oteryn-platform:sha-717977f252b09b9b2e979f8110b7f48b88682223`;
 - exact matching Gateway tag;
-- approved immutable Canary image digest `sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f`;
-- Platform, Gateway, Canary, MFA QR and World Registry staging probes passed;
+- approved immutable legacy engine image digest `sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f`;
+- Platform, Gateway, legacy engine, MFA QR and World Registry staging probes passed;
 - Marketplace enabled;
 - exactly one running scheduler;
 - verified character-transfer effective privileges;
@@ -55,7 +55,7 @@ The runner stores only these Marketplace control values in:
 ${OTERYN_STAGING_STATE_DIR:-/var/lib/oteryn-staging-state}/marketplace.env
 ```
 
-The file must remain mode `0600` inside the existing mode `0700` staging state directory. It contains the dedicated transfer password and reviewed Marketplace runtime identifiers. It must not contain unrelated Platform, Canary, root, service-token or user credentials.
+The file must remain mode `0600` inside the existing mode `0700` staging state directory. It contains the dedicated transfer password and reviewed Marketplace runtime identifiers. It must not contain unrelated Platform, legacy engine, root, service-token or user credentials.
 
 A prepared disabled state is written before the first database mutation. This preserves the generated credential for deterministic retry if a later enablement step fails. The final state is replaced atomically after the guarded action completes.
 
@@ -74,7 +74,7 @@ The enable action fails if the name exists with another creation marker. On firs
 - a generated one-way sink password hash whose plaintext is never retained;
 - no Platform Identity binding.
 
-Every authorized enablement rotates the sink hash. The Canary account identifier is resolved by the control script and injected into Platform and scheduler configuration; it is not accepted from browser input or recorded in shared evidence.
+Every authorized enablement rotates the sink hash. The legacy engine account identifier is resolved by the control script and injected into Platform and scheduler configuration; it is not accepted from browser input or recorded in shared evidence.
 
 ## Transfer privilege boundary
 
@@ -86,7 +86,7 @@ The workflow renders `database/provisioning/canary-character-transfer.sql.templa
 - approved `cluster_sessions` columns SELECT only;
 - no schema-wide privilege, wildcard write or grant option.
 
-The principal may not reuse root, Canary game-process, read-only, provisioning or character-create credentials.
+The principal may not reuse root, legacy engine game-process, read-only, provisioning or character-create credentials.
 
 ## Runtime sequence
 
@@ -117,7 +117,7 @@ The scheduler shares Platform storage for mutex and logs, uses only the private 
 5. refreshes the internal proxy;
 6. verifies the route is absent.
 
-Marketplace migrations, wallet ledger and auction history remain preserved. Never delete Marketplace rows or edit Canary ownership manually to force rollback.
+Marketplace migrations, wallet ledger and auction history remain preserved. Never delete Marketplace rows or edit legacy engine ownership manually to force rollback.
 
 ## Evidence
 
@@ -132,7 +132,7 @@ The control workflow uploads sanitized evidence containing only:
 - `STAGING_PROVEN` or `STAGING_CONTROLLED` classification;
 - `production_environment_proven: false`.
 
-Do not include the transfer password, escrow account ID, user emails, Platform Identity IDs, Canary account IDs or raw database errors.
+Do not include the transfer password, escrow account ID, user emails, Platform Identity IDs, legacy engine account IDs or raw database errors.
 
 ## Stop conditions
 

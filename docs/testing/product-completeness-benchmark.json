@@ -128,7 +128,7 @@
       "capability": "Connected-account inventory and safe unlink or rebind",
       "relevance": "not_applicable",
       "delivery_status": "not_applicable",
-      "rationale": "Oteryn deliberately keeps the ready Platform-to-Canary binding immutable. Self-service unlink, rebind, transfer or legacy claim is not a safe product operation without a separately reviewed cross-repository mutation contract.",
+      "rationale": "Oteryn deliberately keeps the ready Platform-to-legacy engine binding immutable. Self-service unlink, rebind, transfer or legacy claim is not a safe product operation without a separately reviewed cross-repository mutation contract.",
       "oteryn_evidence": [
         {
           "file": "docs/architecture/DATA_OWNERSHIP.md",
@@ -137,7 +137,7 @@
         },
         {
           "file": "docs/architecture/MODULE_CATALOG.md",
-          "marker": "ready Platform-to-Canary binding remains immutable",
+          "marker": "ready Platform-to-legacy engine binding remains immutable",
           "level": "repository_contract"
         }
       ],
@@ -221,7 +221,7 @@
       "capability": "Account termination with grace period, cancellation and audit",
       "relevance": "required",
       "delivery_status": "implemented",
-      "rationale": "Platform account termination requires explicit confirmation, applies dependency guards, schedules a bounded grace period, supports cancellation and finalizes idempotently while preserving Canary-owned account and character data.",
+      "rationale": "Platform account termination requires explicit confirmation, applies dependency guards, schedules a bounded grace period, supports cancellation and finalizes idempotently while preserving game-server-owned account and character data.",
       "oteryn_evidence": [
         {
           "file": "scripts/acceptance/coverage/surfaces/identity-account-security-lifecycle.json",
@@ -245,7 +245,7 @@
       "capability": "Owner-editable public character information or comment",
       "relevance": "required",
       "delivery_status": "implemented",
-      "rationale": "Authenticated owners can store a bounded Platform-owned plain-text public comment after current read-only Canary ownership verification; public rendering is escaped and audited without updating players.comment.",
+      "rationale": "Authenticated owners can store a bounded Platform-owned plain-text public comment after current read-only legacy engine ownership verification; public rendering is escaped and audited without updating players.comment.",
       "oteryn_evidence": [
         {
           "file": "docs/contracts/CHARACTER_PROFILE_PREFERENCES_CONTRACT.md",
@@ -617,7 +617,7 @@
       "capability": "Punishment and rule-violation history",
       "relevance": "required",
       "delivery_status": "implemented",
-      "rationale": "Platform-owned warning, restriction and suspension records expose only approved account-visible fields and support acknowledgement, appeal request and moderated appeal outcome without mutating Canary bans.",
+      "rationale": "Platform-owned warning, restriction and suspension records expose only approved account-visible fields and support acknowledgement, appeal request and moderated appeal outcome without mutating legacy engine bans.",
       "oteryn_evidence": [
         {
           "file": "scripts/acceptance/coverage/surfaces/support-moderation-lifecycle.json",
@@ -696,7 +696,7 @@
       "capability": "Guild directory, detail and administration",
       "relevance": "required",
       "delivery_status": "implemented",
-      "rationale": "Guild directory search, bounded pagination and public-safe detail are delivered. Administration is explicitly not owned by Platform because Canary owns guild mutations and no approved least-privilege write contract exists.",
+      "rationale": "Guild directory search, bounded pagination and public-safe detail are delivered. Administration is explicitly not owned by Platform because legacy engine owns guild mutations and no approved least-privilege write contract exists.",
       "oteryn_evidence": [
         {
           "file": "docs/contracts/PUBLIC_COMMUNITY_DATA_CONTRACT.md",
