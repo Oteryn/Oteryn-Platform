@@ -47,6 +47,20 @@ assert_binding() {
 assert_binding platform 8000 "$PLATFORM_BIND_ADDRESS" "$PLATFORM_PORT"
 assert_binding gateway 8080 "$GATEWAY_BIND_ADDRESS" "$GATEWAY_PORT"
 
+container_env_value() {
+    local service="$1"
+    local key="$2"
+
+    docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${container_ids[$service]}" \
+        | awk -v prefix="${key}=" 'index($0, prefix) == 1 && !found { print substr($0, length(prefix) + 1); found = 1 }'
+}
+
+# Native login stays off until a Platform self-check can prove the issuer signs (lib.sh).
+platform_native_admission="$(container_env_value platform GAME_AUTH_NATIVE_ADMISSION_ENABLED)"
+gateway_native_login="$(container_env_value gateway GATEWAY_NATIVE_LOGIN_ENABLED)"
+oteryn_assert_native_login_pairing "$platform_native_admission" "$gateway_native_login" || exit 1
+echo "::warning::Native game login is disabled on this deployment: Platform native admission is off, so the Gateway refuses every login."
+
 probe_url() {
     local service="$1"
     local port="$2"
@@ -128,12 +142,23 @@ docker run --rm \
     python3 - "$PLATFORM_PORT" "$GATEWAY_PORT" "$expected_gateway_version" <<'PY'
 import http.client
 import json
+import secrets
 import sys
 import time
 
 platform_port = int(sys.argv[1])
 gateway_port = int(sys.argv[2])
 expected_gateway_version = sys.argv[3]
+
+
+def uuid7():
+    value = (int(time.time() * 1000) & ((1 << 48) - 1)) << 80
+    value |= 0x7 << 76
+    value |= secrets.randbits(12) << 64
+    value |= 0b10 << 62
+    value |= secrets.randbits(62)
+    text = f'{value:032x}'
+    return f'{text[:8]}-{text[8:12]}-{text[12:16]}-{text[16:20]}-{text[20:]}'
 
 
 def request(port, method, path, *, body=None, headers=None):
@@ -204,6 +229,45 @@ if not required_cache_control.issubset(cache_control):
 if headers.get('pragma', '').lower() != 'no-cache' or headers.get('expires') != '0':
     raise SystemExit('Gateway login response lost legacy no-cache controls')
 
+# A well-formed native (protocol_version 2) login. Native admission is off (the pairing check
+# above refuses anything else), so the Gateway must refuse it without reaching a dependency.
+attempt_ref = uuid7()
+native_login = json.dumps(
+    {
+        'protocol_version': 2,
+        'game_login_ticket': 'oteryn-health-probe-' + secrets.token_hex(16),
+        'attempt_ref': attempt_ref,
+        'character_id': uuid7(),
+        'channel_id': None,
+        'offer': {
+            'client_build': 'health-probe',
+            'client_platform': 'windows',
+            'transports': [{'protocol_major': 1, 'transport_profile': 1, 'alpn': 'oteryn-game/1'}],
+        },
+    },
+    separators=(',', ':'),
+).encode()
+status, headers, body = request(
+    gateway_port,
+    'POST',
+    '/v1/login',
+    body=native_login,
+    headers={
+        'Host': 'gateway.molehill.cloud',
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+    },
+)
+try:
+    native_payload = json.loads(body)
+except json.JSONDecodeError as exc:
+    raise SystemExit(f'Well-formed native Gateway login did not return JSON (status {status})') from exc
+if status != 400 or native_payload != {'error': 'invalid_request'}:
+    raise SystemExit(f'Gateway answered a native login while native admission is off: status {status}')
+cache_control = {token.strip().lower() for token in headers.get('cache-control', '').split(',')}
+if not required_cache_control.issubset(cache_control):
+    raise SystemExit('Native Gateway login response lost required private no-store cache controls')
+
 status, _, body = request(
     platform_port,
     'GET',
@@ -225,7 +289,7 @@ body_lower = body.lower()
 if b'<form' in body_lower or b'oteryn platform' in body_lower:
     raise SystemExit('Gateway port cross-routed to Platform content')
 
-print('Verified Gateway identity, bounded invalid login, private no-store headers and port isolation.')
+print('Verified Gateway identity, bounded invalid and well-formed native login, private no-store headers and port isolation.')
 PY
 
 platform_container="${container_ids[platform]}"
