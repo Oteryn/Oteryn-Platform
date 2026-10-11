@@ -187,8 +187,8 @@ jobs:
         run: |
           mkdir -p artifacts/ci
           rm -f artifacts/ci/pint.status artifacts/ci/analyse.status
-          (vendor/bin/pint --test -v >artifacts/ci/pint.log 2>&1; echo "$?" >artifacts/ci/pint.status) &
-          (composer analyse >artifacts/ci/analyse.log 2>&1; echo "$?" >artifacts/ci/analyse.status) &
+          (set +e; vendor/bin/pint --test -v >artifacts/ci/pint.log 2>&1; echo "$?" >artifacts/ci/pint.status) &
+          (set +e; composer analyse >artifacts/ci/analyse.log 2>&1; echo "$?" >artifacts/ci/analyse.status) &
 
       - name: Run tests
         run: |
