@@ -447,17 +447,8 @@ case "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" in
         ;;
 esac
 if [[ "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" == true ]]; then
-    # Native login needs the whole chain, not only a signing key: the Game runtime-status and scope
-    # ownership identities that make a scope routable, and the native World for the D171 fallback.
-    if [[ ! "${GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID:-}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; then
-        echo "Native admission needs OTERYN_STAGING_NATIVE_WORLD_ID (the native World UUIDv7)." >&2
-        exit 1
-    fi
-    if [[ "${GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED:-}" != true || -z "${GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES:-}" \
-        || "${GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_ENABLED:-}" != true || -z "${GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES:-}" ]]; then
-        echo "Native admission needs OTERYN_STAGING_NATIVE_RUNTIME_STATUS_IDENTITIES and OTERYN_STAGING_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES; without them no scope is routable and every login would fail." >&2
-        exit 1
-    fi
+    # Native login needs the whole chain, not only a signing key (lib.sh validator, shared with rollback).
+    oteryn_native_admission_projection_ready || exit 1
 fi
 oteryn_ensure_native_admission_key || exit 1
 

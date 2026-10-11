@@ -783,6 +783,21 @@ oteryn_run_native_admission_self_check() {
     echo "Native admission signing self-check passed: ${output}"
 }
 
+# Validates the projection settings native login needs besides a signing key: the native World UUIDv7
+# for the D171 fallback and the Game runtime-status and scope-assignment identities that make a scope
+# routable. Reads the loaded environment; prints the reason to stderr and fails when incomplete.
+oteryn_native_admission_projection_ready() {
+    if [[ ! "${GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID:-}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; then
+        echo "Native admission needs OTERYN_STAGING_NATIVE_WORLD_ID (the native World UUIDv7)." >&2
+        return 1
+    fi
+    if [[ "${GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED:-}" != true || -z "${GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES:-}" \
+        || "${GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_ENABLED:-}" != true || -z "${GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES:-}" ]]; then
+        echo "Native admission needs OTERYN_STAGING_NATIVE_RUNTIME_STATUS_IDENTITIES and OTERYN_STAGING_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES; without them no scope is routable and every login would fail." >&2
+        return 1
+    fi
+}
+
 # Prints the native admission flag a run of the given Platform image may use: true only when the
 # environment asks for native admission AND the image can both run the self-check command and export
 # the signing keys from the key volume (entrypoint load_native_admission_keys). An image that has the
@@ -792,10 +807,11 @@ oteryn_native_admission_flag_for_image() {
     local image="$1"
 
     if [[ "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" == true ]] \
+        && oteryn_native_admission_projection_ready 2>/dev/null \
         && docker run --rm --network none --entrypoint grep "$image" -q load_native_admission_keys \
             /usr/local/bin/oteryn-platform-entrypoint 2>/dev/null \
         && docker run --rm --network none --entrypoint php "$image" artisan list --raw 2>/dev/null \
-            | grep -q '^game-auth:native-admission:self-check '; then
+            | awk '/^game-auth:native-admission:self-check /{a=1} /^game-auth:native-admission:publish-trust /{b=1} END{exit !(a&&b)}'; then
         echo true
     else
         echo false

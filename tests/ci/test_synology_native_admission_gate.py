@@ -148,7 +148,8 @@ def test_rollback_and_candidate_recovery_gate_the_flag_on_the_image() -> None:
 
 def test_deploy_requires_the_native_world_uuid_and_workflow_renders_it() -> None:
     script = DEPLOY.read_text(encoding="utf-8")
-    assert script.index("GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID:-") < script.index("oteryn_ensure_native_admission_key || exit 1")
+    assert script.index("oteryn_native_admission_projection_ready || exit 1") < script.index("oteryn_ensure_native_admission_key || exit 1")
+    assert "GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID:-" in LIB.read_text(encoding="utf-8")
     workflow = (WORKFLOWS / "deploy-synology-staging.yml").read_text(encoding="utf-8")
     assert "GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID=$NATIVE_WORLD_ID_INPUT" in workflow
 
@@ -322,7 +323,7 @@ def test_native_admission_is_opt_in_and_needs_runtime_identities_and_key_export(
     flag = LIB.read_text(encoding="utf-8").split("oteryn_native_admission_flag_for_image()")[1]
     assert 'OTERYN_NATIVE_ADMISSION_ENABLED:-false}" == true' in deploy
     for name in ("RUNTIME_STATUS", "SCOPE_ASSIGNMENT"):
-        assert f"GAME_AUTH_NATIVE_{name}_IDENTITIES" in deploy
+        assert f"GAME_AUTH_NATIVE_{name}_IDENTITIES" in LIB.read_text(encoding="utf-8")
     assert deploy.count("oteryn_run_native_admission_self_check") >= 2
     assert "load_native_admission_keys" in flag
     assert "game-auth:native-admission:self-check" in flag
@@ -358,3 +359,11 @@ def test_bounded_env_files_pin_the_compatibility_flag_for_every_compose_command(
     assert 'oteryn_pin_native_admission_flag "$rollback_env" "$PLATFORM_IMAGE"' in rollback
     assert rollback.index("oteryn_pin_native_admission_flag") < rollback.index("_oteryn_reconcile_marketplace_scheduler_after_runtime_change")
     assert 'oteryn_pin_native_admission_flag "$candidate_env"' in DEPLOY.read_text(encoding="utf-8")
+
+
+def test_rollback_flag_requires_projection_settings_and_publish_trust() -> None:
+    lib = LIB.read_text(encoding="utf-8")
+    flag = lib.split("oteryn_native_admission_flag_for_image()")[1]
+    assert "oteryn_native_admission_projection_ready" in flag
+    assert "game-auth:native-admission:publish-trust" in flag
+    assert "oteryn_native_admission_projection_ready || exit 1" in DEPLOY.read_text(encoding="utf-8")
