@@ -30,16 +30,8 @@ async function assertState(page, state) {
   if (state === 'ready') {
     await expect(page.getByText('Ready', { exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Create a character' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Retry game account setup' })).toHaveCount(0);
-  } else if (state === 'pending') {
-    await expect(page.getByText('Setup in progress', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Retry game account setup' })).toHaveCount(0);
-  } else if (state === 'recoverable') {
-    await expect(page.getByText('Setup interrupted', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Retry game account setup' })).toBeVisible();
   } else {
     await expect(page.getByText('Support required', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Retry game account setup' })).toHaveCount(0);
   }
 
   await assertAccessibilitySmoke(page);
@@ -63,7 +55,7 @@ test.afterEach(async ({ page }, testInfo) => {
   await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
 });
 
-test('@portal-account Account Overview — authorization, status matrix, responsive evidence and recoverable retry', async ({ page }) => {
+test('@portal-account Account Overview — authorization, status matrix, responsive evidence', async ({ page }) => {
   const email = uniqueEmail('account-overview');
 
   await page.goto('/account');
@@ -73,7 +65,7 @@ test('@portal-account Account Overview — authorization, status matrix, respons
   await login(page, email, password);
   await expect(page).toHaveURL(/\/account$/u);
 
-  for (const state of ['ready', 'pending', 'recoverable', 'conflict', 'missing']) {
+  for (const state of ['ready', 'pending', 'conflict', 'missing']) {
     const fixture = seedState(email, state);
 
     await page.setViewportSize(desktopViewport);
@@ -93,14 +85,4 @@ test('@portal-account Account Overview — authorization, status matrix, respons
     await assertState(page, state);
     await evidenceScreenshot(page, `account-overview-${state}-mobile`);
   }
-
-  seedState(email, 'recoverable');
-  await page.setViewportSize(desktopViewport);
-  await page.goto('/account');
-  await page.getByRole('button', { name: 'Retry game account setup' }).click();
-  await expect(page).toHaveURL(/\/account$/u);
-  // Provisioning has no native source yet, so the retry stays in the truthful recoverable state.
-  await expect(page.locator('[data-account-state]')).toHaveAttribute('data-account-state', /^(ready|recoverable)$/u);
-
-  await evidenceScreenshot(page, 'account-overview-retry-desktop');
 });

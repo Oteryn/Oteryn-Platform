@@ -12,10 +12,7 @@ Default rule:
 
 > Canary-owned/shared data remains read-only or mutation-blocked unless a narrower operation-specific contract explicitly proves and approves one write boundary.
 
-Phase 5 currently has exactly two such exceptions:
-
-1. greenfield account provisioning through `canary_provisioning`, governed by `PLATFORM_CANARY_ACCOUNT_PROVISIONING_CONTRACT.md` and `IDENTITY_CANARY_ACCOUNT_BINDING_CONTRACT.md`;
-2. greenfield character creation through `canary_character_create`, governed by `CHARACTER_CREATION_CONTRACT.md` and ADR 0005.
+No such exception remains in Platform; the account-create and character-create write boundaries were removed.
 
 No other direct legacy engine mutation is approved by this broad contract or by Phase 5.
 
@@ -78,18 +75,9 @@ legacy engine itself owns broader premium/type/coin and other account-state muta
 
 Account writes are **not generally approved**.
 
-The only Phase 5 exception is the narrow greenfield account-provisioning operation.
+No Platform write exception remains; the account-create connection and its grants were removed.
 
-Approved operation-specific connection:
-
-`canary_provisioning`
-
-Approved account mutation surface:
-
-- column-level INSERT on the exact account-create fields defined by `PLATFORM_CANARY_ACCOUNT_PROVISIONING_CONTRACT.md`;
-- column-level SELECT on the exact recovery fields defined by that contract.
-
-Explicitly not approved by that operation:
+Explicitly not approved:
 
 - account UPDATE/DELETE;
 - reading `accounts.password`;
@@ -149,24 +137,13 @@ Relevant constraints:
 
 Character writes are **not generally approved**.
 
-The only Phase 5 exception is the narrow greenfield character-create operation.
-
-Approved operation-specific connection:
-
-`canary_character_create`
-
-Approved mutation surface:
-
-- column-level INSERT on exactly the starter columns defined by `CHARACTER_CREATION_CONTRACT.md`;
-- column-level SELECT only on the exact account/player fields required for authorization locking, recovery, quota and conflict classification.
-
-The operation does not receive generic player UPDATE or DELETE privileges.
+No Platform character write exception remains; the character-create connection and its grants were removed.
 
 Character deletion/soft deletion and rename remain unapproved and require new operation-specific contracts.
 
 ## Character creation
 
-`CHARACTER CREATION: IMPLEMENTED THROUGH OPERATION-SPECIFIC CONTRACT`
+`CHARACTER CREATION: RETIRED FROM PLATFORM (NATIVE SOURCE PENDING)`
 
 The approved operation:
 
@@ -226,8 +203,6 @@ Exactly:
 
 | Operation | Connection | Primary mutation | Authoritative contract |
 |---|---|---|---|
-| Greenfield Canary account provisioning | `canary_provisioning` | narrow `accounts` INSERT | `PLATFORM_CANARY_ACCOUNT_PROVISIONING_CONTRACT.md` |
-| Greenfield character creation | `canary_character_create` | narrow `players` INSERT | `CHARACTER_CREATION_CONTRACT.md` |
 
 Both operations use separate reviewed least-privilege grant templates and fail-closed effective-grant verification.
 

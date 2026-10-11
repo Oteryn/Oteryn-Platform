@@ -2,9 +2,6 @@
 
 namespace Tests\Feature\Accounts;
 
-use App\Accounts\Actions\ProvisionCanaryAccount;
-use App\Accounts\Contracts\CanaryAccountProvisioningGateway;
-use App\Accounts\Exceptions\CanaryAccountProvisioningUnavailable;
 use App\Accounts\Models\IdentityCanaryAccount;
 use App\Identity\Models\Identity;
 use Illuminate\Database\Schema\Blueprint;
@@ -19,14 +16,9 @@ final class AccountOverviewTest extends TestCase
 {
     use RefreshDatabase;
 
-    private RecordingAccountProvisioningGateway $gateway;
-
     protected function setUp(): void
     {
         parent::setUp();
-
-        $this->gateway = new RecordingAccountProvisioningGateway;
-        $this->app->instance(CanaryAccountProvisioningGateway::class, $this->gateway);
 
         config()->set('database.connections.canary', [
             'driver' => 'sqlite',
@@ -53,10 +45,9 @@ final class AccountOverviewTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_guest_cannot_open_overview_or_retry_provisioning(): void
+    public function test_guest_cannot_open_overview(): void
     {
         $this->get('/account')->assertRedirect('/login');
-        $this->post('/account/provisioning/retry')->assertRedirect('/login');
     }
 
     public function test_ready_binding_is_presented_without_internal_identifiers(): void
@@ -75,7 +66,6 @@ final class AccountOverviewTest extends TestCase
         $response->assertSee('You do not have any active characters yet.');
         $response->assertDontSee((string) $binding->canary_account_id);
         $response->assertDontSee($binding->provisioning_name);
-        $response->assertDontSee('Retry game account setup');
     }
 
     public function test_ready_account_center_lists_only_owned_active_characters_with_readable_vocations(): void
@@ -133,7 +123,7 @@ final class AccountOverviewTest extends TestCase
             ->assertDontSee('991234');
     }
 
-    public function test_pending_binding_is_presented_as_in_progress_without_retry(): void
+    public function test_unfinished_binding_fails_closed_with_support_guidance(): void
     {
         $identity = $this->identityWithBinding(null, IdentityCanaryAccount::STATUS_PENDING);
         $this->loginAsCurrentIdentity($identity);
@@ -141,26 +131,11 @@ final class AccountOverviewTest extends TestCase
         $response = $this->get('/account');
 
         $response->assertOk();
-        $response->assertSee('Setup in progress');
-        $response->assertSee('Your game account setup is still in progress.');
+        $response->assertSee('Support required');
+        $response->assertSee('We cannot confirm a valid game account setup state.');
         $response->assertSee('Character management becomes available after the game account connection reaches the Ready state.');
+        $response->assertDontSee('Setup in progress');
         $response->assertDontSee('Retry game account setup');
-    }
-
-    public function test_dependency_failure_is_presented_as_recoverable_retry(): void
-    {
-        $identity = $this->identityWithBinding(
-            null,
-            IdentityCanaryAccount::STATUS_PENDING,
-            ProvisionCanaryAccount::FAILURE_DEPENDENCY_UNAVAILABLE,
-        );
-        $this->loginAsCurrentIdentity($identity);
-
-        $response = $this->get('/account');
-
-        $response->assertOk();
-        $response->assertSee('Setup interrupted');
-        $response->assertSee('Retry game account setup');
     }
 
     public function test_conflict_binding_fails_closed_with_support_guidance(): void
@@ -168,7 +143,7 @@ final class AccountOverviewTest extends TestCase
         $identity = $this->identityWithBinding(
             null,
             IdentityCanaryAccount::STATUS_CONFLICT,
-            ProvisionCanaryAccount::FAILURE_BINDING_CONFLICT,
+            'binding_conflict',
         );
         $this->loginAsCurrentIdentity($identity);
 
@@ -177,7 +152,6 @@ final class AccountOverviewTest extends TestCase
         $response->assertOk();
         $response->assertSee('Support required');
         $response->assertSee('No replacement account will be created automatically.');
-        $response->assertDontSee('Retry game account setup');
     }
 
     public function test_missing_binding_renders_safe_non_actionable_state(): void
@@ -190,79 +164,6 @@ final class AccountOverviewTest extends TestCase
         $response->assertOk();
         $response->assertSee('Support required');
         $response->assertSee('We cannot confirm your game account setup right now.');
-        $response->assertDontSee('Retry game account setup');
-    }
-
-    public function test_recoverable_retry_reuses_authoritative_persisted_intent_and_marks_binding_ready(): void
-    {
-        $identity = $this->identityWithBinding(
-            null,
-            IdentityCanaryAccount::STATUS_PENDING,
-            ProvisionCanaryAccount::FAILURE_DEPENDENCY_UNAVAILABLE,
-        );
-        $binding = IdentityCanaryAccount::query()->findOrFail($identity->id);
-        $this->gateway->nextAccountId = 991235;
-        $this->loginAsCurrentIdentity($identity);
-
-        $response = $this->post('/account/provisioning/retry', [
-            'account_id' => 777777,
-            'provisioning_name' => 'client-controlled',
-        ]);
-
-        $response->assertRedirect(route('account.overview'));
-        $response->assertSessionHas('status', 'Game account setup completed.');
-
-        $binding->refresh();
-        self::assertTrue($binding->isReady());
-        self::assertSame(991235, $binding->canary_account_id);
-        self::assertSame([
-            [
-                'provisioning_name' => $binding->provisioning_name,
-                'creation_epoch' => $binding->canary_creation_epoch,
-            ],
-        ], $this->gateway->calls);
-
-        $overview = $this->get('/account');
-        $overview->assertOk();
-        $overview->assertSee('Ready');
-        $overview->assertDontSee('991235');
-        $overview->assertDontSee($binding->provisioning_name);
-    }
-
-    public function test_direct_retry_is_rejected_when_current_state_is_not_recoverable(): void
-    {
-        $identity = $this->identityWithBinding(null, IdentityCanaryAccount::STATUS_PENDING);
-        $this->loginAsCurrentIdentity($identity);
-
-        $this->post('/account/provisioning/retry')
-            ->assertRedirect(route('account.overview'))
-            ->assertSessionHasErrors('provisioning');
-
-        self::assertSame([], $this->gateway->calls);
-    }
-
-    public function test_retry_dependency_failure_keeps_safe_recoverable_state(): void
-    {
-        $identity = $this->identityWithBinding(
-            null,
-            IdentityCanaryAccount::STATUS_PENDING,
-            ProvisionCanaryAccount::FAILURE_DEPENDENCY_UNAVAILABLE,
-        );
-        $this->gateway->throwUnavailable = true;
-        $this->loginAsCurrentIdentity($identity);
-
-        $this->post('/account/provisioning/retry')
-            ->assertRedirect(route('account.overview'))
-            ->assertSessionHasErrors('provisioning');
-
-        $binding = IdentityCanaryAccount::query()->findOrFail($identity->id);
-        self::assertSame(IdentityCanaryAccount::STATUS_PENDING, $binding->status);
-        self::assertSame(ProvisionCanaryAccount::FAILURE_DEPENDENCY_UNAVAILABLE, $binding->last_failure_code);
-
-        $this->get('/account')
-            ->assertOk()
-            ->assertSee('Setup interrupted')
-            ->assertSee('Retry game account setup');
     }
 
     public function test_polish_overview_localizes_ready_empty_and_populated_states(): void
@@ -301,9 +202,8 @@ final class AccountOverviewTest extends TestCase
     /** @return iterable<string, array{?string, ?string, string, string}> */
     public static function polishSetupStates(): iterable
     {
-        yield 'pending' => [IdentityCanaryAccount::STATUS_PENDING, null, 'Konfiguracja w toku', 'Trwa konfiguracja konta gry.'];
-        yield 'recoverable' => [IdentityCanaryAccount::STATUS_PENDING, ProvisionCanaryAccount::FAILURE_DEPENDENCY_UNAVAILABLE, 'Konfiguracja przerwana', 'Możesz bezpiecznie ponowić istniejące żądanie konfiguracji.'];
-        yield 'conflict' => [IdentityCanaryAccount::STATUS_CONFLICT, ProvisionCanaryAccount::FAILURE_BINDING_CONFLICT, 'Wymagana pomoc techniczna', 'Konto zastępcze nie zostanie utworzone automatycznie.'];
+        yield 'unfinished' => [IdentityCanaryAccount::STATUS_PENDING, null, 'Wymagana pomoc techniczna', 'Nie możemy potwierdzić prawidłowego stanu konfiguracji konta gry.'];
+        yield 'conflict' => [IdentityCanaryAccount::STATUS_CONFLICT, 'binding_conflict', 'Wymagana pomoc techniczna', 'Konto zastępcze nie zostanie utworzone automatycznie.'];
         yield 'missing' => [null, null, 'Wymagana pomoc techniczna', 'Nie możemy teraz potwierdzić konfiguracji konta gry.'];
     }
 
@@ -318,8 +218,6 @@ final class AccountOverviewTest extends TestCase
             ->assertSee($message)
             ->assertSee('Twoje postacie pojawią się po zakończeniu konfiguracji konta gry.')
             ->assertDontSee('Your characters will appear')
-            ->assertDontSee('>Setup in progress<', false)
-            ->assertDontSee('>Setup interrupted<', false)
             ->assertDontSee('>Support required<', false);
     }
 
@@ -356,29 +254,5 @@ final class AccountOverviewTest extends TestCase
         ])->assertRedirect(route('home'));
 
         $this->assertAuthenticatedAs($identity, 'web');
-    }
-}
-
-final class RecordingAccountProvisioningGateway implements CanaryAccountProvisioningGateway
-{
-    /** @var list<array{provisioning_name: string, creation_epoch: int}> */
-    public array $calls = [];
-
-    public int $nextAccountId = 991235;
-
-    public bool $throwUnavailable = false;
-
-    public function provision(string $provisioningName, int $creationEpoch): int
-    {
-        $this->calls[] = [
-            'provisioning_name' => $provisioningName,
-            'creation_epoch' => $creationEpoch,
-        ];
-
-        if ($this->throwUnavailable) {
-            throw new CanaryAccountProvisioningUnavailable('dependency unavailable');
-        }
-
-        return $this->nextAccountId;
     }
 }

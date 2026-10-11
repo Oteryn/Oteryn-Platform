@@ -153,7 +153,7 @@ No player UPDATE, ownership reassignment or destructive compensation is permitte
 
 ## Exact legacy engine transaction
 
-Using only `canary_character_create`:
+Retired transaction shape (no longer implemented in Platform):
 
 1. begin transaction;
 2. `SELECT id FROM accounts WHERE id = ? FOR UPDATE` for the authorized account;
@@ -193,43 +193,9 @@ Bounded outcomes are equivalent to:
 
 Raw SQL errors, credentials and database exception details are not exposed to the browser.
 
-## Dedicated least-privilege boundary
+## Retired write boundary
 
-Connection:
-
-`canary_character_create`
-
-It does not reuse or broaden:
-
-- `canary` / `oteryn_readonly`;
-- `canary_provisioning`.
-
-Approved SELECT surface:
-
-- `accounts(id)`;
-- `players(id, name, account_id, deletion)`.
-
-Approved INSERT surface:
-
-- only the exact starter columns listed above.
-
-Forbidden:
-
-- table-level broad SELECT;
-- `accounts.password` or unrelated account fields;
-- player UPDATE/DELETE;
-- unapproved player INSERT columns;
-- writes to unrelated player/account/session tables;
-- DDL;
-- `GRANT OPTION` or administrative privileges.
-
-A reviewed SQL provisioning template defines the deployment grants. Production credentials stay outside Git.
-
-`CanaryCharacterCreateDatabasePrivilegeVerifier` fails closed when required privileges are missing or broader privileges are present.
-
-Deployment verification command:
-
-`php artisan canary:verify-character-create-db-privileges`
+The dedicated database write connection, its privilege verifier and the reviewed grant template were removed. Platform no longer writes character rows; character creation returns only through a native Oteryn source.
 
 ## Validation evidence
 
@@ -239,8 +205,6 @@ PR #41 includes:
 - authenticated feature tests through the real Platform login/session establishment flow;
 - binding authorization and browser non-control tests;
 - deterministic validation/conflict/idempotent result tests;
-- effective-grant verifier tests;
-- real MariaDB exact-grant and denied-privilege tests;
 - real MariaDB account lock, starter/default persisted state and active-limit tests;
 - real MariaDB same-account last-slot race;
 - real MariaDB cross-account same-name race;
@@ -249,27 +213,3 @@ PR #41 includes:
 The initial feature-test 403 was a test-harness mismatch: synthetic authentication state did not establish the production web-session generation marker. Tests were corrected to exercise the real login flow; the security middleware was not bypassed.
 
 Final PR #41 head `1e6291afb29a4c92d1ba690f74c6d23671876107` passed CI #568 and Agent Governance #489 before squash merge.
-
-## Deployment gate
-
-Before enabling character creation in an environment:
-
-1. provision `canary_character_create` out-of-band using the reviewed SQL template;
-2. provide credentials through approved secret management;
-3. run `php artisan canary:verify-character-create-db-privileges`;
-4. fail closed on missing/excessive grants;
-5. revalidate if deployed legacy engine schema materially differs from the evidence baseline.
-
-## Cross-repository decision
-
-No `blakinio/canary` or `opentibiabr/login-server` change was required for this bounded character-create database operation.
-
-The authoritative Platform game-login bridge remains a separate cross-repository dependency and is not implied by character creation.
-
-## Decision
-
-`CHARACTER CREATE OPERATION: IMPLEMENTED`
-
-`CHARACTER CREATION: UNBLOCKED AND PRESENT ON MAIN`
-
-Character deletion/soft deletion and rename remain optional future lifecycle operations and are forbidden until separately contracted, least-privileged and tested.

@@ -108,46 +108,6 @@ Actions on failure:
 
 Do not broaden application permissions to accommodate an over-privileged credential.
 
-## Suspected legacy engine provisioning credential compromise/over-privilege
-
-Run:
-
-```text
-php artisan canary:verify-provisioning-db-privileges
-```
-
-If compromise is suspected or the verifier fails:
-
-1. Disable/fence account provisioning capability where possible.
-2. Rotate/reprovision only the dedicated provisioning credential.
-3. Preserve the generic read-only and character-create credential separation.
-4. Re-run the privilege verifier before re-enabling provisioning.
-5. Review provisioning/binding state for incomplete `pending` records and use the supported bounded recovery command only after the credential boundary is restored:
-
-```text
-php artisan canary:provision-pending-accounts --limit=100
-```
-
-6. Investigate unexpected legacy engine account rows using authorized database evidence.
-
-Never expose the internal random compatibility credential to users.
-
-## Suspected legacy engine character-create credential compromise/over-privilege
-
-Run:
-
-```text
-php artisan canary:verify-character-create-db-privileges
-```
-
-If compromise is suspected or the verifier fails:
-
-1. Disable/fence character creation capability where possible.
-2. Rotate/reprovision only the dedicated character-create credential.
-3. Re-run the verifier before re-enabling character creation.
-4. Review unexpected player rows/name/quota anomalies against the exact deployed legacy engine schema/version.
-5. Do not use this credential for rename/delete/account mutations; those operations are not authorized by Phase 5 contracts.
-
 ## Legacy engine runtime Redis degradation
 
 Symptoms may include unavailable/fail-closed runtime availability rather than fabricated offline/empty state.
@@ -220,7 +180,6 @@ Do not improvise a restore from undocumented backups.
 6. After restore, verify at minimum:
    - Platform Identity/RBAC/CMS/audit/provisioning migrations/state;
    - immutable Identity-to-legacy engine bindings;
-   - pending provisioning state consistency;
    - administrator role assignments;
    - recent security/admin audit availability.
 7. Re-run critical application flows and applicable integration privilege verifiers.
@@ -230,7 +189,6 @@ Current repository state does not prove that an operational backup/restore mecha
 
 ## Legacy engine shared-data inconsistency after partial failure
 
-For account provisioning, use the existing forward-recovery model and bounded pending-provisioning command after verifying database privileges.
 
 For character creation, rely on the operation contract's idempotent/recovery semantics and exact account binding; do not create ad-hoc raw shared-table fixes through the Platform.
 

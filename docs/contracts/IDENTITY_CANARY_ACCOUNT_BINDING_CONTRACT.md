@@ -10,7 +10,7 @@ This contract defines the authorization boundary between an authenticated Oteryn
 
 Oteryn Platform is the authoritative owner of user Identity, supported account lifecycle policy and user credential policy. Existing legacy engine accounts are outside the supported Phase 5 ownership model and are not imported or claimed.
 
-The greenfield ownership-binding implementation is delivered by the Platform-originated account provisioning flow governed by `docs/contracts/PLATFORM_CANARY_ACCOUNT_PROVISIONING_CONTRACT.md`.
+Platform-originated account provisioning was removed; registration creates no binding and a binding can only arrive from a native source.
 
 ## Authoritative ownership model
 
@@ -61,13 +61,7 @@ The only supported Phase 5 establishment path is Platform-originated legacy engi
 
 The implementation:
 
-1. creates the Platform Identity and durable pending provisioning intent before any legacy engine write;
-2. uses a server-generated immutable provisioning name and creation marker;
-3. creates or deterministically recovers the exact Canary account through the dedicated `canary_provisioning` connection;
-4. stores the exact created/recovered `accounts.id` in Platform-owned binding state;
-5. marks the binding ready only after durable Platform finalization;
-6. treats retry of the same completed binding as idempotent;
-7. enters fail-closed conflict state if recovered ownership evidence conflicts.
+Retired flow (removed from Platform): pending intent, dedicated-connection account create, durable finalization and fail-closed conflict handling. Existing binding rows are read only.
 
 The implementation never accepts a client-selected legacy engine account ID for binding.
 
@@ -100,10 +94,7 @@ Exact irreversible legacy engine account deletion semantics require a separate a
 - Oteryn Platform remains authoritative for user credentials and ownership policy.
 - Canary remains semantic owner of Canary-owned schema/game state.
 - Existing `canary` / `oteryn_readonly` remains SELECT-only and unchanged.
-- Account provisioning uses separate `canary_provisioning` credentials restricted to the approved column-level account-create/recovery surface.
-- Character creation uses separate `canary_character_create` credentials restricted to the approved column-level character-create surface.
 - Platform does not read `accounts.password` and does not verify legacy engine passwords.
-- legacy engine `accounts.password` receives only the non-user random sink-credential compatibility digest defined by the provisioning contract.
 - Sink plaintext is never stored in Platform binding/audit state or exposed to users.
 
 ## Failure and concurrency invariants

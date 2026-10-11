@@ -57,7 +57,6 @@ Existing legacy engine accounts are not imported or claimed. The browser does no
 - password reset/change with expiring single-use tokens and session revocation;
 - TOTP MFA, replay protection and recovery codes;
 - account overview with pending, ready, recoverable, conflict and missing provisioning states;
-- bounded provisioning retry;
 - confirmed primary-email change with new-address confirmation, old-address recovery and cooldown;
 - registered active-session inventory with targeted, current and all-other revocation;
 - private-by-default account association and status controls;

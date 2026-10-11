@@ -17,7 +17,6 @@
     @php
         $badgeClass = match ($overview['state']) {
             'ready' => 'badge-success',
-            'pending', 'recoverable' => 'badge-warning',
             default => 'badge-danger',
         };
         $charactersMessage = $overview['characters_state'] === 'available'
@@ -38,9 +37,6 @@
             <span class="badge {{ $badgeClass }}">{{ __($overview['label']) }}</span>
             <p>{{ __($overview['message']) }}</p>
         </div>
-        @if ($overview['retry_allowed'])
-            <form method="POST" action="{{ route('account.provisioning.retry', ['locale' => app()->getLocale()]) }}">@csrf<button type="submit">{{ __('portal.account.retry') }}</button></form>
-        @endif
     </section>
     <section class="account-roster" aria-labelledby="account-characters-heading">
         <div class="section-heading">

@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use App\Accounts\Actions\ProvisionCanaryAccount;
 use App\Accounts\Models\IdentityCanaryAccount;
 use App\Identity\Mfa\MfaRecoveryCodes;
 use App\Identity\Models\Identity;
@@ -53,11 +52,9 @@ if ($command === 'account-state') {
         $attributes['canary_account_id'] = 4_000_000_001;
         $attributes['status'] = IdentityCanaryAccount::STATUS_READY;
         $attributes['ready_at'] = now()->subMinute();
-    } elseif ($state === 'recoverable') {
-        $attributes['last_failure_code'] = ProvisionCanaryAccount::FAILURE_DEPENDENCY_UNAVAILABLE;
     } elseif ($state === 'conflict') {
         $attributes['status'] = IdentityCanaryAccount::STATUS_CONFLICT;
-        $attributes['last_failure_code'] = ProvisionCanaryAccount::FAILURE_BINDING_CONFLICT;
+        $attributes['last_failure_code'] = 'binding_conflict';
     } elseif ($state !== 'pending') {
         fwrite(STDERR, "Unknown account acceptance state: {$state}\n");
         exit(2);

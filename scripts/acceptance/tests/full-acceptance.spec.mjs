@@ -222,9 +222,9 @@ test.describe('full production-like acceptance', () => {
     const foreignPage = await foreignContext.newPage();
     try {
       await register(foreignPage, foreignEmail, foreignPassword);
-      // Provisioning has no native source yet, so registration leaves a ready or recoverable pending binding.
+      // Registration no longer provisions a game account, so no binding exists until a native source creates one.
       const foreignBinding = runPhpState('binding', foreignEmail);
-      expect(['ready', 'pending']).toContain(foreignBinding.status);
+      expect(['ready', 'pending', 'missing']).toContain(foreignBinding.status);
       await login(foreignPage, foreignEmail, foreignPassword);
       const foreignCharacter = uniqueCharacterName('Other');
       await createCharacter(foreignPage, foreignCharacter);

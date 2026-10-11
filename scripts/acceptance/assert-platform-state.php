@@ -36,7 +36,7 @@ if ($command === 'binding') {
 
     $binding = IdentityCanaryAccount::query()->find($identity->id);
     // Game-account provisioning has no native source yet, so the binding may legitimately
-    // be pending or recoverable. Report the stored state instead of failing the probe.
+    // be pending or missing. Report the stored state instead of failing the probe.
     $json([
         'identity_id' => $identity->id,
         'canary_account_id' => $binding instanceof IdentityCanaryAccount ? $binding->canary_account_id : null,
@@ -57,7 +57,7 @@ if ($command === 'character-owner') {
         $fail('Identity Canary account binding is not ready.');
     }
 
-    $player = DB::connection('canary_character_create')
+    $player = DB::connection('canary')
         ->table('players')
         ->select(['id', 'name', 'account_id'])
         ->where('name', $name)

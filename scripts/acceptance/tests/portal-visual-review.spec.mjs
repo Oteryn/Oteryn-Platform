@@ -180,7 +180,7 @@ test('@smoke @portal-review actual authenticated hub, characters, support, secur
   await register(page, email, password);
   await login(page, email, password);
   await page.goto('/account?locale=en');
-  await expect(page.locator('[data-account-state]')).toHaveAttribute('data-account-state', /^(ready|recoverable)$/u);
+  await expect(page.locator('[data-account-state]')).toHaveAttribute('data-account-state', /^(ready|unavailable)$/u);
   const privatePages = [
     ['/account', 'account'], ['/account/characters/create', 'character-create'],
     ['/account/security', 'security'], ['/mfa', 'mfa'], ['/password/change', 'change-password'],
@@ -233,10 +233,10 @@ test('@smoke @portal-review actual authenticated hub, characters, support, secur
     await page.setViewportSize(viewport);
     await capture(page, `${name}-player-tools-detail`, 200);
   }
-  for (const state of ['pending', 'recoverable', 'conflict']) {
+  for (const state of ['pending', 'conflict']) {
     runBinary('php', ['scripts/acceptance/seed-account-overview-state.php', 'seed', email, state]);
     await visit(page, '/account?locale=en', `phone-account-${state}`);
-    await expect(page.locator('[data-account-state]')).toHaveAttribute('data-account-state', state);
+    await expect(page.locator('[data-account-state]')).toHaveAttribute('data-account-state', state === 'pending' ? 'unavailable' : state);
   }
   runBinary('php', ['scripts/acceptance/seed-account-overview-state.php', 'seed', email, 'ready']);
   await logout(page);
