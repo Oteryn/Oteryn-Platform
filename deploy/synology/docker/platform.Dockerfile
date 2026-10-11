@@ -1,4 +1,6 @@
-FROM php:8.5-cli-alpine
+FROM composer:2@sha256:af98f42dfff7c68ba8d53c2164fd9fde1087b7d449514baa38c418b1f6bc4bac AS composer-bin
+
+FROM php:8.5-cli-alpine@sha256:93684051146ec037620855feb77f278090bde45ddc030801cd3f2a7685bc4deb
 
 RUN apk add --no-cache \
         freetype \
@@ -25,7 +27,7 @@ RUN apk add --no-cache \
     && apk del .build-deps \
     && php -r 'exit(extension_loaded("gd") && (imagetypes() & IMG_JPG) && (imagetypes() & IMG_PNG) && (imagetypes() & IMG_WEBP) ? 0 : 1);'
 
-COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
+COPY --from=composer-bin /usr/bin/composer /usr/local/bin/composer
 COPY deploy/synology/docker/platform-media.ini /usr/local/etc/php/conf.d/zz-oteryn-media.ini
 COPY deploy/synology/docker/platform-entrypoint.sh /usr/local/bin/oteryn-platform-entrypoint
 RUN chmod 0755 /usr/local/bin/oteryn-platform-entrypoint \

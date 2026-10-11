@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "dockerfiles": [
+    {
+      "component": "platform",
+      "path": "deploy/synology/docker/platform.Dockerfile",
+      "dockerignore": "deploy/synology/docker/platform.Dockerfile.dockerignore",
+      "expected_user": "www-data"
+    },
+    {
+      "component": "game-gateway",
+      "path": "deploy/synology/docker/gateway.Dockerfile",
+      "dockerignore": "deploy/synology/docker/gateway.Dockerfile.dockerignore",
+      "expected_user": "oteryn"
+    },
+    {
+      "component": "deploy-runner",
+      "path": "deploy/synology/runner/Dockerfile",
+      "dockerignore": "deploy/synology/runner/Dockerfile.dockerignore",
+      "expected_user": "runner"
+    }
+  ],
+  "vulnerability_policy": {
+    "severities": [
+      "HIGH",
+      "CRITICAL"
+    ],
+    "ignore_unfixed": true,
+    "exception_file": "docs/security/CONTAINER_VULNERABILITY_EXCEPTIONS.json",
+    "maximum_exception_days": 30,
+    "rationale": "Patchable HIGH/CRITICAL findings in shipped container images fail the build unless a bounded, unexpired exception names the exact component, vulnerability and package with review evidence."
+  },
+  "evidence": {
+    "sbom_format": "spdx-json",
+    "artifact_retention_days": 14,
+    "provenance_schema": "oteryn-container-provenance-v1"
+  }
+}

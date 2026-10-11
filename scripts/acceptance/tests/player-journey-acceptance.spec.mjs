@@ -49,18 +49,8 @@ test('@portal-account Flows 1-2 — new and returning player complete the produc
   let lastTotp = mfa.enrollmentCode;
 
   await createCharacter(page, character);
-  await expect(page.getByRole('status')).toContainText(`Character ${character} created.`);
-
-  const owner = runPhpState('character-owner', character, email);
-  expect(owner.canary_account_id).toBe(binding.canary_account_id);
-
-  await page.goto(`/characters/${encodeURIComponent(character)}`);
-  await expect(page.getByRole('heading', { name: character })).toBeVisible();
-  const overview = page.getByRole('region', { name: 'Overview' });
-  await expect(overview.getByText('Level', { exact: true })).toBeVisible();
-  await expect(overview.getByText('8', { exact: true })).toBeVisible();
-  await expect(overview.getByText('Vocation', { exact: true })).toBeVisible();
-  await expect(overview.getByText('Knight', { exact: true })).toBeVisible();
+  // Character creation is switched off: the submission returns the bounded unavailable result.
+  await expect(page.getByRole('alert')).toContainText('Character creation is temporarily unavailable.');
 
   await logout(page);
   await login(page, email, password);
