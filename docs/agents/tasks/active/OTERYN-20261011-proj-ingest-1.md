@@ -65,7 +65,7 @@ checkpoint_version: 1
 updated_at: 2026-10-11T18:00:00Z
 head: UNKNOWN
 branch: claude/decanary-proj-ingest-1-20261011
-pr: <N>
+pr: 1530
 status: validating
 context_routes:
   - game-auth
