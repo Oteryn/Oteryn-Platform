@@ -241,6 +241,46 @@ class ContainerSupplyChainTest(unittest.TestCase):
                 with self.assertRaises(supply.SupplyChainError):
                     supply.evaluate_trivy(report, policy, "platform", root)
 
+    def test_missing_or_invalid_severity_fails_closed(self) -> None:
+        for severity in (None, "", "BOGUS", 7):
+            with self.subTest(severity=severity), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                report = root / "trivy.json"
+                finding = {"VulnerabilityID": "CVE-T", "PkgName": "demo", "FixedVersion": "2"}
+                if severity is not None:
+                    finding["Severity"] = severity
+                report.write_text(
+                    json.dumps({"Results": [{"Vulnerabilities": [finding]}]}), encoding="utf-8"
+                )
+                policy = self.write_scan_policy(root, [])
+                with self.assertRaises(supply.SupplyChainError):
+                    supply.evaluate_trivy(report, policy, "platform", root)
+
+    def test_user_resets_at_each_stage(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "Dockerfile"
+            path.write_text(
+                "FROM alpine:3.22@sha256:" + "a" * 64 + " AS build\nUSER 10001\n"
+                "FROM alpine:3.22@sha256:" + "b" * 64 + "\n",
+                encoding="utf-8",
+            )
+            _, user = supply.dockerfile_references(path)
+            self.assertIsNone(user)
+
+    def test_images_are_scanned_before_any_tag_is_published(self) -> None:
+        workflow = (ROOT / ".github/workflows/build-synology-staging-images.yml").read_text(
+            encoding="utf-8"
+        )
+        build = workflow.index("name: Build affected component locally")
+        enforce = workflow.index("name: Enforce bounded container vulnerability policy")
+        publish = workflow.index("name: Publish the scanned image")
+        self.assertLess(build, enforce)
+        self.assertLess(enforce, publish)
+        self.assertIn("push: false", workflow)
+        self.assertIn(
+            "if: ${{ always() && steps.supply-chain-image.outcome == 'success' }}", workflow
+        )
+
     def test_provenance_is_deterministic_and_binds_all_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

@@ -46,6 +46,9 @@ def load_json(path: Path) -> dict[str, Any]:
     return raw
 
 
+KNOWN_SEVERITIES = frozenset({"UNKNOWN", "LOW", "MEDIUM", "HIGH", "CRITICAL"})
+
+
 def dockerfile_references(path: Path) -> tuple[list[ExternalReference], str | None]:
     aliases: set[str] = set()
     references: list[ExternalReference] = []
@@ -63,6 +66,7 @@ def dockerfile_references(path: Path) -> tuple[list[ExternalReference], str | No
             image = match.group(1)
             alias = match.group(2)
             references.append(ExternalReference(str(path), "FROM", image))
+            final_user = None  # each stage starts from its base image's default user
             if alias:
                 aliases.add(alias)
             continue
@@ -219,7 +223,12 @@ def evaluate_trivy(
         for finding in findings:
             if not isinstance(finding, dict):
                 raise SupplyChainError("Trivy report vulnerability entries must be objects")
-            severity = str(finding.get("Severity", "")).upper()
+            raw_severity = finding.get("Severity")
+            if not isinstance(raw_severity, str) or raw_severity.upper() not in KNOWN_SEVERITIES:
+                raise SupplyChainError(
+                    "Trivy vulnerability entries must carry a valid Severity"
+                )
+            severity = raw_severity.upper()
             if severity not in severities:
                 continue
             fixed = str(finding.get("FixedVersion", "")).strip()
