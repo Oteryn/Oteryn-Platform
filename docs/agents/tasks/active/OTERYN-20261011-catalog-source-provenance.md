@@ -60,7 +60,7 @@ checkpoint_version: 1
 updated_at: 2026-10-11T12:00:00Z
 head: UNKNOWN
 branch: claude/decanary-catalog-1-20261011
-pr: UNKNOWN
+pr: 1538
 status: validating
 context_routes:
   - game-catalog
