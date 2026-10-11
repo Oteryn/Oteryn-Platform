@@ -6,7 +6,7 @@
 
 This contract defines the only approved Oteryn Platform operation for changing an existing legacy engine `players.account_id`: Character Bazaar escrow, cancellation return and winner settlement.
 
-Evidence is pinned to read-only `the legacy game-server repository at `885afae89946a56dddc2041bb335b6a900f206c9``, including `schema.sql@4e3d7e4b87ac51d1f664328b5399a78226153dc8` and the inspected login/session/save behavior at that revision. A materially different deployed legacy engine revision or schema requires revalidation.
+Evidence is pinned to read-only `blakinio/canary@885afae89946a56dddc2041bb335b6a900f206c9`, including `schema.sql@4e3d7e4b87ac51d1f664328b5399a78226153dc8` and the inspected login/session/save behavior at that revision. A materially different deployed legacy engine revision or schema requires revalidation.
 
 ## Ownership and authorization
 

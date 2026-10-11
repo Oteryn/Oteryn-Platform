@@ -14,7 +14,7 @@ The current legacy engine decision remains **NO-GO** for a direct Platform runti
 
 Read-only evidence was inspected at:
 
-- `the legacy game-server repository at `3c90d3ada717cd2ed0c5344f1dac210a205355f6``;
+- `blakinio/canary@3c90d3ada717cd2ed0c5344f1dac210a205355f6`;
 - `schema.sql@4e3d7e4b87ac51d1f664328b5399a78226153dc8`;
 - `src/account/account_repository_db.cpp@4b4089848c35a7dde7bd04b474d643c47ca7034e`;
 - `src/io/functions/iologindata_load_player.cpp@19169deecdf67b47691e9e4521f3519c1bfbdc40`;
