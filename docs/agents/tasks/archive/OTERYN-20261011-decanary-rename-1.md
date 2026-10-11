@@ -36,7 +36,6 @@ owned_paths:
   - docs/agents/CI_WORKFLOW_LIFECYCLE.json
   - tests/ci/test_workflow_trigger_economy.py
   - docs/agents/tasks/active/OTERYN-20261008-native-only-migration-baseline.md
-  - docs/agents/tasks/active/OTERYN-20261011-decanary-rename-1.md
   - docs/agents/tasks/archive/OTERYN-20261011-decanary-rename-1.md
 modules:
   - Documentation
@@ -56,8 +55,8 @@ checkpoint_version: 1
 updated_at: 2026-10-11T12:00:00Z
 head: UNKNOWN
 branch: claude/decanary-rename-1-20261011
-pr: none
-status: validating
+pr: 1527
+status: completed
 terminal_pr_policy: archive_pending
 context_routes:
   - agent-governance
@@ -69,7 +68,6 @@ owned_paths:
   - docs/agents/CI_WORKFLOW_LIFECYCLE.json
   - tests/ci/test_workflow_trigger_economy.py
   - docs/agents/tasks/active/OTERYN-20261008-native-only-migration-baseline.md
-  - docs/agents/tasks/active/OTERYN-20261011-decanary-rename-1.md
   - docs/agents/tasks/archive/OTERYN-20261011-decanary-rename-1.md
 proven:
   - The native-auth cache-build workflow is already retired; only its name remains in the lifecycle registry and the trigger-economy test.
@@ -96,13 +94,13 @@ validation:
     evidence: Documentation and CI-contract naming only; no runtime behavior changes.
 blockers:
   - none
-next_action: Open the PR, then archive this record in the final authoring commit.
+next_action: archive complete; await exact-head CI and lead integration.
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: PR awaits exact-head checks and review.
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: same-repository PR; source ref deletes after protected merge
+source_branch_evidence: PR #1527 pending merge; verify source ref absent after merge
 ```
