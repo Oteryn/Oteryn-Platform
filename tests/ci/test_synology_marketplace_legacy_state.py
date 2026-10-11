@@ -20,6 +20,8 @@ FAKE_DOCKER = """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >>"$OTERYN_TEST_DOCKER_LOG"
 case "$*" in
+    *"ps -a"*) ;;
+    *"stop platform"*) ;;
     *information_schema.tables*) printf '%s\\n' "$OTERYN_TEST_TABLES" ;;
     *character_auctions*) printf '%s\\n' "$OTERYN_TEST_PENDING" ;;
     *) exit 9 ;;
@@ -27,7 +29,7 @@ esac
 """
 
 
-def run_loader(state: str, *, pending: str = "0", tables: str = "1") -> tuple[subprocess.CompletedProcess[str], str, str]:
+def run_loader(state: str, *, pending: str = "0", tables: str = "1", call: str = "_oteryn_load_marketplace_runtime_state") -> tuple[subprocess.CompletedProcess[str], str, str]:
     with tempfile.TemporaryDirectory() as td:
         root = pathlib.Path(td)
         state_dir = root / "state"
@@ -59,7 +61,7 @@ def run_loader(state: str, *, pending: str = "0", tables: str = "1") -> tuple[su
             [
                 "bash",
                 "-c",
-                'source "$1"; _oteryn_load_marketplace_runtime_state || exit $?; printf "enabled=%s\\n" "$MARKETPLACE_ENABLED"',
+                'source "$1"; ' + call + ' || exit $?; printf "enabled=%s\\n" "$MARKETPLACE_ENABLED"',
                 "bash",
                 str(LIB),
             ],
@@ -148,7 +150,7 @@ def test_flag_only_disabled_state_is_untouched() -> None:
 def test_deploy_migrates_legacy_state_before_schema_change() -> None:
     lib = LIB.read_text(encoding="utf-8")
     before = lib.index("_oteryn_before_platform_migrate() {")
-    migrate = lib.index("_oteryn_migrate_legacy_marketplace_state || return 1", before)
+    migrate = lib.index("_oteryn_migrate_legacy_marketplace_state quiesce || return 1", before)
     candidate = lib.index('release-state.sh" write "$state_dir/candidate-release.env"', before)
     assert migrate < candidate
 
@@ -171,3 +173,20 @@ def test_control_workflow_replaces_durable_state_only_after_the_guarded_action()
     assert 'mv "$temporary" "$state_file"' not in workflow[render:execute]
     assert 'mv "$temporary" "$state_file"' in workflow[persist:]
     assert workflow.count('mv "$temporary" "$state_file"') == 1
+
+
+def test_deploy_path_quiesces_consumers_before_the_drain_count() -> None:
+    result, state, log = run_loader(
+        "MARKETPLACE_ENABLED=true\n" + FIVE_KEYS,
+        call="_oteryn_migrate_legacy_marketplace_state quiesce",
+    )
+    assert result.returncode == 0, result.stderr
+    assert state == "MARKETPLACE_ENABLED=false\n"
+    assert log.index("stop platform") < log.index("character_auctions")
+    lib = LIB.read_text(encoding="utf-8")
+    assert "_oteryn_migrate_legacy_marketplace_state quiesce || return 1" in lib
+
+
+def test_flag_only_state_is_not_quiesced() -> None:
+    _, _, log = run_loader("MARKETPLACE_ENABLED=true\n", call="_oteryn_migrate_legacy_marketplace_state quiesce")
+    assert "stop platform" not in log

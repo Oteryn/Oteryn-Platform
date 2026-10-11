@@ -340,7 +340,11 @@ _oteryn_marketplace_non_terminal_auction_count() {
 # count of non-terminal auctions (N > 0 is refused). When no count can be obtained
 # (database not running), it fails closed unless the operator attests, with
 # OTERYN_ATTEST_NO_PENDING_AUCTIONS=1, that no auction can be pending. Idempotent.
+# With the argument "quiesce" (the deploy path), Platform, Gateway, the internal proxy
+# and the scheduler are stopped before the count so no listing can be accepted between
+# the count and the key removal; the deploy brings them back up afterwards.
 _oteryn_migrate_legacy_marketplace_state() {
+    local quiesce="${1:-}"
     local durable_file line key value enabled='' legacy=0 retired pending tmp
 
     durable_file="$(_oteryn_marketplace_state_file)"
@@ -374,6 +378,9 @@ _oteryn_migrate_legacy_marketplace_state() {
     }
 
     if [[ "$legacy" == 1 ]]; then
+        if [[ "$quiesce" == quiesce ]]; then
+            _oteryn_quiesce_platform_db_consumers || return 1
+        fi
         if pending="$(_oteryn_marketplace_non_terminal_auction_count 2>/dev/null)" && [[ "$pending" =~ ^[0-9]+$ ]]; then
             if [[ "$pending" -gt 0 ]]; then
                 echo "Legacy Character Bazaar has $pending non-terminal auctions; drain them before dropping the retired escrow and transfer keys." >&2
@@ -631,7 +638,7 @@ _oteryn_before_platform_migrate() {
 
     # Drop retired durable Marketplace state keys before any schema change.
     if ! { [[ -f "$ENV_FILE" ]] && grep -q '^MARKETPLACE_ENABLED=' "$ENV_FILE"; }; then
-        _oteryn_migrate_legacy_marketplace_state || return 1
+        _oteryn_migrate_legacy_marketplace_state quiesce || return 1
     fi
 
     if [[ -f "$state_dir/candidate-release.env" ]]; then
