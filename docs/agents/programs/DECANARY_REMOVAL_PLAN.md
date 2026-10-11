@@ -61,7 +61,7 @@ Not in the tree but affected: rows in `security_events` whose type is `identity.
 - Feature: `tests/Feature/{Accounts,Characters,CharacterProfiles,GameAuth,Marketplace,PublicGameData,Identity,Operations,Payments}/**` (38), `HomeTest.php`.
 - Unit: `tests/Unit/CanaryIntegration/*` (5), `tests/Unit/PublicGameData/CanaryChannelRuntimeServiceTest.php`, `tests/Unit/Characters/CharacterNamePolicyTest.php`.
 - Integration/fixtures: `tests/Integration/GameCatalog/CrossRepositoryGameCatalogTest.php`, `tests/Integration/REGISTRY.json`, `tests/Fixtures/GameCatalog/v1*/` (3).
-- E2E: `tests/e2e/native_auth_ephemeral_cutover/*` (3) - deleted by DECANARY-E2E-DEL-1.
+- E2E: `tests/e2e/native_auth_ephemeral_cutover/*` (3) - deleted by DECANARY-E2E-DEL-1 (record: OTERYN-20261011-native-only-e2e-del-1).
 - CI contract tests: `tests/ci/test_synology_*` (4, Canary image in release/rollback identity), `tests/ci/test_workflow_trigger_economy.py` (name collision: `native-auth-canary-cache-build.yml`).
 
 ### G5 CI, acceptance, deploy — ~70 files

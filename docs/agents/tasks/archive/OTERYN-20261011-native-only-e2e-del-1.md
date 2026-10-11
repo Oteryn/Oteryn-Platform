@@ -1,5 +1,5 @@
 ---
-task_id: OTERYN-20261011-decanary-e2e-del-1
+task_id: OTERYN-20261011-native-only-e2e-del-1
 governing_issue: 1474
 required_reads:
   - docs/agents/programs/DECANARY_REMOVAL_PLAN.md
@@ -30,7 +30,7 @@ owned_paths:
   - tests/e2e/native_auth_ephemeral_cutover/**
   - docs/agents/LEGACY_TOKEN_BASELINE.json
   - docs/agents/programs/DECANARY_REMOVAL_PLAN.md
-  - docs/agents/tasks/archive/OTERYN-20261011-decanary-e2e-del-1.md
+  - docs/agents/tasks/archive/OTERYN-20261011-native-only-e2e-del-1.md
 modules:
   - E2E tests
   - Documentation
@@ -49,7 +49,7 @@ checkpoint_version: 1
 updated_at: 2026-10-11T13:00:00Z
 head: UNKNOWN
 branch: claude/decanary-e2e-del-20261011
-pr: UNKNOWN
+pr: 1545
 status: completed
 terminal_pr_policy: archive_pending
 context_routes:
@@ -58,7 +58,7 @@ owned_paths:
   - tests/e2e/native_auth_ephemeral_cutover/**
   - docs/agents/LEGACY_TOKEN_BASELINE.json
   - docs/agents/programs/DECANARY_REMOVAL_PLAN.md
-  - docs/agents/tasks/archive/OTERYN-20261011-decanary-e2e-del-1.md
+  - docs/agents/tasks/archive/OTERYN-20261011-native-only-e2e-del-1.md
 proven:
   - No workflow, composer script, phpunit config or test references the deleted directory.
   - The active login-native-only record mentions it as a follow-up note and stays unchanged (not owned).
@@ -95,5 +95,5 @@ next_action: archive complete; await exact-head CI and lead integration.
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: same-repository PR; source ref deletes after protected merge
-source_branch_evidence: PR pending merge; verify source ref absent after merge
+source_branch_evidence: PR #1545 pending merge; verify source ref absent after merge
 ```
