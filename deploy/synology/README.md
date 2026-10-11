@@ -133,16 +133,23 @@ GAME_AUTH_NATIVE_ADMISSION_ENABLED   (Platform issuer)
 GATEWAY_NATIVE_LOGIN_ENABLED         (Gateway native branch)
 ```
 
-On this package the value is `false`: Synology runs `APP_ENV=staging` and the Platform issuer signs grants only in `testing` or `preproduction`. With it off, the Gateway refuses every login, and the health check prints a warning that game login is disabled.
+On this package the value is `true`: Synology runs `APP_ENV=preproduction`, the only deployed environment in which the Platform issuer signs grants (`testing` is for CI; `production` still refuses native admission and the legacy login switch stays as configured). The deployment proves the issuer can sign, or it refuses:
 
-Turning it on is a separate, authorized change. The deployment refuses `true` until a Platform self-check exercises the issuer signing key and trust validation. A login probe with an unknown ticket is rejected before the issuer touches its key, so it cannot prove that admission works. Turning it on also needs:
+1. Before any stack change, `deploy.sh` runs `generate-native-admission-key.sh ensure`. On first use this creates the Ed25519 signing key inside the Docker named volume `oteryn-native-admission-keys`, which Docker stores under its root-only data root, outside the repository, the Compose context, the rendered `.env` and the runner state directory. The volume directory is mode 0700 and every file 0600, owned by the Platform process user (the keyring refuses anything else). The private key is generated and read only inside a throwaway container with no network and is never printed, logged or written to CI output. The command is idempotent and prints only the key id and the public key (`current_key_id=`, `current_public_key=`), which is what Game's trust config needs.
+2. The Platform entrypoint exports `GAME_AUTH_NATIVE_ADMISSION_SIGNING_KEY_FILE` / `GAME_AUTH_NATIVE_ADMISSION_SIGNING_KEY_ID` (and, during rotation, `GAME_AUTH_NATIVE_ADMISSION_RETIRING_SIGNING_KEY_FILE` / `GAME_AUTH_NATIVE_ADMISSION_RETIRING_SIGNING_KEY_ID`) from the read-only volume mount. No key value is ever a Compose value, `.env` entry or repository file.
+3. After migrations and before the Gateway is recreated, `deploy.sh` runs `php artisan game-auth:native-admission:self-check` in the Platform container. It signs a throwaway grant with the configured key and verifies it against the Platform trust registry. A non-zero exit refuses the deployment. `health-check.sh` re-runs the same self-check whenever the flag is `true`, and requires the Gateway to reject an unknown native ticket through the Platform issuer (401 `NATIVE_LOGIN_AUTHENTICATION_REQUIRED`).
 
-- `APP_ENV=preproduction` for the Platform service, which the staging preflight currently rejects;
-- `GAME_AUTH_NATIVE_ADMISSION_SIGNING_KEY_FILE` and `GAME_AUTH_NATIVE_ADMISSION_SIGNING_KEY_ID`, the file being an injected, non-symlink, mode 0600 key file owned by the Platform process user (never a value in the repository or the rendered `.env`);
-- during key rotation, `GAME_AUTH_NATIVE_ADMISSION_RETIRING_SIGNING_KEY_FILE` and `GAME_AUTH_NATIVE_ADMISSION_RETIRING_SIGNING_KEY_ID`;
-- the Game server trusting the matching public key.
+The signing key must also be trusted by the Platform registry and by Game (`current_public_key`); until it is, the self-check fails and the deployment is refused rather than leaving a Gateway that accepts logins no issuer can serve. The health check also fails when the Platform flag is missing or the two flags differ.
 
-The health check enforces this. It fails when the Platform flag is missing, when the two flags differ, or when native admission is on. It also sends a well-formed native login, which the Gateway must refuse with `invalid_request` without reaching the Platform.
+Key rotation (native login contract 9.3), run on the Synology host with `PLATFORM_IMAGE` set to the deployed Platform image:
+
+```bash
+PLATFORM_IMAGE=<image> deploy/synology/scripts/generate-native-admission-key.sh rotate         # current -> retiring, new current
+# publish the printed current_public_key to the Platform trust registry and Game, wait for propagation
+PLATFORM_IMAGE=<image> deploy/synology/scripts/generate-native-admission-key.sh drop-retiring  # after the retiring key's grants expired
+```
+
+`show` prints the current ids and public keys without changing anything. Key ids are never reused.
 
 ## Early workstation testing through loopback
 

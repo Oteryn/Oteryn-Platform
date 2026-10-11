@@ -195,7 +195,7 @@ jobs:
           PLATFORM_IMAGE=$platform_image
           GATEWAY_IMAGE=$gateway_image
           APP_NAME=Oteryn Platform Staging
-          APP_ENV=staging
+          APP_ENV=preproduction
           APP_DEBUG=false
           APP_KEY=$APP_KEY
           APP_URL=$app_url

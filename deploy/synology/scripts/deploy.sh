@@ -399,6 +399,8 @@ _oteryn_fast_deploy_platform() {
     "${compose[@]}" up -d --no-deps --force-recreate platform
     _oteryn_reconcile_marketplace_scheduler_after_runtime_change
     _oteryn_fast_platform_smoke
+    # Native game login stays on only while the recreated Platform can really sign (fail closed).
+    oteryn_run_native_admission_self_check "$("${compose[@]}" ps -q platform)"
 
     _oteryn_fast_assert_preserved_service mariadb "$FAST_MARIADB_ID"
     _oteryn_fast_assert_preserved_service redis "$FAST_REDIS_ID"
@@ -417,6 +419,16 @@ _oteryn_fast_deploy_platform() {
     trap - EXIT
     echo "Oteryn Synology staging Platform fast deploy is healthy in $((SECONDS - started))s; MariaDB, Redis, internal proxy and Gateway were preserved."
 }
+
+# Native game login is part of every deployment (compose.yml native admission flag). Before any
+# stack change, the issuer signing key must exist in its root-only volume with a readable key id;
+# the key is created here on first use and only its key id and PUBLIC key are printed. The signing
+# self-check below then proves the Platform can sign with it, or the deployment is refused.
+docker image inspect "$PLATFORM_IMAGE" >/dev/null 2>&1 || {
+    echo "Guarded workflow did not leave a resolved Platform image locally: $PLATFORM_IMAGE" >&2
+    exit 1
+}
+oteryn_ensure_native_admission_key || exit 1
 
 fast_candidate_rc=0
 _oteryn_fast_candidate || fast_candidate_rc=$?
@@ -697,6 +709,10 @@ if ! "${compose[@]}" exec -T platform sh -ec 'test -s storage/oauth-private.key 
     "${compose[@]}" exec -T platform php artisan passport:keys --no-interaction
 fi
 "${compose[@]}" exec -T platform php artisan game-auth:oauth-client:ensure
+
+# Refuse before the Gateway starts routing native logins: the Platform issuer must sign a
+# throwaway grant with the configured key and verify it against the trust registry (fail closed).
+oteryn_run_native_admission_self_check "$("${compose[@]}" ps -q platform)" || exit 1
 
 "${compose[@]}" up -d --no-deps --force-recreate internal-proxy
 "${compose[@]}" up -d gateway

@@ -228,7 +228,8 @@ for marker in PLATFORM_IMAGE GATEWAY_IMAGE; do
 done
 
 docker exec "${containers[platform]}" sh -ec '
-    test "$APP_ENV" = staging
+    # Synology runs as preproduction; a stack not yet redeployed since the cut-over still reports staging.
+    test "$APP_ENV" = preproduction || test "$APP_ENV" = staging
     test "$APP_DEBUG" = false
     test "$LOG_CHANNEL" = stderr_json
     test "$SESSION_DRIVER" = file

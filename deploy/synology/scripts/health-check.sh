@@ -55,11 +55,16 @@ container_env_value() {
         | awk -v prefix="${key}=" 'index($0, prefix) == 1 && !found { print substr($0, length(prefix) + 1); found = 1 }'
 }
 
-# Native login stays off until a Platform self-check can prove the issuer signs (lib.sh).
+# Native login is on only while the Platform issuer can really sign: the pairing check keeps the two
+# flags in step, and with the flag on the Platform signing self-check must pass (lib.sh).
 platform_native_admission="$(container_env_value platform GAME_AUTH_NATIVE_ADMISSION_ENABLED)"
 gateway_native_login="$(container_env_value gateway GATEWAY_NATIVE_LOGIN_ENABLED)"
 oteryn_assert_native_login_pairing "$platform_native_admission" "$gateway_native_login" || exit 1
-echo "::warning::Native game login is disabled on this deployment: Platform native admission is off, so the Gateway refuses every login."
+if [[ "$platform_native_admission" == true ]]; then
+    oteryn_run_native_admission_self_check "${container_ids[platform]}" || exit 1
+else
+    echo "::warning::Native game login is disabled on this deployment: Platform native admission is off, so the Gateway refuses every login."
+fi
 
 probe_url() {
     local service="$1"
@@ -139,7 +144,7 @@ docker run --rm \
     --network host \
     -i \
     python:3.12-alpine \
-    python3 - "$PLATFORM_PORT" "$GATEWAY_PORT" "$expected_gateway_version" <<'PY'
+    python3 - "$PLATFORM_PORT" "$GATEWAY_PORT" "$expected_gateway_version" "$platform_native_admission" <<'PY'
 import http.client
 import json
 import secrets
@@ -149,6 +154,7 @@ import time
 platform_port = int(sys.argv[1])
 gateway_port = int(sys.argv[2])
 expected_gateway_version = sys.argv[3]
+native_admission_on = sys.argv[4] == 'true'
 
 
 def uuid7():
@@ -229,8 +235,10 @@ if not required_cache_control.issubset(cache_control):
 if headers.get('pragma', '').lower() != 'no-cache' or headers.get('expires') != '0':
     raise SystemExit('Gateway login response lost legacy no-cache controls')
 
-# A well-formed native (protocol_version 2) login. Native admission is off (the pairing check
-# above refuses anything else), so the Gateway must refuse it without reaching a dependency.
+# A well-formed native (protocol_version 2) login with an unknown ticket. With native admission off
+# the Gateway must refuse it without reaching a dependency; with it on (the signing self-check has
+# passed) the Gateway must reach the Platform issuer, which rejects the unknown ticket as 401
+# NATIVE_LOGIN_AUTHENTICATION_REQUIRED. A 503 NATIVE_LOGIN_UNAVAILABLE means the issuer is down.
 attempt_ref = uuid7()
 native_login = json.dumps(
     {
@@ -262,7 +270,12 @@ try:
     native_payload = json.loads(body)
 except json.JSONDecodeError as exc:
     raise SystemExit(f'Well-formed native Gateway login did not return JSON (status {status})') from exc
-if status != 400 or native_payload != {'error': 'invalid_request'}:
+if native_admission_on:
+    native_error = native_payload.get('error') if isinstance(native_payload, dict) else None
+    native_code = native_error.get('code') if isinstance(native_error, dict) else None
+    if status != 401 or native_code != 'NATIVE_LOGIN_AUTHENTICATION_REQUIRED':
+        raise SystemExit(f'Gateway did not reject the unknown native ticket through the Platform issuer: status {status}')
+elif status != 400 or native_payload != {'error': 'invalid_request'}:
     raise SystemExit(f'Gateway answered a native login while native admission is off: status {status}')
 cache_control = {token.strip().lower() for token in headers.get('cache-control', '').split(',')}
 if not required_cache_control.issubset(cache_control):

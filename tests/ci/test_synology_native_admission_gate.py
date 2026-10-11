@@ -14,8 +14,15 @@ COMPOSE = ROOT / "deploy" / "synology" / "compose.yml"
 LIB = ROOT / "deploy" / "synology" / "scripts" / "lib.sh"
 HEALTH_CHECK = ROOT / "deploy" / "synology" / "scripts" / "health-check.sh"
 README = ROOT / "deploy" / "synology" / "README.md"
+DEPLOY = ROOT / "deploy" / "synology" / "scripts" / "deploy.sh"
+KEY_SCRIPT = ROOT / "deploy" / "synology" / "scripts" / "generate-native-admission-key.sh"
+ENTRYPOINT = ROOT / "deploy" / "synology" / "docker" / "platform-entrypoint.sh"
+ENV_EXAMPLE = ROOT / "deploy" / "synology" / ".env.example"
+PREFLIGHT = ROOT / "deploy" / "synology" / "scripts" / "production-target-preflight.sh"
+WORKFLOWS = ROOT / ".github" / "workflows"
+TICKETS = ROOT / "app" / "GameAuth" / "NativeLogin" / "NativeGameLoginTickets.php"
 
-PROBE_MARKER = '"$expected_gateway_version" <<\'PY\'\n'
+PROBE_MARKER = '"$expected_gateway_version" "$platform_native_admission" <<\'PY\'\n'
 UUID7 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 NO_STORE = {
     "Cache-Control": "no-store, no-cache, must-revalidate, private",
@@ -26,16 +33,50 @@ NO_STORE = {
 
 def test_gateway_native_login_is_the_platform_admission_flag() -> None:
     text = COMPOSE.read_text(encoding="utf-8")
-    assert 'x-native-admission-enabled: &native_admission_enabled "false"' in text
+    # On for the preproduction stack: deploy.sh and health-check.sh refuse unless the key volume,
+    # key id and Platform signing self-check prove the issuer can sign (tests below).
+    assert 'x-native-admission-enabled: &native_admission_enabled "true"' in text
     assert "GAME_AUTH_NATIVE_ADMISSION_ENABLED: *native_admission_enabled" in text
     assert "GATEWAY_NATIVE_LOGIN_ENABLED: *native_admission_enabled" in text
-    # Synology runs APP_ENV=staging, which the Platform issuer refuses to sign in, so no
-    # literal flag value may bypass the shared anchor.
+    # No literal flag value may bypass the shared anchor.
     assert re.search(r"(GAME_AUTH_NATIVE_ADMISSION_ENABLED|GATEWAY_NATIVE_LOGIN_ENABLED):\s*[\"']?(true|false)", text) is None
     platform = text.index("\n  platform:\n")
     gateway = text.index("\n  gateway:\n")
     assert platform < text.index("GAME_AUTH_NATIVE_ADMISSION_ENABLED: *") < text.index("\n  tls-init:\n")
     assert gateway < text.index("GATEWAY_NATIVE_LOGIN_ENABLED: *")
+    # The legacy login switch is untouched by this change.
+    assert "GAME_AUTH_LEGACY_LOGIN_ENABLED" not in text
+
+
+def test_signing_keys_come_from_an_external_read_only_volume_never_from_values() -> None:
+    text = COMPOSE.read_text(encoding="utf-8")
+    assert "- native_admission_keys:/run/oteryn-native-admission:ro" in text
+    assert "native_admission_keys:\n    name: oteryn-native-admission-keys\n    external: true" in text
+    for forbidden in ("SIGNING_KEY_FILE", "SIGNING_KEY_ID", "SIGNING_KEY:", "PRIVATE"):
+        assert forbidden not in text
+    entrypoint = ENTRYPOINT.read_text(encoding="utf-8")
+    assert "/run/oteryn-native-admission" in entrypoint
+    assert "GAME_AUTH_NATIVE_ADMISSION_SIGNING_KEY_FILE" in entrypoint
+    # The entrypoint exports paths and key ids only; it never reads the key file.
+    assert "current.key\"" in entrypoint and "cat " not in entrypoint
+
+
+def test_synology_runs_as_preproduction_and_production_guards_stay_closed() -> None:
+    assert "APP_ENV=preproduction" in ENV_EXAMPLE.read_text(encoding="utf-8")
+    assert "APP_ENV=staging" not in ENV_EXAMPLE.read_text(encoding="utf-8")
+    for name in (
+        "deploy-synology-staging.yml",
+        "recover-synology-staging-schema.yml",
+        "character-bazaar-staging-control.yml",
+    ):
+        workflow = (WORKFLOWS / name).read_text(encoding="utf-8")
+        assert "APP_ENV=preproduction" in workflow, name
+        assert "APP_ENV=staging" not in workflow, name
+    assert 'test "$APP_ENV" = preproduction' in PREFLIGHT.read_text(encoding="utf-8")
+    # The issuer still signs only in testing or preproduction; production is not added anywhere.
+    issuer = TICKETS.read_text(encoding="utf-8")
+    assert "app()->environment(['testing', 'preproduction'])" in issuer
+    assert "'production'" not in issuer
 
 
 def run_pairing(platform: str, gateway: str) -> subprocess.CompletedProcess[str]:
@@ -63,12 +104,51 @@ def test_pairing_refuses_missing_platform_flag() -> None:
     assert "missing or invalid" in result.stderr
 
 
-def test_pairing_refuses_native_admission_on_without_signing_self_check() -> None:
-    # An unknown-ticket probe is rejected before the issuer touches its signing key, so a
-    # missing or untrusted key would still pass it. Deploy refuses ON until a self-check exists.
-    result = run_pairing("true", "true")
-    assert result.returncode != 0
-    assert "issuer signing key and trust validation" in result.stderr
+def test_pairing_accepts_both_on_and_still_refuses_a_mismatch() -> None:
+    # Both on is allowed: the signing self-check, not the pairing, proves the issuer can sign.
+    assert run_pairing("true", "true").returncode == 0
+    mismatch = run_pairing("true", "false")
+    assert mismatch.returncode != 0
+    assert "does not match" in mismatch.stderr
+
+
+def test_health_check_runs_the_signing_self_check_when_admission_is_on() -> None:
+    script = HEALTH_CHECK.read_text(encoding="utf-8")
+    on = script.index('if [[ "$platform_native_admission" == true ]]; then')
+    check = script.index('oteryn_run_native_admission_self_check "${container_ids[platform]}" || exit 1')
+    assert script.index('oteryn_assert_native_login_pairing "$platform_native_admission"') < on < check
+    assert check < script.index(PROBE_MARKER)
+
+
+def test_deploy_ensures_the_key_before_changes_and_self_checks_before_the_gateway() -> None:
+    script = DEPLOY.read_text(encoding="utf-8")
+    ensure = script.index("oteryn_ensure_native_admission_key || exit 1")
+    assert ensure < script.index("fast_candidate_rc=0")
+    assert ensure < script.index('"${compose[@]}" up -d mariadb redis')
+    self_check = script.index('oteryn_run_native_admission_self_check "$("${compose[@]}" ps -q platform)" || exit 1')
+    assert script.index("game-auth:oauth-client:ensure") < self_check < script.index('"${compose[@]}" up -d gateway')
+    # The fast path recreates Platform only, so it re-proves signing before it can finish.
+    fast = script.index("_oteryn_fast_platform_smoke\n    # Native game login")
+    assert "oteryn_run_native_admission_self_check" in script[fast : fast + 300]
+
+
+def test_self_check_command_name_is_the_merged_artisan_command() -> None:
+    lib = LIB.read_text(encoding="utf-8")
+    command = (ROOT / "app" / "Console" / "Commands" / "VerifyNativeAdmissionSigning.php").read_text(encoding="utf-8")
+    assert "game-auth:native-admission:self-check" in lib
+    assert "protected $signature = 'game-auth:native-admission:self-check';" in command
+
+
+def test_key_script_keeps_the_private_key_off_every_output_channel() -> None:
+    script = KEY_SCRIPT.read_text(encoding="utf-8")
+    assert script.startswith("#!/usr/bin/env bash\nset -euo pipefail") or "\nset -euo pipefail\n" in script
+    assert "--network none" in script and "--read-only" in script
+    # Only these lines are ever echoed; the seed variable is never passed to echo/fwrite STDOUT.
+    assert "echo 'current_public_key='" in script and "echo 'current_key_id='" in script
+    assert "0600" in script and "0700" in script
+    echoed = re.findall(r"echo [^\n]+", script.split("<<'PHP'")[1].split("\nPHP\n")[0])
+    assert all("seed" not in line and "secret" not in line.lower() for line in echoed)
+    assert "docker run" in script and "--volume \"$VOLUME_NAME:/keys\"" in script
 
 
 def test_health_check_asserts_pairing_before_probes() -> None:
@@ -141,13 +221,13 @@ class PlatformHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
-def run_probe(native_answer) -> tuple[subprocess.CompletedProcess[str], list[dict]]:
+def run_probe(native_answer, native_on: str = "false") -> tuple[subprocess.CompletedProcess[str], list[dict]]:
     seen: list[dict] = []
     gateway, gateway_port = serve(gateway_handler(native_answer, seen))
     platform, platform_port = serve(PlatformHandler)
     try:
         result = subprocess.run(
-            ["python3", "-I", "-", str(platform_port), str(gateway_port), "synology-staging"],
+            ["python3", "-I", "-", str(platform_port), str(gateway_port), "synology-staging", native_on],
             input=probe_source(),
             text=True,
             capture_output=True,
@@ -186,6 +266,16 @@ def test_probe_fails_when_gateway_routes_native_login_to_the_issuer() -> None:
         assert "while native admission is off" in result.stderr
 
 
+def test_probe_with_admission_on_requires_the_issuer_to_reject_the_unknown_ticket() -> None:
+    result, seen = run_probe(refusal("NATIVE_LOGIN_AUTHENTICATION_REQUIRED"), "true")
+    assert result.returncode == 0, result.stderr
+    assert len(seen) == 1
+    for answer in (refusal("NATIVE_LOGIN_UNAVAILABLE"), lambda body: (400, {"error": "invalid_request"})):
+        failed, _ = run_probe(answer, "true")
+        assert failed.returncode != 0
+        assert "through the Platform issuer" in failed.stderr
+
+
 def test_readme_documents_native_admission_keys_by_name() -> None:
     readme = README.read_text(encoding="utf-8")
     for key in (
@@ -193,5 +283,8 @@ def test_readme_documents_native_admission_keys_by_name() -> None:
         "GATEWAY_NATIVE_LOGIN_ENABLED",
         "GAME_AUTH_NATIVE_ADMISSION_SIGNING_KEY_FILE",
         "GAME_AUTH_NATIVE_ADMISSION_SIGNING_KEY_ID",
+        "generate-native-admission-key.sh",
+        "oteryn-native-admission-keys",
+        "APP_ENV=preproduction",
     ):
         assert key in readme

@@ -2,11 +2,12 @@ name: ${COMPOSE_PROJECT_NAME:-oteryn-staging}
 
 # One switch for both sides of native login. The Gateway only routes protocol_version 2
 # logins when the Platform issuer can admit them, so the Gateway flag is always the
-# Platform flag. Synology runs APP_ENV=staging and the Platform issuer signs only in
-# testing or preproduction, so native admission stays off here until preproduction
-# authority, issuer key custody and a Platform signing self-check exist; health-check.sh
-# refuses true until then (README: Native login).
-x-native-admission-enabled: &native_admission_enabled "false"
+# Platform flag. Synology runs APP_ENV=preproduction, the only deployed environment in which
+# the Platform issuer signs. The flag is true only because deploy.sh proves, before it
+# recreates the Gateway, that the issuer key volume, key id and the Platform signing
+# self-check are in order, and health-check.sh re-proves it; deploy refuses otherwise
+# (README: Native login). Production never takes this path.
+x-native-admission-enabled: &native_admission_enabled "true"
 
 services:
   mariadb:
@@ -77,6 +78,9 @@ services:
       - ${PLATFORM_BIND_ADDRESS}:${PLATFORM_PORT}:8000
     volumes:
       - platform_storage:/var/www/html/storage
+      # Issuer signing keys (current/retiring .key and .kid), read-only; the entrypoint exports the
+      # key id and file path from here. Created by generate-native-admission-key.sh, never by Compose.
+      - native_admission_keys:/run/oteryn-native-admission:ro
     networks:
       - private
     depends_on:
@@ -141,6 +145,9 @@ volumes:
   platform_storage:
   bootstrap_files:
   internal_tls:
+  native_admission_keys:
+    name: oteryn-native-admission-keys
+    external: true
 
 networks:
   private:
