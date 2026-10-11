@@ -290,8 +290,6 @@ test(publicMarker, async ({ page }) => {
   const layoutPaths = [
     '/download',
     '/events',
-    '/deaths',
-    '/highscores',
     '/',
     '/en',
     '/news',

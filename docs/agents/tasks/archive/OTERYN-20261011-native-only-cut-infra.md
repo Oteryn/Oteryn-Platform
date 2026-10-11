@@ -1,5 +1,5 @@
 ---
-task_id: OTERYN-20261011-decanary-cut-infra
+task_id: OTERYN-20261011-native-only-cut-infra
 governing_issue: 1474
 required_reads: []
 search_first:
@@ -7,7 +7,7 @@ search_first:
 optional_reads: []
 ---
 
-# OTERYN-20261011 decanary infra cut
+# OTERYN-20261011 native-only infra cut
 
 ## Goal
 
@@ -31,7 +31,7 @@ owned_paths:
   - .github/workflows/**
   - scripts/acceptance/**
   - tests/ci/**
-  - docs/agents/tasks/archive/OTERYN-20261011-decanary-cut-infra.md
+  - docs/agents/tasks/archive/OTERYN-20261011-native-only-cut-infra.md
 modules:
   - ci
   - deploy
@@ -60,7 +60,7 @@ owned_paths:
   - .github/workflows/**
   - scripts/acceptance/**
   - tests/ci/**
-  - docs/agents/tasks/archive/OTERYN-20261011-decanary-cut-infra.md
+  - docs/agents/tasks/archive/OTERYN-20261011-native-only-cut-infra.md
 proven:
   - pytest tests/ci deploy/synology/tests tools/validation passes locally (349 passed).
   - docker compose config renders for compose.yml and the marketplace overlay.
@@ -84,7 +84,7 @@ changed_paths:
   - scripts/acceptance/docker/compose.yml
   - scripts/acceptance/docker/run.sh
   - tests/ci/**
-  - docs/agents/tasks/archive/OTERYN-20261011-decanary-cut-infra.md
+  - docs/agents/tasks/archive/OTERYN-20261011-native-only-cut-infra.md
 validation:
   - command: python -m pytest tests/ci deploy/synology/tests tools/validation
     result: PASS
