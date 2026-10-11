@@ -1,6 +1,11 @@
 <?php
 
 use App\GameAuth\NativeRuntimeStatus\NativeRuntimeStatusReport;
+use App\GameProjections\Http\EnforcePublicProjectionHttpBounds;
+use App\GameProjections\Http\GuardPublicProjectionPeer;
+use App\GameProjections\Http\PublicProjectionSnapshotController;
+use App\GameProjections\Http\PublicProjectionWatermarkController;
+use App\GameProjections\PublicProjectionFamily;
 use App\Http\Controllers\GameAuth\CharacterBootstrapIntentController;
 use App\Http\Controllers\GameAuth\NativeAccountCharactersController;
 use App\Http\Controllers\GameAuth\NativeAccountCharactersWatermarkController;
@@ -73,4 +78,22 @@ Route::post('/internal/v1/products-entitlements/premium-snapshots/read', Premium
     ->middleware([
         PreventSensitiveGameAuthResponseCaching::class,
         GuardPremiumSnapshotPeer::class,
+    ]);
+
+// Game Public Projections v1 ingest (removal plan packet C4): one compiled path per family plus the
+// family watermark, accepted only from the dedicated public-projection mTLS identities. Off unless
+// game-projections.public.enabled is true in testing or preproduction.
+foreach (PublicProjectionFamily::cases() as $publicProjectionFamily) {
+    Route::post('/internal/v1/game-public/'.$publicProjectionFamily->path(), PublicProjectionSnapshotController::class)
+        ->defaults('family', $publicProjectionFamily->value)
+        ->middleware([
+            GuardPublicProjectionPeer::class,
+            EnforcePublicProjectionHttpBounds::class.':'.$publicProjectionFamily->maxBytes(),
+        ]);
+}
+
+Route::post('/internal/v1/game-public/'.PublicProjectionFamily::WATERMARK_PATH, PublicProjectionWatermarkController::class)
+    ->middleware([
+        GuardPublicProjectionPeer::class,
+        EnforcePublicProjectionHttpBounds::class.':'.PublicProjectionFamily::WATERMARK_MAX_BYTES,
     ]);
