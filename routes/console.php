@@ -1,5 +1,8 @@
 <?php
 
+use App\Accounts\Actions\ProvisionCanaryAccount;
+use App\Accounts\Exceptions\CanaryAccountProvisioningException;
+use App\Accounts\Models\IdentityCanaryAccount;
 use App\Admin\AdminRoleManager;
 use App\CanaryIntegration\CanaryCharacterCreateDatabasePrivilegeVerifier;
 use App\CanaryIntegration\CanaryCharacterTransferDatabasePrivilegeVerifier;
@@ -177,6 +180,50 @@ Artisan::command('marketplace:reconcile {--limit=100}', function () {
 
     return $result['recovery_required'] === 0 ? 0 : 2;
 })->purpose('Reconcile pending Character Bazaar escrow, cancellation and settlement operations');
+
+Artisan::command('canary:provision-pending-accounts {--limit=100}', function () {
+    $limitOption = $this->option('limit');
+    $limit = is_int($limitOption) || is_string($limitOption)
+        ? filter_var($limitOption, FILTER_VALIDATE_INT, [
+            'options' => [
+                'min_range' => 1,
+                'max_range' => 1000,
+            ],
+        ])
+        : false;
+
+    if ($limit === false) {
+        $this->error('The --limit option must be an integer between 1 and 1000.');
+
+        return 1;
+    }
+
+    $pendingBindings = IdentityCanaryAccount::query()
+        ->where('status', IdentityCanaryAccount::STATUS_PENDING)
+        ->orderBy('identity_id')
+        ->limit($limit)
+        ->get();
+
+    $completed = 0;
+    $failed = 0;
+    $provision = app(ProvisionCanaryAccount::class);
+
+    foreach ($pendingBindings as $pendingBinding) {
+        try {
+            $binding = $provision->execute($pendingBinding->identity_id);
+
+            if ($binding->isReady()) {
+                $completed++;
+            }
+        } catch (CanaryAccountProvisioningException) {
+            $failed++;
+        }
+    }
+
+    $this->info("Processed {$pendingBindings->count()} pending account provisioning record(s): {$completed} ready, {$failed} failed.");
+
+    return $failed === 0 ? 0 : 1;
+})->purpose('Retry bounded pending Platform-originated Canary account provisioning records');
 
 Artisan::command('admin:bootstrap {email}', function () {
     $emailArgument = $this->argument('email');

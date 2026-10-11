@@ -2,16 +2,34 @@
 
 namespace Tests\Feature\Identity;
 
+use App\Accounts\Actions\ProvisionCanaryAccount;
+use App\Accounts\Contracts\CanaryAccountProvisioningGateway;
+use App\Accounts\Exceptions\CanaryAccountProvisioningUnavailable;
+use App\Accounts\Models\IdentityCanaryAccount;
 use App\Audit\SecurityEventRecorder;
 use App\Identity\Models\Identity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 final class RegistrationTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->app->instance(CanaryAccountProvisioningGateway::class, new class implements CanaryAccountProvisioningGateway
+        {
+            private int $nextAccountId = 1000;
+
+            public function provision(string $provisioningName, int $creationEpoch): int
+            {
+                return $this->nextAccountId++;
+            }
+        });
+    }
 
     public function test_registration_form_is_available_and_contains_csrf_token(): void
     {
@@ -22,7 +40,7 @@ final class RegistrationTest extends TestCase
         $response->assertSee('name="_token"', false);
     }
 
-    public function test_registration_normalizes_email_hashes_password_and_records_security_event_without_game_binding(): void
+    public function test_registration_normalizes_email_hashes_password_provisions_binding_and_records_security_events(): void
     {
         $password = 'Correct-Horse-9!Battery';
 
@@ -38,40 +56,62 @@ final class RegistrationTest extends TestCase
 
         $identity = Identity::query()->firstOrFail();
         $passwordHash = $identity->password;
+        $binding = IdentityCanaryAccount::query()->whereKey($identity->id)->firstOrFail();
 
         self::assertSame('person@example.com', $identity->email);
         self::assertNotSame($password, $passwordHash);
         self::assertTrue(Hash::check($password, $passwordHash));
         self::assertSame('argon2id', password_get_info($passwordHash)['algoName']);
-        self::assertNotSame('999999', $identity->account_id);
-        self::assertSame(0, DB::table('identity_canary_accounts')->count());
+        self::assertTrue($binding->isReady());
+        self::assertSame(1000, $binding->canary_account_id);
+        self::assertMatchesRegularExpression('/^op[0-9a-f]{30}$/', $binding->provisioning_name);
+        self::assertNotSame('client-controlled-value', $binding->provisioning_name);
+        self::assertNotSame(999999, $binding->canary_account_id);
 
         $this->assertDatabaseHas('identity_security_events', [
             'identity_id' => $identity->id,
             'event_type' => SecurityEventRecorder::IDENTITY_REGISTERED,
         ]);
-        $this->assertDatabaseMissing('identity_security_events', [
+        $this->assertDatabaseHas('identity_security_events', [
             'identity_id' => $identity->id,
             'event_type' => SecurityEventRecorder::CANARY_ACCOUNT_PROVISIONING_REQUESTED,
         ]);
+        $this->assertDatabaseHas('identity_security_events', [
+            'identity_id' => $identity->id,
+            'event_type' => SecurityEventRecorder::CANARY_ACCOUNT_PROVISIONING_COMPLETED,
+        ]);
     }
 
-    public function test_registration_needs_no_game_database_connection(): void
+    public function test_registration_survives_canary_dependency_failure_with_pending_retryable_intent(): void
     {
-        config()->set('database.connections.canary', [
-            'driver' => 'sqlite',
-            'database' => '/nonexistent/canary.sqlite',
-        ]);
+        $this->app->instance(CanaryAccountProvisioningGateway::class, new class implements CanaryAccountProvisioningGateway
+        {
+            public function provision(string $provisioningName, int $creationEpoch): int
+            {
+                throw new CanaryAccountProvisioningUnavailable('dependency unavailable');
+            }
+        });
+
         $password = 'Correct-Horse-9!Battery';
 
         $this->post('/register', [
-            'email' => 'native@example.com',
+            'email' => 'pending@example.com',
             'password' => $password,
             'password_confirmation' => $password,
         ])->assertRedirect(route('identity.register.create'));
 
-        self::assertSame(1, Identity::query()->where('email', 'native@example.com')->count());
-        self::assertSame(0, DB::table('identity_canary_accounts')->count());
+        $identity = Identity::query()->where('email', 'pending@example.com')->firstOrFail();
+        $binding = IdentityCanaryAccount::query()->whereKey($identity->id)->firstOrFail();
+
+        self::assertFalse($binding->isReady());
+        self::assertSame(IdentityCanaryAccount::STATUS_PENDING, $binding->status);
+        self::assertNull($binding->canary_account_id);
+        self::assertSame(ProvisionCanaryAccount::FAILURE_DEPENDENCY_UNAVAILABLE, $binding->last_failure_code);
+
+        $this->assertDatabaseHas('identity_security_events', [
+            'identity_id' => $identity->id,
+            'event_type' => SecurityEventRecorder::CANARY_ACCOUNT_PROVISIONING_FAILED,
+        ]);
     }
 
     public function test_registration_rejects_case_insensitive_canonical_duplicate_email(): void

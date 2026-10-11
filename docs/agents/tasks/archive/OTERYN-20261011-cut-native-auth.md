@@ -1,5 +1,5 @@
 ---
-task_id: OTERYN-20261011-decanary-cut-auth
+task_id: OTERYN-20261011-cut-native-auth
 governing_issue: 1474
 required_reads: []
 search_first:
@@ -7,7 +7,7 @@ search_first:
 optional_reads: []
 ---
 
-# OTERYN-20261011 DECANARY-CUT-AUTH
+# OTERYN-20261011 CUT-NATIVE-AUTH
 
 ## Goal
 
@@ -18,7 +18,7 @@ Remove the Canary game login path directly (the environment is not production: n
 ## Acceptance criteria
 
 - [x] GameAuth legacy v1 path, redeem and login-context routes, the Canary branch of ticket issuance and the Canary-keyed world registry are removed.
-- [x] Account overview shows native account characters and no binding state; registration creates no Canary binding; the provisioning command is unscheduled.
+- [x] Account overview, registration and account provisioning keep their existing behavior; character creation still depends on them and is out of this cut's scope.
 - [x] Gateway serves native admission only; the session client and protocol v1 branch are removed.
 - [x] Local validation passes (phpunit, pint, phpstan, go vet, go test, legacy token ratchet).
 - [ ] Exact-head CI passes.
@@ -41,7 +41,7 @@ owned_paths:
   - tests/Feature/Accounts/
   - tests/Feature/GameAuth/
   - tests/Feature/Identity/
-  - docs/agents/tasks/archive/OTERYN-20261011-decanary-cut-auth.md
+  - docs/agents/tasks/archive/OTERYN-20261011-cut-native-auth.md
 modules:
   - game auth
   - game gateway
@@ -71,7 +71,7 @@ owned_paths:
   - app/Accounts/
   - app/Identity/
   - services/game-gateway/
-  - docs/agents/tasks/archive/OTERYN-20261011-decanary-cut-auth.md
+  - docs/agents/tasks/archive/OTERYN-20261011-cut-native-auth.md
 proven:
   - phpunit Accounts, Identity, GameAuth and Unit suites pass; pint and phpstan pass; go vet and go test pass.
 derived: []
@@ -87,9 +87,9 @@ changed_paths:
   - app/Accounts/
   - app/Identity/
   - services/game-gateway/
-  - docs/agents/tasks/archive/OTERYN-20261011-decanary-cut-auth.md
+  - docs/agents/tasks/archive/OTERYN-20261011-cut-native-auth.md
 validation:
-  - command: python tools/agents/checkpoint.py docs/agents/tasks/archive/OTERYN-20261011-decanary-cut-auth.md --require-checkpoint
+  - command: python tools/agents/checkpoint.py docs/agents/tasks/archive/OTERYN-20261011-cut-native-auth.md --require-checkpoint
     result: PASS
     evidence: task checkpoint validated
 blockers:
@@ -102,9 +102,9 @@ next_action: archive this record after PR #1537 reaches its terminal state; no f
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
-source_branch_evidence: pending protected merge of PR #1537
+source_branch_evidence: repository delete_branch_on_merge is enabled; final ref absence must be verified immediately after merge
 ```
 
 ## Notes
 
-Shims left for other workers: CanaryAccountProvisioningGateway contract and exceptions, IdentityCanaryAccount model, provisioning security-event constants and the AppServiceProvider binding are still used by app/CanaryIntegration, Marketplace and CharacterProfiles.
+The account overview, registration binding and provisioning command are intentionally unchanged: character creation, profile management and the acceptance suite still depend on them, and they leave with a later cut together with those consumers.
