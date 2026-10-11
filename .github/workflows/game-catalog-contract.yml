@@ -14,7 +14,6 @@ on:
       - 'resources/schemas/game-catalog/**'
       - 'tests/Fixtures/GameCatalog/**'
       - 'tests/Feature/GameCatalog/**'
-      - 'tests/Integration/GameCatalog/**'
       - 'tests/Unit/GameCatalog/**'
       - 'tools/game-catalog/**'
   pull_request:
@@ -29,7 +28,6 @@ on:
       - 'resources/schemas/game-catalog/**'
       - 'tests/Fixtures/GameCatalog/**'
       - 'tests/Feature/GameCatalog/**'
-      - 'tests/Integration/GameCatalog/**'
       - 'tests/Unit/GameCatalog/**'
       - 'tools/game-catalog/**'
 
@@ -103,7 +101,6 @@ jobs:
             database/migrations/2026_07_29_152000_make_game_catalog_verified_content_boundary_nullable.php \
             database/migrations/2026_07_29_174500_add_game_catalog_loot_chance_model.php \
             tests/Feature/GameCatalog \
-            tests/Integration/GameCatalog \
             tests/Unit/GameCatalog \
             2>&1 | tee artifacts/ci/game-catalog-pint.json
 
@@ -121,7 +118,6 @@ jobs:
             database/migrations/2026_07_29_152000_make_game_catalog_verified_content_boundary_nullable.php \
             database/migrations/2026_07_29_174500_add_game_catalog_loot_chance_model.php \
             tests/Feature/GameCatalog \
-            tests/Integration/GameCatalog \
             tests/Unit/GameCatalog \
             --memory-limit=1G \
             --no-progress \

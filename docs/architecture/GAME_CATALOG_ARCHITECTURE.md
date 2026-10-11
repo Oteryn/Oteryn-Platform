@@ -676,7 +676,6 @@ lang/pl/game_catalog.php
 public/css/game-catalog.css
 tests/Unit/GameCatalog/**
 tests/Feature/GameCatalog/**
-tests/Integration/GameCatalog/**
 scripts/acceptance/tests/*game-catalog*.spec.mjs
 ```
 
