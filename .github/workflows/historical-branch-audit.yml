@@ -208,7 +208,7 @@ jobs:
 
       - name: Publish inventory evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: historical-branch-audit-${{ github.run_id }}
           path: |
@@ -252,7 +252,7 @@ jobs:
 
       - name: Publish steady-state evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: steady-state-branch-hygiene-${{ github.run_id }}
           path: branch-hygiene-live.json
@@ -328,7 +328,7 @@ jobs:
 
       - name: Publish apply and restore evidence
         if: always() && steps.phase.outputs.value == 'reviewed_for_deletion'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: historical-work-reconciliation-apply-${{ github.run_id }}
           path: |

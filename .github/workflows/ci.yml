@@ -163,7 +163,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
         with:
           php-version: '8.5'
           coverage: none
@@ -217,7 +217,7 @@ jobs:
 
       - name: Upload PHPUnit failure diagnostics
         if: failure() && hashFiles('artifacts/ci/phpunit-junit.xml') != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ci-phpunit-failure-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/ci/phpunit-junit.xml
@@ -270,7 +270,7 @@ jobs:
           ref: ${{ github.event.merge_group.head_sha || github.sha }}
 
       - name: Setup PHP with PCOV
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
         with:
           php-version: '8.5'
           coverage: pcov
@@ -298,7 +298,7 @@ jobs:
 
       - name: Upload bounded coverage evidence
         if: always() && hashFiles('artifacts/coverage/**') != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: php-coverage-${{ github.sha }}-${{ github.run_attempt }}
           path: artifacts/coverage
