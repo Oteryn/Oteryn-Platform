@@ -133,14 +133,12 @@ Delivered greenfield scope:
 - Oteryn Platform is the authoritative owner of user Identity, account lifecycle policy and credentials;
 - immutable `1 Platform Identity <-> 1 legacy engine accounts.id` ownership binding for supported greenfield accounts;
 - Platform-originated legacy engine account provisioning with durable pending/ready/conflict state and forward recovery;
-- separate least-privilege `canary_provisioning` database principal restricted to the approved account-create/recovery columns;
 - non-user random sink credential strategy that preserves the current required legacy engine password representation without making legacy engine reusable passwords a user authentication authority;
 - authenticated character creation authorized exclusively through the ready immutable binding;
 - ADR 0005 canonical character-name, starter-state, allowed-vocation/sex and maximum-10-active-character product policy;
-- separate least-privilege `canary_character_create` database principal restricted to the approved account/player columns;
 - locked account-row transaction, natural idempotent recovery, active-character quota enforcement and global-name conflict handling;
 - fail-closed effective-grant verifiers and reviewed SQL provisioning templates for both write principals;
-- real MariaDB integration coverage for account trigger side effects, denied excessive privileges, provisioning retry/recovery, character starter/default shape, account locking, quota races and global same-name races.
+- real MariaDB integration coverage for account trigger side effects, denied excessive privileges, character starter/default shape, account locking, quota races and global same-name races.
 
 Supported Phase 5 shared-write surfaces are exactly:
 

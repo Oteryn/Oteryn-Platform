@@ -32,13 +32,13 @@ final class CanaryCharacterTransferMariaDbIntegrationTest extends TestCase
     {
         parent::setUp();
 
-        $host = getenv('CANARY_CHARACTER_CREATE_INTEGRATION_HOST');
+        $host = getenv('MARIADB_INTEGRATION_HOST');
         if (! is_string($host) || $host === '') {
             $this->markTestSkipped('MariaDB character-transfer integration environment is not configured.');
         }
 
-        $portValue = getenv('CANARY_CHARACTER_CREATE_INTEGRATION_PORT');
-        $rootPasswordValue = getenv('CANARY_CHARACTER_CREATE_INTEGRATION_ROOT_PASSWORD');
+        $portValue = getenv('MARIADB_INTEGRATION_PORT');
+        $rootPasswordValue = getenv('MARIADB_INTEGRATION_ROOT_PASSWORD');
         $this->rootHost = $host;
         $this->rootPort = is_string($portValue) && $portValue !== '' ? $portValue : '3306';
         $this->rootPassword = is_string($rootPasswordValue) ? $rootPasswordValue : '';

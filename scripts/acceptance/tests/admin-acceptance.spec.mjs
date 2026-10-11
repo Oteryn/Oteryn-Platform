@@ -131,9 +131,9 @@ test('Flows 7-9 — admin MFA/RBAC, CMS lifecycle and audit evidence', async ({ 
     await login(editorPage, editorEmail, editorPassword);
     editorMfa = await enrollMfa(editorPage, editorPassword);
     editorLastTotp = editorMfa.enrollmentCode;
-    // Provisioning has no native source yet, so registration leaves a ready or recoverable pending binding.
+    // Registration no longer provisions a game account, so no binding exists until a native source creates one.
     const editorBinding = runPhpState('binding', editorEmail);
-    expect(['ready', 'pending']).toContain(editorBinding.status);
+    expect(['ready', 'pending', 'missing']).toContain(editorBinding.status);
   } finally {
     await editorContext.close();
   }

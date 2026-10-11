@@ -104,7 +104,7 @@ return [
         'termination' => [
             'eyebrow' => 'Account termination',
             'heading' => 'Platform access grace period',
-            'intro' => 'Termination disables and anonymizes Platform login after the grace period. It does not delete or transfer the bound Canary account or characters.',
+            'intro' => 'Termination disables and anonymizes Platform login after the grace period. It does not delete or transfer the bound game account or characters.',
             'scheduled_prefix' => 'Termination is scheduled for',
             'cancel' => 'Cancel termination',
             'confirmation' => 'Type :phrase to confirm',

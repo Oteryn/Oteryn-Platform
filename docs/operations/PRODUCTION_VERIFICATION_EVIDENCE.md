@@ -119,8 +119,6 @@ Run only with the effective production credential classes already provisioned ou
 
 ```text
 php artisan canary:verify-db-privileges
-php artisan canary:verify-provisioning-db-privileges
-php artisan canary:verify-character-create-db-privileges
 ```
 
 | Gate item | State | Evidence |

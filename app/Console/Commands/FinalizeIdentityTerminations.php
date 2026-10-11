@@ -12,7 +12,7 @@ final class FinalizeIdentityTerminations extends Command
 {
     protected $signature = 'identity:finalize-terminations {--limit=100}';
 
-    protected $description = 'Finalize due Platform Identity termination requests without deleting Canary data';
+    protected $description = 'Finalize due Platform Identity termination requests without deleting game data';
 
     public function handle(FinalizeIdentityTermination $finalize): int
     {

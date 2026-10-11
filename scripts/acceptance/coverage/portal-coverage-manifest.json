@@ -229,8 +229,7 @@
       "owner": "Accounts",
       "status": "covered",
       "route_names": [
-        "account.overview",
-        "account.provisioning.retry"
+        "account.overview"
       ],
       "roles": [
         "guest",
@@ -239,10 +238,8 @@
       "states": [
         "ready",
         "pending",
-        "recoverable",
         "conflict",
         "missing",
-        "retry-success",
         "internal-identifiers-not-rendered"
       ],
       "viewports": [

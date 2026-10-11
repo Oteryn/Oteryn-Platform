@@ -27,7 +27,7 @@ final class NativeOAuthClientManager
     private function ensureNamed(string $name): Client
     {
         if ($this->configString('game-auth.oauth.native_client_name') === self::RUST_CLIENT_NAME) {
-            throw new LogicException('Canary and Rust OAuth clients must have distinct names.');
+            throw new LogicException('Legacy and Rust OAuth clients must have distinct names.');
         }
         $redirectUri = $this->nativeRedirectUri();
 
@@ -77,7 +77,7 @@ final class NativeOAuthClientManager
         $this->assertExpected($client);
 
         if ($this->configString('game-auth.oauth.native_client_name') === self::RUST_CLIENT_NAME) {
-            throw new LogicException('Canary and Rust OAuth clients must have distinct names.');
+            throw new LogicException('Legacy and Rust OAuth clients must have distinct names.');
         }
 
         return $client->name === self::RUST_CLIENT_NAME;

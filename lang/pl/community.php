@@ -3,7 +3,7 @@
 return [
     'highscores' => [
         'title' => 'Rankingi',
-        'description' => 'Globalne rankingi postaci z tylko do odczytu granicy danych Canary.',
+        'description' => 'Globalne rankingi postaci z tylko do odczytu granicy danych gry.',
         'filters' => 'Filtry rankingu',
         'category' => 'Kategoria',
         'vocation' => 'Profesja',
@@ -83,21 +83,21 @@ return [
     ],
     'guilds' => [
         'title' => 'Katalog gildii',
-        'description' => 'Wyszukuj publiczne nazwy gildii i przeglądaj aktywne członkostwo przez granicę Canary tylko do odczytu.',
+        'description' => 'Wyszukuj publiczne nazwy gildii i przeglądaj aktywne członkostwo przez granicę danych gry tylko do odczytu.',
         'search_label' => 'Szukaj gildii',
         'search_placeholder' => 'Wpisz fragment nazwy gildii…',
         'search' => 'Szukaj',
         'clear' => 'Wyczyść wyszukiwanie',
         'empty' => 'Brak gildii pasujących do wyszukiwania.',
         'owner' => 'Lider',
-        'read_only_policy' => 'Administracja gildią nie jest udostępniona przez Platformę, ponieważ Canary jest właścicielem mutacji członkostwa i rang, a zatwierdzony kontrakt zapisu z minimalnymi uprawnieniami nie istnieje.',
+        'read_only_policy' => 'Administracja gildią nie jest udostępniona przez Platformę, ponieważ gra jest właścicielem mutacji członkostwa i rang, a zatwierdzony kontrakt zapisu z minimalnymi uprawnieniami nie istnieje.',
     ],
     'policy' => [
         'title' => 'Aktualna polityka funkcji społecznościowych',
         'world_transfer' => 'Historia transferów świata lub kanału nie ma zastosowania, dopóki Oteryn nie wdroży autorytatywnej usługi transferów.',
         'polls' => 'Ankiety są opcjonalnym wyróżnikiem i nie należą do obecnego kontraktu startowego.',
         'public_enforcement' => 'Informacje o karach pozostają widoczne wyłącznie na koncie. Publiczna publikacja kar jest wykluczona ze względu na prywatność i integralność moderacji.',
-        'achievements' => 'Obecny schemat Canary nie zawiera autorytatywnego źródła wybieranych osiągnięć; osiągnięcia nie są zgadywane.',
+        'achievements' => 'Obecny schemat gry nie zawiera autorytatywnego źródła wybieranych osiągnięć; osiągnięcia nie są zgadywane.',
     ],
     'unavailable' => [
         'eyebrow' => 'Tymczasowo niedostępne',

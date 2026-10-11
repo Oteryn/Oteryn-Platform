@@ -104,7 +104,7 @@ return [
         'termination' => [
             'eyebrow' => 'Zamknięcie konta',
             'heading' => 'Okres karencji dostępu do Platformy',
-            'intro' => 'Po okresie karencji zamknięcie konta wyłącza i anonimizuje logowanie do Platformy. Nie usuwa ani nie przenosi powiązanego konta Canary ani postaci.',
+            'intro' => 'Po okresie karencji zamknięcie konta wyłącza i anonimizuje logowanie do Platformy. Nie usuwa ani nie przenosi powiązanego konta gry ani postaci.',
             'scheduled_prefix' => 'Zamknięcie konta zaplanowano na',
             'cancel' => 'Anuluj zamknięcie konta',
             'confirmation' => 'Wpisz :phrase, aby potwierdzić',
