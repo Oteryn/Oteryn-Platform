@@ -139,8 +139,8 @@
       "enforce": true
     },
     "docs": {
-      "count": 219,
-      "files": 22,
+      "count": 332,
+      "files": 26,
       "enforce": true
     },
     "history": {
@@ -159,8 +159,8 @@
       "enforce": true
     },
     "paths": {
-      "count": 42,
-      "files": 42,
+      "count": 44,
+      "files": 44,
       "enforce": true
     },
     "runtime": {

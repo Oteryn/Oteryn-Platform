@@ -61,7 +61,7 @@ The following text is intentionally retained because repository validators use i
 - At most one candidate may have `family = oteryn`; when present, its `native_protocol_version` is exactly `1`.
 - It contains no `profile` key, alias or placeholder.
 - The current contract has no placeholder for that future work.
-- `protocol-legacy` and `protocol-oteryn` were separate historical adapter families; no profile-shaped alias joined them.
+- `protocol-canary` and `protocol-oteryn` were separate historical adapter families; no profile-shaped alias joined them.
 
 Future Oteryn-v2 protocol evolution follows Oteryn-v2-owned authority plus an explicit Platform consumer contract where Platform must carry selection metadata. It does not extend this historical file.
 

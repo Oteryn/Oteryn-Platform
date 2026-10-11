@@ -4,7 +4,7 @@
 
 `IMPLEMENTED — GREENFIELD CHARACTER CREATION ON MAIN`
 
-This contract defines the only approved Phase 5 operation for creating a greenfield legacy engine `players` row for an authenticated Oteryn Platform Identity under ADR 0005.
+This contract defines the only approved Phase 5 operation for creating a greenfield Canary `players` row for an authenticated Oteryn Platform Identity under ADR 0005.
 
 PR #41 implemented the operation and was squash-merged to `main` as `9839822b8e445c0e9828e73d2d7767bb237e587f` after final CI #568 and Agent Governance #489 passed.
 
@@ -14,13 +14,13 @@ PR #41 implemented the operation and was squash-merged to `main` as `9839822b8e4
 
 Canonical ownership model:
 
-`1 Platform Identity <-> 1 legacy engine accounts.id`
+`1 Platform Identity <-> 1 Canary accounts.id`
 
-Before any character-create legacy engine transaction:
+Before any character-create Canary transaction:
 
 1. caller is an authenticated Platform Identity;
-2. Platform-owned `identity_legacy_accounts` binding exists and is `ready`;
-3. binding contains one non-null exact `legacy_account_id`;
+2. Platform-owned `identity_canary_accounts` binding exists and is `ready`;
+3. binding contains one non-null exact `canary_account_id`;
 4. that server-resolved ID becomes the operation `account_id`;
 5. browser-supplied account IDs, account names or email values cannot establish or override authorization.
 
@@ -120,7 +120,7 @@ Exact server-selected values include:
 
 Other current `players` columns intentionally use current schema defaults/nullable behavior. Real MariaDB tests assert representative relied-upon defaults including active deletion state, save flag, balance, stamina, offline-training state, reward state and forge dust level.
 
-A material legacy engine schema/default change requires revalidation before deployment.
+A material Canary schema/default change requires revalidation before deployment.
 
 ## No dependent starter writes
 
@@ -139,7 +139,7 @@ No incidental first-login script is part of the atomic creation contract.
 
 Natural v1 operation identity:
 
-`(authorized legacy engine accounts.id, canonical players.name)`
+`(authorized Canary accounts.id, canonical players.name)`
 
 Existing exact-name classification after locking the account row:
 
@@ -151,9 +151,9 @@ The first successful creation fixes vocation/sex/starter state. Repeated same-na
 
 No player UPDATE, ownership reassignment or destructive compensation is permitted for recovery.
 
-## Exact legacy engine transaction
+## Exact Canary transaction
 
-Using only `legacy_character_create`:
+Using only `canary_character_create`:
 
 1. begin transaction;
 2. `SELECT id FROM accounts WHERE id = ? FOR UPDATE` for the authorized account;
@@ -174,7 +174,7 @@ Same-account create operations serialize on the same account row lock before quo
 
 Real MariaDB coverage proves the nine-to-ten concurrent last-slot race results in exactly one new active character and one limit outcome.
 
-Global name uniqueness is protected by the legacy engine `players.name` unique constraint. Real MariaDB coverage proves two accounts racing the same canonical name produce exactly one committed row and one deterministic conflict outcome.
+Global name uniqueness is protected by the Canary `players.name` unique constraint. Real MariaDB coverage proves two accounts racing the same canonical name produce exactly one committed row and one deterministic conflict outcome.
 
 The implementation retries the whole transaction up to three total attempts only for explicitly recognized deadlock/serialization failures. Permanent authorization, validation, conflict, quota and privilege errors are not retried.
 
@@ -197,12 +197,12 @@ Raw SQL errors, credentials and database exception details are not exposed to th
 
 Connection:
 
-`legacy_character_create`
+`canary_character_create`
 
 It does not reuse or broaden:
 
-- `legacy` / `oteryn_readonly`;
-- `legacy_provisioning`.
+- `canary` / `oteryn_readonly`;
+- `canary_provisioning`.
 
 Approved SELECT surface:
 
@@ -225,11 +225,11 @@ Forbidden:
 
 A reviewed SQL provisioning template defines the deployment grants. Production credentials stay outside Git.
 
-`LegacyCharacterCreateDatabasePrivilegeVerifier` fails closed when required privileges are missing or broader privileges are present.
+`CanaryCharacterCreateDatabasePrivilegeVerifier` fails closed when required privileges are missing or broader privileges are present.
 
 Deployment verification command:
 
-`php artisan legacy:verify-character-create-db-privileges`
+`php artisan canary:verify-character-create-db-privileges`
 
 ## Validation evidence
 
@@ -254,15 +254,15 @@ Final PR #41 head `1e6291afb29a4c92d1ba690f74c6d23671876107` passed CI #568 and 
 
 Before enabling character creation in an environment:
 
-1. provision `legacy_character_create` out-of-band using the reviewed SQL template;
+1. provision `canary_character_create` out-of-band using the reviewed SQL template;
 2. provide credentials through approved secret management;
-3. run `php artisan legacy:verify-character-create-db-privileges`;
+3. run `php artisan canary:verify-character-create-db-privileges`;
 4. fail closed on missing/excessive grants;
-5. revalidate if deployed legacy engine schema materially differs from the evidence baseline.
+5. revalidate if deployed Canary schema materially differs from the evidence baseline.
 
 ## Cross-repository decision
 
-No `the legacy game-server repository` or `opentibiabr/login-server` change was required for this bounded character-create database operation.
+No `blakinio/canary` or `opentibiabr/login-server` change was required for this bounded character-create database operation.
 
 The authoritative Platform game-login bridge remains a separate cross-repository dependency and is not implied by character creation.
 
