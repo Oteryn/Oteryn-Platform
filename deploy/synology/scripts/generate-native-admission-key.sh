@@ -52,6 +52,17 @@ case "$ACTION" in
         ;;
 esac
 
+if [[ "$ACTION" == promote ]]; then
+    # Validated before any mutation: the wait is the only thing that keeps ingress closed until Game's
+    # trust cache has seen the new key (contract 9.3: five seconds plus the clock uncertainty bound).
+    propagation_seconds="${OTERYN_NATIVE_TRUST_PROPAGATION_SECONDS:-10}"
+    if [[ ! "$propagation_seconds" =~ ^[0-9]{1,5}$ ]] || ((10#$propagation_seconds < 10)); then
+        echo "OTERYN_NATIVE_TRUST_PROPAGATION_SECONDS must be an integer of at least 10 (contract 9.3: five seconds plus clock uncertainty)." >&2
+        exit 2
+    fi
+    propagation_seconds=$((10#$propagation_seconds))
+fi
+
 if ! command -v docker >/dev/null 2>&1; then
     echo "docker is required to manage the native admission key volume." >&2
     exit 1
@@ -353,11 +364,14 @@ if [[ "$ACTION" == promote ]]; then
     ((promote_rc == 0)) || exit "$promote_rc"
     "${promote_compose[@]}" up -d --no-deps --force-recreate platform
     oteryn_publish_native_admission_trust_or_stop "${promote_compose[@]}" || exit 1
+    # Marketplace reconciliation may force-recreate Platform again; it self-checks that final
+    # replacement itself (lib.sh) before ingress can return, so the reconcile runs first and the
+    # self-check below proves the Platform that will really serve.
+    _oteryn_reconcile_marketplace_scheduler_after_runtime_change || exit 1
     if [[ "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" == true ]]; then
         oteryn_run_native_admission_self_check "$("${promote_compose[@]}" ps -q platform)" || exit 1
     fi
-    _oteryn_reconcile_marketplace_scheduler_after_runtime_change || exit 1
-    sleep "${OTERYN_NATIVE_TRUST_PROPAGATION_SECONDS:-10}"
+    sleep "$propagation_seconds"
     # shellcheck disable=SC2086
     oteryn_native_admission_ingress_start $ingress || exit 1
     trap - EXIT
@@ -365,15 +379,42 @@ if [[ "$ACTION" == promote ]]; then
     exit 0
 fi
 
-docker run --rm \
-    --user 0:0 \
-    --network none \
-    --read-only \
-    --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --cap-add DAC_OVERRIDE \
-    --security-opt no-new-privileges \
-    --entrypoint php \
-    --volume "$VOLUME_NAME:/keys" \
-    "$PLATFORM_IMAGE" -d display_errors=stderr -r "$PHP_TOOL" -- "$ACTION"
+if [[ "$ACTION" == drop-retiring ]]; then
+    # The trust registry holds at most two trusted keys and a kid is bound to one key forever. A
+    # retired key that stays trusted would make the next staged rotation hit that limit after custody
+    # moved. So the retiring key is revoked in the registry first (revocation is permanent), and its
+    # files are destroyed only once the registry no longer trusts it. Nothing is destroyed otherwise.
+    retiring_kid="$(run_key_tool show | sed -n 's/^retiring_key_id=//p')"
+    if [[ -n "$retiring_kid" ]]; then
+        revoke_container="$(platform_containers | head -n 1)"
+        [[ -n "$revoke_container" ]] || { echo "drop-retiring needs a running Platform to revoke the retiring key in the trust registry first; nothing was removed." >&2; exit 1; }
+        if ! docker exec "$revoke_container" /usr/local/bin/oteryn-platform-entrypoint php -r '
+            require "vendor/autoload.php";
+            $app = require "bootstrap/app.php";
+            $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+            if (! app()->environment(["testing", "preproduction"])) { exit(3); }
+            $kid = $argv[1] ?? "";
+            $issuer = App\GameAuth\NativeEvidence\NativeEvidenceContract::FRESH_ISSUER;
+            $profile = App\GameAuth\NativeEvidence\NativeEvidenceContract::FRESH_PROFILE;
+            $purpose = (string) config("game-auth.native_evidence.fresh_key_purpose");
+            try {
+                $trust = app(App\GameAuth\NativeEvidence\NativeSigningTrustRegistry::class);
+                if ($trust->trustedPublicKey($issuer, $profile, $purpose, $kid) !== null) {
+                    $trust->revokeKey($issuer, $profile, $purpose, $kid);
+                }
+                exit($trust->trustedPublicKey($issuer, $profile, $purpose, $kid) === null ? 0 : 1);
+            } catch (Throwable $e) {
+                exit(1);
+            }
+        ' -- "$retiring_kid" >/dev/null 2>&1; then
+            echo "Could not revoke the retiring key in the Platform trust registry; the retiring key was kept." >&2
+            exit 1
+        fi
+        echo "Retiring key revoked in the Platform trust registry." >&2
+    fi
+fi
+
+run_key_tool "$ACTION"
 
 if [[ "$ACTION" == rotate || "$ACTION" == drop-retiring ]]; then
     while IFS= read -r container; do

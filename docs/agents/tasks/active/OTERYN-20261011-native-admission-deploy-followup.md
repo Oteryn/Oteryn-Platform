@@ -37,6 +37,9 @@ Governing GitHub Issue: #1474 (native-only migration). Close the follow-ups left
 | `stage` | Platform unaffected | no restart, no env change, key never exported by the entrypoint |
 | `rotate` | live guard | unchanged, still needs `--maintenance` while admission is live |
 | Autostart repair workflow | races with the gate window | same group as the deploy, so it cannot start ingress mid-deploy |
+| Marketplace runtime recreation (all routes: full deploy, fast path, reconcile, rollback, promote) | the final Platform is self-checked before ingress returns | `_oteryn_recreate_marketplace_runtime` self-checks the replacement (when its env has admission on) before `ingress_start`; promote reconciles Marketplace before its own self-check |
+| `drop-retiring` | retired key stays trusted in the registry | revokes the retiring kid in the trust registry (permanent) and verifies it is untrusted before the key files are destroyed; refuses and keeps the key if no Platform runs or revocation fails, so the next staged promotion has a free trust slot |
+| `promote` propagation wait | garbage or short value reopens ingress at once | `OTERYN_NATIVE_TRUST_PROPAGATION_SECONDS` must be an integer of at least 10; validated before any mutation (exit 2) |
 
 Follow-up, out of scope here (owned by PHP paths): a witness check in `NativeAdmissionGrantIssuer::assertSignable`.
 

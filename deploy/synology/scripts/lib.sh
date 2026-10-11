@@ -437,6 +437,12 @@ _oteryn_recreate_marketplace_runtime() {
     ingress="$(oteryn_native_admission_ingress_stop "${marketplace_compose[@]}")" || return 1
     "${marketplace_compose[@]}" up -d --no-deps --force-recreate platform
     oteryn_publish_native_admission_trust_or_stop "${marketplace_compose[@]}" || return 1
+    # The replacement Platform is the one that will serve: prove it can sign before ingress returns.
+    platform_id="$("${marketplace_compose[@]}" ps -q platform)" || return 1
+    if command docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$platform_id" \
+        | grep -qx 'GAME_AUTH_NATIVE_ADMISSION_ENABLED=true'; then
+        oteryn_run_native_admission_self_check "$platform_id" || return 1
+    fi
     # shellcheck disable=SC2086 # container ids, one per line
     oteryn_native_admission_ingress_start $ingress || return 1
     "${marketplace_compose[@]}" up -d --force-recreate marketplace-scheduler

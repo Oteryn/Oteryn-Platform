@@ -397,8 +397,8 @@ def test_identity_maps_are_proven_with_the_application_settings_and_bazaar_contr
 def test_staged_key_rotation_is_a_separate_path_and_the_rotate_guard_stays() -> None:
     key = KEY_SCRIPT.read_text(encoding="utf-8")
     assert "stage | promote" in key and "case 'stage':" in key and "case 'promote':" in key
-    promote = key.split('if [[ "$ACTION" == promote ]]; then')[1].split("docker run --rm")[0]
-    order = [promote.index(x) for x in ("oteryn_native_admission_ingress_stop", "run_key_tool promote", "force-recreate platform", "oteryn_publish_native_admission_trust_or_stop", "oteryn_run_native_admission_self_check", "_oteryn_reconcile_marketplace_scheduler_after_runtime_change", "sleep ", "oteryn_native_admission_ingress_start $ingress ||")]
+    promote = key.split('if [[ "$ACTION" == promote ]]; then')[2].split('if [[ "$ACTION" == drop-retiring ]]')[0]
+    order = [promote.index(x) for x in ("oteryn_native_admission_ingress_stop", "run_key_tool promote", "force-recreate platform", "oteryn_publish_native_admission_trust_or_stop", "_oteryn_reconcile_marketplace_scheduler_after_runtime_change", "oteryn_run_native_admission_self_check", "sleep ", "oteryn_native_admission_ingress_start $ingress ||")]
     assert order == sorted(order)
     assert '"$MAINTENANCE" != --maintenance' in key
     assert "next.key" not in ENTRYPOINT.read_text(encoding="utf-8")
@@ -416,11 +416,40 @@ def test_autostart_repair_shares_the_deploy_concurrency_group() -> None:
 
 def test_promote_fails_closed_loads_the_env_and_propagates_trust() -> None:
     key = KEY_SCRIPT.read_text(encoding="utf-8")
-    promote = key.split('if [[ "$ACTION" == promote ]]; then')[1].split("docker run --rm")[0]
+    promote = key.split('if [[ "$ACTION" == promote ]]; then')[2].split('if [[ "$ACTION" == drop-retiring ]]')[0]
     assert promote.index('load_oteryn_env_file "$OTERYN_ENV_FILE"') < promote.index("OTERYN_NATIVE_ADMISSION_ENABLED:-false")
     assert "trap 'rc=$?; ((rc == 0)) || promote_fail_closed" in promote
     assert "rm -s -f gateway internal-proxy platform" in promote
-    assert "OTERYN_NATIVE_TRUST_PROPAGATION_SECONDS:-10" in promote
+    assert "OTERYN_NATIVE_TRUST_PROPAGATION_SECONDS:-10" in key and 'sleep "$propagation_seconds"' in promote
     assert "((promote_rc == 1))" in promote
     tool = key.split("case 'promote':")[1].split("case 'rotate':")[0]
     assert "array_reverse($done)" in tool and "exit($clean && $done === [] ? 1 : 4)" in tool
+
+
+def test_promote_rejects_a_propagation_wait_below_the_contract_bound_before_any_mutation(tmp_path: pathlib.Path) -> None:
+    env_file = tmp_path / "env"
+    env_file.write_text("", encoding="utf-8")
+    for bad in ("0", "abc", "9", "-1", "", "1e3"):
+        if bad == "":
+            continue
+        result = subprocess.run(
+            ["bash", str(KEY_SCRIPT), "promote"],
+            env={"PATH": "/usr/bin:/bin", "PLATFORM_IMAGE": "x", "OTERYN_ENV_FILE": str(env_file), "OTERYN_NATIVE_TRUST_PROPAGATION_SECONDS": bad},
+            capture_output=True, text=True, check=False,
+        )
+        assert result.returncode == 2, (bad, result.stderr)
+        assert "at least 10" in result.stderr
+
+
+def test_drop_retiring_revokes_the_retired_key_in_the_registry_before_destroying_it() -> None:
+    key = KEY_SCRIPT.read_text(encoding="utf-8")
+    block = key.split('if [[ "$ACTION" == drop-retiring ]]; then')[1].split('run_key_tool "$ACTION"')[0]
+    assert "revokeKey(" in block and "trustedPublicKey(" in block
+    assert "the retiring key was kept" in block and "nothing was removed" in block
+    assert key.index('if [[ "$ACTION" == drop-retiring ]]; then') < key.index('run_key_tool "$ACTION"')
+
+
+def test_marketplace_runtime_recreation_self_checks_the_final_platform_before_ingress() -> None:
+    fn = LIB.read_text(encoding="utf-8").split("_oteryn_recreate_marketplace_runtime() {")[1].split("\n}\n")[0]
+    order = [fn.index(x) for x in ("oteryn_publish_native_admission_trust_or_stop", "oteryn_run_native_admission_self_check", "oteryn_native_admission_ingress_start $ingress")]
+    assert order == sorted(order)
