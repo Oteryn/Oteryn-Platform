@@ -56,6 +56,7 @@ head: UNKNOWN
 branch: claude/staging-native-defaults-1-20261011
 pr: 1552
 status: validating
+terminal_pr_policy: archive_pending
 context_routes:
   - deploy/synology
 owned_paths:
@@ -92,7 +93,7 @@ validation:
     evidence: all tests passed locally
 blockers:
   - none
-next_action: Wait for exact-head CI.
+next_action: Archive this task record; PR #1552 is terminal.
 ```
 
 ## Source branch closeout

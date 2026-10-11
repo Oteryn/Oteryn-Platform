@@ -319,7 +319,7 @@ OTERYN_RETIRED_MARKETPLACE_STATE_KEYS=(
 )
 
 # Rewrites a durable state file that still carries retired keys to the current
-# format (MARKETPLACE_ENABLED only). Needs no database proof. Idempotent; a no-op
+# format (MARKETPLACE_ENABLED=false only: the runtime is disabled with the keys). Needs no database proof. Idempotent; a no-op
 # for a file already in the current format.
 _oteryn_migrate_legacy_marketplace_state() {
     local durable_file line key value enabled='' legacy=0 retired tmp
@@ -353,9 +353,10 @@ _oteryn_migrate_legacy_marketplace_state() {
         echo "Marketplace runtime state has invalid enabled flag." >&2
         return 1
     }
-
+    # The retired transfer contract is gone, so the runtime is disabled together with
+    # the keys: nothing may re-enable the Bazaar from a legacy file.
     tmp="$durable_file.tmp"
-    ( umask 077; printf 'MARKETPLACE_ENABLED=%s\n' "$enabled" >"$tmp" )
+    ( umask 077; printf 'MARKETPLACE_ENABLED=false\n' >"$tmp" )
     chmod 600 "$tmp"
     mv "$tmp" "$durable_file"
     echo "Dropped retired Marketplace state keys from the durable state file."

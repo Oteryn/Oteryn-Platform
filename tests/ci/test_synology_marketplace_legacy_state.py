@@ -82,12 +82,12 @@ def test_legacy_keys_are_dropped_without_database_proof() -> None:
     assert log == ""
 
 
-def test_enabled_legacy_state_with_the_five_staging_keys_passes_and_is_rewritten() -> None:
+def test_enabled_legacy_state_with_the_five_staging_keys_is_rewritten_disabled() -> None:
     result, state, log = run_loader("MARKETPLACE_ENABLED=true\n" + FIVE_KEYS)
     assert result.returncode == 0, result.stderr
     assert "prepare-rollback" not in result.stderr
-    assert "enabled=true" in result.stdout
-    assert state == "MARKETPLACE_ENABLED=true\n"
+    assert "enabled=false" in result.stdout
+    assert state == "MARKETPLACE_ENABLED=false\n"
     assert state.count("=") == 1
     assert log == ""
 
