@@ -40,6 +40,60 @@ final class PublicNewsQuery
             ->get();
     }
 
+    /** @return Collection<int, NewsPost> */
+    public function searchPublished(
+        string $search,
+        string $locale,
+        int $offset = 0,
+        int $limit = 5,
+        ?DateTimeInterface $readTime = null,
+    ): Collection {
+        if (! in_array($locale, ['en', 'pl'], true)) {
+            throw new InvalidArgumentException('Unsupported search locale.');
+        }
+        if ($offset < 0 || $offset > 1000 || $limit < 1 || $limit > 10) {
+            throw new InvalidArgumentException('Published news search pagination is outside bounds.');
+        }
+
+        $normalized = trim(preg_replace('/\\s+/u', ' ', $search) ?? $search);
+        if ($normalized === '') {
+            return new Collection;
+        }
+
+        $readTime ??= now();
+        $needle = mb_strtolower($normalized);
+        $escaped = str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $needle);
+        $prefix = $escaped.'%';
+        $contains = '%'.$escaped.'%';
+        $translated = $locale === 'pl';
+        $title = $translated ? 'public_news_translation.title' : 'news_posts.title';
+        $body = $translated ? 'public_news_translation.body' : 'news_posts.body';
+
+        /** @var Collection<int, NewsPost> $rows */
+        $rows = $this->visibleAt($readTime, $locale)
+            ->where(function (Builder $matches) use ($title, $body, $contains): void {
+                $matches
+                    ->whereRaw("LOWER({$title}) LIKE ? ESCAPE '!'", [$contains])
+                    ->orWhereRaw("LOWER({$body}) LIKE ? ESCAPE '!'", [$contains]);
+            })
+            ->orderByRaw(
+                "CASE
+                    WHEN LOWER({$title}) = ? THEN 0
+                    WHEN LOWER({$title}) LIKE ? ESCAPE '!' THEN 1
+                    WHEN LOWER({$title}) LIKE ? ESCAPE '!' THEN 2
+                    ELSE 3
+                END",
+                [$needle, $prefix, $contains],
+            )
+            ->orderByDesc('news_posts.published_at')
+            ->orderBy('news_posts.id')
+            ->offset($offset)
+            ->limit($limit)
+            ->get();
+
+        return $rows;
+    }
+
     public function findPublishedBySlug(string $slug, ?DateTimeInterface $readTime = null): ?NewsPost
     {
         $readTime ??= now();
@@ -62,13 +116,13 @@ final class PublicNewsQuery
     }
 
     /** @return Builder<NewsPost> */
-    private function visibleAt(DateTimeInterface $readTime): Builder
+    private function visibleAt(DateTimeInterface $readTime, ?string $locale = null): Builder
     {
         $query = NewsPost::query()
             ->whereNotNull('news_posts.published_at')
             ->where('news_posts.published_at', '<=', $readTime);
 
-        if (app()->getLocale() !== 'pl') {
+        if (($locale ?? app()->getLocale()) !== 'pl') {
             return $query;
         }
 
