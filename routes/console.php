@@ -11,7 +11,9 @@ use App\CanaryIntegration\CanaryProvisioningDatabasePrivilegeVerifier;
 use App\Identity\Models\Identity;
 use App\Identity\Support\CanonicalEmail;
 use App\Marketplace\Actions\ReconcileCharacterAuctions;
+use App\Marketplace\Console\DrainCharacterAuctionsCommand;
 use App\Operations\ProductionConfigurationVerifier;
+use Illuminate\Console\Application as ConsoleApplication;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -139,6 +141,10 @@ Artisan::command('canary:verify-character-transfer-db-privileges', function () {
 
     return 0;
 })->purpose('Verify the dedicated Character Bazaar transfer credential least-privilege boundary');
+
+ConsoleApplication::starting(static function (ConsoleApplication $artisan): void {
+    $artisan->resolve(DrainCharacterAuctionsCommand::class);
+});
 
 Artisan::command('marketplace:reconcile {--limit=100}', function () {
     $limitOption = $this->option('limit');

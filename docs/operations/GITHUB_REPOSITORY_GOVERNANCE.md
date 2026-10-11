@@ -131,6 +131,10 @@ The tool exits non-zero when drift or an unsupported/unverified control remains.
 
 Pure policy behavior is covered by `tests/ci/test_repository_policy.py`, which is imported by the existing change-classifier test entry point and therefore runs in the normal CI classification gate.
 
+## Dependabot grouping
+
+`.github/dependabot.yml` groups minor and patch updates so each configured update entry (ecosystem and directory) opens at most one grouped weekly pull request for minor and patch updates; major updates stay separate pull requests. Auto-merge is intentionally not automated: `GITHUB_TOKEN` cannot enqueue into the merge queue, so a workflow needs an owner-provisioned queue-capable token (GitHub App or PAT). That work is tracked as DEPS-AUTOMERGE-2 and is blocked on the owner decision.
+
 ## Completion rule
 
 This repository-side package is complete when its files and tests pass. The live GitHub governance rollout remains incomplete until an administration-capable actor applies the policy and a second verification run reports zero drift. Repository merge authority does not authorize production deployment or protected-environment approval.
