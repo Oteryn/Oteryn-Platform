@@ -40,6 +40,7 @@ final readonly class FederatedSearchService
             $provider = $this->providers[$providerId] ?? null;
             if ($provider === null) {
                 $groups[] = SearchProviderResult::unavailable($providerId);
+
                 continue;
             }
 
