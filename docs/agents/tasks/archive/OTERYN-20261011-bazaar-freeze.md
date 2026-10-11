@@ -22,7 +22,7 @@ New Character Bazaar listings are frozen behind `marketplace.listing_frozen` (en
 - [x] `marketplace:drain` reports counts per non-terminal status, exits 0 only when frozen and drained, 2 otherwise, 1 on error or invalid limit; `--report-only` runs no reconciliation.
 - [x] Portal coverage surface lists the frozen state with feature evidence; strict coverage has no `partial` surface.
 - [x] The legacy token ratchet passes and no baseline is raised.
-- [ ] Exact-head CI passes (Marketplace settlement recovery, idempotency and MariaDB concurrency suites included).
+- [x] Exact-head CI passes (Marketplace settlement recovery, idempotency and MariaDB concurrency suites included).
 
 ## Ownership
 
@@ -33,7 +33,6 @@ owned_paths:
   - tests/Feature/Marketplace/**
   - routes/console.php
   - scripts/acceptance/coverage/surfaces/marketplace.json
-  - docs/agents/tasks/active/OTERYN-20261011-bazaar-freeze.md
   - docs/agents/tasks/archive/OTERYN-20261011-bazaar-freeze.md
 modules:
   - marketplace
@@ -49,11 +48,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-11T05:00:00Z
-head: UNKNOWN
+updated_at: 2026-10-11T09:00:00Z
+head: 7c02f50031af67b7b6d68e3cb9e2a69265f6bf23
 branch: claude/decanary-b4-bazaar-freeze-20261011
 pr: 1513
-status: validating
+status: completed
 context_routes:
   - marketplace
 owned_paths:
@@ -62,7 +61,6 @@ owned_paths:
   - tests/Feature/Marketplace/**
   - routes/console.php
   - scripts/acceptance/coverage/surfaces/marketplace.json
-  - docs/agents/tasks/active/OTERYN-20261011-bazaar-freeze.md
   - docs/agents/tasks/archive/OTERYN-20261011-bazaar-freeze.md
 proven:
   - Legacy token ratchet passes locally; runtime, tests and config counts do not rise above baseline.
@@ -88,7 +86,7 @@ changed_paths:
   - routes/console.php
   - tests/Feature/Marketplace/MarketplaceListingFreezeTest.php
   - scripts/acceptance/coverage/surfaces/marketplace.json
-  - docs/agents/tasks/active/OTERYN-20261011-bazaar-freeze.md
+  - docs/agents/tasks/archive/OTERYN-20261011-bazaar-freeze.md
 validation:
   - command: python tools/validation/legacy_token_ratchet.py
     result: PASS
@@ -104,13 +102,13 @@ validation:
     evidence: no PHP dependencies in the sandbox; exact-head CI is the first run
 blockers:
   - none
-next_action: Read exact-head CI; run marketplace:drain per environment before plan item C3.
+next_action: none; PR #1513 merged and record archived.
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1513 merged (REST pulls/1513 state closed, merged true) as 47c73492cd678cdc9266b225f5378b59278fd8e1 at 2026-10-11T07:40:26Z from exact head 7c02f50031af67b7b6d68e3cb9e2a69265f6bf23; source branch (claude/decanary-b4-bazaar-freeze-20261011) absent (REST branches API returns 404)
 ```
