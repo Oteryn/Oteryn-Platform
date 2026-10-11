@@ -19,7 +19,7 @@ Group Dependabot minor and patch updates into one weekly pull request per config
 
 - [x] `.github/dependabot.yml` groups minor and patch updates per ecosystem and keeps schedules and limits.
 - [x] No workflow or lifecycle-policy change; no token or secret is introduced.
-- [ ] Exact-head CI passes.
+- [x] Exact-head CI passes.
 
 ## Ownership
 
@@ -27,7 +27,7 @@ Group Dependabot minor and patch updates into one weekly pull request per config
 owned_paths:
   - .github/dependabot.yml
   - docs/operations/GITHUB_REPOSITORY_GOVERNANCE.md
-  - docs/agents/tasks/active/OTERYN-20261011-deps-grouping-1.md
+  - docs/agents/tasks/archive/OTERYN-20261011-deps-grouping-1.md
 modules:
   - repository automation
 dependencies:
@@ -42,17 +42,17 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-11T00:00:00Z
-head: UNKNOWN
+updated_at: 2026-10-11T08:00:00Z
+head: 635a09d6a1f9e460ff9c2cc46b8e3b09c84e8477
 branch: claude/deps-automerge-1-20261011
 pr: 1511
-status: validating
+status: completed
 context_routes:
   - repository-automation
 owned_paths:
   - .github/dependabot.yml
   - docs/operations/GITHUB_REPOSITORY_GOVERNANCE.md
-  - docs/agents/tasks/active/OTERYN-20261011-deps-grouping-1.md
+  - docs/agents/tasks/archive/OTERYN-20261011-deps-grouping-1.md
 proven: []
 derived: []
 unknown:
@@ -65,22 +65,22 @@ rejected_hypotheses: []
 changed_paths:
   - .github/dependabot.yml
   - docs/operations/GITHUB_REPOSITORY_GOVERNANCE.md
-  - docs/agents/tasks/active/OTERYN-20261011-deps-grouping-1.md
+  - docs/agents/tasks/archive/OTERYN-20261011-deps-grouping-1.md
 validation:
-  - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20261011-deps-grouping-1.md --require-checkpoint
+  - command: python tools/agents/checkpoint.py docs/agents/tasks/archive/OTERYN-20261011-deps-grouping-1.md --require-checkpoint
     result: PASS
     evidence: task checkpoint validated
 blockers:
   - none
-next_action: Read exact-head CI and hand the review packet to the lead.
+next_action: none; PR #1511 merged and record archived.
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1511 merged (REST pulls/1511 state closed, merged true) as aaf209112c78d17c8de3309624807de57d62fc24 at 2026-10-11T07:31:34Z from exact head 635a09d6a1f9e460ff9c2cc46b8e3b09c84e8477; source branch (claude/deps-automerge-1-20261011) absent (REST branches API returns 404)
 ```
 
 ## Notes
