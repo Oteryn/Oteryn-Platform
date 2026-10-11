@@ -10,10 +10,13 @@ use App\Marketplace\Models\CharacterAuction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Illuminate\Testing\PendingCommand;
 use Tests\TestCase;
 
 final class MarketplaceListingFreezeTest extends TestCase
-{
+    use RefreshDatabase;
+
+    private int $auctionSequence = 0;
     use RefreshDatabase;
 
     public function test_frozen_listing_is_refused_without_escrow_or_database_write(): void
@@ -69,16 +72,16 @@ final class MarketplaceListingFreezeTest extends TestCase
         config()->set('marketplace.listing_frozen', true);
         $seller = $this->createIdentity('drain-seller@example.com');
 
-        $this->artisan('marketplace:drain', ['--report-only' => true])
+        $this->drain(['--report-only' => true])
             ->expectsOutputToContain('Drained: no non-terminal auctions remain.')
             ->assertExitCode(0);
 
         $this->createAuction($seller, CharacterAuction::STATUS_COMPLETED);
-        $this->artisan('marketplace:drain', ['--report-only' => true])->assertExitCode(0);
+        $this->drain(['--report-only' => true])->assertExitCode(0);
 
         $this->createAuction($seller, CharacterAuction::STATUS_SETTLEMENT_PENDING);
         $this->createAuction($seller, CharacterAuction::STATUS_RECOVERY_REQUIRED);
-        $this->artisan('marketplace:drain', ['--report-only' => true])
+        $this->drain(['--report-only' => true])
             ->expectsOutputToContain('settlement_pending: 1')
             ->expectsOutputToContain('recovery_required: 1')
             ->expectsOutputToContain('Non-terminal auctions: 2')
@@ -89,20 +92,30 @@ final class MarketplaceListingFreezeTest extends TestCase
     {
         config()->set('marketplace.listing_frozen', false);
 
-        $this->artisan('marketplace:drain', ['--report-only' => true])
+        $this->drain(['--report-only' => true])
             ->expectsOutputToContain('New listings are not frozen; the Bazaar cannot be drained.')
             ->assertExitCode(2);
     }
 
     public function test_drain_rejects_an_invalid_limit(): void
     {
-        $this->artisan('marketplace:drain', ['--limit' => '0'])->assertExitCode(1);
+        $this->drain(['--limit' => '0'])->assertExitCode(1);
+    }
+
+    /**
+     * @param  array<string, mixed>  $options
+     */
+    private function drain(array $options): PendingCommand
+    {
+        $command = $this->artisan('marketplace:drain', $options);
+        self::assertInstanceOf(PendingCommand::class, $command);
+
+        return $command;
     }
 
     private function createAuction(Identity $seller, string $status): CharacterAuction
     {
-        static $playerId = 5_000_000;
-        $playerId++;
+        $playerId = 5_000_000 + ++$this->auctionSequence;
 
         return CharacterAuction::query()->create([
             'listing_request_id' => (string) Str::uuid(),

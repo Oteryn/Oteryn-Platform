@@ -16,7 +16,7 @@ final class DrainCharacterAuctionsCommand extends Command
     public function handle(ReconcileCharacterAuctions $reconcile, ReportCharacterAuctionDrain $report): int
     {
         $limitOption = $this->option('limit');
-        $limit = is_int($limitOption) || is_string($limitOption)
+        $limit = is_string($limitOption)
             ? filter_var($limitOption, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 1000]])
             : false;
 

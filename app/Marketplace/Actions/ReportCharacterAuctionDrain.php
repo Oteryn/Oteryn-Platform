@@ -39,7 +39,7 @@ final class ReportCharacterAuctionDrain
             ->pluck('total', 'status');
 
         foreach ($counts as $status => $total) {
-            $byStatus[(string) $status] = (int) $total;
+            $byStatus[(string) $status] = is_numeric($total) ? (int) $total : 0;
         }
 
         $nonTerminal = array_sum($byStatus);
