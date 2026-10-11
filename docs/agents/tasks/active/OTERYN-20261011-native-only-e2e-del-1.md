@@ -48,7 +48,7 @@ cross_repository_tasks:
 checkpoint_version: 1
 updated_at: 2026-10-11T13:00:00Z
 head: UNKNOWN
-branch: UNKNOWN
+branch: claude/decanary-e2e-del-20261011
 pr: 1545
 status: waiting
 terminal_pr_policy: none
