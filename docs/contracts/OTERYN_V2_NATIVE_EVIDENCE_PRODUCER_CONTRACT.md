@@ -22,7 +22,7 @@ Success and closed failure JSON shapes remain exact-compatible with the protecte
 
 ## Account identity and security truth
 
-`identities.id` remains a local persistence surrogate. `identities.account_id` is a separately persisted lower-case UUIDv7, unique and immutable after creation/backfill. The expansion migration intentionally keeps the column nullable during a rolling deployment so a pre-AccountId writer cannot be broken by an immediate `NOT NULL` contract. Current writers always issue the UUIDv7. A later deployment phase, after every pre-AccountId writer is drained, must repeat the null-only backfill and only then enforce `NOT NULL`; the phases must not be collapsed into one rolling release. The backfill assigns only previously-null rows, so an already-persisted canonical AccountId is never reminted. AccountId is never derived from Canary identifiers or integer Identity ids.
+`identities.id` remains a local persistence surrogate. `identities.account_id` is a separately persisted lower-case UUIDv7, unique and immutable after creation/backfill. The expansion migration intentionally keeps the column nullable during a rolling deployment so a pre-AccountId writer cannot be broken by an immediate `NOT NULL` contract. Current writers always issue the UUIDv7. A later deployment phase, after every pre-AccountId writer is drained, must repeat the null-only backfill and only then enforce `NOT NULL`; the phases must not be collapsed into one rolling release. The backfill assigns only previously-null rows, so an already-persisted canonical AccountId is never reminted. AccountId is never derived from legacy engine identifiers or integer Identity ids.
 
 `native_security_generation` is the positive Platform-native game security generation. It starts at `1` and is advanced transactionally in the same locked `RevokeIdentityGameAuthorizations` mutation that already serializes password, MFA, email, recovery and termination-sensitive revocations. The legacy `game_auth_generation` remains compatibility state; the producer reads `native_security_generation` directly and performs no `+1` translation.
 
@@ -58,7 +58,7 @@ Each fixed `(issuer, profile, key_purpose)` trust set has a positive durable `is
 
 Normal key rotation or key revocation operates only inside the current non-revoked profile version. A revoked key id cannot be silently re-trusted. Terminal profile revocation cannot be cleared in place. After an ambiguous witness-ahead state is conservatively reconciled revoked, or after an intentional terminal profile revocation, a successor trust set is created only through `publishNextProfileVersion`: it increments both the internal profile version and the retained issuer revision, preserves the old revoked row, requires a key id never used in an earlier version of that fixed scope, and installs only public key material. The producer reads only the highest profile version for the fixed external scope.
 
-Source observation revision is a separate profile/set-wide namespace shared across all key ids, as required by Game. No Passport/OAuth key, Gateway bearer credential, Game Login Ticket key or Canary state is promoted into this trust authority.
+Source observation revision is a separate profile/set-wide namespace shared across all key ids, as required by Game. No Passport/OAuth key, Gateway bearer credential, Game Login Ticket key or legacy engine state is promoted into this trust authority.
 
 ## Private authenticated boundary
 

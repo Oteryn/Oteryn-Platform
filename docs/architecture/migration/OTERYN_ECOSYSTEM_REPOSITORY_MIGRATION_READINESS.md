@@ -116,7 +116,7 @@ Canonical machine-readable inventory: `docs/architecture/migration/oteryn-reposi
 - **C — MUST_CHANGE_AFTER_RENAME:** current non-historical name/branding claims such as `README.md` after the physical rename.
 - **D — SAFE_VIA_GITHUB_REDIRECT_TEMPORARILY:** no concrete D entry is declared until an exact ordinary web/git reference is enumerated and proven redirect-safe.
 - **E — HISTORICAL_PROVENANCE_DO_NOT_REWRITE:** evidence, archived checkpoints and historical ADR/PR references whose old coordinate is part of provenance.
-- **F — LEGACY_REFERENCE_INTENTIONALLY_PRESERVE:** `blakinio/canary` and `blakinio/otclient` legacy/reference coordinates.
+- **F — LEGACY_REFERENCE_INTENTIONALLY_PRESERVE:** `the legacy game-server repository` and `blakinio/otclient` legacy/reference coordinates.
 - **G — UNKNOWN_REQUIRES_EVIDENCE:** future organization/target-owner coordinates, GHCR/packages, exhaustive external Actions/reusable-workflow callers, current ordinary links before exhaustive classification, broader Platform current references, and the Atlas target coordinate.
 
 Dynamic same-repository workflow behavior, Releases state, Atlas generated/reference paths and Synology deployment facts are recorded separately as non-coordinate evidence rather than forced into A-G.
@@ -167,7 +167,7 @@ None requiring emergency rollback; no physical cutover was attempted.
 - `blakinio/Oteryn-v2` repository name and ownership;
 - `blakinio/Oteryn-Platform` repository name and ownership;
 - `blakinio/Otheryn` repository and its active Atlas deployment;
-- all `blakinio/canary` and `blakinio/otclient` content;
+- all `the legacy game-server repository` and `blakinio/otclient` content;
 - Synology, DNS, production environments, secrets, packages, payments and live game state.
 
 ## One next action

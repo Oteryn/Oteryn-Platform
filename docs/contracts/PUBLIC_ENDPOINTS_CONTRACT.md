@@ -22,14 +22,14 @@ ADR `0020-use-single-level-gateway-public-hostname.md` records the decision to u
 - Port `3031` belongs to a different project and must never be assigned to Oteryn Platform from memory.
 - The Cloudflare Tunnel origin uses Synology loopback intentionally because Platform and Gateway are bound to `127.0.0.1` by the deployment contract.
 
-## Separate Canary endpoints
+## Separate legacy engine endpoints
 
 The following are not represented by the two HTTPS hostnames above:
 
 | Endpoint | Role |
 |---|---|
-| `127.0.0.1:7171` | Canary legacy login rollback path; not the canonical public Game Gateway. |
-| `192.168.1.2:7172` | Canary game-protocol TCP endpoint for the current private-LAN deployment. |
+| `127.0.0.1:7171` | legacy engine legacy login rollback path; not the canonical public Game Gateway. |
+| `192.168.1.2:7172` | legacy engine game-protocol TCP endpoint for the current private-LAN deployment. |
 
 Do not route the website hostname to `7171`, `7172` or `8080`. Do not route the Game Gateway hostname to `8000`, `7171` or `7172`.
 

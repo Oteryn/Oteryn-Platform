@@ -15,7 +15,7 @@ This contract defines how Oteryn Platform may normalize and consume structured f
 It is separate from:
 
 - `OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md`, which defines the native Oteryn-v2 → Platform GameCatalog authority boundary;
-- `GAME_CATALOG_IMPORT_CONTRACT.md`, which defines Legacy Canary Compatibility import semantics;
+- `GAME_CATALOG_IMPORT_CONTRACT.md`, which defines Legacy Engine Compatibility import semantics;
 - Wiki editorial publication lifecycle;
 - any third-party-rights/publication decision.
 
@@ -29,7 +29,7 @@ Every artifact and projection carries:
 source_evidence_class = NON_AUTHORITATIVE_REFERENCE
 ```
 
-This class is immutable for the lifetime of the reference snapshot. Re-review may create a newer snapshot or independently verify a crosswalk, but it cannot mutate the original reference source into native or `legacy-canary` authority.
+This class is immutable for the lifetime of the reference snapshot. Re-review may create a newer snapshot or independently verify a crosswalk, but it cannot mutate the original reference source into native or `legacy-engine` authority.
 
 `ReferenceContent` never participates in `GameCatalog` active authority-profile selection or automatic fallback.
 
@@ -233,9 +233,9 @@ For a native Oteryn claim, authoritative Oteryn-v2 evidence wins. The reference 
 
 If native evidence is unavailable, the state remains unavailable/unknown; do not promote the reference value to native truth.
 
-### Reference versus Legacy Canary Compatibility
+### Reference versus Legacy Engine Compatibility
 
-Legacy Canary Compatibility is governed only by `GAME_CATALOG_IMPORT_CONTRACT.md`. Reference data never uses the `legacy-canary` authority name and does not inherit Canary schema/identity semantics.
+Legacy Engine Compatibility is governed only by `GAME_CATALOG_IMPORT_CONTRACT.md`. Reference data never uses the `legacy-engine` authority name and does not inherit legacy engine schema/identity semantics.
 
 ### Reference versus reference
 
@@ -360,7 +360,7 @@ A failure never mutates or rolls back an authoritative GameCatalog snapshot.
 
 ## Acceptance invariants
 
-1. `ReferenceContent` never becomes native Oteryn or Legacy Canary Compatibility authority.
+1. `ReferenceContent` never becomes native Oteryn or Legacy Engine Compatibility authority.
 2. No reference snapshot participates in authoritative GameCatalog activation/fallback.
 3. Every fact remains traceable to pinned artifact, profile, source path and transformation version.
 4. `data-global` and `data-crystal` remain separate source profiles unless a later accepted decision proves compatibility.

@@ -67,7 +67,7 @@ Rules:
 - ChannelId not valid in the supplied WorldId scope => reject;
 - a route, endpoint, process restart, deployment or GameNode replacement does not create a new WorldId/ChannelId;
 - an observation for another world/channel must never be reused by similarity of hostname, port, slug or local database ID;
-- legacy Canary integer world/channel identifiers are compatibility-only and cannot be interpreted as native identifiers.
+- legacy engine integer world/channel identifiers are compatibility-only and cannot be interpreted as native identifiers.
 
 ## Runtime producer authority
 
@@ -79,7 +79,7 @@ For native Oteryn-v2, authoritative runtime observations originate from the acce
 - a Gateway probe invented as a substitute for game-runtime authority;
 - a public monitor with no accepted runtime identity;
 - direct reads from undocumented game persistence;
-- historical Otheryn/Canary producer semantics.
+- historical Otheryn/legacy engine producer semantics.
 
 Platform may validate, cache, aggregate and project accepted observations. That consumer projection does not transfer source-of-truth ownership from Oteryn-v2 to Platform.
 
@@ -280,7 +280,7 @@ Implementation must provide:
 
 ## Compatibility boundary
 
-The existing Canary-compatible World Registry may continue using its implemented persisted vocabulary:
+The existing legacy-compatible World Registry may continue using its implemented persisted vocabulary:
 
 ```text
 online
@@ -294,11 +294,11 @@ and `login_enabled` under its declared compatibility semantics.
 For native Oteryn-v2:
 
 - that persisted field is configuration/compatibility evidence, not sufficient live runtime truth;
-- Canary Redis/runtime readers remain compatibility adapters;
+- Legacy engine Redis/runtime readers remain compatibility adapters;
 - historical Otheryn readiness checks are reconciliation evidence only;
 - native runtime observations use canonical WorldId/ChannelId and the accepted cross-repository producer contract.
 
-Do not silently map a legacy Canary status row into fresh Oteryn-v2 runtime readiness.
+Do not silently map a legacy engine status row into fresh Oteryn-v2 runtime readiness.
 
 ## Versioning and change control
 

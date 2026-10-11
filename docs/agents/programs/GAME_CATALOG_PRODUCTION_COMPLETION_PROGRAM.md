@@ -6,13 +6,13 @@ coordination_issue: Oteryn/Oteryn-Platform#330
 state_mode: live_query_required
 repositories_described:
   - Oteryn/Oteryn-Platform
-  - blakinio/canary
+  - the legacy game-server repository
 platform_default_authority: Oteryn/Oteryn-Platform-only
 server_repository_authority: explicit_current_owner_authorization_required
 created: 2026-07-29T22:18:00Z
 updated: 2026-09-07
 historical_platform_main: f90bb8075b300569b7d493c84f0080e6b3295c35
-historical_canary_main: 09209bae26b2bb7e14346f08677e2cd8724aa7ae
+historical_legacy_main: 09209bae26b2bb7e14346f08677e2cd8724aa7ae
 ---
 
 # Game Catalog Production Completion Program
@@ -30,7 +30,7 @@ This programme describes a conceptual cross-repository producer/consumer depende
 For work launched from `Oteryn/Oteryn-Platform`:
 
 - the default authorized repository scope is `Oteryn/Oteryn-Platform` only;
-- Canary, Oteryn-v2 and every other server/game repository must not be read, searched, fetched, inspected, audited, branched, edited, reviewed or merged unless the repository owner explicitly authorizes that exact repository scope for the current task;
+- Legacy engine, Oteryn-v2 and every other server/game repository must not be read, searched, fetched, inspected, audited, branched, edited, reviewed or merged unless the repository owner explicitly authorizes that exact repository scope for the current task;
 - the coordination Issue, programme name, historical task names, prior permission, dependency graph or presence of a repository under `repositories_described` does not grant access;
 - when required producer evidence exists only in a server/game repository and no current explicit authorization exists, record the exact `BLOCKED` or `DECISION_REQUIRED` state and continue only with independent Platform-safe work;
 - if server/game repository authority is explicitly granted later, that repository's current governance and task ownership remain controlling.
@@ -51,7 +51,7 @@ Before selecting specialized work:
 
 ## Historical programme baseline
 
-### Canary producer — historical baseline
+### Legacy engine producer — historical baseline
 
 - PR #991 delivered the export-only deterministic producer for final runtime items, creatures and loot.
 - Schemas `1.0.0`, `1.1.0` and `1.2.0` exist and remain immutable compatibility contracts.
@@ -105,8 +105,8 @@ A later task may choose a different version only through an explicit compatibili
 current-state audits and programme records
   -> schema 1.3 architecture and exact proposal bytes
     -> Platform 1.3 inactive consumer implementation
-      -> separately authorized Canary NPC runtime-authority audit
-        -> separately authorized Canary 1.3 final-registry collector
+      -> separately authorized legacy engine NPC runtime-authority audit
+        -> separately authorized legacy engine 1.3 final-registry collector
           -> byte-identical schema/fixture parity proof
             -> separately authorized cross-repository staging import
               -> candidate activation
@@ -153,7 +153,7 @@ Missing evidence remains `null`, `unknown` or `unverified`. It is never converte
 
 Use a source only when the current task is authorized to inspect it.
 
-1. Runnable historical Canary/runtime plus matching datapack.
+1. Runnable historical legacy engine/runtime plus matching datapack.
 2. Exact historical source revisions and assets.
 3. Repository migrations and changelogs.
 4. Official data or reproducible maintained-client observation.
@@ -167,16 +167,16 @@ This table describes domain responsibility and expected reuse; it does **not** g
 
 | Concern | Owner | Required reuse |
 |---|---|---|
-| Final item, creature, NPC and runtime relation facts | Canary | existing export-only lifecycle and final registries |
-| NPC registry iteration | Canary | `Npcs` / `NpcType`; do not parse Lua as a substitute |
-| Shop offer values | Canary | final `NpcType::info.shopItemVector` / `ShopBlock` state |
-| Quest authority | Canary plus reviewed manifest only if required | do not infer from file names, storage IDs or wiki text |
-| Map placement and reachability | Canary | Unified OTBM World Index and existing reachability tooling |
+| Final item, creature, NPC and runtime relation facts | legacy engine | existing export-only lifecycle and final registries |
+| NPC registry iteration | legacy engine | `Npcs` / `NpcType`; do not parse Lua as a substitute |
+| Shop offer values | legacy engine | final `NpcType::info.shopItemVector` / `ShopBlock` state |
+| Quest authority | legacy engine plus reviewed manifest only if required | do not infer from file names, storage IDs or wiki text |
+| Map placement and reachability | legacy engine | Unified OTBM World Index and existing reachability tooling |
 | Schema pinning and supported-version decision | Platform first | exact bytes and SHA-256 |
 | Validation, inactive import and persistence | Platform | existing `GameCatalog` module |
 | Candidate review, diff, activation, rollback and audit | Platform | existing snapshot/profile lifecycle |
 | Public visibility and UI | Platform | active profile projections and exact allowlists |
-| Artifact creation | Canary | immutable JSON plus lowercase SHA-256 sidecar |
+| Artifact creation | legacy engine | immutable JSON plus lowercase SHA-256 sidecar |
 | Artifact intake and environment activation | Platform/operator | no public unauthenticated endpoint |
 
 ## Completeness gate
@@ -207,7 +207,7 @@ The task identifiers below are planning identities, not proof that implementatio
 | Task | Repository | Scope | Depends on |
 |---|---|---|---|
 | `OTERYN-20260730-game-catalog-program-audit` | Platform | current-state report, programme, backlog and matrices only | issue #330 |
-| `CAN-20260730-game-catalog-program-registration` | Canary | mirror programme ownership and reconcile the existing Canary completeness subprogramme | Platform issue #330 plus explicit current Canary authority |
+| `CAN-20260730-game-catalog-program-registration` | legacy engine | mirror programme ownership and reconcile the existing legacy engine completeness subprogramme | Platform issue #330 plus explicit current legacy engine authority |
 
 ### Stage 1 — schema-next architecture
 
@@ -220,8 +220,8 @@ The task identifiers below are planning identities, not proof that implementatio
 | Task | Repository | Scope | Depends on |
 |---|---|---|---|
 | `OTERYN-20260730-game-catalog-schema-1-3-consumer` | Platform | parser, validation, typed persistence, inactive import, rollback guard and admin preview; no public activation | schema architecture |
-| `CAN-20260730-game-catalog-npc-runtime-authority` | Canary | prove the final registry boundary and safe deterministic iteration API; no export fields yet | schema architecture + explicit current Canary authority |
-| `CAN-20260730-game-catalog-schema-1-3-producer` | Canary | byte-identical schema/fixture and final-registry NPC/shop collector | compatible Platform consumer + authority audit + explicit current Canary authority |
+| `CAN-20260730-game-catalog-npc-runtime-authority` | legacy engine | prove the final registry boundary and safe deterministic iteration API; no export fields yet | schema architecture + explicit current legacy engine authority |
+| `CAN-20260730-game-catalog-schema-1-3-producer` | legacy engine | byte-identical schema/fixture and final-registry NPC/shop collector | compatible Platform consumer + authority audit + explicit current legacy engine authority |
 | `OTERYN-20260730-game-catalog-npc-shop-staging` | Platform | exact artifact intake, MariaDB lifecycle, candidate activation and rollback | both producer and consumer + staging authority |
 | `OTERYN-20260730-game-catalog-npc-shop-public` | Platform | separately gated public NPC/shop projection and authorization/UI acceptance | staging proof and reviewed availability |
 
@@ -229,9 +229,9 @@ The task identifiers below are planning identities, not proof that implementatio
 
 | Task | Repository | Scope | Depends on |
 |---|---|---|---|
-| `CAN-20260730-game-catalog-quest-authority-audit` | Canary | inventory canonical runtime authority; design reviewed registry only if needed | explicit current Canary authority |
+| `CAN-20260730-game-catalog-quest-authority-audit` | legacy engine | inventory canonical runtime authority; design reviewed registry only if needed | explicit current legacy engine authority |
 | `OTERYN-20260730-game-catalog-schema-1-4-consumer` | Platform | quest/mission/reward inactive consumer | authority decision |
-| `CAN-20260730-game-catalog-schema-1-4-producer` | Canary | quest/mission/reward producer | compatible consumer + explicit current Canary authority |
+| `CAN-20260730-game-catalog-schema-1-4-producer` | legacy engine | quest/mission/reward producer | compatible consumer + explicit current legacy engine authority |
 | `OTERYN-20260730-game-catalog-quest-staging` | Platform | staging import/activation/rollback | both sides + staging authority |
 | `OTERYN-20260730-game-catalog-quest-public` | Platform | public projection; Wiki walkthroughs remain editorial links | staging and evidence |
 
@@ -239,9 +239,9 @@ The task identifiers below are planning identities, not proof that implementatio
 
 | Task | Repository | Scope | Depends on |
 |---|---|---|---|
-| `CAN-20260730-game-catalog-creation-source-audit` | Canary | map spawns, raids, scripts, summons, instances and admin/test source taxonomy | existing World Index and reachability tooling + explicit current Canary authority |
+| `CAN-20260730-game-catalog-creation-source-audit` | legacy engine | map spawns, raids, scripts, summons, instances and admin/test source taxonomy | existing World Index and reachability tooling + explicit current legacy engine authority |
 | `OTERYN-20260730-game-catalog-schema-1-5-consumer` | Platform | creation/location/reachability inactive consumer | source taxonomy |
-| `CAN-20260730-game-catalog-schema-1-5-producer` | Canary | source collectors and exact evidence relations | compatible consumer + explicit current Canary authority |
+| `CAN-20260730-game-catalog-schema-1-5-producer` | legacy engine | source collectors and exact evidence relations | compatible consumer + explicit current legacy engine authority |
 | `OTERYN-20260730-game-catalog-availability-staging` | Platform | staging import/activation/rollback | both sides + staging authority |
 | `OTERYN-20260730-game-catalog-availability-public` | Platform | public encounterability/obtainability projection | staging and reviewed reachability |
 
@@ -249,8 +249,8 @@ The task identifiers below are planning identities, not proof that implementatio
 
 | Task | Repository | Scope | Depends on |
 |---|---|---|---|
-| `CAN-20260730-game-catalog-historical-evidence-program` | Canary | evidence hierarchy, reviewed claims and historical bundle criteria | entity schemas + explicit current Canary authority |
-| `CAN-20260730-game-catalog-artifact-manifest` | Canary | immutable deployment manifest/signature option and provenance | stable producer + explicit current Canary authority |
+| `CAN-20260730-game-catalog-historical-evidence-program` | legacy engine | evidence hierarchy, reviewed claims and historical bundle criteria | entity schemas + explicit current legacy engine authority |
+| `CAN-20260730-game-catalog-artifact-manifest` | legacy engine | immutable deployment manifest/signature option and provenance | stable producer + explicit current legacy engine authority |
 | `OTERYN-20260730-game-catalog-artifact-intake` | Platform | auditable candidate intake and manifest verification | transport contract |
 | `OTERYN-20260730-game-catalog-reusable-staging` | Platform | reusable non-production staging lifecycle | artifact intake + staging authority |
 | `OTERYN-YYYYMMDD-game-catalog-production-activation` | Platform | one exact manually approved snapshot only | all production gates + explicit production authority |
@@ -262,8 +262,8 @@ Task identifiers after the first architecture task remain reserved planning name
 | Boundary | Required evidence |
 |---|---|
 | Contract | valid JSON Schema; exact bytes/hash for every authorized participant; shared fixture; immutable old schemas; unsupported version rejection |
-| Canary unit | exact field values; duplicates; canonical-key collisions; nested offers; dangling item/currency endpoints; malformed metadata when Canary work is authorized |
-| Canary runtime | fixed-timestamp determinism; two complete exports; atomic publication; previous-output preservation; valid sidecar; no DB/network endpoints; telemetry-off/on stability when Lua loading is involved and Canary work is authorized |
+| Legacy engine unit | exact field values; duplicates; canonical-key collisions; nested offers; dangling item/currency endpoints; malformed metadata when legacy engine work is authorized |
+| Legacy engine runtime | fixed-timestamp determinism; two complete exports; atomic publication; previous-output preservation; valid sidecar; no DB/network endpoints; telemetry-off/on stability when Lua loading is involved and legacy engine work is authorized |
 | Platform validation | schema/hash/artifact/count/uniqueness/range/endpoint checks; unknown preservation |
 | Platform persistence | transactional inactive import; no partial writes; typed counts; prior active snapshot preservation |
 | Platform lifecycle | admin preview/diff; candidate activation; rollback; audit; RBAC/MFA; public projection only in separately authorized task |
@@ -275,7 +275,7 @@ Task identifiers after the first architecture task remain reserved planning name
 The following risks were recorded by the programme baseline and must be revalidated against current Platform state before being treated as current defects. Server/game-specific facts may be revalidated only under current explicit repository authority.
 
 - The recorded Platform importer assumed every non-item entity was a creature and every relation was loot.
-- The recorded Canary NPC registry map was private and had no proven safe deterministic iteration API for the exporter.
+- The recorded legacy engine NPC registry map was private and had no proven safe deterministic iteration API for the exporter.
 - Shop offers included nested `childShop` entries and storage conditions; flattening or dropping them would lose runtime semantics.
 - NPC registration did not prove map placement, reachability or public encounterability.
 - An NPC shop relation did not by itself prove that an item was player-obtainable unless the NPC, location, currency and requirements were also available.
