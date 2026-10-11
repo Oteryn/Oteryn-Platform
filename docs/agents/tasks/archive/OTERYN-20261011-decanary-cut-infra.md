@@ -13,7 +13,7 @@ optional_reads: []
 
 Governing GitHub Issue: #1474 (native-only migration) — canonical lifecycle authority for this task. Packets D-3 to D-6 of the removal plan under `docs/agents/programs/`, cut directly because the environment is not production.
 
-The Canary container, database, environment, TLS alias, `canary_image` input and `CANARY_*` variables are removed from the Synology deploy tooling, tests and workflows. The acceptance bootstrap and acceptance workflows no longer provision a Canary database, principals or runtime Redis ACL. The MQ pilot docs and the retired workflow registry name are renamed (same changes as PR #1527, which is not touched).
+The Canary container, database, environment, TLS alias, `canary_image` input and `CANARY_*` variables are removed from the Synology deploy tooling, tests and workflows. The acceptance bootstrap and acceptance workflows no longer provision a Canary database, principals or runtime Redis ACL. The MQ doc renames and the lifecycle registry change are left to PR #1527.
 
 ## Acceptance criteria
 
@@ -31,9 +31,6 @@ owned_paths:
   - .github/workflows/**
   - scripts/acceptance/**
   - tests/ci/**
-  - docs/agents/CI_WORKFLOW_LIFECYCLE.json
-  - docs/maintenance/DELEGATED_MQ_PILOT_20260913.md
-  - docs/maintenance/OTERYN_CI_MQ_PILOT_V2.md
   - docs/agents/tasks/archive/OTERYN-20261011-decanary-cut-infra.md
 modules:
   - ci
@@ -63,9 +60,6 @@ owned_paths:
   - .github/workflows/**
   - scripts/acceptance/**
   - tests/ci/**
-  - docs/agents/CI_WORKFLOW_LIFECYCLE.json
-  - docs/maintenance/DELEGATED_MQ_PILOT_20260913.md
-  - docs/maintenance/OTERYN_CI_MQ_PILOT_V2.md
   - docs/agents/tasks/archive/OTERYN-20261011-decanary-cut-infra.md
 proven:
   - pytest tests/ci deploy/synology/tests tools/validation passes locally (349 passed).
@@ -90,9 +84,6 @@ changed_paths:
   - scripts/acceptance/docker/compose.yml
   - scripts/acceptance/docker/run.sh
   - tests/ci/**
-  - docs/agents/CI_WORKFLOW_LIFECYCLE.json
-  - docs/maintenance/DELEGATED_MQ_PILOT_20260913.md
-  - docs/maintenance/OTERYN_CI_MQ_PILOT_V2.md
   - docs/agents/tasks/archive/OTERYN-20261011-decanary-cut-infra.md
 validation:
   - command: python -m pytest tests/ci deploy/synology/tests tools/validation
