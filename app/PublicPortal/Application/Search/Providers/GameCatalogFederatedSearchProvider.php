@@ -83,7 +83,7 @@ final readonly class GameCatalogFederatedSearchProvider implements FederatedSear
         return new SearchProviderResult(
             provider: $this->id(),
             available: true,
-            hits: ProviderSearchSupport::interleave($query->limit, $items, $creatures),
+            hits: ProviderSearchSupport::interleaveWindow($query->page, $query->limit, $items, $creatures),
         );
     }
 

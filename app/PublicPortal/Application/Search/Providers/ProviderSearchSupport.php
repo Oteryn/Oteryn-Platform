@@ -41,6 +41,23 @@ final class ProviderSearchSupport
     }
 
     /**
+     * Orders the page produced from alternatingWindows() the way the global stream alternates: a
+     * page that starts on an odd stream position begins with the second stream.
+     *
+     * @param  list<SearchHit>  $first
+     * @param  list<SearchHit>  $second
+     * @return list<SearchHit>
+     */
+    public static function interleaveWindow(int $page, int $limit, array $first, array $second): array
+    {
+        $startsOnSecond = (($page - 1) * $limit) % 2 === 1;
+
+        return $startsOnSecond
+            ? self::interleave($limit, $second, $first)
+            : self::interleave($limit, $first, $second);
+    }
+
+    /**
      * @param  list<SearchHit>  ...$sets
      * @return list<SearchHit>
      */

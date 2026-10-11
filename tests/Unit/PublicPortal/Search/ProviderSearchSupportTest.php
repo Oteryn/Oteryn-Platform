@@ -60,6 +60,44 @@ final class ProviderSearchSupportTest extends TestCase
         $this->assertSame([], ProviderSearchSupport::interleave(5, [], []));
     }
 
+    public function test_interleave_window_reproduces_the_global_alternating_stream_for_odd_limits(): void
+    {
+        foreach ([1, 3, 5, 7] as $limit) {
+            $global = [];
+            for ($page = 1; $page <= 6; $page++) {
+                [$firstWindow, $secondWindow] = ProviderSearchSupport::alternatingWindows($page, $limit);
+                $first = $this->hits('f', $firstWindow);
+                $second = $this->hits('s', $secondWindow);
+
+                foreach (ProviderSearchSupport::interleaveWindow($page, $limit, $first, $second) as $hit) {
+                    $global[] = $hit->stablePublicId;
+                }
+            }
+
+            $expected = [];
+            for ($index = 0; count($expected) < 6 * $limit; $index++) {
+                $expected[] = 'f'.$index;
+                $expected[] = 's'.$index;
+            }
+            $expected = array_slice($expected, 0, 6 * $limit);
+            $this->assertSame($expected, $global, "limit {$limit}");
+        }
+    }
+
+    public function test_interleave_window_starts_with_the_second_stream_on_an_odd_start(): void
+    {
+        [$firstWindow, $secondWindow] = ProviderSearchSupport::alternatingWindows(2, 5);
+        $hits = ProviderSearchSupport::interleaveWindow(
+            2,
+            5,
+            $this->hits('f', $firstWindow),
+            $this->hits('s', $secondWindow),
+        );
+
+        $this->assertSame(['s2', 'f3', 's3', 'f4', 's4'], array_map(static fn (SearchHit $hit): string => $hit->stablePublicId, $hits));
+        $this->assertSame([1, 2, 3, 4, 5], array_map(static fn (SearchHit $hit): int => $hit->providerRank, $hits));
+    }
+
     public function test_unavailable_provider_result_has_no_hits(): void
     {
         $result = SearchProviderResult::unavailable('wiki');
@@ -67,6 +105,20 @@ final class ProviderSearchSupportTest extends TestCase
         $this->assertSame('wiki', $result->provider);
         $this->assertFalse($result->available);
         $this->assertSame([], $result->hits);
+    }
+
+    /**
+     * @param  array{offset: int, count: int}  $window
+     * @return list<SearchHit>
+     */
+    private function hits(string $prefix, array $window): array
+    {
+        $hits = [];
+        for ($index = 0; $index < $window['count']; $index++) {
+            $hits[] = $this->hit($prefix.($window['offset'] + $index), $index + 1);
+        }
+
+        return $hits;
     }
 
     private function hit(string $id, int $rank): SearchHit

@@ -79,7 +79,7 @@ final readonly class CmsFederatedSearchProvider implements FederatedSearchProvid
         return new SearchProviderResult(
             provider: $this->id(),
             available: true,
-            hits: ProviderSearchSupport::interleave($query->limit, $news, $pages),
+            hits: ProviderSearchSupport::interleaveWindow($query->page, $query->limit, $news, $pages),
         );
     }
 
