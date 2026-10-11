@@ -132,7 +132,7 @@ There is no anonymous draft-media route. Preview responses use private `no-store
 - No upload processing, format or storage rule changes.
 - No public storage symlink or direct object URL.
 - No Events or CMS consumer activation.
-- No Canary/login-server contract or session change.
+- No legacy engine/login-server contract or session change.
 - No production, router, DSM or Internet-exposure action.
 
 ## Consequences

@@ -76,7 +76,7 @@ These are Platform-side ownership principles. They do not assign gameplay packet
 
 Earlier revisions of this document described an Otheryn Game Session v2 issuer/readiness endpoint and native listener as the next consumer package. That statement is historical only.
 
-The current native target is Oteryn-v2. Otheryn/Canary-era correspondence can be used as compatibility or migration evidence, but it must not be treated as the target consumer contract or as a prerequisite that authorizes Oteryn-v2 production.
+The current native target is Oteryn-v2. Otheryn/legacy-engine-era correspondence can be used as compatibility or migration evidence, but it must not be treated as the target consumer contract or as a prerequisite that authorizes Oteryn-v2 production.
 
 ## Reconciliation procedure
 
@@ -87,7 +87,7 @@ Before changing or enabling the producer:
 3. obtain the exact accepted Oteryn-v2 consumer/admission authority as read-only evidence;
 4. compare every retained historical field and transition against that authority;
 5. create a separately governed Platform implementation task for any required producer changes;
-6. keep Legacy Canary Compatibility and native-v2 paths explicitly separated;
+6. keep Legacy Engine Compatibility and native-v2 paths explicitly separated;
 7. validate on exact heads and run the required cross-repository E2E;
 8. activate only under a separately authorized environment gate.
 
@@ -103,7 +103,7 @@ Any future rollout must define rollback against the accepted Oteryn-v2 contract 
 
 Repository validation of this historical producer is **not** production proof. Current production/native verification remains governed by `docs/agents/tasks/active/OTERYN-20260805-native-auth-production-verification.md` and the applicable deployment/production gates.
 
-No production canary, native advertisement, listener activation, secret mutation, deployment or cross-repository write is authorized by this document.
+No production pilot, native advertisement, listener activation, secret mutation, deployment or cross-repository write is authorized by this document.
 
 ## References
 

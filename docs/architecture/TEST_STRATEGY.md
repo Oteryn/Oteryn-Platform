@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make security, business invariants, delivered portal behavior and Canary/login-server compatibility verifiable rather than dependent on manual assumptions.
+Make security, business invariants, delivered portal behavior and legacy engine/login-server compatibility verifiable rather than dependent on manual assumptions.
 
 The strategy is risk based: use the smallest deterministic layer that proves an invariant and reserve browser/system E2E for composed behavior that lower layers cannot prove efficiently.
 
@@ -62,7 +62,7 @@ Browser E2E must not replace real-database integration as the primary proof for 
 
 ### Contract tests
 
-Required for shared Canary/login-server assumptions.
+Required for shared legacy engine/login-server assumptions.
 
 Contract tests verify only evidence-backed schemas/interfaces and fail visibly when incompatible changes occur. Examples:
 
@@ -78,8 +78,8 @@ The exact-SHA Playwright harness under `scripts/acceptance/**` and `.github/work
 
 - the exact tested application SHA;
 - a real Laravel HTTP runtime;
-- isolated MariaDB Platform and Canary acceptance schemas;
-- operation-specific Canary database principals;
+- isolated MariaDB Platform and legacy engine acceptance schemas;
+- operation-specific legacy engine database principals;
 - a dedicated Redis runtime principal;
 - MailHog SMTP;
 - Chromium as the primary complete browser;
@@ -135,8 +135,8 @@ The profile composes the complete currently delivered account journey:
 - invalid/successful login and logout;
 - protected-route redirect/denial;
 - Account Overview navigation and safe account data;
-- Canary provisioning/binding states: ready, pending, recoverable, conflict and missing;
-- recoverable retry and absence of raw Canary identifiers/provisioning names;
+- Legacy engine provisioning/binding states: ready, pending, recoverable, conflict and missing;
+- recoverable retry and absence of raw legacy engine identifiers/provisioning names;
 - password recovery through real test SMTP;
 - reset token expiry/replay denial;
 - password change and old-password denial;
@@ -363,7 +363,7 @@ Before a production-ready/go-live claim, directly verify the applicable launch s
 | Account provisioning | Yes if enabled |
 | Character creation/public visibility | Yes if enabled |
 | Critical CMS/public visibility | Yes if enabled |
-| Canary/game login | Yes only if the authoritative bridge is in launch scope |
+| Legacy engine/game login | Yes only if the authoritative bridge is in launch scope |
 | Ban/disabled/expiry/replay | Yes when an authoritative applicable path exists |
 | Backup/restore/deployment/rollback | Operational production evidence |
 

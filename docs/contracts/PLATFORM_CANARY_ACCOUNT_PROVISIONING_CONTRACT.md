@@ -1,29 +1,29 @@
-# Platform-originated Canary Account Provisioning Contract
+# Platform-originated legacy engine Account Provisioning Contract
 
-> **LEGACY / COMPATIBILITY** — Canary compatibility path; the native target is split by owner: Platform owns `AccountId`, Game Login Ticket issuance/redemption, routing policy and Gateway pre-admission (`docs/contracts/OTERYN_V2_ACCOUNT_IDENTITY_CONTRACT.md`, `docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md`); the Game contracts (LCFA, native login, character authority boundary) own final admission, session and character authority. Platform Identity authority for `AccountId`, credential security, login-ticket issuance and Canary mapping is defined by `docs/contracts/OTERYN_V2_ACCOUNT_IDENTITY_CONTRACT.md`.
+> **LEGACY / COMPATIBILITY** — legacy engine compatibility path; the native target is split by owner: Platform owns `AccountId`, Game Login Ticket issuance/redemption, routing policy and Gateway pre-admission (`docs/contracts/OTERYN_V2_ACCOUNT_IDENTITY_CONTRACT.md`, `docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md`); the Game contracts (LCFA, native login, character authority boundary) own final admission, session and character authority. Platform Identity authority for `AccountId`, credential security, login-ticket issuance and legacy engine mapping is defined by `docs/contracts/OTERYN_V2_ACCOUNT_IDENTITY_CONTRACT.md`.
 
 ## Status
 
 `IMPLEMENTED — GREENFIELD ACCOUNT PROVISIONING AND IMMUTABLE BINDING`
 
-This contract defines the only approved Phase 5 operation for creating a Canary account for a greenfield Oteryn Platform Identity and establishing the immutable `1 Platform Identity <-> 1 Canary accounts.id` ownership binding selected by ADR 0004.
+This contract defines the only approved Phase 5 operation for creating a legacy engine account for a greenfield Oteryn Platform Identity and establishing the immutable `1 Platform Identity <-> 1 legacy engine accounts.id` ownership binding selected by ADR 0004.
 
-The implementation is delivered through PR #33. Existing Canary accounts are not imported or claimed.
+The implementation is delivered through PR #33. Existing legacy engine accounts are not imported or claimed.
 
 ## Product ownership prerequisite
 
 ADR 0004 is authoritative:
 
-`1 Platform Identity <-> 1 Canary accounts.id`
+`1 Platform Identity <-> 1 legacy engine accounts.id`
 
 Rules:
 
 - supported accounts are greenfield and originate only from Oteryn Platform;
 - self-service unlink, rebind and transfer are forbidden;
-- normal recovery restores the same Platform Identity and therefore the same immutable Canary account binding;
-- all later user-scoped Canary authorization is derived from the ready Platform-owned binding.
+- normal recovery restores the same Platform Identity and therefore the same immutable legacy engine account binding;
+- all later user-scoped legacy engine authorization is derived from the ready Platform-owned binding.
 
-## Canary account-create surface
+## legacy engine account-create surface
 
 The operation writes only:
 
@@ -32,15 +32,15 @@ The operation writes only:
 - `accounts.email`;
 - `accounts.creation`.
 
-All other account columns use current Canary defaults unless a later separately approved lifecycle/profile contract changes them.
+All other account columns use current legacy engine defaults unless a later separately approved lifecycle/profile contract changes them.
 
 Current Canary account insertion triggers creation of three default non-customizable VIP groups. Those trigger writes are Canary-owned side effects of the account transaction; Oteryn Platform does not receive direct `account_vipgroups` write privileges.
 
-If the trigger fails, the Canary transaction fails and the Platform binding remains not-ready.
+If the trigger fails, the legacy engine transaction fails and the Platform binding remains not-ready.
 
-## Internal Canary account name
+## Internal legacy engine account name
 
-The Canary `accounts.name` for Platform-originated accounts is an internal immutable provisioning identifier, not a user login name or ownership signal.
+The legacy engine `accounts.name` for Platform-originated accounts is an internal immutable provisioning identifier, not a user login name or ownership signal.
 
 Format:
 
@@ -49,18 +49,18 @@ Format:
 Properties:
 
 - exact length 32;
-- generated server-side before any Canary write;
+- generated server-side before any legacy engine write;
 - persisted in Platform-owned provisioning state;
-- globally unique by Platform constraint and Canary `accounts.name` uniqueness;
+- globally unique by Platform constraint and legacy engine `accounts.name` uniqueness;
 - immutable;
 - never accepted from browser input;
 - used as the deterministic forward-recovery key after partial failure.
 
-## Canary password compatibility strategy
+## legacy engine password compatibility strategy
 
-The current Canary schema requires `accounts.password`, but Oteryn Platform is the user credential authority and future game login must not depend on a reusable Canary password known by the user.
+The current legacy engine schema requires `accounts.password`, but Oteryn Platform is the user credential authority and future game login must not depend on a reusable legacy engine password known by the user.
 
-For each new Platform-originated Canary account the implementation:
+For each new Platform-originated legacy engine account the implementation:
 
 1. generates a high-entropy random temporary sink secret;
 2. derives the current legacy-compatible digest representation;
@@ -85,19 +85,19 @@ The existence of this sink credential does **not** mean the future authoritative
 - readiness/completion timestamp;
 - bounded failure metadata and normal timestamps.
 
-The Platform record exists before the first Canary insert attempt.
+The Platform record exists before the first legacy engine insert attempt.
 
 Database constraints enforce:
 
 - at most one provisioning/binding record per Platform Identity;
-- at most one Platform binding for a Canary `accounts.id`;
+- at most one Platform binding for a legacy engine `accounts.id`;
 - globally unique provisioning name.
 
-A non-ready Identity fails closed for user-scoped Canary operations.
+A non-ready Identity fails closed for user-scoped legacy engine operations.
 
 ## Provisioning saga — IMPLEMENTED
 
-Platform and Canary persistence are separate database boundaries. The implementation does not pretend one local transaction spans both databases.
+Platform and legacy engine persistence are separate database boundaries. The implementation does not pretend one local transaction spans both databases.
 
 ### Step 1 — durable Platform intent
 
@@ -105,17 +105,17 @@ Inside Platform persistence:
 
 1. create or lock the Identity provisioning/binding record;
 2. generate/persist immutable provisioning name and creation marker when absent;
-3. commit pending intent before any Canary write.
+3. commit pending intent before any legacy engine write.
 
 Registration may create the Identity and pending intent in the same Platform transaction.
 
-### Step 2 — Canary transaction
+### Step 2 — legacy engine transaction
 
 Using only `canary_provisioning`:
 
-1. begin Canary transaction;
+1. begin legacy engine transaction;
 2. attempt `accounts(name, password, email, creation)` insert with persisted provisioning identity and a newly generated sink credential digest;
-3. allow Canary account-create trigger side effects;
+3. allow legacy engine account-create trigger side effects;
 4. select only `id`, `name`, `creation` for the exact provisioning name;
 5. require exact name and creation-marker match;
 6. commit only when account row and trigger side effects succeed.
@@ -134,21 +134,21 @@ Inside Platform persistence:
 
 ## Retry and partial-failure semantics
 
-### Canary unavailable before insert
+### legacy engine unavailable before insert
 
-- no Canary account is assumed to exist;
+- no legacy engine account is assumed to exist;
 - Platform record remains pending;
 - retry reuses the same provisioning name and creation marker.
 
 ### Insert or trigger failure
 
-- Canary transaction rolls back;
+- legacy engine transaction rolls back;
 - Platform record remains pending;
 - retry is allowed.
 
-### Canary commit succeeds, Platform finalization fails
+### legacy engine commit succeeds, Platform finalization fails
 
-- no destructive automatic Canary deletion is attempted;
+- no destructive automatic legacy engine deletion is attempted;
 - retry selects by the persisted provisioning name;
 - recovered `creation` must match the persisted creation marker;
 - the exact same binding is finalized.
@@ -165,7 +165,7 @@ For one Identity:
 
 - Platform uniqueness/locking serializes ownership finalization;
 - workers reuse the same persisted provisioning identity;
-- Canary uniqueness prevents duplicate account rows for one intent;
+- legacy engine uniqueness prevents duplicate account rows for one intent;
 - finalization to the same ID is idempotent;
 - a different ID is a hard conflict.
 
@@ -202,13 +202,13 @@ A reviewed SQL provisioning template defines the exact deployment grants. Produc
 
 A fail-closed effective-grant verifier rejects missing required or excessive privileges.
 
-Real MariaDB integration coverage proves that the restricted principal can perform the approved account insert/recovery and Canary trigger side effects without receiving direct VIP-group write privileges, while password reads and broader mutations remain denied.
+Real MariaDB integration coverage proves that the restricted principal can perform the approved account insert/recovery and legacy engine trigger side effects without receiving direct VIP-group write privileges, while password reads and broader mutations remain denied.
 
 ## Authorization
 
 Only an authenticated Platform Identity may initiate provisioning for its own Identity record.
 
-The operation never accepts a target Canary `accounts.id` or provisioning name from the browser.
+The operation never accepts a target legacy engine `accounts.id` or provisioning name from the browser.
 
 The created/recovered `accounts.id` is discovered only from the exact server-generated persisted provisioning identity and becomes authoritative only after durable Platform binding finalization.
 
@@ -227,7 +227,7 @@ PR #33 validation covers:
 - real MariaDB restricted-principal execution;
 - account-create trigger side effects;
 - denial of `accounts.password` reads;
-- duplicate-free recovery after committed Canary state.
+- duplicate-free recovery after committed legacy engine state.
 
 The immutable binding contract records the final delivered evidence and ownership policy.
 
@@ -239,17 +239,17 @@ Before enabling account provisioning in an environment:
 2. supply credentials through approved secret management;
 3. run the provisioning privilege verifier;
 4. fail closed if grants are missing or broader than approved;
-5. revalidate if deployed Canary schema/trigger behavior differs materially from the evidence baseline.
+5. revalidate if deployed legacy engine schema/trigger behavior differs materially from the evidence baseline.
 
 ## Game-login follow-up
 
-Provisioning a Canary account is not the same as enabling authoritative Platform-backed game login.
+Provisioning a legacy engine account is not the same as enabling authoritative Platform-backed game login.
 
 A separately authorized cross-repository task must provide short-lived exact-account Platform authorization with explicit expiry, audience, replay/session-consumption and revocation semantics and no user dependence on the sink credential.
 
 Expected primary external scope is `opentibiabr/login-server`. `blakinio/canary` changes are required only if the final protocol needs direct assertion verification or stronger replay/revocation/fencing behavior.
 
-No Canary/login-server repository was modified by Phase 5.
+No legacy engine/login-server repository was modified by Phase 5.
 
 ## Decision
 

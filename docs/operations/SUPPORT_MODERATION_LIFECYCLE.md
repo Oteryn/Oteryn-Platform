@@ -2,11 +2,11 @@
 
 ## Scope
 
-This runbook covers Platform-owned support tickets, player/content/guild reports, moderator queues, account-visible enforcement and appeals, notification delivery state and retention. It does not authorize Canary ban mutation, file attachments, production deployment or `PRODUCTION_PROVEN` claims.
+This runbook covers Platform-owned support tickets, player/content/guild reports, moderator queues, account-visible enforcement and appeals, notification delivery state and retention. It does not authorize legacy engine ban mutation, file attachments, production deployment or `PRODUCTION_PROVEN` claims.
 
 ## Ownership and trust boundary
 
-Oteryn Platform owns every support table and migration. Browser public IDs are references only; ownership and administrator authority are resolved server-side. Canary remains read-only and authoritative for game-server bans/account status.
+Oteryn Platform owns every support table and migration. Browser public IDs are references only; ownership and administrator authority are resolved server-side. Legacy engine remains read-only and authoritative for game-server bans/account status.
 
 ## Configuration
 
@@ -22,7 +22,7 @@ Apply the additive Platform migration before enabling routes:
 php artisan migrate --force
 ```
 
-The migration creates only Platform support tables and permissions. It does not migrate Canary or login-server schema.
+The migration creates only Platform support tables and permissions. It does not migrate legacy engine or login-server schema.
 
 ## Permissions
 
@@ -69,7 +69,7 @@ Audit metadata may contain public IDs, categories, status, booleans and lock ver
 - notification failure: keep the committed domain state and investigate mail separately;
 - database unavailable: mutations fail closed; restore the Platform database and verify owner/RBAC boundaries before reopening;
 - suspected privacy disclosure: disable affected routes, preserve non-secret evidence and review object-level authorization and audit output;
-- requested Canary enforcement: stop and require a separate approved cross-repository contract.
+- requested legacy engine enforcement: stop and require a separate approved cross-repository contract.
 
 ## Validation before release
 

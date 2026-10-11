@@ -31,7 +31,7 @@ Oteryn Platform owns these first-slice tables and their reversible Laravel migra
 - `wiki_article_category`;
 - `wiki_revisions`.
 
-No Canary or login-server schema, credential or runtime contract changes.
+No legacy engine or login-server schema, credential or runtime contract changes.
 
 ### 3. Localization is explicit
 

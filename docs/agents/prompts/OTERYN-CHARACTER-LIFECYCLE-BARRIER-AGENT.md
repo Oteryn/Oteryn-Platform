@@ -26,7 +26,7 @@ Writes are limited to `Oteryn/Oteryn-Platform`. Do not access another server/gam
 
 Read ADRs 0029/0030/0031, `NATIVE_CHARACTER_LIFECYCLE_AUTHORITY.md`, current Issues #317/#319/#320, relevant Bazaar conflict policy and only the contracts/source required by the evidence.
 
-Do not invent command names, wire formats, locking, canonical game state, ownership results, transfer semantics or server behavior. Legacy Canary evidence does not establish native authority. Preserve `UNKNOWN` while producer semantics are unavailable.
+Do not invent command names, wire formats, locking, canonical game state, ownership results, transfer semantics or server behavior. Legacy engine evidence does not establish native authority. Preserve `UNKNOWN` while producer semantics are unavailable.
 
 ## Acceptance delta
 

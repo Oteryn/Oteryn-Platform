@@ -68,7 +68,7 @@ The origin mapping above is a repository/deployment contract. It is not proof th
 - application/domain rate limiting or validation;
 - Identity or Game Session semantics;
 - game-protocol TCP exposure or protection;
-- Oteryn-v2/Canary/server runtime implementation;
+- Oteryn-v2/legacy engine/server runtime implementation;
 - business data, content publication or gameplay truth;
 - generic application observability, backup/restore or deployment evidence owned by `OperationsObservability`;
 - production activation authority.

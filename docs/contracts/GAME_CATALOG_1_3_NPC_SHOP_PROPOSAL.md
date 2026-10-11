@@ -3,7 +3,7 @@
 Status: architecture proposal only  
 Contract: `oteryn.game-catalog`  
 Proposed version: `1.3.0`  
-Producer: `blakinio/canary`  
+Producer: `the legacy game-server repository`  
 Consumer: `Oteryn/Oteryn-Platform`
 
 ## Decision
@@ -27,13 +27,13 @@ Schemas `1.0.0`, `1.1.0` and `1.2.0` remain byte- and semantics-immutable. The a
 
 The extension schema is deliberately not the complete canonical `1.3.0` schema. It uses explicit legacy placeholders so architecture can validate only the new structures without copying and accidentally changing the immutable `1.2.0` definitions in this PR.
 
-The Platform consumer implementation must construct the complete canonical schema by retaining all `1.2.0` item, creature, loot, snapshot and release constraints and adding the approved structures. That complete schema will receive its own final SHA-256 and must be byte-identical in both repositories before Canary producer support merges.
+The Platform consumer implementation must construct the complete canonical schema by retaining all `1.2.0` item, creature, loot, snapshot and release constraints and adding the approved structures. That complete schema will receive its own final SHA-256 and must be byte-identical in both repositories before legacy engine producer support merges.
 
 ## Runtime authority
 
 ### NPCs
 
-Canary is authoritative for the final loaded NPC registry:
+Legacy engine is authoritative for the final loaded NPC registry:
 
 - `Npcs` owns the final registry keyed by lowercase lookup key;
 - Lua `NpcType(name)` resolves through `Npcs::getNpcType(name, true)`;
@@ -41,7 +41,7 @@ Canary is authoritative for the final loaded NPC registry:
 
 The producer must collect from this final registry. It must not implement a second selective parser for Lua or XML and claim runtime equivalence.
 
-A separate Canary authority task must first expose or prove a bounded deterministic read-only iteration boundary. The current registry map is private and only name lookup is public.
+A separate legacy engine authority task must first expose or prove a bounded deterministic read-only iteration boundary. The current registry map is private and only name lookup is public.
 
 ### Shop offers
 
@@ -54,9 +54,9 @@ A separate Canary authority task must first expose or prove a bounded determinis
 - storage key and value;
 - nested `childShop` records.
 
-`NpcType::info.currencyId` is the exact runtime currency item ID. Canary supports custom item currency, so gold must not be assumed globally.
+`NpcType::info.currencyId` is the exact runtime currency item ID. Legacy engine supports custom item currency, so gold must not be assumed globally.
 
-Canary runtime also supports player-specific `shopPlayers` overrides. Schema `1.3.0` is limited to the static final `NpcType` registry vector. Dynamic session/player-specific offers remain out of scope and must be reported as a completeness limitation rather than silently included or inferred.
+Legacy engine runtime also supports player-specific `shopPlayers` overrides. Schema `1.3.0` is limited to the static final `NpcType` registry vector. Dynamic session/player-specific offers remain out of scope and must be reported as a completeness limitation rather than silently included or inferred.
 
 ## NPC entity
 
@@ -123,7 +123,7 @@ Location references and reachability are intentionally deferred to the spawn/map
 
 Version `1.3.0` reuses existing catalogue provenance rather than adding a second competing structure:
 
-- snapshot Canary commit;
+- snapshot legacy engine commit;
 - nullable datapack commit;
 - profile and release metadata;
 - entity `source_path`;
@@ -158,7 +158,7 @@ Missing source, target or currency endpoints are blocking dangling references. T
 
 ### Price and amount semantics
 
-Canary runtime multiplies the stored buy/sell price by the player transaction amount. Therefore the registered offer price is a unit price:
+Legacy engine runtime multiplies the stored buy/sell price by the player transaction amount. Therefore the registered offer price is a unit price:
 
 ```text
 priced_item_count = 1
@@ -180,7 +180,7 @@ The confirmed current condition fields are the `ShopBlock` storage key and value
 }
 ```
 
-The Canary authority task must prove the runtime sentinel semantics for default `(0, 0)` before the producer maps it to null. Until that proof exists, absence versus exact zero remains an implementation blocker rather than a value to guess.
+The legacy engine authority task must prove the runtime sentinel semantics for default `(0, 0)` before the producer maps it to null. Until that proof exists, absence versus exact zero remains an implementation blocker rather than a value to guess.
 
 No additional level, vocation, premium, quest or location requirement may be inferred from NPC text or selected scripts. Newly confirmed runtime restrictions require a later versioned contract or a reviewed bounded field addition before producer emission.
 
@@ -252,7 +252,7 @@ The complete canonical contract must preserve existing deterministic rules and a
 - no unordered-map iteration leakage;
 - identical inputs plus fixed `generated_at` produce byte-identical JSON and sidecar.
 
-The complete export remains serialized inside the existing dispatcher-safe export operation unless the Canary authority task proves another safe boundary.
+The complete export remains serialized inside the existing dispatcher-safe export operation unless the legacy engine authority task proves another safe boundary.
 
 ## Required semantic validation
 
@@ -352,14 +352,14 @@ The rollout is `atomic-required` and consumer first:
 
 1. merge this architecture proposal;
 2. merge Platform complete `1.3.0` inactive consumer while retaining `1.0.0`–`1.2.0`;
-3. merge Canary runtime-authority task;
-4. merge Canary producer with byte-identical complete schema/fixture;
+3. merge legacy engine runtime-authority task;
+4. merge legacy engine producer with byte-identical complete schema/fixture;
 5. generate one immutable candidate artifact;
 6. prove cross-repository staging import, candidate activation and rollback;
 7. separately review public projection;
 8. leave production blocked until explicit approval of one exact artifact and deployed commits.
 
-An older consumer must reject `1.3.0` fail closed. Canary must not route `1.3.0` output to an older consumer.
+An older consumer must reject `1.3.0` fail closed. Legacy engine must not route `1.3.0` output to an older consumer.
 
 ## Explicit unknowns
 

@@ -26,7 +26,7 @@ The project needs a durable model that:
 4. supports responsive desktop/tablet/mobile behavior;
 5. can expand toward future Community/Game services without a navigation rewrite;
 6. does not copy proprietary branding/assets from reference products;
-7. does not weaken backend security, authorization or Canary integration boundaries.
+7. does not weaken backend security, authorization or legacy engine integration boundaries.
 
 ## Decision
 

@@ -10,7 +10,7 @@ The slice complements existing failure-only evidence by proving the complete con
 
 The tests use only acceptance-scoped MariaDB and Redis principals and run on one Chromium project with zero retries.
 
-## Canary read dependency recovery
+## Legacy engine read dependency recovery
 
 The `/online` resilience scenario:
 
@@ -76,7 +76,7 @@ They do not prove:
 - production recovery time or RTO/RPO;
 - production network partition behavior;
 - production Redis ACL provisioning or credential rotation;
-- production Canary DB grants/endpoints;
+- production legacy engine DB grants/endpoints;
 - cross-region recovery or provider restart behavior.
 
 Those facts remain environment-specific and, where applicable, require direct production evidence under issue #91.

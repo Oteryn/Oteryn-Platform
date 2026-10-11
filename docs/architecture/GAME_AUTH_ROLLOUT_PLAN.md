@@ -14,16 +14,16 @@ Production execution remains a separate explicitly authorized verification/deplo
 
 - Oteryn Platform owns supported greenfield user Identity and its reusable credentials.
 - Platform web Identity supports password login, revocable web sessions, password recovery/change and TOTP MFA.
-- A ready immutable Platform-owned binding maps each supported Identity to exactly one Canary `accounts.id`.
+- A ready immutable Platform-owned binding maps each supported Identity to exactly one legacy engine `accounts.id`.
 - Current OTClient login flow still reads and submits reusable account/password credentials and can persist encrypted password material.
-- Repository-supported Canary/login-server configurations contain parallel authentication paths.
+- Repository-supported legacy engine/login-server configurations contain parallel authentication paths.
 - Current upstream login-server authenticates reusable SHA-1 credentials and creates DB-backed `account_sessions`.
-- Canary has native password authentication capability and a short-lived process-local one-time session-token mechanism in one mode.
+- Legacy engine has native password authentication capability and a short-lived process-local one-time session-token mechanism in one mode.
 - The authoritative Platform-originated game-login bridge is not implemented.
 
 ### UNKNOWN
 
-- Exact production exposure/fencing of native Canary login ports and upstream login-server endpoints.
+- Exact production exposure/fencing of native legacy engine login ports and upstream login-server endpoints.
 - Exact deployed login-server image digest/version.
 - Final Game Session compatibility adapter and active-session revocation behavior.
 - Production service identity, secret management, shared ticket storage and network topology.
@@ -32,14 +32,14 @@ Production execution remains a separate explicitly authorized verification/deplo
 
 1. **Add before remove.** Build and prove the new path before disabling legacy login.
 2. **No false authority claim.** Identity is not globally authoritative while an independently validating password path remains externally reachable.
-3. **No password migration dependency.** The new flow does not require Oteryn passwords to be copied into Canary-compatible password storage.
+3. **No password migration dependency.** The new flow does not require Oteryn passwords to be copied into legacy-compatible password storage.
 4. **No silent fallback.** A failed new-flow ticket/session operation never falls back automatically to a legacy password or long-lived session path.
-5. **Cross-repository contract first.** OTClient and Canary/login-server work starts only from versioned contracts and separate authorized tasks.
+5. **Cross-repository contract first.** OTClient and legacy engine/login-server work starts only from versioned contracts and separate authorized tasks.
 6. **Feature-gated exposure.** Candidate flow is enabled in controlled environments/accounts before default rollout.
 7. **Rollback preserves old path until cutover.** Before final legacy fencing, rollback means disabling the candidate path, not restoring a partially removed password path.
 8. **After final cutover, rollback is architectural.** Re-enabling an independent password bypass requires an explicit security decision, not an automatic emergency toggle.
 9. **Every phase is fail-closed.** Missing dependency/state prevents new login rather than weakening authentication.
-10. **Evidence is exact-version.** E2E claims pin Platform, OTClient, Gateway, Canary and any login-server/adapter versions plus relevant configuration/network exposure.
+10. **Evidence is exact-version.** E2E claims pin Platform, OTClient, Gateway, legacy engine and any login-server/adapter versions plus relevant configuration/network exposure.
 
 ## Phase 0 — Discovery and architecture foundation
 
@@ -55,7 +55,7 @@ Establish durable current-state evidence, target architecture, threat model and 
 - this rollout plan;
 - OTClient game-auth contract;
 - Gateway↔Identity contract;
-- Game Session↔Canary contract;
+- Game Session↔legacy engine contract;
 - World Registry contract.
 
 ### Writes
@@ -81,7 +81,7 @@ Create Platform-owned domain/state required by later auth phases without exposin
 - `game_auth_generation` or equivalent monotonic revocation generation on Identity-owned state;
 - Game Login Ticket persistence model/lifecycle abstraction;
 - World Registry persistence/model with one seeded/configured Oteryn world;
-- Game Session domain interface, without yet claiming Canary compatibility;
+- Game Session domain interface, without yet claiming legacy engine compatibility;
 - Gateway/Identity configuration contracts;
 - protocol/API version constants;
 - audit event taxonomy that records events without bearer secrets;
@@ -93,7 +93,7 @@ Create Platform-owned domain/state required by later auth phases without exposin
 - reversible/backward-compatible migrations;
 - ticket plaintext never persisted;
 - unique/atomic lifecycle constraints designed before endpoint exposure;
-- no generic Canary write grants;
+- no generic legacy engine write grants;
 - no new public auth behavior.
 
 ### Exit gate
@@ -107,7 +107,7 @@ Create Platform-owned domain/state required by later auth phases without exposin
 
 ### Goal
 
-Make Oteryn Platform a standards-based authorization server for the first-party native OTClient without yet requiring Gateway/Canary integration.
+Make Oteryn Platform a standards-based authorization server for the first-party native OTClient without yet requiring Gateway/legacy engine integration.
 
 ### Planned scope
 
@@ -167,7 +167,7 @@ POST /internal/v1/game-auth/tickets/redeem
 - >=256-bit random opaque ticket;
 - 60-second default TTL;
 - hash/HMAC-derived server-side representation;
-- exact Identity + ready Canary binding + audience + generation;
+- exact Identity + ready legacy engine binding + audience + generation;
 - atomic consume;
 - service-authenticated redeem;
 - rate limits;
@@ -203,7 +203,7 @@ POST /v1/login
 
 1. accepts one Game Login Ticket;
 2. calls private Identity redeem;
-3. receives exact authorized Canary account ID;
+3. receives exact authorized legacy engine account ID;
 4. resolves authorized/login-enabled worlds;
 5. loads listable characters through a narrow adapter;
 6. creates Game Session through the selected compatibility adapter;
@@ -214,7 +214,7 @@ POST /v1/login
 - standalone Go service/container;
 - no direct access to Identity password data;
 - no generic Platform database credentials;
-- no generic Canary database credentials;
+- no generic legacy engine database credentials;
 - horizontal process design;
 - structured bounded logs;
 - health/readiness separated;
@@ -255,7 +255,7 @@ Replace reusable password custody in the Oteryn-specific modern login path with 
 - Game Login Ticket request;
 - Gateway login;
 - character/world response parsing;
-- routing to selected Canary endpoint;
+- routing to selected legacy engine endpoint;
 - cancellation/timeout/retry UX;
 - Oteryn-specific flow must not persist password or collect it in the client.
 
@@ -274,15 +274,15 @@ Do not silently convert all third-party/custom-server OTClient use cases to Oter
 - cancel/timeout leaves no reusable pending state;
 - compatibility matrix documents new vs legacy server combinations.
 
-## Phase 6 — Game Session / Canary compatibility
+## Phase 6 — Game Session / legacy engine compatibility
 
 ### Goal
 
-Select and prove the smallest safe bridge from Gateway authorization to Canary world entry.
+Select and prove the smallest safe bridge from Gateway authorization to legacy engine world entry.
 
 ### Candidate A — bounded `account_sessions` adapter
 
-Preferred only if exact current Canary evidence proves it can satisfy the accepted first-release session contract without a Canary code change.
+Preferred only if exact current legacy engine evidence proves it can satisfy the accepted first-release session contract without a legacy engine code change.
 
 Required proof:
 
@@ -297,15 +297,15 @@ Required proof:
 - exact game-world lookup behavior;
 - acceptable replay window and documented risk.
 
-### Candidate B — Canary code/protocol change
+### Candidate B — legacy engine code/protocol change
 
 Required if Candidate A cannot meet replay/revocation/world-scoping/security requirements.
 
-Any Canary write requires a separately authorized `blakinio/canary` task.
+Any legacy engine write requires a separately authorized `the legacy game-server repository` task.
 
 Possible direction:
 
-- shared/authoritative one-time or bounded session credential recognized directly by Canary;
+- shared/authoritative one-time or bounded session credential recognized directly by legacy engine;
 - explicit world/audience binding;
 - deterministic consume/revocation semantics.
 
@@ -323,13 +323,13 @@ No writes to `opentibiabr/login-server` are permitted from Oteryn Platform work.
 
 ### Exit gate
 
-- exact adapter contract proven against current Canary SHA;
+- exact adapter contract proven against current legacy engine SHA;
 - Gateway can create a usable Game Session without user/sink password;
 - wrong account/character denied;
 - expiry/revocation behavior measured;
 - ambiguous commit/retry behavior deterministic;
 - no unapproved DB privileges;
-- any required Canary PR is separately reviewed/green/merged in correct rollout order.
+- any required legacy engine PR is separately reviewed/green/merged in correct rollout order.
 
 ## Phase 7 — Cross-repository staging E2E
 
@@ -342,7 +342,7 @@ Prove the new path across exact versions before legacy removal.
 - Oteryn Platform SHA;
 - Game Gateway SHA/image digest;
 - OTClient SHA/build identifier;
-- Canary SHA/image digest;
+- Legacy engine SHA/image digest;
 - login-server SHA/image digest if still in any path;
 - database schema migration state;
 - ticket/session storage version/config;
@@ -359,11 +359,11 @@ OTClient
 -> Game Login Ticket
 -> Game Gateway
 -> Atomic redeem
--> exact Canary account binding
+-> exact legacy engine account binding
 -> World Registry
 -> Character List
 -> Game Session
--> Canary
+-> Legacy engine
 -> Player enters game
 ```
 
@@ -380,16 +380,16 @@ At minimum:
 - concurrent ticket replay;
 - disabled Identity;
 - generation changed after ticket issue;
-- missing/pending/conflict Canary binding;
+- missing/pending/conflict legacy engine binding;
 - missing/foreign/deleted character;
 - unauthorized/disabled world;
 - Gateway unavailable;
 - Identity unavailable;
 - ticket store unavailable;
 - session store unavailable;
-- Canary unavailable;
+- Legacy engine unavailable;
 - sensitive log regression;
-- direct native Canary login attempt;
+- direct native legacy engine login attempt;
 - upstream login-server password attempt;
 - legacy protocol attempt;
 - session expiry/revocation behavior.
@@ -420,7 +420,7 @@ Rollback: disable candidate feature flag/routing and use unchanged legacy path.
 
 Rollback: return official client routing/config to legacy while investigating. No database credential migration is required.
 
-### Stage 8C — Fence direct native Canary password login
+### Stage 8C — Fence direct native legacy engine password login
 
 Actions depend on proven production topology:
 
@@ -437,7 +437,7 @@ For Oteryn-supported modern clients:
 
 - remove the endpoint from the public official-client path;
 - or restrict it to explicitly accepted legacy/internal compatibility;
-- ensure the random Canary sink credential cannot authenticate a user.
+- ensure the random legacy engine sink credential cannot authenticate a user.
 
 ### Stage 8E — Legacy protocol decision
 
@@ -512,7 +512,7 @@ Phase 4 Game Gateway
         |
         +------------------------+
         v                        v
-Phase 5 OTClient            Phase 6 Canary Session Adapter
+Phase 5 OTClient            Phase 6 legacy engine Session Adapter
         \                        /
          \                      /
           v                    v
@@ -535,7 +535,7 @@ Phases 5 and 6 may proceed in parallel only after their shared contracts are fro
 
 ## Data migration policy
 
-The target auth rollout intentionally avoids migrating user passwords into Canary.
+The target auth rollout intentionally avoids migrating user passwords into legacy engine.
 
 Required data changes are Platform/game-auth metadata only, such as:
 
@@ -545,7 +545,7 @@ Required data changes are Platform/game-auth metadata only, such as:
 - World Registry;
 - selected Game Session compatibility state.
 
-Any migration that mutates existing Canary `accounts.password` is outside this rollout plan unless a new explicit contract supersedes the no-password-to-Canary target.
+Any migration that mutates existing legacy engine `accounts.password` is outside this rollout plan unless a new explicit contract supersedes the no-password-to-legacy engine target.
 
 ## Feature flags and configuration
 
@@ -635,13 +635,13 @@ OTClient
 -> Oteryn Game Gateway
 -> Game Session
 -> Character List / World routing
--> Canary
+-> Legacy engine
 -> Player enters game
 ```
 
 and:
 
-- the user's main password never reaches Game Gateway or Canary;
+- the user's main password never reaches Game Gateway or legacy engine;
 - Game Login Ticket concurrent replay has exactly one winner;
 - security-state revocation is deterministic;
 - Gateway is separately deployable;

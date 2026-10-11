@@ -7,11 +7,11 @@ Programme: `GAME-CATALOG-PRODUCTION-COMPLETION`
 
 | Producer | Consumer | Expected result |
 |---|---|---|
-| Canary `1.0.0` | current Platform | accepted under retained `1.0.0` contract |
-| Canary `1.1.0` | current Platform | accepted inactive; null verified boundary remains non-activatable |
-| Canary `1.2.0` | current Platform | accepted under exact runtime-threshold contract |
-| proposed Canary `1.3.0` | current Platform | rejected fail closed as unsupported |
-| proposed Canary `1.3.0` | future Platform `1.3.0` inactive consumer | accepted only after exact schema/hash, semantic validation and typed transactional import |
+| Legacy engine `1.0.0` | current Platform | accepted under retained `1.0.0` contract |
+| Legacy engine `1.1.0` | current Platform | accepted inactive; null verified boundary remains non-activatable |
+| Legacy engine `1.2.0` | current Platform | accepted under exact runtime-threshold contract |
+| proposed legacy engine `1.3.0` | current Platform | rejected fail closed as unsupported |
+| proposed legacy engine `1.3.0` | future Platform `1.3.0` inactive consumer | accepted only after exact schema/hash, semantic validation and typed transactional import |
 | future producer version | Platform without that version | rejected fail closed |
 
 This architecture PR does not change the current matrix. It does not add `1.3.0` to `config/game-catalog.php`.
@@ -49,8 +49,8 @@ These are architecture artifacts, not the final canonical schema/fixture hashes.
 ```text
 architecture proposal
   -> Platform complete inactive consumer
-    -> Canary NPC runtime-authority proof
-      -> Canary complete producer
+    -> Legacy engine NPC runtime-authority proof
+      -> Legacy engine complete producer
         -> shared exact schema/fixture parity
           -> immutable candidate artifact
             -> staging import and review
@@ -60,11 +60,11 @@ architecture proposal
                     -> separate exact-snapshot production gate
 ```
 
-The Platform consumer implementation and Canary producer are an `atomic-required` cross-repository change. The consumer merges first.
+The Platform consumer implementation and legacy engine producer are an `atomic-required` cross-repository change. The consumer merges first.
 
 ## Platform consumer gate
 
-Before Canary producer support may merge, Platform must prove:
+Before legacy engine producer support may merge, Platform must prove:
 
 - complete canonical `1.3.0` schema is valid Draft 2020-12;
 - exact schema and fixture hashes are pinned;
@@ -83,9 +83,9 @@ Before Canary producer support may merge, Platform must prove:
 
 The consumer may import `1.3.0` for inactive review even when `verified_content_through_release` is null. It must not activate such a candidate.
 
-## Canary authority gate
+## Legacy engine authority gate
 
-Before producer implementation, Canary must prove:
+Before producer implementation, legacy engine must prove:
 
 - deterministic read-only iteration of the final `Npcs` registry;
 - collection runs within the existing safe dispatcher/Lua export boundary;
@@ -98,7 +98,7 @@ Before producer implementation, Canary must prove:
 - currency is the exact `NpcType::info.currencyId` endpoint;
 - canonical collisions and dangling item/currency endpoints fail closed.
 
-## Canary producer gate
+## Legacy engine producer gate
 
 The producer PR must include:
 
@@ -120,7 +120,7 @@ The default producer profile must not switch to `1.3.0` unless deployment routin
 
 Staging is a separate Platform task. It requires one exact candidate record:
 
-- Canary commit;
+- Legacy engine commit;
 - Platform commit;
 - complete schema hash;
 - fixture hash used by contract tests;
@@ -181,7 +181,7 @@ Production activation is not part of schema `1.3.0` architecture, consumer or pr
 A later production task requires explicit user approval naming one exact candidate and all of:
 
 - artifact digest;
-- Canary commit;
+- Legacy engine commit;
 - Platform commit;
 - complete schema hash;
 - datapack/profile revision;
@@ -222,8 +222,8 @@ Unknown historical or availability evidence is not a validation error when repre
 | Task | Repository | Result |
 |---|---|---|
 | `OTERYN-20260730-game-catalog-schema-1-3-consumer` | Platform | complete inactive consumer and final canonical schema/hash |
-| `CAN-20260730-game-catalog-npc-runtime-authority` | Canary | safe final-registry authority and identity proof |
-| `CAN-20260730-game-catalog-schema-1-3-producer` | Canary | complete producer and exact parity |
+| `CAN-20260730-game-catalog-npc-runtime-authority` | legacy engine | safe final-registry authority and identity proof |
+| `CAN-20260730-game-catalog-schema-1-3-producer` | legacy engine | complete producer and exact parity |
 | `OTERYN-20260730-game-catalog-npc-shop-staging` | Platform | exact staging import/activation/rollback evidence |
 | `OTERYN-20260730-game-catalog-npc-shop-public` | Platform | separately gated public projection |
 
