@@ -25,14 +25,14 @@ Write the plan-only document `docs/agents/programs/DECANARY_REMOVAL_PLAN.md` for
 - [x] Inventory, native replacement, PR sequence, history rule and owner questions are present.
 - [x] Packet dependencies match the code at the inspected head (B1 after B7, D-4 after every Canary DB caller is off, D-8 keeps the native ticket model and issuance, C8 after the preference row inventory and Q-PREFS).
 - [x] The plan lives outside the task globs of `docs/agents/PROJECT_LANES.json`.
-- [ ] Exact-head CI, including checkpoint-validation, passes on PR #1480.
+- [x] Exact-head CI, including checkpoint-validation, passes on PR #1480.
 
 ## Ownership
 
 ```yaml
 owned_paths:
   - docs/agents/programs/DECANARY_REMOVAL_PLAN.md
-  - docs/agents/tasks/active/OTERYN-20261008-decanary-plan.md
+  - docs/agents/tasks/archive/OTERYN-20261008-decanary-plan.md
 modules:
   - none (documentation only)
 dependencies:
@@ -48,28 +48,28 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-10T21:30:00Z
-status: validating
+updated_at: 2026-10-10T23:00:00Z
+status: completed
 terminal_pr_policy: archive_pending
 phase: pre_merge_validation
 branch: claude/decanary-plan-1-20261008
-head: 3215a788d4759735b2266363b8db31d29b69c9f8
+head: 382b0849866fbddfb772aa9700c62a6ea50b1b20
 pr: 1480
 context_routes:
   - agent-governance
   - architecture
 owned_paths:
   - docs/agents/programs/DECANARY_REMOVAL_PLAN.md
-  - docs/agents/tasks/active/OTERYN-20261008-decanary-plan.md
+  - docs/agents/tasks/archive/OTERYN-20261008-decanary-plan.md
 proven:
+  - Exact-head CI passed on PR 1480 head 382b0849866fbddfb772aa9700c62a6ea50b1b20 (REST check-runs; checkpoint-validation, platform-gate, test, classify-changes success).
   - PR #1480 changes documentation only.
   - IssueGameLoginTicket denies an Identity without a ready identity_canary_accounts binding.
   - NativeGameLoginTickets imports GameLoginTicket and GameLoginTicketSecrets from app/GameAuth/Tickets.
   - The Synology platform service reaches the Canary DB for public data, account overview, provisioning, creation and Bazaar transfer.
 derived:
   - The plan file must stay outside docs/agents/tasks/*.md, otherwise control_room.py loads it as a task.
-unknown:
-  - Exact-head CI result for the head that carries this record.
+unknown: []
 conflicts: []
 first_failure:
   marker: checkpoint-validation on 3215a78
@@ -78,25 +78,25 @@ rejected_hypotheses:
   - Change tools/agents/control_room.py to ignore the plan file.
 changed_paths:
   - docs/agents/programs/DECANARY_REMOVAL_PLAN.md
-  - docs/agents/tasks/active/OTERYN-20261008-decanary-plan.md
+  - docs/agents/tasks/archive/OTERYN-20261008-decanary-plan.md
 validation:
-  - command: python3 tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20261008-decanary-plan.md --require-checkpoint
-    result: NOT_RUN
-    evidence: validation is delegated to CI on the PR head
+  - command: python3 tools/agents/checkpoint.py docs/agents/tasks/archive/OTERYN-20261008-decanary-plan.md --require-checkpoint
+    result: PASS
+    evidence: checkpoint-validation check-run success on PR 1480 head 382b0849866fbddfb772aa9700c62a6ea50b1b20
   - command: product runtime E2E
     result: NOT_APPLICABLE
     evidence: planning document only, no runtime behavior changes
 blockers:
   - none
-next_action: Run exact-head CI for PR #1480 and hand the review packet to the lead; archive this record when the PR ends the task.
+next_action: none; terminal PR merged and record archived.
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1480 merged (REST pulls/1480 state closed, merged true) as 95c606e8149911c188293090c8309e5b41c0eea6 at 2026-10-10T21:47:23Z from exact head 382b0849866fbddfb772aa9700c62a6ea50b1b20; source branch absent (REST branches API returns 404)
 ```
 
 ## Notes
