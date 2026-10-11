@@ -7,7 +7,7 @@ Continue Oteryn Platform acceptance work from the current repository state. Do n
 
 REPOSITORY WRITE ALLOWLIST:
 - Writes are allowed only in blakinio/Oteryn-Platform.
-- Treat the legacy game-server repository, upstream legacy engine, login-server, OTClient and every other repository as read-only unless the user explicitly authorizes a separate write task.
+- Treat blakinio/canary, upstream Canary, login-server, OTClient and every other repository as read-only unless the user explicitly authorizes a separate write task.
 
 PROGRAM: Exhaustive Delivered-Surface Portal Acceptance
 RECOMMENDED_MODE: CODEX
@@ -119,7 +119,7 @@ Use the smallest deterministic proof layer:
 - unit for pure policy/transformation;
 - feature/HTTP for routes, validation, middleware, rate limits, policy and server-rendered states;
 - database/integration for transactions, uniqueness, locks, races, idempotency and persisted integrity;
-- contract for legacy engine/login-server/shared interface assumptions;
+- contract for Canary/login-server/shared interface assumptions;
 - Playwright for composed navigation, browser/session behavior, cross-surface authorization, responsive interaction and visible recovery;
 - visual/accessibility for presentation risks;
 - operations/release validation for migration, rollback, dependency topology and recovery;
@@ -203,9 +203,9 @@ Do not enable strict closure while any truthful gap remains. The final gate PR m
 - preserve production and game-login nonclaims.
 
 DEFERRED / NOT AUTHORIZED:
-- writes to legacy engine, login-server, OTClient or another repository;
+- writes to Canary, login-server, OTClient or another repository;
 - authoritative Platform-to-game login implementation;
-- existing legacy engine account import/claim;
+- existing Canary account import/claim;
 - account delete/unlink/rebind/transfer;
 - character rename/delete;
 - payments, webshop, coins or commerce;

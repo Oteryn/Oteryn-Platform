@@ -9,9 +9,9 @@ AUTHORIZED REPOSITORIES
 
 Writes are authorized only in:
 - blakinio/Oteryn-Platform
-- the legacy game-server repository
+- blakinio/canary
 
-Never write to the legacy game-server repository or another external repository. Use a separate branch, task record, worktree and PR in each repository. Never push directly to main.
+Never write to opentibiabr/canary or another external repository. Use a separate branch, task record, worktree and PR in each repository. Never push directly to main.
 
 GOAL
 
@@ -48,7 +48,7 @@ REQUIRED PLATFORM READS
 - current Wiki routes, controllers, queries, administration, navigation and acceptance tests
 - current active tasks and open PRs overlapping routes, migrations, Wiki, integration, RBAC or acceptance
 
-REQUIRED LEGACY READS
+REQUIRED CANARY READS
 
 - AGENTS.md
 - docs/agents/REPOSITORY_MAP.md
@@ -58,8 +58,8 @@ REQUIRED LEGACY READS
 - matching MODULE_CATALOG, KNOWN_RISKS, BUILD_TEST_MATRIX and CROSS_REPO_CONTRACTS sections
 - docs/agents/REAL_TIBIA_EVIDENCE_SOURCES.md relevant provenance rules
 - src/main.cpp
-- src/legacy_server.hpp
-- src/legacy_server.cpp
+- src/canary_server.hpp
+- src/canary_server.cpp
 - item registry/loading code
 - MonsterType and Monsters registry code
 - current CMake/test conventions
@@ -81,7 +81,7 @@ Initial schema version: 1.0.0
 
 Create byte-identical schema files:
 
-Legacy engine:
+Canary:
 schemas/game-catalog/v1/game-catalog-snapshot.schema.json
 
 Platform:
@@ -109,11 +109,11 @@ The contract must include:
 Never represent versions as floats.
 removed_release is an exclusive upper bound.
 
-LEGACY EXPORTER
+CANARY EXPORTER
 
 Implement an offline CLI mode following the existing CLI-only startup precedent, for example:
 
-legacy --export-game-catalog-only --game-catalog-output=/path/game-catalog.json
+canary --export-game-catalog-only --game-catalog-output=/path/game-catalog.json
 
 Requirements:
 - load selected config and datapack;
@@ -256,9 +256,9 @@ Create a minimal sanitized fixture with:
 - one visible loot relation;
 - one future loot relation.
 
-Legacy engine validates or generates it. Platform imports it and proves visibility for at least two target releases.
+Canary validates or generates it. Platform imports it and proves visibility for at least two target releases.
 
-TESTS — LEGACY
+TESTS — CANARY
 
 Prove at minimum:
 - version ordering does not use floats;
@@ -301,7 +301,7 @@ ROLLOUT
 
 1. Finalize the shared contract and fixtures.
 2. Merge Platform storage/import without public activation.
-3. Merge legacy engine exporter.
+3. Merge Canary exporter.
 4. generate and review a staging snapshot;
 5. validate activation and rollback in a non-production environment;
 6. add public item and creature surfaces;

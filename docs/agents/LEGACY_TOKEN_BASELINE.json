@@ -34,6 +34,46 @@
       "history"
     ],
     [
+      "docs/agents/prompts/OTERYN-EXHAUSTIVE-PORTAL-ACCEPTANCE-AGENT-PROMPT.md",
+      "history"
+    ],
+    [
+      "docs/agents/prompts/OTERYN-PRODUCT-AUDIT-REMEDIATION-AGENT-PROMPT.md",
+      "history"
+    ],
+    [
+      "docs/agents/prompts/OTERYN-PUBLIC-WEBSITE-IMPLEMENTATION-AGENT-PROMPT.md",
+      "history"
+    ],
+    [
+      "docs/agents/prompts/OTERYN-WIKI-IMPLEMENTATION-AGENT-PROMPT.md",
+      "history"
+    ],
+    [
+      "docs/agents/prompts/OTERYN_GAME_CATALOG_IMPLEMENTATION_PROMPT.md",
+      "history"
+    ],
+    [
+      "docs/agents/prompts/OTS_NATIVE_PROTOCOL_SINGLE_VERSION_COMPLETION_AGENT.md",
+      "history"
+    ],
+    [
+      "docs/agents/prompts/OTS_NATIVE_SELECTION_E2E_IMPLEMENTATION.md",
+      "history"
+    ],
+    [
+      "docs/agents/prompts/OTS_OTHERYN_NATIVE_PROTOCOL_IMPLEMENTATION.md",
+      "history"
+    ],
+    [
+      "docs/agents/prompts/OTS_PLATFORM_GATEWAY_NATIVE_PROTOCOL_IMPLEMENTATION.md",
+      "history"
+    ],
+    [
+      "docs/agents/prompts/OTS_RUST_NATIVE_PROTOCOL_IMPLEMENTATION.md",
+      "history"
+    ],
+    [
       "config/",
       "config"
     ],
@@ -120,7 +160,17 @@
     "docs/agents/evidence/",
     "docs/agents/handovers/",
     "docs/evidence/",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "docs/agents/prompts/OTERYN-EXHAUSTIVE-PORTAL-ACCEPTANCE-AGENT-PROMPT.md",
+    "docs/agents/prompts/OTERYN-PRODUCT-AUDIT-REMEDIATION-AGENT-PROMPT.md",
+    "docs/agents/prompts/OTERYN-PUBLIC-WEBSITE-IMPLEMENTATION-AGENT-PROMPT.md",
+    "docs/agents/prompts/OTERYN-WIKI-IMPLEMENTATION-AGENT-PROMPT.md",
+    "docs/agents/prompts/OTERYN_GAME_CATALOG_IMPLEMENTATION_PROMPT.md",
+    "docs/agents/prompts/OTS_NATIVE_PROTOCOL_SINGLE_VERSION_COMPLETION_AGENT.md",
+    "docs/agents/prompts/OTS_NATIVE_SELECTION_E2E_IMPLEMENTATION.md",
+    "docs/agents/prompts/OTS_OTHERYN_NATIVE_PROTOCOL_IMPLEMENTATION.md",
+    "docs/agents/prompts/OTS_PLATFORM_GATEWAY_NATIVE_PROTOCOL_IMPLEMENTATION.md",
+    "docs/agents/prompts/OTS_RUST_NATIVE_PROTOCOL_IMPLEMENTATION.md"
   ],
   "groups": {
     "ci_deploy": {

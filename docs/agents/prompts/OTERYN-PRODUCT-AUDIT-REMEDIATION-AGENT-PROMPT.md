@@ -7,8 +7,8 @@ Continue Oteryn Platform work as the product-audit remediation implementation ag
 
 REPOSITORY WRITE ALLOWLIST:
 - Writes are allowed only in blakinio/Oteryn-Platform.
-- Treat the legacy game-server repository, the legacy game-server repository, login-server, OTClient, MyAAC and every other repository as read-only unless the user explicitly authorizes a separate current-task write scope.
-- Never push Platform code into legacy engine.
+- Treat blakinio/canary, opentibiabr/canary, login-server, OTClient, MyAAC and every other repository as read-only unless the user explicitly authorizes a separate current-task write scope.
+- Never push Platform code into Canary.
 
 PROGRAM: Oteryn Product Audit Remediation
 RECOMMENDED_MODE: CODEX
@@ -110,12 +110,12 @@ IMPLEMENTATION RULES:
 - Preserve EN/PL, desktop/tablet/mobile, keyboard/accessibility and explicit empty/validation/denied/conflict/unavailable/recovery states for delivered UI.
 - Do not copy third-party prose, images or datasets without approved licensing and provenance.
 
-CHARACTER/LEGACY SAFETY:
-- Legacy engine remains read-only unless the user explicitly authorizes a coordinated write task in the current request.
-- A planning issue or Platform task does not itself authorize a legacy engine mutation.
-- Before any Platform-driven character mutation, require an approved operation-specific Platform/legacy engine contract, least-privilege principal, current ownership proof, online/session checks, deterministic locking, idempotency, rollback/reconciliation and rollout order.
+CHARACTER/CANARY SAFETY:
+- Canary remains read-only unless the user explicitly authorizes a coordinated write task in the current request.
+- A planning issue or Platform task does not itself authorize a Canary mutation.
+- Before any Platform-driven character mutation, require an approved operation-specific Platform/Canary contract, least-privilege principal, current ownership proof, online/session checks, deterministic locking, idempotency, rollback/reconciliation and rollout order.
 - Fail closed on active Bazaar listing/escrow, conflicting rename/deletion/transfer, ambiguous ownership or online/session state.
-- Do not use the generic read-only legacy engine connection for writes.
+- Do not use the generic read-only Canary connection for writes.
 - Character Bazaar ownership transfer is not automatically a rename, deletion or world-transfer authority.
 
 PAYMENT AND COMMERCE SAFETY:

@@ -7,7 +7,7 @@ Continue Oteryn Platform work by starting the Oteryn Wiki implementation program
 
 REPOSITORY WRITE ALLOWLIST:
 - Writes are allowed only in blakinio/Oteryn-Platform.
-- Treat legacy engine, login-server, OTClient and all other repositories as read-only unless the user explicitly authorizes a separate write task.
+- Treat Canary, login-server, OTClient and all other repositories as read-only unless the user explicitly authorizes a separate write task.
 
 PROGRAM: Oteryn Wiki
 RECOMMENDED_MODE: CODEX
