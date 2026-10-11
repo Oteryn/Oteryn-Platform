@@ -84,7 +84,7 @@ The profile composes existing and new browser scenarios covering:
 2. login success/failure, redirect behavior and logout;
 3. Account Overview authorization and navigation;
 4. Legacy engine binding/provisioning states: ready, pending, recoverable, conflict and missing;
-5. safe provisioning retry and absence of raw internal identifiers;
+5. absence of raw internal identifiers;
 6. password recovery through real test SMTP, expiration/replay and session revocation;
 7. authenticated password change and revocation of other sessions;
 8. MFA enrollment, QR/manual provisioning boundary, confirmation, challenge, invalid/replayed TOTP, recovery-code single use and disable-all-sessions behavior;

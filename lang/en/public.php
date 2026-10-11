@@ -138,7 +138,7 @@ return [
         'online_pages' => 'Online character pages',
         'infrastructure' => 'World infrastructure',
         'servers_title' => 'Servers',
-        'servers_description' => 'Configured channel metadata with fresh Canary runtime availability when the dedicated runtime dependency is available.',
+        'servers_description' => 'Configured channel metadata with fresh game runtime availability when the dedicated runtime dependency is available.',
         'runtime_unavailable_help' => 'The live runtime dependency is temporarily unavailable, so live player availability is intentionally not shown. Configured channel metadata remains available below.',
         'pvp_type' => 'PvP type',
         'max_players' => 'Configured max players',

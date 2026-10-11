@@ -51,7 +51,6 @@ jobs:
           python tests/ci/test_workflow_trigger_economy.py
           python tests/ci/test_acceptance_lockfile_contract.py
           python tests/ci/test_dependency_update_contract.py
-          python tests/ci/test_game_catalog_cross_repo_trigger.py
           python tests/ci/test_synology_deploy_release_identity.py
 
       - name: Validate Integration execution registry
@@ -152,12 +151,9 @@ jobs:
           --health-timeout=5s
           --health-retries=20
     env:
-      CANARY_PROVISIONING_INTEGRATION_HOST: 127.0.0.1
-      CANARY_PROVISIONING_INTEGRATION_PORT: 3306
-      CANARY_PROVISIONING_INTEGRATION_ROOT_PASSWORD: oteryn-ci-root-password
-      CANARY_CHARACTER_CREATE_INTEGRATION_HOST: 127.0.0.1
-      CANARY_CHARACTER_CREATE_INTEGRATION_PORT: 3306
-      CANARY_CHARACTER_CREATE_INTEGRATION_ROOT_PASSWORD: oteryn-ci-root-password
+      MARIADB_INTEGRATION_HOST: 127.0.0.1
+      MARIADB_INTEGRATION_PORT: 3306
+      MARIADB_INTEGRATION_ROOT_PASSWORD: oteryn-ci-root-password
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -257,12 +253,9 @@ jobs:
           --health-timeout=5s
           --health-retries=20
     env:
-      CANARY_PROVISIONING_INTEGRATION_HOST: 127.0.0.1
-      CANARY_PROVISIONING_INTEGRATION_PORT: 3306
-      CANARY_PROVISIONING_INTEGRATION_ROOT_PASSWORD: oteryn-coverage-root-password
-      CANARY_CHARACTER_CREATE_INTEGRATION_HOST: 127.0.0.1
-      CANARY_CHARACTER_CREATE_INTEGRATION_PORT: 3306
-      CANARY_CHARACTER_CREATE_INTEGRATION_ROOT_PASSWORD: oteryn-coverage-root-password
+      MARIADB_INTEGRATION_HOST: 127.0.0.1
+      MARIADB_INTEGRATION_PORT: 3306
+      MARIADB_INTEGRATION_ROOT_PASSWORD: oteryn-coverage-root-password
     steps:
       - name: Checkout exact coverage candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

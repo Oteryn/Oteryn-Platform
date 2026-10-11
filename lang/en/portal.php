@@ -42,7 +42,6 @@ return [
         'authenticator' => 'Manage authenticator',
         'password' => 'Change password',
         'create' => 'Create a character',
-        'retry' => 'Retry game account setup',
         'level' => 'Level',
         'vocation' => 'Vocation',
         'profile' => 'View public profile',

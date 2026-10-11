@@ -102,7 +102,7 @@ func (s Success) String() string   { return "nativelogin.Success{attempt_ref:" +
 func (s Success) GoString() string { return s.String() }
 
 // IsNativeRequest reports whether a JSON object body selects the native branch: its top-level
-// protocol_version is exactly the integer 2. Every other body keeps the Canary-compatible path.
+// protocol_version is exactly the integer 2. Every other body keeps the legacy-compatible path.
 func IsNativeRequest(body []byte) bool {
 	var members map[string]json.RawMessage
 	if err := json.Unmarshal(body, &members); err != nil {

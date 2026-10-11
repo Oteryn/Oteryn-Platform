@@ -5,7 +5,6 @@ import {
   login,
   register,
   runBinary,
-  runPhpState,
   uniqueCharacterName,
   uniqueEmail,
 } from './helpers.mjs';
@@ -42,8 +41,6 @@ test('@portal-account Flow 5b — character validation, duplicate, ownership inj
   const email = uniqueEmail('character-boundary');
   const password = 'AcceptanceCharacter!234';
   await register(page, email, password);
-  const binding = runPhpState('binding', email);
-  expect(binding.status).not.toBe('missing');
   await login(page, email, password);
   await expect(page).toHaveURL(/\/$/u);
 
@@ -64,11 +61,9 @@ test('@portal-account Flow 5b — character validation, duplicate, ownership inj
     const foreignEmail = uniqueEmail('character-foreign');
     const foreignPassword = 'AcceptanceForeign!234';
     await register(foreignPage, foreignEmail, foreignPassword);
-    const foreignBinding = runPhpState('binding', foreignEmail);
-    expect(foreignBinding.status).not.toBe('missing');
 
     const ownedName = uniqueCharacterName('Owned');
-    await submitCharacter(page, ownedName, (foreignBinding.canary_account_id ?? 987654));
+    await submitCharacter(page, ownedName, 987654);
     await expect(page.getByRole('alert')).toContainText('Character creation is temporarily unavailable.');
   } finally {
     await foreignContext.close();
@@ -80,8 +75,6 @@ test('@portal-account Flow 5b — character validation, duplicate, ownership inj
     const quotaEmail = uniqueEmail('character-quota');
     const quotaPassword = 'AcceptanceQuota!234';
     await register(quotaPage, quotaEmail, quotaPassword);
-    const quotaBinding = runPhpState('binding', quotaEmail);
-    expect(quotaBinding.status).not.toBe('missing');
 
     await login(quotaPage, quotaEmail, quotaPassword);
     await expect(quotaPage).toHaveURL(/\/$/u);

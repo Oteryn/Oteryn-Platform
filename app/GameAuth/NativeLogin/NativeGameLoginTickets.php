@@ -15,7 +15,7 @@ use SensitiveParameter;
 /**
  * Native Game Login Ticket redemption (contract §4.2). A native ticket has audience
  * oteryn-native-game-gateway, the canonical AccountId and native_security_generation of its
- * Identity and no Canary binding; the separate first-party Rust OAuth client selects issuance.
+ * Identity and no game-account binding; the separate first-party Rust OAuth client selects issuance.
  * Redemption yields the AccountId and runs only inside the issuer transaction (§6.2).
  */
 final class NativeGameLoginTickets

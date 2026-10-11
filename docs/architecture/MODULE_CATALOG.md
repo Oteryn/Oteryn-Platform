@@ -115,7 +115,6 @@ Phase 5 implements:
 
 - immutable `1 Platform Identity <-> 1 legacy engine accounts.id` greenfield ownership model;
 - durable pending/ready/conflict provisioning/binding state;
-- dedicated least-privilege `canary_provisioning` adapter;
 - forward-recoverable account-create saga;
 - non-user sink credential compatibility representation;
 - fail-closed effective-grant verification and real MariaDB integration coverage.
@@ -145,7 +144,6 @@ Phase 5 implements character creation:
 
 - authorization through the authenticated Identity's ready immutable legacy engine account binding;
 - ADR 0005 canonical-name, vocation/sex, starter-state and quota policy;
-- dedicated least-privilege `canary_character_create` adapter;
 - account-row locking, same-name idempotent recovery, maximum-10-active-character enforcement and unique-name race handling;
 - real MariaDB privilege/concurrency coverage.
 
@@ -626,8 +624,6 @@ Implemented adapters include:
 
 - read-only legacy engine SQL game-data access;
 - read-only legacy engine runtime Redis access;
-- greenfield account provisioning through `canary_provisioning`;
-- greenfield character creation through `canary_character_create`;
 - Character Bazaar snapshot/ownership/transfer through `canary_character_transfer`, restricted to approved reads and `UPDATE (account_id)` only.
 
 The authoritative Platform game-login bridge remains a separate cross-repository integration task and is not implied by the module being `AVAILABLE`.

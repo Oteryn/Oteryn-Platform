@@ -114,8 +114,6 @@ The repository provides these verifiers:
 
 ```text
 php artisan canary:verify-db-privileges
-php artisan canary:verify-provisioning-db-privileges
-php artisan canary:verify-character-create-db-privileges
 ```
 
 - [ ] Run the generic legacy engine read-only verifier against the effective production credential. `ENV-EVIDENCE-REQUIRED`

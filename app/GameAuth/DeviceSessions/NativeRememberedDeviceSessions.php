@@ -42,7 +42,7 @@ final class NativeRememberedDeviceSessions
                 throw new DeviceSessionDenied;
             }
 
-            // Canary/legacy clients can never acquire this separate native authority.
+            // Legacy clients can never acquire this separate native authority.
             if (! $verified->nativeTicket || ! $this->usable($verified->identity)
                 || DeviceSessionFamily::query()->where('enrollment_access_token_id', $accessTokenId)->exists()) {
                 throw new DeviceSessionDenied;

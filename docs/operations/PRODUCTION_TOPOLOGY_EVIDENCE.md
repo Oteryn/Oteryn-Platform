@@ -111,8 +111,6 @@ Controlled Production Readiness evidence records a clean Platform database resto
 The repository defines operation-specific SQL surfaces including:
 
 - `canary` — generic read-only compatibility access;
-- `canary_provisioning` — account provisioning boundary;
-- `canary_character_create` — character-create boundary;
 - additional operation-specific principals where later accepted contracts require them.
 
 Least-privilege grant templates/verifiers exist for approved write boundaries.

@@ -42,7 +42,6 @@ return [
         'authenticator' => 'Zarządzaj aplikacją uwierzytelniającą',
         'password' => 'Zmień hasło',
         'create' => 'Utwórz postać',
-        'retry' => 'Ponów konfigurację konta gry',
         'level' => 'Poziom',
         'vocation' => 'Profesja',
         'profile' => 'Zobacz profil publiczny',

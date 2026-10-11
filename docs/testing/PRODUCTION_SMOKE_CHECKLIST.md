@@ -34,9 +34,7 @@ Do not store production credentials, tokens, reset links, TOTP secrets, recovery
 Run only if these launch-scope mutation surfaces are enabled in final production.
 
 - [ ] `UNKNOWN` — One new Platform Identity completes Platform-originated legacy engine account provisioning and reaches a ready immutable 1:1 binding.
-- [ ] `UNKNOWN` — Effective provisioning grants pass `canary:verify-provisioning-db-privileges` on the production credential/network path.
 - [ ] `UNKNOWN` — The bound Identity creates one character through the dedicated character-create principal without client-controlled account ownership.
-- [ ] `UNKNOWN` — Effective character-create grants pass `canary:verify-character-create-db-privileges` on the production credential/network path.
 - [ ] `UNKNOWN` — The created character becomes visible through the expected public exact-name search/profile flow.
 
 ## Administrator/RBAC/CMS smoke
