@@ -6,6 +6,8 @@ use App\PublicGameData\CanaryChannelRuntimeService;
 use App\PublicGameData\CanaryGameDataRepository;
 use App\PublicGameData\CommunityDataPolicy;
 use App\PublicGameData\PublicCharacterProfileService;
+use App\PublicGameData\PublicGameDataSource;
+use App\PublicGameData\PublicGameDataUnavailable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
@@ -37,7 +39,10 @@ final class PublicGameDataController
             : (is_string($vocationInput) && ctype_digit($vocationInput) ? (int) $vocationInput : null);
 
         try {
+            PublicGameDataSource::assertAvailable();
             $players = $this->gameData->highscores($category, $vocation);
+        } catch (PublicGameDataUnavailable) {
+            return $this->unavailable('community.highscores.title', Response::HTTP_OK);
         } catch (QueryException) {
             return $this->unavailable('community.highscores.title');
         }
@@ -71,7 +76,10 @@ final class PublicGameDataController
     public function character(string $name): View|Response
     {
         try {
+            PublicGameDataSource::assertAvailable();
             $profile = $this->profiles->find($name);
+        } catch (PublicGameDataUnavailable) {
+            return $this->unavailable('community.profile.title', Response::HTTP_OK);
         } catch (QueryException) {
             return $this->unavailable('community.profile.title');
         }
@@ -84,7 +92,10 @@ final class PublicGameDataController
     public function deaths(): View|Response
     {
         try {
+            PublicGameDataSource::assertAvailable();
             $deaths = $this->gameData->latestDeaths();
+        } catch (PublicGameDataUnavailable) {
+            return $this->unavailable('community.deaths.title', Response::HTTP_OK);
         } catch (QueryException) {
             return $this->unavailable('community.deaths.title');
         }
@@ -95,7 +106,10 @@ final class PublicGameDataController
     public function guild(string $name): View|Response
     {
         try {
+            PublicGameDataSource::assertAvailable();
             $result = $this->gameData->findGuild($name);
+        } catch (PublicGameDataUnavailable) {
+            return $this->unavailable('community.guilds.title', Response::HTTP_OK);
         } catch (QueryException) {
             return $this->unavailable('community.guilds.title');
         }
@@ -108,7 +122,10 @@ final class PublicGameDataController
     public function servers(): View|Response
     {
         try {
+            PublicGameDataSource::assertAvailable();
             $channels = $this->gameData->configuredChannels();
+        } catch (PublicGameDataUnavailable) {
+            return $this->unavailable('public.game.servers_title', Response::HTTP_OK);
         } catch (QueryException) {
             return $this->unavailable('public.game.servers_title');
         }
@@ -143,7 +160,10 @@ final class PublicGameDataController
     public function online(): View|Response
     {
         try {
+            PublicGameDataSource::assertAvailable();
             $characters = $this->gameData->onlineCharacters();
+        } catch (PublicGameDataUnavailable) {
+            return $this->unavailable('public.game.online_title', Response::HTTP_OK);
         } catch (QueryException) {
             return $this->unavailable('public.game.online_title');
         }
@@ -151,10 +171,10 @@ final class PublicGameDataController
         return view('game.online', ['characters' => $characters]);
     }
 
-    private function unavailable(string $titleKey): Response
+    private function unavailable(string $titleKey, int $status = Response::HTTP_SERVICE_UNAVAILABLE): Response
     {
         return response()->view('game.unavailable', [
             'title' => __($titleKey),
-        ], 503);
+        ], $status);
     }
 }

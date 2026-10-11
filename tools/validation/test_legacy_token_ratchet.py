@@ -48,6 +48,26 @@ class RatchetTest(unittest.TestCase):
         self.add("tests/t.php", "clean\n")
         self.assertEqual(self.main("--write"), 0)
 
+    def test_task_record_branch_lines_are_exempt(self) -> None:
+        def record(branch: str, notes: str) -> str:
+            return (
+                "---\ntask_id: T\n---\n\n## Context checkpoint\n\n```yaml\n"
+                f"head: UNKNOWN\nbranch: {branch}\nstatus: validating\n```\n\n"
+                f"## Notes\n{notes}"
+            )
+
+        self.add("docs/agents/tasks/active/T.md", record(f"claude/{TOKEN}-x-1", "clean\n"))
+        self.add("docs/agents/tasks/active/U.md", record(f"claude/{TOKEN}-y", f"branch: claude/{TOKEN}-y\n"))
+        self.add("docs/agents/tasks/active/V.md", record(f"{TOKEN} is prose", f"source_branch_reason: {TOKEN}\n"))
+        self.add("docs/agents/tasks/active/W.md", f"branch: claude/{TOKEN}-w\n")
+        self.add("docs/other.md", record(f"claude/{TOKEN}-z", ""))
+        self.assertEqual(self.main("--write"), 0)
+        docs = self.baseline()["groups"]["docs"]
+        # U notes line, V branch prose + notes line, W (no checkpoint block) and
+        # docs/other.md (not a task record) count; the T and U checkpoint branch lines do not.
+        self.assertEqual(docs["count"], 5)
+        self.assertEqual(docs["files"], 4)
+
     def test_pattern_does_not_match_itself(self) -> None:
         source = Path(ratchet.__file__).read_text(encoding="utf-8")
         self.assertIsNone(ratchet.TOKEN_RE.search(source))
