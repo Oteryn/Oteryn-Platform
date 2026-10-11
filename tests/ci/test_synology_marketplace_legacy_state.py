@@ -134,12 +134,39 @@ def test_unknown_durable_key_still_fails_closed() -> None:
     assert log == ""
 
 
-def test_flag_only_enabled_state_is_rewritten_disabled_without_database_proof() -> None:
+def test_flag_only_enabled_state_is_rewritten_disabled_after_a_zero_count() -> None:
     result, state, log = run_loader("MARKETPLACE_ENABLED=true\n")
     assert result.returncode == 0, result.stderr
     assert "enabled=false" in result.stdout
     assert state == "MARKETPLACE_ENABLED=false\n"
-    assert log == ""
+    assert "character_auctions" in log
+
+
+def test_flag_only_enabled_state_without_proof_refuses_and_keeps_the_file() -> None:
+    original = "MARKETPLACE_ENABLED=true\n"
+    result, state, _ = run_loader(original, tables="not-a-number")
+    assert result.returncode != 0
+    assert "OTERYN_ATTEST_NO_PENDING_AUCTIONS=1" in result.stderr
+    assert state == original
+    result, state, _ = run_loader(original, pending="2")
+    assert result.returncode != 0
+    assert state == original
+
+
+def test_flag_only_enabled_state_with_attestation_proceeds(monkeypatch) -> None:
+    monkeypatch.setenv("OTERYN_ATTEST_NO_PENDING_AUCTIONS", "1")
+    result, state, _ = run_loader("MARKETPLACE_ENABLED=true\n", tables="not-a-number")
+    assert result.returncode == 0, result.stderr
+    assert state == "MARKETPLACE_ENABLED=false\n"
+
+
+def test_crlf_and_quoted_flags_never_bypass_the_gate() -> None:
+    result, state, _ = run_loader("MARKETPLACE_ENABLED=true\r\n", pending="2")
+    assert result.returncode != 0 and state.strip() == "MARKETPLACE_ENABLED=true"
+    result, state, _ = run_loader('MARKETPLACE_ENABLED="true"\n')
+    assert result.returncode != 0 and state == 'MARKETPLACE_ENABLED="true"\n'
+    result, state, _ = run_loader("MARKETPLACE_ENABLED=true\nMARKETPLACE_ENABLED=false\n")
+    assert result.returncode != 0
 
 
 def test_flag_only_disabled_state_is_untouched() -> None:
@@ -189,8 +216,8 @@ def test_deploy_path_quiesces_consumers_before_the_drain_count() -> None:
     assert "_oteryn_migrate_legacy_marketplace_state quiesce || return 1" in lib
 
 
-def test_flag_only_state_is_not_quiesced() -> None:
-    _, _, log = run_loader("MARKETPLACE_ENABLED=true\n", call="_oteryn_migrate_legacy_marketplace_state quiesce")
+def test_flag_only_disabled_state_is_not_quiesced() -> None:
+    _, _, log = run_loader("MARKETPLACE_ENABLED=false\n", call="_oteryn_migrate_legacy_marketplace_state quiesce")
     assert "stop platform" not in log
 
 

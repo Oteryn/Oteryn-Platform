@@ -354,7 +354,7 @@ _oteryn_restart_after_refused_migration() {
 
 # Rewrites a durable state file to the current format (MARKETPLACE_ENABLED=false
 # only): the retired keys are dropped and any enabled runtime is disabled, because
-# the transfer contract is gone. Dropping the retired keys needs a verified zero
+# the transfer contract is gone. Either rewrite needs a verified zero
 # count of non-terminal auctions (N > 0 is refused). When no count can be obtained
 # (database not running), it fails closed unless the operator attests, with
 # OTERYN_ATTEST_NO_PENDING_AUCTIONS=1, that no auction can be pending. Idempotent.
@@ -395,7 +395,8 @@ _oteryn_migrate_legacy_marketplace_state() {
         return 1
     }
 
-    if [[ "$legacy" == 1 ]]; then
+    # Any rewrite (retired keys or an enabled flag) disables the runtime, so it needs the drain proof.
+    if [[ "$legacy" == 1 || "$enabled" == true ]]; then
         local was_running='' refused=''
         if [[ "$quiesce" == quiesce ]]; then
             was_running="$(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps --services --status running 2>/dev/null | grep -E '^(platform|internal-proxy|gateway)$' || true)"
@@ -403,11 +404,11 @@ _oteryn_migrate_legacy_marketplace_state() {
         fi
         if pending="$(_oteryn_marketplace_non_terminal_auction_count 2>/dev/null)" && [[ "$pending" =~ ^[0-9]+$ ]]; then
             if [[ "$pending" -gt 0 ]]; then
-                echo "Legacy Character Bazaar has $pending non-terminal auctions; drain them before dropping the retired escrow and transfer keys." >&2
+                echo "Legacy Character Bazaar has $pending non-terminal auctions; drain them before disabling the Marketplace state." >&2
                 refused=1
             fi
         elif [[ "${OTERYN_ATTEST_NO_PENDING_AUCTIONS:-}" != 1 ]]; then
-            echo "Cannot prove the legacy Character Bazaar is drained; refusing to drop the retired escrow and transfer keys. If no auction can be pending, set OTERYN_ATTEST_NO_PENDING_AUCTIONS=1 to attest that." >&2
+            echo "Cannot prove the legacy Character Bazaar is drained; refusing to disable the Marketplace state. If no auction can be pending, set OTERYN_ATTEST_NO_PENDING_AUCTIONS=1 to attest that." >&2
             refused=1
         fi
         if [[ -n "$refused" ]]; then
