@@ -49,7 +49,7 @@ cross_repository_tasks:
 checkpoint_version: 1
 updated_at: 2026-10-11T18:00:00Z
 head: UNKNOWN
-branch: UNKNOWN
+branch: claude/decanary-ci-2-20261011
 pr: 1543
 status: validating
 context_routes:
