@@ -19,6 +19,28 @@ final class ProviderSearchSupport
     }
 
     /**
+     * Splits one combined, strictly alternating result stream (first, second, first, ...) into the
+     * source window each of two streams must supply for the given page, so that consecutive pages
+     * never skip or repeat an item and every stream participates even when the limit is 1.
+     *
+     * @return array{0: array{offset: int, count: int}, 1: array{offset: int, count: int}}
+     */
+    public static function alternatingWindows(int $page, int $limit): array
+    {
+        $start = ($page - 1) * $limit;
+        $end = $page * $limit;
+        $firstOffset = intdiv($start + 1, 2);
+        $firstEnd = intdiv($end + 1, 2);
+        $secondOffset = intdiv($start, 2);
+        $secondEnd = intdiv($end, 2);
+
+        return [
+            ['offset' => $firstOffset, 'count' => $firstEnd - $firstOffset],
+            ['offset' => $secondOffset, 'count' => $secondEnd - $secondOffset],
+        ];
+    }
+
+    /**
      * @param  list<SearchHit>  ...$sets
      * @return list<SearchHit>
      */

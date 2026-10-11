@@ -43,11 +43,15 @@ final class PublicNewsQuery
     /** @return Collection<int, NewsPost> */
     public function searchPublished(
         string $search,
-        int $page = 1,
-        int $perPage = 5,
+        string $locale,
+        int $offset = 0,
+        int $limit = 5,
         ?DateTimeInterface $readTime = null,
     ): Collection {
-        if ($page < 1 || $page > 100 || $perPage < 1 || $perPage > 10) {
+        if (! in_array($locale, ['en', 'pl'], true)) {
+            throw new InvalidArgumentException('Unsupported search locale.');
+        }
+        if ($offset < 0 || $offset > 1000 || $limit < 1 || $limit > 10) {
             throw new InvalidArgumentException('Published news search pagination is outside bounds.');
         }
 
@@ -61,12 +65,12 @@ final class PublicNewsQuery
         $escaped = str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $needle);
         $prefix = $escaped.'%';
         $contains = '%'.$escaped.'%';
-        $translated = app()->getLocale() === 'pl';
+        $translated = $locale === 'pl';
         $title = $translated ? 'public_news_translation.title' : 'news_posts.title';
         $body = $translated ? 'public_news_translation.body' : 'news_posts.body';
 
         /** @var Collection<int, NewsPost> $rows */
-        $rows = $this->visibleAt($readTime)
+        $rows = $this->visibleAt($readTime, $locale)
             ->where(function (Builder $matches) use ($title, $body, $contains): void {
                 $matches
                     ->whereRaw("LOWER({$title}) LIKE ? ESCAPE '!'", [$contains])
@@ -83,8 +87,8 @@ final class PublicNewsQuery
             )
             ->orderByDesc('news_posts.published_at')
             ->orderBy('news_posts.id')
-            ->offset(($page - 1) * $perPage)
-            ->limit($perPage)
+            ->offset($offset)
+            ->limit($limit)
             ->get();
 
         return $rows;
@@ -112,13 +116,13 @@ final class PublicNewsQuery
     }
 
     /** @return Builder<NewsPost> */
-    private function visibleAt(DateTimeInterface $readTime): Builder
+    private function visibleAt(DateTimeInterface $readTime, ?string $locale = null): Builder
     {
         $query = NewsPost::query()
             ->whereNotNull('news_posts.published_at')
             ->where('news_posts.published_at', '<=', $readTime);
 
-        if (app()->getLocale() !== 'pl') {
+        if (($locale ?? app()->getLocale()) !== 'pl') {
             return $query;
         }
 

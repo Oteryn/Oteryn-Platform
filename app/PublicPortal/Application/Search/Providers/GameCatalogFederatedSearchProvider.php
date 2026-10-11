@@ -30,15 +30,22 @@ final readonly class GameCatalogFederatedSearchProvider implements FederatedSear
 
         $itemEnabled = $query->allowsType('catalog_item');
         $creatureEnabled = $query->allowsType('catalog_creature');
-        [$itemLimit, $creatureLimit] = $this->budgets($query->limit, $itemEnabled, $creatureEnabled);
+        if ($itemEnabled && $creatureEnabled) {
+            [$itemWindow, $creatureWindow] = ProviderSearchSupport::alternatingWindows($query->page, $query->limit);
+        } else {
+            $single = ['offset' => $query->offset(), 'count' => $query->limit];
+            $none = ['offset' => 0, 'count' => 0];
+            $itemWindow = $itemEnabled ? $single : $none;
+            $creatureWindow = $creatureEnabled ? $single : $none;
+        }
 
         $items = [];
-        if ($itemLimit > 0) {
+        if ($itemWindow['count'] > 0) {
             $rows = $this->catalog->searchItems(
                 $query->locale,
                 $query->query,
-                ($query->page - 1) * $itemLimit,
-                $itemLimit,
+                $itemWindow['offset'],
+                $itemWindow['count'],
             );
             if ($rows === null) {
                 return SearchProviderResult::unavailable($this->id());
@@ -49,12 +56,12 @@ final readonly class GameCatalogFederatedSearchProvider implements FederatedSear
         }
 
         $creatures = [];
-        if ($creatureLimit > 0) {
+        if ($creatureWindow['count'] > 0) {
             $rows = $this->catalog->searchCreatures(
                 $query->locale,
                 $query->query,
-                ($query->page - 1) * $creatureLimit,
-                $creatureLimit,
+                $creatureWindow['offset'],
+                $creatureWindow['count'],
             );
             if ($rows === null) {
                 return SearchProviderResult::unavailable($this->id());
@@ -78,16 +85,6 @@ final readonly class GameCatalogFederatedSearchProvider implements FederatedSear
             available: true,
             hits: ProviderSearchSupport::interleave($query->limit, $items, $creatures),
         );
-    }
-
-    /** @return array{0:int,1:int} */
-    private function budgets(int $limit, bool $items, bool $creatures): array
-    {
-        if ($items && $creatures) {
-            return [(int) ceil($limit / 2), intdiv($limit, 2)];
-        }
-
-        return [$items ? $limit : 0, $creatures ? $limit : 0];
     }
 
     private function itemHit(

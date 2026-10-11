@@ -18,6 +18,9 @@ use UnexpectedValueException;
  */
 final class EventCalendarQuery
 {
+    /** Upper bound on matching events ranked in memory for one search request. */
+    private const SEARCH_CANDIDATE_LIMIT = 500;
+
     /**
      * @return EventCalendar
      */
@@ -173,25 +176,54 @@ final class EventCalendarQuery
         }
 
         $needle = mb_strtolower($normalized);
-        $calendar = $this->calendar($locale, $readTime);
+        $at = CarbonImmutable::instance($readTime ?? now())->utc();
+        $like = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $needle).'%';
+
+        $rows = DB::table('events')
+            ->join('event_translations', function (JoinClause $join) use ($locale): void {
+                $join
+                    ->on('event_translations.event_id', '=', 'events.id')
+                    ->where('event_translations.locale', '=', $locale);
+            })
+            ->whereIn('events.status', Event::publicStatuses())
+            ->where(function (\Illuminate\Database\Query\Builder $matches) use ($like): void {
+                $matches
+                    ->whereRaw("LOWER(event_translations.title) LIKE ? ESCAPE '!'", [$like])
+                    ->orWhereRaw("LOWER(event_translations.summary) LIKE ? ESCAPE '!'", [$like]);
+            })
+            ->orderByDesc('events.featured')
+            ->orderBy('events.starts_at')
+            ->orderBy('events.id')
+            ->limit(self::SEARCH_CANDIDATE_LIMIT)
+            ->get([
+                'events.id',
+                'events.status',
+                'events.starts_at',
+                'events.ends_at',
+                'events.featured',
+                'event_translations.title',
+                'event_translations.slug',
+                'event_translations.summary',
+            ]);
+
         $matches = [];
-
-        foreach (['active', 'upcoming', 'archived', 'cancelled'] as $group) {
-            foreach ($calendar[$group] as $event) {
-                $title = mb_strtolower($event['title']);
-                $summary = mb_strtolower($event['summary']);
-                if (! str_contains($title, $needle) && ! str_contains($summary, $needle)) {
-                    continue;
-                }
-
-                $rank = match (true) {
-                    $title === $needle => 0,
-                    str_starts_with($title, $needle) => 1,
-                    str_contains($title, $needle) => 2,
-                    default => 3,
-                };
-                $matches[] = ['rank' => $rank, 'event' => $event];
+        foreach ($rows as $row) {
+            /** @var EventRow $data */
+            $data = (array) $row;
+            $event = $this->summary($data, $at);
+            $title = mb_strtolower($event['title']);
+            $summary = mb_strtolower($event['summary']);
+            if (! str_contains($title, $needle) && ! str_contains($summary, $needle)) {
+                continue;
             }
+
+            $rank = match (true) {
+                $title === $needle => 0,
+                str_starts_with($title, $needle) => 1,
+                str_contains($title, $needle) => 2,
+                default => 3,
+            };
+            $matches[] = ['rank' => $rank, 'event' => $event];
         }
 
         usort($matches, static function (array $left, array $right): int {

@@ -73,10 +73,14 @@ final class ActiveAnnouncementQuery
      */
     public function searchActive(
         string $search,
+        string $locale,
         int $page = 1,
         int $perPage = 5,
         ?DateTimeInterface $readTime = null,
     ): Collection {
+        if (! in_array($locale, ['en', 'pl'], true)) {
+            throw new InvalidArgumentException('Unsupported search locale.');
+        }
         if ($page < 1 || $page > 100 || $perPage < 1 || $perPage > 10) {
             throw new InvalidArgumentException('Announcement search pagination is outside bounds.');
         }
@@ -105,7 +109,7 @@ final class ActiveAnnouncementQuery
 
         $title = 'site_announcements.title';
         $body = 'site_announcements.body';
-        if (app()->getLocale() === 'pl') {
+        if ($locale === 'pl') {
             $alias = 'public_announcement_translation';
             $query
                 ->join('editorial_translations as '.$alias, static function (JoinClause $join) use ($alias, $readTime): void {

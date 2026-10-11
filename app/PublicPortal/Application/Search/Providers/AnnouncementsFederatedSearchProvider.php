@@ -26,6 +26,7 @@ final readonly class AnnouncementsFederatedSearchProvider implements FederatedSe
 
         $rows = $this->announcements->searchActive(
             $query->query,
+            $query->locale,
             $query->page,
             $query->limit,
         );

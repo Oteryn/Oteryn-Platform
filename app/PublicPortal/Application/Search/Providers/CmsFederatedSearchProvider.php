@@ -27,10 +27,21 @@ final readonly class CmsFederatedSearchProvider implements FederatedSearchProvid
 
     public function search(FederatedSearchQuery $query): SearchProviderResult
     {
+        $newsEnabled = $query->allowsType('news');
+        $pagesEnabled = $query->allowsType('page');
+        if ($newsEnabled && $pagesEnabled) {
+            [$newsWindow, $pagesWindow] = ProviderSearchSupport::alternatingWindows($query->page, $query->limit);
+        } else {
+            $single = ['offset' => $query->offset(), 'count' => $query->limit];
+            $none = ['offset' => 0, 'count' => 0];
+            $newsWindow = $newsEnabled ? $single : $none;
+            $pagesWindow = $pagesEnabled ? $single : $none;
+        }
+
         $news = [];
-        if ($query->allowsType('news')) {
+        if ($newsWindow['count'] > 0) {
             $news = array_values($this->news
-                ->searchPublished($query->query, $query->page, $query->limit)
+                ->searchPublished($query->query, $query->locale, $newsWindow['offset'], $newsWindow['count'])
                 ->map(fn (NewsPost $post): SearchHit => new SearchHit(
                     sourceModule: 'CMS',
                     sourceType: 'news',
@@ -47,9 +58,9 @@ final readonly class CmsFederatedSearchProvider implements FederatedSearchProvid
         }
 
         $pages = [];
-        if ($query->allowsType('page')) {
+        if ($pagesWindow['count'] > 0) {
             $pages = array_values($this->pages
-                ->searchPublished($query->query, $query->page, $query->limit)
+                ->searchPublished($query->query, $query->locale, $pagesWindow['offset'], $pagesWindow['count'])
                 ->map(fn (ManagedPage $page): SearchHit => new SearchHit(
                     sourceModule: 'CMS',
                     sourceType: 'page',
