@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { repoRoot, testedSha, runBinary, register, login, logout, completeMfaChallenge, uniqueEmail, uniqueCharacterName, assertAccessibilitySmoke } from './helpers.mjs';
+import { repoRoot, testedSha, runBinary, register, login, logout, completeMfaChallenge, uniqueEmail, uniqueCharacterName, runPhpState, assertAccessibilitySmoke } from './helpers.mjs';
 import { revealPublicNavigationLink } from './portal-navigation.mjs';
 
 const output = resolve(repoRoot, 'artifacts/acceptance/portal-review');
@@ -191,6 +191,18 @@ test('@smoke @portal-review actual authenticated hub, characters, support, secur
   await page.locator('select[name="vocation"]').selectOption('1');
   await page.locator('select[name="sex"]').selectOption('1');
   await page.locator('form[method="POST"] button[type="submit"]').last().click();
+  await expect(page.getByRole('alert')).toContainText('Character creation is temporarily unavailable.');
+  // Creation is closed, so the roster fixture is seeded through the game database.
+  const rootPassword = process.env.MARIADB_ROOT_PASSWORD;
+  const gameDb = process.env.CANARY_DB_DATABASE;
+  expect(rootPassword).toBeTruthy();
+  expect(gameDb).toBeTruthy();
+  const accountId = Number(runPhpState('binding', email).canary_account_id);
+  expect(accountId).toBeGreaterThan(0);
+  runBinary('mariadb', [
+    '--protocol=tcp', '-h127.0.0.1', '-uroot', `-p${rootPassword}`, '-e',
+    `INSERT INTO \`${gameDb}\`.players (name, account_id) VALUES ('${characterName}', ${accountId});`,
+  ]);
   await page.goto('/account?locale=en');
   await expect(page.locator('.character-roster-row')).toContainText(characterName);
   const profilePath = `/account/characters/${encodeURIComponent(characterName)}/profile?locale=en`;
