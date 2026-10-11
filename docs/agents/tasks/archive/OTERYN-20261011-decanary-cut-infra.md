@@ -116,7 +116,7 @@ terminal_pr_policy: archive_pending
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: PR is open
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1531 merge pending; branch claude/decanary-cut-infra-20261011 is deleted automatically after the protected merge
 ```

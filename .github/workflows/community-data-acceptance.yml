@@ -177,40 +177,9 @@ jobs:
           CACHE_STORE: array
         run: php artisan test tests/Feature/CharacterProfiles/CharacterProfilePreferenceTest.php tests/Feature/PublicGameData/CommunityDataCompletenessTest.php
 
-      - name: Restore privacy-aware community fixture after database-reset tests
-        run: php scripts/acceptance/seed-community-data.php
-
-      - name: Prove single-main-character concurrency on real MariaDB
+      - name: Record browser matrix as unavailable
         run: |
-          php scripts/acceptance/update-character-profile-preference.php 'Acceptance Hero' >/tmp/profile-hero.json &
-          hero_pid=$!
-          php scripts/acceptance/update-character-profile-preference.php 'Acceptance Guildmate' >/tmp/profile-guildmate.json &
-          guildmate_pid=$!
-          wait "$hero_pid"
-          wait "$guildmate_pid"
-          cat /tmp/profile-hero.json
-          cat /tmp/profile-guildmate.json
-          php scripts/acceptance/assert-character-profile-concurrency.php
-          php scripts/acceptance/seed-community-data.php
-
-      - name: Start exact-SHA Laravel HTTP runtime
-        run: |
-          mkdir -p artifacts/acceptance
-          php artisan serve --host=127.0.0.1 --port=8080 >/tmp/oteryn-community-data-server.log 2>&1 &
-          echo $! >/tmp/oteryn-community-data-server.pid
-          for attempt in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8080/health >/dev/null; then
-              exit 0
-            fi
-            sleep 1
-          done
-          cat /tmp/oteryn-community-data-server.log >&2 || true
-          exit 1
-
-      - name: Execute complete zero-retry Community Data matrix
-        run: |
-          cd scripts/acceptance
-          npx playwright test --config=playwright.community-data.config.mjs
+          echo "::notice title=Community Data browser matrix unavailable::The browser matrix and the single-main-character race read game-world data that has no native source yet. They return with native fixtures; only the focused Platform regressions above run."
 
       - name: Write non-secret Community Data evidence
         if: always()
@@ -223,9 +192,10 @@ jobs:
             "projects": ["community-data-chromium-desktop", "community-data-chromium-tablet", "community-data-chromium-mobile"],
             "viewports": ["desktop-1440x1000", "tablet-820x1180", "mobile-390x844"],
             "retries": 0,
+            "browser_matrix": "unavailable until native fixtures return",
             "runtime": "real Laravel HTTP",
             "platform_database": "MariaDB 11.8 isolated acceptance schema",
-            "proof_boundary": "highscores, privacy-aware profiles, Platform-owned owner preferences, escaped comments, per-character visibility, single-main-character race, deaths, kill statistics, guild search, localization, dependency failure/recovery and responsive layout",
+            "proof_boundary": "focused Platform regressions for owner preferences and community data completeness",
             "production_claim": "none"
           }
           JSON
