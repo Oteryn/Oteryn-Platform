@@ -59,7 +59,7 @@ final class VerifyNativeAdmissionSigning extends Command
         }
 
         $segments = explode('.', $grant->token);
-        if (count($segments) !== 3 || $segments[0].'.'.$segments[1] !== $grant->signingInput) {
+        if (count($segments) !== 3 || $grant->signingInput !== $segments[0].'.'.$segments[1]) {
             throw new NativeAdmissionUnavailable('Self-check grant is not a compact JWS over its signing input.');
         }
         $header = self::decode($segments[0]);
