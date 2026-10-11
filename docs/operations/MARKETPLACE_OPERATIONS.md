@@ -15,8 +15,8 @@ Before exposing `/bazaar` in any environment:
 3. ensure the escrow account is not bound to any Platform Identity;
 4. ensure the escrow account has no normal user-facing login credential path;
 5. provision `oteryn_character_transfer` from `database/provisioning/canary-character-transfer.sql.template` using secret management;
-6. set `MARKETPLACE_ESCROW_LEGACY_ACCOUNT_ID` to the escrow account ID;
-7. set the `LEGACY_CHARACTER_TRANSFER_DB_*` secrets;
+6. set `MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID` to the escrow account ID;
+7. set the `CANARY_CHARACTER_TRANSFER_DB_*` secrets;
 8. run `php artisan legacy:verify-character-transfer-db-privileges`;
 9. run `php artisan production:verify-configuration` in production configuration;
 10. run `php artisan marketplace:reconcile --limit=1000` before enabling traffic;

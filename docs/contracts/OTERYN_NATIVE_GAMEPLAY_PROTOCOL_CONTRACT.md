@@ -21,7 +21,7 @@ Apply the repository architecture authority order before using this historical p
 2. `docs/architecture/OTERYN_V2_INTEGRATION_ARCHITECTURE.md` is the focused current Platform-side target architecture.
 3. Oteryn-v2 owns authoritative gameplay admission/session/lease/fencing and `protocol-oteryn` gameplay semantics. Exact Oteryn-v2 contract bytes and unfinished admission/session details must come from the accepted Oteryn-v2 authority, not from this file.
 4. Platform owns Identity, OAuth/PKCE, one-time Game Login Ticket lifecycle, World Registry policy/routing and Game Gateway pre-admission orchestration within ADR 0031.
-5. Current legacy-compatible Game Session v1 remains separately governed by the retired legacy-engine contracts (see the ADR index) for its declared compatibility scope.
+5. Current legacy-compatible Game Session v1 remains separately governed by `docs/contracts/GAME_SESSION_CANARY_CONTRACT.md` for its declared compatibility scope.
 
 ADR 0031 supersedes the former target ownership model in this document wherever this file assigned gameplay protocol semantics, final admission or authoritative admitted-session behavior to Platform/Gateway or to the historical Otheryn correspondence package.
 

@@ -12,7 +12,7 @@ The bounded contract producer is delivered on `main`:
 
 - Oteryn Platform PR #121 delivered Game Login Ticket issuance and the private atomic redeem endpoint;
 - Oteryn Platform PR #122 delivered the separately buildable Game Gateway, authoritative login-context orchestration, World Registry use, account-scoped character projection and the Game Session issuer boundary, merged as `8006534108d835474dadd208b0ec934e4a12528b`;
-- the retired legacy-engine contracts (see the ADR index) is the current operation-specific authority for the legacy-compatible Game Session contract version 1 and records its bounded cross-repository E2E evidence.
+- `docs/contracts/GAME_SESSION_CANARY_CONTRACT.md` is the current operation-specific authority for the legacy-compatible Game Session contract version 1 and records its bounded cross-repository E2E evidence.
 
 Repository delivery proves the application and service contract, not a production deployment. Exact public/private ingress, TLS termination, service identity, credential rotation, deployed revisions, global legacy-path retirement and effective network isolation remain `UNKNOWN` until verified against one exact environment.
 
@@ -99,7 +99,7 @@ AND OAuth client is the allowed first-party native client
 AND scope includes game:ticket
 AND Identity is enabled
 AND current security policy is satisfied
-AND IdentityLegacyAccount binding is READY
+AND IdentityCanaryAccount binding is READY
 AND canary_account_id is non-null and exact
 ```
 

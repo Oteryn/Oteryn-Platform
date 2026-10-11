@@ -33,7 +33,7 @@ OTClient
   -> Legacy engine world-entry admission
 ```
 
-The Platform/Gateway producer boundary was delivered through PR #121 and PR #122; PR #122 merged as `8006534108d835474dadd208b0ec934e4a12528b`. The operation-specific world-entry authority is the retired legacy-engine contracts (see the ADR index), which records the bounded legacy engine and OTClient consumer evidence for legacy-compatible Game Session contract version 1.
+The Platform/Gateway producer boundary was delivered through PR #121 and PR #122; PR #122 merged as `8006534108d835474dadd208b0ec934e4a12528b`. The operation-specific world-entry authority is `docs/contracts/GAME_SESSION_CANARY_CONTRACT.md`, which records the bounded legacy engine and OTClient consumer evidence for legacy-compatible Game Session contract version 1.
 
 The delivered path does not send the user's Oteryn password across the Gateway-to-legacy engine boundary. Gateway authorization is derived from authoritative ticket redeem and the exact ready Platform-to-legacy engine account binding; client-supplied account or character ownership data cannot establish authority.
 

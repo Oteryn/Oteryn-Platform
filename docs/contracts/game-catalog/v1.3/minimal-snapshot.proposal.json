@@ -268,7 +268,7 @@
   "schema_version": "1.3.0",
   "snapshot": {
     "appearances_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    "legacy_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "canary_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "contains_content_through_release": null,
     "content_target_release": "15.25",
     "datapack_commit_sha": null,

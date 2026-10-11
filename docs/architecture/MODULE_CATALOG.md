@@ -115,7 +115,7 @@ Phase 5 implements:
 
 - immutable `1 Platform Identity <-> 1 legacy engine accounts.id` greenfield ownership model;
 - durable pending/ready/conflict provisioning/binding state;
-- dedicated least-privilege `legacy_provisioning` adapter;
+- dedicated least-privilege `canary_provisioning` adapter;
 - forward-recoverable account-create saga;
 - non-user sink credential compatibility representation;
 - fail-closed effective-grant verification and real MariaDB integration coverage.
@@ -145,14 +145,14 @@ Phase 5 implements character creation:
 
 - authorization through the authenticated Identity's ready immutable legacy engine account binding;
 - ADR 0005 canonical-name, vocation/sex, starter-state and quota policy;
-- dedicated least-privilege `legacy_character_create` adapter;
+- dedicated least-privilege `canary_character_create` adapter;
 - account-row locking, same-name idempotent recovery, maximum-10-active-character enforcement and unique-name race handling;
 - real MariaDB privilege/concurrency coverage.
 
 Character Bazaar adds one separate ownership-transfer operation under `docs/contracts/CHARACTER_TRANSFER_CONTRACT.md`:
 
 - seller, escrow and winner account IDs are resolved server-side;
-- only `players.account_id` may be updated by `legacy_character_transfer`;
+- only `players.account_id` may be updated by `canary_character_transfer`;
 - source/target account rows and the player row are locked deterministically;
 - deleted characters and every existing `cluster_sessions` row fail closed;
 - normal target character quota is enforced while the non-login escrow account is explicitly exempt;
@@ -290,7 +290,7 @@ The merged Download Center provides a public platform-filtered route and permiss
 
 ### Current available boundary
 
-Implemented Phase 4 read-only surfaces use explicit field allowlists, bounded pagination and the database-enforced `legacy` / `oteryn_readonly` SQL boundary. Runtime availability uses the separate read-only `legacy_runtime` Redis boundary with TTL freshness and fail-closed semantics.
+Implemented Phase 4 read-only surfaces use explicit field allowlists, bounded pagination and the database-enforced `canary` / `oteryn_readonly` SQL boundary. Runtime availability uses the separate read-only `canary_runtime` Redis boundary with TTL freshness and fail-closed semantics.
 
 Character Bazaar listing creation uses its own operation-specific transfer connection to capture an immutable public-safe allowlisted character snapshot before escrow. Public catalogue/detail reads use the Platform snapshot rather than live mutable legacy engine data.
 
@@ -626,9 +626,9 @@ Implemented adapters include:
 
 - read-only legacy engine SQL game-data access;
 - read-only legacy engine runtime Redis access;
-- greenfield account provisioning through `legacy_provisioning`;
-- greenfield character creation through `legacy_character_create`;
-- Character Bazaar snapshot/ownership/transfer through `legacy_character_transfer`, restricted to approved reads and `UPDATE (account_id)` only.
+- greenfield account provisioning through `canary_provisioning`;
+- greenfield character creation through `canary_character_create`;
+- Character Bazaar snapshot/ownership/transfer through `canary_character_transfer`, restricted to approved reads and `UPDATE (account_id)` only.
 
 The authoritative Platform game-login bridge remains a separate cross-repository integration task and is not implied by the module being `AVAILABLE`.
 

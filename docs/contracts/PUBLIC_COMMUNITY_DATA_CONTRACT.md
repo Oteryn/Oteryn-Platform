@@ -3,7 +3,7 @@
 ## Ownership
 
 - Legacy engine owns character, skill, guild, house, death and runtime records.
-- Oteryn Platform reads only through the dedicated `legacy` connection.
+- Oteryn Platform reads only through the dedicated `canary` connection.
 - Platform Identity owns public account-association and public status visibility flags.
 - Browser input never establishes character ownership, account association, status visibility or guild authority.
 

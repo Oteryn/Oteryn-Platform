@@ -10,7 +10,7 @@ The surface requires:
 
 - the Platform database and completed `character_profile_preferences` migration;
 - an authenticated non-terminated Platform Identity;
-- a ready immutable `IdentityLegacyAccount` binding;
+- a ready immutable `IdentityCanaryAccount` binding;
 - the existing read-only legacy engine connection and approved `players`/community-data grants;
 - normal Platform session, CSRF, throttle and audit infrastructure.
 
@@ -33,8 +33,8 @@ Absence of a preference row preserves the previously delivered profile behavior.
 Check, without exposing identifiers to the user:
 
 - Identity is active and authenticated;
-- `identity_legacy_accounts.status = ready`;
-- the binding has a valid `legacy_account_id`;
+- `identity_canary_accounts.status = ready`;
+- the binding has a valid `canary_account_id`;
 - the named character is active (`deletion = 0`);
 - the current server-read `players.account_id` matches the ready binding.
 

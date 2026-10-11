@@ -23,7 +23,7 @@ An authenticated browser request never proves ownership by supplying an Identity
 For each edit or update the server must:
 
 1. resolve the authenticated Platform Identity;
-2. load its ready immutable `IdentityLegacyAccount` binding;
+2. load its ready immutable `IdentityCanaryAccount` binding;
 3. resolve the active character by name through the read-only legacy engine repository;
 4. compare the server-read `players.account_id` with the bound legacy engine account ID;
 5. fail closed with a public-safe not-found or unavailable state when any proof step is absent or unreadable.
@@ -59,7 +59,7 @@ The update service:
 - starts a Platform database transaction;
 - locks the owning Identity row before reading or changing main-character state;
 - clears another current main row before selecting the requested character;
-- uses the `(identity_id, legacy_player_id)` uniqueness constraint for idempotent row identity;
+- uses the `(identity_id, canary_player_id)` uniqueness constraint for idempotent row identity;
 - retries bounded transaction failures through the database transaction helper.
 
 The Community Data acceptance workflow runs two separate PHP processes against real MariaDB, selecting two characters for the same Identity concurrently, and fails unless exactly one main row remains.

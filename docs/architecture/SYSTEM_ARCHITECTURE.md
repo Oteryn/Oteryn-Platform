@@ -100,7 +100,7 @@ Oteryn Identity / OAuth + PKCE
               Legacy engine world-entry admission
 ```
 
-This is a repository-delivered bounded path, not proof of one exact deployed production topology. Oteryn Platform PR #122 merged the Gateway producer as `8006534108d835474dadd208b0ec934e4a12528b`; the detailed identity and world-entry semantics remain owned by `GAME_GATEWAY_IDENTITY_CONTRACT.md` and the retired legacy-engine contracts (see the ADR index).
+This is a repository-delivered bounded path, not proof of one exact deployed production topology. Oteryn Platform PR #122 merged the Gateway producer as `8006534108d835474dadd208b0ec934e4a12528b`; the detailed identity and world-entry semantics remain owned by `GAME_GATEWAY_IDENTITY_CONTRACT.md` and `docs/contracts/GAME_SESSION_CANARY_CONTRACT.md`.
 
 The earlier `login-server / auth path` in the broad system-context diagram represents retained legacy/external compatibility paths, not the only current authentication topology. Exact exposure or isolation of native legacy engine login, external login-server and old-protocol password paths remains environment-specific and `UNKNOWN` without deployment/network evidence.
 

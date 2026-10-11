@@ -18,7 +18,7 @@ Oteryn Game Gateway
 World Registry
 Character Read Adapter
 Game Session Adapter
-Canary
+legacy engine
 ```
 
 ## 1. Successful first-party native login
@@ -35,7 +35,7 @@ sequenceDiagram
     participant W as World Registry
     participant R as Character Read Adapter
     participant S as Game Session Adapter
-    participant K as Canary
+    participant K as legacy engine
 
     C->>C: Generate state + PKCE verifier/challenge
     C->>C: Bind loopback listener on ephemeral port
@@ -53,7 +53,7 @@ sequenceDiagram
     I-->>C: Short-lived OAuth bootstrap credential (scope game:ticket)
     C->>I: POST /api/v1/game-auth/tickets
     I->>I: Validate scope/client/Identity/disabled state
-    I->>I: Resolve exact ready Identity -> Canary account binding
+    I->>I: Resolve exact ready Identity -> legacy engine account binding
     I->>T: Store ticket hash + audience + generation + expiry
     I-->>C: One-time opaque Game Login Ticket
     C->>G: POST /v1/login with Game Login Ticket
@@ -79,7 +79,7 @@ sequenceDiagram
 - The user password is entered only in the browser-controlled Oteryn Identity surface.
 - The OAuth credential terminates at Oteryn Platform ticket issuance.
 - Gateway receives only the Game Login Ticket.
-- Canary receives only the Game Session credential required by the final compatibility contract.
+- legacy engine receives only the Game Session credential required by the final compatibility contract.
 - Client-supplied account ownership fields are not authoritative.
 
 ## 2. User already has an authenticated Oteryn browser session
@@ -214,7 +214,7 @@ sequenceDiagram
     C->>I: POST /api/v1/game-auth/tickets with scoped OAuth bearer
     I->>I: Validate bearer, client and game:ticket scope
     I->>I: Check Identity enabled/current security state
-    I->>I: Resolve ready immutable Canary account binding
+    I->>I: Resolve ready immutable legacy engine account binding
     I->>I: Generate >=256-bit opaque random ticket
     I->>T: Persist only derived/hash lookup + metadata + TTL + generation
     T-->>I: Durable issuance success
@@ -223,7 +223,7 @@ sequenceDiagram
 
 If persistence fails, no usable ticket is returned.
 
-## 9. Missing/pending/conflict Canary binding
+## 9. Missing/pending/conflict legacy engine binding
 
 ```mermaid
 sequenceDiagram
@@ -406,7 +406,7 @@ sequenceDiagram
     autonumber
     participant G as Game Gateway
     participant S as Game Session Adapter
-    participant K as Canary
+    participant K as legacy engine
 
     G->>S: Create session(account_id, world_id, idempotency/recovery key)
     S->>S: Generate server-side high-entropy session secret
@@ -460,7 +460,7 @@ The exact retry mechanism remains an implementation decision of the Game Session
 sequenceDiagram
     autonumber
     participant C as OTClient
-    participant K as Canary
+    participant K as legacy engine
 
     C->>K: Game Session for account A + character owned by account B
     K->>K: Resolve authenticated session account A
@@ -468,9 +468,9 @@ sequenceDiagram
     K-->>C: Denied
 ```
 
-Gateway should prevent this before routing, but Canary remains the final defense-in-depth ownership gate.
+Gateway should prevent this before routing, but legacy engine remains the final defense-in-depth ownership gate.
 
-## 22. Canary unavailable
+## 22. legacy engine unavailable
 
 ```mermaid
 sequenceDiagram
@@ -478,7 +478,7 @@ sequenceDiagram
     participant C as OTClient
     participant G as Game Gateway
     participant W as World Registry
-    participant K as Canary
+    participant K as legacy engine
 
     C->>G: Login
     G->>W: Resolve world status/routing
@@ -488,7 +488,7 @@ sequenceDiagram
     C->>C: Show world connection failure
 ```
 
-World Registry health and actual Canary reachability can race. The first release must not claim that a returned route guarantees successful world entry.
+World Registry health and actual legacy engine reachability can race. The first release must not claim that a returned route guarantees successful world entry.
 
 ## 23. Legacy migration coexistence
 
@@ -499,7 +499,7 @@ sequenceDiagram
     participant I as Oteryn Identity
     participant G as Game Gateway
     participant L as Legacy login-server/native login
-    participant K as Canary
+    participant K as legacy engine
 
     alt New candidate path
         O->>I: Authorization Code + PKCE
@@ -525,7 +525,7 @@ flowchart LR
     C -->|Ticket| G[Game Gateway]
     G -->|Private atomic redeem| I
     G -->|Game Session + routing| C
-    C -->|Game Session| K[Canary]
+    C -->|Game Session| K[legacy engine]
 
     L[Legacy password login paths] -. disabled / fenced .- X((No public bypass))
 ```
@@ -541,12 +541,12 @@ Browser
 -> OTClient
 -> Game Login Ticket
 -> Gateway atomic redeem
--> exact bound Canary account
+-> exact bound legacy engine account
 -> World Registry
 -> Character List
 -> Game Session
--> Canary final ownership/admission
+-> legacy engine final ownership/admission
 -> Player enters game
 ```
 
-without the main Oteryn password being sent to Game Gateway or Canary.
+without the main Oteryn password being sent to Game Gateway or legacy engine.

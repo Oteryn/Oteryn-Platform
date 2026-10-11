@@ -61,7 +61,7 @@ Required fields:
 
 ```text
 generated_at
-legacy_commit_sha
+canary_commit_sha
 protocol_profile
 runtime_release
 content_target_release

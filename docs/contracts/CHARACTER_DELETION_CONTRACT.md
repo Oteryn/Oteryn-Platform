@@ -197,8 +197,8 @@ No deletion credential or grant template is approved or to be provisioned under 
 The existing principals are explicitly insufficient:
 
 - `legacy` is read-only;
-- `legacy_character_create` authorizes bounded inserts, not updates/deletes;
-- `legacy_character_transfer` authorizes only `UPDATE(players.account_id)`;
+- `canary_character_create` authorizes bounded inserts, not updates/deletes;
+- `canary_character_transfer` authorizes only `UPDATE(players.account_id)`;
 - Character Bazaar escrow authority does not authorize deletion, restore or finalization.
 
 If direct column privileges are ever proposed for a retained compatibility path, that compatibility contract must prove they cannot bypass side-effect policy, startup cleanup, idempotency or recovery. Current evidence does not prove this.

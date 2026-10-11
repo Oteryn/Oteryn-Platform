@@ -80,7 +80,7 @@ Although the current schema makes guild names unique, the ID tie-breaker preserv
 
 ## Read-only enforcement
 
-The query uses the existing dedicated `legacy` connection and `oteryn_readonly` credential boundary.
+The query uses the existing dedicated `canary` connection and `oteryn_readonly` credential boundary.
 
 No new table grant is required. The existing database-enforced direct-SELECT allowlist already contains:
 

@@ -89,7 +89,7 @@ The architecture separates:
 - `datapack_revision`;
 - `appearances_revision` or hash;
 - `map_sha256`;
-- `legacy_commit_sha`.
+- `canary_commit_sha`.
 
 A server may accept a 15.25 protocol while exposing only content verified through 15.20. These facts must not be collapsed into one `server_version` field.
 
@@ -190,7 +190,7 @@ id
 contract_version
 schema_version
 content_sha256 UNIQUE
-legacy_commit_sha
+canary_commit_sha
 datapack_commit_sha nullable
 protocol_profile
 runtime_release_id

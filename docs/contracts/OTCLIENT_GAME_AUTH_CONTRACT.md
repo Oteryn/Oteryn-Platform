@@ -310,7 +310,7 @@ After response:
 1. user selects a character;
 2. client resolves the character's `world_id` against returned world data;
 3. client uses the authoritative `host`/`port` returned for that world;
-4. client connects to legacy engine with the Game Session credential using the exact game protocol mapping defined by the retired legacy-engine contracts (see the ADR index).
+4. client connects to legacy engine with the Game Session credential using the exact game protocol mapping defined by `docs/contracts/GAME_SESSION_CANARY_CONTRACT.md`.
 
 Client must not rewrite a session for another world merely by changing host/port.
 

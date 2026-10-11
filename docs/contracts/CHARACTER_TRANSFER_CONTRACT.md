@@ -45,7 +45,7 @@ At the evidence revision:
 
 Connection:
 
-`legacy_character_transfer`
+`canary_character_transfer`
 
 Supported intents:
 
@@ -176,7 +176,7 @@ Before launch:
 ## Deployment prerequisites
 
 1. provision a non-login legacy engine escrow account out of band;
-2. inject its numeric ID as `MARKETPLACE_ESCROW_LEGACY_ACCOUNT_ID`;
+2. inject its numeric ID as `MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID`;
 3. provision the dedicated transfer principal from the reviewed SQL template;
 4. inject credentials through approved secret management;
 5. run the privilege verifier;
