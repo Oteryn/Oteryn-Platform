@@ -78,8 +78,12 @@ final class AdminGameCatalogTest extends TestCase
             ->assertSeeText($snapshot->contentSha256)
             ->assertSeeText('15.20');
 
+        // The detail page reads source_commit_sha, not the legacy provenance column.
+        DB::table('game_catalog_snapshots')->where('id', $snapshot->snapshotId)->update(['source_commit_sha' => str_repeat('f', 40)]);
+
         $this->get('/admin/game-catalog/snapshots/'.$snapshot->snapshotId)
             ->assertOk()
+            ->assertSeeText(str_repeat('f', 40))
             ->assertSeeText('fixture-protocol')
             ->assertSeeText('item:fixture-sword')
             ->assertSeeText('outside_release')

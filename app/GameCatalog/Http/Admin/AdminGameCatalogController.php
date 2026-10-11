@@ -247,7 +247,8 @@ final class AdminGameCatalogController
                 'snapshots.contract_version',
                 'snapshots.schema_version',
                 'snapshots.content_sha256',
-                'snapshots.canary_commit_sha',
+                // The admin view keeps its legacy property name until the view-text packet renames it.
+                'snapshots.source_commit_sha as canary_commit_sha',
                 'snapshots.datapack_commit_sha',
                 'snapshots.protocol_profile',
                 'snapshots.status',

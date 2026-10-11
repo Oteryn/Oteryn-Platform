@@ -9,6 +9,8 @@ use App\GameCatalog\Application\Diff\CatalogSnapshotDiffService;
 use App\GameCatalog\Application\Import\CatalogImportService;
 use App\GameCatalog\Application\Import\CatalogSemanticValidator;
 use App\GameCatalog\Application\Import\CatalogSnapshotValidator;
+use App\GameCatalog\Application\Import\Native\NativeCatalogEnvelopeValidator;
+use App\GameCatalog\Application\Import\Native\NativeCatalogImportService;
 use App\GameCatalog\Application\Verification\CatalogVerificationService;
 use App\GameCatalog\Console\ActivateCatalogCommand;
 use App\GameCatalog\Console\DiffCatalogCommand;
@@ -40,6 +42,12 @@ final class GameCatalogServiceProvider extends ServiceProvider
         $this->app->singleton(CatalogImportService::class, function (Application $app): CatalogImportService {
             return new CatalogImportService(
                 validator: $app->make(CatalogSnapshotValidator::class),
+                database: DB::connection(),
+            );
+        });
+        $this->app->singleton(NativeCatalogImportService::class, function (Application $app): NativeCatalogImportService {
+            return new NativeCatalogImportService(
+                validator: $app->make(NativeCatalogEnvelopeValidator::class),
                 database: DB::connection(),
             );
         });

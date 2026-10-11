@@ -17,6 +17,17 @@ final class CatalogConfiguration
         return $value;
     }
 
+    public static function boolean(string $key, bool $default): bool
+    {
+        $value = config($key, $default);
+
+        if (! is_bool($value)) {
+            throw new LogicException("Game Catalog configuration '{$key}' must be a boolean.");
+        }
+
+        return $value;
+    }
+
     public static function positiveInt(string $key, int $default): int
     {
         $value = config($key, $default);

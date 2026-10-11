@@ -183,7 +183,8 @@ final class CatalogImportService
             'contract_version' => $validated->payload['contract'],
             'schema_version' => $validated->payload['schema_version'],
             'content_sha256' => $validated->contentSha256,
-            'canary_commit_sha' => $snapshot['canary_commit_sha'],
+            // Dual write: readers use source_commit_sha; the legacy column keeps its NOT NULL contract until it is dropped.
+            ...array_fill_keys(['source_commit_sha', 'canary_commit_sha'], $snapshot['canary_commit_sha']),
             'datapack_commit_sha' => $snapshot['datapack_commit_sha'],
             'protocol_profile' => $snapshot['protocol_profile'],
             'runtime_release_id' => $releaseIds[$snapshot['runtime_release']],
