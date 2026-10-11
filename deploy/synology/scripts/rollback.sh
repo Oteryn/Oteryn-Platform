@@ -70,6 +70,7 @@ awk \
 }
 chmod 600 "$rollback_env.tmp"
 mv "$rollback_env.tmp" "$rollback_env"
+oteryn_pin_native_admission_flag "$rollback_env" "$PLATFORM_IMAGE"
 
 compose=(
     env

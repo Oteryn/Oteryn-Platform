@@ -634,6 +634,7 @@ finalize_previous_candidate_if_healthy() {
     }
     chmod 600 "$candidate_env.tmp"
     mv "$candidate_env.tmp" "$candidate_env"
+    oteryn_pin_native_admission_flag "$candidate_env" "${candidate_state[3]}"
 
     candidate_compose=(
         env

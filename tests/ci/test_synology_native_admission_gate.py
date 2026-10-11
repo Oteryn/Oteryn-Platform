@@ -349,3 +349,12 @@ def test_reconcile_rejects_a_changed_flag_and_rotate_needs_maintenance_while_liv
     assert '"$MAINTENANCE" != --maintenance' in key
     assert key.index("Refusing to rotate while native admission is live") < key.index("docker run --rm")
     assert "default off" in README.read_text(encoding="utf-8")
+
+
+def test_bounded_env_files_pin_the_compatibility_flag_for_every_compose_command() -> None:
+    lib = LIB.read_text(encoding="utf-8")
+    assert "oteryn_pin_native_admission_flag()" in lib
+    rollback = (ROOT / "deploy" / "synology" / "scripts" / "rollback.sh").read_text(encoding="utf-8")
+    assert 'oteryn_pin_native_admission_flag "$rollback_env" "$PLATFORM_IMAGE"' in rollback
+    assert rollback.index("oteryn_pin_native_admission_flag") < rollback.index("_oteryn_reconcile_marketplace_scheduler_after_runtime_change")
+    assert 'oteryn_pin_native_admission_flag "$candidate_env"' in DEPLOY.read_text(encoding="utf-8")

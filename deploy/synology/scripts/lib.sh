@@ -802,4 +802,15 @@ oteryn_native_admission_flag_for_image() {
     fi
 }
 
+# Pins the compatibility flag for an image into a bounded runtime env file, so every Compose command
+# that reads that file (including the Marketplace reconciler, which builds its own command from
+# OTERYN_ENV_FILE) recreates Platform and Gateway with the same flag.
+oteryn_pin_native_admission_flag() {
+    local env_file="$1" image="$2" flag
+    flag="$(oteryn_native_admission_flag_for_image "$image")"
+    { grep -v '^OTERYN_NATIVE_ADMISSION_ENABLED=' "$env_file" || true; printf 'OTERYN_NATIVE_ADMISSION_ENABLED=%s\n' "$flag"; } >"$env_file.pin"
+    chmod 600 "$env_file.pin"
+    mv "$env_file.pin" "$env_file"
+}
+
 trap _oteryn_finalize_release_on_exit EXIT
