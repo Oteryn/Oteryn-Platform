@@ -50,7 +50,7 @@ checkpoint_version: 1
 updated_at: 2026-10-11T18:00:00Z
 head: UNKNOWN
 branch: claude/decanary-ci-2-20261011
-pr: UNKNOWN
+pr: 1543
 status: validating
 context_routes:
   - ci
@@ -91,14 +91,14 @@ validation:
     evidence: comment, message and dead-guard changes only
 blockers:
   - none
-next_action: none; archived with the authoring commit.
+next_action: Archive this record once the PR is closed.
 terminal_pr_policy: archive_pending
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: auto_delete_after_merge
-source_branch_reason: the same-repository implementation branch has no durable post-merge purpose after the PR is terminal.
-source_branch_evidence: pending until the PR is merged.
+source_branch_disposition: pending
+source_branch_reason: task is still active
+source_branch_evidence: pending
 ```
