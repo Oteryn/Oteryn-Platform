@@ -15,7 +15,94 @@
     ],
     "terminal_handling": "Remove resolved, rejected, or superseded records in the same bounded package that records their accepted ADR, canonical rationale, or explicit rejection; preserve history in Git and linked Issues rather than in a second permanent archive."
   },
-  "records": [],
+  "records": [
+    {
+      "blockers": [],
+      "blocking_owner_question": "Select Option A, B or C for the durable native GameCatalog persistence composition; Architecture Review recommends Option B.",
+      "canonical_owners": [
+        "docs/architecture/adr/0034-native-game-catalog-content-ownership.md",
+        "docs/contracts/OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md",
+        "docs/architecture/GAME_CATALOG_ARCHITECTURE.md"
+      ],
+      "created_at": "2026-10-06",
+      "decision_id": "ARCH-DEC-0006",
+      "decision_owner": "repository owner",
+      "decision_question": "How should Platform persist validated native GameCatalog snapshots while preserving one profile/activation lifecycle and strict Legacy Canary Compatibility invariants?",
+      "deferral_reason": null,
+      "dependencies": {
+        "decision_ids": [],
+        "issues": [
+          489
+        ],
+        "local_paths": [
+          "database/migrations/2026_07_28_110000_create_game_catalog_tables.php",
+          "app/GameCatalog/Application/Activation/CatalogActivationService.php",
+          "app/GameCatalog/Application/PublicRead/PublicCatalogContextResolver.php",
+          "app/GameCatalog/Application/Import/Native/NativeCatalogEnvelopeValidator.php"
+        ]
+      },
+      "evidence": {
+        "CONFLICT": [],
+        "DERIVED": [
+          "Persisting a truthful native inactive candidate requires either a source-neutral composition seam or a high-risk rewrite/duplication of the existing lifecycle."
+        ],
+        "PROVEN": [
+          "Current game_catalog_snapshots requires Canary commit, protocol profile, runtime/content release foreign keys and appearances digest on the lifecycle row.",
+          "Current profile activation and public context resolution require Legacy Canary release-boundary joins.",
+          "PR 1229 integrated native envelope validation without native persistence or activation.",
+          "The native contract requires content authority, authority epoch, source revision, ruleset/profile identity, capability/completeness semantics, tombstones and payload digest."
+        ],
+        "UNKNOWN": [
+          "Repository owner selection among the three durable persistence composition options."
+        ]
+      },
+      "implementation_authorized": false,
+      "options": [
+        {
+          "description": "Add an authority discriminator and authority-conditional nullable/native columns to the existing Legacy Canary snapshot/profile/activation schema.",
+          "option_id": "A",
+          "title": "Generalize existing snapshot/profile tables in place",
+          "trade_offs": [
+            "Fewest top-level lifecycle tables, but weakens current database invariants and gives the migration the largest blast radius.",
+            "Requires every legacy activation/public/entity path to understand a mixed authority union."
+          ]
+        },
+        {
+          "description": "Introduce one source-neutral immutable snapshot root and one profile/activation/audit lifecycle while retaining strict Legacy Canary persistence through a 1:1 binding and adding separate native detail/payload persistence.",
+          "option_id": "B",
+          "title": "Shared neutral root with authority-specific details",
+          "trade_offs": [
+            "Preserves legacy constraints and supports additive backfill/equivalence before native persistence.",
+            "Adds a root/binding join and a controlled dual-pointer migration period."
+          ]
+        },
+        {
+          "description": "Create independent native snapshot/profile/activation/projection/audit tables and leave Legacy Canary lifecycle untouched.",
+          "option_id": "C",
+          "title": "Separate native lifecycle",
+          "trade_offs": [
+            "Strong immediate data-shape isolation and little legacy migration.",
+            "Duplicates Platform catalogue authority and creates long-term lifecycle/rollback/admin drift."
+          ]
+        }
+      ],
+      "problem_statement": "Platform validates the locked native GameCatalog envelope but the existing immutable snapshot/profile/activation persistence is structurally Legacy Canary Compatibility-specific and cannot truthfully persist native candidates without either weakening legacy invariants or duplicating the catalogue lifecycle.",
+      "recommendation": "Option B: shared source-neutral immutable snapshot root plus strict authority-specific details and one generalized profile/activation/audit lifecycle.",
+      "recommended_owner": "repository owner",
+      "references": {
+        "issue": 1460,
+        "proposed_adr": "docs/architecture/adr/0043-native-game-catalog-persistence-composition.md",
+        "related_prs": [
+          1229
+        ]
+      },
+      "revisit_trigger": null,
+      "severity": "high",
+      "state": "decision_required",
+      "title": "Native GameCatalog persistence composition without Canary inheritance",
+      "updated_at": "2026-10-06"
+    }
+  ],
   "registry_name": "Oteryn Platform Architecture Decision Backlog",
   "schema_version": 1
 }
