@@ -16,10 +16,10 @@ Prepare four original bilingual plain-text pages for existing ManagedPage/Editor
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-08T17:54:00Z
-head: db1ddecbe5559065a961bb1edd11794b5a40e214
+updated_at: 2026-10-11T02:00:00Z
+head: b9b9b110bc561704cac99800aca07b65af5ee1c1
 branch: content/1481-editorial-starter-pl-en
-pr: none
+pr: 1482
 status: validating
 context_routes:
   - portal-editorial-content
@@ -48,7 +48,7 @@ validation:
     evidence: This candidate contains draft text only; no executable or live CMS changes.
 blockers:
   - Live draft inventory and publication are unverified.
-next_action: Validate PR content and resolve authorized CMS inventory/publication route.
+next_action: Review draft text; then resolve authorized CMS inventory and publication route.
 ```
 
 ## Publication handoff
