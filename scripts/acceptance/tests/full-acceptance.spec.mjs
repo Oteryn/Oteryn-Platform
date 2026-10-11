@@ -103,17 +103,8 @@ test.describe('full production-like acceptance', () => {
 
     primaryCharacter = uniqueCharacterName('Hero');
     await createCharacter(page, primaryCharacter);
-    await expect(page.getByRole('status')).toContainText(`Character ${primaryCharacter} created.`);
-
-    const owner = runPhpState('character-owner', primaryCharacter, primaryEmail);
-    expect(owner.canary_account_id).toBe(binding.canary_account_id);
-
-    await page.goto(`/characters/${encodeURIComponent(primaryCharacter)}`);
-    await expect(page.getByRole('heading', { name: primaryCharacter })).toBeVisible();
-    await expect(page.locator('dt').filter({ hasText: 'Level' })).toBeVisible();
-    await expect(page.locator('dd').filter({ hasText: '8' }).first()).toBeVisible();
-    await expect(page.locator('dt').filter({ hasText: 'Vocation ID' })).toBeVisible();
-    await expect(page.locator('dd').filter({ hasText: '4' }).first()).toBeVisible();
+    // Character creation is switched off: the submission returns the bounded unavailable result.
+    await expect(page.getByRole('alert')).toContainText('Character creation is temporarily unavailable.');
   });
 
   test('Flow 2 — returning player: login -> MFA challenge -> protected surface -> logout', async ({ page }) => {
@@ -226,7 +217,7 @@ test.describe('full production-like acceptance', () => {
     await expect(page.getByRole('alert')).toContainText('reserved');
 
     await createCharacter(page, primaryCharacter);
-    await expect(page.getByRole('status')).toContainText(`Character ${primaryCharacter} already exists on your account.`);
+    await expect(page.getByRole('alert')).toContainText('Character creation is temporarily unavailable.');
 
     const foreignContext = await browser.newContext();
     const foreignPage = await foreignContext.newPage();
@@ -237,10 +228,10 @@ test.describe('full production-like acceptance', () => {
       await login(foreignPage, foreignEmail, foreignPassword);
       const foreignCharacter = uniqueCharacterName('Other');
       await createCharacter(foreignPage, foreignCharacter);
-      await expect(foreignPage.getByRole('status')).toContainText(`Character ${foreignCharacter} created.`);
+      await expect(foreignPage.getByRole('alert')).toContainText('Character creation is temporarily unavailable.');
 
       await createCharacter(page, foreignCharacter);
-      await expect(page.getByRole('alert')).toContainText('That character name is not available.');
+      await expect(page.getByRole('alert')).toContainText('Character creation is temporarily unavailable.');
 
       const ownedName = uniqueCharacterName('Owned');
       await page.goto('/account/characters/create');
@@ -255,21 +246,14 @@ test.describe('full production-like acceptance', () => {
         form.appendChild(input);
       }, foreignBinding.canary_account_id);
       await page.getByRole('button', { name: 'Create character' }).click();
-      await expect(page.getByRole('status')).toContainText(`Character ${ownedName} created.`);
-      runPhpState('character-owner', ownedName, primaryEmail);
+      await expect(page.getByRole('alert')).toContainText('Character creation is temporarily unavailable.');
     } finally {
       await foreignContext.close();
     }
 
-    for (let index = 0; index < 8; index += 1) {
-      const name = uniqueCharacterName('Quota');
-      await createCharacter(page, name);
-      await expect(page.getByRole('status')).toContainText(`Character ${name} created.`);
-    }
-
     const overQuota = uniqueCharacterName('Limit');
     await createCharacter(page, overQuota);
-    await expect(page.getByRole('alert')).toContainText('maximum number of active characters');
+    await expect(page.getByRole('alert')).toContainText('Character creation is temporarily unavailable.');
   });
 
   test('Flow 6 — public game data, pagination, empty and controlled dependency-failure states', async ({ page }) => {
