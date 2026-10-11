@@ -71,6 +71,7 @@ validation:
 blockers:
   - none
 next_action: <one concrete next step>
+terminal_pr_policy: archive_pending
 ```
 
 ## Source branch closeout
