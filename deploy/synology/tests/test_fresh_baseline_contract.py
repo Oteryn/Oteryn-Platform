@@ -136,7 +136,9 @@ def test_fast_deploy_recreates_platform_but_not_full_stack_services() -> None:
         assert forbidden not in fast
 
     full = deploy[deploy.index("stage_bootstrap_files()") :]
-    assert '"${compose[@]}" up -d --remove-orphans mariadb redis' in full
+    orphan_cleanup = '"${compose[@]}" up -d --remove-orphans mariadb redis'
+    assert orphan_cleanup in full
+    assert full.index(orphan_cleanup) > full.rindex('bash "$SCRIPT_DIR/health-check.sh"')
     assert 'php artisan migrate --force --no-interaction' in full
     assert 'bash "$SCRIPT_DIR/health-check.sh"' in full
     assert '"${compose[@]}" up -d gateway' in full

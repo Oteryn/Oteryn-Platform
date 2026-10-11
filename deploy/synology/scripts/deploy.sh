@@ -657,7 +657,7 @@ for runtime_image in "$PLATFORM_IMAGE" "$GATEWAY_IMAGE"; do
     }
 done
 stage_bootstrap_files
-"${compose[@]}" up -d --remove-orphans mariadb redis
+"${compose[@]}" up -d mariadb redis
 "${compose[@]}" up -d --force-recreate tls-init
 
 mariadb_deadline=$((SECONDS + mariadb_ready_timeout_seconds))
@@ -712,6 +712,10 @@ OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/health-check.sh"
     --port="$GAME_WORLD_PORT" \
     --status=online \
     --login-enabled=1
+
+# Retired legacy containers stay available for rollback until the native-only
+# Gateway has passed the full health contract; only then are orphans removed.
+"${compose[@]}" up -d --remove-orphans mariadb redis
 
 rm -f "$state_dir/backups/fresh-empty-before-"*/evidence.env "$state_dir/backups/fresh-empty-before-"*/platform.sql 2>/dev/null || true
 rmdir "$state_dir/backups/fresh-empty-before-"* 2>/dev/null || true

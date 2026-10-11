@@ -177,6 +177,9 @@ jobs:
       - name: Provision runtime Redis ACL principal
         run: |
           redis-cli ACL SETUSER oteryn_runtime on '>phase7-ci-runtime-not-a-secret' resetkeys '~cluster:channel:*:runtime' -@all +hmget +pttl +ping +select
+          # Native-only Gateway publishes no live runtime; a malformed record keeps the public runtime view in its unavailable state.
+          redis-cli HSET cluster:channel:1:runtime channel_id 1 status INVALID players_online 3
+          redis-cli PEXPIRE cluster:channel:1:runtime 600000
 
       - name: Provision production-like MariaDB schema
         run: |
