@@ -51,8 +51,8 @@ checkpoint_version: 1
 updated_at: 2026-10-11T09:00:00Z
 head: UNKNOWN
 branch: claude/native-login-e2e-1-20261011
-pr: none
-status: validating
+pr: 1550
+status: completed
 context_routes:
   - ci-workflows
 owned_paths:
@@ -94,7 +94,7 @@ terminal_pr_policy: archive_pending
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository PR
-source_branch_evidence: pending
+source_branch_evidence: PR 1550 head branch, deleted on merge
 ```
 
 ## Notes
