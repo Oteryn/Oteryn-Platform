@@ -34,6 +34,10 @@ services:
       QUEUE_CONNECTION: sync
       SESSION_DRIVER: file
       MARKETPLACE_ENABLED: ${MARKETPLACE_ENABLED:-false}
+      # Same native evidence witness as the platform service in compose.yml (anchors do not cross
+      # Compose files): scheduled identity:finalize-terminations writes through it.
+      GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE: fresh_admission
+      GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY: /var/www/html/storage/app/native-evidence-witness
     volumes:
       - platform_storage:/var/www/html/storage
     networks:

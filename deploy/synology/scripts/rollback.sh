@@ -90,6 +90,10 @@ compose=(
 _oteryn_verify_component_image_source "$PLATFORM_IMAGE" "$PLATFORM_SOURCE_SHA" Platform
 _oteryn_verify_component_image_source "$GATEWAY_IMAGE" "$GATEWAY_SOURCE_SHA" Gateway
 
+oteryn_native_admission_ingress_stop "${compose[@]}" >/dev/null
+"${compose[@]}" up -d platform
+oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || exit 1
+# Platform is already up and passed the trust gate (lib.sh); this starts the internal proxy and Gateway.
 "${compose[@]}" up -d platform internal-proxy gateway
 
 # Marketplace is an optional Platform-image consumer outside the base manifest.

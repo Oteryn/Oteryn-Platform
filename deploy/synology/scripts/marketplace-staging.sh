@@ -198,15 +198,20 @@ case "$ACTION" in
     enable)
         export MARKETPLACE_ENABLED=false
         update_env_value MARKETPLACE_ENABLED false
+        # Ingress stays stopped until the final Platform passes the trust gate (lib.sh).
+        oteryn_native_admission_ingress_stop "${compose[@]}" >/dev/null
         "${compose[@]}" up -d --no-deps --force-recreate platform
         "${compose[@]}" exec -T platform php artisan migrate --force --no-interaction
+        oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || exit 1
         "${compose[@]}" exec -T platform php artisan marketplace:reconcile --limit=1000
 
         export MARKETPLACE_ENABLED=true
         update_env_value MARKETPLACE_ENABLED true
         "${compose[@]}" up -d --no-deps --force-recreate platform
+        oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || exit 1
         "${compose[@]}" up -d marketplace-scheduler
         "${compose[@]}" up -d --no-deps --force-recreate internal-proxy
+        "${compose[@]}" start gateway
         verify_enabled_runtime
         echo "Character Bazaar staging enablement passed."
         ;;
@@ -220,10 +225,14 @@ case "$ACTION" in
         assert_no_pending_marketplace_work
         export MARKETPLACE_ENABLED=false
         update_env_value MARKETPLACE_ENABLED false
+        # Ingress stays stopped until the recreated Platform passes the trust gate (lib.sh).
+        oteryn_native_admission_ingress_stop "${compose[@]}" >/dev/null
         "${compose[@]}" up -d --no-deps --force-recreate platform
+        oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || exit 1
         "${compose[@]}" stop marketplace-scheduler >/dev/null 2>&1 || true
         "${compose[@]}" rm -f marketplace-scheduler >/dev/null 2>&1 || true
         "${compose[@]}" up -d --no-deps --force-recreate internal-proxy
+        "${compose[@]}" start gateway
         if "${compose[@]}" exec -T platform php artisan route:list --name=marketplace.index --json \
             | grep -q 'marketplace.index'; then
             echo "Character Bazaar routes remain registered after rollback preparation." >&2
