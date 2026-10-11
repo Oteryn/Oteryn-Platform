@@ -307,9 +307,9 @@ _oteryn_marketplace_state_file() {
     printf '%s/marketplace.env\n' "$(_oteryn_deploy_state_dir)"
 }
 
-# Durable Marketplace state written before the native-only cut also carries the
-# escrow account and character-transfer credentials. Those five keys are retired;
-# every other unknown key still fails closed.
+# Durable Marketplace state written by earlier releases also carries retired escrow
+# account and character-transfer keys. They are dropped: ignored, never re-emitted
+# and never a reason to block a deploy. Every other unknown key still fails closed.
 OTERYN_RETIRED_MARKETPLACE_STATE_KEYS=(
     MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID
     MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME
@@ -334,10 +334,35 @@ _oteryn_marketplace_non_terminal_auction_count() {
     printf '%s\n' "$pending"
 }
 
-# Strips the retired keys from a legacy durable state file, only after proving the
-# Bazaar is disabled and has no non-terminal auctions. Idempotent; a no-op for a
-# file already in the native-only format.
+# Reverse of _oteryn_quiesce_platform_db_consumers for a refused migration: starts only
+# the services that were running before, then the scheduler if it was running.
+_oteryn_restart_after_refused_migration() {
+    local was_running="$1" service scheduler_id
+    local -a base_compose=(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+
+    for service in platform internal-proxy gateway; do
+        if grep -qx "$service" <<<"$was_running"; then
+            "${base_compose[@]}" start "$service" >/dev/null || true
+        fi
+    done
+    if [[ "${OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING:-0}" == 1 ]]; then
+        scheduler_id="$(_oteryn_marketplace_scheduler_id)" || return 0
+        [[ -z "$scheduler_id" ]] || command docker start "$scheduler_id" >/dev/null || true
+    fi
+    return 0
+}
+
+# Rewrites a durable state file to the current format (MARKETPLACE_ENABLED=false
+# only): the retired keys are dropped and any enabled runtime is disabled, because
+# the transfer contract is gone. Either rewrite needs a verified zero
+# count of non-terminal auctions (N > 0 is refused). When no count can be obtained
+# (database not running), it fails closed unless the operator attests, with
+# OTERYN_ATTEST_NO_PENDING_AUCTIONS=1, that no auction can be pending. Idempotent.
+# With the argument "quiesce" (the deploy path), Platform, Gateway, the internal proxy
+# and the scheduler are stopped before the count so no listing can be accepted between
+# the count and the key removal; the deploy brings them back up afterwards.
 _oteryn_migrate_legacy_marketplace_state() {
+    local quiesce="${1:-}"
     local durable_file line key value enabled='' legacy=0 retired pending tmp
 
     durable_file="$(_oteryn_marketplace_state_file)"
@@ -364,26 +389,42 @@ _oteryn_migrate_legacy_marketplace_state() {
         return 1
     done < "$durable_file"
 
-    [[ "$legacy" == 1 ]] || return 0
+    [[ "$legacy" == 1 || "$enabled" == true ]] || return 0
+    [[ "$enabled" == true || "$enabled" == false ]] || {
+        echo "Marketplace runtime state has invalid enabled flag." >&2
+        return 1
+    }
 
-    [[ "$enabled" == false ]] || {
-        echo "Legacy Character Bazaar state is not disabled; run the Character Bazaar staging control prepare-rollback before deploying the native-only cut." >&2
-        return 1
-    }
-    pending="$(_oteryn_marketplace_non_terminal_auction_count)" || {
-        echo "Cannot prove the legacy Character Bazaar is drained; refusing Marketplace state migration." >&2
-        return 1
-    }
-    [[ "$pending" == 0 ]] || {
-        echo "Legacy Character Bazaar has $pending non-terminal auctions; drain it before deploying the native-only cut." >&2
-        return 1
-    }
+    # Any rewrite (retired keys or an enabled flag) disables the runtime, so it needs the drain proof.
+    if [[ "$legacy" == 1 || "$enabled" == true ]]; then
+        local was_running='' refused=''
+        if [[ "$quiesce" == quiesce ]]; then
+            was_running="$(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps --services --status running 2>/dev/null | grep -E '^(platform|internal-proxy|gateway)$' || true)"
+            _oteryn_quiesce_platform_db_consumers || { _oteryn_restart_after_refused_migration "$was_running" || true; return 1; }
+        fi
+        if pending="$(_oteryn_marketplace_non_terminal_auction_count 2>/dev/null)" && [[ "$pending" =~ ^[0-9]+$ ]]; then
+            if [[ "$pending" -gt 0 ]]; then
+                echo "Legacy Character Bazaar has $pending non-terminal auctions; drain them before disabling the Marketplace state." >&2
+                refused=1
+            fi
+        elif [[ "${OTERYN_ATTEST_NO_PENDING_AUCTIONS:-}" != 1 ]]; then
+            echo "Cannot prove the legacy Character Bazaar is drained; refusing to disable the Marketplace state. If no auction can be pending, set OTERYN_ATTEST_NO_PENDING_AUCTIONS=1 to attest that." >&2
+            refused=1
+        fi
+        if [[ -n "$refused" ]]; then
+            # Bring back exactly what the quiesce stopped (best effort; the refusal stays the result).
+            if [[ "$quiesce" == quiesce ]]; then
+                _oteryn_restart_after_refused_migration "$was_running" || true
+            fi
+            return 1
+        fi
+    fi
 
     tmp="$durable_file.tmp"
     ( umask 077; printf 'MARKETPLACE_ENABLED=false\n' >"$tmp" )
     chmod 600 "$tmp"
     mv "$tmp" "$durable_file"
-    echo "Migrated legacy Character Bazaar state: disabled and drained; retired escrow and transfer keys removed."
+    echo "Rewrote the durable Marketplace state as disabled without the retired keys."
 }
 
 _oteryn_load_marketplace_runtime_state() {
@@ -623,10 +664,9 @@ _oteryn_before_platform_migrate() {
     state_dir="$(_oteryn_deploy_state_dir)"
     release_sha="$(_oteryn_release_sha)" || return 1
 
-    # Prove and migrate legacy durable Marketplace state before any schema change,
-    # so a stale escrow/transfer record cannot abort the deploy after migration.
+    # Drop retired durable Marketplace state keys before any schema change.
     if ! { [[ -f "$ENV_FILE" ]] && grep -q '^MARKETPLACE_ENABLED=' "$ENV_FILE"; }; then
-        _oteryn_migrate_legacy_marketplace_state || return 1
+        _oteryn_migrate_legacy_marketplace_state quiesce || return 1
     fi
 
     if [[ -f "$state_dir/candidate-release.env" ]]; then

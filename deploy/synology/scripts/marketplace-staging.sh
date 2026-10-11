@@ -70,26 +70,18 @@ compose=(
 update_env_value() {
     local key="$1"
     local value="$2"
+    local temporary="$ENV_FILE.tmp"
 
-    python3 - "$ENV_FILE" "$key" "$value" <<'PY'
-from pathlib import Path
-import sys
-
-path = Path(sys.argv[1])
-key = sys.argv[2]
-value = sys.argv[3]
-lines = path.read_text().splitlines()
-replacement = f"{key}={value}"
-matched = False
-for index, line in enumerate(lines):
-    if line.startswith(f"{key}="):
-        lines[index] = replacement
-        matched = True
-        break
-if not matched:
-    lines.append(replacement)
-path.write_text("\n".join(lines) + "\n")
-PY
+    # Replace the key in place (append it when absent) without an interpreter:
+    # the platform runner image has no python3.
+    awk -v key="$key" -v value="$value" '
+        BEGIN { prefix = key "="; done = 0 }
+        index($0, prefix) == 1 && !done { print prefix value; done = 1; next }
+        { print }
+        END { if (!done) print prefix value }
+    ' "$ENV_FILE" >"$temporary"
+    chmod --reference="$ENV_FILE" "$temporary" 2>/dev/null || chmod 600 "$temporary"
+    mv "$temporary" "$ENV_FILE"
 }
 
 service_container_id() {

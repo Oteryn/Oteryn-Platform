@@ -8,13 +8,13 @@ This runbook applies to the Character Bazaar implementation governed by ADR 0016
 
 ## Deployment prerequisites
 
-Before exposing `/bazaar` in any environment:
+Activation is unavailable while the transfer contract is retired; the list below is historical. Before exposing `/bazaar` in any environment:
 
 1. deploy the exact Platform release and run Platform migrations;
 2. create one legacy engine account dedicated to Character Bazaar escrow;
 3. ensure the escrow account is not bound to any Platform Identity;
 4. ensure the escrow account has no normal user-facing login credential path;
-5. provision `oteryn_character_transfer` from `database/provisioning/canary-character-transfer.sql.template` using secret management;
+5. provision `oteryn_character_transfer` with the reviewed column-level grants (the repository template was removed with the retired transfer path) using secret management;
 6. set `MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID` to the escrow account ID;
 7. set the `CANARY_CHARACTER_TRANSFER_DB_*` secrets;
 8. run `php artisan canary:verify-character-transfer-db-privileges`;

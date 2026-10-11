@@ -6,7 +6,6 @@ on:
       - main
     paths:
       - 'config/marketplace.php'
-      - 'database/provisioning/canary-character-transfer.sql.template'
       - 'deploy/synology/compose.marketplace.yml'
       - 'deploy/synology/scripts/marketplace-staging.sh'
       - 'deploy/synology/.env.example'
@@ -19,7 +18,6 @@ on:
       - main
     paths:
       - 'config/marketplace.php'
-      - 'database/provisioning/canary-character-transfer.sql.template'
       - 'deploy/synology/compose.marketplace.yml'
       - 'deploy/synology/scripts/marketplace-staging.sh'
       - 'deploy/synology/.env.example'
