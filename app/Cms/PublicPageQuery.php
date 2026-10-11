@@ -58,7 +58,7 @@ final class PublicPageQuery
 
         $normalized = trim(preg_replace('/\\s+/u', ' ', $search) ?? $search);
         if ($normalized === '') {
-            return collect();
+            return new Collection;
         }
 
         $readTime ??= now();
