@@ -90,7 +90,7 @@ changed_paths:
 validation:
   - command: python -m pytest tests/ci deploy/synology/tests tools/validation
     result: PASS
-    evidence: 352 passed
+    evidence: 359 passed
   - command: python tools/validation/legacy_token_ratchet.py
     result: PASS
     evidence: no group above baseline

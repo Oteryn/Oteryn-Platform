@@ -307,16 +307,18 @@ async function capturePublicSurfaces(browser, viewportName) {
         ['home', '/', async (page) => page.locator('#character-name').fill('Acceptance Hero')],
         ['news-list', '/news'],
         ['news-detail', '/news/welcome-to-oteryn'],
-        ['online', '/online'],
-        ['highscores', '/highscores'],
-        ['servers', '/servers'],
-        ['character-detail', `/characters/${encodeURIComponent('Acceptance Hero')}`],
-        ['guild-detail', `/guilds/${encodeURIComponent('Acceptance Guild')}`],
+        // Game data has no native source after the native-only cut, so game-data routes
+        // answer the contained localized 503 unavailable page.
+        ['online', '/online', undefined, 503],
+        ['highscores', '/highscores', undefined, 503],
+        ['servers', '/servers', undefined, 503],
+        ['character-detail', `/characters/${encodeURIComponent('Acceptance Hero')}`, undefined, 503],
+        ['guild-detail', `/guilds/${encodeURIComponent('Acceptance Guild')}`, undefined, 503],
         ['managed-public-page', '/pages/about-oteryn'],
     ];
 
-    for (const [name, route, prepare] of surfaces) {
-        await openAndRecord(context, name, viewportName, route, { prepare });
+    for (const [name, route, prepare, expectedStatus] of surfaces) {
+        await openAndRecord(context, name, viewportName, route, { prepare, expectedStatus });
     }
 
     await context.close();
@@ -452,9 +454,9 @@ async function captureAdminSurfaces(browser, viewportName, recoveryCode) {
 
 async function captureTabletSurfaces(browser) {
     const publicContext = await browser.newContext({ viewport: viewports.tablet });
-    await openAndRecord(publicContext, 'highscores', 'tablet', '/highscores');
-    await openAndRecord(publicContext, 'guild-detail', 'tablet', `/guilds/${encodeURIComponent('Acceptance Guild')}`);
-    await openAndRecord(publicContext, 'servers', 'tablet', '/servers');
+    await openAndRecord(publicContext, 'highscores', 'tablet', '/highscores', { expectedStatus: 503 });
+    await openAndRecord(publicContext, 'guild-detail', 'tablet', `/guilds/${encodeURIComponent('Acceptance Guild')}`, { expectedStatus: 503 });
+    await openAndRecord(publicContext, 'servers', 'tablet', '/servers', { expectedStatus: 503 });
     await publicContext.close();
 
     const adminContext = await authenticatedAdminContext(browser, 'tablet', adminRecoveryCodes[2], false);
@@ -476,8 +478,8 @@ async function captureRepresentativeFailureStates(browser) {
 
     execFileSync('redis-cli', ['shutdown', 'nosave'], { stdio: 'ignore' });
     await new Promise((resolve) => setTimeout(resolve, 500));
-    await openAndRecord(desktopContext, 'servers-runtime-dependency-failure', 'desktop', '/servers');
-    await openAndRecord(mobileContext, 'servers-runtime-dependency-failure', 'mobile', '/servers');
+    await openAndRecord(desktopContext, 'servers-runtime-dependency-failure', 'desktop', '/servers', { expectedStatus: 503 });
+    await openAndRecord(mobileContext, 'servers-runtime-dependency-failure', 'mobile', '/servers', { expectedStatus: 503 });
 
     // Game data has no native source yet, so /online already answers the contained unavailable state.
     await openAndRecord(desktopContext, 'online-dependency-failure-503', 'desktop', '/online', { expectedStatus: 503 });

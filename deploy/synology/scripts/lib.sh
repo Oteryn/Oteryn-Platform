@@ -287,6 +287,85 @@ _oteryn_marketplace_state_file() {
     printf '%s/marketplace.env\n' "$(_oteryn_deploy_state_dir)"
 }
 
+# Durable Marketplace state written before the native-only cut also carries the
+# escrow account and character-transfer credentials. Those five keys are retired;
+# every other unknown key still fails closed.
+OTERYN_RETIRED_MARKETPLACE_STATE_KEYS=(
+    MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID
+    MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME
+    MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH
+    CANARY_CHARACTER_TRANSFER_DB_USER
+    CANARY_CHARACTER_TRANSFER_DB_PASSWORD
+)
+
+_oteryn_marketplace_non_terminal_auction_count() {
+    local -a db=(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T
+        -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb mariadb -uroot -N -B -e)
+    local table_count pending
+
+    table_count="$("${db[@]}" "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$PLATFORM_DB_NAME' AND table_name='character_auctions';")" || return 1
+    [[ "$table_count" =~ ^[0-9]+$ ]] || return 1
+    if [[ "$table_count" == 0 ]]; then
+        printf '0\n'
+        return 0
+    fi
+    pending="$("${db[@]}" "SELECT COUNT(*) FROM \`$PLATFORM_DB_NAME\`.character_auctions WHERE status IN ('escrow_pending','active','settlement_pending','cancel_pending','recovery_required');")" || return 1
+    [[ "$pending" =~ ^[0-9]+$ ]] || return 1
+    printf '%s\n' "$pending"
+}
+
+# Strips the retired keys from a legacy durable state file, only after proving the
+# Bazaar is disabled and has no non-terminal auctions. Idempotent; a no-op for a
+# file already in the native-only format.
+_oteryn_migrate_legacy_marketplace_state() {
+    local durable_file line key value enabled='' legacy=0 retired pending tmp
+
+    durable_file="$(_oteryn_marketplace_state_file)"
+    [[ -f "$durable_file" ]] || return 0
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ "$line" == *=* ]] || { echo "Invalid Marketplace state line." >&2; return 1; }
+        key="${line%%=*}"
+        value="${line#*=}"
+        if [[ "$key" == MARKETPLACE_ENABLED ]]; then
+            [[ -z "$enabled" ]] || { echo "Duplicate Marketplace state key: $key" >&2; return 1; }
+            enabled="$value"
+            continue
+        fi
+        for retired in "${OTERYN_RETIRED_MARKETPLACE_STATE_KEYS[@]}"; do
+            if [[ "$key" == "$retired" ]]; then
+                legacy=1
+                continue 2
+            fi
+        done
+        echo "Unexpected durable Marketplace state key: $key" >&2
+        return 1
+    done < "$durable_file"
+
+    [[ "$legacy" == 1 ]] || return 0
+
+    [[ "$enabled" == false ]] || {
+        echo "Legacy Character Bazaar state is not disabled; run the Character Bazaar staging control prepare-rollback before deploying the native-only cut." >&2
+        return 1
+    }
+    pending="$(_oteryn_marketplace_non_terminal_auction_count)" || {
+        echo "Cannot prove the legacy Character Bazaar is drained; refusing Marketplace state migration." >&2
+        return 1
+    }
+    [[ "$pending" == 0 ]] || {
+        echo "Legacy Character Bazaar has $pending non-terminal auctions; drain it before deploying the native-only cut." >&2
+        return 1
+    }
+
+    tmp="$durable_file.tmp"
+    ( umask 077; printf 'MARKETPLACE_ENABLED=false\n' >"$tmp" )
+    chmod 600 "$tmp"
+    mv "$tmp" "$durable_file"
+    echo "Migrated legacy Character Bazaar state: disabled and drained; retired escrow and transfer keys removed."
+}
+
 _oteryn_load_marketplace_runtime_state() {
     local durable_file source_file line key value seen='|'
     local -a required=(
@@ -298,6 +377,9 @@ _oteryn_load_marketplace_runtime_state() {
         source_file="$ENV_FILE"
     fi
     [[ -f "$source_file" ]] || return 2
+    if [[ "$source_file" == "$durable_file" ]]; then
+        _oteryn_migrate_legacy_marketplace_state || return 1
+    fi
 
     unset MARKETPLACE_ENABLED
 
@@ -498,6 +580,12 @@ _oteryn_before_platform_migrate() {
     local state_dir release_sha backup_dir backup_file backup_meta current_file old_sha old_schema
     state_dir="$(_oteryn_deploy_state_dir)"
     release_sha="$(_oteryn_release_sha)" || return 1
+
+    # Prove and migrate legacy durable Marketplace state before any schema change,
+    # so a stale escrow/transfer record cannot abort the deploy after migration.
+    if ! { [[ -f "$ENV_FILE" ]] && grep -q '^MARKETPLACE_ENABLED=' "$ENV_FILE"; }; then
+        _oteryn_migrate_legacy_marketplace_state || return 1
+    fi
 
     if [[ -f "$state_dir/candidate-release.env" ]]; then
         _oteryn_resume_candidate_if_safe "$state_dir" "$release_sha" || return 1

@@ -17,7 +17,10 @@ const communityCoverage = JSON.parse(fs.readFileSync(communityCoveragePath, 'utf
 const stressEvidence = communityCoverage.state_evidence_extensions?.find(
   (entry) => entry.surface_id === 'public.game-data' && entry.issue === 350,
 );
-const requiredStressStates = [
+// Game data has no native source after the native-only cut, so only the contained
+// unavailable state is executable; the former stress states are declared gaps.
+const requiredStressStates = ['stress-routes-contained-unavailable'];
+const requiredStressGaps = [
   'very-long-values',
   'large-result-set-pagination',
   'internal-error-500-contained',
@@ -29,6 +32,12 @@ if (!stressEvidence) {
 }
 if (JSON.stringify(stressEvidence.states?.map((state) => state.id)) !== JSON.stringify(requiredStressStates)) {
   throw new Error('Issue #350 state evidence extension does not define the exact required state order.');
+}
+if (JSON.stringify(stressEvidence.gaps?.map((gap) => gap.state)) !== JSON.stringify(requiredStressGaps)) {
+  throw new Error('Issue #350 state evidence extension must declare the unproven stress states as explicit gaps.');
+}
+if (stressEvidence.states.some((state) => requiredStressGaps.includes(state.id))) {
+  throw new Error('Issue #350 state evidence extension claims a stress state that is a declared gap.');
 }
 if (stressEvidence.evidence?.file !== 'scripts/acceptance/tests/community-data-acceptance.spec.mjs') {
   throw new Error('Issue #350 state evidence points at an unexpected evidence file.');
@@ -94,8 +103,9 @@ test('@portal-community complete rankings, privacy-aware profile, deaths, guild 
 });
 
 // Evidence marker: @portal-community-stress long values multi-page results internal 500 containment and recovery
-test('@portal-community-stress long values, multi-page results, internal 500 containment and recovery', async ({ page }) => {
-  // The stress states stay unavailable with the data source; the contained, non-debug failure surface is what is proven.
+// The marker id is kept stable for references; the long-value, multi-page, internal 500 and
+// recovery states are declared gaps in community-data-completeness.json, not proven here.
+test('@portal-community-stress stress routes stay contained while game data is unavailable', async ({ page }) => {
   for (const route of ['/highscores?page=2', '/deaths?page=2', '/guilds?search=' + 'x'.repeat(120)]) {
     await expectUnavailable(page, 'en', route);
   }
