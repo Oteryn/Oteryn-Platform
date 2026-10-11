@@ -28,6 +28,10 @@ final class CreateCharacterAuction
             return $this->existingResult($existing, $seller, $playerId, $durationDays, $startingBid, $buyNowPrice);
         }
 
+        if (config('marketplace.listing_frozen', true) !== false) {
+            throw new MarketplaceException('listing_frozen', 'New listings are paused while the Character Bazaar is being migrated.');
+        }
+
         $binding = IdentityCanaryAccount::query()->whereKey($seller->id)->first();
         if ($binding === null || ! $binding->isReady() || ! is_int($binding->canary_account_id)) {
             throw new MarketplaceException('binding_not_ready', 'Your game account must be ready before listing a character.');
