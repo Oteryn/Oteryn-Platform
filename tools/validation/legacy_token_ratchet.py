@@ -54,10 +54,11 @@ DEFAULT_RULES: list[tuple[str, str]] = [
 OTHER_GROUP = "other"
 
 # Task records must name their real head branch (checked against the pull
-# request by tools/agents), and that name can contain the token. Only these
-# whole-line checkpoint keys, inside task records, are not counted.
+# request by tools/agents), and that name can contain the token. Only lines
+# holding exactly a branch identifier under these keys, inside task records,
+# are not counted; free-form prose never is.
 TASK_RECORD_PREFIX = "docs/agents/tasks/"
-EXEMPT_LINE_RE = re.compile(r"^(branch: \S+|source_branch(_\w+)?: .*)$")
+EXEMPT_LINE_RE = re.compile(r"^(branch|source_branch): [A-Za-z0-9._/-]+$")
 
 
 def exempt_lines(root: Path, path: str) -> int:
