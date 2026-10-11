@@ -160,3 +160,14 @@ def test_bazaar_control_path_needs_no_python_and_no_retired_template() -> None:
         assert "python3 " not in text.replace("has no python3", "")
         assert "character-transfer.sql" not in text
     assert not list((ROOT / "database" / "provisioning").glob("*character-transfer*"))
+
+
+def test_control_workflow_replaces_durable_state_only_after_the_guarded_action() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "character-bazaar-staging-control.yml").read_text(encoding="utf-8")
+    render = workflow.index("name: Render ephemeral staging control environment")
+    execute = workflow.index("name: Execute guarded staging action")
+    persist = workflow.index("name: Persist final staging control state")
+    assert render < execute < persist
+    assert 'mv "$temporary" "$state_file"' not in workflow[render:execute]
+    assert 'mv "$temporary" "$state_file"' in workflow[persist:]
+    assert workflow.count('mv "$temporary" "$state_file"') == 1

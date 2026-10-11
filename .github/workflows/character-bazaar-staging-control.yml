@@ -227,16 +227,8 @@ jobs:
           OTERYN_STATE_DIR=$state_dir
           EOF
           chmod 600 deploy/synology/.env
-
-          enabled_value="$(grep -m1 '^MARKETPLACE_ENABLED=' deploy/synology/.env | cut -d= -f2-)"
-          if [[ -z "$enabled_value" ]]; then
-            echo "missing marketplace state key: MARKETPLACE_ENABLED" >&2
-            exit 1
-          fi
-          temporary="$state_file.tmp"
-          printf 'MARKETPLACE_ENABLED=%s\n' "$enabled_value" > "$temporary"
-          chmod 600 "$temporary"
-          mv "$temporary" "$state_file"
+          # The durable state file is not touched here: it is replaced only by the
+          # persist step, after the guarded action (reconcile and drain check) passed.
 
       - name: Execute guarded staging action
         env:
