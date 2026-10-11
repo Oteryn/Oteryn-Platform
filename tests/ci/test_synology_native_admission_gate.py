@@ -367,3 +367,9 @@ def test_rollback_flag_requires_projection_settings_and_publish_trust() -> None:
     assert "oteryn_native_admission_projection_ready" in flag
     assert "game-auth:native-admission:publish-trust" in flag
     assert "oteryn_native_admission_projection_ready || exit 1" in DEPLOY.read_text(encoding="utf-8")
+
+
+def test_finalize_previous_candidate_checks_the_flag_before_recreating_gateway() -> None:
+    deploy = DEPLOY.read_text(encoding="utf-8")
+    fin = deploy.split("finalize_previous_candidate_if_healthy() {")[1]
+    assert fin.index("running_platform_flag") < fin.index("up -d --no-deps --force-recreate internal-proxy gateway")

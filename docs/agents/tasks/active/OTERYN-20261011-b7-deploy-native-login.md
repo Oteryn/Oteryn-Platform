@@ -20,7 +20,7 @@ Governing GitHub Issue: #1474 (native-only migration), packet B7-DEPLOY of the r
 - [x] Synology deployment config, preflight, compose comments and docs run as `APP_ENV=preproduction`; `NativeGameLoginTickets::issue()` and every production guard are unchanged (production still refuses native admission; `GAME_AUTH_LEGACY_LOGIN_ENABLED` is untouched).
 - [x] `deploy.sh` runs `game-auth:native-admission:self-check` after migrations and before the Gateway is recreated (and after the Platform-only fast path), failing closed; `health-check.sh` re-runs it whenever the flag is `true`.
 - [x] `generate-native-admission-key.sh` idempotently creates the Ed25519 key in the root-only named volume `oteryn-native-admission-keys` (0700 directory, 0600 files owned by the Platform user), never prints the private key, prints only key ids and public keys, and supports `rotate`, `drop-retiring` and `show`.
-- [x] `native_admission_enabled` is `"true"` for the Synology stack; deploy refuses unless the key volume, key id and self-check pass. `tests/ci/test_synology_native_admission_gate.py` pins this.
+- [x] Native admission is opt-in (`native_admission_enabled` defaults to `"false"`; set `OTERYN_STAGING_NATIVE_ADMISSION_ENABLED=true`): deploy then refuses unless the projection identities, native World, key volume, key id and self-check pass, and fast, reconcile, rollback and candidate paths keep Platform and Gateway on the same flag. `tests/ci/test_synology_native_admission_gate.py` pins this.
 - [x] `docs/agents/LEGACY_TOKEN_BASELINE.json` is untouched and the ratchet passes.
 - [ ] Exact-head CI passes.
 

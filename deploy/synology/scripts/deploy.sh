@@ -512,7 +512,7 @@ finalize_previous_candidate_if_healthy() {
     local current_file="$state_dir/current-release.env"
     local last_good_file="$state_dir/last-good-release.env"
     local requested_sha candidate_sha candidate_schema candidate_accepts
-    local schema_state schema_id schema_target current_sha
+    local schema_state schema_id schema_target current_sha candidate_flag running_platform_flag
     local candidate_env="$state_dir/candidate-health.env"
     local service container_id image_id expected_image expected_image_id
     local gateway_container_id gateway_image_id expected_gateway_image expected_gateway_image_id
@@ -638,6 +638,15 @@ finalize_previous_candidate_if_healthy() {
         "OTERYN_NATIVE_ADMISSION_ENABLED=$(oteryn_native_admission_flag_for_image "${candidate_state[3]}")"
         docker compose --env-file "$candidate_env" -f "$COMPOSE_FILE"
     )
+    # Only Gateway and the proxy are recreated here: refuse before any mutation when the effective flag
+    # differs from what the running candidate Platform carries (they would disagree).
+    candidate_flag="$(sed -n 's/^OTERYN_NATIVE_ADMISSION_ENABLED=//p' "$candidate_env")"
+    running_platform_flag="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$("${compose[@]}" ps -q platform)" 2>/dev/null | sed -n 's/^GAME_AUTH_NATIVE_ADMISSION_ENABLED=//p')"
+    if [[ "$candidate_flag" != "$running_platform_flag" ]]; then
+        rm -f "$candidate_env"
+        echo "Previous candidate remains unresolved: native admission flag ($candidate_flag) differs from the running Platform ($running_platform_flag); run a full deploy." >&2
+        return 1
+    fi
     if ! "${candidate_compose[@]}" config --quiet; then
         rm -f "$candidate_env"
         return 1
