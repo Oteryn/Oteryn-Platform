@@ -146,7 +146,11 @@ final class CharacterCommandExchange
     {
         $stored = $intent->intent();
         $expected = $intent->command === CharacterCommandWire::CREATE
-            ? ['account_id' => $stored['account_id'] ?? null, 'world_id' => $stored['target_world_id'] ?? null]
+            ? [
+                'account_id' => $stored['account_id'] ?? null,
+                'world_id' => $stored['target_world_id'] ?? null,
+                'name' => $stored['requested_name'] ?? null,
+            ]
             : [
                 'character_id' => $stored['character_id'] ?? null,
                 'from_account_id' => $stored['expected_from_account_id'] ?? null,

@@ -61,6 +61,16 @@ final class CharacterCommandController
         if ($settings === null) {
             return response('', 503);
         }
+        $contentLength = $request->headers->get('Content-Length');
+        if ($contentLength !== null
+            && (preg_match('/^(0|[1-9][0-9]{0,9})$/D', $contentLength) !== 1 || (int) $contentLength > $maxBytes)) {
+            return response('', 413);
+        }
+        $encoding = $request->headers->get('Content-Encoding');
+        if ($request->headers->has('Transfer-Encoding')
+            || (is_string($encoding) && strtolower(trim($encoding)) !== 'identity')) {
+            return response('', 400);
+        }
         $contentType = $request->headers->get('Content-Type');
         $raw = $request->getContent();
         if (! is_string($contentType) || strtolower(trim(explode(';', $contentType, 2)[0])) !== 'application/json'

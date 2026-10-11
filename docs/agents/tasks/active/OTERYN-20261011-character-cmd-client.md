@@ -1,5 +1,5 @@
 ---
-task_id: OTERYN-20261011-decanary-cmd-client
+task_id: OTERYN-20261011-character-cmd-client
 governing_issue: 1474
 required_reads:
   - docs/contracts/OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md
@@ -14,7 +14,7 @@ optional_reads:
 
 ## Goal
 
-Governing GitHub Issue: #1474 (native-only migration) — canonical lifecycle authority for this task. Packet C1 (DECANARY-CMD-CLIENT-1) of the removal plan under `docs/agents/programs/`.
+Governing GitHub Issue: #1474 (native-only migration) — canonical lifecycle authority for this task. Packet C1 (CHARACTER-CMD-CLIENT-1) of the removal plan under `docs/agents/programs/`.
 
 Platform side of Game contract `oteryn-game-character-authority-commands-v1` (Game PR #1936, revised by #1959): an immutable intent store for `CreateCharacter` and `TransferCharacterOwnership`, keyed by a caller idempotency key and a fresh UUIDv7 `operation_id`; the three Game-initiated mTLS exchanges (pending list, intent read, receipt publication); and a receipt store with history. Platform never calls Game. Disabled by default and limited to `testing`/`preproduction`; the routes are not mounted, so no existing flow changes.
 
@@ -39,8 +39,8 @@ owned_paths:
   - config/character-authority.php
   - database/migrations/2026_10_11_120000_create_character_command_intents_and_receipts.php
   - tests/Feature/CharacterAuthority/**
-  - docs/agents/tasks/active/OTERYN-20261011-decanary-cmd-client.md
-  - docs/agents/tasks/archive/OTERYN-20261011-decanary-cmd-client.md
+  - docs/agents/tasks/active/OTERYN-20261011-character-cmd-client.md
+  - docs/agents/tasks/archive/OTERYN-20261011-character-cmd-client.md
 modules:
   - game-auth
 dependencies:
@@ -67,8 +67,8 @@ owned_paths:
   - config/character-authority.php
   - database/migrations/2026_10_11_120000_create_character_command_intents_and_receipts.php
   - tests/Feature/CharacterAuthority/**
-  - docs/agents/tasks/active/OTERYN-20261011-decanary-cmd-client.md
-  - docs/agents/tasks/archive/OTERYN-20261011-decanary-cmd-client.md
+  - docs/agents/tasks/active/OTERYN-20261011-character-cmd-client.md
+  - docs/agents/tasks/archive/OTERYN-20261011-character-cmd-client.md
 proven:
   - The Game contract inverts the call direction (Game pulls over mTLS); the Platform "client" is an intent store, three Game-initiated routes and a receipt store.
   - The contract keeps an expired intent PENDING until Game's receipt (§4.1, §5.3), so timeout handling is "never fail locally".
@@ -91,7 +91,7 @@ changed_paths:
   - config/character-authority.php
   - database/migrations/2026_10_11_120000_create_character_command_intents_and_receipts.php
   - tests/Feature/CharacterAuthority/CharacterCommandClientTest.php
-  - docs/agents/tasks/active/OTERYN-20261011-decanary-cmd-client.md
+  - docs/agents/tasks/active/OTERYN-20261011-character-cmd-client.md
 validation:
   - command: php -l on changed PHP files
     result: PASS
@@ -99,7 +99,7 @@ validation:
   - command: python tools/validation/legacy_token_ratchet.py
     result: PASS
     evidence: no group above baseline
-  - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20261011-decanary-cmd-client.md --require-checkpoint
+  - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20261011-character-cmd-client.md --require-checkpoint
     result: PASS
     evidence: task checkpoint validated
   - command: php artisan test tests/Feature/CharacterAuthority

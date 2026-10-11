@@ -209,7 +209,12 @@ final class CharacterCommandClientTest extends TestCase
         $this->publish($this->rejected(CharacterCommandWire::CREATE, $status->operationId, 'CHAR_CMD_OWNER_MISMATCH'))->assertStatus(400);
         $this->publish($this->rejected(CharacterCommandWire::TRANSFER, $status->operationId, 'CHAR_CMD_INTENT_EXPIRED'))->assertStatus(409);
         $this->publish($this->committedCreate($status->operationId, self::OTHER_ACCOUNT, '1790000002'))->assertStatus(409);
-        $this->publish($this->rejected(CharacterCommandWire::CREATE, $status->operationId, 'CHAR_CMD_NAME_UNAVAILABLE'), ['CONTENT_TYPE' => 'text/plain'])->assertStatus(400);
+        $this->publish(str_replace('"Aldric"', '"Mallory"', $this->committedCreate($status->operationId, self::ACCOUNT, '1790000002')))->assertStatus(409);
+        $rejected = $this->rejected(CharacterCommandWire::CREATE, $status->operationId, 'CHAR_CMD_NAME_UNAVAILABLE');
+        $this->publish($rejected, ['CONTENT_TYPE' => 'text/plain'])->assertStatus(400);
+        $this->publish($rejected, ['CONTENT_LENGTH' => '99999999'])->assertStatus(413);
+        $this->publish($rejected, ['HTTP_TRANSFER_ENCODING' => 'chunked'])->assertStatus(400);
+        $this->publish($rejected, ['HTTP_CONTENT_ENCODING' => 'gzip'])->assertStatus(400);
 
         self::assertSame(0, DB::table('character_command_receipts')->count());
         self::assertSame(CharacterCommandState::Pending, $this->client()->status($status->operationId)?->state);
@@ -390,7 +395,7 @@ final class CharacterCommandClientTest extends TestCase
 
     private function listRequest(string $after = '0', string $afterOperationId = self::NIL, int $max = 32): string
     {
-        return $this->json([
+        return $this->membersJson([
             'contract_version' => 1,
             'operation' => 'ListPendingCharacterCommandsV1',
             'source_authority' => self::SOURCE,
@@ -402,7 +407,7 @@ final class CharacterCommandClientTest extends TestCase
 
     private function readRequest(string $command, string $operationId, string $issuer = CharacterCommandWire::ISSUER_AUTHORITY): string
     {
-        return $this->json([
+        return $this->membersJson([
             'contract_version' => 1,
             'operation' => 'ReadCharacterCommandIntentV1',
             'source_authority' => self::SOURCE,
@@ -414,7 +419,7 @@ final class CharacterCommandClientTest extends TestCase
 
     private function committedCreate(string $operationId, string $accountId, string $decidedAt): string
     {
-        return $this->json([
+        return $this->membersJson([
             ...$this->receiptHead(CharacterCommandWire::CREATE, $operationId, 'COMMITTED', 'CHAR_CMD_OK'),
             'character_id' => self::CHARACTER,
             'account_id' => $accountId,
@@ -430,7 +435,7 @@ final class CharacterCommandClientTest extends TestCase
 
     private function committedTransfer(string $operationId, string $from, string $to): string
     {
-        return $this->json([
+        return $this->membersJson([
             ...$this->receiptHead(CharacterCommandWire::TRANSFER, $operationId, 'COMMITTED', 'CHAR_CMD_OK'),
             'character_id' => self::CHARACTER,
             'from_account_id' => $from,
@@ -446,7 +451,7 @@ final class CharacterCommandClientTest extends TestCase
 
     private function rejected(string $command, string $operationId, string $resultCode): string
     {
-        return $this->json([
+        return $this->membersJson([
             ...$this->receiptHead($command, $operationId, 'REJECTED', $resultCode),
             'recovery_generation' => '3',
             'decided_at' => '1790000002',
@@ -468,7 +473,7 @@ final class CharacterCommandClientTest extends TestCase
     }
 
     /** @param array<string, int|string> $members */
-    private function json(array $members): string
+    private function membersJson(array $members): string
     {
         return json_encode($members, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
