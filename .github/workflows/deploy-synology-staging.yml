@@ -47,17 +47,13 @@ on:
         description: Exact immutable Gateway image digest; required only when gateway_changed=true
         required: false
         type: string
-      canary_image:
-        description: Full compatible prebuilt Canary image reference; required for deploy and resolved to an immutable digest
-        required: false
-        type: string
-      canary_game_bind_address:
-        description: Exact private Synology IPv4 address for game TCP, or 127.0.0.1 for loopback-only
+      game_world_host:
+        description: Exact private Synology IPv4 address advertised for the game world, or 127.0.0.1 for loopback-only
         required: true
         type: string
         default: 127.0.0.1
       game_world_id:
-        description: Positive Platform world ID matching the Canary issuer world ID
+        description: Positive Platform world ID
         required: true
         type: string
         default: "1"
@@ -98,18 +94,10 @@ jobs:
       APP_KEY: ${{ secrets.OTERYN_STAGING_APP_KEY }}
       MARIADB_ROOT_PASSWORD: ${{ secrets.OTERYN_STAGING_MARIADB_ROOT_PASSWORD }}
       PLATFORM_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_DB_PASSWORD }}
-      CANARY_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_DB_PASSWORD }}
-      CANARY_READONLY_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_READONLY_DB_PASSWORD }}
-      CANARY_PROVISIONING_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_PROVISIONING_DB_PASSWORD }}
-      CANARY_CHARACTER_CREATE_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_CHARACTER_CREATE_DB_PASSWORD }}
       REDIS_PASSWORD: ${{ secrets.OTERYN_STAGING_REDIS_PASSWORD }}
-      CANARY_RUNTIME_REDIS_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_RUNTIME_REDIS_PASSWORD }}
       OTERYN_PLATFORM_SERVICE_TOKEN: ${{ secrets.OTERYN_STAGING_PLATFORM_SERVICE_TOKEN }}
       GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256: ${{ secrets.OTERYN_STAGING_PLATFORM_SERVICE_TOKEN_SHA256 }}
       GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256: ${{ secrets.OTERYN_STAGING_PLATFORM_PREVIOUS_SERVICE_TOKEN_SHA256 }}
-      GAME_SESSION_SERVICE_TOKEN: ${{ secrets.OTERYN_STAGING_GAME_SESSION_SERVICE_TOKEN }}
-      CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256: ${{ secrets.OTERYN_STAGING_GAME_SESSION_SERVICE_TOKEN_SHA256 }}
-      CANARY_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256: ${{ secrets.OTERYN_STAGING_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256 }}
 
     steps:
       - name: Checkout exact release tooling
@@ -146,8 +134,7 @@ jobs:
           GATEWAY_CHANGED: ${{ inputs.gateway_changed }}
           GATEWAY_SOURCE_SHA_INPUT: ${{ inputs.gateway_source_sha }}
           GATEWAY_IMAGE_INPUT: ${{ inputs.gateway_image }}
-          CANARY_IMAGE_INPUT: ${{ inputs.canary_image }}
-          CANARY_GAME_BIND_ADDRESS_INPUT: ${{ inputs.canary_game_bind_address }}
+          GAME_WORLD_HOST_INPUT: ${{ inputs.game_world_host }}
           GAME_WORLD_ID_INPUT: ${{ inputs.game_world_id }}
           GAME_WORLD_SLUG_INPUT: ${{ inputs.game_world_slug }}
           GAME_WORLD_NAME_INPUT: ${{ inputs.game_world_name }}
@@ -180,14 +167,12 @@ jobs:
               echo "Gateway reuse must not provide competing component inputs." >&2
               exit 1
             fi
-
-            [[ -n "$CANARY_IMAGE_INPUT" && "$CANARY_IMAGE_INPUT" =~ ^[A-Za-z0-9./:@_-]+$ ]] || { echo "canary_image is required for deploy and must be a bounded container image reference." >&2; exit 1; }
           else
             [[ -z "$RELEASE_SHA" ]] || is_sha "$RELEASE_SHA" || { echo "release_sha must be empty or an exact Git SHA." >&2; exit 1; }
           fi
 
-          if ! bash deploy/synology/scripts/validate-ipv4.sh "$CANARY_GAME_BIND_ADDRESS_INPUT" private-or-loopback; then
-            echo "canary_game_bind_address must be loopback or RFC1918 private IPv4" >&2
+          if ! bash deploy/synology/scripts/validate-ipv4.sh "$GAME_WORLD_HOST_INPUT" private-or-loopback; then
+            echo "game_world_host must be loopback or RFC1918 private IPv4" >&2
             exit 1
           fi
 
@@ -218,16 +203,9 @@ jobs:
             APP_KEY
             MARIADB_ROOT_PASSWORD
             PLATFORM_DB_PASSWORD
-            CANARY_DB_PASSWORD
-            CANARY_READONLY_DB_PASSWORD
-            CANARY_PROVISIONING_DB_PASSWORD
-            CANARY_CHARACTER_CREATE_DB_PASSWORD
             REDIS_PASSWORD
-            CANARY_RUNTIME_REDIS_PASSWORD
             OTERYN_PLATFORM_SERVICE_TOKEN
             GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256
-            GAME_SESSION_SERVICE_TOKEN
-            CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256
           )
           for name in "${required_names[@]}"; do
             if [[ -z "${!name:-}" ]]; then
@@ -239,14 +217,8 @@ jobs:
           safe_names=(
             MARIADB_ROOT_PASSWORD
             PLATFORM_DB_PASSWORD
-            CANARY_DB_PASSWORD
-            CANARY_READONLY_DB_PASSWORD
-            CANARY_PROVISIONING_DB_PASSWORD
-            CANARY_CHARACTER_CREATE_DB_PASSWORD
             REDIS_PASSWORD
-            CANARY_RUNTIME_REDIS_PASSWORD
             OTERYN_PLATFORM_SERVICE_TOKEN
-            GAME_SESSION_SERVICE_TOKEN
           )
           for name in "${safe_names[@]}"; do
             if [[ ! "${!name}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
@@ -263,13 +235,8 @@ jobs:
             echo "Platform service-token hash must be a SHA-256 hex digest." >&2
             exit 1
           fi
-          if [[ ! "$CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256" =~ ^[A-Fa-f0-9]{64}$ ]]; then
-            echo "Canary session service-token hash must be a SHA-256 hex digest." >&2
-            exit 1
-          fi
           for optional_hash in \
-            "$GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256" \
-            "$CANARY_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256"; do
+            "$GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256"; do
             if [[ -n "$optional_hash" && ! "$optional_hash" =~ ^[A-Fa-f0-9]{64}$ ]]; then
               echo "Optional previous service-token hashes must be empty or SHA-256 hex digests." >&2
               exit 1
@@ -295,7 +262,6 @@ jobs:
           GATEWAY_CHANGED: ${{ inputs.gateway_changed }}
           GATEWAY_SOURCE_SHA_INPUT: ${{ inputs.gateway_source_sha }}
           GATEWAY_IMAGE_INPUT: ${{ inputs.gateway_image }}
-          CANARY_IMAGE_INPUT: ${{ inputs.canary_image }}
           OTERYN_STATE_DIR_INPUT: ${{ vars.OTERYN_STAGING_STATE_DIR }}
         run: |
           set -euo pipefail
@@ -372,43 +338,17 @@ jobs:
 
           ensure_runtime_image "$platform_image" Platform
           ensure_runtime_image "$gateway_image" Gateway
-          ensure_runtime_image "$CANARY_IMAGE_INPUT" Canary
 
           platform_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$platform_image")"
           gateway_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$gateway_image")"
           [[ "$platform_revision" == "$platform_source_sha" ]] || { echo "Platform OCI revision does not match resolved Platform source SHA." >&2; exit 1; }
           [[ "$gateway_revision" == "$gateway_source_sha" ]] || { echo "Gateway OCI revision does not match resolved Gateway source SHA." >&2; exit 1; }
 
-          resolve_any_digest_ref() {
-            local image_ref="$1" candidate digest
-            if [[ "$image_ref" == *@sha256:* ]]; then
-              digest="${image_ref#*@sha256:}"
-              if [[ "$digest" =~ ^[0-9a-f]{64}$ ]]; then
-                printf '%s\n' "$image_ref"
-                return 0
-              fi
-            fi
-            while IFS= read -r candidate; do
-              [[ -n "$candidate" ]] || continue
-              if [[ "$candidate" == *@sha256:* ]]; then
-                digest="${candidate#*@sha256:}"
-                if [[ "$digest" =~ ^[0-9a-f]{64}$ ]]; then
-                  printf '%s\n' "$candidate"
-                  return 0
-                fi
-              fi
-            done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$image_ref")
-            echo "Unable to resolve immutable digest for $image_ref." >&2
-            return 1
-          }
-
-          canary_ref="$(resolve_any_digest_ref "$CANARY_IMAGE_INPUT")"
           {
             printf 'platform_source_sha=%s\n' "$platform_source_sha"
             printf 'platform_ref=%s\n' "$platform_image"
             printf 'gateway_source_sha=%s\n' "$gateway_source_sha"
             printf 'gateway_ref=%s\n' "$gateway_image"
-            printf 'canary_ref=%s\n' "$canary_ref"
           } >> "$GITHUB_OUTPUT"
 
           {
@@ -419,7 +359,6 @@ jobs:
             echo "- Platform digest: \`$platform_image\`"
             echo "- Gateway ($gateway_mode) source SHA: \`$gateway_source_sha\`"
             echo "- Gateway digest: \`$gateway_image\`"
-            echo "- Canary: \`$canary_ref\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Write ephemeral staging environment
@@ -429,8 +368,7 @@ jobs:
           GATEWAY_SOURCE_SHA_RESOLVED: ${{ steps.release_images.outputs.gateway_source_sha }}
           PLATFORM_IMAGE_REF: ${{ steps.release_images.outputs.platform_ref }}
           GATEWAY_IMAGE_REF: ${{ steps.release_images.outputs.gateway_ref }}
-          CANARY_IMAGE_REF: ${{ steps.release_images.outputs.canary_ref }}
-          CANARY_GAME_BIND_ADDRESS_INPUT: ${{ inputs.canary_game_bind_address }}
+          GAME_WORLD_HOST_INPUT: ${{ inputs.game_world_host }}
           GAME_WORLD_ID_INPUT: ${{ inputs.game_world_id }}
           GAME_WORLD_SLUG_INPUT: ${{ inputs.game_world_slug }}
           GAME_WORLD_NAME_INPUT: ${{ inputs.game_world_name }}
@@ -446,7 +384,6 @@ jobs:
           gateway_source_sha="${GATEWAY_SOURCE_SHA_RESOLVED:-rollback-placeholder}"
           platform_image="${PLATFORM_IMAGE_REF:-rollback-placeholder}"
           gateway_image="${GATEWAY_IMAGE_REF:-rollback-placeholder}"
-          canary_image="${CANARY_IMAGE_REF:-rollback-placeholder}"
           gateway_version="${GATEWAY_SOURCE_SHA_RESOLVED:+sha-$GATEWAY_SOURCE_SHA_RESOLVED}"
           gateway_version="${gateway_version:-rollback}"
 
@@ -457,21 +394,16 @@ jobs:
           GATEWAY_SOURCE_SHA=$gateway_source_sha
           PLATFORM_BIND_ADDRESS=127.0.0.1
           GATEWAY_BIND_ADDRESS=127.0.0.1
-          CANARY_LOGIN_BIND_ADDRESS=127.0.0.1
-          CANARY_GAME_BIND_ADDRESS=$CANARY_GAME_BIND_ADDRESS_INPUT
           PLATFORM_PORT=8000
           GATEWAY_PORT=8080
-          CANARY_LOGIN_PORT=7171
-          CANARY_GAME_PORT=7172
           GAME_WORLD_ID=$GAME_WORLD_ID_INPUT
           GAME_WORLD_SLUG=$GAME_WORLD_SLUG_INPUT
           GAME_WORLD_NAME=$GAME_WORLD_NAME_INPUT
           GAME_WORLD_REGION=$GAME_WORLD_REGION_INPUT
-          GAME_WORLD_HOST=$CANARY_GAME_BIND_ADDRESS_INPUT
+          GAME_WORLD_HOST=$GAME_WORLD_HOST_INPUT
           GAME_WORLD_PORT=7172
           PLATFORM_IMAGE=$platform_image
           GATEWAY_IMAGE=$gateway_image
-          CANARY_IMAGE=$canary_image
           APP_NAME=Oteryn Platform Staging
           APP_ENV=staging
           APP_DEBUG=false
@@ -483,29 +415,10 @@ jobs:
           PLATFORM_DB_NAME=oteryn_platform
           PLATFORM_DB_USER=oteryn_platform
           PLATFORM_DB_PASSWORD=$PLATFORM_DB_PASSWORD
-          CANARY_DB_NAME=canary
-          CANARY_DB_USER=canary
-          CANARY_DB_PASSWORD=$CANARY_DB_PASSWORD
-          CANARY_READONLY_DB_USER=oteryn_readonly
-          CANARY_READONLY_DB_PASSWORD=$CANARY_READONLY_DB_PASSWORD
-          CANARY_PROVISIONING_DB_USER=oteryn_provisioning
-          CANARY_PROVISIONING_DB_PASSWORD=$CANARY_PROVISIONING_DB_PASSWORD
-          CANARY_CHARACTER_CREATE_DB_USER=oteryn_character_create
-          CANARY_CHARACTER_CREATE_DB_PASSWORD=$CANARY_CHARACTER_CREATE_DB_PASSWORD
           REDIS_PASSWORD=$REDIS_PASSWORD
-          CANARY_RUNTIME_REDIS_USERNAME=oteryn_runtime
-          CANARY_RUNTIME_REDIS_PASSWORD=$CANARY_RUNTIME_REDIS_PASSWORD
           OTERYN_PLATFORM_SERVICE_TOKEN=$OTERYN_PLATFORM_SERVICE_TOKEN
           GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256=$GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256
           GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256=$GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256
-          GAME_SESSION_SERVICE_TOKEN=$GAME_SESSION_SERVICE_TOKEN
-          CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256=$CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256
-          CANARY_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256=$CANARY_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256
-          CANARY_SERVER_NAME=Oteryn Staging
-          CANARY_SERVER_IP=$CANARY_GAME_BIND_ADDRESS_INPUT
-          CANARY_TEST_ACCOUNTS=false
-          CANARY_DATA_PACK=data-otservbr-global
-          CANARY_MAP_URL=https://github.com/opentibiabr/canary/releases/download/v3.6.1/otservbr.otbm
           GATEWAY_VERSION=$gateway_version
           OTERYN_STATE_DIR=$state_dir
           EOF

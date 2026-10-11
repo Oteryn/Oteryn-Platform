@@ -1,4 +1,4 @@
-# OTERYN CI + Merge Queue Canary V2
+# OTERYN CI + Merge Queue Pilot V2
 
 Governing Issue: #1399.
 
@@ -37,7 +37,7 @@ A task is not allowed to merge itself without integration authority. V2 tests au
 
 ## Current governed route
 
-The selected native route is exact-head `merge-async` with `merge_action=merge_queue` under the current META policy. A directly capable coordinator may use the native route. A coordinator without direct capability may use the protected META delegated executor only when current capability classification proves `DELEGATED_CAPABLE` for the exact canary-qualified protected META generation.
+The selected native route is exact-head `merge-async` with `merge_action=merge_queue` under the current META policy. A directly capable coordinator may use the native route. A coordinator without direct capability may use the protected META delegated executor only when current capability classification proves `DELEGATED_CAPABLE` for the exact pilot-qualified protected META generation.
 
 The executor receipt is non-terminal. Terminal proof still requires real `merge_group`, required aggregate/source workflow success, merged PR state and protected-main readback.
 
@@ -52,7 +52,7 @@ Known current-generation evidence to revalidate before generating new MQ probes:
 - Game #606: merged current Game candidate with real Game `merge_group` gate success; bind exact governed enqueue/receipt causally before crediting `AUTO_ENQUEUE`.
 - Atlas #494: merged current Atlas candidate with real merge-group selective-verification/protected-authority runs; bind exact governed enqueue/receipt causally before crediting `AUTO_ENQUEUE`.
 
-Do not generate another mergeable canary merely to reproduce an already-proven stage for the same control-plane generation.
+Do not generate another mergeable pilot merely to reproduce an already-proven stage for the same control-plane generation.
 
 ## Per-repository execution gate
 
@@ -61,8 +61,8 @@ Freeze each repository independently. A repository may enter live V2 only when a
 1. exact protected `main` SHA captured;
 2. current protection/rulesets, required checks and Merge Queue settings captured;
 3. complete PR-capable workflow inventory and trigger/downstream graph captured;
-4. no open PR/canary is changing the CI/planner/ruleset/runner semantics being measured unless the owner explicitly freezes that exact generation as baseline;
-5. no existing canary already exercises the same measurement surface;
+4. no open PR/pilot is changing the CI/planner/ruleset/runner semantics being measured unless the owner explicitly freezes that exact generation as baseline;
+5. no existing pilot already exercises the same measurement surface;
 6. exact `EXPECTED / ALLOWED_SKIP / FORBIDDEN` matrix generated from current workflow bytes;
 7. selected probe cannot reach production writes, protected environments, destructive operations or ambiguous external effects;
 8. any probe expected to integrate autonomously has fresh trusted capability state: `DIRECT_CAPABLE`, `DELEGATED_CAPABLE`, or a precise blocker.
@@ -110,9 +110,9 @@ Only after serial evidence is terminal, update comparable `R1` probes in one bou
 
 ### F. Merge Queue autonomy
 
-First satisfy the four-stage MQ result model from existing real evidence. Only missing stages justify a new inert integration canary.
+First satisfy the four-stage MQ result model from existing real evidence. Only missing stages justify a new inert integration pilot.
 
-For any new MQ canary:
+For any new MQ pilot:
 
 1. create the smallest repository-allowed inert change suitable for eventual merge;
 2. qualify exact head normally;
@@ -148,7 +148,7 @@ Unrelated main movement is `UPSTREAM_ADVANCED + MATRIX_VALID` unless it changes 
 
 ## Evidence schema
 
-For every intentional stimulus record repository, canary ID, PR, action, generation, exact head/base SHA and timestamp.
+For every intentional stimulus record repository, pilot ID, PR, action, generation, exact head/base SHA and timestamp.
 
 For every workflow run record workflow path/name, run ID/attempt, event, exact candidate SHA, status/conclusion, job IDs/names/conclusions, runner identity/labels when observable, timestamps, expected-state classification and causal stimulus.
 
@@ -205,9 +205,9 @@ Current admission status at preparation time:
 - META: `PREP_READY`.
 - Platform: `WAIT` while #1398 changes `.github/workflows/codeql.yml`.
 - Game: `WAIT` while Draft #592 changes workflow/control-plane behavior.
-- Atlas: `WAIT` while #492/#493 occupy the verification/MQ canary surface.
+- Atlas: `WAIT` while #492/#493 occupy the verification/MQ pilot surface.
 
-No live V2 canary is authorized merely by this runbook.
+No live V2 pilot is authorized merely by this runbook.
 
 ## Platform V2 terminal result — 2026-10-05
 
@@ -221,7 +221,7 @@ Platform V2 is **PASS** on the current measured generation. This result does not
 | `AUTO_MERGE_AFTER_ENQUEUE` | PASS | PR #1449 merged with no second integration mutation; protected main readback `05eeb6c6b8fbba762c9e783b173e2e30ca0e53e6` |
 | `TASK_SELF_INTEGRATION` | PASS | All four stages above are attributable to one exact governed request and one real provider queue candidate |
 
-The single docs/control delivery PR #1449 also served as R0; no second disposable Platform canary was created. On its exact PR head, CI and Agent Governance were the applicable primary workflows, required `test`/`platform-gate` passed, and runtime/PHP coverage were correctly skipped. The source branch was absent after merge.
+The single docs/control delivery PR #1449 also served as R0; no second disposable Platform pilot was created. On its exact PR head, CI and Agent Governance were the applicable primary workflows, required `test`/`platform-gate` passed, and runtime/PHP coverage were correctly skipped. The source branch was absent after merge.
 
 The delegated request was issued exactly once against qualified META protected main `56419b6e463d28bf5ea71a92303a75ab6bf5207c`. The executor returned `REQUEST_ACCEPTED_NON_TERMINAL`; terminal success came only from the subsequent real provider `merge_group`, queue-gate success, merged PR state and protected-main readback.
 

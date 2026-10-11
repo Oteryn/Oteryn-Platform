@@ -26,7 +26,6 @@ def release(path: pathlib.Path, *, sha: str, schema: str, accepts: str, eligible
                 f"GATEWAY_SOURCE_SHA={sha}",
                 f"PLATFORM_IMAGE=example/platform@sha256:{DIGEST_A}",
                 f"GATEWAY_IMAGE=example/gateway@sha256:{DIGEST_B}",
-                f"CANARY_IMAGE=example/canary@sha256:{DIGEST_C}",
                 f"SCHEMA_COMPATIBILITY_ID={schema}",
                 f"APP_ACCEPTS_SCHEMA_IDS={accepts}",
                 "MIGRATION_POLICY=expand-contract",
@@ -180,7 +179,6 @@ def test_release_state_round_trips_world_name_with_spaces() -> None:
                 "schema-v1,schema-v2",
                 f"example/platform@sha256:{DIGEST_A}",
                 f"example/gateway@sha256:{DIGEST_B}",
-                f"example/canary@sha256:{DIGEST_C}",
                 "1",
             ],
             text=True,
@@ -265,7 +263,6 @@ def test_failed_exact_candidate_resume_requires_known_matching_schema_and_identi
     assert '"${candidate_runtime[2]:-}" == "$GATEWAY_SOURCE_SHA"' in lib
     assert '"${candidate_runtime[3]:-}" == "$PLATFORM_IMAGE"' in lib
     assert '"${candidate_runtime[4]:-}" == "$GATEWAY_IMAGE"' in lib
-    assert '"${candidate_runtime[5]:-}" == "$CANARY_IMAGE"' in lib
     assert '[[ "$schema_state" == known && "$schema_target" == "$release_sha" && "$schema_id" == "$candidate_schema" ]]' in lib
     assert "prior migration is not proven complete" in lib
     assert "preserving recovery evidence until health checks pass" in lib
@@ -282,11 +279,9 @@ def test_deploy_does_not_pull_all_images_twice_and_forces_tls_bootstrap_refresh(
 
 def test_health_check_proves_each_gateway_dependency_before_aggregate_ready() -> None:
     health = (SCRIPTS / "health-check.sh").read_text()
-    canary = health.index('probe_url canary 7180 /health "Canary session issuer /health"')
     platform_tls = health.index('probe_internal_tls "https://platform-internal:8443/health"')
-    canary_tls = health.index('probe_internal_tls "https://canary-session-internal:8444/health"')
     gateway_ready = health.index('probe_url gateway 8080 /ready "Gateway /ready"')
-    assert canary < platform_tls < canary_tls < gateway_ready
+    assert platform_tls < gateway_ready
     assert "ssl.create_default_context(cafile='/etc/oteryn/tls/ca.crt')" in health
     assert 'docker logs --tail 80 "${container_ids[internal-proxy]}"' in health
     assert 'docker logs --tail 80 "${container_ids[gateway]}"' in health
@@ -298,7 +293,7 @@ def test_legacy_bootstrap_does_not_replace_candidate_image_variables() -> None:
     end = lib.index("_oteryn_marketplace_state_file()", start)
     bootstrap = lib[start:end]
     assert "mapfile -t legacy_images" in bootstrap
-    assert "unset PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE" not in bootstrap
+    assert "unset PLATFORM_IMAGE GATEWAY_IMAGE" not in bootstrap
     assert "source \"$legacy_file\"" not in bootstrap
 
 

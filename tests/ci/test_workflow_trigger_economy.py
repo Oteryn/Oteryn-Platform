@@ -61,7 +61,7 @@ RETIRED_WORKFLOWS = (
     "account-security-format-diagnostics.yml",
     "account-security-static-diagnostics.yml",
     "deep-system-validation.yml",
-    "native-auth-canary-cache-build.yml",
+    "native-auth-pilot-cache-build.yml",
     "native-auth-ephemeral-cutover-rehearsal.yml",
     "portal-exhaustive-acceptance.yml",
     "portal-exhaustive-audit.yml",

@@ -42,4 +42,3 @@ Validation-only and operator-only inputs may still run their appropriate reposit
 - Reused components require persisted source SHA plus immutable digest and OCI revision validation.
 - Overall protected-main release identity is tracked separately from per-component source identity.
 - Candidate/current/last-good/rollback/recovery state remains fail closed.
-- Canary continues to use the separately approved immutable image identity.

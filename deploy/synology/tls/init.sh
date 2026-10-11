@@ -9,11 +9,8 @@ certificates_are_current() {
         && [ -s "$TLS_DIR/ca.key" ] \
         && [ -s "$TLS_DIR/platform-internal.crt" ] \
         && [ -s "$TLS_DIR/platform-internal.key" ] \
-        && [ -s "$TLS_DIR/canary-session-internal.crt" ] \
-        && [ -s "$TLS_DIR/canary-session-internal.key" ] \
         && openssl x509 -checkend 604800 -noout -in "$TLS_DIR/ca.crt" >/dev/null 2>&1 \
-        && openssl x509 -checkend 604800 -noout -in "$TLS_DIR/platform-internal.crt" >/dev/null 2>&1 \
-        && openssl x509 -checkend 604800 -noout -in "$TLS_DIR/canary-session-internal.crt" >/dev/null 2>&1
+        && openssl x509 -checkend 604800 -noout -in "$TLS_DIR/platform-internal.crt" >/dev/null 2>&1
 }
 
 if certificates_are_current; then
@@ -54,7 +51,6 @@ EOF
 }
 
 issue_certificate platform-internal
-issue_certificate canary-session-internal
 
 rm -f "$TLS_DIR"/*.csr "$TLS_DIR"/*.ext "$TLS_DIR"/*.srl
 chmod 0444 "$TLS_DIR"/*.crt

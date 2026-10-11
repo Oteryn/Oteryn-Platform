@@ -291,10 +291,6 @@ jobs:
           expected = {
               'platform': {'8000': ('127.0.0.1', '8000')},
               'gateway': {'8080': ('127.0.0.1', '8080')},
-              'canary': {
-                  '7171': ('127.0.0.1', '7171'),
-                  '7172': ('127.0.0.1', '7172'),
-              },
           }
           for service, service_expected in expected.items():
               actual = bindings(service)
@@ -310,8 +306,6 @@ jobs:
               raise SystemExit(f'runtime Compose must not depend on runner checkout bind mounts: {bind_mounts}')
           PY
 
-          sed -i 's/^CANARY_GAME_BIND_ADDRESS=.*/CANARY_GAME_BIND_ADDRESS=192.168.50.10/' "$env_file"
-          sed -i 's/^CANARY_SERVER_IP=.*/CANARY_SERVER_IP=192.168.50.10/' "$env_file"
           sed -i 's/^GAME_WORLD_HOST=.*/GAME_WORLD_HOST=192.168.50.10/' "$env_file"
           render_compose "$lan_json"
           python3 - "$lan_json" <<'PY'
@@ -333,21 +327,12 @@ jobs:
           expected = {
               'platform': {'8000': ('127.0.0.1', '8000')},
               'gateway': {'8080': ('127.0.0.1', '8080')},
-              'canary': {
-                  '7171': ('127.0.0.1', '7171'),
-                  '7172': ('192.168.50.10', '7172'),
-              },
           }
           for service, service_expected in expected.items():
               actual = bindings(service)
               if actual != service_expected:
                   raise SystemExit(f'LAN bindings for {service} are {actual}, expected {service_expected}')
 
-          canary_environment = data['services']['canary']['environment']
-          if str(canary_environment['CANARY_SERVER_IP']) != '192.168.50.10':
-              raise SystemExit('Canary advertised server IP does not match the LAN game bind')
-          if str(canary_environment['CANARY_GAME_SESSION_ISSUER_WORLD_ID']) != '1':
-              raise SystemExit('Canary issuer world ID does not match the staging World Registry ID')
           PY
 
           "${runtime_compose[@]}" pull tls-init
@@ -366,7 +351,6 @@ jobs:
           grep -q -- '--network "container:' deploy/synology/scripts/health-check.sh
           grep -q 'assert_binding platform' deploy/synology/scripts/health-check.sh
           grep -q 'assert_binding gateway' deploy/synology/scripts/health-check.sh
-          grep -q 'assert_binding canary' deploy/synology/scripts/health-check.sh
 
           docker compose \
             --env-file deploy/synology/runner/.env.example \
@@ -672,7 +656,6 @@ jobs:
           PLATFORM_IMAGE: ${{ steps.runtime.outputs.platform_image }}
           GATEWAY_SOURCE_SHA: ${{ steps.runtime.outputs.gateway_source_sha }}
           GATEWAY_IMAGE: ${{ steps.runtime.outputs.gateway_image }}
-          CANARY_IMAGE_DIGEST: ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f
         run: |
           set -euo pipefail
 
@@ -694,8 +677,7 @@ jobs:
             -f "inputs[gateway_changed]=${GATEWAY_CHANGED}" \
             -f "inputs[gateway_source_sha]=${GATEWAY_SOURCE_SHA}" \
             -f "inputs[gateway_image]=${GATEWAY_IMAGE}" \
-            -f "inputs[canary_image]=${CANARY_IMAGE_DIGEST}" \
-            -f 'inputs[canary_game_bind_address]=192.168.1.2' \
+            -f 'inputs[game_world_host]=192.168.1.2' \
             -f 'inputs[game_world_id]=1' \
             -f 'inputs[game_world_slug]=oteryn-staging' \
             -f 'inputs[game_world_name]=Oteryn Staging' \
