@@ -13,6 +13,13 @@ $acceptanceNativeRuntimeIdentities = $acceptanceNativeRuntime
 return [
     'protocol_version' => 1,
 
+    'legacy_login' => [
+        // Native-only switch for the Platform ticket issuer (plan step B7). Default on keeps every
+        // environment unchanged until its deployment sets GAME_AUTH_LEGACY_LOGIN_ENABLED=false; when
+        // false the legacy-client issuance branch denies and only native issuance remains.
+        'enabled' => filter_var(env('GAME_AUTH_LEGACY_LOGIN_ENABLED', true), FILTER_VALIDATE_BOOL),
+    ],
+
     'oauth' => [
         'native_client_name' => env('GAME_AUTH_OAUTH_NATIVE_CLIENT_NAME', 'Oteryn OTClient'),
         'native_redirect_uri' => env('GAME_AUTH_OAUTH_NATIVE_REDIRECT_URI', 'http://127.0.0.1/callback'),

@@ -184,8 +184,8 @@ services:
     environment:
       OTERYN_PLATFORM_BASE_URL: https://platform-internal:8443
       OTERYN_PLATFORM_SERVICE_TOKEN: ${OTERYN_PLATFORM_SERVICE_TOKEN}
-      GAME_SESSION_SERVICE_BASE_URL: https://canary-session-internal:8444
-      GAME_SESSION_SERVICE_TOKEN: ${GAME_SESSION_SERVICE_TOKEN}
+      # Native-only mode (config.go): native login on and no legacy session service variables.
+      GATEWAY_NATIVE_LOGIN_ENABLED: "true"
       GATEWAY_LISTEN_ADDR: :8080
       GATEWAY_REQUEST_TIMEOUT: 5s
       GATEWAY_VERSION: ${GATEWAY_VERSION:-synology-staging}

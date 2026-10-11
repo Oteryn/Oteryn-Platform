@@ -54,6 +54,23 @@ final class NativeOAuthNativeTicketTest extends TestCase
         self::assertSame(1, DB::table('game_login_tickets')->count());
     }
 
+    public function test_native_only_mode_still_issues_native_ticket_without_any_account_binding(): void
+    {
+        config(['game-auth.legacy_login.enabled' => false]);
+        $identity = $this->createOAuthIdentity();
+        $token = $this->issueNativeOAuthBootstrapToken($identity, client: app(NativeOAuthClientManager::class)->ensureRust());
+
+        $this->withToken($token['access_token'])
+            ->postJson('/api/v1/game-auth/tickets', ['protocol_version' => 1])
+            ->assertOk()
+            ->assertJsonPath('protocol_version', 1);
+
+        $stored = DB::table('game_login_tickets')->sole();
+        self::assertSame(NativeGameLoginTickets::AUDIENCE, $stored->audience);
+        self::assertSame($identity->account_id, $stored->account_id);
+        self::assertNull($stored->canary_account_id);
+    }
+
     public function test_disabled_native_switch_refuses_issuance_without_consuming_bearer(): void
     {
         $token = $this->issueNativeOAuthBootstrapToken($this->createOAuthIdentity(), client: app(NativeOAuthClientManager::class)->ensureRust());
