@@ -2,6 +2,7 @@
 
 namespace App\CharacterAuthority;
 
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use stdClass;
@@ -32,9 +33,9 @@ final class CharacterCommandExchange
             ->where('issuer_authority', CharacterCommandWire::ISSUER_AUTHORITY)
             ->where('state', CharacterCommandIntentRow::PENDING)
             ->whereNotNull('intent_json')
-            ->where(fn ($query) => $query
+            ->where(fn (Builder $query) => $query
                 ->where('id', '>', $afterId)
-                ->orWhere(fn ($same) => $same->where('id', $afterId)->where('operation_id', '>', $afterOperationId)))
+                ->orWhere(fn (Builder $same) => $same->where('id', $afterId)->where('operation_id', '>', $afterOperationId)))
             ->orderBy('id')
             ->orderBy('operation_id')
             ->limit($request['max_entries'])

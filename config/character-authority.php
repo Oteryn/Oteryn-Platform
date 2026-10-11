@@ -16,7 +16,7 @@ return [
     */
 
     'commands' => [
-        'enabled' => (bool) env('CHARACTER_AUTHORITY_COMMANDS_ENABLED', false),
+        'enabled' => filter_var(env('CHARACTER_AUTHORITY_COMMANDS_ENABLED', false), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) === true,
         'identities' => env('CHARACTER_AUTHORITY_COMMAND_IDENTITIES'),
         'source_authority' => env('CHARACTER_AUTHORITY_COMMAND_SOURCE_AUTHORITY'),
         'intent_ttl_seconds' => (int) env('CHARACTER_AUTHORITY_COMMAND_INTENT_TTL_SECONDS', 300),

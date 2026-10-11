@@ -18,6 +18,7 @@ use Illuminate\Testing\TestResponse;
 use InvalidArgumentException;
 use LogicException;
 use ReflectionMethod;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
 final class CharacterCommandClientTest extends TestCase
@@ -375,7 +376,10 @@ final class CharacterCommandClientTest extends TestCase
         return app(CharacterCommandClient::class);
     }
 
-    /** @param array<string, string> $server */
+    /**
+     * @param  array<string, string>  $server
+     * @return TestResponse<Response>
+     */
     private function exchange(string $path, string $body, array $server = []): TestResponse
     {
         return $this->call('POST', $path, [], [], [], [
@@ -387,7 +391,10 @@ final class CharacterCommandClientTest extends TestCase
         ], $body);
     }
 
-    /** @param array<string, string> $server */
+    /**
+     * @param  array<string, string>  $server
+     * @return TestResponse<Response>
+     */
     private function publish(string $receipt, array $server = []): TestResponse
     {
         return $this->exchange(CharacterCommandWire::RECEIPT_PATH, $receipt, $server);
