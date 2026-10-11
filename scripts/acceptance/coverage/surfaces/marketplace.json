@@ -86,6 +86,7 @@
       "wallet-available-and-reserved",
       "watch-add-remove",
       "listing-validation",
+      "listing-frozen",
       "escrow-pending",
       "quiescence-wait",
       "active",
@@ -122,6 +123,14 @@
       "concurrency"
     ],
     "evidence": [
+      {
+        "file": "tests/Feature/Marketplace/MarketplaceListingFreezeTest.php",
+        "markers": [
+          "test_frozen_listing_is_refused_without_escrow_or_database_write",
+          "test_listing_form_redirects_to_the_account_page_while_frozen",
+          "test_drain_report_counts_non_terminal_auctions_and_exits_by_state"
+        ]
+      },
       {
         "file": "tests/Feature/Marketplace/MarketplaceModuleTest.php",
         "markers": [
