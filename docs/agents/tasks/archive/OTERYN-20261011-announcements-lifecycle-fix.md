@@ -19,14 +19,14 @@ Make the `Complete Announcements lifecycle` check green. The admin Announcements
 
 - [x] The 403 on `/admin/announcements` (count 3) and the 409 on `/admin/announcements/{id}` are declared with `allowExpectedHttpFailure` and a comment.
 - [x] Diagnostics helpers are unchanged; no test is skipped or retried.
-- [ ] Exact-head `Complete Announcements lifecycle` check passes.
+- [x] Exact-head `Complete Announcements lifecycle` check passes. Evidence: PR 1519 integrated as 7a7ff356 with the check green.
 
 ## Ownership
 
 ```yaml
 owned_paths:
   - scripts/acceptance/tests/announcements-admin-acceptance.spec.mjs
-  - docs/agents/tasks/active/OTERYN-20261011-announcements-lifecycle-fix.md
+  - docs/agents/tasks/archive/OTERYN-20261011-announcements-lifecycle-fix.md
 modules:
   - Announcements
 dependencies:
@@ -42,15 +42,15 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-11T08:00:00Z
-head: UNKNOWN
+head: 7a7ff356 (PR 1519 integrated)
 branch: claude/announcements-lifecycle-fix-20261011
 pr: 1519
-status: validating
+status: completed
 context_routes:
   - testing
 owned_paths:
   - scripts/acceptance/tests/announcements-admin-acceptance.spec.mjs
-  - docs/agents/tasks/active/OTERYN-20261011-announcements-lifecycle-fix.md
+  - docs/agents/tasks/archive/OTERYN-20261011-announcements-lifecycle-fix.md
 proven:
   - Main run 38110180091 (head 8006fc8f) failed only on 6 admin-spec tests with console errors for 403 (3x) and 409 (1x); 5 other tests passed.
   - The spec has no allowExpectedHttpFailure declarations while runtime-diagnostics.mjs rejects undeclared console errors since #1242.
@@ -66,17 +66,17 @@ rejected_hypotheses:
   - Product or seed regression from a merged commit; the failing lines are asserted expected statuses.
 changed_paths:
   - scripts/acceptance/tests/announcements-admin-acceptance.spec.mjs
-  - docs/agents/tasks/active/OTERYN-20261011-announcements-lifecycle-fix.md
+  - docs/agents/tasks/archive/OTERYN-20261011-announcements-lifecycle-fix.md
 validation:
   - command: node --check scripts/acceptance/tests/announcements-admin-acceptance.spec.mjs
     result: PASS
     evidence: syntax check clean
-  - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20261011-announcements-lifecycle-fix.md --require-checkpoint
+  - command: python tools/agents/checkpoint.py docs/agents/tasks/archive/OTERYN-20261011-announcements-lifecycle-fix.md --require-checkpoint
     result: PASS
     evidence: Validated 1 task checkpoint against contract v1
 blockers:
   - none
-next_action: Archive this record once the PR is closed.
+next_action: none; PR 1519 integrated as 7a7ff356 and this record archived by its post-merge closeout
 terminal_pr_policy: archive_pending
 ```
 
@@ -85,5 +85,5 @@ terminal_pr_policy: archive_pending
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: pending merge
+source_branch_evidence: PR 1519 integrated as 7a7ff35601b396565c223f69e877f2261dd253d4
 ```
