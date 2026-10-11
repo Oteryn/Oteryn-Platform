@@ -70,6 +70,7 @@ awk \
 }
 chmod 600 "$rollback_env.tmp"
 mv "$rollback_env.tmp" "$rollback_env"
+oteryn_pin_native_admission_flag "$rollback_env" "$PLATFORM_IMAGE"
 
 compose=(
     env
@@ -79,6 +80,7 @@ compose=(
     "PLATFORM_IMAGE=$PLATFORM_IMAGE"
     "GATEWAY_IMAGE=$GATEWAY_IMAGE"
     "GATEWAY_VERSION=$GATEWAY_VERSION"
+    "OTERYN_NATIVE_ADMISSION_ENABLED=$(oteryn_native_admission_flag_for_image "$PLATFORM_IMAGE")"
     docker compose --env-file "$rollback_env" -f "$COMPOSE_FILE"
 )
 "${compose[@]}" pull platform gateway

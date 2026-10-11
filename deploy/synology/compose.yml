@@ -2,11 +2,18 @@ name: ${COMPOSE_PROJECT_NAME:-oteryn-staging}
 
 # One switch for both sides of native login. The Gateway only routes protocol_version 2
 # logins when the Platform issuer can admit them, so the Gateway flag is always the
-# Platform flag. Synology runs APP_ENV=staging and the Platform issuer signs only in
-# testing or preproduction, so native admission stays off here until preproduction
-# authority, issuer key custody and a Platform signing self-check exist; health-check.sh
-# refuses true until then (README: Native login).
-x-native-admission-enabled: &native_admission_enabled "false"
+# Platform flag. Synology runs APP_ENV=preproduction, the only deployed environment in which
+# the Platform issuer signs. The switch is OFF unless the environment sets
+# OTERYN_NATIVE_ADMISSION_ENABLED=true (repository variable OTERYN_STAGING_NATIVE_ADMISSION_ENABLED),
+# and deploy.sh then refuses unless the runtime-status and scope-assignment identities, the native
+# World, the issuer key volume and the Platform signing self-check are all in place;
+# health-check.sh re-proves the self-check (README: Native login). Rollback and previous-candidate
+# recovery force it off for a Platform image that cannot export the signing keys
+# (lib.sh: oteryn_native_admission_flag_for_image). Production never takes this path.
+#
+# Account-character projection (LCFA) has no producer on Synology yet, so it is explicitly off and
+# the D171 fallback is selected for the one configured native World (deploy.sh requires its UUID).
+x-native-admission-enabled: &native_admission_enabled "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}"
 
 services:
   mariadb:
@@ -73,10 +80,20 @@ services:
       GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256: ${GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256}
       GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256: ${GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256:-}
       GAME_AUTH_NATIVE_ADMISSION_ENABLED: *native_admission_enabled
+      GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED: ${GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED:-false}
+      GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES: ${GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES:-null}
+      GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_ENABLED: ${GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_ENABLED:-false}
+      GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES: ${GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES:-null}
+      GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED: "false"
+      GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_OWNERSHIP: "true"
+      GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID: ${GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID:-}
     ports:
       - ${PLATFORM_BIND_ADDRESS}:${PLATFORM_PORT}:8000
     volumes:
       - platform_storage:/var/www/html/storage
+      # Issuer signing keys (current/retiring .key and .kid), read-only; the entrypoint exports the
+      # key id and file path from here. Created by generate-native-admission-key.sh, never by Compose.
+      - native_admission_keys:/run/oteryn-native-admission:ro
     networks:
       - private
     depends_on:
@@ -141,6 +158,9 @@ volumes:
   platform_storage:
   bootstrap_files:
   internal_tls:
+  native_admission_keys:
+    name: oteryn-native-admission-keys
+    external: true
 
 networks:
   private:

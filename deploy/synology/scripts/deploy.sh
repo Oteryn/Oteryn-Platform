@@ -294,6 +294,19 @@ _oteryn_fast_candidate() {
 
     FAST_OLD_PLATFORM_ID="$(_oteryn_fast_running_service_id platform "$FAST_OLD_PLATFORM_IMAGE")" || return 2
     FAST_GATEWAY_ID="$(_oteryn_fast_running_service_id gateway "$FAST_OLD_GATEWAY_IMAGE")" || return 2
+    # The fast path recreates Platform only. If the effective native admission flag differs from what
+    # the running Platform or Gateway carries, the two would disagree: take the full path instead.
+    local want_native="${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" running_platform_native running_gateway_native
+    running_platform_native="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$FAST_OLD_PLATFORM_ID" | sed -n 's/^GAME_AUTH_NATIVE_ADMISSION_ENABLED=//p')" || return 2
+    running_gateway_native="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$FAST_GATEWAY_ID" | sed -n 's/^GATEWAY_NATIVE_LOGIN_ENABLED=//p')" || return 2
+    if [[ "$running_platform_native" != "$want_native" || "$running_gateway_native" != "$want_native" ]]; then
+        FAST_DEPLOY_REASON='native admission flag changed'
+        return 1
+    fi
+    if [[ "$want_native" == true ]] && ! oteryn_native_admission_projection_ready; then
+        FAST_DEPLOY_REASON='native admission projection settings incomplete'
+        return 1
+    fi
     FAST_MARIADB_ID="$(_oteryn_fast_running_service_id mariadb)" || return 2
     FAST_REDIS_ID="$(_oteryn_fast_running_service_id redis)" || return 2
     FAST_PROXY_ID="$(_oteryn_fast_running_service_id internal-proxy)" || return 2
@@ -399,6 +412,10 @@ _oteryn_fast_deploy_platform() {
     "${compose[@]}" up -d --no-deps --force-recreate platform
     _oteryn_reconcile_marketplace_scheduler_after_runtime_change
     _oteryn_fast_platform_smoke
+    # Native game login stays on only while the recreated Platform can really sign (fail closed).
+    if [[ "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" == true ]]; then
+        oteryn_run_native_admission_self_check "$("${compose[@]}" ps -q platform)"
+    fi
 
     _oteryn_fast_assert_preserved_service mariadb "$FAST_MARIADB_ID"
     _oteryn_fast_assert_preserved_service redis "$FAST_REDIS_ID"
@@ -417,6 +434,27 @@ _oteryn_fast_deploy_platform() {
     trap - EXIT
     echo "Oteryn Synology staging Platform fast deploy is healthy in $((SECONDS - started))s; MariaDB, Redis, internal proxy and Gateway were preserved."
 }
+
+# Native game login is part of every deployment (compose.yml native admission flag). Before any
+# stack change, the issuer signing key must exist in its root-only volume with a readable key id;
+# the key is created here on first use and only its key id and PUBLIC key are printed. The signing
+# self-check below then proves the Platform can sign with it, or the deployment is refused.
+docker image inspect "$PLATFORM_IMAGE" >/dev/null 2>&1 || {
+    echo "Guarded workflow did not leave a resolved Platform image locally: $PLATFORM_IMAGE" >&2
+    exit 1
+}
+case "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" in
+    true | false) ;;
+    *)
+        echo "OTERYN_NATIVE_ADMISSION_ENABLED must be true or false." >&2
+        exit 1
+        ;;
+esac
+if [[ "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" == true ]]; then
+    # Native login needs the whole chain, not only a signing key (lib.sh validator, shared with rollback).
+    oteryn_native_admission_projection_ready || exit 1
+fi
+oteryn_ensure_native_admission_key || exit 1
 
 fast_candidate_rc=0
 _oteryn_fast_candidate || fast_candidate_rc=$?
@@ -478,7 +516,7 @@ finalize_previous_candidate_if_healthy() {
     local current_file="$state_dir/current-release.env"
     local last_good_file="$state_dir/last-good-release.env"
     local requested_sha candidate_sha candidate_schema candidate_accepts
-    local schema_state schema_id schema_target current_sha
+    local schema_state schema_id schema_target current_sha candidate_flag running_platform_flag
     local candidate_env="$state_dir/candidate-health.env"
     local service container_id image_id expected_image expected_image_id
     local gateway_container_id gateway_image_id expected_gateway_image expected_gateway_image_id
@@ -591,6 +629,7 @@ finalize_previous_candidate_if_healthy() {
     }
     chmod 600 "$candidate_env.tmp"
     mv "$candidate_env.tmp" "$candidate_env"
+    oteryn_pin_native_admission_flag "$candidate_env" "${candidate_state[3]}"
 
     candidate_compose=(
         env
@@ -600,8 +639,18 @@ finalize_previous_candidate_if_healthy() {
         "PLATFORM_IMAGE=${candidate_state[3]}"
         "GATEWAY_IMAGE=${candidate_state[4]}"
         "GATEWAY_VERSION=sha-${candidate_state[2]}"
+        "OTERYN_NATIVE_ADMISSION_ENABLED=$(oteryn_native_admission_flag_for_image "${candidate_state[3]}")"
         docker compose --env-file "$candidate_env" -f "$COMPOSE_FILE"
     )
+    # Only Gateway and the proxy are recreated here: refuse before any mutation when the effective flag
+    # differs from what the running candidate Platform carries (they would disagree).
+    candidate_flag="$(sed -n 's/^OTERYN_NATIVE_ADMISSION_ENABLED=//p' "$candidate_env")"
+    running_platform_flag="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$("${compose[@]}" ps -q platform)" 2>/dev/null | sed -n 's/^GAME_AUTH_NATIVE_ADMISSION_ENABLED=//p')"
+    if [[ "$candidate_flag" != "$running_platform_flag" ]]; then
+        rm -f "$candidate_env"
+        echo "Previous candidate remains unresolved: native admission flag ($candidate_flag) differs from the running Platform ($running_platform_flag); run a full deploy." >&2
+        return 1
+    fi
     if ! "${candidate_compose[@]}" config --quiet; then
         rm -f "$candidate_env"
         return 1
@@ -697,6 +746,12 @@ if ! "${compose[@]}" exec -T platform sh -ec 'test -s storage/oauth-private.key 
     "${compose[@]}" exec -T platform php artisan passport:keys --no-interaction
 fi
 "${compose[@]}" exec -T platform php artisan game-auth:oauth-client:ensure
+
+# Refuse before the Gateway starts routing native logins: the Platform issuer must sign a
+# throwaway grant with the configured key and verify it against the trust registry (fail closed).
+if [[ "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" == true ]]; then
+    oteryn_run_native_admission_self_check "$("${compose[@]}" ps -q platform)" || exit 1
+fi
 
 "${compose[@]}" up -d --no-deps --force-recreate internal-proxy
 "${compose[@]}" up -d gateway

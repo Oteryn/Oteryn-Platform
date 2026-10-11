@@ -21,6 +21,12 @@ case "$ACTION" in
         ;;
 esac
 
+# Marketplace recreates Platform from this env file: never with native admission on and the projection
+# identities cleared (deploy.sh's gate would have refused that configuration).
+if [[ "$ACTION" != verify && "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" == true ]]; then
+    oteryn_native_admission_projection_ready || exit 1
+fi
+
 # The native-only cut removed the character transfer and escrow contract that auction
 # creation and reconciliation depend on. Enabling or verifying the Bazaar would report
 # success while escrow and settlement cannot run, so refuse until a native replacement

@@ -723,9 +723,9 @@ docker() {
 # Native (protocol_version 2) login needs the Gateway branch and the Platform issuer switched
 # together. A Gateway that accepts the branch while the issuer cannot sign would pass deploy with
 # every login answering NATIVE_LOGIN_UNAVAILABLE. A login probe with an unknown ticket is rejected
-# before the issuer touches its signing key, so it cannot prove issuance works. Until a Platform
-# self-check exercises the issuer signing key and trust validation, deploy refuses to turn native
-# admission on at all.
+# before the issuer touches its signing key, so it cannot prove issuance works; only the Platform
+# signing self-check (oteryn_run_native_admission_self_check) does, and deploy and health-check
+# both run it whenever the flag is true.
 oteryn_assert_native_login_pairing() {
     local platform_flag="$1"
     local gateway_flag="$2"
@@ -741,10 +741,106 @@ oteryn_assert_native_login_pairing() {
         echo "Gateway native login (${gateway_flag:-unset}) does not match Platform native admission ($platform_flag)." >&2
         return 1
     fi
-    if [[ "$platform_flag" == true ]]; then
-        echo "Native admission cannot be enabled by this deployment: no Platform self-check yet exercises the issuer signing key and trust validation, so a usable login cannot be proven." >&2
+}
+
+# Creates the issuer signing key volume content when it does not exist yet and proves the key id and
+# public key can be read back. Prints only key ids and PUBLIC keys (for Game's trust config), never
+# the private key. Fails closed.
+oteryn_ensure_native_admission_key() {
+    local script_dir="${SCRIPT_DIR:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)}"
+    local output
+
+    if ! output="$(PLATFORM_IMAGE="$PLATFORM_IMAGE" bash "$script_dir/generate-native-admission-key.sh" ensure)"; then
+        echo "Native admission signing key custody is not usable; refusing to deploy." >&2
         return 1
     fi
+    if ! grep -Eq '^current_key_id=[A-Za-z0-9._-]{1,64}$' <<<"$output" \
+        || ! grep -Eq '^current_public_key=[A-Za-z0-9_-]{43}$' <<<"$output"; then
+        echo "Native admission signing key custody did not report a current key id and public key." >&2
+        return 1
+    fi
+    echo "Native admission signing key present; publish these PUBLIC values to Game's trust config:"
+    printf '%s\n' "$output"
+}
+
+# Runs the Platform signing self-check in the given running Platform container: signs a throwaway
+# grant with the configured key and verifies it against the trust registry. Exit 0 only when the
+# issuer can really sign. The command prints one JSON line with the key id or one reason line, never
+# key material.
+oteryn_run_native_admission_self_check() {
+    local container_id="$1"
+    local output
+
+    if [[ -z "$container_id" ]]; then
+        echo "Native admission self-check needs the running Platform container." >&2
+        return 1
+    fi
+    if ! output="$(docker exec "$container_id" /usr/local/bin/oteryn-platform-entrypoint \
+        php artisan game-auth:native-admission:self-check --no-interaction 2>&1)"; then
+        echo "Native admission signing self-check failed; refusing to enable native game login: ${output}" >&2
+        return 1
+    fi
+    echo "Native admission signing self-check passed: ${output}"
+
+    # The deploy gate only proves the identity variables are non-empty. Prove the running Platform really
+    # accepts them with the application's own settings logic (valid JSON, scope format, no overlap with
+    # another purpose's identity): a null result means ingestion answers 503 and no scope routes.
+    if ! docker exec "$container_id" /usr/local/bin/oteryn-platform-entrypoint php -r '
+        require "vendor/autoload.php";
+        $app = require "bootstrap/app.php";
+        $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+        exit(App\GameAuth\NativeRuntimeStatus\NativeRuntimeStatusSettings::current() !== null
+            && App\GameAuth\NativeRuntimeStatus\NativeScopeAssignmentSettings::current() !== null ? 0 : 1);
+    ' >/dev/null 2>&1; then
+        echo "Native admission projection identities are invalid in the running Platform (runtime status or scope assignment settings are not usable); refusing to enable native game login." >&2
+        return 1
+    fi
+}
+
+# Validates the projection settings native login needs besides a signing key: the native World UUIDv7
+# for the D171 fallback and the Game runtime-status and scope-assignment identities that make a scope
+# routable. Reads the loaded environment; prints the reason to stderr and fails when incomplete.
+oteryn_native_admission_projection_ready() {
+    if [[ ! "${GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID:-}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; then
+        echo "Native admission needs OTERYN_STAGING_NATIVE_WORLD_ID (the native World UUIDv7)." >&2
+        return 1
+    fi
+    if [[ "${GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED:-}" != true || -z "${GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES:-}" \
+        || "${GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_ENABLED:-}" != true || -z "${GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES:-}" ]]; then
+        echo "Native admission needs OTERYN_STAGING_NATIVE_RUNTIME_STATUS_IDENTITIES and OTERYN_STAGING_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES; without them no scope is routable and every login would fail." >&2
+        return 1
+    fi
+}
+
+# Prints the native admission flag a run of the given Platform image may use: true only when the
+# environment asks for native admission AND the image can both run the self-check command and export
+# the signing keys from the key volume (entrypoint load_native_admission_keys). An image that has the
+# command but predates the key export would fail the self-check, so rollback and previous-candidate
+# recovery of such a release run with native login off.
+oteryn_native_admission_flag_for_image() {
+    local image="$1"
+
+    if [[ "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" == true ]] \
+        && oteryn_native_admission_projection_ready 2>/dev/null \
+        && docker run --rm --network none --entrypoint grep "$image" -q load_native_admission_keys \
+            /usr/local/bin/oteryn-platform-entrypoint 2>/dev/null \
+        && docker run --rm --network none --entrypoint php "$image" artisan list --raw 2>/dev/null \
+            | awk '/^game-auth:native-admission:self-check /{a=1} /^game-auth:native-admission:publish-trust /{b=1} END{exit !(a&&b)}'; then
+        echo true
+    else
+        echo false
+    fi
+}
+
+# Pins the compatibility flag for an image into a bounded runtime env file, so every Compose command
+# that reads that file (including the Marketplace reconciler, which builds its own command from
+# OTERYN_ENV_FILE) recreates Platform and Gateway with the same flag.
+oteryn_pin_native_admission_flag() {
+    local env_file="$1" image="$2" flag
+    flag="$(oteryn_native_admission_flag_for_image "$image")"
+    { grep -v '^OTERYN_NATIVE_ADMISSION_ENABLED=' "$env_file" || true; printf 'OTERYN_NATIVE_ADMISSION_ENABLED=%s\n' "$flag"; } >"$env_file.pin"
+    chmod 600 "$env_file.pin"
+    mv "$env_file.pin" "$env_file"
 }
 
 trap _oteryn_finalize_release_on_exit EXIT

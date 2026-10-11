@@ -54,6 +54,30 @@ resolve_docker_gateway() {
     printf '%s' "$gateway"
 }
 
+# Native admission signing key custody: the keys live in a root-only named volume mounted read-only
+# at this path, written by deploy/synology/scripts/generate-native-admission-key.sh. Only the
+# key id and file path are exported; the key bytes stay in the file and are never read here.
+load_native_admission_keys() {
+    key_dir=/run/oteryn-native-admission
+    for role in current retiring; do
+        [ -f "$key_dir/$role.kid" ] || continue
+        key_id="$(head -c 65 "$key_dir/$role.kid" | tr -d '\n')"
+        if ! printf '%s' "$key_id" | grep -Eq '^[A-Za-z0-9._-]{1,64}$'; then
+            echo "Native admission $role key id file is invalid." >&2
+            return 1
+        fi
+        if [ "$role" = current ]; then
+            GAME_AUTH_NATIVE_ADMISSION_SIGNING_KEY_FILE="$key_dir/current.key"
+            GAME_AUTH_NATIVE_ADMISSION_SIGNING_KEY_ID="$key_id"
+            export GAME_AUTH_NATIVE_ADMISSION_SIGNING_KEY_FILE GAME_AUTH_NATIVE_ADMISSION_SIGNING_KEY_ID
+        else
+            GAME_AUTH_NATIVE_ADMISSION_RETIRING_SIGNING_KEY_FILE="$key_dir/retiring.key"
+            GAME_AUTH_NATIVE_ADMISSION_RETIRING_SIGNING_KEY_ID="$key_id"
+            export GAME_AUTH_NATIVE_ADMISSION_RETIRING_SIGNING_KEY_FILE GAME_AUTH_NATIVE_ADMISSION_RETIRING_SIGNING_KEY_ID
+        fi
+    done
+}
+
 if [ "${1:-}" = "--self-test" ]; then
     test "$(decode_gateway_hex 010012AC)" = "172.18.0.1"
     is_private_ipv4 10.0.0.1
@@ -75,5 +99,7 @@ if [ "$TRUSTED_PROXIES" = "*" ]; then
     echo "Wildcard reverse-proxy trust is forbidden." >&2
     exit 5
 fi
+
+load_native_admission_keys || exit 6
 
 exec "$@"
