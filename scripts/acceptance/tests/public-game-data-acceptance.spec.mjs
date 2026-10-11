@@ -16,6 +16,15 @@ test.afterEach(async ({ page }, testInfo) => {
   await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
 });
 
+// Since #1298 the server card renders runtime metrics as a definition list (dt/dd), not paragraphs.
+function worldMetric(page, label) {
+  return page.getByRole('article')
+    .filter({ has: page.getByRole('heading', { name: 'Acceptance', exact: true }) })
+    .locator('dl > div')
+    .filter({ has: page.getByRole('term').filter({ hasText: label }) })
+    .getByRole('definition');
+}
+
 test('Flow 6b — public game data, pagination, empty and controlled dependency-failure states', async ({ page }) => {
   await page.goto('/');
   await page.getByLabel('Character name').fill('Acceptance Hero');
@@ -38,12 +47,12 @@ test('Flow 6b — public game data, pagination, empty and controlled dependency-
   await expect(page.getByText('No active characters found.')).toBeVisible();
 
   await page.goto('/servers');
-  await expect(page.locator('p').filter({ hasText: 'Runtime:' })).toContainText('ONLINE');
-  await expect(page.locator('p').filter({ hasText: 'Players online:' })).toContainText('1');
+  await expect(worldMetric(page, 'Runtime:')).toContainText('ONLINE');
+  await expect(worldMetric(page, 'Players online:')).toHaveText('1');
 
   runBinary('redis-cli', ['DEL', 'cluster:channel:1:runtime']);
   await page.goto('/servers');
-  await expect(page.locator('p').filter({ hasText: 'Runtime:' })).toContainText('Unknown');
+  await expect(worldMetric(page, 'Runtime:')).toContainText('Unknown');
 
   runBinary('redis-cli', ['HSET', 'cluster:channel:1:runtime', 'channel_id', '1', 'status', 'INVALID', 'players_online', '1']);
   runBinary('redis-cli', ['PEXPIRE', 'cluster:channel:1:runtime', '3600000']);

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   attachDiagnostics,
   completeMfaChallenge,
   enrollMfa,
@@ -88,6 +89,8 @@ test('Flows 7-9 — admin MFA/RBAC, CMS lifecycle and audit evidence', async ({ 
   await page.locator('tr').filter({ hasText: newsSlug }).getByRole('link', { name: 'Edit' }).click();
   await page.getByLabel('Publish at').fill('');
   await page.getByRole('button', { name: 'Save' }).click();
+  // Unpublishing is proven by a deliberate 404 on the public route; declare exactly that response.
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: `/news/${newsSlug}` });
   const unpublishedNews = await page.goto(`/news/${newsSlug}`);
   expect(unpublishedNews?.status()).toBe(404);
 
@@ -115,6 +118,7 @@ test('Flows 7-9 — admin MFA/RBAC, CMS lifecycle and audit evidence', async ({ 
   await page.locator('tr').filter({ hasText: pageSlug }).getByRole('link', { name: 'Edit' }).click();
   await page.getByLabel('Publish at').fill('');
   await page.getByRole('button', { name: 'Save' }).click();
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: `/pages/${pageSlug}` });
   const unpublishedPage = await page.goto(`/pages/${pageSlug}`);
   expect(unpublishedPage?.status()).toBe(404);
 
