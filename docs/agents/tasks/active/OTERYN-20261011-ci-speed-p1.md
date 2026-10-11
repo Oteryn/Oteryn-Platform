@@ -46,7 +46,7 @@ updated_at: 2026-10-11T07:30:00Z
 head: UNKNOWN
 branch: claude/ci-speed-p1-20261011
 pr: none
-status: validating # investigating|implementing|validating|ready|waiting|blocked|completed
+status: validating
 context_routes:
   - ci-workflows
 owned_paths:
