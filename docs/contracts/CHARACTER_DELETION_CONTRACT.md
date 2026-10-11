@@ -197,7 +197,7 @@ No deletion credential or grant template is approved or to be provisioned under 
 The existing principals are explicitly insufficient:
 
 - `canary` is read-only;
-- `canary_character_create` authorizes bounded inserts, not updates/deletes;
+- character creation authorizes bounded inserts, not updates/deletes;
 - `canary_character_transfer` authorizes only `UPDATE(players.account_id)`;
 - Character Bazaar escrow authority does not authorize deletion, restore or finalization.
 

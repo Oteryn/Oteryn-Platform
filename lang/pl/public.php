@@ -138,7 +138,7 @@ return [
         'online_pages' => 'Strony postaci online',
         'infrastructure' => 'Infrastruktura świata',
         'servers_title' => 'Serwery',
-        'servers_description' => 'Metadane skonfigurowanych kanałów oraz świeża dostępność środowiska Canary, gdy dedykowana zależność działa.',
+        'servers_description' => 'Metadane skonfigurowanych kanałów oraz świeża dostępność środowiska gry, gdy dedykowana zależność działa.',
         'runtime_unavailable_help' => 'Zależność danych na żywo jest chwilowo niedostępna, dlatego dostępność graczy nie jest wyświetlana. Metadane kanałów pozostają dostępne poniżej.',
         'pvp_type' => 'Typ PvP',
         'max_players' => 'Skonfigurowany limit graczy',

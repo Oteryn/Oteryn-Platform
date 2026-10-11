@@ -54,7 +54,7 @@ owned_paths:
   - .github/workflows/repair-synology-autostart.yml
   - tests/ci/test_synology_native_admission_gate.py
   - tests/ci/test_synology_native_admission_trust_publication.py
-  - docs/agents/tasks/active/OTERYN-20261011-native-admission-deploy-followup.md
+  - docs/agents/tasks/archive/OTERYN-20261011-native-admission-deploy-followup.md
   - docs/agents/tasks/archive/OTERYN-20261011-b7-deploy-native-login.md
 modules:
   - deploy
@@ -71,10 +71,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-11T18:00:00Z
-head: UNKNOWN
+head: e3aaf1d4bd1099c291ffa129b3a68c69b33dcd5c
 branch: claude/native-admission-deploy-followup-20261011
 pr: 1548
-status: validating
+status: completed
 context_routes:
   - deploy
   - security
@@ -83,7 +83,7 @@ owned_paths:
   - .github/workflows/repair-synology-autostart.yml
   - tests/ci/test_synology_native_admission_gate.py
   - tests/ci/test_synology_native_admission_trust_publication.py
-  - docs/agents/tasks/active/OTERYN-20261011-native-admission-deploy-followup.md
+  - docs/agents/tasks/archive/OTERYN-20261011-native-admission-deploy-followup.md
   - docs/agents/tasks/archive/OTERYN-20261011-b7-deploy-native-login.md
 proven:
   - The Synology and workflow CI tests pass with the new ordering and guards.
@@ -105,8 +105,16 @@ changed_paths:
 validation:
   - command: python3 -m pytest tests/ci -k "synology or deploy or workflow or autostart"
     result: PASS
-    evidence: see the PR
+    evidence: PR 1548 exact-head CI passed before merge
 blockers:
   - none
-next_action: wait for CI and review; then fill closeout and archive.
+next_action: No further action; the task is archived and its source branch deletes after merge.
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1548 is terminal on protected main and the source branch has no continuing ownership purpose
+source_branch_evidence: PR #1548 merged as protected main e3aaf1d4bd1099c291ffa129b3a68c69b33dcd5c at 2026-10-11T18:05:26Z; source branch deletes after merge
 ```

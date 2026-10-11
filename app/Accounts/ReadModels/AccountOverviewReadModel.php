@@ -2,7 +2,6 @@
 
 namespace App\Accounts\ReadModels;
 
-use App\Accounts\Actions\ProvisionCanaryAccount;
 use App\Accounts\Models\IdentityCanaryAccount;
 use App\Identity\Models\Identity;
 use App\PublicGameData\CanaryGameDataRepository;
@@ -12,11 +11,9 @@ use stdClass;
 
 final class AccountOverviewReadModel
 {
+    public const STATE_NONE = 'none';
+
     public const STATE_READY = 'ready';
-
-    public const STATE_PENDING = 'pending';
-
-    public const STATE_RECOVERABLE = 'recoverable';
 
     public const STATE_CONFLICT = 'conflict';
 
@@ -39,7 +36,6 @@ final class AccountOverviewReadModel
      *     state: string,
      *     label: string,
      *     message: string,
-     *     retry_allowed: bool,
      *     character_creation_allowed: bool,
      *     characters_state: string,
      *     characters_message: string,
@@ -53,9 +49,12 @@ final class AccountOverviewReadModel
         $binding = IdentityCanaryAccount::query()->whereKey($identity->id)->first();
 
         if ($binding === null) {
-            return $this->withoutCharacters($this->unavailableState(
-                'We cannot confirm your game account setup right now. Character creation remains unavailable. Contact support if this persists.',
-            ));
+            return $this->withoutCharacters([
+                'state' => self::STATE_NONE,
+                'label' => '',
+                'message' => '',
+                'character_creation_allowed' => false,
+            ]);
         }
 
         if ($binding->isReady()) {
@@ -70,7 +69,6 @@ final class AccountOverviewReadModel
                 'state' => self::STATE_READY,
                 'label' => 'Ready',
                 'message' => 'Your game account setup is complete and character creation is available.',
-                'retry_allowed' => false,
                 'character_creation_allowed' => true,
             ], $accountId);
         }
@@ -80,30 +78,6 @@ final class AccountOverviewReadModel
                 'state' => self::STATE_CONFLICT,
                 'label' => 'Support required',
                 'message' => 'We cannot complete your game account setup automatically. Contact support for assistance. No replacement account will be created automatically.',
-                'retry_allowed' => false,
-                'character_creation_allowed' => false,
-            ]);
-        }
-
-        if (
-            $binding->status === IdentityCanaryAccount::STATUS_PENDING
-            && $binding->last_failure_code === ProvisionCanaryAccount::FAILURE_DEPENDENCY_UNAVAILABLE
-        ) {
-            return $this->withoutCharacters([
-                'state' => self::STATE_RECOVERABLE,
-                'label' => 'Setup interrupted',
-                'message' => 'Game account setup was interrupted by a temporary service problem. You can safely retry the existing setup request.',
-                'retry_allowed' => true,
-                'character_creation_allowed' => false,
-            ]);
-        }
-
-        if ($binding->status === IdentityCanaryAccount::STATUS_PENDING) {
-            return $this->withoutCharacters([
-                'state' => self::STATE_PENDING,
-                'label' => 'Setup in progress',
-                'message' => 'Your game account setup is still in progress. Character creation will become available after setup completes.',
-                'retry_allowed' => false,
                 'character_creation_allowed' => false,
             ]);
         }
@@ -114,12 +88,11 @@ final class AccountOverviewReadModel
     }
 
     /**
-     * @param  array{state: string, label: string, message: string, retry_allowed: bool, character_creation_allowed: bool}  $overview
+     * @param  array{state: string, label: string, message: string, character_creation_allowed: bool}  $overview
      * @return array{
      *     state: string,
      *     label: string,
      *     message: string,
-     *     retry_allowed: bool,
      *     character_creation_allowed: bool,
      *     characters_state: string,
      *     characters_message: string,
@@ -166,12 +139,11 @@ final class AccountOverviewReadModel
     }
 
     /**
-     * @param  array{state: string, label: string, message: string, retry_allowed: bool, character_creation_allowed: bool}  $overview
+     * @param  array{state: string, label: string, message: string, character_creation_allowed: bool}  $overview
      * @return array{
      *     state: string,
      *     label: string,
      *     message: string,
-     *     retry_allowed: bool,
      *     character_creation_allowed: bool,
      *     characters_state: string,
      *     characters_message: string,
@@ -199,7 +171,7 @@ final class AccountOverviewReadModel
     }
 
     /**
-     * @return array{state: string, label: string, message: string, retry_allowed: bool, character_creation_allowed: bool}
+     * @return array{state: string, label: string, message: string, character_creation_allowed: bool}
      */
     private function unavailableState(string $message): array
     {
@@ -207,7 +179,6 @@ final class AccountOverviewReadModel
             'state' => self::STATE_UNAVAILABLE,
             'label' => 'Support required',
             'message' => $message,
-            'retry_allowed' => false,
             'character_creation_allowed' => false,
         ];
     }

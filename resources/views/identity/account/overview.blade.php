@@ -17,7 +17,6 @@
     @php
         $badgeClass = match ($overview['state']) {
             'ready' => 'badge-success',
-            'pending', 'recoverable' => 'badge-warning',
             default => 'badge-danger',
         };
         $charactersMessage = $overview['characters_state'] === 'available'
@@ -29,6 +28,9 @@
                 ])
             : __($overview['characters_message']);
     @endphp
+    @if ($overview['state'] === 'none')
+    <span hidden data-account-state="none"></span>
+    @else
     <section class="account-connection" aria-labelledby="game-account-heading" data-account-state="{{ $overview['state'] }}">
         <div>
             <p class="eyebrow">{{ __('portal.account.game_account') }}</p>
@@ -38,9 +40,6 @@
             <span class="badge {{ $badgeClass }}">{{ __($overview['label']) }}</span>
             <p>{{ __($overview['message']) }}</p>
         </div>
-        @if ($overview['retry_allowed'])
-            <form method="POST" action="{{ route('account.provisioning.retry', ['locale' => app()->getLocale()]) }}">@csrf<button type="submit">{{ __('portal.account.retry') }}</button></form>
-        @endif
     </section>
     <section class="account-roster" aria-labelledby="account-characters-heading">
         <div class="section-heading">
@@ -82,6 +81,7 @@
             <div class="notice alert-warning" role="status">{{ __('portal.account.limit', ['count' => $overview['character_limit']]) }}</div>
         @endif
     </section>
+    @endif
     <div class="account-services">
         <section aria-labelledby="account-security-heading">
             <p class="eyebrow">{{ __('identity.security.eyebrow') }}</p>

@@ -2,8 +2,6 @@
 
 namespace Tests\Feature\Characters;
 
-use App\CanaryIntegration\CanaryCharacterCreator;
-use App\Characters\Contracts\CanaryCharacterCreationGateway;
 use App\Identity\Models\Identity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -54,8 +52,9 @@ final class CharacterCreationTest extends TestCase
         $response->assertRedirect();
         $response->assertSessionHasErrors(['character' => 'Character creation is temporarily unavailable.']);
         $response->assertSessionMissing('status');
-        self::assertFalse($this->app->bound(CanaryCharacterCreationGateway::class));
-        self::assertArrayNotHasKey(CanaryCharacterCreator::CONNECTION, DB::getConnections());
+        // Guard: no legacy game-database connection is ever opened by a creation attempt.
+        self::assertArrayNotHasKey('canary_character_create', DB::getConnections());
+        self::assertArrayNotHasKey('canary', DB::getConnections());
     }
 
     public function test_invalid_name_is_rejected_before_unavailable_state(): void

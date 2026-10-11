@@ -17,7 +17,7 @@ return [
     ],
     'profile' => [
         'eyebrow' => 'Profil postaci',
-        'description' => 'Publiczne informacje o postaci z tylko do odczytu źródła danych Canary.',
+        'description' => 'Publiczne informacje o postaci z tylko do odczytu źródła danych gry.',
         'no_guild' => 'Brak gildii',
         'explore' => 'Odkrywaj świat',
         'highscores' => 'Zobacz rankingi',

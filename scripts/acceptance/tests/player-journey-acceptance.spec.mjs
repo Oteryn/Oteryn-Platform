@@ -7,7 +7,6 @@ import {
   login,
   logout,
   register,
-  runPhpState,
   uniqueCharacterName,
   uniqueEmail,
   waitForDifferentTotp,
@@ -38,8 +37,6 @@ test('@portal-account Flows 1-2 — new and returning player complete the produc
   const character = uniqueCharacterName('Journey');
 
   await register(page, email, password);
-  const binding = runPhpState('binding', email);
-  expect(binding.status).not.toBe('missing');
 
   await login(page, email, password);
   await expect(page).toHaveURL(/\/$/u);
