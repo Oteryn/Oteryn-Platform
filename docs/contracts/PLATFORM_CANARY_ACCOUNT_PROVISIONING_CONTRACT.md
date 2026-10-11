@@ -1,5 +1,7 @@
 # Platform-originated Canary Account Provisioning Contract
 
+> **LEGACY / COMPATIBILITY** — Canary compatibility path; the native target is split by owner: Platform owns `AccountId`, Game Login Ticket issuance/redemption, routing policy and Gateway pre-admission (`docs/contracts/OTERYN_V2_ACCOUNT_IDENTITY_CONTRACT.md`, `docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md`); the Game contracts (LCFA, native login, character authority boundary) own final admission, session and character authority. Platform Identity authority for `AccountId`, credential security, login-ticket issuance and Canary mapping is defined by `docs/contracts/OTERYN_V2_ACCOUNT_IDENTITY_CONTRACT.md`.
+
 ## Status
 
 `IMPLEMENTED — GREENFIELD ACCOUNT PROVISIONING AND IMMUTABLE BINDING`
