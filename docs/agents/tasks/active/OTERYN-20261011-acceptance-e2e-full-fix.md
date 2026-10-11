@@ -45,10 +45,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-11T08:30:00Z
+updated_at: 2026-10-11T08:45:00Z
 head: UNKNOWN
 branch: claude/acceptance-e2e-fix-20261011
-pr: none
+pr: 1521
 status: validating
 context_routes:
   - testing
@@ -63,7 +63,7 @@ proven:
   - Run 38110180131 Today snapshot lists long-localized news and Content Scale News 001/002 as the 3 latest news; the content-scale fixture publishes at seed time minus 1 minute, the Today fixture at seed time minus 2 minutes.
   - Run 38110180131 servers snapshot shows Runtime ONLINE and Players online 1 as dt/dd terms, not paragraphs.
 derived:
-  - Not caused by DECANARY merges #1491 or #1492; the specs drifted after #1242 (diagnostics), #1114 (Today fixture) and #1298 (servers markup).
+  - Not caused by the legacy-removal merges #1491 or #1492; the specs drifted after #1242 (diagnostics), #1114 (Today fixture) and #1298 (servers markup).
 unknown:
   - Whether later steps of the Today and Flow 6b tests, never reached on main, pass; only a full profile run proves it.
 conflicts: []
@@ -71,7 +71,7 @@ first_failure:
   marker: earliest retained main run 34719930030
   evidence: same 3 failures as run 38110180131
 rejected_hypotheses:
-  - DECANARY PUBLIC-OFF-1 (#1491) or CREATE-OFF-1 (#1492) regression; the failures predate both merges.
+  - PUBLIC-OFF-1 (#1491) or CREATE-OFF-1 (#1492) regression; the failures predate both merges.
 changed_paths:
   - scripts/acceptance/tests/admin-acceptance.spec.mjs
   - scripts/acceptance/tests/public-game-data-acceptance.spec.mjs
