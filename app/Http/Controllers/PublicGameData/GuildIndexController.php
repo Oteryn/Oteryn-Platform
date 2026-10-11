@@ -4,6 +4,7 @@ namespace App\Http\Controllers\PublicGameData;
 
 use App\PublicGameData\CommunityDataPolicy;
 use App\PublicGameData\GuildIndexQuery;
+use App\PublicGameData\PublicGameDataUnavailable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
@@ -24,6 +25,10 @@ final class GuildIndexController
 
         try {
             $guilds = $this->guilds->paginate($search);
+        } catch (PublicGameDataUnavailable) {
+            return response()->view('game.unavailable', [
+                'title' => __('community.guilds.title'),
+            ], Response::HTTP_OK);
         } catch (QueryException) {
             return response()->view('game.unavailable', [
                 'title' => __('community.guilds.title'),
