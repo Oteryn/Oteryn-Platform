@@ -7,7 +7,7 @@ Character Bazaar application behavior was delivered by PR #270. This runbook cov
 The package is fail-closed:
 
 - normal local, staging and production runtimes require explicit `MARKETPLACE_ENABLED=true`;
-- `deploy/synology/compose.marketplace.yml` adds the private scheduler and transfer configuration without publishing a port;
+- `deploy/synology/compose.marketplace.yml` adds the private scheduler without publishing a port;
 - staging mutations run only through `.github/workflows/character-bazaar-staging-control.yml`;
 - production is excluded.
 
@@ -33,15 +33,12 @@ This is `STAGING_PROVEN` only for the exact documented boundary. It is not produ
 
 ## Guarded control workflow
 
-The workflow accepts these actions:
+Character Bazaar activation is unavailable: the character transfer contract is retired, so `deploy-enable`, `enable` and `verify` are refused before anything is deployed and are no longer dispatch choices. Only drain and rollback are supported:
 
-- `deploy-enable` — deploy an exact Platform/Gateway tag through the existing reviewed deploy script, then provision and enable Character Bazaar;
-- `enable` — provision or rotate the staging-only transfer principal and escrow sink, migrate, reconcile, enable routes and start the scheduler;
-- `verify` — verify the exact grants, unbound escrow identity, enabled Platform/scheduler environment and `/en/bazaar` route;
 - `prepare-rollback` — reconcile, reject non-terminal work, disable routes and remove the scheduler;
 - `rollback` — run `prepare-rollback` first and only then invoke the standard image rollback script.
 
-The first trusted-main activation was marker-gated by `[character-bazaar-staging]`. Manual executions use `workflow_dispatch` and the `synology-staging` Environment. The workflow shares the `synology-staging-deployment` concurrency group with the standard deployment workflow.
+The first trusted-main activation (historical) was marker-gated by `[character-bazaar-staging]`. Manual executions use `workflow_dispatch` and the `synology-staging` Environment. The workflow shares the `synology-staging-deployment` concurrency group with the standard deployment workflow.
 
 Once Character Bazaar is active, operators must use this Marketplace-aware workflow for Marketplace deploy, verification and rollback actions. Direct standard rollback is not an approved Marketplace recovery path because it does not perform the drain gate.
 
@@ -90,7 +87,7 @@ The principal may not reuse root, legacy engine game-process, read-only, provisi
 
 ## Runtime sequence
 
-The `enable` path performs this ordered sequence:
+Historical and no longer available: the retired `enable` path performed this ordered sequence:
 
 1. verify the running Platform image contains the Marketplace implementation and recovery command;
 2. provision exact transfer grants;

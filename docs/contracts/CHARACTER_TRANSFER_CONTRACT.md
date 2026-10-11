@@ -175,9 +175,11 @@ Before launch:
 
 ## Deployment prerequisites
 
+Activation is unavailable: this transfer contract is retired and no environment may enable the Bazaar. The list below is historical.
+
 1. provision a non-login legacy engine escrow account out of band;
 2. inject its numeric ID as `MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID`;
-3. provision the dedicated transfer principal from the reviewed SQL template;
+3. provision the dedicated transfer principal with the reviewed column-level grants;
 4. inject credentials through approved secret management;
 5. run the privilege verifier;
 6. verify the escrow account exists, is not bound to an Identity and has no usable public credential path;

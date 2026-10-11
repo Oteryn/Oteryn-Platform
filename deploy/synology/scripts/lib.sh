@@ -334,6 +334,24 @@ _oteryn_marketplace_non_terminal_auction_count() {
     printf '%s\n' "$pending"
 }
 
+# Reverse of _oteryn_quiesce_platform_db_consumers for a refused migration: starts only
+# the services that were running before, then the scheduler if it was running.
+_oteryn_restart_after_refused_migration() {
+    local was_running="$1" service scheduler_id
+    local -a base_compose=(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+
+    for service in platform internal-proxy gateway; do
+        if grep -qx "$service" <<<"$was_running"; then
+            "${base_compose[@]}" start "$service" >/dev/null || true
+        fi
+    done
+    if [[ "${OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING:-0}" == 1 ]]; then
+        scheduler_id="$(_oteryn_marketplace_scheduler_id)" || return 0
+        [[ -z "$scheduler_id" ]] || command docker start "$scheduler_id" >/dev/null || true
+    fi
+    return 0
+}
+
 # Rewrites a durable state file to the current format (MARKETPLACE_ENABLED=false
 # only): the retired keys are dropped and any enabled runtime is disabled, because
 # the transfer contract is gone. Dropping the retired keys needs a verified zero
@@ -378,16 +396,25 @@ _oteryn_migrate_legacy_marketplace_state() {
     }
 
     if [[ "$legacy" == 1 ]]; then
+        local was_running='' refused=''
         if [[ "$quiesce" == quiesce ]]; then
-            _oteryn_quiesce_platform_db_consumers || return 1
+            was_running="$(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps --services --status running 2>/dev/null | grep -E '^(platform|internal-proxy|gateway)$' || true)"
+            _oteryn_quiesce_platform_db_consumers || { _oteryn_restart_after_refused_migration "$was_running" || true; return 1; }
         fi
         if pending="$(_oteryn_marketplace_non_terminal_auction_count 2>/dev/null)" && [[ "$pending" =~ ^[0-9]+$ ]]; then
             if [[ "$pending" -gt 0 ]]; then
                 echo "Legacy Character Bazaar has $pending non-terminal auctions; drain them before dropping the retired escrow and transfer keys." >&2
-                return 1
+                refused=1
             fi
         elif [[ "${OTERYN_ATTEST_NO_PENDING_AUCTIONS:-}" != 1 ]]; then
             echo "Cannot prove the legacy Character Bazaar is drained; refusing to drop the retired escrow and transfer keys. If no auction can be pending, set OTERYN_ATTEST_NO_PENDING_AUCTIONS=1 to attest that." >&2
+            refused=1
+        fi
+        if [[ -n "$refused" ]]; then
+            # Bring back exactly what the quiesce stopped (best effort; the refusal stays the result).
+            if [[ "$quiesce" == quiesce ]]; then
+                _oteryn_restart_after_refused_migration "$was_running" || true
+            fi
             return 1
         fi
     fi

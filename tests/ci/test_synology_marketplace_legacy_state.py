@@ -20,7 +20,9 @@ FAKE_DOCKER = """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >>"$OTERYN_TEST_DOCKER_LOG"
 case "$*" in
+    *"ps --services"*) printf 'platform\ngateway\n' ;;
     *"ps -a"*) ;;
+    *"start "*) ;;
     *"stop platform"*) ;;
     *information_schema.tables*) printf '%s\\n' "$OTERYN_TEST_TABLES" ;;
     *character_auctions*) printf '%s\\n' "$OTERYN_TEST_PENDING" ;;
@@ -190,3 +192,22 @@ def test_deploy_path_quiesces_consumers_before_the_drain_count() -> None:
 def test_flag_only_state_is_not_quiesced() -> None:
     _, _, log = run_loader("MARKETPLACE_ENABLED=true\n", call="_oteryn_migrate_legacy_marketplace_state quiesce")
     assert "stop platform" not in log
+
+
+def test_refused_migration_restarts_exactly_what_was_stopped() -> None:
+    original = "MARKETPLACE_ENABLED=true\n" + FIVE_KEYS
+    result, state, log = run_loader(original, pending="3", call="_oteryn_migrate_legacy_marketplace_state quiesce")
+    assert result.returncode != 0
+    assert "3 non-terminal auctions" in result.stderr
+    assert state == original
+    assert log.index("stop platform") < log.index("character_auctions") < log.index("start platform")
+    assert "start gateway" in log
+    assert "start internal-proxy" not in log
+
+
+def test_refusal_without_a_count_also_restarts_and_keeps_the_file() -> None:
+    original = "MARKETPLACE_ENABLED=true\n" + FIVE_KEYS
+    result, state, log = run_loader(original, tables="not-a-number", call="_oteryn_migrate_legacy_marketplace_state quiesce")
+    assert result.returncode != 0
+    assert state == original
+    assert "start platform" in log

@@ -8,7 +8,7 @@ This runbook applies to the Character Bazaar implementation governed by ADR 0016
 
 ## Deployment prerequisites
 
-Before exposing `/bazaar` in any environment:
+Activation is unavailable while the transfer contract is retired; the list below is historical. Before exposing `/bazaar` in any environment:
 
 1. deploy the exact Platform release and run Platform migrations;
 2. create one legacy engine account dedicated to Character Bazaar escrow;
