@@ -1,5 +1,5 @@
 ---
-task_id: OTERYN-20261008-decanary-login-default
+task_id: OTERYN-20261008-native-login-default
 governing_issue: 1476
 required_reads:
   - docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md
@@ -12,11 +12,11 @@ optional_reads:
   - docs/agents/tasks/active/OTERYN-20261006-lcfa-consumer.md
 ---
 
-# OTERYN-20261008 DECANARY-LOGIN-DEFAULT-1 rollout
+# OTERYN-20261008 native login default rollout
 
 ## Goal
 
-Under Issue #1476 (PR #1479), default the native account characters (LCFA) read path to enabled in preproduction in Platform `config/game-auth.php`, so the Platform side no longer depends on a per-environment canary toggle.
+Under Issue #1476 (PR #1479), default the native account characters (LCFA) read path to enabled in preproduction in Platform `config/game-auth.php`, so the Platform side no longer depends on a per-environment toggle.
 
 The Game gateway is deliberately different: with `GATEWAY_NATIVE_LOGIN_ENABLED` unset the gateway keeps native login OFF (`services/game-gateway/internal/config/config.go`, verified by `config_test.go`). Enabling native login on a gateway deployment therefore requires an explicit per-deployment opt-in through `GATEWAY_NATIVE_LOGIN_ENABLED`. That deployment setting is not part of this diff and remains an open item below.
 
@@ -37,7 +37,7 @@ owned_paths:
   - config/game-auth.php
   - services/game-gateway/internal/config/config.go
   - services/game-gateway/internal/config/config_test.go
-  - docs/agents/tasks/active/OTERYN-20261008-decanary-login-default.md
+  - docs/agents/tasks/active/OTERYN-20261008-native-login-default.md
 modules:
   - GameAuth
   - GameGateway
@@ -69,9 +69,9 @@ owned_paths:
   - config/game-auth.php
   - services/game-gateway/internal/config/config.go
   - services/game-gateway/internal/config/config_test.go
-  - docs/agents/tasks/active/OTERYN-20261008-decanary-login-default.md
+  - docs/agents/tasks/active/OTERYN-20261008-native-login-default.md
 proven:
-  - PR #1479 touches only config/game-auth.php and the game-gateway config package and its test.
+  - PR #1479 touches exactly four paths: config/game-auth.php, services/game-gateway/internal/config/config.go, services/game-gateway/internal/config/config_test.go and this task packet (docs/agents/tasks/active/OTERYN-20261008-native-login-default.md).
   - Issue #1476 is open and governs this rollout; the LCFA packet governs #1419 only.
   - With GATEWAY_NATIVE_LOGIN_ENABLED unset the gateway keeps native login off (config.go and config_test.go).
   - On head e3446d5 the checkpoint-validation, test, runtime-tests, platform-gate and Build game-gateway component checks passed.
@@ -79,7 +79,7 @@ derived:
   - The Platform default change is limited to preproduction and leaves production behavior unchanged.
   - The only failing check on head e3446d5, acceptance, failed in a WebKit portal portability test (editorial-media-acceptance, WebKit internal error loading portal CSS) that this diff does not touch.
 unknown:
-  - Exact-head CI result for the head that carries this record; this record commit is a child of the head recorded above.
+  - Exact-head CI result for the head that carries this record (the earlier test, platform-gate and classify-changes failures were the legacy-token ratchet, fixed by token-free names); this record commit is a child of the head recorded above.
   - Whether the preproduction gateway deployment already sets GATEWAY_NATIVE_LOGIN_ENABLED.
   - Whether the acceptance WebKit failure is flaky; a rerun on the new head decides.
 conflicts: []
@@ -94,7 +94,7 @@ changed_paths:
   - config/game-auth.php
   - services/game-gateway/internal/config/config.go
   - services/game-gateway/internal/config/config_test.go
-  - docs/agents/tasks/active/OTERYN-20261008-decanary-login-default.md
+  - docs/agents/tasks/active/OTERYN-20261008-native-login-default.md
 validation:
   - command: go test ./internal/config/... (services/game-gateway)
     result: NOT_RUN

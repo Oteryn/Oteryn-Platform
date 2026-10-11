@@ -241,6 +241,6 @@ func TestLoadUnsetNativeLoginNeverSelectsNativeOnlyMode(t *testing.T) {
 	t.Setenv("GAME_SESSION_SERVICE_TOKEN", "session-token")
 	cfg, err := Load()
 	if err != nil || cfg.NativeLoginEnabled || !cfg.LegacySessionEnabled {
-		t.Fatalf("expected the built-in default to keep native login off and the Canary path on, got %#v err=%v", cfg, err)
+		t.Fatalf("expected the built-in default to keep native login off and the legacy session path on, got %#v err=%v", cfg, err)
 	}
 }
