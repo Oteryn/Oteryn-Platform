@@ -8,6 +8,18 @@ const EXPECTED_HTTP_DUPLICATE_FAILURES = new Set([
   '<unknown error>',
 ]);
 
+// WebKit 2370 (Playwright 1.64) applies an internal inline style to every <select>
+// and reports it as a style-src(-attr) violation under Platform's strict CSP. Platform
+// ships no inline styles; Chromium and Firefox stay strict on the same pages. The
+// allowance is limited to WebKit, this exact message and pages that contain a <select>.
+export const WEBKIT_SELECT_UA_STYLE_VIOLATION = "Refused to apply a stylesheet because its hash, its nonce, or 'unsafe-inline' does not appear in the style-src directive of the Content Security Policy.";
+
+function isWebkitSelectUaStyleViolation(diagnostics, entry) {
+  return diagnostics.browserName === 'webkit'
+    && entry.text === WEBKIT_SELECT_UA_STYLE_VIOLATION
+    && entry.pageHasSelect === true;
+}
+
 const REQUEST_IDENTITY_PATTERN = /^[0-9a-f]{64}$/u;
 
 function diagnosticPath(rawUrl) {
@@ -88,6 +100,9 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
 
   const unexpectedConsoleErrors = [];
   for (const entry of diagnostics.consoleErrors ?? []) {
+    if (isWebkitSelectUaStyleViolation(diagnostics, entry)) {
+      continue;
+    }
     const status = failedLoadStatus(entry);
     const pathname = diagnosticPath(entry.url);
     const allowance = status === null ? null : allowances.find((candidate) => (
@@ -154,6 +169,7 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
 export async function attachRuntimeDiagnostics(testInfo, diagnostics, testedSha) {
   const browserName = testInfo.project?.use?.browserName;
   diagnostics.browserName = typeof browserName === 'string' ? browserName : null;
+  await Promise.allSettled(diagnostics.pendingChecks ?? []);
 
   await testInfo.attach('exact-tested-sha', {
     body: Buffer.from(`${testedSha}\n`, 'utf8'),

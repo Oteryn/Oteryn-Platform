@@ -8,6 +8,7 @@ import {
   allowExpectedHttpFailure,
   assertNoUnexpectedRuntimeFailures,
   attachRuntimeDiagnostics,
+  WEBKIT_SELECT_UA_STYLE_VIOLATION,
 } from '../runtime-diagnostics.mjs';
 
 export { allowExpectedHttpFailure, assertNoUnexpectedRuntimeFailures };
@@ -55,12 +56,21 @@ export function installDiagnostics(page) {
     expectedHttpFailures: [],
   };
 
+  Object.defineProperty(diagnostics, 'pendingChecks', { value: [], enumerable: false });
+
   page.on('console', (message) => {
     if (message.type() === 'error') {
-      diagnostics.consoleErrors.push({
+      const entry = {
         text: message.text().slice(0, 1000),
         url: sanitizeUrl(message.location().url ?? ''),
-      });
+      };
+      diagnostics.consoleErrors.push(entry);
+      if (diagnostics.browserName === 'webkit' && entry.text === WEBKIT_SELECT_UA_STYLE_VIOLATION) {
+        diagnostics.pendingChecks.push(
+          page.evaluate(() => document.querySelector('select') !== null)
+            .then((hasSelect) => { entry.pageHasSelect = hasSelect; }),
+        );
+      }
     }
   });
 

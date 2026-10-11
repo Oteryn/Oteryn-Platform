@@ -448,3 +448,52 @@ test('WebKit evidence capture avoids Playwright screenshot CSP mutation', async 
   assert.equal(evidence.screenshot, 'skipped-playwright-csp-mutation');
   fs.rmSync(marker, { force: true });
 });
+
+test('WebKit select UA style CSP noise is bounded to webkit, the exact message and pages with a select', async () => {
+  const csp = helpers.WEBKIT_SELECT_UA_STYLE_VIOLATION;
+  const entry = (extra = {}) => ({ text: csp, url: 'http://127.0.0.1:8080/highscores', ...extra });
+
+  assert.doesNotThrow(() => helpers.assertNoUnexpectedRuntimeFailures(diagnostics({
+    browserName: 'webkit',
+    consoleErrors: [entry({ pageHasSelect: true })],
+  })));
+
+  for (const overrides of [
+    { browserName: 'webkit', consoleErrors: [entry({ pageHasSelect: false })] },
+    { browserName: 'webkit', consoleErrors: [entry()] },
+    { browserName: 'webkit', consoleErrors: [entry({ pageHasSelect: true, text: `${csp} extra` })] },
+    { browserName: 'chromium', consoleErrors: [entry({ pageHasSelect: true })] },
+    { browserName: 'firefox', consoleErrors: [entry({ pageHasSelect: true })] },
+    { browserName: null, consoleErrors: [entry({ pageHasSelect: true })] },
+  ]) {
+    assert.throws(
+      () => helpers.assertNoUnexpectedRuntimeFailures(diagnostics(overrides)),
+      /Unexpected browser\/runtime failures/u,
+    );
+  }
+});
+
+test('installDiagnostics records whether a WebKit CSP console error came from a page with a select', async () => {
+  const acceptanceHelpers = await import('../tests/helpers.mjs');
+  for (const hasSelect of [true, false]) {
+    let onConsole;
+    const page = {
+      context: () => ({ browser: () => ({ browserType: () => ({ name: () => 'webkit' }) }) }),
+      on: (event, handler) => { if (event === 'console') onConsole = handler; },
+      evaluate: async () => hasSelect,
+    };
+    const state = acceptanceHelpers.installDiagnostics(page);
+    onConsole({
+      type: () => 'error',
+      text: () => helpers.WEBKIT_SELECT_UA_STYLE_VIOLATION,
+      location: () => ({ url: 'http://127.0.0.1:8080/highscores' }),
+    });
+    await Promise.allSettled(state.pendingChecks);
+    assert.equal(state.consoleErrors[0].pageHasSelect, hasSelect);
+    if (hasSelect) {
+      assert.doesNotThrow(() => helpers.assertNoUnexpectedRuntimeFailures(state));
+    } else {
+      assert.throws(() => helpers.assertNoUnexpectedRuntimeFailures(state), /Unexpected browser\/runtime failures/u);
+    }
+  }
+});
