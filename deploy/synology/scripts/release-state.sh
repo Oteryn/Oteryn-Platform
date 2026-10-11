@@ -49,10 +49,10 @@ assert_schema_compatible() {
     [[ "$candidate_sha" != "$old_sha" ]] || { echo "Last-good identity is stale: it equals candidate release" >&2; return 1; }
     [[ "$old_eligible" == 1 ]] || { echo "Last-good release is explicitly ineligible for image rollback" >&2; return 1; }
     # Release state written before the native-only cut always carries CANARY_IMAGE. That
-    # release needs the retired Canary container, game-data database and provisioning
+    # release needs the retired legacy-engine container, game-data database and provisioning
     # settings, which image rollback cannot restore, so it is never a rollback target.
     if grep -q '^CANARY_IMAGE=' "$last_good_file"; then
-        echo "Rollback rejected: last-good release $old_sha predates the native-only cut and needs the retired Canary topology; image rollback cannot restore it." >&2
+        echo "Rollback rejected: last-good release $old_sha predates the native-only cut and needs the retired legacy-engine topology; image rollback cannot restore it." >&2
         return 1
     fi
     contains_schema_id "$schema_id" "$old_accepts" || {

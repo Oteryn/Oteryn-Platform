@@ -713,7 +713,7 @@ OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/health-check.sh"
     --status=online \
     --login-enabled=1
 
-# The retired legacy "canary" container stays available for rollback until the
+# The retired legacy-engine container stays available for rollback until the
 # native-only Gateway has passed the full health contract. Only that service is
 # then removed by label; a compose orphan sweep is never used because it would also
 # remove services defined only in overlay files (marketplace-scheduler).

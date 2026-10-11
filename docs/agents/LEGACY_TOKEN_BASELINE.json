@@ -174,8 +174,8 @@
   ],
   "groups": {
     "ci_deploy": {
-      "count": 164,
-      "files": 29,
+      "count": 154,
+      "files": 28,
       "enforce": true
     },
     "config": {
