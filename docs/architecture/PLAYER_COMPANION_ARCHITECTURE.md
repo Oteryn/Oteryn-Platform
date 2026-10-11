@@ -81,7 +81,7 @@ GameAnalytics --------------------+   +------------------------- LiveOps
 - canonical item, creature, spell, vocation, quest, NPC, achievement or ruleset definitions;
 - `ReferenceContent` source snapshots, extractor/provenance authority or raw source archives merely because a tool consumes them;
 - arbitrary editorial articles or Wiki publication lifecycle;
-- raw Canary schema access from UI/controllers;
+- raw legacy engine schema access from UI/controllers;
 - game-runtime mutations;
 - authoritative market prices without a contracted source;
 - payment-provider state or product fulfilment;
@@ -402,7 +402,7 @@ A shared build or summary must:
 - contain only allowlisted fields;
 - use opaque, high-entropy server-generated identifiers when stored server-side;
 - support revocation and expiry when linked to private persisted data;
-- avoid Platform Identity IDs, Canary account IDs, sessions, emails and raw logs;
+- avoid Platform Identity IDs, legacy engine account IDs, sessions, emails and raw logs;
 - be size-bounded and schema-validated when encoded in a URL;
 - declare its ruleset/catalog version and any material `ReferenceContent` snapshot/evidence class;
 - fail safely when referenced entities no longer exist or are incompatible.

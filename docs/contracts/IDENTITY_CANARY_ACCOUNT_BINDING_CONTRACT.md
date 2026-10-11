@@ -1,14 +1,14 @@
-# Identity to Canary Account Binding Contract
+# Identity to legacy engine Account Binding Contract
 
-> **LEGACY / COMPATIBILITY** — Canary compatibility path; the native target is split by owner: Platform owns `AccountId`, Game Login Ticket issuance/redemption, routing policy and Gateway pre-admission (`docs/contracts/OTERYN_V2_ACCOUNT_IDENTITY_CONTRACT.md`, `docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md`); the Game contracts (LCFA, native login, character authority boundary) own final admission, session and character authority. Platform Identity authority for `AccountId`, credential security, login-ticket issuance and Canary mapping is defined by `docs/contracts/OTERYN_V2_ACCOUNT_IDENTITY_CONTRACT.md`.
+> **LEGACY / COMPATIBILITY** — legacy engine compatibility path; the native target is split by owner: Platform owns `AccountId`, Game Login Ticket issuance/redemption, routing policy and Gateway pre-admission (`docs/contracts/OTERYN_V2_ACCOUNT_IDENTITY_CONTRACT.md`, `docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md`); the Game contracts (LCFA, native login, character authority boundary) own final admission, session and character authority. Platform Identity authority for `AccountId`, credential security, login-ticket issuance and legacy engine mapping is defined by `docs/contracts/OTERYN_V2_ACCOUNT_IDENTITY_CONTRACT.md`.
 
 ## Status
 
 `IMPLEMENTED FOR GREENFIELD ACCOUNTS — IMMUTABLE 1:1 PLATFORM-OWNED BINDING`
 
-This contract defines the authorization boundary between an authenticated Oteryn Platform Identity and Canary `accounts.id`.
+This contract defines the authorization boundary between an authenticated Oteryn Platform Identity and legacy engine `accounts.id`.
 
-Oteryn Platform is the authoritative owner of user Identity, supported account lifecycle policy and user credential policy. Existing Canary accounts are outside the supported Phase 5 ownership model and are not imported or claimed.
+Oteryn Platform is the authoritative owner of user Identity, supported account lifecycle policy and user credential policy. Existing legacy engine accounts are outside the supported Phase 5 ownership model and are not imported or claimed.
 
 The greenfield ownership-binding implementation is delivered by the Platform-originated account provisioning flow governed by `docs/contracts/PLATFORM_CANARY_ACCOUNT_PROVISIONING_CONTRACT.md`.
 
@@ -16,15 +16,15 @@ The greenfield ownership-binding implementation is delivered by the Platform-ori
 
 Canonical cardinality:
 
-`1 Platform Identity <-> 1 Canary accounts.id`
+`1 Platform Identity <-> 1 legacy engine accounts.id`
 
 Rules:
 
 - every supported product account originates as an Oteryn Platform Identity;
 - each Platform Identity has at most one durable Platform-owned provisioning/binding record;
-- each ready binding references exactly one Canary `accounts.id`;
-- one Canary `accounts.id` cannot be actively bound to two Platform Identities;
-- ownership is established only from the exact Canary account created/recovered by the server-generated provisioning intent;
+- each ready binding references exactly one legacy engine `accounts.id`;
+- one legacy engine `accounts.id` cannot be actively bound to two Platform Identities;
+- ownership is established only from the exact legacy engine account created/recovered by the server-generated provisioning intent;
 - email equality, account name, client-supplied `account_id` or other browser-controlled attributes never establish ownership;
 - supported existing-account claim/import is not part of Phase 5.
 
@@ -47,9 +47,9 @@ Pending or conflict state fails closed.
 
 ## Required authorization answer
 
-For every user-scoped Canary operation the Platform must answer server-side:
+For every user-scoped legacy engine operation the Platform must answer server-side:
 
-> Does the currently authenticated Platform Identity have the ready immutable binding to this exact Canary `accounts.id`?
+> Does the currently authenticated Platform Identity have the ready immutable binding to this exact legacy engine `accounts.id`?
 
 The answer is resolved from Platform-owned trusted persistence.
 
@@ -57,11 +57,11 @@ A requested account ID may be used only as a target after comparison with the au
 
 ## Binding establishment
 
-The only supported Phase 5 establishment path is Platform-originated Canary account provisioning.
+The only supported Phase 5 establishment path is Platform-originated legacy engine account provisioning.
 
 The implementation:
 
-1. creates the Platform Identity and durable pending provisioning intent before any Canary write;
+1. creates the Platform Identity and durable pending provisioning intent before any legacy engine write;
 2. uses a server-generated immutable provisioning name and creation marker;
 3. creates or deterministically recovers the exact Canary account through the dedicated `canary_provisioning` connection;
 4. stores the exact created/recovered `accounts.id` in Platform-owned binding state;
@@ -69,7 +69,7 @@ The implementation:
 6. treats retry of the same completed binding as idempotent;
 7. enters fail-closed conflict state if recovered ownership evidence conflicts.
 
-The implementation never accepts a client-selected Canary account ID for binding.
+The implementation never accepts a client-selected legacy engine account ID for binding.
 
 ## Lifecycle policy
 
@@ -85,7 +85,7 @@ Any future exceptional transfer requires a separately approved privileged recove
 
 ### Recovery
 
-Normal account recovery restores access to the same Platform Identity and therefore retains the same immutable Canary binding.
+Normal account recovery restores access to the same Platform Identity and therefore retains the same immutable legacy engine binding.
 
 Missing/corrupted binding or Canary-account state must fail closed. Automatic replacement-account creation or silent rebind is forbidden.
 
@@ -93,7 +93,7 @@ Missing/corrupted binding or Canary-account state must fail closed. Automatic re
 
 Disabling a Platform Identity must disable Platform authorization for user-scoped operations without transferring ownership.
 
-Exact irreversible Canary account deletion semantics require a separate account-lifecycle contract.
+Exact irreversible legacy engine account deletion semantics require a separate account-lifecycle contract.
 
 ## Security boundary
 
@@ -102,8 +102,8 @@ Exact irreversible Canary account deletion semantics require a separate account-
 - Existing `canary` / `oteryn_readonly` remains SELECT-only and unchanged.
 - Account provisioning uses separate `canary_provisioning` credentials restricted to the approved column-level account-create/recovery surface.
 - Character creation uses separate `canary_character_create` credentials restricted to the approved column-level character-create surface.
-- Platform does not read `accounts.password` and does not verify Canary passwords.
-- Canary `accounts.password` receives only the non-user random sink-credential compatibility digest defined by the provisioning contract.
+- Platform does not read `accounts.password` and does not verify legacy engine passwords.
+- legacy engine `accounts.password` receives only the non-user random sink-credential compatibility digest defined by the provisioning contract.
 - Sink plaintext is never stored in Platform binding/audit state or exposed to users.
 
 ## Failure and concurrency invariants
@@ -111,10 +111,10 @@ Exact irreversible Canary account deletion semantics require a separate account-
 The implemented provisioning saga ensures:
 
 - a Platform Identity is never treated as ready without a durable exact `canary_account_id` binding;
-- Canary dependency failure leaves durable pending state for retry;
-- a committed Canary account followed by Platform-finalization failure is recovered forward by immutable provisioning name + creation epoch;
+- legacy engine dependency failure leaves durable pending state for retry;
+- a committed legacy engine account followed by Platform-finalization failure is recovered forward by immutable provisioning name + creation epoch;
 - retries cannot authorize multiple accounts for one Identity;
-- database uniqueness prevents one Canary account ID from being bound to two Identities;
+- database uniqueness prevents one legacy engine account ID from being bound to two Identities;
 - mismatched recovery evidence fails closed as conflict;
 - no destructive automatic account deletion is used as partial-failure compensation.
 
@@ -123,7 +123,7 @@ The implemented character-create operation additionally ensures:
 - only the authenticated Identity's ready exact binding supplies the target `account_id`;
 - same-account character creates serialize through the account-row lock before quota evaluation;
 - the active-character limit cannot be exceeded by concurrent Platform create requests for one account;
-- global character-name uniqueness remains protected by the Canary database unique constraint;
+- global character-name uniqueness remains protected by the legacy engine database unique constraint;
 - same-account active same-name retries recover idempotently without ownership reassignment or generic player UPDATE.
 
 ## Validation evidence
@@ -148,7 +148,7 @@ PR #41 merged to `main` as `9839822b8e445c0e9828e73d2d7767bb237e587f` after fina
 
 ## Existing-account proof
 
-A side-effect-free authoritative existing-account control proof remains unimplemented, but it is not required for the greenfield product because existing Canary accounts are out of scope.
+A side-effect-free authoritative existing-account control proof remains unimplemented, but it is not required for the greenfield product because existing legacy engine accounts are out of scope.
 
 Adding import/claim later requires a new explicitly approved contract and likely separately authorized auth-side work.
 
@@ -163,7 +163,7 @@ Required future direction:
 - `opentibiabr/login-server`: Platform-authorized short-lived cryptographic assertion/session exchange bound to exact `accounts.id`, with explicit audience, expiry, replay/session-consumption and revocation semantics and no sink-password dependency;
 - `blakinio/canary`: only if the final login contract requires direct assertion verification or stronger replay/revocation/fencing semantics beyond the selected login-server integration.
 
-No Canary/login-server repository was modified by Phase 5.
+No legacy engine/login-server repository was modified by Phase 5.
 
 ## Decision
 

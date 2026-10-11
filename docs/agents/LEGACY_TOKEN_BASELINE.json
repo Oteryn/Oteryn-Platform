@@ -5,8 +5,8 @@
   "metric": "matching lines (git grep -ic) per group; paths = tracked path names (git ls-files)",
   "notes": [
     "Later packets must use token-free names for task files, branch-visible text and docs they add; any rise in an enforced group fails CI (decision D607).",
-    "The docs count includes the one line naming this guard's own task branch in its task record.",
-    "The history group is report-only: historical records are preserved and excluded from the zero gate."
+    "The history group is report-only: historical records are preserved and excluded from the zero gate.",
+    "Q-H: historical-record prefixes listed under exclusions are preserved unchanged (contents and path names); their contents count in the report-only history group and their path names in the report-only history_paths group; the paths group counts live tracked paths only."
   ],
   "rules": [
     [
@@ -31,6 +31,46 @@
     ],
     [
       "CHANGELOG.md",
+      "history"
+    ],
+    [
+      "docs/agents/prompts/OTERYN-EXHAUSTIVE-PORTAL-ACCEPTANCE-AGENT-PROMPT.md",
+      "history"
+    ],
+    [
+      "docs/agents/prompts/OTERYN-PRODUCT-AUDIT-REMEDIATION-AGENT-PROMPT.md",
+      "history"
+    ],
+    [
+      "docs/agents/prompts/OTERYN-PUBLIC-WEBSITE-IMPLEMENTATION-AGENT-PROMPT.md",
+      "history"
+    ],
+    [
+      "docs/agents/prompts/OTERYN-WIKI-IMPLEMENTATION-AGENT-PROMPT.md",
+      "history"
+    ],
+    [
+      "docs/agents/prompts/OTERYN_GAME_CATALOG_IMPLEMENTATION_PROMPT.md",
+      "history"
+    ],
+    [
+      "docs/agents/prompts/OTS_NATIVE_PROTOCOL_SINGLE_VERSION_COMPLETION_AGENT.md",
+      "history"
+    ],
+    [
+      "docs/agents/prompts/OTS_NATIVE_SELECTION_E2E_IMPLEMENTATION.md",
+      "history"
+    ],
+    [
+      "docs/agents/prompts/OTS_OTHERYN_NATIVE_PROTOCOL_IMPLEMENTATION.md",
+      "history"
+    ],
+    [
+      "docs/agents/prompts/OTS_PLATFORM_GATEWAY_NATIVE_PROTOCOL_IMPLEMENTATION.md",
+      "history"
+    ],
+    [
+      "docs/agents/prompts/OTS_RUST_NATIVE_PROTOCOL_IMPLEMENTATION.md",
       "history"
     ],
     [
@@ -114,15 +154,33 @@
       "docs"
     ]
   ],
+  "exclusions": [
+    "docs/agents/tasks/archive/",
+    "docs/agents/reports/",
+    "docs/agents/evidence/",
+    "docs/agents/handovers/",
+    "docs/evidence/",
+    "CHANGELOG.md",
+    "docs/agents/prompts/OTERYN-EXHAUSTIVE-PORTAL-ACCEPTANCE-AGENT-PROMPT.md",
+    "docs/agents/prompts/OTERYN-PRODUCT-AUDIT-REMEDIATION-AGENT-PROMPT.md",
+    "docs/agents/prompts/OTERYN-PUBLIC-WEBSITE-IMPLEMENTATION-AGENT-PROMPT.md",
+    "docs/agents/prompts/OTERYN-WIKI-IMPLEMENTATION-AGENT-PROMPT.md",
+    "docs/agents/prompts/OTERYN_GAME_CATALOG_IMPLEMENTATION_PROMPT.md",
+    "docs/agents/prompts/OTS_NATIVE_PROTOCOL_SINGLE_VERSION_COMPLETION_AGENT.md",
+    "docs/agents/prompts/OTS_NATIVE_SELECTION_E2E_IMPLEMENTATION.md",
+    "docs/agents/prompts/OTS_OTHERYN_NATIVE_PROTOCOL_IMPLEMENTATION.md",
+    "docs/agents/prompts/OTS_PLATFORM_GATEWAY_NATIVE_PROTOCOL_IMPLEMENTATION.md",
+    "docs/agents/prompts/OTS_RUST_NATIVE_PROTOCOL_IMPLEMENTATION.md"
+  ],
   "groups": {
     "ci_deploy": {
-      "count": 1189,
-      "files": 72,
+      "count": 164,
+      "files": 29,
       "enforce": true
     },
     "config": {
-      "count": 131,
-      "files": 4,
+      "count": 93,
+      "files": 3,
       "enforce": true
     },
     "database": {
@@ -131,33 +189,38 @@
       "enforce": true
     },
     "docs": {
-      "count": 1693,
-      "files": 172,
+      "count": 309,
+      "files": 70,
       "enforce": true
     },
     "history": {
-      "count": 1340,
-      "files": 211,
+      "count": 1441,
+      "files": 229,
+      "enforce": false
+    },
+    "history_paths": {
+      "count": 7,
+      "files": 7,
       "enforce": false
     },
     "other": {
-      "count": 2,
-      "files": 2,
+      "count": 1,
+      "files": 1,
       "enforce": true
     },
     "paths": {
-      "count": 53,
-      "files": 53,
+      "count": 42,
+      "files": 42,
       "enforce": true
     },
     "runtime": {
-      "count": 497,
-      "files": 93,
+      "count": 357,
+      "files": 65,
       "enforce": true
     },
     "tests": {
-      "count": 712,
-      "files": 58,
+      "count": 640,
+      "files": 53,
       "enforce": true
     }
   }

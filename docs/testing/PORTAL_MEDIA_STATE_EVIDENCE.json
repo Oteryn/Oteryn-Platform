@@ -385,6 +385,6 @@
     "This contract proves only the delivered managed-media consumers and does not create image requirements for non-media surfaces.",
     "Supporting endpoint responses are not treated as visible fallback UX evidence.",
     "Parent Issue #326 remains open for the remaining exhaustive state matrix.",
-    "No staging, production or Canary behavior is claimed."
+    "No staging, production or legacy engine behavior is claimed."
   ]
 }

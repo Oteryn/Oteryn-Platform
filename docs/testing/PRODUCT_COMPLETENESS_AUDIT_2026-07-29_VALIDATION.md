@@ -9,7 +9,7 @@ This file is the exact-head validation appendix for `PRODUCT_COMPLETENESS_AUDIT_
 - Exact validated head: `9d02a5dae0ff2bce916a3403ee078a7289916a96`
 - Audited `main`: `f90bb8075b300569b7d493c84f0080e6b3295c35`
 - Change class: documentation, benchmark reconciliation and issue planning only
-- Runtime/schema/Canary/payment/production mutation: none
+- Runtime/schema/legacy engine/payment/production mutation: none
 
 ## Required GitHub Actions results
 

@@ -87,4 +87,4 @@ Introduce a Platform-owned payment event core with these boundaries:
 
 ## Rollback
 
-Disable payments and provider ingress before application rollback. Preserve provider events, reconciliation records, payment-order transitions and authenticated refund-value columns. Application code can be reverted while payments remain disabled, but populated refund settlement evidence is forward-only and must not be dropped by a migration rollback. No wallet, Canary or entitlement rollback is needed because this core does not deliver value.
+Disable payments and provider ingress before application rollback. Preserve provider events, reconciliation records, payment-order transitions and authenticated refund-value columns. Application code can be reverted while payments remain disabled, but populated refund settlement evidence is forward-only and must not be dropped by a migration rollback. No wallet, legacy engine or entitlement rollback is needed because this core does not deliver value.

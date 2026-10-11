@@ -189,7 +189,7 @@ This ADR is architecture authority only. It does not prove or authorize implemen
 - community-contributed hunt evidence;
 - new Platform APIs;
 - production activation or deployment;
-- Oteryn-v2/Canary/runtime changes;
+- Oteryn-v2/legacy engine/runtime changes;
 - payment or protected-environment operations.
 
 Each adopted user-facing slice still requires a bounded task, complete backend/frontend/integration states, privacy/abuse controls, the two-user/auth-transition/cache-boundary negative paths above, applicable real E2E and exact-head validation.

@@ -27,7 +27,7 @@
       "created_at": "2026-10-06",
       "decision_id": "ARCH-DEC-0006",
       "decision_owner": "repository owner",
-      "decision_question": "How should Platform persist validated native GameCatalog snapshots while preserving one profile/activation lifecycle and strict Legacy Canary Compatibility invariants?",
+      "decision_question": "How should Platform persist validated native GameCatalog snapshots while preserving one profile/activation lifecycle and strict Legacy Engine Compatibility invariants?",
       "deferral_reason": null,
       "dependencies": {
         "decision_ids": [],
@@ -47,8 +47,8 @@
           "Persisting a truthful native inactive candidate requires either a source-neutral composition seam or a high-risk rewrite/duplication of the existing lifecycle."
         ],
         "PROVEN": [
-          "Current game_catalog_snapshots requires Canary commit, protocol profile, runtime/content release foreign keys and appearances digest on the lifecycle row.",
-          "Current profile activation and public context resolution require Legacy Canary release-boundary joins.",
+          "Current game_catalog_snapshots requires legacy engine commit, protocol profile, runtime/content release foreign keys and appearances digest on the lifecycle row.",
+          "Current profile activation and public context resolution require Legacy engine release-boundary joins.",
           "PR 1229 integrated native envelope validation without native persistence or activation.",
           "The native contract requires content authority, authority epoch, source revision, ruleset/profile identity, capability/completeness semantics, tombstones and payload digest."
         ],
@@ -59,7 +59,7 @@
       "implementation_authorized": false,
       "options": [
         {
-          "description": "Add an authority discriminator and authority-conditional nullable/native columns to the existing Legacy Canary snapshot/profile/activation schema.",
+          "description": "Add an authority discriminator and authority-conditional nullable/native columns to the existing Legacy engine snapshot/profile/activation schema.",
           "option_id": "A",
           "title": "Generalize existing snapshot/profile tables in place",
           "trade_offs": [
@@ -68,7 +68,7 @@
           ]
         },
         {
-          "description": "Introduce one source-neutral immutable snapshot root and one profile/activation/audit lifecycle while retaining strict Legacy Canary persistence through a 1:1 binding and adding separate native detail/payload persistence.",
+          "description": "Introduce one source-neutral immutable snapshot root and one profile/activation/audit lifecycle while retaining strict Legacy engine persistence through a 1:1 binding and adding separate native detail/payload persistence.",
           "option_id": "B",
           "title": "Shared neutral root with authority-specific details",
           "trade_offs": [
@@ -77,7 +77,7 @@
           ]
         },
         {
-          "description": "Create independent native snapshot/profile/activation/projection/audit tables and leave Legacy Canary lifecycle untouched.",
+          "description": "Create independent native snapshot/profile/activation/projection/audit tables and leave Legacy engine lifecycle untouched.",
           "option_id": "C",
           "title": "Separate native lifecycle",
           "trade_offs": [
@@ -86,7 +86,7 @@
           ]
         }
       ],
-      "problem_statement": "Platform validates the locked native GameCatalog envelope but the existing immutable snapshot/profile/activation persistence is structurally Legacy Canary Compatibility-specific and cannot truthfully persist native candidates without either weakening legacy invariants or duplicating the catalogue lifecycle.",
+      "problem_statement": "Platform validates the locked native GameCatalog envelope but the existing immutable snapshot/profile/activation persistence is structurally Legacy Engine Compatibility-specific and cannot truthfully persist native candidates without either weakening legacy invariants or duplicating the catalogue lifecycle.",
       "recommendation": "Option B: shared source-neutral immutable snapshot root plus strict authority-specific details and one generalized profile/activation/audit lifecycle.",
       "recommended_owner": "repository owner",
       "references": {
@@ -99,7 +99,7 @@
       "revisit_trigger": null,
       "severity": "high",
       "state": "decision_required",
-      "title": "Native GameCatalog persistence composition without Canary inheritance",
+      "title": "Native GameCatalog persistence composition without legacy engine inheritance",
       "updated_at": "2026-10-06"
     }
   ],

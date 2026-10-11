@@ -40,7 +40,7 @@ It consumes:
 - measured aggregates and confidence from future `GameAnalytics`;
 - time-sensitive world/service state from `LiveOps`.
 
-It does not own canonical game entities, raw Canary data access, game mutations, payment settlement or balance decisions.
+It does not own canonical game entities, raw legacy engine data access, game mutations, payment settlement or balance decisions.
 
 ### Option B — distribute tools across Wiki, CMS and PublicGameData
 
@@ -113,7 +113,7 @@ They do not authorize:
 
 - implementation of the full capability inventory in one task;
 - production activation;
-- cross-repository Canary/Otheryn or client mutations;
+- cross-repository legacy engine/Otheryn or client mutations;
 - collection of new telemetry;
 - public exposure of private character/session data;
 - payment, market or game economy mutation;

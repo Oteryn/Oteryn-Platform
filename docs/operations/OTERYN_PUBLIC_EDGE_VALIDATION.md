@@ -34,7 +34,7 @@ The Cloudflare collector uses:
 - `CLOUDFLARE_API_TOKEN` only as the separate Access applications read token;
 - `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_ZONE_ID` environment variables.
 
-Both collectors are read-only. No Cloudflare, DNS, Tunnel, Synology, application, database, Canary, client or secret mutation is available in this workflow.
+Both collectors are read-only. No Cloudflare, DNS, Tunnel, Synology, application, database, legacy engine, client or secret mutation is available in this workflow.
 
 ## Public probes
 
