@@ -45,7 +45,7 @@ checkpoint_version: 1
 updated_at: 2026-10-11T07:30:00Z
 head: UNKNOWN
 branch: claude/ci-speed-p1-20261011
-pr: none
+pr: 1516
 status: validating
 context_routes:
   - ci-workflows
