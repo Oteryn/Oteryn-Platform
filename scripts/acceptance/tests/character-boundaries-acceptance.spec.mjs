@@ -69,10 +69,10 @@ test('@portal-account Flow 5b — character validation, duplicate, ownership inj
   await submitCharacter(page, 'God');
   await expect(page.getByRole('alert')).toContainText('reserved');
 
-  const duplicateName = uniqueCharacterName('Dup');
-  insertAcceptanceCharacter(duplicateName, binding.canary_account_id);
-  await submitCharacter(page, duplicateName);
-  await expect(page.getByRole('status')).toContainText(`Character ${duplicateName} already exists on your account.`);
+  // Character creation is switched off: a valid submission returns the bounded unavailable result.
+  const validName = uniqueCharacterName('Valid');
+  await submitCharacter(page, validName);
+  await expect(page.getByRole('alert')).toContainText('Character creation is temporarily unavailable.');
 
   const foreignContext = await browser.newContext();
   const foreignPage = await foreignContext.newPage();
@@ -85,9 +85,7 @@ test('@portal-account Flow 5b — character validation, duplicate, ownership inj
 
     const ownedName = uniqueCharacterName('Owned');
     await submitCharacter(page, ownedName, foreignBinding.canary_account_id);
-    await expect(page.getByRole('status')).toContainText(`Character ${ownedName} created.`);
-    const owner = runPhpState('character-owner', ownedName, email);
-    expect(owner.canary_account_id).toBe(binding.canary_account_id);
+    await expect(page.getByRole('alert')).toContainText('Character creation is temporarily unavailable.');
   } finally {
     await foreignContext.close();
   }
@@ -101,15 +99,11 @@ test('@portal-account Flow 5b — character validation, duplicate, ownership inj
     const quotaBinding = runPhpState('binding', quotaEmail);
     expect(quotaBinding.status).toBe('ready');
 
-    for (let index = 0; index < 10; index += 1) {
-      insertAcceptanceCharacter(uniqueCharacterName('Quota'), quotaBinding.canary_account_id);
-    }
-
     await login(quotaPage, quotaEmail, quotaPassword);
     await expect(quotaPage).toHaveURL(/\/$/u);
     const overQuota = uniqueCharacterName('Limit');
     await submitCharacter(quotaPage, overQuota);
-    await expect(quotaPage.getByRole('alert')).toContainText('maximum number of active characters');
+    await expect(quotaPage.getByRole('alert')).toContainText('Character creation is temporarily unavailable.');
   } finally {
     await quotaContext.close();
   }

@@ -14,6 +14,10 @@ final readonly class CanaryChannelRuntimeService
      */
     public function snapshot(array $channelIds): CanaryRuntimeSnapshot
     {
+        if (! PublicGameDataSource::isAvailable()) {
+            return CanaryRuntimeSnapshot::unavailable();
+        }
+
         $statuses = [];
 
         try {
