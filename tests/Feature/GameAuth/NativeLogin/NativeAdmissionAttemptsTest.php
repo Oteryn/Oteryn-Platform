@@ -2,7 +2,6 @@
 
 namespace Tests\Feature\GameAuth\NativeLogin;
 
-use App\Accounts\Models\IdentityCanaryAccount;
 use App\GameAuth\NativeEvidence\NativeEvidenceContract;
 use App\GameAuth\NativeEvidence\NativeSigningTrustRegistry;
 use App\GameAuth\NativeLogin\NativeAdmissionAttempt;
@@ -17,9 +16,6 @@ use App\GameAuth\NativeLogin\NativeLoginRefused;
 use App\GameAuth\NativeLogin\RedeemedNativeAccount;
 use App\GameAuth\NativeLogin\RegistryNativeAdmissionScopeResolver;
 use App\GameAuth\Tickets\GameLoginTicket;
-use App\GameAuth\Tickets\GameLoginTicketDenied;
-use App\GameAuth\Tickets\IssueGameLoginTicket;
-use App\GameAuth\Tickets\RedeemGameLoginTicket;
 use App\Identity\Actions\RevokeIdentityGameAuthorizations;
 use App\Identity\Models\Identity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -234,7 +230,7 @@ final class NativeAdmissionAttemptsTest extends TestCase
         self::assertSame(0, GameLoginTicket::query()->whereNotNull('used_at')->count());
     }
 
-    public function test_expired_unknown_and_canary_tickets_are_rejected_and_native_tickets_never_redeem_on_canary(): void
+    public function test_expired_unknown_and_non_native_audience_tickets_are_rejected(): void
     {
         $identity = $this->identity();
         $ticket = $this->ticket($identity);
@@ -244,23 +240,18 @@ final class NativeAdmissionAttemptsTest extends TestCase
 
         $this->assertRefused(NativeLoginError::TicketRejected, $this->request(str_repeat('a', 43)));
 
-        IdentityCanaryAccount::query()->create([
+        $foreign = str_repeat('b', 43);
+        GameLoginTicket::query()->create([
+            'ticket_hash' => hash('sha256', $foreign),
             'identity_id' => $identity->id,
-            'status' => IdentityCanaryAccount::STATUS_READY,
-            'canary_account_id' => 1001,
-            'provisioning_name' => 'ready_'.$identity->id,
-            'canary_creation_epoch' => 1,
-            'ready_at' => now(),
+            'canary_account_id' => null,
+            'account_id' => $identity->account_id,
+            'audience' => 'oteryn-game-gateway',
+            'security_generation' => $identity->game_auth_generation,
+            'native_security_generation' => $identity->native_security_generation,
+            'expires_at' => now()->addSeconds(30),
         ]);
-        $canary = $this->app->make(IssueGameLoginTicket::class)->execute($identity)->ticket;
-        $this->assertRefused(NativeLoginError::TicketRejected, $this->request($canary));
-
-        $native = $this->ticket($identity);
-        try {
-            $this->app->make(RedeemGameLoginTicket::class)->execute($native, 'oteryn-game-gateway');
-            self::fail('A native ticket redeemed on the Canary branch.');
-        } catch (GameLoginTicketDenied) {
-        }
+        $this->assertRefused(NativeLoginError::TicketRejected, $this->request($foreign));
         self::assertSame(0, GameLoginTicket::query()->whereNotNull('used_at')->count());
     }
 
