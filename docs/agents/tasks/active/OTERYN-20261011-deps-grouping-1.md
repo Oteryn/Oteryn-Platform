@@ -1,6 +1,6 @@
 ---
 task_id: OTERYN-20261011-deps-grouping-1
-governing_issue: 1474
+governing_issue: 1517
 required_reads: []
 search_first:
   - .github/dependabot.yml
@@ -11,9 +11,9 @@ optional_reads: []
 
 ## Goal
 
-Governing GitHub Issue: #1474 — canonical lifecycle authority for this task (owner approved the change in session; no dedicated issue exists).
+Governing GitHub Issue: #1517 — canonical lifecycle authority for this task.
 
-Group Dependabot minor and patch updates into one weekly pull request per ecosystem (major stays separate). Narrowed by D282: the auto-merge workflow is removed because `GITHUB_TOKEN` cannot enqueue into the merge queue and a queue-capable App/PAT secret needs an owner decision. The workflow is carried into follow-up DEPS-AUTOMERGE-2 (blocked on that owner decision).
+Group Dependabot minor and patch updates into one weekly pull request per configured update entry (ecosystem and directory; major stays separate). Narrowed by D282: the auto-merge workflow is removed because `GITHUB_TOKEN` cannot enqueue into the merge queue and a queue-capable App/PAT secret needs an owner decision. The workflow is carried into follow-up DEPS-AUTOMERGE-2 (blocked on that owner decision).
 
 ## Acceptance criteria
 
@@ -44,7 +44,7 @@ cross_repository_tasks:
 checkpoint_version: 1
 updated_at: 2026-10-11T00:00:00Z
 head: UNKNOWN
-branch: claude/deps-grouping-1-20261011
+branch: claude/deps-automerge-1-20261011
 pr: 1511
 status: validating
 context_routes:

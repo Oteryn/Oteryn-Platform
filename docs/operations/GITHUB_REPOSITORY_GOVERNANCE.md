@@ -133,7 +133,7 @@ Pure policy behavior is covered by `tests/ci/test_repository_policy.py`, which i
 
 ## Dependabot grouping
 
-`.github/dependabot.yml` groups minor and patch updates so each ecosystem opens one weekly pull request; major updates stay separate pull requests. Auto-merge is intentionally not automated: `GITHUB_TOKEN` cannot enqueue into the merge queue, so a workflow needs an owner-provisioned queue-capable token (GitHub App or PAT). That work is tracked as DEPS-AUTOMERGE-2 and is blocked on the owner decision.
+`.github/dependabot.yml` groups minor and patch updates so each configured update entry (ecosystem and directory) opens at most one grouped weekly pull request for minor and patch updates; major updates stay separate pull requests. Auto-merge is intentionally not automated: `GITHUB_TOKEN` cannot enqueue into the merge queue, so a workflow needs an owner-provisioned queue-capable token (GitHub App or PAT). That work is tracked as DEPS-AUTOMERGE-2 and is blocked on the owner decision.
 
 ## Completion rule
 
