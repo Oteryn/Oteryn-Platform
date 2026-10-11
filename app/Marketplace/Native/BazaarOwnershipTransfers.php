@@ -183,7 +183,7 @@ final class BazaarOwnershipTransfers
 
     private function observe(stdClass $row): BazaarTransferStep
     {
-        $operationId = (string) $row->operation_id;
+        $operationId = self::text($row, 'operation_id');
         try {
             $status = $this->commands->status($operationId);
         } catch (CharacterCommandUnavailable) {
@@ -197,14 +197,38 @@ final class BazaarOwnershipTransfers
         }
 
         return new BazaarTransferStep(
-            (int) $row->auction_id,
-            CharacterTransferPurpose::from((string) $row->purpose),
-            (int) $row->attempt,
+            self::integer($row, 'auction_id'),
+            CharacterTransferPurpose::from(self::text($row, 'purpose')),
+            self::integer($row, 'attempt'),
             $operationId,
             $status->state,
             $status->resultCode,
             $status->expiresAtSource,
         );
+    }
+
+    private static function text(stdClass $row, string $column): string
+    {
+        $value = $row->{$column} ?? null;
+        if (! is_string($value)) {
+            throw new MarketplaceException('auction_state_conflict', "The transfer ledger column {$column} is malformed.");
+        }
+
+        return $value;
+    }
+
+    /** Drivers may return integer columns as numeric strings. */
+    private static function integer(stdClass $row, string $column): int
+    {
+        $value = $row->{$column} ?? null;
+        if (is_string($value) && preg_match('/^[0-9]{1,18}$/D', $value) === 1) {
+            $value = (int) $value;
+        }
+        if (! is_int($value)) {
+            throw new MarketplaceException('auction_state_conflict', "The transfer ledger column {$column} is malformed.");
+        }
+
+        return $value;
     }
 
     /** Money moves only on proof that this exact Character went to this exact account. */
