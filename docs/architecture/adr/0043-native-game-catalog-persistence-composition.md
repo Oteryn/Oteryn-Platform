@@ -13,19 +13,19 @@ Proposed — 2026-10-06
 
 ## Context
 
-ADR 0034 already fixes the authority split: Oteryn-v2 owns native gameplay-content truth; Platform owns validated immutable GameCatalog snapshot/profile/projection lifecycle; Legacy Canary Compatibility remains an explicit anti-corruption boundary. The accepted `OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md` also requires native snapshot provenance, authority epochs, completeness semantics, tombstones and fail-closed activation.
+ADR 0034 already fixes the authority split: Oteryn-v2 owns native gameplay-content truth; Platform owns validated immutable GameCatalog snapshot/profile/projection lifecycle; legacy-engine compatibility remains an explicit anti-corruption boundary. The accepted `OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md` also requires native snapshot provenance, authority epochs, completeness semantics, tombstones and fail-closed activation.
 
 Platform protected main at the review start (`a834ef54b154c48b119da20c3bdb6fca74178750`) has two materially different persistence contracts:
 
-1. The delivered Legacy Canary Compatibility lifecycle stores Canary-specific facts directly in `game_catalog_snapshots`: `canary_commit_sha`, `protocol_profile`, runtime/content release foreign keys, `appearances_sha256` and release-boundary semantics. `game_catalog_profiles`, `CatalogActivationService`, `PublicCatalogContextResolver`, entity snapshots and typed item/creature payloads also embed Legacy Canary release/runtime assumptions.
+1. The delivered legacy-engine compatibility lifecycle stores legacy-engine-specific facts directly in `game_catalog_snapshots`: `canary_commit_sha`, `protocol_profile`, runtime/content release foreign keys, `appearances_sha256` and release-boundary semantics. `game_catalog_profiles`, `CatalogActivationService`, `PublicCatalogContextResolver`, entity snapshots and typed item/creature payloads also embed legacy-engine release/runtime assumptions.
 2. The integrated native envelope validator from PR #1229 validates locked `oteryn.game-platform-catalog@1.0.0` evidence carrying `content_authority_id`, `authority_epoch`, `source_revision`, `ruleset_id`, `content_profile_id`, capability/completeness manifests, typed entities/relations, tombstones and `payload_digest`, but intentionally persists nothing.
 
-Using dummy Canary values for native evidence would create false provenance. Making legacy fields nullable in place would weaken database invariants while leaving activation, public-read and entity identity assumptions unresolved. A completely separate native lifecycle would avoid legacy columns but duplicate the Platform-owned profile/activation authority that ADR 0034 requires to remain singular.
+Using dummy legacy-engine values for native evidence would create false provenance. Making legacy fields nullable in place would weaken database invariants while leaving activation, public-read and entity identity assumptions unresolved. A completely separate native lifecycle would avoid legacy columns but duplicate the Platform-owned profile/activation authority that ADR 0034 requires to remain singular.
 
 ## Invariants
 
-- No native snapshot may inherit fabricated Canary commit, release, appearance or availability provenance.
-- Existing Legacy Canary Compatibility rows and activation behavior must remain semantically unchanged during migration.
+- No native snapshot may inherit fabricated legacy-engine commit, release, appearance or availability provenance.
+- Existing legacy-engine compatibility rows and activation behavior must remain semantically unchanged during migration.
 - One Platform profile binds to exactly one declared authority source/profile at a time.
 - Native partial/unknown/unsupported capabilities never become authoritative absence.
 - Native authority epoch/replay fencing must prevent delayed or retired evidence from lowering accepted authority state.
@@ -36,7 +36,7 @@ Using dummy Canary values for native evidence would create false provenance. Mak
 
 ### Option A — generalize the existing Legacy snapshot/profile tables in place
 
-Add an authority discriminator to `game_catalog_snapshots`, make Canary-only columns conditionally nullable, add native provenance columns to the same row and refactor activation/public reads to branch on authority.
+Add an authority discriminator to `game_catalog_snapshots`, make legacy-engine-only columns conditionally nullable, add native provenance columns to the same row and refactor activation/public reads to branch on authority.
 
 Trade-offs:
 
@@ -47,11 +47,11 @@ Trade-offs:
 
 ### Option B — shared source-neutral lifecycle root plus authority-specific details
 
-Add a small immutable source-neutral snapshot root used by one profile/activation/audit lifecycle. Bind each existing Legacy Canary snapshot 1:1 to that root without weakening its current constraints. Add a separate native authority detail and native authority-scoped entity/relation persistence keyed from the same root.
+Add a small immutable source-neutral snapshot root used by one profile/activation/audit lifecycle. Bind each existing legacy-engine snapshot 1:1 to that root without weakening its current constraints. Add a separate native authority detail and native authority-scoped entity/relation persistence keyed from the same root.
 
 Trade-offs:
 
-- **Correctness/security:** preserves strict Legacy Canary invariants while giving native evidence its own exact schema and authority fencing.
+- **Correctness/security:** preserves strict legacy-engine invariants while giving native evidence its own exact schema and authority fencing.
 - **Migration:** additive first; existing profiles can be backfilled to roots and dual-read/equivalence tested before any native persistence is enabled.
 - **Operability:** introduces one additional join/dispatch seam, but keeps authority-specific validation localized.
 - **Reversibility:** strongest option because legacy behavior can remain on the old pointer until root equivalence is proven; native inactive candidates can be removed/disabled without rewriting legacy rows.
@@ -59,7 +59,7 @@ Trade-offs:
 
 ### Option C — create a fully separate native snapshot/profile/activation subsystem
 
-Leave every Legacy Canary table untouched and introduce independent native snapshot, profile, activation, projection and audit tables/services.
+Leave every legacy-engine table untouched and introduce independent native snapshot, profile, activation, projection and audit tables/services.
 
 Trade-offs:
 
@@ -75,11 +75,11 @@ Recommend **Option B**.
 
 ### Shared snapshot root
 
-A new immutable root (working name `game_catalog_snapshot_roots`) should contain only source-neutral lifecycle facts such as root identity, declared authority kind/profile, contract/schema identity, artifact digest, generated/imported timestamps, lifecycle state, counts and validation-summary linkage. It must not contain Canary release ids or native authority-epoch fields.
+A new immutable root (working name `game_catalog_snapshot_roots`) should contain only source-neutral lifecycle facts such as root identity, declared authority kind/profile, contract/schema identity, artifact digest, generated/imported timestamps, lifecycle state, counts and validation-summary linkage. It must not contain legacy-engine release ids or native authority-epoch fields.
 
 ### Legacy binding
 
-Every existing `game_catalog_snapshots.id` should gain exactly one 1:1 binding to a shared root. Existing Legacy Canary columns, foreign keys and validation remain strict and unchanged. The migration must backfill all historical snapshots before any legacy profile switches to the root pointer.
+Every existing `game_catalog_snapshots.id` should gain exactly one 1:1 binding to a shared root. Existing legacy-engine columns, foreign keys and validation remain strict and unchanged. The migration must backfill all historical snapshots before any legacy profile switches to the root pointer.
 
 ### Native detail and payload family
 
@@ -89,13 +89,13 @@ Native entity identity must be authority-scoped (declared authority + type + nat
 
 ### One profile and activation lifecycle
 
-`game_catalog_profiles` should evolve additively to bind a declared authority and an `active_snapshot_root_id`. Because `game_catalog_profiles.target_release_id` is currently a non-null foreign key to a Canary release, the Canary release binding must not be reused or weakened for native profiles: profile storage is split into authority-specific profile detail (a Legacy Canary detail that keeps `target_release_id` strict and non-null, and a native detail carrying `ruleset_id` and `content_profile_id`), with a database constraint that exactly one detail matches the declared authority, so no fabricated release or nullable legacy column is needed. Existing `active_snapshot_id` and target-release semantics remain authoritative for legacy profiles during migration and must agree 1:1 with the root binding before cutover.
+`game_catalog_profiles` should evolve additively to bind a declared authority and an `active_snapshot_root_id`. Because `game_catalog_profiles.target_release_id` is currently a non-null foreign key to a legacy-engine release, the legacy-engine release binding must not be reused or weakened for native profiles: profile storage is split into authority-specific profile detail (a legacy-engine detail that keeps `target_release_id` strict and non-null, and a native detail carrying `ruleset_id` and `content_profile_id`), with a database constraint that exactly one detail matches the declared authority, so no fabricated release or nullable legacy column is needed. Existing `active_snapshot_id` and target-release semantics remain authoritative for legacy profiles during migration and must agree 1:1 with the root binding before cutover.
 
 A generalized activation transaction should lock the profile, require authority match, invoke authority-specific validation/projection rules, atomically switch the shared root pointer and write one common audit event. No cross-authority fallback is allowed.
 
 ### Native epoch/replay fence
 
-Native profiles require durable accepted authority epoch/high-water state separate from Canary release ordering. Ordinary rollback may select only retained snapshots allowed by the current accepted epoch. Re-entry into a retired epoch requires an explicit audited recovery decision; delayed artifacts never lower accepted authority state.
+Native profiles require durable accepted authority epoch/high-water state separate from legacy-engine release ordering. Ordinary rollback may select only retained snapshots allowed by the current accepted epoch. Re-entry into a retired epoch requires an explicit audited recovery decision; delayed artifacts never lower accepted authority state.
 
 ### Public/admin projection boundary
 
@@ -106,10 +106,10 @@ Public and admin reads should ultimately consume profile projections bound to th
 If Option B is accepted, the first implementation package is intentionally limited to:
 
 1. add shared root, Legacy 1:1 binding, authority-specific profile detail and native detail/identity/relation persistence;
-2. backfill exactly one root per existing Legacy Canary snapshot;
+2. backfill exactly one root per existing legacy-engine snapshot;
 3. prove row counts, hashes, active-profile mapping and legacy public output are unchanged;
 4. add/backfill `active_snapshot_root_id` while retaining the legacy active pointer, and make `CatalogActivationService` write `active_snapshot_id` and `active_snapshot_root_id` in the same transaction so a legacy activation or rollback can never diverge the two pointers;
-5. prove dual-read equivalence for Legacy Canary;
+5. prove dual-read equivalence for legacy-engine;
 6. enable persistence of validated native snapshots only as inactive candidates;
 7. stop before native activation/public publication.
 
@@ -117,9 +117,9 @@ Rollback remains additive while only legacy bindings exist. Once native evidence
 
 ## Rejected shortcuts
 
-- Dummy Canary revision/release/appearance values for native snapshots.
+- Dummy legacy-engine revision/release/appearance values for native snapshots.
 - A nullable union that relies only on application code to enforce authority-specific invariants.
-- A native sidecar whose parent is still a fabricated Legacy Canary snapshot row.
+- A native sidecar whose parent is still a fabricated legacy-engine snapshot row.
 - A second co-authoritative native profile/activation subsystem.
 - Importing raw Game `content/manifest.json` as the locked cross-repository export envelope.
 - Reusing globally unique Legacy canonical keys for native identity without authority scope.
