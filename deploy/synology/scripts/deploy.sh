@@ -398,6 +398,7 @@ _oteryn_fast_deploy_platform() {
     "${compose[@]}" config --quiet
     "${compose[@]}" up -d --no-deps --force-recreate platform
     _oteryn_reconcile_marketplace_scheduler_after_runtime_change
+    oteryn_publish_native_admission_trust "$("${compose[@]}" ps -q platform)" || return 1
     _oteryn_fast_platform_smoke
 
     _oteryn_fast_assert_preserved_service mariadb "$FAST_MARIADB_ID"
@@ -696,6 +697,7 @@ OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/prepare-fresh-schema-baseline.sh"
 if ! "${compose[@]}" exec -T platform sh -ec 'test -s storage/oauth-private.key && test -s storage/oauth-public.key'; then
     "${compose[@]}" exec -T platform php artisan passport:keys --no-interaction
 fi
+oteryn_publish_native_admission_trust "$("${compose[@]}" ps -q platform)" || exit 1
 "${compose[@]}" exec -T platform php artisan game-auth:oauth-client:ensure
 
 "${compose[@]}" up -d --no-deps --force-recreate internal-proxy

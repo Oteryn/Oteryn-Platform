@@ -73,6 +73,12 @@ services:
       GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256: ${GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256}
       GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256: ${GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256:-}
       GAME_AUTH_NATIVE_ADMISSION_ENABLED: *native_admission_enabled
+      # Signing trust registry scope and its trust-state high-water witness, needed by
+      # game-auth:native-admission:publish-trust (deploy trusts the issuer PUBLIC key) and by the
+      # signing self-check. The witness lives on the retained platform_storage volume, independent of
+      # MariaDB, so a restored database below the witness fails closed (README: Native login).
+      GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE: fresh_admission
+      GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY: /var/www/html/storage/app/native-evidence-witness
     ports:
       - ${PLATFORM_BIND_ADDRESS}:${PLATFORM_PORT}:8000
     volumes:
