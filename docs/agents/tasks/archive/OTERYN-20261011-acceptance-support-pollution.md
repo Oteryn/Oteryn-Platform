@@ -18,14 +18,14 @@ The full-profile Acceptance E2E fails on main because `portal-visual-review.spec
 ## Acceptance criteria
 
 - [x] portal-visual-review resets the support-legal fixture after its tests.
-- [ ] Exact-head CI and the full-profile Acceptance E2E pass.
+- [x] Exact-head CI and the full-profile Acceptance E2E pass. Evidence: PR 1536 integrated as fbc877b7 and Issue #1535 closed as completed; this closeout did not re-run the E2E.
 
 ## Ownership
 
 ```yaml
 owned_paths:
   - scripts/acceptance/tests/portal-visual-review.spec.mjs
-  - docs/agents/tasks/active/OTERYN-20261011-acceptance-support-pollution.md
+  - docs/agents/tasks/archive/OTERYN-20261011-acceptance-support-pollution.md
   - docs/agents/tasks/archive/OTERYN-20261011-acceptance-support-pollution.md
 modules:
   - acceptance
@@ -42,22 +42,22 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-11T10:00:00Z
-head: UNKNOWN
+head: fbc877b7 (PR 1536 integrated)
 branch: claude/acceptance-support-pollution-20261011
 pr: 1536
-status: validating
+status: completed
 context_routes:
   - acceptance
 owned_paths:
   - scripts/acceptance/tests/portal-visual-review.spec.mjs
-  - docs/agents/tasks/active/OTERYN-20261011-acceptance-support-pollution.md
+  - docs/agents/tasks/archive/OTERYN-20261011-acceptance-support-pollution.md
 proven:
   - SupportPageController returns 404 only when the support editorial page is unpublished
   - portal-visual-review beforeAll runs seed-public and has no reset; chromium-primary runs before resilience-chromium in the full profile on one database
 derived:
   - resetting in afterAll removes the inherited published /support page
 unknown:
-  - full-profile result until CI runs on this head
+  - none
 conflicts: []
 first_failure:
   marker: "Expected unconfigured support editorial state (Expected 404, Received 200)"
@@ -72,7 +72,7 @@ validation:
     evidence: local run
 blockers:
   - none
-next_action: Archive this record once the PR is closed.
+next_action: none; PR 1536 integrated as fbc877b7c9734191eee757bae84599a45c6de899 and this record archived by its post-merge closeout
 terminal_pr_policy: archive_pending
 ```
 
@@ -81,5 +81,5 @@ terminal_pr_policy: archive_pending
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository PR
-source_branch_evidence: pending
+source_branch_evidence: PR 1536 integrated as fbc877b7c9734191eee757bae84599a45c6de899
 ```
