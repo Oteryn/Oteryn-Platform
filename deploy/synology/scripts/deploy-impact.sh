@@ -320,21 +320,9 @@ _oteryn_reconcile_restore_on_exit() {
     export GATEWAY_IMAGE="$RECONCILE_OLD_GATEWAY_IMAGE"
     export GATEWAY_VERSION="sha-$RECONCILE_OLD_GATEWAY_SOURCE_SHA"
 
-    command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
-        up -d --no-deps --force-recreate platform >/dev/null 2>&1 || \
-        echo "Platform reconcile recovery could not recreate the previous Platform container." >&2
-    # The restored Platform passes the same trust gate as a release; if it fails, the gate stops
-    # Platform, internal proxy and Gateway and recovery leaves them stopped (fail closed).
-    if oteryn_publish_native_admission_trust_or_stop command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE"; then
-        # A failed forward gate stopped the preserved internal proxy and Gateway; start them again.
-        command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
-            start internal-proxy gateway >/dev/null 2>&1 || \
-            echo "Platform reconcile recovery could not start the preserved internal proxy and Gateway." >&2
-        _oteryn_reconcile_marketplace_scheduler_after_runtime_change >/dev/null 2>&1 || \
-            echo "Platform reconcile recovery could not reconcile the previous Marketplace runtime." >&2
-    else
-        echo "Platform reconcile recovery left Platform, internal proxy and Gateway stopped: the previous Platform failed the native admission trust gate." >&2
-    fi
+    # Ingress stopped, previous Platform recreated, trust gate, then the preserved ingress (lib.sh);
+    # a failure leaves Platform, internal proxy and Gateway removed (fail closed).
+    oteryn_restore_previous_platform_behind_trust_gate "Platform reconcile recovery" || true
 
     restored_platform_id="$(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps -q platform 2>/dev/null || true)"
     expected_old_id="$(command docker image inspect --format '{{.Id}}' "$RECONCILE_OLD_PLATFORM_IMAGE" 2>/dev/null || true)"
@@ -403,9 +391,12 @@ _oteryn_platform_reconcile() {
     RECONCILE_SWAP_STARTED=1
 
     "${compose[@]}" config --quiet
+    # Ingress is stopped until the recreated Platform passes the witnessed trust gate (lib.sh), then
+    # the same preserved internal proxy and Gateway containers start again.
+    oteryn_native_admission_ingress_stop "${compose[@]}" >/dev/null
     "${compose[@]}" up -d --no-deps --force-recreate platform
-    # Witnessed trust publication (and witness directory) on every Platform runtime change.
     oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || return 1
+    oteryn_native_admission_ingress_start "$RECONCILE_PROXY_ID" "$RECONCILE_GATEWAY_ID"
     _oteryn_reconcile_marketplace_scheduler_after_runtime_change
     _oteryn_platform_smoke
 

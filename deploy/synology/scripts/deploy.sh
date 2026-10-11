@@ -323,21 +323,9 @@ _oteryn_fast_restore_on_exit() {
     export GATEWAY_IMAGE="$FAST_OLD_GATEWAY_IMAGE"
     export GATEWAY_VERSION="sha-$FAST_OLD_GATEWAY_SOURCE_SHA"
 
-    command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
-        up -d --no-deps --force-recreate platform >/dev/null 2>&1 || \
-        echo "Fast deploy recovery could not recreate the previous Platform container." >&2
-    # The restored Platform passes the same trust gate as a release; if it fails, the gate stops
-    # Platform, internal proxy and Gateway and recovery leaves them stopped (fail closed).
-    if oteryn_publish_native_admission_trust_or_stop command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE"; then
-        # A failed forward gate stopped the preserved internal proxy and Gateway; start them again.
-        command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
-            start internal-proxy gateway >/dev/null 2>&1 || \
-            echo "Fast deploy recovery could not start the preserved internal proxy and Gateway." >&2
-        _oteryn_reconcile_marketplace_scheduler_after_runtime_change >/dev/null 2>&1 || \
-            echo "Fast deploy recovery could not reconcile the previous Marketplace runtime." >&2
-    else
-        echo "Fast deploy recovery left Platform, internal proxy and Gateway stopped: the previous Platform failed the native admission trust gate." >&2
-    fi
+    # Ingress stopped, previous Platform recreated, trust gate, then the preserved ingress (lib.sh);
+    # a failure leaves Platform, internal proxy and Gateway removed (fail closed).
+    oteryn_restore_previous_platform_behind_trust_gate "Fast deploy recovery" || true
 
     restored_platform_id="$(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps -q platform 2>/dev/null || true)"
     expected_old_id="$(command docker image inspect --format '{{.Id}}' "$FAST_OLD_PLATFORM_IMAGE" 2>/dev/null || true)"
@@ -406,8 +394,12 @@ _oteryn_fast_deploy_platform() {
     FAST_SWAP_STARTED=1
 
     "${compose[@]}" config --quiet
+    # Ingress is stopped until the recreated Platform passes the trust gate (lib.sh), then the same
+    # preserved internal proxy and Gateway containers start again.
+    oteryn_native_admission_ingress_stop "${compose[@]}" >/dev/null
     "${compose[@]}" up -d --no-deps --force-recreate platform
     oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || return 1
+    oteryn_native_admission_ingress_start "$FAST_PROXY_ID" "$FAST_GATEWAY_ID"
     _oteryn_reconcile_marketplace_scheduler_after_runtime_change
     _oteryn_fast_platform_smoke
 
@@ -617,13 +609,17 @@ finalize_previous_candidate_if_healthy() {
         rm -f "$candidate_env"
         return 1
     fi
-    if ! "${candidate_compose[@]}" up -d --no-deps --force-recreate internal-proxy gateway; then
+    # The candidate's Platform may have stopped before its trust publication. Ingress stays stopped
+    # until it passes the witnessed trust gate (lib.sh); only then are the proxy and Gateway recreated.
+    if ! oteryn_native_admission_ingress_stop "${candidate_compose[@]}" >/dev/null; then
         rm -f "$candidate_env"
         return 1
     fi
-    # The candidate's Platform may have stopped before its trust publication; promote it only after
-    # the witnessed publication passes.
     if ! oteryn_publish_native_admission_trust_or_stop "${candidate_compose[@]}"; then
+        rm -f "$candidate_env"
+        return 1
+    fi
+    if ! "${candidate_compose[@]}" up -d --no-deps --force-recreate internal-proxy gateway; then
         rm -f "$candidate_env"
         return 1
     fi
@@ -708,6 +704,9 @@ finalize_previous_candidate_if_healthy
 # preparation hook and before the candidate Platform container can start.
 OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/prepare-fresh-schema-baseline.sh"
 
+# Ingress stays stopped until the new Platform passes the trust gate below (lib.sh); the migration
+# quiesce does not run on a first deploy, a same-release redeploy or a resumed candidate.
+oteryn_native_admission_ingress_stop "${compose[@]}" >/dev/null
 "${compose[@]}" up -d platform
 "${compose[@]}" exec -T platform php artisan migrate --force --no-interaction
 if ! "${compose[@]}" exec -T platform sh -ec 'test -s storage/oauth-private.key && test -s storage/oauth-public.key'; then

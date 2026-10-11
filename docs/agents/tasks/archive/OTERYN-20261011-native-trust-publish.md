@@ -27,8 +27,51 @@ Add `game-auth:native-admission:publish-trust`, which trusts the public half of 
 - [x] It prints one JSON line with the trust scope, key id and public key. No seed, private key or signature bytes are printed or logged.
 - [x] Compose sets `GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE=fresh_admission` and puts the witness directory on the retained `platform_storage` volume. `marketplace-scheduler` gets the same values, because scheduled `identity:finalize-terminations` writes through the witness (review P1 on PR #1546). Deploy creates the directory owner-only on every run, whatever the native admission switch says: once the witness is configured, every identity security revocation needs it.
 - [x] Full deploy, fast deploy and the `deploy-impact.sh` platform-reconcile route publish after the Platform runs the new image. Publication comes before scheduler reconciliation, smoke, OAuth ensure and any signing self-check. The reconcile route was added after review P1 4242250745 on PR #1546. After P1 4242266267, the same gate also runs after Platform starts in `rollback.sh` (before health-check and promotion), after each Platform recreation in `marketplace-staging.sh`, and inside `_oteryn_recreate_marketplace_runtime` (before the scheduler restarts). With native admission off, publication is skipped. A review sweep before the next push added the gate to `finalize_previous_candidate_if_healthy` (before health-check and promotion). Publication now runs through the image entrypoint, as the signing self-check does, so the signing key id and file env from the key volume apply. The Compose witness lines sit after `QUEUE_CONNECTION`, so this branch merges cleanly with PR #1544. After P1s 4242299989 and 4242299985, every route goes through `oteryn_publish_native_admission_trust_or_stop`. If publication or witness preparation fails, it stops Platform, internal proxy and Gateway (fail closed). The routes are full, fast, previous-candidate, reconcile, rollback, Marketplace switches and Marketplace runtime recreation. The fast-deploy and reconcile failure-restore traps gate the restored Platform the same way. Only after that passes do they start the preserved proxy and Gateway again and reconcile the scheduler.
+- [x] After P1 4242324208, ingress comes up only behind the gate. On every route the order is: stop the internal proxy and Gateway, (re)create Platform, run the gate, then start ingress. Only the internal proxy and Gateway hold the Gateway service credential that `POST /internal/v1/game-auth/native-admissions` requires, so no grant can be issued while trust is unpublished or unwitnessed. A failed gate removes the Platform, internal proxy and Gateway containers instead of stopping them, because `restart: always` would bring a stopped container back after a daemon or NAS restart. Both failure-restore traps go through one shared helper with the same order. That helper removes all three containers if it cannot stop ingress. Witness preparation now also requires an owner-only (700) directory that is not a link and is owned by the Platform user (P2 4242202676).
+- [x] A closure audit of every route, failure mode and ordering is recorded below, and each route has an ordering test. A class test fails if any Platform start in the five scripts can be reached while ingress is running before the gate.
 - [x] The legacy token ratchet passes with no group rising.
 - [ ] Exact-head CI passes.
+
+## Closure audit (trust publication, all routes)
+
+Grants are issued only by `POST /internal/v1/game-auth/native-admissions` behind `RequireGatewayServiceCredential`. Only Gateway holds that credential, and it reaches Platform through the internal proxy. In this audit, "ingress" means the internal proxy and Gateway. Platform's own published web port cannot issue grants. The invariant is that ingress never runs while Platform holds trust that is unpublished or not witnessed. "Stop" is `oteryn_native_admission_ingress_stop` and "gate" is `oteryn_publish_native_admission_trust_or_stop`.
+
+Routes:
+
+| # | Route | Before Platform (re)create | Gate | Ingress start | Ordering test |
+|---|---|---|---|---|---|
+| 1 | Full deploy (normal release) | stop, before `up -d platform` and the migration hooks | after migrate and passport keys, before OAuth ensure and the self-check | `up` of internal proxy, then Gateway, after the gate | `test_full_deploy_*`, class test |
+| 2 | Full deploy, first deploy | stop is a no-op (no ingress exists yet) | same as 1 | same as 1 | ingress helper first-deploy test, class test |
+| 3 | Full deploy, same-release redeploy or resumed candidate (no migration quiesce) | explicit stop, because the quiesce does not run here | same as 1 | same as 1 | class test |
+| 4 | Fast path | stop | right after the Platform recreate | `docker start` of the preserved proxy and Gateway ids | fast/reconcile parametrized test |
+| 5 | Fast path restore trap | shared restore helper: stop, or remove all three containers if stop fails | after the previous Platform recreate | `up -d --no-deps internal-proxy gateway` | trap test, restore helper tests |
+| 6 | Previous-candidate promotion | stop | before the proxy and Gateway recreate | `up --force-recreate internal-proxy gateway` | previous-candidate test |
+| 7 | Reconcile (`deploy-impact.sh`) | stop | right after the Platform recreate | `docker start` of the preserved ids | fast/reconcile parametrized test |
+| 8 | Reconcile restore trap | same as 5 | same as 5 | same as 5 | trap test, restore helper tests |
+| 9 | `rollback.sh` | stop | after `up -d platform` | `up -d platform internal-proxy gateway`, appearing only once and only after the gate | rollback test, class test |
+| 10 | Marketplace enable (two recreates) | stop before the first recreate; ingress stays stopped through the second | after each recreate | proxy recreate and `start gateway` after the second gate | Marketplace switch test |
+| 11 | Marketplace prepare-rollback | stop | after the recreate | proxy recreate and `start gateway` | Marketplace switch test |
+| 12 | `_oteryn_recreate_marketplace_runtime` (from the migrate wrapper, rollback, traps and scheduler reconcile) | stop, recording the running ids | after the recreate | only the ids that were running before | Marketplace runtime test |
+
+Failure modes (the same on every route):
+
+| Failure | Result |
+|---|---|
+| Witness directory unset, a link, not mode 700, or not owned by the Platform user | Preparation fails. The gate removes Platform, internal proxy and Gateway, and the route aborts. |
+| Witness missing for a registry with trust history, or the database restored below it | `publishTrustedKey` refuses and the command exits 1 (feature tests). Then the same removal and abort. |
+| Any other registry refusal: kid bound to another key, revoked kid, two trusted keys | Command exits 1. Then the same removal and abort. |
+| Publication exits 0 but prints no `published`/`already_trusted` result | Gate fails. Then the same removal and abort. |
+| Platform container missing after the recreate | Gate gets an empty id and fails. Then the same removal and abort. |
+| Ingress stop fails | Forward routes abort before Platform starts. The fast and reconcile traps run the restore helper, which removes all three containers if stop fails again. |
+| Native admission off | Publication is skipped and the gate passes. The issuer is off, so no grant is possible. |
+| Failure after the gate (smoke, self-check, health) | Trust is already published and witnessed. The fast and reconcile traps restore behind the gate (rows 5 and 8). Full, rollback and Marketplace routes abort with ingress stopped (fail closed); a rerun or rollback recovers. |
+| Removal fails after a failed gate | Logged. Ingress was already stopped before Platform started, so nothing ran with unproven trust. A later daemon restart could restart these containers (residual 2). |
+
+Residuals, not closable within the owned paths:
+
+1. `NativeAdmissionGrantIssuer::assertSignable()` reads the trusted key without checking the witness on each grant. Closing that needs a PHP change outside `owned_paths`.
+2. `repair-synology-autostart.yml` runs in its own concurrency group (`oteryn-synology-autostart-repair`, not `synology-staging-deployment`) and runs `docker start` on the proxy and Gateway. A Docker daemon or NAS restart has the same effect, because of `restart: always`. Either one, during the seconds-long gate window of a deploy, could start ingress that the deploy had stopped. Removed containers are not affected.
+3. With PR #1544 merged, its fast-path `oteryn_run_native_admission_self_check` runs after the ingress start. Trust is already published and witnessed at that point, but the check would be stricter before `oteryn_native_admission_ingress_start`.
 
 ## Ownership
 
@@ -61,7 +104,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-11T18:00:00Z
+updated_at: 2026-10-11T21:00:00Z
 head: see PR head
 branch: claude/native-trust-publish-20261011
 pr: 1546
@@ -124,7 +167,7 @@ validation:
     evidence: 283 tests, 22 skipped, 1 pre-existing risky; NativeAdmission 49 tests
   - command: python3 -m pytest tests/ci -k synology
     result: PASS
-    evidence: tests/ci plus deploy/synology/tests 262 passed (gate failure paths and restore-trap ordering included); git merge-tree with the PR #1544 head is clean
+    evidence: tests/ci plus deploy/synology/tests 276 passed (per-route ordering, ingress-before-gate class test, gate removal, restore helper); mutation checks confirm the class test fails when the rollback, Marketplace runtime or reconcile order is broken; a three-way merge-tree with PR #1544 head f4625b85 and main eafe7076 is clean and passes 294 tests
   - command: python3 tools/validation/legacy_token_ratchet.py
     result: PASS
     evidence: no group above baseline; baseline not raised
