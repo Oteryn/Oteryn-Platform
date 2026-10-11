@@ -128,7 +128,8 @@ final class ActiveAnnouncementQuery
             $body = $alias.'.body';
         }
 
-        return $query
+        /** @var Collection<int, SiteAnnouncement> $rows */
+        $rows = $query
             ->where(function (Builder $matches) use ($title, $body, $contains): void {
                 $matches
                     ->whereRaw("LOWER({$title}) LIKE ? ESCAPE '!'", [$contains])
@@ -149,5 +150,7 @@ final class ActiveAnnouncementQuery
             ->offset(($page - 1) * $perPage)
             ->limit($perPage)
             ->get();
+
+        return $rows;
     }
 }

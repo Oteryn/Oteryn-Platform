@@ -44,7 +44,7 @@ final class ProviderSearchSupport
             $index++;
         }
 
-        return array_values(array_map(
+        return array_map(
             static fn (SearchHit $hit, int $rank): SearchHit => new SearchHit(
                 sourceModule: $hit->sourceModule,
                 sourceType: $hit->sourceType,
@@ -62,6 +62,6 @@ final class ProviderSearchSupport
             ),
             $hits,
             array_keys($hits),
-        ));
+        );
     }
 }

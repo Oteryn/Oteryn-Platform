@@ -70,7 +70,8 @@ final class PublicPageQuery
         $title = $translated ? 'public_page_translation.title' : 'managed_pages.title';
         $body = $translated ? 'public_page_translation.body' : 'managed_pages.body';
 
-        return $this->visibleAt($readTime)
+        /** @var Collection<int, ManagedPage> $rows */
+        $rows = $this->visibleAt($readTime)
             ->where(function (Builder $matches) use ($title, $body, $contains): void {
                 $matches
                     ->whereRaw("LOWER({$title}) LIKE ? ESCAPE '!'", [$contains])
@@ -89,6 +90,8 @@ final class PublicPageQuery
             ->offset(($page - 1) * $perPage)
             ->limit($perPage)
             ->get();
+
+        return $rows;
     }
 
     /** @return list<string> */

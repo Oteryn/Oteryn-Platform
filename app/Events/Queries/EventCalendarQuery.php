@@ -211,10 +211,10 @@ final class EventCalendarQuery
 
         $offset = ($page - 1) * $perPage;
 
-        return array_values(array_map(
+        return array_map(
             static fn (array $match): array => $match['event'],
             array_slice($matches, $offset, $perPage),
-        ));
+        );
     }
 
     /**

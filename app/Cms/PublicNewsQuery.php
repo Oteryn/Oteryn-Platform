@@ -65,7 +65,8 @@ final class PublicNewsQuery
         $title = $translated ? 'public_news_translation.title' : 'news_posts.title';
         $body = $translated ? 'public_news_translation.body' : 'news_posts.body';
 
-        return $this->visibleAt($readTime)
+        /** @var Collection<int, NewsPost> $rows */
+        $rows = $this->visibleAt($readTime)
             ->where(function (Builder $matches) use ($title, $body, $contains): void {
                 $matches
                     ->whereRaw("LOWER({$title}) LIKE ? ESCAPE '!'", [$contains])
@@ -85,6 +86,8 @@ final class PublicNewsQuery
             ->offset(($page - 1) * $perPage)
             ->limit($perPage)
             ->get();
+
+        return $rows;
     }
 
     public function findPublishedBySlug(string $slug, ?DateTimeInterface $readTime = null): ?NewsPost
