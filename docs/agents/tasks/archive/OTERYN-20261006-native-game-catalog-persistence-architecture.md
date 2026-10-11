@@ -29,7 +29,7 @@ Produce a decision-ready, non-authoritative Platform Architecture Review package
 - [x] `ARCH-DEC-0006` is recorded as `decision_required` with one owner question and `implementation_authorized: false`.
 - [x] Architecture programme projection names exactly the active decision ID.
 - [x] No runtime code, migration, workflow, external repository or protected-environment path changes.
-- [ ] Repository owner accepts/rejects one option and the decision package is reconciled through normal PR/branch lifecycle.
+- [x] Decision package merged through PR #1487 (owner decision itself carried to the Follow-up section, not claimed here).
 
 ## Ownership
 
@@ -39,7 +39,7 @@ owned_paths:
   - docs/architecture/adr/README.md
   - docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
-  - docs/agents/tasks/active/OTERYN-20261006-native-game-catalog-persistence-architecture.md
+  - docs/agents/tasks/archive/OTERYN-20261006-native-game-catalog-persistence-architecture.md
 modules:
   - Platform Architecture Review
   - GameCatalog documentation governance
@@ -56,11 +56,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-10T22:00:00Z
-head: UNKNOWN
+updated_at: 2026-10-11T02:00:00Z
+head: ef303edb4acbe1e7f194b56b7057f871ede93f19
 branch: docs/1460-native-catalog-persistence-architecture
 pr: 1487
-status: waiting
+status: completed
+terminal_pr_policy: archive_pending
 context_routes:
   - architecture
   - agent-governance
@@ -69,7 +70,7 @@ owned_paths:
   - docs/architecture/adr/README.md
   - docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
-  - docs/agents/tasks/active/OTERYN-20261006-native-game-catalog-persistence-architecture.md
+  - docs/agents/tasks/archive/OTERYN-20261006-native-game-catalog-persistence-architecture.md
 proven:
   - Protected main at task admission is a834ef54b154c48b119da20c3bdb6fca74178750.
   - Existing Legacy Canary GameCatalog persistence and activation carry mandatory release/runtime assumptions.
@@ -90,7 +91,7 @@ changed_paths:
   - docs/architecture/adr/README.md
   - docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
-  - docs/agents/tasks/active/OTERYN-20261006-native-game-catalog-persistence-architecture.md
+  - docs/agents/tasks/archive/OTERYN-20261006-native-game-catalog-persistence-architecture.md
 validation:
   - command: bounded pre-publication structural self-check
     result: PASS
@@ -103,17 +104,21 @@ validation:
     evidence: PR 1487 opened; exact-head CI is read by the integrating lead
 blockers:
   - repository owner decision on ARCH-DEC-0006
-next_action: Repository owner reviews Issue #1460, PR 1487 and Proposed ADR 0043 and selects Option A, B or C; then reconcile the decision.
+next_action: none for this record; repository owner decision on ARCH-DEC-0006 (Option A, B or C for Issue #1460) and reconciliation of Proposed ADR 0043 remain open and need a new task record (see Follow-up).
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: Proposed architecture decision is awaiting owner selection; PR 1487 carries the package.
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: merged feature branch has no retention or recovery purpose after protected merge
+source_branch_evidence: PR #1487 merged (REST pulls/1487 state closed, merged true) as 692c85c32b67d61447f3131835b72ea762e28224 at 2026-10-11T01:12:26Z from exact head ef303edb4acbe1e7f194b56b7057f871ede93f19; source branch absent (REST branches API returns 404)
 ```
 
 ## Notes
 
 This task records a proposal only. It does not authorize schema/runtime implementation, native activation/publication, production/protected-environment work or any Oteryn-Game mutation.
+
+## Follow-up
+
+Follow-up: repository owner decision on ARCH-DEC-0006 (Option A, B or C for Issue #1460) and reconciliation of Proposed ADR 0043 remain open and need a new task record; this record is completed for the PR #1487 decision-package scope only.
