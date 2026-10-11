@@ -4,7 +4,7 @@
 
 ## Status
 
-`PARTIALLY PROVEN BROAD CONTRACT — READ BOUNDARIES AVAILABLE / TWO OPERATION-SPECIFIC PHASE 5 WRITES APPROVED`
+`PARTIALLY PROVEN BROAD CONTRACT — READ BOUNDARIES AVAILABLE / NO PLATFORM WRITE APPROVED`
 
 This document is the broad evidence-backed legacy engine integration baseline for Oteryn Platform.
 
@@ -18,7 +18,7 @@ No other direct legacy engine mutation is approved by this broad contract or by 
 
 ## Evidence baseline
 
-The original broad discovery was evidence-backed against inspected `blakinio/canary` source/schema and revalidated during later Phase 5 operation-contract tasks before each approved mutation was implemented.
+The original broad discovery was evidence-backed against inspected `blakinio/canary` source/schema. Operation-specific write contracts that were once revalidated against it have been retired from Platform.
 
 legacy engine and login-server repositories remained read-only during Oteryn Platform Phase 5 work.
 
@@ -39,7 +39,7 @@ Operation-specific contracts carry the exact evidence pins relevant to their wri
 
 ### Derived default
 
-Any legacy engine mutation outside the two explicitly approved Phase 5 operations remains cross-repository integration work and must not be inferred from apparently simple SQL constraints.
+Any legacy engine mutation remains cross-repository integration work and must not be inferred from apparently simple SQL constraints.
 
 ## Generic read boundary
 
@@ -145,7 +145,7 @@ Character deletion/soft deletion and rename remain unapproved and require new op
 
 `CHARACTER CREATION: RETIRED FROM PLATFORM (NATIVE SOURCE PENDING)`
 
-The approved operation:
+The retired operation (historical record of the removed implementation; nothing below is approved or implemented in Platform):
 
 - authorizes only through the authenticated Platform Identity's ready immutable legacy engine account binding;
 - applies ADR 0005 canonical-name, starter-state and quota policy;
@@ -155,7 +155,7 @@ The approved operation:
 - relies on the database unique name constraint for final global race protection;
 - has real MariaDB coverage for privileges, account locking, quota race and cross-account same-name race.
 
-The operation-specific contract supersedes the older broad discovery statement that character creation was unknown/not approved. It does not approve any other player mutation.
+The retired operation-specific contract no longer approves character creation. It does not approve any other player mutation.
 
 ## Character deletion / rename
 
@@ -197,20 +197,20 @@ The implemented `canary_runtime` connection is read-only from the Platform persp
 
 Runtime state is not a Phase 5 mutation surface.
 
-## Approved Phase 5 mutation inventory
+## Phase 5 mutation inventory
 
-Exactly:
+No operation is currently approved or implemented in Platform. The account-create and character-create operations were removed; the inventory is empty.
 
 | Operation | Connection | Primary mutation | Authoritative contract |
 |---|---|---|---|
 
-Both operations use separate reviewed least-privilege grant templates and fail-closed effective-grant verification.
+The removed operations used separate reviewed least-privilege grant templates and fail-closed effective-grant verification; those templates were removed with them.
 
 The generic `canary` connection remains SELECT-only.
 
 ## Forbidden inference rule
 
-The presence of an approved operation does not authorize adjacent mutations.
+The presence of any operation-specific contract does not authorize adjacent mutations.
 
 Examples:
 

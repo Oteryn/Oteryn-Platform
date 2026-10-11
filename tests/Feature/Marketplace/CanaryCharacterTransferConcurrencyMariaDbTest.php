@@ -34,13 +34,13 @@ final class CanaryCharacterTransferConcurrencyMariaDbTest extends TestCase
             $this->markTestSkipped('The pcntl extension is required for the MariaDB concurrency test.');
         }
 
-        $host = getenv('CANARY_CHARACTER_CREATE_INTEGRATION_HOST');
+        $host = getenv('MARIADB_INTEGRATION_HOST');
         if (! is_string($host) || $host === '') {
             $this->markTestSkipped('MariaDB character-transfer integration environment is not configured.');
         }
 
-        $port = getenv('CANARY_CHARACTER_CREATE_INTEGRATION_PORT');
-        $rootPassword = getenv('CANARY_CHARACTER_CREATE_INTEGRATION_ROOT_PASSWORD');
+        $port = getenv('MARIADB_INTEGRATION_PORT');
+        $rootPassword = getenv('MARIADB_INTEGRATION_ROOT_PASSWORD');
         $this->rootHost = $host;
         $this->rootPort = is_string($port) && $port !== '' ? $port : '3306';
         $this->rootPassword = is_string($rootPassword) ? $rootPassword : '';

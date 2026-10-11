@@ -30,6 +30,10 @@ async function assertState(page, state) {
   if (state === 'ready') {
     await expect(page.getByText('Ready', { exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Create a character' })).toBeVisible();
+  } else if (state === 'missing') {
+    await expect(page.getByText('Support required', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('Connection status')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Create a character' })).toHaveCount(0);
   } else {
     await expect(page.getByText('Support required', { exact: true })).toBeVisible();
   }

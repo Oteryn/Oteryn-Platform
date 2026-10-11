@@ -154,7 +154,7 @@ final class AccountOverviewTest extends TestCase
         $response->assertSee('No replacement account will be created automatically.');
     }
 
-    public function test_missing_binding_renders_safe_non_actionable_state(): void
+    public function test_binding_free_identity_renders_neutral_state_without_support_message(): void
     {
         $identity = $this->identity();
         $this->loginAsCurrentIdentity($identity);
@@ -162,8 +162,11 @@ final class AccountOverviewTest extends TestCase
         $response = $this->get('/account');
 
         $response->assertOk();
-        $response->assertSee('Support required');
-        $response->assertSee('We cannot confirm your game account setup right now.');
+        $response->assertDontSee('Support required');
+        $response->assertDontSee('We cannot confirm your game account setup');
+        $response->assertDontSee('Connection status');
+        $response->assertDontSee('Create a character');
+        $response->assertSee('Manage account security');
     }
 
     public function test_polish_overview_localizes_ready_empty_and_populated_states(): void
@@ -204,7 +207,6 @@ final class AccountOverviewTest extends TestCase
     {
         yield 'unfinished' => [IdentityCanaryAccount::STATUS_PENDING, null, 'Wymagana pomoc techniczna', 'Nie możemy potwierdzić prawidłowego stanu konfiguracji konta gry.'];
         yield 'conflict' => [IdentityCanaryAccount::STATUS_CONFLICT, 'binding_conflict', 'Wymagana pomoc techniczna', 'Konto zastępcze nie zostanie utworzone automatycznie.'];
-        yield 'missing' => [null, null, 'Wymagana pomoc techniczna', 'Nie możemy teraz potwierdzić konfiguracji konta gry.'];
     }
 
     #[DataProvider('polishSetupStates')]

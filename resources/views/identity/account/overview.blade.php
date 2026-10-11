@@ -28,6 +28,7 @@
                 ])
             : __($overview['characters_message']);
     @endphp
+    @if ($overview['state'] !== 'none')
     <section class="account-connection" aria-labelledby="game-account-heading" data-account-state="{{ $overview['state'] }}">
         <div>
             <p class="eyebrow">{{ __('portal.account.game_account') }}</p>
@@ -78,6 +79,7 @@
             <div class="notice alert-warning" role="status">{{ __('portal.account.limit', ['count' => $overview['character_limit']]) }}</div>
         @endif
     </section>
+    @endif
     <div class="account-services">
         <section aria-labelledby="account-security-heading">
             <p class="eyebrow">{{ __('identity.security.eyebrow') }}</p>

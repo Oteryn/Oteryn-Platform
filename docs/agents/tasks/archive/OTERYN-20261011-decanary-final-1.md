@@ -21,6 +21,7 @@ Owner mandate: remove the Platform game-account provisioning and character-creat
 - [x] Registration creates no game-account binding; provisioning, character-create, verifier, command, connection, template and retry-flow code is deleted.
 - [x] The game-catalog-contract cross-repository job, its integration test, trigger test and registry entry are deleted.
 - [x] `docs/agents/LEGACY_TOKEN_BASELINE.json` lowered with the ratchet `--write`; report-only history groups kept at their previous values; no enforced group rises.
+- [x] A binding-free identity sees a neutral account overview (no support-required message, no connection state); live contracts no longer describe the removed operations as approved or implemented.
 - [x] Touched PHPUnit, `python -m pytest tools/validation tests/ci deploy/synology/tests` and the governance validators pass.
 
 ## Ownership
@@ -66,6 +67,7 @@ context_routes:
 owned_paths:
   - docs/agents/tasks/archive/OTERYN-20261011-decanary-final-1.md
 proven:
+  - Review round: binding-free overview state added; live canary/character/binding contracts relabeled retired; MariaDB integration env vars retained for the transfer and payment tests that still read them.
   - Touched PHPUnit and the GameAuth suite pass; the single full-suite error was a witness-store write failure on a full local disk and does not reproduce in isolation.
 derived: []
 unknown: []

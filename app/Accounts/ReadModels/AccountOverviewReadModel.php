@@ -11,6 +11,8 @@ use stdClass;
 
 final class AccountOverviewReadModel
 {
+    public const STATE_NONE = 'none';
+
     public const STATE_READY = 'ready';
 
     public const STATE_CONFLICT = 'conflict';
@@ -47,9 +49,12 @@ final class AccountOverviewReadModel
         $binding = IdentityCanaryAccount::query()->whereKey($identity->id)->first();
 
         if ($binding === null) {
-            return $this->withoutCharacters($this->unavailableState(
-                'We cannot confirm your game account setup right now. Character creation remains unavailable. Contact support if this persists.',
-            ));
+            return $this->withoutCharacters([
+                'state' => self::STATE_NONE,
+                'label' => '',
+                'message' => '',
+                'character_creation_allowed' => false,
+            ]);
         }
 
         if ($binding->isReady()) {

@@ -4,7 +4,7 @@
 
 ## Status
 
-`IMPLEMENTED FOR GREENFIELD ACCOUNTS — IMMUTABLE 1:1 PLATFORM-OWNED BINDING`
+`READ-ONLY BINDING STATE — IMMUTABLE 1:1 PLATFORM-OWNED BINDING; PROVISIONING AND CHARACTER CREATION RETIRED`
 
 This contract defines the authorization boundary between an authenticated Oteryn Platform Identity and legacy engine `accounts.id`.
 
@@ -30,7 +30,7 @@ Rules:
 
 ADR 0004 remains the durable product decision.
 
-## Implemented trusted state
+## Persisted state
 
 Platform-owned `identity_canary_accounts` persistence provides:
 
@@ -57,7 +57,7 @@ A requested account ID may be used only as a target after comparison with the au
 
 ## Binding establishment
 
-The only supported Phase 5 establishment path is Platform-originated legacy engine account provisioning.
+Platform-originated legacy engine account provisioning, formerly the only Phase 5 establishment path, was removed. A binding can only arrive from a native source; the description below is historical.
 
 The implementation:
 
@@ -99,7 +99,7 @@ Exact irreversible legacy engine account deletion semantics require a separate a
 
 ## Failure and concurrency invariants
 
-The implemented provisioning saga ensures:
+The retired provisioning saga ensured:
 
 - a Platform Identity is never treated as ready without a durable exact `canary_account_id` binding;
 - legacy engine dependency failure leaves durable pending state for retry;
@@ -109,7 +109,7 @@ The implemented provisioning saga ensures:
 - mismatched recovery evidence fails closed as conflict;
 - no destructive automatic account deletion is used as partial-failure compensation.
 
-The implemented character-create operation additionally ensures:
+The retired character-create operation additionally ensured:
 
 - only the authenticated Identity's ready exact binding supplies the target `account_id`;
 - same-account character creates serialize through the account-row lock before quota evaluation;
@@ -147,7 +147,7 @@ Adding import/claim later requires a new explicitly approved contract and likely
 
 Ownership binding and game-login availability are separate boundaries.
 
-The immutable ownership binding and character creation are implemented, but Platform-originated users still require a separately authorized authoritative game-login integration before they can authenticate to the game under Platform credential authority.
+The immutable ownership binding is read-only state in Platform (character creation was removed), and Platform-originated users still require a separately authorized authoritative game-login integration before they can authenticate to the game under Platform credential authority.
 
 Required future direction:
 
@@ -158,10 +158,10 @@ No legacy engine/login-server repository was modified by Phase 5.
 
 ## Decision
 
-`PLATFORM IDENTITY -> AUTHORIZED CANARY accounts.id OWNERSHIP BINDING: IMPLEMENTED FOR GREENFIELD ACCOUNTS.`
+`PLATFORM IDENTITY -> AUTHORIZED CANARY accounts.id OWNERSHIP BINDING: READ-ONLY STATE; ESTABLISHMENT PENDING A NATIVE SOURCE.`
 
-`GREENFIELD CHARACTER CREATION THROUGH THE READY BINDING: IMPLEMENTED.`
+`GREENFIELD CHARACTER CREATION THROUGH THE READY BINDING: RETIRED FROM PLATFORM.`
 
-The original Phase 5 ownership-binding blocker is resolved for supported greenfield accounts.
+The original Phase 5 ownership-binding blocker is not resolved in Platform until a native source establishes bindings.
 
 Character deletion, rename and account deletion/rebind/transfer are not authorized by this contract and require separate future operation contracts.

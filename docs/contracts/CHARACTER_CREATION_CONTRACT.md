@@ -2,13 +2,15 @@
 
 ## Status
 
-`IMPLEMENTED — GREENFIELD CHARACTER CREATION ON MAIN`
+`RETIRED — NOT IMPLEMENTED IN PLATFORM (NATIVE SOURCE PENDING)`
 
-This contract defines the only approved Phase 5 operation for creating a greenfield legacy engine `players` row for an authenticated Oteryn Platform Identity under ADR 0005.
+This contract is retained as a historical record. It defined the Phase 5 operation, since removed from Platform, for creating a greenfield legacy engine `players` row for an authenticated Oteryn Platform Identity under ADR 0005.
 
-PR #41 implemented the operation and was squash-merged to `main` as `9839822b8e445c0e9828e73d2d7767bb237e587f` after final CI #568 and Agent Governance #489 passed.
+PR #41 implemented the operation, which has since been removed from Platform; it was squash-merged to `main` as `9839822b8e445c0e9828e73d2d7767bb237e587f` after final CI #568 and Agent Governance #489 passed.
 
-`CHARACTER CREATION: IMPLEMENTED`
+`CHARACTER CREATION: RETIRED FROM PLATFORM`
+
+Nothing below is currently approved or implemented.
 
 ## Ownership and authorization
 
