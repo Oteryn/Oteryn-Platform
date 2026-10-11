@@ -330,6 +330,14 @@ final class CharacterCommandClientTest extends TestCase
         $this->exchange(CharacterCommandWire::LIST_PATH, $this->listRequest())->assertStatus(503);
     }
 
+    public function test_mistyped_numeric_settings_fail_closed(): void
+    {
+        foreach (['intent_ttl_seconds' => '6000oops', 'max_pending_intents' => '2.5', 'requests_per_minute' => '0'] as $key => $value) {
+            $this->enable(['character-authority.commands.'.$key => $value]);
+            $this->exchange(CharacterCommandWire::LIST_PATH, $this->listRequest())->assertStatus(503);
+        }
+    }
+
     public function test_commands_stay_disabled_outside_testing_and_preproduction(): void
     {
         $this->enable();
