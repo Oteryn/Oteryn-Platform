@@ -1,5 +1,12 @@
 name: ${COMPOSE_PROJECT_NAME:-oteryn-staging}
 
+# One switch for both sides of native login. The Gateway only routes protocol_version 2
+# logins when the Platform issuer can admit them, so the Gateway flag is always the
+# Platform flag. Synology runs APP_ENV=staging and the Platform issuer signs only in
+# testing or preproduction, so native admission stays off here until preproduction
+# authority and issuer key custody exist (README: Native login).
+x-native-admission-enabled: &native_admission_enabled "false"
+
 services:
   mariadb:
     image: mariadb:11.8
@@ -64,6 +71,7 @@ services:
       MAIL_MAILER: array
       GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256: ${GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256}
       GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256: ${GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256:-}
+      GAME_AUTH_NATIVE_ADMISSION_ENABLED: *native_admission_enabled
     ports:
       - ${PLATFORM_BIND_ADDRESS}:${PLATFORM_PORT}:8000
     volumes:
@@ -111,7 +119,7 @@ services:
     environment:
       OTERYN_PLATFORM_BASE_URL: https://platform-internal:8443
       OTERYN_PLATFORM_SERVICE_TOKEN: ${OTERYN_PLATFORM_SERVICE_TOKEN}
-      GATEWAY_NATIVE_LOGIN_ENABLED: "true"
+      GATEWAY_NATIVE_LOGIN_ENABLED: *native_admission_enabled
       GATEWAY_LISTEN_ADDR: :8080
       GATEWAY_REQUEST_TIMEOUT: 5s
       GATEWAY_VERSION: ${GATEWAY_VERSION:-synology-staging}

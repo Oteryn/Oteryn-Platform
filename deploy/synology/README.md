@@ -118,11 +118,31 @@ A `deploy` run:
 8. starts Platform, runs migrations and ensures the native OAuth client exists;
 9. starts the internal TLS proxy and Game Gateway;
 10. verifies Platform/Gateway health and every exact host-port binding;
-11. verifies canonical requestless Platform URLs, exact Gateway `/version` identity, bounded invalid-login response cache controls and no Platform/Gateway cross-routing;
+11. verifies canonical requestless Platform URLs, exact Gateway `/version` identity, bounded invalid-login response cache controls, the well-formed native login probe (see *Native login*) and no Platform/Gateway cross-routing;
 12. only after those checks, creates or updates the exact enabled online Platform World Registry route;
 13. removes the ephemeral `.env` after the job.
 
 The script snapshots currently running Platform/Gateway image references before an update. `rollback` restores those runtime images and re-runs health checks. It intentionally does **not** reverse database migrations automatically.
+
+## Native login
+
+Native (protocol_version 2) login is the only Gateway login protocol. It needs both sides switched together, so `compose.yml` holds one value, `x-native-admission-enabled`, that feeds both:
+
+```text
+GAME_AUTH_NATIVE_ADMISSION_ENABLED   (Platform issuer)
+GATEWAY_NATIVE_LOGIN_ENABLED         (Gateway native branch)
+```
+
+On this package the value is `false`: Synology runs `APP_ENV=staging` and the Platform issuer signs grants only in `testing` or `preproduction`. With it off, the Gateway refuses every login, and the health check prints a warning that game login is disabled.
+
+Turning it on is a separate, authorized change. It needs all of:
+
+- `APP_ENV=preproduction` for the Platform service, which the staging preflight currently rejects;
+- `GAME_AUTH_NATIVE_ADMISSION_SIGNING_KEY_FILE` and `GAME_AUTH_NATIVE_ADMISSION_SIGNING_KEY_ID`, the file being an injected, non-symlink, mode 0600 key file owned by the Platform process user (never a value in the repository or the rendered `.env`);
+- during key rotation, `GAME_AUTH_NATIVE_ADMISSION_RETIRING_SIGNING_KEY_FILE` and `GAME_AUTH_NATIVE_ADMISSION_RETIRING_SIGNING_KEY_ID`;
+- the Game server trusting the matching public key.
+
+The health check enforces the pairing. It fails when the two flags differ, or when native login is on under an `APP_ENV` the issuer refuses. It also sends a well-formed native login with an unknown ticket. With native login off, the Gateway must refuse it with `invalid_request`. With it on, the Platform must reject the ticket (`NATIVE_LOGIN_AUTHENTICATION_REQUIRED`), and `NATIVE_LOGIN_UNAVAILABLE` fails the deployment.
 
 ## Early workstation testing through loopback
 

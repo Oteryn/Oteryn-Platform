@@ -720,4 +720,29 @@ docker() {
     command docker "${args[@]}"
 }
 
+# Native (protocol_version 2) login needs the Gateway branch and the Platform issuer switched
+# together, and the issuer signs only in testing or preproduction. A Gateway that accepts the
+# branch while the issuer refuses would pass deploy with every login NATIVE_LOGIN_UNAVAILABLE.
+oteryn_assert_native_login_pairing() {
+    local platform_flag="$1"
+    local gateway_flag="$2"
+    local app_env="$3"
+
+    case "$platform_flag" in
+        true | false) ;;
+        *)
+            echo "Platform native admission flag is missing or invalid; the deployment must set it explicitly." >&2
+            return 1
+            ;;
+    esac
+    if [[ "$gateway_flag" != "$platform_flag" ]]; then
+        echo "Gateway native login (${gateway_flag:-unset}) does not match Platform native admission ($platform_flag)." >&2
+        return 1
+    fi
+    if [[ "$platform_flag" == true && "$app_env" != testing && "$app_env" != preproduction ]]; then
+        echo "Native login is enabled but the Platform issuer refuses APP_ENV=${app_env:-unset}; every login would answer NATIVE_LOGIN_UNAVAILABLE." >&2
+        return 1
+    fi
+}
+
 trap _oteryn_finalize_release_on_exit EXIT
