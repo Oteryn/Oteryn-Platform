@@ -36,7 +36,9 @@ def test_gateway_native_login_is_the_platform_admission_flag() -> None:
     # On for the preproduction stack: deploy.sh and health-check.sh refuse unless the key volume,
     # key id and Platform signing self-check prove the issuer can sign (tests below).
     # Default true; rollback of an image that predates the self-check overrides it for that image only.
-    assert 'x-native-admission-enabled: &native_admission_enabled "${OTERYN_NATIVE_ADMISSION_ENABLED:-true}"' in text
+    assert 'x-native-admission-enabled: &native_admission_enabled "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}"' in text
+    for name in ("RUNTIME_STATUS_ENABLED", "RUNTIME_STATUS_IDENTITIES", "SCOPE_ASSIGNMENT_ENABLED", "SCOPE_ASSIGNMENT_IDENTITIES"):
+        assert f"GAME_AUTH_NATIVE_{name}:" in text
     # LCFA has no producer here: it is off and the D171 fallback is explicitly selected and configured.
     assert 'GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED: "false"' in text
     assert 'GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_OWNERSHIP: "true"' in text
@@ -313,3 +315,18 @@ def test_readme_documents_native_admission_keys_by_name() -> None:
         "APP_ENV=preproduction",
     ):
         assert key in readme
+
+
+def test_native_admission_is_opt_in_and_needs_runtime_identities_and_key_export() -> None:
+    deploy = DEPLOY.read_text(encoding="utf-8")
+    flag = LIB.read_text(encoding="utf-8").split("oteryn_native_admission_flag_for_image()")[1]
+    assert 'OTERYN_NATIVE_ADMISSION_ENABLED:-false}" == true' in deploy
+    for name in ("RUNTIME_STATUS", "SCOPE_ASSIGNMENT"):
+        assert f"GAME_AUTH_NATIVE_{name}_IDENTITIES" in deploy
+    assert deploy.count("oteryn_run_native_admission_self_check") >= 2
+    assert "load_native_admission_keys" in flag
+    assert "game-auth:native-admission:self-check" in flag
+    workflow = (WORKFLOWS / "deploy-synology-staging.yml").read_text(encoding="utf-8")
+    assert "OTERYN_STAGING_NATIVE_ADMISSION_ENABLED" in workflow
+    assert "OTERYN_STAGING_NATIVE_RUNTIME_STATUS_IDENTITIES" in workflow
+    assert "OTERYN_STAGING_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES" in workflow

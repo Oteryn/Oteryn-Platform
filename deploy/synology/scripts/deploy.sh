@@ -400,7 +400,9 @@ _oteryn_fast_deploy_platform() {
     _oteryn_reconcile_marketplace_scheduler_after_runtime_change
     _oteryn_fast_platform_smoke
     # Native game login stays on only while the recreated Platform can really sign (fail closed).
-    oteryn_run_native_admission_self_check "$("${compose[@]}" ps -q platform)"
+    if [[ "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" == true ]]; then
+        oteryn_run_native_admission_self_check "$("${compose[@]}" ps -q platform)"
+    fi
 
     _oteryn_fast_assert_preserved_service mariadb "$FAST_MARIADB_ID"
     _oteryn_fast_assert_preserved_service redis "$FAST_REDIS_ID"
@@ -428,9 +430,25 @@ docker image inspect "$PLATFORM_IMAGE" >/dev/null 2>&1 || {
     echo "Guarded workflow did not leave a resolved Platform image locally: $PLATFORM_IMAGE" >&2
     exit 1
 }
-if [[ ! "${GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID:-}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; then
-    echo "GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID (repository variable OTERYN_STAGING_NATIVE_WORLD_ID) must be the UUIDv7 of the native World; native login cannot admit characters without it." >&2
-    exit 1
+case "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" in
+    true | false) ;;
+    *)
+        echo "OTERYN_NATIVE_ADMISSION_ENABLED must be true or false." >&2
+        exit 1
+        ;;
+esac
+if [[ "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" == true ]]; then
+    # Native login needs the whole chain, not only a signing key: the Game runtime-status and scope
+    # ownership identities that make a scope routable, and the native World for the D171 fallback.
+    if [[ ! "${GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID:-}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; then
+        echo "Native admission needs OTERYN_STAGING_NATIVE_WORLD_ID (the native World UUIDv7)." >&2
+        exit 1
+    fi
+    if [[ "${GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED:-}" != true || -z "${GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES:-}" \
+        || "${GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_ENABLED:-}" != true || -z "${GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES:-}" ]]; then
+        echo "Native admission needs OTERYN_STAGING_NATIVE_RUNTIME_STATUS_IDENTITIES and OTERYN_STAGING_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES; without them no scope is routable and every login would fail." >&2
+        exit 1
+    fi
 fi
 oteryn_ensure_native_admission_key || exit 1
 
@@ -717,7 +735,9 @@ fi
 
 # Refuse before the Gateway starts routing native logins: the Platform issuer must sign a
 # throwaway grant with the configured key and verify it against the trust registry (fail closed).
-oteryn_run_native_admission_self_check "$("${compose[@]}" ps -q platform)" || exit 1
+if [[ "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" == true ]]; then
+    oteryn_run_native_admission_self_check "$("${compose[@]}" ps -q platform)" || exit 1
+fi
 
 "${compose[@]}" up -d --no-deps --force-recreate internal-proxy
 "${compose[@]}" up -d gateway

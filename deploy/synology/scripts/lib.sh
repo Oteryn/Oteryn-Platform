@@ -783,14 +783,19 @@ oteryn_run_native_admission_self_check() {
     echo "Native admission signing self-check passed: ${output}"
 }
 
-# Prints true when the given Platform image carries the native admission self-check command and
-# false when it predates it (rollback or previous-candidate recovery of an older release must not
-# be held to a check that image cannot run).
+# Prints the native admission flag a run of the given Platform image may use: true only when the
+# environment asks for native admission AND the image can both run the self-check command and export
+# the signing keys from the key volume (entrypoint load_native_admission_keys). An image that has the
+# command but predates the key export would fail the self-check, so rollback and previous-candidate
+# recovery of such a release run with native login off.
 oteryn_native_admission_flag_for_image() {
     local image="$1"
 
-    if docker run --rm --network none --entrypoint php "$image" artisan list --raw 2>/dev/null \
-        | grep -q '^game-auth:native-admission:self-check '; then
+    if [[ "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" == true ]] \
+        && docker run --rm --network none --entrypoint grep "$image" -q load_native_admission_keys \
+            /usr/local/bin/oteryn-platform-entrypoint 2>/dev/null \
+        && docker run --rm --network none --entrypoint php "$image" artisan list --raw 2>/dev/null \
+            | grep -q '^game-auth:native-admission:self-check '; then
         echo true
     else
         echo false
