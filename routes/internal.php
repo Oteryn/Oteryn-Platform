@@ -1,9 +1,12 @@
 <?php
 
 use App\GameAuth\NativeRuntimeStatus\NativeRuntimeStatusReport;
+use App\GameProjections\Http\EnforcePublicProjectionHttpBounds;
+use App\GameProjections\Http\GuardPublicProjectionPeer;
+use App\GameProjections\Http\PublicProjectionSnapshotController;
+use App\GameProjections\Http\PublicProjectionWatermarkController;
+use App\GameProjections\PublicProjectionFamily;
 use App\Http\Controllers\GameAuth\CharacterBootstrapIntentController;
-use App\Http\Controllers\GameAuth\GameLoginContextController;
-use App\Http\Controllers\GameAuth\GameLoginTicketRedeemController;
 use App\Http\Controllers\GameAuth\NativeAccountCharactersController;
 use App\Http\Controllers\GameAuth\NativeAccountCharactersWatermarkController;
 use App\Http\Controllers\GameAuth\NativeAdmissionController;
@@ -22,25 +25,6 @@ use App\Http\Middleware\GameAuth\ThrottleNativeEvidencePeer;
 use App\ProductsEntitlements\Http\GuardPremiumSnapshotPeer;
 use App\ProductsEntitlements\Http\PremiumSnapshotController;
 use Illuminate\Support\Facades\Route;
-
-Route::post('/internal/v1/game-auth/tickets/redeem', GameLoginTicketRedeemController::class)
-    ->middleware([
-        PreventSensitiveGameAuthResponseCaching::class,
-        'throttle:game-auth-ticket-redeem-source',
-        RequireGatewayServiceCredential::class,
-        'throttle:game-auth-ticket-redeem',
-    ]);
-
-// v1 login context (native-only login, plan step B7). While game-auth.legacy_login.enabled is on (the
-// default, for gateways still on the legacy flow) the controller answers; once a deployment sets
-// GAME_AUTH_LEGACY_LOGIN_ENABLED=false the route answers 410 and reads nothing. D-8 deletes the route.
-Route::get('/internal/v1/game-auth/accounts/{canaryAccountId}/login-context', static function (string $canaryAccountId) {
-    if (config('game-auth.legacy_login.enabled')) {
-        return app()->call(GameLoginContextController::class, ['canaryAccountId' => $canaryAccountId]);
-    }
-
-    return response()->json(['error' => 'login_context_retired'], 410);
-})->middleware([RequireGatewayServiceCredential::class, 'throttle:game-auth-ticket-redeem']);
 
 Route::post('/internal/v1/game-auth/native-admissions', NativeAdmissionController::class)
     ->middleware([
@@ -94,4 +78,22 @@ Route::post('/internal/v1/products-entitlements/premium-snapshots/read', Premium
     ->middleware([
         PreventSensitiveGameAuthResponseCaching::class,
         GuardPremiumSnapshotPeer::class,
+    ]);
+
+// Game Public Projections v1 ingest (removal plan packet C4): one compiled path per family plus the
+// family watermark, accepted only from the dedicated public-projection mTLS identities. Off unless
+// game-projections.public.enabled is true in testing or preproduction.
+foreach (PublicProjectionFamily::cases() as $publicProjectionFamily) {
+    Route::post('/internal/v1/game-public/'.$publicProjectionFamily->path(), PublicProjectionSnapshotController::class)
+        ->defaults('family', $publicProjectionFamily->value)
+        ->middleware([
+            GuardPublicProjectionPeer::class,
+            EnforcePublicProjectionHttpBounds::class.':'.$publicProjectionFamily->maxBytes(),
+        ]);
+}
+
+Route::post('/internal/v1/game-public/'.PublicProjectionFamily::WATERMARK_PATH, PublicProjectionWatermarkController::class)
+    ->middleware([
+        GuardPublicProjectionPeer::class,
+        EnforcePublicProjectionHttpBounds::class.':'.PublicProjectionFamily::WATERMARK_MAX_BYTES,
     ]);
