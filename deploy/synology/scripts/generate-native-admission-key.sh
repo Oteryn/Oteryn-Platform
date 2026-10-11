@@ -9,7 +9,12 @@
 # printed, logged, passed on a command line or written anywhere else. Only the key id and the PUBLIC
 # key (base64url, the encoding of the Platform trust registry and Game's trust config) are printed.
 #
-# Usage: generate-native-admission-key.sh [ensure|rotate|drop-retiring|show|check]
+# Usage: generate-native-admission-key.sh [ensure|stage|promote|rotate|drop-retiring|show|check]
+#   stage          generate the NEXT key (never loaded by Platform, so nothing changes at runtime);
+#                  idempotent; prints its key id and public key for Game's trust configuration
+#   promote        staged rotation: with ingress stopped, next -> current and current -> retiring,
+#                  recreate Platform, publish and prove trust, only then start ingress again
+#                  (needs OTERYN_ENV_FILE; no signing with an untrusted key, no maintenance flag)
 #   ensure         create the current key if none exists; otherwise change nothing (idempotent)
 #   rotate         current -> retiring, then a new current with a never-used key id
 #   drop-retiring  remove the retiring key once every attempt it signed has passed exp
@@ -40,12 +45,23 @@ ACTION="${1:-ensure}"
 MAINTENANCE="${2:-}"
 
 case "$ACTION" in
-    ensure | rotate | drop-retiring | show | check) ;;
+    ensure | stage | promote | rotate | drop-retiring | show | check) ;;
     *)
-        echo "Usage: $0 [ensure|rotate [--maintenance]|drop-retiring|show|check]" >&2
+        echo "Usage: $0 [ensure|stage|promote|rotate [--maintenance]|drop-retiring|show|check]" >&2
         exit 2
         ;;
 esac
+
+if [[ "$ACTION" == promote ]]; then
+    # Validated before any mutation: the wait is the only thing that keeps ingress closed until Game's
+    # trust cache has seen the new key (contract 9.3: five seconds plus the clock uncertainty bound).
+    propagation_seconds="${OTERYN_NATIVE_TRUST_PROPAGATION_SECONDS:-10}"
+    if [[ ! "$propagation_seconds" =~ ^[0-9]{1,5}$ ]] || ((10#$propagation_seconds < 10)); then
+        echo "OTERYN_NATIVE_TRUST_PROPAGATION_SECONDS must be an integer of at least 10 (contract 9.3: five seconds plus clock uncertainty)." >&2
+        exit 2
+    fi
+    propagation_seconds=$((10#$propagation_seconds))
+fi
 
 if ! command -v docker >/dev/null 2>&1; then
     echo "docker is required to manage the native admission key volume." >&2
@@ -200,6 +216,11 @@ function report(string $dir, int $uid): void
     }
     echo 'current_key_id=' . $current[0] . "\n";
     echo 'current_public_key=' . $current[1] . "\n";
+    $next = load($dir, 'next', $uid);
+    if ($next !== null) {
+        echo 'next_key_id=' . $next[0] . "\n";
+        echo 'next_public_key=' . $next[1] . "\n";
+    }
     $retiring = load($dir, 'retiring', $uid);
     if ($retiring !== null) {
         echo 'retiring_key_id=' . $retiring[0] . "\n";
@@ -218,6 +239,45 @@ switch ($action) {
             generate($dir, 'current', $uid, $gid);
             fwrite(STDERR, "Generated the native admission signing key.\n");
         }
+        break;
+    case 'stage':
+        if (load($dir, 'current', $uid) === null) {
+            fail('There is no current key; run ensure first.');
+        }
+        if (load($dir, 'next', $uid) === null) {
+            generate($dir, 'next', $uid, $gid);
+            fwrite(STDERR, "Staged the next native admission signing key.\n");
+        }
+        break;
+    case 'promote':
+        if (load($dir, 'next', $uid) === null) {
+            fail('No staged next key; run stage first.');
+        }
+        if (load($dir, 'retiring', $uid) !== null) {
+            fail('A retiring key is still present; run drop-retiring once its grants have expired.');
+        }
+        // Transactional: every rename is undone in reverse order when one fails. Exit 4 tells the
+        // caller custody may have changed (it must keep ingress closed); exit 1 means nothing changed.
+        $moves = [];
+        foreach (['key', 'kid'] as $suffix) {
+            $moves[] = ["$dir/current.$suffix", "$dir/retiring.$suffix"];
+        }
+        foreach (['key', 'kid'] as $suffix) {
+            $moves[] = ["$dir/next.$suffix", "$dir/current.$suffix"];
+        }
+        $done = [];
+        foreach ($moves as [$from, $to]) {
+            if (! rename($from, $to)) {
+                $clean = true;
+                foreach (array_reverse($done) as [$undoFrom, $undoTo]) {
+                    $clean = rename($undoTo, $undoFrom) && $clean;
+                }
+                fwrite(STDERR, $clean ? "Unable to promote the staged key; custody restored.\n" : "Unable to promote the staged key and custody could not be restored.\n");
+                exit($clean && $done === [] ? 1 : 4);
+            }
+            $done[] = [$from, $to];
+        }
+        fwrite(STDERR, "Promoted: the staged key is now current and the previous key is retiring.\n");
         break;
     case 'rotate':
         if (load($dir, 'current', $uid) === null) {
@@ -258,15 +318,105 @@ if [[ "$ACTION" == rotate && "$MAINTENANCE" != --maintenance ]]; then
     done < <(platform_containers)
 fi
 
-docker run --rm \
-    --user 0:0 \
-    --network none \
-    --read-only \
-    --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --cap-add DAC_OVERRIDE \
-    --security-opt no-new-privileges \
-    --entrypoint php \
-    --volume "$VOLUME_NAME:/keys" \
-    "$PLATFORM_IMAGE" -d display_errors=stderr -r "$PHP_TOOL" -- "$ACTION"
+run_key_tool() {
+    docker run --rm \
+        --user 0:0 \
+        --network none \
+        --read-only \
+        --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --cap-add DAC_OVERRIDE \
+        --security-opt no-new-privileges \
+        --entrypoint php \
+        --volume "$VOLUME_NAME:/keys" \
+        "$PLATFORM_IMAGE" -d display_errors=stderr -r "$PHP_TOOL" -- "$1"
+}
+
+if [[ "$ACTION" == promote ]]; then
+    # Staged rotation. Before promoting, add the key printed by stage to Game's trust configuration and
+    # wait for it to propagate (contract 9.3). Promotion never lets Platform sign with an untrusted
+    # key: ingress stays stopped until the recreated Platform has published the new key to the trust
+    # registry, passed the self-check and the Game trust cache interval (default 10 s, five seconds
+    # plus the clock uncertainty bound) has elapsed.
+    [[ -n "${OTERYN_ENV_FILE:-}" ]] || { echo "promote needs OTERYN_ENV_FILE (the deployment environment file)." >&2; exit 2; }
+    # shellcheck source=deploy/synology/scripts/lib.sh
+    source "$SCRIPT_DIR/lib.sh"
+    # The deployment environment decides the flag, whatever PLATFORM_IMAGE was preselected.
+    load_oteryn_env_file "$OTERYN_ENV_FILE"
+    DEPLOY_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+    ENV_FILE="$OTERYN_ENV_FILE"
+    COMPOSE_FILE="$DEPLOY_DIR/compose.yml"
+    case "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" in
+        true | false) ;;
+        *) echo "OTERYN_NATIVE_ADMISSION_ENABLED must be true or false." >&2; exit 2 ;;
+    esac
+    promote_compose=(command docker compose --env-file "$OTERYN_ENV_FILE" -f "$COMPOSE_FILE")
+    ingress="$(oteryn_native_admission_ingress_stop "${promote_compose[@]}")"
+    promote_rc=0
+    run_key_tool promote || promote_rc=$?
+    if ((promote_rc == 1)); then
+        # Nothing changed: the preserved ingress starts again.
+        # shellcheck disable=SC2086 # container ids, one per line
+        oteryn_native_admission_ingress_start $ingress
+        exit 1
+    fi
+    # From here on custody may have changed. Any failure removes Platform, the internal proxy and
+    # Gateway (they are `restart: always`), so nothing can start behind an unproven key.
+    promote_fail_closed() {
+        echo "Promotion failed; removing Platform, internal proxy and Gateway (fail closed)." >&2
+        "${promote_compose[@]}" rm -s -f gateway internal-proxy platform >&2 || true
+    }
+    trap 'rc=$?; ((rc == 0)) || promote_fail_closed; exit "$rc"' EXIT
+    ((promote_rc == 0)) || exit "$promote_rc"
+    "${promote_compose[@]}" up -d --no-deps --force-recreate platform
+    oteryn_publish_native_admission_trust_or_stop "${promote_compose[@]}" || exit 1
+    # Marketplace reconciliation may force-recreate Platform again; it self-checks that final
+    # replacement itself (lib.sh) before ingress can return, so the reconcile runs first and the
+    # self-check below proves the Platform that will really serve.
+    _oteryn_reconcile_marketplace_scheduler_after_runtime_change || exit 1
+    oteryn_native_admission_self_check_or_stop "${promote_compose[@]}" || exit 1
+    sleep "$propagation_seconds"
+    # shellcheck disable=SC2086
+    oteryn_native_admission_ingress_start $ingress || exit 1
+    trap - EXIT
+    echo "Promoted the staged key; Platform restarted behind the trust gate and ingress is back." >&2
+    exit 0
+fi
+
+if [[ "$ACTION" == drop-retiring ]]; then
+    # The trust registry holds at most two trusted keys and a kid is bound to one key forever. A
+    # retired key that stays trusted would make the next staged rotation hit that limit after custody
+    # moved. So the retiring key is revoked in the registry first (revocation is permanent), and its
+    # files are destroyed only once the registry no longer trusts it. Nothing is destroyed otherwise.
+    retiring_kid="$(run_key_tool show | sed -n 's/^retiring_key_id=//p')"
+    if [[ -n "$retiring_kid" ]]; then
+        revoke_container="$(platform_containers | head -n 1)"
+        [[ -n "$revoke_container" ]] || { echo "drop-retiring needs a running Platform to revoke the retiring key in the trust registry first; nothing was removed." >&2; exit 1; }
+        if ! docker exec "$revoke_container" /usr/local/bin/oteryn-platform-entrypoint php -r '
+            require "vendor/autoload.php";
+            $app = require "bootstrap/app.php";
+            $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+            if (! app()->environment(["testing", "preproduction"])) { exit(3); }
+            $kid = $argv[1] ?? "";
+            $issuer = App\GameAuth\NativeEvidence\NativeEvidenceContract::FRESH_ISSUER;
+            $profile = App\GameAuth\NativeEvidence\NativeEvidenceContract::FRESH_PROFILE;
+            $purpose = (string) config("game-auth.native_evidence.fresh_key_purpose");
+            try {
+                $trust = app(App\GameAuth\NativeEvidence\NativeSigningTrustRegistry::class);
+                if ($trust->trustedPublicKey($issuer, $profile, $purpose, $kid) !== null) {
+                    $trust->revokeKey($issuer, $profile, $purpose, $kid);
+                }
+                exit($trust->trustedPublicKey($issuer, $profile, $purpose, $kid) === null ? 0 : 1);
+            } catch (Throwable $e) {
+                exit(1);
+            }
+        ' -- "$retiring_kid" >/dev/null 2>&1; then
+            echo "Could not revoke the retiring key in the Platform trust registry; the retiring key was kept." >&2
+            exit 1
+        fi
+        echo "Retiring key revoked in the Platform trust registry." >&2
+    fi
+fi
+
+run_key_tool "$ACTION"
 
 if [[ "$ACTION" == rotate || "$ACTION" == drop-retiring ]]; then
     while IFS= read -r container; do

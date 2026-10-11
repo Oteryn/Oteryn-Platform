@@ -135,8 +135,8 @@ def test_deploy_ensures_the_key_before_changes_and_self_checks_before_the_gatewa
     self_check = script.index('oteryn_run_native_admission_self_check "$("${compose[@]}" ps -q platform)" || exit 1')
     assert script.index("game-auth:oauth-client:ensure") < self_check < script.index('"${compose[@]}" up -d gateway')
     # The fast path recreates Platform only, so it re-proves signing before it can finish.
-    fast = script.index("_oteryn_fast_platform_smoke\n    # Native game login")
-    assert "oteryn_run_native_admission_self_check" in script[fast : fast + 300]
+    fast_fn = script.split("_oteryn_fast_deploy_platform() {")[1]
+    assert fast_fn.index("oteryn_run_native_admission_self_check") < fast_fn.index("oteryn_native_admission_ingress_start")
 
 
 def test_rollback_and_candidate_recovery_gate_the_flag_on_the_image() -> None:
@@ -390,5 +390,90 @@ def test_identity_maps_are_proven_with_the_application_settings_and_bazaar_contr
     workflow = (WORKFLOWS / "character-bazaar-staging-control.yml").read_text(encoding="utf-8")
     for name in ("OTERYN_NATIVE_ADMISSION_ENABLED=", "GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES=", "GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES=", "GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID="):
         assert name in workflow
-    task = (ROOT / "docs" / "agents" / "tasks" / "active" / "OTERYN-20261011-b7-deploy-native-login.md").read_text(encoding="utf-8")
+    task = (ROOT / "docs" / "agents" / "tasks" / "archive" / "OTERYN-20261011-b7-deploy-native-login.md").read_text(encoding="utf-8")
     assert "## Closure audit" in task
+
+
+def test_staged_key_rotation_is_a_separate_path_and_the_rotate_guard_stays() -> None:
+    key = KEY_SCRIPT.read_text(encoding="utf-8")
+    assert "stage | promote" in key and "case 'stage':" in key and "case 'promote':" in key
+    promote = key.split('if [[ "$ACTION" == promote ]]; then')[2].split('if [[ "$ACTION" == drop-retiring ]]')[0]
+    order = [promote.index(x) for x in ("oteryn_native_admission_ingress_stop", "run_key_tool promote", "force-recreate platform", "oteryn_publish_native_admission_trust_or_stop", "_oteryn_reconcile_marketplace_scheduler_after_runtime_change", "oteryn_native_admission_self_check_or_stop", "sleep ", "oteryn_native_admission_ingress_start $ingress ||")]
+    assert order == sorted(order)
+    assert '"$MAINTENANCE" != --maintenance' in key
+    assert "next.key" not in ENTRYPOINT.read_text(encoding="utf-8")
+
+
+def test_previous_platform_restore_propagates_ingress_and_scheduler_failures() -> None:
+    fn = LIB.read_text(encoding="utf-8").split("oteryn_restore_previous_platform_behind_trust_gate() {")[1].split("\n}\n")[0]
+    assert fn.count("rc=1") == 2 and 'return "$rc"' in fn
+
+
+def test_autostart_repair_shares_the_deploy_concurrency_group() -> None:
+    text = (WORKFLOWS / "repair-synology-autostart.yml").read_text(encoding="utf-8")
+    assert "group: synology-staging-deployment" in text
+
+
+def test_promote_fails_closed_loads_the_env_and_propagates_trust() -> None:
+    key = KEY_SCRIPT.read_text(encoding="utf-8")
+    promote = key.split('if [[ "$ACTION" == promote ]]; then')[2].split('if [[ "$ACTION" == drop-retiring ]]')[0]
+    assert promote.index('load_oteryn_env_file "$OTERYN_ENV_FILE"') < promote.index("OTERYN_NATIVE_ADMISSION_ENABLED:-false")
+    assert "trap 'rc=$?; ((rc == 0)) || promote_fail_closed" in promote
+    assert "rm -s -f gateway internal-proxy platform" in promote
+    assert "OTERYN_NATIVE_TRUST_PROPAGATION_SECONDS:-10" in key and 'sleep "$propagation_seconds"' in promote
+    assert "((promote_rc == 1))" in promote
+    tool = key.split("case 'promote':")[1].split("case 'rotate':")[0]
+    assert "array_reverse($done)" in tool and "exit($clean && $done === [] ? 1 : 4)" in tool
+
+
+def test_promote_rejects_a_propagation_wait_below_the_contract_bound_before_any_mutation(tmp_path: pathlib.Path) -> None:
+    env_file = tmp_path / "env"
+    env_file.write_text("", encoding="utf-8")
+    for bad in ("0", "abc", "9", "-1", "", "1e3"):
+        if bad == "":
+            continue
+        result = subprocess.run(
+            ["bash", str(KEY_SCRIPT), "promote"],
+            env={"PATH": "/usr/bin:/bin", "PLATFORM_IMAGE": "x", "OTERYN_ENV_FILE": str(env_file), "OTERYN_NATIVE_TRUST_PROPAGATION_SECONDS": bad},
+            capture_output=True, text=True, check=False,
+        )
+        assert result.returncode == 2, (bad, result.stderr)
+        assert "at least 10" in result.stderr
+
+
+def test_drop_retiring_revokes_the_retired_key_in_the_registry_before_destroying_it() -> None:
+    key = KEY_SCRIPT.read_text(encoding="utf-8")
+    block = key.split('if [[ "$ACTION" == drop-retiring ]]; then')[1].split('run_key_tool "$ACTION"')[0]
+    assert "revokeKey(" in block and "trustedPublicKey(" in block
+    assert "the retiring key was kept" in block and "nothing was removed" in block
+    assert key.index('if [[ "$ACTION" == drop-retiring ]]; then') < key.index('run_key_tool "$ACTION"')
+
+
+def test_marketplace_runtime_recreation_self_checks_the_final_platform_before_ingress() -> None:
+    fn = LIB.read_text(encoding="utf-8").split("_oteryn_recreate_marketplace_runtime_gated() {")[1].split("\n}\n")[0]
+    order = [fn.index(x) for x in ("oteryn_publish_native_admission_trust_or_stop", "oteryn_native_admission_self_check_or_stop", "oteryn_native_admission_ingress_start $ingress")]
+    assert order == sorted(order)
+
+
+def test_marketplace_recreation_fails_closed_after_the_ingress_stop() -> None:
+    lib = LIB.read_text(encoding="utf-8")
+    outer = lib.split("_oteryn_recreate_marketplace_runtime() {")[1].split("\n}\n")[0]
+    assert "_oteryn_recreate_marketplace_runtime_gated" in outer and "rm -s -f gateway internal-proxy platform" in outer
+    gated = lib.split("_oteryn_recreate_marketplace_runtime_gated() {")[1].split("\n}\n")[0]
+    assert "--force-recreate platform || return 1" in gated and "marketplace-scheduler || return 1" in gated
+
+
+def test_self_check_gate_treats_inspect_failure_as_a_failure_and_removes_ingress() -> None:
+    fn = LIB.read_text(encoding="utf-8").split("oteryn_native_admission_self_check_or_stop() {")[1].split("\n}\n")[0]
+    assert "&& env_out=\"$(command docker inspect" in fn and "rm -s -f gateway internal-proxy platform" in fn
+    assert "|| true" not in fn
+
+
+def test_every_route_runs_the_self_check_gate_before_ingress() -> None:
+    root = ROOT / "deploy" / "synology" / "scripts"
+    rollback = (root / "rollback.sh").read_text(encoding="utf-8")
+    assert rollback.index("oteryn_native_admission_self_check_or_stop") < rollback.index("up -d platform internal-proxy gateway")
+    mp = (root / "marketplace-staging.sh").read_text(encoding="utf-8")
+    assert mp.count("oteryn_native_admission_self_check_or_stop") == 2
+    assert "oteryn_native_admission_self_check_or_stop" in KEY_SCRIPT.read_text(encoding="utf-8")
+    assert "must be true or false" in KEY_SCRIPT.read_text(encoding="utf-8")

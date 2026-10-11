@@ -425,21 +425,37 @@ _oteryn_marketplace_scheduler_id() {
 
 _oteryn_recreate_marketplace_runtime() {
     local marketplace_file="$DEPLOY_DIR/compose.marketplace.yml"
-    local platform_id scheduler_id platform_running scheduler_running platform_image scheduler_image
-    local platform_enabled scheduler_enabled ingress
     local -a marketplace_compose=(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$marketplace_file")
     [[ -f "$marketplace_file" ]] || { echo "Marketplace Compose file is missing." >&2; return 1; }
     _oteryn_load_marketplace_runtime_state || { echo "Cannot prove Marketplace runtime settings for runtime recreation." >&2; return 1; }
     [[ "$MARKETPLACE_ENABLED" == true ]] || { echo "Refusing to recreate Marketplace runtime while durable/effective state is disabled." >&2; return 1; }
 
+    # From the ingress stop on, every failure leaves Platform, the internal proxy and Gateway removed
+    # (fail closed): the callers may have had ingress running, and a stopped container would come
+    # back through `restart: always`.
+    if _oteryn_recreate_marketplace_runtime_gated "${marketplace_compose[@]}"; then
+        return 0
+    fi
+    echo "Marketplace runtime recreation failed; removing the Platform, internal proxy and Gateway containers (fail closed)." >&2
+    "${marketplace_compose[@]}" rm -s -f gateway internal-proxy platform >&2 || true
+    return 1
+}
+
+_oteryn_recreate_marketplace_runtime_gated() {
+    local platform_id scheduler_id platform_running scheduler_running platform_image scheduler_image
+    local platform_enabled scheduler_enabled ingress
+    local -a marketplace_compose=("$@")
+
     # Same order as every Platform route: ingress stays stopped until the recreated Platform passes the
-    # trust gate; only the ingress containers that were running before are started again.
+    # trust gate and the self-check; only the ingress containers that were running before start again.
     ingress="$(oteryn_native_admission_ingress_stop "${marketplace_compose[@]}")" || return 1
-    "${marketplace_compose[@]}" up -d --no-deps --force-recreate platform
+    "${marketplace_compose[@]}" up -d --no-deps --force-recreate platform || return 1
     oteryn_publish_native_admission_trust_or_stop "${marketplace_compose[@]}" || return 1
+    # The replacement Platform is the one that will serve: prove it can sign before ingress returns.
+    oteryn_native_admission_self_check_or_stop "${marketplace_compose[@]}" || return 1
     # shellcheck disable=SC2086 # container ids, one per line
     oteryn_native_admission_ingress_start $ingress || return 1
-    "${marketplace_compose[@]}" up -d --force-recreate marketplace-scheduler
+    "${marketplace_compose[@]}" up -d --force-recreate marketplace-scheduler || return 1
 
     platform_id="$("${marketplace_compose[@]}" ps -a -q platform)" || return 1
     scheduler_id="$(_oteryn_marketplace_scheduler_id)" || return 1
@@ -824,6 +840,25 @@ oteryn_publish_native_admission_trust_or_stop() {
     return 1
 }
 
+# Self-check gate for the Platform that will really serve: oteryn_native_admission_self_check_or_stop
+# <compose command words>. The running Platform container's own environment decides whether admission
+# is on (a failed docker call is a gate failure, never "disabled"); when it is on the signing and
+# projection self-check must pass. Any failure removes Platform, the internal proxy and Gateway (they
+# are `restart: always`), so no restartable ingress stays behind an unproven Platform.
+oteryn_native_admission_self_check_or_stop() {
+    local id env_out
+    (($# > 0)) || { echo "Native admission self-check gate needs the Compose command." >&2; return 1; }
+    if id="$("$@" ps -q platform)" && [[ -n "$id" ]] \
+        && env_out="$(command docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$id")" \
+        && { ! grep -qx 'GAME_AUTH_NATIVE_ADMISSION_ENABLED=true' <<<"$env_out" || oteryn_run_native_admission_self_check "$id"; }; then
+        return 0
+    fi
+    echo "Native admission self-check gate failed; removing the Platform, internal proxy and Gateway containers (fail closed)." >&2
+    "$@" rm -s -f gateway internal-proxy platform >&2 || \
+        echo "Unable to remove Platform, internal proxy and Gateway after the failed self-check gate." >&2
+    return 1
+}
+
 # Failure restore of the previous Platform for the fast-deploy and Platform-reconcile traps:
 # oteryn_restore_previous_platform_behind_trust_gate <label>, with the previous release's images
 # exported. Same order as a release: ingress stopped, previous Platform recreated, trust gate, then
@@ -843,10 +878,16 @@ oteryn_restore_previous_platform_behind_trust_gate() {
         echo "$label left Platform, internal proxy and Gateway removed: the previous Platform failed the native admission trust gate." >&2
         return 1
     fi
-    "${base[@]}" up -d --no-deps internal-proxy gateway >/dev/null 2>&1 || \
+    local rc=0
+    "${base[@]}" up -d --no-deps internal-proxy gateway >/dev/null 2>&1 || {
         echo "$label could not start the internal proxy and Gateway." >&2
-    _oteryn_reconcile_marketplace_scheduler_after_runtime_change >/dev/null 2>&1 || \
+        rc=1
+    }
+    _oteryn_reconcile_marketplace_scheduler_after_runtime_change >/dev/null 2>&1 || {
         echo "$label could not reconcile the previous Marketplace runtime." >&2
+        rc=1
+    }
+    return "$rc"
 }
 
 # Native (protocol_version 2) login needs the Gateway branch and the Platform issuer switched
