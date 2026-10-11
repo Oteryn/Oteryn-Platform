@@ -11,13 +11,22 @@ const EXPECTED_HTTP_DUPLICATE_FAILURES = new Set([
 // WebKit 2370 (Playwright 1.64) applies an internal inline style to every <select>
 // and reports it as a style-src(-attr) violation under Platform's strict CSP. Platform
 // ships no inline styles; Chromium and Firefox stay strict on the same pages. The
-// allowance is limited to WebKit, this exact message and pages that contain a <select>.
+// allowance is limited to WebKit, this exact message, and a per-page budget equal to
+// the number of <select> elements on that page, so extra violations still fail.
 export const WEBKIT_SELECT_UA_STYLE_VIOLATION = "Refused to apply a stylesheet because its hash, its nonce, or 'unsafe-inline' does not appear in the style-src directive of the Content Security Policy.";
 
-function isWebkitSelectUaStyleViolation(diagnostics, entry) {
-  return diagnostics.browserName === 'webkit'
-    && entry.text === WEBKIT_SELECT_UA_STYLE_VIOLATION
-    && entry.pageHasSelect === true;
+function webkitSelectViolationBudgets(diagnostics) {
+  const budgets = new Map();
+  if (diagnostics.browserName !== 'webkit') {
+    return budgets;
+  }
+  for (const entry of diagnostics.consoleErrors ?? []) {
+    if (entry.text === WEBKIT_SELECT_UA_STYLE_VIOLATION && Number.isInteger(entry.pageSelectCount)) {
+      const key = diagnosticPath(entry.url);
+      budgets.set(key, Math.max(budgets.get(key) ?? 0, entry.pageSelectCount));
+    }
+  }
+  return budgets;
 }
 
 const REQUEST_IDENTITY_PATTERN = /^[0-9a-f]{64}$/u;
@@ -99,9 +108,15 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
   }
 
   const unexpectedConsoleErrors = [];
+  const selectBudgets = webkitSelectViolationBudgets(diagnostics);
   for (const entry of diagnostics.consoleErrors ?? []) {
-    if (isWebkitSelectUaStyleViolation(diagnostics, entry)) {
-      continue;
+    if (entry.text === WEBKIT_SELECT_UA_STYLE_VIOLATION) {
+      const key = diagnosticPath(entry.url);
+      const remaining = selectBudgets.get(key) ?? 0;
+      if (remaining > 0) {
+        selectBudgets.set(key, remaining - 1);
+        continue;
+      }
     }
     const status = failedLoadStatus(entry);
     const pathname = diagnosticPath(entry.url);

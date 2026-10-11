@@ -67,8 +67,8 @@ export function installDiagnostics(page) {
       diagnostics.consoleErrors.push(entry);
       if (diagnostics.browserName === 'webkit' && entry.text === WEBKIT_SELECT_UA_STYLE_VIOLATION) {
         diagnostics.pendingChecks.push(
-          page.evaluate(() => document.querySelector('select') !== null)
-            .then((hasSelect) => { entry.pageHasSelect = hasSelect; }),
+          page.evaluate(() => document.querySelectorAll('select').length)
+            .then((count) => { entry.pageSelectCount = count; }),
         );
       }
     }
