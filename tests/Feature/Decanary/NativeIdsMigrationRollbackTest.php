@@ -20,6 +20,11 @@ final class NativeIdsMigrationRollbackTest extends TestCase
 
     private const CHARACTER = '0192b3c4-5d6e-7f80-8a1b-2c3d4e5f6a7c';
 
+    private const NATIVE_IDS = 'migrations/2026_10_08_090000_add_native_ids_to_character_bazaar_and_profile_preferences.php';
+
+    // The later relaxation adds native guards on these columns, so a direct rollback here unwinds it first.
+    private const RELAXATION = 'migrations/2026_10_11_120000_relax_legacy_ids_and_add_native_guards.php';
+
     public function test_rollback_outside_maintenance_mode_is_refused_before_ddl(): void
     {
         $this->app['env'] = 'local';
@@ -40,6 +45,7 @@ final class NativeIdsMigrationRollbackTest extends TestCase
         $this->app['env'] = 'local';
         $this->app->maintenanceMode()->activate([]);
         try {
+            $this->applyMigration('down', self::RELAXATION);
             $this->applyMigration('down');
 
             self::assertFalse(Schema::hasColumn('character_auctions', 'seller_account_id'));
@@ -50,7 +56,7 @@ final class NativeIdsMigrationRollbackTest extends TestCase
         } finally {
             $this->app->maintenanceMode()->deactivate();
             $this->app['env'] = 'testing';
-            $this->applyMigration('up');
+            $this->restoreMigrations();
         }
     }
 
@@ -80,6 +86,7 @@ final class NativeIdsMigrationRollbackTest extends TestCase
             self::markTestSkipped('LOCK TABLES applies to MariaDB/MySQL only.');
         }
 
+        $this->applyMigration('down', self::RELAXATION);
         $statements = [];
         Event::listen(QueryExecuted::class, function (QueryExecuted $query) use (&$statements): void {
             $statements[] = $query->sql;
@@ -88,7 +95,7 @@ final class NativeIdsMigrationRollbackTest extends TestCase
         try {
             $this->applyMigration('down');
         } finally {
-            $this->applyMigration('up');
+            $this->restoreMigrations();
         }
 
         $unlock = array_search('UNLOCK TABLES', $statements, true);
@@ -113,10 +120,20 @@ final class NativeIdsMigrationRollbackTest extends TestCase
         return Identity::query()->create(['email' => 'native-ids@example.test', 'password' => Hash::make('Correct-Horse-9!Battery')])->id;
     }
 
-    /** @param 'up'|'down' $direction */
-    private function applyMigration(string $direction): void
+    private function restoreMigrations(): void
     {
-        $migration = require database_path('migrations/2026_10_08_090000_add_native_ids_to_character_bazaar_and_profile_preferences.php');
+        if (! Schema::hasColumn('character_auctions', 'character_id')) {
+            $this->applyMigration('up');
+        }
+        if (! Schema::hasColumn('character_auctions', 'active_character_id')) {
+            $this->applyMigration('up', self::RELAXATION);
+        }
+    }
+
+    /** @param 'up'|'down' $direction */
+    private function applyMigration(string $direction, string $path = self::NATIVE_IDS): void
+    {
+        $migration = require database_path($path);
         self::assertInstanceOf(Migration::class, $migration);
 
         (new ReflectionMethod($migration, $direction))->invoke($migration);
