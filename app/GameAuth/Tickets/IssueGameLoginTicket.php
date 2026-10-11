@@ -17,6 +17,10 @@ final class IssueGameLoginTicket
 
     public function execute(Identity $identity): IssuedGameLoginTicket
     {
+        if (config('game-auth.legacy_login.enabled', true) !== true) {
+            throw new GameLoginTicketDenied;
+        }
+
         return DB::transaction(function () use ($identity): IssuedGameLoginTicket {
             $lockedIdentity = Identity::query()
                 ->lockForUpdate()
