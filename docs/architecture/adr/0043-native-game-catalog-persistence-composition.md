@@ -85,7 +85,7 @@ Every existing `game_catalog_snapshots.id` should gain exactly one 1:1 binding t
 
 A 1:1 native detail keyed by the shared root should persist at least `content_authority_id`, `authority_epoch`, `source_revision`, `ruleset_id`, `content_profile_id`, `payload_digest`, capability manifest, completeness manifest and exact producer-contract identity. Tombstones remain first-class evidence.
 
-Native entity identity must be authority-scoped (declared authority + type + native content key). The first native persistence slice should not reuse the globally unique Legacy `canonical_key` namespace or legacy release/range/runtime-present payload assumptions.
+Native entity identity must be authority-scoped: `(declared authority, native content_key)`, with entity type kept as an attribute. This matches the locked `NativeCatalogEnvelopeValidator`, which treats `content_key` alone as unique and addresses relation endpoints and tombstones by that key only; uniqueness is therefore enforced on `(authority, content_key)` across types, and any change of that rule requires revising the locked producer contract first. The first native persistence slice should not reuse the globally unique Legacy `canonical_key` namespace or legacy release/range/runtime-present payload assumptions.
 
 ### One profile and activation lifecycle
 
