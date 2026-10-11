@@ -150,7 +150,7 @@ Forbidden:
 - session writes;
 - DDL, administrative privileges or `GRANT OPTION`.
 
-`database/provisioning/canary-character-transfer.sql.template` is the reviewed deployment template. Production credentials remain outside Git. `php artisan canary:verify-character-transfer-db-privileges` must fail closed on missing or excessive privileges.
+The repository provisioning template was removed with the retired transfer path; the grants above remain the contract. Production credentials remain outside Git. `php artisan canary:verify-character-transfer-db-privileges` must fail closed on missing or excessive privileges.
 
 ## Cross-database saga
 

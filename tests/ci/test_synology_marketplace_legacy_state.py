@@ -71,34 +71,43 @@ def run_loader(state: str, *, pending: str = "0", tables: str = "1") -> tuple[su
         return result, state_file.read_text(), log.read_text()
 
 
-def test_legacy_disabled_drained_state_is_migrated() -> None:
+FIVE_KEYS = (
+    "MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID=42\n"
+    "MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME=oteryn_bazaar_escrow\n"
+    "MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH=1785456000\n"
+    "CANARY_CHARACTER_TRANSFER_DB_USER=oteryn_character_transfer\n"
+)
+
+
+def test_legacy_keys_are_dropped_without_database_proof() -> None:
     result, state, log = run_loader("MARKETPLACE_ENABLED=false\n" + LEGACY_KEYS)
     assert result.returncode == 0, result.stderr
     assert "enabled=false" in result.stdout
     assert state == "MARKETPLACE_ENABLED=false\n"
-    assert "character_auctions" in log
-
-
-def test_legacy_state_without_auction_table_is_migrated() -> None:
-    result, state, _ = run_loader("MARKETPLACE_ENABLED=false\n" + LEGACY_KEYS, tables="0")
-    assert result.returncode == 0, result.stderr
-    assert state == "MARKETPLACE_ENABLED=false\n"
-
-
-def test_legacy_enabled_state_fails_closed_unchanged() -> None:
-    original = "MARKETPLACE_ENABLED=true\n" + LEGACY_KEYS
-    result, state, log = run_loader(original)
-    assert result.returncode != 0
-    assert "prepare-rollback" in result.stderr
-    assert state == original
     assert log == ""
 
 
-def test_legacy_state_with_pending_auctions_fails_closed_unchanged() -> None:
-    original = "MARKETPLACE_ENABLED=false\n" + LEGACY_KEYS
-    result, state, _ = run_loader(original, pending="3")
+def test_enabled_legacy_state_with_the_five_staging_keys_passes_and_is_rewritten() -> None:
+    result, state, log = run_loader("MARKETPLACE_ENABLED=true\n" + FIVE_KEYS)
+    assert result.returncode == 0, result.stderr
+    assert "prepare-rollback" not in result.stderr
+    assert "enabled=true" in result.stdout
+    assert state == "MARKETPLACE_ENABLED=true\n"
+    assert "CANARY" not in state
+    assert log == ""
+
+
+def test_legacy_state_with_pending_auctions_is_not_blocked() -> None:
+    result, state, log = run_loader("MARKETPLACE_ENABLED=false\n" + LEGACY_KEYS, pending="3")
+    assert result.returncode == 0, result.stderr
+    assert state == "MARKETPLACE_ENABLED=false\n"
+    assert log == ""
+
+
+def test_legacy_keys_without_a_valid_enabled_flag_still_fail_closed() -> None:
+    original = FIVE_KEYS
+    result, state, _ = run_loader(original)
     assert result.returncode != 0
-    assert "3 non-terminal auctions" in result.stderr
     assert state == original
 
 
@@ -125,3 +134,12 @@ def test_deploy_migrates_legacy_state_before_schema_change() -> None:
     migrate = lib.index("_oteryn_migrate_legacy_marketplace_state || return 1", before)
     candidate = lib.index('release-state.sh" write "$state_dir/candidate-release.env"', before)
     assert migrate < candidate
+
+
+def test_bazaar_control_path_needs_no_python_and_no_retired_template() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "character-bazaar-staging-control.yml").read_text(encoding="utf-8")
+    script = (ROOT / "deploy" / "synology" / "scripts" / "marketplace-staging.sh").read_text(encoding="utf-8")
+    for text in (workflow, script):
+        assert "python3 " not in text.replace("has no python3", "")
+        assert "canary-character-transfer" not in text
+    assert not (ROOT / "database" / "provisioning" / "canary-character-transfer.sql.template").exists()

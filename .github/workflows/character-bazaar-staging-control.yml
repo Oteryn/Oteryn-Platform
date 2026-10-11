@@ -7,7 +7,6 @@ on:
     paths:
       - '.github/workflows/character-bazaar-staging-control.yml'
       - 'config/marketplace.php'
-      - 'database/provisioning/canary-character-transfer.sql.template'
       - 'deploy/synology/compose.marketplace.yml'
       - 'deploy/synology/scripts/marketplace-staging.sh'
       - 'deploy/synology/scripts/repository-ghcr-image.sh'
@@ -101,7 +100,6 @@ jobs:
           set -euo pipefail
           docker version >/dev/null
           docker compose version >/dev/null
-          python3 --version >/dev/null
           sha256sum --version >/dev/null
 
       - name: Log in to GHCR
@@ -229,31 +227,15 @@ jobs:
           EOF
           chmod 600 deploy/synology/.env
 
-          python3 - deploy/synology/.env "$state_file" <<'PY'
-          from pathlib import Path
-          import os
-          import sys
-
-          source = Path(sys.argv[1])
-          target = Path(sys.argv[2])
-          allowed = [
-              'MARKETPLACE_ENABLED',
-          ]
-          values = {}
-          for line in source.read_text().splitlines():
-              if '=' not in line:
-                  continue
-              key, value = line.split('=', 1)
-              if key in allowed:
-                  values[key] = value
-          missing = [key for key in allowed if key not in values]
-          if missing:
-              raise SystemExit(f'missing marketplace state keys: {missing}')
-          temporary = target.with_suffix('.env.tmp')
-          temporary.write_text(''.join(f'{key}={values[key]}\n' for key in allowed))
-          os.chmod(temporary, 0o600)
-          temporary.replace(target)
-          PY
+          enabled_value="$(grep -m1 '^MARKETPLACE_ENABLED=' deploy/synology/.env | cut -d= -f2-)"
+          if [[ -z "$enabled_value" ]]; then
+            echo "missing marketplace state key: MARKETPLACE_ENABLED" >&2
+            exit 1
+          fi
+          temporary="$state_file.tmp"
+          printf 'MARKETPLACE_ENABLED=%s\n' "$enabled_value" > "$temporary"
+          chmod 600 "$temporary"
+          mv "$temporary" "$state_file"
 
       - name: Execute guarded staging action
         env:
@@ -287,28 +269,15 @@ jobs:
           set -euo pipefail
           state_dir="${OTERYN_STATE_DIR_INPUT:-/var/lib/oteryn-staging-state}"
           state_file="$state_dir/marketplace.env"
-          python3 - deploy/synology/.env "$state_file" <<'PY'
-          from pathlib import Path
-          import os
-          import sys
-
-          source = Path(sys.argv[1])
-          target = Path(sys.argv[2])
-          allowed = [
-              'MARKETPLACE_ENABLED',
-          ]
-          values = {}
-          for line in source.read_text().splitlines():
-              if '=' not in line:
-                  continue
-              key, value = line.split('=', 1)
-              if key in allowed:
-                  values[key] = value
-          temporary = target.with_suffix('.env.tmp')
-          temporary.write_text(''.join(f'{key}={values[key]}\n' for key in allowed))
-          os.chmod(temporary, 0o600)
-          temporary.replace(target)
-          PY
+          enabled_value="$(grep -m1 '^MARKETPLACE_ENABLED=' deploy/synology/.env | cut -d= -f2-)"
+          if [[ -z "$enabled_value" ]]; then
+            echo "missing marketplace state key: MARKETPLACE_ENABLED" >&2
+            exit 1
+          fi
+          temporary="$state_file.tmp"
+          printf 'MARKETPLACE_ENABLED=%s\n' "$enabled_value" > "$temporary"
+          chmod 600 "$temporary"
+          mv "$temporary" "$state_file"
 
       - name: Write sanitized staging evidence
         env:
@@ -319,24 +288,14 @@ jobs:
           platform_image="$(docker inspect --format '{{.Config.Image}}' "$platform_id")"
           scheduler_count="$(docker ps --filter label=com.docker.compose.project=oteryn-staging --filter label=com.docker.compose.service=marketplace-scheduler --format '{{.ID}}' | sed '/^$/d' | wc -l | tr -d ' ')"
           enabled="$(grep '^MARKETPLACE_ENABLED=' deploy/synology/.env | cut -d= -f2)"
-          python3 - "$CONTROL_ACTION" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$platform_image" "$enabled" "$scheduler_count" <<'PY'
-          import json
-          from pathlib import Path
-          import sys
-
-          action, sha, run_id, platform_image, enabled, scheduler_count = sys.argv[1:]
-          evidence = {
-              'classification': 'STAGING_PROVEN' if action in {'deploy-enable', 'enable', 'verify'} else 'STAGING_CONTROLLED',
-              'action': action,
-              'exact_source_sha': sha,
-              'workflow_run_id': run_id,
-              'platform_image': platform_image,
-              'marketplace_enabled': enabled == 'true',
-              'scheduler_running_count': int(scheduler_count),
-              'production_environment_proven': False,
-          }
-          Path('character-bazaar-staging-evidence.json').write_text(json.dumps(evidence, indent=2) + '\n')
-          PY
+          if [[ "$CONTROL_ACTION" == deploy-enable || "$CONTROL_ACTION" == enable || "$CONTROL_ACTION" == verify ]]; then
+            classification=STAGING_PROVEN
+          else
+            classification=STAGING_CONTROLLED
+          fi
+          if [[ "$enabled" == true ]]; then enabled_json=true; else enabled_json=false; fi
+          printf '{\n  "classification": "%s",\n  "action": "%s",\n  "exact_source_sha": "%s",\n  "workflow_run_id": "%s",\n  "platform_image": "%s",\n  "marketplace_enabled": %s,\n  "scheduler_running_count": %s,\n  "production_environment_proven": false\n}\n' \
+            "$classification" "$CONTROL_ACTION" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$platform_image" "$enabled_json" "$scheduler_count" > character-bazaar-staging-evidence.json
 
       - name: Upload sanitized staging evidence
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

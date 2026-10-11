@@ -78,7 +78,7 @@ Every authorized enablement rotates the sink hash. The legacy engine account ide
 
 ## Transfer privilege boundary
 
-The workflow renders `database/provisioning/canary-character-transfer.sql.template` only on staging and only with the dedicated operation-specific principal. The effective verifier must prove:
+The workflow no longer renders a provisioning template (removed with the retired transfer path); previously it rendered one only on staging and only with the dedicated operation-specific principal. The effective verifier must prove:
 
 - `accounts.id` SELECT only;
 - approved `players` snapshot columns SELECT;

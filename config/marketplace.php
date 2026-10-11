@@ -6,7 +6,7 @@ $isolatedTestDefault = in_array($environment, ['testing', 'acceptance'], true);
 return [
     // Runtime environments are fail-closed. The isolated PHPUnit/acceptance
     // harnesses retain their deterministic fixture default. Every other runtime
-    // requires the reviewed escrow, transfer credential, scheduler and control gate.
+    // requires the reviewed escrow, scheduler and control gate.
     // Trusted-main staging refreshes still execute through that guarded control.
     'enabled' => (bool) env('MARKETPLACE_ENABLED', $isolatedTestDefault),
     // Bazaar freeze (removal plan B4): new listings are refused while true. In-flight
