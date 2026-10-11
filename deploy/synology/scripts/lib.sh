@@ -5,6 +5,26 @@
 OTERYN_HEALTH_ALPINE_IMAGE='alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce'
 OTERYN_HEALTH_PYTHON_IMAGE='python@sha256:6d43704baacd1bfbe7c295d7f13079d5d8104ed33568873133f8fc69980419df'
 
+# Resolves a non-secret native-login staging setting without a hand-set GitHub repository variable.
+# Precedence: the repository variable (passed as the second argument) wins; otherwise the committed
+# deploy/synology/native-defaults.env value; otherwise empty (the native admission gate then fails
+# closed with its own message). The file is read as data, never sourced.
+oteryn_native_default() {
+    local name="$1" current="${2:-}" file value
+    if [[ -n "$current" ]]; then
+        printf '%s' "$current"
+        return 0
+    fi
+    if [[ ! "$name" =~ ^OTERYN_STAGING_NATIVE_[A-Z_]+$ ]]; then
+        echo "Invalid native default name: $name" >&2
+        return 1
+    fi
+    file="${OTERYN_NATIVE_DEFAULTS_FILE:-$(dirname "${BASH_SOURCE[0]}")/../native-defaults.env}"
+    [[ -f "$file" ]] || return 0
+    value="$(sed -n "s/^${name}=//p" "$file" | tail -n 1)"
+    printf '%s' "${value%$'\r'}"
+}
+
 load_oteryn_env_file() {
     local env_file="$1"
     local line key value
@@ -972,12 +992,12 @@ oteryn_run_native_admission_self_check() {
 # routable. Reads the loaded environment; prints the reason to stderr and fails when incomplete.
 oteryn_native_admission_projection_ready() {
     if [[ ! "${GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID:-}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; then
-        echo "Native admission needs OTERYN_STAGING_NATIVE_WORLD_ID (the native World UUIDv7)." >&2
+        echo "Native admission needs OTERYN_STAGING_NATIVE_WORLD_ID (the native World UUIDv7; set the repository variable or the value in deploy/synology/native-defaults.env)." >&2
         return 1
     fi
     if [[ "${GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED:-}" != true || -z "${GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES:-}" \
         || "${GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_ENABLED:-}" != true || -z "${GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES:-}" ]]; then
-        echo "Native admission needs OTERYN_STAGING_NATIVE_RUNTIME_STATUS_IDENTITIES and OTERYN_STAGING_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES; without them no scope is routable and every login would fail." >&2
+        echo "Native admission needs OTERYN_STAGING_NATIVE_RUNTIME_STATUS_IDENTITIES and OTERYN_STAGING_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES (repository variables or deploy/synology/native-defaults.env); without them no scope is routable and every login would fail." >&2
         return 1
     fi
 }

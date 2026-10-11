@@ -382,6 +382,11 @@ jobs:
           set -euo pipefail
           umask 077
           state_dir="${OTERYN_STATE_DIR_INPUT:-/var/lib/oteryn-staging-state}"
+          source deploy/synology/scripts/lib.sh
+          NATIVE_WORLD_ID_INPUT="$(oteryn_native_default OTERYN_STAGING_NATIVE_WORLD_ID "$NATIVE_WORLD_ID_INPUT")"
+          NATIVE_ADMISSION_INPUT="$(oteryn_native_default OTERYN_STAGING_NATIVE_ADMISSION_ENABLED "$NATIVE_ADMISSION_INPUT")"
+          NATIVE_RUNTIME_IDENTITIES_INPUT="$(oteryn_native_default OTERYN_STAGING_NATIVE_RUNTIME_STATUS_IDENTITIES "$NATIVE_RUNTIME_IDENTITIES_INPUT")"
+          NATIVE_SCOPE_IDENTITIES_INPUT="$(oteryn_native_default OTERYN_STAGING_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES "$NATIVE_SCOPE_IDENTITIES_INPUT")"
           app_url="$CANONICAL_PUBLIC_APP_URL"
           release_sha="${RELEASE_SHA:-rollback-placeholder}"
           platform_source_sha="${PLATFORM_SOURCE_SHA_RESOLVED:-rollback-placeholder}"

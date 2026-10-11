@@ -477,3 +477,35 @@ def test_every_route_runs_the_self_check_gate_before_ingress() -> None:
     assert mp.count("oteryn_native_admission_self_check_or_stop") == 2
     assert "oteryn_native_admission_self_check_or_stop" in KEY_SCRIPT.read_text(encoding="utf-8")
     assert "must be true or false" in KEY_SCRIPT.read_text(encoding="utf-8")
+
+
+def test_native_defaults_file_is_non_secret_default_off_and_overridable_by_variables() -> None:
+    defaults = (ROOT / "deploy" / "synology" / "native-defaults.env").read_text(encoding="utf-8")
+    values = dict(line.split("=", 1) for line in defaults.splitlines() if line and not line.startswith("#"))
+    assert values["OTERYN_STAGING_NATIVE_ADMISSION_ENABLED"] == "false"
+    for name in ("WORLD_ID", "RUNTIME_STATUS_IDENTITIES", "SCOPE_ASSIGNMENT_IDENTITIES"):
+        assert values[f"OTERYN_STAGING_NATIVE_{name}"] == ""
+    assert re.search(r"(?i)secret|password|token|private", "\n".join(f"{k}={v}" for k, v in values.items())) is None
+    for name in ("deploy-synology-staging.yml", "character-bazaar-staging-control.yml"):
+        workflow = (WORKFLOWS / name).read_text(encoding="utf-8")
+        assert workflow.count('oteryn_native_default OTERYN_STAGING_NATIVE_') == 4
+        assert "vars.OTERYN_STAGING_NATIVE_WORLD_ID" in workflow
+
+
+def test_native_default_resolver_prefers_the_variable_then_the_file(tmp_path: pathlib.Path) -> None:
+    file = tmp_path / "d.env"
+    file.write_text('OTERYN_STAGING_NATIVE_WORLD_ID=from-file\nOTERYN_STAGING_NATIVE_ADMISSION_ENABLED=false\n', encoding="utf-8")
+
+    def resolve(name: str, current: str) -> str:
+        result = subprocess.run(
+            ["bash", "-c", f'source "{LIB}"; oteryn_native_default {name} "$1"', "x", current],
+            env={"PATH": "/usr/bin:/bin", "OTERYN_NATIVE_DEFAULTS_FILE": str(file)},
+            capture_output=True, text=True, check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        return result.stdout
+
+    assert resolve("OTERYN_STAGING_NATIVE_WORLD_ID", "") == "from-file"
+    assert resolve("OTERYN_STAGING_NATIVE_WORLD_ID", "override") == "override"
+    assert resolve("OTERYN_STAGING_NATIVE_ADMISSION_ENABLED", "") == "false"
+    assert resolve("OTERYN_STAGING_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES", "") == ""
