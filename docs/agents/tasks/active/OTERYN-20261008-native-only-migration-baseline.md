@@ -23,6 +23,21 @@ Record the owner-directed native-only completion target under #1474; PR #1475.
 
 Only the three documents changed by this PR are owned. No runtime paths are claimed.
 
+```yaml
+owned_paths:
+  - docs/agents/programs/OTERYN_PLATFORM_COMPLETION_LEAD_PROGRAMME.md
+  - docs/agents/reports/OTERYN-20261008-native-only-migration-baseline.md
+  - docs/agents/tasks/active/OTERYN-20261008-native-only-migration-baseline.md
+modules:
+  - Documentation
+dependencies:
+  - Issue #1474
+blockers:
+  - none
+cross_repository_tasks:
+  - none
+```
+
 ## Context checkpoint
 
 ```yaml
