@@ -129,6 +129,7 @@ def test_every_platform_deploy_route_publishes_trust() -> None:
     # Each script that (re)creates Platform for a release, rollback or Marketplace switch passes the
     # witnessed publication before it promotes or reports success.
     assert deploy_text().count(PUBLISH_CALL) == 2
+    assert deploy_text().count('oteryn_publish_native_admission_trust "$("${candidate_compose[@]}" ps -q platform)"') == 1
     assert DEPLOY_IMPACT.read_text(encoding="utf-8").count(PUBLISH_CALL) == 1
     assert ROLLBACK.read_text(encoding="utf-8").count(PUBLISH_CALL + " || exit 1") == 1
     assert MARKETPLACE_STAGING.read_text(encoding="utf-8").count(PUBLISH_CALL + " || exit 1") == 3
@@ -139,6 +140,19 @@ def test_every_platform_deploy_route_publishes_trust() -> None:
 def ordered(text: str, *needles: str) -> None:
     positions = [text.index(needle) for needle in needles]
     assert positions == sorted(positions), needles
+
+
+def test_previous_candidate_is_promoted_only_after_trust_publication() -> None:
+    text = deploy_text()
+    body = text[text.index("finalize_previous_candidate_if_healthy() {") :]
+    body = body[: body.index("\n}\n")]
+    ordered(
+        body,
+        '"${candidate_compose[@]}" up -d --no-deps --force-recreate internal-proxy gateway',
+        'oteryn_publish_native_admission_trust "$("${candidate_compose[@]}" ps -q platform)"',
+        'bash "$SCRIPT_DIR/health-check.sh"',
+        'cp "$candidate_file" "$current_file.tmp"',
+    )
 
 
 def test_rollback_publishes_after_starting_the_last_good_platform_and_before_promotion() -> None:
@@ -239,7 +253,11 @@ def test_switch_on_creates_the_witness_owner_only_and_publishes(fake_docker: pat
     log = "\n".join(calls)
     assert WITNESS_SETUP.search(log)
     assert log.index("mkdir -p") < log.index("publish-trust")
-    assert calls[-1] == "exec platform-1 php artisan game-auth:native-admission:publish-trust --no-interaction"
+    # The image entrypoint exports the signing key id and file path from the key volume (as for the self-check).
+    assert calls[-1] == (
+        "exec platform-1 /usr/local/bin/oteryn-platform-entrypoint "
+        "php artisan game-auth:native-admission:publish-trust --no-interaction"
+    )
 
 
 def test_already_trusted_is_accepted(fake_docker: pathlib.Path) -> None:

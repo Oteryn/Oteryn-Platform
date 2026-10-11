@@ -611,6 +611,12 @@ finalize_previous_candidate_if_healthy() {
         rm -f "$candidate_env"
         return 1
     fi
+    # The candidate's Platform may have stopped before its trust publication; promote it only after
+    # the witnessed publication passes.
+    if ! oteryn_publish_native_admission_trust "$("${candidate_compose[@]}" ps -q platform)"; then
+        rm -f "$candidate_env"
+        return 1
+    fi
     if ! OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"; then
         rm -f "$candidate_env"
         echo "Previous candidate remains unresolved because its full staging health contract failed." >&2

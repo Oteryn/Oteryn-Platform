@@ -69,10 +69,6 @@ services:
       SESSION_SAME_SITE: lax
       CACHE_STORE: file
       QUEUE_CONNECTION: sync
-      MAIL_MAILER: array
-      GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256: ${GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256}
-      GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256: ${GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256:-}
-      GAME_AUTH_NATIVE_ADMISSION_ENABLED: *native_admission_enabled
       # Signing trust registry scope and the native evidence high-water witness, needed by
       # game-auth:native-admission:publish-trust (deploy trusts the issuer PUBLIC key), the signing
       # self-check and every identity security revocation. The witness lives on the retained
@@ -81,6 +77,10 @@ services:
       # same values; deploy creates the directory on every run.
       GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE: fresh_admission
       GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY: /var/www/html/storage/app/native-evidence-witness
+      MAIL_MAILER: array
+      GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256: ${GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256}
+      GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256: ${GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256:-}
+      GAME_AUTH_NATIVE_ADMISSION_ENABLED: *native_admission_enabled
     ports:
       - ${PLATFORM_BIND_ADDRESS}:${PLATFORM_PORT}:8000
     volumes:

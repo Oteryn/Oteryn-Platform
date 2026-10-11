@@ -752,7 +752,10 @@ oteryn_publish_native_admission_trust() {
         echo "Native admission is off; no signing key is trusted."
         return 0
     fi
-    if ! output="$(docker exec "$container_id" php artisan game-auth:native-admission:publish-trust --no-interaction 2>&1)"; then
+    # Through the image entrypoint, exactly like the signing self-check: it exports the signing key id
+    # and file path from the key volume, which a bare docker exec does not see.
+    if ! output="$(docker exec "$container_id" /usr/local/bin/oteryn-platform-entrypoint \
+        php artisan game-auth:native-admission:publish-trust --no-interaction 2>&1)"; then
         printf '%s\n' "$output" >&2
         echo "Native admission signing key trust publication refused; deploy stops before the signing self-check." >&2
         return 1
