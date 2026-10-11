@@ -16,12 +16,12 @@ optional_reads: []
 
 Governing GitHub Issue: #1474 (native-only migration) - canonical lifecycle authority for this task.
 
-Packet F-5 of `docs/agents/programs/DECANARY_REMOVAL_PLAN.md`: rename the merge-queue rollout name collisions to `pilot` naming (two maintenance runbooks and the retired native-auth cache-build workflow name in the lifecycle registry and trigger-economy test), and reconcile the ownership-block blocker of the merged native-only baseline record.
+Packet F-5 of `docs/agents/programs/DECANARY_REMOVAL_PLAN.md`: rename the merge-queue rollout name collisions to `pilot` naming (two maintenance runbooks; the retired native-auth cache-build workflow keeps its historical filename in the registry), and reconcile the ownership-block blocker of the merged native-only baseline record.
 
 ## Acceptance criteria
 
 - [x] `docs/maintenance/*MQ*` runbooks renamed to `*_PILOT_*` with content updated; no live reference to the old paths remains outside historical records.
-- [x] The retired workflow name is renamed consistently in `docs/agents/CI_WORKFLOW_LIFECYCLE.json` and `tests/ci/test_workflow_trigger_economy.py`.
+- [x] The retired workflow's historical filename stays unchanged in `docs/agents/CI_WORKFLOW_LIFECYCLE.json` and `tests/ci/test_workflow_trigger_economy.py` (review: `pilot` naming is reserved for live artifacts).
 - [x] The ownership block of `OTERYN-20261008-native-only-migration-baseline` states the same blocker as its checkpoint.
 - [x] Legacy-token ratchet does not rise; `python -m pytest tests/ci` and workflow inventory validators pass.
 
@@ -82,8 +82,6 @@ rejected_hypotheses: []
 changed_paths:
   - docs/maintenance/DELEGATED_MQ_PILOT_20260913.md
   - docs/maintenance/OTERYN_CI_MQ_PILOT_V2.md
-  - docs/agents/CI_WORKFLOW_LIFECYCLE.json
-  - tests/ci/test_workflow_trigger_economy.py
   - docs/agents/tasks/active/OTERYN-20261008-native-only-migration-baseline.md
 validation:
   - command: python tools/validation/legacy_token_ratchet.py
