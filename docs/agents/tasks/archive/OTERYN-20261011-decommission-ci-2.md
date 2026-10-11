@@ -47,21 +47,14 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-11T18:00:00Z
-head: UNKNOWN
+updated_at: 2026-10-11T17:00:00Z
+head: 693662461bb834119d89cfcb6c607b0c7f7df906
 branch: claude/decanary-ci-2-20261011
 pr: 1543
-status: validating
+status: completed
 context_routes:
   - ci
 owned_paths:
-  - .github/workflows/native-protocol-contract-audits.yml
-  - deploy/synology/scripts/deploy.sh
-  - deploy/synology/scripts/lib.sh
-  - deploy/synology/scripts/release-state.sh
-  - deploy/synology/scripts/upgrade-legacy-release-state.sh
-  - docs/agents/LEGACY_TOKEN_BASELINE.json
-  - docs/agents/tasks/active/OTERYN-20261011-decommission-ci-2.md
   - docs/agents/tasks/archive/OTERYN-20261011-decommission-ci-2.md
 proven:
   - The Synology compose topology is already native-only; the remaining deploy script matches are comments, a one-time cleanup of the retired container by service label, the rollback rejection of release state carrying the retired image variable, and retired durable Marketplace state keys. The label, variable and key names are functional wire values and stay.
@@ -82,23 +75,30 @@ changed_paths:
   - deploy/synology/scripts/release-state.sh
   - deploy/synology/scripts/upgrade-legacy-release-state.sh
   - docs/agents/LEGACY_TOKEN_BASELINE.json
+  - docs/agents/tasks/archive/OTERYN-20261011-decommission-ci-2.md
+  - docs/agents/tasks/active/OTERYN-20261011-decommission-ci-2.md
 validation:
+  - command: PR 1543 exact-head CI and protected integration
+    result: PASS
+    evidence: PR 1543 merged as 693662461bb834119d89cfcb6c607b0c7f7df906; ratchet passed and the baseline was only lowered
   - command: python tools/validation/legacy_token_ratchet.py
     result: PASS
     evidence: no group above baseline
   - command: product runtime E2E
     result: NOT_APPLICABLE
     evidence: comment, message and dead-guard changes only
-blockers:
-  - none
-next_action: Archive this record once the PR is closed.
-terminal_pr_policy: archive_pending
+blockers: []
+next_action: No further action; the task is archived and its source branch deletes after merge.
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1543 is terminal on protected main and the source branch has no continuing ownership purpose
+source_branch_evidence: PR #1543 merged as protected main 693662461bb834119d89cfcb6c607b0c7f7df906 at 2026-10-11T16:39:24Z; source branch deletes after merge
 ```
+
+## Notes
+
+Review P2 (wording, not corrected retroactively): the task's `owned_paths` and the checkpoint's `changed_paths` describe different sets. `owned_paths` is the ownership grant for the whole task (including the active and archive record paths), while `changed_paths` lists only the paths the PR actually modified; neither is a claim about the other. This archive releases the completed task ownership and changes no runtime state.
