@@ -721,12 +721,14 @@ docker() {
 }
 
 # Native (protocol_version 2) login needs the Gateway branch and the Platform issuer switched
-# together, and the issuer signs only in testing or preproduction. A Gateway that accepts the
-# branch while the issuer refuses would pass deploy with every login NATIVE_LOGIN_UNAVAILABLE.
+# together. A Gateway that accepts the branch while the issuer cannot sign would pass deploy with
+# every login answering NATIVE_LOGIN_UNAVAILABLE. A login probe with an unknown ticket is rejected
+# before the issuer touches its signing key, so it cannot prove issuance works. Until a Platform
+# self-check exercises the issuer signing key and trust validation, deploy refuses to turn native
+# admission on at all.
 oteryn_assert_native_login_pairing() {
     local platform_flag="$1"
     local gateway_flag="$2"
-    local app_env="$3"
 
     case "$platform_flag" in
         true | false) ;;
@@ -739,8 +741,8 @@ oteryn_assert_native_login_pairing() {
         echo "Gateway native login (${gateway_flag:-unset}) does not match Platform native admission ($platform_flag)." >&2
         return 1
     fi
-    if [[ "$platform_flag" == true && "$app_env" != testing && "$app_env" != preproduction ]]; then
-        echo "Native login is enabled but the Platform issuer refuses APP_ENV=${app_env:-unset}; every login would answer NATIVE_LOGIN_UNAVAILABLE." >&2
+    if [[ "$platform_flag" == true ]]; then
+        echo "Native admission cannot be enabled by this deployment: no Platform self-check yet exercises the issuer signing key and trust validation, so a usable login cannot be proven." >&2
         return 1
     fi
 }

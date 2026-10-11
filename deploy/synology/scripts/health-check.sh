@@ -55,16 +55,11 @@ container_env_value() {
         | awk -v prefix="${key}=" 'index($0, prefix) == 1 && !found { print substr($0, length(prefix) + 1); found = 1 }'
 }
 
-# The Gateway routes native (protocol_version 2) logins only when the Platform issuer can
-# admit them; a Gateway that accepts the branch while the issuer refuses would let deploy
-# pass with every login answering NATIVE_LOGIN_UNAVAILABLE.
+# Native login stays off until a Platform self-check can prove the issuer signs (lib.sh).
 platform_native_admission="$(container_env_value platform GAME_AUTH_NATIVE_ADMISSION_ENABLED)"
 gateway_native_login="$(container_env_value gateway GATEWAY_NATIVE_LOGIN_ENABLED)"
-platform_app_env="$(container_env_value platform APP_ENV)"
-oteryn_assert_native_login_pairing "$platform_native_admission" "$gateway_native_login" "$platform_app_env" || exit 1
-if [[ "$platform_native_admission" == false ]]; then
-    echo "::warning::Native game login is disabled on this deployment: Platform native admission is off, so the Gateway refuses every login."
-fi
+oteryn_assert_native_login_pairing "$platform_native_admission" "$gateway_native_login" || exit 1
+echo "::warning::Native game login is disabled on this deployment: Platform native admission is off, so the Gateway refuses every login."
 
 probe_url() {
     local service="$1"
@@ -144,7 +139,7 @@ docker run --rm \
     --network host \
     -i \
     python:3.12-alpine \
-    python3 - "$PLATFORM_PORT" "$GATEWAY_PORT" "$expected_gateway_version" "$platform_native_admission" <<'PY'
+    python3 - "$PLATFORM_PORT" "$GATEWAY_PORT" "$expected_gateway_version" <<'PY'
 import http.client
 import json
 import secrets
@@ -154,7 +149,6 @@ import time
 platform_port = int(sys.argv[1])
 gateway_port = int(sys.argv[2])
 expected_gateway_version = sys.argv[3]
-native_admission_enabled = sys.argv[4] == 'true'
 
 
 def uuid7():
@@ -235,9 +229,8 @@ if not required_cache_control.issubset(cache_control):
 if headers.get('pragma', '').lower() != 'no-cache' or headers.get('expires') != '0':
     raise SystemExit('Gateway login response lost legacy no-cache controls')
 
-# A well-formed native (protocol_version 2) login with an unknown ticket. With native login
-# off the Gateway must refuse it without reaching a dependency. With it on, the Platform
-# issuer must answer and reject the ticket; NATIVE_LOGIN_UNAVAILABLE means login is unusable.
+# A well-formed native (protocol_version 2) login. Native admission is off (the pairing check
+# above refuses anything else), so the Gateway must refuse it without reaching a dependency.
 attempt_ref = uuid7()
 native_login = json.dumps(
     {
@@ -269,18 +262,8 @@ try:
     native_payload = json.loads(body)
 except json.JSONDecodeError as exc:
     raise SystemExit(f'Well-formed native Gateway login did not return JSON (status {status})') from exc
-if not native_admission_enabled:
-    if status != 400 or native_payload != {'error': 'invalid_request'}:
-        raise SystemExit(f'Gateway answered a native login while native admission is off: status {status}')
-else:
-    error = native_payload.get('error') if isinstance(native_payload, dict) else None
-    code = error.get('code') if isinstance(error, dict) else None
-    if code == 'NATIVE_LOGIN_UNAVAILABLE':
-        raise SystemExit('Native admission is unavailable: a well-formed Gateway login answered NATIVE_LOGIN_UNAVAILABLE')
-    if status != 401 or code != 'NATIVE_LOGIN_AUTHENTICATION_REQUIRED':
-        raise SystemExit(f'Well-formed native Gateway login with an unknown ticket returned unexpected status {status} / {code}')
-    if native_payload.get('attempt_ref') != attempt_ref:
-        raise SystemExit('Native Gateway login refusal did not echo the probe attempt_ref')
+if status != 400 or native_payload != {'error': 'invalid_request'}:
+    raise SystemExit(f'Gateway answered a native login while native admission is off: status {status}')
 cache_control = {token.strip().lower() for token in headers.get('cache-control', '').split(',')}
 if not required_cache_control.issubset(cache_control):
     raise SystemExit('Native Gateway login response lost required private no-store cache controls')

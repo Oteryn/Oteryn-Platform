@@ -15,7 +15,7 @@ LIB = ROOT / "deploy" / "synology" / "scripts" / "lib.sh"
 HEALTH_CHECK = ROOT / "deploy" / "synology" / "scripts" / "health-check.sh"
 README = ROOT / "deploy" / "synology" / "README.md"
 
-PROBE_MARKER = '"$platform_native_admission" <<\'PY\'\n'
+PROBE_MARKER = '"$expected_gateway_version" <<\'PY\'\n'
 UUID7 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 NO_STORE = {
     "Cache-Control": "no-store, no-cache, must-revalidate, private",
@@ -38,39 +38,37 @@ def test_gateway_native_login_is_the_platform_admission_flag() -> None:
     assert gateway < text.index("GATEWAY_NATIVE_LOGIN_ENABLED: *")
 
 
-def run_pairing(platform: str, gateway: str, app_env: str) -> subprocess.CompletedProcess[str]:
+def run_pairing(platform: str, gateway: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["bash", "-c", 'source "$1"; oteryn_assert_native_login_pairing "$2" "$3" "$4"', "bash", str(LIB), platform, gateway, app_env],
+        ["bash", "-c", 'source "$1"; oteryn_assert_native_login_pairing "$2" "$3"', "bash", str(LIB), platform, gateway],
         text=True,
         capture_output=True,
         check=False,
     )
 
 
-def test_pairing_accepts_both_off_on_staging() -> None:
-    assert run_pairing("false", "false", "staging").returncode == 0
-
-
-def test_pairing_accepts_both_on_in_preproduction() -> None:
-    assert run_pairing("true", "true", "preproduction").returncode == 0
+def test_pairing_accepts_both_off() -> None:
+    assert run_pairing("false", "false").returncode == 0
 
 
 def test_pairing_refuses_gateway_on_without_platform() -> None:
-    result = run_pairing("false", "true", "staging")
+    result = run_pairing("false", "true")
     assert result.returncode != 0
     assert "does not match Platform native admission" in result.stderr
 
 
 def test_pairing_refuses_missing_platform_flag() -> None:
-    result = run_pairing("", "true", "staging")
+    result = run_pairing("", "true")
     assert result.returncode != 0
     assert "missing or invalid" in result.stderr
 
 
-def test_pairing_refuses_native_login_on_staging() -> None:
-    result = run_pairing("true", "true", "staging")
+def test_pairing_refuses_native_admission_on_without_signing_self_check() -> None:
+    # An unknown-ticket probe is rejected before the issuer touches its signing key, so a
+    # missing or untrusted key would still pass it. Deploy refuses ON until a self-check exists.
+    result = run_pairing("true", "true")
     assert result.returncode != 0
-    assert "refuses APP_ENV=staging" in result.stderr
+    assert "issuer signing key and trust validation" in result.stderr
 
 
 def test_health_check_asserts_pairing_before_probes() -> None:
@@ -78,7 +76,6 @@ def test_health_check_asserts_pairing_before_probes() -> None:
     pairing = script.index('oteryn_assert_native_login_pairing "$platform_native_admission"')
     probes = script.index(PROBE_MARKER)
     assert pairing < probes
-    assert '"$platform_native_admission" <<\'PY\'' in script
     assert "body=b'{}'" in script
 
 
@@ -144,13 +141,13 @@ class PlatformHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
-def run_probe(enabled: str, native_answer) -> tuple[subprocess.CompletedProcess[str], list[dict]]:
+def run_probe(native_answer) -> tuple[subprocess.CompletedProcess[str], list[dict]]:
     seen: list[dict] = []
     gateway, gateway_port = serve(gateway_handler(native_answer, seen))
     platform, platform_port = serve(PlatformHandler)
     try:
         result = subprocess.run(
-            ["python3", "-I", "-", str(platform_port), str(gateway_port), "synology-staging", enabled],
+            ["python3", "-I", "-", str(platform_port), str(gateway_port), "synology-staging"],
             input=probe_source(),
             text=True,
             capture_output=True,
@@ -171,7 +168,7 @@ def refusal(code: str):
 
 
 def test_probe_sends_well_formed_native_login_and_accepts_closed_gateway() -> None:
-    result, seen = run_probe("false", lambda body: (400, {"error": "invalid_request"}))
+    result, seen = run_probe(lambda body: (400, {"error": "invalid_request"}))
     assert result.returncode == 0, result.stderr
     assert len(seen) == 1
     request = seen[0]
@@ -182,21 +179,11 @@ def test_probe_sends_well_formed_native_login_and_accepts_closed_gateway() -> No
     assert request["offer"]["transports"] == [{"protocol_major": 1, "transport_profile": 1, "alpn": "oteryn-game/1"}]
 
 
-def test_probe_fails_when_closed_gateway_answers_native_login() -> None:
-    result, _ = run_probe("false", refusal("NATIVE_LOGIN_UNAVAILABLE"))
-    assert result.returncode != 0
-    assert "while native admission is off" in result.stderr
-
-
-def test_probe_fails_loudly_when_native_admission_is_unavailable() -> None:
-    result, _ = run_probe("true", refusal("NATIVE_LOGIN_UNAVAILABLE"))
-    assert result.returncode != 0
-    assert "Native admission is unavailable" in result.stderr
-
-
-def test_probe_accepts_issuer_ticket_rejection_when_enabled() -> None:
-    result, _ = run_probe("true", refusal("NATIVE_LOGIN_AUTHENTICATION_REQUIRED"))
-    assert result.returncode == 0, result.stderr
+def test_probe_fails_when_gateway_routes_native_login_to_the_issuer() -> None:
+    for code in ("NATIVE_LOGIN_UNAVAILABLE", "NATIVE_LOGIN_AUTHENTICATION_REQUIRED"):
+        result, _ = run_probe(refusal(code))
+        assert result.returncode != 0
+        assert "while native admission is off" in result.stderr
 
 
 def test_readme_documents_native_admission_keys_by_name() -> None:

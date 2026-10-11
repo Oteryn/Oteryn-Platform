@@ -4,7 +4,8 @@ name: ${COMPOSE_PROJECT_NAME:-oteryn-staging}
 # logins when the Platform issuer can admit them, so the Gateway flag is always the
 # Platform flag. Synology runs APP_ENV=staging and the Platform issuer signs only in
 # testing or preproduction, so native admission stays off here until preproduction
-# authority and issuer key custody exist (README: Native login).
+# authority, issuer key custody and a Platform signing self-check exist; health-check.sh
+# refuses true until then (README: Native login).
 x-native-admission-enabled: &native_admission_enabled "false"
 
 services:
