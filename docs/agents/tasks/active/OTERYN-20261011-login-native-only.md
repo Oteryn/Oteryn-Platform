@@ -53,7 +53,7 @@ checkpoint_version: 1
 updated_at: 2026-10-11T12:00:00Z
 head: UNKNOWN
 branch: claude/decanary-b7-login-native-only-20261011
-pr: 0
+pr: 1512
 status: validating
 context_routes:
   - game-auth
