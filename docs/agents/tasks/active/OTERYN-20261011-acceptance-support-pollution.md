@@ -44,7 +44,7 @@ checkpoint_version: 1
 updated_at: 2026-10-11T10:00:00Z
 head: UNKNOWN
 branch: claude/acceptance-support-pollution-20261011
-pr: 0
+pr: 1536
 status: validating
 context_routes:
   - acceptance
