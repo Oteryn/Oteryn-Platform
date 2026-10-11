@@ -73,7 +73,8 @@ validation:
     evidence: local run
 blockers:
   - none
-next_action: wait for exact-head CI and compare runtime-tests duration
+next_action: Archive this record once the PR is closed.
+terminal_pr_policy: archive_pending
 ```
 
 ## Source branch closeout
