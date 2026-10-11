@@ -105,7 +105,8 @@ validation:
     evidence: native E2E and gateway CI run on the exact head in CI
 blockers:
   - none
-next_action: Read exact-head CI; open the deployment follow-ups named above.
+next_action: Archive this record once the PR is closed.
+terminal_pr_policy: archive_pending
 ```
 
 ## Source branch closeout
