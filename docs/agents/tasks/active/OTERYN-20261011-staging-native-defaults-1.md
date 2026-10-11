@@ -51,7 +51,7 @@ checkpoint_version: 1
 updated_at: 2026-10-11T18:00:00Z
 head: UNKNOWN
 branch: claude/staging-native-defaults-1-20261011
-pr: none
+pr: 1552
 status: validating
 context_routes:
   - deploy/synology
@@ -79,7 +79,7 @@ validation:
     evidence: all tests passed locally
 blockers:
   - none
-next_action: Open the PR, record its number, wait for CI.
+next_action: Wait for exact-head CI.
 ```
 
 ## Source branch closeout
