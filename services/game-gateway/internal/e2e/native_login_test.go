@@ -12,18 +12,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/gateway"
 	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/httpapi"
 	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/nativelogin"
 	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/platform"
-	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/session"
 )
 
 // TestNativeLoginJourneyForwardsToTheIssuerIdempotently drives the real Gateway server and
 // issuer client against an issuer double that keeps the §6.2 attempt record: the first request
 // commits a grant, a retry of the same request returns the byte-identical token with a lower
-// validity, and the same attempt_ref with another ticket conflicts. No Canary dependency is ever
-// called on the native branch.
+// validity, and the same attempt_ref with another ticket conflicts. No other Platform endpoint is
+// ever called on the native branch.
 func TestNativeLoginJourneyForwardsToTheIssuerIdempotently(t *testing.T) {
 	const serviceToken = "synthetic-service-token"
 	const attemptRef = "0192b3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b"
@@ -33,7 +31,7 @@ func TestNativeLoginJourneyForwardsToTheIssuerIdempotently(t *testing.T) {
 	committed := map[string]string{} // attempt_ref -> forwarded body
 	issuerCalls := 0
 	validFor := 20
-	canaryCalls := 0
+	otherCalls := 0
 
 	platformServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		lock.Lock()
@@ -43,7 +41,7 @@ func TestNativeLoginJourneyForwardsToTheIssuerIdempotently(t *testing.T) {
 			return
 		}
 		if r.URL.Path != "/internal/v1/game-auth/native-admissions" {
-			canaryCalls++
+			otherCalls++
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -74,22 +72,10 @@ func TestNativeLoginJourneyForwardsToTheIssuerIdempotently(t *testing.T) {
 		validFor -= 3
 	}))
 	defer platformServer.Close()
-	sessionServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		lock.Lock()
-		canaryCalls++
-		lock.Unlock()
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer sessionServer.Close()
-
 	httpClient := &http.Client{Timeout: 2 * time.Second}
-	service := gateway.NewService(
-		platform.NewClient(platformServer.URL, serviceToken, httpClient),
-		session.NewClient(sessionServer.URL, "session-token", httpClient),
-	)
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
-	api := httpapi.NewServer(service, "test", logger)
+	api := httpapi.NewServer(platform.NewClient(platformServer.URL, httpClient), "test", logger)
 	api.EnableNativeLogin(nativelogin.NewHandler(nativelogin.NewIssuerClient(platformServer.URL, serviceToken, 2*time.Second, nil), logger))
 	gatewayServer := httptest.NewServer(api.Handler())
 	defer gatewayServer.Close()
@@ -135,8 +121,8 @@ func TestNativeLoginJourneyForwardsToTheIssuerIdempotently(t *testing.T) {
 
 	lock.Lock()
 	defer lock.Unlock()
-	if issuerCalls != 3 || canaryCalls != 0 {
-		t.Fatalf("expected three issuer calls and no Canary call, got issuer=%d canary=%d", issuerCalls, canaryCalls)
+	if issuerCalls != 3 || otherCalls != 0 {
+		t.Fatalf("expected three issuer calls and no other Platform call, got issuer=%d canary=%d", issuerCalls, otherCalls)
 	}
 	for _, secret := range []string{"native-ticket-secret", "another-ticket", grantToken, serviceToken} {
 		if strings.Contains(logs.String(), secret) {

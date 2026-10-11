@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  allowExpectedHttpFailure,
   assertAccessibilitySmoke,
   attachDiagnostics,
   evidenceScreenshot,
@@ -23,11 +24,6 @@ test('@smoke public critical surfaces render through the real HTTP runtime', asy
   const surfaces = [
     ['/', 'Oteryn Platform'],
     ['/news', 'News'],
-    ['/online', 'Online characters'],
-    ['/highscores', 'Level highscores'],
-    ['/servers', 'Servers'],
-    ['/characters/Acceptance%20Hero', 'Acceptance Hero'],
-    ['/guilds/Acceptance%20Guild', 'Acceptance Guild'],
     ['/login', 'Sign in to Oteryn Platform'],
     ['/register', 'Create an Oteryn Platform identity'],
   ];
@@ -40,13 +36,16 @@ test('@smoke public critical surfaces render through the real HTTP runtime', asy
   }
 });
 
-test('@smoke character search reaches the seeded public character detail', async ({ page }) => {
+test('@smoke character search reaches the truthful unavailable state until native data returns', async ({ page }) => {
   await page.goto('/');
   await page.getByLabel('Character name').fill('Acceptance Hero');
-  await page.getByRole('button', { name: 'Search' }).click();
-  await expect(page).toHaveURL(/\/characters\/Acceptance%20Hero$/u);
-  await expect(page.getByRole('heading', { name: 'Acceptance Hero' })).toBeVisible();
-  await expect(page.getByText('42', { exact: true })).toBeVisible();
+  const [response] = await Promise.all([
+    page.waitForResponse((candidate) => /\/characters\//u.test(new URL(candidate.url()).pathname)),
+    page.getByRole('button', { name: 'Search' }).click(),
+  ]);
+  expect(response.status()).toBe(503);
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: new URL(response.url()).pathname });
+  await expect(page.locator('.community-unavailable h1')).toBeVisible();
 });
 
 test('@smoke protected administrator access denies an unauthenticated browser', async ({ page }) => {

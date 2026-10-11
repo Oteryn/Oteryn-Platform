@@ -53,15 +53,11 @@ test('@portability public navigation and seeded game data work across browser en
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Oteryn Platform' })).toBeVisible();
 
+  // Game-world data has no native source yet: the world pages answer the contained unavailable state in every engine.
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: '/en/highscores' });
   await (await revealPublicNavigationLink(page, 'Highscores')).click();
   await expect(page).toHaveURL(/\/highscores$/u);
-  await expect(page.getByText('Acceptance Hero')).toBeVisible();
-
-  await page.goto('/');
-  await page.getByLabel('Character name').fill('Acceptance Hero');
-  await page.getByRole('button', { name: 'Search' }).click();
-  await expect(page).toHaveURL(/\/characters\/Acceptance%20Hero$/u);
-  await expect(page.getByRole('heading', { name: 'Acceptance Hero' })).toBeVisible();
+  await expect(page.locator('.community-unavailable h1')).toBeVisible();
 });
 
 test('@portability Identity login logout and authenticated Account Overview remain portable', async ({ page }) => {

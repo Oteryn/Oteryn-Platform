@@ -196,31 +196,30 @@ async function prove429(page, locale, projectSlug) {
 }
 
 async function prove500(page, locale) {
-  const highscoreView = path.join(repoRoot, 'resources/views/game/highscores.blade.php');
-  const unavailableView = `${highscoreView}.error-state-unavailable`;
+  const newsView = path.join(repoRoot, 'resources/views/news/index.blade.php');
+  const unavailableView = `${newsView}.error-state-unavailable`;
   let viewMoved = false;
 
   if (fs.existsSync(unavailableView)) fs.rmSync(unavailableView, { force: true });
 
   try {
-    const baseline = await page.goto(`/${locale}/highscores`);
+    const baseline = await page.goto(`/${locale}/news`);
     expect(baseline?.status()).toBe(200);
 
-    fs.renameSync(highscoreView, unavailableView);
+    fs.renameSync(newsView, unavailableView);
     viewMoved = true;
     runArtisan('view:clear');
 
-    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: `/${locale}/highscores` });
-    const response = await page.goto(`/${locale}/highscores`, { waitUntil: 'domcontentloaded' });
+    allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 500, pathname: `/${locale}/news` });
+    const response = await page.goto(`/${locale}/news`, { waitUntil: 'domcontentloaded' });
     await expectErrorSurface(page, response, 500, locale);
 
     const body = await page.locator('body').innerText();
     for (const forbidden of [
       'InvalidArgumentException',
-      'View [game.highscores] not found',
-      highscoreView,
+      'View [news.index] not found',
+      newsView,
       process.env.DB_DATABASE,
-      process.env.CANARY_DB_DATABASE,
       process.env.DB_PASSWORD,
       process.env.MARIADB_ROOT_PASSWORD,
       'SQLSTATE',
@@ -229,15 +228,15 @@ async function prove500(page, locale) {
       expect(body).not.toContain(forbidden);
     }
   } finally {
-    if (viewMoved && fs.existsSync(unavailableView) && !fs.existsSync(highscoreView)) {
-      fs.renameSync(unavailableView, highscoreView);
-    } else if (fs.existsSync(unavailableView) && fs.existsSync(highscoreView)) {
+    if (viewMoved && fs.existsSync(unavailableView) && !fs.existsSync(newsView)) {
+      fs.renameSync(unavailableView, newsView);
+    } else if (fs.existsSync(unavailableView) && fs.existsSync(newsView)) {
       fs.rmSync(unavailableView, { force: true });
     }
     runArtisan('view:clear');
   }
 
-  const recovered = await page.goto(`/${locale}/highscores`);
+  const recovered = await page.goto(`/${locale}/news`);
   expect(recovered?.status()).toBe(200);
   await expect(page.locator('h1')).toBeVisible();
 }

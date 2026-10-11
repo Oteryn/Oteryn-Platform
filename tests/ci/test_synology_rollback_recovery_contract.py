@@ -144,7 +144,7 @@ def test_pending_candidate_resume_is_proven_before_candidate_or_backup_rewrite()
 def test_new_release_finalizes_only_a_proven_healthy_previous_candidate() -> None:
     deploy = (SCRIPTS / "deploy.sh").read_text()
     start = deploy.index("finalize_previous_candidate_if_healthy()")
-    end = deploy.index("apply_sql_template()", start)
+    end = deploy.index("\nfinalize_previous_candidate_if_healthy\n", start)
     body = deploy[start:end]
 
     assert '[[ "$candidate_sha" != "$requested_sha" ]] || return 0' in body
@@ -154,8 +154,8 @@ def test_new_release_finalizes_only_a_proven_healthy_previous_candidate() -> Non
     assert "running $service image does not match candidate recovery identity" in body
     assert '_oteryn_verify_component_image_source "${candidate_state[3]}" "${candidate_state[1]}" Platform' in body
     assert '_oteryn_verify_component_image_source "${candidate_state[4]}" "${candidate_state[2]}" Gateway' in body
-    assert 'services=(platform canary)' in body
-    assert 'expected_images=("${candidate_state[3]}" "${candidate_state[5]}")' in body
+    assert 'services=(platform)' in body
+    assert 'expected_images=("${candidate_state[3]}")' in body
     assert 'expected_gateway_image="${candidate_state[4]}"' in body
     assert "exact candidate Gateway image is unavailable" in body
     assert "Previous candidate Gateway runtime drift detected; reconstructing exact candidate Gateway before health proof." in body
@@ -165,7 +165,6 @@ def test_new_release_finalizes_only_a_proven_healthy_previous_candidate() -> Non
     assert '"GATEWAY_SOURCE_SHA=${candidate_state[2]}"' in body
     assert '"PLATFORM_IMAGE=${candidate_state[3]}"' in body
     assert '"GATEWAY_IMAGE=${candidate_state[4]}"' in body
-    assert '"CANARY_IMAGE=${candidate_state[5]}"' in body
     assert '"GATEWAY_VERSION=sha-${candidate_state[2]}"' in body
     assert 'OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"' in body
     assert 'game-auth:world:ensure' in body
@@ -184,7 +183,7 @@ def test_new_release_finalizes_only_a_proven_healthy_previous_candidate() -> Non
 def test_previous_candidate_finalizer_never_blindly_discards_recovery_state() -> None:
     deploy = (SCRIPTS / "deploy.sh").read_text()
     start = deploy.index("finalize_previous_candidate_if_healthy()")
-    end = deploy.index("apply_sql_template()", start)
+    end = deploy.index("\nfinalize_previous_candidate_if_healthy\n", start)
     body = deploy[start:end]
     clear = body.index('rm -f "$candidate_file"')
     assert body.index('health-check.sh') < clear
@@ -206,10 +205,10 @@ def test_health_probe_helper_pins_are_full_immutable_digests() -> None:
 
 def test_rollback_revalidates_each_last_good_component_revision_before_start() -> None:
     rollback = ROLLBACK.read_text()
-    pull = rollback.index('"${compose[@]}" pull platform gateway canary')
+    pull = rollback.index('"${compose[@]}" pull platform gateway')
     platform_verify = rollback.index('_oteryn_verify_component_image_source "$PLATFORM_IMAGE" "$PLATFORM_SOURCE_SHA" Platform')
     gateway_verify = rollback.index('_oteryn_verify_component_image_source "$GATEWAY_IMAGE" "$GATEWAY_SOURCE_SHA" Gateway')
-    start = rollback.index('"${compose[@]}" up -d canary platform internal-proxy gateway')
+    start = rollback.index('"${compose[@]}" up -d platform internal-proxy gateway')
     assert pull < platform_verify < gateway_verify < start
     assert "overall release SHA intentionally remains independent" in rollback
 
@@ -218,20 +217,9 @@ def test_rollback_gateway_version_is_derived_from_last_good_component_source() -
     rollback = ROLLBACK.read_text()
     source = rollback.index('source "$last_good_file"')
     derive = rollback.index('GATEWAY_VERSION="sha-$GATEWAY_SOURCE_SHA"', source)
-    start = rollback.index('"${compose[@]}" up -d canary platform internal-proxy gateway', derive)
+    start = rollback.index('"${compose[@]}" up -d platform internal-proxy gateway', derive)
     assert source < derive < start
-    assert "export OTERYN_RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE GATEWAY_VERSION" in rollback
-
-
-def test_rollback_rejects_canary_bind_identity_mismatch() -> None:
-    rollback = ROLLBACK.read_text()
-    bind = rollback.index('[[ "${CANARY_GAME_BIND_ADDRESS:-}" == "$GAME_WORLD_HOST" ]]')
-    server = rollback.index('[[ "${CANARY_SERVER_IP:-}" == "$GAME_WORLD_HOST" ]]')
-    start = rollback.index('"${compose[@]}" up -d canary platform internal-proxy gateway')
-    assert bind < start
-    assert server < start
-    assert "configured Canary bind address does not match persisted last-good world host" in rollback
-    assert "configured Canary server IP does not match persisted last-good world host" in rollback
+    assert "export OTERYN_RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA PLATFORM_IMAGE GATEWAY_IMAGE GATEWAY_VERSION" in rollback
 
 
 def main() -> None:

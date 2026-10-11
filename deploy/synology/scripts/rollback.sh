@@ -37,22 +37,13 @@ bash "$SCRIPT_DIR/release-state.sh" compatible-schema "$schema_identity" "$last_
 # Load immutable last-good runtime identity only after all compatibility gates.
 # shellcheck disable=SC1090
 source "$last_good_file"
-for name in RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT; do
+for name in RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA PLATFORM_IMAGE GATEWAY_IMAGE GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT; do
     [[ -n "${!name:-}" ]] || { echo "Rollback configuration is incomplete: $name" >&2; exit 1; }
 done
 
-[[ "${CANARY_GAME_BIND_ADDRESS:-}" == "$GAME_WORLD_HOST" ]] || {
-    echo "Rollback rejected: configured Canary bind address does not match persisted last-good world host." >&2
-    exit 1
-}
-[[ "${CANARY_SERVER_IP:-}" == "$GAME_WORLD_HOST" ]] || {
-    echo "Rollback rejected: configured Canary server IP does not match persisted last-good world host." >&2
-    exit 1
-}
-
 OTERYN_RELEASE_SHA="$RELEASE_SHA"
 GATEWAY_VERSION="sha-$GATEWAY_SOURCE_SHA"
-export OTERYN_RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE GATEWAY_VERSION
+export OTERYN_RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA PLATFORM_IMAGE GATEWAY_IMAGE GATEWAY_VERSION
 
 rollback_env="$state_dir/rollback-health.env"
 cleanup() { rm -f "$rollback_env" "$rollback_env.tmp"; }
@@ -63,18 +54,16 @@ awk \
     -v gateway_source_sha="$GATEWAY_SOURCE_SHA" \
     -v platform_image="$PLATFORM_IMAGE" \
     -v gateway_image="$GATEWAY_IMAGE" \
-    -v canary_image="$CANARY_IMAGE" \
     -v gateway_version="$GATEWAY_VERSION" '
-    BEGIN { r=0; ps=0; gs=0; p=0; g=0; c=0; v=0 }
+    BEGIN { r=0; ps=0; gs=0; p=0; g=0; v=0 }
     /^OTERYN_RELEASE_SHA=/ { print "OTERYN_RELEASE_SHA=" release_sha; r=1; next }
     /^PLATFORM_SOURCE_SHA=/ { print "PLATFORM_SOURCE_SHA=" platform_source_sha; ps=1; next }
     /^GATEWAY_SOURCE_SHA=/ { print "GATEWAY_SOURCE_SHA=" gateway_source_sha; gs=1; next }
     /^PLATFORM_IMAGE=/ { print "PLATFORM_IMAGE=" platform_image; p=1; next }
     /^GATEWAY_IMAGE=/ { print "GATEWAY_IMAGE=" gateway_image; g=1; next }
-    /^CANARY_IMAGE=/ { print "CANARY_IMAGE=" canary_image; c=1; next }
     /^GATEWAY_VERSION=/ { print "GATEWAY_VERSION=" gateway_version; v=1; next }
     { print }
-    END { if (!(r && ps && gs && p && g && c && v)) exit 42 }
+    END { if (!(r && ps && gs && p && g && v)) exit 42 }
 ' "$ENV_FILE" >"$rollback_env.tmp" || {
     echo "Rollback rejected: unable to construct bounded last-good runtime environment." >&2
     exit 1
@@ -89,18 +78,17 @@ compose=(
     "GATEWAY_SOURCE_SHA=$GATEWAY_SOURCE_SHA"
     "PLATFORM_IMAGE=$PLATFORM_IMAGE"
     "GATEWAY_IMAGE=$GATEWAY_IMAGE"
-    "CANARY_IMAGE=$CANARY_IMAGE"
     "GATEWAY_VERSION=$GATEWAY_VERSION"
     docker compose --env-file "$rollback_env" -f "$COMPOSE_FILE"
 )
-"${compose[@]}" pull platform gateway canary
+"${compose[@]}" pull platform gateway
 
 # Re-prove each immutable last-good artifact against its own persisted source
 # identity. The overall release SHA intentionally remains independent.
 _oteryn_verify_component_image_source "$PLATFORM_IMAGE" "$PLATFORM_SOURCE_SHA" Platform
 _oteryn_verify_component_image_source "$GATEWAY_IMAGE" "$GATEWAY_SOURCE_SHA" Gateway
 
-"${compose[@]}" up -d canary platform internal-proxy gateway
+"${compose[@]}" up -d platform internal-proxy gateway
 
 # Marketplace is an optional Platform-image consumer outside the base manifest.
 # Reconcile both the browser-facing Platform service and scheduler to the selected

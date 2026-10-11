@@ -5,7 +5,6 @@ import {
   login,
   register,
   runBinary,
-  runPhpState,
   uniqueCharacterName,
   uniqueEmail,
 } from './helpers.mjs';
@@ -85,17 +84,14 @@ test('@smoke @security-boundary injected foreign account ownership is ignored by
   await register(page, actorEmail, regularPassword);
   await register(page, foreignEmail, regularPassword);
 
-  const actorBinding = runPhpState('binding', actorEmail);
-  const foreignBinding = runPhpState('binding', foreignEmail);
-  expect(actorBinding.status).toBe('ready');
-  expect(foreignBinding.status).toBe('ready');
-  expect(actorBinding.canary_account_id).not.toBe(foreignBinding.canary_account_id);
+  // Game-account binding is not provisioned without the legacy game database; the injected id is a fixed foreign value.
+  const foreignGameAccountId = 987654;
 
   await login(page, actorEmail, regularPassword);
   await expect(page).toHaveURL(/\/$/u);
 
   const characterName = uniqueCharacterName('Secure');
-  await submitCharacterWithInjectedAccount(page, characterName, foreignBinding.canary_account_id);
+  await submitCharacterWithInjectedAccount(page, characterName, foreignGameAccountId);
   // Character creation is switched off: the injected account id cannot create or take ownership of anything.
   await expect(page.getByRole('alert')).toContainText('Character creation is temporarily unavailable.');
 });

@@ -83,7 +83,7 @@ jobs:
           tools: composer:v2
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
@@ -101,7 +101,7 @@ jobs:
 
       - name: Upload portal coverage diagnostics
         if: always() && hashFiles('artifacts/portal-coverage/report.json') != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: portal-coverage-report-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/portal-coverage/report.json
@@ -166,28 +166,6 @@ jobs:
       DB_DATABASE: oteryn_platform_acceptance
       DB_USERNAME: root
       DB_PASSWORD: acceptance-ci-root-not-a-secret
-      CANARY_DB_HOST: 127.0.0.1
-      CANARY_DB_PORT: 3306
-      CANARY_DB_DATABASE: canary_acceptance
-      CANARY_DB_USERNAME: oteryn_acceptance_readonly
-      CANARY_DB_PASSWORD: acceptance-ci-readonly-not-a-secret
-      CANARY_PROVISIONING_DB_HOST: 127.0.0.1
-      CANARY_PROVISIONING_DB_PORT: 3306
-      CANARY_PROVISIONING_DB_DATABASE: canary_acceptance
-      CANARY_PROVISIONING_DB_USERNAME: oteryn_acceptance_provisioning
-      CANARY_PROVISIONING_DB_PASSWORD: acceptance-ci-provisioning-not-a-secret
-      CANARY_CHARACTER_CREATE_DB_HOST: 127.0.0.1
-      CANARY_CHARACTER_CREATE_DB_PORT: 3306
-      CANARY_CHARACTER_CREATE_DB_DATABASE: canary_acceptance
-      CANARY_CHARACTER_CREATE_DB_USERNAME: oteryn_acceptance_character_create
-      CANARY_CHARACTER_CREATE_DB_PASSWORD: acceptance-ci-character-not-a-secret
-      CANARY_RUNTIME_REDIS_CLIENT: phpredis
-      CANARY_RUNTIME_REDIS_SCHEME: tcp
-      CANARY_RUNTIME_REDIS_HOST: 127.0.0.1
-      CANARY_RUNTIME_REDIS_PORT: 6379
-      CANARY_RUNTIME_REDIS_DB: 0
-      CANARY_RUNTIME_REDIS_USERNAME: oteryn_acceptance_runtime
-      CANARY_RUNTIME_REDIS_PASSWORD: acceptance-ci-runtime-not-a-secret
       MARIADB_ROOT_PASSWORD: acceptance-ci-root-not-a-secret
 
     steps:
@@ -206,7 +184,7 @@ jobs:
           tools: composer:v2
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
@@ -261,7 +239,6 @@ jobs:
             "retries": 0,
             "runtime": "real Laravel HTTP",
             "platform_database": "MariaDB 11.8 isolated acceptance schema",
-            "canary_database": "MariaDB 11.8 isolated acceptance schema with operation-specific principals",
             "mail_dependency": "MailHog SMTP test service",
             "production_claim": "none"
           }
@@ -269,7 +246,7 @@ jobs:
 
       - name: Upload secret-safe account evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: portal-account-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/acceptance

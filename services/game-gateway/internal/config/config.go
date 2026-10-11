@@ -13,20 +13,14 @@ type Config struct {
 	ListenAddress        string
 	PlatformBaseURL      string
 	PlatformServiceToken string
-	SessionBaseURL       string
-	SessionServiceToken  string
 	RequestTimeout       time.Duration
 	Version              string
 	// NativeLoginEnabled routes protocol_version 2 logins to the Platform native admission
 	// issuer. The built-in default stays off: the gateway cannot tell preproduction from
 	// production, so each deployment opts in with GATEWAY_NATIVE_LOGIN_ENABLED=true (D963 Q1=A,
-	// D607). The Canary path is unchanged either way.
+	// D607). Native admission is the only login protocol; with the flag off every login is refused.
 	NativeLoginEnabled     bool
 	NativeAdmissionTimeout time.Duration
-	// LegacySessionEnabled is false only in native-only mode: native login enabled and both
-	// GAME_SESSION_SERVICE_* variables unset. The gateway then builds no session client and
-	// refuses legacy logins.
-	LegacySessionEnabled bool
 }
 
 // maxNativeAdmissionTimeout keeps one issuer exchange inside the server write timeout.
@@ -37,8 +31,6 @@ func Load() (Config, error) {
 		ListenAddress:        valueOrDefault("GATEWAY_LISTEN_ADDR", ":8080"),
 		PlatformBaseURL:      strings.TrimRight(os.Getenv("OTERYN_PLATFORM_BASE_URL"), "/"),
 		PlatformServiceToken: os.Getenv("OTERYN_PLATFORM_SERVICE_TOKEN"),
-		SessionBaseURL:       strings.TrimRight(os.Getenv("GAME_SESSION_SERVICE_BASE_URL"), "/"),
-		SessionServiceToken:  os.Getenv("GAME_SESSION_SERVICE_TOKEN"),
 		Version:              valueOrDefault("GATEWAY_VERSION", "dev"),
 		RequestTimeout:       5 * time.Second,
 
@@ -75,18 +67,6 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("invalid OTERYN_PLATFORM_BASE_URL: %w", err)
 	}
 
-	sessionURLSet, sessionTokenSet := cfg.SessionBaseURL != "", cfg.SessionServiceToken != ""
-	switch {
-	case !sessionURLSet && !sessionTokenSet && cfg.NativeLoginEnabled:
-		cfg.LegacySessionEnabled = false
-	case !sessionURLSet || !sessionTokenSet:
-		return Config{}, fmt.Errorf("GAME_SESSION_SERVICE_BASE_URL and GAME_SESSION_SERVICE_TOKEN are required together")
-	default:
-		if err := validateBaseURL(cfg.SessionBaseURL); err != nil {
-			return Config{}, fmt.Errorf("invalid GAME_SESSION_SERVICE_BASE_URL: %w", err)
-		}
-		cfg.LegacySessionEnabled = true
-	}
 	if strings.TrimSpace(cfg.ListenAddress) == "" {
 		return Config{}, fmt.Errorf("GATEWAY_LISTEN_ADDR is empty")
 	}

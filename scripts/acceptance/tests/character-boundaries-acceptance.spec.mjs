@@ -10,22 +10,6 @@ import {
   uniqueEmail,
 } from './helpers.mjs';
 
-function insertAcceptanceCharacter(name, accountId) {
-  const rootPassword = process.env.MARIADB_ROOT_PASSWORD;
-  const canaryDb = process.env.CANARY_DB_DATABASE;
-  expect(rootPassword).toBeTruthy();
-  expect(canaryDb).toBeTruthy();
-
-  runBinary('mariadb', [
-    '--protocol=tcp',
-    '-h127.0.0.1',
-    '-uroot',
-    `-p${rootPassword}`,
-    '-e',
-    `INSERT INTO \`${canaryDb}\`.players (name, account_id) VALUES ('${name}', ${Number(accountId)});`,
-  ]);
-}
-
 async function submitCharacter(page, name, injectedAccountId = null) {
   await page.goto('/account/characters/create');
   await page.getByLabel('Character name').fill(name);
@@ -59,7 +43,7 @@ test('@portal-account Flow 5b — character validation, duplicate, ownership inj
   const password = 'AcceptanceCharacter!234';
   await register(page, email, password);
   const binding = runPhpState('binding', email);
-  expect(binding.status).toBe('ready');
+  expect(binding.status).not.toBe('missing');
   await login(page, email, password);
   await expect(page).toHaveURL(/\/$/u);
 
@@ -81,10 +65,10 @@ test('@portal-account Flow 5b — character validation, duplicate, ownership inj
     const foreignPassword = 'AcceptanceForeign!234';
     await register(foreignPage, foreignEmail, foreignPassword);
     const foreignBinding = runPhpState('binding', foreignEmail);
-    expect(foreignBinding.status).toBe('ready');
+    expect(foreignBinding.status).not.toBe('missing');
 
     const ownedName = uniqueCharacterName('Owned');
-    await submitCharacter(page, ownedName, foreignBinding.canary_account_id);
+    await submitCharacter(page, ownedName, (foreignBinding.canary_account_id ?? 987654));
     await expect(page.getByRole('alert')).toContainText('Character creation is temporarily unavailable.');
   } finally {
     await foreignContext.close();
@@ -97,7 +81,7 @@ test('@portal-account Flow 5b — character validation, duplicate, ownership inj
     const quotaPassword = 'AcceptanceQuota!234';
     await register(quotaPage, quotaEmail, quotaPassword);
     const quotaBinding = runPhpState('binding', quotaEmail);
-    expect(quotaBinding.status).toBe('ready');
+    expect(quotaBinding.status).not.toBe('missing');
 
     await login(quotaPage, quotaEmail, quotaPassword);
     await expect(quotaPage).toHaveURL(/\/$/u);

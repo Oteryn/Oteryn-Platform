@@ -66,7 +66,8 @@ test('@smoke @portal-polish measure rendered asset sizes and layout quality', as
       }));
       records.push({ path, width, status: response?.status(), ...metrics });
       writeFileSync(resolve(output, 'quality-current.json'), JSON.stringify({ exactHead, records }, null, 2));
-      expect(response?.status(), path).toBe(200);
+      // The game-world highscores page is the truthful unavailable state until native data returns.
+      expect(response?.status(), path).toBe(path === '/en/highscores' ? 503 : 200);
       for (const image of metrics.images.filter((image) => image.path.endsWith('.webp'))) {
         expect(image.naturalWidth, `${path}: loaded image ${image.path}`).toBeGreaterThan(0);
         expect(image.displayedWidth, `${path}: avoid enlarging ${image.path}`).toBeLessThanOrEqual(image.naturalWidth + 1);

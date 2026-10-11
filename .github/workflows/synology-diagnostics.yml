@@ -53,7 +53,7 @@ jobs:
             (.workFolder == "/work" or .workFolder == "_work")
           ' /runner/.runner >/dev/null
 
-          expected='mariadb redis platform canary gateway'
+          expected='mariadb redis platform gateway'
           for service in $expected; do
             ids="$(docker ps -q \
               --filter "label=com.docker.compose.project=$EXPECTED_COMPOSE_PROJECT" \

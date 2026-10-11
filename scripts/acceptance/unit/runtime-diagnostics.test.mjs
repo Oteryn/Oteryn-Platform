@@ -448,3 +448,79 @@ test('WebKit evidence capture avoids Playwright screenshot CSP mutation', async 
   assert.equal(evidence.screenshot, 'skipped-playwright-csp-mutation');
   fs.rmSync(marker, { force: true });
 });
+
+test('WebKit select UA style CSP noise is bounded to webkit, the exact message and the per-page select count', async () => {
+  const csp = helpers.WEBKIT_SELECT_UA_STYLE_VIOLATION;
+  const entry = (extra = {}) => ({ text: csp, url: 'http://127.0.0.1:8080/highscores', ...extra });
+
+  assert.doesNotThrow(() => helpers.assertNoUnexpectedRuntimeFailures(diagnostics({
+    browserName: 'webkit',
+    consoleErrors: [entry({ pageSelectCount: 1 })],
+  })));
+
+  assert.throws(() => helpers.assertNoUnexpectedRuntimeFailures(diagnostics({
+    browserName: 'webkit',
+    consoleErrors: [entry({ pageSelectCount: 1 }), entry({ pageSelectCount: 1 })],
+  })), /Unexpected browser\/runtime failures/u);
+  assert.doesNotThrow(() => helpers.assertNoUnexpectedRuntimeFailures(diagnostics({
+    browserName: 'webkit',
+    consoleErrors: [entry({ pageSelectCount: 2 }), entry({ pageSelectCount: 2 })],
+  })));
+
+  // Same path reloaded: the budget is the select count per document load.
+  assert.doesNotThrow(() => helpers.assertNoUnexpectedRuntimeFailures(diagnostics({
+    browserName: 'webkit',
+    consoleErrors: [
+      entry({ pageSelectCount: 2, documentId: 1 }), entry({ pageSelectCount: 2, documentId: 1 }),
+      entry({ pageSelectCount: 2, documentId: 2 }), entry({ pageSelectCount: 2, documentId: 2 }),
+      entry({ pageSelectCount: 2, documentId: 3 }), entry({ pageSelectCount: 2, documentId: 3 }),
+    ],
+  })));
+  assert.throws(() => helpers.assertNoUnexpectedRuntimeFailures(diagnostics({
+    browserName: 'webkit',
+    consoleErrors: [
+      entry({ pageSelectCount: 2, documentId: 1 }), entry({ pageSelectCount: 2, documentId: 1 }),
+      entry({ pageSelectCount: 2, documentId: 1 }),
+    ],
+  })), /Unexpected browser\/runtime failures/u);
+
+  for (const overrides of [
+    { browserName: 'webkit', consoleErrors: [entry({ pageSelectCount: 0 })] },
+    { browserName: 'webkit', consoleErrors: [entry()] },
+    { browserName: 'webkit', consoleErrors: [entry({ pageSelectCount: 1, text: `${csp} extra` })] },
+    { browserName: 'chromium', consoleErrors: [entry({ pageSelectCount: 1 })] },
+    { browserName: 'firefox', consoleErrors: [entry({ pageSelectCount: 1 })] },
+    { browserName: null, consoleErrors: [entry({ pageSelectCount: 1 })] },
+  ]) {
+    assert.throws(
+      () => helpers.assertNoUnexpectedRuntimeFailures(diagnostics(overrides)),
+      /Unexpected browser\/runtime failures/u,
+    );
+  }
+});
+
+test('installDiagnostics records the select count for a WebKit CSP console error', async () => {
+  const acceptanceHelpers = await import('../tests/helpers.mjs');
+  for (const selects of [1, 0]) {
+    let onConsole;
+    const page = {
+      context: () => ({ browser: () => ({ browserType: () => ({ name: () => 'webkit' }) }) }),
+      mainFrame: () => 'main',
+      on: (event, handler) => { if (event === 'console') onConsole = handler; },
+      evaluate: async () => selects,
+    };
+    const state = acceptanceHelpers.installDiagnostics(page);
+    onConsole({
+      type: () => 'error',
+      text: () => helpers.WEBKIT_SELECT_UA_STYLE_VIOLATION,
+      location: () => ({ url: 'http://127.0.0.1:8080/highscores' }),
+    });
+    await Promise.allSettled(state.pendingChecks);
+    assert.equal(state.consoleErrors[0].pageSelectCount, selects);
+    if (selects > 0) {
+      assert.doesNotThrow(() => helpers.assertNoUnexpectedRuntimeFailures(state));
+    } else {
+      assert.throws(() => helpers.assertNoUnexpectedRuntimeFailures(state), /Unexpected browser\/runtime failures/u);
+    }
+  }
+});

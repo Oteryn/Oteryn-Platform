@@ -6,40 +6,15 @@
       "parent_issue": 326,
       "states": [
         {
-          "id": "very-long-values",
-          "expected_status": 200,
+          "id": "stress-routes-contained-unavailable",
+          "expected_status": 503,
           "assertions": [
-            "long-character-name-visible",
-            "long-public-comment-visible",
-            "no-document-horizontal-overflow"
-          ]
-        },
-        {
-          "id": "large-result-set-pagination",
-          "expected_status": 200,
-          "assertions": [
-            "more-than-fifty-active-characters",
-            "second-page-visible",
-            "stable-ordering"
-          ]
-        },
-        {
-          "id": "internal-error-500-contained",
-          "expected_status": 500,
-          "assertions": [
+            "highscores-page-two-localized-unavailable",
+            "deaths-page-two-localized-unavailable",
+            "long-guild-search-localized-unavailable",
             "non-debug-error-body",
-            "no-exception-class",
-            "no-view-path",
             "no-sql-or-database-name",
-            "no-acceptance-credential"
-          ]
-        },
-        {
-          "id": "internal-error-restored",
-          "expected_status": 200,
-          "assertions": [
-            "same-route-recovers-after-view-restoration",
-            "cleanup-removes-acceptance-only-rows-and-temporary-view"
+            "no-document-horizontal-overflow"
           ]
         }
       ],
@@ -54,12 +29,34 @@
         "community-data-chromium-mobile"
       ],
       "retries": 0,
-      "runtime": "real-laravel-http-with-isolated-mariadb-and-redis",
+      "runtime": "real-laravel-http-with-isolated-mariadb-and-redis-without-game-data-source",
       "nonclaims": [
+        "not-long-value-rendering-proven",
+        "not-multi-page-results-proven",
+        "not-internal-500-containment-proven",
+        "not-recovery-after-internal-error-proven",
         "not-all-public-game-data-permutations",
         "not-parent-326-complete",
         "not-staging-proven",
         "not-production-proven"
+      ],
+      "gaps": [
+        {
+          "state": "very-long-values",
+          "reason": "no-native-game-data-source-after-native-only-cut"
+        },
+        {
+          "state": "large-result-set-pagination",
+          "reason": "no-native-game-data-source-after-native-only-cut"
+        },
+        {
+          "state": "internal-error-500-contained",
+          "reason": "no-native-game-data-source-after-native-only-cut"
+        },
+        {
+          "state": "internal-error-restored",
+          "reason": "no-native-game-data-source-after-native-only-cut"
+        }
       ]
     }
   ],

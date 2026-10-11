@@ -8,6 +8,32 @@ const EXPECTED_HTTP_DUPLICATE_FAILURES = new Set([
   '<unknown error>',
 ]);
 
+// WebKit 2370 (Playwright 1.64) applies an internal inline style to every <select>
+// and reports it as a style-src(-attr) violation under Platform's strict CSP. Platform
+// ships no inline styles; Chromium and Firefox stay strict on the same pages. The
+// allowance is limited to WebKit, this exact message, and a per-page budget equal to
+// the number of <select> elements on that page document load (entries carry a
+// documentId bumped on each main-frame navigation), so extra violations still fail.
+export const WEBKIT_SELECT_UA_STYLE_VIOLATION = "Refused to apply a stylesheet because its hash, its nonce, or 'unsafe-inline' does not appear in the style-src directive of the Content Security Policy.";
+
+function selectBudgetKey(entry) {
+  return `${diagnosticPath(entry.url)}#${entry.documentId ?? ''}`;
+}
+
+function webkitSelectViolationBudgets(diagnostics) {
+  const budgets = new Map();
+  if (diagnostics.browserName !== 'webkit') {
+    return budgets;
+  }
+  for (const entry of diagnostics.consoleErrors ?? []) {
+    if (entry.text === WEBKIT_SELECT_UA_STYLE_VIOLATION && Number.isInteger(entry.pageSelectCount)) {
+      const key = selectBudgetKey(entry);
+      budgets.set(key, Math.max(budgets.get(key) ?? 0, entry.pageSelectCount));
+    }
+  }
+  return budgets;
+}
+
 const REQUEST_IDENTITY_PATTERN = /^[0-9a-f]{64}$/u;
 
 function diagnosticPath(rawUrl) {
@@ -87,7 +113,16 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
   }
 
   const unexpectedConsoleErrors = [];
+  const selectBudgets = webkitSelectViolationBudgets(diagnostics);
   for (const entry of diagnostics.consoleErrors ?? []) {
+    if (entry.text === WEBKIT_SELECT_UA_STYLE_VIOLATION) {
+      const key = selectBudgetKey(entry);
+      const remaining = selectBudgets.get(key) ?? 0;
+      if (remaining > 0) {
+        selectBudgets.set(key, remaining - 1);
+        continue;
+      }
+    }
     const status = failedLoadStatus(entry);
     const pathname = diagnosticPath(entry.url);
     const allowance = status === null ? null : allowances.find((candidate) => (
@@ -154,6 +189,7 @@ export function assertNoUnexpectedRuntimeFailures(diagnostics) {
 export async function attachRuntimeDiagnostics(testInfo, diagnostics, testedSha) {
   const browserName = testInfo.project?.use?.browserName;
   diagnostics.browserName = typeof browserName === 'string' ? browserName : null;
+  await Promise.allSettled(diagnostics.pendingChecks ?? []);
 
   await testInfo.attach('exact-tested-sha', {
     body: Buffer.from(`${testedSha}\n`, 'utf8'),

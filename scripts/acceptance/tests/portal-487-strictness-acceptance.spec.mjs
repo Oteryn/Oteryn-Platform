@@ -290,8 +290,6 @@ test(publicMarker, async ({ page }) => {
   const layoutPaths = [
     '/download',
     '/events',
-    '/deaths',
-    '/highscores',
     '/',
     '/en',
     '/news',
@@ -309,10 +307,15 @@ test(publicMarker, async ({ page }) => {
   await expect(page.locator('main')).toContainText('has not been configured');
   await assertNoOverflow(page);
 
+  // Game data has no native source after the native-only cut, so game-data routes answer
+  // the contained localized 503 unavailable page instead of a game-database result.
   const accessibilityPaths = ['/download', '/events', '/highscores', '/en', '/news', '/support'];
   for (const path of accessibilityPaths) {
     if (path === '/support') {
       allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: path });
+    }
+    if (path === '/highscores') {
+      allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: path });
     }
     await page.goto(path);
     await assertAccessibilitySmoke(page);
@@ -324,12 +327,14 @@ test(publicMarker, async ({ page }) => {
   allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: '/news/not-a-real-portal-487-article' });
   response = await page.goto('/news/not-a-real-portal-487-article', { waitUntil: 'domcontentloaded' });
   expect(response?.status()).toBe(404);
-  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: '/characters/not-a-real-portal-487-character' });
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: '/characters/not-a-real-portal-487-character' });
   response = await page.goto('/characters/not-a-real-portal-487-character', { waitUntil: 'domcontentloaded' });
-  expect(response?.status()).toBe(404);
-  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 404, pathname: '/guilds/not-a-real-portal-487-guild' });
+  expect(response?.status()).toBe(503);
+  await expect(page.locator('.community-unavailable h1')).toBeVisible();
+  allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: '/guilds/not-a-real-portal-487-guild' });
   response = await page.goto('/guilds/not-a-real-portal-487-guild', { waitUntil: 'domcontentloaded' });
-  expect(response?.status()).toBe(404);
+  expect(response?.status()).toBe(503);
+  await expect(page.locator('.community-unavailable h1')).toBeVisible();
 });
 
 // Evidence marker: @portal-487-strictness support-moderation not-found csrf-419 rate-429 server-failure recovery

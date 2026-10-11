@@ -17,7 +17,7 @@ contains_schema_id() {
 validate_release_file() {
     local file="$1"
     [[ -f "$file" ]] || { echo "Missing release metadata: $file" >&2; return 1; }
-    unset RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE
+    unset RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA PLATFORM_IMAGE GATEWAY_IMAGE
     unset SCHEMA_COMPATIBILITY_ID APP_ACCEPTS_SCHEMA_IDS MIGRATION_POLICY ROLLBACK_ELIGIBLE
     unset GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT
     # State files are written only by write_release using printf %q for every
@@ -37,7 +37,6 @@ validate_release_file() {
     }
     is_immutable_image "${PLATFORM_IMAGE:-}" || { echo "PLATFORM_IMAGE is not immutable" >&2; return 1; }
     is_immutable_image "${GATEWAY_IMAGE:-}" || { echo "GATEWAY_IMAGE is not immutable" >&2; return 1; }
-    is_immutable_image "${CANARY_IMAGE:-}" || { echo "CANARY_IMAGE is not immutable" >&2; return 1; }
     [[ "${ROLLBACK_ELIGIBLE:-}" =~ ^[01]$ ]] || { echo "Missing/invalid ROLLBACK_ELIGIBLE" >&2; return 1; }
 }
 
@@ -49,6 +48,13 @@ assert_schema_compatible() {
     local old_sha="$RELEASE_SHA" old_accepts="$APP_ACCEPTS_SCHEMA_IDS" old_eligible="$ROLLBACK_ELIGIBLE"
     [[ "$candidate_sha" != "$old_sha" ]] || { echo "Last-good identity is stale: it equals candidate release" >&2; return 1; }
     [[ "$old_eligible" == 1 ]] || { echo "Last-good release is explicitly ineligible for image rollback" >&2; return 1; }
+    # Release state written before the native-only cut always carries CANARY_IMAGE. That
+    # release needs the retired Canary container, game-data database and provisioning
+    # settings, which image rollback cannot restore, so it is never a rollback target.
+    if grep -q '^CANARY_IMAGE=' "$last_good_file"; then
+        echo "Rollback rejected: last-good release $old_sha predates the native-only cut and needs the retired Canary topology; image rollback cannot restore it." >&2
+        return 1
+    fi
     contains_schema_id "$schema_id" "$old_accepts" || {
         echo "Rollback rejected: last-good application does not declare compatibility with current schema '$schema_id'." >&2
         return 1
@@ -70,7 +76,7 @@ write_state_value() {
 
 write_release() {
     local out="$1" release_sha="$2" platform_source_sha="$3" gateway_source_sha="$4"
-    local schema_id="$5" accepts="$6" platform="$7" gateway="$8" canary="$9" eligible="${10}"
+    local schema_id="$5" accepts="$6" platform="$7" gateway="$8" eligible="$9"
     is_sha "$release_sha" || { echo "Release SHA must be exact 40-char lowercase git SHA" >&2; return 1; }
     is_sha "$platform_source_sha" || { echo "Platform source SHA must be exact 40-char lowercase git SHA" >&2; return 1; }
     is_sha "$gateway_source_sha" || { echo "Gateway source SHA must be exact 40-char lowercase git SHA" >&2; return 1; }
@@ -80,7 +86,7 @@ write_release() {
         echo "Release contract must accept its own primary schema identity '$schema_id'." >&2
         return 1
     }
-    platform="$(resolve_image "$platform")"; gateway="$(resolve_image "$gateway")"; canary="$(resolve_image "$canary")"
+    platform="$(resolve_image "$platform")"; gateway="$(resolve_image "$gateway")"
     [[ "$eligible" =~ ^[01]$ ]] || return 1
     local tmp="${out}.tmp"
     umask 077
@@ -90,7 +96,6 @@ write_release() {
         write_state_value GATEWAY_SOURCE_SHA "$gateway_source_sha"
         write_state_value PLATFORM_IMAGE "$platform"
         write_state_value GATEWAY_IMAGE "$gateway"
-        write_state_value CANARY_IMAGE "$canary"
         write_state_value SCHEMA_COMPATIBILITY_ID "$schema_id"
         write_state_value APP_ACCEPTS_SCHEMA_IDS "$accepts"
         write_state_value MIGRATION_POLICY expand-contract
@@ -110,6 +115,6 @@ case "${1:-}" in
     validate) validate_release_file "$2" ;;
     compatible-schema) assert_schema_compatible "$2" "$3" "$4" ;;
     resolve-image) resolve_image "$2" ;;
-    write) write_release "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}" ;;
-    *) echo "usage: $0 {validate FILE|compatible-schema SCHEMA LAST_GOOD CANDIDATE_SHA|resolve-image IMAGE|write OUT RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA SCHEMA ACCEPTS PLATFORM GATEWAY CANARY ELIGIBLE}" >&2; exit 2 ;;
+    write) write_release "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" ;;
+    *) echo "usage: $0 {validate FILE|compatible-schema SCHEMA LAST_GOOD CANDIDATE_SHA|resolve-image IMAGE|write OUT RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA SCHEMA ACCEPTS PLATFORM GATEWAY ELIGIBLE}" >&2; exit 2 ;;
 esac

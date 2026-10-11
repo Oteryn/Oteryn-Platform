@@ -54,9 +54,8 @@ final class NativeOAuthNativeTicketTest extends TestCase
         self::assertSame(1, DB::table('game_login_tickets')->count());
     }
 
-    public function test_native_only_mode_still_issues_native_ticket_without_any_account_binding(): void
+    public function test_native_ticket_is_issued_without_any_account_binding(): void
     {
-        config(['game-auth.legacy_login.enabled' => false]);
         $identity = $this->createOAuthIdentity();
         $token = $this->issueNativeOAuthBootstrapToken($identity, client: app(NativeOAuthClientManager::class)->ensureRust());
 

@@ -18,8 +18,6 @@ Do not swap these origins:
 
 - port `8000` is the Platform website;
 - port `8080` is Game Gateway/login;
-- port `7171` is only the Canary legacy-login rollback path;
-- port `7172` is the Canary game-protocol TCP endpoint and is not an HTTP Cloudflare Tunnel origin;
 - port `3031` belongs to a different project.
 
 `login.oteryn.molehill.cloud` is a retired public hostname. It is not covered by the normal one-label Universal wildcard and must not be used by new deployment or client configuration.

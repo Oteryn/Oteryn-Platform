@@ -27,7 +27,7 @@ bash scripts/acceptance/bootstrap-production-like.sh
 # In Docker, bridge that loopback contract to the isolated MariaDB service.
 socat TCP-LISTEN:3306,bind=127.0.0.1,reuseaddr,fork TCP:${ACCEPTANCE_DB_ADMIN_HOST:-${DB_HOST}}:${ACCEPTANCE_DB_ADMIN_PORT:-${DB_PORT:-3306}} &
 db_proxy_pid=$!
-socat TCP-LISTEN:6379,bind=127.0.0.1,reuseaddr,fork TCP:${ACCEPTANCE_REDIS_ADMIN_HOST:-${CANARY_RUNTIME_REDIS_HOST}}:${ACCEPTANCE_REDIS_ADMIN_PORT:-${CANARY_RUNTIME_REDIS_PORT:-6379}} &
+socat TCP-LISTEN:6379,bind=127.0.0.1,reuseaddr,fork TCP:${ACCEPTANCE_REDIS_ADMIN_HOST:-redis}:${ACCEPTANCE_REDIS_ADMIN_PORT:-6379} &
 redis_proxy_pid=$!
 
 server_log="$artifacts_root/laravel-${profile}.log"

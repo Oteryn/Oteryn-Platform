@@ -35,7 +35,7 @@ jobs:
           set -euo pipefail
 
           project=oteryn-staging
-          services=(mariadb redis platform canary tls-init internal-proxy gateway)
+          services=(mariadb redis platform tls-init internal-proxy gateway)
           repaired_services=()
 
           for service in "${services[@]}"; do
@@ -76,7 +76,7 @@ jobs:
             repaired_services+=("$service")
           done
 
-          for service in platform canary gateway; do
+          for service in platform gateway; do
             name="oteryn-staging-${service}-1"
             running="$(docker inspect --format '{{.State.Running}}' "$name")"
             if [[ "$running" != "true" ]]; then
@@ -150,7 +150,7 @@ jobs:
           if oauth_outcome == 'success':
               lines.append(f"- public native OAuth client id: `{oauth_client_id}`")
           if repair_outcome == 'success':
-              lines.append("- canonical runtime: `platform`, `canary`, `gateway` running")
+              lines.append("- canonical runtime: `platform`, `gateway` running")
           lines.extend([
               f"- commit: `{os.environ['GITHUB_SHA']}`",
               f"- run: {run_url}",

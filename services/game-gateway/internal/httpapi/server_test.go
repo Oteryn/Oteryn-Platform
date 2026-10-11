@@ -3,219 +3,49 @@ package httpapi
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"sort"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/gateway"
 )
 
-type testPlatform struct {
-	authorization gateway.Authorization
-	loginContext  gateway.LoginContext
-	redeemErr     error
-	contextErr    error
-	readyErr      error
-	redeemCalls   int
-	contextCalls  int
+type testReadiness struct{ err error }
+
+func (r testReadiness) Ready(context.Context) error { return r.err }
+
+type recordingNativeHandler struct {
+	bodies []string
 }
 
-func (f *testPlatform) Redeem(context.Context, string) (gateway.Authorization, error) {
-	f.redeemCalls++
-	return f.authorization, f.redeemErr
+func (h *recordingNativeHandler) Serve(w http.ResponseWriter, _ *http.Request, body []byte) {
+	h.bodies = append(h.bodies, string(body))
+	w.WriteHeader(http.StatusTeapot)
 }
 
-func (f *testPlatform) LoginContext(context.Context, int64) (gateway.LoginContext, error) {
-	f.contextCalls++
-	return f.loginContext, f.contextErr
+const nativeLoginBody = `{"protocol_version":2,"game_login_ticket":"native-ticket","attempt_ref":"0192b3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b","character_id":"0192b3c4-5d6e-7f80-8a1b-2c3d4e5f6a7c","channel_id":null,"offer":{"client_build":"0.1.0","client_platform":"windows","transports":[{"protocol_major":1,"transport_profile":1,"alpn":"oteryn-game/1"}]}}`
+
+func newTestServer(readyErr error) *Server {
+	return NewServer(testReadiness{err: readyErr}, "test", slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 }
 
-func (f *testPlatform) Ready(context.Context) error { return f.readyErr }
+func assertSensitiveResponseNoCache(t *testing.T, response *httptest.ResponseRecorder) {
+	t.Helper()
 
-type testSessionIssuer struct {
-	session       gateway.Session
-	err           error
-	readyErr      error
-	readyForErr   error
-	calls         int
-	readyForCalls int
-	request       gateway.SessionRequest
-}
-
-func (f *testSessionIssuer) Create(_ context.Context, request gateway.SessionRequest) (gateway.Session, error) {
-	f.calls++
-	f.request = request
-	return f.session, f.err
-}
-
-func (f *testSessionIssuer) Ready(context.Context) error { return f.readyErr }
-
-func (f *testSessionIssuer) ReadyFor(_ context.Context, request gateway.SessionRequest) error {
-	f.readyForCalls++
-	f.request = request
-	return f.readyForErr
-}
-
-func TestLoginSuccessDoesNotLogCredentialsAndIsNotCacheable(t *testing.T) {
-	now := time.Now().UTC()
-	platform := legacyTestPlatform()
-	sessions := &testSessionIssuer{session: gateway.Session{Credential: "session-secret-never-log", ExpiresAt: now.Add(time.Minute)}}
-	service := gateway.NewService(platform, sessions)
-	var logs bytes.Buffer
-	server := NewServer(service, "test-version", slog.New(slog.NewJSONHandler(&logs, nil)))
-
-	body := `{"protocol_version":1,"game_login_ticket":"ticket-secret-never-log"}`
-	request := httptest.NewRequest(http.MethodPost, "/v1/login", strings.NewReader(body))
-	request.Header.Set("X-Request-ID", "request-123")
-	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
-
-	if response.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d body=%s", response.Code, response.Body.String())
+	if got := response.Header().Get("Cache-Control"); got != "no-store, no-cache, must-revalidate, private" {
+		t.Fatalf("unexpected Cache-Control header: %q", got)
 	}
-	assertSensitiveResponseNoCache(t, response)
-
-	var payload gateway.LoginResponse
-	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("decode response: %v", err)
+	if got := response.Header().Get("Pragma"); got != "no-cache" {
+		t.Fatalf("unexpected Pragma header: %q", got)
 	}
-	if payload.Session.Credential != "session-secret-never-log" || payload.GameplaySelection != nil {
-		t.Fatalf("unexpected legacy session response: %#v", payload)
-	}
-	logText := logs.String()
-	if strings.Contains(logText, "ticket-secret-never-log") || strings.Contains(logText, "session-secret-never-log") {
-		t.Fatalf("credential leaked to logs: %s", logText)
-	}
-	if !strings.Contains(logText, "request-123") || !strings.Contains(logText, `"path":"/v1/login"`) {
-		t.Fatalf("bounded request metadata missing from logs: %s", logText)
-	}
-}
-
-func TestLoginAcceptsBoundedOfferAndReturnsDistinctSelectionFields(t *testing.T) {
-	capabilities := nativeCapabilities()
-	platform := legacyTestPlatform()
-	platform.loginContext.GameplayPolicy = gateway.GameplayPolicy{
-		Revision:  9,
-		ChannelID: 1,
-		Candidates: []gateway.GameplayPolicyCandidate{{
-			Family: "oteryn", NativeProtocolVersion: 1, Transport: "tcp.tls13.protobuf.be32.v1",
-			SchemaRevision: 2, SchemaSHA256: "9c67f19525400fb9890d2a3541ceb6d02eb955061540ad39ca1c1d891c06eba9", RequiredCapabilities: capabilities,
-			EndpointID: "native-eu-1", Host: "native.example.test", Port: 7173, TLSServerName: "native.example.test",
-		}},
-	}
-	sessions := &testSessionIssuer{session: gateway.Session{Credential: "v2-session", ExpiresAt: time.Now().UTC().Add(time.Minute)}}
-	server := NewServer(gateway.NewService(platform, sessions), "test", slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
-
-	body, err := json.Marshal(gateway.LoginRequest{
-		ProtocolVersion: 1,
-		GameLoginTicket: "ticket",
-		GameplayOffer: &gateway.GameplayOffer{
-			OfferVersion: 1, ClientBuild: "oteryn-client-test", ClientPlatform: "windows-x86_64",
-			Candidates: []gateway.GameplayOfferCandidate{{
-				Family: "oteryn", NativeProtocolVersion: 1, Transport: "tcp.tls13.protobuf.be32.v1",
-				SchemaRevision: 2, SchemaSHA256: "9c67f19525400fb9890d2a3541ceb6d02eb955061540ad39ca1c1d891c06eba9", Capabilities: capabilities,
-			}},
-		},
-	})
-	if err != nil {
-		t.Fatalf("encode request: %v", err)
-	}
-
-	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/login", bytes.NewReader(body)))
-	if response.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d body=%s", response.Code, response.Body.String())
-	}
-	var payload gateway.LoginResponse
-	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if payload.ProtocolVersion != 1 || payload.GameSessionContractVersion != 2 || payload.LoginAttemptID == "" || payload.GameplaySelection == nil {
-		t.Fatalf("missing distinct version/selection fields: %#v", payload)
-	}
-	if sessions.readyForCalls != 1 || sessions.calls != 1 || sessions.request.EndpointID != "native-eu-1" {
-		t.Fatalf("unexpected readiness/session calls: %#v", sessions)
-	}
-}
-
-func TestLoginRejectsInvalidShapeBeforeDependencies(t *testing.T) {
-	platform := legacyTestPlatform()
-	sessions := &testSessionIssuer{}
-	server := NewServer(gateway.NewService(platform, sessions), "test", slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
-
-	tests := []struct {
-		name string
-		url  string
-		body string
-	}{
-		{name: "unknown field", url: "/v1/login", body: `{"protocol_version":1,"game_login_ticket":"ticket","password":"secret"}`},
-		{name: "duplicate top-level key", url: "/v1/login", body: `{"protocol_version":1,"protocol_version":1,"game_login_ticket":"ticket"}`},
-		{name: "duplicate nested key", url: "/v1/login", body: `{"protocol_version":1,"game_login_ticket":"ticket","gameplay_offer":{"offer_version":1,"offer_version":1,"client_build":"test","client_platform":"linux","candidates":[]}}`},
-		{name: "zero candidates", url: "/v1/login", body: `{"protocol_version":1,"game_login_ticket":"ticket","gameplay_offer":{"offer_version":1,"client_build":"test","client_platform":"linux","candidates":[]}}`},
-		{name: "unsorted capabilities", url: "/v1/login", body: `{"protocol_version":1,"game_login_ticket":"ticket","gameplay_offer":{"offer_version":1,"client_build":"test","client_platform":"linux","candidates":[{"family":"canary","profile":"canary.current","transport":"canary.sequence.v1","schema_revision":1,"schema_sha256":"` + strings.Repeat("a", 64) + `","capabilities":["z.v1","a.v1"]}]}}`},
-		{name: "query", url: "/v1/login?ticket=secret", body: `{"protocol_version":1,"game_login_ticket":"ticket"}`},
-		{name: "oversized", url: "/v1/login", body: strings.Repeat(" ", extendedLoginRequestLimit+1)},
-		{name: "legacy remains 4KiB bounded", url: "/v1/login", body: `{"protocol_version":1,"game_login_ticket":"ticket"}` + strings.Repeat(" ", legacyLoginRequestLimit)},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			response := httptest.NewRecorder()
-			server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, test.url, strings.NewReader(test.body)))
-			if response.Code != http.StatusBadRequest {
-				t.Fatalf("expected 400, got %d body=%s", response.Code, response.Body.String())
-			}
-			assertSensitiveResponseNoCache(t, response)
-		})
-	}
-	if platform.redeemCalls != 0 || platform.contextCalls != 0 || sessions.calls != 0 || sessions.readyForCalls != 0 {
-		t.Fatalf("invalid requests reached dependencies: platform=%#v sessions=%#v", platform, sessions)
-	}
-}
-
-func TestLoginMapsBoundedErrors(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		err    error
-		status int
-		body   string
-	}{
-		{name: "invalid", err: gateway.ErrInvalidLogin, status: http.StatusUnauthorized, body: "invalid_login"},
-		{name: "outage", err: gateway.ErrUnavailable, status: http.StatusServiceUnavailable, body: "login_unavailable"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			service := gateway.NewService(&testPlatform{redeemErr: test.err}, &testSessionIssuer{})
-			server := NewServer(service, "test", slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
-			response := httptest.NewRecorder()
-			server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/login", strings.NewReader(`{"protocol_version":1,"game_login_ticket":"ticket"}`)))
-			if response.Code != test.status || !strings.Contains(response.Body.String(), test.body) {
-				t.Fatalf("unexpected response: status=%d body=%s", response.Code, response.Body.String())
-			}
-			assertSensitiveResponseNoCache(t, response)
-		})
-	}
-}
-
-func TestLoginMapsNoMatchToConflictWithoutPolicyDisclosure(t *testing.T) {
-	platform := legacyTestPlatform()
-	platform.loginContext.GameplayPolicy = gateway.GameplayPolicy{Revision: 1, ChannelID: 1}
-	server := NewServer(gateway.NewService(platform, &testSessionIssuer{}), "test", slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
-	body := `{"protocol_version":1,"game_login_ticket":"ticket","gameplay_offer":{"offer_version":1,"client_build":"test","client_platform":"linux","candidates":[{"family":"canary","profile":"canary.current","transport":"canary.sequence.v1","schema_revision":1,"schema_sha256":"` + strings.Repeat("a", 64) + `","capabilities":[]}]}}`
-	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/login", strings.NewReader(body)))
-	if response.Code != http.StatusConflict || response.Body.String() != "{\"error\":\"unsupported_gameplay_pair\"}\n" {
-		t.Fatalf("unexpected no-match response: %d %s", response.Code, response.Body.String())
+	if got := response.Header().Get("Expires"); got != "0" {
+		t.Fatalf("unexpected Expires header: %q", got)
 	}
 }
 
 func TestHealthAndReadinessAreSeparate(t *testing.T) {
-	service := gateway.NewService(&testPlatform{readyErr: gateway.ErrUnavailable}, &testSessionIssuer{})
-	server := NewServer(service, "v1.2.3", slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	server := NewServer(testReadiness{err: errors.New("platform down")}, "v1.2.3", slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
 
 	health := httptest.NewRecorder()
 	server.Handler().ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/health", nil))
@@ -236,77 +66,29 @@ func TestHealthAndReadinessAreSeparate(t *testing.T) {
 	}
 }
 
-func legacyTestPlatform() *testPlatform {
-	return &testPlatform{
-		authorization: gateway.Authorization{CanaryAccountID: 1001, SecurityGeneration: 7},
-		loginContext: gateway.LoginContext{
-			Worlds:     []gateway.World{{ID: 1, Slug: "oteryn", Name: "Oteryn", Region: "EU", Host: "game.example.test", Port: 7172}},
-			Characters: []gateway.Character{{ID: 10, Name: "Alpha", Level: 100, Vocation: 4, WorldID: 1}},
-		},
+func TestReadinessSucceedsWhenPlatformIsReachable(t *testing.T) {
+	ready := httptest.NewRecorder()
+	newTestServer(nil).Handler().ServeHTTP(ready, httptest.NewRequest(http.MethodGet, "/ready", nil))
+	if ready.Code != http.StatusOK {
+		t.Fatalf("expected ready, got %d", ready.Code)
 	}
 }
 
-func nativeCapabilities() []string {
-	capabilities := []string{
-		"actions.command-result.v1",
-		"chat.semantic.v1",
-		"combat.server-authoritative.v1",
-		"inventory.server-authoritative.v1",
-		"ordering.server-sequence.v1",
-		"reconciliation.movement.v1",
-		"session.single-admission.v1",
-		"state.revision.v1",
-		"state.snapshot-delta.v1",
-	}
-	sort.Strings(capabilities)
-	return capabilities
-}
+func TestLoginIsDefaultOffAndRefusesEveryBody(t *testing.T) {
+	server := newTestServer(nil)
 
-func assertSensitiveResponseNoCache(t *testing.T, response *httptest.ResponseRecorder) {
-	t.Helper()
-
-	if got := response.Header().Get("Cache-Control"); got != "no-store, no-cache, must-revalidate, private" {
-		t.Fatalf("unexpected Cache-Control header: %q", got)
-	}
-	if got := response.Header().Get("Pragma"); got != "no-cache" {
-		t.Fatalf("unexpected Pragma header: %q", got)
-	}
-	if got := response.Header().Get("Expires"); got != "0" {
-		t.Fatalf("unexpected Expires header: %q", got)
+	for _, body := range []string{nativeLoginBody, `{"protocol_version":1,"game_login_ticket":"ticket"}`, ``} {
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/login", strings.NewReader(body)))
+		if response.Code != http.StatusBadRequest || strings.TrimSpace(response.Body.String()) != `{"error":"invalid_request"}` {
+			t.Fatalf("expected invalid_request while native login is disabled, got %d %s", response.Code, response.Body.String())
+		}
+		assertSensitiveResponseNoCache(t, response)
 	}
 }
 
-type recordingNativeHandler struct {
-	bodies []string
-}
-
-func (h *recordingNativeHandler) Serve(w http.ResponseWriter, _ *http.Request, body []byte) {
-	h.bodies = append(h.bodies, string(body))
-	w.WriteHeader(http.StatusTeapot)
-}
-
-const nativeLoginBody = `{"protocol_version":2,"game_login_ticket":"native-ticket","attempt_ref":"0192b3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b","character_id":"0192b3c4-5d6e-7f80-8a1b-2c3d4e5f6a7c","channel_id":null,"offer":{"client_build":"0.1.0","client_platform":"windows","transports":[{"protocol_major":1,"transport_profile":1,"alpn":"oteryn-game/1"}]}}`
-
-func TestNativeLoginIsDefaultOffAndKeepsTheLegacyAnswer(t *testing.T) {
-	platform := legacyTestPlatform()
-	sessions := &testSessionIssuer{}
-	server := NewServer(gateway.NewService(platform, sessions), "test", slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
-
-	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/login", strings.NewReader(nativeLoginBody)))
-	if response.Code != http.StatusBadRequest || strings.TrimSpace(response.Body.String()) != `{"error":"invalid_request"}` {
-		t.Fatalf("expected the unchanged legacy refusal, got %d %s", response.Code, response.Body.String())
-	}
-	if platform.redeemCalls != 0 || sessions.calls != 0 {
-		t.Fatalf("a native request must never reach the Canary path")
-	}
-}
-
-func TestNativeLoginRoutesOnlyProtocolVersionTwo(t *testing.T) {
-	now := time.Now().UTC()
-	platform := legacyTestPlatform()
-	sessions := &testSessionIssuer{session: gateway.Session{Credential: "session-secret", ExpiresAt: now.Add(time.Minute)}}
-	server := NewServer(gateway.NewService(platform, sessions), "test", slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
+func TestLoginRoutesOnlyProtocolVersionTwoToTheNativeBranch(t *testing.T) {
+	server := newTestServer(nil)
 	native := &recordingNativeHandler{}
 	server.EnableNativeLogin(native)
 
@@ -316,42 +98,44 @@ func TestNativeLoginRoutesOnlyProtocolVersionTwo(t *testing.T) {
 		if response.Code != http.StatusTeapot {
 			t.Fatalf("protocol_version 2 must reach the native branch, got %d", response.Code)
 		}
-		if response.Header().Get("Cache-Control") != "no-store, no-cache, must-revalidate, private" {
-			t.Fatalf("native responses must not be cacheable")
-		}
+		assertSensitiveResponseNoCache(t, response)
 	}
 
-	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/login", strings.NewReader(`{"protocol_version":1,"game_login_ticket":"ticket"}`)))
-	if response.Code != http.StatusOK || sessions.calls != 1 || len(native.bodies) != 2 {
-		t.Fatalf("protocol_version 1 must keep the Canary path, got %d sessions=%d native=%d", response.Code, sessions.calls, len(native.bodies))
+	for _, body := range []string{
+		`{"protocol_version":1,"game_login_ticket":"ticket"}`,
+		`{"game_login_ticket":"ticket"}`,
+		`{"protocol_version":"2"}`,
+		`not json`,
+		``,
+	} {
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/login", strings.NewReader(body)))
+		if response.Code != http.StatusBadRequest || strings.TrimSpace(response.Body.String()) != `{"error":"invalid_request"}` {
+			t.Fatalf("body %q must be refused as invalid_request, got %d %s", body, response.Code, response.Body.String())
+		}
+	}
+	if len(native.bodies) != 2 {
+		t.Fatalf("only the two protocol_version 2 bodies may reach the native branch, got %d", len(native.bodies))
 	}
 }
 
-func TestNativeOnlyModeRefusesV1LoginAndStillRoutesNative(t *testing.T) {
-	platform := legacyTestPlatform()
-	server := NewServer(gateway.NewService(platform, nil), "test", slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
+func TestLoginRejectsQueryStringAndOversizedBodies(t *testing.T) {
+	server := newTestServer(nil)
 	native := &recordingNativeHandler{}
 	server.EnableNativeLogin(native)
 
-	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/login", strings.NewReader(`{"protocol_version":1,"game_login_ticket":"ticket"}`)))
-	if response.Code != http.StatusServiceUnavailable || strings.TrimSpace(response.Body.String()) != `{"error":"login_unavailable"}` {
-		t.Fatalf("expected login_unavailable for v1 in native-only mode, got %d %s", response.Code, response.Body.String())
-	}
-	if platform.redeemCalls != 0 {
-		t.Fatal("native-only mode must not redeem a v1 ticket")
+	query := httptest.NewRecorder()
+	server.Handler().ServeHTTP(query, httptest.NewRequest(http.MethodPost, "/v1/login?x=1", strings.NewReader(nativeLoginBody)))
+	if query.Code != http.StatusBadRequest {
+		t.Fatalf("a query string must be refused, got %d", query.Code)
 	}
 
-	response = httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/login", strings.NewReader(nativeLoginBody)))
-	if response.Code != http.StatusTeapot || len(native.bodies) != 1 {
-		t.Fatalf("protocol_version 2 must still reach the native branch, got %d", response.Code)
+	oversized := httptest.NewRecorder()
+	server.Handler().ServeHTTP(oversized, httptest.NewRequest(http.MethodPost, "/v1/login", strings.NewReader(strings.Repeat(" ", loginRequestLimit+1))))
+	if oversized.Code != http.StatusBadRequest {
+		t.Fatalf("an oversized body must be refused, got %d", oversized.Code)
 	}
-
-	response = httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/ready", nil))
-	if response.Code != http.StatusOK {
-		t.Fatalf("native-only readiness must not depend on a session service, got %d", response.Code)
+	if len(native.bodies) != 0 {
+		t.Fatal("refused requests must not reach the native branch")
 	}
 }

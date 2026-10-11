@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $channel_id
  * @property int $sort_order
  * @property string $family
- * @property string|null $profile Canary compatibility identity only
+ * @property string|null $profile Legacy compatibility identity only
  * @property int|null $native_protocol_version Oteryn native identity only
  * @property string $transport
  * @property int $schema_revision

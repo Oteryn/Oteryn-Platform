@@ -7,13 +7,11 @@ evidence_path="${OTERYN_PREFLIGHT_EVIDENCE_PATH:-/tmp/synology-production-target
 state_dir="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
 run_restore_drill="${OTERYN_RUN_RESTORE_DRILL:-true}"
 platform_db="${OTERYN_PLATFORM_DB_NAME:-oteryn_platform}"
-canary_db="${OTERYN_CANARY_DB_NAME:-canary}"
 work_dir="${OTERYN_PREFLIGHT_WORK_DIR:-/tmp/oteryn-synology-production-target-preflight}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 mariadb_root_password="${MARIADB_ROOT_PASSWORD:-}"
 redis_password="${REDIS_PASSWORD:-}"
-runtime_redis_password="${CANARY_RUNTIME_REDIS_PASSWORD:-}"
 
 declare -A containers=()
 
@@ -41,12 +39,10 @@ gateway_repo="$(bash "$script_dir/repository-ghcr-image.sh" oteryn-game-gateway)
 [[ "$project_name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]] \
     || fail "OTERYN_COMPOSE_PROJECT_NAME is not a bounded Compose project name"
 [[ "$platform_db" =~ ^[A-Za-z0-9_]{1,64}$ ]] || fail "OTERYN_PLATFORM_DB_NAME is invalid"
-[[ "$canary_db" =~ ^[A-Za-z0-9_]{1,64}$ ]] || fail "OTERYN_CANARY_DB_NAME is invalid"
 [[ "$run_restore_drill" == "true" || "$run_restore_drill" == "false" ]] \
     || fail "OTERYN_RUN_RESTORE_DRILL must be true or false"
 [[ -n "$mariadb_root_password" ]] || fail "MARIADB_ROOT_PASSWORD is required"
 [[ -n "$redis_password" ]] || fail "REDIS_PASSWORD is required"
-[[ -n "$runtime_redis_password" ]] || fail "CANARY_RUNTIME_REDIS_PASSWORD is required"
 
 rm -rf "$work_dir"
 mkdir -p "$work_dir" "$(dirname "$evidence_path")"
@@ -70,11 +66,11 @@ find_single_container() {
     containers["$service"]="${ids[0]}"
 }
 
-for service in mariadb redis canary platform internal-proxy gateway; do
+for service in mariadb redis platform internal-proxy gateway; do
     find_single_container "$service"
 done
 
-for service in mariadb redis canary platform internal-proxy gateway; do
+for service in mariadb redis platform internal-proxy gateway; do
     id="${containers[$service]}"
     [[ "$(docker inspect --format '{{.State.Running}}' "$id")" == "true" ]] \
         || fail "$service is not running"
@@ -91,7 +87,7 @@ done
 expected_network="${project_name}_private"
 [[ "$(docker network inspect --format '{{.Driver}}' "$expected_network")" == "bridge" ]] \
     || fail "$expected_network is not a bridge network"
-for service in mariadb redis canary platform internal-proxy gateway; do
+for service in mariadb redis platform internal-proxy gateway; do
     docker inspect --format '{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}' \
         "${containers[$service]}" \
         | grep -Fxq "$expected_network" \
@@ -110,26 +106,6 @@ published_binding() {
     || fail "Platform is not bound exactly to 127.0.0.1:8000"
 [[ "$(published_binding gateway 8080)" == "127.0.0.1:8080" ]] \
     || fail "Gateway is not bound exactly to 127.0.0.1:8080"
-[[ "$(published_binding canary 7171)" == "127.0.0.1:7171" ]] \
-    || fail "Canary legacy login is not bound exactly to 127.0.0.1:7171"
-
-game_binding="$(published_binding canary 7172)"
-python3 - "$game_binding" <<'PY'
-import ipaddress
-import sys
-
-try:
-    host, port = sys.argv[1].rsplit(':', 1)
-    address = ipaddress.ip_address(host)
-except ValueError as exc:
-    raise SystemExit('invalid Canary game binding') from exc
-
-if port != '7172':
-    raise SystemExit('Canary game port must remain 7172')
-if address.version != 4 or not (address.is_private or address.is_loopback):
-    raise SystemExit('Canary game binding must remain loopback or one exact private IPv4 address')
-PY
-
 assert_no_published_ports() {
     local service="$1"
     local published
@@ -143,15 +119,13 @@ assert_no_published_ports internal-proxy
 
 python3 - \
     "$(docker inspect --format '{{json .NetworkSettings.Ports}}' "${containers[platform]}")" \
-    "$(docker inspect --format '{{json .NetworkSettings.Ports}}' "${containers[gateway]}")" \
-    "$(docker inspect --format '{{json .NetworkSettings.Ports}}' "${containers[canary]}")" <<'PY'
+    "$(docker inspect --format '{{json .NetworkSettings.Ports}}' "${containers[gateway]}")" <<'PY'
 import json
 import sys
 
 expected_sets = [
     {'8000/tcp'},
     {'8080/tcp'},
-    {'7171/tcp', '7172/tcp'},
 ]
 
 for raw, expected in zip(sys.argv[1:], expected_sets, strict=True):
@@ -168,7 +142,6 @@ PY
 
 platform_image="$(docker inspect --format '{{.Config.Image}}' "${containers[platform]}")"
 gateway_image="$(docker inspect --format '{{.Config.Image}}' "${containers[gateway]}")"
-canary_image="$(docker inspect --format '{{.Config.Image}}' "${containers[canary]}")"
 
 platform_prefix="${platform_repo}@sha256:"
 [[ "$platform_image" == "$platform_prefix"* ]] \
@@ -186,10 +159,6 @@ gateway_digest_hex="${gateway_image#"$gateway_prefix"}"
     || fail "Gateway immutable image digest is malformed"
 gateway_digest="sha256:${gateway_digest_hex}"
 
-[[ "$canary_image" =~ @sha256:([a-f0-9]{64})$ ]] \
-    || fail "Canary is not deployed by immutable digest"
-canary_digest="sha256:${BASH_REMATCH[1]}"
-
 current_release_file="$state_dir/current-release.env"
 [[ -f "$current_release_file" ]] || fail "managed current release state is missing"
 bash "$script_dir/release-state.sh" validate "$current_release_file" \
@@ -199,7 +168,7 @@ mapfile -t release_state < <(bash -c '
     source "$1"
     printf "%s\n" \
         "$RELEASE_SHA" "$PLATFORM_SOURCE_SHA" "$GATEWAY_SOURCE_SHA" \
-        "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE"
+        "$PLATFORM_IMAGE" "$GATEWAY_IMAGE"
 ' bash "$current_release_file")
 
 deployed_release_sha="${release_state[0]:-}"
@@ -207,15 +176,13 @@ platform_source_sha="${release_state[1]:-}"
 gateway_source_sha="${release_state[2]:-}"
 persisted_platform_image="${release_state[3]:-}"
 persisted_gateway_image="${release_state[4]:-}"
-persisted_canary_image="${release_state[5]:-}"
 [[ "$deployed_release_sha" =~ ^[a-f0-9]{40}$ ]] || fail "persisted overall release SHA is invalid"
 [[ "$platform_source_sha" =~ ^[a-f0-9]{40}$ ]] || fail "persisted Platform source SHA is invalid"
 [[ "$gateway_source_sha" =~ ^[a-f0-9]{40}$ ]] || fail "persisted Gateway source SHA is invalid"
 [[ "$platform_image" == "$persisted_platform_image" ]] || fail "running Platform digest differs from current release state"
 [[ "$gateway_image" == "$persisted_gateway_image" ]] || fail "running Gateway digest differs from current release state"
-[[ "$canary_image" == "$persisted_canary_image" ]] || fail "running Canary digest differs from current release state"
 
-for service in platform gateway canary; do
+for service in platform gateway; do
     image_id="$(docker inspect --format '{{.Image}}' "${containers[$service]}")"
     [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]] || fail "$service image ID is not immutable"
 done
@@ -247,7 +214,6 @@ assert_named_volume() {
 assert_named_volume mariadb /var/lib/mysql
 assert_named_volume redis /data
 assert_named_volume platform /var/www/html/storage
-assert_named_volume canary /data
 assert_named_volume internal-proxy /etc/nginx/tls
 
 [[ -d "$state_dir" ]] || fail "persistent runner state directory is missing"
@@ -257,7 +223,7 @@ state_file="$state_dir/last-good.env"
 [[ -f "$state_file" ]] || fail "last-good runtime image snapshot is missing"
 [[ "$(stat -c '%a' "$state_file")" == "600" ]] \
     || fail "last-good runtime image snapshot must have mode 600"
-for marker in PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE; do
+for marker in PLATFORM_IMAGE GATEWAY_IMAGE; do
     grep -Eq "^${marker}=" "$state_file" || fail "last-good snapshot is missing $marker"
 done
 
@@ -290,41 +256,18 @@ probe_http gateway 8080 /health "Gateway health probe"
 probe_http gateway 8080 /ready "Gateway readiness probe"
 probe_http gateway 8080 /version "Gateway version probe"
 
-docker run --rm \
-    --network "container:${containers[canary]}" \
-    alpine:3.22 \
-    /bin/sh -ec 'nc -z -w 3 127.0.0.1 7172' \
-    || fail "Canary game TCP is not reachable in its network namespace"
-
-docker exec "${containers[platform]}" php artisan canary:verify-db-privileges >/dev/null
-docker exec "${containers[platform]}" php artisan canary:verify-provisioning-db-privileges >/dev/null
-docker exec "${containers[platform]}" php artisan canary:verify-character-create-db-privileges >/dev/null
-
 appendonly="$(docker exec -e REDISCLI_AUTH="$redis_password" "${containers[redis]}" \
     redis-cli --no-auth-warning --raw CONFIG GET appendonly | tail -n 1)"
 [[ "$appendonly" == "yes" ]] || fail "Redis append-only persistence is not enabled"
 
-docker exec "${containers[redis]}" redis-cli --no-auth-warning \
-    --user oteryn_runtime --pass "$runtime_redis_password" PING \
-    | grep -qx 'PONG' \
-    || fail "dedicated runtime Redis ACL user cannot execute PING"
-
-redis_write_output="$(docker exec "${containers[redis]}" redis-cli --no-auth-warning \
-    --user oteryn_runtime --pass "$runtime_redis_password" \
-    SET oteryn:preflight:write-denial forbidden 2>&1 || true)"
-[[ "$redis_write_output" == *NOPERM* ]] \
-    || fail "dedicated runtime Redis ACL user was not denied a write command"
-
 restore_result="NOT_RUN"
 restore_duration_ms=0
 platform_table_count=0
-canary_table_count=0
 
 if [[ "$run_restore_drill" == "true" ]]; then
     export OTERYN_PREFLIGHT_MARIADB_CONTAINER="${containers[mariadb]}"
     export OTERYN_PREFLIGHT_MARIADB_ROOT_PASSWORD="$mariadb_root_password"
     export OTERYN_PREFLIGHT_PLATFORM_DB="$platform_db"
-    export OTERYN_PREFLIGHT_CANARY_DB="$canary_db"
     export OTERYN_PREFLIGHT_RUN_SUFFIX="${GITHUB_RUN_ID:-$(date +%s)}_${GITHUB_RUN_ATTEMPT:-1}"
     export OTERYN_PREFLIGHT_RESTORE_SUMMARY="$work_dir/restore-summary.json"
 
@@ -339,15 +282,13 @@ import time
 container = os.environ['OTERYN_PREFLIGHT_MARIADB_CONTAINER']
 password = os.environ['OTERYN_PREFLIGHT_MARIADB_ROOT_PASSWORD']
 platform_db = os.environ['OTERYN_PREFLIGHT_PLATFORM_DB']
-canary_db = os.environ['OTERYN_PREFLIGHT_CANARY_DB']
 summary_path = os.environ['OTERYN_PREFLIGHT_RESTORE_SUMMARY']
 suffix = re.sub(r'[^0-9_]', '_', os.environ['OTERYN_PREFLIGHT_RUN_SUFFIX'])
 restore_databases = {
     platform_db: f'oteryn_preflight_platform_{suffix}',
-    canary_db: f'oteryn_preflight_canary_{suffix}',
 }
 
-for name in [container, platform_db, canary_db, *restore_databases.values()]:
+for name in [container, platform_db, *restore_databases.values()]:
     if not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', name):
         raise SystemExit('invalid bounded restore-drill identifier')
 
@@ -478,7 +419,6 @@ with open(summary_path, 'w', encoding='utf-8') as handle:
             'result': 'PASS',
             'duration_ms': elapsed_ms,
             'platform_table_count': counts[platform_db],
-            'canary_table_count': counts[canary_db],
         },
         handle,
         separators=(',', ':'),
@@ -488,7 +428,6 @@ PY
     restore_result="$(python3 -c 'import json,os; print(json.load(open(os.environ["OTERYN_PREFLIGHT_RESTORE_SUMMARY"]))["result"])')"
     restore_duration_ms="$(python3 -c 'import json,os; print(json.load(open(os.environ["OTERYN_PREFLIGHT_RESTORE_SUMMARY"]))["duration_ms"])')"
     platform_table_count="$(python3 -c 'import json,os; print(json.load(open(os.environ["OTERYN_PREFLIGHT_RESTORE_SUMMARY"]))["platform_table_count"])')"
-    canary_table_count="$(python3 -c 'import json,os; print(json.load(open(os.environ["OTERYN_PREFLIGHT_RESTORE_SUMMARY"]))["canary_table_count"])')"
 fi
 
 validated_at_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -506,7 +445,6 @@ cat > "$evidence_path" <<EOF
   "gateway_ghcr_repository": "$gateway_repo",
   "platform_image": "$platform_image",
   "gateway_image": "$gateway_image",
-  "canary_image_digest": "$canary_digest",
   "container_singleton_and_running": "PASS",
   "restart_policies": "PASS",
   "private_network_membership": "PASS",
@@ -517,13 +455,10 @@ cat > "$evidence_path" <<EOF
   "named_persistent_volumes": "PASS",
   "runner_state_and_last_good_snapshot": "PASS",
   "application_and_gateway_health": "PASS",
-  "canary_game_tcp": "PASS",
-  "canary_effective_grant_verifiers": "PASS",
-  "redis_aof_and_acl": "PASS",
+  "redis_aof": "PASS",
   "database_restore_drill": "$restore_result",
   "restore_duration_ms": $restore_duration_ms,
   "platform_base_table_count": $platform_table_count,
-  "canary_base_table_count": $canary_table_count,
   "local_session_cache_queue_profile": "SINGLE_INSTANCE_FILE_FILE_SYNC",
   "local_mail_profile": "ARRAY_NON_DELIVERY",
   "production_environment_proven": false,

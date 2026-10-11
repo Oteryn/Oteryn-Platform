@@ -39,8 +39,7 @@ test('@portal-account Flows 1-2 — new and returning player complete the produc
 
   await register(page, email, password);
   const binding = runPhpState('binding', email);
-  expect(binding.status).toBe('ready');
-  expect(binding.canary_account_id).toBeGreaterThan(0);
+  expect(binding.status).not.toBe('missing');
 
   await login(page, email, password);
   await expect(page).toHaveURL(/\/$/u);

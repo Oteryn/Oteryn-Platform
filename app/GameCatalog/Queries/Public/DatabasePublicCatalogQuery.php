@@ -8,6 +8,7 @@ use App\GameCatalog\Infrastructure\Persistence\CatalogDatabaseRow;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Query\JoinClause;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use JsonException;
 use RuntimeException;
 
@@ -29,6 +30,132 @@ final readonly class DatabasePublicCatalogQuery
             itemCount: $this->baseItemQuery($context, 'en')->count(),
             creatureCount: $this->baseCreatureQuery($context, 'en')->count(),
         );
+    }
+
+    /** @return list<PublicCatalogItemCard>|null */
+    public function searchItems(string $locale, string $search, int $offset = 0, int $limit = 5): ?array
+    {
+        $this->assertSearchWindow($offset, $limit);
+        $context = $this->contexts->resolve();
+        if ($context === null) {
+            return null;
+        }
+
+        $filtered = $this->baseItemQuery($context, $locale);
+        $like = '%'.$this->escapeLike($search).'%';
+        $filtered->where(function (Builder $builder) use ($like): void {
+            $builder->where('item.name', 'like', $like)
+                ->orWhere('translation.display_name', 'like', $like)
+                ->orWhere('item.description', 'like', $like)
+                ->orWhere('translation.summary', 'like', $like);
+        });
+
+        $rows = $filtered
+            ->orderByRaw(
+                'CASE WHEN LOWER(COALESCE(translation.display_name, item.name)) = LOWER(?) THEN 0 '
+                .'WHEN LOWER(COALESCE(translation.display_name, item.name)) LIKE LOWER(?) THEN 1 ELSE 2 END',
+                [$search, $this->escapeLike($search).'%'],
+            )
+            ->orderByRaw('COALESCE(translation.display_name, item.name) ASC')
+            ->orderBy('entity.canonical_key')
+            ->offset($offset)
+            ->limit($limit)
+            ->get([
+                'entity.canonical_key',
+                'translation.slug as translation_slug',
+                'translation.display_name as translated_name',
+                'translation.summary as translated_summary',
+                'item.name',
+                'item.description',
+                'item.category',
+                'item.weapon_type',
+                'item.attack',
+                'item.defense',
+                'item.armor',
+                'item.minimum_level',
+                'item.vocations',
+                'item.image_key',
+            ]);
+
+        $items = [];
+        foreach ($rows as $row) {
+            $databaseRow = CatalogDatabaseRow::from($row);
+            $items[] = new PublicCatalogItemCard(
+                slug: $databaseRow->nullableString('translation_slug') ?? $this->slugFromCanonicalKey($databaseRow->string('canonical_key'), 'item'),
+                name: $databaseRow->nullableString('translated_name') ?? $databaseRow->string('name'),
+                summary: $databaseRow->nullableString('translated_summary') ?? $databaseRow->nullableString('description'),
+                category: $databaseRow->string('category'),
+                weaponType: $databaseRow->nullableString('weapon_type'),
+                attack: $databaseRow->nullableInt('attack'),
+                defense: $databaseRow->nullableInt('defense'),
+                armor: $databaseRow->nullableInt('armor'),
+                minimumLevel: $databaseRow->nullableInt('minimum_level'),
+                vocations: $this->decodeStringList($databaseRow->nullableString('vocations')),
+                imageKey: $databaseRow->nullableString('image_key'),
+            );
+        }
+
+        return $items;
+    }
+
+    /** @return list<PublicCatalogCreatureCard>|null */
+    public function searchCreatures(string $locale, string $search, int $offset = 0, int $limit = 5): ?array
+    {
+        $this->assertSearchWindow($offset, $limit);
+        $context = $this->contexts->resolve();
+        if ($context === null) {
+            return null;
+        }
+
+        $filtered = $this->baseCreatureQuery($context, $locale);
+        $like = '%'.$this->escapeLike($search).'%';
+        $filtered->where(function (Builder $builder) use ($like): void {
+            $builder->where('creature.name', 'like', $like)
+                ->orWhere('translation.display_name', 'like', $like)
+                ->orWhere('creature.description', 'like', $like)
+                ->orWhere('translation.summary', 'like', $like);
+        });
+
+        $rows = $filtered
+            ->orderByRaw(
+                'CASE WHEN LOWER(COALESCE(translation.display_name, creature.name)) = LOWER(?) THEN 0 '
+                .'WHEN LOWER(COALESCE(translation.display_name, creature.name)) LIKE LOWER(?) THEN 1 ELSE 2 END',
+                [$search, $this->escapeLike($search).'%'],
+            )
+            ->orderByRaw('COALESCE(translation.display_name, creature.name) ASC')
+            ->orderBy('entity.canonical_key')
+            ->offset($offset)
+            ->limit($limit)
+            ->get([
+                'entity.canonical_key',
+                'translation.slug as translation_slug',
+                'translation.display_name as translated_name',
+                'translation.summary as translated_summary',
+                'creature.name',
+                'creature.description',
+                'creature.health',
+                'creature.experience',
+                'creature.bestiary_class',
+                'creature.is_boss',
+                'creature.look_type',
+            ]);
+
+        $creatures = [];
+        foreach ($rows as $row) {
+            $databaseRow = CatalogDatabaseRow::from($row);
+            $creatures[] = new PublicCatalogCreatureCard(
+                slug: $databaseRow->nullableString('translation_slug') ?? $this->slugFromCanonicalKey($databaseRow->string('canonical_key'), 'creature'),
+                name: $databaseRow->nullableString('translated_name') ?? $databaseRow->string('name'),
+                summary: $databaseRow->nullableString('translated_summary') ?? $databaseRow->nullableString('description'),
+                health: $databaseRow->int('health'),
+                experience: $databaseRow->int('experience'),
+                bestiaryClass: $databaseRow->nullableString('bestiary_class'),
+                boss: $databaseRow->bool('is_boss'),
+                lookType: $databaseRow->nullableInt('look_type'),
+            );
+        }
+
+        return $creatures;
     }
 
     public function items(
@@ -542,6 +669,13 @@ final readonly class DatabasePublicCatalogQuery
         }
 
         return $slug;
+    }
+
+    private function assertSearchWindow(int $offset, int $limit): void
+    {
+        if ($offset < 0 || $offset > 1000 || $limit < 1 || $limit > 10) {
+            throw new InvalidArgumentException('Game Catalog search window is outside bounds.');
+        }
     }
 
     private function escapeLike(string $value): string
