@@ -30,7 +30,7 @@ Governing GitHub Issue: #1474. Complete the P6b maintenance-gate design note tha
 ```yaml
 owned_paths:
   - docs/operations/PLATFORM_POSTGRES_MAINTENANCE_GATE_DESIGN.md
-  - docs/agents/tasks/archive/OTERYN-20261012-platform-pg-p6b.md
+  - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p6b.md
 modules:
   - operations-docs
 dependencies:
@@ -48,13 +48,13 @@ checkpoint_version: 1
 updated_at: 2026-10-12T22:00:00Z
 head: UNKNOWN
 branch: claude/platform-pg-p6b-20261012
-pr: none
-status: completed
+pr: 1588
+status: waiting
 context_routes:
   - operations
 owned_paths:
   - docs/operations/PLATFORM_POSTGRES_MAINTENANCE_GATE_DESIGN.md
-  - docs/agents/tasks/archive/OTERYN-20261012-platform-pg-p6b.md
+  - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p6b.md
 proven:
   - The existing script preserves unrelated rules and its apply rebuilds canonical rules with loopback origins, so apply would reopen a closed gate without a guard.
   - The dispatch concurrency group includes the run id, so today it serializes nothing; the pre-PUT hash check is the only guard.
@@ -73,7 +73,7 @@ rejected_hypotheses:
   - A plain concurrency group as a lock: it can replace a pending close.
 changed_paths:
   - docs/operations/PLATFORM_POSTGRES_MAINTENANCE_GATE_DESIGN.md
-  - docs/agents/tasks/archive/OTERYN-20261012-platform-pg-p6b.md
+  - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p6b.md
 validation:
   - command: python3 tools/validation/legacy_token_ratchet.py; python3 tools/agents/checkpoint.py --tasks docs/agents/tasks/active --require-checkpoint; python3 tools/agents/documentation_ia.py
     result: PASS
