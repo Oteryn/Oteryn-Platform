@@ -73,7 +73,8 @@ updated_at: 2026-10-13T04:30:00Z
 head: a17978379e032eeeb19472c9955df94b7790a95f
 branch: claude/platform-pg-p5-20261012
 pr: 1583
-status: waiting
+status: validating
+terminal_pr_policy: archive_pending
 context_routes:
   - deploy
 owned_paths:
@@ -137,15 +138,15 @@ validation:
     evidence: probe, target-time and immediate drills passed; scratch discarded; probe drill re-run passed after the self-review hardening
 blockers:
   - none
-next_action: Wait for exact-head CI and a complete Codex review, then fix all findings in one commit.
+next_action: archive this record when the P6 drill and cutover packet records the staging pitr-drill pass and the 24 h archiver run without failures; those two criteria stay open here and move to that packet
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository PR path
+source_branch_evidence: PR #1583 merged as ba971b872ba243454b3a045d0b8ccb86bc8e68c7 from claude/platform-pg-p5-20261012; git ls-remote --heads origin claude/platform-pg-p5-20261012 returns nothing (verified)
 ```
 
 ## Notes
