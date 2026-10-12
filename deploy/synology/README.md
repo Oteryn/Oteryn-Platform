@@ -82,6 +82,16 @@ Optional rotation secrets:
 OTERYN_STAGING_PLATFORM_PREVIOUS_SERVICE_TOKEN_SHA256
 ```
 
+Optional PostgreSQL secrets (all five or none; see *PostgreSQL service*):
+
+```text
+OTERYN_STAGING_PLATFORM_POSTGRES_SUPERUSER_PASSWORD
+OTERYN_STAGING_PLATFORM_POSTGRES_OWNER_PASSWORD
+OTERYN_STAGING_PLATFORM_POSTGRES_APP_PASSWORD
+OTERYN_STAGING_PLATFORM_POSTGRES_BACKUP_PASSWORD
+OTERYN_STAGING_PLATFORM_POSTGRES_DUMP_PASSWORD
+```
+
 Recommended variables:
 
 ```text
@@ -234,6 +244,44 @@ GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_IDENTITIES=["CN=oteryn-preprod-character-pro
 `health-check.sh` leaves native admission enabled only after the running Platform reports a live account-character feed (a fresh watermark from the Character Authority; `lib.sh` `oteryn_wait_native_account_characters_feed`, waits up to `OTERYN_NATIVE_ACCOUNT_CHARACTERS_FEED_WAIT_SECONDS`, default 90). Without it every login would be refused while the unknown-ticket probe passes, so the check fails closed and the deployment is not reported healthy.
 
 The D171 fallback and its `OTERYN_STAGING_NATIVE_WORLD_ID` tie are gone from the committed defaults; deploy no longer refuses native admission for a missing World UUID.
+
+## PostgreSQL service
+
+ADR 0046 and `docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md` (packet P4) add a PostgreSQL 17 service beside MariaDB. In P4 it is **idle**: Platform and the scheduler keep using MariaDB, and nothing reads or writes Platform data in PostgreSQL. The service exists so the role split, TLS and health contract are proven on the NAS before the staging cutover (P6).
+
+Engine switch: `release-contract.env` `PLATFORM_DB_ENGINE` (`mariadb`, the committed value, or `postgres`). `lib.sh` exports the runtime connection (`OTERYN_PLATFORM_DB_*`) that `compose.yml` passes to Platform and the scheduler as `DB_*`. Every image carries the engine in its release contract, and a candidate built for the other engine is refused. In this package `deploy.sh` refuses `postgres`, and schema recovery, the fresh-schema baseline and Marketplace staging control refuse it too, until their PostgreSQL branches land with the cutover.
+
+Service contract (`compose.yml` service `postgres`, profile `postgres`):
+
+- image pinned by digest; private bridge only, no `ports` or `expose`; `restart: always`;
+- data in the named volume `postgres_data`, never removed by any workflow or deploy script (`tests/ci/test_synology_postgres_contract.py`);
+- TLS 1.3 only with a server certificate for `postgres` issued by a dedicated PostgreSQL CA (`tls-init`); the CA private key lives only in `postgres_ca_signer`, which only `tls-init` mounts (the stack CA key in `internal_tls` is readable by the root-started ingress, so it must not sign this certificate), the server pair lives in `postgres_tls`, and Platform mounts only the PostgreSQL CA certificate (`postgres_client_ca`) and connects with `sslmode=verify-full`;
+- `pg_hba.conf` admits only `hostssl` SCRAM logins of the Platform roles from the bridge, plus local peer login of the `postgres` OS user; every other host rule is `reject`, including the superuser over TCP;
+- health check: `pg_isready` plus a `verify-full` login of the runtime role.
+
+Roles (`postgres/init/10-platform-roles.sh`, re-applied on every full deploy):
+
+| Role | Purpose | Rights |
+| --- | --- | --- |
+| `oteryn_platform_owner` | migrations | owns database `oteryn_platform`, schema `public` and every migrated object |
+| `oteryn_platform_app` | Platform runtime | `CONNECT`, schema `USAGE`, table DML and sequence use; no DDL, no `TRUNCATE` |
+| `oteryn_platform_dump` | logical dump | `CONNECT`, schema `USAGE`, `SELECT` only |
+| `oteryn_platform_backup` | physical backup | `REPLICATION` login only; no database access |
+
+None has `SUPERUSER`, `CREATEDB`, `CREATEROLE` or `BYPASSRLS`. Default privileges extend the grants to every object the owner creates later.
+
+Secrets (owner action): the five optional `OTERYN_STAGING_PLATFORM_POSTGRES_*_PASSWORD` secrets of the `synology-staging` environment. Set all five or none; each must be a distinct generated value of at least 24 characters from `A-Z a-z 0-9 . _ -` (for example `openssl rand -hex 32`), and none may equal the MariaDB passwords. The deploy workflow and `lib.sh` refuse a partial or unsafe set before any stack change and never print a value. While none is set, the deploy skips PostgreSQL and the health check ignores it. Once all are set, every full deploy:
+
+1. stages `postgresql.conf`, `pg_hba.conf` and the role script into `bootstrap_files`;
+2. starts `postgres` (the first start runs `initdb` with the superuser password and data checksums);
+3. pipes the four role passwords on standard input to the role script, run as the `postgres` OS user over the local socket with statement logging off;
+4. proves the contract: no published port, a `verify-full` TLS login of the runtime role, refusal of a non-TLS login, refusal of DDL by the runtime role, no privileged role attributes and the expected ownership; then waits for the container to be healthy.
+
+The health check then requires `postgres` to be running, healthy and unpublished.
+
+Rotation: change the GitHub secret and run a full deploy; the role script re-applies the owner, app, backup and dump passwords, and Compose recreates `postgres` so the probe uses the new runtime password. The superuser password is used only by `initdb` on an empty volume and cannot log in over TCP, so changing that secret later has no effect on an existing cluster.
+
+Rollback: remove all five secrets. The next deploy skips PostgreSQL and the health check ignores it. To stop the idle service, an operator runs `docker compose --profile postgres stop postgres`; the volume and its data stay. Never remove `postgres_data` without the restore drill and owner sign-off required by the plan.
 
 ## Early workstation testing through loopback
 

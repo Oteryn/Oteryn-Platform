@@ -37,6 +37,7 @@ class SynologyAutoStagingDeployContractTest(unittest.TestCase):
             "      - deploy/synology/nginx/**",
             "      - deploy/synology/tls/**",
             "      - deploy/synology/mariadb/init/**",
+            "      - deploy/synology/postgres/**",
             "      - deploy/synology/scripts/deploy.sh",
             "      - deploy/synology/scripts/deploy-impact.sh",
             "      - deploy/synology/scripts/health-check.sh",
