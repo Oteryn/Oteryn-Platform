@@ -149,6 +149,19 @@ oteryn_postgres_config_digest() {
     printf '%s\n' "$digest"
 }
 
+# Seconds before expiry at which tls/init.sh renews the PostgreSQL server certificate (7 days; the same
+# value as its `openssl x509 -checkend`, pinned by tests/ci/test_synology_postgres_contract.py).
+OTERYN_POSTGRES_CERT_RENEWAL_SECONDS=604800
+
+# True when the server certificate the running postgres container serves is outside the tls-init renewal
+# window. Only tls-init renews it, so a deploy that skips tls-init (the Platform fast path) must not run
+# with a certificate that is due. An unreadable certificate or a missing openssl counts as not current.
+oteryn_postgres_certificate_is_current() {
+    local container="$1"
+    docker exec "$container" openssl x509 -checkend "$OTERYN_POSTGRES_CERT_RENEWAL_SECONDS" -noout \
+        -in /run/oteryn-postgres-tls/server.crt >/dev/null 2>&1
+}
+
 # Prints `configured` when all five secrets are set, `absent` when none is; refuses a partial or malformed
 # set. Each value is generated hex/alphanumeric of at least 24 characters, distinct from every other
 # PostgreSQL secret and from the MariaDB passwords. Values are never printed.

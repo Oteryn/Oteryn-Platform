@@ -126,6 +126,21 @@ class ComposeServiceTest(unittest.TestCase):
         self.assertIn("OTERYN_POSTGRES_CONFIG_DIGEST", lib)
         self.assertLess(lib.index("export OTERYN_POSTGRES_CONFIG_DIGEST"), lib.index("--profile postgres up -d --no-deps postgres"))
 
+    def test_fast_path_takes_the_full_path_inside_the_certificate_renewal_window(self) -> None:
+        lib = LIB.read_text()
+        init = TLS_INIT.read_text()
+        deploy = DEPLOY.read_text()
+        seconds = re.search(r"^OTERYN_POSTGRES_CERT_RENEWAL_SECONDS=(\d+)$", lib, re.M)
+        self.assertIsNotNone(seconds)
+        # The same window as tls-init's postgres_certificate_is_current.
+        self.assertIn(f'openssl x509 -checkend {seconds.group(1)} -noout -in "$POSTGRES_TLS_DIR/server.crt"', init)
+        self.assertIn("oteryn_postgres_certificate_is_current()", lib)
+        self.assertIn("/run/oteryn-postgres-tls/server.crt", lib)
+        preflight = deploy[deploy.index("_oteryn_fast_candidate()") : deploy.index("_oteryn_fast_restore_on_exit()")]
+        self.assertIn('oteryn_postgres_certificate_is_current "$postgres_id"', preflight)
+        self.assertIn("renewal window", preflight)
+        self.assertLess(preflight.index("oteryn_postgres_certificate_is_current"), preflight.index("want_mtls="))
+
     def test_postgres_healthcheck_is_a_verified_tls_login_by_the_runtime_role(self) -> None:
         health = self.postgres.split("    healthcheck:\n", 1)[1]
         self.assertIn("pg_isready", health)
