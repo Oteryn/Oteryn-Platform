@@ -1,6 +1,9 @@
 FROM composer:2@sha256:af98f42dfff7c68ba8d53c2164fd9fde1087b7d449514baa38c418b1f6bc4bac AS composer-bin
 
-FROM php:8.5-cli-alpine@sha256:93684051146ec037620855feb77f278090bde45ddc030801cd3f2a7685bc4deb
+# The FPM variant of the same PHP 8.5.11 Alpine 3.24 release. It still ships the PHP CLI that runs
+# `php artisan serve` (the default command) and adds php-fpm for the optional mTLS FastCGI listener
+# behind the Synology internal-mtls terminator (README: Platform internal mTLS listener).
+FROM php:8.5-fpm-alpine@sha256:fa01fb1645cd0fc566a5f146b099adace33b906571f972f71f2182a7c12d1cd7
 
 RUN apk add --no-cache \
         freetype \
@@ -32,6 +35,34 @@ COPY deploy/synology/docker/platform-media.ini /usr/local/etc/php/conf.d/zz-oter
 COPY deploy/synology/docker/platform-entrypoint.sh /usr/local/bin/oteryn-platform-entrypoint
 RUN chmod 0755 /usr/local/bin/oteryn-platform-entrypoint \
     && /usr/local/bin/oteryn-platform-entrypoint --self-test
+
+# One FastCGI pool for the Synology internal-mtls terminator, started by the entrypoint only when
+# OTERYN_PLATFORM_FASTCGI_ENABLED=true. It listens on a unix socket in a volume shared only with the
+# terminator (never on TCP), so no other container can speak FastCGI and forge the SSL_CLIENT_*
+# parameters the internal mTLS middleware trusts. The image default pools (TCP 9000) are removed.
+# clear_env=no keeps the entrypoint-exported runtime environment, exactly as `artisan serve` sees it.
+RUN rm -f /usr/local/etc/php-fpm.d/*.conf \
+    && printf '%s\n' \
+        '[global]' \
+        'pid = /tmp/oteryn-php-fpm.pid' \
+        'error_log = /proc/self/fd/2' \
+        'log_limit = 8192' \
+        'daemonize = no' \
+        '' \
+        '[internal-mtls]' \
+        'listen = /run/oteryn-fastcgi/php-fpm.sock' \
+        'listen.mode = 0666' \
+        'pm = ondemand' \
+        'pm.max_children = 4' \
+        'pm.process_idle_timeout = 30s' \
+        'pm.max_requests = 500' \
+        'request_terminate_timeout = 30s' \
+        'clear_env = no' \
+        'catch_workers_output = yes' \
+        'decorate_workers_output = no' \
+        'security.limit_extensions = .php' \
+        > /usr/local/etc/php-fpm.d/oteryn-internal-mtls.conf \
+    && install -d -o www-data -g www-data -m 0750 /run/oteryn-fastcgi
 
 WORKDIR /var/www/html
 
@@ -81,7 +112,13 @@ RUN composer dump-autoload --no-dev --no-interaction --optimize \
 
 USER www-data
 
+RUN php-fpm --test
+
 EXPOSE 8000
+
+# The FPM base image stops with SIGQUIT (graceful FPM shutdown); the default command is still
+# `artisan serve`, so keep the CLI base image's SIGTERM.
+STOPSIGNAL SIGTERM
 
 ENTRYPOINT ["/usr/local/bin/oteryn-platform-entrypoint"]
 CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]

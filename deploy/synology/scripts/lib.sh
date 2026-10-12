@@ -66,6 +66,95 @@ load_oteryn_env_file() {
         SESSION_SECURE_COOKIE=true
         export APP_URL SESSION_SECURE_COOKIE
     fi
+
+    oteryn_resolve_platform_mtls_settings
+}
+
+# Platform internal mTLS listener for the Game node (compose.yml internal-mtls, README: Platform
+# internal mTLS listener). Each setting comes from the environment file (or the caller's environment)
+# when set, otherwise from the committed non-secret OTERYN_STAGING_NATIVE_PLATFORM_MTLS_* value in
+# deploy/synology/native-defaults.env, otherwise a fail-closed built-in (listener off, loopback). The
+# three file settings are host paths of PUBLIC certificates and of the server key file; the key
+# bytes are never read by these scripts and nothing here is a secret.
+oteryn_resolve_platform_mtls_settings() {
+    local pair name default_name fallback value
+    for pair in \
+        OTERYN_PLATFORM_MTLS_ENABLED:ENABLED:false \
+        PLATFORM_MTLS_BIND_ADDRESS:BIND_ADDRESS:127.0.0.1 \
+        PLATFORM_MTLS_PORT:PORT:8543 \
+        PLATFORM_MTLS_SERVER_CERT_FILE:SERVER_CERT_FILE:/volume1/oteryn/preprod-platform-tls/platform-internal-preprod.fullchain.pem \
+        PLATFORM_MTLS_SERVER_KEY_FILE:SERVER_KEY_FILE:/volume1/oteryn/preprod-platform-tls/platform-internal-preprod.key \
+        PLATFORM_MTLS_CLIENT_CA_FILE:CLIENT_CA_FILE:/volume1/oteryn/preprod-platform-tls/oteryn-preprod-ca.crt; do
+        name="${pair%%:*}"
+        default_name="OTERYN_STAGING_NATIVE_PLATFORM_MTLS_$(cut -d: -f2 <<<"$pair")"
+        fallback="${pair#*:*:}"
+        value="$(oteryn_native_default "$default_name" "${!name:-}")" || return 1
+        printf -v "$name" '%s' "${value:-$fallback}"
+        export "${name?}"
+    done
+}
+
+# Refuses malformed listener settings (deploy.sh, before any stack change). Off needs nothing else.
+oteryn_platform_mtls_settings_valid() {
+    local name value
+    case "${OTERYN_PLATFORM_MTLS_ENABLED:-}" in
+        false) return 0 ;;
+        true) ;;
+        *) echo "OTERYN_PLATFORM_MTLS_ENABLED must be true or false." >&2; return 1 ;;
+    esac
+    if ! bash "$(dirname "${BASH_SOURCE[0]}")/validate-ipv4.sh" "${PLATFORM_MTLS_BIND_ADDRESS:-}" private-or-loopback; then
+        echo "PLATFORM_MTLS_BIND_ADDRESS must be loopback or an exact private LAN IPv4 address." >&2
+        return 1
+    fi
+    if [[ ! "${PLATFORM_MTLS_PORT:-}" =~ ^[1-9][0-9]{0,4}$ ]] || ((PLATFORM_MTLS_PORT > 65535)); then
+        echo "PLATFORM_MTLS_PORT must be an integer in 1..65535." >&2
+        return 1
+    fi
+    for name in PLATFORM_MTLS_SERVER_CERT_FILE PLATFORM_MTLS_SERVER_KEY_FILE PLATFORM_MTLS_CLIENT_CA_FILE; do
+        value="${!name:-}"
+        if [[ ! "$value" =~ ^/[A-Za-z0-9._/-]+$ || "$value" == *..* || "$value" == */ ]]; then
+            echo "$name must be an absolute host file path." >&2
+            return 1
+        fi
+    done
+}
+
+# Before any stack change, with the bootstrap files staged: prove the bind address exists on the host
+# and that nginx accepts the staged configuration with the mounted server chain, key and client CA
+# (a missing host file fails here, because Compose never creates the bind sources). Arguments: the
+# route's Compose command words. A no-op while the listener is off.
+oteryn_platform_mtls_preflight() {
+    (($# > 0)) || { echo "Platform mTLS preflight needs the Compose command." >&2; return 1; }
+    [[ "${OTERYN_PLATFORM_MTLS_ENABLED:-false}" == true ]] || return 0
+    if ! docker run --rm --network host alpine:3.22 ip -o -4 addr show \
+        | awk -v address="$PLATFORM_MTLS_BIND_ADDRESS" '{ split($4, cidr, "/"); if (cidr[1] == address) found = 1 } END { exit found ? 0 : 1 }'; then
+        echo "Platform mTLS bind address $PLATFORM_MTLS_BIND_ADDRESS is not an address of this host." >&2
+        return 1
+    fi
+    if ! "$@" run --rm --no-deps -T --entrypoint nginx internal-mtls -t -q -c /bootstrap/internal-mtls-nginx.conf; then
+        echo "Platform mTLS listener configuration or its host certificate files were refused (README: Platform internal mTLS listener)." >&2
+        return 1
+    fi
+    echo "Platform mTLS listener preflight passed for ${PLATFORM_MTLS_BIND_ADDRESS}:${PLATFORM_MTLS_PORT}."
+}
+
+# Brings the listener to the resolved setting after Platform is up: recreated while on (it then
+# re-reads the host certificate files), removed while off. Arguments: the route's Compose command words.
+oteryn_reconcile_platform_mtls() {
+    (($# > 0)) || { echo "Platform mTLS reconcile needs the Compose command." >&2; return 1; }
+    if [[ "${OTERYN_PLATFORM_MTLS_ENABLED:-false}" == true ]]; then
+        "$@" up -d --no-deps --force-recreate internal-mtls
+    else
+        "$@" rm -s -f internal-mtls >/dev/null
+    fi
+}
+
+# The Platform FastCGI switch a running Platform container carries (absent means false).
+oteryn_platform_fastcgi_flag_of() {
+    local container_id="$1" value
+    value="$(command docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container_id" \
+        | sed -n 's/^OTERYN_PLATFORM_FASTCGI_ENABLED=//p')" || return 1
+    printf '%s' "${value:-false}"
 }
 
 _oteryn_platform_container_http_status() {

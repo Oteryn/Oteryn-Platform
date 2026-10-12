@@ -78,6 +78,47 @@ load_native_admission_keys() {
     done
 }
 
+# Platform internal mTLS listener (README: Platform internal mTLS listener). With
+# OTERYN_PLATFORM_FASTCGI_ENABLED=true the image's single FPM pool serves the Platform front controller
+# on /run/oteryn-fastcgi/php-fpm.sock, a volume shared only with the internal-mtls terminator. It is
+# started after the runtime environment above is exported (the pool keeps it, clear_env=no), runs next
+# to the default command and must be listening before that command starts; otherwise the container
+# exits (fail closed). Any value other than true or false is refused.
+fastcgi_socket=/run/oteryn-fastcgi/php-fpm.sock
+start_platform_fastcgi() {
+    case "${OTERYN_PLATFORM_FASTCGI_ENABLED:-false}" in
+        false) return 0 ;;
+        true) ;;
+        *)
+            echo "OTERYN_PLATFORM_FASTCGI_ENABLED must be true or false." >&2
+            return 1
+            ;;
+    esac
+    # Only the container's main process owns the pool. The deploy scripts also run this entrypoint
+    # through `docker exec` (trust publication, signing self-check); those must not start a second one.
+    [ "$$" = 1 ] || return 0
+    if ! command -v php-fpm >/dev/null 2>&1; then
+        echo "Platform FastCGI is enabled but this image has no php-fpm." >&2
+        return 1
+    fi
+    if [ ! -d "${fastcgi_socket%/*}" ] || [ ! -w "${fastcgi_socket%/*}" ]; then
+        echo "Platform FastCGI socket directory is missing or not writable." >&2
+        return 1
+    fi
+    # A socket left by a previous container on the shared volume must not satisfy the wait below.
+    rm -f "$fastcgi_socket"
+    php-fpm --nodaemonize &
+    attempts=0
+    while [ ! -S "$fastcgi_socket" ]; do
+        attempts=$((attempts + 1))
+        if [ "$attempts" -gt 50 ] || ! kill -0 "$!" 2>/dev/null; then
+            echo "Platform FastCGI did not start listening." >&2
+            return 1
+        fi
+        sleep 0.1
+    done
+}
+
 if [ "${1:-}" = "--self-test" ]; then
     test "$(decode_gateway_hex 010012AC)" = "172.18.0.1"
     is_private_ipv4 10.0.0.1
@@ -87,6 +128,11 @@ if [ "${1:-}" = "--self-test" ]; then
         echo "Public IPv4 address unexpectedly passed private-gateway validation." >&2
         exit 4
     fi
+    if OTERYN_PLATFORM_FASTCGI_ENABLED=yes start_platform_fastcgi 2>/dev/null; then
+        echo "Invalid FastCGI switch unexpectedly passed." >&2
+        exit 4
+    fi
+    OTERYN_PLATFORM_FASTCGI_ENABLED=false start_platform_fastcgi
     exit 0
 fi
 
@@ -101,5 +147,6 @@ if [ "$TRUSTED_PROXIES" = "*" ]; then
 fi
 
 load_native_admission_keys || exit 6
+start_platform_fastcgi || exit 7
 
 exec "$@"

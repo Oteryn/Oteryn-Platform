@@ -307,6 +307,18 @@ _oteryn_fast_candidate() {
         FAST_DEPLOY_REASON='native admission projection settings incomplete'
         return 1
     fi
+    # The fast path neither stages bootstrap files nor touches internal-mtls: any change of the
+    # listener setting, or a listener that is not in its wanted state, takes the full path.
+    local want_mtls="${OTERYN_PLATFORM_MTLS_ENABLED:-false}" running_platform_fastcgi mtls_id mtls_running=false
+    running_platform_fastcgi="$(oteryn_platform_fastcgi_flag_of "$FAST_OLD_PLATFORM_ID")" || return 2
+    mtls_id="$("${compose[@]}" ps -q internal-mtls 2>/dev/null)" || return 2
+    if [[ -n "$mtls_id" && "$(docker inspect --format '{{.State.Running}}' "$mtls_id" 2>/dev/null)" == true ]]; then
+        mtls_running=true
+    fi
+    if [[ "$running_platform_fastcgi" != "$want_mtls" || "$mtls_running" != "$want_mtls" ]]; then
+        FAST_DEPLOY_REASON='platform mTLS listener setting changed'
+        return 1
+    fi
     FAST_MARIADB_ID="$(_oteryn_fast_running_service_id mariadb)" || return 2
     FAST_REDIS_ID="$(_oteryn_fast_running_service_id redis)" || return 2
     FAST_PROXY_ID="$(_oteryn_fast_running_service_id internal-proxy)" || return 2
@@ -458,6 +470,8 @@ if [[ "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" == true ]]; then
     # Native login needs the whole chain, not only a signing key (lib.sh validator, shared with rollback).
     oteryn_native_admission_projection_ready || exit 1
 fi
+# Platform internal mTLS listener for the Game node (lib.sh; README: Platform internal mTLS listener).
+oteryn_platform_mtls_settings_valid || exit 1
 oteryn_ensure_native_admission_key || exit 1
 
 fast_candidate_rc=0
@@ -485,6 +499,7 @@ stage_bootstrap_files() {
 
     docker cp "$DEPLOY_DIR/tls/init.sh" "$tls_container:/bootstrap/tls-init.sh"
     docker cp "$DEPLOY_DIR/nginx/internal.conf" "$tls_container:/bootstrap/internal-nginx.conf"
+    docker cp "$DEPLOY_DIR/nginx/internal-mtls.conf" "$tls_container:/bootstrap/internal-mtls-nginx.conf"
 }
 
 snapshot_current_images() {
@@ -673,6 +688,10 @@ finalize_previous_candidate_if_healthy() {
         rm -f "$candidate_env"
         return 1
     fi
+    if ! oteryn_reconcile_platform_mtls "${candidate_compose[@]}"; then
+        rm -f "$candidate_env"
+        return 1
+    fi
     if ! OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"; then
         rm -f "$candidate_env"
         echo "Previous candidate remains unresolved because its full staging health contract failed." >&2
@@ -724,6 +743,7 @@ for runtime_image in "$PLATFORM_IMAGE" "$GATEWAY_IMAGE"; do
     }
 done
 stage_bootstrap_files
+oteryn_platform_mtls_preflight "${compose[@]}" || exit 1
 "${compose[@]}" up -d mariadb redis
 "${compose[@]}" up -d --force-recreate tls-init
 
@@ -780,6 +800,7 @@ fi
 
 "${compose[@]}" up -d --no-deps --force-recreate internal-proxy
 "${compose[@]}" up -d gateway
+oteryn_reconcile_platform_mtls "${compose[@]}"
 
 OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/health-check.sh"
 

@@ -129,6 +129,93 @@ PY
     return 1
 }
 
+# Platform internal mTLS listener for the Game node (README: Platform internal mTLS listener). On:
+# the terminator runs with its exact LAN binding, nginx accepts its configuration, a TLS 1.3
+# handshake verifies the server chain against the preprod CA for the Game peer name and a request
+# without a client certificate is refused (400), and the Platform FastCGI pool accepts connections.
+# Off: no listener runs.
+check_platform_mtls_listener() {
+    local mtls_id running actual platform_flag
+    mtls_id="$("${compose[@]}" ps -q internal-mtls)"
+    if [[ "${OTERYN_PLATFORM_MTLS_ENABLED:-false}" != true ]]; then
+        if [[ -n "$mtls_id" && "$(docker inspect --format '{{.State.Running}}' "$mtls_id")" == true ]]; then
+            echo "Platform mTLS listener is running although OTERYN_PLATFORM_MTLS_ENABLED is not true." >&2
+            return 1
+        fi
+        echo "Platform mTLS listener is off."
+        return 0
+    fi
+    [[ -n "$mtls_id" ]] || { echo "Service is not created: internal-mtls" >&2; return 1; }
+    running="$(docker inspect --format '{{.State.Running}}' "$mtls_id")"
+    [[ "$running" == true ]] || { echo "Service is not running: internal-mtls" >&2; return 1; }
+    container_ids[internal-mtls]="$mtls_id"
+    assert_binding internal-mtls 8543 "$PLATFORM_MTLS_BIND_ADDRESS" "$PLATFORM_MTLS_PORT"
+    docker exec "$mtls_id" nginx -t -q -c /bootstrap/internal-mtls-nginx.conf || {
+        echo "Platform mTLS listener configuration is refused by nginx." >&2
+        return 1
+    }
+
+    if docker exec "${container_ids[platform]}" sh -ec 'command -v php-fpm >/dev/null'; then
+        platform_flag="$(oteryn_platform_fastcgi_flag_of "${container_ids[platform]}")" || return 1
+        [[ "$platform_flag" == true ]] || {
+            echo "Platform FastCGI is off while the mTLS listener is on; run a full deploy." >&2
+            return 1
+        }
+        docker exec "${container_ids[platform]}" php -r '
+            $socket = @stream_socket_client("unix:///run/oteryn-fastcgi/php-fpm.sock", $code, $message, 3);
+            exit($socket === false ? 1 : 0);
+        ' || {
+            echo "Platform FastCGI pool is not accepting connections." >&2
+            return 1
+        }
+        echo "Verified Platform FastCGI pool for the mTLS listener."
+    else
+        echo "::warning::The running Platform image has no FastCGI pool (built before the mTLS listener); the Game-node listener answers 502 until a newer Platform image runs."
+    fi
+
+    for _ in $(seq 1 10); do
+        if docker run --rm -i \
+            --network host \
+            -v "${PLATFORM_MTLS_CLIENT_CA_FILE}:/etc/oteryn/internal-mtls-ca.crt:ro" \
+            python:3.12-alpine \
+            python3 - "$PLATFORM_MTLS_BIND_ADDRESS" "$PLATFORM_MTLS_PORT" <<'PY'
+import socket
+import ssl
+import sys
+
+host, port = sys.argv[1], int(sys.argv[2])
+name = 'platform-internal.preprod.oteryn.internal'
+context = ssl.create_default_context(cafile='/etc/oteryn/internal-mtls-ca.crt')
+context.minimum_version = ssl.TLSVersion.TLSv1_3
+try:
+    with socket.create_connection((host, port), timeout=5) as raw:
+        with context.wrap_socket(raw, server_hostname=name) as tls:
+            if tls.version() != 'TLSv1.3':
+                raise SystemExit(f'unexpected TLS version: {tls.version()}')
+            tls.sendall(
+                b'POST /internal/v1/game-auth/native-runtime-status HTTP/1.1\r\n'
+                b'Host: ' + name.encode() + b'\r\nContent-Length: 0\r\nConnection: close\r\n\r\n'
+            )
+            status_line = tls.recv(64).split(b'\r\n', 1)[0]
+except (OSError, ssl.SSLError) as exc:
+    print(f'platform mTLS probe failed: {exc}', file=sys.stderr)
+    raise SystemExit(1) from exc
+if not status_line.startswith(b'HTTP/1.1 400 '):
+    raise SystemExit(f'request without a client certificate was not refused: {status_line!r}')
+PY
+        then
+            echo "Verified Platform mTLS listener: TLS 1.3, server chain for platform-internal.preprod.oteryn.internal, client certificate required."
+            return 0
+        fi
+        sleep 2
+    done
+    echo "Platform mTLS listener probe failed." >&2
+    docker logs --tail 40 "$mtls_id" >&2 || true
+    return 1
+}
+
+check_platform_mtls_listener || exit 1
+
 probe_url platform 8000 /health "Platform /health"
 probe_internal_tls "https://platform-internal:8443/health" "Gateway -> Platform"
 probe_url gateway 8080 /health "Gateway /health"

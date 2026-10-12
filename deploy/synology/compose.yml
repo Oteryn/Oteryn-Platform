@@ -15,6 +15,12 @@ name: ${COMPOSE_PROJECT_NAME:-oteryn-staging}
 # the D171 fallback is selected for the one configured native World (deploy.sh requires its UUID).
 x-native-admission-enabled: &native_admission_enabled "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}"
 
+# Platform internal mTLS listener for the Game node (README: Platform internal mTLS listener). Off
+# unless OTERYN_PLATFORM_MTLS_ENABLED=true; lib.sh resolves it and the PLATFORM_MTLS_* paths from the
+# environment file or deploy/synology/native-defaults.env. When on, Platform also runs its FastCGI pool
+# on the platform_fastcgi socket volume and deploy.sh starts the internal-mtls profile service.
+x-internal-mtls-enabled: &internal_mtls_enabled "${OTERYN_PLATFORM_MTLS_ENABLED:-false}"
+
 services:
   mariadb:
     image: mariadb:11.8
@@ -98,10 +104,13 @@ services:
       # ADR 0044: the route publication switch also admits this stack's MariaDB for the native topology
       # and route commands (preproduction-store mode, allowlisted store and configured World only).
       GAME_AUTH_NATIVE_ROUTE_PREPRODUCTION_STORE_ENABLED: ${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}
+      OTERYN_PLATFORM_FASTCGI_ENABLED: *internal_mtls_enabled
     ports:
       - ${PLATFORM_BIND_ADDRESS}:${PLATFORM_PORT}:8000
     volumes:
       - platform_storage:/var/www/html/storage
+      # FastCGI unix socket shared only with internal-mtls (never a TCP port).
+      - platform_fastcgi:/run/oteryn-fastcgi
       # Issuer signing keys (current/retiring .key and .kid), read-only; the entrypoint exports the
       # key id and file path from here. Created by generate-native-admission-key.sh, never by Compose.
       - native_admission_keys:/run/oteryn-native-admission:ro
@@ -142,6 +151,45 @@ services:
       platform:
         condition: service_started
 
+  # TLS 1.3 mTLS terminator for the Game node on the NAS LAN address. Profile-only: nothing starts it
+  # except deploy.sh's explicit reconcile while OTERYN_PLATFORM_MTLS_ENABLED=true. It holds no
+  # application state and reaches Platform only through the platform_fastcgi socket, so with Platform
+  # stopped or removed every request fails closed. The server chain, key and client CA are host files
+  # mounted read-only, never created by Compose and never taken from tls-init.
+  internal-mtls:
+    image: nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
+    profiles: ["internal-mtls"]
+    restart: always
+    command: ["nginx", "-c", "/bootstrap/internal-mtls-nginx.conf", "-g", "daemon off;"]
+    ports:
+      - ${PLATFORM_MTLS_BIND_ADDRESS:-127.0.0.1}:${PLATFORM_MTLS_PORT:-8543}:8543
+    volumes:
+      - bootstrap_files:/bootstrap:ro
+      - platform_fastcgi:/run/oteryn-fastcgi
+      - type: bind
+        source: ${PLATFORM_MTLS_SERVER_CERT_FILE:-/volume1/oteryn/preprod-platform-tls/platform-internal-preprod.fullchain.pem}
+        target: /etc/nginx/internal-mtls/server-fullchain.pem
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${PLATFORM_MTLS_SERVER_KEY_FILE:-/volume1/oteryn/preprod-platform-tls/platform-internal-preprod.key}
+        target: /etc/nginx/internal-mtls/server.key
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${PLATFORM_MTLS_CLIENT_CA_FILE:-/volume1/oteryn/preprod-platform-tls/oteryn-preprod-ca.crt}
+        target: /etc/nginx/internal-mtls/client-ca.crt
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      - mtls_edge
+    depends_on:
+      platform:
+        condition: service_started
+
   gateway:
     image: ${GATEWAY_IMAGE}
     restart: always
@@ -169,11 +217,24 @@ volumes:
   platform_storage:
   bootstrap_files:
   internal_tls:
+  # Memory-backed and recreated empty with its users: www-data (82) owns it for the Platform pool and
+  # the nginx group (101) may enter it to connect to the socket. No other service mounts it.
+  platform_fastcgi:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=64k,uid=82,gid=101,mode=0750"
   native_admission_keys:
     name: oteryn-native-admission-keys
     external: true
 
 networks:
   private:
+    driver: bridge
+    internal: false
+  # Only the published :8543 port of internal-mtls; no other service joins it, so the terminator cannot
+  # reach MariaDB, Redis, Gateway or the internal proxy.
+  mtls_edge:
     driver: bridge
     internal: false
