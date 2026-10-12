@@ -13,7 +13,7 @@ load_oteryn_env_file "$ENV_FILE"
 compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 
 declare -A container_ids=()
-for service in mariadb redis platform internal-proxy gateway; do
+for service in mariadb platform internal-proxy gateway marketplace-scheduler; do
     container_id="$("${compose[@]}" ps -q "$service")"
     if [[ -z "$container_id" ]]; then
         echo "Service is not created: $service" >&2
@@ -43,6 +43,17 @@ assert_binding() {
 
     echo "Verified binding: ${service} ${container_port}/tcp -> ${actual}"
 }
+
+# The always-on scheduler publishes no port and carries its own container healthcheck.
+scheduler_deadline=$((SECONDS + 120))
+until [[ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container_ids[marketplace-scheduler]}")" == "healthy" ]]; do
+    if (( SECONDS >= scheduler_deadline )); then
+        echo "Scheduler did not become healthy." >&2
+        exit 1
+    fi
+    sleep 3
+done
+echo "Verified scheduler: marketplace-scheduler is healthy"
 
 assert_binding platform 8000 "$PLATFORM_BIND_ADDRESS" "$PLATFORM_PORT"
 assert_binding gateway 8080 "$GATEWAY_BIND_ADDRESS" "$GATEWAY_PORT"

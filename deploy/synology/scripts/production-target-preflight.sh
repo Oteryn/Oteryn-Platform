@@ -11,7 +11,6 @@ work_dir="${OTERYN_PREFLIGHT_WORK_DIR:-/tmp/oteryn-synology-production-target-pr
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 mariadb_root_password="${MARIADB_ROOT_PASSWORD:-}"
-redis_password="${REDIS_PASSWORD:-}"
 
 declare -A containers=()
 
@@ -42,7 +41,6 @@ gateway_repo="$(bash "$script_dir/repository-ghcr-image.sh" oteryn-game-gateway)
 [[ "$run_restore_drill" == "true" || "$run_restore_drill" == "false" ]] \
     || fail "OTERYN_RUN_RESTORE_DRILL must be true or false"
 [[ -n "$mariadb_root_password" ]] || fail "MARIADB_ROOT_PASSWORD is required"
-[[ -n "$redis_password" ]] || fail "REDIS_PASSWORD is required"
 
 rm -rf "$work_dir"
 mkdir -p "$work_dir" "$(dirname "$evidence_path")"
@@ -66,19 +64,23 @@ find_single_container() {
     containers["$service"]="${ids[0]}"
 }
 
-for service in mariadb redis platform internal-proxy gateway; do
+for service in mariadb platform internal-proxy gateway marketplace-scheduler; do
     find_single_container "$service"
 done
 
-for service in mariadb redis platform internal-proxy gateway; do
+for service in mariadb platform internal-proxy gateway marketplace-scheduler; do
     id="${containers[$service]}"
     [[ "$(docker inspect --format '{{.State.Running}}' "$id")" == "true" ]] \
         || fail "$service is not running"
+done
+
+for service in mariadb platform internal-proxy gateway; do
+    id="${containers[$service]}"
     [[ "$(docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' "$id")" == "unless-stopped" ]] \
         || fail "$service does not use restart policy unless-stopped"
 done
 
-for service in mariadb redis; do
+for service in mariadb marketplace-scheduler; do
     id="${containers[$service]}"
     health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id")"
     [[ "$health" == "healthy" ]] || fail "$service health status is $health"
@@ -87,7 +89,7 @@ done
 expected_network="${project_name}_private"
 [[ "$(docker network inspect --format '{{.Driver}}' "$expected_network")" == "bridge" ]] \
     || fail "$expected_network is not a bridge network"
-for service in mariadb redis platform internal-proxy gateway; do
+for service in mariadb platform internal-proxy gateway marketplace-scheduler; do
     docker inspect --format '{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}' \
         "${containers[$service]}" \
         | grep -Fxq "$expected_network" \
@@ -114,7 +116,7 @@ assert_no_published_ports() {
 }
 
 assert_no_published_ports mariadb
-assert_no_published_ports redis
+assert_no_published_ports marketplace-scheduler
 assert_no_published_ports internal-proxy
 
 python3 - \
@@ -212,7 +214,6 @@ assert_named_volume() {
 }
 
 assert_named_volume mariadb /var/lib/mysql
-assert_named_volume redis /data
 assert_named_volume platform /var/www/html/storage
 assert_named_volume internal-proxy /etc/nginx/tls
 
@@ -256,10 +257,6 @@ probe_http platform 8000 /health "Platform health probe"
 probe_http gateway 8080 /health "Gateway health probe"
 probe_http gateway 8080 /ready "Gateway readiness probe"
 probe_http gateway 8080 /version "Gateway version probe"
-
-appendonly="$(docker exec -e REDISCLI_AUTH="$redis_password" "${containers[redis]}" \
-    redis-cli --no-auth-warning --raw CONFIG GET appendonly | tail -n 1)"
-[[ "$appendonly" == "yes" ]] || fail "Redis append-only persistence is not enabled"
 
 restore_result="NOT_RUN"
 restore_duration_ms=0
@@ -450,13 +447,13 @@ cat > "$evidence_path" <<EOF
   "restart_policies": "PASS",
   "private_network_membership": "PASS",
   "host_bindings_fail_closed": "PASS",
-  "database_and_redis_unpublished": "PASS",
+  "database_and_scheduler_unpublished": "PASS",
   "immutable_runtime_images": "PASS",
   "persisted_component_provenance": "PASS",
   "named_persistent_volumes": "PASS",
   "runner_state_and_last_good_snapshot": "PASS",
   "application_and_gateway_health": "PASS",
-  "redis_aof": "PASS",
+  "scheduler_running_and_healthy": "PASS",
   "database_restore_drill": "$restore_result",
   "restore_duration_ms": $restore_duration_ms,
   "platform_base_table_count": $platform_table_count,

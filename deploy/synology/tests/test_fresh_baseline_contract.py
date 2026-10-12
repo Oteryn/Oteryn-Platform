@@ -124,11 +124,11 @@ def test_fast_deploy_recreates_platform_but_not_full_stack_services() -> None:
     assert '"${compose[@]}" up -d --no-deps --force-recreate platform' in fast
     assert "_oteryn_reconcile_marketplace_scheduler_after_runtime_change" in fast
     assert "_oteryn_fast_platform_smoke" in fast
-    for service in ("mariadb", "redis", "internal-proxy", "gateway"):
+    for service in ("mariadb", "internal-proxy", "gateway"):
         assert f"_oteryn_fast_assert_preserved_service {service}" in fast
     for forbidden in (
         "php artisan migrate",
-        '"${compose[@]}" up -d mariadb redis',
+        '"${compose[@]}" up -d mariadb',
         'bash "$SCRIPT_DIR/health-check.sh"',
         '"${compose[@]}" up -d gateway',
         "tls-init",
@@ -136,7 +136,7 @@ def test_fast_deploy_recreates_platform_but_not_full_stack_services() -> None:
         assert forbidden not in fast
 
     full = deploy[deploy.index("stage_bootstrap_files()") :]
-    assert "--remove-orphans" not in full  # an orphan sweep would remove overlay-only marketplace-scheduler
+    assert "--remove-orphans" not in full  # an orphan sweep is never used
     legacy_cleanup = "label=com.docker.compose.service=canary"
     assert legacy_cleanup in full
     assert full.index(legacy_cleanup) > full.rindex('bash "$SCRIPT_DIR/health-check.sh"')
@@ -296,7 +296,7 @@ def test_platform_reconcile_restarts_only_platform_and_runs_full_health_before_p
     assert "_oteryn_reconcile_marketplace_scheduler_after_runtime_change" in reconcile
     assert "_oteryn_platform_smoke" in reconcile
     health = reconcile.index('bash "$SCRIPT_DIR/health-check.sh"')
-    for service in ("mariadb", "redis", "internal-proxy", "gateway"):
+    for service in ("mariadb", "internal-proxy", "gateway"):
         marker = f"_oteryn_assert_preserved_service {service}"
         assert marker in reconcile
         assert reconcile.index(marker) > health
@@ -305,7 +305,7 @@ def test_platform_reconcile_restarts_only_platform_and_runs_full_health_before_p
     assert health < write_state < promote
     for forbidden in (
         "php artisan migrate",
-        '"${compose[@]}" up -d mariadb redis',
+        '"${compose[@]}" up -d mariadb',
         '"${compose[@]}" up -d gateway',
         "tls-init",
     ):

@@ -223,8 +223,8 @@ case "$ACTION" in
         "${compose[@]}" up -d --no-deps --force-recreate platform
         oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || exit 1
         oteryn_native_admission_self_check_or_stop "${compose[@]}" || exit 1
-        "${compose[@]}" stop marketplace-scheduler >/dev/null 2>&1 || true
-        "${compose[@]}" rm -f marketplace-scheduler >/dev/null 2>&1 || true
+        # The scheduler is an always-on base service: it stays up and is recreated with the disabled switch.
+        "${compose[@]}" up -d --no-deps --force-recreate marketplace-scheduler
         "${compose[@]}" up -d --no-deps --force-recreate internal-proxy
         "${compose[@]}" start gateway
         if "${compose[@]}" exec -T platform php artisan route:list --name=marketplace.index --json \

@@ -446,7 +446,8 @@ def test_runtime_rollback_reconciles_marketplace_before_release_promotion() -> N
     lib = LIB.read_text()
     reconcile_body = lib[lib.index("_oteryn_reconcile_marketplace_scheduler_after_runtime_change()") : lib.index("_oteryn_before_platform_migrate()")]
     assert "_oteryn_recreate_marketplace_scheduler" in reconcile_body
-    assert 'command docker rm -f "$scheduler_id"' in reconcile_body
+    assert "_oteryn_recreate_base_scheduler" in reconcile_body
+    assert 'rm -f "$scheduler_id"' not in reconcile_body  # the scheduler is always on
 
 
 def test_image_rollback_never_claims_database_rollback() -> None:
