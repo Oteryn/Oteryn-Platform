@@ -9,6 +9,8 @@ COMPOSE_FILE="$DEPLOY_DIR/compose.yml"
 # shellcheck source=deploy/synology/scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
 load_oteryn_env_file "$ENV_FILE"
+# MariaDB-only until the PostgreSQL branch lands with the staging cutover (plan P4/P6).
+oteryn_require_mariadb_engine "The fresh-schema baseline" || exit 1
 
 state_dir="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
 current_file="$state_dir/current-release.env"

@@ -73,6 +73,16 @@ jobs:
             --filter 'label=com.docker.compose.service=marketplace-scheduler')"
           test "$(docker inspect "$scheduler_id" --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}')" = "healthy"
 
+          # The idle PostgreSQL service (plan P4) exists only once its secrets are configured; when it
+          # does, it must be the only one, running and healthy.
+          postgres_ids="$(docker ps -aq \
+            --filter "label=com.docker.compose.project=$EXPECTED_COMPOSE_PROJECT" \
+            --filter 'label=com.docker.compose.service=postgres')"
+          if [[ -n "$postgres_ids" ]]; then
+            test "$(printf '%s\n' "$postgres_ids" | sed '/^$/d' | wc -l)" -eq 1
+            test "$(docker inspect "$postgres_ids" --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}')" = "healthy"
+          fi
+
       - name: Collect read-only diagnostics
         shell: bash
         run: |

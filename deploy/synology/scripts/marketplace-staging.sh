@@ -12,6 +12,8 @@ ACTION="${1:-verify}"
 # shellcheck source=deploy/synology/scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
 load_oteryn_env_file "$ENV_FILE"
+# MariaDB-only until the PostgreSQL branch lands with the staging cutover (plan P4/P6).
+oteryn_require_mariadb_engine "Marketplace staging control" || exit 1
 
 case "$ACTION" in
     enable|verify|prepare-rollback) ;;

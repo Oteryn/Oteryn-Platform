@@ -21,6 +21,18 @@ x-native-admission-enabled: &native_admission_enabled "${OTERYN_NATIVE_ADMISSION
 # on the platform_fastcgi socket volume and deploy.sh starts the internal-mtls profile service.
 x-internal-mtls-enabled: &internal_mtls_enabled "${OTERYN_PLATFORM_MTLS_ENABLED:-false}"
 
+# Platform database engine (ADR 0046, docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md P4). lib.sh
+# oteryn_platform_db_engine_settings resolves PLATFORM_DB_ENGINE from release-contract.env and exports the
+# OTERYN_PLATFORM_DB_* values below; the defaults are the MariaDB engine, so a render without lib.sh is the
+# MariaDB stack. On the postgres engine the runtime services get driver pgsql, host postgres, the runtime
+# role oteryn_platform_app and sslmode verify-full against the stack CA (postgres_client_ca, read-only).
+x-platform-db-connection: &platform_db_connection "${OTERYN_PLATFORM_DB_CONNECTION:-mysql}"
+x-platform-db-host: &platform_db_host "${OTERYN_PLATFORM_DB_HOST:-mariadb}"
+x-platform-db-port: &platform_db_port "${OTERYN_PLATFORM_DB_PORT:-3306}"
+x-platform-db-username: &platform_db_username "${OTERYN_PLATFORM_DB_USERNAME:-${PLATFORM_DB_USER}}"
+x-platform-db-password: &platform_db_password "${OTERYN_PLATFORM_DB_PASSWORD:-${PLATFORM_DB_PASSWORD}}"
+x-platform-db-sslmode: &platform_db_sslmode "${OTERYN_PLATFORM_DB_SSLMODE:-prefer}"
+
 services:
   mariadb:
     image: mariadb:11.8
@@ -40,6 +52,38 @@ services:
       timeout: 5s
       retries: 20
 
+  # Platform PostgreSQL (ADR 0046, docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md P4). Beside MariaDB
+  # and idle until the engine switch PLATFORM_DB_ENGINE=postgres (P6): it holds only the database and the
+  # role split. Profile-only: deploy.sh starts it with --profile postgres once the five PostgreSQL secrets
+  # are set (README: PostgreSQL service), never by a plain `up`. No host port; TLS 1.3 and SCRAM only
+  # (postgres/pg_hba.conf), with the server certificate from tls-init. The superuser password is used by
+  # the image's first-start init only and never reaches a Platform service; the runtime role password is
+  # here only for the TLS login probe of the healthcheck.
+  postgres:
+    image: postgres:17.11@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+    profiles: ["postgres"]
+    restart: always
+    command: ["postgres", "-c", "config_file=/bootstrap/postgres-postgresql.conf"]
+    environment:
+      POSTGRES_PASSWORD: ${PLATFORM_POSTGRES_SUPERUSER_PASSWORD:-}
+      POSTGRES_INITDB_ARGS: --auth-local=peer --auth-host=scram-sha-256 --data-checksums --encoding=UTF8 --locale-provider=libc --locale=C.UTF-8
+      OTERYN_POSTGRES_PROBE_PASSWORD: ${PLATFORM_POSTGRES_APP_PASSWORD:-}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - postgres_tls:/run/oteryn-postgres-tls:ro
+      - bootstrap_files:/bootstrap:ro
+    networks:
+      - private
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -q -h /var/run/postgresql -U postgres -d postgres && PGPASSWORD=\"$$OTERYN_POSTGRES_PROBE_PASSWORD\" psql -X -w -q -t -A 'host=postgres port=5432 dbname=oteryn_platform user=oteryn_platform_app sslmode=verify-full sslrootcert=/run/oteryn-postgres-tls/ca.crt connect_timeout=3' -c 'SELECT 1' | grep -qx 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    depends_on:
+      tls-init:
+        condition: service_completed_successfully
+
   platform:
     image: ${PLATFORM_IMAGE}
     restart: always
@@ -51,12 +95,14 @@ services:
       APP_URL: ${APP_URL}
       LOG_CHANNEL: stderr_json
       LOG_LEVEL: ${LOG_LEVEL}
-      DB_CONNECTION: mysql
-      DB_HOST: mariadb
-      DB_PORT: 3306
+      DB_CONNECTION: *platform_db_connection
+      DB_HOST: *platform_db_host
+      DB_PORT: *platform_db_port
       DB_DATABASE: ${PLATFORM_DB_NAME}
-      DB_USERNAME: ${PLATFORM_DB_USER}
-      DB_PASSWORD: ${PLATFORM_DB_PASSWORD}
+      DB_USERNAME: *platform_db_username
+      DB_PASSWORD: *platform_db_password
+      DB_SSLMODE: *platform_db_sslmode
+      DB_SSLROOTCERT: /run/oteryn-postgres-ca/ca.crt
       SESSION_DRIVER: file
       SESSION_SECURE_COOKIE: ${SESSION_SECURE_COOKIE}
       SESSION_HTTP_ONLY: "true"
@@ -115,6 +161,8 @@ services:
       # Issuer signing keys (current/retiring .key and .kid), read-only; the entrypoint exports the
       # key id and file path from here. Created by generate-native-admission-key.sh, never by Compose.
       - native_admission_keys:/run/oteryn-native-admission:ro
+      # The stack CA certificate only (no key), for sslmode=verify-full on the postgres engine.
+      - postgres_client_ca:/run/oteryn-postgres-ca:ro
     networks:
       - private
     depends_on:
@@ -126,10 +174,15 @@ services:
     restart: "no"
     environment:
       TLS_DIR: /tls
+      POSTGRES_TLS_DIR: /postgres-tls
+      POSTGRES_CA_DIR: /postgres-ca
+      BOOTSTRAP_DIR: /bootstrap
     command: ["/bin/sh", "-ec", "apk add --no-cache openssl >/dev/null && sh /bootstrap/tls-init.sh"]
     volumes:
       - bootstrap_files:/bootstrap
       - internal_tls:/tls
+      - postgres_tls:/postgres-tls
+      - postgres_client_ca:/postgres-ca
     networks:
       - private
 
@@ -238,12 +291,14 @@ services:
       APP_URL: ${APP_URL}
       LOG_CHANNEL: stderr_json
       LOG_LEVEL: ${LOG_LEVEL}
-      DB_CONNECTION: mysql
-      DB_HOST: mariadb
-      DB_PORT: 3306
+      DB_CONNECTION: *platform_db_connection
+      DB_HOST: *platform_db_host
+      DB_PORT: *platform_db_port
       DB_DATABASE: ${PLATFORM_DB_NAME}
-      DB_USERNAME: ${PLATFORM_DB_USER}
-      DB_PASSWORD: ${PLATFORM_DB_PASSWORD}
+      DB_USERNAME: *platform_db_username
+      DB_PASSWORD: *platform_db_password
+      DB_SSLMODE: *platform_db_sslmode
+      DB_SSLROOTCERT: /run/oteryn-postgres-ca/ca.crt
       CACHE_STORE: file
       QUEUE_CONNECTION: sync
       SESSION_DRIVER: file
@@ -254,12 +309,14 @@ services:
       GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY: /var/www/html/storage/app/native-evidence-witness
     volumes:
       - platform_storage:/var/www/html/storage
+      - postgres_client_ca:/run/oteryn-postgres-ca:ro
     networks:
       - private
     healthcheck:
       # PID 1 is the schedule:work process itself (no entrypoint wrapper), so the check proves that
-      # the scheduler loop is alive and the application can still reach the database.
-      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'schedule:work' && php -r 'new PDO(\"mysql:host=mariadb;port=3306;dbname=\".getenv(\"DB_DATABASE\"), getenv(\"DB_USERNAME\"), getenv(\"DB_PASSWORD\"), [PDO::ATTR_TIMEOUT => 3]);'"]
+      # the scheduler loop is alive and the application can still reach the database of the selected
+      # engine (MariaDB, or PostgreSQL over verify-full TLS) with its own runtime credentials.
+      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'schedule:work' && php -r '$$p = getenv(\"DB_CONNECTION\") === \"pgsql\"; new PDO(($$p ? \"pgsql\" : \"mysql\").\":host=\".getenv(\"DB_HOST\").\";port=\".getenv(\"DB_PORT\").\";dbname=\".getenv(\"DB_DATABASE\").($$p ? \";sslmode=verify-full;sslrootcert=\".getenv(\"DB_SSLROOTCERT\") : \"\"), getenv(\"DB_USERNAME\"), getenv(\"DB_PASSWORD\"), [PDO::ATTR_TIMEOUT => 3]);'"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -270,9 +327,16 @@ services:
 
 volumes:
   mariadb_data:
+  # PostgreSQL data (P4). Never removed by a workflow: hygiene and orphan repair touch containers only
+  # (tests/ci/test_synology_postgres_contract.py). Deleting mariadb_data is an explicit P6 operator step.
+  postgres_data:
   platform_storage:
   bootstrap_files:
   internal_tls:
+  # The postgres server pair and CA certificate (tls-init writes, postgres reads). No other service.
+  postgres_tls:
+  # The stack CA certificate alone, for Platform clients verifying the postgres server (verify-full).
+  postgres_client_ca:
   # Memory-backed and recreated empty with its users: www-data (82) owns it for the Platform pool and
   # the nginx group (101) may enter it to connect to the socket. No other service mounts it.
   platform_fastcgi:

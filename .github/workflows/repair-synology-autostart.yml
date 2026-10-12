@@ -58,6 +58,12 @@ jobs:
             fi
             containers+=("$(resolve_one oteryn-staging "$service")")
           done
+          # The idle PostgreSQL service (plan P4) exists only once its secrets are configured.
+          if [[ -n "$(docker ps -aq \
+                --filter "label=com.docker.compose.project=oteryn-staging" \
+                --filter "label=com.docker.compose.service=postgres")" ]]; then
+            containers+=("$(resolve_one oteryn-staging postgres)")
+          fi
 
           docker update --restart=always "${containers[@]}" >/dev/null
 

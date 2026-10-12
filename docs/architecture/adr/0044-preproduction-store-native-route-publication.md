@@ -10,6 +10,7 @@ Accepted — 2026-10-11 (owner decision, option a)
 - Applies to: the two existing operator commands `game-auth:native-topology:issue` and `game-auth:native-route:publish`, when they run against the Synology preproduction MariaDB store
 - Does not authorize: production or any other deployed environment, any database other than the allowlisted store, more than one native World route record, a change to `DisposableNativeStore` beyond Amendment D1023 below, a change to the gateway or admission contract, or any secret, credential or key handling
 - Amended: 2026-10-12 by owner decision D1023 (testing-only loopback PostgreSQL profile of `DisposableNativeStore`, ARCH-PREPROD-ROUTE-PUBLISH-AUTH-V1 §2 amendment)
+- Proposed amendment: P4 — PostgreSQL store identity of the preproduction-store mode (2026-10-12, below; status Proposed until the owner accepts it)
 
 ## Context
 
@@ -112,9 +113,56 @@ ARCH-PREPROD-ROUTE-PUBLISH-AUTH-V1 §2 is amended: `DisposableNativeStore::conne
 
 `tests/Feature/GameAuth/NativeTopology/DisposableNativeStorePostgresProfileTest.php` proves the admitted profile and each refusal (host, database, environment, read/write split), that the operator commands still refuse it, and that no refusal message carries a credential or host. It uses a lazy probe connection and so runs on every suite engine.
 
+## Amendment P4 — PostgreSQL store identity (2026-10-12)
+
+### Status
+
+Proposed — 2026-10-12. Packet P4 of `docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md` (ADR 0046 §8). Takes effect when the owner accepts it; until then the deploy keeps it unreachable (below).
+
+### Context
+
+ADR 0046 moves Platform persistence to PostgreSQL, and packet P4 adds the Synology PostgreSQL service beside MariaDB. The fence above admits only driver `mysql`, host `mariadb`, port `3306`, so after the staging cutover (P6) the route-publication step would refuse the deployed store. The four preproduction-store tests (`PreproductionStoreRouteCommandsTest`) also failed on the PostgreSQL test suite (`phpunit.pgsql.xml`), because their store double could only take the MariaDB identity.
+
+### Decision
+
+The database condition of the fence becomes one identity per driver, still fixed in code:
+
+| Driver | Host | Port | TLS | Database |
+| --- | --- | --- | --- | --- |
+| `mysql` (removed in P7) | `mariadb` | `3306` | unchanged | `oteryn_platform` |
+| `pgsql` | `postgres` (the Compose service) | `5432` | `sslmode` exactly `verify-full` | `oteryn_platform` |
+
+- The driver of the default connection selects the identity. A driver crossed with the other identity's host or port refuses, as does every other driver.
+- Every other condition is unchanged: `APP_ENV` exactly `preproduction`, a canonical UUIDv7 World, no outer transaction, no unix socket and no read/write split. Each violation refuses with `NATIVE_PREPROD_STORE_DATABASE_REFUSED` (or the existing named reason) and nothing written.
+- No environment variable widens the allowlist. A deployment has one default connection, chosen by `PLATFORM_DB_ENGINE` in `deploy/synology/release-contract.env`, so exactly one identity is reachable at a time.
+- Scope, idempotence, audit and output are unchanged.
+- `DisposableNativeStore` is unchanged by this amendment.
+
+Until this amendment is accepted and P6 lands, `deploy/synology/scripts/deploy.sh` refuses `PLATFORM_DB_ENGINE=postgres`, and refuses it together with `OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED=true` in any case, so no deployed run can enter the PostgreSQL identity.
+
+### Consequences
+
+- The preproduction-store tests run on both suite engines. The store double now takes either identity.
+- After the cutover the route-publication step works against the PostgreSQL store only over verified TLS to the Compose service.
+- Removing the MariaDB identity is part of P7.
+
+### Rollback
+
+Revert this amendment's code change; the fence then refuses every `pgsql` connection again. Data written by an earlier run stays.
+
+### Verification
+
+`tests/Feature/GameAuth/NativeTopology/PreproductionStoreRouteCommandsTest.php` adds:
+
+- the PostgreSQL identity issuing and publishing exactly one route record over `verify-full`;
+- refusals for every other TLS mode or a missing mode, a crossed host or port in either direction, loopback, another port or database, a unix socket and a read replica.
+
+The existing four tests keep their assertions and now pass on SQLite and on PostgreSQL. `tests/ci/test_synology_postgres_contract.py` covers the deploy-side refusal.
+
 ## Related records
 
 - ADR 0029 — Platform World/Channel identity and topology
 - `docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md` §17
 - Issue #1474
 - ADR 0046 — Platform persistence moves to PostgreSQL (Amendment D1023)
+- `docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md` — packet P4 (Amendment P4)
