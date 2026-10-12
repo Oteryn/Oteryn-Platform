@@ -33,7 +33,6 @@ owned_paths:
   - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
   - docs/operations/PLATFORM_POSTGRES_MAINTENANCE_GATE_DESIGN.md
   - docs/agents/tasks/active/OTERYN-20261012-pg-p6-design-notes.md
-  - docs/agents/tasks/active/OTERYN-20261012-pg-p6-design-notes.md
 modules:
   - operations-docs
 dependencies:
@@ -84,7 +83,6 @@ validation:
 blockers:
   - none
 next_action: archive this record when the owner has accepted the P6a and P6b notes; acceptance stays open here
-terminal_pr_policy: archive_pending
 ```
 
 ## Source branch closeout
