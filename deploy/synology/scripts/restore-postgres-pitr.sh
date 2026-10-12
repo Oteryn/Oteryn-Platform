@@ -117,13 +117,14 @@ fail() {
     exit 1
 }
 
-# Keeps an earlier failure as the reported one and adds the cleanup failure to it.
-cleanup_failed() {
+# A failure after the checks (cleanup, evidence): <stage> <message>. It turns a passed result into a failed
+# one; an earlier failure stays the reported one and gets this one added as <stage>_failure.
+late_failure() {
     if [[ "${evidence[result]:-}" == failed ]]; then
-        record cleanup_failure "$1"
+        record "$1_failure" "$2"
     else
         record result failed
-        record failure "cleanup: $1"
+        record failure "$1: $2"
     fi
 }
 
@@ -142,46 +143,70 @@ cleanup() {
         # evidence and the summary say so, not only the exit status.
         if docker container inspect "$scratch" > /dev/null 2>&1; then
             echo "Scratch container $scratch is still present; remove it by hand (docker stop $scratch)." >&2
-            cleanup_failed "scratch container $scratch is still present"
+            late_failure cleanup "scratch container $scratch is still present"
             status=1
         elif [[ -n "$scratch_volume" ]] && docker volume inspect "$scratch_volume" > /dev/null 2>&1; then
             echo "Scratch data volume $scratch_volume is still present (anonymous volume of the drill)." >&2
-            cleanup_failed "scratch data volume $scratch_volume is still present"
+            late_failure cleanup "scratch data volume $scratch_volume is still present"
             status=1
         else
             log "scratch instance discarded"
         fi
     fi
-    write_evidence || true
+    write_evidence || status=1
     exit "$status"
 }
 trap cleanup EXIT
 trap 'exit 143' TERM INT
 
-write_evidence() {
-    local key file summary=''
-    (( ${#evidence_order[@]} )) || return 0
+# One write, so its status is the status of the whole evidence.
+evidence_lines() {
+    local key lines=''
     for key in "${evidence_order[@]}"; do
-        summary+="$(printf '%s=%s' "$(tr '[:lower:]' '[:upper:]' <<< "$key")" "${evidence[$key]//$'\n'/ }")"$'\n'
+        lines+="$(printf '%s=%s' "$(tr '[:lower:]' '[:upper:]' <<< "$key")" "${evidence[$key]//$'\n'/ }")"$'\n'
     done
-    printf '%s' "$summary"
+    printf '%s' "$lines"
+}
+
+evidence_table() {
+    local key table
+    table="### Platform PostgreSQL PITR drill $stamp"$'\n\n| Key | Value |\n| --- | --- |\n'
+    for key in "${evidence_order[@]}"; do
+        table+="| $key | ${evidence[$key]//|//}"$' |\n'
+    done
+    printf '%s' "$table"
+}
+
+# Runs from cleanup, where a failing command does not stop the script (it is called in an || list): every
+# write is checked. A drill whose evidence.env or job summary cannot be written is failed (late_failure),
+# and a written evidence.env never keeps a result that the drill no longer has. Returns 1 on such a failure.
+write_evidence() {
+    local file='' rc=0
+    (( ${#evidence_order[@]} )) || return 0
     if [[ -n "$evidence_dir" ]]; then
-        mkdir -p -- "$evidence_dir/$stamp"
         file="$evidence_dir/$stamp/evidence.env"
-        (umask 077; printf '%s' "$summary" > "$file")
+        if ! { mkdir -p -- "$evidence_dir/$stamp" && (umask 077; evidence_lines > "$file"); }; then
+            echo "PITR drill evidence could not be written to $file." >&2
+            rm -f -- "$file" 2>/dev/null || true
+            late_failure evidence "cannot write $file"
+            file=''
+            rc=1
+        fi
+    fi
+    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]] && ! evidence_table >> "$GITHUB_STEP_SUMMARY"; then
+        echo "PITR drill job summary could not be written to $GITHUB_STEP_SUMMARY." >&2
+        late_failure evidence "cannot write the job summary"
+        rc=1
+        if [[ -n "$file" ]] && ! (umask 077; evidence_lines > "$file"); then
+            rm -f -- "$file" 2>/dev/null || true
+            file=''
+        fi
+    fi
+    evidence_lines || rc=1
+    if [[ -n "$file" ]]; then
         log "evidence written to $file"
     fi
-    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-        {
-            echo "### Platform PostgreSQL PITR drill $stamp"
-            echo
-            echo '| Key | Value |'
-            echo '| --- | --- |'
-            for key in "${evidence_order[@]}"; do
-                printf '| %s | %s |\n' "$key" "${evidence[$key]//|//}"
-            done
-        } >> "$GITHUB_STEP_SUMMARY"
-    fi
+    return "$rc"
 }
 
 find_service() {
@@ -414,11 +439,15 @@ $recovery_target
 recovery_target_action = 'promote'
 CONF
 log "recovering to ${target_time:-the end of $chosen}"
-drill_sh "touch $DATA/recovery.signal && pg_ctl -D $DATA -o '-c config_file=$DRILL/postgresql.conf' -l $DRILL/server.log -w -t $RTO_SECONDS start > /dev/null" \
+# The whole restore, from the base backup choice to promotion, stays within the RTO: pg_ctl waits at most
+# for what is left of it (the drill job timeout in the recovery workflow is sized on that bound).
+deadline=$((restore_started + RTO_SECONDS))
+remaining=$(( deadline - $(date +%s) ))
+(( remaining > 0 )) || fail "the base backup was not ready to replay within the RTO of ${RTO_SECONDS}s"
+drill_sh "touch $DATA/recovery.signal && pg_ctl -D $DATA -o '-c config_file=$DRILL/postgresql.conf' -l $DRILL/server.log -w -t $remaining start > /dev/null" \
     || fail "recovery did not reach the target (server log below)"
 # pg_ctl can return before the end of recovery; the server exits (FATAL) when the archive ends before
 # the target, which fails the drill at once instead of waiting for a promotion that never comes.
-deadline=$((restore_started + RTO_SECONDS))
 until [[ "$(drill_sql postgres <<< 'SELECT pg_is_in_recovery()' 2>/dev/null)" == f ]]; do
     drill_sh "pg_ctl -D $DATA status > /dev/null" || fail "recovery stopped before the target (server log below)"
     (( $(date +%s) < deadline )) || fail "the scratch instance was not promoted within the RTO of ${RTO_SECONDS}s"

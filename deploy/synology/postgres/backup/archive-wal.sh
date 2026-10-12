@@ -35,9 +35,6 @@ main() {
     dir="$spool/wal"
     # The backup sidecar prepares the spool (backup-job.sh service); until then archiving fails and retries.
     [[ -d "$dir" && -w "$dir" ]] || fail "spool $dir is not prepared (is the postgres-backup sidecar running?)"
-    free_kb="$(df -Pk -- "$dir" | awk 'NR == 2 { print $4 }')"
-    [[ "$free_kb" =~ ^[0-9]+$ ]] || fail "cannot read the free space of $dir"
-    (( free_kb >= min_free_mb * 1024 )) || fail "spool free space $((free_kb / 1024)) MiB is below ${min_free_mb} MiB"
 
     target="$dir/$name.gz"
     if [[ -e "$target" ]]; then
@@ -52,6 +49,12 @@ main() {
         fi
         fail "$name is already archived with different content; refusing to overwrite it"
     fi
+
+    # The free-space floor guards new writes only: a retry of a segment that is already archived intact
+    # (above) writes nothing, so a full spool never keeps it in pg_wal.
+    free_kb="$(df -Pk -- "$dir" | awk 'NR == 2 { print $4 }')"
+    [[ "$free_kb" =~ ^[0-9]+$ ]] || fail "cannot read the free space of $dir"
+    (( free_kb >= min_free_mb * 1024 )) || fail "spool free space $((free_kb / 1024)) MiB is below ${min_free_mb} MiB"
 
     tmp="$dir/.$name.gz.tmp.$$"
     trap 'rm -f -- "$tmp" "$tmp.sha256"' EXIT

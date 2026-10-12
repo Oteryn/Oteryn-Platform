@@ -58,6 +58,7 @@ modules:
   - deploy
 dependencies:
   - PR #1579 (P4) merged 2026-10-12 and was merged into this branch from origin/main
+  - PR #1581 (P4b) merged 2026-10-12 and was merged into this branch from origin/main; the drill job stays secret-free beside the schema-recovery job's PostgreSQL secrets
 blockers:
   - none
 cross_repository_tasks:
@@ -68,8 +69,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-13T01:30:00Z
-head: 51ee4f7481977bf98acf464cc6f3e07b65a1ac4a
+updated_at: 2026-10-13T02:30:00Z
+head: 7a8430b72a001e7f36eb69b472ec5ee26cd6f66d
 branch: claude/platform-pg-p5-20261012
 pr: 1583
 status: waiting
@@ -100,6 +101,7 @@ proven:
   - Retention, WAL pruning, archive refusal paths and restore exit codes (1 for absent, 199 for damage) are covered by tests/ci/test_synology_postgres_backup_contract.py.
   - Backup jobs decide again under the spool job lock, the drill's scratch instance holds a shared job lock from base backup choice to its end, and an identical archive retry syncs before success (JobLockTest, DrillLockTest, ArchiveWalTest).
   - A job's preflight reserves only its own backup, while the deploy and check keep the base-plus-dump reserve; a drill that leaves its scratch instance behind records result=failed (JobPreflightTest, DrillEvidenceTest).
+  - A drill whose evidence.env or job summary cannot be written fails with result=failed; an intact archive retry succeeds below the free-space floor; the drill job timeout covers the lock wait, the RTO and cleanup, and pg_ctl waits only for the RTO left (DrillEvidenceTest, ArchiveWalTest, DeployWiringTest).
 derived:
   - Recovery to a time stops only at a commit past the target, so the time-target drill writes and archives a marker commit first.
 unknown:
@@ -124,7 +126,7 @@ changed_paths:
 validation:
   - command: python3 -m pytest tests/ci deploy/synology/tests -q
     result: PASS
-    evidence: 475 passed, 19 skipped, 111 subtests passed (after the Codex fixes for the per-job space reserve and the drill cleanup evidence)
+    evidence: 505 passed, 19 skipped, 111 subtests passed (after merging P4b and the Codex fixes for evidence write failures, the archive retry floor and the drill job timeout)
   - command: shellcheck and bash -n on the new scripts; sh -n tls/init.sh; docker compose config with and without the postgres profile
     result: PASS
     evidence: clean; only SC1091 info for sourcing lib.sh

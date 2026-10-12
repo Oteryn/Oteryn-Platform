@@ -41,20 +41,30 @@ for name in "${safe_credential_vars[@]}"; do
     fi
 done
 
-# Platform database engine (lib.sh oteryn_platform_db_engine_settings, plan P4). P4 runs PostgreSQL idle
-# beside MariaDB; the postgres engine is reserved for the staging cutover (P6), which also brings the owner-
-# role migration step and the PostgreSQL dump, restore and preflight branches. Route publication on the
-# postgres engine also needs the owner-accepted ADR 0044 amendment (PostgreSQL store identity).
+# Platform database engine (lib.sh oteryn_platform_db_engine_settings, plan P4). With mariadb, PostgreSQL
+# runs idle beside MariaDB. With postgres, Platform and the scheduler connect as the app role, migrations run
+# as the owner role in a one-off container (lib.sh oteryn_platform_migrate_postgres) and the pre-migration
+# dump is a pg_dump by the dump role; MariaDB keeps running, unused, until the cutover (P6) removes it.
+# Route publication on the postgres engine needs the owner-accepted ADR 0044 amendment (PostgreSQL store
+# identity) first. Every gate here is refused before any stack change.
 if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres && "${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}" == true ]]; then
     echo "OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED must stay false on the postgres engine until the ADR 0044 PostgreSQL store amendment is accepted." >&2
     exit 1
 fi
-if [[ "$OTERYN_PLATFORM_DB_ENGINE" != mariadb ]]; then
-    echo "PLATFORM_DB_ENGINE=$OTERYN_PLATFORM_DB_ENGINE is reserved for the staging cutover (plan P6); this deploy runs PostgreSQL idle only." >&2
-    exit 1
+# All five PostgreSQL secrets or none (lib.sh oteryn_postgres_secret_state); the postgres engine needs all.
+postgres_secret_state="$(oteryn_postgres_secret_state)" || exit 1
+if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres ]]; then
+    if [[ "$postgres_secret_state" != configured ]]; then
+        echo "PLATFORM_DB_ENGINE=postgres requires all five PostgreSQL secrets." >&2
+        exit 1
+    fi
+    # The PostgreSQL database name is fixed (postgres/init/10-platform-roles.sh); backup evidence and
+    # schema recovery bind to PLATFORM_DB_NAME, so it must name that database.
+    if [[ "$PLATFORM_DB_NAME" != oteryn_platform ]]; then
+        echo "PLATFORM_DB_NAME must be oteryn_platform on the postgres engine." >&2
+        exit 1
+    fi
 fi
-# All five PostgreSQL secrets or none (lib.sh oteryn_postgres_secret_state); refused before any stack change.
-oteryn_postgres_secret_state >/dev/null || exit 1
 
 if [[ ! "$APP_KEY" =~ ^base64:[A-Za-z0-9+/=]+$ ]]; then
     echo "APP_KEY must be a Laravel base64 application key." >&2
@@ -867,8 +877,10 @@ GRANT ALL PRIVILEGES ON \`$PLATFORM_DB_NAME\`.* TO '$PLATFORM_DB_USER'@'%';
 FLUSH PRIVILEGES;
 SQL
 
-# PostgreSQL runs idle beside MariaDB (plan P4): started, role split re-applied and its TLS and privilege
-# contract proven when its secrets are configured; skipped when none is. No Platform service uses it yet.
+# PostgreSQL (plan P4): started, role split re-applied and its TLS and privilege contract proven when its
+# secrets are configured; skipped when none is (mariadb engine only; the postgres engine requires them).
+# On the mariadb engine no Platform service uses it yet; on the postgres engine this runs before the
+# Platform starts, so the roles and grants exist for the owner-role migration below.
 oteryn_reconcile_postgres "${compose[@]}" || exit 1
 # Backups and the WAL archive of that idle database (plan P5): starts the backup sidecar, refuses when the
 # NAS spool lacks the required free space and proves a forced WAL segment reaches the archive.
@@ -891,7 +903,12 @@ oteryn_native_admission_ingress_stop "${compose[@]}" >/dev/null
 # The ingress stop also stops the Game-node mTLS listener (removes it while the setting is off); it
 # is recreated or removed after the gates (oteryn_reconcile_platform_mtls).
 "${compose[@]}" up -d platform
-"${compose[@]}" exec -T platform php artisan migrate --force --no-interaction
+if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres ]]; then
+    # Owner role in a one-off container; the runtime platform container never holds the owner password.
+    oteryn_platform_migrate_postgres "${compose[@]}"
+else
+    "${compose[@]}" exec -T platform php artisan migrate --force --no-interaction
+fi
 if ! "${compose[@]}" exec -T platform sh -ec 'test -s storage/oauth-private.key && test -s storage/oauth-public.key'; then
     "${compose[@]}" exec -T platform php artisan passport:keys --no-interaction
 fi
@@ -941,7 +958,8 @@ if [[ -n "$legacy_project" ]]; then
         --filter "label=com.docker.compose.service=canary")
 fi
 
-rm -f "$state_dir/backups/fresh-empty-before-"*/evidence.env "$state_dir/backups/fresh-empty-before-"*/platform.sql 2>/dev/null || true
+rm -f "$state_dir/backups/fresh-empty-before-"*/evidence.env "$state_dir/backups/fresh-empty-before-"*/platform.sql \
+    "$state_dir/backups/fresh-empty-before-"*/platform.dump 2>/dev/null || true
 rmdir "$state_dir/backups/fresh-empty-before-"* 2>/dev/null || true
 
 echo "Oteryn Synology staging deployment is healthy."

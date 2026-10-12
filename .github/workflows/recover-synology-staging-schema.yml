@@ -40,6 +40,11 @@ jobs:
       APP_KEY: ${{ secrets.OTERYN_STAGING_APP_KEY }}
       MARIADB_ROOT_PASSWORD: ${{ secrets.OTERYN_STAGING_MARIADB_ROOT_PASSWORD }}
       PLATFORM_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_DB_PASSWORD }}
+      PLATFORM_POSTGRES_SUPERUSER_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_SUPERUSER_PASSWORD }}
+      PLATFORM_POSTGRES_OWNER_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_OWNER_PASSWORD }}
+      PLATFORM_POSTGRES_APP_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_APP_PASSWORD }}
+      PLATFORM_POSTGRES_BACKUP_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_BACKUP_PASSWORD }}
+      PLATFORM_POSTGRES_DUMP_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_DUMP_PASSWORD }}
       OTERYN_PLATFORM_SERVICE_TOKEN: ${{ secrets.OTERYN_STAGING_PLATFORM_SERVICE_TOKEN }}
       GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256: ${{ secrets.OTERYN_STAGING_PLATFORM_SERVICE_TOKEN_SHA256 }}
       GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256: ${{ secrets.OTERYN_STAGING_PLATFORM_PREVIOUS_SERVICE_TOKEN_SHA256 }}
@@ -85,6 +90,25 @@ jobs:
             [[ -n "${!name:-}" ]] || { echo "Required synology-staging secret is missing: $name" >&2; exit 1; }
           done
 
+          # PostgreSQL secrets are optional but all five or none; recover-schema.sh requires all five on the
+          # postgres engine, so they must reach the ephemeral .env as in the deploy workflow.
+          postgres_configured=0
+          for name in \
+            PLATFORM_POSTGRES_SUPERUSER_PASSWORD PLATFORM_POSTGRES_OWNER_PASSWORD PLATFORM_POSTGRES_APP_PASSWORD \
+            PLATFORM_POSTGRES_BACKUP_PASSWORD PLATFORM_POSTGRES_DUMP_PASSWORD; do
+            if [[ -n "${!name:-}" ]]; then
+              postgres_configured=$((postgres_configured + 1))
+              if [[ ! "${!name}" =~ ^[A-Za-z0-9_.-]{24,}$ ]]; then
+                echo "$name must be empty or at least 24 generated hex/alphanumeric staging-safe characters." >&2
+                exit 1
+              fi
+            fi
+          done
+          if (( postgres_configured != 0 && postgres_configured != 5 )); then
+            echo "PostgreSQL secrets are partially configured ($postgres_configured of 5); set all of them or none." >&2
+            exit 1
+          fi
+
       - name: Write ephemeral recovery environment
         env:
           OTERYN_STATE_DIR_INPUT: ${{ vars.OTERYN_STAGING_STATE_DIR }}
@@ -120,6 +144,11 @@ jobs:
           PLATFORM_DB_NAME=oteryn_platform
           PLATFORM_DB_USER=oteryn_platform
           PLATFORM_DB_PASSWORD=$PLATFORM_DB_PASSWORD
+          PLATFORM_POSTGRES_SUPERUSER_PASSWORD=$PLATFORM_POSTGRES_SUPERUSER_PASSWORD
+          PLATFORM_POSTGRES_OWNER_PASSWORD=$PLATFORM_POSTGRES_OWNER_PASSWORD
+          PLATFORM_POSTGRES_APP_PASSWORD=$PLATFORM_POSTGRES_APP_PASSWORD
+          PLATFORM_POSTGRES_BACKUP_PASSWORD=$PLATFORM_POSTGRES_BACKUP_PASSWORD
+          PLATFORM_POSTGRES_DUMP_PASSWORD=$PLATFORM_POSTGRES_DUMP_PASSWORD
           OTERYN_PLATFORM_SERVICE_TOKEN=$OTERYN_PLATFORM_SERVICE_TOKEN
           GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256=$GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256
           GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256=$GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256
@@ -153,7 +182,9 @@ jobs:
       group: platform-runners
       labels: oteryn-platform
     environment: synology-staging
-    timeout-minutes: 270
+    # Above the drill's own bounds: 2 h for the spool job lock (OTERYN_DRILL_LOCK_WAIT_SECONDS), the 4 h RTO
+    # of the restore, and an hour for the probe, the checks after promotion and the cleanup.
+    timeout-minutes: 420
 
     steps:
       - name: Checkout exact trusted source

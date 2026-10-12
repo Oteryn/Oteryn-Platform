@@ -172,9 +172,27 @@ class DeployWiringTest(unittest.TestCase):
         self.assertIn("    if: github.ref == 'refs/heads/main' && inputs.mode == 'pitr-drill'\n", drill)
         self.assertIn("    environment: synology-staging\n", drill)
         self.assertNotIn("secrets.", drill)
-        self.assertNotIn("PLATFORM_POSTGRES_", workflow)
+        # The schema-recovery job carries the PostgreSQL secrets (P4b); the drill job reads none.
+        self.assertNotIn("PLATFORM_POSTGRES_", drill)
         self.assertIn("bash deploy/synology/scripts/restore-postgres-pitr.sh", drill)
         self.assertNotIn("--skip-platform-checks", drill)
+
+    def test_drill_job_timeout_exceeds_the_lock_wait_rto_and_cleanup(self) -> None:
+        workflow = RECOVER_WORKFLOW.read_text()
+        drill_job = workflow.split("\n  pitr-drill:\n", 1)[1]
+        timeout = int(re.search(r"^    timeout-minutes: (\d+)$", drill_job, re.M).group(1))
+        script = DRILL.read_text()
+        lock_wait = int(re.search(r'^LOCK_WAIT_SECONDS="\$\{OTERYN_DRILL_LOCK_WAIT_SECONDS:-(\d+)\}"$', script, re.M).group(1))
+        rto = int(re.search(r"^RTO_SECONDS=(\d+)$", script, re.M).group(1))
+        archive_wait = int(re.search(r'^ARCHIVE_WAIT_SECONDS="\$\{OTERYN_ARCHIVE_WAIT_SECONDS:-(\d+)\}"$', script, re.M).group(1))
+        # The lock wait (plus the holder's start margin), the RTO from base backup choice to promotion, the
+        # probe's archive wait, and at least 30 minutes for the checks after promotion and the cleanup.
+        self.assertGreaterEqual(timeout * 60, (lock_wait + 60) + rto + archive_wait + 30 * 60)
+        # pg_ctl waits only for what is left of the RTO, so the restore phase cannot outlast it.
+        self.assertIn("-w -t $remaining start", script)
+        self.assertNotIn("-t $RTO_SECONDS", script)
+        runbook = RUNBOOK.read_text()
+        self.assertIn(f"The job times out after {timeout} minutes.", runbook)
 
     def test_build_routing_and_syntax_check_cover_the_backup_scripts(self) -> None:
         spec = importlib.util.spec_from_file_location("classify_synology_builds", CLASSIFIER)
@@ -346,6 +364,23 @@ class ArchiveWalTest(SpoolTestCase):
         result = run(["bash", str(ARCHIVE), str(source), SEGMENT], env=env)
         self.assertEqual(result.returncode, 1)
         self.assertIn("cannot sync", result.stderr)
+
+    def test_an_identical_retry_succeeds_on_a_spool_below_the_free_space_floor(self) -> None:
+        source = self.segment(b"wal" * 100)
+        self.assertEqual(run(["bash", str(ARCHIVE), str(source), SEGMENT], env=self.env).returncode, 0)
+        full = {**self.env, "OTERYN_ARCHIVE_MIN_FREE_MB": "9999999"}
+        result = run(["bash", str(ARCHIVE), str(source), SEGMENT], env=full)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # A new segment still meets the floor, and different content is still refused.
+        other = self.tmp / "pg_wal" / "000000010000000000000099"
+        other.write_bytes(b"next")
+        result = run(["bash", str(ARCHIVE), str(other), other.name], env=full)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("below", result.stderr)
+        source.write_bytes(b"changed")
+        result = run(["bash", str(ARCHIVE), str(source), SEGMENT], env=full)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("different content", result.stderr)
 
     def test_refuses_to_overwrite_different_content(self) -> None:
         source = self.segment(b"first")
@@ -617,11 +652,19 @@ class JobPreflightTest(SpoolTestCase):
 class DrillEvidenceTest(unittest.TestCase):
     """A drill whose scratch instance outlives it is reported failed in its evidence, not only by its exit."""
 
-    FUNCTIONS = ("log", "record", "cleanup_failed", "cleanup", "write_evidence")
+    FUNCTIONS = ("log", "record", "late_failure", "cleanup", "evidence_lines", "evidence_table", "write_evidence")
 
-    def harness(self, mode: str, *, failed_before: bool = False) -> tuple[subprocess.CompletedProcess[str], str, str]:
+    def harness(
+        self, mode: str, *, failed_before: bool = False, evidence_blocked: bool = False, summary_blocked: bool = False,
+    ) -> tuple[subprocess.CompletedProcess[str], str, str]:
         tmp = Path(tempfile.mkdtemp(prefix="oteryn-p5-evidence-"))
         self.addCleanup(shutil.rmtree, tmp, True)
+        if evidence_blocked:
+            # A file where the evidence directory belongs: mkdir -p fails.
+            (tmp / "evidence").write_text("")
+        summary = tmp / "summary.md"
+        if summary_blocked:
+            summary.mkdir()
         drill = DRILL.read_text()
         functions = []
         for name in self.FUNCTIONS:
@@ -650,10 +693,11 @@ class DrillEvidenceTest(unittest.TestCase):
             outcome,
         ])
         result = run(["bash", "-c", script], env={
-            "PATH": f"{tmp / 'bin'}:{os.environ['PATH']}", "FAKE_MODE": mode, "GITHUB_STEP_SUMMARY": str(tmp / "summary.md"),
+            "PATH": f"{tmp / 'bin'}:{os.environ['PATH']}", "FAKE_MODE": mode, "GITHUB_STEP_SUMMARY": str(summary),
         })
-        evidence = (tmp / "evidence" / "S" / "evidence.env").read_text()
-        return result, evidence, (tmp / "summary.md").read_text()
+        evidence_file = tmp / "evidence" / "S" / "evidence.env"
+        evidence = evidence_file.read_text() if not evidence_blocked and evidence_file.exists() else ""
+        return result, evidence, "" if summary_blocked else summary.read_text()
 
     def test_a_scratch_instance_left_behind_fails_the_recorded_result(self) -> None:
         for mode, what in (("container", "scratch container"), ("volume", "scratch data volume")):
@@ -673,6 +717,26 @@ class DrillEvidenceTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("FAILURE=checks failed\n", evidence)
         self.assertIn("CLEANUP_FAILURE=scratch data volume", evidence)
+
+    def test_evidence_that_cannot_be_written_fails_the_drill(self) -> None:
+        result, _, summary = self.harness("clean", evidence_blocked=True)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("could not be written", result.stderr)
+        self.assertIn("RESULT=failed\n", result.stdout)
+        self.assertIn("FAILURE=evidence: cannot write", result.stdout)
+        self.assertIn("| result | failed |", summary)
+        self.assertNotIn("| result | passed |", summary)
+        # A job summary that cannot be written fails it too, and evidence.env does not keep "passed".
+        result, evidence, _ = self.harness("clean", summary_blocked=True)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("RESULT=failed\n", evidence)
+        self.assertIn("FAILURE=evidence: cannot write the job summary", evidence)
+        self.assertNotIn("RESULT=passed", evidence)
+        # An earlier failure stays the reported one.
+        result, _, _ = self.harness("clean", failed_before=True, evidence_blocked=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("FAILURE=checks failed\n", result.stdout)
+        self.assertIn("EVIDENCE_FAILURE=cannot write", result.stdout)
 
 
 class DrillLockTest(unittest.TestCase):
