@@ -305,6 +305,39 @@ def test_rollback_preflights_the_listener_before_stopping_anything() -> None:
     assert "--entrypoint nginx internal-mtls -t -q -c /bootstrap/internal-mtls-nginx.conf" in body
 
 
+def test_listener_is_stopped_while_platform_is_replaced_and_migrated() -> None:
+    lib = LIB.read_text()
+    body = re.search(r"^oteryn_platform_mtls_stop\(\) \{\n(.*?)^\}", lib, re.M | re.S).group(1)
+    assert '"$@" stop internal-mtls' in body
+    stop = 'oteryn_platform_mtls_stop "${compose[@]}" || exit 1'
+    reconcile = 'oteryn_reconcile_platform_mtls "${compose[@]}"'
+
+    deploy = DEPLOY.read_text()
+    main = deploy[deploy.index("\nfinalize_previous_candidate_if_healthy\n"):]
+    assert main.index("oteryn_native_admission_ingress_stop") < main.index(stop)
+    assert main.index(stop) < main.index('"${compose[@]}" up -d platform')
+    assert main.index(stop) < main.index("php artisan migrate --force")
+    assert main.index("oteryn_publish_native_admission_trust_or_stop") < main.index(reconcile)
+
+    rollback = ROLLBACK.read_text()
+    assert rollback.index("oteryn_native_admission_ingress_stop") < rollback.index(stop)
+    assert rollback.index(stop) < rollback.index('"${compose[@]}" up -d platform')
+    assert rollback.index("oteryn_native_admission_self_check_or_stop") < rollback.index(reconcile)
+
+
+def test_candidate_keeps_the_listener_off_when_its_platform_runs_without_fastcgi() -> None:
+    deploy = DEPLOY.read_text()
+    body = re.search(r"^finalize_previous_candidate_if_healthy\(\) \{\n(.*?)^\}", deploy, re.M | re.S).group(1)
+    decide = 'candidate_mtls="$(oteryn_platform_mtls_flag_for_image "${candidate_state[3]}")"'
+    running = 'running_platform_fastcgi="$(oteryn_platform_fastcgi_flag_of "$("${compose[@]}" ps -q platform)")"'
+    off = '[[ "$running_platform_fastcgi" == true ]] || candidate_mtls=false'
+    pin_call = 'oteryn_pin_platform_mtls_flag "$candidate_env" "$candidate_mtls"'
+    for needle in (running, off):
+        assert needle in body, needle
+    assert body.index(decide) < body.index(running) < body.index(off) < body.index(pin_call)
+    assert body.index(pin_call) < body.index("oteryn_native_admission_ingress_stop")
+
+
 def main() -> None:
     tests = [
         value

@@ -92,6 +92,7 @@ proven:
   - Codex P2 on #1570 (encodings): a smoke request showed HTTP_TRANSFER_ENCODING and HTTP_CONTENT_ENCODING reaching PHP, so the bounds middleware still sees them; fastcgi_pass_request_headers on is now explicit.
   - Found in smoke: with short-syntax mounts, a fresh platform_fastcgi volume first mounted by Platform copied the image directory's owner (82:82), so nginx got EACCES and answered 502. nocopy on both mounts kept 82:101 0750, and health-check.sh now checks that the nginx user can write the socket.
   - Codex P1s on #1570 (head ca5e735b). (1) deploy.sh: an unresolved candidate whose Platform image was built before the listener is now finalized with the listener off. The decision is made, and pinned into the candidate health env, before any stack change, so later deploys no longer repeat the failure. An image that cannot be inspected fails closed. Local check: the probe returned 3 for an image without the pool, 0 for one with it, and 125 for a missing image. (2) rollback.sh runs the settings check and the full preflight before oteryn_native_admission_ingress_stop. The preflight covers the image, the bind address and nginx -t with the mounted files.
+  - Codex P1s on #1570 (head e2b79f2d), the last round in this area. (1) A full deploy and a rollback stop internal-mtls together with the rest of the ingress before Platform is replaced or migrated, and reconcile recreates it after the gates. (2) A candidate keeps the listener off when its running Platform has FastCGI off, even if its image has the pool. Anything further goes to the follow-up synology-mtls-hardening.
   - Further P1s in this area after this round go to the named follow-up D282, unless they are a real regression (coordinator).
   - The Compose profile keeps the bind-mounted service out of the default render, so the CI "no bind mounts" render check passes.
 derived:
@@ -124,7 +125,7 @@ changed_paths:
 validation:
   - command: python3 deploy/synology/tests/test_platform_mtls_contract.py
     result: PASS
-    evidence: 12 tests
+    evidence: 14 tests
   - command: CI-listed Synology python tests and container_supply_chain validate-repository
     result: PASS
     evidence: all pass, rc 0

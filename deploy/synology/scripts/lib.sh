@@ -215,6 +215,16 @@ oteryn_platform_mtls_fingerprint_of() {
 # Brings the listener to the resolved setting after Platform is up: recreated while on (it then
 # re-reads the host certificate files and carries their fingerprint), removed while off. Arguments:
 # the route's Compose command words.
+# Stops the Game-node mTLS listener together with the rest of the ingress while Platform is replaced
+# and migrated (deploy.sh full path, rollback.sh), so no Game-node request reaches a Platform that has
+# not passed its gates. oteryn_reconcile_platform_mtls recreates it after the gates.
+oteryn_platform_mtls_stop() {
+    (($# > 0)) || { echo "Platform mTLS stop needs the Compose command." >&2; return 1; }
+    local id
+    id="$("$@" ps -q internal-mtls 2>/dev/null)" || return 1
+    [[ -z "$id" ]] || "$@" stop internal-mtls >&2
+}
+
 oteryn_reconcile_platform_mtls() {
     (($# > 0)) || { echo "Platform mTLS reconcile needs the Compose command." >&2; return 1; }
     if [[ "${OTERYN_PLATFORM_MTLS_ENABLED:-false}" == true ]]; then
