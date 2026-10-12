@@ -70,6 +70,8 @@ elif [[ -n "$backup_stamp" ]]; then
     usage
 fi
 [[ -f "$RESTORE_WAL" ]] || { echo "Missing $RESTORE_WAL" >&2; exit 1; }
+# The project name reaches Docker label filters: Compose project names only.
+[[ "$PROJECT" =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]] || { echo "COMPOSE_PROJECT_NAME must be a Compose project name" >&2; exit 2; }
 [[ "$WAL_MARGIN_MB" =~ ^[0-9]{1,7}$ && "$ARCHIVE_WAIT_SECONDS" =~ ^[1-9][0-9]{0,5}$ ]] || usage
 WAL_MARGIN_MB=$((10#$WAL_MARGIN_MB))
 
@@ -193,6 +195,8 @@ pg="$(find_service postgres)"
 image="$(docker inspect --format '{{.Config.Image}}' "$pg")"
 spool_volume="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "'"$SPOOL"'"}}{{.Name}}{{end}}{{end}}' "$pg")"
 [[ -n "$spool_volume" ]] || fail "the postgres container mounts no backup spool at $SPOOL"
+# The name reaches a --mount option list: a Docker volume name only, never extra options.
+[[ "$spool_volume" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$ ]] || fail "unexpected backup spool volume name"
 record drill "$stamp"
 record project "$PROJECT"
 record target_mode "$target"
@@ -325,6 +329,9 @@ chmod 0700 $DATA
 tar -xzf base.tar.gz -C $DATA
 tar -xzf pg_wal.tar.gz -C $DATA/pg_wal
 pg_verifybackup -q -m $SPOOL/base/$chosen/backup_manifest $DATA
+# ALTER SYSTEM settings of the live server (archive_command, listen_addresses) would override the drill
+# configuration below: the scratch instance runs with the drill configuration alone.
+: > $DATA/postgresql.auto.conf
 " || fail "base backup $chosen failed its checksums or pg_verifybackup"
 record base_verified "SHA256SUMS and pg_verifybackup passed"
 
@@ -413,6 +420,7 @@ newest=\$(ls -1d $SPOOL/dump/*Z 2>/dev/null | sort -r | while read -r d; do [ -f
 cd \"\$newest\" && sha256sum --quiet -c SHA256SUMS && pg_restore -l oteryn_platform.dump > /dev/null && echo \"\${newest##*/}\"
 ")" || fail "the newest logical dump failed its checksum or cannot be listed"
 [[ "$dump_result" != none ]] || fail "no complete logical dump in the spool"
+[[ "$dump_result" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || fail "unexpected logical dump directory name in the spool"
 record dump_verified "$dump_result (SHA256SUMS and pg_restore -l)"
 checks_passed=$((checks_passed + 1))
 

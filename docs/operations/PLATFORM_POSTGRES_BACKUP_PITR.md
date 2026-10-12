@@ -68,6 +68,8 @@ The owner provides the space. These numbers are a starting point; check them wit
 
 Any failure fails the deploy.
 
+The Platform fast path skips this reconcile. It is chosen only when `backup-postgres.sh check` currently passes strictly. A stopped sidecar, an earlier reconcile that failed, or a degraded backup sends the deploy down the full path, which runs the reconcile.
+
 `health-check.sh` runs `backup-postgres.sh check`:
 
 - **Exit 1, structural.** The sidecar is missing, stopped, unhealthy or publishes a port; `archive_mode` is off; or status cannot be read. The health check fails.

@@ -56,7 +56,7 @@ owned_paths:
 modules:
   - deploy
 dependencies:
-  - PR #1579 (P4, branch claude/platform-pg-p4-20261012) lands first
+  - PR #1579 (P4) merged 2026-10-12 and was merged into this branch from origin/main
 blockers:
   - none
 cross_repository_tasks:
@@ -67,8 +67,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-12T19:30:00Z
-head: 58f1cf1fbd814207d40f6ded297b86d09e610fe5
+updated_at: 2026-10-12T21:00:00Z
+head: dfea5ef6b304462121ab396e9b25e37e4e58c80d
 branch: claude/platform-pg-p5-20261012
 pr: 1583
 status: waiting
@@ -119,16 +119,16 @@ changed_paths:
 validation:
   - command: python3 -m pytest tests/ci deploy/synology/tests -q
     result: PASS
-    evidence: 421 passed, 91 subtests passed
+    evidence: 426 passed, 91 subtests passed (after merging origin/main)
   - command: shellcheck and bash -n on the new scripts; sh -n tls/init.sh; docker compose config with and without the postgres profile
     result: PASS
     evidence: clean; only SC1091 info for sourcing lib.sh
   - command: local drill harness (docs/operations/PLATFORM_POSTGRES_RESTORE_DRILL_EVIDENCE.md)
     result: PASS
-    evidence: probe, target-time and immediate drills passed; scratch discarded
+    evidence: probe, target-time and immediate drills passed; scratch discarded; probe drill re-run passed after the self-review hardening
 blockers:
   - none
-next_action: After #1579 lands, merge origin/main (no rebase), then wait for exact-head CI and a complete Codex review and fix all findings in one commit.
+next_action: Wait for exact-head CI and a complete Codex review, then fix all findings in one commit.
 ```
 
 ## Source branch closeout

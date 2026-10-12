@@ -417,6 +417,10 @@ fi
 case "$mode" in
     service)
         [[ "$(id -u)" == 0 ]] || die "service mode starts as root to prepare the spool"
+        # Root prepares the spool that the postgres user writes: never follow a link planted in it.
+        for dir in "$SPOOL" "$SPOOL/wal" "$SPOOL/base" "$SPOOL/dump" "$SPOOL/status"; do
+            [[ ! -L "$dir" ]] || die "spool path $dir is a symbolic link"
+        done
         install -d -o postgres -g postgres -m 0700 "$SPOOL" "$SPOOL/wal" "$SPOOL/base" "$SPOOL/dump" "$SPOOL/status"
         chown postgres:postgres "$SPOOL" "$SPOOL/wal" "$SPOOL/base" "$SPOOL/dump" "$SPOOL/status"
         chmod 0700 "$SPOOL" "$SPOOL/wal" "$SPOOL/base" "$SPOOL/dump" "$SPOOL/status"

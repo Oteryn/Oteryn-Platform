@@ -134,6 +134,15 @@ class DeployWiringTest(unittest.TestCase):
         # The deploy reconcile is strict: it ends with a check whose non-zero exit fails the script.
         self.assertRegex(script, r"sidecar_job ensure \|\| fail [^\n]*\n(?:\s*#[^\n]*\n)*\s*check\n\}")
 
+    def test_fast_path_requires_reconciled_backups(self) -> None:
+        deploy = DEPLOY.read_text()
+        candidate = deploy.split("\n_oteryn_fast_candidate() {\n", 1)[1].split("\n}\n", 1)[0]
+        probe = candidate.index('bash "$SCRIPT_DIR/backup-postgres.sh" check > /dev/null 2>&1 || {')
+        self.assertLess(candidate.index("oteryn_postgres_certificate_is_current"), probe)
+        self.assertIn("FAST_DEPLOY_REASON='PostgreSQL backups need reconciliation'", candidate[probe:])
+        # Only inside the configured branch: without PostgreSQL secrets nothing is checked.
+        self.assertLess(candidate.index('if [[ "$postgres_state" == configured ]]; then'), probe)
+
     def test_passwords_reach_the_sidecar_on_standard_input_only(self) -> None:
         script = BACKUP_POSTGRES.read_text()
         self.assertIn(
@@ -394,6 +403,21 @@ class DrillArgumentTest(unittest.TestCase):
             self.assertEqual(result.returncode, 2, f"{args}: {result.stderr}")
         result = run(["bash", str(DRILL)], env={"OTERYN_DRILL_WAL_MARGIN_MB": "08x"})
         self.assertEqual(result.returncode, 2)
+        for project in ("Staging", "a,b", "x" * 64, "-x"):
+            result = run(["bash", str(DRILL)], env={"COMPOSE_PROJECT_NAME": project, "PATH": "/usr/bin:/bin"})
+            self.assertEqual(result.returncode, 2, project)
+
+    def test_spool_values_never_reach_options_and_live_settings_never_reach_the_scratch(self) -> None:
+        drill = DRILL.read_text()
+        self.assertIn('[[ "$spool_volume" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$ ]]', drill)
+        self.assertLess(drill.index("unexpected backup spool volume name"), drill.index("write_marker A\n"))
+        self.assertIn('[[ "$dump_result" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]', drill)
+        verify = drill.index("pg_verifybackup -q -m")
+        self.assertLess(verify, drill.index(": > $DATA/postgresql.auto.conf"))
+        self.assertLess(drill.index(": > $DATA/postgresql.auto.conf"), drill.index("touch $DATA/recovery.signal"))
+        job = JOB.read_text()
+        service = job.split("    service)\n", 1)[1]
+        self.assertLess(service.index('[[ ! -L "$dir" ]]'), service.index("install -d -o postgres"))
 
 
 if __name__ == "__main__":

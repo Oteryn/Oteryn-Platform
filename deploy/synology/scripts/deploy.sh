@@ -347,6 +347,14 @@ _oteryn_fast_candidate() {
             FAST_DEPLOY_REASON='PostgreSQL server certificate pair is not current (renewal window, mismatch or key protection)'
             return 1
         }
+        # The fast path skips the backup reconcile (plan P5), which can fail after the PostgreSQL reconcile
+        # recorded success. The backups must pass the strict check the reconcile ends with; a stopped
+        # sidecar, a failed earlier reconcile or a degraded backup takes the full path.
+        OTERYN_ENV_FILE="$ENV_FILE" OTERYN_BACKUP_READY_TIMEOUT_SECONDS=1 \
+            bash "$SCRIPT_DIR/backup-postgres.sh" check > /dev/null 2>&1 || {
+            FAST_DEPLOY_REASON='PostgreSQL backups need reconciliation'
+            return 1
+        }
     fi
     # The fast path neither stages bootstrap files nor touches internal-mtls: any change of the
     # listener setting, or a listener that is not in its wanted state, takes the full path, and so
