@@ -150,10 +150,14 @@ class ComposeServiceTest(unittest.TestCase):
         # The same window as tls-init's postgres_certificate_is_current.
         self.assertIn(f'openssl x509 -checkend {seconds.group(1)} -noout -in "$POSTGRES_TLS_DIR/server.crt"', init)
         self.assertIn("oteryn_postgres_certificate_is_current()", lib)
-        self.assertIn("/run/oteryn-postgres-tls/server.crt", lib)
+        # One implementation: the fast path runs tls-init's own predicate inside the container.
+        self.assertIn("--check-postgres-pair", lib)
+        self.assertIn("--check-postgres-pair", init)
+        self.assertIn("openssl verify -CAfile", init)
+        self.assertIn("postgres_key_is_protected", init)
         preflight = deploy[deploy.index("_oteryn_fast_candidate()") : deploy.index("_oteryn_fast_restore_on_exit()")]
         self.assertIn('oteryn_postgres_certificate_is_current "$postgres_id"', preflight)
-        self.assertIn("renewal window", preflight)
+        self.assertIn("pair is not current", preflight)
         self.assertLess(preflight.index("oteryn_postgres_certificate_is_current"), preflight.index("want_mtls="))
 
     def test_fast_path_requires_a_current_reconcile_record(self) -> None:
@@ -482,6 +486,50 @@ class TlsInitTest(unittest.TestCase):
                 good_crt = (server / "server.crt").read_bytes()
             self.assertEqual(sorted(p.name for p in server.iterdir()), ["ca.crt", "server.crt", "server.key"])
             self.assertEqual(sorted(p.name for p in tls.iterdir()), ["ca.crt", "ca.key", "platform-internal.crt", "platform-internal.key"])
+
+            # The predicate the deploy fast path runs inside the postgres container (--check-postgres-pair) is
+            # the same one: it sees only the served volume and fails on anything inconsistent there.
+            check_env = {"PATH": os.environ["PATH"], "POSTGRES_TLS_DIR": str(server), "POSTGRES_UID": str(os.getuid())}
+
+            def fast_path_check() -> int:
+                return subprocess.run(
+                    ["sh", "-s", "--", "--check-postgres-pair"], input=TLS_INIT.read_bytes(), capture_output=True, env=check_env
+                ).returncode
+
+            self.assertEqual(fast_path_check(), 0)
+            good_key = (server / "server.key").read_bytes()
+            (server / "server.key").write_bytes(other.read_bytes())
+            self.assertNotEqual(fast_path_check(), 0)  # a key of another certificate
+            (server / "server.key").write_bytes(good_key)
+            (server / "server.key").chmod(0o640)
+            self.assertNotEqual(fast_path_check(), 0)  # readable by others: the server would refuse it
+            (server / "server.key").chmod(0o600)
+            self.assertEqual(fast_path_check(), 0)
+            foreign = root / "foreign-ca"
+            foreign.mkdir()
+            subprocess.run(
+                ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "30", "-subj", "/CN=Foreign", "-keyout", str(foreign / "k"), "-out", str(foreign / "ca.crt")],
+                check=True,
+                capture_output=True,
+            )
+            good_ca = (server / "ca.crt").read_bytes()
+            (server / "ca.crt").chmod(0o644)
+            (server / "ca.crt").write_bytes((foreign / "ca.crt").read_bytes())
+            self.assertNotEqual(fast_path_check(), 0)  # a certificate the CA copy does not verify
+            (server / "ca.crt").write_bytes(good_ca)
+            self.assertEqual(fast_path_check(), 0)
+
+            # The platform-internal pair is checked for consistency too, not only for presence and expiry.
+            old_ca = (tls / "ca.crt").read_bytes()
+            (tls / "platform-internal.key").chmod(0o600)
+            (tls / "platform-internal.key").write_bytes(other.read_bytes())
+            subprocess.run(["sh", str(TLS_INIT)], check=True, capture_output=True, env=env)
+            self.assertNotEqual((tls / "ca.crt").read_bytes(), old_ca)
+            self.assertEqual(
+                public_key(["x509", "-noout", "-pubkey", "-in", str(tls / "platform-internal.crt")]),
+                public_key(["pkey", "-pubout", "-in", str(tls / "platform-internal.key")]),
+            )
+            self.assertEqual(fast_path_check(), 0)
 
     def test_postgres_key_is_never_written_to_the_shared_tls_volume(self) -> None:
         init = TLS_INIT.read_text()

@@ -344,7 +344,7 @@ _oteryn_fast_candidate() {
         }
         # Only tls-init renews the 30-day server certificate (7-day window), and the fast path skips it.
         oteryn_postgres_certificate_is_current "$postgres_id" || {
-            FAST_DEPLOY_REASON='PostgreSQL server certificate is inside its renewal window'
+            FAST_DEPLOY_REASON='PostgreSQL server certificate pair is not current (renewal window, mismatch or key protection)'
             return 1
         }
     fi

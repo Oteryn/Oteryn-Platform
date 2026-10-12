@@ -11,15 +11,27 @@ POSTGRES_CA_DIR="${POSTGRES_CA_DIR:-}"
 # The postgres user of the pinned Debian postgres image; the server refuses a key it cannot own.
 POSTGRES_UID="${POSTGRES_UID:-999}"
 BOOTSTRAP_DIR="${BOOTSTRAP_DIR:-}"
-mkdir -p "$TLS_DIR"
 
+# A certificate and a private key belong together: equal public keys.
+pair_matches() {
+    certificate_key="$(openssl x509 -noout -pubkey -in "$1" 2>/dev/null)" || return 1
+    private_key="$(openssl pkey -pubout -in "$2" 2>/dev/null)" || return 1
+    [ -n "$certificate_key" ] && [ "$certificate_key" = "$private_key" ]
+}
+
+# Current means: present, valid for at least 7 more days, issued by the CA, and a matching pair (presence
+# and expiry alone pass a key of another certificate or a certificate of another CA). The CA key must
+# belong to the CA certificate.
 certificates_are_current() {
     [ -s "$TLS_DIR/ca.crt" ] \
         && [ -s "$TLS_DIR/ca.key" ] \
         && [ -s "$TLS_DIR/platform-internal.crt" ] \
         && [ -s "$TLS_DIR/platform-internal.key" ] \
         && openssl x509 -checkend 604800 -noout -in "$TLS_DIR/ca.crt" >/dev/null 2>&1 \
-        && openssl x509 -checkend 604800 -noout -in "$TLS_DIR/platform-internal.crt" >/dev/null 2>&1
+        && openssl x509 -checkend 604800 -noout -in "$TLS_DIR/platform-internal.crt" >/dev/null 2>&1 \
+        && openssl verify -CAfile "$TLS_DIR/ca.crt" "$TLS_DIR/platform-internal.crt" >/dev/null 2>&1 \
+        && pair_matches "$TLS_DIR/ca.crt" "$TLS_DIR/ca.key" \
+        && pair_matches "$TLS_DIR/platform-internal.crt" "$TLS_DIR/platform-internal.key"
 }
 
 # Current means: present, valid for at least 7 more days, issued by the current CA, the certificate and the
@@ -27,9 +39,12 @@ certificates_are_current() {
 # certificate, which a reload would not notice but the next container start would refuse), and both CA
 # copies equal to the current CA certificate.
 postgres_pair_matches() {
-    certificate_key="$(openssl x509 -noout -pubkey -in "$POSTGRES_TLS_DIR/server.crt" 2>/dev/null)" || return 1
-    private_key="$(openssl pkey -pubout -in "$POSTGRES_TLS_DIR/server.key" 2>/dev/null)" || return 1
-    [ -n "$certificate_key" ] && [ "$certificate_key" = "$private_key" ]
+    pair_matches "$POSTGRES_TLS_DIR/server.crt" "$POSTGRES_TLS_DIR/server.key"
+}
+
+# The key must stay owner-only and owned by the postgres user, or the server refuses to start.
+postgres_key_is_protected() {
+    [ "$(stat -c '%u %a' "$POSTGRES_TLS_DIR/server.key" 2>/dev/null)" = "$POSTGRES_UID 600" ]
 }
 
 postgres_certificate_is_current() {
@@ -40,8 +55,22 @@ postgres_certificate_is_current() {
         && { [ -z "$POSTGRES_CA_DIR" ] || cmp -s "$TLS_DIR/ca.crt" "$POSTGRES_CA_DIR/ca.crt"; } \
         && openssl x509 -checkend 604800 -noout -in "$POSTGRES_TLS_DIR/server.crt" >/dev/null 2>&1 \
         && openssl verify -CAfile "$TLS_DIR/ca.crt" "$POSTGRES_TLS_DIR/server.crt" >/dev/null 2>&1 \
-        && postgres_pair_matches
+        && postgres_pair_matches \
+        && postgres_key_is_protected
 }
+
+# The deploy fast path (scripts/lib.sh) runs this same predicate inside the running postgres container, where
+# only the volume it serves is visible: `sh -s -- --check-postgres-pair < init.sh` with POSTGRES_TLS_DIR set
+# to that volume. The stack CA is then the CA copy next to the server pair; a CA rotated since is caught
+# because tls-init, which a full deploy always runs, reissues the pair and both copies in the same run.
+if [ "${1:-}" = --check-postgres-pair ]; then
+    TLS_DIR="$POSTGRES_TLS_DIR"
+    POSTGRES_CA_DIR=''
+    postgres_certificate_is_current
+    exit $?
+fi
+
+mkdir -p "$TLS_DIR"
 
 issue_certificate() {
     name="$1"
