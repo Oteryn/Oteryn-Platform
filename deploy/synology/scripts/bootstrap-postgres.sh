@@ -80,22 +80,28 @@ else
 fi
 
 [[ "$state_dir" == /* ]] || refuse "the bootstrap state directory must be an absolute path."
-# Reject a link before mkdir/chmod can follow it and change an unrelated directory.
+# Validate without mutating: a refused invocation must leave the filesystem as it found it, so the
+# directory is created, chmodded and locked only by prepare_state_dir, after every refusal check.
 [[ ! -L "$state_dir" ]] \
     || refuse "the bootstrap state directory $state_dir must be an owner-only directory, not a link."
-mkdir -p -- "$state_dir"
-chmod 700 -- "$state_dir"
-[[ -d "$state_dir" && ! -L "$state_dir" && -O "$state_dir" ]] \
+[[ ! -e "$state_dir" ]] || [[ -d "$state_dir" && -O "$state_dir" ]] \
     || refuse "the bootstrap state directory $state_dir must be an owner-only directory, not a link."
 freeze_file="$state_dir/witness-freeze.env"
 moved_file="$state_dir/witness-moved-aside.env"
 complete_file="$state_dir/bootstrap-complete.env"
 lock_dir="$state_dir/run.lock"
 
-if ! mkdir -- "$lock_dir" 2>/dev/null; then
-    refuse "another bootstrap-postgres.sh holds $lock_dir; remove it only when no bootstrap is running."
-fi
-trap 'rmdir -- "$lock_dir" 2>/dev/null || true' EXIT
+# The first mutation of either subcommand. Still a refusal (exit 1): nothing else has changed yet.
+prepare_state_dir() {
+    mkdir -p -- "$state_dir" || refuse "cannot create the bootstrap state directory $state_dir."
+    chmod 700 -- "$state_dir" || refuse "cannot restrict the bootstrap state directory $state_dir to its owner."
+    [[ -d "$state_dir" && ! -L "$state_dir" && -O "$state_dir" ]] \
+        || refuse "the bootstrap state directory $state_dir must be an owner-only directory, not a link."
+    if ! mkdir -- "$lock_dir" 2>/dev/null; then
+        refuse "another bootstrap-postgres.sh holds $lock_dir; remove it only when no bootstrap is running."
+    fi
+    trap 'rmdir -- "$lock_dir" 2>/dev/null || true' EXIT
+}
 
 # --- Witness directory access ---------------------------------------------------------------
 # One POSIX sh program, run in the Platform image (Compose: a one-off container on the
@@ -377,9 +383,13 @@ record_witness() {
         fi
         refuse "a different freeze record already exists ($freeze_file). Remove it only after confirming that the MariaDB-era Platform, and nothing else, wrote the witness after that freeze (runbook)."
     fi
-    printf '%s\nFROZEN_AT=%s\n' "$record" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$freeze_file.tmp"
-    chmod 600 "$freeze_file.tmp"
-    mv -- "$freeze_file.tmp" "$freeze_file"
+    [[ ! -e "$freeze_file.tmp" && ! -L "$freeze_file.tmp" ]] \
+        || refuse "$freeze_file.tmp already exists; remove the stale temporary record first."
+    prepare_state_dir
+    printf '%s\nFROZEN_AT=%s\n' "$record" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$freeze_file.tmp" \
+        && chmod 600 "$freeze_file.tmp" \
+        && mv -- "$freeze_file.tmp" "$freeze_file" \
+        || refuse "the freeze record $freeze_file could not be written; nothing else was changed."
     echo "Recorded the MariaDB-era witness: state=$witness_state store_id=$witness_store_id ($freeze_file)."
 }
 
@@ -545,10 +555,22 @@ if ((${#reasons[@]} > 0)); then
     exit 1
 fi
 
+# All refusal checks passed: take the lock, then re-check the records under it (a concurrent run may have
+# finished or moved the witness aside between the checks above and the lock).
+prepare_state_dir
+[[ ! -e "$complete_file" ]] || refuse "this state directory already records a completed bootstrap ($complete_file); a re-run is refused."
+[[ "$witness_action" != move-aside || ! -e "$moved_file" ]] \
+    || refuse "this bootstrap already moved the MariaDB-era witness aside ($moved_file) in a concurrent run."
+
 # --- run: steps 1 to 8 ---------------------------------------------------------------------
+witnessed_write_started=false
 failed() {
     printf 'Bootstrap failed: %s\n' "$*" >&2
-    echo "A change already began. Before the first witnessed write the only way forward is a clean-slate re-run: empty the PostgreSQL database and the new witness directory (runbook). Never edit or reuse the moved-aside MariaDB-era directory." >&2
+    if [[ "$witnessed_write_started" == true ]]; then
+        echo "The first witnessed write (native admission trust publication) already happened: there is no rollback and no re-run. Only forward reconciliation by the operator is possible (runbook). Never edit or reuse the moved-aside MariaDB-era directory." >&2
+    else
+        echo "A change already began. Before the first witnessed write the only way forward is a clean-slate re-run: empty the PostgreSQL database and the new witness directory (runbook). Never edit or reuse the moved-aside MariaDB-era directory." >&2
+    fi
     exit 2
 }
 
@@ -585,7 +607,7 @@ container_id=''
 if [[ "$local_mode" != true ]]; then
     # Ingress was checked stopped above; only platform starts here.
     "${compose[@]}" up -d --no-deps platform || failed "the platform service did not start."
-    container_id="$("${compose[@]}" ps -q platform)"
+    container_id="$("${compose[@]}" ps -q platform)" || failed "the platform container cannot be read."
     [[ -n "$container_id" ]] || failed "the platform container is not running."
 fi
 
@@ -617,6 +639,7 @@ run_self_check() {
 echo "Step 4/8: native admission trust."
 if [[ "$native_admission" == true ]]; then
     echo "Native admission is on: this trust publication is the first witnessed write. From here on there is no rollback and no re-run."
+    witnessed_write_started=true
     if [[ "$local_mode" == true ]]; then
         trust_output="$(platform_exec artisan game-auth:native-admission:publish-trust --no-interaction 2>&1)" \
             || failed "native admission trust publication refused: $trust_output"
@@ -650,7 +673,7 @@ if [[ "${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}" == true ]]; then
     topology_output="$(platform_exec artisan game-auth:native-topology:issue \
         --world-row-id="$GAME_WORLD_ID" --channel-key="$OTERYN_NATIVE_CHANNEL_KEY" --no-interaction 2>&1)" \
         || failed "game-auth:native-topology:issue failed: $topology_output"
-    native_world_id="$(sed -n 's/.*"world_id":"\([^"]*\)".*/\1/p' <<<"$topology_output" | head -n 1)"
+    native_world_id="$(sed -n 's/.*"world_id":"\([^"]*\)".*/\1/p' <<<"$topology_output" | head -n 1)" || true
     [[ -n "$native_world_id" ]] || failed "native topology issuance returned no WorldId."
     echo "Native topology issued (non-secret): $topology_output"
 else
@@ -677,8 +700,21 @@ verify_output="$(probe verify "$GAME_WORLD_ID")"
     || failed "the built-in admin roles and permissions were not seeded."
 [[ "$(value_of oauth_clients "$verify_output")" =~ ^([2-9]|[1-9][0-9]+)$ ]] || failed "the OAuth clients are missing."
 [[ "$(value_of world_row "$verify_output")" == present ]] || failed "the World Registry row is missing."
-final_witness="$(witness inspect)" || true
+# The witness directory must be inspectable now, whatever the mode: a failed inspection or a vanished
+# directory is never read as success.
+final_witness="$(witness inspect)" || failed "the final native evidence witness inspection failed."
+[[ -z "$(value_of witness_error "$final_witness")" \
+    && "$(value_of witness_directory "$final_witness")" == "$frozen_dir" \
+    && "$(value_of witness_state "$final_witness")" =~ ^(empty|present)$ ]] \
+    || failed "the final native evidence witness inspection returned no usable state ($(value_of witness_error "$final_witness"))."
 if [[ "$native_admission" == true ]]; then
+    # The trust publication wrote a PostgreSQL witness: a nonempty directory with its own valid store id,
+    # not the MariaDB-era one that was moved aside.
+    final_store_id="$(value_of witness_store_id "$final_witness")"
+    [[ "$(value_of witness_state "$final_witness")" == present && "$final_store_id" =~ ^[0-9a-f]{64}$ ]] \
+        || failed "native admission is on but the new witness directory holds no witness store after the trust publication."
+    [[ "$final_store_id" != "$frozen_store_id" ]] \
+        || failed "native admission is on but the witness store is still the MariaDB-era one."
     [[ "$(value_of trust_profiles "$verify_output")" =~ ^[1-9][0-9]*$ \
         && "$(value_of witness_binding_rows "$verify_output")" == 1 ]] \
         || failed "native admission is on but the trust profile or the witness binding is missing."

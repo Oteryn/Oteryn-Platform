@@ -292,6 +292,39 @@ class StaticBootstrapTest(BootstrapCase):
                 self.assertFalse(self.witness_dir.exists())
                 stale.rmdir()
 
+    def test_refused_run_does_not_create_or_chmod_the_state_directory(self) -> None:
+        script = SCRIPT.read_text()
+        validate = script.index('must be an owner-only directory, not a link.')
+        prepare = script.index('prepare_state_dir() {')
+        self.assertLess(validate, prepare)
+        head = script[:prepare]
+        self.assertNotIn('mkdir -p', head)
+        self.assertNotIn('chmod 700', head)
+        self.assertNotIn('mkdir -- "$lock_dir"', head)
+        # The first call happens after the last refusal block of run, and before the freeze record write.
+        run_refusals = script.index('Nothing was changed.')
+        self.assertLess(run_refusals, script.index('\nprepare_state_dir\n', run_refusals))
+        record = script[script.index('record_witness() {'):script.index('if [[ "$subcommand" == record-witness ]]')]
+        self.assertLess(record.index('prepare_state_dir'), record.index('> "$freeze_file.tmp"'))
+
+    def test_missing_state_directory_stays_absent_when_the_invocation_is_refused(self) -> None:
+        reason = platform_unavailable_reason()
+        if reason is not None:
+            self.skipTest(reason)
+        self.assertFalse(self.state_dir.exists())
+        env = self.base_env(DB_CONNECTION="sqlite", DB_DATABASE=":memory:")
+        self.assert_refused(self.bootstrap("run", "--local", env=env), "no MariaDB-era witness freeze record")
+        self.assertFalse(self.state_dir.exists())
+
+    def test_native_completion_requires_a_successful_nonempty_witness_inspection(self) -> None:
+        script = SCRIPT.read_text()
+        tail = script[script.index('final_witness="$(witness inspect)"'):]
+        self.assertIn('final_witness="$(witness inspect)" || failed', tail)
+        self.assertNotIn('witness inspect)" || true', tail)
+        self.assertIn('final_store_id" =~ ^[0-9a-f]{64}$', tail)
+        self.assertIn('witness_directory "$final_witness")" == "$frozen_dir"', tail)
+        self.assertLess(tail.index('=~ ^[0-9a-f]{64}$'), tail.index('bootstrap-complete.env') if 'bootstrap-complete.env' in tail else len(tail))
+
     def test_record_writes_after_the_first_change_exit_with_the_failed_status(self) -> None:
         script = SCRIPT.read_text()
         self.assertRegex(script, r'> "\$moved_file\.tmp" \\\n\s+&& chmod 600 "\$moved_file\.tmp" \\\n\s+&& mv -- "\$moved_file\.tmp" "\$moved_file" \\\n\s+\|\| failed ')
