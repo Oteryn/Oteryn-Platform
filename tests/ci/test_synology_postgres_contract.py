@@ -463,6 +463,33 @@ class TlsInitTest(unittest.TestCase):
             self.assertEqual((tls / "ca.crt").read_bytes(), ca)
             self.assertTrue((server / "server.crt").exists())
 
+            # A nonempty key that belongs to another certificate, or a corrupt one, is not "current": both
+            # files are reissued from the same CA. The old pair is never left half replaced.
+            def public_key(args: list[str]) -> str:
+                return subprocess.run(["openssl", *args], check=True, capture_output=True, text=True).stdout
+
+            good_crt = (server / "server.crt").read_bytes()
+            other = root / "other.key"
+            subprocess.run(["openssl", "genrsa", "-out", str(other), "2048"], check=True, capture_output=True)
+            for replacement in (other.read_bytes(), b"not a key\n"):
+                (server / "server.key").write_bytes(replacement)
+                subprocess.run(["sh", str(TLS_INIT)], check=True, capture_output=True, env=env)
+                self.assertNotEqual((server / "server.crt").read_bytes(), good_crt)
+                self.assertEqual(
+                    public_key(["x509", "-noout", "-pubkey", "-in", str(server / "server.crt")]),
+                    public_key(["pkey", "-pubout", "-in", str(server / "server.key")]),
+                )
+                good_crt = (server / "server.crt").read_bytes()
+            self.assertEqual(sorted(p.name for p in server.iterdir()), ["ca.crt", "server.crt", "server.key"])
+            self.assertEqual(sorted(p.name for p in tls.iterdir()), ["ca.crt", "ca.key", "platform-internal.crt", "platform-internal.key"])
+
+    def test_postgres_key_is_never_written_to_the_shared_tls_volume(self) -> None:
+        init = TLS_INIT.read_text()
+        issue = init[init.index("issue_postgres_certificate() {") : init.index("publish_postgres_bootstrap_files() {")]
+        self.assertIn('issue_certificate postgres "$work"', issue)
+        self.assertIn('mktemp -d "$POSTGRES_TLS_DIR/.issue.XXXXXX"', issue)
+        self.assertNotIn('"$TLS_DIR/postgres.', issue)
+
 
 class EngineSwitchTest(unittest.TestCase):
     def test_committed_engine_is_mariadb(self) -> None:
