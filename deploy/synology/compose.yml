@@ -40,25 +40,6 @@ services:
       timeout: 5s
       retries: 20
 
-  redis:
-    image: redis:7.4-alpine
-    restart: always
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-    command:
-      - /bin/sh
-      - -ec
-      - exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
-    volumes:
-      - redis_data:/data
-    networks:
-      - private
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-
   platform:
     image: ${PLATFORM_IMAGE}
     restart: always
@@ -138,8 +119,6 @@ services:
       - private
     depends_on:
       mariadb:
-        condition: service_healthy
-      redis:
         condition: service_healthy
 
   tls-init:
@@ -238,9 +217,59 @@ services:
       internal-proxy:
         condition: service_started
 
+  # Always-on Laravel scheduler (D-6): the same image as platform, no published port, started and
+  # recreated with the Platform image on every deploy (lib.sh: _oteryn_reconcile_marketplace_scheduler_
+  # after_runtime_change). The service name predates the move and is kept because the container hygiene
+  # and Character Bazaar workflows address it by name. It shares platform_storage for the native evidence
+  # witness; compose.marketplace.yml only layers the public APP_URL and MARKETPLACE_ENABLED onto it.
+  marketplace-scheduler:
+    image: ${PLATFORM_IMAGE}
+    restart: always
+    command:
+      - php
+      - artisan
+      - schedule:work
+      - --no-interaction
+    environment:
+      APP_NAME: ${APP_NAME}
+      APP_ENV: ${APP_ENV}
+      APP_KEY: ${APP_KEY}
+      APP_DEBUG: ${APP_DEBUG}
+      APP_URL: ${APP_URL}
+      LOG_CHANNEL: stderr_json
+      LOG_LEVEL: ${LOG_LEVEL}
+      DB_CONNECTION: mysql
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      DB_DATABASE: ${PLATFORM_DB_NAME}
+      DB_USERNAME: ${PLATFORM_DB_USER}
+      DB_PASSWORD: ${PLATFORM_DB_PASSWORD}
+      CACHE_STORE: file
+      QUEUE_CONNECTION: sync
+      SESSION_DRIVER: file
+      MARKETPLACE_ENABLED: ${MARKETPLACE_ENABLED:-false}
+      # Same native evidence witness as the platform service (scheduled identity:finalize-terminations
+      # writes through it).
+      GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE: fresh_admission
+      GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY: /var/www/html/storage/app/native-evidence-witness
+    volumes:
+      - platform_storage:/var/www/html/storage
+    networks:
+      - private
+    healthcheck:
+      # PID 1 is the schedule:work process itself (no entrypoint wrapper), so the check proves that
+      # the scheduler loop is alive and the application can still reach the database.
+      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'schedule:work' && php -r 'new PDO(\"mysql:host=mariadb;port=3306;dbname=\".getenv(\"DB_DATABASE\"), getenv(\"DB_USERNAME\"), getenv(\"DB_PASSWORD\"), [PDO::ATTR_TIMEOUT => 3]);'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
 volumes:
   mariadb_data:
-  redis_data:
   platform_storage:
   bootstrap_files:
   internal_tls:

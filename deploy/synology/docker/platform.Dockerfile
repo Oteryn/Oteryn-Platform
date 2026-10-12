@@ -25,8 +25,6 @@ RUN apk add --no-cache \
         oniguruma-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
     && docker-php-ext-install -j"$(nproc)" gd intl mbstring pcntl pdo_mysql zip \
-    && pecl install redis \
-    && docker-php-ext-enable redis \
     && apk del .build-deps \
     && php -r 'exit(extension_loaded("gd") && (imagetypes() & IMG_JPG) && (imagetypes() & IMG_PNG) && (imagetypes() & IMG_WEBP) ? 0 : 1);'
 

@@ -7,7 +7,6 @@ use App\Admin\AdminAuthorization;
 use App\Identity\Mfa\MfaRecoveryCodes;
 use App\Identity\Models\Identity;
 use Illuminate\Contracts\Console\Kernel;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 require dirname(__DIR__, 2).'/vendor/autoload.php';
@@ -41,36 +40,6 @@ if ($command === 'binding') {
         'identity_id' => $identity->id,
         'canary_account_id' => $binding instanceof IdentityCanaryAccount ? $binding->canary_account_id : null,
         'status' => $binding instanceof IdentityCanaryAccount ? $binding->status : 'missing',
-    ]);
-}
-
-if ($command === 'character-owner') {
-    $name = $argv[2] ?? '';
-    $email = $argv[3] ?? '';
-    $identity = Identity::query()->where('email', $email)->first();
-    if (! $identity instanceof Identity) {
-        $fail('Identity not found.');
-    }
-
-    $binding = IdentityCanaryAccount::query()->find($identity->id);
-    if (! $binding instanceof IdentityCanaryAccount || ! $binding->isReady()) {
-        $fail('Identity game account binding is not ready.');
-    }
-
-    $player = DB::connection('canary')
-        ->table('players')
-        ->select(['id', 'name', 'account_id'])
-        ->where('name', $name)
-        ->first();
-
-    if ($player === null || (int) $player->account_id !== $binding->canary_account_id) {
-        $fail('Character is not owned by the expected bound game account.');
-    }
-
-    $json([
-        'player_id' => (int) $player->id,
-        'name' => (string) $player->name,
-        'canary_account_id' => (int) $player->account_id,
     ]);
 }
 

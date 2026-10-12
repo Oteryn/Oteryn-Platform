@@ -130,6 +130,8 @@ Laravel migrations are authoritative.
 
 ### Shared/legacy engine schema
 
+> **LEGACY / COMPATIBILITY (RETIRING)** — this section describes the shared-database compatibility path, which is retiring; the target boundary above has no shared database. Labels only: no contract semantics change.
+
 Oteryn Platform does not silently migrate game-server-owned tables.
 
 A required shared schema change must:
@@ -145,6 +147,8 @@ Character Bazaar v1 requires no legacy engine schema migration. It uses the veri
 ADR 0030 does not authorize a CharacterId migration. A later Platform-owned preference migration must be additive: canonical `CharacterId` is added before legacy `canary_player_id` removal, mapping must come from authoritative migration/projection evidence, unresolved mappings fail closed, rollback remains possible while compatibility references are retained and legacy removal occurs only after all consumers and rollback gates are proven.
 
 ## Identity data special rule
+
+> **LEGACY / COMPATIBILITY (RETIRING)** — legacy-engine account binding statements here are compatibility state that is retiring; they never become native account identity.
 
 Platform Identity is the authority for supported web-user credentials and the Platform-owned account-security lifecycle. The following are Platform-owned and migrated only by Oteryn Platform:
 
@@ -196,6 +200,8 @@ Platform must not infer native game-owned capability from raw row counts. In par
 Exact transport, command envelope, projection TTL, capability-code vocabulary, entitlement exchange and migration implementation remain separately gated.
 
 ### Character Bazaar transfer boundary
+
+> **LEGACY / COMPATIBILITY (RETIRING)** — the direct `players.account_id` transfer is a legacy compatibility path that is retiring; the native target uses the Character Authority command boundary described below.
 
 For the delivered legacy engine compatibility path, legacy engine remains the semantic owner of the character and all gameplay-dependent rows keyed by `player_id`. The Platform may change only `players.account_id` through the dedicated transfer contract.
 

@@ -836,23 +836,37 @@ _oteryn_quiesce_platform_db_consumers() {
     "${base_compose[@]}" stop platform gateway internal-proxy
 }
 
-_oteryn_reconcile_marketplace_scheduler_after_runtime_change() {
-    local scheduler_id state_rc
+# The scheduler is an always-on base service (compose.yml): every runtime change recreates it with the
+# selected Platform image. With Marketplace enabled the whole browser-facing runtime is recreated
+# through the overlay; otherwise (disabled, or no durable state yet) only the scheduler is recreated
+# from the base file with the switch off.
+_oteryn_recreate_base_scheduler() {
+    local scheduler_id running image
+    command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --no-deps --force-recreate marketplace-scheduler || return 1
     scheduler_id="$(_oteryn_marketplace_scheduler_id)" || return 1
+    [[ -n "$scheduler_id" ]] || { echo "Scheduler was not created." >&2; return 1; }
+    running="$(command docker inspect --format '{{.State.Running}}' "$scheduler_id")" || return 1
+    image="$(command docker inspect --format '{{.Config.Image}}' "$scheduler_id")" || return 1
+    [[ "$running" == true ]] || { echo "Scheduler is not running after recreation." >&2; return 1; }
+    [[ "$image" == "$PLATFORM_IMAGE" ]] || { echo "Scheduler image does not match the selected Platform image." >&2; return 1; }
+}
+
+_oteryn_reconcile_marketplace_scheduler_after_runtime_change() {
+    local state_rc
     set +e
     _oteryn_load_marketplace_runtime_state
     state_rc=$?
     set -e
     if [[ "$state_rc" -eq 2 ]]; then
-        [[ -z "$scheduler_id" ]] || { echo "Marketplace scheduler exists but no durable/effective Marketplace state is available." >&2; return 1; }
+        _oteryn_recreate_base_scheduler || return 1
         return 0
     fi
     [[ "$state_rc" -eq 0 ]] || return "$state_rc"
 
     if [[ "$MARKETPLACE_ENABLED" == true ]]; then
         _oteryn_recreate_marketplace_scheduler || return 1
-    elif [[ -n "$scheduler_id" ]]; then
-        command docker rm -f "$scheduler_id" >/dev/null
+    else
+        _oteryn_recreate_base_scheduler || return 1
     fi
 }
 

@@ -8,40 +8,9 @@ services:
       SESSION_SECURE_COOKIE: "true"
       MARKETPLACE_ENABLED: ${MARKETPLACE_ENABLED:-false}
 
+  # The scheduler itself (command, image, healthcheck, restart policy, storage) is an always-on base
+  # service in compose.yml; this layer only gives it the same public origin and Marketplace switch.
   marketplace-scheduler:
-    image: ${PLATFORM_IMAGE}
-    restart: always
-    command:
-      - php
-      - artisan
-      - schedule:work
-      - --no-interaction
     environment:
-      APP_NAME: ${APP_NAME}
-      APP_ENV: ${APP_ENV}
-      APP_KEY: ${APP_KEY}
-      APP_DEBUG: ${APP_DEBUG}
       APP_URL: https://oteryn.molehill.cloud
-      LOG_CHANNEL: stderr_json
-      LOG_LEVEL: ${LOG_LEVEL}
-      DB_CONNECTION: mysql
-      DB_HOST: mariadb
-      DB_PORT: 3306
-      DB_DATABASE: ${PLATFORM_DB_NAME}
-      DB_USERNAME: ${PLATFORM_DB_USER}
-      DB_PASSWORD: ${PLATFORM_DB_PASSWORD}
-      CACHE_STORE: file
-      QUEUE_CONNECTION: sync
-      SESSION_DRIVER: file
       MARKETPLACE_ENABLED: ${MARKETPLACE_ENABLED:-false}
-      # Same native evidence witness as the platform service in compose.yml (anchors do not cross
-      # Compose files): scheduled identity:finalize-terminations writes through it.
-      GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE: fresh_admission
-      GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY: /var/www/html/storage/app/native-evidence-witness
-    volumes:
-      - platform_storage:/var/www/html/storage
-    networks:
-      - private
-    depends_on:
-      mariadb:
-        condition: service_healthy

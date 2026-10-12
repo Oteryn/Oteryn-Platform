@@ -20,11 +20,11 @@ Synology LAN address (opt-in, see Platform internal mTLS listener)
 
 Docker private bridge
   Platform <-> MariaDB
-  Platform <-> Redis
+  Scheduler (always on) <-> MariaDB
   Gateway -> HTTPS internal proxy -> Platform private API
 ```
 
-The Gateway never receives database credentials. Its non-loopback dependencies use generated staging-only TLS certificates and hostname verification. MariaDB and Redis are not published on host ports. Platform and Gateway remain host-loopback-only.
+The Gateway never receives database credentials. Its non-loopback dependencies use generated staging-only TLS certificates and hostname verification. MariaDB is not published on host ports. Platform and Gateway remain host-loopback-only.
 
 The user-visible Platform origin is a separate concern from the private origin binding. The guarded public staging deployment requires `APP_URL=https://oteryn.molehill.cloud` for requestless console, scheduler, notification, reset, verification and signed URL generation while continuing to bind Platform only to `127.0.0.1:8000`.
 
@@ -72,7 +72,6 @@ Required secrets:
 OTERYN_STAGING_APP_KEY
 OTERYN_STAGING_MARIADB_ROOT_PASSWORD
 OTERYN_STAGING_PLATFORM_DB_PASSWORD
-OTERYN_STAGING_REDIS_PASSWORD
 OTERYN_STAGING_PLATFORM_SERVICE_TOKEN
 OTERYN_STAGING_PLATFORM_SERVICE_TOKEN_SHA256
 ```
@@ -119,7 +118,7 @@ A `deploy` run:
 4. writes a permission-restricted ephemeral `.env` from GitHub Environment secrets;
 5. validates required values and service-token hashes;
 6. pulls prebuilt images;
-7. starts MariaDB, Redis and internal TLS bootstrap;
+7. starts MariaDB and internal TLS bootstrap;
 8. starts Platform, runs migrations and ensures the native OAuth client exists;
 9. starts the internal TLS proxy and Game Gateway;
 10. verifies Platform/Gateway health and every exact host-port binding;
@@ -169,7 +168,7 @@ The Game node calls Platform's Game-node internal routes over mutual TLS on the 
 - TLS 1.3 only, `ssl_verify_client on`, depth 1 (client certificates are issued directly by the preprod CA), no session tickets.
 - `SSL_CLIENT_VERIFY`, `SSL_PROTOCOL` and `SSL_CLIENT_S_DN` reach PHP only as FastCGI parameters from the TLS session; request headers cannot set them, and forwarding headers are blanked. Platform's peer middleware still requires `SUCCESS`, `TLSv1.3` and an allowlisted subject DN on every request.
 - Only `POST /internal/v1/game-auth/{native-evidence, native-runtime-status, native-scope-assignments, native-account-characters, native-account-characters/watermark, character-bootstrap-intents/read}` exist. `native-admissions` (Gateway only), the premium-snapshot and game-public families and every other path return 404.
-- The FastCGI socket lives on the `platform_fastcgi` tmpfs volume, shared only by `platform` and `internal-mtls`; there is no FastCGI TCP port. The terminator joins only the `mtls_edge` network, so it cannot reach MariaDB, Redis, Gateway or the internal proxy. With Platform stopped it answers 502.
+- The FastCGI socket lives on the `platform_fastcgi` tmpfs volume, shared only by `platform` and `internal-mtls`; there is no FastCGI TCP port. The terminator joins only the `mtls_edge` network, so it cannot reach MariaDB, Gateway or the internal proxy. With Platform stopped it answers 502.
 - Platform starts its pool only when `OTERYN_PLATFORM_FASTCGI_ENABLED=true` (fed from the same `OTERYN_PLATFORM_MTLS_ENABLED` value); `php artisan serve` on :8000 is unchanged.
 
 Settings (environment file or exported variable, else `native-defaults.env` `OTERYN_STAGING_NATIVE_PLATFORM_MTLS_*`, else the built-in default):
@@ -275,7 +274,7 @@ bash deploy/synology/scripts/rollback.sh
 
 - This package does not make staging evidence `PRODUCTION_PROVEN`.
 - It does not configure Cloudflare certificates, WAF/Bot/Access rules, redirects or HSTS.
-- It does not expose DSM, Docker Engine TCP, MariaDB, Redis publicly.
+- It does not expose DSM, Docker Engine TCP, MariaDB publicly.
 - It does not authorize router port forwarding or Internet exposure of game TCP.
 - A fully usable desktop native-login flow additionally requires an exact compatible OTClient build and trusted browser/OAuth/Gateway endpoint configuration.
 

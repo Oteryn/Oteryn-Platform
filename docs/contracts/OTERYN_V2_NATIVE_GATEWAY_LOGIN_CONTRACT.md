@@ -27,7 +27,7 @@ In scope:
 - the error mapping to FND-04 classes;
 - what stays legacy-engine-only.
 
-Out of scope: game admission itself (Game FND-04A), reconnect/recovery grants (`oteryn-reauth-recovery-v1`), channel switch, public status pages, capacity-aware balancing, production PKI, deployment.
+Out of scope: game admission itself (Game FND-04A), reconnect/recovery grants (`oteryn-reauth-recovery-v1`; candidate amendment §19), channel switch, public status pages, capacity-aware balancing, production PKI, deployment. Multiple channels per World and reauthenticated recovery are proposed by the candidate amendment §19 (protocol 3), which leaves protocol 2 unchanged.
 
 **Q18a internal-build allowance.** An internal test build of the Rust client may use this login path before ADR-0020 N6 (creatures and other players) and N7 (chat) land. That allowance is a Game release rule only: Platform does not know or check which client features exist, grants no extra authority to internal builds, and the release entry still needs the full ADR-0020 §7 set. Internal-build use happens only in `testing`/`preproduction` topology (see U8). The push projection transport with its liveness watermark is accepted on the basis of this allowance; the release entry needs Decision P1 (§5.2).
 
@@ -497,3 +497,695 @@ Issuer limits in this amendment: every InnoDB lock wait inside the issuer transa
 ## 18. Non-authorization
 
 This candidate authorizes no code, migration, route, configuration, secret, key, certificate, deployment, production change or Game repository change. Each #1419 delivery item needs its own task packet and PR after acceptance.
+
+## 19. Amendment N4P-4 (candidate): protocol 3, multiple channels per World and reauthenticated recovery
+
+Status: `CANDIDATE — OWNER DECISIONS RECORDED 2026-10-12; GAME ARCHITECT ACCEPTANCE REQUIRED; IMPLEMENTATION NOT AUTHORIZED`. Decision record: ADR 0045 (Proposed). Governing Issue: Oteryn/Oteryn-Platform#1559 (parent workstream #1419). §18 applies to this section unchanged.
+
+Owner decisions of 2026-10-12:
+
+- **U19:** the first multichannel World has three channels with the keys `antica`, `obscura` and `pythera` (§19.2.2). The display label is the key with its first letter capitalised. These three channels are also added to the staging World (§19.11 step S). The existing staging channel `oteryn-staging-1` keeps its key and route.
+- **U20:** the handle lifetime H is 12 h (§19.3).
+- **U21:** a §19.3 handle counts as fresh authentication for the recovery profile **only while it is bound to a device** (§19.15). Device binding is required scope, not a follow-up. It blocks enabling recovery anywhere beyond `testing`.
+- **U22:** the Game recovery locator feed (G1) is built now and not deferred. §19.6 is its contract, and §19.14 is the ready-to-dispatch Game packet.
+
+This amendment adds two things to the native branch:
+
+- multiple channels per World: per-channel route records, channel selection reported in the login response, and a channel-specific refusal;
+- a recovery path: a client that lost its game connection gets a short-lived `oteryn-reauth-recovery-v1` grant from the Gateway without a new browser sign-in or Game Login Ticket.
+
+Protocol 2 (§3–§17) stays byte-for-byte as it is. Game authorities consumed read-only, in addition to the header list: `docs/contracts/FND-04_REAUTHENTICATED_RECOVERY_GRANT_PROFILE_V1.md` (the recovery profile), `docs/architecture/FND-04B_RECONNECT_RECOVERY_CONTINUITY_CONTRACT.md` (§9, §17, §20–§23), `docs/architecture/reviews/OTERYN_GAME_RECOVERY_SOURCE_TRANSPORT_AMENDMENT_2026-09-06.md` and `docs/architecture/MULTICHANNEL_SYSTEM_SCOPE_MATRIX.md`.
+
+### 19.1 Versioning and routes
+
+| Public Gateway route | Private issuer operation | Protocol |
+|---|---|---|
+| `POST /v1/login` | `POST /internal/v1/game-auth/native-admissions` | 2 (§3) or 3 (§19.2, §19.3) |
+| `POST /v1/recover` | `POST /internal/v1/game-auth/native-recoveries` | 3 only |
+| `POST /v1/recover/revoke` | `POST /internal/v1/game-auth/native-recoveries/revoke` | 3 only |
+
+- `protocol_version: 3` on `POST /v1/login` uses the §3.1 request member set unchanged, with `3` in place of `2`. Only the success response (§19.2.4) and one error body (§19.2.5) differ.
+- A protocol 2 request never receives a protocol 3 member. A protocol 3 member never appears in a protocol 2 response.
+- The new private operations use the §3.3 rules: Gateway service credential, private ingress only, the Gateway holds no state and assembles no claims.
+- Protocol 3 is a separate default-off switch, limited to `testing`/`preproduction` like §17. With the switch off, every protocol 3 request is `NATIVE_LOGIN_UNSUPPORTED_VERSION`.
+
+### 19.2 Multiple channels per World
+
+#### 19.2.1 Per-channel route records
+
+Each Registry-issued `(WorldId, ChannelId)` holds its own §7.3 route record and `route_revision`. The digest already covers `channel_id`, so a revision never matches another channel.
+
+**Decision M1 (distinct endpoints).** In protocol 3, two route records never share `(host, port)`. A record whose `(host, port)` equals another current record routes nowhere (`NATIVE_LOGIN_ROUTE_UNAVAILABLE` for both). Reason: the game node listens per channel scope and checks the grant's `channel_id` and `route_revision` against its own. Sharing one endpoint between channels would need the node to dispatch by grant, which is a Game change this amendment does not request.
+
+Mode 34a (§17) widens from one route record to the route records of every Channel of the one configured World. Each publish still touches exactly one Channel row. `NATIVE_PREPROD_STORE_FOREIGN_ROUTE` then means a route record on a Channel of another World. This widening needs ADR 0045 acceptance, because it replaces the one-record clause of ADR 0044. It still authorizes no second World and no production record.
+
+#### 19.2.2 First multichannel World (owner decision U19)
+
+The Registry issues three Channels for the first multichannel World. The keys use the existing Registry grammar `[a-z0-9][a-z0-9-]{0,63}` (`NativeTopologyRegistry`), so no schema change is needed.
+
+| `channel_key` | Display label | Example route record (Decision M1: each has its own endpoint) |
+|---|---|---|
+| `antica` | `Antica` | `host` `antica.<gameplay domain>`, `port` `<gameplay port>`, `tls_server_name` `antica.<gameplay domain>`, `route_revision` `rt.1.<digest>` |
+| `obscura` | `Obscura` | `host` `obscura.<gameplay domain>`, `port` `<gameplay port>`, `tls_server_name` `obscura.<gameplay domain>`, `route_revision` `rt.1.<digest>` |
+| `pythera` | `Pythera` | `host` `pythera.<gameplay domain>`, `port` `<gameplay port>`, `tls_server_name` `pythera.<gameplay domain>`, `route_revision` `rt.1.<digest>` |
+
+- Every record has `alpn = oteryn-game/1`, `protocol_major = 1` and `transport_profile = 1` (§7.3).
+- Each `<digest>` is computed from that channel's own descriptor, so the three revisions all differ.
+- Placeholders stand for real values: no host, port or identifier is fixed here.
+- **Staging.** The three channels are added to the staging World as three more Channels, under the widened mode 34a. Each gets its own route record on the NAS preproduction store (§19.11 step S).
+- The existing channel `oteryn-staging-1` and its route are not renamed, re-keyed or reused. It was issued first, so it has the lowest canonical `channel_id`. Automatic selection therefore picks it while it is a candidate, unless its login flag is turned off.
+
+**Display label:** the `label` is the key with its first ASCII letter upper-cased (`antica` becomes `Antica`). It is computed by Platform when the response is built, and nothing stores it. A later Registry label column may replace the rule without changing the protocol, because the client shows `label` and never derives it.
+
+#### 19.2.3 Selection
+
+§7.4 applies per channel, unchanged. The outcome is one of:
+
+- `channel_id` given and a candidate: that channel is selected, and `channel_selection` is `requested`;
+- `channel_id` given and not a candidate, while at least one other channel is a candidate: `NATIVE_LOGIN_CHANNEL_UNAVAILABLE` (§19.2.5);
+- `channel_id` given, and no channel is a candidate: `NATIVE_LOGIN_ROUTE_UNAVAILABLE`, as in protocol 2;
+- `channel_id` null: the lowest canonical candidate, with `channel_selection` `automatic`. U6 (capacity-aware selection) is unchanged.
+
+#### 19.2.4 Protocol 3 success response
+
+`200`, `Cache-Control: no-store, private`, exact member set:
+
+```json
+{
+  "protocol_version": 3,
+  "attempt_ref": "<request attempt_ref>",
+  "world_id": "<canonical UUIDv7>",
+  "channel_id": "<canonical UUIDv7>",
+  "channel_selection": "automatic",
+  "channels": [ { "channel_id": "<canonical UUIDv7>", "key": "antica", "label": "Antica" } ],
+  "endpoint": { "...": "exactly as §3.2" },
+  "grant": { "...": "exactly as §3.2, profile oteryn-pre-admission-v1" },
+  "recovery": { "handle": "otr1.<43 base64url characters>", "expires_in": 43200 }
+}
+```
+
+- `channel_selection` is `requested` or `automatic`.
+- `channels` lists the §7.4 candidates of the Character's World at response time:
+  - 1..16 entries in canonical `channel_id` order;
+  - each entry is exactly `{channel_id, key, label}`;
+  - `key` is the Registry `channel_key` and `label` is its display label (§19.2.2). Both are for display only;
+  - no runtime fact, ownership generation, revision, load or endpoint appears in it;
+  - it grants nothing. A §6.2 retry recomputes it, and the stored selected channel may be absent from a recomputed list.
+- `recovery` is defined in §19.3. `expires_in` is whole seconds until the handle's absolute expiry.
+- The grant, its claims and its `channel_id` are exactly §8. Protocol 3 adds no claim.
+
+#### 19.2.5 Channel refusal
+
+`NATIVE_LOGIN_CHANNEL_UNAVAILABLE` uses the §11.1 body plus one member, `channels`. It has the §19.2.4 entry shape and holds at least one entry. The issuer transaction rolled back (§6.2 step 4), so the ticket is still unused. The client may send the same ticket with a new `attempt_ref` and a listed `channel_id`, or `null`, until the ticket expires. Every other protocol 3 error body is exactly §11.1 with `protocol_version: 3`.
+
+#### 19.2.6 Not covered
+
+Changing channel after admission is a Game channel transition (ADR-0003 §7, FND-04B §23). It is not part of this amendment, and the `channels` list does not authorize it.
+
+### 19.3 Recovery handle
+
+The handle is Platform's play-session credential for recovering one Character. It is issued only in a protocol 3 login response.
+
+- **Format and storage:** `otr1.` followed by the unpadded base64url encoding of 32 CSPRNG bytes (48 ASCII characters). Only its SHA-256 hash is stored. It is never logged, and it is never sent to a game node. The client keeps it in process memory only and drops it on logout, Character change or exit.
+- **Binding:** created inside the §6.2 fresh issuer transaction and committed with it. It binds:
+  - `AccountId`, `CharacterId` and `WorldId`;
+  - the selected `ChannelId`, as a routing hint only (§19.6);
+  - the redeemed `native_security_generation`;
+  - the new `native_play_generation` (below);
+  - the originating `attempt_ref`;
+  - the `device_family_id` and `device_key_thumbprint` of the device family that issued the redeemed ticket (§19.15). These are required wherever §19.15 binding is on;
+  - `issued_at` and `expires_at = issued_at + H`. By owner decision U20, H is 12 h (43200 s). Configuration may shorten H to between 1 h and 12 h, but never lengthen it. Any other value refuses protocol 3 issuance and does not fall back.
+- **Play generation fence:** Platform keeps one positive `native_play_generation` per `AccountId`.
+  - Every committed fresh attempt advances it by one in the same transaction, under protocol 2 or 3. The new value is bound to the new handle.
+  - Every older handle of that account then stops working.
+  - At most one handle per account is live at any time.
+  - This fence is issuance-only. Game's own fences stay authoritative: `connection_generation`, `ControlLossEpoch`, the RecoveryGrantNonce and the healthy-controller rule.
+- **Retry of the fresh attempt:** a §6.2 replay re-signs the identical grant and replaces the handle. It mints a new handle with the same bindings and expiry, and revokes the handle that attempt issued before. No plaintext is ever stored. Replays serialize on the attempt row, and only the last handle returned is live.
+- **Fresh authentication (owner decision U21):** a device-bound handle counts as Platform fresh authentication for the recovery profile §1 ("Platform freshly authenticated AccountId"). It does so for these reasons:
+  - it is created only inside a fresh issuer transaction, after a Game Login Ticket was redeemed against the current `native_security_generation`;
+  - §19.4 step 2 checks it again against the current generations and Identity state;
+  - every use needs a fresh proof from the device key held by the family that issued the ticket (§19.15).
+
+  Game records this reading in the profile clarification G2.
+- **Without device binding:** where binding is required and the redeemed ticket names no device family, the login response carries `"recovery": null`, and no handle is created.
+- **Authority:** the handle authorizes only §19.4 for its bound Character and World. It never yields a fresh grant, a ticket, a character list, an OAuth token, or access to another Character or World.
+- **No rotation (Decision R2):** using the handle does not rotate it or extend its expiry.
+- **The handle stops working on any of:**
+  - terminal revocation or expiry of its device family (§19.15 step DB-6);
+  - absolute expiry;
+  - a newer play generation;
+  - a change of `native_security_generation` (every `RevokeIdentityGameAuthorizations` path);
+  - Identity disabled or terminated;
+  - §19.7 revocation;
+  - the Character no longer listed for the account (§19.4 step 4).
+
+### 19.4 Recovery issuance
+
+`POST /v1/recover`, body at most 2048 bytes, the §3.1 parsing rules, exact member set:
+
+```json
+{
+  "protocol_version": 3,
+  "recovery_handle": "otr1.<43 base64url characters>",
+  "attempt_ref": "<canonical UUIDv7>",
+  "character_id": "<canonical UUIDv7>",
+  "offer": { "...": "exactly as §3.1" },
+  "device_proof": { "kid": "<device_key_thumbprint>", "sig": "<base64url Ed25519 signature, 86 characters>" }
+}
+```
+
+`device_proof` is required wherever §19.15 binding is on. Where it is off, which is allowed only in `testing`, the member is absent. The signature input is defined in §19.15.
+
+The issuer runs one transaction. Lock order: recovery attempt row, epoch (§17), handle, Identity, device family (shared lock), play generation. Each lock wait is bounded as in §17.
+
+1. **Retry.** If an attempt row exists for `attempt_ref`, the issuer does not return from §6.2 step 2 yet. It first requires the stored handle hash to equal the request's, then runs the step 2 handle and device checks (live family, thumbprint equality, `device_proof.sig` verification, as in the bullets below) against current state. Only when they pass does it apply §6.2 step 2, with the handle hash in place of the ticket hash, and return the stored grant. A failed check returns its step 2 error and never the stored grant. An idempotent retry is never cheaper to authenticate than a first request.
+   - An `attempt_ref` already used by a fresh attempt is `NATIVE_RECOVERY_ATTEMPT_CONFLICT`, and the converse is `NATIVE_LOGIN_ATTEMPT_CONFLICT`. Fresh and recovery attempts share one `attempt_ref` namespace.
+2. **Handle.** Every one of these must hold, otherwise `NATIVE_RECOVERY_HANDLE_REJECTED`:
+   - the hash is known, not revoked, and `server_now < expires_at`;
+   - the Identity is enabled, not terminated, and its `account_id` equals the bound one;
+   - `native_security_generation` equals the bound one (otherwise `NATIVE_RECOVERY_ACCOUNT_SECURITY_DENIED`);
+   - the account's `native_play_generation` equals the bound one;
+   - the request `character_id` equals the bound one;
+   - where binding is on, the bound device family must also be live. Every one of these must hold, otherwise `NATIVE_RECOVERY_HANDLE_REJECTED`:
+     - it is not revoked, and neither its absolute nor its idle deadline has passed;
+     - its generations equal the Identity's current ones;
+     - its `device_key_thumbprint` equals both the handle's and `device_proof.kid`.
+
+     These checks only read the family. They never rotate its bearer and never touch its idle deadline.
+   - where binding is on, `device_proof.sig` must verify under the family's public key, otherwise `NATIVE_RECOVERY_DEVICE_PROOF_REJECTED`.
+3. **One unretired attempt per account.** If another recovery attempt of the same `AccountId` is not yet retired, the result is `NATIVE_RECOVERY_ATTEMPT_PENDING`, with `Retry-After` until that retirement. Retirement is `exp + 5 s + clock_uncertainty`. This is the recovery profile §11 rule: a new independent attempt needs deterministic retirement of any grant that may still be usable.
+4. **Character.** Ownership is checked before World, following recovery profile §15.
+   - With the §5 read model enabled: the feed must be `live` and the account's read model valid in the highest epoch, otherwise `NATIVE_RECOVERY_ROUTE_UNAVAILABLE`.
+   - `character_id` must be listed for the account, with either `availability` value (an online Character is usually `UNAVAILABLE`), otherwise `NATIVE_RECOVERY_CHARACTER_CONFLICT`.
+   - The listed `world_id` must equal the bound World, otherwise `NATIVE_RECOVERY_WORLD_STALE`.
+   - Under mode 33a (§17), ownership is not verified and the bound World is used.
+5. **Routing target.**
+   - The target is the Character's current locator entry (§19.6) when one exists, otherwise the handle's bound channel.
+   - The issuer reads the entry in the same transaction.
+   - The entry is used only when its stored `account_id` equals the handle's `AccountId` and its `world_id` equals the bound World. An entry that fails the account comparison is ignored: it neither routes nor denies, and the handle's bound channel is the target. Only an entry of the handle's own account can steer a grant or produce the `present = false` or world-stale refusals below.
+   - An entry with `present = false` refuses with `NATIVE_RECOVERY_CHARACTER_CONFLICT`, so the client makes a fresh login. This use only ever denies. A grant never depends on an entry being present.
+   - An entry for another World refuses with `NATIVE_RECOVERY_WORLD_STALE`.
+   - A `conflicted` entry refuses with `NATIVE_RECOVERY_ROUTE_UNAVAILABLE`.
+   - The target must satisfy §7.4 conditions 1–5, otherwise `NATIVE_RECOVERY_ROUTE_UNAVAILABLE`.
+   - The issuer never substitutes another channel (FND-04B §23).
+6. **Claims.** Header exactly `{"alg":"Ed25519","kid":"<recovery kid>","typ":"oteryn-recovery+jwt"}`. Claims in this order, without whitespace:
+   - `iss` = `urn:oteryn:platform:game-recovery`;
+   - `aud` = `urn:oteryn:game:recovery`;
+   - `iat`, `nbf = iat`, `exp = iat + TTL`, with the TTL rules of §8.2 (U4);
+   - `jti`, a fresh 32-byte value;
+   - `profile` = `oteryn-reauth-recovery-v1`;
+   - `purpose` = `existing_actor_recovery`;
+   - `attempt_ref`, `account_id` and `character_id`;
+   - `world_id`, the bound World checked in step 4;
+   - `account_security_generation`;
+   - `protocol_major` = 1 and `transport_profile` = 1;
+   - `ruleset_revision`, `content_revision`, `map_revision` and `world_policy_revision`, taken from the target channel's selected report.
+
+   No `channel_id`, instance, node, `route_revision`, `runtime_observation_revision`, `scope_ownership_generation`, `offer_revision` or `GameSessionId` is emitted (recovery profile §7). Size bounds are those of §8.2.
+7. **Commit.** Sign with the recovery key (§19.5), insert the attempt row (purpose `recovery`), commit, then respond. §6.2 steps 4–5 and §6.3 apply unchanged, with `RECOVERY_ATTEMPT_RECONCILIATION_REQUIRED` in place of `ADMISSION_ATTEMPT_RECONCILIATION_REQUIRED`.
+
+Success response: `200`, `no-store, private`, exact member set:
+
+```json
+{
+  "protocol_version": 3,
+  "attempt_ref": "<request attempt_ref>",
+  "world_id": "<canonical UUIDv7>",
+  "channel_id": "<canonical UUIDv7>",
+  "endpoint": { "...": "exactly as §3.2" },
+  "grant": { "profile": "oteryn-reauth-recovery-v1", "token": "<JWS compact, at most 4096 ASCII bytes>", "valid_for_seconds": 20 }
+}
+```
+
+- `channel_id` and `endpoint` are routing evidence only. They are not signed, because the profile forbids channel authority. Game resolves current placement before COMMIT (FND-04B §22).
+- The handle is not returned or rotated.
+- The client presents the grant on the endpoint as `ClientResume`. That resumes the same GameSession while grace lasts (FND-04B §20), or attaches the still-present actor to a new GameSession after grace (FND-04B §21).
+
+### 19.5 Key purposes and custody
+
+| | Fresh admission | Existing-actor recovery |
+|---|---|---|
+| issuer | `urn:oteryn:platform:game-admission` | `urn:oteryn:platform:game-recovery` |
+| audience | `urn:oteryn:game:admission` | `urn:oteryn:game:recovery` |
+| `typ` | `oteryn-admission+jwt` | `oteryn-recovery+jwt` |
+| profile | `oteryn-pre-admission-v1` | `oteryn-reauth-recovery-v1` |
+| `purpose` claim | `fresh_entry` | `existing_actor_recovery` |
+| trust key purpose | configured `GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE` (deployed value `fresh_admission`) | `existing_actor_recovery`, fixed by Game |
+| Game trust read | `ReadFreshSigningTrustV1` | `ReadRecoverySigningTrustV2` |
+| Game account-security read | `ReadAccountSecurityV1` | `ReadRecoveryAccountSecurityV2` |
+| private key settings (proposed) | `GAME_AUTH_NATIVE_ADMISSION_SIGNING_KEY_FILE`, `..._KEY_ID` | `GAME_AUTH_NATIVE_RECOVERY_SIGNING_KEY_FILE`, `..._KEY_ID` |
+
+- The two scopes use separate key pairs. A `kid` is never published in both scopes.
+- Both private keys live inside the §9.1 issuer runtime, in distinct files.
+- §9.2 (registry rules and signer self-check) and §9.3 (rotation) apply to each scope on its own.
+- A missing or failing recovery scope stops only recovery issuance (`NATIVE_LOGIN_UNAVAILABLE` on `/v1/recover`). Fresh login continues.
+- No reconnect key purpose exists. The fast reconnect proof (FND-04B §9) is game-domain material that Platform never issues, sees or stores.
+
+### 19.6 Recovery locator (Game G1, owner decision U22: built now)
+
+Without a locator, Platform's routing hint is the channel bound at the account's last committed fresh or recovery attempt. A Game channel transition, handoff or cross-channel failover can make that hint stale. A stale hint fails closed at Game, for example with `RECOVERY_TARGET_NOT_ELIGIBLE`, and grants nothing. However, it denies recovery to a player whose actor moved. The locator feed closes this gap. It is routing evidence and never authority (FND-04B §22).
+
+#### 19.6.1 Producer and transport
+
+- **Producer:** the Game node that commits a Character placement change, in the same durability transaction as that change. A Character placement change is any of:
+  - a fresh admission COMMIT;
+  - a `ClientResume` COMMIT within grace or after grace (FND-04B §20, §21);
+  - the actor becoming `ABSENT`;
+  - a future accepted channel-transition or handoff COMMIT.
+- **Transport:** `ReportRecoveryLocatorV1` → `POST /internal/v1/game-auth/native-recovery-locators`. It uses HTTP/1.1 over TLS 1.3 with a client certificate, and follows the transport rules, bounds and capacity rules of the Game `OTERYN_GAME_NATIVE_RUNTIME_STATUS_PRODUCER_V1.md` §3.
+- **Identity:**
+  - Each node host has its own **locator** client certificate. It is never the runtime-status, native-evidence, projection or ownership-authority certificate.
+  - Platform configures, per locator identity, the scopes that node host may serve (`GAME_AUTH_NATIVE_RECOVERY_LOCATOR_IDENTITIES`, same JSON shape as the runtime-status identities).
+  - Locator identities are refused on every other route, and other identities are refused on this route (`401`).
+
+#### 19.6.2 Wire
+
+The request has an exact member set: no unknown, duplicate or `null` member. It is at most 1024 bytes.
+
+```json
+{
+  "contract_version": 1,
+  "operation": "ReportRecoveryLocatorV1",
+  "source_authority": "<[readiness].source_authority>",
+  "assignment_epoch": 1,
+  "scope_ownership_generation": 1,
+  "world_id": "<canonical UUIDv7>",
+  "channel_id": "<canonical UUIDv7>",
+  "account_id": "<canonical AccountId>",
+  "character_id": "<canonical UUIDv7>",
+  "present": true,
+  "locator_revision": 1,
+  "committed_at": "<RFC 3339 UTC, whole seconds>"
+}
+```
+
+- `world_id` and `channel_id` are the scope that committed the change. For `present = false` they are the scope the actor left.
+- `locator_revision` is a positive per-Character counter. Game advances it by one in the same transaction as each placement change.
+- `assignment_epoch` and `scope_ownership_generation` are the assignment the committing node held. They are private evidence, as in §7.2: stored, never logged, never placed in a grant or a public response.
+
+The response is `200` with exactly `{"contract_version":1,"result":"accepted"|"superseded"|"duplicate"}`, at most 256 bytes. Refusals are `400` (malformed), `401` (identity or scope), `409` (assignment mismatch or conflict) and `429`, each with the fixed §11.1-style body and no detail.
+
+#### 19.6.3 Platform acceptance
+
+Platform accepts a report only when every one of these holds:
+
+1. the client identity is a locator identity whose scope list contains `(world_id, channel_id)`, and it equals the node identity named by the latest accepted assignment for that scope (§7.2 ownership binding). A locator identity that is in scope but is not the assigned node, such as a deposed owner, is refused (`401`);
+2. `(assignment_epoch, scope_ownership_generation)` equals the latest accepted assignment for that scope (§7.2), so a deposed owner cannot move a Character;
+3. `character_id` is a canonical id, and `account_id` is a canonical AccountId;
+4. `committed_at` is not later than Platform `now + clock_uncertainty`;
+5. the §5 read model is enabled and valid, and the report's `account_id` equals the account that read model lists as owner of `character_id` in `world_id`. While ownership cannot be verified (read model disabled, `invalid` or not live, or mode 33a under §17), every report is refused and not stored, and §19.4 step 5 uses the handle's bound channel.
+
+Each Character has one entry, ordered by `(assignment_epoch, locator_revision)` numerically:
+
+- **Lower:** the report is `superseded`.
+- **Equal with identical content:** the report is a `duplicate`.
+- **Equal with different content:** the entry is marked `conflicted` until a higher revision arrives.
+- **Higher:** the report replaces the entry.
+- **Restore reset:** a higher `assignment_epoch` (§7.2) invalidates every entry of lower epochs.
+
+An entry is evidence for §19.4 step 5 only. It never authorizes issuance, never names a channel inside a grant, and never bypasses the §7.4 readiness checks of the target. It has no freshness bound. It stays until a newer one supersedes it, because readiness is checked on the target at issuance.
+
+#### 19.6.4 Delivery
+
+- Game keeps one durable outbox row per Character (latest wins), written in the placement transaction.
+- A node reporter sends rows whose revision is above the delivered revision. One request is in flight per node, using bounded backoff.
+- `accepted`, `superseded` and `duplicate` mark the row delivered. `409` leaves it for the current owner's next change.
+- Delivery never gates admission, resume, logout or shutdown.
+- An undelivered row leaves Platform on its fallback hint, which fails closed at Game.
+
+**Release gate:** no Game channel transition may be enabled together with protocol 3 recovery until G1 runs in the same environment and §19.13's locator tests pass.
+
+### 19.7 Handle revocation
+
+`POST /v1/recover/revoke`, exact body `{"protocol_version":3,"recovery_handle":"otr1.<...>"}`, answers `200` with exactly `{"protocol_version":3,"revoked":true}`.
+
+- It is idempotent.
+- An unknown or already-dead handle gets the same response, so the route is not an oracle.
+- It revokes only that handle and never advances any generation.
+- The client calls it on logout and on Character change.
+
+### 19.8 Errors added by protocol 3
+
+§11.1 and §11.2 apply. `SECURITY_TERMINAL` rows collapse to the public code `NATIVE_LOGIN_AUTHENTICATION_REQUIRED`.
+
+| Internal code | HTTP | Category | Progression | Next authority | Public class | Recovery profile counterpart |
+|---|---|---|---|---|---|---|
+| `NATIVE_LOGIN_CHANNEL_UNAVAILABLE` | 409 | `DEPENDENCY_UNAVAILABLE` | `RETRYABLE` | same ticket, new `attempt_ref`, a listed channel or `null` | `TEMPORARILY_UNAVAILABLE` | issuance-only |
+| `NATIVE_RECOVERY_REQUEST_MALFORMED` | 400 | `INVALID_INPUT` | `TERMINAL` | corrected new attempt | `RETRY_LOGIN` | class of `RECOVERY_GRANT_MALFORMED` |
+| `NATIVE_RECOVERY_HANDLE_REJECTED` | 401 | `AUTHENTICATION_FAILED` | `SECURITY_TERMINAL` | full sign-in and fresh login | `AUTHENTICATION_REQUIRED` | class of `RECOVERY_GRANT_AUTHENTICATION_FAILED` |
+| `NATIVE_RECOVERY_DEVICE_PROOF_REJECTED` | 401 | `AUTHENTICATION_FAILED` | `SECURITY_TERMINAL` | full sign-in and fresh login | `AUTHENTICATION_REQUIRED` | class of `RECOVERY_GRANT_AUTHENTICATION_FAILED` |
+| `NATIVE_RECOVERY_ACCOUNT_SECURITY_DENIED` | 401 | `SESSION_REJECTED` | `SECURITY_TERMINAL` | full sign-in after account security permits | `AUTHENTICATION_REQUIRED` | `RECOVERY_GRANT_SECURITY_STATE_REVOKED` |
+| `NATIVE_RECOVERY_ATTEMPT_CONFLICT` | 409 | `INVALID_INPUT` | `TERMINAL` | new `attempt_ref` | `RETRY_LOGIN` | issuance-only |
+| `NATIVE_RECOVERY_ATTEMPT_PENDING` | 409 | `CONFLICT` | `RETRYABLE` | same request after `Retry-After` | `TEMPORARILY_UNAVAILABLE` | issuance-only (profile §11 retirement) |
+| `NATIVE_RECOVERY_CHARACTER_CONFLICT` | 409 | `SESSION_REJECTED` | `TERMINAL` | fresh login | `SESSION_UNAVAILABLE` | class of `RECOVERY_TARGET_NOT_ELIGIBLE` |
+| `NATIVE_RECOVERY_WORLD_STALE` | 409 | `STALE_GENERATION` | `TERMINAL` | fresh login for the current World | `RETRY_LOGIN` | `RECOVERY_GRANT_WORLD_STALE` |
+| `NATIVE_RECOVERY_ROUTE_UNAVAILABLE` | 503 | `DEPENDENCY_UNAVAILABLE` | `RETRYABLE` | same request with backoff while the handle lives | `TEMPORARILY_UNAVAILABLE` | issuance-only |
+| `NATIVE_RECOVERY_GRANT_EXPIRED` | 409 | `SESSION_REJECTED` | `TERMINAL` | same handle, new `attempt_ref` after retirement | `RETRY_LOGIN` | `RECOVERY_GRANT_EXPIRED` |
+| `RECOVERY_ATTEMPT_RECONCILIATION_REQUIRED` | 503 | `DEPENDENCY_UNAVAILABLE` | `RETRYABLE` | same `attempt_ref` and same handle only | `TEMPORARILY_UNAVAILABLE` | identical code (profile §11) |
+
+Protocol 3 also reuses these protocol 2 codes with their §11.2 rows: `NATIVE_LOGIN_UNSUPPORTED_VERSION`, `NATIVE_LOGIN_OFFER_UNSUPPORTED`, `NATIVE_LOGIN_RATE_LIMITED` and `NATIVE_LOGIN_UNAVAILABLE`.
+
+### 19.9 Limits
+
+Initial values, tuned as U10:
+
+| Surface | Key | Limit |
+|---|---|---|
+| Gateway `POST /v1/recover` | source IP | 30 / minute |
+| Gateway `POST /v1/recover` | (`attempt_ref`, handle hash) | 6 requests in total |
+| Gateway `POST /v1/recover/revoke` | source IP | 30 / minute |
+| issuer `native-recoveries` | `AccountId` | 20 committed attempts / hour, at most one unretired (§19.4 step 3) |
+| issuer `native-recoveries` and `native-admissions` together | Gateway identity | 120 / minute (§10, shared) |
+
+Body limits: recovery request 2048 bytes, including `device_proof`; recovery response 6144 bytes; protocol 3 login response 8192 bytes.
+
+### 19.10 Security and logging
+
+§13 applies. These are also never logged or traced:
+
+- recovery handles and their hashes;
+- recovery grants and signing inputs;
+- `native_play_generation`;
+- the locator's `assignment_epoch` and `scope_ownership_generation`.
+
+Locator logs carry only the operation, the scope ids, the result class and timings. They never carry `account_id` or `character_id` beyond the §13 rules. `channels` entries and `channel_selection` may be logged.
+
+### 19.11 Rollout and rollback
+
+Steps run in this order. Each code step is `backward-compatible` and default off. Paths for steps DB-1 to DB-9 are in §19.15.
+
+1. **Documentation.**
+   - The owner decided U19–U22 on 2026-10-12, and corrected U19 and U21 the same day.
+   - The Game architect accepts ADR 0045 and this amendment.
+   - Game records G2.
+   - Game accepts the G1 producer contract that §19.14 creates.
+   - The remembered-device contract amendment DB-1 is written and accepted.
+2. **Game G1** (§19.14). It runs in parallel with step 3. Its reports fail harmlessly until step 3's locator route exists.
+3. **Platform recovery and channels.** This step adds:
+   - play generation, handle storage, recovery attempt rows, the recovery signer and recovery-scope trust publication;
+   - the two issuer operations;
+   - the locator ingestion route, its identities and its entry store (§19.6.3);
+   - the mode 34a widening.
+4. **Platform device binding**, DB-2 to DB-7 (§19.15). It may land together with step 3 or right after it. It must be complete before step 8 enables recovery anywhere beyond `testing`.
+5. **Gateway.** Protocol 3 parsing and the two routes.
+6. **Game client, `client-first-safe`** (DB-8 and protocol 3). This covers:
+   - protocol 3 support in `crates/platform-client`;
+   - `label` shown for each channel;
+   - device-key generation and session or remembered enrollment;
+   - `device_proof` on `/v1/recover`.
+7. **Step S: staging channels on the NAS preproduction store.** This is an operator-run deploy step.
+   - **S1. Deploy support** (Platform paths):
+     - `deploy/synology/scripts/lib.sh` publishes a list of channels instead of the current single-channel values;
+     - `deploy/synology/native-defaults.env` holds the non-secret list: key, host, port and `tls_server_name` per channel, and each identity's scope list for runtime status, assignment and locator;
+     - `deploy/synology/compose.yml` passes the list through;
+     - `app/GameAuth/Worlds/PreproductionNativeRouteStore.php` carries the mode 34a widening from step 3.
+     - The current single-channel values stay valid for `oteryn-staging-1`.
+   - **S2. Topology.** `game-auth:native-topology:issue` in preproduction-store mode issues `antica`, `obscura` and `pythera` on the staging World. It is idempotent, and its receipts are audited under ADR 0044.
+   - **S3. Routes.** `game-auth:native-route:publish` runs once per channel. Each channel gets a distinct `(host, port)` on the NAS (Decision M1), its own `tls_server_name`, and login turned on.
+     - `OTERYN_STAGING_NATIVE_ROUTE_PUBLISH_ENABLED` stays `true`.
+     - Each published `route_revision` is recorded as that channel's node-declared value.
+   - **S4. Game side** (listed, not written here):
+     - one game node per channel on the NAS;
+     - an `oteryn-game-ops` assignment per scope;
+     - each node declares its channel's published `route_revision`;
+     - runtime-status and locator reporting is turned on.
+   - **S5. Flags,** all repository variables or environment, no code:
+     - the protocol 3 switch on (preproduction);
+     - `game-auth.device_sessions.enabled` on;
+     - `game-auth.native_recovery.require_device_binding` on;
+     - the locator identities set (`GAME_AUTH_NATIVE_RECOVERY_LOCATOR_IDENTITIES`).
+   - **Operator-owned material (never in the repository):**
+     - listener TLS certificates and keys for the three `tls_server_name` values;
+     - the mTLS client certificate and key per node host, for runtime status and for locator;
+     - the ownership-authority certificate;
+     - the recovery signing private key and its `kid`;
+     - the Gateway service credential.
+
+     The repository holds only certificate subjects, scope lists, ids, hosts and ports.
+8. **Joint E2E** on the staging World with `antica`, `obscura` and `pythera`:
+   - **Recovery:** lose the connection, call `/v1/recover` with a valid `device_proof`, then `ClientResume` on the channel owner, both within grace and after grace.
+   - **Device refusals:** a missing or wrong proof is refused, and a revoked family's handle is refused.
+   - **Locator:** a placement change routes recovery to the reported channel, and `present = false` refuses.
+   - **Fresh login:** automatic selection, a requested channel, and a refusal that lists an alternative.
+9. **Enablement.**
+   - **`testing`:** recovery may run without device binding (`require_device_binding` off).
+   - **`preproduction`, including staging, and anything beyond:** recovery needs DB-1 to DB-9 complete and `require_device_binding` on. The issuer refuses to start recovery in those environments with binding off.
+   - **Production:** needs separate authority, U3 and U8.
+
+Rollback:
+
+- **Protocol 3:** switch it off. Protocol 2 is unaffected. Live handles stop working because `/v1/recover` refuses. Outstanding recovery grants expire within 30 s.
+- **G1:** remove the node's `[platform.recovery_locator]` section. Reports stop, the outbox keeps its rows, and Platform falls back to the bound-channel hint.
+- **Step S:**
+  - turn login off on the three new channels' routes;
+  - `oteryn-staging-1` keeps serving;
+  - the issued Channel rows stay, because topology issue is not reversed.
+
+### 19.12 UNKNOWN register additions
+
+| ID | Unknown | Blocks | Owner |
+|---|---|---|---|
+| U19 | **Resolved 2026-10-12 (owner).** The keys are `antica`, `obscura` and `pythera` under the existing Registry grammar, and the label is the capitalised key (§19.2.2). The three channels are added to the staging World (§19.11 step S), and `oteryn-staging-1` keeps its key and route | — | — |
+| U20 | **Resolved 2026-10-12 (owner).** H = 12 h, and configuration may only shorten it (§19.3) | — | — |
+| U21 | **Resolved 2026-10-12 (owner).** A device-bound handle counts as fresh authentication (§19.3). Device binding is required scope (§19.15) and blocks recovery beyond `testing`. Game records G2 | — | Game records G2 |
+| U22 | **Resolved 2026-10-12 (owner).** G1 is built now (§19.6, §19.14) | — | — |
+| U23 | Whether a remembered (persistent) device family may also start recovery after a client restart, once the in-memory handle is gone. This would be a new callback purpose under §19.15 | later | Platform + owner |
+| U26 | Which OS key stores the client supports for the non-exportable device key, and the fallback when none is available (§19.15 DB-8) | DB-8 | Game client + owner |
+| U24 | Per-account recovery attempt limit | §19.9 | Platform, measured |
+| U25 | Whether channels ever share an endpoint (Decision M1 forbids it in protocol 3) | later | Game architect |
+
+### 19.13 Required contract tests before activation
+
+- **Protocol 3 shapes:**
+  - exact login request, response and channel-refusal schemas;
+  - protocol 2 byte-identical with the switch on and off;
+  - recover and revoke schemas;
+  - `otr1.` handle grammar.
+- **Multiple channels:**
+  - automatic selection is the lowest candidate;
+  - a requested candidate is selected;
+  - a requested non-candidate gets the refusal with a listed alternative, and the ticket is still usable with a new `attempt_ref`;
+  - no candidate gives the route-unavailable result;
+  - a duplicate `(host, port)` routes nowhere;
+  - the widened mode 34a publishes per Channel and still refuses a second World.
+- **Handle:**
+  - hash-only storage;
+  - stops working on a newer play generation, from a protocol 2 or 3 commit;
+  - stops working on a security-generation change, Identity disable, revoke or absolute expiry;
+  - a fresh-attempt replay replaces the handle and leaves one live;
+  - a wrong `character_id` is rejected;
+  - the handle never authenticates on any other route.
+- **Recovery issuance:**
+  - the grant is byte-identical on a same-`attempt_ref` retry;
+  - a pending refusal comes before retirement, and a new attempt is accepted after it;
+  - `attempt_ref` is shared across purposes;
+  - ownership before World;
+  - a stale feed gives route-unavailable;
+  - no substitute channel;
+  - claims verified by the pinned Game recovery verifier at an exact Game commit, including each revision dimension mutated on its own and the absence of every forbidden claim.
+- **Labels:** each `channels` entry has `label` equal to the capitalised key; `oteryn-staging-1` is unchanged.
+- **Device binding (§19.15):**
+  - enrollment needs proof of possession of the key;
+  - a ticket records its family, both through PKCE enrollment and through `NativeTicketIssue`;
+  - the handle binds the family and the thumbprint;
+  - a missing, wrong or replayed-input `device_proof` is refused;
+  - each of these refuses the handle: a revoked family (logout, owner revoke, replay-terminal), passed family deadlines, and changed generations;
+  - recovery never rotates the bearer or touches the idle deadline;
+  - binding required with no family gives `"recovery": null`;
+  - issuance refuses to run with binding off outside `testing`;
+  - session families expire with H.
+- **Staging step S:** the publish loop issues and publishes each listed channel and refuses a duplicate `(host, port)`; the single-channel values still publish `oteryn-staging-1`.
+- **Locator ingestion:**
+  - exact wire and response;
+  - a locator identity outside its scope list, or used on another route, is refused;
+  - a locator identity in scope but not the assigned node, and a report whose `account_id` is not the Character's owner, are refused;
+  - a recovery retry with a missing or wrong `device_proof` is refused and returns no stored grant;
+  - another purpose's identity is refused on the locator route;
+  - an assignment mismatch (deposed owner) is refused;
+  - ordering: lower is superseded, equal and identical is a duplicate, equal and different is conflicted, and a higher epoch invalidates lower entries;
+  - a future `committed_at` is refused;
+  - `present = false` refuses recovery, a conflicted entry gives route-unavailable, and an entry on another World gives world-stale;
+  - an entry never yields a grant on a target that fails §7.4;
+  - logs carry no generation or epoch.
+- **Keys:**
+  - a recovery `kid` is refused in the fresh scope and the converse;
+  - per-scope self-check;
+  - a missing recovery key stops only recovery.
+- **Logs:** logs and responses are free of every §19.10 secret.
+
+### 19.14 Game implementation packet G1: recovery locator producer (ready to dispatch)
+
+This is a dispatch-ready packet for `Oteryn/Oteryn-Game`. Platform does not write it. The Game lead copies it into a Game task record built from the Game `docs/agents/tasks/TASK_TEMPLATE.md`. Paths were checked against Game `origin/main` at `08e13f7de`; the writer re-checks them at dispatch.
+
+```yaml
+task_id: OTV2-20261012-recovery-locator-producer
+title: G1 recovery locator producer - the committing node reports each Character placement change to Platform
+mode: IMPLEMENT
+repository: Oteryn/Oteryn-Game
+base_branch: main
+execution_policy: continuous_progress
+contract: docs/contracts/OTERYN_GAME_RECOVERY_LOCATOR_PRODUCER_V1.md (new, written by this task from Platform section 19.6)
+platform_contract: Oteryn/Oteryn-Platform OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md section 19.6 (amendment N4P-4), ADR 0045
+owned_paths:
+  - docs/contracts/OTERYN_GAME_RECOVERY_LOCATOR_PRODUCER_V1.md
+  - docs/contracts/RESOURCE_LIMITS_REGISTRY.json (NRL-* rows only)
+  - docs/contracts/CROSS_REPOSITORY_CONTRACT_LOCK.json (recovery locator row only)
+  - apps/game-server/migrations/<next free number>_recovery_locator_outbox.sql (0080 at 08e13f7de)
+  - apps/game-server/src/durability/recovery_locator_outbox.rs
+  - apps/game-server/src/durability/mod.rs (module registration only)
+  - apps/game-server/src/durability/fresh_admission.rs (outbox write in the fresh admission COMMIT only)
+  - apps/game-server/src/durability/admission_journal.rs (outbox write in the resume, post-grace and ABSENT commits only)
+  - apps/game-server/src/native_admission_source/recovery_locator.rs
+  - apps/game-server/src/native_admission_source/mod.rs (Operation variant and body cap only)
+  - apps/game-server/src/node/** (reporter wiring and the [platform.recovery_locator] section only)
+  - apps/game-server/tests/*recovery_locator*
+  - docs/agents/tasks/active/OTV2-20261012-recovery-locator-producer.md
+  - docs/agents/tasks/archive/OTV2-20261012-recovery-locator-producer.md
+public_contracts:
+  - ReportRecoveryLocatorV1 (Platform section 19.6.2)
+depends_on:
+  - OTERYN_GAME_NATIVE_RUNTIME_STATUS_PRODUCER_V1.md section 3 transport and section 6 assignment_epoch
+blocks:
+  - Platform section 19.11 step 8 joint E2E
+  - enabling any Game channel transition together with protocol 3 recovery
+```
+
+**Outcome.** These are the deliverables:
+
+1. A new Game contract restating §19.6.1–§19.6.4 from the producer side.
+2. A migration that adds `game_durability_recovery_locator_outbox`. It is additive and reversible, and its rollback refuses to drop the table while it holds undelivered rows. It has:
+   - one row per `character_id`;
+   - the columns `account_id`, `world_id`, `channel_id`, `present`, `locator_revision`, `assignment_epoch`, `scope_ownership_generation`, `committed_at` and `delivered_revision`.
+3. An outbox writer, called inside the existing placement transactions:
+   - fresh admission COMMIT;
+   - `ClientResume` within grace and after grace;
+   - actor becoming `ABSENT`.
+
+   It runs under the Character guard those transactions already hold. It advances `locator_revision` by one and records the committing assignment.
+4. `recovery_locator.rs`, with:
+   - the exact wire and response decoder;
+   - a purpose-bound descriptor that refuses a certificate or key another purpose uses;
+   - a `deliver` path with its own capacity, never an admission slot.
+5. A node reporter. It sends undelivered rows (one request in flight, bounded backoff) and marks a row delivered on `accepted`, `superseded` or `duplicate`. It leaves a row unchanged on `409`. It is off when `[platform.recovery_locator]` is absent.
+6. Registry rows `NRL-REPORT-BYTES` (1024), `NRL-RESPONSE-BYTES` (256) and `NRL-INFLIGHT` (1).
+
+**Contract fields.** Exactly the §19.6.2 members. Field sources:
+
+| Field | Source |
+|---|---|
+| `source_authority` | `[readiness].source_authority` |
+| `assignment_epoch` and `scope_ownership_generation` | the assignment held by the committing transaction |
+| `world_id` and `channel_id` | the committing scope (for `ABSENT`, the scope left) |
+| `account_id` and `character_id` | the admitted actor |
+| `present` | `false` only for the `ABSENT` transition |
+| `locator_revision` | the outbox counter |
+| `committed_at` | the transaction's commit time, never future-dated |
+
+**Authority and fencing.** These rules bind the writer:
+
+- **Evidence only.** The locator never authorizes Game: no admission, resume, handoff or channel selection reads it. FND-04B §22 and §23 stay the authority.
+- **Durable atomicity.** The outbox row is written in the same transaction as the placement change, under its existing fences:
+  - Character guard;
+  - `RuntimeScopeAuthority` generation;
+  - `connection_generation` and `ControlLossEpoch`.
+
+  A rolled-back placement leaves no row, and a committed placement always leaves one.
+- **No authority from the row.** The reporter reads only committed rows. Neither the reporter nor the row can raise a generation.
+- **Deposed owners.** Platform refuses a report whose assignment is not the latest (§19.6.3 rule 2). A deposed owner therefore cannot move a Character's route, even with a valid certificate.
+- **Restore.** After a durability restore that could lower revisions, the operator raises `assignment_epoch` as in the runtime-status contract §6. Platform then drops entries of lower epochs.
+- **Logging.** The generation and epoch are never logged (§19.10). Logs carry only the operation, scope ids, result class and timings.
+- **High-risk qualification.** The packet's high-risk qualification section is `applicable: true`, because the change adds a fenced durable write. Its mutation operators cover, one invariant per negative case:
+  - missing assignment;
+  - stale generation;
+  - wrong scope identity;
+  - future `committed_at`;
+  - provenance substitution (only committed placements produce rows);
+  - replay and concurrency (latest wins per Character, idempotent at Platform);
+  - restart, retry and PostgreSQL reload (rows survive and are re-sent).
+
+**Validation** (Game *Local checks by changed path*):
+
+- `cargo fmt --all --check`
+- `cargo clippy --locked -p oteryn-game-server --all-targets --quiet -- -D warnings`
+- `cargo test --locked -p oteryn-game-server --test native_recovery_locator --quiet`. It covers the wire, the descriptor key separation, response classes, reporter backoff and latest-wins behavior, and off-by-default behavior against a Platform stub.
+- `OTERYN_TEST_POSTGRES_ADMIN_URL=... cargo test --locked -p oteryn-game-server --test recovery_locator_postgres --quiet`, on PostgreSQL 17.6. It covers:
+  - outbox atomicity with each placement commit;
+  - rollback leaves no row;
+  - revision monotonicity;
+  - restart re-send;
+  - migration rollback refused while rows are undelivered.
+- `python tools/agents/validate_governance.py` and `python -m unittest discover -s tools/agents/tests` for the task record.
+- `git diff --check` for the contract.
+- Runtime E2E is Platform §19.11 step 8, performed jointly after the Platform locator route exists.
+
+**Excluded scope:** this packet changes no Platform code, admission or resume decision, channel transition, client code or gameplay. It does not change the FND-04 or FND-04B profiles. G2 is a separate documentation change in the recovery profile.
+
+### 19.15 Device binding (required scope; blocker for recovery beyond `testing`)
+
+Owner correction, 2026-10-12: the recovery handle must be bound to the device, and this is required scope. This section designs the full path.
+
+The path builds on the existing remembered-device family:
+
+- `App\GameAuth\DeviceSessions\NativeRememberedDeviceSessions`;
+- the tables `native_device_session_families` and `native_device_session_credentials`;
+- `NATIVE_REMEMBERED_DEVICE_SESSION_CONTRACT_CANDIDATE.md`.
+
+#### 19.15.1 What must change in the current remembered-device design
+
+| Current design | Change |
+|---|---|
+| Disabled by default and refused outside `testing`/`preproduction` | Unchanged as a switch. Wherever protocol 3 recovery runs with binding on, `game-auth.device_sessions.enabled` must be on. The issuer refuses to start otherwise. Production stays separately authorized. |
+| Opt-in only: an unchecked "Remember this device" choice, and enrollment requires `explicitConsent: true` | Two persistence classes. A **session** family is enrolled on every protocol 3 native login: its bearer is never written to disk, and its absolute and idle deadlines both equal H. The **remembered** family stays as it is, opt-in and default off. Explicit consent stays required for remembered only, because a session family keeps nothing beyond the process. |
+| The credential is a rotating `otd1.` bearer, and a lost response costs a browser sign-in | The bearer keeps rotating for its own purposes (`NativeCharactersRead`, `NativeTicketIssue`). Recovery never presents it. Recovery proves possession of a new **device key** instead. The key does not rotate, so a retry with the same `attempt_ref` is safe. |
+| The family has no key, so the bearer is the whole credential | The family records one Ed25519 public key and its thumbprint at enrollment, fixed for the family's life. Enrollment requires a signature by that key (proof of possession). |
+| A ticket does not record a family | A ticket gains a nullable `device_family_id`. It is set by PKCE enrollment (the family the same OAuth access token enrolled, found through the unique `enrollment_access_token_id`) or by the `NativeTicketIssue` callback (the rotating family). |
+| Revocation ends only the family | Terminal family revocation also revokes that family's recovery handles in the same transaction: logout, owner revoke, replay detection and expiry. |
+
+#### 19.15.2 Wire and cryptography
+
+- **Device key:** Ed25519, generated by the client.
+  - It is non-exportable in the OS key store where available (U26).
+  - A session family may hold it in process memory only.
+  - `device_key_thumbprint` is the unpadded base64url SHA-256 of the 32-byte public key (43 characters).
+- **Enrollment proof:** the signature covers the JCS of:
+
+  ```json
+  {"purpose":"oteryn-native-device-enroll-v1","public_key":"<base64url>","persistence":"session"|"remembered","client_id":"<oauth client id>","access_token_sha256":"<lowercase hex of SHA-256 of the presented bearer>"}
+  ```
+
+  - The request carries the signature alongside the public key.
+  - Platform verifies it inside the enrollment transaction, before the family commits.
+  - The signature binds the key to the one OAuth access token that enrolls the family.
+- **Recovery proof:** the signature covers the JCS of:
+
+  ```json
+  {"purpose":"oteryn-native-recovery-pop-v1","attempt_ref":"<attempt_ref>","character_id":"<character_id>","recovery_handle_sha256":"<lowercase hex>","device_key_thumbprint":"<thumbprint>"}
+  ```
+
+  - `attempt_ref` is single-use per §19.4 step 1, so a captured proof only reproduces the byte-identical grant of that same attempt.
+  - A stolen handle without the private key cannot start a new attempt.
+- **Never logged or traced:** device private keys and signatures. Thumbprints may appear in audit records only.
+
+#### 19.15.3 Ordered implementation steps
+
+| Step | Work | Owned paths |
+|---|---|---|
+| DB-1 | Contract amendment "Device key and session class" (§19.15.1–§19.15.2) in the remembered-device candidate, plus acceptance. This is its own contract section, and it is required before any code. ADR 0045 Decision 2a records the decision, so no new ADR is needed: the change stays inside the ADR 0045 scope and the candidate's own contract. | `docs/contracts/NATIVE_REMEMBERED_DEVICE_SESSION_CONTRACT_CANDIDATE.md` |
+| DB-2 | Migration, additive and reversible. Its rollback refuses to drop populated columns. It adds, on families, `persistence_class`, `device_public_key` (32 bytes) and `device_key_thumbprint` (unique). It adds `device_family_id` (nullable, indexed) to `game_login_tickets`. The recovery handle table of step 3 is created with `device_family_id` and `device_key_thumbprint` from the start. | `database/migrations/<new>_add_native_device_binding.php` |
+| DB-3 | Enrollment with key proof and the session class. It covers per-class TTL bounds (session = H, remembered within 30 d absolute and 7 d idle) and the exact versioned request shape. | `app/GameAuth/DeviceSessions/NativeRememberedDeviceSessions.php`, `app/GameAuth/DeviceSessions/DeviceSessionFamily.php`, `app/GameAuth/DeviceSessions/DeviceKeyProof.php` (new), `app/Http/Controllers/GameAuth/DeviceSessions/NativeDeviceSessionController.php`, `app/Http/Middleware/GameAuth/GuardNativeDeviceSessionHttp.php`, `config/game-auth.php` |
+| DB-4 | Tickets record their family: on the PKCE path from the same access token's enrollment, and in the `NativeTicketIssue` callback. | `app/GameAuth/NativeLogin/NativeGameLoginTickets.php`, `app/GameAuth/Tickets/GameLoginTicket.php`, `app/Http/Controllers/GameAuth/DeviceSessions/NativeDeviceSessionController.php` (ticket callback only), and the OAuth ticket-issuance call site, which the writer names at dispatch |
+| DB-5 | The handle binds the family and thumbprint at fresh redemption. §19.4 step 2 adds the family checks and proof verification, plus the `require_device_binding` switch and its refusal outside `testing`. | `app/GameAuth/NativeLogin/NativeAdmissionAttempts.php`, `app/GameAuth/NativeRecovery/**` (new in step 3), `config/game-auth.php` |
+| DB-6 | Revocation linkage: every terminal family path revokes the bound handles in the same transaction. | `app/GameAuth/DeviceSessions/NativeRememberedDeviceSessions.php`, `app/GameAuth/NativeRecovery/RecoveryHandles.php` (new) |
+| DB-7 | Tests (§19.13 *Device binding*). | `tests/Feature/GameAuth/DeviceSessions/**`, `tests/Feature/GameAuth/NativeRecovery/**` |
+| DB-8 | Game client (listed, not written here): key generation per U26, session or remembered enrollment, and `device_proof` on `/v1/recover`. | Oteryn-Game `crates/platform-client/**` |
+| DB-9 | Independent security review of DB-1 to DB-8, as the remembered-device candidate requires before any enablement. | review record only |
+
+#### 19.15.4 Blocker
+
+Recovery may run without device binding only in `testing`. Enabling recovery anywhere beyond `testing` is blocked until all of these hold:
+
+- DB-1 to DB-9 are complete;
+- `game-auth.native_recovery.require_device_binding` is on;
+- the §19.13 device-binding tests pass.
+
+This includes `preproduction` and therefore staging (§19.11 step 9).
