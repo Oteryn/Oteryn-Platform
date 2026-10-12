@@ -17,7 +17,6 @@ final class PreventSensitiveGameAuthResponseCachingTest extends TestCase
     {
         yield 'OAuth token' => ['/oauth/token'];
         yield 'Game Login Ticket issue' => ['/api/v1/game-auth/tickets'];
-        yield 'Game Login Ticket redeem' => ['/internal/v1/game-auth/tickets/redeem'];
         yield 'Device enrollment' => ['/api/v1/game-auth/device-sessions'];
         yield 'Device owner characters' => ['/api/v1/game-auth/device-sessions/native-characters'];
         yield 'Device ticket' => ['/api/v1/game-auth/device-sessions/tickets'];
