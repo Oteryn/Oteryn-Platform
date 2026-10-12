@@ -115,7 +115,22 @@ prepare_state_dir() {
     if ! mkdir -- "$lock_dir" 2>/dev/null; then
         refuse "another bootstrap-postgres.sh holds $lock_dir (or a stale lock is left); remove it only when no bootstrap is running. Nothing was changed."
     fi
-    trap 'rmdir -- "$lock_dir" 2>/dev/null || true' EXIT
+    target_lock_held=''
+    trap 'rmdir -- "$lock_dir" 2>/dev/null || true; [[ -z "$target_lock_held" ]] || rmdir -- "$target_lock_held" 2>/dev/null || true' EXIT
+    # run.lock is per state directory, but the resource to protect is the database and the witness directory:
+    # two runs with different state directories would otherwise race on both. A second lock is keyed on the
+    # target itself: next to the witness directory with --local, a fixed host path for the Compose stack
+    # (override: OTERYN_PG_BOOTSTRAP_TARGET_LOCK; the default parent /var/lock is world-writable).
+    local target_lock
+    if [[ "$local_mode" == true ]]; then
+        target_lock="$witness_dir.bootstrap-lock"
+    else
+        target_lock="${OTERYN_PG_BOOTSTRAP_TARGET_LOCK:-/var/lock/oteryn-postgres-bootstrap.lock}"
+    fi
+    if ! mkdir -- "$target_lock" 2>/dev/null; then
+        refuse "another bootstrap holds the target-wide lock $target_lock (or a stale lock is left); remove it only when no bootstrap is running. Nothing was changed."
+    fi
+    target_lock_held="$target_lock"
 }
 
 # After the lock and every re-check: the first change to an existing state directory.

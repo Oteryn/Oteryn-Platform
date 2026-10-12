@@ -241,6 +241,23 @@ class StaticBootstrapTest(BootstrapCase):
         for marker in ("record_witness_checks\n", "prepare_state_dir\n", "record_witness_checks\n", "restrict_state_dir\n", 'FROZEN_AT=%s'):
             position = body.index(marker, position) + len(marker)
 
+    def test_target_wide_lock_refuses_a_second_state_directory(self) -> None:
+        # The state-directory lock does not cover two runs that use different state directories on the same
+        # database and witness directory: the lock is also keyed on the witness directory itself.
+        self.witness_dir.mkdir(mode=0o700)
+        (self.witness_dir / "witness-store.id").write_text(secrets.token_hex(32) + "\n")
+        lock = Path(str(self.witness_dir) + ".bootstrap-lock")
+        lock.mkdir()
+        result = self.bootstrap("record-witness", "--local")
+        self.assert_refused(result, "target-wide lock")
+        self.assertIn("Nothing was changed", result.stderr)
+        self.assertFalse((self.state_dir / "witness-freeze.env").exists())
+        self.assertFalse((self.state_dir / "run.lock").exists())
+        lock.rmdir()
+        self.assertEqual(self.bootstrap("record-witness", "--local").returncode, 0)
+        self.assertFalse(lock.exists())
+        self.assertFalse((self.state_dir / "run.lock").exists())
+
     def test_world_host_is_validated_by_the_commands_own_filter(self) -> None:
         text = SCRIPT.read_text()
         self.assertIn("FILTER_VALIDATE_IP", text)
