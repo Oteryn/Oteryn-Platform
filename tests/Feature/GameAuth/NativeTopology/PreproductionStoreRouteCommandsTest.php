@@ -42,6 +42,20 @@ final class PreproductionStoreRouteCommandsTest extends TestCase
         'prefix' => '',
     ];
 
+    /**
+     * The store double runs on the migrated in-memory sqlite database whatever the suite's default driver is, so the
+     * PostgreSQL lane (DB_DATABASE names a PostgreSQL database there) exercises the same fence on the same double.
+     */
+    protected function refreshApplication(): void
+    {
+        parent::refreshApplication();
+        config([
+            'database.default' => 'sqlite',
+            'database.connections.sqlite.database' => ':memory:',
+        ]);
+        DB::purge('sqlite');
+    }
+
     protected function tearDown(): void
     {
         if ($this->app !== null) {
