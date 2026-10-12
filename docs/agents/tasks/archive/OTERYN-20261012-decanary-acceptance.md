@@ -1,6 +1,6 @@
 ---
 task_id: OTERYN-20261012-decanary-acceptance
-governing_issue: 1622
+governing_issue: 1474
 required_reads: []
 search_first:
   - scripts/acceptance/assert-platform-state.php
@@ -11,7 +11,7 @@ optional_reads: []
 
 ## Goal
 
-Governing GitHub Issue: #1622 (Game repository, DC-P9 / W-INFRA acceptance part) - canonical lifecycle authority for this task. Remove live Canary dependencies from acceptance tooling.
+Governing GitHub Issue: #1474 (Platform Canary retirement umbrella; coordination Oteryn/Oteryn-Game#1622, DC-P9 / W-INFRA acceptance part) - canonical lifecycle authority for this task. Remove live Canary dependencies from acceptance tooling.
 
 Finding: PR #1531 already removed the `canary_acceptance` service, Canary database, principals and runtime Redis ACL from the acceptance bootstrap, docker harness and every acceptance workflow. The only remaining live Canary database use was the unused `character-owner` command in `assert-platform-state.php`, removed here. The remaining `IdentityCanaryAccount` seeds and `canary_player_id` assertions exercise live `app/**` paths (account overview, marketplace, character profile preferences) and stay until their code packets land.
 
@@ -38,7 +38,7 @@ dependencies:
 blockers:
   - none
 cross_repository_tasks:
-  - none
+  - Oteryn/Oteryn-Game#1622 (coordination only; Game repository read-only here)
 ```
 
 ## Context checkpoint
