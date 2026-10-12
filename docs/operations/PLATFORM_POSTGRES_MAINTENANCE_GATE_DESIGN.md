@@ -31,7 +31,7 @@ The four states are disjoint and exhaustive. Classification checks `open`, `clos
 
 - **Marker (*proposal*).** The gate state is the ingress configuration itself: the `503` service on the two canonical rules. Each run logs the pre-write and post-write configuration hashes in its summary.
 - **Closure identity: OPEN DESIGN QUESTION (P6b).** This note does not choose a mechanism. The requirement is stated in *Evidence precondition* below; how the workflow knows which closure it is looking at is open. See *Open design questions*.
-- **Lock (*proposal*).** One GitHub Actions `concurrency` group for the workflow with `cancel-in-progress: false`, so runs of every mode serialize. The pre-`PUT` re-read and hash check is the guard against an edit made outside the workflow.
+- **Serialization (requirement; mechanism open).** Transitions must be serialized without ever dropping a `maintenance-close` or `maintenance-open`. A GitHub Actions `concurrency` group does not give that: with one run in progress it keeps at most one pending run and replaces an earlier pending run, even with `cancel-in-progress: false`. A pending `maintenance-close` could then be replaced by a later `audit` or other dispatch and the origins would stay open instead of the requested safety transition happening. This note therefore claims no concurrency-group lock. The pre-`PUT` re-read and hash check stays as the guard against an edit made outside the workflow. The serialization mechanism is an open design question below.
 
 ## Transitions
 
@@ -78,4 +78,9 @@ Decision owner for both: the owner, on a recommendation from the follow-up task 
 2. **Binding identity to a non-replayable edge generation.**
    - Constraint: identical closed rules produce the same configuration hash, so rule content alone cannot prove which closure produced it. An external edit that opens and then restores the identical closed rules must not leave an earlier closure's evidence valid.
    - Candidates, none chosen: a nonce persisted atomically with the edge write; an edge-side version or generation value if the tunnel configuration API exposes one; treating any state not written by the workflow's own latest close as requiring a fresh close before an open.
-3. Is the task/run-bound evidence precondition for `maintenance-open` enforced by the workflow (this note's proposal) or by operator procedure only? `apply` refusal outside `open` is not optional.
+3. **Serialization that cannot drop a close or open.**
+   - Constraint: as stated under *Marker and lock*, a plain `concurrency` group can replace a pending run, and a dropped `maintenance-close` leaves the origins open.
+   - Candidates, none chosen: a queue-capable concurrency setting if GitHub offers one for this workflow; refuse-if-busy (a dispatch that finds another transition running fails visibly instead of queuing) combined with a recorded intent that the operator re-dispatches; separate groups so non-mutating modes such as `audit` can never displace a mutating one. Tests: three runs dispatched while one is running, with a close among them.
+   - Decision owner: the owner, on a recommendation from follow-up PG-P6-DESIGN-NOTES.
+
+**Hard requirement, not a question:** the evidence precondition for `maintenance-open` is enforced inside the workflow, so the mutation itself refuses before any `PUT`. Operator procedure alone is not acceptable: a direct dispatch while a cutover is stopped at step 4, 5 or 6 must be refused by the workflow. The same holds for the `apply` refusal outside `open`.
