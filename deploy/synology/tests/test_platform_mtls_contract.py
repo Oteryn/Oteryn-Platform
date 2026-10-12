@@ -523,10 +523,14 @@ def test_game_node_route_settings_reach_platform_and_default_closed() -> None:
     for name, (_, default) in ROUTE_SETTINGS.items():
         assert f"      {name}: ${{{name}:-{default}}}\n" in platform, name
     # The other Game-node routes: runtime status and scope assignment come from the rendered
-    # environment; account characters (and its watermark) stay pinned off (D171 fallback).
+    # environment; account characters (and its watermark) are pinned on with the Character Authority
+    # projection identity, and the D171 fallback is pinned off.
     for name in ("RUNTIME_STATUS_ENABLED", "RUNTIME_STATUS_IDENTITIES", "SCOPE_ASSIGNMENT_ENABLED", "SCOPE_ASSIGNMENT_IDENTITIES"):
         assert re.search(rf"^      GAME_AUTH_NATIVE_{name}: \$\{{GAME_AUTH_NATIVE_{name}:-(false|null)\}}$", platform, re.M), name
-    assert '      GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED: "false"\n' in platform
+    assert '      GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED: "true"\n' in platform
+    assert "      GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_SOURCE_AUTHORITY: oteryn:character-authority:primary\n" in platform
+    assert """      GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_IDENTITIES: '["CN=oteryn-preprod-character-projection"]'\n""" in platform
+    assert '      GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_OWNERSHIP: "false"\n' in platform
 
     # Deploy inputs: the committed defaults keep both routes off and carry no identity yet.
     values = dict(line.split("=", 1) for line in DEFAULTS.read_text().splitlines() if line and not line.startswith("#"))

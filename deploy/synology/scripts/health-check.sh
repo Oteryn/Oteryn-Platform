@@ -97,6 +97,10 @@ gateway_native_login="$(container_env_value gateway GATEWAY_NATIVE_LOGIN_ENABLED
 oteryn_assert_native_login_pairing "$platform_native_admission" "$gateway_native_login" || exit 1
 if [[ "$platform_native_admission" == true ]]; then
     oteryn_run_native_admission_self_check "${container_ids[platform]}" || exit 1
+    # With the D171 fallback off, login needs a fresh account-character projection: prove the feed.
+    if [[ "$(container_env_value platform GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED)" == true ]]; then
+        oteryn_wait_native_account_characters_feed "${container_ids[platform]}" || exit 1
+    fi
 else
     echo "::warning::Native game login is disabled on this deployment: Platform native admission is off, so the Gateway refuses every login."
 fi
