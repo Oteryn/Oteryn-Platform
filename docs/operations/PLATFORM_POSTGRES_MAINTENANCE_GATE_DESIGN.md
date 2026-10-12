@@ -37,12 +37,19 @@ Derived from a fresh read of the tunnel ingress, never from memory of a previous
 | `open` | `maintenance-close` | `closed` | Other-rule check passes, then one `PUT` of both rules, then read back both rules |
 | `closed` | `maintenance-close` | `closed` | No write |
 | `split` | `maintenance-close` | `closed` | Completes the close |
-| `closed` | `maintenance-open` | `open` | One `PUT` restoring the fixed loopback origins, then read back, then a fresh `audit` and an external request to each hostname |
+| `closed` | `maintenance-open` | `open` | Only with the evidence precondition below. One `PUT` restoring the fixed loopback origins, then read back, then a fresh `audit` and an external request to each hostname |
 | `open` | `maintenance-open` | `open` | No write |
-| `split` | `maintenance-open` | `open` | Completes the open |
+| `split` | `maintenance-open` | `open` | Only with the evidence precondition below. Completes the open |
 | `unknown` | either mode | unchanged | Refuses, no write |
-| `closed` or `split` | `apply` | unchanged | Refuses. `apply` must not restore the origins; this is the only reopen path besides `maintenance-open` and it is removed |
+| `closed`, `split` or `unknown` | `apply` | unchanged | Refuses in every state other than `open`, with no write and no warning-only path. `apply` rebuilds the rules with the loopback origins, so it must never run unless the gate is already `open`; the only reopen path is `maintenance-open` |
 | any | DNS or other modes | unchanged | They do not touch the two rules |
+
+**Evidence precondition for `maintenance-open` (*proposal*).** From `closed` or `split` the mode refuses unless the dispatch names a task id and a run id and exactly one of these holds, checked by the workflow before any `PUT`:
+
+1. Cutover completed: the cutover run for that task reached step 7 and recorded success, including the post-cutover health check.
+2. Rollback verified: the MariaDB rollback for that task finished and `health-check.sh` passed against it in a recorded run.
+
+A closed gate with a stopped step (for example step 4 on ambiguous trust state) satisfies neither case, so `maintenance-open` refuses and the gate stays closed. Missing, unreadable or unbound evidence also refuses. The evidence run ids are logged in the summary.
 
 Ordering: read, validate, re-read and hash check, `PUT`, read back. A failed read-back leaves the state as read, reported as failure, never as success.
 
@@ -56,9 +63,9 @@ Ordering: read, validate, re-read and hash check, `PUT`, read back. A failed rea
 
 ## Tests per transition (`tests/operations/cloudflare-oteryn-endpoints/**`)
 
-One test per row of the transition table, plus: refusal on another rule targeting `127.0.0.1`, `localhost`, `[::1]` or `0.0.0.0` on port 8000 or 8080 (including wildcard, legacy Gateway and catch-all); unrelated rules and the catch-all preserved byte for byte; hash mismatch aborts; read-back failure reported as failure; `audit` reports `closed` as bounded drift; confirmation phrase required; no secret or bypass value in output.
+One test per row of the transition table, plus: `apply` refuses from `closed`, `split` and `unknown`; `maintenance-open` refuses without cutover-complete or rollback-verified evidence, with evidence from another task, and with a stopped step; refusal on another rule targeting `127.0.0.1`, `localhost`, `[::1]` or `0.0.0.0` on port 8000 or 8080 (including wildcard, legacy Gateway and catch-all); unrelated rules and the catch-all preserved byte for byte; hash mismatch aborts; read-back failure reported as failure; `audit` reports `closed` as bounded drift; confirmation phrase required; no secret or bypass value in output.
 
 ## Open questions for the reviewer
 
 1. Is an edge-derived marker acceptable, or is a separate durable record wanted? A second record would need its own reconcile rule against the edge.
-2. Should `apply` refuse while `closed` or `split` (this note's proposal), or only warn?
+2. Is the task/run-bound evidence precondition for `maintenance-open` enforced by the workflow (this note's proposal) or by operator procedure only? `apply` refusal outside `open` is not optional.
