@@ -207,13 +207,18 @@ oteryn_postgres_reconcile_record() {
 # value as its `openssl x509 -checkend`, pinned by tests/ci/test_synology_postgres_contract.py).
 OTERYN_POSTGRES_CERT_RENEWAL_SECONDS=604800
 
-# True when the server certificate the running postgres container serves is outside the tls-init renewal
-# window. Only tls-init renews it, so a deploy that skips tls-init (the Platform fast path) must not run
-# with a certificate that is due. An unreadable certificate or a missing openssl counts as not current.
+# True when the server pair the running postgres container serves is current by the same predicate tls-init
+# applies (tls/init.sh postgres_certificate_is_current, run here inside the container through its
+# --check-postgres-pair mode): outside the renewal window, verified by the CA copy next to it, certificate
+# and key a matching pair, key owner-only for the postgres user. Only tls-init renews it, so a deploy that
+# skips tls-init (the Platform fast path) must not run with a pair that is due or inconsistent. Anything the
+# check cannot prove, such as a missing openssl, counts as not current and takes the full path.
 oteryn_postgres_certificate_is_current() {
-    local container="$1"
-    docker exec "$container" openssl x509 -checkend "$OTERYN_POSTGRES_CERT_RENEWAL_SECONDS" -noout \
-        -in /run/oteryn-postgres-tls/server.crt >/dev/null 2>&1
+    local container="$1" init
+    init="${OTERYN_TLS_INIT_SCRIPT:-$(dirname "${BASH_SOURCE[0]}")/../tls/init.sh}"
+    [[ -f "$init" ]] || return 1
+    docker exec -i -e POSTGRES_TLS_DIR=/run/oteryn-postgres-tls "$container" \
+        sh -s -- --check-postgres-pair < "$init" >/dev/null 2>&1
 }
 
 # Prints `configured` when all five secrets are set, `absent` when none is; refuses a partial or malformed

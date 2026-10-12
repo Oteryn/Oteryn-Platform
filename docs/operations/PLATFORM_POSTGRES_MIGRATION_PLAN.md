@@ -187,7 +187,7 @@ A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synolo
 
 - `deploy/synology/compose.yml`, `deploy/synology/compose.marketplace.yml`
 - `deploy/synology/postgres/**` (new: `init/` role and database bootstrap, `postgresql.conf`, `pg_hba.conf`)
-- `deploy/synology/tls/**`: a PostgreSQL server certificate issued by the stack CA in `tls-init`
+- `deploy/synology/tls/**`: a PostgreSQL server certificate issued in `tls-init` by a dedicated PostgreSQL CA whose key only `tls-init` mounts (not the stack CA)
 - `deploy/synology/scripts/{deploy,lib,health-check,deploy-impact,recover-schema,prepare-fresh-schema-baseline,production-target-preflight,marketplace-staging,rollback}.sh`
 - `deploy/synology/release-contract.env`
 - `deploy/synology/README.md`, `deploy/synology/tests/**`, `tests/ci/test_synology_*.py`
@@ -203,7 +203,7 @@ A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synolo
    - Healthcheck: `pg_isready` plus a TLS-only login probe by the runtime role.
    - `restart: always`.
 2. **TLS.**
-   - `ssl=on`, TLS 1.3 minimum, with the server certificate signed by the stack CA from `tls-init` (owner answer Q4). No operator-supplied certificate.
+   - `ssl=on`, TLS 1.3 minimum, with the server certificate signed by the dedicated PostgreSQL CA from `tls-init` (owner answer Q4). No operator-supplied certificate.
    - `pg_hba.conf` has only `hostssl ... scram-sha-256` lines plus local socket access for bootstrap; `host` without SSL is rejected.
    - Platform connects with `sslmode=verify-full` and the CA mounted read-only.
 3. **Roles.** The init script is idempotent and refuses unsafe names, like the MariaDB one.

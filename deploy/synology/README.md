@@ -255,7 +255,7 @@ Service contract (`compose.yml` service `postgres`, profile `postgres`):
 
 - image pinned by digest; private bridge only, no `ports` or `expose`; `restart: always`;
 - data in the named volume `postgres_data`, never removed by any workflow or deploy script (`tests/ci/test_synology_postgres_contract.py`);
-- TLS 1.3 only with a server certificate for `postgres` issued by the stack CA (`tls-init`); the server pair lives in `postgres_tls`, and Platform mounts only the CA certificate (`postgres_client_ca`) and connects with `sslmode=verify-full`;
+- TLS 1.3 only with a server certificate for `postgres` issued by a dedicated PostgreSQL CA (`tls-init`); the CA private key lives only in `postgres_ca_signer`, which only `tls-init` mounts (the stack CA key in `internal_tls` is readable by the root-started ingress, so it must not sign this certificate), the server pair lives in `postgres_tls`, and Platform mounts only the PostgreSQL CA certificate (`postgres_client_ca`) and connects with `sslmode=verify-full`;
 - `pg_hba.conf` admits only `hostssl` SCRAM logins of the Platform roles from the bridge, plus local peer login of the `postgres` OS user; every other host rule is `reject`, including the superuser over TCP;
 - health check: `pg_isready` plus a `verify-full` login of the runtime role.
 
