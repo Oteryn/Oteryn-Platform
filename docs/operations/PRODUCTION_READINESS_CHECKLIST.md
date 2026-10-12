@@ -105,6 +105,9 @@ The application intentionally does not hard-code HSTS before this evidence exist
 - [ ] Prove credential injection/rotation ownership. `ENV-EVIDENCE-REQUIRED`
 - [ ] Prove backup scope, schedule, retention, encryption/access policy and restore ownership. `ENV-EVIDENCE-REQUIRED`
 - [ ] Complete and record a dated production restore test with scope, result, recovery time and data-loss observation. `ENV-EVIDENCE-REQUIRED`
+- [ ] Staging (Synology, PostgreSQL): WAL archive, daily base backup and dump, and the restore drill are in place (`PLATFORM_POSTGRES_BACKUP_PITR.md`). Record one dated passing staging drill in `PLATFORM_POSTGRES_RESTORE_DRILL_EVIDENCE.md`, against the provisional RPO of 24 h and RTO of 4 h. `ENV-EVIDENCE-REQUIRED`
+- [ ] **Blocking before production or real players:** an encrypted off-NAS copy of the base backups and WAL archive, with a key held outside the NAS; a dated drill restored from that copy; and owner-set RPO and RTO (ADR 0046 §7). NAS-only backups do not satisfy this row. `ENV-EVIDENCE-REQUIRED`
+- [ ] Decide the backup custody of the native evidence witness directory and the native admission key volume. Then record the restore order: database, then the witness (never lowered), then reconcile (`INCIDENT_RECOVERY_RUNBOOK.md`). `ENV-EVIDENCE-REQUIRED`
 
 Go-live `PASS` is blocked until the applicable production restore evidence exists. Staging restore measurements do not establish production RTO/RPO.
 

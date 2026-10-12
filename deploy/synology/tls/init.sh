@@ -93,6 +93,9 @@ publish_postgres_bootstrap_files() {
             chmod 0644 "$BOOTSTRAP_DIR/$file"
         fi
     done
+    if [ -d "$BOOTSTRAP_DIR/postgres-backup" ]; then
+        chmod -R a+rX,go-w "$BOOTSTRAP_DIR/postgres-backup"
+    fi
 }
 
 umask 077

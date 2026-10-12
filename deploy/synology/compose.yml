@@ -76,6 +76,8 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - postgres_tls:/run/oteryn-postgres-tls:ro
       - bootstrap_files:/bootstrap:ro
+      # NAS backup spool (plan P5): archive_command writes finished WAL here, outside postgres_data.
+      - postgres_backup:/var/lib/oteryn-postgres-backup
     networks:
       - private
     healthcheck:
@@ -87,6 +89,40 @@ services:
     depends_on:
       tls-init:
         condition: service_completed_successfully
+
+  # Platform PostgreSQL backups (plan P5, docs/operations/PLATFORM_POSTGRES_BACKUP_PITR.md): daily base
+  # backup by the REPLICATION-only backup role, daily logical dump by the read-only dump role, retention
+  # and the job heartbeat, all in the postgres_backup spool. Same pinned image and profile as postgres;
+  # backup-postgres.sh starts it after oteryn_reconcile_postgres. It logs in over verify-full TLS like
+  # every client. No secret is in its environment: backup-postgres.sh writes the backup and dump role
+  # passwords over standard input into a 0600 libpq password file in the container (never the spool).
+  postgres-backup:
+    image: postgres:17.11@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+    profiles: ["postgres"]
+    restart: always
+    entrypoint: ["bash", "/bootstrap/postgres-backup/backup-job.sh"]
+    command: ["service"]
+    # The loop runs a private copy of the staged job script; backup-postgres.sh reconcile recreates the
+    # sidecar when the staged script differs from that copy.
+    environment:
+      OTERYN_BACKUP_HOUR_UTC: "2"
+      OTERYN_BACKUP_MIN_FREE_MB: "2048"
+      OTERYN_BACKUP_WAL_RESERVE_MB: "1024"
+    volumes:
+      - postgres_backup:/var/lib/oteryn-postgres-backup
+      - postgres_client_ca:/run/oteryn-postgres-ca:ro
+      - bootstrap_files:/bootstrap:ro
+    networks:
+      - private
+    healthcheck:
+      test: ["CMD-SHELL", "test -n \"$$(find /var/lib/oteryn-postgres-backup/status/heartbeat -mmin -15 2>/dev/null)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   platform:
     image: ${PLATFORM_IMAGE}
@@ -346,6 +382,9 @@ volumes:
   postgres_tls:
   # The stack CA certificate alone, for Platform clients verifying the postgres server (verify-full).
   postgres_client_ca:
+  # NAS backup spool (plan P5): WAL archive, base backups, dumps. Never removed by a workflow; size it
+  # per docs/operations/PLATFORM_POSTGRES_BACKUP_PITR.md and copy it off the NAS before production.
+  postgres_backup:
   # Memory-backed and recreated empty with its users: www-data (82) owns it for the Platform pool and
   # the nginx group (101) may enter it to connect to the socket. No other service mounts it.
   platform_fastcgi:

@@ -555,6 +555,8 @@ stage_bootstrap_files() {
     docker cp "$DEPLOY_DIR/postgres/postgresql.conf" "$tls_container:/bootstrap/postgres-postgresql.conf"
     docker cp "$DEPLOY_DIR/postgres/pg_hba.conf" "$tls_container:/bootstrap/postgres-pg_hba.conf"
     docker cp "$DEPLOY_DIR/postgres/init/10-platform-roles.sh" "$tls_container:/bootstrap/postgres-roles.sh"
+    # WAL archive and backup jobs (plan P5): archive_command and the postgres-backup sidecar run them.
+    docker cp "$DEPLOY_DIR/postgres/backup/." "$tls_container:/bootstrap/postgres-backup"
 }
 
 snapshot_current_images() {
@@ -860,6 +862,9 @@ SQL
 # PostgreSQL runs idle beside MariaDB (plan P4): started, role split re-applied and its TLS and privilege
 # contract proven when its secrets are configured; skipped when none is. No Platform service uses it yet.
 oteryn_reconcile_postgres "${compose[@]}" || exit 1
+# Backups and the WAL archive of that idle database (plan P5): starts the backup sidecar, refuses when the
+# NAS spool lacks the required free space and proves a forced WAL segment reaches the archive.
+OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/backup-postgres.sh" reconcile || exit 1
 
 # A previous candidate whose migration succeeded but whose post-migration health
 # gate failed must be resolved before a newer release can own recovery state.
