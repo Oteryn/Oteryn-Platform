@@ -234,6 +234,13 @@ class StaticBootstrapTest(BootstrapCase):
                 result = subprocess.run(["bash", "-c", script, "x", host], capture_output=True, text=True, check=False)
                 self.assertEqual(result.returncode == 0, allowed, result.stderr)
 
+    def test_record_witness_repeats_its_checks_under_the_lock(self) -> None:
+        text = SCRIPT.read_text()
+        body = text[text.index("\nrecord_witness() {"):text.index('if [[ "$subcommand" == record-witness ]]')]
+        position = 0
+        for marker in ("record_witness_checks\n", "prepare_state_dir\n", "record_witness_checks\n", "restrict_state_dir\n", 'FROZEN_AT=%s'):
+            position = body.index(marker, position) + len(marker)
+
     def test_world_host_is_validated_by_the_commands_own_filter(self) -> None:
         text = SCRIPT.read_text()
         self.assertIn("FILTER_VALIDATE_IP", text)

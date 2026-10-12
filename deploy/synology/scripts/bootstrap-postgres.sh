@@ -433,7 +433,13 @@ inspect_witness() {
         || refuse "the native evidence witness directory inspection returned no state."
 }
 
-record_witness() {
+# The checks that decide whether a freeze record is written. They run twice: before any change, and again with
+# run.lock held (a concurrent record-witness may have written or changed the record, or left a temporary file,
+# in between). Sets record and record_unchanged.
+record=''
+record_unchanged=false
+record_witness_checks() {
+    record_unchanged=false
     services_must_be_stopped platform marketplace-scheduler
     [[ ! -e "$moved_file" ]] \
         || refuse "this bootstrap already moved the MariaDB-era witness aside ($moved_file); the current directory is not the MariaDB-era one. After a P6 rollback, rename the state directory $state_dir before the next freeze (runbook)."
@@ -441,19 +447,31 @@ record_witness() {
     if [[ "$witness_state" == present && "$witness_store_id" == none ]]; then
         refuse "the witness directory $witness_dir is not empty and carries no witness-store.id; only an empty directory or one with a store id can be recorded."
     fi
-    local record
     record="$(printf 'RECORD_VERSION=1\nWITNESS_DIRECTORY=%s\nWITNESS_STATE=%s\nWITNESS_STORE_ID=%s\nWITNESS_MANIFEST_SHA256=%s\n' \
         "$witness_dir" "$witness_state" "$witness_store_id" "$witness_manifest")"
     if [[ -e "$freeze_file" ]]; then
         if [[ "$(grep -v '^FROZEN_AT=' "$freeze_file")" == "$record" ]]; then
-            echo "MariaDB-era witness freeze record unchanged: $freeze_file"
+            record_unchanged=true
             return 0
         fi
         refuse "a different freeze record already exists ($freeze_file). Remove it only after confirming that the MariaDB-era Platform, and nothing else, wrote the witness after that freeze (runbook)."
     fi
     [[ ! -e "$freeze_file.tmp" && ! -L "$freeze_file.tmp" ]] \
         || refuse "$freeze_file.tmp already exists; remove the stale temporary record first."
+}
+
+record_witness() {
+    record_witness_checks
+    if [[ "$record_unchanged" == true ]]; then
+        echo "MariaDB-era witness freeze record unchanged: $freeze_file"
+        return 0
+    fi
     prepare_state_dir
+    record_witness_checks
+    if [[ "$record_unchanged" == true ]]; then
+        echo "MariaDB-era witness freeze record unchanged: $freeze_file"
+        return 0
+    fi
     restrict_state_dir
     # The state directory exists now: a write failure is a change that began, so it exits 2, removes its own
     # temporary file (a stale one would block the next attempt) and is safe to re-run.
