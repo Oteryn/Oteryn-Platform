@@ -189,6 +189,19 @@ case "$action" in
         new_directory
         verify_new_directory
         ;;
+    verify-aside)
+        # The preserved MariaDB-era directory a retry depends on: still there, a real owned directory, and
+        # byte-identical to what the freeze recorded (store id and manifest). A name alone proves nothing.
+        target="${2:-}"; expected_manifest="${3:-}"; expected_store_id="${4:-}"
+        case "$target" in "$dir".mariadb-era-*) ;; *) fail bad_target ;; esac
+        dir="$target"
+        [ -d "$dir" ] && [ ! -L "$dir" ] || fail aside_missing
+        [ -O "$dir" ] || fail aside_owner
+        inspect
+        [ "$state" = present ] && [ "$manifest" = "$expected_manifest" ] && [ "$store_id" = "$expected_store_id" ] \
+            || fail aside_changed
+        echo "witness_aside=verified"
+        ;;
     prepare-empty)
         inspect
         [ "$state" = empty ] || fail changed_since_check
@@ -436,7 +449,16 @@ else
         reasons+=("the freeze recorded a non-empty MariaDB-era witness directory, but it is empty now and this bootstrap did not move it aside.")
     elif [[ -e "$moved_file" ]]; then
         moved_to="$(read_record_key "$moved_file" MOVED_ASIDE_TO)"
-        [[ "$moved_to" == "$frozen_dir".mariadb-era-* ]] || reasons+=("the moved-aside record $moved_file is malformed.")
+        if [[ "$moved_to" != "$frozen_dir".mariadb-era-* \
+            || "$(read_record_key "$moved_file" WITNESS_STORE_ID)" != "$frozen_store_id" \
+            || "$frozen_state" != present || "$frozen_store_id" == none || "$frozen_manifest" == none ]]; then
+            reasons+=("the moved-aside record $moved_file is malformed or does not match the freeze record.")
+        else
+            # A retry after a failed attempt depends on the rollback witness still being intact.
+            aside_output="$(witness verify-aside "$moved_to" "$frozen_manifest" "$frozen_store_id")" || true
+            [[ "$(value_of witness_aside "$aside_output")" == verified ]] \
+                || reasons+=("the preserved MariaDB-era witness $moved_to is missing, replaced or modified ($(value_of witness_error "$aside_output")); the rollback witness is lost, so the bootstrap is refused.")
+        fi
     fi
     witness_action=prepare-empty
 fi
@@ -700,6 +722,12 @@ verify_output="$(probe verify "$GAME_WORLD_ID")"
     || failed "the built-in admin roles and permissions were not seeded."
 [[ "$(value_of oauth_clients "$verify_output")" =~ ^([2-9]|[1-9][0-9]+)$ ]] || failed "the OAuth clients are missing."
 [[ "$(value_of world_row "$verify_output")" == present ]] || failed "the World Registry row is missing."
+# The rollback witness this run depends on (moved aside now or by an earlier attempt) must still be intact.
+if [[ -n "$moved_to" ]]; then
+    aside_final="$(witness verify-aside "$moved_to" "$frozen_manifest" "$frozen_store_id")" || true
+    [[ "$(value_of witness_aside "$aside_final")" == verified ]] \
+        || failed "the preserved MariaDB-era witness $moved_to is no longer intact ($(value_of witness_error "$aside_final"))."
+fi
 # The witness directory must be inspectable now, whatever the mode: a failed inspection or a vanished
 # directory is never read as success.
 final_witness="$(witness inspect)" || failed "the final native evidence witness inspection failed."

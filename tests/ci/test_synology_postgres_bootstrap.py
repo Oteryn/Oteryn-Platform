@@ -511,6 +511,39 @@ class LiveRefusalTest(LiveBootstrapCase):
         self.assert_refused(self.bootstrap("run", "--local"), "a PostgreSQL witness wrote to it")
         self.assertEqual(self.relations(), 0)
 
+    def test_retry_requires_the_preserved_mariadb_era_witness_to_be_intact(self) -> None:
+        self.mariadb_era_witness()
+        self.assertEqual(self.bootstrap("record-witness", "--local").returncode, 0)
+        env = self.base_env(OTERYN_PG_BOOTSTRAP_LOCAL_TEST_PLANT_AFTER_MOVE="stray.floor")
+        self.assertEqual(self.bootstrap("run", "--local", env=env).returncode, 2)
+        (self.witness_dir / "stray.floor").unlink()
+        aside = next(p for p in self.witness_dir.parent.iterdir() if p.name.startswith(self.witness_dir.name + ".mariadb-era-"))
+        victim = next(p for p in sorted(aside.iterdir()) if p.name != "witness-store.id")
+        original = victim.read_bytes()
+        victim.write_bytes(original + b"x")
+        self.assert_refused(self.bootstrap("run", "--local"), "is missing, replaced or modified")
+        victim.write_bytes(original)
+        moved_name = aside.name
+        parked = aside.with_name("parked")
+        aside.rename(parked)
+        self.assert_refused(self.bootstrap("run", "--local"), "aside_missing")
+        aside.symlink_to(parked)
+        self.assert_refused(self.bootstrap("run", "--local"), "aside_missing")
+        aside.unlink()
+        parked.rename(aside)
+        self.assertEqual(aside.name, moved_name)
+
+    def test_retry_check_is_content_based_not_a_name_prefix(self) -> None:
+        script = SCRIPT.read_text()
+        self.assertIn("verify-aside)", script)
+        branch = script[script.index('moved_to="$(read_record_key "$moved_file" MOVED_ASIDE_TO)"'):]
+        branch = branch[:branch.index("witness_action=prepare-empty")]
+        self.assertIn('witness verify-aside "$moved_to" "$frozen_manifest" "$frozen_store_id"', branch)
+        self.assertIn('WITNESS_STORE_ID)" != "$frozen_store_id"', branch)
+        program = script[script.index("verify-aside)"):script.index("prepare-empty)")]
+        for needle in ('[ ! -L "$dir" ]', '[ -O "$dir" ]', '"$manifest" = "$expected_manifest"', '"$store_id" = "$expected_store_id"'):
+            self.assertIn(needle, program)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
