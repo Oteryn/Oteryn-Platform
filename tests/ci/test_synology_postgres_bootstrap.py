@@ -366,6 +366,41 @@ class StaticBootstrapTest(BootstrapCase):
         (self.witness_dir / "elsewhere.floor").symlink_to(self.temp)
         self.assert_refused(self.bootstrap("record-witness", "--local"), "unsupported_entry")
 
+    def test_witness_directory_of_another_owner_is_refused_in_the_inspection(self) -> None:
+        text = SCRIPT.read_text()
+        program = text[text.index("WITNESS_PROGRAM='") : text.index("witness() {")]
+        inspect = program[program.index("inspect() {") : program.index("report() {")]
+        self.assertIn('[ -O "$dir" ] || fail owner', inspect)
+        # The predicate verify-aside applies later is the one the inspection applies now.
+        self.assertIn('[ -O "$dir" ] || fail aside_owner', program)
+        self.assertLess(inspect.index("fail owner"), inspect.index('for entry in'))
+        self.assertIn("witness_parent_writable", program)
+        run = text[text.index("# --- run: steps 1 to 8") :]
+        self.assertIn('"$witness_parent_writable" == true', text)
+        self.assertLess(text.index('"$witness_parent_writable" == true'), text.index("\nprepare_state_dir\n"))
+
+    @unittest.skipUnless(os.geteuid() == 0, "needs root to hand a directory to another user")
+    def test_foreign_owned_witness_directory_is_refused_by_record_witness(self) -> None:
+        self.witness_dir.mkdir(mode=0o700)
+        (self.witness_dir / "witness-store.id").write_text(secrets.token_hex(32) + "\n")
+        os.chown(self.witness_dir, 65534, 65534)
+        self.assert_refused(self.bootstrap("record-witness", "--local"), "cannot be used (owner)")
+        self.assertFalse(self.state_dir.exists())
+
+    def test_inspection_reports_a_writable_witness_parent(self) -> None:
+        self.witness_dir.mkdir(mode=0o700)
+        (self.witness_dir / "witness-store.id").write_text(secrets.token_hex(32) + "\n")
+        result = self.bootstrap("record-witness", "--local")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("witness_parent_writable=true", self.witness_output())
+
+    def witness_output(self) -> str:
+        env = {**self.base_env(), "GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY": str(self.witness_dir)}
+        program = SCRIPT.read_text()
+        program = program[program.index("WITNESS_PROGRAM='") + len("WITNESS_PROGRAM='") :]
+        program = program[: program.index("\n'\n")]
+        return subprocess.run(["sh", "-c", program, "witness", "inspect"], env=env, capture_output=True, text=True).stdout
+
     def test_record_witness_is_idempotent_and_refuses_a_different_record(self) -> None:
         self.witness_dir.mkdir(mode=0o700)
         (self.witness_dir / "witness-store.id").write_text(secrets.token_hex(32) + "\n")
