@@ -69,8 +69,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-13T03:30:00Z
-head: 53d4e04b950edd062c1425aa57e3dbccecc292f6
+updated_at: 2026-10-13T04:30:00Z
+head: a17978379e032eeeb19472c9955df94b7790a95f
 branch: claude/platform-pg-p5-20261012
 pr: 1583
 status: waiting
@@ -103,6 +103,7 @@ proven:
   - A job's preflight reserves only its own backup, while the deploy and check keep the base-plus-dump reserve; a drill that leaves its scratch instance behind records result=failed (JobPreflightTest, DrillEvidenceTest).
   - A drill whose evidence.env or job summary cannot be written fails with result=failed; an intact archive retry succeeds below the free-space floor; the drill job timeout covers the lock wait, the RTO and cleanup, and pg_ctl waits only for the RTO left (DrillEvidenceTest, ArchiveWalTest, DeployWiringTest).
   - The deploy waits for its base backup and dump at most a 300 s budget inside the 30-minute deploy job, then continues with degraded backups while they finish in the sidecar; a --target immediate drill is not held to today's RPO (EnsureBudgetTest, DrillRpoTest).
+  - A lost, damaged or non-starting live server is restored with --offline: the image and spool come from Docker metadata, the cluster from the spool (or --system-identifier), nothing runs in the live server, --target latest replays the whole archive, a fenced Platform still names its image, and the runbook covers stopping an auto-initialised empty cluster (DrillOfflineTest).
 derived:
   - Recovery to a time stops only at a commit past the target, so the time-target drill writes and archives a marker commit first.
 unknown:
@@ -127,7 +128,7 @@ changed_paths:
 validation:
   - command: python3 -m pytest tests/ci deploy/synology/tests -q
     result: PASS
-    evidence: 510 passed, 19 skipped, 113 subtests passed (after the Codex fixes for the deploy ensure budget and the immediate-drill RPO)
+    evidence: 516 passed, 19 skipped, 117 subtests passed (after the Codex fix for the offline restore of a lost live server)
   - command: shellcheck and bash -n on the new scripts; sh -n tls/init.sh; docker compose config with and without the postgres profile
     result: PASS
     evidence: clean; only SC1091 info for sourcing lib.sh

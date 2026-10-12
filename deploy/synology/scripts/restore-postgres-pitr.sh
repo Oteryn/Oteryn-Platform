@@ -3,6 +3,7 @@
 # runbook docs/operations/PLATFORM_POSTGRES_BACKUP_PITR.md). Restores a base backup from the NAS spool plus
 # archived WAL into a scratch container with its own anonymous data volume and no network, verifies it and
 # discards it. The live server, its volumes and the spool are only read (plus the marker rows below).
+# With --offline (live data lost, damaged or not starting) the live server is neither read nor written.
 #
 #   restore-postgres-pitr.sh                      probe drill (default): writes marker A into table
 #                                                 oteryn_pitr_drill of the `postgres` maintenance database,
@@ -13,6 +14,14 @@
 #                                                 (in the past; marker C is written and archived after it,
 #                                                 because recovery stops only at a commit past the target)
 #   restore-postgres-pitr.sh --target immediate --backup <stamp>           a (weekly) base backup alone
+#   restore-postgres-pitr.sh --offline --target latest | --target-time T | --target immediate --backup S
+#                                                 a restore without the live server: the image and the spool
+#                                                 come from the postgres (or postgres-backup) container in any
+#                                                 state, the cluster from the spool's base backups (or
+#                                                 --system-identifier ID when the spool holds more than one).
+#                                                 No marker is written: a --target-time restore needs a commit
+#                                                 after T in the archive, and --target latest replays every
+#                                                 archived segment, then promotes
 #   Options: --skip-platform-checks (no Platform image on this host; never in the staging drill)
 #            --evidence-dir DIR (default $OTERYN_STATE_DIR/pitr-drills when OTERYN_STATE_DIR is set)
 #
@@ -20,8 +29,8 @@
 # WAL), promotion at the target, markers (A present, B absent), row counts equal to the reference
 # snapshot, the wallet ledger invariant, the migrations head, then with the running Platform image
 # `migrate:status` (nothing pending) and `production:verify-configuration`. It reports the restore time
-# against RTO 4h and, except for a --target immediate drill of one chosen base backup, the data-loss bound
-# against RPO 24h. Containers are found by Compose labels of
+# against RTO 4h and, except for a --target immediate drill of one chosen base backup or an --offline restore,
+# the data-loss bound against RPO 24h. Containers are found by Compose labels of
 # COMPOSE_PROJECT_NAME (default oteryn-staging). Nothing here removes a named volume: the scratch
 # container runs with --rm, which removes it and its anonymous data volume when it is stopped.
 set -euo pipefail
@@ -46,11 +55,16 @@ RESTORE_WAL="$SCRIPT_DIR/../postgres/backup/restore-wal.sh"
 target=probe
 target_time=''
 backup_stamp=''
+offline=false
+system_identifier_arg=''
 platform_checks=true
 evidence_dir="${OTERYN_STATE_DIR:+$OTERYN_STATE_DIR/pitr-drills}"
 
 usage() {
     echo "usage: restore-postgres-pitr.sh [--target-time 'YYYY-MM-DD HH:MM:SS[.ffffff]' | --target immediate --backup STAMP]" >&2
+    echo "                                [--skip-platform-checks] [--evidence-dir DIR]" >&2
+    echo "       restore-postgres-pitr.sh --offline [--system-identifier ID]" >&2
+    echo "                                (--target latest | --target-time '...' | --target immediate --backup STAMP)" >&2
     echo "                                [--skip-platform-checks] [--evidence-dir DIR]" >&2
     exit 2
 }
@@ -58,8 +72,10 @@ usage() {
 while (( $# )); do
     case "$1" in
         --target-time) [[ "$target" == probe ]] || usage; target="time"; target_time="${2:-}"; (( $# >= 2 )) || usage; shift 2 ;;
-        --target) [[ "${2:-}" == immediate && "$target" == probe ]] || usage; target=immediate; shift 2 ;;
+        --target) [[ "${2:-}" =~ ^(immediate|latest)$ && "$target" == probe ]] || usage; target="$2"; shift 2 ;;
         --backup) backup_stamp="${2:-}"; (( $# >= 2 )) || usage; shift 2 ;;
+        --offline) offline=true; shift ;;
+        --system-identifier) system_identifier_arg="${2:-}"; (( $# >= 2 )) || usage; shift 2 ;;
         --skip-platform-checks) platform_checks=false; shift ;;
         --evidence-dir) evidence_dir="${2:-}"; [[ -n "$evidence_dir" ]] || usage; shift 2 ;;
         *) usage ;;
@@ -73,6 +89,13 @@ if [[ "$target" == immediate ]]; then
 elif [[ -n "$backup_stamp" ]]; then
     usage
 fi
+# The probe writes its markers into the live server; --target latest and a chosen cluster are offline only.
+if [[ "$offline" == true ]]; then
+    [[ "$target" != probe ]] || usage
+else
+    [[ "$target" != latest && -z "$system_identifier_arg" ]] || usage
+fi
+[[ -z "$system_identifier_arg" || "$system_identifier_arg" =~ ^[0-9]{1,20}$ ]] || usage
 [[ -f "$RESTORE_WAL" ]] || { echo "Missing $RESTORE_WAL" >&2; exit 1; }
 # The project name reaches Docker label filters: Compose project names only.
 [[ "$PROJECT" =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]] || { echo "COMPOSE_PROJECT_NAME must be a Compose project name" >&2; exit 2; }
@@ -210,9 +233,12 @@ write_evidence() {
     return "$rc"
 }
 
+# <service> [any]: the running container of a Compose service, or with `any` its container in any state.
 find_service() {
     local ids
-    ids="$(docker ps -q --filter "label=com.docker.compose.project=$PROJECT" --filter "label=com.docker.compose.service=$1")"
+    local -a state=()
+    [[ "${2:-}" != any ]] || state=(-a)
+    ids="$(docker ps "${state[@]}" -q --filter "label=com.docker.compose.project=$PROJECT" --filter "label=com.docker.compose.service=$1")"
     [[ "$(grep -c . <<< "$ids" || true)" -le 1 ]] || fail "more than one running $1 container in project $PROJECT"
     printf '%s' "$ids"
 }
@@ -252,10 +278,20 @@ SELECT CASE WHEN to_regclass('public.wallet_accounts') IS NULL OR to_regclass('p
         false, true, '')))[1]::text END;
 "
 
-pg="$(find_service postgres)"
-[[ -n "$pg" ]] || fail "no running postgres container in Compose project $PROJECT"
-image="$(docker inspect --format '{{.Config.Image}}' "$pg")"
-spool_volume="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "'"$SPOOL"'"}}{{.Name}}{{end}}{{end}}' "$pg")"
+if [[ "$offline" == true ]]; then
+    # Only Docker metadata: a stopped or crashing postgres container (or the backup sidecar) names the
+    # pinned image and the spool volume. Nothing is executed in either.
+    source_container="$(find_service postgres any)"
+    [[ -n "$source_container" ]] || source_container="$(find_service postgres-backup any)"
+    [[ -n "$source_container" ]] \
+        || fail "no postgres or postgres-backup container in Compose project $PROJECT (create one without starting it: docker compose --profile postgres create postgres-backup)"
+else
+    pg="$(find_service postgres)"
+    [[ -n "$pg" ]] || fail "no running postgres container in Compose project $PROJECT (a lost or damaged live server: --offline)"
+    source_container="$pg"
+fi
+image="$(docker inspect --format '{{.Config.Image}}' "$source_container")"
+spool_volume="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "'"$SPOOL"'"}}{{.Name}}{{end}}{{end}}' "$source_container")"
 [[ -n "$spool_volume" ]] || fail "the postgres container mounts no backup spool at $SPOOL"
 # The name reaches a --mount option list: a Docker volume name only, never extra options.
 [[ "$spool_volume" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$ ]] || fail "unexpected backup spool volume name"
@@ -263,11 +299,16 @@ record drill "$stamp"
 record project "$PROJECT"
 record target_mode "$target"
 record postgres_image "$image"
-live_system_identifier="$(live_sql postgres <<< 'SELECT system_identifier FROM pg_control_system()')"
-[[ "$live_system_identifier" =~ ^[0-9]{1,20}$ ]] || fail "cannot read the system identifier of the live server"
+cluster_id=''
+archiver_healthy=false
+if [[ "$offline" == true ]]; then
+    record live_server "not read or written (--offline)"
+else
+    cluster_id="$(live_sql postgres <<< 'SELECT system_identifier FROM pg_control_system()')"
+    [[ "$cluster_id" =~ ^[0-9]{1,20}$ ]] || fail "cannot read the system identifier of the live server"
 
-[[ "$(live_sql postgres <<< "SELECT current_setting('archive_mode')")" == on ]] || fail "archive_mode is not on"
-IFS='|' read -r archive_timeout last_archived last_failed ready_age <<< "$(live_sql postgres <<'SQL'
+    [[ "$(live_sql postgres <<< "SELECT current_setting('archive_mode')")" == on ]] || fail "archive_mode is not on"
+    IFS='|' read -r archive_timeout last_archived last_failed ready_age <<< "$(live_sql postgres <<'SQL'
 SELECT extract(epoch FROM current_setting('archive_timeout')::interval)::bigint,
        coalesce(extract(epoch FROM a.last_archived_time)::bigint, 0),
        coalesce(extract(epoch FROM a.last_failed_time)::bigint, 0),
@@ -275,14 +316,14 @@ SELECT extract(epoch FROM current_setting('archive_timeout')::interval)::bigint,
                  FROM pg_ls_archive_statusdir() s WHERE s.name LIKE '%.ready'), 0)
   FROM pg_stat_archiver a;
 SQL
-)"
-[[ "$archive_timeout" =~ ^[0-9]{1,9}$ && "$last_archived" =~ ^[0-9]{1,12}$ && "$last_failed" =~ ^[0-9]{1,12}$ \
-    && "$ready_age" =~ ^-?[0-9]{1,12}$ ]] || fail "cannot read pg_stat_archiver of the live server"
-archiver_healthy=false
-if (( last_failed <= last_archived && ready_age <= 600 )); then
-    archiver_healthy=true
+    )"
+    [[ "$archive_timeout" =~ ^[0-9]{1,9}$ && "$last_archived" =~ ^[0-9]{1,12}$ && "$last_failed" =~ ^[0-9]{1,12}$ \
+        && "$ready_age" =~ ^-?[0-9]{1,12}$ ]] || fail "cannot read pg_stat_archiver of the live server"
+    if (( last_failed <= last_archived && ready_age <= 600 )); then
+        archiver_healthy=true
+    fi
+    record archiver_healthy "$archiver_healthy"
 fi
-record archiver_healthy "$archiver_healthy"
 
 reference_counts=''
 reference_migrations=''
@@ -338,9 +379,13 @@ SQL
 elif [[ "$target" == time ]]; then
     target_epoch="$(date -u -d "$target_time" +%s)" || fail "cannot parse --target-time"
     (( target_epoch < $(date +%s) )) || fail "--target-time must be in the past"
-    archive_commit_after_target C
+    if [[ "$offline" == true ]]; then
+        record target_commit "none written (--offline): the archive must hold a commit after the target"
+    else
+        archive_commit_after_target C
+    fi
 fi
-if [[ "$target" != immediate ]]; then
+if [[ "$target" == probe || "$target" == time ]]; then
     record target_time "$target_time UTC"
 fi
 
@@ -366,16 +411,43 @@ record spool_lock "shared job lock held from base backup choice to the end of th
 restore_started="$(date +%s)"
 
 backups="$(drill_sh "for f in $SPOOL/base/*Z/backup.info; do [ -f \"\$f\" ] || continue; printf '%s %s %s %s\n' \"\$(sed -n 's/^stamp=//p' \"\$f\")\" \"\$(sed -n 's/^end_epoch=//p' \"\$f\")\" \"\$(sed -n 's/^cluster_bytes=//p' \"\$f\")\" \"\$(sed -n 's/^system_identifier=//p' \"\$f\")\"; done | sort -r")"
+if [[ "$offline" == true ]]; then
+    # The cluster to restore comes from the spool. A server started on an empty data volume after the loss
+    # is a new cluster, and the backup sidecar may have backed it up: with more than one cluster in the
+    # spool the operator names the one to restore.
+    declare -A cluster_newest=()
+    while read -r candidate _ _ system_identifier; do
+        [[ "$candidate" =~ ^[0-9]{8}T[0-9]{6}Z$ && "$system_identifier" =~ ^[0-9]{1,20}$ ]] || continue
+        [[ -n "${cluster_newest[$system_identifier]+set}" ]] || cluster_newest[$system_identifier]="$candidate"
+    done <<< "$backups"
+    if [[ -n "$system_identifier_arg" ]]; then
+        [[ -n "${cluster_newest[$system_identifier_arg]+set}" ]] \
+            || fail "the spool holds no complete base backup of cluster $system_identifier_arg"
+        cluster_id="$system_identifier_arg"
+        record cluster "$cluster_id (--system-identifier)"
+    elif (( ${#cluster_newest[@]} == 1 )); then
+        for system_identifier in "${!cluster_newest[@]}"; do cluster_id="$system_identifier"; done
+        record cluster "$cluster_id (the only cluster of the spool's base backups)"
+    elif (( ${#cluster_newest[@]} == 0 )); then
+        fail "no complete base backup in the spool"
+    else
+        clusters=''
+        for system_identifier in "${!cluster_newest[@]}"; do
+            clusters+=" $system_identifier (newest base backup ${cluster_newest[$system_identifier]})"
+        done
+        fail "the spool holds base backups of more than one cluster:$clusters; name the one to restore with --system-identifier"
+    fi
+fi
 chosen=''
 cluster_bytes=0
 # Spool content is data: a value of an unexpected shape never reaches a command line or arithmetic.
 while read -r candidate end_epoch bytes system_identifier; do
     [[ "$candidate" =~ ^[0-9]{8}T[0-9]{6}Z$ && "$end_epoch" =~ ^[0-9]{1,12}$ && "$bytes" =~ ^[0-9]{1,15}$ ]] || continue
-    # Only base backups of the live cluster (a re-initialised server is another cluster).
-    [[ "$system_identifier" == "$live_system_identifier" ]] || continue
+    # Only base backups of the cluster to restore (a re-initialised server is another cluster).
+    [[ "$system_identifier" == "$cluster_id" ]] || continue
     if [[ "$target" == immediate ]]; then
         [[ "$candidate" == "$backup_stamp" ]] || continue
-    elif (( end_epoch > target_epoch )); then
+    elif [[ "$target" != latest ]] && (( end_epoch > target_epoch )); then
         continue
     fi
     chosen="$candidate"
@@ -383,9 +455,24 @@ while read -r candidate end_epoch bytes system_identifier; do
     base_end_epoch="$end_epoch"
     break
 done <<< "$backups"
-[[ -n "$chosen" ]] || fail "no complete base backup in the spool ends before the target (run: backup-postgres.sh run base)"
+[[ -n "$chosen" ]] || fail "no complete base backup of cluster $cluster_id in the spool ends before the target (run: backup-postgres.sh run base)"
 record base_backup "$chosen"
 log "base backup $chosen"
+
+if [[ "$offline" == true ]]; then
+    # The newest archived segment: nothing written after it is in the archive. A --target-time restore
+    # needs a commit after the target, so an archive that ends before the target cannot reach it.
+    archive_end_epoch="$(drill_sh "find $SPOOL/wal -maxdepth 1 -type f -name '*.gz' -printf '%T@\n' | sort -n | tail -n 1 | cut -d. -f1" 2> /dev/null)" \
+        || archive_end_epoch=''
+    if [[ "$archive_end_epoch" =~ ^[0-9]{1,12}$ ]]; then
+        record archive_end "$(date -u -d "@$archive_end_epoch" '+%Y-%m-%d %H:%M:%S') UTC (newest archived WAL segment)"
+        if [[ "$target" == time ]] && (( archive_end_epoch <= target_epoch )); then
+            fail "the WAL archive ends before the target (newest segment $(date -u -d "@$archive_end_epoch" '+%Y-%m-%d %H:%M:%S') UTC); restore to its end with --target latest"
+        fi
+    else
+        record archive_end "none (no archived WAL segment in the spool)"
+    fi
+fi
 
 free_kb="$(drill_sh "df -Pk $DATA | awk 'NR == 2 { print \$4 }'")"
 [[ "$free_kb" =~ ^[0-9]{1,15}$ ]] || fail "cannot read the free space of the scratch data volume"
@@ -407,11 +494,12 @@ pg_verifybackup -q -m $SPOOL/base/$chosen/backup_manifest $DATA
 " || fail "base backup $chosen failed its checksums or pg_verifybackup"
 record base_verified "SHA256SUMS and pg_verifybackup passed"
 
-if [[ "$target" == immediate ]]; then
-    recovery_target="recovery_target = 'immediate'"
-else
-    recovery_target="recovery_target_time = '$target_time+00'"
-fi
+case "$target" in
+    immediate) recovery_target="recovery_target = 'immediate'"; target_label="the end of $chosen" ;;
+    # No recovery target: recovery replays every archived segment, then promotes.
+    latest) recovery_target="# no recovery target: the end of the WAL archive"; target_label="the end of the WAL archive" ;;
+    *) recovery_target="recovery_target_time = '$target_time+00'"; target_label="$target_time UTC" ;;
+esac
 drill_sh "mkdir -p $DRILL && cat > $DRILL/restore-wal.sh" < "$RESTORE_WAL"
 drill_sh "cat > $DRILL/pg_hba.conf" <<'HBA'
 # Scratch drill instance only: no network namespace beyond loopback.
@@ -439,7 +527,7 @@ restore_command = 'bash $DRILL/restore-wal.sh "%f" "%p"'
 $recovery_target
 recovery_target_action = 'promote'
 CONF
-log "recovering to ${target_time:-the end of $chosen}"
+log "recovering to $target_label"
 # The whole restore, from the base backup choice to promotion, stays within the RTO: pg_ctl waits at most
 # for what is left of it (the drill job timeout in the recovery workflow is sized on that bound).
 deadline=$((restore_started + RTO_SECONDS))
@@ -501,8 +589,9 @@ record dump_verified "$dump_result (SHA256SUMS and pg_restore -l)"
 checks_passed=$((checks_passed + 1))
 
 if [[ "$platform_checks" == true ]]; then
-    platform="$(find_service platform)"
-    [[ -n "$platform" ]] || fail "no running platform container to take the image from (or pass --skip-platform-checks)"
+    # A fenced (stopped) Platform still names its image: the checks run their own container from it.
+    platform="$(find_service platform any)"
+    [[ -n "$platform" ]] || fail "no platform container to take the image from (or pass --skip-platform-checks)"
     platform_image="$(docker inspect --format '{{.Config.Image}}' "$platform")"
     engine=mariadb
     if docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$platform" | grep -qx 'DB_CONNECTION=pgsql'; then
@@ -548,12 +637,17 @@ fi
 # The data-loss bound is today's RPO: what a restore to now would lose. The probe and --target-time drills
 # replay the archive and measure it. A --target immediate drill restores one chosen, often weekly, base
 # backup to its own end: it proves that backup restores, and its age says nothing about today's RPO, so
-# it is not checked against it.
+# it is not checked against it. An --offline restore reads no live archiver and cannot know when the data
+# was lost: the incident records the loss from replayed_to (and archive_end) to the time of the loss.
 rpo_checked=true
 if [[ "$target" == immediate ]]; then
     rpo_checked=false
     data_loss_bound=not_applicable
     record data_loss_basis "not measured: --target immediate restores base backup $chosen to its own end (the probe drill measures the RPO)"
+elif [[ "$offline" == true ]]; then
+    rpo_checked=false
+    data_loss_bound=not_applicable
+    record data_loss_basis "not measured: --offline reads no live archiver; data written after replayed_to is lost"
 elif [[ "$archiver_healthy" == true ]]; then
     data_loss_bound="$archive_timeout"
     record data_loss_basis "archive_timeout of a healthy archiver"
@@ -574,5 +668,5 @@ record result passed
 if [[ "$rpo_checked" == true ]]; then
     log "PITR drill passed: restored to ${target_time:-$chosen} in ${restore_seconds}s, data-loss bound ${data_loss_bound}s"
 else
-    log "PITR drill passed: restored base backup $chosen to its end in ${restore_seconds}s (RPO not measured)"
+    log "PITR drill passed: restored base backup $chosen to $target_label in ${restore_seconds}s (RPO not measured)"
 fi

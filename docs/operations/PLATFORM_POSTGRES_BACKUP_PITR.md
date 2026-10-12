@@ -12,7 +12,7 @@ This runbook covers the PostgreSQL Platform database only. It holds no secret, p
 | `restore_command` | `deploy/synology/postgres/backup/restore-wal.sh` | Restores a segment for recovery. An absent file exits 1, the normal end of the archive. A missing archive directory, a missing checksum, a checksum mismatch or a decompression failure exits 199, which aborts recovery, so a damaged archive never ends recovery early and silently. |
 | `postgres-backup` sidecar | `compose.yml`, profile `postgres`, same pinned image as `postgres`, private network only, no port | Runs `backup-job.sh service`: a daily base backup and logical dump at `OTERYN_BACKUP_HOUR_UTC` (default 02:00 UTC), retention after each success, and a heartbeat every 60 seconds for its healthcheck. A failed job is retried after one hour at the earliest. |
 | `backup-postgres.sh` | `deploy/synology/scripts/` | `reconcile` (every deploy), `check` (every health check), `run <job>` (operator). |
-| `restore-postgres-pitr.sh` | `deploy/synology/scripts/` | The restore drill into a scratch instance. |
+| `restore-postgres-pitr.sh` | `deploy/synology/scripts/` | The restore drill into a scratch instance. With `--offline` it restores without the live server (see *Offline drill*). |
 
 Roles (plan P4):
 
@@ -95,6 +95,7 @@ COMPOSE_PROJECT_NAME=oteryn-staging OTERYN_STATE_DIR=<runner state dir> \
   bash deploy/synology/scripts/restore-postgres-pitr.sh                        # probe drill (default)
 bash deploy/synology/scripts/restore-postgres-pitr.sh --target-time '2026-10-12 08:00:00'   # UTC
 bash deploy/synology/scripts/restore-postgres-pitr.sh --target immediate --backup 20261005T020000Z
+bash deploy/synology/scripts/restore-postgres-pitr.sh --offline --target latest              # live server lost
 ```
 
 The probe drill does the following:
@@ -120,28 +121,45 @@ It records the restore time against the 4 h RTO, and the data-loss bound against
 
 The staging drill runs from **Actions → Recover Synology staging schema → mode `pitr-drill`** on `main`, with an optional `pitr_target_time`. It uses no secret: it reads the running containers through Docker. The job times out after 420 minutes. That covers up to 2 hours waiting for the job lock, the 4 h RTO, and an hour for the probe, the checks after promotion and the cleanup. A change to the lock wait or the RTO needs a matching job timeout. Record each dated result in `PLATFORM_POSTGRES_RESTORE_DRILL_EVIDENCE.md`. Run a drill after every change to this mechanism and after the P6 cutover.
 
+### Offline drill
+
+The probe and `--target-time` drills need a running live server: they read its system identifier and archiver state and write marker rows. When `postgres_data` is lost or damaged, or PostgreSQL does not start, use `--offline`. It never executes anything in the live server or the backup sidecar and writes no marker:
+
+- The image and the spool volume come from the Docker metadata of the `postgres` container in any state, or of the `postgres-backup` sidecar. When neither container exists, create one without starting it: `docker compose --profile postgres create postgres-backup`.
+- The cluster comes from the spool: the one system identifier of its complete base backups. When the spool holds more than one cluster, the drill lists them with their newest base backup and refuses. Name the one to restore with `--system-identifier <id>`.
+- `--target latest` (offline only) replays every archived segment, then promotes. `--target-time 'T'` needs a commit after T in the archive. The drill refuses at once when the newest archived segment is older than T. `--target immediate --backup <stamp>` works as above.
+- The evidence records `ARCHIVE_END` (the newest archived segment) and `REPLAYED_TO` (the last replayed commit). It records `DATA_LOSS_BOUND_SECONDS=not_applicable`, because no live archiver is read and the time of the loss is unknown. The incident record gives the data loss: from `REPLAYED_TO` to the time of the loss.
+- The Platform checks take the image from the `platform` container in any state, so a fenced, stopped Platform still serves. They run their own container against the scratch instance.
+
 ## Real point-in-time restore
 
-Use this for corruption or loss. Follow `INCIDENT_RECOVERY_RUNBOOK.md` (Platform database) for fencing, escalation and the native evidence order.
+Use this for corruption or loss of the database. The spool itself is on the same NAS. Losing it is not recoverable on staging until the off-NAS copy exists (*Before production*). Follow `INCIDENT_RECOVERY_RUNBOOK.md` (Platform database) for fencing, escalation and the native evidence order.
 
 1. Fence writes: close the edge gate and stop `platform`, the scheduler and every Platform consumer. Record the last known healthy time T in UTC.
-2. Run the drill against T: `restore-postgres-pitr.sh --target-time 'T'`. A passing drill proves that the backup and WAL reach T and gives the restore time. For a time before the oldest daily base backup, use the nearest weekly backup with `--target immediate`.
+   - When `postgres_data` is lost or damaged, or PostgreSQL does not start, also stop `postgres` and `postgres-backup` at once: `docker compose --profile postgres stop postgres postgres-backup`. Do not deploy and do not start `postgres` until the restore. The image initialises an empty data volume as a new cluster. That cluster archives into the same spool, and the sidecar backs it up there.
+2. Run the drill against the target. A passing drill proves that the backup and WAL reach it and gives the restore time.
+   - With a running live server: `restore-postgres-pitr.sh --target-time 'T'`.
+   - With the live server lost, damaged or not starting: `restore-postgres-pitr.sh --offline --target latest`, or `--offline --target-time 'T'` when the archive holds a commit after T (see *Offline drill*). Add `--system-identifier <id>` when the drill reports more than one cluster in the spool.
+   - For a time before the oldest daily base backup, use the nearest weekly backup with `--target immediate --backup <stamp>` (with `--offline` when the live server is lost).
 3. Stop `postgres` and `postgres-backup`. Never delete `postgres_data`. Restore into a **new** named volume instead:
    1. Create it, for example `postgres_data_restore_<stamp>`.
-   2. As uid 999, check `SHA256SUMS`, unpack `base.tar.gz` into it and `pg_wal.tar.gz` into its `pg_wal`, then run `pg_verifybackup`.
+   2. As uid 999, check `SHA256SUMS`, unpack `base.tar.gz` of the base backup the drill chose into it and `pg_wal.tar.gz` into its `pg_wal`, then run `pg_verifybackup`.
    3. Write `recovery.signal`.
-   4. Set `restore_command = 'bash /bootstrap/postgres-backup/restore-wal.sh "%f" "%p"'`, `recovery_target_time = 'T+00'` and `recovery_target_action = 'promote'`.
+   4. Set `restore_command = 'bash /bootstrap/postgres-backup/restore-wal.sh "%f" "%p"'` and the target the drill used: `recovery_target_time = 'T+00'` with `recovery_target_action = 'promote'`, or no recovery target for `--target latest` (recovery promotes at the end of the archive).
    5. Mount the spool read-only. The scratch-instance steps in `restore-postgres-pitr.sh` are the reference.
 4. Start a one-off server on the new volume, wait for promotion, run the drill checks, then repoint the `postgres` service to the restored volume with an owner-reviewed Compose change. The old volume stays until the owner decides.
 5. After promotion the cluster is on a new timeline. Its archive continues in the same spool, and the history file is kept.
 6. Restore the native evidence witness only as `INCIDENT_RECOVERY_RUNBOOK.md` directs: never lowered, then `game-auth:native-evidence:reconcile`.
-7. Run `deploy.sh` (or the health check), take a fresh base backup with `backup-postgres.sh run base`, and record the incident timeline, RTO and data loss.
+7. If an empty cluster wrote into the spool after the loss, move only its `base/` and `dump/` directories aside before the deploy: `backup.info` names its other `system_identifier`. Move them to a `retired-<stamp>` directory of the spool. Never use *Another cluster* below here. It retires the restored cluster's archive too. Recovery never replays a segment of the empty cluster: PostgreSQL refuses WAL of another database system, which fails the restore instead.
+8. Run `deploy.sh` (or the health check), take a fresh base backup with `backup-postgres.sh run base`, and record the incident timeline, RTO and data loss.
 
 For a logical restore of single tables, use the dump: `pg_restore -l` lists it and `pg_restore -t <table>` restores into a scratch database. Never restore over the live database without an owner decision.
 
 ## Another cluster
 
 A re-initialised PostgreSQL server (a new `postgres_data`, for example after the P3 clean-slate bootstrap) is a new cluster with a new system identifier. Its WAL segment names collide with the archived ones, so `archive-wal.sh` refuses them, and the spool's base backups cannot restore it. `check` reports degraded and the deploy reconcile refuses.
+
+This procedure is for a deliberate re-initialisation only. After a loss, the restored cluster keeps the spool's identity, and only the empty cluster's backups are moved aside (*Real point-in-time restore*, step 7).
 
 Retire the old content without deleting it:
 

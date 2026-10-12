@@ -829,7 +829,9 @@ class EnsureBudgetTest(unittest.TestCase):
 class DrillRpoTest(unittest.TestCase):
     """Today's RPO is measured by the probe and target-time drills, not by restoring one chosen base backup."""
 
-    def outcome(self, target: str, *, archiver_healthy: bool, base_age: int) -> tuple[subprocess.CompletedProcess[str], str]:
+    def outcome(
+        self, target: str, *, archiver_healthy: bool, base_age: int, offline: bool = False,
+    ) -> tuple[subprocess.CompletedProcess[str], str]:
         drill = DRILL.read_text()
         marker = 'record platform_checks "skipped (--skip-platform-checks)"\nfi\n'
         tail = drill[drill.index(marker) + len(marker):]
@@ -838,6 +840,7 @@ class DrillRpoTest(unittest.TestCase):
             "declare -A evidence=(); evidence_order=()",
             shell_function(drill, "log"), shell_function(drill, "record"), shell_function(drill, "fail"),
             f"target={target}; target_time=''; chosen=20261005T020000Z; archiver_healthy={str(archiver_healthy).lower()}",
+            f"offline={str(offline).lower()}; target_label='the target'",
             f"archive_timeout=60; started_epoch=$(date +%s); base_end_epoch=$((started_epoch - {base_age}))",
             "restore_seconds=5; checks_passed=3; RTO_SECONDS=14400; RPO_SECONDS=86400",
             tail,
@@ -859,6 +862,150 @@ class DrillRpoTest(unittest.TestCase):
         result, evidence = self.outcome("time", archiver_healthy=False, base_age=2 * 86400)
         self.assertEqual(result.returncode, 1)
         self.assertIn("above the RPO", result.stderr)
+
+    def test_an_offline_restore_records_no_rpo_bound(self) -> None:
+        # No live archiver is read and the time of the loss is unknown: the incident records the loss.
+        for target in ("latest", "time"):
+            with self.subTest(target=target):
+                result, evidence = self.outcome(target, archiver_healthy=False, base_age=3 * 86400, offline=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("data_loss_bound_seconds=not_applicable\n", evidence)
+                self.assertIn("data_loss_basis=not measured: --offline", evidence)
+
+
+FAKE_DRILL_DOCKER = r"""#!/bin/bash
+printf '%s\n' "$*" >> "$FAKE_LOG"
+case "$1" in
+  ps)
+    all=0; [[ "$2" == -a ]] && all=1
+    service="${*: -1}"; service="${service#label=com.docker.compose.service=}"
+    case "$service:$all:$FAKE_PG" in postgres:1:exited | postgres:?:running) echo pgid ;; esac
+    case "$service:$all:$FAKE_SIDECAR" in postgres-backup:1:exited) echo sidecarid ;; esac
+    ;;
+  inspect)
+    case "$3" in
+      *Config.Image*) echo postgres:17.11 ;;
+      *oteryn-postgres-backup*) echo oteryn-staging_postgres_backup ;;
+      *postgresql/data*) echo scratch-volume ;;
+      *State.Running*) echo true ;;
+    esac
+    ;;
+  exec)
+    # Only the scratch instance is ever executed in: the live server is neither read nor written.
+    [[ "$*" == *oteryn-pitr-drill-* ]] || exit 97
+    case "${*: -1}" in
+      "test -f "*) exit 0 ;;
+      *backup.info*) printf '%b' "$FAKE_BACKUPS" ;;
+      *"/wal -maxdepth"*) echo "$FAKE_ARCHIVE_END" ;;
+      *"df -Pk"*) echo unreadable ;;
+    esac
+    ;;
+  container | volume) exit 1 ;;
+esac
+exit 0
+"""
+
+
+class DrillOfflineTest(unittest.TestCase):
+    """A lost, damaged or stopped live server is restored from the spool without reading or writing it."""
+
+    OLD = 1_700_000_000
+    LIVE = "7400000000000000001"
+    EMPTY = "7500000000000000002"
+
+    def drill(self, *args: str, pg: str = "exited", sidecar: str = "none", backups: list[tuple[str, int, str]] | None = None,
+              archive_end: int | None = None) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+        tmp = Path(tempfile.mkdtemp(prefix="oteryn-p5-offline-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / "bin").mkdir()
+        (tmp / "bin" / "docker").write_text(FAKE_DRILL_DOCKER)
+        (tmp / "bin" / "docker").chmod(0o755)
+        if backups is None:
+            backups = [("20261010T020000Z", self.OLD + 2 * 86400, self.LIVE), ("20261009T020000Z", self.OLD + 86400, self.LIVE)]
+        lines = "".join(f"{stamp} {end} 1048576 {cluster}\\n" for stamp, end, cluster in sorted(backups, reverse=True))
+        result = run(["bash", str(DRILL), *args, "--skip-platform-checks"], env={
+            "PATH": f"{tmp / 'bin'}:{os.environ['PATH']}", "FAKE_LOG": str(tmp / "docker.log"), "FAKE_PG": pg,
+            "FAKE_SIDECAR": sidecar, "FAKE_BACKUPS": lines, "FAKE_ARCHIVE_END": str(archive_end or self.OLD + 3 * 86400),
+        })
+        log = (tmp / "docker.log").read_text().splitlines() if (tmp / "docker.log").exists() else []
+        return result, log
+
+    def assert_live_server_untouched(self, log: list[str]) -> None:
+        for call in log:
+            self.assertFalse(call.startswith("exec") and "oteryn-pitr-drill-" not in call, call)
+            self.assertNotIn("psql", call)
+
+    def test_an_offline_restore_takes_the_cluster_from_the_spool_and_never_reaches_the_live_server(self) -> None:
+        for pg in ("exited", "running"):
+            with self.subTest(postgres=pg):
+                # The fake scratch volume reports no free space: the drill stops right after choosing the backup.
+                result, log = self.drill("--offline", "--target", "latest", pg=pg)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("cannot read the free space of the scratch data volume", result.stderr)
+                self.assertIn("BASE_BACKUP=20261010T020000Z\n", result.stdout)
+                self.assertIn(f"CLUSTER={self.LIVE} (the only cluster", result.stdout)
+                self.assertIn("LIVE_SERVER=not read or written (--offline)\n", result.stdout)
+                self.assertIn("ARCHIVE_END=", result.stdout)
+                self.assertNotIn("TARGET_TIME=", result.stdout)
+                self.assert_live_server_untouched(log)
+                self.assertTrue(any(call.startswith("create ") for call in log))
+        runbook = RUNBOOK.read_text()
+        self.assertIn("restore-postgres-pitr.sh --offline --target latest", runbook)
+        self.assertIn("docker compose --profile postgres stop postgres postgres-backup", runbook)
+
+    def test_a_missing_postgres_container_falls_back_to_the_sidecar_and_then_explains(self) -> None:
+        result, log = self.drill("--offline", "--target", "latest", pg="none", sidecar="exited")
+        self.assertIn("cannot read the free space", result.stderr)
+        self.assertIn("inspect --format {{.Config.Image}} sidecarid", log)
+        result, log = self.drill("--offline", "--target", "latest", pg="none")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no postgres or postgres-backup container", result.stderr)
+        self.assertFalse(any(call.startswith("create ") for call in log))
+
+    def test_a_spool_with_a_second_cluster_needs_the_cluster_named(self) -> None:
+        # A server started on an empty volume after the loss is a new cluster the sidecar may have backed up.
+        backups = [
+            ("20261012T020000Z", self.OLD + 4 * 86400, self.EMPTY),
+            ("20261010T020000Z", self.OLD + 2 * 86400, self.LIVE),
+        ]
+        result, log = self.drill("--offline", "--target", "latest", backups=backups)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("more than one cluster", result.stderr)
+        self.assertIn(f"{self.LIVE} (newest base backup 20261010T020000Z)", result.stderr)
+        self.assertNotIn("BASE_BACKUP=", result.stdout)
+        result, log = self.drill("--offline", "--target", "latest", "--system-identifier", self.LIVE, backups=backups)
+        self.assertIn("cannot read the free space", result.stderr)
+        self.assertIn("BASE_BACKUP=20261010T020000Z\n", result.stdout)
+        result, _ = self.drill("--offline", "--target", "latest", "--system-identifier", "42", backups=backups)
+        self.assertIn("no complete base backup of cluster 42", result.stderr)
+        self.assert_live_server_untouched(log)
+
+    def test_an_offline_time_restore_writes_no_marker_and_needs_the_archive_past_the_target(self) -> None:
+        target = "2023-11-16 10:13:20"  # OLD + 1.5 days: after the first base backup ends, before the second
+        result, log = self.drill("--offline", "--target-time", target)
+        self.assertIn("cannot read the free space", result.stderr)
+        self.assertIn("BASE_BACKUP=20261009T020000Z\n", result.stdout)
+        self.assertIn("TARGET_COMMIT=none written (--offline)", result.stdout)
+        self.assert_live_server_untouched(log)
+        result, _ = self.drill("--offline", "--target-time", target, archive_end=self.OLD + 86400 + 600)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("the WAL archive ends before the target", result.stderr)
+        self.assertIn("--target latest", result.stderr)
+
+    def test_a_fenced_platform_still_names_its_image(self) -> None:
+        drill = DRILL.read_text()
+        self.assertIn('platform="$(find_service platform any)"', drill)
+        tmp = Path(tempfile.mkdtemp(prefix="oteryn-p5-platform-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / "docker").write_text('#!/bin/bash\n[[ "$2" == -a ]] && echo platformid\nexit 0\n')
+        (tmp / "docker").chmod(0o755)
+        script = "\n".join([
+            "set -euo pipefail", "PROJECT=oteryn-staging", 'fail() { echo "$*" >&2; exit 1; }',
+            shell_function(drill, "find_service"),
+            'printf "running=[%s] any=[%s]" "$(find_service platform)" "$(find_service platform any)"',
+        ])
+        result = run(["bash", "-c", script], env={"PATH": f"{tmp}:{os.environ['PATH']}"})
+        self.assertEqual(result.stdout, "running=[] any=[platformid]", result.stderr)
 
 
 class DrillLockTest(unittest.TestCase):
@@ -940,6 +1087,11 @@ class DrillArgumentTest(unittest.TestCase):
             ["--target-time", "2026-10-12 02:00:00", "--target", "immediate", "--backup", "20261012T020000Z"],
             ["--target", "immediate", "--target-time", "2026-10-12 02:00:00", "--backup", "20261012T020000Z"],
             ["--target", "immediate", "--target-time", "2026-10-12 02:00:00"],
+            # The probe writes into the live server; --target latest and a chosen cluster are offline only.
+            ["--offline"],
+            ["--system-identifier", "7400000000000000001"],
+            ["--offline", "--target", "latest", "--system-identifier", "74x"],
+            ["--offline", "--target", "latest", "--target-time", "2026-10-12 02:00:00"],
             ["--evidence-dir", ""],
             ["--unknown"],
         ):
