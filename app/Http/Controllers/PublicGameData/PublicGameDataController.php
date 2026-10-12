@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\PublicGameData;
 
-use App\PublicGameData\CanaryChannelRuntimeService;
 use App\PublicGameData\CanaryGameDataRepository;
 use App\PublicGameData\CommunityDataPolicy;
 use App\PublicGameData\PublicCharacterProfileService;
@@ -14,13 +13,11 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Validation\Rule;
-use UnexpectedValueException;
 
 final class PublicGameDataController
 {
     public function __construct(
         private readonly CanaryGameDataRepository $gameData,
-        private readonly CanaryChannelRuntimeService $runtime,
         private readonly PublicCharacterProfileService $profiles,
     ) {}
 
@@ -130,31 +127,7 @@ final class PublicGameDataController
             return $this->unavailable('public.game.servers_title');
         }
 
-        /** @var list<int> */
-        $channelIds = $channels
-            ->pluck('id')
-            ->map(static function (mixed $channelId): int {
-                if (is_int($channelId)) {
-                    return $channelId;
-                }
-
-                if (is_string($channelId) && ctype_digit($channelId)) {
-                    $parsedChannelId = (int) $channelId;
-
-                    if ($parsedChannelId > 0) {
-                        return $parsedChannelId;
-                    }
-                }
-
-                throw new UnexpectedValueException('Configured Canary channel ID is invalid.');
-            })
-            ->values()
-            ->all();
-
-        return view('game.servers', [
-            'channels' => $channels,
-            'runtimeSnapshot' => $this->runtime->snapshot($channelIds),
-        ]);
+        return view('game.servers', ['channels' => $channels]);
     }
 
     public function online(): View|Response

@@ -11,7 +11,6 @@ import {
   logout,
   register,
   runArtisan,
-  runBinary,
   runPhpState,
   uniqueCharacterName,
   uniqueEmail,
@@ -276,23 +275,6 @@ test.describe('full production-like acceptance', () => {
 
     await page.goto('/highscores?page=999');
     await expect(page.getByText('No active characters found.')).toBeVisible();
-
-    await page.goto('/servers');
-    await expect(page.getByText('ONLINE', { exact: true })).toBeVisible();
-    await expect(page.getByText('1', { exact: true }).last()).toBeVisible();
-
-    runBinary('redis-cli', ['DEL', 'cluster:channel:1:runtime']);
-    await page.goto('/servers');
-    await expect(page.getByText(/Runtime:/u)).toContainText('Unknown');
-
-    runBinary('redis-cli', ['HSET', 'cluster:channel:1:runtime', 'channel_id', '1', 'status', 'INVALID', 'players_online', '1']);
-    runBinary('redis-cli', ['PEXPIRE', 'cluster:channel:1:runtime', '3600000']);
-    await page.goto('/servers');
-    await expect(page.getByText(/live runtime dependency is temporarily unavailable/u)).toBeVisible();
-
-    runBinary('redis-cli', ['DEL', 'cluster:channel:1:runtime']);
-    runBinary('redis-cli', ['HSET', 'cluster:channel:1:runtime', 'channel_id', '1', 'status', 'ONLINE', 'players_online', '1']);
-    runBinary('redis-cli', ['PEXPIRE', 'cluster:channel:1:runtime', '3600000']);
 
     // Game-world data has no native source: /online stays in the contained unavailable state.
     allowExpectedHttpFailure(page.__acceptanceDiagnostics, { status: 503, pathname: '/online' });

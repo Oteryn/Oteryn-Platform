@@ -108,19 +108,15 @@ Actions on failure:
 
 Do not broaden application permissions to accommodate an over-privileged credential.
 
-## Legacy engine runtime Redis degradation
+## Public server runtime state
 
-Symptoms may include unavailable/fail-closed runtime availability rather than fabricated offline/empty state.
+The Platform no longer reads a runtime Redis store. The public server and home pages always show the live server/channel runtime as unavailable (the `/online` character list is unaffected and still reads `cluster_sessions` while the legacy public-data source is enabled), without offline or zero counts, until the native projection provides it.
 
 Actions:
 
-1. Confirm the application health route separately from runtime Redis behavior.
-2. Verify whether the `canary_runtime` dependency is reachable using the actual approved operational tooling; do not expose Redis credentials.
-3. Confirm dedicated read-only ACL/user status if deployment evidence is available.
-4. Treat stale/missing runtime data as dependency failure according to the application contract; do not extend freshness artificially with manual cache edits.
-5. Escalate network/Redis/provider failures to the actual infrastructure owner.
-
-Recovery evidence should include restored fresh runtime data and the relevant monitoring/alerting event if a production monitoring system exists.
+1. Confirm the application health route and the public server page render their unavailable state, not an error.
+2. Do not provision or restore a runtime Redis principal for the Platform; none is read.
+3. Escalate native runtime-status ingestion problems to the Game integration owner.
 
 ## Mail delivery incident
 
