@@ -15,7 +15,9 @@ def test_staging_stack_has_no_redis() -> None:
     assert "\n  redis:" not in COMPOSE
     assert "redis_data" not in COMPOSE
     assert "REDIS_PASSWORD" not in COMPOSE
-    for path in (SYNOLOGY / ".env.example", *sorted((SYNOLOGY / "scripts").glob("*.sh"))):
+    # deploy.sh alone keeps one bounded transition that removes the retired container by label.
+    scripts = [p for p in sorted((SYNOLOGY / "scripts").glob("*.sh")) if p.name != "deploy.sh"]
+    for path in (SYNOLOGY / ".env.example", *scripts):
         assert not re.search(r"redis", path.read_text(encoding="utf-8"), re.IGNORECASE), path.name
 
 
@@ -51,3 +53,10 @@ def test_deploy_scripts_keep_the_scheduler_running_across_reconciliation() -> No
     gateway = deploy.index('"${compose[@]}" up -d gateway\n')
     reconcile = deploy.index("_oteryn_reconcile_marketplace_scheduler_after_runtime_change\n\nOTERYN_ENV_FILE")
     assert gateway < reconcile < deploy.index('OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/health-check.sh"')
+
+
+def test_deploy_removes_the_retired_redis_container_without_an_orphan_sweep() -> None:
+    deploy = (SYNOLOGY / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+    removal = deploy.index("label=com.docker.compose.service=redis")
+    assert removal < deploy.index('"${compose[@]}" up -d mariadb\n')
+    assert "--remove-orphans" not in deploy

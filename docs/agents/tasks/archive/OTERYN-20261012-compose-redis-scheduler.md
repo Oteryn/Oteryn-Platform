@@ -43,6 +43,8 @@ owned_paths:
   - .github/workflows/synology-production-target-preflight.yml
   - .github/workflows/recover-synology-staging-schema.yml
   - deploy/synology/README.md
+  - .github/workflows/character-bazaar-staging-validation.yml
+  - docs/operations/MARKETPLACE_STAGING_ENABLEMENT.md
   - deploy/synology/docker/platform.Dockerfile
   - docs/agents/tasks/archive/OTERYN-20261012-compose-redis-scheduler.md
 modules:
@@ -81,6 +83,8 @@ owned_paths:
   - .github/workflows/synology-production-target-preflight.yml
   - .github/workflows/recover-synology-staging-schema.yml
   - deploy/synology/README.md
+  - .github/workflows/character-bazaar-staging-validation.yml
+  - docs/operations/MARKETPLACE_STAGING_ENABLEMENT.md
   - deploy/synology/docker/platform.Dockerfile
   - docs/agents/tasks/archive/OTERYN-20261012-compose-redis-scheduler.md
 proven:
@@ -105,6 +109,8 @@ changed_paths:
   - .github/workflows/synology-production-target-preflight.yml
   - .github/workflows/recover-synology-staging-schema.yml
   - deploy/synology/README.md
+  - .github/workflows/character-bazaar-staging-validation.yml
+  - docs/operations/MARKETPLACE_STAGING_ENABLEMENT.md
   - deploy/synology/docker/platform.Dockerfile
   - deploy/synology/compose.yml
   - deploy/synology/compose.marketplace.yml
@@ -129,6 +135,8 @@ changed_paths:
   - .github/workflows/synology-production-target-preflight.yml
   - .github/workflows/recover-synology-staging-schema.yml
   - deploy/synology/README.md
+  - .github/workflows/character-bazaar-staging-validation.yml
+  - docs/operations/MARKETPLACE_STAGING_ENABLEMENT.md
   - deploy/synology/docker/platform.Dockerfile
   - docs/agents/tasks/archive/OTERYN-20261012-compose-redis-scheduler.md
 validation:

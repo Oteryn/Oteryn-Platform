@@ -719,6 +719,14 @@ for runtime_image in "$PLATFORM_IMAGE" "$GATEWAY_IMAGE"; do
     }
 done
 stage_bootstrap_files
+# One-time transition: a pre-existing staging stack still carries the retired Redis container
+# (restart: always, otherwise orphaned and surviving reboots). Remove only that service's container
+# by Compose ownership labels; its volume is kept and no orphan sweep is used.
+while IFS= read -r retired_redis_id; do
+    [[ -n "$retired_redis_id" ]] && docker rm -f "$retired_redis_id" >/dev/null
+done < <(docker ps -aq \
+    --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-oteryn-staging}" \
+    --filter "label=com.docker.compose.service=redis")
 "${compose[@]}" up -d mariadb
 "${compose[@]}" up -d --force-recreate tls-init
 

@@ -48,6 +48,14 @@ jobs:
           declare -a containers=()
           containers+=("$(resolve_one oteryn-organization-runners platform)")
           for service in mariadb platform internal-proxy gateway marketplace-scheduler; do
+            # One-time rollout: the scheduler is created by the next deployment, so a stack
+            # deployed before it became a base service legitimately has none yet.
+            if [[ "$service" == marketplace-scheduler ]] && [[ -z "$(docker ps -aq \
+                  --filter "label=com.docker.compose.project=oteryn-staging" \
+                  --filter "label=com.docker.compose.service=marketplace-scheduler")" ]]; then
+              echo "marketplace-scheduler is not created yet; the next deployment creates it."
+              continue
+            fi
             containers+=("$(resolve_one oteryn-staging "$service")")
           done
 

@@ -53,7 +53,7 @@ jobs:
             (.workFolder == "/work" or .workFolder == "_work")
           ' /runner/.runner >/dev/null
 
-          expected='mariadb platform gateway'
+          expected='mariadb platform gateway marketplace-scheduler'
           for service in $expected; do
             ids="$(docker ps -q \
               --filter "label=com.docker.compose.project=$EXPECTED_COMPOSE_PROJECT" \
@@ -67,6 +67,11 @@ jobs:
             --filter "label=com.docker.compose.project=$EXPECTED_COMPOSE_PROJECT" \
             --filter 'label=com.docker.compose.service=mariadb')"
           test "$(docker inspect "$mariadb_id" --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}')" = "healthy"
+
+          scheduler_id="$(docker ps -q \
+            --filter "label=com.docker.compose.project=$EXPECTED_COMPOSE_PROJECT" \
+            --filter 'label=com.docker.compose.service=marketplace-scheduler')"
+          test "$(docker inspect "$scheduler_id" --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}')" = "healthy"
 
       - name: Collect read-only diagnostics
         shell: bash

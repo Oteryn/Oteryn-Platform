@@ -7,7 +7,7 @@ Character Bazaar application behavior was delivered by PR #270. This runbook cov
 The package is fail-closed:
 
 - normal local, staging and production runtimes require explicit `MARKETPLACE_ENABLED=true`;
-- `deploy/synology/compose.marketplace.yml` adds the private scheduler without publishing a port;
+- `deploy/synology/compose.marketplace.yml` layers the public origin and the Marketplace switch onto the always-on private scheduler defined in `compose.yml` (no published port);
 - staging mutations run only through `.github/workflows/character-bazaar-staging-control.yml`;
 - production is excluded.
 
@@ -110,7 +110,7 @@ The scheduler shares Platform storage for mutex and logs, uses only the private 
 1. runs bounded reconciliation;
 2. rejects rollback while any `escrow_pending`, `active`, `settlement_pending`, `cancel_pending` or `recovery_required` auction exists;
 3. disables Marketplace routes;
-4. stops and removes the scheduler;
+4. recreates the always-on scheduler with Marketplace disabled (it keeps running for non-Marketplace scheduled work and is never removed);
 5. refreshes the internal proxy;
 6. verifies the route is absent.
 

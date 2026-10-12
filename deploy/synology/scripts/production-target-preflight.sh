@@ -183,14 +183,19 @@ persisted_gateway_image="${release_state[4]:-}"
 [[ "$gateway_source_sha" =~ ^[a-f0-9]{40}$ ]] || fail "persisted Gateway source SHA is invalid"
 [[ "$platform_image" == "$persisted_platform_image" ]] || fail "running Platform digest differs from current release state"
 [[ "$gateway_image" == "$persisted_gateway_image" ]] || fail "running Gateway digest differs from current release state"
+scheduler_image="$(docker inspect --format '{{.Config.Image}}' "${containers[marketplace-scheduler]}")"
+[[ "$scheduler_image" == "$persisted_platform_image" ]] || fail "running scheduler image differs from current Platform release state"
 
-for service in platform gateway; do
+for service in platform gateway marketplace-scheduler; do
     image_id="$(docker inspect --format '{{.Image}}' "${containers[$service]}")"
     [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]] || fail "$service image ID is not immutable"
 done
 
 platform_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$(docker inspect --format '{{.Image}}' "${containers[platform]}")")"
 gateway_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$(docker inspect --format '{{.Image}}' "${containers[gateway]}")")"
+scheduler_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$(docker inspect --format '{{.Image}}' "${containers[marketplace-scheduler]}")")"
+[[ "$scheduler_revision" == "$platform_source_sha" ]] \
+    || fail "scheduler OCI revision does not match persisted Platform source SHA"
 [[ "$platform_revision" == "$platform_source_sha" ]] \
     || fail "Platform OCI revision does not match persisted Platform source SHA"
 [[ "$gateway_revision" == "$gateway_source_sha" ]] \
