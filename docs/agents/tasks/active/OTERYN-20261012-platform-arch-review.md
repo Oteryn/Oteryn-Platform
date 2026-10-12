@@ -43,7 +43,7 @@ dependencies:
 blockers:
   - none
 cross_repository_tasks:
-  - none
+  - read-only inspection of Oteryn/Oteryn-Game under the owner's cross-repository coordination mandate, tracked in https://github.com/Oteryn/Oteryn-Game/issues/1622 (no Game change)
 ```
 
 ## Context checkpoint
