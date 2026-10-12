@@ -1057,6 +1057,20 @@ class PreflightPostgresTest(unittest.TestCase):
         ):
             self.assertIn(marker, self.postgres)
 
+    def test_restore_drill_cleanup_failure_fails_the_drill_instead_of_reporting_pass(self) -> None:
+        for engine_marker, end_marker in (
+            ("def drop_restore_database():", "def dump_command(database):"),
+            ("def drop_restore_databases():", "def dump_command(database):"),
+        ):
+            drop = self.preflight.split(engine_marker, 1)[1].split(end_marker, 1)[0]
+            self.assertNotRegex(drop, r"except subprocess\.CalledProcessError:\s*\n\s*pass")
+            self.assertIn("SystemExit", drop)
+            self.assertIn("may still hold Platform data", drop)
+        postgres = self.preflight.split("def drop_restore_database():", 1)[1].split("def dump_command(database):", 1)[0]
+        self.assertIn("FROM pg_database WHERE datname", postgres)
+        mariadb = self.preflight.split("def drop_restore_databases():", 1)[1].split("def dump_command(database):", 1)[0]
+        self.assertIn("information_schema.schemata", mariadb)
+
     def test_postgres_restore_drill_streams_into_a_scratch_database_and_always_drops_it(self) -> None:
         drill = self.preflight.split('if [[ "$run_restore_drill" == "true" && "$platform_db_engine" == postgres ]]; then', 1)[1]
         drill = drill.split('elif [[ "$run_restore_drill" == "true" ]]; then', 1)[0]

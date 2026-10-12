@@ -414,10 +414,16 @@ def psql(database, sql):
 
 
 def drop_restore_database():
+    # The scratch database holds a copy of Platform data: a failed drop, or a database that is still there
+    # afterwards, must fail the drill instead of being reported as PASS. IF EXISTS already makes a missing
+    # database harmless, so nothing here is ignored.
     try:
         psql('postgres', f'DROP DATABASE IF EXISTS "{target}" WITH (FORCE)')
+        remaining = psql('postgres', f"SELECT count(*) FROM pg_database WHERE datname = '{target}'").decode().strip()
     except subprocess.CalledProcessError:
-        pass
+        raise SystemExit('restore-drill scratch database could not be dropped; it may still hold Platform data')
+    if remaining != '0':
+        raise SystemExit('restore-drill scratch database still exists after the drop')
 
 
 def dump_command(database):
@@ -545,11 +551,23 @@ def quote_identifier(value):
 
 
 def drop_restore_databases():
+    # The scratch databases hold copies of Platform data: a failed drop, or a database that is still there
+    # afterwards, must fail the drill instead of being reported as PASS.
+    failed = False
     for target in restore_databases.values():
         try:
             docker_mysql('-e', f'DROP DATABASE IF EXISTS {quote_identifier(target)};')
+            remaining = docker_mysql(
+                '-N', '-B', '-e',
+                "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = '" + target.replace("'", "''") + "';",
+            ).decode().strip()
         except subprocess.CalledProcessError:
-            pass
+            failed = True
+            continue
+        if remaining != '0':
+            failed = True
+    if failed:
+        raise SystemExit('restore-drill scratch databases could not be dropped; they may still hold Platform data')
 
 
 def dump_command(database):
