@@ -27,6 +27,7 @@ This is a documentation-only change. It does not change code, configuration, sch
 
 - [x] Plan P3, P5 and P6 and plan §6 state the witness rule and the access gate consistently.
 - [x] ADR 0046 §8 and Reversal match the plan.
+- [x] The merged PR #1561 task record is archived as completed.
 - [x] No secret in the repository; no new legacy-token occurrence; baseline not raised.
 - [ ] Exact-head CI and Agent Governance gates pass.
 
@@ -38,6 +39,7 @@ owned_paths:
   - docs/architecture/adr/0046-platform-persistence-moves-to-postgresql.md
   - docs/agents/tasks/active/OTERYN-20261012-platform-postgres-plan-fixes.md
   - docs/agents/tasks/archive/OTERYN-20261012-platform-postgres-plan-fixes.md
+  - docs/agents/tasks/archive/OTERYN-20261012-platform-postgres-plan.md
 modules:
   - architecture-docs
   - operations-docs
@@ -66,6 +68,7 @@ owned_paths:
   - docs/architecture/adr/0046-platform-persistence-moves-to-postgresql.md
   - docs/agents/tasks/active/OTERYN-20261012-platform-postgres-plan-fixes.md
   - docs/agents/tasks/archive/OTERYN-20261012-platform-postgres-plan-fixes.md
+  - docs/agents/tasks/archive/OTERYN-20261012-platform-postgres-plan.md
 proven:
   - PR 1561 merged before two review findings on its last head were fixed
   - the Platform and Gateway publish host ports through PLATFORM_BIND_ADDRESS and GATEWAY_BIND_ADDRESS in deploy/synology/compose.yml
@@ -84,6 +87,7 @@ changed_paths:
   - docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md
   - docs/architecture/adr/0046-platform-persistence-moves-to-postgresql.md
   - docs/agents/tasks/active/OTERYN-20261012-platform-postgres-plan-fixes.md
+  - docs/agents/tasks/archive/OTERYN-20261012-platform-postgres-plan.md
 validation:
   - command: python3 tools/validation/adr_registry.py && python3 tools/validation/test_adr_registry.py; python3 tools/validation/legacy_token_ratchet.py; python3 tools/agents/checkpoint.py --tasks docs/agents/tasks/active --require-checkpoint; python3 tools/agents/documentation_ia.py
     result: PASS
