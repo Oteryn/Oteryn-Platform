@@ -367,7 +367,7 @@ case "$*" in
     *' ps -q gateway') echo gateway-1 ;;
     *' ps -q internal-mtls') printf '%s\\n' "${FAKE_MTLS-mtls-1}" ;;
     *' ps -q platform') echo platform-1 ;;
-    'inspect '*) echo GAME_AUTH_NATIVE_ADMISSION_ENABLED=false ;;
+    'inspect '*) echo "${FAKE_INSPECT-GAME_AUTH_NATIVE_ADMISSION_ENABLED=false}" ;;
 esac
 exit 0
 """
@@ -492,6 +492,118 @@ def test_preflight_validates_the_server_certificate_before_any_ingress_mutation(
     assert deploy.index(preflight_call) < deploy.index("\nfinalize_previous_candidate_if_healthy\n")
     rollback = ROLLBACK.read_text()
     assert rollback.index(preflight_call) < rollback.index("oteryn_native_admission_ingress_stop")
+
+
+ROUTE_SETTINGS = {
+    # Platform setting: (native-defaults.env name, fail-closed default)
+    "GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED": ("OTERYN_STAGING_NATIVE_EVIDENCE_ACTIVATED", "false"),
+    "GAME_AUTH_NATIVE_EVIDENCE_MTLS_CLIENT_IDENTITY": ("OTERYN_STAGING_NATIVE_EVIDENCE_MTLS_CLIENT_IDENTITY", ""),
+    "GAME_AUTH_NATIVE_EVIDENCE_FRESH_ACCOUNT_PURPOSE": ("OTERYN_STAGING_NATIVE_EVIDENCE_FRESH_ACCOUNT_PURPOSE", ""),
+    "GAME_AUTH_NATIVE_EVIDENCE_FRESH_ACCOUNT_SCOPE": ("OTERYN_STAGING_NATIVE_EVIDENCE_FRESH_ACCOUNT_SCOPE", ""),
+    "GAME_AUTH_NATIVE_EVIDENCE_CLOCK_UNCERTAINTY_SECONDS": ("OTERYN_STAGING_NATIVE_EVIDENCE_CLOCK_UNCERTAINTY_SECONDS", ""),
+    "GAME_AUTH_NATIVE_EVIDENCE_SOURCE_AUTHORITY": ("OTERYN_STAGING_NATIVE_EVIDENCE_SOURCE_AUTHORITY", "platform"),
+    "GAME_AUTH_NATIVE_EVIDENCE_REQUESTS_PER_MINUTE": ("OTERYN_STAGING_NATIVE_EVIDENCE_REQUESTS_PER_MINUTE", "120"),
+    "GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY": (
+        "OTERYN_STAGING_NATIVE_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY",
+        "",
+    ),
+    "GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS": ("OTERYN_STAGING_NATIVE_BOOTSTRAP_INTENT_TTL_SECONDS", ""),
+}
+PRINT_ROUTE_SETTINGS = "; ".join(f'printf "%s=%s\\n" {name} "${name}"' for name in ROUTE_SETTINGS)
+
+
+def test_game_node_route_settings_reach_platform_and_default_closed() -> None:
+    # Every setting Platform reads for the native-evidence and bootstrap-intent routes is mapped into
+    # the platform service (an unmapped one is always unset there, so the route always answers 503).
+    config = (ROOT / "config" / "game-auth.php").read_text()
+    read = set(re.findall(r"env\('((?:GAME_AUTH_NATIVE_EVIDENCE|GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT)_[A-Z_]+)'", config))
+    platform = _service_block(COMPOSE.read_text(), "platform")
+    mapped = set(re.findall(r"^      ((?:GAME_AUTH_NATIVE_EVIDENCE|GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT)_[A-Z_]+):", platform, re.M))
+    assert read and read == mapped, read ^ mapped
+    for name, (_, default) in ROUTE_SETTINGS.items():
+        assert f"      {name}: ${{{name}:-{default}}}\n" in platform, name
+    # The other Game-node routes: runtime status and scope assignment come from the rendered
+    # environment; account characters (and its watermark) stay pinned off (D171 fallback).
+    for name in ("RUNTIME_STATUS_ENABLED", "RUNTIME_STATUS_IDENTITIES", "SCOPE_ASSIGNMENT_ENABLED", "SCOPE_ASSIGNMENT_IDENTITIES"):
+        assert re.search(rf"^      GAME_AUTH_NATIVE_{name}: \$\{{GAME_AUTH_NATIVE_{name}:-(false|null)\}}$", platform, re.M), name
+    assert '      GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED: "false"\n' in platform
+
+    # Deploy inputs: the committed defaults keep both routes off and carry no identity yet.
+    values = dict(line.split("=", 1) for line in DEFAULTS.read_text().splitlines() if line and not line.startswith("#"))
+    assert values["OTERYN_STAGING_NATIVE_EVIDENCE_ACTIVATED"] == "false"
+    for _, (default_name, _) in ROUTE_SETTINGS.items():
+        assert values.get(default_name, "") in ("", "false"), default_name
+    result, _ = _run_lib(f"oteryn_resolve_game_node_route_settings || exit 1; {PRINT_ROUTE_SETTINGS}")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [f"{name}={default}" for name, (_, default) in ROUTE_SETTINGS.items()]
+    assert "oteryn_resolve_game_node_route_settings\n}" in LIB.read_text()  # load_oteryn_env_file runs it
+
+    # A committed value reaches Platform; the environment file (or caller) wins over it.
+    with tempfile.TemporaryDirectory() as tmp:
+        defaults = pathlib.Path(tmp) / "d.env"
+        defaults.write_text(
+            "OTERYN_STAGING_NATIVE_EVIDENCE_ACTIVATED=true\n"
+            "OTERYN_STAGING_NATIVE_EVIDENCE_MTLS_CLIENT_IDENTITY=CN=evidence-node\n"
+            "OTERYN_STAGING_NATIVE_BOOTSTRAP_INTENT_TTL_SECONDS=60\n"
+        )
+        result, _ = _run_lib(
+            f"oteryn_resolve_game_node_route_settings || exit 1; {PRINT_ROUTE_SETTINGS}",
+            OTERYN_NATIVE_DEFAULTS_FILE=str(defaults),
+            GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY="CN=bootstrap-node",
+        )
+    assert result.returncode == 0, result.stderr
+    resolved = dict(line.split("=", 1) for line in result.stdout.splitlines())
+    assert resolved["GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED"] == "true"
+    assert resolved["GAME_AUTH_NATIVE_EVIDENCE_MTLS_CLIENT_IDENTITY"] == "CN=evidence-node"
+    assert resolved["GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS"] == "60"
+    assert resolved["GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY"] == "CN=bootstrap-node"
+    assert resolved["GAME_AUTH_NATIVE_EVIDENCE_REQUESTS_PER_MINUTE"] == "120"
+
+    # Platform treats a non-boolean switch as a configuration error, so the run is refused.
+    result, calls = _run_lib("oteryn_resolve_game_node_route_settings", GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED="yes")
+    assert result.returncode == 1 and "must be true or false" in result.stderr and calls == []
+
+
+def test_every_fail_closed_removal_also_removes_the_listener() -> None:
+    lib = LIB.read_text()
+    remove = re.compile(r"^(\s*)(.*) rm -s -f gateway internal-proxy platform\b.*$", re.M)
+    found = 0
+    for match in remove.finditer(lib):
+        found += 1
+        before = lib[: match.start()].rstrip("\n").splitlines()[-1]
+        assert before.strip().startswith(f"oteryn_platform_mtls_remove_fail_closed {match.group(2)}"), before
+    assert found == 4
+    helper = re.search(r"^oteryn_platform_mtls_remove_fail_closed\(\) \{\n(.*?)^\}", lib, re.M | re.S).group(1)
+    assert '"$@" rm -s -f internal-mtls' in helper and "OTERYN_PLATFORM_MTLS_STOPPED_ID=''" in helper
+
+    removal = ["compose rm -s -f internal-mtls", "compose rm -s -f gateway internal-proxy platform"]
+    gates = {
+        "trust gate": ("oteryn_publish_native_admission_trust() { return 1; }; ", "oteryn_publish_native_admission_trust_or_stop", {}),
+        "self-check gate": (
+            "oteryn_run_native_admission_self_check() { return 1; }; ",
+            "oteryn_native_admission_self_check_or_stop",
+            {"FAKE_INSPECT": "GAME_AUTH_NATIVE_ADMISSION_ENABLED=true"},
+        ),
+    }
+    for label, (failing, gate, env) in gates.items():
+        # The ingress stop only stopped the listener; the failed gate removes it, and nothing starts it.
+        result, calls = _run_lib(
+            f"{failing}oteryn_native_admission_ingress_stop docker compose >/dev/null; "
+            f"! {gate} docker compose || exit 9; oteryn_native_admission_ingress_start",
+            OTERYN_PLATFORM_MTLS_ENABLED="true",
+            **env,
+        )
+        assert result.returncode == 0, (label, result.stderr)
+        assert "compose stop internal-mtls" in calls, label
+        assert calls[-2:] == removal, (label, calls)
+
+    # The failure restore whose ingress stop failed.
+    result, calls = _run_lib(
+        "oteryn_native_admission_ingress_stop() { return 1; }; ! oteryn_restore_previous_platform_behind_trust_gate t || exit 9",
+        ENV_FILE="e", COMPOSE_FILE="c",
+    )
+    assert result.returncode == 0, result.stderr
+    assert calls == [f"compose --env-file e -f c {c.removeprefix('compose ')}" for c in removal]
 
 
 def main() -> None:

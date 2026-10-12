@@ -105,6 +105,21 @@ services:
       # and route commands (preproduction-store mode, allowlisted store and configured World only).
       GAME_AUTH_NATIVE_ROUTE_PREPRODUCTION_STORE_ENABLED: ${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}
       OTERYN_PLATFORM_FASTCGI_ENABLED: *internal_mtls_enabled
+      # Game-node routes behind internal-mtls (README: Platform internal mTLS listener). lib.sh
+      # oteryn_resolve_game_node_route_settings resolves each from the environment file, then
+      # native-defaults.env; the fail-closed defaults here (not activated, no client identity, no
+      # binding, no TTL) make Platform answer native-evidence and character-bootstrap-intents/read
+      # 503. Rate limit and source authority mirror the Platform config defaults, because an empty
+      # value would replace them.
+      GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED: ${GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED:-false}
+      GAME_AUTH_NATIVE_EVIDENCE_MTLS_CLIENT_IDENTITY: ${GAME_AUTH_NATIVE_EVIDENCE_MTLS_CLIENT_IDENTITY:-}
+      GAME_AUTH_NATIVE_EVIDENCE_FRESH_ACCOUNT_PURPOSE: ${GAME_AUTH_NATIVE_EVIDENCE_FRESH_ACCOUNT_PURPOSE:-}
+      GAME_AUTH_NATIVE_EVIDENCE_FRESH_ACCOUNT_SCOPE: ${GAME_AUTH_NATIVE_EVIDENCE_FRESH_ACCOUNT_SCOPE:-}
+      GAME_AUTH_NATIVE_EVIDENCE_CLOCK_UNCERTAINTY_SECONDS: ${GAME_AUTH_NATIVE_EVIDENCE_CLOCK_UNCERTAINTY_SECONDS:-}
+      GAME_AUTH_NATIVE_EVIDENCE_SOURCE_AUTHORITY: ${GAME_AUTH_NATIVE_EVIDENCE_SOURCE_AUTHORITY:-platform}
+      GAME_AUTH_NATIVE_EVIDENCE_REQUESTS_PER_MINUTE: ${GAME_AUTH_NATIVE_EVIDENCE_REQUESTS_PER_MINUTE:-120}
+      GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY: ${GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY:-}
+      GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS: ${GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS:-}
     ports:
       - ${PLATFORM_BIND_ADDRESS}:${PLATFORM_PORT}:8000
     volumes:

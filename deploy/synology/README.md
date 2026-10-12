@@ -210,6 +210,20 @@ The nginx master reads the key as root before dropping privileges, so 0600 root-
 
 Client identities: the subject DN Platform compares is nginx's RFC 2253 form, for example `CN=oteryn-preprod-character-projection`. Each route's allowlist is its own Platform setting (`GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES`, `GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES`, `GAME_AUTH_NATIVE_EVIDENCE_MTLS_CLIENT_IDENTITY`, `GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_IDENTITIES`, ...); a certificate the CA accepts but no allowlist names is refused by Platform.
 
+Route settings per Game-node route (Platform answers 503 while a route's settings are incomplete):
+
+| Route | Platform settings | Staging state |
+| --- | --- | --- |
+| `native-runtime-status` | `GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED`, `GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES` | rendered by the deploy workflow from `native-defaults.env` |
+| `native-scope-assignments` | `GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_ENABLED`, `GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES` | rendered by the deploy workflow from `native-defaults.env` |
+| `native-account-characters`, `native-account-characters/watermark` | `GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_*` | pinned off in `compose.yml` (D171 fallback, see below) |
+| `native-evidence` | `GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED`, `_MTLS_CLIENT_IDENTITY`, `_FRESH_ACCOUNT_PURPOSE`, `_FRESH_ACCOUNT_SCOPE`, `_CLOCK_UNCERTAINTY_SECONDS` (0..5), `_SOURCE_AUTHORITY` (default `platform`), `_REQUESTS_PER_MINUTE` (default `120`) | not configured (off) |
+| `character-bootstrap-intents/read` | `GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY`, `GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS` (1..300) | not configured (off) |
+
+The deploy workflow does not render the native-evidence and bootstrap-intent settings, so `lib.sh` `oteryn_resolve_game_node_route_settings` resolves each from the environment file or exported variable, else `native-defaults.env` (`OTERYN_STAGING_NATIVE_EVIDENCE_*`, `OTERYN_STAGING_NATIVE_BOOTSTRAP_INTENT_*`), else the fail-closed built-in (not activated, empty identity, binding and TTL; source authority and rate limit mirror the Platform config defaults, because an empty value would replace them). A value other than `true` or `false` for the activation switch refuses the run before any stack change. Turning a route on is a reviewed change to `native-defaults.env` that names the issued client certificate's subject DN, distinct from every other route's identity.
+
+Fail closed: every gate failure that removes Platform, the internal proxy and the Gateway (trust gate, self-check gate, Marketplace runtime recreation, failure restore) first removes `internal-mtls` as well (`lib.sh` `oteryn_platform_mtls_remove_fail_closed`), so a listener the ingress stop only stopped cannot come back through `restart: always` in front of an unproven Platform. The next deploy recreates it behind the gates.
+
 Native account-character push from the Game node is documented here but not switched on by this package. Enabling it is a separate change that sets, on Platform:
 
 ```text

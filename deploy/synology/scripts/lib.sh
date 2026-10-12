@@ -68,6 +68,42 @@ load_oteryn_env_file() {
     fi
 
     oteryn_resolve_platform_mtls_settings
+    oteryn_resolve_game_node_route_settings
+}
+
+# Platform settings of the Game-node routes behind the mTLS listener that compose.yml maps into the
+# platform service (native evidence, character bootstrap intents; README: Platform internal mTLS
+# listener). The deploy workflow renders the environment file from a fixed key list without them, so
+# each comes from the environment file (or the caller's environment) when set, otherwise from the
+# committed non-secret OTERYN_STAGING_NATIVE_* value in deploy/synology/native-defaults.env, otherwise
+# a fail-closed built-in: not activated, no client identity, no binding, no TTL, so Platform answers
+# both routes 503. Rate limit and source authority mirror the Platform config defaults (an empty
+# value would replace them). Client identities are certificate subject names, never secrets.
+oteryn_resolve_game_node_route_settings() {
+    local pair name default_name fallback value
+    for pair in \
+        GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED:EVIDENCE_ACTIVATED:false \
+        GAME_AUTH_NATIVE_EVIDENCE_MTLS_CLIENT_IDENTITY:EVIDENCE_MTLS_CLIENT_IDENTITY: \
+        GAME_AUTH_NATIVE_EVIDENCE_FRESH_ACCOUNT_PURPOSE:EVIDENCE_FRESH_ACCOUNT_PURPOSE: \
+        GAME_AUTH_NATIVE_EVIDENCE_FRESH_ACCOUNT_SCOPE:EVIDENCE_FRESH_ACCOUNT_SCOPE: \
+        GAME_AUTH_NATIVE_EVIDENCE_CLOCK_UNCERTAINTY_SECONDS:EVIDENCE_CLOCK_UNCERTAINTY_SECONDS: \
+        GAME_AUTH_NATIVE_EVIDENCE_SOURCE_AUTHORITY:EVIDENCE_SOURCE_AUTHORITY:platform \
+        GAME_AUTH_NATIVE_EVIDENCE_REQUESTS_PER_MINUTE:EVIDENCE_REQUESTS_PER_MINUTE:120 \
+        GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY:BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY: \
+        GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS:BOOTSTRAP_INTENT_TTL_SECONDS:; do
+        name="${pair%%:*}"
+        default_name="OTERYN_STAGING_NATIVE_$(cut -d: -f2 <<<"$pair")"
+        fallback="${pair#*:*:}"
+        value="$(oteryn_native_default "$default_name" "${!name:-}")" || return 1
+        printf -v "$name" '%s' "${value:-$fallback}"
+        export "${name?}"
+    done
+    # Platform reads anything but a boolean here as a configuration error, also when it revokes an
+    # identity's game authorizations, so a malformed switch refuses the run before any stack change.
+    case "$GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED" in
+        true|false) ;;
+        *) echo "GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED must be true or false." >&2; return 1 ;;
+    esac
 }
 
 # Platform internal mTLS listener for the Game node (compose.yml internal-mtls, README: Platform
@@ -732,6 +768,7 @@ _oteryn_recreate_marketplace_runtime() {
         return 0
     fi
     echo "Marketplace runtime recreation failed; removing the Platform, internal proxy and Gateway containers (fail closed)." >&2
+    oteryn_platform_mtls_remove_fail_closed "${marketplace_compose[@]}"
     "${marketplace_compose[@]}" rm -s -f gateway internal-proxy platform >&2 || true
     return 1
 }
@@ -1223,6 +1260,20 @@ oteryn_native_admission_ingress_stop() {
     ((${#running[@]} == 0)) || printf '%s\n' "${running[@]}"
 }
 
+# Fail-closed companion of oteryn_native_admission_ingress_stop: oteryn_platform_mtls_remove_fail_closed
+# <compose command words>. Every gate failure that removes Platform, the internal proxy and Gateway
+# calls it first, so the Game-node mTLS listener the ingress stop only stopped is removed too (a
+# stopped container with `restart: always` would come back on the next Docker daemon or NAS restart,
+# in front of a Platform that never passed the gates). Whatever the setting, a no-op when there is
+# no listener; the kept id is dropped, so nothing later starts a removed container. Best effort: the
+# caller fails closed either way, and the next deploy recreates the listener only behind the gates.
+oteryn_platform_mtls_remove_fail_closed() {
+    OTERYN_PLATFORM_MTLS_STOPPED_ID=''
+    "$@" rm -s -f internal-mtls >&2 || \
+        echo "Unable to remove the Game-node mTLS listener after a failed gate." >&2
+    return 0
+}
+
 # Starts the given ingress container ids again (the output of oteryn_native_admission_ingress_stop,
 # or a route's preserved ids), and the Game-node mTLS listener this shell's ingress stop kept.
 # Only call it after the trust gate passed.
@@ -1248,6 +1299,7 @@ oteryn_publish_native_admission_trust_or_stop() {
         return 0
     fi
     echo "Native admission trust gate failed; removing the Platform, internal proxy and Gateway containers (fail closed)." >&2
+    oteryn_platform_mtls_remove_fail_closed "$@"
     "$@" rm -s -f gateway internal-proxy platform >&2 || \
         echo "Unable to remove Platform, internal proxy and Gateway after the failed trust gate." >&2
     return 1
@@ -1274,6 +1326,7 @@ oteryn_native_admission_self_check_or_stop() {
         return 0
     fi
     echo "Native admission self-check gate failed; removing the Platform, internal proxy and Gateway containers (fail closed)." >&2
+    oteryn_platform_mtls_remove_fail_closed "$@"
     "$@" rm -s -f gateway internal-proxy platform >&2 || \
         echo "Unable to remove Platform, internal proxy and Gateway after the failed self-check gate." >&2
     return 1
@@ -1288,6 +1341,7 @@ oteryn_restore_previous_platform_behind_trust_gate() {
     local label="$1"
     local -a base=(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
     if ! oteryn_native_admission_ingress_stop "${base[@]}" >/dev/null 2>&1; then
+        oteryn_platform_mtls_remove_fail_closed "${base[@]}" 2>/dev/null
         "${base[@]}" rm -s -f gateway internal-proxy platform >/dev/null 2>&1 || true
         echo "$label could not stop the internal proxy and Gateway; it removed the runtime containers (fail closed)." >&2
         return 1

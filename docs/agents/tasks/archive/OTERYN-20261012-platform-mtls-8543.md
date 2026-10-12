@@ -96,10 +96,13 @@ proven:
   - Further P1s in this area after this round go to the named follow-up D282, unless they are a real regression (coordinator).
   - Codex P1s on #1570 (head c576b672), fixed at the root on coordinator direction. (1) The shared ingress stop (lib.sh oteryn_native_admission_ingress_stop) stops internal-mtls while the listener is on, so all ten call sites are covered. These are deploy.sh fast, candidate and full; rollback.sh; deploy-impact.sh reconcile; key promotion; marketplace-staging.sh enable and prepare-rollback; the Marketplace runtime recreation; and the failure restore. The listener comes back only behind the gates: with ingress_start, at the final self-check, or through the listener reconcile. A contract test enumerates the callers and checks that order. (2) The shared preflight now validates the server certificate before any ingress mutation. A no-network container runs an in-memory TLS 1.3 handshake, trusting only the mounted CA, with the expected name. Local check with scratch PKI: a valid set passed; a wrong key, wrong CA, wrong SAN, expired certificate, client-only EKU and missing file were each refused.
   - Codex P1 4248020832 on #1570 (head e90df338): while the setting is off, the shared ingress stop now removes any existing internal-mtls (a no-op when there is none). A listener left from a true-to-false switch therefore cannot outlive a Platform-only replacement (deploy-impact.sh, marketplace staging). The separate unconditional stop in deploy.sh and rollback.sh is gone. The fake docker and two call-list assertions in tests/ci/test_synology_native_admission_trust_publication.py were updated for the new command. The coordinator widened the owned paths to that file for this fix only.
+  - Codex P1 4248164960 on #1570 (head 137660fd): compose.yml now maps every setting Platform reads for native-evidence and character-bootstrap-intents/read into the platform service, with fail-closed defaults (not activated, empty identity, binding and TTL; source authority and rate limit mirror the config defaults). The deploy workflow does not render them, so lib.sh oteryn_resolve_game_node_route_settings (run by load_oteryn_env_file) resolves each from the environment file, then native-defaults.env, then the built-in, and refuses a non-boolean activation switch. The contract test checks that the mapped set equals the env() names in config/game-auth.php. Review of the other four Game-node routes: runtime-status and scope-assignment are mapped and rendered; account-characters and its watermark stay pinned off by the D171 fallback (#1544).
+  - Codex P2 4248164970 on #1570: every lib.sh fail-closed removal (trust gate, self-check gate, Marketplace runtime recreation, failure restore) first runs oteryn_platform_mtls_remove_fail_closed, which removes internal-mtls and drops the kept id, so a listener the ingress stop only stopped cannot return through restart: always.
   - The Compose profile keeps the bind-mounted service out of the default render, so the CI "no bind mounts" render check passes.
 derived:
   - Coordinator answers 2026-10-12. (2) ssl_verify_depth 1 is correct because Game client certificates are issued directly by the preprod root (pathlen 0, no intermediates). (3) The listener stays on by default for staging. (4) The commit trailer names Opus 5.5 where the packet said Sonnet 5.5; the deviation is accepted and recorded.
   - A tls-init rotation cannot affect this listener because none of its files come from the internal_tls volume.
+  - Out of scope, for synology-mtls-hardening: generate-native-admission-key.sh promote_fail_closed (not an owned path) still removes only Platform, the internal proxy and Gateway; the deploy workflows have no repository-variable inputs for the native-evidence and bootstrap-intent settings (native-defaults.env is the input); turning account-characters on is a separate change.
 unknown:
   - Behaviour on the real Synology host with the operator's files; the first deploy after merge proves it through health-check.sh.
 conflicts: []
@@ -128,7 +131,7 @@ changed_paths:
 validation:
   - command: python3 deploy/synology/tests/test_platform_mtls_contract.py
     result: PASS
-    evidence: 17 tests
+    evidence: 19 tests
   - command: CI-listed Synology python tests and container_supply_chain validate-repository
     result: PASS
     evidence: all pass, rc 0
