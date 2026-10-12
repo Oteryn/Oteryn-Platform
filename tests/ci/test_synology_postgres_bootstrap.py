@@ -234,6 +234,35 @@ class StaticBootstrapTest(BootstrapCase):
         self.assertIn("Nothing was changed.", result.stderr)
         self.assertFalse(self.witness_dir.exists())
 
+    def test_state_directory_link_is_refused_before_chmod(self) -> None:
+        target = self.temp / "unrelated"
+        target.mkdir(mode=0o755)
+        self.state_dir.symlink_to(target)
+        self.assert_refused(self.bootstrap("record-witness", "--local"), "not a link")
+        self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o755)
+
+    def test_invalid_world_options_are_refused_before_any_change(self) -> None:
+        reason = platform_unavailable_reason()
+        if reason is not None:
+            self.skipTest(reason)
+        env = self.base_env(DB_CONNECTION="sqlite", DB_DATABASE=":memory:")
+        self.assertEqual(self.bootstrap("record-witness", "--local", env=env).returncode, 0)
+        cases = {
+            "GAME_WORLD_ID": ("0", "abc", "-1"),
+            "GAME_WORLD_PORT": ("abc", "0", "65536", "99999"),
+            "GAME_WORLD_SLUG": ("Oteryn", "-oteryn", "a" * 65),
+            "GAME_WORLD_NAME": ("n" * 101,),
+            "GAME_WORLD_REGION": ("EU West", "r" * 33),
+            "GAME_WORLD_HOST": ("https://game.oteryn.invalid", "game.oteryn.invalid/path", "-bad.invalid"),
+        }
+        for name, values in cases.items():
+            for value in values:
+                with self.subTest(name=name, value=value):
+                    result = self.bootstrap("run", "--local", env=self.base_env(
+                        DB_CONNECTION="sqlite", DB_DATABASE=":memory:", **{name: value}))
+                    self.assert_refused(result, f"{name} must")
+                    self.assertFalse(self.witness_dir.exists())
+
 
 class LiveBootstrapCase(BootstrapCase):
     def setUp(self) -> None:

@@ -80,6 +80,9 @@ else
 fi
 
 [[ "$state_dir" == /* ]] || refuse "the bootstrap state directory must be an absolute path."
+# Reject a link before mkdir/chmod can follow it and change an unrelated directory.
+[[ ! -L "$state_dir" ]] \
+    || refuse "the bootstrap state directory $state_dir must be an owner-only directory, not a link."
 mkdir -p -- "$state_dir"
 chmod 700 -- "$state_dir"
 [[ -d "$state_dir" && ! -L "$state_dir" && -O "$state_dir" ]] \
@@ -465,6 +468,36 @@ fi
 for name in GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT; do
     [[ -n "${!name:-}" ]] || reasons+=("$name is not set (World Registry row for game-auth:world:ensure).")
 done
+# The same constraints as App\Console\Commands\EnsureGameWorld, checked before any trust
+# publication: step 6 would otherwise reject a bad value after the first witnessed write.
+if [[ -n "${GAME_WORLD_ID:-}" ]]; then
+    [[ "$GAME_WORLD_ID" =~ ^[1-9][0-9]*$ ]] \
+        || reasons+=("GAME_WORLD_ID must be a positive integer.")
+fi
+if [[ -n "${GAME_WORLD_PORT:-}" ]]; then
+    { [[ "$GAME_WORLD_PORT" =~ ^[1-9][0-9]{0,4}$ ]] && (( 10#$GAME_WORLD_PORT <= 65535 )); } \
+        || reasons+=("GAME_WORLD_PORT must be an integer from 1 to 65535.")
+fi
+if [[ -n "${GAME_WORLD_SLUG:-}" ]]; then
+    [[ "$GAME_WORLD_SLUG" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] \
+        || reasons+=("GAME_WORLD_SLUG must be 1 to 64 lower-case letters, digits and hyphens, not starting with a hyphen.")
+fi
+if [[ -n "${GAME_WORLD_NAME:-}" ]]; then
+    (( ${#GAME_WORLD_NAME} <= 100 )) \
+        || reasons+=("GAME_WORLD_NAME must be at most 100 characters.")
+fi
+if [[ -n "${GAME_WORLD_REGION:-}" ]]; then
+    [[ "$GAME_WORLD_REGION" =~ ^[A-Za-z0-9_-]{1,32}$ ]] \
+        || reasons+=("GAME_WORLD_REGION must be a simple 1 to 32 character label of letters, digits, underscores and hyphens.")
+fi
+if [[ -n "${GAME_WORLD_HOST:-}" ]]; then
+    host_label='[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?'
+    if (( ${#GAME_WORLD_HOST} > 255 )) \
+        || ! { [[ "$GAME_WORLD_HOST" =~ ^${host_label}(\.${host_label})*\.?$ ]] \
+            || [[ "$GAME_WORLD_HOST" =~ ^[0-9A-Fa-f:.]+$ && "$GAME_WORLD_HOST" == *:* ]]; }; then
+        reasons+=("GAME_WORLD_HOST must be an IPv4/IPv6 address or DNS hostname without a scheme or path.")
+    fi
+fi
 case "${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}" in
     true)
         [[ "${OTERYN_NATIVE_CHANNEL_KEY:-}" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] \
