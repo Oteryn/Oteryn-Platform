@@ -88,6 +88,7 @@ proven:
   - In the same smoke, native-admissions, encoded paths, premium and /health returned 404. GET returned 403, no certificate or a rogue CA returned 400, TLS 1.2 was refused, and Platform down returned 502.
   - The Compose profile keeps the bind-mounted service out of the default render, so the CI "no bind mounts" render check passes.
 derived:
+  - Coordinator answers 2026-10-12. (2) ssl_verify_depth 1 is correct because Game client certificates are issued directly by the preprod root (pathlen 0, no intermediates). (3) The listener stays on by default for staging. (4) The commit trailer names Opus 5.5 where the packet said Sonnet 5.5; the deviation is accepted and recorded.
   - A tls-init rotation cannot affect this listener because none of its files come from the internal_tls volume.
 unknown:
   - Behaviour on the real Synology host with the operator's files; the first deploy after merge proves it through health-check.sh.
@@ -128,7 +129,7 @@ validation:
     evidence: no group above baseline
 blockers:
   - none
-next_action: none; CI and review are with the lead. The new contract test still needs workflow wiring (control-plane follow-up).
+next_action: "named follow-up synology-mtls-contract-test-ci-wiring (control plane, coordinator answer 1 on 2026-10-12): run deploy/synology/tests/test_platform_mtls_contract.py in build-synology-staging-images.yml and synology-rollback-contract.yml"
 ```
 
 ## Source branch closeout
