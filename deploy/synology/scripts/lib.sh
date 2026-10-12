@@ -1367,8 +1367,10 @@ oteryn_restore_previous_platform_behind_trust_gate() {
         return 1
     fi
     local rc=0
-    # With the Game-node mTLS listener kept by the ingress stop (the route's own or the one above).
-    { "${base[@]}" up -d --no-deps internal-proxy gateway && oteryn_native_admission_ingress_start; } >/dev/null 2>&1 || {
+    # The Game-node mTLS listener is reconciled, not just started: a failed forward gate may already
+    # have removed it (oteryn_platform_mtls_remove_fail_closed), leaving no kept id and no container.
+    # Recreated while the setting is on, removed while it is off.
+    { "${base[@]}" up -d --no-deps internal-proxy gateway && oteryn_reconcile_platform_mtls "${base[@]}"; } >/dev/null 2>&1 || {
         echo "$label could not start the internal proxy, Gateway and Game-node mTLS listener." >&2
         rc=1
     }

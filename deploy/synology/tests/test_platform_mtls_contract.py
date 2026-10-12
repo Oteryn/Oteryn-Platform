@@ -606,6 +606,34 @@ def test_every_fail_closed_removal_also_removes_the_listener() -> None:
     assert calls == [f"compose --env-file e -f c {c.removeprefix('compose ')}" for c in removal]
 
 
+
+def test_failure_restore_recreates_the_listener_a_failed_forward_gate_removed() -> None:
+    # The forward trust gate failed: its fail-closed removal took internal-mtls away and dropped the
+    # kept id. The EXIT-trap restore must bring the listener back for the restored Platform, not
+    # report success with the Game node unreachable.
+    script = (
+        "oteryn_platform_mtls_fingerprint() { echo f; }; "
+        "_oteryn_reconcile_marketplace_scheduler_after_runtime_change() { :; }; "
+        "oteryn_publish_native_admission_trust() { return 1; }; "
+        "oteryn_native_admission_ingress_stop docker compose >/dev/null; "
+        "! oteryn_publish_native_admission_trust_or_stop docker compose || exit 9; "
+        "oteryn_publish_native_admission_trust() { return 0; }; "
+        "oteryn_restore_previous_platform_behind_trust_gate restore"
+    )
+    recreate = "compose --env-file e -f c up -d --no-deps --force-recreate internal-mtls"
+    result, calls = _run_lib(script, OTERYN_PLATFORM_MTLS_ENABLED="true", ENV_FILE="e", COMPOSE_FILE="c")
+    assert result.returncode == 0, result.stderr
+    assert "compose rm -s -f internal-mtls" in calls
+    assert recreate in calls
+    assert calls.index(recreate) > calls.index("compose --env-file e -f c up -d --no-deps internal-proxy gateway")
+    assert not [c for c in calls if c.startswith("start ")], calls
+
+    # With the setting off the restore removes any listener and recreates none.
+    result, calls = _run_lib(script, OTERYN_PLATFORM_MTLS_ENABLED="false", ENV_FILE="e", COMPOSE_FILE="c")
+    assert result.returncode == 0, result.stderr
+    assert recreate not in calls and calls[-1] == "compose --env-file e -f c rm -s -f internal-mtls"
+
+
 def main() -> None:
     tests = [
         value

@@ -99,6 +99,7 @@ proven:
   - Codex P1 4248164960 on #1570 (head 137660fd): compose.yml now maps every setting Platform reads for native-evidence and character-bootstrap-intents/read into the platform service, with fail-closed defaults (not activated, empty identity, binding and TTL; source authority and rate limit mirror the config defaults). The deploy workflow does not render them, so lib.sh oteryn_resolve_game_node_route_settings (run by load_oteryn_env_file) resolves each from the environment file, then native-defaults.env, then the built-in, and refuses a non-boolean activation switch. The contract test checks that the mapped set equals the env() names in config/game-auth.php. Review of the other four Game-node routes: runtime-status and scope-assignment are mapped and rendered; account-characters and its watermark stay pinned off by the D171 fallback (#1544).
   - Codex P2 4248164970 on #1570: every lib.sh fail-closed removal (trust gate, self-check gate, Marketplace runtime recreation, failure restore) first runs oteryn_platform_mtls_remove_fail_closed, which removes internal-mtls and drops the kept id, so a listener the ingress stop only stopped cannot return through restart: always.
   - Merge of origin/main 54c7850d (#1566 Redis removal, scheduler always on): deploy.sh keeps both sides. The listener preflight runs before the retired-Redis removal, and the listener reconcile runs before the always-on scheduler start, both on the candidate path and on the main path. README no longer lists Redis among the networks the terminator cannot reach.
+  - Codex P1 4248506922 on #1570 (head 5d1804c0): a failed forward trust gate removes internal-mtls and clears the kept id before the EXIT-trap restore, so the restore's plain ingress start had nothing to start. The restore helper now runs oteryn_reconcile_platform_mtls after its trust gate: the listener is recreated while the setting is on and removed while it is off. A contract test covers both cases.
   - The Compose profile keeps the bind-mounted service out of the default render, so the CI "no bind mounts" render check passes.
 derived:
   - Coordinator answers 2026-10-12. (2) ssl_verify_depth 1 is correct because Game client certificates are issued directly by the preprod root (pathlen 0, no intermediates). (3) The listener stays on by default for staging. (4) The commit trailer names Opus 5.5 where the packet said Sonnet 5.5; the deviation is accepted and recorded.
@@ -132,7 +133,7 @@ changed_paths:
 validation:
   - command: python3 deploy/synology/tests/test_platform_mtls_contract.py
     result: PASS
-    evidence: 19 tests
+    evidence: 20 tests
   - command: CI-listed Synology python tests and container_supply_chain validate-repository
     result: PASS
     evidence: all pass, rc 0
