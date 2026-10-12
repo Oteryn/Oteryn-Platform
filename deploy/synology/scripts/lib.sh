@@ -934,6 +934,19 @@ _oteryn_contract_from_platform_image() {
     printf '%s\t%s\t%s\t%s\n' "$policy" "$schema" "$accepts" "$engine"
 }
 
+# Refuses a Platform image whose release contract declares another database engine than the deploy engine
+# (the same rule deploy.sh applies to a candidate), so a rollback never recreates a MariaDB-contract image
+# against the PostgreSQL schema or the reverse. Usage: oteryn_require_image_db_engine <platform image>
+oteryn_require_image_db_engine() {
+    local contract image_engine
+    contract="$(_oteryn_contract_from_platform_image "$1")" || return 1
+    IFS=$'\t' read -r _ _ _ image_engine <<<"$contract" || return 1
+    [[ "$image_engine" == "${OTERYN_PLATFORM_DB_ENGINE:-}" ]] || {
+        echo "Platform image database engine (${image_engine:-unset}) differs from the deploy engine (${OTERYN_PLATFORM_DB_ENGINE:-unset}); refusing." >&2
+        return 1
+    }
+}
+
 _oteryn_load_candidate_contract() {
     local contract
     contract="$(_oteryn_contract_from_platform_image "$PLATFORM_IMAGE")" || return 1

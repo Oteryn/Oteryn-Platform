@@ -181,6 +181,16 @@ class ComposeServiceTest(unittest.TestCase):
             self.assertIn(marker, grants)
         self.assertLess(preflight.index("the PostgreSQL role grants drifted"), preflight.index('postgres_tls_and_roles="PASS"'))
 
+    def test_rollback_checks_the_last_good_image_engine_before_any_mutation(self) -> None:
+        rollback = (DEPLOY.parent / "rollback.sh").read_text()
+        guard = rollback.index('oteryn_require_image_db_engine "$PLATFORM_IMAGE"')
+        self.assertGreater(guard, rollback.index('source "$last_good_file"'))
+        for stop in ("rollback_env=", "trap cleanup", "compose=(", "stop "):
+            self.assertLess(guard, rollback.index(stop), stop)
+        helper = LIB.read_text().split("oteryn_require_image_db_engine() {", 1)[1].split("\n}\n", 1)[0]
+        self.assertIn('[[ "$image_engine" == "${OTERYN_PLATFORM_DB_ENGINE:-}" ]]', helper)
+        self.assertIn("_oteryn_contract_from_platform_image", helper)
+
     def test_mutating_scripts_require_all_secrets_on_the_postgres_engine_before_any_change(self) -> None:
         lib = LIB.read_text()
         helper = lib.split("oteryn_require_postgres_secrets_for_engine() {", 1)[1].split("\n}\n", 1)[0]

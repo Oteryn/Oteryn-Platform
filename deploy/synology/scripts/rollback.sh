@@ -45,6 +45,9 @@ for name in RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA PLATFORM_IMAGE GA
     [[ -n "${!name:-}" ]] || { echo "Rollback configuration is incomplete: $name" >&2; exit 1; }
 done
 
+# The last-good image must declare the current database engine, checked before anything is stopped.
+oteryn_require_image_db_engine "$PLATFORM_IMAGE" || { echo "Rollback rejected: the last-good Platform image does not match the deploy database engine." >&2; exit 1; }
+
 OTERYN_RELEASE_SHA="$RELEASE_SHA"
 GATEWAY_VERSION="sha-$GATEWAY_SOURCE_SHA"
 export OTERYN_RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA PLATFORM_IMAGE GATEWAY_IMAGE GATEWAY_VERSION
