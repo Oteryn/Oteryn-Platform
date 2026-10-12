@@ -23,7 +23,7 @@ Packet P1 of the Platform PostgreSQL migration plan (PR #1561). Stage A: add a n
 - [x] `config/database.php` has a `pgsql` connection read from the environment; defaults unchanged.
 - [x] Wallet and bid concurrency tests pass on PostgreSQL and fail when `lockForUpdate` is removed locally (negative check; not committed).
 - [x] The new tests skip on sqlite and the existing MariaDB job.
-- [ ] Exact-head CI passes and the probe output is recorded in the PR body.
+- [x] Exact-head CI passes and the probe output is recorded in the PR body.
 
 ## Ownership
 
@@ -56,10 +56,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-12T10:45:00Z
-head: UNKNOWN
+head: 1ac13b292d242cbd10cd6c95ffeac5e524e52d15
 branch: claude/platform-pg-ci-probe-20261012
 pr: 1563
-status: validating
+status: completed
 context_routes:
   - ci-workflows
   - database
@@ -102,15 +102,15 @@ validation:
     evidence: local run against the ci-pgsql-probe artifact
 blockers:
   - none
-next_action: Read the platform-postgres artifact on the exact head, hand the failing list to P2, then archive this record when stage B lands.
+next_action: none; PR #1563 merged as 6ebfbb38 and this record is archived. The platform-postgres failing list is the work queue for P2.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository PR
-source_branch_evidence: pending
+source_branch_reason: PR #1563 is terminal and the same-repository implementation branch has no durable post-merge purpose.
+source_branch_evidence: PR #1563 merged from exact head 1ac13b292d242cbd10cd6c95ffeac5e524e52d15 and live branch lookup confirms claude/platform-pg-ci-probe-20261012 is absent.
 ```
 
 ## Notes
