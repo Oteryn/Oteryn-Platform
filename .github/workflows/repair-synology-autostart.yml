@@ -27,6 +27,13 @@ jobs:
     steps:
       - name: Set persistent services to always restart
         shell: bash
+        env:
+          # Presence only, never printed: the durable desired-state signal for the idle PostgreSQL service.
+          PLATFORM_POSTGRES_SUPERUSER_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_SUPERUSER_PASSWORD }}
+          PLATFORM_POSTGRES_OWNER_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_OWNER_PASSWORD }}
+          PLATFORM_POSTGRES_APP_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_APP_PASSWORD }}
+          PLATFORM_POSTGRES_BACKUP_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_BACKUP_PASSWORD }}
+          PLATFORM_POSTGRES_DUMP_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_DUMP_PASSWORD }}
         run: |
           set -Eeuo pipefail
 
@@ -58,12 +65,19 @@ jobs:
             fi
             containers+=("$(resolve_one oteryn-staging "$service")")
           done
-          # The idle PostgreSQL service (plan P4) exists only once its secrets are configured.
-          if [[ -n "$(docker ps -aq \
-                --filter "label=com.docker.compose.project=oteryn-staging" \
-                --filter "label=com.docker.compose.service=postgres")" ]]; then
-            containers+=("$(resolve_one oteryn-staging postgres)")
-          fi
+          # The idle PostgreSQL service (plan P4) is desired exactly when its five secrets are configured, never
+          # because a container exists: after the documented rollback the stopped container is kept for
+          # postgres_data and must not be restarted or given restart=always here.
+          configured=0
+          for name in PLATFORM_POSTGRES_SUPERUSER_PASSWORD PLATFORM_POSTGRES_OWNER_PASSWORD \
+            PLATFORM_POSTGRES_APP_PASSWORD PLATFORM_POSTGRES_BACKUP_PASSWORD PLATFORM_POSTGRES_DUMP_PASSWORD; do
+            if [[ -n "${!name:-}" ]]; then configured=$((configured + 1)); fi
+          done
+          case "$configured" in
+            0) echo "PostgreSQL is not configured; any stopped postgres container is retired and left alone." ;;
+            5) containers+=("$(resolve_one oteryn-staging postgres)") ;;
+            *) echo "PostgreSQL secrets are partially configured ($configured of 5)." >&2; exit 1 ;;
+          esac
 
           docker update --restart=always "${containers[@]}" >/dev/null
 

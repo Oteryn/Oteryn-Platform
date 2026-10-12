@@ -93,6 +93,18 @@ class VolumeGuardTest(unittest.TestCase):
             for pattern in self.REMOVAL:
                 self.assertIsNone(pattern.search(text), f"{source.name}: {pattern.pattern}")
 
+    def test_postgres_desired_state_comes_from_secrets_not_from_a_container(self) -> None:
+        for name in ("synology-diagnostics.yml", "repair-synology-autostart.yml"):
+            text = (WORKFLOWS / name).read_text()
+            self.assertIn("OTERYN_STAGING_PLATFORM_POSTGRES_DUMP_PASSWORD", text, name)
+            self.assertIn('case "$configured" in', text, name)
+            self.assertNotRegex(text, r'if \[\[ -n "\$\(docker ps -aq[^\]]*service=postgres', name)
+            self.assertNotRegex(text, r'if \[\[ -n "\$postgres_ids" \]\]', name)
+        diag = (WORKFLOWS / "synology-diagnostics.yml").read_text()
+        block = diag[diag.index('case "$configured" in'):]
+        self.assertIn('.State.Running}}\')" = "true"', block.split("esac")[0])
+        self.assertIn("Health.Status", block.split("esac")[0])
+
     def test_compose_keeps_every_data_volume_named_and_local(self) -> None:
         volumes = COMPOSE.read_text().split("\nvolumes:\n", 1)[1].split("\nnetworks:\n", 1)[0]
         for volume in ("mariadb_data", "postgres_data", "platform_storage", "postgres_tls", "postgres_client_ca"):

@@ -32,6 +32,12 @@ jobs:
         env:
           ACTUAL_RUNNER_NAME: ${{ runner.name }}
           ACTUAL_RUNNER_OS: ${{ runner.os }}
+          # Presence only, never printed: the durable desired-state signal for the idle PostgreSQL service.
+          PLATFORM_POSTGRES_SUPERUSER_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_SUPERUSER_PASSWORD }}
+          PLATFORM_POSTGRES_OWNER_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_OWNER_PASSWORD }}
+          PLATFORM_POSTGRES_APP_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_APP_PASSWORD }}
+          PLATFORM_POSTGRES_BACKUP_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_BACKUP_PASSWORD }}
+          PLATFORM_POSTGRES_DUMP_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_DUMP_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
@@ -73,15 +79,28 @@ jobs:
             --filter 'label=com.docker.compose.service=marketplace-scheduler')"
           test "$(docker inspect "$scheduler_id" --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}')" = "healthy"
 
-          # The idle PostgreSQL service (plan P4) exists only once its secrets are configured; when it
-          # does, it must be the only one, running and healthy.
-          postgres_ids="$(docker ps -aq \
-            --filter "label=com.docker.compose.project=$EXPECTED_COMPOSE_PROJECT" \
-            --filter 'label=com.docker.compose.service=postgres')"
-          if [[ -n "$postgres_ids" ]]; then
-            test "$(printf '%s\n' "$postgres_ids" | sed '/^$/d' | wc -l)" -eq 1
-            test "$(docker inspect "$postgres_ids" --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}')" = "healthy"
-          fi
+          # The idle PostgreSQL service (plan P4) is desired exactly when its five secrets are configured
+          # (the same signal deploy.sh and health-check.sh use), never because a container exists: after the
+          # documented rollback the stopped container is kept for postgres_data and is retired, not live.
+          # When desired it must be the only one, running AND healthy; a partial secret set fails.
+          configured=0
+          for name in PLATFORM_POSTGRES_SUPERUSER_PASSWORD PLATFORM_POSTGRES_OWNER_PASSWORD \
+            PLATFORM_POSTGRES_APP_PASSWORD PLATFORM_POSTGRES_BACKUP_PASSWORD PLATFORM_POSTGRES_DUMP_PASSWORD; do
+            if [[ -n "${!name:-}" ]]; then configured=$((configured + 1)); fi
+          done
+          case "$configured" in
+            0) echo "PostgreSQL is not configured; any stopped postgres container is retired and ignored." ;;
+            5)
+              postgres_ids="$(docker ps -aq \
+                --filter "label=com.docker.compose.project=$EXPECTED_COMPOSE_PROJECT" \
+                --filter 'label=com.docker.compose.service=postgres')"
+              test -n "$postgres_ids"
+              test "$(printf '%s\n' "$postgres_ids" | sed '/^$/d' | wc -l)" -eq 1
+              test "$(docker inspect "$postgres_ids" --format '{{.State.Running}}')" = "true"
+              test "$(docker inspect "$postgres_ids" --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}')" = "healthy"
+              ;;
+            *) echo "PostgreSQL secrets are partially configured ($configured of 5)." >&2; exit 1 ;;
+          esac
 
       - name: Collect read-only diagnostics
         shell: bash
