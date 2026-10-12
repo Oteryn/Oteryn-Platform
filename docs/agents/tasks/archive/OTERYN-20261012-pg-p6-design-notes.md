@@ -32,7 +32,7 @@ Write the two design notes that `PLATFORM_POSTGRES_MIGRATION_PLAN.md` requires b
 owned_paths:
   - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
   - docs/operations/PLATFORM_POSTGRES_MAINTENANCE_GATE_DESIGN.md
-  - docs/agents/tasks/active/OTERYN-20261012-pg-p6-design-notes.md
+  - docs/agents/tasks/archive/OTERYN-20261012-pg-p6-design-notes.md
   - docs/agents/tasks/archive/OTERYN-20261012-pg-p6-design-notes.md
 modules:
   - operations-docs
@@ -52,7 +52,7 @@ updated_at: 2026-10-12T21:00:00Z
 head: UNKNOWN
 branch: claude/pg-p6-design-notes-20261012
 pr: 1567
-status: validating
+status: completed
 context_routes:
   - operations
 owned_paths:
@@ -82,7 +82,7 @@ validation:
     evidence: local run before push
 blockers:
   - none
-next_action: Lead review and acceptance of both notes before P6 implementation. Archive this record in the final authoring commit once PR 1567 is terminal.
+next_action: none; PR #1567 merged as 8aee2a0e7c76d3c2dc07d6a5306c36ed01927443
 terminal_pr_policy: archive_pending
 ```
 
@@ -90,6 +90,6 @@ terminal_pr_policy: archive_pending
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository docs PR
-source_branch_evidence: pending
+source_branch_reason: ordinary same-repository PR path
+source_branch_evidence: PR #1567 merged as 8aee2a0e7c76d3c2dc07d6a5306c36ed01927443 from claude/pg-p6-design-notes-20261012; git ls-remote --heads origin claude/pg-p6-design-notes-20261012 returns nothing (verified)
 ```
