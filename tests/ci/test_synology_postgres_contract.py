@@ -110,7 +110,7 @@ class VolumeGuardTest(unittest.TestCase):
 
     def test_compose_keeps_every_data_volume_named_and_local(self) -> None:
         volumes = COMPOSE.read_text().split("\nvolumes:\n", 1)[1].split("\nnetworks:\n", 1)[0]
-        for volume in ("mariadb_data", "postgres_data", "platform_storage", "postgres_tls", "postgres_client_ca"):
+        for volume in ("mariadb_data", "postgres_data", "platform_storage", "postgres_tls", "postgres_client_ca", "postgres_ca_signer"):
             self.assertRegex(volumes, rf"(?m)^  {volume}:$")
 
 
@@ -255,13 +255,26 @@ class ComposeServiceTest(unittest.TestCase):
         for line in (
             "      POSTGRES_TLS_DIR: /postgres-tls\n",
             "      POSTGRES_CA_DIR: /postgres-ca\n",
+            "      POSTGRES_SIGNER_DIR: /postgres-signer\n",
             "      BOOTSTRAP_DIR: /bootstrap\n",
             "      - postgres_tls:/postgres-tls\n",
             "      - postgres_client_ca:/postgres-ca\n",
+            "      - postgres_ca_signer:/postgres-signer\n",
         ):
             self.assertIn(line, block)
         for service in ("internal-proxy", "gateway", "mariadb"):
             self.assertNotIn("postgres_tls", service_block(self.compose, service), service)
+
+    def test_the_postgres_ca_key_volume_is_mounted_by_tls_init_alone(self) -> None:
+        # Any container that can read a CA key can mint a certificate Platform accepts for `postgres`.
+        services = re.findall(r"(?m)^  ([a-z][a-z0-9-]*):$", self.compose.split("\nservices:\n", 1)[1].split("\nvolumes:\n", 1)[0])
+        mounting = [name for name in services if "postgres_ca_signer" in service_block(self.compose, name)]
+        self.assertEqual(mounting, ["tls-init"])
+        # The stack CA key volume (internal_tls) never carries the PostgreSQL CA, and the PostgreSQL CA is not the stack CA.
+        init = TLS_INIT.read_text()
+        self.assertIn('-CAkey "$signing_key"', init)
+        self.assertIn('issue_certificate postgres "$work" "$PG_CA_CERT" "$POSTGRES_SIGNER_DIR/pgca.key"', init)
+        self.assertNotIn('"$TLS_DIR/pgca', init)
 
 
 class ServerConfigurationTest(unittest.TestCase):
@@ -419,12 +432,13 @@ class RoleBootstrapTest(unittest.TestCase):
 
 
 class TlsInitTest(unittest.TestCase):
-    def test_postgres_server_pair_is_issued_by_the_stack_ca_and_kept_apart(self) -> None:
+    def test_postgres_server_pair_is_issued_by_its_own_ca_and_kept_apart(self) -> None:
         if shutil.which("openssl") is None:
             self.skipTest("openssl is not installed")
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             tls, server, client, boot = root / "tls", root / "pg-tls", root / "pg-ca", root / "boot"
+            signer = root / "pg-signer"
             boot.mkdir()
             staged = boot / "postgres-pg_hba.conf"
             staged.write_text("x\n")
@@ -434,6 +448,7 @@ class TlsInitTest(unittest.TestCase):
                 "TLS_DIR": str(tls),
                 "POSTGRES_TLS_DIR": str(server),
                 "POSTGRES_CA_DIR": str(client),
+                "POSTGRES_SIGNER_DIR": str(signer),
                 "POSTGRES_UID": str(os.getuid()),
                 "BOOTSTRAP_DIR": str(boot),
             }
@@ -445,10 +460,21 @@ class TlsInitTest(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(server.stat().st_mode), 0o755)
             self.assertEqual(stat.S_IMODE(client.stat().st_mode), 0o755)
             self.assertEqual(stat.S_IMODE(staged.stat().st_mode), 0o644)
-            self.assertEqual((client / "ca.crt").read_bytes(), (tls / "ca.crt").read_bytes())
+            self.assertEqual(sorted(p.name for p in signer.iterdir()), ["pgca.crt", "pgca.key"])
+            self.assertEqual(stat.S_IMODE((signer / "pgca.key").stat().st_mode), 0o400)
+            self.assertEqual((client / "ca.crt").read_bytes(), (signer / "pgca.crt").read_bytes())
+            self.assertEqual((server / "ca.crt").read_bytes(), (signer / "pgca.crt").read_bytes())
+            self.assertNotEqual((tls / "ca.crt").read_bytes(), (signer / "pgca.crt").read_bytes())
             subprocess.run(
-                ["openssl", "verify", "-CAfile", str(tls / "ca.crt"), str(server / "server.crt")], check=True, capture_output=True
+                ["openssl", "verify", "-CAfile", str(signer / "pgca.crt"), str(server / "server.crt")], check=True, capture_output=True
             )
+            # The stack CA (whose key the ingress can read) does not vouch for the server certificate.
+            self.assertNotEqual(
+                subprocess.run(["openssl", "verify", "-CAfile", str(tls / "ca.crt"), str(server / "server.crt")], capture_output=True).returncode,
+                0,
+            )
+            for directory in (tls, server, client):
+                self.assertFalse(any("pgca" in p.name for p in directory.iterdir()), directory)
             san = subprocess.run(
                 ["openssl", "x509", "-noout", "-ext", "subjectAltName", "-in", str(server / "server.crt")],
                 check=True,
@@ -462,9 +488,11 @@ class TlsInitTest(unittest.TestCase):
             subprocess.run(["sh", str(TLS_INIT)], check=True, capture_output=True, env=env)
             self.assertEqual((server / "server.crt").read_bytes(), before)
             ca = (tls / "ca.crt").read_bytes()
+            pg_ca = (signer / "pgca.crt").read_bytes()
             (server / "server.crt").unlink()
             subprocess.run(["sh", str(TLS_INIT)], check=True, capture_output=True, env=env)
             self.assertEqual((tls / "ca.crt").read_bytes(), ca)
+            self.assertEqual((signer / "pgca.crt").read_bytes(), pg_ca)
             self.assertTrue((server / "server.crt").exists())
 
             # A nonempty key that belongs to another certificate, or a corrupt one, is not "current": both
@@ -486,6 +514,45 @@ class TlsInitTest(unittest.TestCase):
                 good_crt = (server / "server.crt").read_bytes()
             self.assertEqual(sorted(p.name for p in server.iterdir()), ["ca.crt", "server.crt", "server.key"])
             self.assertEqual(sorted(p.name for p in tls.iterdir()), ["ca.crt", "ca.key", "platform-internal.crt", "platform-internal.key"])
+
+            # A PostgreSQL CA key that is not the certificate's is never reused: a new CA is created and
+            # everything it signs is reissued (rotation path).
+            (signer / "pgca.key").chmod(0o600)
+            (signer / "pgca.key").write_bytes(other.read_bytes())
+            subprocess.run(["sh", str(TLS_INIT)], check=True, capture_output=True, env=env)
+            self.assertNotEqual((signer / "pgca.crt").read_bytes(), pg_ca)
+            self.assertEqual((client / "ca.crt").read_bytes(), (signer / "pgca.crt").read_bytes())
+            self.assertEqual((server / "ca.crt").read_bytes(), (signer / "pgca.crt").read_bytes())
+            subprocess.run(
+                ["openssl", "verify", "-CAfile", str(signer / "pgca.crt"), str(server / "server.crt")], check=True, capture_output=True
+            )
+            self.assertEqual(sorted(p.name for p in signer.iterdir()), ["pgca.crt", "pgca.key"])
+
+            # An existing deployment's pair, signed by the stack CA, is replaced and never accepted as current.
+            old = root / "old"
+            old.mkdir()
+            legacy_env = {**env, "POSTGRES_TLS_DIR": str(old), "POSTGRES_CA_DIR": "", "POSTGRES_SIGNER_DIR": str(root / "legacy-signer")}
+            subprocess.run(["sh", str(TLS_INIT)], check=True, capture_output=True, env=legacy_env)
+            # Sign a certificate with the stack CA key and place it with the stack CA copy, as the earlier version did.
+            subprocess.run(["openssl", "req", "-new", "-key", str(old / "server.key"), "-subj", "/CN=postgres", "-out", str(root / "l.csr")], check=True, capture_output=True)
+            (root / "l.ext").write_text("subjectAltName=DNS:postgres\nextendedKeyUsage=serverAuth\n")
+            subprocess.run(
+                ["openssl", "x509", "-req", "-sha256", "-days", "30", "-in", str(root / "l.csr"), "-CA", str(tls / "ca.crt"), "-CAkey", str(tls / "ca.key"), "-CAcreateserial", "-CAserial", str(root / "l.srl"), "-extfile", str(root / "l.ext"), "-out", str(old / "server.crt")],
+                check=True,
+                capture_output=True,
+            )
+            shutil.copy(tls / "ca.crt", old / "ca.crt")
+            legacy_check = {"PATH": os.environ["PATH"], "POSTGRES_TLS_DIR": str(old), "POSTGRES_UID": str(os.getuid())}
+            self.assertNotEqual(
+                subprocess.run(["sh", "-s", "--", "--check-postgres-pair"], input=TLS_INIT.read_bytes(), capture_output=True, env=legacy_check).returncode,
+                0,
+            )
+            subprocess.run(["sh", str(TLS_INIT)], check=True, capture_output=True, env=legacy_env)
+            self.assertEqual(
+                subprocess.run(["sh", "-s", "--", "--check-postgres-pair"], input=TLS_INIT.read_bytes(), capture_output=True, env=legacy_check).returncode,
+                0,
+            )
+            self.assertNotEqual((old / "ca.crt").read_bytes(), (tls / "ca.crt").read_bytes())
 
             # The predicate the deploy fast path runs inside the postgres container (--check-postgres-pair) is
             # the same one: it sees only the served volume and fails on anything inconsistent there.

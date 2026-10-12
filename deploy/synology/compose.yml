@@ -25,7 +25,7 @@ x-internal-mtls-enabled: &internal_mtls_enabled "${OTERYN_PLATFORM_MTLS_ENABLED:
 # oteryn_platform_db_engine_settings resolves PLATFORM_DB_ENGINE from release-contract.env and exports the
 # OTERYN_PLATFORM_DB_* values below; the defaults are the MariaDB engine, so a render without lib.sh is the
 # MariaDB stack. On the postgres engine the runtime services get driver pgsql, host postgres, the runtime
-# role oteryn_platform_app and sslmode verify-full against the stack CA (postgres_client_ca, read-only).
+# role oteryn_platform_app and sslmode verify-full against the dedicated PostgreSQL CA (postgres_client_ca, read-only).
 x-platform-db-connection: &platform_db_connection "${OTERYN_PLATFORM_DB_CONNECTION:-mysql}"
 x-platform-db-host: &platform_db_host "${OTERYN_PLATFORM_DB_HOST:-mariadb}"
 x-platform-db-port: &platform_db_port "${OTERYN_PLATFORM_DB_PORT:-3306}"
@@ -185,6 +185,7 @@ services:
       TLS_DIR: /tls
       POSTGRES_TLS_DIR: /postgres-tls
       POSTGRES_CA_DIR: /postgres-ca
+      POSTGRES_SIGNER_DIR: /postgres-signer
       BOOTSTRAP_DIR: /bootstrap
     command: ["/bin/sh", "-ec", "apk add --no-cache openssl >/dev/null && sh /bootstrap/tls-init.sh"]
     volumes:
@@ -192,6 +193,7 @@ services:
       - internal_tls:/tls
       - postgres_tls:/postgres-tls
       - postgres_client_ca:/postgres-ca
+      - postgres_ca_signer:/postgres-signer
     networks:
       - private
 
@@ -344,8 +346,11 @@ volumes:
   internal_tls:
   # The postgres server pair and CA certificate (tls-init writes, postgres reads). No other service.
   postgres_tls:
-  # The stack CA certificate alone, for Platform clients verifying the postgres server (verify-full).
+  # The PostgreSQL CA certificate alone, for Platform clients verifying the postgres server (verify-full).
   postgres_client_ca:
+  # The PostgreSQL CA private key (and certificate). Mounted by tls-init alone: not postgres, not Platform, not
+  # the ingress, and never part of internal_tls, whose stack CA key the root-started proxy can read.
+  postgres_ca_signer:
   # Memory-backed and recreated empty with its users: www-data (82) owns it for the Platform pool and
   # the nginx group (101) may enter it to connect to the socket. No other service mounts it.
   platform_fastcgi:

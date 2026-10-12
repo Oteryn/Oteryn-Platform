@@ -21,7 +21,7 @@ Governing GitHub Issue: #1474. Packet P4 of `docs/operations/PLATFORM_POSTGRES_M
 ## Acceptance criteria
 
 - [x] `postgres` Compose service: digest pin, profile `postgres`, private bridge only, no published or exposed port, `restart: always`, named volume `postgres_data`, health check = `pg_isready` plus a `verify-full` login of the runtime role.
-- [x] `tls-init` issues a `postgres` server certificate from the stack CA into `postgres_tls` and copies only the CA certificate into `postgres_client_ca`; Platform and the scheduler mount only the CA.
+- [x] `tls-init` issues a `postgres` server certificate from a dedicated PostgreSQL CA (key in a tls-init-only volume) into `postgres_tls` and copies only the CA certificate into `postgres_client_ca`; Platform and the scheduler mount only the CA.
 - [x] `pg_hba.conf` admits only `hostssl` SCRAM logins of the Platform roles (local peer for `postgres`); `postgresql.conf` enforces TLS 1.3 and SCRAM.
 - [x] Role script: owner owns database, schema and objects; app has DML only; dump `SELECT` only; backup `REPLICATION` only; no superuser, createdb, createrole or bypassrls; passwords on stdin, never in argv, env or logs.
 - [x] `PLATFORM_DB_ENGINE=mariadb` committed; image contract carries the engine and a mismatch is refused; deploy and the MariaDB-only operator scripts refuse `postgres` in P4.
