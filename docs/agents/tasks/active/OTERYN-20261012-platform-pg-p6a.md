@@ -107,6 +107,7 @@ rejected_hypotheses:
   - Writing the `init` record only after D1. A runner that died between D1 and that record left a store with no record, so a later restore looked like a first run (Codex P1, round 7); an anchored `init-intent` now precedes D1, and an unfinished one blocks `open` until `--close-init` closes it.
   - Closing a committed run with `done: false` after a failed self-check. Every later `open` was `step4-complete`, so the cutover could never finish (Codex P2, round 8); the run now stays open, and `step4-recheck` reruns only the read-only self-check and closes it with `done: true`.
   - Store continuity by store id alone. A PostgreSQL restore after the init that kept S1 was adopted as the intent baseline (Codex P1, round 9); the `init` record now carries its observation, and every later observation must keep the stable identity and not lower `wal_lsn` or `xmax`.
+  - Recording the path-picking observation in a late `init`. With `marker_only` it predates D1, while D4 uses the `init` observation as the post-init baseline (Codex P1, round 11); `--close-init` now observes again after D1 and records that.
   - Redesigning for each further edge case. The owner accepted the residual risks on 2026-10-12; the note lists them under *Accepted residual risks*, including a witness volume replaced after the fence's last marker and inode check (Codex P1, round 10).
 changed_paths:
   - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
