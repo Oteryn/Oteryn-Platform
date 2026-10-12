@@ -509,6 +509,9 @@ ROUTE_SETTINGS = {
     ),
     "GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS": ("OTERYN_STAGING_NATIVE_BOOTSTRAP_INTENT_TTL_SECONDS", ""),
 }
+# Subject DN (RFC 2253) of the preprod node 1 [platform] client certificate, named by the Game manifest
+# deploy/synology-game/preprod-topology.toml (certificates.node_native_evidence).
+NODE_PLATFORM_CLIENT_IDENTITY = "CN=oteryn-preprod-node-1-native-evidence"
 PRINT_ROUTE_SETTINGS = "; ".join(f'printf "%s=%s\\n" {name} "${name}"' for name in ROUTE_SETTINGS)
 
 
@@ -532,14 +535,32 @@ def test_game_node_route_settings_reach_platform_and_default_closed() -> None:
     assert """      GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_IDENTITIES: '["CN=oteryn-preprod-character-projection"]'\n""" in platform
     assert '      GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_OWNERSHIP: "false"\n' in platform
 
-    # Deploy inputs: the committed defaults keep both routes off and carry no identity yet.
+    # Deploy inputs: the committed defaults name the preprod node 1 [platform] client certificate for
+    # both routes (the Game node presents one certificate for evidence and bootstrap-intent reads) and
+    # keep the one-way evidence activation off. Anything not committed resolves to its fail-closed value.
     values = dict(line.split("=", 1) for line in DEFAULTS.read_text().splitlines() if line and not line.startswith("#"))
     assert values["OTERYN_STAGING_NATIVE_EVIDENCE_ACTIVATED"] == "false"
+    committed = {
+        "OTERYN_STAGING_NATIVE_EVIDENCE_ACTIVATED": "false",
+        "OTERYN_STAGING_NATIVE_EVIDENCE_MTLS_CLIENT_IDENTITY": NODE_PLATFORM_CLIENT_IDENTITY,
+        "OTERYN_STAGING_NATIVE_EVIDENCE_FRESH_ACCOUNT_PURPOSE": "platform_security",
+        "OTERYN_STAGING_NATIVE_EVIDENCE_FRESH_ACCOUNT_SCOPE": "fresh_admission",
+        "OTERYN_STAGING_NATIVE_EVIDENCE_CLOCK_UNCERTAINTY_SECONDS": "1",
+        "OTERYN_STAGING_NATIVE_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY": NODE_PLATFORM_CLIENT_IDENTITY,
+        "OTERYN_STAGING_NATIVE_BOOTSTRAP_INTENT_TTL_SECONDS": "300",
+    }
     for _, (default_name, _) in ROUTE_SETTINGS.items():
-        assert values.get(default_name, "") in ("", "false"), default_name
+        assert values.get(default_name, "") == committed.get(default_name, ""), default_name
+    # The shared identity stays distinct from every other Game-node route identity Platform pins.
+    other_identities = re.findall(r"CN=[A-Za-z0-9.-]+", values["OTERYN_STAGING_NATIVE_RUNTIME_STATUS_IDENTITIES"])
+    other_identities += re.findall(r"CN=[A-Za-z0-9.-]+", values["OTERYN_STAGING_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES"])
+    other_identities += re.findall(r"CN=[A-Za-z0-9.-]+", platform)
+    assert other_identities and NODE_PLATFORM_CLIENT_IDENTITY not in other_identities
     result, _ = _run_lib(f"oteryn_resolve_game_node_route_settings || exit 1; {PRINT_ROUTE_SETTINGS}")
     assert result.returncode == 0, result.stderr
-    assert result.stdout.splitlines() == [f"{name}={default}" for name, (_, default) in ROUTE_SETTINGS.items()]
+    assert result.stdout.splitlines() == [
+        f"{name}={committed.get(default_name) or default}" for name, (default_name, default) in ROUTE_SETTINGS.items()
+    ]
     assert "oteryn_resolve_game_node_route_settings\n}" in LIB.read_text()  # load_oteryn_env_file runs it
 
     # A committed value reaches Platform; the environment file (or caller) wins over it.
