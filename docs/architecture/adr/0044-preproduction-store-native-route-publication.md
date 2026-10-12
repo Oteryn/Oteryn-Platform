@@ -8,7 +8,8 @@ Accepted — 2026-10-11 (owner decision, option a)
 - Decision owner: repository owner
 - Governing Issue: #1474
 - Applies to: the two existing operator commands `game-auth:native-topology:issue` and `game-auth:native-route:publish`, when they run against the Synology preproduction MariaDB store
-- Does not authorize: production or any other deployed environment, any database other than the allowlisted store, more than one native World route record, a change to `DisposableNativeStore`, a change to the gateway or admission contract, or any secret, credential or key handling
+- Does not authorize: production or any other deployed environment, any database other than the allowlisted store, more than one native World route record, a change to `DisposableNativeStore` beyond Amendment D1023 below, a change to the gateway or admission contract, or any secret, credential or key handling
+- Amended: 2026-10-12 by owner decision D1023 (testing-only loopback PostgreSQL profile of `DisposableNativeStore`, ARCH-PREPROD-ROUTE-PUBLISH-AUTH-V1 §2 amendment)
 
 ## Context
 
@@ -78,8 +79,42 @@ Set `OTERYN_STAGING_NATIVE_ROUTE_PUBLISH_ENABLED` to false (or unset it) and red
 
 `NativeOperatorCommandsTest` keeps covering the disposable path.
 
+## Amendment D1023 — testing-only loopback PostgreSQL profile (2026-10-12)
+
+### Context
+
+ADR 0046 moves Platform persistence to PostgreSQL, and its P2 packet runs the whole test suite on PostgreSQL 17 (`phpunit.pgsql.xml`). `DisposableNativeStore::connection()` admitted only SQLite and the loopback MariaDB `oteryn_concurrency` database, so every native topology, route-record and issuer test refused on PostgreSQL. ARCH-PREPROD-ROUTE-PUBLISH-AUTH-V1 §2 and this ADR said the guard may not be relaxed or forked. On 2026-10-12 the owner chose (answer "1a") to amend both narrowly rather than skip those tests or leave them failing.
+
+### Decision
+
+ARCH-PREPROD-ROUTE-PUBLISH-AUTH-V1 §2 is amended: `DisposableNativeStore::connection()` admits one more profile, and nothing else changes. The profile is fixed in code, and no environment variable can widen it. All of these must hold, or the guard fails closed with a `LogicException` and nothing is read or written:
+
+| Condition | Refused otherwise |
+| --- | --- |
+| `APP_ENV` is exactly `testing` | `preproduction`, `production`, `staging`, `local` and every other environment |
+| Driver `pgsql` on the default connection | (other drivers keep their existing branches) |
+| Database name exactly `oteryn_test` | every other name, including `oteryn`, `oteryn_platform`, `oteryn_concurrency` and case or whitespace variants |
+| Host exactly `127.0.0.1` or `localhost` | every other host, `::1`, a socket path, an empty or missing host, and a host list |
+| No `read`/`write` split on the connection | any split, even to loopback |
+| No outer transaction (the existing check) | an open transaction |
+
+- The profile carries no secret. The guard reads no password, and its refusal messages name no host, database user or credential.
+- `retainedRun()` is unchanged: the operator commands (`game-auth:native-topology:issue`, `game-auth:native-route:publish`, `game-auth:native-trust:publish-key`) still require the retained per-run SQLite file and refuse PostgreSQL.
+- The MariaDB and SQLite branches are unchanged, byte for byte.
+- The preproduction-store mode of this ADR is unchanged. Its PostgreSQL store identity remains the P4 amendment of ADR 0046.
+
+### Consequences
+
+- The native topology, route-record and issuer tests run on PostgreSQL in `testing` against the CI service database, as they already do on SQLite.
+- No deployed environment can reach the profile: preproduction and production refuse it by environment, and the Synology database names differ.
+
+### Verification
+
+`tests/Feature/GameAuth/NativeTopology/DisposableNativeStorePostgresProfileTest.php` proves the admitted profile and each refusal (host, database, environment, read/write split), that the operator commands still refuse it, and that no refusal message carries a credential or host. It uses a lazy probe connection and so runs on every suite engine.
+
 ## Related records
 
 - ADR 0029 — Platform World/Channel identity and topology
 - `docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md` §17
 - Issue #1474
+- ADR 0046 — Platform persistence moves to PostgreSQL (Amendment D1023)
