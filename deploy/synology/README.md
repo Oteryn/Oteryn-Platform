@@ -17,11 +17,11 @@ Synology host loopback
 
 Docker private bridge
   Platform <-> MariaDB
-  Platform <-> Redis
+  Scheduler (always on) <-> MariaDB
   Gateway -> HTTPS internal proxy -> Platform private API
 ```
 
-The Gateway never receives database credentials. Its non-loopback dependencies use generated staging-only TLS certificates and hostname verification. MariaDB and Redis are not published on host ports. Platform and Gateway remain host-loopback-only.
+The Gateway never receives database credentials. Its non-loopback dependencies use generated staging-only TLS certificates and hostname verification. MariaDB is not published on host ports. Platform and Gateway remain host-loopback-only.
 
 The user-visible Platform origin is a separate concern from the private origin binding. The guarded public staging deployment requires `APP_URL=https://oteryn.molehill.cloud` for requestless console, scheduler, notification, reset, verification and signed URL generation while continuing to bind Platform only to `127.0.0.1:8000`.
 
@@ -69,7 +69,6 @@ Required secrets:
 OTERYN_STAGING_APP_KEY
 OTERYN_STAGING_MARIADB_ROOT_PASSWORD
 OTERYN_STAGING_PLATFORM_DB_PASSWORD
-OTERYN_STAGING_REDIS_PASSWORD
 OTERYN_STAGING_PLATFORM_SERVICE_TOKEN
 OTERYN_STAGING_PLATFORM_SERVICE_TOKEN_SHA256
 ```
@@ -114,7 +113,7 @@ A `deploy` run:
 4. writes a permission-restricted ephemeral `.env` from GitHub Environment secrets;
 5. validates required values and service-token hashes;
 6. pulls prebuilt images;
-7. starts MariaDB, Redis and internal TLS bootstrap;
+7. starts MariaDB and internal TLS bootstrap;
 8. starts Platform, runs migrations and ensures the native OAuth client exists;
 9. starts the internal TLS proxy and Game Gateway;
 10. verifies Platform/Gateway health and every exact host-port binding;
@@ -198,7 +197,7 @@ bash deploy/synology/scripts/rollback.sh
 
 - This package does not make staging evidence `PRODUCTION_PROVEN`.
 - It does not configure Cloudflare certificates, WAF/Bot/Access rules, redirects or HSTS.
-- It does not expose DSM, Docker Engine TCP, MariaDB, Redis publicly.
+- It does not expose DSM, Docker Engine TCP, MariaDB publicly.
 - It does not authorize router port forwarding or Internet exposure of game TCP.
 - A fully usable desktop native-login flow additionally requires an exact compatible OTClient build and trusted browser/OAuth/Gateway endpoint configuration.
 

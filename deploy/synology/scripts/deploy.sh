@@ -18,7 +18,6 @@ required_vars=(
     PLATFORM_PORT GATEWAY_PORT
     GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT
     APP_KEY MARIADB_ROOT_PASSWORD PLATFORM_DB_NAME PLATFORM_DB_USER PLATFORM_DB_PASSWORD
-    REDIS_PASSWORD
     OTERYN_PLATFORM_SERVICE_TOKEN GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256
 )
 
@@ -32,7 +31,6 @@ done
 
 safe_credential_vars=(
     PLATFORM_DB_NAME PLATFORM_DB_USER PLATFORM_DB_PASSWORD
-    REDIS_PASSWORD
     OTERYN_PLATFORM_SERVICE_TOKEN
 )
 for name in "${safe_credential_vars[@]}"; do
@@ -194,7 +192,6 @@ FAST_OLD_PLATFORM_IMAGE=''
 FAST_OLD_GATEWAY_IMAGE=''
 FAST_SCHEMA_ID=''
 FAST_MARIADB_ID=''
-FAST_REDIS_ID=''
 FAST_PROXY_ID=''
 FAST_GATEWAY_ID=''
 FAST_OLD_PLATFORM_ID=''
@@ -308,7 +305,6 @@ _oteryn_fast_candidate() {
         return 1
     fi
     FAST_MARIADB_ID="$(_oteryn_fast_running_service_id mariadb)" || return 2
-    FAST_REDIS_ID="$(_oteryn_fast_running_service_id redis)" || return 2
     FAST_PROXY_ID="$(_oteryn_fast_running_service_id internal-proxy)" || return 2
 
     FAST_DEPLOY_REASON='presentation-only accumulated runtime impact'
@@ -422,7 +418,6 @@ _oteryn_fast_deploy_platform() {
     _oteryn_fast_platform_smoke
 
     _oteryn_fast_assert_preserved_service mariadb "$FAST_MARIADB_ID"
-    _oteryn_fast_assert_preserved_service redis "$FAST_REDIS_ID"
     _oteryn_fast_assert_preserved_service internal-proxy "$FAST_PROXY_ID"
     _oteryn_fast_assert_preserved_service gateway "$FAST_GATEWAY_ID"
 
@@ -436,7 +431,7 @@ _oteryn_fast_deploy_platform() {
     rm -f "$FAST_PREVIOUS_LAST_GOOD"
     FAST_SWAP_STARTED=0
     trap - EXIT
-    echo "Oteryn Synology staging Platform fast deploy is healthy in $((SECONDS - started))s; MariaDB, Redis, internal proxy and Gateway were preserved."
+    echo "Oteryn Synology staging Platform fast deploy is healthy in $((SECONDS - started))s; MariaDB, internal proxy and Gateway were preserved."
 }
 
 # Native game login is part of every deployment (compose.yml native admission flag). Before any
@@ -673,6 +668,12 @@ finalize_previous_candidate_if_healthy() {
         rm -f "$candidate_env"
         return 1
     fi
+    # The scheduler is a mandatory base service in the health contract; a pre-change candidate may not
+    # have one. Create it from the bounded candidate environment before the full health proof.
+    if ! "${candidate_compose[@]}" up -d --no-deps --force-recreate marketplace-scheduler; then
+        rm -f "$candidate_env"
+        return 1
+    fi
     if ! OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"; then
         rm -f "$candidate_env"
         echo "Previous candidate remains unresolved because its full staging health contract failed." >&2
@@ -724,7 +725,15 @@ for runtime_image in "$PLATFORM_IMAGE" "$GATEWAY_IMAGE"; do
     }
 done
 stage_bootstrap_files
-"${compose[@]}" up -d mariadb redis
+# One-time transition: a pre-existing staging stack still carries the retired Redis container
+# (restart: always, otherwise orphaned and surviving reboots). Remove only that service's container
+# by Compose ownership labels; its volume is kept and no orphan sweep is used.
+while IFS= read -r retired_redis_id; do
+    [[ -n "$retired_redis_id" ]] && docker rm -f "$retired_redis_id" >/dev/null
+done < <(docker ps -aq \
+    --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-oteryn-staging}" \
+    --filter "label=com.docker.compose.service=redis")
+"${compose[@]}" up -d mariadb
 "${compose[@]}" up -d --force-recreate tls-init
 
 mariadb_deadline=$((SECONDS + mariadb_ready_timeout_seconds))
@@ -780,6 +789,8 @@ fi
 
 "${compose[@]}" up -d --no-deps --force-recreate internal-proxy
 "${compose[@]}" up -d gateway
+# The scheduler is always on: start it with the selected Platform image before the health contract.
+_oteryn_reconcile_marketplace_scheduler_after_runtime_change
 
 OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/health-check.sh"
 
@@ -799,7 +810,7 @@ oteryn_publish_native_route "${compose[@]}" || exit 1
 # The retired legacy-engine container stays available for rollback until the
 # native-only Gateway has passed the full health contract. Only that service is
 # then removed by label; a compose orphan sweep is never used because it would also
-# remove services defined only in overlay files (marketplace-scheduler).
+# remove services that Compose does not own.
 legacy_project="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$("${compose[@]}" ps -q mariadb)" 2>/dev/null || true)"
 if [[ -n "$legacy_project" ]]; then
     while IFS= read -r legacy_id; do

@@ -40,8 +40,8 @@ class SynologyAutostartContractTest(unittest.TestCase):
         self.assertIn("RUNNER_LABELS: oteryn-platform", platform)
 
     def test_only_persistent_platform_owned_host_services_are_repaired(self) -> None:
-        expected = ("mariadb", "redis", "platform", "internal-proxy", "gateway")
-        loop = 'for service in mariadb redis platform internal-proxy gateway; do'
+        expected = ("mariadb", "platform", "internal-proxy", "gateway", "marketplace-scheduler")
+        loop = 'for service in mariadb platform internal-proxy gateway marketplace-scheduler; do'
         self.assertIn(loop, self.workflow)
         for service in expected:
             block = self.staging_compose.split(f"  {service}:\n", 1)[1]
