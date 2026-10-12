@@ -231,6 +231,8 @@ GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_SOURCE_AUTHORITY=oteryn:character-authority:
 GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_IDENTITIES=["CN=oteryn-preprod-character-projection"]
 ```
 
+`health-check.sh` leaves native admission enabled only after the running Platform reports a live account-character feed (a fresh watermark from the Character Authority; `lib.sh` `oteryn_wait_native_account_characters_feed`, waits up to `OTERYN_NATIVE_ACCOUNT_CHARACTERS_FEED_WAIT_SECONDS`, default 90). Without it every login would be refused while the unknown-ticket probe passes, so the check fails closed and the deployment is not reported healthy.
+
 The D171 fallback and its `OTERYN_STAGING_NATIVE_WORLD_ID` tie are gone from the committed defaults; deploy no longer refuses native admission for a missing World UUID.
 
 ## Early workstation testing through loopback

@@ -129,6 +129,35 @@ def test_health_check_runs_the_signing_self_check_when_admission_is_on() -> None
     assert check < script.index(PROBE_MARKER)
 
 
+def test_health_check_gates_admission_on_a_live_account_character_feed() -> None:
+    script = HEALTH_CHECK.read_text(encoding="utf-8")
+    check = script.index('oteryn_run_native_admission_self_check "${container_ids[platform]}" || exit 1')
+    feed = script.index('oteryn_wait_native_account_characters_feed "${container_ids[platform]}" || exit 1')
+    assert 'container_env_value platform GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED' in script
+    assert check < feed < script.index(PROBE_MARKER)
+
+
+def _run_feed_gate(tmp_path: pathlib.Path, evidence: str, wait: str = "0") -> subprocess.CompletedProcess[str]:
+    fake = tmp_path / "docker"
+    fake.write_text(f"#!/bin/sh\nprintf '%s' '{evidence}'\n", encoding="utf-8")
+    fake.chmod(0o755)
+    return subprocess.run(
+        ["bash", "-c", f'source "{LIB}"; oteryn_wait_native_account_characters_feed cid'],
+        env={"PATH": f"{tmp_path}:/usr/bin:/bin", "OTERYN_NATIVE_ACCOUNT_CHARACTERS_FEED_WAIT_SECONDS": wait},
+        capture_output=True, text=True, check=False,
+    )
+
+
+def test_account_character_feed_gate_passes_only_on_a_live_feed(tmp_path: pathlib.Path) -> None:
+    live = _run_feed_gate(tmp_path, "live")
+    assert live.returncode == 0, live.stderr
+    for evidence in ("stale", "unavailable", ""):
+        refused = _run_feed_gate(tmp_path, evidence)
+        assert refused.returncode == 1 and "no fresh watermark" in refused.stderr, evidence
+    invalid = _run_feed_gate(tmp_path, "live", wait="601")
+    assert invalid.returncode == 1 and "FEED_WAIT_SECONDS" in invalid.stderr
+
+
 def test_deploy_ensures_the_key_before_changes_and_self_checks_before_the_gateway() -> None:
     script = DEPLOY.read_text(encoding="utf-8")
     ensure = script.index("oteryn_ensure_native_admission_key || exit 1")

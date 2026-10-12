@@ -19,6 +19,7 @@ Governing GitHub Issue: 1474 (native login programme; assumed, lead to confirm).
 - [x] `compose.yml` pins `GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED=true`, source authority `oteryn:character-authority:primary` and identities `["CN=oteryn-preprod-character-projection"]`, and the D171 ownership fallback off.
 - [x] `native-defaults.env` no longer sets `OTERYN_STAGING_NATIVE_WORLD_ID`; deploy no longer refuses native admission for a missing World UUID.
 - [x] README and contract tests updated; no secret, no model identifier; the legacy token baseline is not raised.
+- [x] Health check fails closed unless the account-character feed is live (review P1).
 - [ ] Exact-head CI passes.
 
 ## Ownership
@@ -28,6 +29,7 @@ owned_paths:
   - deploy/synology/compose.yml
   - deploy/synology/native-defaults.env
   - deploy/synology/scripts/lib.sh
+  - deploy/synology/scripts/health-check.sh
   - deploy/synology/README.md
   - deploy/synology/tests/test_platform_mtls_contract.py
   - tests/ci/test_synology_native_admission_gate.py
@@ -57,6 +59,7 @@ owned_paths:
   - deploy/synology/compose.yml
   - deploy/synology/native-defaults.env
   - deploy/synology/scripts/lib.sh
+  - deploy/synology/scripts/health-check.sh
   - deploy/synology/README.md
   - deploy/synology/tests/test_platform_mtls_contract.py
   - tests/ci/test_synology_native_admission_gate.py
@@ -77,6 +80,7 @@ changed_paths:
   - deploy/synology/compose.yml
   - deploy/synology/native-defaults.env
   - deploy/synology/scripts/lib.sh
+  - deploy/synology/scripts/health-check.sh
   - deploy/synology/README.md
   - deploy/synology/tests/test_platform_mtls_contract.py
   - tests/ci/test_synology_native_admission_gate.py
@@ -84,7 +88,7 @@ changed_paths:
 validation:
   - command: python3 -m pytest tests/ci deploy/synology/tests
     result: PASS
-    evidence: 360 passed
+    evidence: 362 passed
   - command: python3 tools/validation/legacy_token_ratchet.py
     result: PASS
     evidence: baseline not raised

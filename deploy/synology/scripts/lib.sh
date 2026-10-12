@@ -1458,6 +1458,43 @@ oteryn_run_native_admission_self_check() {
     fi
 }
 
+# Proves the running Platform holds a fresh account-character projection (watermark received from the
+# Character Authority within the freshness bound) before native admission is left enabled while the D171
+# fallback is off: without it every authenticated login is refused although the unknown-ticket health
+# probe passes. Polls the application's own read model (feedEvidence) for up to
+# OTERYN_NATIVE_ACCOUNT_CHARACTERS_FEED_WAIT_SECONDS (default 90, 0..600) and fails closed otherwise.
+# Not part of the stop gate: the Game node can only push while Platform and its mTLS listener are up.
+oteryn_wait_native_account_characters_feed() {
+    local container_id="$1" wait_seconds="${OTERYN_NATIVE_ACCOUNT_CHARACTERS_FEED_WAIT_SECONDS:-90}"
+    local deadline evidence=unavailable
+
+    if [[ -z "$container_id" ]]; then
+        echo "Account-character feed check needs the running Platform container." >&2
+        return 1
+    fi
+    if [[ ! "$wait_seconds" =~ ^[0-9]+$ ]] || ((wait_seconds > 600)); then
+        echo "OTERYN_NATIVE_ACCOUNT_CHARACTERS_FEED_WAIT_SECONDS must be an integer from 0 to 600." >&2
+        return 1
+    fi
+    deadline=$((SECONDS + wait_seconds))
+    while :; do
+        evidence="$(docker exec "$container_id" /usr/local/bin/oteryn-platform-entrypoint php -r '
+            require "vendor/autoload.php";
+            $app = require "bootstrap/app.php";
+            $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+            echo (new App\GameAuth\NativeAccountCharacters\NativeAccountCharactersReadModel())->feedEvidence(time());
+        ' 2>/dev/null | tail -n 1)" || evidence=unavailable
+        if [[ "$evidence" == live ]]; then
+            echo "Account-character projection feed is live (fresh watermark received)."
+            return 0
+        fi
+        ((SECONDS < deadline)) || break
+        sleep 3
+    done
+    echo "Account-character projection feed is ${evidence:-unavailable}: no fresh watermark from the Character Authority within ${wait_seconds}s, so every native login would be refused; refusing to report the deployment healthy. Check the Game node projection push (CN=oteryn-preprod-character-projection)." >&2
+    return 1
+}
+
 # Validates the projection settings native login needs besides a signing key: the Game runtime-status
 # and scope-assignment identities that make a scope routable. No native World UUID is needed: account
 # characters are on in compose.yml, so the D171 fallback is off. Reads the loaded environment; prints the reason to stderr and fails when incomplete.
