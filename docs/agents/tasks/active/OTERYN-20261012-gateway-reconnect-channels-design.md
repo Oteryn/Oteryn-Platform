@@ -52,7 +52,7 @@ checkpoint_version: 1
 updated_at: 2026-10-12T12:00:00Z
 head: UNKNOWN
 branch: claude/gateway-reconnect-channels-design-20261012
-pr: none
+pr: 1558
 status: waiting
 context_routes:
   - game-auth native gateway contract
@@ -89,6 +89,12 @@ validation:
   - command: python3 tools/validation/legacy_token_ratchet.py
     result: PASS
     evidence: no group rose
+  - command: python3 tools/agents/checkpoint.py <this record> --require-checkpoint
+    result: PASS
+    evidence: checkpoint validated
+  - command: python3 tools/agents/documentation_ia.py
+    result: PASS
+    evidence: documentation IA validated
   - command: product runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation-only design; no code, route or configuration changed
