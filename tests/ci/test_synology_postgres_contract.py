@@ -786,8 +786,16 @@ class DeployWiringTest(unittest.TestCase):
             self.assertIn(f"      {name}: ${{{{ secrets.OTERYN_STAGING_{name} }}}}\n", workflow)
             self.assertIn(f"          {name}=${name}\n", workflow)
         self.assertIn('if [[ -n "${!name:-}" && ! "${!name}" =~ ^[A-Za-z0-9_.-]{24,}$ ]]; then', workflow)
-        for name in ("character-bazaar-staging-control.yml", "recover-synology-staging-schema.yml"):
-            self.assertNotIn("PLATFORM_POSTGRES_", (WORKFLOWS / name).read_text(), name)
+        self.assertNotIn("PLATFORM_POSTGRES_", (WORKFLOWS / "recover-synology-staging-schema.yml").read_text())
+
+    def test_marketplace_control_workflow_renders_the_five_optional_secrets_all_or_none(self) -> None:
+        workflow = (WORKFLOWS / "character-bazaar-staging-control.yml").read_text()
+        for name in SECRET_NAMES:
+            self.assertIn(f"      {name}: ${{{{ secrets.OTERYN_STAGING_{name} }}}}\n", workflow)
+            self.assertIn(f"          {name}=${name}\n", workflow)
+        self.assertIn('if (( postgres_configured != 0 && postgres_configured != 5 )); then', workflow)
+        self.assertIn('=~ ^[A-Za-z0-9_.-]{24,}$', workflow)
+        self.assertLess(workflow.index("postgres_configured != 0"), workflow.index("cat > deploy/synology/.env"))
 
 
 
