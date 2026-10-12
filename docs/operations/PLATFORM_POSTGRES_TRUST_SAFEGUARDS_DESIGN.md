@@ -526,6 +526,22 @@ Compared with the plan's expected list (`app/GameAuth/NativeEvidence/`, the cons
 - **A crash during the first publication.** A PostgreSQL restart after `$advance(1)` and before the commit gives `unknown`, not `failed-after-witness` (D8). That fails safe, but the owner then gets a less specific verdict.
 - **Producer calls may fail as busy.** The observation's shared lock can make a concurrent producer call fail closed as busy for the length of one read. Step 4 runs with the gate closed and the scheduler stopped, so no such call is expected.
 
+## Accepted residual risks (owner, 2026-10-12)
+
+The owner accepted the residual risks of this note on 2026-10-12 ("akceptuje ryzyko", PR #1589). P6a adds no mechanism against the cases below. A later edge case of the same kind is added to this list rather than designed against. The answers to O1 to O5 and P1 to P6 are still open; this acceptance does not answer them.
+
+- **Manual SQL in the step-4 window** (A1, *Proof*, *Limits*).
+- **A whole-NAS volume restore**, which also rolls back the evidence share (O1).
+- **Root or the Docker socket on the NAS** (A5, D3). Such a user can write a false line before it is anchored, including a false intent that the fence accepts. They can also edit the witness directory or the database, or delete a run file when `chattr +a` is not set (O2). A deleted run file is detected as `evidence-lost`, which is permanent.
+- **A repository admin who edits or deletes an anchor comment** (D3). An edit stays in the comment history; a deletion is not detected by P6a.
+- **Other containers' mount sources compared as written**, not resolved through `mountinfo` (D3).
+- **A restore to a point after the last recorded observation** (D4, *Database continuity*). It hides no recorded state and is not detected.
+- **A legitimate change to the stable identity after the init.** A `TRUNCATE` or `VACUUM FULL` of a trust table, a major upgrade or a move to another cluster changes it. It is refused fail-closed as `store-changed`, and the cutover needs the owner. A reboot between runs is allowed, because `postmaster_start_time` is compared only within one attempt.
+- **Permanent refusals need an owner restart.** After `store-changed`, `evidence-lost` or `init-lost`, the cutover continues only on a new evidence share and a new anchor issue (D5, *No reset*). `init-lost` also covers an init that never wrote, which cannot be told apart from a restore.
+- **An anchor post that keeps failing** stops the cutover until a post succeeds (D3, *Anchor retry*).
+- **A PostgreSQL crash during the first publication** gives `unknown`, not `failed-after-witness` (D8).
+- **Producer calls failing as busy** during an observation (D2).
+
 ## Questions
 
 **For the producer-contract owner.**
