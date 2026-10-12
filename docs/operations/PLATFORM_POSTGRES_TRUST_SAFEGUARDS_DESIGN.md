@@ -170,13 +170,20 @@ These facts were verified against `main` at `ba971b8`.
   - Every line carries `prev`, the SHA-256 of the previous line (`null` on the first line), and `seq`. The SHA-256 of a line's bytes, without the trailing newline, is its *line hash*.
   - After every append, `append` prints an anchor object: `{"run_id", "seq", "type", "line_sha256"}`. It holds no secret.
   - **The anchor is mandatory.** P6 publishes each anchor out of band before its next action, as a comment on the P6 cutover tracking issue in this repository (REST API, the cutover workflow's token with `issues: write`; the issue is owner question O5). The comment is the durable anchor. P6 also writes the anchor to the workflow job summary and uploads the run file as a workflow artifact; both are conveniences, because artifacts and logs expire.
-  - If an anchor cannot be posted, the step fails and the cutover stops. The line stays in the file, unanchored, and no further action runs on it.
-  - `verify --anchors <file>` takes the anchors fetched from that issue. It checks each file's chain, that every anchored line exists with the same line hash, and that no file has a line after its last anchored line. `classify` returns `unknown` unless `verify --anchors` passes, and `require-open-attempt` and the producer's fence check (D8) refuse an intent that is not the last line of its run. Both run inside the deploy and have no anchors. The intent's anchor is therefore enforced by D5, which does not turn native admission on before the intent is anchored, and `classify` checks it again.
+  - **Anchor retry.** Before posting, P6 fetches the issue's comments. If a comment already holds the same anchor object, for example because an earlier post succeeded but its response was lost, P6 reuses it and posts nothing. A failed post can be retried this way any number of times. If the anchor still cannot be posted, the step fails and the cutover stops. The line stays in the file, unanchored, and no further action runs on it.
+  - **The `anchored` record (intents only).** An `attempt-intent` is not usable for a publication until P6 has posted its anchor. P6 then appends an `anchored` line (D4) that names the intent's `seq` and line hash and the id of the comment that holds its anchor. `append anchored` refuses unless the previous line is that intent and the comment id is given. The fence (D8) accepts only an intent whose run ends with that `anchored` line, so an intent whose anchor was never posted can never be used for a publication. The `anchored` line has no anchor of its own. Its content is fixed by the comment it names, and `verify --anchors` checks it against that comment instead.
+  - `verify --anchors <file>` takes the anchors fetched from that issue, with their comment ids. It checks:
+    - each file's chain;
+    - that every anchored line exists with the same line hash;
+    - that every `anchored` line names a line whose anchor is in the comment with that id;
+    - that no file has a line after its last anchored line, other than one `anchored` line.
+
+    `classify` returns `unknown` unless `verify --anchors` passes. `require-open-attempt` and the producer's fence check (D8) run inside the deploy and cannot fetch anchors. They rely on the `anchored` line, which only the P6 step writes, after the post succeeded (A5). `classify` checks the comment afterwards.
   - **What the anchor detects.** Any change to an anchored line after it was anchored: a rewrite, a truncation or a regenerated, self-consistent chain no longer matches the external line hashes. With `dir_append_only` set, deleting or renaming a run file is also refused.
   - **What P6a does not defend against.** A root user on the NAS, or anyone with the Docker socket, can write a false line before it is anchored, delete a run file when the directory attribute is not set, edit the witness directory, or run SQL against the database. P6a gives no protection against a hostile root on the NAS. The evidence is a record of an honest operator's run that cannot be rewritten later without detection. A repository admin can edit an anchor comment (the edit history stays visible) or delete it; that is also outside what P6a defends.
 - **The writer.**
   - The writer is `deploy/synology/scripts/attempt_evidence.py`, which uses only the standard library and runs with `python3 -I`.
-  - Its subcommands are `check-location`, `open`, `append`, `verify`, `classify` and `require-open-attempt`. It makes no network call; P6 posts and fetches the anchors.
+  - Its subcommands are `check-location`, `open`, `append` (including `append anchored`), `verify`, `classify` and `require-open-attempt`. It makes no network call; P6 posts and fetches the anchors.
   - It starts no subprocess that writes; `check-location` only reads `docker inspect` and `docker info`.
   - It is the only writer of the evidence directory. It never reads or writes the witness directory, the database or the key volume. The data it records comes from the JSON output of D1 and D2, passed in by the caller.
 
@@ -190,6 +197,7 @@ Every line has the fields `v` (1), `run_id`, `seq`, `prev`, `type` and `at` (UTC
 | `init` | After D1 | The D1 result and `store_id` |
 | `begin-refused` | When an intent precondition fails | Observation and reason. The run then closes. |
 | `attempt-intent` | Immediately before the deploy that publishes | `attempt` (n), `store_id`, `scope`, `key_id`, `kid_record_count` (the `used.kids` count for that kid, from the key tool), `observation` (D2) |
+| `anchored` | Right after an intent's anchor comment is posted (D3) | `for_seq` and `for_line_sha256` (the intent's), `anchor_comment_id`. Written only for an `attempt-intent`; its `prev` is that intent's line hash. |
 | `attempt-observation` | After that deploy ends | `attempt` (n), `deploy_exit` (operator-supplied, optional), `observation_1` and `observation_2` (D2, at least 5 s apart), `late` (true when written by a later run), `classification` |
 | `run-close` | Last line | Final classification, and `done: true/false` |
 
@@ -220,8 +228,10 @@ Every line has the fields `v` (1), `run_id`, `seq`, `prev`, `type` and `at` (UTC
       - a non-null database identity;
       - `in_flight` all zero.
    7. If any precondition fails, write `begin-refused` and stop. Otherwise write `attempt-intent` n=1.
-      - If the intent cannot be written or anchored, P6 does not turn native admission on.
-   8. Every record of steps 1 and 3 is anchored (D3) before the next action.
+      - P6 posts the intent's anchor (with the retry of D3) and then writes `anchored` for it. Only then does P6 turn native admission on.
+      - If the intent cannot be written or anchored, or `anchored` cannot be written, P6 does not turn native admission on, and the fence refuses that intent.
+   8. Every record of steps 1 and 3, except an `anchored` line, is anchored (D3) before the next action.
+   9. **Recovery of an intent that was never anchored.** P6 first retries the anchor (D3). If the intent stays unanchored, `step4-observe` closes the attempt: it writes `attempt-observation` and anchors that. Its chain (`prev`) covers the intent line. No publication could have used that intent, because it has no `anchored` line. If the observation shows a null floor and no profile, the classification is `failed-before-witness`, and a retry writes intent n+1. Any other observation is classified as D6 says.
 2. **The operator turns native admission on through the deploy.** The deploy runs `publish-trust` and then the self-check (plan, step 4).
    - The step-4 deploy uses the same release and Compose definition as steps 2 and 3, so it recreates neither the `postgres` service nor any table.
    - If it did, the identity changes and the classification is `unknown`. That outcome fails safe.
@@ -229,7 +239,7 @@ Every line has the fields `v` (1), `run_id`, `seq`, `prev`, `type` and `at` (UTC
    1. Two D2 observations at least 5 s apart. A `witness_busy` result or a non-zero `in_flight` count waits and retries within a bounded time. If the window runs out, the result is `unknown`.
    2. Fetch the anchors, classify (D6) and write `attempt-observation`.
    3. If the result is `committed` and the self-check passed, write `run-close` with `done: true`.
-   4. If the result is `failed-before-witness`, the operator fixes the cause outside trust state and runs `step4-begin --retry`. That writes `attempt-intent` n+1 in the same run file after a fresh observation, with the same preconditions.
+   4. If the result is `failed-before-witness`, the operator fixes the cause outside trust state and runs `step4-begin --retry`. That writes `attempt-intent` n+1 in the same run file after a fresh observation, with the same preconditions, anchor and `anchored` line.
    5. Any other result writes `run-close` with `done: false` and stops the cutover for the owner.
 
 Further rules:
@@ -278,7 +288,7 @@ D8 has two parts. The guard in `lib.sh` picks the open intent. The fence inside 
    - a null floor;
    - `in_flight` all zero;
    - `attempt_evidence.py require-open-attempt --store S --key-id K --scope ... --identity <json>` passes. That command checks that:
-     - the newest run ends with an intent with no observation, for exactly S, K and that scope (D5 anchored it before native admission was turned on);
+     - the newest run ends with an intent with no observation, for exactly S, K and that scope, followed only by its `anchored` line (D5 writes it after the anchor is posted);
      - the intent's `database.identity` equals the identity just observed;
      - no run in the directory carries a blocking classification.
 
@@ -302,7 +312,7 @@ The guard writes nothing. Its checks give an early, clear refusal. They are not 
   2. It takes the exclusive floor lock, as `withNamespace` does.
   3. **It verifies the intent from the evidence directory**, under both locks and before the transaction. `NativeEvidencePublicationFence::verify` reads every `*.jsonl` file in the directory and refuses unless all of these hold:
      - every file's hash chain is intact (`v`, `run_id`, `seq` and `prev` as in D3 and D4);
-     - the file `<run_id>.jsonl` exists, and its last line is an `attempt-intent` whose line hash equals `intent_sha256`;
+     - the file `<run_id>.jsonl` exists; its last line is an `anchored` line, the line before it is an `attempt-intent` whose line hash equals `intent_sha256`, and the `anchored` line names that intent's `seq` and line hash and carries a comment id;
      - across all files, it is the only `attempt-intent` without an `attempt-observation`;
      - no `attempt-observation` in any file carries `failed-after-witness`, `restore-or-loss` or `unknown`;
      - the intent's `store_id` equals the marker and the row, its `scope` and `key_id` equal the call's, its `observation` shows a null floor and no profile, and its `observation.database` is not null.
@@ -319,9 +329,9 @@ The guard writes nothing. Its checks give an early, clear refusal. They are not 
   - The caller supplies only a run id and a hash. The producer accepts them only if they name a line that already exists in the evidence directory and passes the checks above. A caller who can only run `publish-trust` or `publish-key`, as the Platform user or through the guard, cannot make a fence pass for an intent that `attempt_evidence.py` did not write.
   - Writing a line that passes needs write access to the evidence directory: root on the NAS, or the Docker socket. That is the root-writer boundary that P6a does not defend against (D3, assumption A5).
   - The Platform user owns the witness directory and holds the database credentials. Code running as that user can write the floor or the tables directly and bypass the fence. That is the manual-write case excluded by A1 and A2, not something the fence defends against.
-  - The producer has no network access and cannot check the external anchor. An intent that was written but never anchored can still be named by a fence. D5 does not turn native admission on before the intent is anchored, and `classify` then returns `unknown`, because `verify --anchors` fails.
+  - The producer has no network access and cannot fetch the anchor comment. It requires the `anchored` line instead, which P6 writes only after the post succeeded. An intent whose anchor post failed has no `anchored` line, so the fence refuses it, whoever calls. Writing a false `anchored` line needs root (A5). `classify` checks the named comment afterwards.
 - **Attribution.** A floor is attributed to an attempt only by these rules:
-  - With the setting `required`, every first publication, the only write that moves the floor from null (Fact 1), passes step 3. At that moment its intent is the last line of its run and the only intent without an observation. So exactly one intent is ever eligible.
+  - With the setting `required`, every first publication, the only write that moves the floor from null (Fact 1), passes step 3. At that moment its intent, followed only by its `anchored` line, ends its run and is the only intent without an observation. So exactly one intent is ever eligible.
   - After the floor is 1, no first publication is possible, and every new intent is refused (D5). So the floor cannot be attributed to a later attempt.
   - A floor that first appears between intent n and its observation belongs to attempt n, whoever invoked the call. Several publish calls in one deploy all belong to attempt n.
   - A call holds the exclusive floor lock from step 2 until its transaction ends, so O1 and O2 cannot read the floor while it runs. One late case remains: a call that has not yet taken the lock when O1 and O2 are read (for example, a `publish-trust` still running after its `docker exec` client was killed) can take it and verify intent n before the observation line is appended. Attempt n is then recorded `failed-before-witness`, and the floor appears later. Once the observation line exists, intent n no longer passes step 3, so this can only happen to attempt n. The next `step4-begin --retry` sees the floor and writes `begin-refused`, never an intent, so the floor is never attributed to attempt n+1. `classify` then reports attempt n as `unknown` (D6), and the owner decides.
@@ -336,7 +346,7 @@ The guard writes nothing. Its checks give an early, clear refusal. They are not 
 
 Consequences:
 
-- The first PostgreSQL publication on the NAS can only happen while exactly one intent written by `attempt_evidence.py` is open. D5 anchors that intent before native admission is turned on, and `classify` checks the anchor afterwards.
+- The first PostgreSQL publication on the NAS can only happen while exactly one intent written by `attempt_evidence.py` is open, and only after its anchor was posted and its `anchored` line written. `classify` checks the anchor comment afterwards.
 - A restore, a re-bind, a table rewrite or a rewind after the intent refuses the publication before the witness write. The guard's observation or the fence inside the transaction sees the changed identity, binding or progress.
 - A PostgreSQL restart after `$advance(1)` but before the commit leaves the floor at 1 with no profile, and changes `postmaster_start_time`. The classification is then `unknown`, not `failed-after-witness`, which fails safe.
 - A crash of only the PHP process after `$advance(1)` rolls the transaction back without changing the identity. That is a failed publication of attempt n, classified `failed-after-witness` if C holds.
@@ -448,9 +458,9 @@ This is `tests/Feature/GameAuth/NativeEvidenceRestoreNeverSynthesizesProfileTest
 | `tests/Feature/GameAuth/NativeEvidenceProvenanceInitCommandTest.php` (new) | `created`, `completed` after a simulated crash, `unchanged`, each refusal in D1 with nothing changed, `busy`, temp entries reported and kept, no `.floor` ever written |
 | `tests/Feature/GameAuth/NativeSigningTrustObservationCommandTest.php` (new) | No file, lock or row is created on an empty directory. `witness_busy` while a namespace lock is held. Each binding value. The profile and key fields. Identity cases run only when the driver is `pgsql`. |
 | `tests/Feature/GameAuth/NativeEvidenceRestoreNeverSynthesizesProfileTest.php` (new) | The negative test above |
-| `tests/Feature/GameAuth/NativeEvidencePublicationFenceTest.php` (new) | With `required`, a first publication without a fence refuses and writes no floor. Each of these refuses before `$advance`, with no `.floor` file: a fabricated fence whose hash names no line; an intent that is not the last line of its run; a second intent without an observation in another run; a broken hash chain in any file; a blocking classification in any run; a missing or unreadable evidence directory; an intent whose store id, scope or key id differs; a current identity that differs from the intent's; a current `wal_lsn` or `xmax` below the intent's baseline. A marker-only state refuses, and the row is not re-bound. With a profile present the fence is ignored. On `pgsql` only: the identity and progress refusals, a fenced first publication that commits and prints the intent's run id, attempt and hash, and a concurrent `TRUNCATE` of a trust table that waits until the fenced transaction ends. |
+| `tests/Feature/GameAuth/NativeEvidencePublicationFenceTest.php` (new) | With `required`, a first publication without a fence refuses and writes no floor. Each of these refuses before `$advance`, with no `.floor` file: a fabricated fence whose hash names no line; an intent that is not followed by its `anchored` line, as after a failed anchor post; an `anchored` line that names another `seq` or hash, or has no comment id; an intent followed by a line other than its `anchored` line; a second intent without an observation in another run; a broken hash chain in any file; a blocking classification in any run; a missing or unreadable evidence directory; an intent whose store id, scope or key id differs; a current identity that differs from the intent's; a current `wal_lsn` or `xmax` below the intent's baseline. A marker-only state refuses, and the row is not re-bound. With a profile present the fence is ignored. On `pgsql` only: the identity and progress refusals, a fenced first publication that commits and prints the intent's run id, attempt and hash, and a concurrent `TRUNCATE` of a trust table that waits until the fenced transaction ends. |
 | `tests/Feature/GameAuth/NativeAdmission/NativeAdmissionPublishTrustCommandTest.php` (extend) | `--first-publication-fence` parsing, and the `fence` field in the result |
-| `tests/ci/test_synology_attempt_evidence.py` (new) | Location refusals (named volume, Docker root, inside or containing a project mount, same share, not writable, read-only file system, wrong owner, group or mode, a Platform mount that is writable or at another target, a second project container mounting the source). The read-only `platform` mount passes. `check-location` calls no `unlink`, `rename` or create, checked by patching those calls to fail. Exclusive create; an existing file is not reopened. Anchors: a rewritten anchored line, a regenerated self-consistent chain, a truncated file and an unanchored tail each fail `verify --anchors`, and `classify` then gives `unknown`. Each D6 classification from fixtures, including `unknown` for a floor that first appears after a `failed-before-witness` observation. `require-open-attempt` refusals and the printed fence. No network call, and no subprocess with a write path. |
+| `tests/ci/test_synology_attempt_evidence.py` (new) | Location refusals (named volume, Docker root, inside or containing a project mount, same share, not writable, read-only file system, wrong owner, group or mode, a Platform mount that is writable or at another target, a second project container mounting the source). The read-only `platform` mount passes. `check-location` calls no `unlink`, `rename` or create, checked by patching those calls to fail. Exclusive create; an existing file is not reopened. Anchors: a rewritten anchored line, a regenerated self-consistent chain, a truncated file, an unanchored tail and an `anchored` line whose comment does not hold that anchor each fail `verify --anchors`, and `classify` then gives `unknown`. `append anchored` refuses when the previous line is not an intent or no comment id is given. An unanchored intent closed by an anchored observation passes, and classifies `failed-before-witness` on a null floor. Each D6 classification from fixtures, including `unknown` for a floor that first appears after a `failed-before-witness` observation. `require-open-attempt` refusals, including an intent without its `anchored` line, and the printed fence. No network call, and no subprocess with a write path. |
 | `tests/ci/test_synology_native_admission_trust_publication.py` (extend) | Guard: with a profile present it continues without a fence; with no profile and no open attempt it refuses; an identity mismatch refuses; a blocking classification refuses; with an open attempt it passes the fence to `publish-trust`; MariaDB is unaffected and gets the setting `off`. |
 | `tests/ci/test_synology_native_admission_gate.py` (extend) | `check-kid-history`: count 1 passes, 0 or 2 fails, read-only |
 
@@ -479,7 +489,7 @@ Compared with the plan's expected list (`app/GameAuth/NativeEvidence/`, the cons
 - **P6. The first-publication fence.** Accept the D8 producer change:
   - the `first_publication_fence` setting;
   - `publishTrustedKey` refusing an unfenced first publication when the setting is `required`;
-  - the fenced path, which holds the store lock shared, never re-binds, verifies the named intent from the read-only evidence mount, and checks identity, progress and binding against that intent under table locks before `$advance(1)`;
+  - the fenced path, which holds the store lock shared, never re-binds, verifies the named intent and its `anchored` line from the read-only evidence mount, and checks identity, progress and binding against that intent under table locks before `$advance(1)`;
   - the producer reading the evidence directory (`attempt_evidence_directory`), which ties the Platform's first publication to the evidence format of D4.
 
   Recommendation: accept. It changes nothing when the setting is `off` or a profile exists.
