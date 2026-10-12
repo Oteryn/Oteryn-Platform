@@ -217,6 +217,23 @@ class StaticBootstrapTest(BootstrapCase):
         runs = [line for line in text.splitlines() if '"${compose[@]}" run' in line]
         self.assertEqual(len(runs), 2, runs)
 
+    def test_operational_world_host_follows_the_deploy_policy(self) -> None:
+        # deploy.sh accepts GAME_WORLD_HOST only as loopback or RFC1918 IPv4; the operational bootstrap must refuse
+        # anything else (DNS name, IPv6, public IPv4, a second line) before any change. --local keeps the broad rule.
+        text = SCRIPT.read_text()
+        self.assertIn('"$local_mode" != true && -n "${GAME_WORLD_HOST:-}"', text)
+        condition = next(line for line in text.splitlines() if line.lstrip().startswith('{ [[ "$GAME_WORLD_HOST" =~ ^[0-9.]+$ ]]'))
+        script = f'SCRIPT_DIR={SCRIPT.parent}; ok() {{ GAME_WORLD_HOST="$1"; {condition.strip().rstrip("\\")} || return 1; }}; ok "$1"'
+        expectations = {
+            "127.0.0.1": True, "10.1.2.3": True, "172.16.0.1": True, "192.168.1.5": True,
+            "game.oteryn.invalid": False, "::1": False, "abc:def": False, "8.8.8.8": False,
+            "172.32.0.1": False, "10.0.0.1\nevil": False, "01.2.3.4": False, "1.2.3": False,
+        }
+        for host, allowed in expectations.items():
+            with self.subTest(host=host):
+                result = subprocess.run(["bash", "-c", script, "x", host], capture_output=True, text=True, check=False)
+                self.assertEqual(result.returncode == 0, allowed, result.stderr)
+
     def test_world_host_is_validated_by_the_commands_own_filter(self) -> None:
         text = SCRIPT.read_text()
         self.assertIn("FILTER_VALIDATE_IP", text)

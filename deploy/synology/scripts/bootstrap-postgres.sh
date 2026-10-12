@@ -620,6 +620,14 @@ fi
 if [[ -n "${GAME_WORLD_HOST:-}" && -n "$probe_result" && "$(value_of host_valid "$probe_output")" != true ]]; then
     reasons+=("GAME_WORLD_HOST must be an IPv4/IPv6 address or DNS hostname without a scheme or path (the same check as game-auth:world:ensure).")
 fi
+# The operational bootstrap is followed by deploy.sh, which accepts only loopback or an RFC1918 IPv4 address
+# (deploy.sh GAME_WORLD_HOST policy, validate-ipv4.sh private-or-loopback). A host the command accepts but the
+# deploy refuses (a DNS name, an IPv6 address) would pass here and fail the next deploy after the bootstrap,
+# so the operational mode applies the deploy policy before any change. --local keeps only the command's rule.
+if [[ "$local_mode" != true && -n "${GAME_WORLD_HOST:-}" ]]; then
+    { [[ "$GAME_WORLD_HOST" =~ ^[0-9.]+$ ]] && bash "$SCRIPT_DIR/validate-ipv4.sh" "$GAME_WORLD_HOST" private-or-loopback >/dev/null 2>&1; } \
+        || reasons+=("GAME_WORLD_HOST must be loopback or an exact private LAN IPv4 address (the deploy.sh policy), not a DNS name or IPv6 address.")
+fi
 case "${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}" in
     true)
         [[ "${OTERYN_NATIVE_CHANNEL_KEY:-}" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] \
