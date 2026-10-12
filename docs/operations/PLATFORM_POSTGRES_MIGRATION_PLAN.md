@@ -154,7 +154,7 @@ A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synolo
 
 **Bootstrap sequence.** Most steps already run in every staging deploy (`deploy/synology/scripts/deploy.sh:765-775`, `lib.sh`) and are idempotent. On an empty database they create the state from scratch:
 
-1. **Witness reset.** With the `platform` service stopped, move the directory named by `GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY` (on the `platform_storage` volume) aside to a dated name. It is never edited, and P6 deletes it together with the MariaDB volume. The script records the MariaDB-era `witness-store.id` at the freeze and moves aside only a directory that is empty or carries that id. It refuses when the directory holds anything a PostgreSQL witness wrote, or when the target database has any `native_game_evidence_witness_stores`, `native_game_signing_trust_*` or native evidence row. A trust publication attempt can advance the witness even when its database transaction then fails, so the directory check matters as much as the database check. Together they make a re-run impossible after the first witnessed write. The script also refuses when the new directory is not empty after the move.
+1. **Witness reset.** With the `platform` service stopped, move the directory named by `GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY` (on the `platform_storage` volume) aside to a dated name. It is never edited, and P6 deletes it together with the MariaDB volume. The script records the MariaDB-era `witness-store.id` at the freeze and moves aside only a directory that is empty or carries that id. It refuses when the directory holds anything a PostgreSQL witness wrote, or when the target database has any `native_game_evidence_witness_stores`, `native_game_signing_trust_*` or native evidence row. A trust publication attempt can advance the witness even when its database transaction then rolls back. That leaves the missing-profile state: a trust-state floor of 1 with no profile row and no database trace. So the directory check matters as much as the database check, and this state is recovered only forward in P6 step 4, never by a re-run. Together they make a re-run impossible after the first witnessed write. The script also refuses when the new directory is not empty after the move.
 2. **Schema.** `php artisan migrate --force` on the empty database, as the owner role on the `pgsql_migrations` connection (P4). Migrations also seed the built-in roles and permissions; there is no separate seeder.
 3. **Passport keys.** `passport:keys` runs only when `storage/oauth-*.key` are missing. Existing keys on `platform_storage` are kept.
 4. **Native admission trust.** `game-auth:native-admission:publish-trust` publishes the existing key from the `oteryn-native-admission-keys` volume into the new database, followed by `game-auth:native-admission:self-check`. The key volume is kept. This is the first witnessed write. It runs only when native admission is on, so in P6 it is deferred to P6 step 4, after the last rollback point.
@@ -174,7 +174,7 @@ A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synolo
 **Validation.**
 
 - CI: run the bootstrap script against an empty PostgreSQL service container and an empty witness directory, then `health-check.sh`-equivalent checks and the native admission self-check.
-- Negative tests: the script refuses on a database with an existing witness binding or trust row, on a witness directory carrying a store id other than the recorded MariaDB-era one, and on a directory a failed trust publication advanced without a database row.
+- Negative tests: the script refuses on a database with an existing witness binding or trust row, on a witness directory carrying a store id other than the recorded MariaDB-era one, and on a directory a failed trust publication advanced without a database row (the missing-profile state).
 - A rerun on a bootstrapped database is refused, not partially applied.
 
 **Rollback.** Revert the PR. The script only acts on the PostgreSQL engine, which is idle until P6. Nothing deployed changes.
@@ -280,7 +280,12 @@ A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synolo
 - `.github/workflows/deploy-synology-staging.yml`: a cutover input
 - `.github/workflows/cloudflare-oteryn-endpoints.yml`, `scripts/operations/cloudflare-oteryn-endpoints.sh`, `tests/operations/cloudflare-oteryn-endpoints/**`: the `maintenance-close` and `maintenance-open` modes and their tests, extending the existing workflow because the workflow budget is full
 - `docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md`: the two modes
-- if no bounded operator command for a successor trust profile version exists by then: `app/Console/Commands/PublishNativeAdmissionTrust.php` (or a new sibling command) and its tests, to publish a successor profile version with a fresh key id after `reconcile --trust=fresh`
+- the bounded forward-only trust recovery, with tests, delivered and deployed before step 4 (a precondition below):
+  - `app/GameAuth/NativeEvidence/NativeEvidenceRecoveryReconciler.php`: a new operation for the missing-profile state. For a fixed scope with a retained trust-state floor of at least 1 and no `native_game_signing_trust_profiles` row, it creates the profile conservatively as revoked, at the retained floor, with no trusted key. It runs under the witness namespace lock. It never lowers or moves the witness, and it refuses in every other state.
+  - `app/Console/Commands/ReconcileNativeEvidence.php`: an option that runs that operation for `fresh` or `recovery`, refusing unless the state matches exactly
+  - `app/Console/Commands/PublishNativeAdmissionTrust.php` or a new sibling command: publish a successor profile version through `NativeSigningTrustRegistry::publishNextProfileVersion`, with a key id never used in that scope, after either recovery
+  - the matching tests in `tests/Feature/GameAuth/NativeEvidenceHardeningTest.php` and under `tests/Feature/GameAuth/NativeAdmission/**`. They include a reproduction of the stranded state: the witness advanced, the profile insert rolled back, `reconcile --trust` and a new publication both refusing before the fix.
+  - `docs/contracts/OTERYN_V2_NATIVE_EVIDENCE_PRODUCER_CONTRACT.md`: the trust-state recovery paragraph gains the missing-profile case. This is a contract change and needs its owner's review.
 - `docs/operations/PLATFORM_POSTGRES_CUTOVER_EVIDENCE.md` (new, dated)
 - the packet's task record
 
@@ -291,6 +296,7 @@ The engine switch value is a repository variable that the operator sets.
 - P1 stage B is required and green.
 - P2, P3 and P4 are merged and deployed with engine `mariadb`, and the ADR 0044 amendment is accepted.
 - P5 archiving is active and one drill has passed.
+- The forward-only trust recovery above (missing-profile recovery and successor publication) is merged and deployed, so no failure in step 4 can strand the cutover.
 - The owner gave a go decision and a window.
 - `MARKETPLACE_ENABLED=false`.
 
@@ -317,8 +323,11 @@ The engine switch value is a repository variable that the operator sets.
      - the PostgreSQL witness directory is never emptied, deleted, replaced or lowered, and the database is never emptied under it.
    - **Publication or self-check fails.** Turn native admission off again and keep the witness and the database.
      - When the cause is outside trust state, for example configuration or the key file, fix it and retry. A retry on a consistent state is idempotent.
-     - When the trust state is ambiguous because the witness is ahead of the database, reads and mutations stay unavailable by contract (`OTERYN_V2_NATIVE_EVIDENCE_PRODUCER_CONTRACT.md`, trust state). Recover with `game-auth:native-evidence:reconcile --trust=fresh`. It moves the relational issuer revision forward to the retained floor and leaves that profile version revoked. Re-enabling trust then needs a successor profile version with a key id never used before in that scope (`NativeSigningTrustRegistry::publishNextProfileVersion`).
-     - No operator command for the successor profile exists today. P6 adds a bounded one, or native login stays off on PostgreSQL until a follow-up packet adds it. The cutover is not declared done in the meantime.
+     - When the trust state is ambiguous because the witness is ahead of the database, reads and mutations stay unavailable by contract (`OTERYN_V2_NATIVE_EVIDENCE_PRODUCER_CONTRACT.md`, trust state). There are two such states:
+       - **Profile row present, issuer revision behind the floor.** Recover with `game-auth:native-evidence:reconcile --trust=fresh`. It moves the relational issuer revision forward to the retained floor and leaves that profile version revoked.
+       - **Missing profile.** The first publication on the clean slate advanced the witness to 1, then its database transaction rolled back, so no profile row exists. `reconcile --trust` refuses this state (no profile row, `NativeEvidenceRecoveryReconciler.php:61-71`). A new publication refuses it too (non-null floor without a profile, `NativeSigningTrustRegistry.php:47-50`). Recover with the new P6 missing-profile operation, which creates the profile revoked at the retained floor without touching the witness.
+     - After either recovery, publish a successor profile version with a key id never used before in that scope, using the P6 successor command (`NativeSigningTrustRegistry::publishNextProfileVersion`). Then rerun the self-check.
+     - Both recoveries are forward-only. Neither removes, lowers or replaces the PostgreSQL witness, and the cutover is not declared done until the self-check passes on the successor profile.
 5. **Native login smoke.** Run the native login end-to-end smoke and the evidence read path on the NAS against the loopback Gateway origin. The same forward-only rule applies to the evidence it writes.
    - A failure is fixed forward with the witness kept.
    - An account generation left with the witness ahead is recovered with `game-auth:native-evidence:reconcile --account-id=...`, which only moves state forward to the retained floor.
@@ -331,7 +340,7 @@ The engine switch value is a repository variable that the operator sets.
 
 **Validation.** The cutover evidence file is complete. Staging deploy and health stay green on PostgreSQL. A post-cutover P5 drill passes.
 
-**Rollback.** Only as in step 3, before the first trust publication attempt, ending with the gate opened on MariaDB. From step 4 on there is no rollback, only forward reconciliation that keeps the PostgreSQL witness. After step 6 there is no MariaDB data to return to, which the owner accepted because all data is test data.
+**Rollback.** Only as in step 3, before the first trust publication attempt, ending with the gate opened on MariaDB. From step 4 on there is no rollback, only forward reconciliation that keeps the PostgreSQL witness. That includes the missing-profile state left by a first publication whose transaction rolled back after the witness advanced; it is recovered by the P6 missing-profile operation and a successor profile, never by a rollback or a P3 re-run. After step 6 there is no MariaDB data to return to, which the owner accepted because all data is test data.
 
 ### P7 — Remove MariaDB code paths and reconcile docs
 
