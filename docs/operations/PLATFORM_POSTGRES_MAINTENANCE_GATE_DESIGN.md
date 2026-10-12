@@ -184,6 +184,21 @@ Test cases (script tests against the mock, workflow-shape tests in Python):
 - Probes: a legitimate non-Platform 200 or 3xx from a wildcard or other-hostname route passes after close; a response carrying all elements of a recorded set fails, while one that shares a single common cookie or header name (a framework session cookie, a security header) passes; a host with fewer than two application-specific elements and no marker yields `unavailable`; no derivable fingerprint makes those probes informational.
 - `audit` reports `closed` as bounded drift with exit 0; confirmation phrases required; no token, secret or bypass value in any output or artifact.
 
+## Accepted residual risks (owner, 2026-10-12)
+
+The owner accepted the residual risks of this design ("akceptuje ryzyko"). This section is the home for every edge case that cannot be removed fully; later review findings of that kind are recorded here instead of triggering a redesign. A concrete internal inconsistency or defect is still fixed in the note.
+
+| Residual risk | Why it remains | Mitigation kept |
+| --- | --- | --- |
+| Sub-second window between the last re-read and the `PUT` | Cloudflare has no conditional write (no `If-Match`) | Hash and `version` re-read immediately before the `PUT`, one running write at a time through the shared write group, post-write `version` and read-back checks, one dispatcher |
+| An `apply` that passed its `guard` can replace a gate run that went pending behind a running write | GitHub concurrency keeps one pending run and replaces the older one; no durable lock exists | Read-only `guard` before every `apply`; the replaced run is visibly `cancelled`; fail closed (a dropped close stops the cutover before the freeze, a dropped open leaves the gate closed); `apply` only runs from `open` |
+| A route to the origins outside this tunnel (host port-forward, another connector), and a remote name that resolves to the connector on a non-protected port | The tunnel API cannot see them | Probes are samples of this tunnel's names only and make no detection claim; connector and port-forward inventory is left to the owner |
+| Probes weaker than the API check | The fingerprint needs at least two application-specific elements (or a dedicated marker); otherwise the wildcard and other-hostname probes are informational | The API-side origin-route check stays authoritative; an optional dedicated response marker packet can strengthen it |
+| A closed edge whose closure was lost (run died after the `PUT`, or the 30-day artifact expired) | A renewal needs a verifiable previous closure | Repair is a dashboard action (reopen, then close again) |
+| The dashboard is the only bypass of the gate and the repair path for an `unknown` edge | Dashboard edits are outside the workflow's control | Every state is re-classified from a fresh read; hash and `version` checks detect the change |
+| Legitimate remote origins must use a DNS name or an owner-approved allowed-host entry | IP-literal hosts and local origins are refused by default | Empty-by-default allowed-host list, reviewed change |
+| Reliance on the `production-cloudflare` environment reviewer | A reviewer approves each gate run | Confirmation phrases and the one-dispatcher rule |
+
 ## Owner approval
 
 The owner approves, or changes, before implementation:
