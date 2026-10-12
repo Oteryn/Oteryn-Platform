@@ -248,7 +248,7 @@ class StaticBootstrapTest(BootstrapCase):
         env = self.base_env(DB_CONNECTION="sqlite", DB_DATABASE=":memory:")
         self.assertEqual(self.bootstrap("record-witness", "--local", env=env).returncode, 0)
         cases = {
-            "GAME_WORLD_ID": ("0", "abc", "-1"),
+            "GAME_WORLD_ID": ("0", "abc", "-1", "9223372036854775808", "99999999999999999999"),
             "GAME_WORLD_PORT": ("abc", "0", "65536", "99999"),
             "GAME_WORLD_SLUG": ("Oteryn", "-oteryn", "a" * 65),
             "GAME_WORLD_NAME": ("n" * 101,),
@@ -276,6 +276,26 @@ class StaticBootstrapTest(BootstrapCase):
                     DB_CONNECTION="sqlite", DB_DATABASE=":memory:", **{name: "   "}))
                 self.assert_refused(result, f"{name} is not set")
                 self.assertFalse(self.witness_dir.exists())
+
+    def test_stale_state_record_path_is_refused_before_any_change(self) -> None:
+        reason = platform_unavailable_reason()
+        if reason is not None:
+            self.skipTest(reason)
+        env = self.base_env(DB_CONNECTION="sqlite", DB_DATABASE=":memory:")
+        self.assertEqual(self.bootstrap("record-witness", "--local", env=env).returncode, 0)
+        for name in ("witness-moved-aside.env.tmp", "bootstrap-complete.env.tmp"):
+            with self.subTest(name=name):
+                stale = self.state_dir / name
+                stale.mkdir()
+                self.addCleanup(stale.rmdir)
+                self.assert_refused(self.bootstrap("run", "--local", env=env), f"{name} already exists")
+                self.assertFalse(self.witness_dir.exists())
+                stale.rmdir()
+
+    def test_record_writes_after_the_first_change_exit_with_the_failed_status(self) -> None:
+        script = SCRIPT.read_text()
+        self.assertRegex(script, r'> "\$moved_file\.tmp" \\\n\s+&& chmod 600 "\$moved_file\.tmp" \\\n\s+&& mv -- "\$moved_file\.tmp" "\$moved_file" \\\n\s+\|\| failed ')
+        self.assertRegex(script, r'> "\$complete_file\.tmp" \\\n\s+&& chmod 600 "\$complete_file\.tmp" \\\n\s+&& mv -- "\$complete_file\.tmp" "\$complete_file" \\\n\s+\|\| failed ')
 
 
 class LiveBootstrapCase(BootstrapCase):

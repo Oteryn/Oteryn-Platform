@@ -484,6 +484,12 @@ done
 if [[ -n "${GAME_WORLD_ID:-}" ]]; then
     [[ "$GAME_WORLD_ID" =~ ^[1-9][0-9]*$ ]] \
         || reasons+=("GAME_WORLD_ID must be a positive integer.")
+    # Within the PHP integer range: beyond it EnsureGameWorld clamps the value and IssueNativeTopology
+    # (FILTER_VALIDATE_INT) rejects it, after the first witnessed write.
+    if [[ "$GAME_WORLD_ID" =~ ^[1-9][0-9]*$ ]] \
+        && { (( ${#GAME_WORLD_ID} > 19 )) || { (( ${#GAME_WORLD_ID} == 19 )) && [[ "$GAME_WORLD_ID" > 9223372036854775807 ]]; }; }; then
+        reasons+=("GAME_WORLD_ID must not exceed 9223372036854775807.")
+    fi
 fi
 if [[ -n "${GAME_WORLD_PORT:-}" ]]; then
     { [[ "$GAME_WORLD_PORT" =~ ^[1-9][0-9]{0,4}$ ]] && (( 10#$GAME_WORLD_PORT <= 65535 )); } \
@@ -522,6 +528,15 @@ if [[ "$local_mode" != true ]]; then
         || reasons+=("DB_MIGRATIONS_USERNAME and DB_MIGRATIONS_PASSWORD (the migration owner role) are not in the environment file.")
 fi
 
+# The state records written after the first change must be writable now: a stale temporary path or an
+# unwritable state directory would otherwise fail the write after the move-aside.
+for record_tmp in "$moved_file.tmp" "$complete_file.tmp"; do
+    if [[ -e "$record_tmp" || -L "$record_tmp" ]]; then
+        reasons+=("$record_tmp already exists; remove the stale temporary record before the bootstrap.")
+    fi
+done
+[[ -w "$state_dir" && -x "$state_dir" ]] || reasons+=("the bootstrap state directory $state_dir is not writable.")
+
 if ((${#reasons[@]} > 0)); then
     for reason in "${reasons[@]}"; do
         printf 'Refused: %s\n' "$reason" >&2
@@ -544,9 +559,10 @@ if [[ "$witness_action" == move-aside ]]; then
     moved_to="$(value_of witness_moved_aside_to "$witness_output")"
     if [[ -n "$moved_to" ]]; then
         printf 'MOVED_ASIDE_TO=%s\nWITNESS_STORE_ID=%s\nMOVED_AT=%s\n' "$moved_to" "$frozen_store_id" \
-            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$moved_file.tmp"
-        chmod 600 "$moved_file.tmp"
-        mv -- "$moved_file.tmp" "$moved_file"
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$moved_file.tmp" \
+            && chmod 600 "$moved_file.tmp" \
+            && mv -- "$moved_file.tmp" "$moved_file" \
+            || failed "the MariaDB-era witness was moved aside to $moved_to but its record $moved_file could not be written."
         echo "MariaDB-era witness directory moved aside, unedited: $moved_to"
     fi
 else
@@ -676,9 +692,10 @@ echo "Bootstrap checks passed. The deploy that follows runs health-check.sh with
 
 printf 'BOOTSTRAPPED_AT=%s\nOAUTH_CLIENT_ID=%s\nOAUTH_RUST_CLIENT_ID=%s\nNATIVE_WORLD_ID=%s\nNATIVE_ADMISSION=%s\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$oauth_client_id" "$oauth_rust_client_id" "$native_world_id" "$native_admission" \
-    > "$complete_file.tmp"
-chmod 600 "$complete_file.tmp"
-mv -- "$complete_file.tmp" "$complete_file"
+    > "$complete_file.tmp" \
+    && chmod 600 "$complete_file.tmp" \
+    && mv -- "$complete_file.tmp" "$complete_file" \
+    || failed "the completion record $complete_file could not be written."
 
 echo "Non-secret values for the operator:"
 echo "bootstrap_result=complete"
