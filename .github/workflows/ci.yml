@@ -220,6 +220,124 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  platform_postgres:
+    name: platform-postgres
+    # Stage A of the Platform PostgreSQL migration probe: report only. This job is not listed in
+    # the needs of `test` or `platform-gate`, and continue-on-error keeps its failures from
+    # failing the workflow. The known suite failures are the P2 work queue: the suite step
+    # records them (step-level continue-on-error) and they are uploaded as an artifact. The job
+    # itself fails only when no JUnit report is produced or a PostgreSQL concurrency test
+    # (tests/Feature/*/Concurrency/*PgsqlTest) fails, is skipped or does not run.
+    needs: classify_changes
+    if: ${{ needs.classify_changes.result == 'success' && needs.classify_changes.outputs.ci == 'true' && needs.classify_changes.outputs.reuse_heavy != 'true' }}
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: oteryn-ci-postgres-password
+          POSTGRES_DB: oteryn_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d oteryn_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: oteryn_test
+      DB_USERNAME: postgres
+      DB_PASSWORD: oteryn-ci-postgres-password
+      PGSQL_INTEGRATION_HOST: 127.0.0.1
+      PGSQL_INTEGRATION_PORT: 5432
+      PGSQL_INTEGRATION_USER: postgres
+      PGSQL_INTEGRATION_PASSWORD: oteryn-ci-postgres-password
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.5'
+          coverage: none
+          extensions: pdo_pgsql, pdo_mysql, pcntl, gd
+          tools: composer:v2
+
+      - name: Install dependencies from lockfile
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Run the full suite on PostgreSQL 17
+        continue-on-error: true
+        run: |
+          mkdir -p artifacts/ci
+          php artisan config:clear --ansi
+          vendor/bin/phpunit --configuration phpunit.pgsql.xml --log-junit artifacts/ci/phpunit-pgsql-junit.xml
+
+      - name: Summarise PostgreSQL failures
+        if: ${{ !cancelled() }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import sys
+          import xml.etree.ElementTree as ET
+
+          path = "artifacts/ci/phpunit-pgsql-junit.xml"
+          if not os.path.isfile(path):
+              print("::error::No PHPUnit JUnit report was produced on PostgreSQL.")
+              sys.exit(1)
+          failed = []
+          total = skipped = 0
+          concurrency_ok = 0
+          concurrency_bad = []
+          for case in ET.parse(path).getroot().iter("testcase"):
+              total += 1
+              owner = case.get('class') or case.get('classname') or case.get('file')
+              name = f"{owner}::{case.get('name')}"
+              is_bad = case.find("skipped") is not None or case.find("failure") is not None or case.find("error") is not None
+              if "\\Concurrency\\" in (owner or "") and (owner or "").endswith("PgsqlTest"):
+                  if is_bad:
+                      concurrency_bad.append(name)
+                  else:
+                      concurrency_ok += 1
+              if case.find("skipped") is not None:
+                  skipped += 1
+              elif case.find("failure") is not None or case.find("error") is not None:
+                  failed.append(name)
+          failed = sorted(set(failed))
+          with open("artifacts/ci/pgsql-failing-tests.txt", "w", encoding="utf-8") as handle:
+              handle.write("\n".join(failed) + ("\n" if failed else ""))
+          summary = f"PostgreSQL 17 probe: {total} tests, {skipped} skipped, {len(failed)} failing."
+          print(summary)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write(f"### {summary}\n\n")
+              handle.write("Report only: this job is not a required check. The failing list is the P2 work queue.\n\n")
+              for name in failed[:200]:
+                  handle.write(f"- `{name}`\n")
+          for name in concurrency_bad:
+              print(f"::error::PostgreSQL concurrency test did not pass: {name}")
+          if concurrency_bad or concurrency_ok == 0:
+              print(f"::error::PostgreSQL concurrency tests: {concurrency_ok} passed, {len(concurrency_bad)} not passed.")
+              sys.exit(1)
+          print(f"PostgreSQL concurrency tests: {concurrency_ok} passed.")
+          PY
+
+      - name: Upload PostgreSQL probe output
+        if: ${{ !cancelled() && hashFiles('artifacts/ci/phpunit-pgsql-junit.xml') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-pgsql-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/ci/phpunit-pgsql-junit.xml
+            artifacts/ci/pgsql-failing-tests.txt
+          if-no-files-found: error
+          retention-days: 14
+
   php_coverage:
     name: php-coverage-report
     needs: classify_changes
