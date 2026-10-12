@@ -47,6 +47,7 @@ case "$*" in
     *' ps -q gateway') printf '%s\\n' "${FAKE_GATEWAY-gateway-1}"; exit "${FAKE_INGRESS_PS_RC:-0}" ;;
     *' stop gateway internal-proxy') exit "${FAKE_STOP_RC:-0}" ;;
     *' rm -s -f gateway internal-proxy platform') exit "${FAKE_RM_RC:-0}" ;;
+    *' rm -s -f internal-mtls') exit "${FAKE_MTLS_RM_RC:-0}" ;;
     *' up -d '*) exit "${FAKE_UP_RC:-0}" ;;
     'start '*) exit "${FAKE_START_RC:-0}" ;;
     *'GAME_AUTH_NATIVE_ADMISSION_ENABLED'*) printf %s "$FAKE_FLAG"; exit "${FAKE_FLAG_RC:-0}" ;;
@@ -528,7 +529,13 @@ def test_ingress_stop_reports_the_running_ingress_in_start_order(fake_docker: pa
     result, calls = run_lib(fake_docker, 'oteryn_native_admission_ingress_stop "$@"', "docker", "compose", "-f", "x.yml")
     assert result.returncode == 0, result.stderr
     assert result.stdout.split() == ["proxy-1", "gateway-1"]
-    assert calls == ["compose -f x.yml ps -q internal-proxy", "compose -f x.yml ps -q gateway", "compose -f x.yml stop gateway internal-proxy"]
+    assert calls == [
+        "compose -f x.yml ps -q internal-proxy",
+        "compose -f x.yml ps -q gateway",
+        "compose -f x.yml stop gateway internal-proxy",
+        # The mTLS listener is off here, so any existing one is removed (lib.sh).
+        "compose -f x.yml rm -s -f internal-mtls",
+    ]
 
 
 def test_ingress_stop_on_a_first_deploy_has_nothing_to_restart(fake_docker: pathlib.Path) -> None:
@@ -537,7 +544,7 @@ def test_ingress_stop_on_a_first_deploy_has_nothing_to_restart(fake_docker: path
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout == ""
-    assert calls[-1] == "compose -f x.yml stop gateway internal-proxy"
+    assert calls[-2:] == ["compose -f x.yml stop gateway internal-proxy", "compose -f x.yml rm -s -f internal-mtls"]
 
 
 @pytest.mark.parametrize("fake", [{"FAKE_STOP_RC": "1"}, {"FAKE_INGRESS_PS_RC": "1"}])

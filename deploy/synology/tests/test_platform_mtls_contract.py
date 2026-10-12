@@ -311,20 +311,20 @@ def test_rollback_preflights_the_listener_before_stopping_anything() -> None:
 
 def test_listener_is_stopped_while_platform_is_replaced_and_migrated() -> None:
     lib = LIB.read_text()
-    body = re.search(r"^oteryn_platform_mtls_stop\(\) \{\n(.*?)^\}", lib, re.M | re.S).group(1)
-    assert '"$@" stop internal-mtls' in body
-    stop = 'oteryn_platform_mtls_stop "${compose[@]}" || exit 1'
+    body = re.search(r"^oteryn_native_admission_ingress_stop\(\) \{\n(.*?)^\}", lib, re.M | re.S).group(1)
+    # On: stopped and kept for the way back. Off: any existing listener is removed, whatever its state.
+    assert '"$@" stop internal-mtls >&2 || return 1' in body
+    assert '"$@" rm -s -f internal-mtls >&2 || return 1' in body
+    stop = 'oteryn_native_admission_ingress_stop "${compose[@]}" >/dev/null'
     reconcile = 'oteryn_reconcile_platform_mtls "${compose[@]}"'
 
     deploy = DEPLOY.read_text()
     main = deploy[deploy.index("\nfinalize_previous_candidate_if_healthy\n"):]
-    assert main.index("oteryn_native_admission_ingress_stop") < main.index(stop)
     assert main.index(stop) < main.index('"${compose[@]}" up -d platform')
     assert main.index(stop) < main.index("php artisan migrate --force")
     assert main.index("oteryn_publish_native_admission_trust_or_stop") < main.index(reconcile)
 
     rollback = ROLLBACK.read_text()
-    assert rollback.index("oteryn_native_admission_ingress_stop") < rollback.index(stop)
     assert rollback.index(stop) < rollback.index('"${compose[@]}" up -d platform')
     assert rollback.index("oteryn_native_admission_self_check_or_stop") < rollback.index(reconcile)
 
@@ -455,13 +455,21 @@ def test_ingress_stop_takes_the_listener_down_and_every_way_back_returns_it() ->
     assert result.returncode == 0, result.stderr
     assert calls[-1] == "compose up -d --no-deps --force-recreate internal-mtls"
 
-    # While the listener is off nothing about it is touched (it is not running; health-check.sh).
-    result, calls = _run_lib(
-        "oteryn_native_admission_ingress_stop docker compose; oteryn_native_admission_ingress_start",
-        OTERYN_PLATFORM_MTLS_ENABLED="false",
-    )
-    assert result.returncode == 0, result.stderr
-    assert not [c for c in calls if "internal-mtls" in c or c.startswith("start")]
+    # The setting was turned off while a listener still runs (true -> false): every Platform-only
+    # route removes it with the rest of the ingress stop and nothing brings it back. With no listener
+    # the removal is a no-op.
+    for present in ("mtls-1", ""):
+        result, calls = _run_lib(
+            "oteryn_native_admission_ingress_stop docker compose; oteryn_native_admission_self_check_or_stop docker compose; "
+            "oteryn_native_admission_ingress_start proxy-1 gateway-1",
+            OTERYN_PLATFORM_MTLS_ENABLED="false",
+            FAKE_MTLS=present,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.split() == ["proxy-1", "gateway-1"]
+        assert "compose rm -s -f internal-mtls" in calls
+        assert calls.index("compose rm -s -f internal-mtls") < calls.index("compose ps -q platform")
+        assert [c for c in calls if c.startswith("start")] == ["start proxy-1 gateway-1"]
 
 
 def test_preflight_validates_the_server_certificate_before_any_ingress_mutation() -> None:

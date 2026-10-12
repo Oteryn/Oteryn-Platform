@@ -275,17 +275,6 @@ oteryn_platform_mtls_fingerprint_of() {
     command docker inspect --format '{{index .Config.Labels "oteryn.platform-mtls.fingerprint"}}' "$1" 2>/dev/null
 }
 
-# Stops the Game-node mTLS listener whatever the setting (deploy.sh full path, rollback.sh, right
-# after oteryn_native_admission_ingress_stop, which stops it only while the setting is on): a
-# listener left running from before the setting was turned off must not reach the Platform being
-# replaced and migrated either. oteryn_reconcile_platform_mtls recreates or removes it after the gates.
-oteryn_platform_mtls_stop() {
-    (($# > 0)) || { echo "Platform mTLS stop needs the Compose command." >&2; return 1; }
-    local id
-    id="$("$@" ps -q internal-mtls 2>/dev/null)" || return 1
-    [[ -z "$id" ]] || "$@" stop internal-mtls >&2
-}
-
 # Brings the listener to the resolved setting after Platform is up: recreated while on (it then
 # re-reads the host certificate files and carries their fingerprint), removed while off. Arguments:
 # the route's Compose command words.
@@ -1207,9 +1196,10 @@ oteryn_publish_native_route() {
 # OTERYN_PLATFORM_MTLS_STOPPED_ID (only for a direct call; a later stop that finds it already
 # stopped keeps the first id), so it comes back through whichever way the route returns ingress:
 # oteryn_native_admission_ingress_start (given ids or the kept id), the self-check gate below, or
-# oteryn_reconcile_platform_mtls, which recreates it and forgets the kept id. While the listener is
-# off it is not running (oteryn_reconcile_platform_mtls removes it and health-check.sh refuses a
-# running one), so nothing more is stopped.
+# oteryn_reconcile_platform_mtls, which recreates it and forgets the kept id. While the setting is
+# off, any existing listener is removed here whatever its state (a no-op when there is none): one left
+# from before the setting was turned off must not keep answering for the Platform being replaced, and
+# a stopped container with `restart: always` would come back on the next Docker daemon or NAS restart.
 OTERYN_PLATFORM_MTLS_STOPPED_ID=''
 oteryn_native_admission_ingress_stop() {
     local service id
@@ -1227,6 +1217,8 @@ oteryn_native_admission_ingress_stop() {
             running+=("$id")
             OTERYN_PLATFORM_MTLS_STOPPED_ID="$id"
         fi
+    else
+        "$@" rm -s -f internal-mtls >&2 || return 1
     fi
     ((${#running[@]} == 0)) || printf '%s\n' "${running[@]}"
 }

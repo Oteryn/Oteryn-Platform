@@ -813,9 +813,8 @@ OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/prepare-fresh-schema-baseline.sh"
 # Ingress stays stopped until the new Platform passes the trust gate below (lib.sh); the migration
 # quiesce does not run on a first deploy, a same-release redeploy or a resumed candidate.
 oteryn_native_admission_ingress_stop "${compose[@]}" >/dev/null
-# The ingress stop also stops the Game-node mTLS listener while it is on; this stops one left running
-# while it is off. It is recreated or removed after the gates (oteryn_reconcile_platform_mtls).
-oteryn_platform_mtls_stop "${compose[@]}" || exit 1
+# The ingress stop also stops the Game-node mTLS listener (removes it while the setting is off); it
+# is recreated or removed after the gates (oteryn_reconcile_platform_mtls).
 "${compose[@]}" up -d platform
 "${compose[@]}" exec -T platform php artisan migrate --force --no-interaction
 if ! "${compose[@]}" exec -T platform sh -ec 'test -s storage/oauth-private.key && test -s storage/oauth-public.key'; then

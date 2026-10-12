@@ -95,6 +95,7 @@ proven:
   - Codex P1s on #1570 (head e2b79f2d), the last round in this area. (1) A full deploy and a rollback stop internal-mtls together with the rest of the ingress before Platform is replaced or migrated, and reconcile recreates it after the gates. (2) A candidate keeps the listener off when its running Platform has FastCGI off, even if its image has the pool. Anything further goes to the follow-up synology-mtls-hardening.
   - Further P1s in this area after this round go to the named follow-up D282, unless they are a real regression (coordinator).
   - Codex P1s on #1570 (head c576b672), fixed at the root on coordinator direction. (1) The shared ingress stop (lib.sh oteryn_native_admission_ingress_stop) stops internal-mtls while the listener is on, so all ten call sites are covered. These are deploy.sh fast, candidate and full; rollback.sh; deploy-impact.sh reconcile; key promotion; marketplace-staging.sh enable and prepare-rollback; the Marketplace runtime recreation; and the failure restore. The listener comes back only behind the gates: with ingress_start, at the final self-check, or through the listener reconcile. A contract test enumerates the callers and checks that order. (2) The shared preflight now validates the server certificate before any ingress mutation. A no-network container runs an in-memory TLS 1.3 handshake, trusting only the mounted CA, with the expected name. Local check with scratch PKI: a valid set passed; a wrong key, wrong CA, wrong SAN, expired certificate, client-only EKU and missing file were each refused.
+  - Codex P1 4248020832 on #1570 (head e90df338): while the setting is off, the shared ingress stop now removes any existing internal-mtls (a no-op when there is none). A listener left from a true-to-false switch therefore cannot outlive a Platform-only replacement (deploy-impact.sh, marketplace staging). The separate unconditional stop in deploy.sh and rollback.sh is gone. The fake docker and two call-list assertions in tests/ci/test_synology_native_admission_trust_publication.py were updated for the new command. The coordinator widened the owned paths to that file for this fix only.
   - The Compose profile keeps the bind-mounted service out of the default render, so the CI "no bind mounts" render check passes.
 derived:
   - Coordinator answers 2026-10-12. (2) ssl_verify_depth 1 is correct because Game client certificates are issued directly by the preprod root (pathlen 0, no intermediates). (3) The listener stays on by default for staging. (4) The commit trailer names Opus 5.5 where the packet said Sonnet 5.5; the deviation is accepted and recorded.
@@ -123,6 +124,7 @@ changed_paths:
   - deploy/synology/scripts/health-check.sh
   - deploy/synology/tests/test_platform_mtls_contract.py
   - docs/agents/tasks/archive/OTERYN-20261012-platform-mtls-8543.md
+  - tests/ci/test_synology_native_admission_trust_publication.py
 validation:
   - command: python3 deploy/synology/tests/test_platform_mtls_contract.py
     result: PASS
