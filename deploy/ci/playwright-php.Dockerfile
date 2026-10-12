@@ -31,6 +31,7 @@ RUN apt-get update \
         libjpeg62-turbo-dev \
         libonig-dev \
         libpng-dev \
+        libpq-dev \
         libwebp-dev \
         libzip-dev \
         procps \
@@ -40,11 +41,11 @@ RUN apt-get update \
         tar \
         unzip \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
-    && docker-php-ext-install -j"$(nproc)" gd intl pcntl pdo_mysql zip \
+    && docker-php-ext-install -j"$(nproc)" gd intl pcntl pdo_mysql pdo_pgsql zip \
     && pecl install redis \
     && docker-php-ext-enable redis \
     && php -r 'exit(PHP_VERSION_ID >= 80500 ? 0 : 1);' \
-    && php -r 'exit(extension_loaded("dom") && extension_loaded("gd") && extension_loaded("intl") && extension_loaded("mbstring") && extension_loaded("pcntl") && extension_loaded("pdo_mysql") && extension_loaded("redis") && extension_loaded("xml") && extension_loaded("xmlwriter") && extension_loaded("zip") ? 0 : 1);' \
+    && php -r 'exit(extension_loaded("dom") && extension_loaded("gd") && extension_loaded("intl") && extension_loaded("mbstring") && extension_loaded("pcntl") && extension_loaded("pdo_mysql") && extension_loaded("pdo_pgsql") && extension_loaded("redis") && extension_loaded("xml") && extension_loaded("xmlwriter") && extension_loaded("zip") ? 0 : 1);' \
     && node --version \
     && npm --version \
     && composer --version \

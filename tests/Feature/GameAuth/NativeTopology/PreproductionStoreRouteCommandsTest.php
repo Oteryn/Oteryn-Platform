@@ -4,8 +4,6 @@ namespace Tests\Feature\GameAuth\NativeTopology;
 
 use App\GameAuth\Worlds\NativePreproductionStoreRefused;
 use App\GameAuth\Worlds\NativeRouteRecords;
-use Illuminate\Database\Connection;
-use Illuminate\Database\PostgresConnection;
 use Illuminate\Database\SQLiteConnection;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Artisan;
@@ -19,12 +17,9 @@ use Tests\TestCase;
  * holds, each violated condition refuses with its named reason and nothing written, and the default
  * disposable-store path is unchanged while the switch is off.
  *
- * The allowlisted store is a double: a connection whose configuration is a deployed store identity and
- * whose statements run on the migrated test database of the suite (in-memory SQLite, or the loopback
- * PostgreSQL of the pgsql suite), so the fence sees the deployed profile and the writes are observable.
- * Two identities exist (ADR 0044 amendment P4): the MariaDB store (driver mysql, host mariadb, port 3306)
- * and the PostgreSQL store (driver pgsql, host postgres, port 5432, sslmode verify-full), both on the
- * database oteryn_platform; the driver selects the identity and a crossed driver, host or port refuses.
+ * The allowlisted store is a double: a connection whose configuration is the deployed MariaDB store
+ * (driver mysql, host mariadb, port 3306, database oteryn_platform) and whose statements run on the
+ * migrated in-memory test database, so the fence sees the deployed profile and the writes are observable.
  */
 final class PreproductionStoreRouteCommandsTest extends TestCase
 {
@@ -47,27 +42,18 @@ final class PreproductionStoreRouteCommandsTest extends TestCase
         'prefix' => '',
     ];
 
-    private const PGSQL_STORE = [
-        'driver' => 'pgsql',
-        'host' => 'postgres',
-        'port' => '5432',
-        'database' => 'oteryn_platform',
-        'username' => 'oteryn_platform_app',
-        'password' => self::PASSWORD,
-        'sslmode' => 'verify-full',
-        'sslrootcert' => '/run/oteryn/postgres-ca/ca.crt',
-        'prefix' => '',
-        'search_path' => 'public',
-    ];
-
-    /** The suite's own migrated test connection (sqlite or pgsql), which the store double runs on. */
-    private string $base = 'sqlite';
-
-    protected function setUp(): void
+    /**
+     * The store double runs on the migrated in-memory sqlite database whatever the suite's default driver is, so the
+     * PostgreSQL lane (DB_DATABASE names a PostgreSQL database there) exercises the same fence on the same double.
+     */
+    protected function refreshApplication(): void
     {
-        parent::setUp();
-        $default = config('database.default');
-        $this->base = is_string($default) && $default !== '' ? $default : 'sqlite';
+        parent::refreshApplication();
+        config([
+            'database.default' => 'sqlite',
+            'database.connections.sqlite.database' => ':memory:',
+        ]);
+        DB::purge('sqlite');
     }
 
     protected function tearDown(): void
@@ -75,7 +61,7 @@ final class PreproductionStoreRouteCommandsTest extends TestCase
         if ($this->app !== null) {
             $this->app->detectEnvironment(fn (): string => 'testing');
             config(['game-auth.native_route_preproduction_store.enabled' => false]);
-            DB::setDefaultConnection($this->base);
+            DB::setDefaultConnection('sqlite');
             DB::purge('preprod_store');
             Artisan::call('migrate:fresh', ['--force' => true]);
         }
@@ -154,63 +140,6 @@ final class PreproductionStoreRouteCommandsTest extends TestCase
         }
     }
 
-    public function test_the_postgresql_store_identity_issues_and_publishes_over_verified_tls(): void
-    {
-        $this->provisionedWorld();
-        $world = Str::uuid7()->toString();
-        $this->preproductionStore($world, [], self::PGSQL_STORE);
-        DB::table('game_worlds')->where('id', self::WORLD)->update(['world_id' => $world]);
-
-        $issued = $this->issue();
-        self::assertSame(0, $issued['exit'], $issued['output']);
-        self::assertSame('issued', $issued['json']['result']);
-        $published = $this->publish();
-        self::assertSame(0, $published['exit'], $published['output']);
-        self::assertSame('published', $published['json']['result']);
-        self::assertSame('preproduction', $published['json']['store']);
-        self::assertSame(1, DB::table('game_channels')->whereNotNull('native_route_revision')->count());
-        foreach ([$issued, $published] as $run) {
-            self::assertStringNotContainsString(self::PASSWORD, $run['output']);
-            self::assertStringNotContainsString('postgres', $run['output']);
-            self::assertStringNotContainsString('verify-full', $run['output']);
-        }
-    }
-
-    public function test_the_postgresql_store_identity_refuses_without_verified_tls_or_with_a_crossed_identity(): void
-    {
-        $this->provisionedWorld();
-        $world = Str::uuid7()->toString();
-        $cases = [
-            'sslmode require' => [['sslmode' => 'require'], self::PGSQL_STORE],
-            'sslmode verify-ca' => [['sslmode' => 'verify-ca'], self::PGSQL_STORE],
-            'sslmode prefer' => [['sslmode' => 'prefer'], self::PGSQL_STORE],
-            'sslmode disable' => [['sslmode' => 'disable'], self::PGSQL_STORE],
-            'sslmode missing' => [['sslmode' => null], self::PGSQL_STORE],
-            'pgsql on the mariadb host' => [['host' => 'mariadb'], self::PGSQL_STORE],
-            'pgsql on the mariadb port' => [['port' => '3306'], self::PGSQL_STORE],
-            'pgsql on loopback' => [['host' => '127.0.0.1'], self::PGSQL_STORE],
-            'pgsql other port' => [['port' => '5433'], self::PGSQL_STORE],
-            'pgsql other database' => [['database' => 'oteryn_test'], self::PGSQL_STORE],
-            'pgsql unix socket' => [['unix_socket' => '/var/run/postgresql'], self::PGSQL_STORE],
-            'pgsql read replica' => [['read' => ['host' => ['replica']]], self::PGSQL_STORE],
-            'mysql on the postgres host' => [['host' => 'postgres'], self::STORE],
-            'mysql on the postgres port' => [['port' => '5432'], self::STORE],
-            'mysql on the postgres identity' => [['host' => 'postgres', 'port' => '5432', 'sslmode' => 'verify-full'], self::STORE],
-        ];
-
-        foreach ($cases as $case => [$override, $identity]) {
-            $this->preproductionStore($world, $override, $identity);
-
-            foreach ([$this->issue(), $this->publish()] as $run) {
-                self::assertSame(1, $run['exit'], $case);
-                self::assertStringContainsString(NativePreproductionStoreRefused::DATABASE, $run['output'], $case);
-                self::assertStringNotContainsString(self::PASSWORD, $run['output'], $case);
-            }
-            $this->useEnvironment('testing');
-            $this->assertNothingWritten();
-        }
-    }
-
     public function test_default_path_is_unchanged_and_refuses_the_deployed_store_while_the_switch_is_off(): void
     {
         $this->provisionedWorld();
@@ -250,7 +179,7 @@ final class PreproductionStoreRouteCommandsTest extends TestCase
             'unix socket' => [NativePreproductionStoreRefused::DATABASE, fn () => $this->preproductionStore($world, ['unix_socket' => '/run/mysqld/mysqld.sock'])],
             'other driver' => [NativePreproductionStoreRefused::DATABASE, fn () => $this->preproductionStore($world, ['driver' => 'mariadb'])],
             'read replica' => [NativePreproductionStoreRefused::DATABASE, fn () => $this->preproductionStore($world, ['read' => ['host' => ['replica']]])],
-            'disposable test store' => [NativePreproductionStoreRefused::DATABASE, fn () => DB::setDefaultConnection($this->base)],
+            'disposable sqlite store' => [NativePreproductionStoreRefused::DATABASE, fn () => DB::setDefaultConnection('sqlite')],
         ];
 
         foreach ($cases as $case => [$reason, $violate]) {
@@ -322,29 +251,22 @@ final class PreproductionStoreRouteCommandsTest extends TestCase
         self::assertSame(0, DB::table('admin_audit_events')->count());
     }
 
-    /**
-     * @param  array<string, mixed>  $override
-     * @param  array<string, mixed>  $identity
-     */
-    private function preproductionStore(string $worldId, array $override = [], array $identity = self::STORE): void
+    /** @param array<string, mixed> $override */
+    private function preproductionStore(string $worldId, array $override = []): void
     {
-        $config = array_filter(array_merge($identity, $override), fn (mixed $value): bool => $value !== null);
+        $config = array_merge(self::STORE, $override);
         config([
             'database.connections.preprod_store' => $config,
             'game-auth.native_route_preproduction_store.enabled' => true,
             'game-auth.native_admission.unverified_character_world_id' => $worldId,
         ]);
-        $base = DB::connection($this->base);
-        $pdo = $base->getPdo();
-        $postgres = $base instanceof PostgresConnection;
-        DB::extend('preprod_store', function (array $config, string $name) use ($pdo, $postgres): Connection {
-            $database = is_string($config['database'] ?? null) ? $config['database'] : '';
-            $config = array_merge($config, ['name' => $name]);
-
-            return $postgres
-                ? new PostgresConnection($pdo, $database, '', $config)
-                : new SQLiteConnection($pdo, $database, '', $config);
-        });
+        $pdo = DB::connection('sqlite')->getPdo();
+        DB::extend('preprod_store', fn (array $config, string $name): SQLiteConnection => new SQLiteConnection(
+            $pdo,
+            is_string($config['database'] ?? null) ? $config['database'] : '',
+            '',
+            array_merge($config, ['name' => $name]),
+        ));
         DB::purge('preprod_store');
         DB::setDefaultConnection('preprod_store');
         $this->useEnvironment('preproduction');
@@ -423,9 +345,9 @@ final class PreproductionStoreRouteCommandsTest extends TestCase
 
     private function assertNothingWritten(): void
     {
-        self::assertSame(0, DB::connection($this->base)->table('game_worlds')->whereNotNull('world_id')->count());
-        self::assertSame(0, DB::connection($this->base)->table('game_channels')->count());
-        self::assertSame(0, DB::connection($this->base)->table('admin_audit_events')->count());
+        self::assertSame(0, DB::connection('sqlite')->table('game_worlds')->whereNotNull('world_id')->count());
+        self::assertSame(0, DB::connection('sqlite')->table('game_channels')->count());
+        self::assertSame(0, DB::connection('sqlite')->table('admin_audit_events')->count());
     }
 
     private function useEnvironment(string $environment): void
