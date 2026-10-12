@@ -1,86 +1,171 @@
 # Platform PostgreSQL P6b: maintenance-gate state machine
 
-Status: proposed, for acceptance before P6 starts. Governing plan: `PLATFORM_POSTGRES_MIGRATION_PLAN.md`, *P6 / Edge gate instead of maintenance mode*. Decision: ADR 0046. This note changes no workflow, script, configuration or data.
+Status: proposed, for owner acceptance before P6 starts. Governing plan: `PLATFORM_POSTGRES_MIGRATION_PLAN.md`, *P6 / Edge gate instead of maintenance mode*. Decision: ADR 0046. Governing issue: #1474. This note changes no workflow, script, configuration or data. It fixes the design that the later implementation (*Files and tests*) must follow and lists what the owner must approve (*Owner approval*).
 
 ## Fixed by the plan
 
-- The gate is the two canonical tunnel ingress rules (`oteryn.molehill.cloud`, `gateway.molehill.cloud`) switched between their fixed loopback origins and the Cloudflare `http_status:503` service. DNS and the tunnel connector are not touched.
-- The gate fails closed.
-- No mutating entry point may reopen the origins except `maintenance-open`.
-- `maintenance-close` and `maintenance-open` extend the existing `Cloudflare Oteryn Endpoints` workflow and use the `apply` safeguards: confirmation phrase, fresh read, rejection of locally managed tunnels and ambiguous rules, preservation of unrelated rules and the final catch-all, re-read and hash check immediately before `PUT`.
-- `maintenance-close` refuses, changing nothing, when any other ingress rule has a service on port 8000 or 8080 of the connector host.
-- `audit` reports the closed state as bounded drift, not failure. No bypass secret, cookie or path exists.
-- Opening happens only in step 7, or at the end of a rollback after `health-check.sh` passes on MariaDB.
+- The gate is the two canonical tunnel ingress rules (`oteryn.molehill.cloud`, `gateway.molehill.cloud`) switched between their fixed loopback origins (`http://127.0.0.1:8000`, `http://127.0.0.1:8080`) and the Cloudflare `http_status:503` service. DNS records and the tunnel connector are not touched.
+- The gate fails closed. No mutating entry point may reopen the origins except `maintenance-open`.
+- `maintenance-close` and `maintenance-open` are new modes of the existing `Cloudflare Oteryn Endpoints` workflow (the workflow budget is full) and use the `apply` safeguards: confirmation phrase, fresh read, rejection of locally managed tunnels and ambiguous rules, preservation of unrelated rules and the final catch-all, re-read and hash check immediately before `PUT`.
+- `maintenance-close` refuses, and changes nothing, when any other ingress rule has a service on port 8000 or 8080 of the connector host.
+- No maintenance bypass secret, cookie or path exists. The gate uses only the existing `production-cloudflare` environment and its token; this note adds no secret (`GITHUB_TOKEN` read access to Actions runs is not a new secret).
+- Opening happens only in P6 step 7, or at the end of a rollback after `health-check.sh` passes on MariaDB.
+
+## Decisions in this note
+
+| # | Question left open by the earlier draft | Decision |
+| --- | --- | --- |
+| 1 | Where closure identity is stored | In a workflow artifact of the close run (`oteryn-edge-gate-closure`), bound to the edge by the tunnel configuration `version` that Cloudflare returns on every read. No new credential: the job only needs `actions: read` and uploads with the pinned `actions/upload-artifact` |
+| 2 | Binding identity to a non-replayable edge generation | The open compares the live `version` to the `edge_version` recorded by the close. Any write after the close, including an external edit that restores identical closed rules, changes `version` and invalidates the closure |
+| 3 | Serialization that cannot drop a close or open | One shared concurrency group for every mutating mode, plus a rule that a dropped or cancelled run can never read as success (see *Serialization*). No claim that GitHub queues without dropping |
+| 4 | `apply` outside `open` | `apply` refuses whenever either canonical rule is on `http_status:503` (state `closed`, `split`, or `unknown` with a `503` rule). It stays the repair path for missing or wrongly pointed rules, because it cannot turn a closed edge into an open one |
 
 ## States
 
-Derived from a fresh read of the tunnel ingress, never from memory of a previous run.
+Derived from a fresh read of the tunnel configuration, never from memory of a previous run. Each rule is classified by its exact `service` value; a canonical rule must match by exact hostname, case-insensitively, with no path.
 
 | State | Meaning |
 | --- | --- |
 | `open` | Both canonical rules on their fixed loopback origins |
 | `closed` | Both canonical rules on `http_status:503` |
-| `split` | Exactly one canonical rule is on `http_status:503` and the other is on its fixed loopback origin (only an external edit can cause it, because both rules change in one `PUT`) |
-| `unknown` | Everything else: read failed, tunnel locally managed, rules ambiguous or missing, or a canonical rule on any service other than its fixed loopback origin or `http_status:503` (including one rule on `503` and the other on an arbitrary service) |
+| `split` | Exactly one canonical rule on `http_status:503` and the other on its fixed loopback origin. Both rules change in one `PUT`, so only an external edit can cause it |
+| `unknown` | Everything else: read failed, tunnel locally managed, rules ambiguous or missing, or a canonical rule on any service other than its fixed origin or `http_status:503` (including one rule on `503` and the other on an arbitrary service) |
 
-The four states are disjoint and exhaustive. Classification checks `open`, `closed` and `split` first by exact match on the two rule services; whatever matches none of them is `unknown`.
+The states are disjoint and exhaustive: `open`, `closed` and `split` are matched first by exact comparison, and whatever matches none is `unknown`. `split` and `unknown` never satisfy the external check and never count as open.
 
-`split` and `unknown` are treated as not open. They never satisfy the external check.
+`audit` prints `gate_state=<state>`, `edge_version=<n>` and `other_origin_routes=<n>`. A closed gate is reported as bounded drift, not as failure, and audit's exit code semantics are unchanged (success whenever the state is safely readable).
 
-## Marker and lock
+## Mode contract
 
-- **Marker (*proposal*).** The gate state is the ingress configuration itself: the `503` service on the two canonical rules. Each run logs the pre-write and post-write configuration hashes in its summary.
-- **Closure identity: OPEN DESIGN QUESTION (P6b).** This note does not choose a mechanism. The requirement is stated in *Evidence precondition* below; how the workflow knows which closure it is looking at is open. See *Open design questions*.
-- **Serialization (requirement; mechanism open).** Transitions must be serialized without ever dropping a `maintenance-close` or `maintenance-open`. A GitHub Actions `concurrency` group does not give that: with one run in progress it keeps at most one pending run and replaces an earlier pending run, even with `cancel-in-progress: false`. A pending `maintenance-close` could then be replaced by a later `audit` or other dispatch and the origins would stay open instead of the requested safety transition happening. This note therefore claims no concurrency-group lock. The pre-`PUT` re-read and hash check stays as the guard against an edit made outside the workflow. The serialization mechanism is an open design question below.
+All new modes are `workflow_dispatch` only, from `main`, under `production-cloudflare`. The marker pull request and owner comment entry points stay limited to `audit` and `apply` and cannot request a gate mode. The `apply` guard lives in the script, so every entry point that reaches `apply` (dispatch, marker pull request, owner comment, and the push marker workflow `cloudflare-oteryn-endpoint-main-operation.yml`) is covered by one implementation.
+
+### Inputs
+
+| Input | Used by | Rule |
+| --- | --- | --- |
+| `mode` | all | Adds `maintenance-close` and `maintenance-open` to `audit`, `apply` |
+| `confirmation` | all but `audit` | `maintenance-close`: `CLOSE-OTERYN-EDGE`. `maintenance-open`: `OPEN-OTERYN-EDGE`. Checked by the workflow and again by the script |
+| `task_id` | both gate modes | Matches `^OTERYN-[0-9]{8}-[a-z0-9-]+$`. Names the cutover packet |
+| `closure_run_id` | `maintenance-open` | Run id of the `maintenance-close` run that produced the current closure |
+| `evidence_run_id` | `maintenance-open` | Run id of the cutover (`deploy-synology-staging.yml`) run that produced the cutover evidence |
+
+### `maintenance-close`
+
+1. Workflow boundary: ref is `main`, confirmation exact, `task_id` well formed.
+2. Script: fresh read of token, tunnel (`config_src` must be `cloudflare`) and configuration; `validate_tunnel_config`; classify.
+3. *Origin-route precondition* (below). Refuses on any hit, with no write.
+4. State `closed`: no write. State `open` or `split`: re-read, require the same hash as planned, `PUT` the configuration in which only the `service` of the two canonical rules changes to `http_status:503` (every other field of those rules and every other rule is preserved byte for byte), then read back. State `unknown`: refuse.
+5. Success requires the read-back to classify `closed`, the hash of the unrelated rules to equal the pre-write hash, and, when a write happened, `version` to equal the pre-write `version` plus one. Anything else is a failure, reported with the observed state, never as success.
+6. Upload `closure.json` as artifact `oteryn-edge-gate-closure` (retention 30 days): `schema`, `task_id`, `close_run_id`, `run_attempt`, `edge_version`, `config_hash`, `wrote`. A no-op close from `closed` still uploads it, which is the recovery path after an ambiguous `PUT` (a fresh close run attests the current state).
+7. Job `edge-probe` (separate job, no secrets, runs on a GitHub runner outside the NAS): *External probes* below. The close counts as complete for the cutover only when the manage job and the probe job both succeed.
+
+### `maintenance-open`
+
+1. Workflow boundary: ref is `main`, confirmation exact, `task_id`, `closure_run_id` and `evidence_run_id` present and numeric.
+2. Provenance, before any Cloudflare call, through `gh api` with the run's `GITHUB_TOKEN` (`actions: read`):
+   - The closure run: workflow path `.github/workflows/cloudflare-oteryn-endpoints.yml`, event `workflow_dispatch`, branch `main`, conclusion `success`, `run_attempt` 1, exactly one unexpired `oteryn-edge-gate-closure` artifact.
+   - The evidence run: workflow path `.github/workflows/deploy-synology-staging.yml`, event `workflow_dispatch`, branch `main`, not `failure`/`cancelled`/`timed_out` (it may still be in progress, so that step 7 can live in the same run), exactly one unexpired `platform-cutover-gate-evidence` artifact.
+   - Contents: `closure.task_id == evidence.task_id == task_id`, `evidence.close_run_id == closure_run_id`, `closure.close_run_id == closure_run_id`, and `evidence.outcome` is `cutover_complete` or `rollback_verified`.
+3. Script: fresh read and classify. State `open`: no write and no evidence needed (idempotent retry). State `closed`: require live `edge_version == closure.edge_version` and live `config_hash == closure.config_hash`. State `split` or `unknown`: refuse (a `split` is an external edit, so the closure is no longer provable).
+4. Re-read, same-hash check, `PUT` the fixed loopback origins for the two canonical rules (all other fields preserved), read back; the same success rule as the close.
+5. In the same job, a fresh `audit` pass must show `gate_state=open`, `tunnel_contract=current` and current DNS; then job `edge-probe` proves the normal contract.
+
+### Evidence artifacts
+
+- `oteryn-edge-gate-closure`: written only by `maintenance-close`, content above.
+- `platform-cutover-gate-evidence` (`gate-evidence.json`: `schema`, `task_id`, `close_run_id`, `outcome`, `head_sha`): written by the P6 cutover run, and only (a) `cutover_complete` after step 6 is recorded done (step 5 native login smoke passed and the cutover is declared done; step 7 is the opening step, so it cannot be a precondition of itself), or (b) `rollback_verified` after the MariaDB rollback finished and `health-check.sh` passed against it. It names the `close_run_id` the cutover was run behind, so the operator passes that id into the cutover run. A closed gate with a stopped step (step 4 on ambiguous trust state, step 5 or 6 not recorded) produces no such artifact, so `maintenance-open` refuses and the gate stays closed.
+- Neither file contains a secret, a hostname other than the two canonical ones, or configuration content. Run ids and hashes are logged in the summary.
+- A retry needs fresh evidence by construction: after a rollback and a second close, the second close has a new `close_run_id`, so the first rollback's evidence does not authorize the open.
+
+## Origin-route precondition ("only two canonical ingress rules")
+
+Implemented once in the script and used in three places: `maintenance-close` (refuses), `audit` (prints `other_origin_routes`), and the cutover (see below).
+
+- Scope: every ingress rule whose hostname is not exactly `oteryn.molehill.cloud` or `gateway.molehill.cloud`, including rules with a wildcard hostname, the legacy Gateway hostname, path-only rules and the final catch-all.
+- A rule matches when its `service` is a `scheme://[userinfo@]host[:port][/path]` URL whose effective port is 8000 or 8080 and whose host is the connector host: `localhost`, any `127.0.0.0/8` address, `[::1]`, `0.0.0.0`, `[::]`, or an IPv4-mapped form of those. Default ports apply when no port is given (`http` and `ws` 80, `https` and `wss` 443). `http_status:*`, `hello_world`, `bastion`, `socks5` and `unix:` services do not match.
+- A `service` value that cannot be parsed, or a host in a numeric form other than dotted decimal, counts as a match when the rule could target port 8000 or 8080. The check fails closed.
+- The result is a count only. Hostnames, services and ports of unrelated rules are never printed, because the tunnel may carry operationally sensitive topology.
+- Cutover use: before the freeze, the cutover requires `audit` evidence for the same day: an `audit` run id from `main` whose output has `gate_state=open` and `other_origin_routes=0`. `maintenance-close` repeats the check at close time on the same read it writes from, and the hash check at `PUT` proves that read is still current. A rule added between the audit and the close is caught by the close.
+- Residual, out of reach of any ingress check: a route to the loopback origins that does not pass through this tunnel (another connector, a host port forward). The plan keeps the host bindings loopback-only for that reason, and the external probes below detect it.
+
+## External probes (`edge-probe` job)
+
+Run on a GitHub-hosted runner, no secrets, only the two canonical hostnames plus synthetic names:
+
+- After close: both canonical hostnames return HTTP 503 from the edge (`server: cloudflare`); a random unused label under each served wildcard parent domain (and under `molehill.cloud`) either fails DNS resolution or returns an edge error (5xx from the edge), and any 2xx or 3xx response fails the probe. Hostnames of other tunnel rules are probed from inside the job without being printed; only a count and pass/fail are logged.
+- After open: neither canonical hostname returns 503, and the documented success endpoint of each answers per the cutover smoke definition. The path and content of those checks are defined by P6; this gate requires only the non-503 result and a green job.
+- A failed probe fails the workflow run. It never triggers an automatic gate change.
+
+## Serialization
+
+A GitHub Actions `concurrency` group keeps at most one pending run and replaces an earlier pending one, even with `cancel-in-progress: false`. This note claims no lock stronger than that. The mechanism:
+
+1. Every mutating mode (`apply`, `maintenance-close`, `maintenance-open`) shares one job-level group, `cloudflare-oteryn-edge-write`, with `cancel-in-progress: false`. `audit` keeps a per-run group, so a read can never displace a mutation.
+2. The cancelled run is visible: GitHub marks a replaced pending run `cancelled`. A cancelled, failed, timed-out or missing run never produces the closure or the open record, and the cutover treats it as not done.
+3. The cutover proceeds only on positive proof, never on dispatch: a successful close run with the closure artifact, followed by the fresh `audit` showing `gate_state=closed`. A dropped `maintenance-close` therefore stops the cutover before the freeze instead of leaving the origins silently open.
+4. A dropped `maintenance-open` leaves the gate closed (fail closed) and is repeated.
+5. One dispatcher: while a cutover is in progress only the operator dispatches mutating modes, one at a time, waiting for each to finish. The pre-`PUT` hash check and the post-`PUT` `version` check detect any write by another party; the remaining window between the last re-read and the `PUT` is a bounded residual of the Cloudflare API (no conditional write is assumed), detected after the fact and reported as failure.
 
 ## Transitions
 
 | From | Entry point | To | Rule |
 | --- | --- | --- | --- |
-| `open` | `maintenance-close` | `closed` | Other-rule check passes, then one `PUT` of both rules, then read back both rules |
-| `closed` | `maintenance-close` | `closed` | No write |
+| `open` | `maintenance-close` | `closed` | Origin-route precondition passes, one `PUT`, read back, closure artifact, probes |
+| `closed` | `maintenance-close` | `closed` | No write; new closure artifact attests the current state; probes |
 | `split` | `maintenance-close` | `closed` | Completes the close |
-| `closed` | `maintenance-open` | `open` | Only with the evidence precondition below. One `PUT` restoring the fixed loopback origins, then read back, then a fresh `audit` and an external request to each hostname |
-| `open` | `maintenance-open` | `open` | No write |
-| `split` | `maintenance-open` | `open` | Only with the evidence precondition below. Completes the open |
+| `closed` | `maintenance-open` | `open` | Provenance and live-version evidence checks, one `PUT`, read back, fresh `audit`, probes |
+| `open` | `maintenance-open` | `open` | No write, no evidence; fresh `audit` and probes |
+| `split` | `maintenance-open` | unchanged | Refuses |
 | `unknown` | either mode | unchanged | Refuses, no write |
-| `closed`, `split` or `unknown` | `apply` | unchanged | Refuses in every state other than `open`, with no write and no warning-only path. `apply` rebuilds the rules with the loopback origins, so it must never run unless the gate is already `open`; the only reopen path is `maintenance-open` |
-| any | DNS or other modes | unchanged | They do not touch the two rules |
+| `closed`, `split`, or `unknown` with a `503` canonical rule | `apply` | unchanged | Refuses, no write, no warning-only path |
+| `open`, or `unknown` without a `503` canonical rule | `apply` | as today | Existing behaviour |
+| any | DNS operations | unchanged | They never touch the two rules; `apply` DNS work also stops with the refusal above |
 
-**Evidence precondition for `maintenance-open` (*proposal*).** From `closed` or `split` the mode refuses unless the dispatch names a task id and a run id and exactly one of these holds, checked by the workflow before any `PUT`. Requirement (not a mechanism): the evidence must belong to the closure that produced the current state. Evidence from an earlier closure of the same task, or from another task, must not authorize the open, and when the workflow cannot establish which closure is current it refuses. How closure identity is established is an open design question below.
+## Failure and rollback behaviour
 
-1. Cutover ready to open: the cutover run for that task recorded step 6 as done (step 5 native login smoke passed and the cutover was declared done). Step 7 is the opening step, so this evidence is the authorization for `maintenance-open` and cannot require step 7 itself to be complete. The post-open `audit` and external requests are the step 7 result, not its precondition.
-2. Rollback verified: the MariaDB rollback for that task finished and `health-check.sh` passed against it in a recorded run.
+| Event | State afterwards | Handling |
+| --- | --- | --- |
+| Read, validation or origin-route check fails before the `PUT` | Unchanged | Nothing written; fix and re-dispatch. A failed close before the freeze means the cutover does not start |
+| Hash mismatch at `PUT` time | Unchanged | No write; re-run from a fresh read |
+| Transport failure or no response on the `PUT` | Unknown until read | No in-run retry (existing policy). Run `audit`; re-dispatch the same mode, which is a no-op if the write landed |
+| Read-back disagrees, or `version` is not pre-write plus one | As read back | Run fails with the observed `gate_state`; never success. If a close landed, re-dispatching close from `closed` is the no-write attestation |
+| Runner dies before / after the `PUT` | Unchanged / new state | Re-running the same mode converges; same-mode re-run after the `PUT` is a no-op |
+| `maintenance-open` fails or is refused | Stays `closed` | Fail closed. Refused for missing, expired, unreadable or unbound evidence, a stopped cutover step, or evidence from another task or another closure |
+| Open landed but audit or probe fails | `open` | The run fails and reports it. No automatic re-close: the operator decides to investigate or to start a new closure |
+| Cutover script dies with the gate closed | `closed` | Stays closed until `maintenance-open` runs in step 7 or at the end of a rollback |
+| Gate state changed by the Cloudflare dashboard or API outside the workflow | `split`, `unknown`, or `open` | Classified from the fresh read. A closure whose `version` no longer matches cannot authorize an open |
 
-Under the requirement above, a retry needs fresh evidence: after a rollback and a second close, the first rollback's `health-check.sh` run does not authorize the open. A closed gate with a stopped step (for example step 4 on ambiguous trust state, or step 5 or 6 not recorded) satisfies neither case, so `maintenance-open` refuses and the gate stays closed. Missing, unreadable or unbound evidence also refuses. The evidence run ids are logged in the summary.
+There is no automatic gate rollback and no automatic reopen. The application rollback (P6 step 3 and the failure branches) comes first, `health-check.sh` passes on MariaDB, then `maintenance-open` runs with `rollback_verified` evidence. The only bypass of the gate is the owner editing the two canonical rules in the Cloudflare dashboard (break-glass, as `CLOUDFLARE_ENDPOINT_MANAGEMENT.md` already allows for incorrect canonical values). It is outside the workflow, must be recorded in the cutover evidence, and is the expected route when a closure can no longer be proven (for example a `split` state, or a no-op dashboard save after a completed cutover). Re-closing creates a new closure that needs fresh evidence.
 
-Ordering: read, validate, re-read and hash check, `PUT`, read back. A failed read-back leaves the state as read, reported as failure, never as success.
+## Files and tests the implementation will touch
 
-## Crash recovery
+Implemented only after this note is accepted, in one packet, on the paths the plan already assigns:
 
-- Runner dies before the `PUT`: state unchanged. Re-run the same mode.
-- Runner dies after the `PUT`: the new state stands. Re-running the same mode is a no-op.
-- Runner dies during `maintenance-open` before its `PUT`: the edge stays closed (fail closed).
-- Cutover script dies with the gate closed: the gate stays closed until `maintenance-open` runs in step 7 or at the end of a rollback.
-- Hash check fails at `PUT` time: no write, report, re-run from a fresh read.
+- `scripts/operations/cloudflare-oteryn-endpoints.sh`: mode parsing, `classify_gate_state`, `other_origin_routes`, `edge_version`, the `maintenance-close` and `maintenance-open` flows, the `apply` refusal, the `audit` fields, evidence-file validation.
+- `.github/workflows/cloudflare-oteryn-endpoints.yml`: mode enum and inputs, boundary step, job-level concurrency for mutating modes, provenance step (`gh api`), closure artifact upload, `edge-probe` job, `actions: read` for the manage job only. The `pull_request_target` and `issue_comment` jobs stay `audit`/`apply` only.
+- `tests/operations/cloudflare-oteryn-endpoints/mock_cloudflare.py`: a real `version` that increments on every `PUT`, controllable external edits between reads, injectable failures (transport, read-back, interleaved write), `service` classes for the origin-route cases.
+- `tests/operations/cloudflare-oteryn-endpoints/run.sh`, `check-marker-workflow.py`, `check-main-operation-workflow.py`, and new `check-gate-workflow.py`: workflow-shape assertions (inputs, confirmation phrases, shared concurrency group, `audit` group not shared, gate modes absent from marker and comment jobs, `actions: read` only on the manage job, no secret in logs or artifacts).
+- `docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md`: the two modes, the evidence artifacts, the break-glass note.
+- Outside that packet and owned by P6: `deploy/synology/scripts/cutover-postgres.sh` and `.github/workflows/deploy-synology-staging.yml` produce and consume the `platform-cutover-gate-evidence` artifact and the `audit` precondition; the plan's *Gate state machine (P6b)* bullet is replaced by a link to this note.
 
-## Tests per transition (`tests/operations/cloudflare-oteryn-endpoints/**`)
+Test cases (script tests against the mock, workflow-shape tests in Python):
 
-One test per row of the transition table, plus: stale evidence from an earlier close of the same task (rollback, second close, stop at step 4) refused. The tests that exercise closure identity wait for the P6b decision below; classification of one rule on `503` and the other on an arbitrary service as `unknown`, not `split`; `apply` refuses from `closed`, `split` and `unknown`; `maintenance-open` refuses without cutover-complete or rollback-verified evidence, with evidence from another task, and with a stopped step; refusal on another rule targeting `127.0.0.1`, `localhost`, `[::1]` or `0.0.0.0` on port 8000 or 8080 (including wildcard, legacy Gateway and catch-all); unrelated rules and the catch-all preserved byte for byte; hash mismatch aborts; read-back failure reported as failure; `audit` reports `closed` as bounded drift; confirmation phrase required; no secret or bypass value in output.
+- One test per transition row, including both no-op rows and the `apply` refusals.
+- Classification: `open`, `closed`, `split`, and `unknown` for a missing rule, a locally managed tunnel, one rule on `503` and the other on an arbitrary service.
+- Origin-route precondition: refusal for a wildcard, the legacy Gateway hostname, a path-only rule and the catch-all on `127.0.0.1`, `localhost`, `[::1]`, `0.0.0.0` and another `127.x` address with port 8000 or 8080, including IPv4-mapped and default-port forms; no refusal for `http_status:*`, other ports and `unix:`; an unparseable service refuses; the count is printed and no hostname or service is.
+- Close: unrelated rules and catch-all preserved byte for byte; other fields of the canonical rules preserved; hash mismatch aborts; read-back failure and a wrong `version` increment report failure; no-op close from `closed` writes a new closure artifact; ambiguous `PUT` then re-dispatch converges.
+- Open: refused without the closure or the evidence artifact; with an expired or duplicate artifact; with evidence from another task; with evidence naming an earlier `close_run_id` (rollback, second close, stop at step 4); with a failed or cancelled evidence run; with a stopped step; with a `version` bumped by an external edit, including one that restores identical closed rules; from `split`. Accepted with `cutover_complete` and with `rollback_verified`.
+- Serialization: three dispatches while one is running, with a close among them; a replaced pending run never yields a closure artifact and the next step refuses on that.
+- `audit` reports `closed` as bounded drift with exit 0; confirmation phrases required; no token, secret or bypass value in any output or artifact.
 
-## Open design questions for P6b (not decided here)
+## Owner approval
 
-Decision owner for both: the owner, on a recommendation from the follow-up task PG-P6-DESIGN-NOTES. This PR asserts no mechanism for either.
+The owner approves, or changes, before implementation:
 
-1. **Where closure identity is stored.**
-   - Constraint: the workflow must be able to write it with the credentials it is allowed to hold. Today `.github/workflows/cloudflare-oteryn-endpoints.yml` grants `contents: read` and supplies only the Cloudflare token. A GitHub environment variable cannot be updated with that token (the endpoint needs `Environments` write, which `GITHUB_TOKEN` does not expose), and the governing plan claims the gate needs no new credential.
-   - Candidates, none chosen: a store the existing token can already write (for example something carried by the Cloudflare side or by the workflow's own artifacts); a separate GitHub App or token with the added credential explicitly authorized and designed; no stored identity, with `maintenance-open` authorized by an operator-supplied value checked against a run that the workflow can read.
-2. **Binding identity to a non-replayable edge generation.**
-   - Constraint: identical closed rules produce the same configuration hash, so rule content alone cannot prove which closure produced it. An external edit that opens and then restores the identical closed rules must not leave an earlier closure's evidence valid.
-   - Candidates, none chosen: a nonce persisted atomically with the edge write; an edge-side version or generation value if the tunnel configuration API exposes one; treating any state not written by the workflow's own latest close as requiring a fresh close before an open.
-3. **Serialization that cannot drop a close or open.**
-   - Constraint: as stated under *Marker and lock*, a plain `concurrency` group can replace a pending run, and a dropped `maintenance-close` leaves the origins open.
-   - Candidates, none chosen: a queue-capable concurrency setting if GitHub offers one for this workflow; refuse-if-busy (a dispatch that finds another transition running fails visibly instead of queuing) combined with a recorded intent that the operator re-dispatches; separate groups so non-mutating modes such as `audit` can never displace a mutating one. Tests: three runs dispatched while one is running, with a close among them.
-   - Decision owner: the owner, on a recommendation from follow-up PG-P6-DESIGN-NOTES.
+1. The decisions table above, in particular: closure identity in a workflow artifact bound to the tunnel configuration `version`; the `apply` rule (refuse only when a canonical rule is on `503`); and that `split` can never be opened by the workflow.
+2. That `maintenance-close` and `maintenance-open` run only by dispatch under `production-cloudflare`, and whether a required reviewer is enabled on that environment for these two modes (the management doc recommends it for every production edge mutation).
+3. The dashboard break-glass as the only bypass of the gate, recorded in the cutover evidence.
+4. The `GITHUB_TOKEN` `actions: read` permission on the manage job, and the artifact retention of 30 days.
+5. The interface P6 must satisfy: the cutover run ends step 6 by uploading `platform-cutover-gate-evidence`, and the operator passes the close run id to it.
 
-**Hard requirement, not a question:** the evidence precondition for `maintenance-open` is enforced inside the workflow, so the mutation itself refuses before any `PUT`. Operator procedure alone is not acceptable: a direct dispatch while a cutover is stopped at step 4, 5 or 6 must be refused by the workflow. The same holds for the `apply` refusal outside `open`.
+Assumptions to verify before the implementation relies on them, with no silent fallback: the live `GET .../configurations` returns a numeric `version` that increases by one per `PUT` (the mock models it; one live `audit`-style read-only check confirms it); an `http_status:503` rule answers with HTTP 503 and `server: cloudflare`. If the live API does not expose a usable `version`, the implementation stops and returns to the owner rather than weakening the closure binding.
