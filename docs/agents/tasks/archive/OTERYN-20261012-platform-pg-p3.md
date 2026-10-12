@@ -116,7 +116,7 @@ next_action: none for this task after merge. Hooking the live test into the plat
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository PR
-source_branch_evidence: same-repository PR to main from claude/platform-pg-p3-20261012; the source ref is deleted automatically after merge
+source_branch_evidence: same-repository PR to main from claude/platform-pg-p3-20261012; the source ref was deleted automatically after merge (git ls-remote --heads origin claude/platform-pg-p3-20261012 returns nothing, verified after the merge)
 ```
 
 ## Notes

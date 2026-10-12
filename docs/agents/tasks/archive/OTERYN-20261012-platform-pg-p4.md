@@ -122,7 +122,7 @@ validation:
     evidence: no findings
 blockers:
   - none
-next_action: Wait for exact-head CI and owner review; then the owner sets the five secrets and accepts ADR 0044 Amendment P4.
+next_action: none; P4 merged in #1579 and the owner sets the five secrets and accepts ADR 0044 Amendment P4.
 ```
 
 ## Source branch closeout
@@ -130,7 +130,7 @@ next_action: Wait for exact-head CI and owner review; then the owner sets the fi
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: pending
+source_branch_evidence: PR #1579 merged from claude/platform-pg-p4-20261012. That ref name was reused for follow-up PR #1585, so the ref still exists as #1585's head and is not absent yet; #1585 uses the same auto_delete_after_merge disposition and its merge deletes the ref (verify with git ls-remote --heads origin claude/platform-pg-p4-20261012 after #1585 merges). This follow-up carries the rollback secret validation and the archive move
 ```
 
 ## Notes
