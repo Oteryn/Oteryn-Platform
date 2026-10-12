@@ -357,6 +357,14 @@ _oteryn_fast_candidate() {
             FAST_DEPLOY_REASON='PostgreSQL server certificate pair is not current (renewal window, mismatch or key protection)'
             return 1
         }
+        # The fast path skips the backup reconcile (plan P5), which can fail after the PostgreSQL reconcile
+        # recorded success. The backups must pass the strict check the reconcile ends with; a stopped
+        # sidecar, a failed earlier reconcile or a degraded backup takes the full path.
+        OTERYN_ENV_FILE="$ENV_FILE" OTERYN_BACKUP_READY_TIMEOUT_SECONDS=1 \
+            bash "$SCRIPT_DIR/backup-postgres.sh" check > /dev/null 2>&1 || {
+            FAST_DEPLOY_REASON='PostgreSQL backups need reconciliation'
+            return 1
+        }
     fi
     # The fast path neither stages bootstrap files nor touches internal-mtls: any change of the
     # listener setting, or a listener that is not in its wanted state, takes the full path, and so
@@ -565,6 +573,8 @@ stage_bootstrap_files() {
     docker cp "$DEPLOY_DIR/postgres/postgresql.conf" "$tls_container:/bootstrap/postgres-postgresql.conf"
     docker cp "$DEPLOY_DIR/postgres/pg_hba.conf" "$tls_container:/bootstrap/postgres-pg_hba.conf"
     docker cp "$DEPLOY_DIR/postgres/init/10-platform-roles.sh" "$tls_container:/bootstrap/postgres-roles.sh"
+    # WAL archive and backup jobs (plan P5): archive_command and the postgres-backup sidecar run them.
+    docker cp "$DEPLOY_DIR/postgres/backup/." "$tls_container:/bootstrap/postgres-backup"
 }
 
 snapshot_current_images() {
@@ -872,6 +882,11 @@ SQL
 # On the mariadb engine no Platform service uses it yet; on the postgres engine this runs before the
 # Platform starts, so the roles and grants exist for the owner-role migration below.
 oteryn_reconcile_postgres "${compose[@]}" || exit 1
+# Backups and the WAL archive of that database (plan P5): starts the backup sidecar, refuses when the NAS
+# spool lacks the required free space and proves a forced WAL segment reaches the archive. It waits for a
+# due base backup and dump at most OTERYN_BACKUP_ENSURE_BUDGET_SECONDS (default 300, inside the 30-minute
+# deploy job); past that they finish in the sidecar and the backups are reported degraded until then.
+OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/backup-postgres.sh" reconcile || exit 1
 
 # A previous candidate whose migration succeeded but whose post-migration health
 # gate failed must be resolved before a newer release can own recovery state.

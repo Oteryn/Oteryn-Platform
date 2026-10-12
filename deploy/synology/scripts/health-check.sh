@@ -82,6 +82,15 @@ if [[ "$postgres_secret_state" == configured ]]; then
         sleep 3
     done
     echo "Verified database: postgres is healthy and publishes no port"
+    # Plan P5: the backup sidecar runs with archive_mode on (exit 1 fails); a degraded backup (exit 3:
+    # archive backlog, stale base backup or dump, spool space) warns here and fails the deploy reconcile.
+    backup_status=0
+    OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/backup-postgres.sh" check || backup_status=$?
+    case "$backup_status" in
+        0) ;;
+        3) echo "WARNING: PostgreSQL backups are degraded (see above); the deploy reconcile repairs or refuses them." >&2 ;;
+        *) exit 1 ;;
+    esac
 fi
 
 assert_binding platform 8000 "$PLATFORM_BIND_ADDRESS" "$PLATFORM_PORT"

@@ -80,14 +80,28 @@ jobs:
             0)
               echo "PostgreSQL is not configured; any stopped postgres container is retired and left alone."
               # A RUNNING postgres service without its secrets is drift or a lost configuration, not "disabled".
-              if [[ -n "$(docker ps -q \
+              # The same holds for its backup sidecar (plan P5).
+              for pg_service in postgres postgres-backup; do
+                if [[ -n "$(docker ps -q \
+                      --filter "label=com.docker.compose.project=oteryn-staging" \
+                      --filter "label=com.docker.compose.service=${pg_service}")" ]]; then
+                  echo "A ${pg_service} container is running but the PostgreSQL secrets are not configured." >&2
+                  exit 1
+                fi
+              done
+              ;;
+            5)
+              containers+=("$(resolve_one oteryn-staging postgres)")
+              # The backup sidecar (plan P5) belongs to the configured service. One-time rollout: a stack
+              # deployed before it existed has none yet, and the next deployment creates it.
+              if [[ -z "$(docker ps -aq \
                     --filter "label=com.docker.compose.project=oteryn-staging" \
-                    --filter "label=com.docker.compose.service=postgres")" ]]; then
-                echo "A postgres container is running but the PostgreSQL secrets are not configured." >&2
-                exit 1
+                    --filter "label=com.docker.compose.service=postgres-backup")" ]]; then
+                echo "postgres-backup is not created yet; the next deployment creates it."
+              else
+                containers+=("$(resolve_one oteryn-staging postgres-backup)")
               fi
               ;;
-            5) containers+=("$(resolve_one oteryn-staging postgres)") ;;
             *) echo "PostgreSQL secrets are partially configured ($configured of 5)." >&2; exit 1 ;;
           esac
 

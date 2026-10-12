@@ -3,9 +3,21 @@ name: Recover Synology Staging Schema
 on:
   workflow_dispatch:
     inputs:
-      backup_evidence:
-        description: Managed relative evidence path (<old-sha>|fresh-empty)-before-<candidate-sha>/evidence.env
+      mode:
+        description: schema-recovery restores the verified pre-migration schema; pitr-drill restores the PostgreSQL backup into a scratch instance and discards it
         required: true
+        default: schema-recovery
+        type: choice
+        options:
+          - schema-recovery
+          - pitr-drill
+      backup_evidence:
+        description: schema-recovery only. Managed relative evidence path (<old-sha>|fresh-empty)-before-<candidate-sha>/evidence.env
+        required: false
+        type: string
+      pitr_target_time:
+        description: pitr-drill only. Empty for the probe drill, or a UTC time YYYY-MM-DD HH:MM:SS to restore to
+        required: false
         type: string
 
 permissions:
@@ -17,7 +29,7 @@ concurrency:
 
 jobs:
   recover:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && inputs.mode == 'schema-recovery'
     runs-on:
       group: platform-runners
       labels: oteryn-platform
@@ -159,3 +171,46 @@ jobs:
       - name: Remove ephemeral recovery environment
         if: always()
         run: rm -f deploy/synology/.env
+
+  # Platform PostgreSQL restore drill (migration plan P5; the backup and PITR runbook in docs/operations): restores
+  # the newest suitable base backup plus archived WAL from the NAS spool into a scratch container with no
+  # network and an anonymous data volume, verifies it and discards it. It reads no secret: it works through
+  # the Docker socket of the runner and the running staging containers.
+  pitr-drill:
+    if: github.ref == 'refs/heads/main' && inputs.mode == 'pitr-drill'
+    runs-on:
+      group: platform-runners
+      labels: oteryn-platform
+    environment: synology-staging
+    # Above the drill's own bounds: 2 h for the spool job lock (OTERYN_DRILL_LOCK_WAIT_SECONDS), the 4 h RTO
+    # of the restore, and an hour for the probe, the checks after promotion and the cleanup.
+    timeout-minutes: 420
+
+    steps:
+      - name: Checkout exact trusted source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Run the point-in-time restore drill
+        env:
+          OTERYN_STATE_DIR_INPUT: ${{ vars.OTERYN_STAGING_STATE_DIR }}
+          PITR_TARGET_TIME_INPUT: ${{ inputs.pitr_target_time }}
+        run: |
+          set -euo pipefail
+          docker version >/dev/null
+          state_dir="${OTERYN_STATE_DIR_INPUT:-/var/lib/oteryn-staging-state}"
+          if [[ ! "$state_dir" =~ ^/[A-Za-z0-9._/-]+$ || "$state_dir" == *..* ]]; then
+            echo "OTERYN_STAGING_STATE_DIR must be an absolute simple path." >&2
+            exit 1
+          fi
+          drill_args=()
+          if [[ -n "$PITR_TARGET_TIME_INPUT" ]]; then
+            if [[ ! "$PITR_TARGET_TIME_INPUT" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]; then
+              echo "pitr_target_time must be empty or exactly YYYY-MM-DD HH:MM:SS (UTC)." >&2
+              exit 1
+            fi
+            drill_args=(--target-time "$PITR_TARGET_TIME_INPUT")
+          fi
+          COMPOSE_PROJECT_NAME=oteryn-staging OTERYN_STATE_DIR="$state_dir" \
+            bash deploy/synology/scripts/restore-postgres-pitr.sh "${drill_args[@]}"
