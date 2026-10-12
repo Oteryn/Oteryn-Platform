@@ -30,10 +30,7 @@ Write the two design notes that `PLATFORM_POSTGRES_MIGRATION_PLAN.md` requires b
 
 ```yaml
 owned_paths:
-  - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
-  - docs/operations/PLATFORM_POSTGRES_MAINTENANCE_GATE_DESIGN.md
   - docs/agents/tasks/active/OTERYN-20261012-pg-p6-design-notes.md
-  - docs/agents/tasks/archive/OTERYN-20261012-pg-p6-design-notes.md
 modules:
   - operations-docs
 dependencies:
@@ -53,12 +50,11 @@ head: UNKNOWN
 branch: claude/pg-p6-design-notes-20261012
 pr: 1567
 status: validating
+terminal_pr_policy: archive_pending
 context_routes:
   - operations
 owned_paths:
-  - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
-  - docs/operations/PLATFORM_POSTGRES_MAINTENANCE_GATE_DESIGN.md
-  - docs/agents/tasks/archive/OTERYN-20261012-pg-p6-design-notes.md
+  - docs/agents/tasks/active/OTERYN-20261012-pg-p6-design-notes.md
 proven:
   - the plan requires both notes accepted before P6 starts and fixes only the two gate claims
   - generate-native-admission-key.sh keeps used.kids in a host key-custody directory outside the database
@@ -75,21 +71,20 @@ rejected_hypotheses:
 changed_paths:
   - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
   - docs/operations/PLATFORM_POSTGRES_MAINTENANCE_GATE_DESIGN.md
-  - docs/agents/tasks/archive/OTERYN-20261012-pg-p6-design-notes.md
+  - docs/agents/tasks/active/OTERYN-20261012-pg-p6-design-notes.md
 validation:
   - command: python3 tools/validation/legacy_token_ratchet.py; python3 tools/agents/checkpoint.py --tasks docs/agents/tasks/active --require-checkpoint; python3 tools/agents/documentation_ia.py
     result: PASS
     evidence: local run before push
 blockers:
   - none
-next_action: Lead review and acceptance of both notes before P6 implementation. Archive this record in the final authoring commit once PR 1567 is terminal.
-terminal_pr_policy: archive_pending
+next_action: archive this record when the owner has accepted the P6a and P6b notes; acceptance stays open here
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository docs PR
-source_branch_evidence: pending
+source_branch_reason: ordinary same-repository PR path
+source_branch_evidence: PR #1567 merged as 8aee2a0e7c76d3c2dc07d6a5306c36ed01927443 from claude/pg-p6-design-notes-20261012; git ls-remote --heads origin claude/pg-p6-design-notes-20261012 returns nothing (verified)
 ```

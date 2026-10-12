@@ -47,6 +47,7 @@ owned_paths:
   - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
   - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p6a.md
   - docs/agents/tasks/archive/OTERYN-20261012-platform-pg-p6a.md
+  - docs/agents/tasks/active/OTERYN-20261012-pg-p6-design-notes.md
 modules:
   - operations-docs
 dependencies:
@@ -74,6 +75,7 @@ owned_paths:
   - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
   - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p6a.md
   - docs/agents/tasks/archive/OTERYN-20261012-platform-pg-p6a.md
+  - docs/agents/tasks/active/OTERYN-20261012-pg-p6-design-notes.md
 proven:
   - Only publishTrustedKey moves the trust-state floor from null. The other registry writers throw in lockedProfile, the reconciler refuses a missing profile and a null floor, and NativeEvidenceSource only peeks trust state.
   - withNamespace holds the exclusive floor lock across DB::transaction, so a shared lock proves that no trust writer is in flight.
@@ -85,7 +87,7 @@ derived:
 unknown:
   - Whether the Synology share for the evidence can be kept out of every snapshot and restore task, and whether chattr +a works on it (owner questions O1 and O2).
 conflicts:
-  - The stale active record OTERYN-20261012-pg-p6-design-notes.md (PR 1567, merged) still lists this note as owned. It is not edited here.
+  - The record OTERYN-20261012-pg-p6-design-notes.md (PR 1567, merged) listed this note as owned. This branch removes the note from its owned_paths. The lead authorized that edit. The rest of the file equals PR 1588's version (terminal_pr_policy archive_pending, and the P6b path already removed), so merging 1588 later only touches the lines this branch changed.
 first_failure:
   marker: none
   evidence: none
@@ -93,9 +95,13 @@ rejected_hypotheses:
   - Keeping the evidence at /volume1/docker/oteryn/attempt-evidence (the draft's choice). It shares the docker share with the state directory and the database backups.
   - Keeping the evidence beside used.kids in the key volume. The P5 backup scope covers that volume.
   - Building the observation on peek. It can create provenance.
+  - A guard-only identity check before publish-trust. A restore after the check could still be re-bound and witnessed (Codex P1), so the fence moved inside the publication transaction.
+  - Directory chattr +a as the integrity mechanism. It does not protect file content (Codex P1), so a mandatory external anchor replaced it.
+  - A create-and-remove probe in check-location. It fails on an append-only directory (Codex P1).
 changed_paths:
   - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
   - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p6a.md
+  - docs/agents/tasks/active/OTERYN-20261012-pg-p6-design-notes.md
 validation:
   - command: python3 tools/validation/legacy_token_ratchet.py; python3 tools/agents/checkpoint.py --tasks docs/agents/tasks/active --require-checkpoint; python3 tools/agents/documentation_ia.py
     result: PASS

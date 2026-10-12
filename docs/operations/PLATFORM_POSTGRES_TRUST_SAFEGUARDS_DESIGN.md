@@ -131,6 +131,7 @@ These facts were verified against `main` at `ba971b8`.
 - **It reports one JSON object** with these fields:
   - `store`: the marker, the database row, and `binding: match | mismatch | marker_only | row_only | none`;
   - `scope`: issuer, profile and key purpose, with the purpose read from `game-auth.native_evidence.fresh_key_purpose`. When the purpose is not configured, the result is `scope_unconfigured`.
+  - `fence_required`: the effective `first_publication_fence` setting is `required` (D8);
   - `floor`: the trust-state floor, null when the `.floor` file is absent, plus the count of `floor-temp` entries for that namespace;
   - `profile`: present, with id, `profile_version`, `issuer_revision` and `revoked`;
   - `key`: the requested kid, `configured_key_id` (from `NativeAdmissionKeyring::currentKeyId()` when the entrypoint exported one, otherwise null), `in_history` (the logic of `historicalKeyIdExists`) and `trusted` (the latest key version for the current profile is trusted);
@@ -153,22 +154,27 @@ These facts were verified against `main` at `ba971b8`.
     - any mount source of a container in the Oteryn Compose project, which covers `postgres_data`, `platform_storage`, the WAL spool and the key volume;
     - any other mount source of the runner, which covers the state directory and its backups.
   - Its shared folder (the first two path components, `/volumeN/<share>`) is not the shared folder of any of those sources.
-  - It is a directory owned by root with mode `0700`. A probe file can be created there with `O_CREAT | O_EXCL` and removed. The probe is the only file P6a ever removes, and only in this check.
-- **Append-only attribute.** The check also reads the directory's append-only attribute with the `FS_IOC_GETFLAGS` ioctl and records it as `dir_append_only`.
-  - The runner has no `CAP_LINUX_IMMUTABLE`, so it cannot set the attribute. The owner sets it once on the host (`chattr +a`).
-  - A missing attribute is recorded, not refused. See owner question O2.
+  - It is a directory owned by root with mode `0700`, writable by the runner (`os.access` with `W_OK | X_OK`), on a file system that is not mounted read-only (`statvfs` without `ST_RDONLY`).
+  - The check creates, removes and renames no file. It therefore also passes on an append-only directory, where `unlink` and `rename` are forbidden even to root. The first real write is the run file that `open` creates with `O_EXCL` (D5). If that create fails, the run stops before the init, so nothing irreversible has happened. P6a never removes or renames a file in this directory.
+- **Append-only directory attribute (hardening, not the integrity anchor).** The check also reads the directory's append-only attribute with the `FS_IOC_GETFLAGS` ioctl and records it as `dir_append_only`.
+  - On a directory, the attribute forbids `unlink` and `rename` of its entries, so a run file cannot be deleted or replaced by a rename.
+  - It does not protect a file's content. The flag is per inode, a new file does not inherit it, and the runner has no `CAP_LINUX_IMMUTABLE` to set it on each run file. Content integrity comes only from the external anchor below.
+  - The owner sets the attribute once on the host (`chattr +a`). A missing attribute is recorded, not refused. See owner question O2.
 - **Records.**
   - One file per run: `<run_id>.jsonl`, created with `O_CREAT | O_EXCL | O_APPEND` and mode `0600`. Each line is written in a single `write` call.
   - After each line the tool runs `fsync` on the file. After the create it also runs `fsync` on the directory.
   - An existing file is never reopened for create, truncated or rewritten.
-- **Integrity.**
-  - Every line carries `prev`, the SHA-256 of the previous line (`null` on the first line), and `seq`.
-  - `verify` checks the chain of every file.
-  - P6 prints each line's SHA-256 to the job log.
-  - Uploading each run file as a workflow artifact is an option for the owner (O5). It is not needed for the design.
+- **Integrity: a hash chain plus a mandatory external anchor.**
+  - Every line carries `prev`, the SHA-256 of the previous line (`null` on the first line), and `seq`. The SHA-256 of a line is its *line hash*.
+  - After every append, `append` prints an anchor object: `{"run_id", "seq", "type", "line_sha256"}`. It holds no secret.
+  - **The anchor is mandatory.** P6 publishes each anchor out of band before its next action, as a comment on the P6 cutover tracking issue in this repository (REST API, the cutover workflow's token with `issues: write`; the issue is owner question O5). The comment is the durable anchor. P6 also writes the anchor to the workflow job summary and uploads the run file as a workflow artifact; both are conveniences, because artifacts and logs expire.
+  - If an anchor cannot be posted, the step fails and the cutover stops. The line stays in the file, unanchored, and no further action runs on it.
+  - `verify --anchors <file>` takes the anchors fetched from that issue. It checks each file's chain, that every anchored line exists with the same line hash, and that no file has a line after its last anchored line. `classify` returns `unknown` unless `verify --anchors` passes, and `require-open-attempt` (D8) refuses an intent that is not the last line of its run. `require-open-attempt` runs inside the deploy and has no anchors. The intent's anchor is therefore enforced by D5, which does not turn native admission on before the intent is anchored, and `classify` checks it again.
+  - **What the anchor detects.** Any change to an anchored line after it was anchored: a rewrite, a truncation or a regenerated, self-consistent chain no longer matches the external line hashes. With `dir_append_only` set, deleting or renaming a run file is also refused.
+  - **What P6a does not defend against.** A root user on the NAS, or anyone with the Docker socket, can write a false line before it is anchored, delete a run file when the directory attribute is not set, edit the witness directory, or run SQL against the database. P6a gives no protection against a hostile root on the NAS. The evidence is a record of an honest operator's run that cannot be rewritten later without detection. A repository admin can edit an anchor comment (the edit history stays visible) or delete it; that is also outside what P6a defends.
 - **The writer.**
   - The writer is `deploy/synology/scripts/attempt_evidence.py`, which uses only the standard library and runs with `python3 -I`.
-  - Its subcommands are `check-location`, `open`, `append`, `verify`, `classify` and `require-open-attempt`.
+  - Its subcommands are `check-location`, `open`, `append`, `verify`, `classify` and `require-open-attempt`. It makes no network call; P6 posts and fetches the anchors.
   - It starts no subprocess that writes; `check-location` only reads `docker inspect` and `docker info`.
   - It never reads or writes the witness directory, the database or the key volume. The data it records comes from the JSON output of D1 and D2, passed in by the caller.
 
@@ -187,6 +193,7 @@ Every line has the fields `v` (1), `run_id`, `seq`, `prev`, `type` and `at` (UTC
 
 - `run_id` is a new random UUID (version 4), generated when `open` runs. It is the "new P6 run id" the plan requires. It is never reused and never derived from earlier evidence.
 - **Binding.** Every record after `init` carries the same `store_id`, and every attempt record carries the same `scope` and `key_id` as its intent. `verify` refuses a file that breaks either rule.
+- **Intent hash.** The line hash of an `attempt-intent` line is its *intent hash*. The first-publication fence (D8) carries it, and `publish-trust` prints it in its result, which binds the publication to that intent in the deploy log.
 - **Secrets.** Records hold no secret, private key, password or token. The kid and the public trust values are public.
 
 ### D5. Step 4 sequence
@@ -198,7 +205,7 @@ Every line has the fields `v` (1), `run_id`, `seq`, `prev`, `type` and `at` (UTC
    2. `open` a new run and write `run-open` with a pre-init observation.
       - The observation must show `binding: none`, `marker_only` or `match`, a null floor and no profile. `marker_only` and `match` occur only when an earlier P6 run stopped after its init.
       - If it does not, write `begin-refused` and stop.
-      - If `run-open` cannot be written, the init does not run.
+      - If `run-open` cannot be written or anchored, the init does not run.
    3. Run the D1 init and write `init`. Any init result other than `created`, `completed` or `unchanged` writes `begin-refused` and stops.
    4. Read the current kid K from the key tool's `show` action. Run the key tool's new history check (D7) for K.
    5. Observe (D2) with `--key-id=K`.
@@ -211,13 +218,14 @@ Every line has the fields `v` (1), `run_id`, `seq`, `prev`, `type` and `at` (UTC
       - a non-null database identity;
       - `in_flight` all zero.
    7. If any precondition fails, write `begin-refused` and stop. Otherwise write `attempt-intent` n=1.
-      - If the intent cannot be written, P6 does not turn native admission on.
+      - If the intent cannot be written or anchored, P6 does not turn native admission on.
+   8. Every record of steps 1 and 3 is anchored (D3) before the next action.
 2. **The operator turns native admission on through the deploy.** The deploy runs `publish-trust` and then the self-check (plan, step 4).
    - The step-4 deploy uses the same release and Compose definition as steps 2 and 3, so it recreates neither the `postgres` service nor any table.
    - If it did, the identity changes and the classification is `unknown`. That outcome fails safe.
 3. **`step4-observe`**
    1. Two D2 observations at least 5 s apart. A `witness_busy` result or a non-zero `in_flight` count waits and retries within a bounded time. If the window runs out, the result is `unknown`.
-   2. Classify (D6) and write `attempt-observation`.
+   2. Fetch the anchors, classify (D6) and write `attempt-observation`.
    3. If the result is `committed` and the self-check passed, write `run-close` with `done: true`.
    4. If the result is `failed-before-witness`, the operator fixes the cause outside trust state and runs `step4-begin --retry`. That writes `attempt-intent` n+1 in the same run file after a fresh observation, with the same preconditions.
    5. Any other result writes `run-close` with `done: false` and stops the cutover for the owner.
@@ -234,7 +242,7 @@ The classification compares one attempt's intent observation I with its post-att
 
 - **Common conditions (C).** All of these must hold:
   - O1 and O2 are equal in every field except `progress`;
-  - I, O1 and O2 have the same `database.identity` and the same binding (`match` with store id S);
+  - I, O1 and O2 have the same `database.identity` and the same binding (`match` with store id S), and all report `fence_required: true`;
   - `progress` does not decrease from I to O1 to O2;
   - `in_flight` is zero in O1 and O2.
 
@@ -245,7 +253,7 @@ The classification compares one attempt's intent observation I with its post-att
 | `failed-after-witness` | C holds. I has a null floor and no profile. O1 and O2 have floor 1 and no profile. No run in the directory has a `committed` attempt for S. | A failed first publication; see *Proof*. The cutover stops and the owner decides. Nothing is repaired. |
 | `witness-ahead` | C holds. Profile present with `issuer_revision` below the floor. | The existing ambiguous state. `reconcile --trust=fresh` applies only on the owner's decision (plan, step 4), and it leaves the profile revoked. |
 | `restore-or-loss` | Some earlier attempt for S was `committed`, and O shows no profile, or a floor below that attempt's floor. | Data loss or a restore after a committed publication. The cutover stops and the owner decides. |
-| `unknown` | Anything else, including a changed identity or binding, a null `database`, a broken hash chain, a profile with K untrusted, or observations that never stabilized. | The cutover stops and the owner decides. |
+| `unknown` | Anything else, including a changed identity or binding, a null `database`, a broken hash chain, a failed `verify --anchors`, a profile with K untrusted, or observations that never stabilized. | The cutover stops and the owner decides. |
 
 No classification triggers a write. `classify` prints a verdict and exits; no script maps any verdict to a command that writes trust state or witness state.
 
@@ -255,27 +263,64 @@ No classification triggers a write. `classify` prints a verdict and exits; no sc
 - It exits non-zero when a count is not exactly 1.
 - `step4-begin` uses it for K. Any later successor-profile procedure uses it for the successor kid, together with D2's `in_history`, which must be false.
 
-### D8. Deploy guard for a first publication (proposal)
+### D8. Deploy guard and first-publication fence (proposal)
 
-This guard goes in `oteryn_publish_native_admission_trust` in `deploy/synology/scripts/lib.sh`. It applies when `OTERYN_PLATFORM_DB_ENGINE=postgres` and the native admission flag is `true`, and it runs before `publish-trust`.
+D8 has two parts. The guard in `lib.sh` picks the open intent. The fence inside the publication makes the identity check and the first witness write one continuous step, so nothing can change between them.
+
+**The guard.** It goes in `oteryn_publish_native_admission_trust` in `deploy/synology/scripts/lib.sh`. It applies when `OTERYN_PLATFORM_DB_ENGINE=postgres` and the native admission flag is `true`, and it runs before `publish-trust`.
 
 1. Observe (D2) with K, the kid that the entrypoint configures.
-2. **Profile present for the fresh scope.** Continue without reading evidence. This covers every deploy after the cutover and every key rotation.
+2. **Profile present for the fresh scope.** Run `publish-trust` as today, without a fence. This covers every deploy after the cutover and every key rotation.
 3. **No profile.** Continue only if all of these hold, and refuse otherwise:
    - `binding: match`;
    - a null floor;
    - `in_flight` all zero;
-   - `attempt_evidence.py require-open-attempt --store S --key-id K --scope ... --identity <json>` passes. That command checks:
-     - the newest run has an intent without an observation for exactly S, K and that scope;
+   - `attempt_evidence.py require-open-attempt --store S --key-id K --scope ... --identity <json>` passes. That command checks that:
+     - the newest run ends with an intent with no observation, for exactly S, K and that scope (D5 anchored it before native admission was turned on);
      - the intent's `database.identity` equals the identity just observed;
      - no run in the directory carries a blocking classification.
 
+     It prints the fence: `{"run_id", "attempt", "intent_sha256", "store_id", "scope", "key_id", "identity"}`.
+4. Run `publish-trust --first-publication-fence=<base64url JSON>`.
+
+The guard writes nothing.
+
+**The fence (a producer change; question P6).**
+
+- **Config.** A new setting `game-auth.native_evidence.first_publication_fence` (`GAME_AUTH_NATIVE_EVIDENCE_FIRST_PUBLICATION_FENCE`) takes `required` or `off`, with `off` as the default.
+  - `deploy/synology/compose.yml` passes it to the Platform services.
+  - `lib.sh` sets it to `required` when the engine is `postgres`.
+- **Enforcement.** When the setting is `required`, `NativeSigningTrustRegistry::publishTrustedKey` refuses a first publication (no profile, null floor) unless it receives a `NativeEvidencePublicationFence`.
+  - Both commands that reach it, `publish-trust` and `game-auth:native-trust:publish-key`, accept `--first-publication-fence`.
+  - A manual `publish-key` therefore cannot bypass the guard.
+  - With a profile present, the fence is not needed and is ignored.
+- **The fenced path.** With a fence, the first publication runs through a new witness entry, `NativeEvidenceHighWaterWitness::withNamespaceFenced(string $namespaceHash, string $storeId, Closure $callback)`:
+  1. It takes `witness-store.lock` with `LOCK_SH | LOCK_NB` and holds it until the callback returns. It requires the marker and the row to be present and both equal to the fence's store id.
+     - It never calls `reconcileStoreProvenance`. A marker-only state, such as a restored database without the binding row, is refused, not re-bound.
+  2. It takes the exclusive floor lock, as `withNamespace` does.
+  3. Inside the database transaction, before `$advance(1)`:
+     - it runs `LOCK TABLE` on `native_game_signing_trust_profiles`, `native_game_signing_trust_key_versions` and `native_game_evidence_witness_stores` `IN ROW EXCLUSIVE MODE`;
+     - it reads the D2 identity fields and compares them with the fence's identity, and checks that `progress` has not decreased;
+     - it reads the binding row again;
+     - it compares the scope and key id with the call.
+
+     Any mismatch throws before `$advance`, so no witness write happens.
+- **Why the fence is continuous.**
+  - The row-exclusive table locks conflict with the `ACCESS EXCLUSIVE` lock that `TRUNCATE`, `DROP`, `VACUUM FULL`, `CLUSTER` and a rewriting `ALTER` need. No relfilenode can change between the identity read and the commit.
+  - The open connection blocks `DROP DATABASE`.
+  - A postmaster restart or a physical restore ends the transaction, which then cannot commit.
+  - The shared store lock blocks the init and the runtime re-bind, which both need it exclusive, for the whole step.
+
+  So the identity compared inside the transaction is the identity of the database that receives the commit, and the floor advances only after that comparison.
+- **Result.** `publish-trust` prints `fence: {"run_id", "attempt", "intent_sha256"}` in its JSON result.
+
 Consequences:
 
-- The first PostgreSQL publication on the NAS can only happen inside an intent window. The guard closes the gap between the intent observation and the write: a restore or table rewrite between them refuses the publication before any witness write.
-- The guard writes nothing.
+- The first PostgreSQL publication on the NAS can only happen inside an anchored intent window.
+- A restore, a re-bind or a table rewrite after the intent refuses the publication before the witness write. The guard's observation or the fence inside the transaction sees the changed identity or binding.
+- A crash or restart after `$advance(1)` but before the commit leaves the floor at 1 with no profile, and changes `postmaster_start_time`. The classification is then `unknown`, not `failed-after-witness`, which fails safe.
 - When the floor is already 1 with no profile, the guard refuses before the registry would. The outcome is the same, with an earlier and clearer message.
-- `bootstrap-postgres.sh` with native admission on in Compose mode on PostgreSQL then refuses, as intended. The bootstrap runbook already routes the first witnessed write through P6a. Its `--local` CI mode does not call this function and is not affected.
+- `bootstrap-postgres.sh` with native admission on in Compose mode on PostgreSQL then refuses, as intended. The bootstrap runbook already routes the first witnessed write through P6a. Its `--local` CI mode does not call this function, does not set the fence to `required`, and is not affected.
 
 ## Proof: failed publication versus restore
 
@@ -286,12 +331,13 @@ Consequences:
 - A1. Nobody runs manual privileged SQL that deletes profile or key-version rows on the live database between I and O2.
 - A2. Nobody edits the witness directory by hand.
 - A3. The evidence location meets D3, and it is not restored.
+- A4. The records used (I, O1, O2) pass `verify --anchors` (D3). No line was changed after it was anchored.
 
 **Steps.**
 
 1. **The floor came from a publication.**
    - I shows a null floor; O1 and O2 show floor 1.
-   - By Fact 1, only `publishTrustedKey` moves the trust-state floor away from null, and it moves it to exactly 1, inside `withNamespace`, before its transaction.
+   - By Fact 1, only `publishTrustedKey` moves the trust-state floor away from null. It moves it to exactly 1, under the floor lock, inside its database transaction, before the profile insert and the commit.
    - Under A2, at least one `publishTrustedKey` call entered its callback for the fresh trust-state namespace between I and O1.
 2. **No such call is still in flight.**
    - O1 and O2 took the shared floor lock, so no writer was inside `withNamespace` at those moments (Fact 2).
@@ -306,7 +352,11 @@ Consequences:
 
    Non-decreasing `wal_lsn` and `xmax` give an independent check against a rewind. No application code deletes those rows (Fact 3), and A1 excludes manual deletes. So a profile row committed by the publication in step 1 would still be present at O1.
 4. **So the transaction did not commit.** O1 shows no profile. The publication's transaction rolled back, or was never committed, after `$advance(1)`. That is a failed publication.
-5. **Nothing between I and the write was restored.** `require-open-attempt` (D8) compared the identity right before `publish-trust` with I. The state the publication saw is therefore the state I recorded.
+5. **The publication ran on the database that I describes.**
+   - I, O1 and O2 all report `fence_required: true` (D2), so a first publication could only take the fenced path (D8).
+   - That path held the shared store lock and the exclusive floor lock. Inside its transaction, under the table locks, it compared the database identity and binding with I's, and only then advanced the floor.
+   - The table locks held from that comparison to the end of the transaction exclude a rewrite in between, and a restart aborts the transaction.
+   - So the transaction that advanced the floor ran on the database that I describes. No restore came between I and the write.
 
 **A restore never yields this verdict:**
 
@@ -331,8 +381,8 @@ This is `tests/Feature/GameAuth/NativeEvidenceRestoreNeverSynthesizesProfileTest
 4. **Act.** For each restore, run each of these entry points and record its outcome, whether it succeeds or throws:
    - D1 init;
    - D2 observe;
-   - `publish-trust`, with the configured kid K1 and with a new kid K2;
-   - `game-auth:native-trust:publish-key` with K2;
+   - `publish-trust`, with the configured kid K1 and with a new kid K2, each with the fence setting `off` and again with `required` and a fixture fence;
+   - `game-auth:native-trust:publish-key` with K2, with and without a fixture fence;
    - `reconcile --trust=fresh`;
    - `publishNextProfileVersion`, `revokeKey` and `revokeProfile`;
    - one native evidence read through `NativeEvidenceSource`;
@@ -352,15 +402,21 @@ This is `tests/Feature/GameAuth/NativeEvidenceRestoreNeverSynthesizesProfileTest
 
 | Path | Change |
 | --- | --- |
-| `app/GameAuth/NativeEvidence/NativeEvidenceHighWaterWitness.php` | `initializeStoreProvenance()` and `observe()`, and the entry classifier. No change to `withNamespace`, `peek` or `reconcileStoreProvenance`. |
+| `app/GameAuth/NativeEvidence/NativeEvidenceHighWaterWitness.php` | `initializeStoreProvenance()`, `observe()`, `withNamespaceFenced()` and the entry classifier. No change to `withNamespace`, `peek` or `reconcileStoreProvenance`. |
 | `app/GameAuth/NativeEvidence/NativeEvidenceDatabaseIdentity.php` (new) | The `pgsql` identity, progress and in-flight reads; null on other drivers. |
+| `app/GameAuth/NativeEvidence/NativeEvidencePublicationFence.php` (new) | The fence value object: parsing, and the comparison inside the transaction |
+| `app/GameAuth/NativeEvidence/NativeSigningTrustRegistry.php` | `publishTrustedKey` takes an optional fence. With the setting `required`, a first publication refuses without a fence and runs through `withNamespaceFenced` with one. |
+| `config/game-auth.php` | `native_evidence.first_publication_fence` |
+| `app/Console/Commands/PublishNativeAdmissionTrust.php` | `--first-publication-fence`, and the `fence` field in the result |
+| `app/Console/Commands/PublishNativeTrustedKey.php` | `--first-publication-fence` |
 | `app/Console/Commands/InitNativeEvidenceProvenance.php` (new) | `game-auth:native-evidence:init-provenance` |
 | `app/Console/Commands/ObserveNativeSigningTrust.php` (new) | `game-auth:native-evidence:observe-trust` |
 | `deploy/synology/scripts/attempt_evidence.py` (new) | The D3 to D6 tool |
-| `deploy/synology/scripts/lib.sh` | The D8 guard in `oteryn_publish_native_admission_trust` |
+| `deploy/synology/scripts/lib.sh` | The D8 guard in `oteryn_publish_native_admission_trust`, and the fence setting exported from the engine |
+| `deploy/synology/compose.yml` | Passes `GAME_AUTH_NATIVE_EVIDENCE_FIRST_PUBLICATION_FENCE` to the Platform services |
 | `deploy/synology/scripts/generate-native-admission-key.sh` | The D7 `check-kid-history` action |
 | `deploy/synology/runner/compose.yml` | The evidence bind mount (D3) |
-| `deploy/synology/README.md` | Evidence location, the host setup (shared folder, `chattr +a`, backup exclusions) and the guard |
+| `deploy/synology/README.md` | Evidence location, the host setup (shared folder, `chattr +a`, backup exclusions), the anchor issue, the guard and the fence |
 
 **Tests (P6a).**
 
@@ -369,19 +425,23 @@ This is `tests/Feature/GameAuth/NativeEvidenceRestoreNeverSynthesizesProfileTest
 | `tests/Feature/GameAuth/NativeEvidenceProvenanceInitCommandTest.php` (new) | `created`, `completed` after a simulated crash, `unchanged`, each refusal in D1 with nothing changed, `busy`, temp entries reported and kept, no `.floor` ever written |
 | `tests/Feature/GameAuth/NativeSigningTrustObservationCommandTest.php` (new) | No file, lock or row is created on an empty directory. `witness_busy` while a namespace lock is held. Each binding value. The profile and key fields. Identity cases run only when the driver is `pgsql`. |
 | `tests/Feature/GameAuth/NativeEvidenceRestoreNeverSynthesizesProfileTest.php` (new) | The negative test above |
-| `tests/ci/test_synology_attempt_evidence.py` (new) | Location refusals (named volume, Docker root, inside or containing a project mount, same share, not writable). Exclusive create. An existing file is not reopened. Chain verify, including tamper detection. Each D6 classification from fixtures. `require-open-attempt` refusals. No subprocess with a write path. |
-| `tests/ci/test_synology_native_admission_trust_publication.py` (extend) | Guard: profile present continues; no profile without an open attempt refuses; an identity mismatch refuses; a blocking classification refuses; MariaDB is unaffected |
+| `tests/Feature/GameAuth/NativeEvidencePublicationFenceTest.php` (new) | With `required`, a first publication without a fence refuses and writes no floor. A fence with a mismatched identity, store id, scope or key id refuses before `$advance`, with no `.floor` file. A marker-only state refuses, and the row is not re-bound. With a profile present the fence is ignored. On `pgsql` only: a concurrent `TRUNCATE` of a trust table waits until the fenced transaction ends. |
+| `tests/Feature/GameAuth/NativeAdmission/NativeAdmissionPublishTrustCommandTest.php` (extend) | `--first-publication-fence` parsing, and the `fence` field in the result |
+| `tests/ci/test_synology_attempt_evidence.py` (new) | Location refusals (named volume, Docker root, inside or containing a project mount, same share, not writable, read-only file system). `check-location` calls no `unlink`, `rename` or create, checked by patching those calls to fail. Exclusive create; an existing file is not reopened. Anchors: a rewritten anchored line, a regenerated self-consistent chain, a truncated file and an unanchored tail each fail `verify --anchors`, and `classify` then gives `unknown`. Each D6 classification from fixtures. `require-open-attempt` refusals and the printed fence. No network call, and no subprocess with a write path. |
+| `tests/ci/test_synology_native_admission_trust_publication.py` (extend) | Guard: with a profile present it continues without a fence; with no profile and no open attempt it refuses; an identity mismatch refuses; a blocking classification refuses; with an open attempt it passes the fence to `publish-trust`; MariaDB is unaffected and gets the setting `off`. |
 | `tests/ci/test_synology_native_admission_gate.py` (extend) | `check-kid-history`: count 1 passes, 0 or 2 fails, read-only |
 
 **Not P6a.** `deploy/synology/scripts/cutover-postgres.sh` (`step4-begin`, `step4-observe`) and the workflow input that drives it belong to P6, which calls the commands and the tool above.
 
-Compared with the plan's expected list (`app/GameAuth/NativeEvidence/`, the console commands, `tests/Feature/GameAuth/`), the list above adds the deploy scripts, the runner Compose file and `tests/ci/` (owner question O3).
+Compared with the plan's expected list (`app/GameAuth/NativeEvidence/`, the console commands, `tests/Feature/GameAuth/`), the list above adds `config/game-auth.php`, the deploy scripts, the two Compose files and `tests/ci/` (owner question O3).
 
 ## Residual risks
 
 - **Manual SQL in the window (A1).** See *Proof*, *Limits*.
 - **A whole-NAS volume restore** would roll back every share, including the evidence share. D3 can only keep the evidence out of database, volume and share-level restores. This is owner question O1.
-- **No append-only attribute** (O2). Without it, a root user on the host can delete or rewrite a run file. The hash chain and the job-log hashes make that detectable, but not impossible.
+- **A root writer on the NAS.** P6a does not defend against one (D3, *What P6a does not defend against*). The external anchor makes later changes to anchored lines detectable. It cannot stop a false line written before anchoring, or changes to the witness or the database.
+- **No append-only attribute** (O2). Without it, a root user can delete a run file. The missing file then has anchors with no matching line, so `verify --anchors` fails and the classification is `unknown`.
+- **A crash during the first publication.** A crash or restart after `$advance(1)` and before the commit gives `unknown`, not `failed-after-witness` (D8). That fails safe, but the owner then gets a less specific verdict.
 - **Producer calls may fail as busy.** The observation's shared lock can make a concurrent producer call fail closed as busy for the length of one read. Step 4 runs with the gate closed and the scheduler stopped, so no such call is expected.
 
 ## Questions
@@ -393,15 +453,26 @@ Compared with the plan's expected list (`app/GameAuth/NativeEvidence/`, the cons
 - **P3. A commit witness.** Should a later producer change add a commit witness (for example the transaction id written in the profile transaction) to close the manual-SQL gap? Recommendation: not for P6. Treat it as a prerequisite for any future repair design.
 - **P4. A runtime re-bind rule.** Should the runtime re-bind refuse when a trust floor exists without a profile? Recommendation: no. The writers already refuse, and changing provenance rules belongs to the contract.
 - **P5. Busy failures.** Accept that the observation's shared lock can make a concurrent producer call fail closed as busy. Recommendation: accept.
+- **P6. The first-publication fence.** Accept the D8 producer change:
+  - the `first_publication_fence` setting;
+  - `publishTrustedKey` refusing an unfenced first publication when the setting is `required`;
+  - the fenced path, which holds the store lock shared, never re-binds, and checks identity under table locks before `$advance(1)`.
+
+  Recommendation: accept. It changes nothing when the setting is `off` or a profile exists.
 
 **For the owner.**
 
 - **O1. The evidence host path.** Is `/volume1/oteryn-attempt-evidence` the location? It must be a dedicated shared folder, outside every snapshot, replication, Hyper Backup and restore task. Options: that path; another dedicated share. Recommendation: that path.
-- **O2. The append-only attribute.** Set `chattr +a` on the directory on the host. If the share's file system refuses it, continue with `dir_append_only: false` recorded? Recommendation: set it, and continue without it only if the file system refuses.
-- **O3. Wider paths.** Accept that P6a's paths go beyond the plan's expected list: the deploy scripts, the runner Compose file and `tests/ci/`. Recommendation: accept, because the evidence must be written outside the Platform container.
+- **O2. The append-only attribute.** Set `chattr +a` on the evidence directory on the host. It is hardening against deleting and renaming files, not the integrity anchor. If the share's file system refuses it, continue with `dir_append_only: false` recorded? Recommendation: set it, and continue without it only if the file system refuses.
+- **O3. Wider paths.** Accept that P6a's paths go beyond the plan's expected list: `config/game-auth.php`, the deploy scripts, the two Compose files and `tests/ci/`. Recommendation: accept, because the evidence must be written outside the Platform container and the fence lives in the producer.
 - **O4. The deploy guard.** Accept the D8 first-publication guard in `lib.sh`, including that bootstrap Compose mode with native admission on now refuses on PostgreSQL. Recommendation: accept.
-- **O5. Workflow artifacts.** Also upload each run file as a workflow artifact? Recommendation: optional. The job-log hashes are enough for the design.
+- **O5. The anchor issue.** Which issue holds the mandatory anchors, and may the cutover workflow's token get `issues: write`? Options: a dedicated P6 cutover issue in this repository; the governing issue #1474. Recommendation: a dedicated P6 cutover issue. Lock it, so that only collaborators can comment, if the workflow token can still post there.
 
 ## Owner approval
 
-Accepting this note approves D1 to D8 as the implementation contract for P6a, subject to the answers to P1 to P5 and O1 to O5. It approves no missing-profile repair. P6 step 4 cannot start until P6a is merged and deployed, the runner has the evidence mount, and `check-location` passes on the NAS.
+Accepting this note approves D1 to D8 as the implementation contract for P6a, subject to the answers to P1 to P6 and O1 to O5. It approves no missing-profile repair. P6 step 4 cannot start until all of these hold:
+
+- P6a is merged and deployed;
+- the runner has the evidence mount;
+- `check-location` passes on the NAS;
+- the anchor issue exists, and the cutover workflow can post to it.
