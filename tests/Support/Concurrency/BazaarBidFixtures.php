@@ -69,12 +69,15 @@ final class BazaarBidFixtures
     /** @return list<Identity> Identities with a ready game-account binding and a funded wallet. */
     public static function bidders(int $count, int $funds): array
     {
-        $table = collect(Schema::getTables())
-            ->pluck('name')
-            ->first(fn (string $name): bool => str_starts_with($name, 'identity_')
-                && str_ends_with($name, '_accounts')
-                && Schema::hasColumn($name, 'provisioning_name'));
-        if (! is_string($table)) {
+        $table = null;
+        foreach (Schema::getTables() as $candidate) {
+            $name = (string) $candidate['name'];
+            if (str_starts_with($name, 'identity_') && str_ends_with($name, '_accounts') && Schema::hasColumn($name, 'provisioning_name')) {
+                $table = $name;
+                break;
+            }
+        }
+        if ($table === null) {
             throw new RuntimeException('The identity game-account binding table could not be resolved.');
         }
         $columns = Schema::getColumnListing($table);

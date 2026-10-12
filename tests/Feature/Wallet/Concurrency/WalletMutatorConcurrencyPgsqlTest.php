@@ -55,7 +55,7 @@ final class WalletMutatorConcurrencyPgsqlTest extends TestCase
             "race:debit:{$worker}",
         ));
 
-        $outcomes = array_count_values(array_column($results, 'outcome'));
+        $outcomes = array_count_values(array_map(static fn (array $result): string => is_string($result['outcome'] ?? null) ? $result['outcome'] : 'missing', $results));
         self::assertSame(5, $outcomes['applied'] ?? 0, json_encode($results, JSON_THROW_ON_ERROR));
         self::assertSame(3, $outcomes['insufficient_balance'] ?? 0, json_encode($results, JSON_THROW_ON_ERROR));
         self::assertSame(self::WORKERS, array_sum($outcomes));
@@ -98,7 +98,7 @@ final class WalletMutatorConcurrencyPgsqlTest extends TestCase
             'race:replay:single-key',
         ));
 
-        $outcomes = array_count_values(array_column($results, 'outcome'));
+        $outcomes = array_count_values(array_map(static fn (array $result): string => is_string($result['outcome'] ?? null) ? $result['outcome'] : 'missing', $results));
         self::assertSame(1, $outcomes['applied'] ?? 0, json_encode($results, JSON_THROW_ON_ERROR));
         self::assertSame(self::WORKERS - 1, $outcomes['replayed'] ?? 0, json_encode($results, JSON_THROW_ON_ERROR));
 

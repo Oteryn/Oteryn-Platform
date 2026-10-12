@@ -74,8 +74,9 @@ final class AuctionBidConcurrencyPgsqlTest extends TestCase
 
         $leading = AuctionBid::query()->where('auction_id', $auction->id)->where('status', AuctionBid::STATUS_LEADING)->get();
         self::assertCount(1, $leading, 'Exactly one bid may lead the auction.');
-        self::assertSame(900, $leading->first()->amount);
-        self::assertSame($bidders[self::WORKERS - 1]->id, $leading->first()->bidder_identity_id);
+        $leadingBid = $leading->firstOrFail();
+        self::assertSame(900, $leadingBid->amount);
+        self::assertSame($bidders[self::WORKERS - 1]->id, $leadingBid->bidder_identity_id);
 
         $fresh = CharacterAuction::query()->findOrFail($auction->id);
         self::assertSame(900, $fresh->current_bid);

@@ -59,7 +59,8 @@ final class ForkedWorkers
 
             foreach ($pids as $pid) {
                 $status = 0;
-                if (pcntl_waitpid($pid, $status) !== $pid || ! pcntl_wifexited($status) || pcntl_wexitstatus($status) !== 0) {
+                $waited = pcntl_waitpid($pid, $status);
+                if ($waited !== $pid || ! is_int($status) || ! pcntl_wifexited($status) || pcntl_wexitstatus($status) !== 0) {
                     throw new RuntimeException('A concurrency worker exited abnormally.');
                 }
             }
@@ -78,6 +79,7 @@ final class ForkedWorkers
                 if (! is_array($decoded)) {
                     throw new RuntimeException("Worker {$worker} wrote an invalid result.");
                 }
+                /** @var array<string, mixed> $decoded */
                 $results[] = $decoded;
             }
 
