@@ -104,25 +104,42 @@ final class CharacterCommandClient
         return $query->lockForUpdate()->count();
     }
 
+    private function existingIntent(string $keySha, string $bindingSha, bool $locking): ?CharacterCommandStatus
+    {
+        $query = DB::table(CharacterCommandIntentRow::TABLE)
+            ->where('issuer_authority', CharacterCommandWire::ISSUER_AUTHORITY)
+            ->where('request_key_sha256', $keySha);
+        $row = ($locking ? $query->lockForUpdate() : $query)->first();
+        if (! $row instanceof stdClass) {
+            return null;
+        }
+
+        $intent = CharacterCommandIntentRow::fromRow($row);
+        if (! hash_equals($intent->bindingSha256, $bindingSha)) {
+            throw new CharacterCommandConflict('Idempotency key is already bound to a different command intent.');
+        }
+
+        return $this->statusOf($intent);
+    }
+
     /** @param array<string, string> $binding */
     private function issue(CharacterCommandSettings $settings, string $keySha, string $bindingSha, string $command, array $binding): CharacterCommandStatus
     {
         return DB::transaction(function () use ($settings, $keySha, $bindingSha, $command, $binding): CharacterCommandStatus {
-            $existing = DB::table(CharacterCommandIntentRow::TABLE)
-                ->where('issuer_authority', CharacterCommandWire::ISSUER_AUTHORITY)
-                ->where('request_key_sha256', $keySha)
-                ->first();
-            if ($existing instanceof stdClass) {
-                $intent = CharacterCommandIntentRow::fromRow($existing);
-                if (! hash_equals($intent->bindingSha256, $bindingSha)) {
-                    throw new CharacterCommandConflict('Idempotency key is already bound to a different command intent.');
-                }
-
-                return $this->statusOf($intent);
+            $existing = $this->existingIntent($keySha, $bindingSha, false);
+            if ($existing !== null) {
+                return $existing;
             }
 
             // The locking count serializes issuers against the backlog bound (CHARCMD-PENDING-BACKLOG).
             $pending = $this->lockedPendingCount();
+            // A same-key request may have committed while this one waited for the lock: answer
+            // with its intent before enforcing the bound. The locking read sees the latest
+            // committed row on both engines (MariaDB's plain read would reuse the snapshot).
+            $existing = $this->existingIntent($keySha, $bindingSha, true);
+            if ($existing !== null) {
+                return $existing;
+            }
             if ($pending >= $settings->maxPendingIntents) {
                 throw new CharacterCommandBacklogFull('Character command backlog is full; retry later.');
             }

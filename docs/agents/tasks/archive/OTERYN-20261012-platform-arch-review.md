@@ -17,7 +17,7 @@ optional_reads:
 
 ## Goal
 
-Governing GitHub Issue: #1474 (native-only migration) — canonical lifecycle authority for this task. The top-level `governing_issue` frontmatter field is machine-required while this packet remains active.
+Governing GitHub Issue: #1474 (native-only migration) — canonical lifecycle authority for this task. Archived after the merge of PR #1560.
 
 Write an independent, documentation-only review of the Platform's module boundaries, its security and authority boundaries to the Game node and the Gateway, and its database choices. The database part covers MariaDB versus PostgreSQL, one engine or two, cluster separation, the cross-database Bazaar saga, migrations, backup and restore, Redis, SQLite in tests and single-NAS risk. Findings are ranked P0–P3 with evidence paths. The review ends with an engine recommendation against the Game ADR-0013 §2 criteria and a list of owner decisions. No code, configuration, schema, deployment or secret changes.
 
@@ -27,7 +27,7 @@ Write an independent, documentation-only review of the Platform's module boundar
 - [x] ADR-0013 §2 criteria for a Platform PostgreSQL migration listed, each with its status.
 - [x] Owner decisions listed with options and a recommendation.
 - [x] No new legacy-token occurrence; the ratchet baseline is not raised.
-- [ ] Exact-head CI and Agent Governance gates pass.
+- [x] Exact-head CI and Agent Governance gates pass.
 
 ## Ownership
 
@@ -51,10 +51,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-12T09:00:00Z
-head: UNKNOWN
+head: d462fd2c
 branch: claude/platform-arch-review-20261012
 pr: 1560
-status: validating
+status: completed
 context_routes:
   - architecture-docs
 owned_paths:
@@ -85,8 +85,7 @@ validation:
     evidence: local run
 blockers:
   - none
-next_action: Lead review; on merge, archive this record and route owner decisions D-1 to D-7.
-terminal_pr_policy: archive_pending
+next_action: none; owner decisions D-1 to D-7 in the review section 7 are routed by the lead.
 ```
 
 ## Source branch closeout
@@ -94,7 +93,7 @@ terminal_pr_policy: archive_pending
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository docs PR
-source_branch_evidence: pending
+source_branch_evidence: same-repository PR #1560 merged as d462fd2c; the repository setting delete_branch_on_merge is true, so the ref is removed on merge
 ```
 
 ## Notes
