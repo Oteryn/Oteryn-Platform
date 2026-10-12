@@ -87,6 +87,7 @@ DEPLOYMENT_RUNTIME_EXACT = {
 DEPLOYMENT_RUNTIME_PREFIXES = (
     "deploy/synology/mariadb/init/",
     "deploy/synology/nginx/",
+    "deploy/synology/postgres/",
     "deploy/synology/tls/",
 )
 

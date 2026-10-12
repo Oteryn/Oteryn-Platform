@@ -119,6 +119,13 @@ class ComposeServiceTest(unittest.TestCase):
         ):
             self.assertIn(mount, self.postgres)
 
+    def test_postgres_is_recreated_when_the_staged_configuration_changes(self) -> None:
+        block = self.compose.split("\n  postgres:\n", 1)[1].split("\n  platform:\n", 1)[0]
+        self.assertIn("oteryn.postgres-config.digest: ${OTERYN_POSTGRES_CONFIG_DIGEST:-}", block)
+        lib = LIB.read_text()
+        self.assertIn("OTERYN_POSTGRES_CONFIG_DIGEST", lib)
+        self.assertLess(lib.index("export OTERYN_POSTGRES_CONFIG_DIGEST"), lib.index("--profile postgres up -d --no-deps postgres"))
+
     def test_postgres_healthcheck_is_a_verified_tls_login_by_the_runtime_role(self) -> None:
         health = self.postgres.split("    healthcheck:\n", 1)[1]
         self.assertIn("pg_isready", health)

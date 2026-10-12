@@ -64,6 +64,10 @@ services:
     profiles: ["postgres"]
     restart: always
     command: ["postgres", "-c", "config_file=/bootstrap/postgres-postgresql.conf"]
+    # Digest of the staged postgresql.conf and pg_hba.conf (lib.sh oteryn_reconcile_postgres). Startup-only
+    # settings are read at server start, so a changed digest recreates the container on the next `up`.
+    labels:
+      oteryn.postgres-config.digest: ${OTERYN_POSTGRES_CONFIG_DIGEST:-}
     environment:
       POSTGRES_PASSWORD: ${PLATFORM_POSTGRES_SUPERUSER_PASSWORD:-}
       POSTGRES_INITDB_ARGS: --auth-local=peer --auth-host=scram-sha-256 --data-checksums --encoding=UTF8 --locale-provider=libc --locale=C.UTF-8

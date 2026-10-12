@@ -76,6 +76,9 @@ class SynologyDeploymentPackageRoutingTest(unittest.TestCase):
             "deploy/synology/nginx/internal.conf",
             "deploy/synology/tls/init.sh",
             "deploy/synology/mariadb/init/10-platform-database.sh",
+            "deploy/synology/postgres/postgresql.conf",
+            "deploy/synology/postgres/pg_hba.conf",
+            "deploy/synology/postgres/init/10-platform-roles.sh",
             "deploy/synology/scripts/deploy.sh",
             "deploy/synology/scripts/deploy-impact.sh",
             "deploy/synology/scripts/health-check.sh",
@@ -126,6 +129,7 @@ class SynologyDeploymentPackageRoutingTest(unittest.TestCase):
             "      - deploy/synology/nginx/**\n",
             "      - deploy/synology/tls/**\n",
             "      - deploy/synology/mariadb/init/**\n",
+            "      - deploy/synology/postgres/**\n",
             "      - deploy/synology/scripts/deploy-impact.sh\n",
             "      - deploy/synology/tests/**\n",
         ):

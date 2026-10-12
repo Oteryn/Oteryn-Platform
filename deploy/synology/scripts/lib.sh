@@ -216,6 +216,13 @@ oteryn_reconcile_postgres() {
     fi
 
     # tls-init has already run in this deploy, so the server certificate and bootstrap files are current.
+    # A startup-only setting (listen_addresses, max_connections, hba_file, ...) changed in postgresql.conf
+    # is ignored by pg_reload_conf(), and the volume content is not part of the Compose service definition.
+    # The digest label makes `up` recreate the container exactly when the staged configuration changed.
+    local config_dir="${OTERYN_POSTGRES_CONFIG_DIR:-$(dirname "${BASH_SOURCE[0]}")/../postgres}"
+    OTERYN_POSTGRES_CONFIG_DIGEST="$(cat -- "$config_dir/postgresql.conf" "$config_dir/pg_hba.conf" | sha256sum | awk '{print $1}')" || return 1
+    [[ "$OTERYN_POSTGRES_CONFIG_DIGEST" =~ ^[0-9a-f]{64}$ ]] || { echo "PostgreSQL configuration digest failed." >&2; return 1; }
+    export OTERYN_POSTGRES_CONFIG_DIGEST
     "${compose[@]}" --profile postgres up -d --no-deps postgres || return 1
 
     # Ready means the final server (PID 1), not the image's socket-only first-start init server.
