@@ -154,7 +154,7 @@ A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synolo
 
 **Bootstrap sequence.** Most steps already run in every staging deploy (`deploy/synology/scripts/deploy.sh:765-775`, `lib.sh`) and are idempotent. On an empty database they create the state from scratch:
 
-1. **Witness reset.** With the `platform` service stopped, move the directory named by `GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY` (on the `platform_storage` volume) aside to a dated name. It is never edited, and P6 deletes it together with the MariaDB volume. The script refuses when the target database already has a `native_game_evidence_witness_stores` row, or when the directory is not empty after the move.
+1. **Witness reset.** With the `platform` service stopped, move the directory named by `GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY` (on the `platform_storage` volume) aside to a dated name. It is never edited, and P6 deletes it together with the MariaDB volume. The script refuses when the target database already has a `native_game_evidence_witness_stores` row or any native evidence, so it can never run after the first evidence write on PostgreSQL. It also refuses when the directory is not empty after the move.
 2. **Schema.** `php artisan migrate --force` on the empty database, as the owner role on the `pgsql_migrations` connection (P4). Migrations also seed the built-in roles and permissions; there is no separate seeder.
 3. **Passport keys.** `passport:keys` runs only when `storage/oauth-*.key` are missing. Existing keys on `platform_storage` are kept.
 4. **Native admission trust.** `game-auth:native-admission:publish-trust` publishes the existing key from the `oteryn-native-admission-keys` volume into the new database, followed by `game-auth:native-admission:self-check`. The key volume is kept.
@@ -253,7 +253,7 @@ A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synolo
 
 1. **WAL.** `wal_level=replica`, `archive_mode=on`, `archive_timeout=60s`. `archive_command` writes to a spool on a NAS path outside the database volume. Failure is visible: `pg_stat_archiver.failed_count` and spool age feed `health-check.sh`.
 2. **Base backups.** A daily `pg_basebackup -X stream` by `oteryn_platform_backup`, written to the spool. Staging retention is 7 daily and 4 weekly backups. Hold integrity checksums for every file. Encryption is optional on the NAS and required for the later off-NAS copy.
-3. **Witness and keys.** The `platform_storage` native-evidence witness directory and the external `oteryn-native-admission-keys` volume are backed up on the NAS on their own schedule. The runbook records the restore order: database to its target time, then the witness, which is never lowered, then `game-auth:native-evidence:reconcile` where the contract allows it. When restored history is below the retained floor, the staging answer is a new clean-slate bootstrap (P3), not a lowered witness. The joint Platform and Game restore procedure (F-04) is referenced here, and Game owns its side once the Game node is deployed.
+3. **Witness and keys.** The `platform_storage` native-evidence witness directory and the external `oteryn-native-admission-keys` volume are backed up on the NAS on their own schedule. The runbook records the restore order: database to its target time, then the witness, which is never lowered, then `game-auth:native-evidence:reconcile` where the contract allows it. When restored history is below the retained floor, evidence reads stay fail-closed: recovery needs a restore point at or above the floor, or a fix-forward under an owner decision. The witness is never lowered, emptied or deleted. The joint Platform and Game restore procedure (F-04) is referenced here, and Game owns its side once the Game node is deployed.
 4. **Restore drill.** Restore the newest base backup plus WAL to a named target time into a scratch PostgreSQL container with its own volume on the NAS. Then:
    - check row counts of key tables, the wallet ledger-sum invariant and the migrations head;
    - run `production:verify-configuration`;
@@ -291,24 +291,35 @@ The engine switch value is a repository variable that the operator sets.
 - The owner gave a go decision and a window.
 - `MARKETPLACE_ENABLED=false`.
 
+**Access gate instead of maintenance mode.** The smoke tests must reach a running application: `health-check.sh` and the Gateway's calls to the Platform issuer would only get maintenance responses under `php artisan down`. So the cutover keeps the application up and closes external access instead:
+
+- The cutover script re-renders Compose with `PLATFORM_BIND_ADDRESS` and `GATEWAY_BIND_ADDRESS` set to a NAS address reachable only from the operator's LAN segment (or `127.0.0.1` when the operator works on the NAS), so nothing outside the LAN reaches the Platform or the Gateway. Internal Compose traffic (Gateway to issuer through `internal-proxy`, health checks) is unaffected.
+- The script refuses to start the smoke tests until it has verified from outside the gate that both public endpoints are closed, and it records that check in the evidence.
+- The gate values are non-secret operator variables. No maintenance bypass secret, cookie or path is used or committed.
+- The gate is opened only in step 7, or at the end of a rollback.
+
 **Steps.**
 
-1. **Freeze.** Run `php artisan down` with a bypass for the operator, set native admission off (Gateway refuses protocol version 2 login), stop the scheduler, then stop the `platform` and `mariadb` containers. The `mariadb_data` volume and the current witness directory are not modified from here on.
-2. **Bootstrap.** Set `PLATFORM_DB_ENGINE=postgres` and run the P3 bootstrap: witness directory moved aside, fresh migrations, keys, OAuth clients, World and route. Native admission is still off, so trust publication waits for step 4. The operator updates `OTERYN_STAGING_NATIVE_WORLD_ID` and the OAuth client ids of consumers, then deploys.
-3. **Smoke tests without evidence writes.** `health-check.sh`, web registration and login, admin login and a wallet read.
-   - On failure: **rollback.** Set `PLATFORM_DB_ENGINE=mariadb`, move the PostgreSQL-era witness directory away and the original one back, and deploy. MariaDB and the original witness directory are exactly as they were at the freeze, and no native evidence was written on PostgreSQL. Keep the PostgreSQL volume for diagnosis.
-4. **Gated native admission re-enable.** Maintenance mode stays active for everyone but the operator bypass, and the scheduler stays stopped. The operator turns native admission on through the deploy, which runs `game-auth:native-admission:publish-trust` and `game-auth:native-admission:self-check` and refuses on failure. The Gateway admits protocol version 2 login only for the operator's smoke account during this step.
-   - If trust publication or the self-check fails, no evidence has been written yet: turn native admission off again and either fix and retry, or roll back as in step 3.
-5. **Native login smoke.** Run the native login end-to-end smoke and the evidence read path with the smoke account. This is the first native evidence write on PostgreSQL. From here on there is no rollback (owner answer Q2): a failure is reconciled forward on PostgreSQL with `game-auth:native-evidence:reconcile`, or, if necessary, by repeating the P3 bootstrap on an emptied database and an emptied witness directory. The witness directory retained from MariaDB is never touched or reused.
-6. **Declare done and delete.** When step 5 passes, record the cutover as done. Then, as an operator action without further approval:
+1. **Freeze.** Close the access gate, set native admission off (the Gateway refuses protocol version 2 login), stop the scheduler, then stop the `platform` and `mariadb` containers. The `mariadb_data` volume and the MariaDB-era witness directory are not modified from here on.
+2. **Bootstrap.** Set `PLATFORM_DB_ENGINE=postgres` and run the P3 bootstrap: MariaDB-era witness directory moved aside, a new empty PostgreSQL witness directory, fresh migrations, keys, OAuth clients, World and route. Native admission is still off, so trust publication waits for step 4. The operator updates `OTERYN_STAGING_NATIVE_WORLD_ID` and the OAuth client ids of consumers, then deploys behind the gate.
+3. **Smoke tests without evidence writes**, from the operator's LAN: `health-check.sh`, web registration and login, admin login and a wallet read.
+   - On failure: **rollback.** Set `PLATFORM_DB_ENGINE=mariadb`. Remove the PostgreSQL witness directory, which holds no evidence yet, and move the MariaDB-era one back. Deploy behind the gate, run `health-check.sh`, then open the gate. MariaDB and its witness directory are exactly as they were at the freeze. Keep the PostgreSQL volume for diagnosis.
+   - Before the first native evidence write, a clean-slate re-run of P3 (emptied database and emptied PostgreSQL witness directory) is also allowed, instead of a rollback.
+4. **Native admission re-enable, still behind the gate.** The scheduler stays stopped. The operator turns native admission on through the deploy, which runs `game-auth:native-admission:publish-trust` and `game-auth:native-admission:self-check` and refuses on failure. Only LAN clients can reach the Gateway.
+   - If trust publication or the self-check fails, no evidence has been written yet: turn native admission off again and either fix and retry, re-run P3 as in step 3, or roll back as in step 3.
+5. **Native login smoke.** Run the native login end-to-end smoke and the evidence read path from the LAN. This is the first native evidence write on PostgreSQL. From here on (owner answer Q2):
+   - there is no rollback and no clean-slate re-run;
+   - the PostgreSQL witness directory is never emptied, deleted, replaced or lowered, and the database is never emptied under it;
+   - a failure is recovered by fixing forward with the witness kept and `game-auth:native-evidence:reconcile`. If reconciliation fails closed, native login stays off until a fix lands; the witness is not touched.
+6. **Declare done and retire MariaDB.** When step 5 passes, record the cutover as done. Then, as an operator action without further approval:
    - delete the `mariadb_data` volume and remove the `mariadb` container;
-   - delete the retained MariaDB-era witness directory that was moved aside in step 2;
+   - delete the MariaDB-era witness directory moved aside in step 2. It is the high-water witness of the retired MariaDB store and is bound to a database that no longer exists, so retiring it lowers nothing. The live PostgreSQL witness directory is a different directory and is not touched;
    - take no final dump.
-7. **Unfreeze**: bring the application up, start the scheduler and open native login to all accounts. Then record the evidence: timings, image tags, the new non-secret OAuth client ids and WorldId, and the deletion time.
+7. **Unfreeze.** Open the access gate (restore the normal bind addresses), start the scheduler and record the evidence: timings, image tags, the gate check, the new non-secret OAuth client ids and WorldId, and the deletion time.
 
 **Validation.** The cutover evidence file is complete. Staging deploy and health stay green on PostgreSQL. A post-cutover P5 drill passes.
 
-**Rollback.** Only as in steps 3 and 4, before the first native evidence write. After step 5 there is no rollback, only forward reconciliation; after step 6 there is no MariaDB data to return to, which the owner accepted because all data is test data.
+**Rollback.** Only as in steps 3 and 4, before the first native evidence write, ending with the gate opened on MariaDB. After step 5 there is no rollback, only forward reconciliation that keeps the PostgreSQL witness. After step 6 there is no MariaDB data to return to, which the owner accepted because all data is test data.
 
 ### P7 — Remove MariaDB code paths and reconcile docs
 
@@ -366,7 +377,7 @@ The repository contains none of these. Each is set as a GitHub environment secre
 | ID | Question | Answer |
 |---|---|---|
 | Q1 | Data at cutover | **Clean slate.** The Game node is not deployed anywhere and all staging data is test data. P3 re-creates state on a fresh database and resets the witness directory together with it. A table-copy tool stays an optional, documented fallback. |
-| Q2 | Rollback after native evidence was written on PostgreSQL | **No rollback after the first evidence write.** Before it, rollback means pointing Compose back at the MariaDB volume and the untouched original witness directory (P6 steps 3 and 4). After it, reconcile forward only. |
+| Q2 | Rollback after native evidence was written on PostgreSQL | **No rollback after the first evidence write.** Before it, rollback means pointing Compose back at the MariaDB volume and the untouched MariaDB-era witness directory (P6 steps 3 and 4). After it, keep the PostgreSQL witness and reconcile forward only. |
 | Q3 | Retention of the MariaDB volume | **None.** The volume is deleted right after a successful cutover smoke test, and no final dump is taken. |
 | Q4 | PostgreSQL TLS certificate source | **Stack CA via `tls-init`.** |
 | Q5 | Backups | **On the Synology only for now**, with provisional staging RPO 24 hours and RTO 4 hours. An encrypted off-NAS copy (`pg_basebackup` plus `archive_command`) is REQUIRED before any production or real-player use. |
