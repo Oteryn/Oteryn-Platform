@@ -55,7 +55,7 @@ The historical exception is a closed exact-path allowlist, not permission to cre
 
 ## Inventory
 
-Inventory reconciled on 2026-10-11. Duplicate prefixes are intentionally shown rather than hidden. Prefix `0038` remains intentionally absent because the only proposal using it was closed unmerged in PR #1065 and must not be resurrected merely to fill a numbering gap. ADR 0040 is retained with `Superseded` lifecycle; ADR 0041 is the current ecosystem-topology successor; ADR 0042 defines the non-native reference-content boundary. ADR 0043 is the current Proposed native GameCatalog persistence-composition decision under Issue #1460 and is non-authoritative until accepted. ADR 0044 is the Accepted preproduction-store native route publication fence (owner option a, 2026-10-11, Issue #1474).
+Inventory reconciled on 2026-10-11. Duplicate prefixes are intentionally shown rather than hidden. Prefix `0038` remains intentionally absent because the only proposal using it was closed unmerged in PR #1065 and must not be resurrected merely to fill a numbering gap. ADR 0040 is retained with `Superseded` lifecycle; ADR 0041 is the current ecosystem-topology successor; ADR 0042 defines the non-native reference-content boundary. ADR 0043 is the current Proposed native GameCatalog persistence-composition decision under Issue #1460 and is non-authoritative until accepted. ADR 0044 is the Accepted preproduction-store native route publication fence (owner option a, 2026-10-11, Issue #1474). ADR 0045 is the Proposed native Gateway recovery and multichannel login decision under Issue #1419 and is non-authoritative until accepted.
 
 - `0001-laravel-modular-monolith.md`
 - `0003-defer-payments-module.md`
@@ -106,6 +106,7 @@ Inventory reconciled on 2026-10-11. Duplicate prefixes are intentionally shown r
 - `0042-non-native-reference-content-boundary.md`
 - `0043-native-game-catalog-persistence-composition.md`
 - `0044-preproduction-store-native-route-publication.md`
+- `0045-native-gateway-recovery-and-multichannel-login.md`
 
 ## Preserved legacy duplicate paths
 
