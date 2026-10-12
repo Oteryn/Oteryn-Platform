@@ -29,10 +29,8 @@ The four states are disjoint and exhaustive. Classification checks `open`, `clos
 
 ## Marker and lock
 
-- **Marker (*proposal*).** The gate state is the ingress configuration itself: the `503` service on the two canonical rules. The edge cannot say which closure produced it, so the workflow also keeps one **closure record** in a single repository variable `MAINTENANCE_GATE_RECORD` on the workflow's protected environment, written only by this workflow. It holds `{state, close_id, config_hash, run_id}`, where `close_id` is the run id of the `maintenance-close` that produced the current closure and `config_hash` is the post-write hash of the two canonical rules.
-- **Write order.** `maintenance-close`: `PUT`, read back, then write the record with a new `close_id` and the read-back hash. `maintenance-open`: first write the record as `{state: opening}`, then `PUT`, read back, then write `{state: open, config_hash}`. A crash between the edge write and the record write leaves a mismatch, never a bound closure.
-- **Reconcile.** On every run the edge read is compared with the record. A closed edge is **bound** only when the record says `closed` and its `config_hash` equals the current hash. A closed edge with a missing, `open`, `opening` or hash-mismatched record (an external edit recreating the closed configuration, close A then open then close B interrupted, a lost variable) is **unbound**: it still blocks traffic, and `maintenance-open` refuses from it, because no evidence can name a closure that is not recorded. `maintenance-close` on an unbound closed edge rewrites nothing at the edge and writes a new record with a new `close_id`, which re-binds the closure. A bound `closed` stays a no-op. Evidence for a later open must name the `close_id` in the record at the time of the open, so evidence from close A never satisfies close B.
-- Each run logs the pre-write and post-write configuration hashes and the record before and after in its summary.
+- **Marker (*proposal*).** The gate state is the ingress configuration itself: the `503` service on the two canonical rules. Each run logs the pre-write and post-write configuration hashes in its summary.
+- **Closure identity: OPEN DESIGN QUESTION (P6b).** This note does not choose a mechanism. The requirement is stated in *Evidence precondition* below; how the workflow knows which closure it is looking at is open. See *Open design questions*.
 - **Lock (*proposal*).** One GitHub Actions `concurrency` group for the workflow with `cancel-in-progress: false`, so runs of every mode serialize. The pre-`PUT` re-read and hash check is the guard against an edit made outside the workflow.
 
 ## Transitions
@@ -40,8 +38,7 @@ The four states are disjoint and exhaustive. Classification checks `open`, `clos
 | From | Entry point | To | Rule |
 | --- | --- | --- | --- |
 | `open` | `maintenance-close` | `closed` | Other-rule check passes, then one `PUT` of both rules, then read back both rules |
-| `closed` (bound) | `maintenance-close` | `closed` | No write |
-| `closed` (unbound) | `maintenance-close` | `closed` | No edge write; new record with a new `close_id` |
+| `closed` | `maintenance-close` | `closed` | No write |
 | `split` | `maintenance-close` | `closed` | Completes the close |
 | `closed` | `maintenance-open` | `open` | Only with the evidence precondition below. One `PUT` restoring the fixed loopback origins, then read back, then a fresh `audit` and an external request to each hostname |
 | `open` | `maintenance-open` | `open` | No write |
@@ -50,12 +47,12 @@ The four states are disjoint and exhaustive. Classification checks `open`, `clos
 | `closed`, `split` or `unknown` | `apply` | unchanged | Refuses in every state other than `open`, with no write and no warning-only path. `apply` rebuilds the rules with the loopback origins, so it must never run unless the gate is already `open`; the only reopen path is `maintenance-open` |
 | any | DNS or other modes | unchanged | They do not touch the two rules |
 
-**Evidence precondition for `maintenance-open` (*proposal*).** From `closed` or `split` the mode refuses unless the dispatch names a task id and a run id and exactly one of these holds, checked by the workflow before any `PUT`. Both cases are bound to the current closure: the evidence run must name the `close_id` held in the closure record and have finished after that close run; an unbound closure has no `close_id` and refuses. Evidence from an earlier close of the same task (for example a rollback run before a second cutover attempt) does not satisfy either case:
+**Evidence precondition for `maintenance-open` (*proposal*).** From `closed` or `split` the mode refuses unless the dispatch names a task id and a run id and exactly one of these holds, checked by the workflow before any `PUT`. Requirement (not a mechanism): the evidence must belong to the closure that produced the current state. Evidence from an earlier closure of the same task, or from another task, must not authorize the open, and when the workflow cannot establish which closure is current it refuses. How closure identity is established is an open design question below.
 
 1. Cutover ready to open: the cutover run for that task recorded step 6 as done (step 5 native login smoke passed and the cutover was declared done). Step 7 is the opening step, so this evidence is the authorization for `maintenance-open` and cannot require step 7 itself to be complete. The post-open `audit` and external requests are the step 7 result, not its precondition.
 2. Rollback verified: the MariaDB rollback for that task finished and `health-check.sh` passed against it in a recorded run.
 
-A retry therefore needs fresh evidence: after a rollback and a second `maintenance-close`, the first rollback's `health-check.sh` run is stale and `maintenance-open` refuses until a newer linked run exists. A closed gate with a stopped step (for example step 4 on ambiguous trust state, or step 5 or 6 not recorded) satisfies neither case, so `maintenance-open` refuses and the gate stays closed. Missing, unreadable or unbound evidence also refuses. The evidence run ids are logged in the summary.
+Under the requirement above, a retry needs fresh evidence: after a rollback and a second close, the first rollback's `health-check.sh` run does not authorize the open. A closed gate with a stopped step (for example step 4 on ambiguous trust state, or step 5 or 6 not recorded) satisfies neither case, so `maintenance-open` refuses and the gate stays closed. Missing, unreadable or unbound evidence also refuses. The evidence run ids are logged in the summary.
 
 Ordering: read, validate, re-read and hash check, `PUT`, read back. A failed read-back leaves the state as read, reported as failure, never as success.
 
@@ -69,9 +66,16 @@ Ordering: read, validate, re-read and hash check, `PUT`, read back. A failed rea
 
 ## Tests per transition (`tests/operations/cloudflare-oteryn-endpoints/**`)
 
-One test per row of the transition table, plus: close A, open, close B and an external edit recreating the closed configuration both leave A's evidence unable to open; lost or mismatched record is unbound and refuses; crash between edge write and record write; stale evidence from an earlier close of the same task (rollback, second close, stop at step 4) refused; classification of one rule on `503` and the other on an arbitrary service as `unknown`, not `split`; `apply` refuses from `closed`, `split` and `unknown`; `maintenance-open` refuses without cutover-complete or rollback-verified evidence, with evidence from another task, and with a stopped step; refusal on another rule targeting `127.0.0.1`, `localhost`, `[::1]` or `0.0.0.0` on port 8000 or 8080 (including wildcard, legacy Gateway and catch-all); unrelated rules and the catch-all preserved byte for byte; hash mismatch aborts; read-back failure reported as failure; `audit` reports `closed` as bounded drift; confirmation phrase required; no secret or bypass value in output.
+One test per row of the transition table, plus: stale evidence from an earlier close of the same task (rollback, second close, stop at step 4) refused. The tests that exercise closure identity wait for the P6b decision below; classification of one rule on `503` and the other on an arbitrary service as `unknown`, not `split`; `apply` refuses from `closed`, `split` and `unknown`; `maintenance-open` refuses without cutover-complete or rollback-verified evidence, with evidence from another task, and with a stopped step; refusal on another rule targeting `127.0.0.1`, `localhost`, `[::1]` or `0.0.0.0` on port 8000 or 8080 (including wildcard, legacy Gateway and catch-all); unrelated rules and the catch-all preserved byte for byte; hash mismatch aborts; read-back failure reported as failure; `audit` reports `closed` as bounded drift; confirmation phrase required; no secret or bypass value in output.
 
-## Open questions for the reviewer
+## Open design questions for P6b (not decided here)
 
-1. Is a GitHub environment variable acceptable as the durable closure record, or is another store wanted? Its reconcile rule against the edge is fixed above.
-2. Is the task/run-bound evidence precondition for `maintenance-open` enforced by the workflow (this note's proposal) or by operator procedure only? `apply` refusal outside `open` is not optional.
+Decision owner for both: the owner, on a recommendation from the follow-up task PG-P6-DESIGN-NOTES. This PR asserts no mechanism for either.
+
+1. **Where closure identity is stored.**
+   - Constraint: the workflow must be able to write it with the credentials it is allowed to hold. Today `.github/workflows/cloudflare-oteryn-endpoints.yml` grants `contents: read` and supplies only the Cloudflare token. A GitHub environment variable cannot be updated with that token (the endpoint needs `Environments` write, which `GITHUB_TOKEN` does not expose), and the governing plan claims the gate needs no new credential.
+   - Candidates, none chosen: a store the existing token can already write (for example something carried by the Cloudflare side or by the workflow's own artifacts); a separate GitHub App or token with the added credential explicitly authorized and designed; no stored identity, with `maintenance-open` authorized by an operator-supplied value checked against a run that the workflow can read.
+2. **Binding identity to a non-replayable edge generation.**
+   - Constraint: identical closed rules produce the same configuration hash, so rule content alone cannot prove which closure produced it. An external edit that opens and then restores the identical closed rules must not leave an earlier closure's evidence valid.
+   - Candidates, none chosen: a nonce persisted atomically with the edge write; an edge-side version or generation value if the tunnel configuration API exposes one; treating any state not written by the workflow's own latest close as requiring a fresh close before an open.
+3. Is the task/run-bound evidence precondition for `maintenance-open` enforced by the workflow (this note's proposal) or by operator procedure only? `apply` refusal outside `open` is not optional.
