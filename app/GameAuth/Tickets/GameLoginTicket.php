@@ -9,7 +9,6 @@ use Illuminate\Support\Carbon;
  * @property int $id
  * @property string $ticket_hash
  * @property int $identity_id
- * @property int|null $canary_account_id
  * @property string|null $account_id
  * @property string $audience
  * @property int $security_generation
@@ -31,7 +30,6 @@ final class GameLoginTicket extends Model
     protected $fillable = [
         'ticket_hash',
         'identity_id',
-        'canary_account_id',
         'account_id',
         'audience',
         'security_generation',
@@ -54,7 +52,6 @@ final class GameLoginTicket extends Model
     {
         return [
             'identity_id' => 'integer',
-            'canary_account_id' => 'integer',
             'security_generation' => 'integer',
             'native_security_generation' => 'integer',
             'expires_at' => 'datetime',

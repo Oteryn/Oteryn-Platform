@@ -70,10 +70,6 @@ jobs:
           --health-interval=5s
           --health-timeout=5s
           --health-retries=20
-      redis:
-        image: redis:7.4-alpine
-        ports:
-          - 6379:6379
 
     env:
       ACCEPTANCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -125,7 +121,7 @@ jobs:
       - name: Install acceptance system clients
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends mariadb-client redis-tools
+          sudo apt-get install -y --no-install-recommends mariadb-client
 
       - name: Install application dependencies
         run: composer install --no-interaction --prefer-dist --no-progress

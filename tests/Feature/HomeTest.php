@@ -7,17 +7,10 @@ use App\Identity\Models\Identity;
 use App\Identity\Sessions\WebSessionState;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Redis\Connections\Connection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Schema;
-use Mockery;
-use Mockery\CompositeExpectation;
-use Mockery\MockInterface;
-use RuntimeException;
 use Tests\TestCase;
-use Throwable;
 
 final class HomeTest extends TestCase
 {
@@ -71,17 +64,17 @@ final class HomeTest extends TestCase
             'body' => 'This must remain hidden.',
             'published_at' => now()->addDay(),
         ]);
-        $this->mockRuntime('ONLINE', 42, 25_000);
 
         $response = $this->get('/');
 
         $response->assertOk()
             ->assertSee('More than a game. A living world.')
             ->assertSee('Find your character')
-            ->assertSeeText('42 players online')
+            ->assertSee('Live world data is temporarily unavailable.')
+            ->assertDontSeeText('42 players online')
             ->assertSee('The realm awakens')
             ->assertDontSee('Future hidden news')
-            ->assertSee('data-content-state="AVAILABLE"', false)
+            ->assertSee('data-content-state="UNAVAILABLE"', false)
             ->assertDontSee('css/home-preview.css', false)
             ->assertDontSee('css/app.css', false)
             ->assertSee('css/portal-system.css', false)
@@ -100,32 +93,9 @@ final class HomeTest extends TestCase
             ->assertDontSee('0 players online');
     }
 
-    public function test_homepage_distinguishes_stale_runtime_without_synthetic_total(): void
+    public function test_homepage_reports_unavailable_runtime_without_reporting_offline_or_zero(): void
     {
         $this->insertChannel();
-        $this->mockRuntime('ONLINE', 25, -2);
-
-        $this->get('/')
-            ->assertOk()
-            ->assertSee('runtime records are stale or missing')
-            ->assertSee('data-content-state="STALE"', false)
-            ->assertSee('Stale')
-            ->assertDontSee('25 players online')
-            ->assertDontSee('0 players online');
-    }
-
-    public function test_homepage_distinguishes_unavailable_runtime_without_reporting_offline_or_zero(): void
-    {
-        $this->insertChannel();
-
-        $connection = Mockery::mock(Connection::class);
-        Redis::shouldReceive('connection')->once()->with('canary_runtime')->andReturn($connection);
-        $this->expectCommandThrows(
-            $connection,
-            'hmget',
-            ['cluster:channel:1:runtime', ['channel_id', 'status', 'players_online']],
-            new RuntimeException('Redis unavailable.'),
-        );
 
         $this->get('/')
             ->assertOk()
@@ -170,65 +140,5 @@ final class HomeTest extends TestCase
             'maintenance' => 0,
             'maintenance_message' => null,
         ]);
-    }
-
-    private function mockRuntime(string $status, int $playersOnline, int $ttlMilliseconds): void
-    {
-        $connection = Mockery::mock(Connection::class);
-        Redis::shouldReceive('connection')->once()->with('canary_runtime')->andReturn($connection);
-        $this->expectCommandReturns(
-            $connection,
-            'hmget',
-            ['cluster:channel:1:runtime', ['channel_id', 'status', 'players_online']],
-            [
-                'channel_id' => '1',
-                'status' => $status,
-                'players_online' => (string) $playersOnline,
-            ],
-        );
-        $this->expectCommandReturns(
-            $connection,
-            'pttl',
-            ['cluster:channel:1:runtime'],
-            $ttlMilliseconds,
-        );
-    }
-
-    /**
-     * @param  list<mixed>  $arguments
-     */
-    private function expectCommandReturns(
-        MockInterface $connection,
-        string $command,
-        array $arguments,
-        mixed $result,
-    ): void {
-        $expectation = $this->commandExpectation($connection);
-        $expectation->__call('once', []);
-        $expectation->__call('with', [$command, $arguments]);
-        $expectation->andReturn($result);
-    }
-
-    /**
-     * @param  list<mixed>  $arguments
-     */
-    private function expectCommandThrows(
-        MockInterface $connection,
-        string $command,
-        array $arguments,
-        Throwable $exception,
-    ): void {
-        $expectation = $this->commandExpectation($connection);
-        $expectation->__call('once', []);
-        $expectation->__call('with', [$command, $arguments]);
-        $expectation->__call('andThrow', [$exception]);
-    }
-
-    private function commandExpectation(MockInterface $connection): CompositeExpectation
-    {
-        /** @var CompositeExpectation */
-        $expectation = $connection->shouldReceive('command');
-
-        return $expectation;
     }
 }

@@ -7,14 +7,12 @@ use App\Cms\Models\NewsPost;
 use App\Cms\PublicNewsQuery;
 use App\Events\Queries\UpcomingEventProvider;
 use App\LiveOps\WorldStatus\PublicWorldStatusQuery;
-use App\PublicGameData\CanaryChannelRuntimeService;
 use App\PublicGameData\CanaryGameDataRepository;
 use App\PublicGameData\PublicGameDataSource;
 use App\PublicPortal\ViewModels\HomeNewsSummary;
 use App\PublicPortal\ViewModels\HomePageViewModel;
 use App\PublicPortal\ViewModels\HomeWorldChannel;
 use App\PublicPortal\ViewModels\HomeWorldSummary;
-use stdClass;
 use Throwable;
 use UnexpectedValueException;
 
@@ -23,7 +21,6 @@ final readonly class HomePageQuery
     public function __construct(
         private PublicNewsQuery $news,
         private CanaryGameDataRepository $gameData,
-        private CanaryChannelRuntimeService $runtime,
         private AnnouncementTickerProvider $announcements,
         private UpcomingEventProvider $events,
         private PublicWorldStatusQuery $nativeWorlds,
@@ -84,45 +81,27 @@ final readonly class HomePageQuery
                 return new HomeWorldSummary(PublicContentState::EMPTY, [], null);
             }
 
-            /** @var list<int> $channelIds */
-            $channelIds = $channels
-                ->map(fn (stdClass $channel): int => $this->channelId($channel->id ?? null))
-                ->values()
-                ->all();
-            $runtimeSnapshot = $this->runtime->snapshot($channelIds);
-            $state = $runtimeSnapshot->available
-                ? PublicContentState::AVAILABLE
-                : PublicContentState::UNAVAILABLE;
-            $playersOnline = $runtimeSnapshot->available ? 0 : null;
+            // Live per-channel runtime is no longer read: the legacy runtime store is retired and
+            // native readiness reports carry no player population. Channels stay listed, never as
+            // offline or with a synthetic zero.
             $worldChannels = [];
 
             foreach ($channels as $channel) {
-                $channelId = $this->channelId($channel->id ?? null);
-                $runtime = $runtimeSnapshot->available
-                    ? $runtimeSnapshot->forChannel($channelId)
-                    : null;
                 $maintenanceMessage = $channel->maintenance_message ?? null;
 
-                if ($runtimeSnapshot->available && $runtime === null) {
-                    $state = PublicContentState::STALE;
-                    $playersOnline = null;
-                } elseif ($playersOnline !== null && $runtime !== null) {
-                    $playersOnline += $runtime->playersOnline;
-                }
-
                 $worldChannels[] = new HomeWorldChannel(
-                    id: $channelId,
+                    id: $this->channelId($channel->id ?? null),
                     name: $this->requiredString($channel->name ?? null, 'name'),
                     pvpType: $this->requiredString($channel->pvp_type ?? null, 'pvp_type'),
                     maxPlayers: $this->nonNegativeInteger($channel->max_players ?? null, 'max_players'),
                     maintenance: $this->booleanValue($channel->maintenance ?? null, 'maintenance'),
                     maintenanceMessage: is_string($maintenanceMessage) ? $maintenanceMessage : null,
-                    runtimeStatus: $runtime?->status,
-                    playersOnline: $runtime?->playersOnline,
+                    runtimeStatus: null,
+                    playersOnline: null,
                 );
             }
 
-            return new HomeWorldSummary($state, $worldChannels, $playersOnline);
+            return new HomeWorldSummary(PublicContentState::UNAVAILABLE, $worldChannels, null);
         } catch (Throwable) {
             return new HomeWorldSummary(PublicContentState::UNAVAILABLE, [], null);
         }

@@ -56,7 +56,6 @@ final class NativeGameLoginTickets
         GameLoginTicket::query()->create([
             'ticket_hash' => $this->secrets->hash($ticket),
             'identity_id' => $lockedIdentity->id,
-            'canary_account_id' => null,
             'account_id' => $lockedIdentity->account_id,
             'audience' => self::AUDIENCE,
             'security_generation' => $lockedIdentity->game_auth_generation,
@@ -94,7 +93,7 @@ final class NativeGameLoginTickets
         }
         $accountId = $stored->account_id;
         $nativeGeneration = $stored->native_security_generation;
-        if ($stored->expires_at->lte(now()) || $stored->canary_account_id !== null
+        if ($stored->expires_at->lte(now())
             || $accountId === null || $nativeGeneration === null) {
             throw new NativeLoginRefused(NativeLoginError::TicketRejected);
         }

@@ -27,7 +27,7 @@ A declaration may add a bounded qualifier or date after the lifecycle token. Mul
 
 Allocate a new ADR only after scanning every file in this directory and open architecture PRs. Use the next integer after the highest observed numeric prefix; do not reuse gaps.
 
-Closed unmerged PR #1065 historically proposed ADR prefix `0038`, but that draft was superseded before acceptance and is intentionally not reused. Protected `main` contained accepted ADR 0040 before the 2026-08-15 cross-repository review reconciliation; no open architecture PR claimed `0041`, so the successor ecosystem decision is allocated as ADR 0041. Architecture Review Issue #1121 subsequently verified that `0042` was unclaimed before allocating the non-native reference-content boundary.
+Closed unmerged PR #1065 historically proposed ADR prefix `0038`, but that draft was superseded before acceptance and is intentionally not reused. Protected `main` contained accepted ADR 0040 before the 2026-08-15 cross-repository review reconciliation; no open architecture PR claimed `0041`, so the successor ecosystem decision is allocated as ADR 0041. Architecture Review Issue #1121 subsequently verified that `0042` was unclaimed before allocating the non-native reference-content boundary. On 2026-10-12 open PR #1558 claimed `0045`, so the Platform PostgreSQL decision is allocated as ADR 0046.
 
 Existing duplicate identifiers are historical compatibility defects. Do not rename or renumber accepted records without a separate compatibility decision that preserves inbound references.
 
@@ -55,7 +55,7 @@ The historical exception is a closed exact-path allowlist, not permission to cre
 
 ## Inventory
 
-Inventory reconciled on 2026-10-11. Duplicate prefixes are intentionally shown rather than hidden. Prefix `0038` remains intentionally absent because the only proposal using it was closed unmerged in PR #1065 and must not be resurrected merely to fill a numbering gap. ADR 0040 is retained with `Superseded` lifecycle; ADR 0041 is the current ecosystem-topology successor; ADR 0042 defines the non-native reference-content boundary. ADR 0043 is the current Proposed native GameCatalog persistence-composition decision under Issue #1460 and is non-authoritative until accepted. ADR 0044 is the Accepted preproduction-store native route publication fence (owner option a, 2026-10-11, Issue #1474). ADR 0045 is the Proposed native Gateway recovery and multichannel login decision under Issue #1559 and is non-authoritative until accepted.
+Inventory reconciled on 2026-10-11. Duplicate prefixes are intentionally shown rather than hidden. Prefix `0038` remains intentionally absent because the only proposal using it was closed unmerged in PR #1065 and must not be resurrected merely to fill a numbering gap. ADR 0040 is retained with `Superseded` lifecycle; ADR 0041 is the current ecosystem-topology successor; ADR 0042 defines the non-native reference-content boundary. ADR 0043 is the current Proposed native GameCatalog persistence-composition decision under Issue #1460 and is non-authoritative until accepted. ADR 0044 is the Accepted preproduction-store native route publication fence (owner option a, 2026-10-11, Issue #1474). ADR 0046 is the Accepted decision that Platform persistence moves to PostgreSQL in its own instance (owner decision, 2026-10-12, Issue #1474). ADR 0045 is the Proposed native Gateway recovery and multichannel login decision under Issue #1559 and is non-authoritative until accepted.
 
 - `0001-laravel-modular-monolith.md`
 - `0003-defer-payments-module.md`
@@ -107,6 +107,7 @@ Inventory reconciled on 2026-10-11. Duplicate prefixes are intentionally shown r
 - `0043-native-game-catalog-persistence-composition.md`
 - `0044-preproduction-store-native-route-publication.md`
 - `0045-native-gateway-recovery-and-multichannel-login.md`
+- `0046-platform-persistence-moves-to-postgresql.md`
 
 ## Preserved legacy duplicate paths
 
