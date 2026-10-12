@@ -227,8 +227,11 @@ jobs:
     # PostgreSQL 17 (the target engine) and 16 (the previous major). The job is part of the
     # `platform-gate` needs below. Adding "platform-postgres (17)" and "platform-postgres (16)"
     # to the branch ruleset's required checks is an owner step.
+    # It does not honour runtime-tests reuse: the reuse lookup only proves a prior successful
+    # `runtime-tests` job, which is no PostgreSQL evidence, so a skipped job would otherwise
+    # let `platform-gate` pass without any PostgreSQL run on the head.
     needs: classify_changes
-    if: ${{ needs.classify_changes.result == 'success' && needs.classify_changes.outputs.ci == 'true' && needs.classify_changes.outputs.reuse_heavy != 'true' }}
+    if: ${{ needs.classify_changes.result == 'success' && needs.classify_changes.outputs.ci == 'true' }}
     strategy:
       fail-fast: false
       matrix:
