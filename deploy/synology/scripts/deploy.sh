@@ -304,6 +304,28 @@ _oteryn_fast_candidate() {
         FAST_DEPLOY_REASON='native admission projection settings incomplete'
         return 1
     fi
+    # The fast path neither stages bootstrap files nor touches internal-mtls: any change of the
+    # listener setting, or a listener that is not in its wanted state, takes the full path, and so
+    # does any change of its bind address, port, host file paths, certificate, key, client CA or
+    # nginx config while it is on (fingerprint label, lib.sh).
+    local want_mtls="${OTERYN_PLATFORM_MTLS_ENABLED:-false}" running_platform_fastcgi mtls_id mtls_running=false
+    running_platform_fastcgi="$(oteryn_platform_fastcgi_flag_of "$FAST_OLD_PLATFORM_ID")" || return 2
+    mtls_id="$("${compose[@]}" ps -q internal-mtls 2>/dev/null)" || return 2
+    if [[ -n "$mtls_id" && "$(docker inspect --format '{{.State.Running}}' "$mtls_id" 2>/dev/null)" == true ]]; then
+        mtls_running=true
+    fi
+    if [[ "$running_platform_fastcgi" != "$want_mtls" || "$mtls_running" != "$want_mtls" ]]; then
+        FAST_DEPLOY_REASON='platform mTLS listener setting changed'
+        return 1
+    fi
+    if [[ "$want_mtls" == true ]]; then
+        local want_mtls_fingerprint
+        if ! want_mtls_fingerprint="$(oteryn_platform_mtls_fingerprint)" \
+            || [[ "$(oteryn_platform_mtls_fingerprint_of "$mtls_id")" != "$want_mtls_fingerprint" ]]; then
+            FAST_DEPLOY_REASON='platform mTLS listener configuration or certificate files changed'
+            return 1
+        fi
+    fi
     FAST_MARIADB_ID="$(_oteryn_fast_running_service_id mariadb)" || return 2
     FAST_PROXY_ID="$(_oteryn_fast_running_service_id internal-proxy)" || return 2
 
@@ -404,7 +426,8 @@ _oteryn_fast_deploy_platform() {
 
     "${compose[@]}" config --quiet
     # Ingress is stopped until the recreated Platform passes the trust gate (lib.sh), then the same
-    # preserved internal proxy and Gateway containers start again.
+    # preserved internal proxy and Gateway containers start again, with the Game-node mTLS listener
+    # the ingress stop kept.
     oteryn_native_admission_ingress_stop "${compose[@]}" >/dev/null
     "${compose[@]}" up -d --no-deps --force-recreate platform
     oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || return 1
@@ -453,6 +476,8 @@ if [[ "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}" == true ]]; then
     # Native login needs the whole chain, not only a signing key (lib.sh validator, shared with rollback).
     oteryn_native_admission_projection_ready || exit 1
 fi
+# Platform internal mTLS listener for the Game node (lib.sh; README: Platform internal mTLS listener).
+oteryn_platform_mtls_settings_valid || exit 1
 oteryn_ensure_native_admission_key || exit 1
 
 fast_candidate_rc=0
@@ -480,6 +505,7 @@ stage_bootstrap_files() {
 
     docker cp "$DEPLOY_DIR/tls/init.sh" "$tls_container:/bootstrap/tls-init.sh"
     docker cp "$DEPLOY_DIR/nginx/internal.conf" "$tls_container:/bootstrap/internal-nginx.conf"
+    docker cp "$DEPLOY_DIR/nginx/internal-mtls.conf" "$tls_container:/bootstrap/internal-mtls-nginx.conf"
 }
 
 snapshot_current_images() {
@@ -519,7 +545,7 @@ finalize_previous_candidate_if_healthy() {
     local candidate_env="$state_dir/candidate-health.env"
     local service container_id image_id expected_image expected_image_id
     local gateway_container_id gateway_image_id expected_gateway_image expected_gateway_image_id
-    local index
+    local index candidate_mtls running_platform_fastcgi
     local -a candidate_state services expected_images candidate_compose
 
     [[ -f "$candidate_file" ]] || return 0
@@ -629,6 +655,26 @@ finalize_previous_candidate_if_healthy() {
     chmod 600 "$candidate_env.tmp"
     mv "$candidate_env.tmp" "$candidate_env"
     oteryn_pin_native_admission_flag "$candidate_env" "${candidate_state[3]}"
+    # Legacy path, before any mutation: Platform is not recreated here, so the listener can serve the
+    # candidate only when its image has the FastCGI pool AND the running candidate Platform was started
+    # with it (OTERYN_PLATFORM_FASTCGI_ENABLED=true). Otherwise the candidate is finalized with the
+    # listener off instead of failing its health check on every later deploy; this deploy's own image
+    # passed oteryn_platform_mtls_preflight and turns the listener on again after finalization.
+    if ! candidate_mtls="$(oteryn_platform_mtls_flag_for_image "${candidate_state[3]}")"; then
+        rm -f "$candidate_env"
+        return 1
+    fi
+    if [[ "$candidate_mtls" == true ]]; then
+        if ! running_platform_fastcgi="$(oteryn_platform_fastcgi_flag_of "$("${compose[@]}" ps -q platform)")"; then
+            rm -f "$candidate_env"
+            return 1
+        fi
+        [[ "$running_platform_fastcgi" == true ]] || candidate_mtls=false
+    fi
+    if [[ "$candidate_mtls" != "${OTERYN_PLATFORM_MTLS_ENABLED:-false}" ]]; then
+        echo "Previous candidate Platform has no FastCGI pool or runs with it off; finalizing it with the Platform mTLS listener off." >&2
+    fi
+    oteryn_pin_platform_mtls_flag "$candidate_env" "$candidate_mtls"
 
     candidate_compose=(
         env
@@ -639,6 +685,7 @@ finalize_previous_candidate_if_healthy() {
         "GATEWAY_IMAGE=${candidate_state[4]}"
         "GATEWAY_VERSION=sha-${candidate_state[2]}"
         "OTERYN_NATIVE_ADMISSION_ENABLED=$(oteryn_native_admission_flag_for_image "${candidate_state[3]}")"
+        "OTERYN_PLATFORM_MTLS_ENABLED=$candidate_mtls"
         docker compose --env-file "$candidate_env" -f "$COMPOSE_FILE"
     )
     # Only Gateway and the proxy are recreated here: refuse before any mutation when the effective flag
@@ -665,6 +712,10 @@ finalize_previous_candidate_if_healthy() {
         return 1
     fi
     if ! "${candidate_compose[@]}" up -d --no-deps --force-recreate internal-proxy gateway; then
+        rm -f "$candidate_env"
+        return 1
+    fi
+    if ! OTERYN_PLATFORM_MTLS_ENABLED="$candidate_mtls" oteryn_reconcile_platform_mtls "${candidate_compose[@]}"; then
         rm -f "$candidate_env"
         return 1
     fi
@@ -725,6 +776,7 @@ for runtime_image in "$PLATFORM_IMAGE" "$GATEWAY_IMAGE"; do
     }
 done
 stage_bootstrap_files
+oteryn_platform_mtls_preflight "${compose[@]}" || exit 1
 # One-time transition: a pre-existing staging stack still carries the retired Redis container
 # (restart: always, otherwise orphaned and surviving reboots). Remove only that service's container
 # by Compose ownership labels; its volume is kept and no orphan sweep is used.
@@ -770,6 +822,8 @@ OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/prepare-fresh-schema-baseline.sh"
 # Ingress stays stopped until the new Platform passes the trust gate below (lib.sh); the migration
 # quiesce does not run on a first deploy, a same-release redeploy or a resumed candidate.
 oteryn_native_admission_ingress_stop "${compose[@]}" >/dev/null
+# The ingress stop also stops the Game-node mTLS listener (removes it while the setting is off); it
+# is recreated or removed after the gates (oteryn_reconcile_platform_mtls).
 "${compose[@]}" up -d platform
 "${compose[@]}" exec -T platform php artisan migrate --force --no-interaction
 if ! "${compose[@]}" exec -T platform sh -ec 'test -s storage/oauth-private.key && test -s storage/oauth-public.key'; then
@@ -789,6 +843,7 @@ fi
 
 "${compose[@]}" up -d --no-deps --force-recreate internal-proxy
 "${compose[@]}" up -d gateway
+oteryn_reconcile_platform_mtls "${compose[@]}"
 # The scheduler is always on: start it with the selected Platform image before the health contract.
 _oteryn_reconcile_marketplace_scheduler_after_runtime_change
 
