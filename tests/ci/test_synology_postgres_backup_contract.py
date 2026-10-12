@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import importlib.util
 import os
 import re
 import shutil
@@ -36,6 +37,8 @@ HEALTH = SCRIPTS / "health-check.sh"
 TLS_INIT = SYNOLOGY / "tls/init.sh"
 RECOVER_WORKFLOW = ROOT / ".github/workflows/recover-synology-staging-schema.yml"
 RUNBOOK = ROOT / "docs/operations/PLATFORM_POSTGRES_BACKUP_PITR.md"
+CLASSIFIER = ROOT / "scripts/ci/classify_synology_builds.py"
+BUILD_WORKFLOW = ROOT / ".github/workflows/build-synology-staging-images.yml"
 
 SEGMENT = "000000010000000000000003"
 
@@ -161,6 +164,25 @@ class DeployWiringTest(unittest.TestCase):
         self.assertNotIn("PLATFORM_POSTGRES_", workflow)
         self.assertIn("bash deploy/synology/scripts/restore-postgres-pitr.sh", drill)
         self.assertNotIn("--skip-platform-checks", drill)
+
+    def test_build_routing_and_syntax_check_cover_the_backup_scripts(self) -> None:
+        spec = importlib.util.spec_from_file_location("classify_synology_builds", CLASSIFIER)
+        assert spec is not None and spec.loader is not None
+        classifier = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(classifier)
+        # deploy.sh runs backup-postgres.sh, so a change to it needs a staging reconcile; the drill runs
+        # from the workflow checkout and is validated like the other operator scripts.
+        self.assertIn("deploy/synology/scripts/backup-postgres.sh", classifier.DEPLOYMENT_RUNTIME_EXACT)
+        self.assertIn("deploy/synology/scripts/restore-postgres-pitr.sh", classifier.DEPLOYMENT_OPERATOR_EXACT)
+        self.assertTrue(any("deploy/synology/postgres/backup/archive-wal.sh".startswith(prefix)
+                            for prefix in classifier.DEPLOYMENT_RUNTIME_PREFIXES))
+        workflow = BUILD_WORKFLOW.read_text()
+        syntax = workflow.split("      - name: Validate shell syntax\n", 1)[1].split("          sh -n", 1)[0]
+        for script in (BACKUP_POSTGRES, DRILL, ARCHIVE, RESTORE, JOB):
+            relative = script.relative_to(ROOT).as_posix()
+            self.assertIn(f"            {relative} \\\n", syntax)
+        for script in (BACKUP_POSTGRES, DRILL):
+            self.assertEqual(workflow.count(f"      - {script.relative_to(ROOT).as_posix()}\n"), 2, script.name)
 
     def test_runbook_exists_and_is_referenced(self) -> None:
         self.assertTrue(RUNBOOK.is_file())

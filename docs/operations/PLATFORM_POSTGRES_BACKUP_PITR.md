@@ -161,4 +161,4 @@ Set `archive_mode = off` in `deploy/synology/postgres/postgresql.conf` (this nee
 - A drill restored from that copy.
 - Owner-set RPO and RTO.
 - A decision on pgBackRest or WAL-G.
-- The native evidence witness and admission-key backup custody (see `INCIDENT_RECOVERY_RUNBOOK.md`).
+- The native evidence witness and admission-key backup. Decided custody: a follow-up adds a separate root-only job that writes an encrypted copy. It never uses this spool or the `postgres-backup` sidecar, whose roles must not read Platform storage or keys (see `INCIDENT_RECOVERY_RUNBOOK.md`).

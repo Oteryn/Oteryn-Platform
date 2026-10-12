@@ -44,6 +44,8 @@ owned_paths:
   - deploy/synology/scripts/health-check.sh (backup check block)
   - deploy/synology/tls/init.sh (postgres-backup bootstrap permissions)
   - .github/workflows/recover-synology-staging-schema.yml (pitr-drill mode)
+  - .github/workflows/build-synology-staging-images.yml (path filters and bash -n list for the new scripts)
+  - scripts/ci/classify_synology_builds.py (route the new scripts)
   - tests/ci/test_synology_postgres_backup_contract.py
   - tests/ci/test_synology_deploy_release_identity.py (hook class only)
   - docs/operations/PLATFORM_POSTGRES_BACKUP_PITR.md
@@ -65,11 +67,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-12T18:30:00Z
-head: UNKNOWN
+updated_at: 2026-10-12T19:30:00Z
+head: 58f1cf1fbd814207d40f6ded297b86d09e610fe5
 branch: claude/platform-pg-p5-20261012
-pr: none
-status: validating
+pr: 1583
+status: waiting
 context_routes:
   - deploy
 owned_paths:
@@ -82,6 +84,8 @@ owned_paths:
   - deploy/synology/scripts/health-check.sh
   - deploy/synology/tls/init.sh
   - .github/workflows/recover-synology-staging-schema.yml
+  - .github/workflows/build-synology-staging-images.yml
+  - scripts/ci/classify_synology_builds.py
   - tests/ci/test_synology_postgres_backup_contract.py
   - tests/ci/test_synology_deploy_release_identity.py
   - docs/operations/PLATFORM_POSTGRES_BACKUP_PITR.md
@@ -107,6 +111,8 @@ rejected_hypotheses:
 changed_paths:
   - deploy/synology/**
   - .github/workflows/recover-synology-staging-schema.yml
+  - .github/workflows/build-synology-staging-images.yml
+  - scripts/ci/classify_synology_builds.py
   - tests/ci/test_synology_postgres_backup_contract.py
   - tests/ci/test_synology_deploy_release_identity.py
   - docs/operations/**
@@ -122,7 +128,7 @@ validation:
     evidence: probe, target-time and immediate drills passed; scratch discarded
 blockers:
   - none
-next_action: Open the PR to main stacked on #1579, then wait for CI and review.
+next_action: After #1579 lands, merge origin/main (no rebase), then wait for exact-head CI and a complete Codex review and fix all findings in one commit.
 ```
 
 ## Source branch closeout
@@ -136,7 +142,9 @@ source_branch_evidence: pending
 ## Notes
 
 - Jira sync: pending (no mapped Story verified in this session).
-- Not in this packet's paths, so these are follow-ups:
-  - `scripts/ci/classify_synology_builds.py` does not list `backup-postgres.sh` as a deployment runtime input;
-  - the build workflow's `bash -n` list omits the new scripts;
-  - witness and admission-key backup custody needs an owner decision (see the incident runbook).
+- PR #1583, stacked on #1579.
+- Build routing: `backup-postgres.sh` is a deployment runtime input (deploy.sh runs it) and `restore-postgres-pitr.sh` an operator input. Both are in the build workflow's path filters, and the new scripts are in its `bash -n` list.
+- Owner decisions (2026-10-12):
+  - degraded backups stay a health-check warning (the deploy reconcile is strict);
+  - witness and admission-key backup stays out of this packet.
+- Follow-up: back up the native evidence witness and the admission key volume with a separate root-only job writing an encrypted copy, never through the PostgreSQL spool or sidecar. This is recorded in the backup runbook, the incident runbook and readiness §5.

@@ -50,6 +50,7 @@ on:
       - deploy/synology/runner/test-entrypoint.sh
       - deploy/synology/runner/.env.example
       - deploy/synology/runner/compose.yml
+      - deploy/synology/scripts/backup-postgres.sh
       - deploy/synology/scripts/deploy.sh
       - deploy/synology/scripts/deploy-impact.sh
       - deploy/synology/scripts/health-check.sh
@@ -59,6 +60,7 @@ on:
       - deploy/synology/scripts/recover-schema.sh
       - deploy/synology/scripts/release-state.sh
       - deploy/synology/scripts/repository-ghcr-image.sh
+      - deploy/synology/scripts/restore-postgres-pitr.sh
       - deploy/synology/scripts/rollback.sh
       - deploy/synology/scripts/upgrade-legacy-release-state.sh
       - deploy/synology/scripts/validate-ipv4.sh
@@ -125,6 +127,7 @@ on:
       - deploy/synology/runner/test-entrypoint.sh
       - deploy/synology/runner/.env.example
       - deploy/synology/runner/compose.yml
+      - deploy/synology/scripts/backup-postgres.sh
       - deploy/synology/scripts/deploy.sh
       - deploy/synology/scripts/deploy-impact.sh
       - deploy/synology/scripts/health-check.sh
@@ -134,6 +137,7 @@ on:
       - deploy/synology/scripts/recover-schema.sh
       - deploy/synology/scripts/release-state.sh
       - deploy/synology/scripts/repository-ghcr-image.sh
+      - deploy/synology/scripts/restore-postgres-pitr.sh
       - deploy/synology/scripts/rollback.sh
       - deploy/synology/scripts/upgrade-legacy-release-state.sh
       - deploy/synology/scripts/validate-ipv4.sh
@@ -229,6 +233,11 @@ jobs:
             deploy/synology/scripts/rollback.sh \
             deploy/synology/scripts/upgrade-legacy-release-state.sh \
             deploy/synology/scripts/validate-ipv4.sh \
+            deploy/synology/scripts/backup-postgres.sh \
+            deploy/synology/scripts/restore-postgres-pitr.sh \
+            deploy/synology/postgres/backup/archive-wal.sh \
+            deploy/synology/postgres/backup/restore-wal.sh \
+            deploy/synology/postgres/backup/backup-job.sh \
             deploy/synology/runner/entrypoint.sh
           sh -n \
             deploy/synology/tls/init.sh \
