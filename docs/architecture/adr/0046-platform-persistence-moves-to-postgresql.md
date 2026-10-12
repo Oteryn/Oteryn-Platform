@@ -72,7 +72,8 @@ The Platform instance has distinct principals:
 
 - a **migration owner** role that owns the database and schema and is used only by the deploy's migration step;
 - a **runtime** role with data privileges only: no schema ownership, no `CREATE`, no DDL;
-- a **backup/replication** role;
+- a **physical backup** role with `REPLICATION` only, for base backups and WAL streaming;
+- a **logical dump** role with read-only access bounded to `oteryn_platform`, for pre-migration `pg_dump` files;
 - a superuser used only for bootstrap and never present in application configuration.
 
 This closes review finding F-06, where the runtime user is the schema owner with `ALL PRIVILEGES`.
@@ -102,7 +103,7 @@ Until then the PostgreSQL-backed Platform is for testing only. Production go-liv
 - ADR 0044 allowlists exactly one preproduction store identity: driver `mysql`, host `mariadb`, port `3306`, database `oteryn_platform`. This ADR does not change that allowlist. P4 carries an ADR 0044 amendment that replaces the store identity, keeping one allowlisted store at a time, for owner acceptance. Until it is accepted, route publication stays off on the PostgreSQL store.
 - `pdo_mysql` stays in the Platform image while the legacy-engine connections exist (#1474).
 - Data is not carried over (owner answer Q1). The Game node is not deployed anywhere and all staging data is test data, so the cutover starts from a clean slate: fresh migrations on PostgreSQL, re-run bootstrap commands, a re-registered OAuth client, re-published native route records, and a native-evidence witness directory reset together with the database. A table-copy tool stays an optional, documented fallback only.
-- Rollback is simple and short-lived (owner answer Q2). Before the first native evidence write on PostgreSQL, and so before the cutover is declared done, it means pointing Compose back at the MariaDB volume and the witness directory, which the cutover never modifies. After the first evidence write there is no rollback: problems are fixed forward on PostgreSQL, if necessary by repeating the clean-slate bootstrap.
+- Rollback is simple and short-lived (owner answer Q2). Before the first native evidence write on PostgreSQL, and so before the cutover is declared done, it means pointing Compose back at the MariaDB volume and the witness directory, which the cutover never modifies. After the first evidence write there is no rollback: problems are reconciled forward on PostgreSQL, if necessary by repeating the clean-slate bootstrap. The retained MariaDB-era witness directory is never edited or reused.
 - The MariaDB volume is deleted right after a successful cutover smoke test. There is no retention window and no final dump (owner answer Q3). Removing the MariaDB secrets, init scripts and code paths happens in P7.
 
 ## Consequences
