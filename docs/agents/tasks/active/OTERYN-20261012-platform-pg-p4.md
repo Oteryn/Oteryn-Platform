@@ -67,7 +67,7 @@ checkpoint_version: 1
 updated_at: 2026-10-12T18:00:00Z
 head: UNKNOWN
 branch: claude/platform-pg-p4-20261012
-pr: none
+pr: 1579
 status: waiting
 context_routes:
   - deploy
