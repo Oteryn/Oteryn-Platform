@@ -24,7 +24,7 @@ Write the two design notes that `PLATFORM_POSTGRES_MIGRATION_PLAN.md` requires b
 - [x] `docs/operations/PLATFORM_POSTGRES_MAINTENANCE_GATE_DESIGN.md` states the marker, lock, ordering, crash recovery and tests per transition; the gate fails closed and only `maintenance-open` reopens the origins.
 - [x] No claim beyond the plan except items explicitly marked as proposals.
 - [x] No secret in the repository; no new legacy-token occurrence; baseline not raised.
-- [x] Exact-head CI and Agent Governance gates pass.
+- [ ] Exact-head CI and Agent Governance gates pass.
 
 ## Ownership
 
@@ -52,7 +52,7 @@ updated_at: 2026-10-12T21:00:00Z
 head: UNKNOWN
 branch: claude/pg-p6-design-notes-20261012
 pr: 1567
-status: completed
+status: validating
 context_routes:
   - operations
 owned_paths:
@@ -82,7 +82,8 @@ validation:
     evidence: local run before push
 blockers:
   - none
-next_action: none for this task. Both notes await lead acceptance before P6 implementation; this record is archived.
+next_action: Lead review and acceptance of both notes before P6 implementation. Archive this record in the final authoring commit once PR 1567 is terminal.
+terminal_pr_policy: archive_pending
 ```
 
 ## Source branch closeout
@@ -90,5 +91,5 @@ next_action: none for this task. Both notes await lead acceptance before P6 impl
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository docs PR
-source_branch_evidence: PR #1567 same-repository docs PR; source branch auto-deleted after merge
+source_branch_evidence: pending
 ```
