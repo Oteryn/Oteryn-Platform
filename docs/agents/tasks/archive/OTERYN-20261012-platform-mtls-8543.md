@@ -60,7 +60,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-12T12:00:00Z
+updated_at: 2026-10-12T16:00:00Z
 head: fbd636f3
 branch: claude/platform-internal-mtls-8543-20261012
 pr: 1570
@@ -86,6 +86,7 @@ proven:
   - The peer middleware requires SSL_CLIENT_VERIFY=SUCCESS, SSL_PROTOCOL=TLSv1.3 and an allowlisted RFC 2253 subject DN from $_SERVER; only FastCGI parameters can set these.
   - A local Docker smoke with the real nginx config and FPM pool returned 200 for a valid client, with the forged headers ignored.
   - In the same smoke, native-admissions, encoded paths, premium and /health returned 404. GET returned 403, no certificate or a rogue CA returned 400, TLS 1.2 was refused, and Platform down returned 502.
+  - Codex P1 on #1570 (head a133e5ef): a Platform image without the FastCGI pool now fails health-check.sh while the listener is on. deploy.sh preflight and rollback.sh refuse such an image before any stack change. The image helper returned no for the FPM base without the pool file and yes for an image with it.
   - The Compose profile keeps the bind-mounted service out of the default render, so the CI "no bind mounts" render check passes.
 derived:
   - Coordinator answers 2026-10-12. (2) ssl_verify_depth 1 is correct because Game client certificates are issued directly by the preprod root (pathlen 0, no intermediates). (3) The listener stays on by default for staging. (4) The commit trailer names Opus 5.5 where the packet said Sonnet 5.5; the deviation is accepted and recorded.
@@ -117,7 +118,7 @@ changed_paths:
 validation:
   - command: python3 deploy/synology/tests/test_platform_mtls_contract.py
     result: PASS
-    evidence: 6 tests
+    evidence: 7 tests
   - command: CI-listed Synology python tests and container_supply_chain validate-repository
     result: PASS
     evidence: all pass, rc 0

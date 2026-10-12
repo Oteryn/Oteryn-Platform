@@ -170,7 +170,10 @@ check_platform_mtls_listener() {
         }
         echo "Verified Platform FastCGI pool for the mTLS listener."
     else
-        echo "::warning::The running Platform image has no FastCGI pool (built before the mTLS listener); the Game-node listener answers 502 until a newer Platform image runs."
+        # A listener without a pool accepts TLS and answers 502 for every Game-node request, while the
+        # certificate-less probe below would still pass; this is a failed deployment, not a warning.
+        echo "Platform mTLS listener is on but the running Platform image has no FastCGI pool (built before the listener); every Game-node request would fail with 502." >&2
+        return 1
     fi
 
     for _ in $(seq 1 10); do

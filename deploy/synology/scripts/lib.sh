@@ -119,13 +119,37 @@ oteryn_platform_mtls_settings_valid() {
     done
 }
 
+# True when a Platform image carries the FastCGI pool the listener needs (php-fpm and the pool file
+# from platform.Dockerfile). Images built before the listener have neither.
+oteryn_platform_image_has_fastcgi() {
+    local image="$1"
+    [[ -n "$image" ]] || return 1
+    docker run --rm --network none --entrypoint sh "$image" \
+        -c 'command -v php-fpm >/dev/null && test -f /usr/local/etc/php-fpm.d/oteryn-internal-mtls.conf' \
+        >/dev/null 2>&1
+}
+
+# Refuses, before any stack change, a Platform image that cannot serve the listener while it is on:
+# the listener would accept the Game node's TLS session and answer 502 for every request. A no-op
+# while the listener is off. Arguments: the Platform image reference (already pulled).
+oteryn_platform_mtls_image_ready() {
+    local image="$1"
+    [[ "${OTERYN_PLATFORM_MTLS_ENABLED:-false}" == true ]] || return 0
+    if ! oteryn_platform_image_has_fastcgi "$image"; then
+        echo "Platform mTLS listener is on but Platform image $image has no FastCGI pool (built before the listener); set OTERYN_PLATFORM_MTLS_ENABLED=false for this image or use a newer image." >&2
+        return 1
+    fi
+}
+
 # Before any stack change, with the bootstrap files staged: prove the bind address exists on the host
 # and that nginx accepts the staged configuration with the mounted server chain, key and client CA
-# (a missing host file fails here, because Compose never creates the bind sources). Arguments: the
+# (a missing host file fails here, because Compose never creates the bind sources), and that
+# PLATFORM_IMAGE carries the FastCGI pool. Arguments: the
 # route's Compose command words. A no-op while the listener is off.
 oteryn_platform_mtls_preflight() {
     (($# > 0)) || { echo "Platform mTLS preflight needs the Compose command." >&2; return 1; }
     [[ "${OTERYN_PLATFORM_MTLS_ENABLED:-false}" == true ]] || return 0
+    oteryn_platform_mtls_image_ready "${PLATFORM_IMAGE:-}" || return 1
     if ! docker run --rm --network host alpine:3.22 ip -o -4 addr show \
         | awk -v address="$PLATFORM_MTLS_BIND_ADDRESS" '{ split($4, cidr, "/"); if (cidr[1] == address) found = 1 } END { exit found ? 0 : 1 }'; then
         echo "Platform mTLS bind address $PLATFORM_MTLS_BIND_ADDRESS is not an address of this host." >&2

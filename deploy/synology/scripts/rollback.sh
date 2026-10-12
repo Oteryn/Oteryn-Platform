@@ -90,6 +90,10 @@ compose=(
 _oteryn_verify_component_image_source "$PLATFORM_IMAGE" "$PLATFORM_SOURCE_SHA" Platform
 _oteryn_verify_component_image_source "$GATEWAY_IMAGE" "$GATEWAY_SOURCE_SHA" Gateway
 
+# A last-good Platform image built before the Game-node mTLS listener has no FastCGI pool; with the
+# listener on, refuse here, before any service is stopped, instead of serving 502 to the Game node.
+oteryn_platform_mtls_image_ready "$PLATFORM_IMAGE" || exit 1
+
 oteryn_native_admission_ingress_stop "${compose[@]}" >/dev/null
 "${compose[@]}" up -d platform
 oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || exit 1
@@ -97,8 +101,7 @@ oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || exit 1
 oteryn_native_admission_self_check_or_stop "${compose[@]}" || exit 1
 # Platform is already up and passed the trust gate and self-check (lib.sh); this starts the internal proxy and Gateway.
 "${compose[@]}" up -d platform internal-proxy gateway
-# The Game-node mTLS listener follows the resolved setting (lib.sh). A last-good Platform image built
-# before the listener existed has no FastCGI pool; the listener then answers 502 (health-check warns).
+# The Game-node mTLS listener follows the resolved setting (lib.sh); the image was checked above.
 oteryn_reconcile_platform_mtls "${compose[@]}"
 
 # Marketplace is an optional Platform-image consumer outside the base manifest.

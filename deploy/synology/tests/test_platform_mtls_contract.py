@@ -167,6 +167,32 @@ def test_staging_values_are_documented_and_resolved_by_the_deploy_scripts() -> N
     assert "b'HTTP/1.1 400 '" in health
 
 
+def test_platform_image_without_fastcgi_fails_instead_of_serving_502() -> None:
+    lib = LIB.read_text()
+    assert "oteryn_platform_image_has_fastcgi()" in lib
+    assert "test -f /usr/local/etc/php-fpm.d/oteryn-internal-mtls.conf" in lib
+    assert "/usr/local/etc/php-fpm.d/oteryn-internal-mtls.conf" in DOCKERFILE.read_text()
+    ready = re.search(r"^oteryn_platform_mtls_image_ready\(\) \{\n(.*?)^\}", lib, re.M | re.S).group(1)
+    assert 'oteryn_platform_image_has_fastcgi "$image"' in ready
+    assert "return 1" in ready
+    preflight = re.search(r"^oteryn_platform_mtls_preflight\(\) \{\n(.*?)^\}", lib, re.M | re.S).group(1)
+    assert 'oteryn_platform_mtls_image_ready "${PLATFORM_IMAGE:-}" || return 1' in preflight
+
+    rollback = ROLLBACK.read_text()
+    image_check = 'oteryn_platform_mtls_image_ready "$PLATFORM_IMAGE" || exit 1'
+    assert image_check in rollback
+    assert rollback.index('"${compose[@]}" pull platform gateway') < rollback.index(image_check)
+    assert rollback.index(image_check) < rollback.index("oteryn_native_admission_ingress_stop")
+
+    health = HEALTH.read_text()
+    listener = re.search(r"^check_platform_mtls_listener\(\) \{\n(.*?)^\}", health, re.M | re.S).group(1)
+    assert "::warning::" not in listener
+    no_pool = listener[listener.index("command -v php-fpm"):listener.index("for _ in $(seq 1 10)")]
+    else_branch = no_pool[no_pool.rindex("    else\n"):]
+    assert "has no FastCGI pool" in else_branch
+    assert "return 1" in else_branch
+
+
 def main() -> None:
     tests = [
         value
