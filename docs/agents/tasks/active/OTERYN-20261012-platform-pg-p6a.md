@@ -38,7 +38,7 @@ It designs no missing-profile repair. This task is documentation only.
 - [x] Classification and a proof of soundness for `failed-after-witness`, with its assumptions and limits.
 - [x] The negative test "a restore never synthesizes a profile", fully specified.
 - [x] Exact files and tests; questions for the producer-contract owner and the owner; no repair.
-- [ ] Exact-head CI passes, the complete Codex review is addressed and no thread is unresolved.
+- [ ] Exact-head CI passes, the complete Codex review is addressed and no thread is unresolved (pending at push; the lead verifies before merge).
 
 ## Ownership
 
@@ -63,11 +63,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-12T23:59:00Z
-head: UNKNOWN
+updated_at: 2026-10-12T23:59:30Z
+head: branch head of claude/platform-pg-p6a-20261012 (the PR's head)
 branch: claude/platform-pg-p6a-20261012
 pr: 1589
-status: waiting
+status: validating
+terminal_pr_policy: archive_pending
 context_routes:
   - operations
   - database
@@ -87,7 +88,7 @@ derived:
 unknown:
   - Whether the Synology share for the evidence can be kept out of every snapshot and restore task, and whether chattr +a works on it (owner questions O1 and O2).
 conflicts:
-  - The record OTERYN-20261012-pg-p6-design-notes.md (PR 1567, merged) listed this note as owned. This branch removes the note from its owned_paths. The lead authorized that edit. The rest of the file equals PR 1588's version (terminal_pr_policy archive_pending, and the P6b path already removed), so merging 1588 later only touches the lines this branch changed.
+  - The record OTERYN-20261012-pg-p6-design-notes.md (PR 1567, merged) listed this note as owned. This branch removes the note from its owned_paths. The lead authorized that edit. The rest of the file equals PR 1588's version (terminal_pr_policy archive_pending, and the P6b path already removed), so merging 1588 later only touches the lines this branch changed. PR 1588 merged; the merge of main into this branch kept this branch's version of that record.
 first_failure:
   marker: none
   evidence: none
@@ -106,6 +107,7 @@ rejected_hypotheses:
   - Writing the `init` record only after D1. A runner that died between D1 and that record left a store with no record, so a later restore looked like a first run (Codex P1, round 7); an anchored `init-intent` now precedes D1, and an unfinished one blocks `open` until `--close-init` closes it.
   - Closing a committed run with `done: false` after a failed self-check. Every later `open` was `step4-complete`, so the cutover could never finish (Codex P2, round 8); the run now stays open, and `step4-recheck` reruns only the read-only self-check and closes it with `done: true`.
   - Store continuity by store id alone. A PostgreSQL restore after the init that kept S1 was adopted as the intent baseline (Codex P1, round 9); the `init` record now carries its observation, and every later observation must keep the stable identity and not lower `wal_lsn` or `xmax`.
+  - Redesigning for each further edge case. The owner accepted the residual risks on 2026-10-12; the note lists them under *Accepted residual risks*, including a witness volume replaced after the fence's last marker and inode check (Codex P1, round 10).
 changed_paths:
   - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
   - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p6a.md
@@ -113,11 +115,13 @@ changed_paths:
 validation:
   - command: python3 tools/validation/legacy_token_ratchet.py; python3 tools/agents/checkpoint.py --tasks docs/agents/tasks/active --require-checkpoint; python3 tools/agents/documentation_ia.py
     result: PASS
+    evidence: local run before push, after merging main
+  - command: python3 tools/agents/source_branch_closeout.py --active docs/agents/tasks/active --archive docs/agents/tasks/archive --archive-changed-from origin/main; python3 tools/agents/task_liveness.py --active docs/agents/tasks/active --archive docs/agents/tasks/archive
+    result: PASS
     evidence: local run before push
 blockers:
   - none
-next_action: The lead and the owner review and accept the note, and answer P1 to P6 and O1 to O5. Then the P6a implementation packet can start. Archive this record in the final authoring commit.
-terminal_pr_policy: archive_pending
+next_action: archive this record in the P6 cutover packet once the owner has accepted the P6a note; the source-branch closeout evidence is filled there when the branch deletion is verified
 ```
 
 ## Source branch closeout
@@ -125,5 +129,5 @@ terminal_pr_policy: archive_pending
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository docs PR
-source_branch_evidence: pending
+source_branch_evidence: pending merge; verify the source ref disappears after merge
 ```
