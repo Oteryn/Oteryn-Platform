@@ -22,7 +22,7 @@ Governing GitHub Issue: 1474 (native login programme; assumed, lead to confirm).
 - [x] `OTERYN_STAGING_NATIVE_EVIDENCE_ACTIVATED` stays `false` (one-way, owner decision; `docs/contracts/OTERYN_V2_NATIVE_EVIDENCE_PRODUCER_CONTRACT.md`).
 - [x] The shared identity is distinct from the runtime-status, scope-assignment and account-character identities (contract test).
 - [x] README route table and owner checklist updated; no secret, no model identifier; the legacy token baseline is not raised.
-- [ ] Exact-head CI passes.
+- [x] Exact-head CI passes: PR 1584 head `eebb574c2f7bd5b1e7b5531d811d9c729d5aca62`, 25 check runs succeeded, 8 skipped, none failed; Codex review raised no code finding.
 
 ## Ownership
 
@@ -48,9 +48,9 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-12T00:00:00Z
-head: see PR head
+head: eebb574c2f7bd5b1e7b5531d811d9c729d5aca62  # validated head; the follow-up commit changes only this record
 branch: claude/platform-connect-game-20261012
-pr: see PR
+pr: 1584
 status: completed
 context_routes:
   - deploy
@@ -88,6 +88,9 @@ validation:
   - command: python3 tools/validation/legacy_token_ratchet.py
     result: PASS
     evidence: baseline not raised
+  - command: exact-head CI on PR 1584
+    result: PASS
+    evidence: head eebb574c2f7bd5b1e7b5531d811d9c729d5aca62, 25 check runs success, 8 skipped, 0 failed
 blockers:
   - none
 next_action: none after merge; owner runs Deploy Synology Staging, then decides native evidence activation.
