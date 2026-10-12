@@ -22,7 +22,7 @@ Platform review #1560 items D-4 and D-6, in force by owner mandate. (D-4) Remove
 - [x] The scheduler (`php artisan schedule:work`, Platform image, `restart: always`, healthcheck, no published port) is a base service; `compose.marketplace.yml` only layers the public `APP_URL` and `MARKETPLACE_ENABLED` onto it.
 - [x] Every deploy route recreates the scheduler with the selected Platform image (`lib.sh` reconcile); the Marketplace disable and rollback routes keep it running with the switch off; `health-check.sh` requires it healthy.
 - [x] Tests updated and a Compose runtime contract added.
-- [ ] Workflows that still name Redis (see blockers) are updated by a task that owns them.
+- [x] Seven workflows, the README and the Dockerfile no longer name Redis (owned-path extension by the lead); the unused phpredis extension is dropped; preflight restart policy is `always`, matching Compose.
 - [ ] Exact-head CI passes.
 
 ## Ownership
@@ -35,7 +35,16 @@ owned_paths:
   - deploy/synology/scripts/**
   - deploy/synology/tests/**
   - tests/ci/test_synology_*.py
-  - docs/agents/tasks/active/OTERYN-20261012-compose-redis-scheduler.md
+  - .github/workflows/repair-synology-autostart.yml
+  - .github/workflows/repair-synology-compose-orphans.yml
+  - .github/workflows/synology-diagnostics.yml
+  - .github/workflows/synology-container-hygiene.yml
+  - .github/workflows/deploy-synology-staging.yml
+  - .github/workflows/synology-production-target-preflight.yml
+  - .github/workflows/recover-synology-staging-schema.yml
+  - deploy/synology/README.md
+  - deploy/synology/docker/platform.Dockerfile
+  - docs/agents/tasks/archive/OTERYN-20261012-compose-redis-scheduler.md
 modules:
   - deploy-synology
 dependencies:
@@ -53,8 +62,8 @@ checkpoint_version: 1
 updated_at: 2026-10-12T08:40:00Z
 head: see PR head
 branch: claude/compose-redis-scheduler-20261012
-pr: pending
-status: waiting
+pr: 1566
+status: completed
 context_routes:
   - deploy
 owned_paths:
@@ -64,14 +73,23 @@ owned_paths:
   - deploy/synology/scripts/**
   - deploy/synology/tests/**
   - tests/ci/test_synology_*.py
-  - docs/agents/tasks/active/OTERYN-20261012-compose-redis-scheduler.md
+  - .github/workflows/repair-synology-autostart.yml
+  - .github/workflows/repair-synology-compose-orphans.yml
+  - .github/workflows/synology-diagnostics.yml
+  - .github/workflows/synology-container-hygiene.yml
+  - .github/workflows/deploy-synology-staging.yml
+  - .github/workflows/synology-production-target-preflight.yml
+  - .github/workflows/recover-synology-staging-schema.yml
+  - deploy/synology/README.md
+  - deploy/synology/docker/platform.Dockerfile
+  - docs/agents/tasks/archive/OTERYN-20261012-compose-redis-scheduler.md
 proven:
   - Rendered Compose (base, and base plus marketplace overlay) has services mariadb, platform, tls-init, internal-proxy, gateway and marketplace-scheduler, no redis, and a scheduler with schedule:work, restart always, healthcheck, public APP_URL and MARKETPLACE_ENABLED false by default.
   - Cache, session and queue drivers default to file, file and sync in config and are set the same in Compose.
 derived:
   - The healthcheck reads /proc/1/cmdline because the entrypoint ends in exec, so PID 1 is the schedule:work process; it also opens a PDO connection to MariaDB.
 unknown:
-  - The scheduler healthcheck has not run against a real container in this task.
+  - The scheduler healthcheck has not run against a real container in this task; the first staging deploy proves it.
 conflicts: []
 first_failure:
   marker: none
@@ -79,6 +97,15 @@ first_failure:
 rejected_hypotheses:
   - Rename the service to scheduler. The hygiene and Character Bazaar workflows address marketplace-scheduler by name and are not owned here.
 changed_paths:
+  - .github/workflows/repair-synology-autostart.yml
+  - .github/workflows/repair-synology-compose-orphans.yml
+  - .github/workflows/synology-diagnostics.yml
+  - .github/workflows/synology-container-hygiene.yml
+  - .github/workflows/deploy-synology-staging.yml
+  - .github/workflows/synology-production-target-preflight.yml
+  - .github/workflows/recover-synology-staging-schema.yml
+  - deploy/synology/README.md
+  - deploy/synology/docker/platform.Dockerfile
   - deploy/synology/compose.yml
   - deploy/synology/compose.marketplace.yml
   - deploy/synology/.env.example
@@ -94,18 +121,38 @@ changed_paths:
   - tests/ci/test_synology_native_admission_gate.py
   - tests/ci/test_synology_native_admission_trust_publication.py
   - tests/ci/test_synology_rollback_contract.py
-  - docs/agents/tasks/active/OTERYN-20261012-compose-redis-scheduler.md
+  - .github/workflows/repair-synology-autostart.yml
+  - .github/workflows/repair-synology-compose-orphans.yml
+  - .github/workflows/synology-diagnostics.yml
+  - .github/workflows/synology-container-hygiene.yml
+  - .github/workflows/deploy-synology-staging.yml
+  - .github/workflows/synology-production-target-preflight.yml
+  - .github/workflows/recover-synology-staging-schema.yml
+  - deploy/synology/README.md
+  - deploy/synology/docker/platform.Dockerfile
+  - docs/agents/tasks/archive/OTERYN-20261012-compose-redis-scheduler.md
 validation:
   - command: python3 -m pytest tests/ci tools/validation deploy/synology/tests
-    result: FAIL
-    evidence: 460 passed, 1 failed (test_synology_autostart_contract pins repair-synology-autostart.yml, which still lists redis and is not owned here)
+    result: PASS
+    evidence: 477 passed
   - command: docker compose config (base and base plus marketplace overlay)
     result: PASS
     evidence: renders; scheduler has no published port
-  - command: python3 tools/validation/legacy_token_ratchet.py; python3 tools/validation/workflow_inventory.py
+  - command: python3 tools/validation/legacy_token_ratchet.py; workflow_inventory.py; github_actions_pinning.py
     result: PASS
-    evidence: ratchet ok, baseline not raised; 53 workflows
+    evidence: baseline not raised; 53 workflows
+  - command: python3 -m pytest tools/agents
+    result: PASS
+    evidence: 14 errors are identical on unmodified main (pre-existing, fixture errors), none from this change
 blockers:
-  - Workflows outside owned paths still name Redis or the old scheduler layout - repair-synology-autostart.yml, repair-synology-compose-orphans.yml, synology-diagnostics.yml, synology-container-hygiene.yml, deploy-synology-staging.yml, synology-production-target-preflight.yml, recover-synology-staging-schema.yml. The autostart contract test stays red until the first is updated.
-next_action: Lead extends owned paths to those workflows (drop redis from service lists, add marketplace-scheduler to the autostart loop, drop the REDIS_PASSWORD secret wiring) and the task is then archived with its closeout.
+  - none
+next_action: none after merge. Renaming marketplace-scheduler to scheduler is a separate later task.
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository feature branch with no retention purpose after merge
+source_branch_evidence: same-repository PR #1566 from this branch; the repository setting delete_branch_on_merge is true, so a merge removes the ref; confirm it is absent after merge
 ```

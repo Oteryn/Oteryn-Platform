@@ -74,10 +74,10 @@ for service in mariadb platform internal-proxy gateway marketplace-scheduler; do
         || fail "$service is not running"
 done
 
-for service in mariadb platform internal-proxy gateway; do
+for service in mariadb platform internal-proxy gateway marketplace-scheduler; do
     id="${containers[$service]}"
-    [[ "$(docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' "$id")" == "unless-stopped" ]] \
-        || fail "$service does not use restart policy unless-stopped"
+    [[ "$(docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' "$id")" == "always" ]] \
+        || fail "$service does not use restart policy always"
 done
 
 for service in mariadb marketplace-scheduler; do
