@@ -100,6 +100,9 @@ class VolumeGuardTest(unittest.TestCase):
             self.assertIn('case "$configured" in', text, name)
             self.assertNotRegex(text, r'if \[\[ -n "\$\(docker ps -aq[^\]]*service=postgres', name)
             self.assertNotRegex(text, r'if \[\[ -n "\$postgres_ids" \]\]', name)
+            self.assertIn("environment: synology-staging", text, f"{name} must see the environment secrets")
+            self.assertIn("A RUNNING postgres service without its secrets", text, name)
+            self.assertIn("partially configured", text, name)
         diag = (WORKFLOWS / "synology-diagnostics.yml").read_text()
         block = diag[diag.index('case "$configured" in'):]
         self.assertIn('.State.Running}}\')" = "true"', block.split("esac")[0])

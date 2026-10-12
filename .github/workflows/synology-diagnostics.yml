@@ -21,6 +21,9 @@ jobs:
     runs-on:
       group: platform-runners
       labels: oteryn-platform
+    # Environment secrets reach only jobs bound to their environment; without this the PostgreSQL secret
+    # count below would always be 0 and a configured service would be silently ignored.
+    environment: synology-staging
     timeout-minutes: 10
     env:
       EXPECTED_RUNNER_NAME: oteryn-synology-platform
@@ -89,7 +92,13 @@ jobs:
             if [[ -n "${!name:-}" ]]; then configured=$((configured + 1)); fi
           done
           case "$configured" in
-            0) echo "PostgreSQL is not configured; any stopped postgres container is retired and ignored." ;;
+            0)
+              echo "PostgreSQL is not configured; any stopped postgres container is retired and ignored."
+              # A RUNNING postgres service without its secrets is drift or a lost configuration, not "disabled".
+              test -z "$(docker ps -q \
+                --filter "label=com.docker.compose.project=$EXPECTED_COMPOSE_PROJECT" \
+                --filter 'label=com.docker.compose.service=postgres')"
+              ;;
             5)
               postgres_ids="$(docker ps -aq \
                 --filter "label=com.docker.compose.project=$EXPECTED_COMPOSE_PROJECT" \
