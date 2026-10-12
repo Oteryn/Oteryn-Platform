@@ -182,6 +182,11 @@ class StaticBootstrapTest(BootstrapCase):
                 self.assertEqual(result.returncode, 1, result.stderr)
                 self.assertIn("Usage:", result.stderr)
 
+    def test_operational_mode_never_publishes_trust(self) -> None:
+        text = SCRIPT.read_text()
+        self.assertIn('"$local_mode" != true && ( "$native_admission" == true || "$with_native_admission" == true )', text)
+        self.assertIn("P6a safeguards", text)
+
     def test_local_mode_requires_a_state_directory(self) -> None:
         env = self.base_env()
         del env["OTERYN_PG_BOOTSTRAP_STATE_DIR"]
@@ -463,6 +468,14 @@ class LiveBootstrapTest(LiveBootstrapCase):
 
 
 class LiveRefusalTest(LiveBootstrapCase):
+    def test_stale_lock_is_refused_without_changing_the_state_directory_mode(self) -> None:
+        self.assertEqual(self.bootstrap("record-witness", "--local").returncode, 0)
+        os.chmod(self.state_dir, 0o755)
+        (self.state_dir / "run.lock").mkdir()
+        self.assert_refused(self.bootstrap("run", "--local"), "Nothing was changed")
+        self.assertEqual(stat.S_IMODE(self.state_dir.stat().st_mode), 0o755)
+        self.assert_unchanged(0, None)
+
     def test_existing_witness_binding_row_is_refused(self) -> None:
         sql(self.database, "create table native_game_evidence_witness_stores (id smallint primary key, store_id char(64))",
             f"insert into native_game_evidence_witness_stores values (1, '{secrets.token_hex(32)}')")

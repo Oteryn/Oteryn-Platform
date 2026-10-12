@@ -6,11 +6,11 @@ Status: P3 runbook for [ADR 0046](../architecture/adr/0046-platform-persistence-
 
 ## The one rule
 
-The first witnessed write on PostgreSQL is the native admission trust publication (P6 step 4: the P6a provenance-only init, then `publish-trust`). From that write on there is **no rollback and no re-run** of this bootstrap: the PostgreSQL witness directory is never emptied, deleted or lowered, and the database is never emptied under it. Recovery reconciles forward only ([P6a](PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md)). Before that write, the only way to retry is a clean-slate re-run: an emptied database and an emptied new witness directory.
+The first witnessed write on PostgreSQL is the native admission trust publication (P6 step 4, run through P6a: the provenance-only init and a durable attempt record, then `publish-trust`; this script does none of that). From that write on there is **no rollback and no re-run** of this bootstrap: the PostgreSQL witness directory is never emptied, deleted or lowered, and the database is never emptied under it. Recovery reconciles forward only ([P6a](PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md)). Before that write, the only way to retry is a clean-slate re-run: an emptied database and an emptied new witness directory.
 
 The script enforces this:
 
-- `run` refuses when native admission is on unless `--with-native-admission` is passed, so the first witnessed write happens only when the operator means it (plan P6 step 4). It refuses `--with-native-admission` when native admission is off.
+- `run` (operational, Compose mode) never publishes native admission trust and refuses both `--with-native-admission` and native admission being on: the P6a safeguards (provenance-only witness-store init, durable attempt record outside the database and the witness directory) are not part of this script, and cannot be run externally first because preflight rejects an existing binding. `--with-native-admission` exists only with `--local`, so CI exercises the publication mechanics on a throwaway witness; it is not an operational mode.
 - `run` refuses a target database that has any relation, any witness-store binding (`native_game_evidence_witness_stores`), any signing trust row (`native_game_signing_trust_*`) or any native evidence row (`native_game_evidence_*`). A re-run on a bootstrapped database is therefore refused before any change, never partially applied.
 - `run` refuses a witness directory that is not empty and is not exactly the MariaDB-era directory recorded at the freeze (same `witness-store.id`, same files, same contents). This covers a PostgreSQL store id, the missing-profile state (a floor left by a failed trust publication, with or without a new store id) and a recorded directory that advanced after the freeze.
 - After moving the MariaDB-era directory aside, `run` creates the new directory (mode `0700`, owned by the Platform user, not a link) and stops before the schema step if it is not empty.
@@ -28,7 +28,7 @@ The script enforces this:
 - P4 is merged: the `postgres` service, the runtime role and the migration owner role exist, and the environment file carries `DB_MIGRATIONS_USERNAME` and `DB_MIGRATIONS_PASSWORD` for the owner role. The script refuses without them (Compose mode).
 - The target PostgreSQL database is empty, and the runtime (`pgsql`) and owner (`pgsql_migrations`) connections point at the same database. The script checks both.
 - `GAME_WORLD_ID`, `GAME_WORLD_SLUG`, `GAME_WORLD_NAME`, `GAME_WORLD_REGION`, `GAME_WORLD_HOST` and `GAME_WORLD_PORT` are set for the World Registry row. With `OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED=true`, `OTERYN_NATIVE_CHANNEL_KEY` is set too.
-- Native admission is off unless this is P6 step 4 and P6a is merged (P6a, not this script, owns the provenance-only init before the attempt).
+- Native admission is off for the bootstrap. Trust is published in P6 step 4 through P6a (which owns the provenance-only init before the attempt), after this bootstrap completed.
 
 ## Procedure
 
@@ -53,7 +53,7 @@ The script enforces this:
    | 1 | Move the MariaDB-era witness directory aside to `<dir>.mariadb-era-<UTC time>` (or prepare the empty directory when the freeze recorded none), create the new `0700` directory and verify it is empty. |
    | 2 | `php artisan migrate --database=pgsql_migrations` in a one-off container with the owner credentials. This seeds the built-in admin roles and permissions. |
    | 3 | Start `platform` alone (ingress stays stopped), keep existing Passport keys or run `passport:keys`. |
-   | 4 | Native admission off: no trust publication, no witnessed write. With `--with-native-admission`: `publish-trust` (the first witnessed write), then the signing self-check. |
+   | 4 | No trust publication, no witnessed write (native admission is off; the script refuses otherwise). Only `--local` (tests) can publish trust here, then runs the signing self-check. |
    | 5 | `game-auth:oauth-client:ensure` and `--rust`. |
    | 6 | `game-auth:world:ensure`; with route publication on, `game-auth:native-topology:issue` and print the new WorldId. The route itself is published by the next deploy. |
    | 7 | Printed only: the administrator and wiki steps need a registered identity (below). |
@@ -61,13 +61,7 @@ The script enforces this:
 
    It records `bootstrap-complete.env` in the state directory; a later `run` with that state directory is refused before any probe.
 
-3. **Native admission** (P6 step 4). The plan publishes trust with the next deploy once P6a is merged and its provenance-only init ran. A bootstrap that runs with native admission already on must be started with
-
-   ```bash
-   deploy/synology/scripts/bootstrap-postgres.sh run --with-native-admission
-   ```
-
-   and then performs the trust publication itself in its step 4. Either way, from that write on the rule above applies.
+3. **Native admission** (P6 step 4). Not part of this script. Once P6a is merged, its provenance-only init and attempt record run first and then `publish-trust` with the next deploy. From that write on the rule above applies.
 
 ### Summary output
 

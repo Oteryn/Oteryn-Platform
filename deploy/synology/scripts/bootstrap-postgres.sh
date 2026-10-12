@@ -9,7 +9,7 @@
 #       At the freeze, with the platform and scheduler stopped: records the MariaDB-era witness
 #       directory (its witness-store.id and a manifest of every file) in the bootstrap state
 #       directory. Writes nothing in the witness directory.
-#   bootstrap-postgres.sh run [--local] [--with-native-admission]
+#   bootstrap-postgres.sh run [--local] [--with-native-admission (--local only)]
 #       Runs plan steps 1 to 8 against the PostgreSQL engine. Every refusal check runs before the
 #       first change. Refuses on a non-empty target database, on any witness binding, trust or
 #       native evidence row, on a witness directory that is not empty and does not match the
@@ -104,14 +104,19 @@ failed() {
 
 # The first mutation of either subcommand. Still a refusal (exit 1): nothing else has changed yet.
 prepare_state_dir() {
-    mkdir -p -- "$state_dir" || refuse "cannot create the bootstrap state directory $state_dir."
-    chmod 700 -- "$state_dir" || refuse "cannot restrict the bootstrap state directory $state_dir to its owner."
+    # Take the lock before the mode change: a refused run (stale or held lock) must not have chmodded an
+    # existing directory. A missing directory is created owner-only from the start (umask 077), and no lock
+    # can exist in a directory that did not exist.
+    if [[ ! -e "$state_dir" ]]; then
+        (umask 077; mkdir -p -- "$state_dir") || refuse "cannot create the bootstrap state directory $state_dir."
+    fi
     [[ -d "$state_dir" && ! -L "$state_dir" && -O "$state_dir" ]] \
         || refuse "the bootstrap state directory $state_dir must be an owner-only directory, not a link."
     if ! mkdir -- "$lock_dir" 2>/dev/null; then
-        refuse "another bootstrap-postgres.sh holds $lock_dir; remove it only when no bootstrap is running."
+        refuse "another bootstrap-postgres.sh holds $lock_dir (or a stale lock is left); remove it only when no bootstrap is running. Nothing was changed."
     fi
     trap 'rmdir -- "$lock_dir" 2>/dev/null || true' EXIT
+    chmod 700 -- "$state_dir" || refuse "cannot restrict the bootstrap state directory $state_dir to its owner."
 }
 
 # --- Witness directory access ---------------------------------------------------------------
@@ -532,7 +537,14 @@ else
         || reasons+=("the target database is not empty (${relations:-unknown} relations); the bootstrap runs only on an empty database and a re-run is refused, never partially applied.")
 fi
 
-if [[ "$native_admission" == true && "$with_native_admission" != true ]]; then
+# The trust publication is the first witnessed write and needs the P6a safeguards first (a provenance-only
+# witness-store init and a durable attempt record, plan "Trust safeguards (P6a)"). They are not implemented
+# in this script, and cannot be done externally before it (preflight rejects an existing binding), so the
+# operational (Compose) mode never publishes trust: native admission stays off and P6 step 4 owns the
+# publication after P6a. --local keeps the mode so CI exercises the mechanics on a throwaway witness.
+if [[ "$local_mode" != true && ( "$native_admission" == true || "$with_native_admission" == true ) ]]; then
+    reasons+=("the operational bootstrap never publishes native admission trust: the P6a safeguards (provenance-only witness-store init, durable attempt record) are not part of this script. Turn native admission off for the bootstrap; trust is published in P6 step 4 after P6a. (--with-native-admission exists only with --local, for tests.)")
+elif [[ "$native_admission" == true && "$with_native_admission" != true ]]; then
     reasons+=("native admission is on: its trust publication is the first witnessed write, after which no rollback or re-run is possible. Pass --with-native-admission only at that boundary (plan P6 step 4); otherwise turn native admission off.")
 elif [[ "$native_admission" != true && "$with_native_admission" == true ]]; then
     reasons+=("--with-native-admission was given but native admission is off in the Platform configuration.")
