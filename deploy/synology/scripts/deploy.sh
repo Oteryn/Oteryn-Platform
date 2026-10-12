@@ -319,6 +319,24 @@ _oteryn_fast_candidate() {
         FAST_DEPLOY_REASON='native admission projection settings incomplete'
         return 1
     fi
+    # The fast path neither reconciles nor restarts PostgreSQL. With the PostgreSQL secrets configured, the
+    # service must already be running, healthy, unpublished and carry the current configuration digest;
+    # otherwise (secrets first enabled, service stopped or unhealthy, configuration changed) the full path
+    # runs oteryn_reconcile_postgres.
+    local postgres_state postgres_id want_digest
+    postgres_state="$(oteryn_postgres_secret_state)" || return 2
+    if [[ "$postgres_state" == configured ]]; then
+        postgres_id="$("${compose[@]}" --profile postgres ps -q postgres 2>/dev/null)" || return 2
+        want_digest="$(oteryn_postgres_config_digest)" || return 2
+        if [[ -z "$postgres_id" \
+            || "$(docker inspect --format '{{.State.Running}}' "$postgres_id" 2>/dev/null)" != true \
+            || "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$postgres_id" 2>/dev/null)" != healthy \
+            || "$(docker inspect --format '{{len .HostConfig.PortBindings}}' "$postgres_id" 2>/dev/null)" != 0 \
+            || "$(docker inspect --format '{{index .Config.Labels "oteryn.postgres-config.digest"}}' "$postgres_id" 2>/dev/null)" != "$want_digest" ]]; then
+            FAST_DEPLOY_REASON='PostgreSQL needs reconciliation'
+            return 1
+        fi
+    fi
     # The fast path neither stages bootstrap files nor touches internal-mtls: any change of the
     # listener setting, or a listener that is not in its wanted state, takes the full path, and so
     # does any change of its bind address, port, host file paths, certificate, key, client CA or

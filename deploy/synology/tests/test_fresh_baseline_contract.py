@@ -145,6 +145,22 @@ def test_fast_deploy_recreates_platform_but_not_full_stack_services() -> None:
     assert '"${compose[@]}" up -d gateway' in full
 
 
+def test_fast_deploy_preflight_sends_postgres_reconciliation_to_the_full_path() -> None:
+    deploy = DEPLOY.read_text()
+    preflight = deploy[deploy.index("_oteryn_fast_candidate()") : deploy.index("_oteryn_fast_restore_on_exit()")]
+    assert "oteryn_postgres_secret_state" in preflight
+    assert "--profile postgres ps -q postgres" in preflight
+    assert "oteryn_postgres_config_digest" in preflight
+    assert "oteryn.postgres-config.digest" in preflight
+    assert "PostgreSQL needs reconciliation" in preflight
+    for check in ("State.Running", "State.Health.Status", "PortBindings"):
+        assert check in preflight
+    # The check precedes the runtime-affecting mTLS checks, and the fast path itself never reconciles.
+    assert preflight.index("PostgreSQL needs reconciliation") < preflight.index("want_mtls=")
+    fast = deploy[deploy.index("_oteryn_fast_deploy_platform()") : deploy.index("fast_candidate_rc=0")]
+    assert "oteryn_reconcile_postgres" not in fast
+
+
 def test_fast_deploy_fails_closed_and_restores_previous_release_on_failure() -> None:
     deploy = DEPLOY.read_text()
     preflight = deploy[deploy.index("_oteryn_fast_candidate()") : deploy.index("_oteryn_fast_restore_on_exit()")]

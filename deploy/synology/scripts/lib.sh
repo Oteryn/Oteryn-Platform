@@ -140,6 +140,15 @@ OTERYN_POSTGRES_SECRET_NAMES=(
     PLATFORM_POSTGRES_DUMP_PASSWORD
 )
 
+# Digest of the staged postgresql.conf and pg_hba.conf (the postgres service label that makes Compose
+# recreate the container when they change). Refuses an unreadable file.
+oteryn_postgres_config_digest() {
+    local config_dir="${OTERYN_POSTGRES_CONFIG_DIR:-$(dirname "${BASH_SOURCE[0]}")/../postgres}" digest
+    digest="$(cat -- "$config_dir/postgresql.conf" "$config_dir/pg_hba.conf" | sha256sum | awk '{print $1}')" || return 1
+    [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || { echo "PostgreSQL configuration digest failed." >&2; return 1; }
+    printf '%s\n' "$digest"
+}
+
 # Prints `configured` when all five secrets are set, `absent` when none is; refuses a partial or malformed
 # set. Each value is generated hex/alphanumeric of at least 24 characters, distinct from every other
 # PostgreSQL secret and from the MariaDB passwords. Values are never printed.
@@ -219,9 +228,7 @@ oteryn_reconcile_postgres() {
     # A startup-only setting (listen_addresses, max_connections, hba_file, ...) changed in postgresql.conf
     # is ignored by pg_reload_conf(), and the volume content is not part of the Compose service definition.
     # The digest label makes `up` recreate the container exactly when the staged configuration changed.
-    local config_dir="${OTERYN_POSTGRES_CONFIG_DIR:-$(dirname "${BASH_SOURCE[0]}")/../postgres}"
-    OTERYN_POSTGRES_CONFIG_DIGEST="$(cat -- "$config_dir/postgresql.conf" "$config_dir/pg_hba.conf" | sha256sum | awk '{print $1}')" || return 1
-    [[ "$OTERYN_POSTGRES_CONFIG_DIGEST" =~ ^[0-9a-f]{64}$ ]] || { echo "PostgreSQL configuration digest failed." >&2; return 1; }
+    OTERYN_POSTGRES_CONFIG_DIGEST="$(oteryn_postgres_config_digest)" || return 1
     export OTERYN_POSTGRES_CONFIG_DIGEST
     "${compose[@]}" --profile postgres up -d --no-deps postgres || return 1
 
@@ -283,9 +290,14 @@ oteryn_reconcile_postgres() {
              + (SELECT count(*) FROM pg_namespace n JOIN pg_roles r ON r.oid = n.nspowner
                  WHERE n.nspname = 'public' AND r.rolname <> 'oteryn_platform_owner')
              + (SELECT count(*) FROM pg_database d JOIN pg_roles r ON r.oid = d.datdba
-                 WHERE d.datname = 'oteryn_platform' AND r.rolname <> 'oteryn_platform_owner')")" || return 1
+                 WHERE d.datname = 'oteryn_platform' AND r.rolname <> 'oteryn_platform_owner')
+             + (SELECT count(*) FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+                 AND (has_table_privilege('oteryn_platform_dump', c.oid, 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                      OR has_table_privilege('oteryn_platform_app', c.oid, 'TRUNCATE,REFERENCES,TRIGGER')))
+             + (SELECT count(*) FROM unnest(ARRAY['oteryn_platform_app', 'oteryn_platform_dump']) AS grantee
+                 WHERE has_schema_privilege(grantee, 'public', 'CREATE'))")" || return 1
     [[ "$output" == 0 ]] || {
-        echo "The PostgreSQL role split does not hold (ownership or role attributes)." >&2
+        echo "The PostgreSQL role split does not hold (ownership, role attributes or stale write privileges)." >&2
         return 1
     }
 
