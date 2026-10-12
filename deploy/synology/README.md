@@ -157,7 +157,7 @@ While native admission is live, `rotate` refuses (exit 3) unless run as `rotate 
 
 Native-login settings need no hand-set GitHub variable: `deploy/synology/native-defaults.env` holds committed non-secret defaults (native World, runtime-status and scope-assignment identities, admission on). A repository variable of the same name overrides the file, and a change to the file ships through a normal PR. Native admission is opt-in. Set the repository variable (or the file value) `OTERYN_STAGING_NATIVE_ADMISSION_ENABLED=true` only together with `OTERYN_STAGING_NATIVE_RUNTIME_STATUS_IDENTITIES` and `OTERYN_STAGING_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES` (the Game identities that report runtime status and own scope assignment; without them no scope is routable); deploy refuses otherwise. Rollback enables it for an image only if that image has both the self-check command and the entrypoint key export.
 
-Account-character projection has no producer on Synology, so `GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED` is `false` and the D171 fallback is selected for the one native World: set the repository variable `OTERYN_STAGING_NATIVE_WORLD_ID` to that World's UUIDv7; deploy refuses without it.
+Account-character projection is on: `compose.yml` pins `GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED=true` with source authority `oteryn:character-authority:primary` and the projection identity `CN=oteryn-preprod-character-projection`, and turns the D171 fallback off (`GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_OWNERSHIP=false`). No native World UUID is committed or required: the client directory lists the World from the native route record. `OTERYN_STAGING_NATIVE_WORLD_ID` remains an optional repository variable, needed only by the opt-in route publication step.
 
 Rollback of a Platform image that predates the self-check sets `OTERYN_NATIVE_ADMISSION_ENABLED=false` for that image only (both flags stay paired), so the older release restores with native login off.
 
@@ -215,7 +215,7 @@ Route settings per Game-node route (Platform answers 503 while a route's setting
 | --- | --- | --- |
 | `native-runtime-status` | `GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED`, `GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES` | rendered by the deploy workflow from `native-defaults.env` |
 | `native-scope-assignments` | `GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_ENABLED`, `GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES` | rendered by the deploy workflow from `native-defaults.env` |
-| `native-account-characters`, `native-account-characters/watermark` | `GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_*` | pinned off in `compose.yml` (D171 fallback, see below) |
+| `native-account-characters`, `native-account-characters/watermark` | `GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_*` | pinned on in `compose.yml` (Character Authority projection, see below) |
 | `native-evidence` | `GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED`, `_MTLS_CLIENT_IDENTITY`, `_FRESH_ACCOUNT_PURPOSE`, `_FRESH_ACCOUNT_SCOPE`, `_CLOCK_UNCERTAINTY_SECONDS` (0..5), `_SOURCE_AUTHORITY` (default `platform`), `_REQUESTS_PER_MINUTE` (default `120`) | not configured (off) |
 | `character-bootstrap-intents/read` | `GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY`, `GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS` (1..300) | not configured (off) |
 
@@ -223,7 +223,7 @@ The deploy workflow does not render the native-evidence and bootstrap-intent set
 
 Fail closed: every gate failure that removes Platform, the internal proxy and the Gateway (trust gate, self-check gate, Marketplace runtime recreation, failure restore) first removes `internal-mtls` as well (`lib.sh` `oteryn_platform_mtls_remove_fail_closed`), so a listener the ingress stop only stopped cannot come back through `restart: always` in front of an unproven Platform. The next deploy recreates it behind the gates. The failure restore (fast deploy and Platform reconcile EXIT traps) reconciles the listener after the restored Platform passes the trust gate: recreated while the setting is on, even when the failed forward gate already removed it, and removed while it is off.
 
-Native account-character push from the Game node is documented here but not switched on by this package. Enabling it is a separate change that sets, on Platform:
+Native account-character push from the Game node is switched on by this package. `compose.yml` sets, on Platform:
 
 ```text
 GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED=true
@@ -231,7 +231,7 @@ GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_SOURCE_AUTHORITY=oteryn:character-authority:
 GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_IDENTITIES=["CN=oteryn-preprod-character-projection"]
 ```
 
-and drops the D171 fallback (`OTERYN_STAGING_NATIVE_WORLD_ID`) in the same change.
+The D171 fallback and its `OTERYN_STAGING_NATIVE_WORLD_ID` tie are gone from the committed defaults; deploy no longer refuses native admission for a missing World UUID.
 
 ## Early workstation testing through loopback
 

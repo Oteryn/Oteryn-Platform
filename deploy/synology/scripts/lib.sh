@@ -1143,7 +1143,7 @@ oteryn_publish_native_admission_trust() {
 # When on, every required value must be present and well-formed or the deploy refuses (fail closed);
 # nothing is guessed. Order: the Registry row must exist (game-auth:world:ensure ran), then
 # game-auth:native-topology:issue (idempotent) issues the WorldId/ChannelId, which must equal the
-# configured native World (OTERYN_STAGING_NATIVE_WORLD_ID, the D171 World), then the route is
+# configured native World (OTERYN_STAGING_NATIVE_WORLD_ID, an optional input needed only by this step), then the route is
 # published and read back. Descriptor reference: Game deploy/synology-game/preprod-topology.toml
 # ([scope] channel_key, [route] host, port, tls_server_name). Arguments: the route's Compose
 # command words.
@@ -1458,14 +1458,10 @@ oteryn_run_native_admission_self_check() {
     fi
 }
 
-# Validates the projection settings native login needs besides a signing key: the native World UUIDv7
-# for the D171 fallback and the Game runtime-status and scope-assignment identities that make a scope
-# routable. Reads the loaded environment; prints the reason to stderr and fails when incomplete.
+# Validates the projection settings native login needs besides a signing key: the Game runtime-status
+# and scope-assignment identities that make a scope routable. No native World UUID is needed: account
+# characters are on in compose.yml, so the D171 fallback is off. Reads the loaded environment; prints the reason to stderr and fails when incomplete.
 oteryn_native_admission_projection_ready() {
-    if [[ ! "${GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID:-}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; then
-        echo "Native admission needs OTERYN_STAGING_NATIVE_WORLD_ID (the native World UUIDv7; set the repository variable or the value in deploy/synology/native-defaults.env)." >&2
-        return 1
-    fi
     if [[ "${GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED:-}" != true || -z "${GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES:-}" \
         || "${GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_ENABLED:-}" != true || -z "${GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES:-}" ]]; then
         echo "Native admission needs OTERYN_STAGING_NATIVE_RUNTIME_STATUS_IDENTITIES and OTERYN_STAGING_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES (repository variables or deploy/synology/native-defaults.env); without them no scope is routable and every login would fail." >&2
