@@ -393,6 +393,19 @@ class RoleBootstrapTest(unittest.TestCase):
         ):
             self.assertIn(revoke, database)
             self.assertLess(database.index(revoke), database.index("GRANT USAGE ON SCHEMA public"), revoke)
+        # PUBLIC holds EXECUTE on functions and USAGE on types by default: revoked now and by default privileges.
+        for public in (
+            "REVOKE ALL ON ALL ROUTINES IN SCHEMA public FROM PUBLIC;",
+            "ALTER DEFAULT PRIVILEGES FOR ROLE oteryn_platform_owner REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;",
+            "ALTER DEFAULT PRIVILEGES FOR ROLE oteryn_platform_owner REVOKE USAGE ON TYPES FROM PUBLIC;",
+            "REVOKE ALL ON TYPE %s FROM PUBLIC",
+        ):
+            self.assertIn(public, database)
+            self.assertLess(database.index(public), database.index("GRANT USAGE ON SCHEMA public"), public)
+        reconcile_sql = LIB.read_text()
+        for needle in ("p.proacl IS NULL", "t.typacl IS NULL", "d.defaclobjtype = 'f'", "d.defaclobjtype = 'T'",
+                       "has_database_privilege(grantee, 'oteryn_platform', 'CREATE,TEMPORARY')"):
+            self.assertIn(needle, reconcile_sql)
         self.assertIn("has_table_privilege('oteryn_platform_dump'", LIB.read_text())
         # Neither the runtime nor the dump role ever receives CREATE, ownership, TRUNCATE or a superuser grant.
         for session in (cluster, database):

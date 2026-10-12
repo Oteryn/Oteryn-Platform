@@ -364,9 +364,29 @@ oteryn_reconcile_postgres() {
                  AND (has_table_privilege('oteryn_platform_dump', c.oid, 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
                       OR has_table_privilege('oteryn_platform_app', c.oid, 'TRUNCATE,REFERENCES,TRIGGER')))
              + (SELECT count(*) FROM unnest(ARRAY['oteryn_platform_app', 'oteryn_platform_dump']) AS grantee
-                 WHERE has_schema_privilege(grantee, 'public', 'CREATE'))")" || return 1
+                 WHERE has_schema_privilege(grantee, 'public', 'CREATE'))
+             + (SELECT count(*) FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace
+                 AND (p.proacl IS NULL OR EXISTS (SELECT 1 FROM aclexplode(p.proacl) a
+                                                  WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE')))
+             + (SELECT count(*) FROM pg_type t LEFT JOIN pg_class c ON c.oid = t.typrelid
+                 WHERE t.typnamespace = 'public'::regnamespace
+                 AND (t.typtype IN ('e', 'd', 'r', 'm') OR (t.typtype = 'c' AND c.relkind = 'c'))
+                 AND (t.typacl IS NULL OR EXISTS (SELECT 1 FROM aclexplode(t.typacl) a
+                                                  WHERE a.grantee = 0 AND a.privilege_type = 'USAGE')))
+             + (SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_default_acl d JOIN pg_roles r ON r.oid = d.defaclrole
+                                         WHERE r.rolname = 'oteryn_platform_owner' AND d.defaclobjtype = 'f'
+                                         AND d.defaclnamespace = 0
+                                         AND NOT EXISTS (SELECT 1 FROM aclexplode(d.defaclacl) a WHERE a.grantee = 0))
+                            THEN 0 ELSE 1 END)
+             + (SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_default_acl d JOIN pg_roles r ON r.oid = d.defaclrole
+                                         WHERE r.rolname = 'oteryn_platform_owner' AND d.defaclobjtype = 'T'
+                                         AND d.defaclnamespace = 0
+                                         AND NOT EXISTS (SELECT 1 FROM aclexplode(d.defaclacl) a WHERE a.grantee = 0))
+                            THEN 0 ELSE 1 END)
+             + (SELECT count(*) FROM unnest(ARRAY['oteryn_platform_app', 'oteryn_platform_dump']) AS grantee
+                 WHERE has_database_privilege(grantee, 'oteryn_platform', 'CREATE,TEMPORARY'))")" || return 1
     [[ "$output" == 0 ]] || {
-        echo "The PostgreSQL role split does not hold (ownership, role attributes or stale write privileges)." >&2
+        echo "The PostgreSQL role split does not hold (ownership, role attributes, stale write privileges or PUBLIC function/type access)." >&2
         return 1
     }
 
