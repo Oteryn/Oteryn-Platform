@@ -793,7 +793,7 @@ Platform accepts a report only when every one of these holds:
 2. `(assignment_epoch, scope_ownership_generation)` equals the latest accepted assignment for that scope (§7.2), so a deposed owner cannot move a Character;
 3. `character_id` is a canonical id, and `account_id` is a canonical AccountId;
 4. `committed_at` is not later than Platform `now + clock_uncertainty`;
-5. where the §5 read model is enabled and valid, the report's `account_id` equals the account that read model lists as owner of `character_id` in `world_id`, otherwise the report is refused and not stored.
+5. the §5 read model is enabled and valid, and the report's `account_id` equals the account that read model lists as owner of `character_id` in `world_id`. While ownership cannot be verified (read model disabled, `invalid` or not live, or mode 33a under §17), every report is refused and not stored, and §19.4 step 5 uses the handle's bound channel.
 
 Each Character has one entry, ordered by `(assignment_epoch, locator_revision)` numerically:
 
