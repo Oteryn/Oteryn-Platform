@@ -23,7 +23,7 @@ Governing GitHub Issue: #1474. Complete the P6b maintenance-gate design note tha
 - [x] The note fixes how the "only two canonical ingress rules" precondition is checked.
 - [x] The note fixes failure and rollback behaviour, the implementation files and tests, and the owner approval items.
 - [x] No claim beyond the plan except items marked as decisions for owner approval; no secret; no new legacy-token occurrence.
-- [ ] Exact-head CI passes, the complete Codex review is addressed and no thread is unresolved.
+- [ ] Exact-head CI passes, the complete Codex review is addressed and no thread is unresolved (PR #1588, pending).
 
 ## Ownership
 
@@ -56,15 +56,14 @@ owned_paths:
   - docs/operations/PLATFORM_POSTGRES_MAINTENANCE_GATE_DESIGN.md
   - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p6b.md
 proven:
-  - The existing script preserves unrelated rules and its apply rebuilds canonical rules with loopback origins, so apply would reopen a closed gate without a guard.
+  - The existing script preserves unrelated rules and its apply rebuilds canonical rules with loopback origins, so apply would reopen a closed gate without a guard; the note restricts apply to the open state.
   - The dispatch concurrency group includes the run id, so today it serializes nothing; the pre-PUT hash check is the only guard.
   - The mock already returns a configuration version; the live API behaviour is an assumption the note says to verify.
 derived:
   - Mutating entry points also include the marker pull request, owner comment and push marker workflows, so the apply guard belongs in the script.
 unknown:
   - Whether the live tunnel configuration API returns a version that increases by one per PUT.
-conflicts:
-  - The stale active record OTERYN-20261012-pg-p6-design-notes (PR 1567, merged) still lists the same note as owned; this packet supersedes it for P6b and does not edit it.
+conflicts: []
 first_failure:
   marker: none
   evidence: none
@@ -74,13 +73,15 @@ rejected_hypotheses:
 changed_paths:
   - docs/operations/PLATFORM_POSTGRES_MAINTENANCE_GATE_DESIGN.md
   - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p6b.md
+  - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p5.md (archive_pending transition, not owned)
+  - docs/agents/tasks/active/OTERYN-20261012-pg-p6-design-notes.md (gate-note ownership removed, archive_pending transition, not owned)
 validation:
   - command: python3 tools/validation/legacy_token_ratchet.py; python3 tools/agents/checkpoint.py --tasks docs/agents/tasks/active --require-checkpoint; python3 tools/agents/documentation_ia.py
     result: PASS
-    evidence: ratchet ok; 12 active checkpoints and this archived record validated; documentation IA validated
+    evidence: ratchet ok; 13 active checkpoints including this record validated; documentation IA validated; source-branch closeout validated
 blockers:
   - none
-next_action: wait for exact-head CI and the complete Codex review, then fix all findings in one commit
+next_action: wait for exact-head CI and the complete Codex review, fix all findings in one commit, then archive this record in the final authoring commit when the coordinator says so
 ```
 
 ## Source branch closeout
