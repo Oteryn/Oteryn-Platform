@@ -278,6 +278,8 @@ A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synolo
 
 - `deploy/synology/scripts/cutover-postgres.sh` (new; orchestrates the steps below and refuses when preconditions fail)
 - `.github/workflows/deploy-synology-staging.yml`: a cutover input
+- `.github/workflows/cloudflare-oteryn-endpoints.yml`, `scripts/operations/cloudflare-oteryn-endpoints.sh`, `tests/operations/cloudflare-oteryn-endpoints/**`: the `maintenance-close` and `maintenance-open` modes and their tests, extending the existing workflow because the workflow budget is full
+- `docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md`: the two modes
 - `docs/operations/PLATFORM_POSTGRES_CUTOVER_EVIDENCE.md` (new, dated)
 - the packet's task record
 
@@ -291,23 +293,25 @@ The engine switch value is a repository variable that the operator sets.
 - The owner gave a go decision and a window.
 - `MARKETPLACE_ENABLED=false`.
 
-**Access gate instead of maintenance mode.** The smoke tests must reach a running application: `health-check.sh` and the Gateway's calls to the Platform issuer would only get maintenance responses under `php artisan down`. So the cutover keeps the application up and closes external access instead:
+**Edge gate instead of maintenance mode.** The smoke tests must reach a running application: `health-check.sh` and the Gateway's calls to the Platform issuer would only get maintenance responses under `php artisan down`. The host bindings cannot serve as the gate either: `deploy.sh` and `deploy-impact.sh` require `PLATFORM_BIND_ADDRESS` and `GATEWAY_BIND_ADDRESS` to stay loopback-only, and the Cloudflare Tunnel reaches the public hostnames through exactly those loopback origins (`docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md`, fixed endpoint contract). So the bindings stay loopback, the application stays up, and the cutover closes the public edge instead:
 
-- The cutover script re-renders Compose with `PLATFORM_BIND_ADDRESS` and `GATEWAY_BIND_ADDRESS` set to a NAS address reachable only from the operator's LAN segment (or `127.0.0.1` when the operator works on the NAS), so nothing outside the LAN reaches the Platform or the Gateway. Internal Compose traffic (Gateway to issuer through `internal-proxy`, health checks) is unaffected.
-- The script refuses to start the smoke tests until it has verified from outside the gate that both public endpoints are closed, and it records that check in the evidence.
-- The gate values are non-secret operator variables. No maintenance bypass secret, cookie or path is used or committed.
-- The gate is opened only in step 7, or at the end of a rollback.
+- **Close.** A new bounded mode of the existing `Cloudflare Oteryn Endpoints` workflow, `maintenance-close`, changes only the two canonical ingress rules (`oteryn.molehill.cloud` and `gateway.molehill.cloud`) from their fixed loopback origins to the Cloudflare `http_status:503` service. It uses the same safeguards as `apply`: a confirmation phrase, a fresh read, rejection of locally managed tunnels and ambiguous rules, preservation of every unrelated ingress rule and the final catch-all, and a re-read and hash check immediately before `PUT`. DNS records are not touched. The tunnel connector keeps running, because the tunnel may carry unrelated routes.
+- **External check.** Before any smoke test, the cutover script requires two proofs: a fresh API read shows both canonical rules on `http_status:503`, and HTTPS requests from the GitHub runner, outside the NAS, to both public hostnames get the edge's 503. The script refuses to continue otherwise, and records both proofs in the evidence.
+- **Smoke on loopback.** All smoke tests run on the NAS against the loopback origins `127.0.0.1:8000` and `127.0.0.1:8080`, and inside the Compose network. No public request reaches the application.
+- **Open.** `maintenance-open` restores exactly the two fixed loopback origins with the same safeguards. A fresh `audit` and an external request to each hostname must then show the normal contract. Opening happens only in step 7, or at the end of a rollback after `health-check.sh` passes on MariaDB.
+- `audit` reports the closed state as bounded drift, not as a failure, so a closed edge stays visible.
+- No maintenance bypass secret, cookie or path is used or committed. The gate needs only the existing `production-cloudflare` environment and its token.
 
 **Steps.**
 
-1. **Freeze.** Close the access gate, set native admission off (the Gateway refuses protocol version 2 login), stop the scheduler, then stop the `platform` and `mariadb` containers. The `mariadb_data` volume and the MariaDB-era witness directory are not modified from here on.
+1. **Freeze.** Close the edge gate (`maintenance-close`) and pass the external check, set native admission off (the Gateway refuses protocol version 2 login), stop the scheduler, then stop the `platform` and `mariadb` containers. The `mariadb_data` volume and the MariaDB-era witness directory are not modified from here on.
 2. **Bootstrap.** Set `PLATFORM_DB_ENGINE=postgres` and run the P3 bootstrap: MariaDB-era witness directory moved aside, a new empty PostgreSQL witness directory, fresh migrations, keys, OAuth clients, World and route. Native admission is still off, so trust publication waits for step 4. The operator updates `OTERYN_STAGING_NATIVE_WORLD_ID` and the OAuth client ids of consumers, then deploys behind the gate.
-3. **Smoke tests without evidence writes**, from the operator's LAN: `health-check.sh`, web registration and login, admin login and a wallet read.
-   - On failure: **rollback.** Set `PLATFORM_DB_ENGINE=mariadb`. Remove the PostgreSQL witness directory, which holds no evidence yet, and move the MariaDB-era one back. Deploy behind the gate, run `health-check.sh`, then open the gate. MariaDB and its witness directory are exactly as they were at the freeze. Keep the PostgreSQL volume for diagnosis.
+3. **Smoke tests without evidence writes**, on the NAS against the loopback origins: `health-check.sh`, web registration and login, admin login and a wallet read.
+   - On failure: **rollback.** Set `PLATFORM_DB_ENGINE=mariadb`. Remove the PostgreSQL witness directory, which holds no evidence yet, and move the MariaDB-era one back. Deploy behind the gate, run `health-check.sh`, then open the edge gate (`maintenance-open`) and confirm the public hostnames from outside. MariaDB and its witness directory are exactly as they were at the freeze. Keep the PostgreSQL volume for diagnosis.
    - Before the first native evidence write, a clean-slate re-run of P3 (emptied database and emptied PostgreSQL witness directory) is also allowed, instead of a rollback.
-4. **Native admission re-enable, still behind the gate.** The scheduler stays stopped. The operator turns native admission on through the deploy, which runs `game-auth:native-admission:publish-trust` and `game-auth:native-admission:self-check` and refuses on failure. Only LAN clients can reach the Gateway.
+4. **Native admission re-enable, still behind the gate.** The scheduler stays stopped. The operator turns native admission on through the deploy, which runs `game-auth:native-admission:publish-trust` and `game-auth:native-admission:self-check` and refuses on failure. The public Gateway hostname still returns the edge's 503, so only clients on the NAS reach the Gateway through its loopback origin.
    - If trust publication or the self-check fails, no evidence has been written yet: turn native admission off again and either fix and retry, re-run P3 as in step 3, or roll back as in step 3.
-5. **Native login smoke.** Run the native login end-to-end smoke and the evidence read path from the LAN. This is the first native evidence write on PostgreSQL. From here on (owner answer Q2):
+5. **Native login smoke.** Run the native login end-to-end smoke and the evidence read path on the NAS against the loopback Gateway origin. This is the first native evidence write on PostgreSQL. From here on (owner answer Q2):
    - there is no rollback and no clean-slate re-run;
    - the PostgreSQL witness directory is never emptied, deleted, replaced or lowered, and the database is never emptied under it;
    - a failure is recovered by fixing forward with the witness kept and `game-auth:native-evidence:reconcile`. If reconciliation fails closed, native login stays off until a fix lands; the witness is not touched.
@@ -315,7 +319,7 @@ The engine switch value is a repository variable that the operator sets.
    - delete the `mariadb_data` volume and remove the `mariadb` container;
    - delete the MariaDB-era witness directory moved aside in step 2. It is the high-water witness of the retired MariaDB store and is bound to a database that no longer exists, so retiring it lowers nothing. The live PostgreSQL witness directory is a different directory and is not touched;
    - take no final dump.
-7. **Unfreeze.** Open the access gate (restore the normal bind addresses), start the scheduler and record the evidence: timings, image tags, the gate check, the new non-secret OAuth client ids and WorldId, and the deletion time.
+7. **Unfreeze.** Open the edge gate (`maintenance-open`), confirm with `audit` and external requests that both public hostnames reach their origins again, start the scheduler and record the evidence: timings, image tags, the gate check, the new non-secret OAuth client ids and WorldId, and the deletion time.
 
 **Validation.** The cutover evidence file is complete. Staging deploy and health stay green on PostgreSQL. A post-cutover P5 drill passes.
 
@@ -370,6 +374,7 @@ The repository contains none of these. Each is set as a GitHub environment secre
 | New `OTERYN_STAGING_NATIVE_WORLD_ID` and the consumers' OAuth client ids after bootstrap | P6 | Non-secret values printed by the bootstrap |
 | NAS access: space for the backup spool (about 2x the database size plus WAL), a scratch volume for drills, Container Manager or shell to delete `mariadb_data` | P4 to P6 | No firewall or port change; PostgreSQL publishes no port |
 | Go decision and maintenance window | P6 | Owner |
+| Runs of the `Cloudflare Oteryn Endpoints` workflow in the `production-cloudflare` environment to close and reopen the edge | P6 | Existing token and environment; no new secret |
 | Off-NAS backup target, its credentials and an encryption key pair; production RPO and RTO | Before production or real players | Not needed for staging (ADR 0046 §7) |
 
 ## 6. Owner answers (2026-10-12)

@@ -19,7 +19,7 @@ Governing GitHub Issue: #1474 (native-only migration) is the canonical lifecycle
 Fix two review findings on the merged PostgreSQL migration plan (PR #1561, head `feb62ed`) and the matching ADR 0046 rule:
 
 - After the first native evidence write on PostgreSQL, the PostgreSQL witness directory is never emptied, deleted or lowered, and the database is never emptied under it. Recovery keeps the witness and reconciles forward only. A clean-slate re-run of P3 with a witness reset is allowed only before that write. Retiring the MariaDB-era witness with the MariaDB volume after a successful cutover is kept distinct from the live PostgreSQL witness.
-- The P6 smoke tests run against a running application behind a bounded external-access gate (LAN-only bind addresses for the Platform and Gateway), not under `php artisan down`, with no committed bypass secret and a defined rollback.
+- The P6 smoke tests run against a running application on its loopback origins, not under `php artisan down`. The public edge is closed by switching only the two canonical Cloudflare Tunnel ingress rules to `http_status:503` through new bounded modes of the existing endpoint workflow, with an external closed-check before the smoke tests, no committed bypass secret and a defined reopen on unfreeze or rollback.
 
 This is a documentation-only change. It does not change code, configuration, schema, deployment, secrets or data.
 
@@ -55,7 +55,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-12T18:00:00Z
+updated_at: 2026-10-12T20:00:00Z
 head: UNKNOWN
 branch: claude/platform-postgres-plan-fixes-20261012
 pr: 1562
@@ -71,10 +71,10 @@ owned_paths:
   - docs/agents/tasks/archive/OTERYN-20261012-platform-postgres-plan.md
 proven:
   - PR 1561 merged before two review findings on its last head were fixed
-  - the Platform and Gateway publish host ports through PLATFORM_BIND_ADDRESS and GATEWAY_BIND_ADDRESS in deploy/synology/compose.yml
+  - deploy.sh and deploy-impact.sh require PLATFORM_BIND_ADDRESS and GATEWAY_BIND_ADDRESS to stay loopback-only, and the Cloudflare Tunnel serves both public hostnames from those loopback origins
   - the native evidence witness fails closed when a database binding exists and its directory is empty, or when history is below the retained floor
 derived:
-  - a network-level access gate keeps the application testable during cutover without a maintenance bypass secret
+  - an edge gate on the two canonical tunnel ingress rules keeps the application testable on loopback during cutover without a maintenance bypass secret and without stopping a shared tunnel connector
 unknown:
   - none
 conflicts: []
@@ -83,6 +83,8 @@ first_failure:
   evidence: none
 rejected_hypotheses:
   - Laravel maintenance bypass for smoke tests; it is cookie-based and does not serve machine callers such as health checks and the Gateway
+  - LAN-only bind addresses as the gate; deploy scripts require loopback bindings and the tunnel still reaches loopback origins
+  - stopping the tunnel connector; the tunnel may carry unrelated ingress rules
 changed_paths:
   - docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md
   - docs/architecture/adr/0046-platform-persistence-moves-to-postgresql.md
