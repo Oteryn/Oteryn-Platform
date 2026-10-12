@@ -109,8 +109,13 @@ services:
       - ${PLATFORM_BIND_ADDRESS}:${PLATFORM_PORT}:8000
     volumes:
       - platform_storage:/var/www/html/storage
-      # FastCGI unix socket shared only with internal-mtls (never a TCP port).
-      - platform_fastcgi:/run/oteryn-fastcgi
+      # FastCGI unix socket shared only with internal-mtls (never a TCP port). nocopy keeps the tmpfs
+      # owner and mode from the volume options instead of the image directory's www-data:www-data.
+      - type: volume
+        source: platform_fastcgi
+        target: /run/oteryn-fastcgi
+        volume:
+          nocopy: true
       # Issuer signing keys (current/retiring .key and .kid), read-only; the entrypoint exports the
       # key id and file path from here. Created by generate-native-admission-key.sh, never by Compose.
       - native_admission_keys:/run/oteryn-native-admission:ro
@@ -160,12 +165,19 @@ services:
     image: nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
     profiles: ["internal-mtls"]
     restart: always
+    labels:
+      # Set by lib.sh oteryn_reconcile_platform_mtls; the fast deploy path compares it (deploy.sh).
+      oteryn.platform-mtls.fingerprint: ${OTERYN_PLATFORM_MTLS_FINGERPRINT:-unset}
     command: ["nginx", "-c", "/bootstrap/internal-mtls-nginx.conf", "-g", "daemon off;"]
     ports:
       - ${PLATFORM_MTLS_BIND_ADDRESS:-127.0.0.1}:${PLATFORM_MTLS_PORT:-8543}:8543
     volumes:
       - bootstrap_files:/bootstrap:ro
-      - platform_fastcgi:/run/oteryn-fastcgi
+      - type: volume
+        source: platform_fastcgi
+        target: /run/oteryn-fastcgi
+        volume:
+          nocopy: true
       - type: bind
         source: ${PLATFORM_MTLS_SERVER_CERT_FILE:-/volume1/oteryn/preprod-platform-tls/platform-internal-preprod.fullchain.pem}
         target: /etc/nginx/internal-mtls/server-fullchain.pem

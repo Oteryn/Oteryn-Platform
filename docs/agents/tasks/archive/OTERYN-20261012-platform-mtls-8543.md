@@ -87,6 +87,10 @@ proven:
   - A local Docker smoke with the real nginx config and FPM pool returned 200 for a valid client, with the forged headers ignored.
   - In the same smoke, native-admissions, encoded paths, premium and /health returned 404. GET returned 403, no certificate or a rogue CA returned 400, TLS 1.2 was refused, and Platform down returned 502.
   - Codex P1 on #1570 (head a133e5ef): a Platform image without the FastCGI pool now fails health-check.sh while the listener is on. deploy.sh preflight and rollback.sh refuse such an image before any stack change. The image helper returned no for the FPM base without the pool file and yes for an image with it.
+  - Codex P1 on #1570 (fast path): the fast deploy path now takes the full path when the listener's bind address, port, host paths, certificate, key, client CA or nginx config change. A fingerprint label on internal-mtls records them. Local check: same inputs gave the same digest, a key or port change gave a new one, and a missing file failed without creating it.
+  - Codex P2 on #1570 (supervision): the entrypoint stays PID 1 while the pool runs and stops the container when either process exits. Local smoke: FPM killed gave exit 8, main killed gave exit 9, docker stop finished at once with 143, and no zombies remained.
+  - Codex P2 on #1570 (encodings): a smoke request showed HTTP_TRANSFER_ENCODING and HTTP_CONTENT_ENCODING reaching PHP, so the bounds middleware still sees them; fastcgi_pass_request_headers on is now explicit.
+  - Found in smoke: with short-syntax mounts, a fresh platform_fastcgi volume first mounted by Platform copied the image directory's owner (82:82), so nginx got EACCES and answered 502. nocopy on both mounts kept 82:101 0750, and health-check.sh now checks that the nginx user can write the socket.
   - The Compose profile keeps the bind-mounted service out of the default render, so the CI "no bind mounts" render check passes.
 derived:
   - Coordinator answers 2026-10-12. (2) ssl_verify_depth 1 is correct because Game client certificates are issued directly by the preprod root (pathlen 0, no intermediates). (3) The listener stays on by default for staging. (4) The commit trailer names Opus 5.5 where the packet said Sonnet 5.5; the deviation is accepted and recorded.
@@ -118,13 +122,13 @@ changed_paths:
 validation:
   - command: python3 deploy/synology/tests/test_platform_mtls_contract.py
     result: PASS
-    evidence: 7 tests
+    evidence: 10 tests
   - command: CI-listed Synology python tests and container_supply_chain validate-repository
     result: PASS
     evidence: all pass, rc 0
-  - command: pytest tests/ci/test_synology_native_* autostart marketplace
+  - command: python3 -m pytest -q tests/ci
     result: PASS
-    evidence: 125 passed
+    evidence: 317 passed
   - command: python3 tools/validation/legacy_token_ratchet.py
     result: PASS
     evidence: no group above baseline

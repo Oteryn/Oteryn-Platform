@@ -32,6 +32,13 @@ STAGING_FILES = {
     "CLIENT_CA_FILE": "/volume1/oteryn/preprod-platform-tls/oteryn-preprod-ca.crt",
 }
 SOCKET = "/run/oteryn-fastcgi/php-fpm.sock"
+FASTCGI_MOUNT = (
+    "      - type: volume\n"
+    "        source: platform_fastcgi\n"
+    "        target: /run/oteryn-fastcgi\n"
+    "        volume:\n"
+    "          nocopy: true\n"
+)
 
 
 def _directives(text: str) -> list[str]:
@@ -70,7 +77,7 @@ def test_client_certificate_values_reach_php_only_from_the_tls_session() -> None
     for header in ("HTTP_PROXY", "HTTP_FORWARDED", "HTTP_X_FORWARDED_FOR", "HTTP_X_REAL_IP"):
         assert f'fastcgi_param {header} "";' in directives
     assert f"fastcgi_pass unix:{SOCKET};" in directives
-    assert len([d for d in directives if d.startswith("fastcgi_pass")]) == 1
+    assert len([d for d in directives if d.startswith("fastcgi_pass ")]) == 1
 
 
 def test_only_game_node_routes_are_exposed() -> None:
@@ -103,7 +110,7 @@ def test_terminator_mounts_host_files_read_only_and_never_uses_tls_init() -> Non
     assert service.count("read_only: true") == 3
     assert service.count("create_host_path: false") == 3
     assert "bootstrap_files:/bootstrap:ro" in service
-    assert "platform_fastcgi:/run/oteryn-fastcgi" in service
+    assert FASTCGI_MOUNT in service
     assert "internal_tls" not in service and "tls-init" not in service and "tls_init" not in service
     networks = re.search(r"networks:\n((?:\s+- .+\n)+)", service).group(1)
     assert [n.strip() for n in networks.splitlines()] == ["- mtls_edge"]
@@ -111,7 +118,10 @@ def test_terminator_mounts_host_files_read_only_and_never_uses_tls_init() -> Non
 
     platform = _service_block(compose, "platform")
     assert "OTERYN_PLATFORM_FASTCGI_ENABLED: *internal_mtls_enabled" in platform
-    assert "platform_fastcgi:/run/oteryn-fastcgi" in platform
+    assert FASTCGI_MOUNT in platform
+    # Short syntax would let the first mount copy the image directory's owner onto the tmpfs.
+    assert "- platform_fastcgi:/run/oteryn-fastcgi" not in compose
+    assert compose.count(FASTCGI_MOUNT) == 2
     assert re.search(r'^  platform_fastcgi:\n    driver: local\n    driver_opts:\n      type: tmpfs', compose, re.M)
 
     nginx = NGINX.read_text()
@@ -191,6 +201,67 @@ def test_platform_image_without_fastcgi_fails_instead_of_serving_502() -> None:
     else_branch = no_pool[no_pool.rindex("    else\n"):]
     assert "has no FastCGI pool" in else_branch
     assert "return 1" in else_branch
+
+
+def test_fast_deploy_path_reconciles_when_listener_inputs_change() -> None:
+    lib = LIB.read_text()
+    fingerprint = re.search(r"^oteryn_platform_mtls_fingerprint\(\) \{\n(.*?)^\}", lib, re.M | re.S).group(1)
+    for name in (
+        "PLATFORM_MTLS_BIND_ADDRESS",
+        "PLATFORM_MTLS_PORT",
+        "PLATFORM_MTLS_SERVER_CERT_FILE",
+        "PLATFORM_MTLS_SERVER_KEY_FILE",
+        "PLATFORM_MTLS_CLIENT_CA_FILE",
+    ):
+        assert f'"${name}"' in fingerprint, name
+    assert "--network none" in fingerprint
+    assert fingerprint.count(",readonly\"") == 3
+    assert "sha256sum /m/server-fullchain.pem /m/server.key /m/client-ca.crt" in fingerprint
+    assert 'sha256sum <"$conf"' in fingerprint
+    assert "nginx/internal-mtls.conf" in fingerprint
+    assert "|| return 1" in fingerprint
+
+    reconcile = re.search(r"^oteryn_reconcile_platform_mtls\(\) \{\n(.*?)^\}", lib, re.M | re.S).group(1)
+    assert 'OTERYN_PLATFORM_MTLS_FINGERPRINT="$fingerprint" "$@" up -d --no-deps --force-recreate internal-mtls' in reconcile
+
+    service = _service_block(COMPOSE.read_text(), "internal-mtls")
+    assert "oteryn.platform-mtls.fingerprint: ${OTERYN_PLATFORM_MTLS_FINGERPRINT:-unset}" in service
+
+    deploy = DEPLOY.read_text()
+    fast = re.search(r"^_oteryn_fast_candidate\(\) \{\n(.*?)^\}", deploy, re.M | re.S).group(1)
+    check = fast[fast.index('if [[ "$want_mtls" == true ]]; then'):]
+    assert 'want_mtls_fingerprint="$(oteryn_platform_mtls_fingerprint)"' in check
+    assert '"$(oteryn_platform_mtls_fingerprint_of "$mtls_id")" != "$want_mtls_fingerprint"' in check
+    assert "FAST_DEPLOY_REASON='platform mTLS listener configuration or certificate files changed'" in check
+    assert check.index("return 1") < check.index("FAST_MARIADB_ID")
+
+
+def test_entrypoint_supervises_the_fastcgi_pool_as_pid_1() -> None:
+    entrypoint = ENTRYPOINT.read_text()
+    assert "fastcgi_pid=$!" in entrypoint
+    # BusyBox ash `wait -n` misses signal-killed children; only comments may mention it.
+    assert not [d for d in _directives(entrypoint) if "wait -n" in d]
+    alive = re.search(r"^process_alive\(\) \{\n(.*?)^\}", entrypoint, re.M | re.S).group(1)
+    assert "/proc/$1/status" in alive and "Z" in alive
+    run = re.search(r"^run_supervised\(\) \{\n(.*?)^\}", entrypoint, re.M | re.S).group(1)
+    assert 'while process_alive "$main_pid" && process_alive "$fastcgi_pid"; do' in run
+    assert "status=8" in run and "status=9" in run
+    assert "trap 'stop_supervised; exit 143' TERM INT" in run
+    assert 'exit "$status"' in run
+    tail = entrypoint[entrypoint.rindex('if [ -n "$fastcgi_pid" ]; then'):]
+    assert tail.index('run_supervised "$@"') < tail.index('exec "$@"')
+
+
+def test_request_headers_reach_php_and_nginx_workers_can_open_the_socket() -> None:
+    directives = _directives(NGINX.read_text())
+    assert "fastcgi_pass_request_headers on;" in directives
+    assert not [d for d in directives if d.startswith("fastcgi_pass_request_headers") and d.endswith("off;")]
+    for header in ("HTTP_TRANSFER_ENCODING", "HTTP_CONTENT_ENCODING"):
+        assert not [d for d in directives if d.startswith(f"fastcgi_param {header} ")], header
+
+    health = HEALTH.read_text()
+    listener = re.search(r"^check_platform_mtls_listener\(\) \{\n(.*?)^\}", health, re.M | re.S).group(1)
+    assert f'docker exec -u nginx "$mtls_id" test -w {SOCKET}' in listener
 
 
 def main() -> None:

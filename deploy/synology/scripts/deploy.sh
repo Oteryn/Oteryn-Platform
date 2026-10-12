@@ -308,7 +308,9 @@ _oteryn_fast_candidate() {
         return 1
     fi
     # The fast path neither stages bootstrap files nor touches internal-mtls: any change of the
-    # listener setting, or a listener that is not in its wanted state, takes the full path.
+    # listener setting, or a listener that is not in its wanted state, takes the full path, and so
+    # does any change of its bind address, port, host file paths, certificate, key, client CA or
+    # nginx config while it is on (fingerprint label, lib.sh).
     local want_mtls="${OTERYN_PLATFORM_MTLS_ENABLED:-false}" running_platform_fastcgi mtls_id mtls_running=false
     running_platform_fastcgi="$(oteryn_platform_fastcgi_flag_of "$FAST_OLD_PLATFORM_ID")" || return 2
     mtls_id="$("${compose[@]}" ps -q internal-mtls 2>/dev/null)" || return 2
@@ -318,6 +320,14 @@ _oteryn_fast_candidate() {
     if [[ "$running_platform_fastcgi" != "$want_mtls" || "$mtls_running" != "$want_mtls" ]]; then
         FAST_DEPLOY_REASON='platform mTLS listener setting changed'
         return 1
+    fi
+    if [[ "$want_mtls" == true ]]; then
+        local want_mtls_fingerprint
+        if ! want_mtls_fingerprint="$(oteryn_platform_mtls_fingerprint)" \
+            || [[ "$(oteryn_platform_mtls_fingerprint_of "$mtls_id")" != "$want_mtls_fingerprint" ]]; then
+            FAST_DEPLOY_REASON='platform mTLS listener configuration or certificate files changed'
+            return 1
+        fi
     fi
     FAST_MARIADB_ID="$(_oteryn_fast_running_service_id mariadb)" || return 2
     FAST_REDIS_ID="$(_oteryn_fast_running_service_id redis)" || return 2

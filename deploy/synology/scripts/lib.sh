@@ -162,12 +162,44 @@ oteryn_platform_mtls_preflight() {
     echo "Platform mTLS listener preflight passed for ${PLATFORM_MTLS_BIND_ADDRESS}:${PLATFORM_MTLS_PORT}."
 }
 
+# One digest of everything the running listener depends on: bind address, port, the three host
+# paths, the contents of the server chain, key and client CA, and the nginx config. It is stored as
+# the oteryn.platform-mtls.fingerprint label of internal-mtls, so the fast deploy path can tell
+# whether the listener needs a full reconcile. The files are hashed in a throwaway container with no
+# network (they may be root-only); only the combined digest leaves it. --mount fails on a missing
+# file instead of creating it.
+oteryn_platform_mtls_fingerprint() {
+    local conf="${OTERYN_PLATFORM_MTLS_NGINX_CONF:-$(dirname "${BASH_SOURCE[0]}")/../nginx/internal-mtls.conf}" files
+    files="$(docker run --rm --network none \
+        --mount "type=bind,source=${PLATFORM_MTLS_SERVER_CERT_FILE},target=/m/server-fullchain.pem,readonly" \
+        --mount "type=bind,source=${PLATFORM_MTLS_SERVER_KEY_FILE},target=/m/server.key,readonly" \
+        --mount "type=bind,source=${PLATFORM_MTLS_CLIENT_CA_FILE},target=/m/client-ca.crt,readonly" \
+        alpine:3.22 sha256sum /m/server-fullchain.pem /m/server.key /m/client-ca.crt 2>/dev/null)" || return 1
+    [[ -n "$files" && -r "$conf" ]] || return 1
+    {
+        printf '%s\n' "$PLATFORM_MTLS_BIND_ADDRESS" "$PLATFORM_MTLS_PORT" "$PLATFORM_MTLS_SERVER_CERT_FILE" \
+            "$PLATFORM_MTLS_SERVER_KEY_FILE" "$PLATFORM_MTLS_CLIENT_CA_FILE" "$files"
+        sha256sum <"$conf"
+    } | sha256sum | awk '{print $1}'
+}
+
+# The fingerprint label of a running internal-mtls container (empty when absent).
+oteryn_platform_mtls_fingerprint_of() {
+    command docker inspect --format '{{index .Config.Labels "oteryn.platform-mtls.fingerprint"}}' "$1" 2>/dev/null
+}
+
 # Brings the listener to the resolved setting after Platform is up: recreated while on (it then
-# re-reads the host certificate files), removed while off. Arguments: the route's Compose command words.
+# re-reads the host certificate files and carries their fingerprint), removed while off. Arguments:
+# the route's Compose command words.
 oteryn_reconcile_platform_mtls() {
     (($# > 0)) || { echo "Platform mTLS reconcile needs the Compose command." >&2; return 1; }
     if [[ "${OTERYN_PLATFORM_MTLS_ENABLED:-false}" == true ]]; then
-        "$@" up -d --no-deps --force-recreate internal-mtls
+        local fingerprint
+        fingerprint="$(oteryn_platform_mtls_fingerprint)" || {
+            echo "Platform mTLS listener files could not be fingerprinted (README: Platform internal mTLS listener)." >&2
+            return 1
+        }
+        OTERYN_PLATFORM_MTLS_FINGERPRINT="$fingerprint" "$@" up -d --no-deps --force-recreate internal-mtls
     else
         "$@" rm -s -f internal-mtls >/dev/null
     fi

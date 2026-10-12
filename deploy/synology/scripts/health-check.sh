@@ -168,6 +168,12 @@ check_platform_mtls_listener() {
             echo "Platform FastCGI pool is not accepting connections." >&2
             return 1
         }
+        # The nginx workers (user nginx) must be able to open the socket: search on the directory and
+        # write on the socket, both set by the platform_fastcgi volume options.
+        docker exec -u nginx "$mtls_id" test -w /run/oteryn-fastcgi/php-fpm.sock || {
+            echo "The mTLS listener's nginx workers cannot open the Platform FastCGI socket." >&2
+            return 1
+        }
         echo "Verified Platform FastCGI pool for the mTLS listener."
     else
         # A listener without a pool accepts TLS and answers 502 for every Game-node request, while the
