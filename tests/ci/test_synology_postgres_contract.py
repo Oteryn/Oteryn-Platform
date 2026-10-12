@@ -536,11 +536,13 @@ class TlsInitTest(unittest.TestCase):
             # Sign a certificate with the stack CA key and place it with the stack CA copy, as the earlier version did.
             subprocess.run(["openssl", "req", "-new", "-key", str(old / "server.key"), "-subj", "/CN=postgres", "-out", str(root / "l.csr")], check=True, capture_output=True)
             (root / "l.ext").write_text("subjectAltName=DNS:postgres\nextendedKeyUsage=serverAuth\n")
+            (old / "server.crt").unlink()  # 0444, and a non-root runner cannot write over it
             subprocess.run(
                 ["openssl", "x509", "-req", "-sha256", "-days", "30", "-in", str(root / "l.csr"), "-CA", str(tls / "ca.crt"), "-CAkey", str(tls / "ca.key"), "-CAcreateserial", "-CAserial", str(root / "l.srl"), "-extfile", str(root / "l.ext"), "-out", str(old / "server.crt")],
                 check=True,
                 capture_output=True,
             )
+            (old / "ca.crt").unlink()
             shutil.copy(tls / "ca.crt", old / "ca.crt")
             legacy_check = {"PATH": os.environ["PATH"], "POSTGRES_TLS_DIR": str(old), "POSTGRES_UID": str(os.getuid())}
             self.assertNotEqual(
