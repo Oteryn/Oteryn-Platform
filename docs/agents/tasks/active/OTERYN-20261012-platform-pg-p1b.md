@@ -32,6 +32,7 @@ owned_paths:
   - .github/workflows/ci.yml
   - deploy/ci/playwright-php.Dockerfile
   - docs/architecture/FEDERATED_SEARCH_ARCHITECTURE.md
+  - tests/Feature/GameAuth/NativeTopology/PreproductionStoreRouteCommandsTest.php
   - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p1b.md
   - docs/agents/tasks/archive/OTERYN-20261012-platform-pg-p1b.md
 modules:
@@ -59,6 +60,7 @@ owned_paths:
   - .github/workflows/ci.yml
   - deploy/ci/playwright-php.Dockerfile
   - docs/architecture/FEDERATED_SEARCH_ARCHITECTURE.md
+  - tests/Feature/GameAuth/NativeTopology/PreproductionStoreRouteCommandsTest.php
   - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p1b.md
 proven:
   - the plan makes P1 stage B the removal of continue-on-error plus an owner ruleset edit
@@ -77,6 +79,7 @@ changed_paths:
   - .github/workflows/ci.yml
   - deploy/ci/playwright-php.Dockerfile
   - docs/architecture/FEDERATED_SEARCH_ARCHITECTURE.md
+  - tests/Feature/GameAuth/NativeTopology/PreproductionStoreRouteCommandsTest.php
 validation:
   - command: yaml parse of ci.yml; tests/ci workflow policy scripts
     result: PASS
