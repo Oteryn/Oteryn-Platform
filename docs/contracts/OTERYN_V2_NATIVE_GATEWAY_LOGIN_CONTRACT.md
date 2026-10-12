@@ -658,7 +658,7 @@ The handle is Platform's play-session credential for recovering one Character. I
 
 The issuer runs one transaction. Lock order: recovery attempt row, epoch (§17), handle, Identity, device family (shared lock), play generation. Each lock wait is bounded as in §17.
 
-1. **Retry.** If an attempt row exists for `attempt_ref`, apply §6.2 step 2, with the handle hash in place of the ticket hash.
+1. **Retry.** If an attempt row exists for `attempt_ref`, the issuer does not return from §6.2 step 2 yet. It first requires the stored handle hash to equal the request's, then runs the step 2 handle and device checks (live family, thumbprint equality, `device_proof.sig` verification, as in the bullets below) against current state. Only when they pass does it apply §6.2 step 2, with the handle hash in place of the ticket hash, and return the stored grant. A failed check returns its step 2 error and never the stored grant. An idempotent retry is never cheaper to authenticate than a first request.
    - An `attempt_ref` already used by a fresh attempt is `NATIVE_RECOVERY_ATTEMPT_CONFLICT`, and the converse is `NATIVE_LOGIN_ATTEMPT_CONFLICT`. Fresh and recovery attempts share one `attempt_ref` namespace.
 2. **Handle.** Every one of these must hold, otherwise `NATIVE_RECOVERY_HANDLE_REJECTED`:
    - the hash is known, not revoked, and `server_now < expires_at`;
@@ -682,6 +682,7 @@ The issuer runs one transaction. Lock order: recovery attempt row, epoch (§17),
 5. **Routing target.**
    - The target is the Character's current locator entry (§19.6) when one exists, otherwise the handle's bound channel.
    - The issuer reads the entry in the same transaction.
+   - The entry is used only when its stored `account_id` equals the handle's `AccountId` and its `world_id` equals the bound World. An entry that fails the account comparison is ignored: it neither routes nor denies, and the handle's bound channel is the target. Only an entry of the handle's own account can steer a grant or produce the `present = false` or world-stale refusals below.
    - An entry with `present = false` refuses with `NATIVE_RECOVERY_CHARACTER_CONFLICT`, so the client makes a fresh login. This use only ever denies. A grant never depends on an entry being present.
    - An entry for another World refuses with `NATIVE_RECOVERY_WORLD_STALE`.
    - A `conflicted` entry refuses with `NATIVE_RECOVERY_ROUTE_UNAVAILABLE`.
@@ -788,10 +789,11 @@ The response is `200` with exactly `{"contract_version":1,"result":"accepted"|"s
 
 Platform accepts a report only when every one of these holds:
 
-1. the client identity is a locator identity whose scope list contains `(world_id, channel_id)`;
+1. the client identity is a locator identity whose scope list contains `(world_id, channel_id)`, and it equals the node identity named by the latest accepted assignment for that scope (§7.2 ownership binding). A locator identity that is in scope but is not the assigned node, such as a deposed owner, is refused (`401`);
 2. `(assignment_epoch, scope_ownership_generation)` equals the latest accepted assignment for that scope (§7.2), so a deposed owner cannot move a Character;
 3. `character_id` is a canonical id, and `account_id` is a canonical AccountId;
-4. `committed_at` is not later than Platform `now + clock_uncertainty`.
+4. `committed_at` is not later than Platform `now + clock_uncertainty`;
+5. where the §5 read model is enabled and valid, the report's `account_id` equals the account that read model lists as owner of `character_id` in `world_id`, otherwise the report is refused and not stored.
 
 Each Character has one entry, ordered by `(assignment_epoch, locator_revision)` numerically:
 
@@ -996,6 +998,8 @@ Rollback:
 - **Locator ingestion:**
   - exact wire and response;
   - a locator identity outside its scope list, or used on another route, is refused;
+  - a locator identity in scope but not the assigned node, and a report whose `account_id` is not the Character's owner, are refused;
+  - a recovery retry with a missing or wrong `device_proof` is refused and returns no stored grant;
   - another purpose's identity is refused on the locator route;
   - an assignment mismatch (deposed owner) is refused;
   - ordering: lower is superseded, equal and identical is a duplicate, equal and different is conflicted, and a higher epoch invalidates lower entries;
