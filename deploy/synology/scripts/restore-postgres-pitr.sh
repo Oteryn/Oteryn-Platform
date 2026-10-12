@@ -20,7 +20,8 @@
 # WAL), promotion at the target, markers (A present, B absent), row counts equal to the reference
 # snapshot, the wallet ledger invariant, the migrations head, then with the running Platform image
 # `migrate:status` (nothing pending) and `production:verify-configuration`. It reports the restore time
-# against RTO 4h and the data-loss bound against RPO 24h. Containers are found by Compose labels of
+# against RTO 4h and, except for a --target immediate drill of one chosen base backup, the data-loss bound
+# against RPO 24h. Containers are found by Compose labels of
 # COMPOSE_PROJECT_NAME (default oteryn-staging). Nothing here removes a named volume: the scratch
 # container runs with --rm, which removes it and its anonymous data volume when it is stopped.
 set -euo pipefail
@@ -544,19 +545,34 @@ else
     record platform_checks "skipped (--skip-platform-checks)"
 fi
 
-if [[ "$archiver_healthy" == true && "$target" != immediate ]]; then
+# The data-loss bound is today's RPO: what a restore to now would lose. The probe and --target-time drills
+# replay the archive and measure it. A --target immediate drill restores one chosen, often weekly, base
+# backup to its own end: it proves that backup restores, and its age says nothing about today's RPO, so
+# it is not checked against it.
+rpo_checked=true
+if [[ "$target" == immediate ]]; then
+    rpo_checked=false
+    data_loss_bound=not_applicable
+    record data_loss_basis "not measured: --target immediate restores base backup $chosen to its own end (the probe drill measures the RPO)"
+elif [[ "$archiver_healthy" == true ]]; then
     data_loss_bound="$archive_timeout"
     record data_loss_basis "archive_timeout of a healthy archiver"
 else
     data_loss_bound=$(( started_epoch - base_end_epoch ))
-    record data_loss_basis "age of base backup $chosen (archiver unhealthy or base-only restore)"
+    record data_loss_basis "age of base backup $chosen (archiver unhealthy)"
 fi
 record data_loss_bound_seconds "$data_loss_bound"
 record rpo_seconds "$RPO_SECONDS"
 record rto_seconds "$RTO_SECONDS"
 (( restore_seconds <= RTO_SECONDS )) || fail "restore took ${restore_seconds}s, above the RTO of ${RTO_SECONDS}s"
-(( data_loss_bound <= RPO_SECONDS )) || fail "data-loss bound ${data_loss_bound}s is above the RPO of ${RPO_SECONDS}s"
+if [[ "$rpo_checked" == true ]]; then
+    (( data_loss_bound <= RPO_SECONDS )) || fail "data-loss bound ${data_loss_bound}s is above the RPO of ${RPO_SECONDS}s"
+fi
 record checks_passed "$checks_passed"
 record total_seconds "$(( $(date +%s) - started_epoch ))"
 record result passed
-log "PITR drill passed: restored to ${target_time:-$chosen} in ${restore_seconds}s, data-loss bound ${data_loss_bound}s"
+if [[ "$rpo_checked" == true ]]; then
+    log "PITR drill passed: restored to ${target_time:-$chosen} in ${restore_seconds}s, data-loss bound ${data_loss_bound}s"
+else
+    log "PITR drill passed: restored base backup $chosen to its end in ${restore_seconds}s (RPO not measured)"
+fi

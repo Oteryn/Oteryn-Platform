@@ -41,6 +41,7 @@ RUNBOOK = ROOT / "docs/operations/PLATFORM_POSTGRES_BACKUP_PITR.md"
 CLASSIFIER = ROOT / "scripts/ci/classify_synology_builds.py"
 BUILD_WORKFLOW = ROOT / ".github/workflows/build-synology-staging-images.yml"
 AUTOSTART_WORKFLOW = ROOT / ".github/workflows/repair-synology-autostart.yml"
+DEPLOY_WORKFLOW = ROOT / ".github/workflows/deploy-synology-staging.yml"
 
 SEGMENT = "000000010000000000000003"
 
@@ -133,8 +134,9 @@ class DeployWiringTest(unittest.TestCase):
         self.assertIn("        *) exit 1 ;;", health)
         script = BACKUP_POSTGRES.read_text()
         self.assertIn("        exit 3\n", script)
-        # The deploy reconcile is strict: it ends with a check whose non-zero exit fails the script.
-        self.assertRegex(script, r"sidecar_job ensure \|\| fail [^\n]*\n(?:\s*#[^\n]*\n)*\s*check\n\}")
+        # The deploy reconcile is strict when its backups finish within the budget: it ends with a check
+        # whose non-zero exit fails the script (EnsureBudgetTest covers the budget).
+        self.assertRegex(script, r"    if ensure_within_budget; then\n(?:\s*#[^\n]*\n)*\s*check\n\s*return\n")
 
     def test_fast_path_requires_reconciled_backups(self) -> None:
         deploy = DEPLOY.read_text()
@@ -737,6 +739,126 @@ class DrillEvidenceTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("FAILURE=checks failed\n", result.stdout)
         self.assertIn("EVIDENCE_FAILURE=cannot write", result.stdout)
+
+
+def shell_function(source: str, name: str) -> str:
+    match = re.search(rf"^{name}\(\) \{{(\n.*?^\}}| [^\n]*\}})\n", source, re.M | re.S)
+    assert match is not None, name
+    return match.group(0)
+
+
+class EnsureBudgetTest(unittest.TestCase):
+    """The deploy waits for the backups it starts within a budget, never for a lock wait or an unbounded backup."""
+
+    def harness(self, job_mode: str, *, stale_result: bool = False) -> tuple[subprocess.CompletedProcess[str], float, Path]:
+        tmp = Path(tempfile.mkdtemp(prefix="oteryn-p5-ensure-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / "spool" / "status").mkdir(parents=True)
+        if stale_result:
+            (tmp / "spool" / "status" / "ensure.result").write_text("an-earlier-deploy 0\n")
+        (tmp / "bin").mkdir()
+        # Fake `docker compose exec [-d] [-T] [-u user] <service> <command...>`: runs the command here.
+        (tmp / "bin" / "docker").write_text(
+            "#!/bin/bash\n"
+            "detach=0\n"
+            'while [[ "$1" != exec ]]; do shift; done; shift\n'
+            'while :; do case "$1" in -d) detach=1; shift ;; -T) shift ;; -u) shift 2 ;; *) break ;; esac; done\n'
+            "shift\n"
+            'if (( detach )); then "$@" > /dev/null 2>&1 & exit 0; fi\n'
+            'exec "$@"\n'
+        )
+        (tmp / "bin" / "docker").chmod(0o755)
+        (tmp / "job.sh").write_text(
+            'case "$FAKE_JOB" in\n'
+            '  ok) echo "ran $*" ;;\n'
+            '  fail) echo "pg_basebackup: boom" >&2; exit 2 ;;\n'
+            '  slow) sleep 6 ;;\n'
+            "esac\n"
+        )
+        script = "\n".join([
+            "set -euo pipefail",
+            'fail() { echo "PostgreSQL backup: $*" >&2; exit 1; }',
+            f"compose=(docker compose); SPOOL={tmp / 'spool'}; JOB=(bash {tmp / 'job.sh'})",
+            "ENSURE_BUDGET_SECONDS=2; ENSURE_POLL_SECONDS=0.2",
+            shell_function(BACKUP_POSTGRES.read_text(), "ensure_within_budget"),
+            "if ensure_within_budget; then echo WITHIN; else echo PAST; fi",
+        ])
+        started = time.monotonic()
+        result = run(["bash", "-c", script], env={"PATH": f"{tmp / 'bin'}:{os.environ['PATH']}", "FAKE_JOB": job_mode})
+        return result, time.monotonic() - started, tmp / "spool" / "status"
+
+    def test_a_job_within_the_budget_is_awaited_and_its_failure_fails_the_reconcile(self) -> None:
+        result, _, status = self.harness("ok")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "WITHIN")
+        self.assertIn("ran ensure", (status / "ensure.log").read_text())
+        result, _, _ = self.harness("fail")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("ensure exit 2", result.stderr)
+        self.assertIn("pg_basebackup: boom", result.stderr)
+
+    def test_a_job_past_the_budget_is_left_running_and_an_earlier_result_is_ignored(self) -> None:
+        for stale in (False, True):
+            with self.subTest(stale_result=stale):
+                result, elapsed, _ = self.harness("slow", stale_result=stale)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), "PAST")
+                self.assertLess(elapsed, 5)
+
+    def test_reconcile_waits_within_the_deploy_job_and_accepts_degraded_past_the_budget(self) -> None:
+        cli = BACKUP_POSTGRES.read_text()
+        reconcile = shell_function(cli, "reconcile")
+        self.assertNotIn("sidecar_job ensure", reconcile)
+        self.assertIn("    if ensure_within_budget; then\n        # Strict at deploy", reconcile)
+        self.assertIn("(( status == 0 || status == 3 )) || exit \"$status\"", reconcile)
+
+        def default(name: str, env: str) -> int:
+            return int(re.search(rf'^{name}="\$\{{{env}:-(\d+)\}}"$', cli, re.M).group(1))
+
+        budget = default("ENSURE_BUDGET_SECONDS", "OTERYN_BACKUP_ENSURE_BUDGET_SECONDS")
+        ready = default("READY_TIMEOUT_SECONDS", "OTERYN_BACKUP_READY_TIMEOUT_SECONDS")
+        archive = default("ARCHIVE_TIMEOUT_SECONDS", "OTERYN_ARCHIVE_WAIT_SECONDS")
+        deploy_job = DEPLOY_WORKFLOW.read_text().split("\n  deploy:\n", 1)[1]
+        timeout = int(re.search(r"^    timeout-minutes: (\d+)$", deploy_job, re.M).group(1))
+        # The reconcile's own waits (sidecar ready twice, the forced WAL segment, the backups) take at most
+        # half of the deploy job, which leaves the other half for the rest of the deploy.
+        self.assertLessEqual(budget + 2 * ready + archive, timeout * 60 // 2)
+        self.assertIn("OTERYN_BACKUP_ENSURE_BUDGET_SECONDS", RUNBOOK.read_text())
+
+
+class DrillRpoTest(unittest.TestCase):
+    """Today's RPO is measured by the probe and target-time drills, not by restoring one chosen base backup."""
+
+    def outcome(self, target: str, *, archiver_healthy: bool, base_age: int) -> tuple[subprocess.CompletedProcess[str], str]:
+        drill = DRILL.read_text()
+        marker = 'record platform_checks "skipped (--skip-platform-checks)"\nfi\n'
+        tail = drill[drill.index(marker) + len(marker):]
+        script = "\n".join([
+            "set -euo pipefail",
+            "declare -A evidence=(); evidence_order=()",
+            shell_function(drill, "log"), shell_function(drill, "record"), shell_function(drill, "fail"),
+            f"target={target}; target_time=''; chosen=20261005T020000Z; archiver_healthy={str(archiver_healthy).lower()}",
+            f"archive_timeout=60; started_epoch=$(date +%s); base_end_epoch=$((started_epoch - {base_age}))",
+            "restore_seconds=5; checks_passed=3; RTO_SECONDS=14400; RPO_SECONDS=86400",
+            tail,
+            'for key in "${evidence_order[@]}"; do printf "%s=%s\\n" "$key" "${evidence[$key]}"; done',
+        ])
+        result = run(["bash", "-c", script])
+        return result, result.stdout
+
+    def test_an_immediate_drill_of_a_weekly_backup_is_not_held_to_todays_rpo(self) -> None:
+        result, evidence = self.outcome("immediate", archiver_healthy=True, base_age=8 * 86400)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("data_loss_bound_seconds=not_applicable\n", evidence)
+        self.assertIn("result=passed\n", evidence)
+
+    def test_probe_and_time_drills_still_check_the_rpo(self) -> None:
+        result, evidence = self.outcome("probe", archiver_healthy=True, base_age=8 * 86400)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("data_loss_bound_seconds=60\n", evidence)
+        result, evidence = self.outcome("time", archiver_healthy=False, base_age=2 * 86400)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("above the RPO", result.stderr)
 
 
 class DrillLockTest(unittest.TestCase):

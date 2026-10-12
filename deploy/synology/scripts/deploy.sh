@@ -882,8 +882,10 @@ SQL
 # On the mariadb engine no Platform service uses it yet; on the postgres engine this runs before the
 # Platform starts, so the roles and grants exist for the owner-role migration below.
 oteryn_reconcile_postgres "${compose[@]}" || exit 1
-# Backups and the WAL archive of that idle database (plan P5): starts the backup sidecar, refuses when the
-# NAS spool lacks the required free space and proves a forced WAL segment reaches the archive.
+# Backups and the WAL archive of that database (plan P5): starts the backup sidecar, refuses when the NAS
+# spool lacks the required free space and proves a forced WAL segment reaches the archive. It waits for a
+# due base backup and dump at most OTERYN_BACKUP_ENSURE_BUDGET_SECONDS (default 300, inside the 30-minute
+# deploy job); past that they finish in the sidecar and the backups are reported degraded until then.
 OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/backup-postgres.sh" reconcile || exit 1
 
 # A previous candidate whose migration succeeded but whose post-migration health

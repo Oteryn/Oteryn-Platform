@@ -6,6 +6,9 @@
 #                                  sidecar, provision its role credentials, refuse when the NAS spool lacks
 #                                  the required free space, prove a forced WAL segment reaches the spool,
 #                                  bring the base backup and dump to at most 24 hours old, then `check`.
+#                                  The backups run detached in the sidecar; the deploy waits for them at
+#                                  most OTERYN_BACKUP_ENSURE_BUDGET_SECONDS (default 300). Past that budget
+#                                  they finish in the background and the reconcile accepts a degraded check.
 #   backup-postgres.sh check       health-check.sh: sidecar running and healthy, archive_mode on (exit 1
 #                                  otherwise); no archive failure backlog, base backup and dump of the live
 #                                  cluster at most 26 hours old, spool room (exit 3, "degraded", otherwise).
@@ -34,13 +37,17 @@ MAX_BACKUP_AGE_SECONDS="${OTERYN_BACKUP_MAX_AGE_SECONDS:-93600}"
 MAX_READY_AGE_SECONDS="${OTERYN_ARCHIVE_MAX_READY_AGE_SECONDS:-600}"
 READY_TIMEOUT_SECONDS="${OTERYN_BACKUP_READY_TIMEOUT_SECONDS:-120}"
 ARCHIVE_TIMEOUT_SECONDS="${OTERYN_ARCHIVE_WAIT_SECONDS:-180}"
+# How long a deploy waits for the base backup and dump it starts (the deploy job has 30 minutes in all).
+ENSURE_BUDGET_SECONDS="${OTERYN_BACKUP_ENSURE_BUDGET_SECONDS:-300}"
+ENSURE_POLL_SECONDS=5
 
 fail() {
     echo "PostgreSQL backup: $*" >&2
     exit 1
 }
 
-for value in "$MAX_BACKUP_AGE_SECONDS" "$MAX_READY_AGE_SECONDS" "$READY_TIMEOUT_SECONDS" "$ARCHIVE_TIMEOUT_SECONDS"; do
+for value in "$MAX_BACKUP_AGE_SECONDS" "$MAX_READY_AGE_SECONDS" "$READY_TIMEOUT_SECONDS" "$ARCHIVE_TIMEOUT_SECONDS" \
+    "$ENSURE_BUDGET_SECONDS"; do
     [[ "$value" =~ ^[1-9][0-9]{0,6}$ ]] || fail "timeouts and ages must be positive decimal integers of at most seven digits"
 done
 
@@ -81,6 +88,34 @@ wait_sidecar_healthy() {
 }
 
 status_value() { sed -n "s/^$1=//p" <<< "$2" | head -n 1; }
+
+# Starts `ensure` detached in the sidecar and waits for it at most ENSURE_BUDGET_SECONDS. A base backup
+# can wait up to two hours for the job lock and pg_basebackup or pg_dump has no time limit, so the deploy
+# never waits for them unbounded. The job writes "<token> <exit status>" to status/ensure.result when it
+# ends and logs to status/ensure.log. Returns 0 when it succeeded within the budget and 1 when it is
+# still running after the budget; a failed job fails the reconcile.
+ensure_within_budget() {
+    local token result deadline
+    token="$(date -u +%Y%m%dT%H%M%SZ)-$$-$RANDOM"
+    # shellcheck disable=SC2016  # the inner script expands its own positional arguments in the sidecar
+    "${compose[@]}" exec -d -u postgres postgres-backup bash -c '
+        status=0
+        "${@:4}" ensure > "$3" 2>&1 || status=$?
+        printf "%s %s\n" "$1" "$status" > "$2.tmp" && mv -f -- "$2.tmp" "$2"
+    ' oteryn-ensure "$token" "$SPOOL/status/ensure.result" "$SPOOL/status/ensure.log" "${JOB[@]}" \
+        || fail "cannot start the base backup and logical dump in the postgres-backup sidecar"
+    deadline=$((SECONDS + ENSURE_BUDGET_SECONDS))
+    while :; do
+        result="$("${compose[@]}" exec -T -u postgres postgres-backup cat "$SPOOL/status/ensure.result" 2>/dev/null || true)"
+        if [[ "$result" == "$token "* ]]; then
+            [[ "$result" == "$token 0" ]] && return 0
+            "${compose[@]}" exec -T -u postgres postgres-backup tail -n 40 "$SPOOL/status/ensure.log" >&2 2>/dev/null || true
+            fail "the base backup or logical dump failed (ensure exit ${result#"$token "}; log above and in $SPOOL/status/ensure.log)"
+        fi
+        (( SECONDS < deadline )) || return 1
+        sleep "$ENSURE_POLL_SECONDS"
+    done
+}
 
 check() {
     local container output mode last_archived last_failed ready_age status age kind free required live_id spool_id
@@ -192,9 +227,19 @@ reconcile() {
     done
     echo "Verified WAL archive: forced segment $segment is in the NAS spool"
 
-    sidecar_job ensure || fail "the base backup or logical dump failed"
-    # Strict at deploy: a degraded backup (exit 3) fails the reconcile like a structural failure.
-    check
+    if ensure_within_budget; then
+        # Strict at deploy: a degraded backup (exit 3) fails the reconcile like a structural failure.
+        check
+        return
+    fi
+    # Still running after the budget: the jobs hold the spool job lock and finish in the sidecar. The deploy
+    # goes on with the backups reported degraded (health check warning; the next deploy takes the full path
+    # and reconciles again). A structural failure still fails the reconcile.
+    echo "PostgreSQL backup: the base backup or logical dump is still running in the postgres-backup sidecar after ${ENSURE_BUDGET_SECONDS}s; it finishes in the background (log: $SPOOL/status/ensure.log)." >&2
+    # A separate process, so errexit stays in force inside the check.
+    local status=0
+    OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/backup-postgres.sh" check || status=$?
+    (( status == 0 || status == 3 )) || exit "$status"
 }
 
 mode="${1:-}"
