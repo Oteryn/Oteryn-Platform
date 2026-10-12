@@ -96,6 +96,29 @@ final class ProductionConfigurationVerifierTest extends TestCase
         self::assertSame([], app(ProductionConfigurationVerifier::class)->inspect());
     }
 
+    public function test_mariadb_runtime_connection_name_is_accepted(): void
+    {
+        config(['database.connections.mariadb' => ['driver' => 'mariadb', 'url' => null]]);
+        config(['database.default' => 'mariadb']);
+
+        self::assertSame([], app(ProductionConfigurationVerifier::class)->inspect());
+    }
+
+    public function test_non_runtime_connections_are_refused_as_the_application_default(): void
+    {
+        config([
+            'database.connections.oteryn_owner' => ['driver' => 'pgsql', 'url' => null],
+            'database.connections.platform_backup' => ['driver' => 'mysql', 'url' => null],
+            'database.connections.platform_dump' => ['driver' => 'mariadb', 'url' => null],
+        ]);
+
+        foreach (['pgsql_migrations', 'canary_character_transfer', 'canary', 'oteryn_owner', 'platform_backup', 'platform_dump'] as $name) {
+            config(['database.default' => $name]);
+
+            $this->assertViolation('DB_CONNECTION must name a runtime connection (pgsql, mysql or mariadb); migration, owner, backup, dump and Canary connections are refused as the application default in production.');
+        }
+    }
+
     public function test_sqlite_platform_connection_is_rejected(): void
     {
         config(['database.default' => 'sqlite']);

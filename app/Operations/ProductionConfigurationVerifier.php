@@ -9,6 +9,14 @@ use InvalidArgumentException;
 
 final class ProductionConfigurationVerifier
 {
+    /**
+     * Connection names the application may use as its default connection in production
+     * (the runtime connections of config/database.php). Privileged connections such as
+     * pgsql_migrations (schema owner), canary and canary_character_transfer share a server
+     * driver but must never serve runtime traffic, so a driver check alone is not enough.
+     */
+    private const RUNTIME_CONNECTIONS = ['pgsql', 'mysql', 'mariadb'];
+
     public function __construct(
         private readonly MailDeliveryConfigurationVerifier $mailDeliveryConfigurationVerifier,
     ) {}
@@ -108,6 +116,10 @@ final class ProductionConfigurationVerifier
 
         if (! in_array($resolved['driver'] ?? null, ['pgsql', 'mysql', 'mariadb'], true)) {
             return ['DB_CONNECTION must use the pgsql or mysql driver; sqlite and other drivers are refused in production.'];
+        }
+
+        if (! in_array($default, self::RUNTIME_CONNECTIONS, true)) {
+            return ['DB_CONNECTION must name a runtime connection (pgsql, mysql or mariadb); migration, owner, backup, dump and Canary connections are refused as the application default in production.'];
         }
 
         return [];
