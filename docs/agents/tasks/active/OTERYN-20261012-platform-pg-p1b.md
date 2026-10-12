@@ -51,7 +51,7 @@ checkpoint_version: 1
 updated_at: 2026-10-12T22:00:00Z
 head: UNKNOWN
 branch: claude/platform-pg-p1b-20261012
-pr: none
+pr: 1577
 status: validating
 context_routes:
   - ci
