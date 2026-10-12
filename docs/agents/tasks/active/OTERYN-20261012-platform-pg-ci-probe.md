@@ -55,7 +55,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-12T07:00:00Z
+updated_at: 2026-10-12T10:45:00Z
 head: UNKNOWN
 branch: claude/platform-pg-ci-probe-20261012
 pr: 1563
@@ -78,13 +78,14 @@ proven:
   - legacy token ratchet unchanged (fixtures resolve legacy-prefixed column names from the schema)
 derived:
   - PostgreSQL 17 behaviour matches 16 for row locking
-unknown:
-  - the PostgreSQL 17 CI failing-test list until the job runs on this head
+  - on head 18f93b34 the PostgreSQL 17 probe reported 960 tests, 29 skipped, 113 failing (the P2 queue) and all 5 concurrency tests passed
+unknown: []
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
-rejected_hypotheses: []
+  marker: platform-postgres red on 18f93b34 (phpunit exit 2)
+  evidence: job-level continue-on-error keeps the workflow green but the check run still reports failure for the known P2 suite failures
+rejected_hypotheses:
+  - a new regression on PostgreSQL 17 (the failing list matches the local PostgreSQL 16 probe and the concurrency tests pass)
 changed_paths:
   - .github/workflows/ci.yml
   - phpunit.pgsql.xml
@@ -96,6 +97,9 @@ validation:
   - command: phpunit concurrency tests on PostgreSQL 16; workflow inventory, pinning, ci contract tests, legacy token ratchet, checkpoint
     result: PASS
     evidence: local run
+  - command: summary step replayed on the 18f93b34 probe JUnit (pass) and with a failed, skipped or missing concurrency test or no report (fails)
+    result: PASS
+    evidence: local run against the ci-pgsql-probe artifact
 blockers:
   - none
 next_action: Read the platform-postgres artifact on the exact head, hand the failing list to P2, then archive this record when stage B lands.

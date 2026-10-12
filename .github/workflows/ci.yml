@@ -224,7 +224,10 @@ jobs:
     name: platform-postgres
     # Stage A of the Platform PostgreSQL migration probe: report only. This job is not listed in
     # the needs of `test` or `platform-gate`, and continue-on-error keeps its failures from
-    # failing the workflow. The failure list is uploaded as an artifact for the P2 work queue.
+    # failing the workflow. The known suite failures are the P2 work queue: the suite step
+    # records them (step-level continue-on-error) and they are uploaded as an artifact. The job
+    # itself fails only when no JUnit report is produced or a PostgreSQL concurrency test
+    # (tests/Feature/*/Concurrency/*PgsqlTest) fails, is skipped or does not run.
     needs: classify_changes
     if: ${{ needs.classify_changes.result == 'success' && needs.classify_changes.outputs.ci == 'true' && needs.classify_changes.outputs.reuse_heavy != 'true' }}
     continue-on-error: true
@@ -270,6 +273,7 @@ jobs:
         run: composer install --no-interaction --prefer-dist --no-progress
 
       - name: Run the full suite on PostgreSQL 17
+        continue-on-error: true
         run: |
           mkdir -p artifacts/ci
           php artisan config:clear --ansi
@@ -285,16 +289,26 @@ jobs:
 
           path = "artifacts/ci/phpunit-pgsql-junit.xml"
           if not os.path.isfile(path):
-              print("::warning::No PHPUnit JUnit report was produced on PostgreSQL.")
-              sys.exit(0)
+              print("::error::No PHPUnit JUnit report was produced on PostgreSQL.")
+              sys.exit(1)
           failed = []
           total = skipped = 0
+          concurrency_ok = 0
+          concurrency_bad = []
           for case in ET.parse(path).getroot().iter("testcase"):
               total += 1
+              owner = case.get('class') or case.get('classname') or case.get('file')
+              name = f"{owner}::{case.get('name')}"
+              is_bad = case.find("skipped") is not None or case.find("failure") is not None or case.find("error") is not None
+              if "\\Concurrency\\" in (owner or "") and (owner or "").endswith("PgsqlTest"):
+                  if is_bad:
+                      concurrency_bad.append(name)
+                  else:
+                      concurrency_ok += 1
               if case.find("skipped") is not None:
                   skipped += 1
               elif case.find("failure") is not None or case.find("error") is not None:
-                  failed.append(f"{case.get('class') or case.get('classname') or case.get('file')}::{case.get('name')}")
+                  failed.append(name)
           failed = sorted(set(failed))
           with open("artifacts/ci/pgsql-failing-tests.txt", "w", encoding="utf-8") as handle:
               handle.write("\n".join(failed) + ("\n" if failed else ""))
@@ -305,6 +319,12 @@ jobs:
               handle.write("Report only: this job is not a required check. The failing list is the P2 work queue.\n\n")
               for name in failed[:200]:
                   handle.write(f"- `{name}`\n")
+          for name in concurrency_bad:
+              print(f"::error::PostgreSQL concurrency test did not pass: {name}")
+          if concurrency_bad or concurrency_ok == 0:
+              print(f"::error::PostgreSQL concurrency tests: {concurrency_ok} passed, {len(concurrency_bad)} not passed.")
+              sys.exit(1)
+          print(f"PostgreSQL concurrency tests: {concurrency_ok} passed.")
           PY
 
       - name: Upload PostgreSQL probe output
