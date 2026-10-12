@@ -101,6 +101,7 @@ rejected_hypotheses:
   - A fence made of caller-supplied fields (store, scope, kid, identity). Anyone who can run publish-key could fabricate one (Codex P1, round 2), so the producer now reads and verifies the named intent from a read-only evidence mount and takes every checked value, including the progress baseline (Codex P2), from that line.
   - Accepting the last unobserved intent without proof that its anchor was posted. A failed anchor post left a usable intent (Codex P1, round 3), so an intent is usable only once P6 appends its `anchored` line after the post succeeded.
   - Comparing Docker's reported bind `Source` strings and deriving the share from them. Moby does not resolve symlinks, so an alias could put the evidence inside the database restore scope (Codex P2, round 4); check-location now requires `Source` to equal its kernel-resolved `mountinfo` path.
+  - Scoping restore detection to one store id. Restoring the database and platform_storage to before the init after a committed run let a new store S2 be created (Codex P1, round 5); the evidence directory is now bound to one store id, and a missing or different store is refused before the init as `store-changed`.
 changed_paths:
   - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
   - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p6a.md
