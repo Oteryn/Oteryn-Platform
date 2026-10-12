@@ -98,6 +98,7 @@ rejected_hypotheses:
   - A guard-only identity check before publish-trust. A restore after the check could still be re-bound and witnessed (Codex P1), so the fence moved inside the publication transaction.
   - Directory chattr +a as the integrity mechanism. It does not protect file content (Codex P1), so a mandatory external anchor replaced it.
   - A create-and-remove probe in check-location. It fails on an append-only directory (Codex P1).
+  - A fence made of caller-supplied fields (store, scope, kid, identity). Anyone who can run publish-key could fabricate one (Codex P1, round 2), so the producer now reads and verifies the named intent from a read-only evidence mount and takes every checked value, including the progress baseline (Codex P2), from that line.
 changed_paths:
   - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
   - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p6a.md
@@ -108,7 +109,7 @@ validation:
     evidence: local run before push
 blockers:
   - none
-next_action: The lead and the owner review and accept the note, and answer P1 to P5 and O1 to O5. Then the P6a implementation packet can start. Archive this record in the final authoring commit.
+next_action: The lead and the owner review and accept the note, and answer P1 to P6 and O1 to O5. Then the P6a implementation packet can start. Archive this record in the final authoring commit.
 terminal_pr_policy: archive_pending
 ```
 
