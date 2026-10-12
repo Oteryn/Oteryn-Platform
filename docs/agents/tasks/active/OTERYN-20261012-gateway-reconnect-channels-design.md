@@ -24,7 +24,12 @@ This is a design-only packet that changes no code. It covers two extensions of t
 - [x] Candidate contract amendment §19 (protocol 3) in `OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md`. Protocol 2 is unchanged.
 - [x] Proposed ADR 0045, registered in the ADR README inventory.
 - [x] Game dependencies listed (G1 recovery locator, G2 profile clarification, client protocol 3). No Game file is written.
-- [ ] Owner and Game architect accept or amend ADR 0045 and §19. U19–U25 are answered.
+- [x] Owner decisions of 2026-10-12 recorded:
+  - U19: channels `antica`, `obscura` and `pythera`, label equal to the capitalised key, `oteryn-staging-1` for staging only;
+  - U20: H = 12 h;
+  - U21: the handle counts as fresh authentication, and device binding is follow-up H1 after a repository check;
+  - U22: G1 is built now, with its ready-to-dispatch Game packet in contract §19.14.
+- [ ] The Game architect accepts or amends ADR 0045, §19, G1 and G2.
 
 ## Ownership
 
@@ -49,7 +54,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-12T12:00:00Z
+updated_at: 2026-10-12T18:00:00Z
 head: UNKNOWN
 branch: claude/gateway-reconnect-channels-design-20261012
 pr: 1558
@@ -66,10 +71,12 @@ proven:
   - Game serves ClientResume with an oteryn-reauth-recovery-v1 grant on the Channel owner (FND-04B section 20)
   - the recovery profile forbids channel, node and runtime-owner claims
   - ADR 0044 fences the preproduction store to one route record
+  - the remembered-device family exists only as a disabled, opt-in candidate (NATIVE_REMEMBERED_DEVICE_SESSION_CONTRACT_CANDIDATE.md); its credential rotates on use and its tickets do not record the family
+  - the Registry channel_key grammar already admits antica, obscura and pythera
 derived:
   - the recovery grant needs a Platform credential that survives ticket issuance; the design proposes a hashed play-session recovery handle
 unknown:
-  - U19 to U25 in contract section 19.12
+  - U23 to U25 in contract section 19.12
 conflicts: []
 first_failure:
   marker: none
@@ -99,8 +106,8 @@ validation:
     result: NOT_APPLICABLE
     evidence: documentation-only design; no code, route or configuration changed
 blockers:
-  - owner and Game architect acceptance of ADR 0045 and contract section 19
-next_action: owner and Game architect review ADR 0045 and contract section 19 and answer U19 to U25
+  - Game architect acceptance of ADR 0045, contract section 19, G1 and G2
+next_action: Game architect reviews ADR 0045 and contract section 19; the Game lead dispatches the section 19.14 packet
 ```
 
 ## Source branch closeout
@@ -113,4 +120,4 @@ source_branch_evidence: pending
 
 ## Notes
 
-Jira synchronization: pending (no mapped Story was resolved in this session). After acceptance, each implementation step of contract §19.11 needs its own packet.
+Owner decisions U19–U22 (2026-10-12) are recorded in contract §19 and ADR 0045. The owner wants a dedicated Issue for this work; it is proposed in the PR report and not created here. Game packet `OTV2-20261012-recovery-locator-producer` (contract §19.14) is ready to dispatch in Oteryn-Game. It is listed, and no Game file is written. Jira synchronization: pending (no mapped Story was resolved in this session). After acceptance, each implementation step of contract §19.11 needs its own packet.

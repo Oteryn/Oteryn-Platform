@@ -1,6 +1,6 @@
 # ADR 0045 — Native Gateway recovery grants and multiple channels per World
 
-- Status: Proposed — 2026-10-12, design only; needs owner and Game architect acceptance
+- Status: Proposed — 2026-10-12, design only. The owner decided U19–U22 on 2026-10-12 (contract §19). Game architect acceptance is still needed
 - Governing Issue: #1419 (N4-P native Game Gateway)
 - Contract: `docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md` §19 (candidate amendment N4P-4)
 - Consumes read-only: Game ADR-0003; Game `FND-04_REAUTHENTICATED_RECOVERY_GRANT_PROFILE_V1.md`; Game `FND-04B_RECONNECT_RECOVERY_CONTINUITY_CONTRACT.md`; Game `FND-RECOVERY-SOURCE-TRANSPORT-V2`; Platform ADR 0009, ADR 0020, ADR 0031, ADR 0044
@@ -27,7 +27,9 @@ A committed protocol 3 fresh admission also returns a **recovery handle**. The h
 
 - opaque, 256-bit and stored only as a hash;
 - held in client memory only;
-- bound to `AccountId`, `CharacterId`, `WorldId`, `native_security_generation`, a new per-account `native_play_generation` and an absolute expiry (proposed 12 h).
+- bound to `AccountId`, `CharacterId`, `WorldId`, `native_security_generation`, a new per-account `native_play_generation` and an absolute expiry of 12 h (owner decision U20; configuration may only shorten it).
+
+By owner decision U21, the handle counts as Platform fresh authentication for the recovery profile, and Game records this as G2. The owner also wants a stricter binding to a remembered device. Platform's remembered-device family exists only as a disabled, opt-in candidate. It uses a rotating bearer, and its tickets do not record the family. Device binding is therefore follow-up hardening H1 (contract §19.15): first revocation linkage, then a device-held proof key.
 
 The handle can do exactly one thing: obtain an `oteryn-reauth-recovery-v1` grant for its bound Character and World through `/v1/recover`. It is never a ticket, a fresh grant, an OAuth token, or a credential a game node sees.
 
@@ -59,15 +61,24 @@ The fresh scope keeps its configured key purpose (deployed as `fresh_admission`)
 
 The recovery grant carries no channel (recovery profile §7). Platform returns the endpoint of a routing target:
 
-- a Game-reported recovery locator entry when one exists (dependency G1);
+- the Character's Game-reported recovery locator entry when one exists (G1, contract §19.6);
 - otherwise the channel of the account's last committed attempt.
 
-The target must pass the same readiness checks as fresh selection. Platform never substitutes another channel. Until G1 exists, no Game channel transition may be enabled together with recovery, because a moved actor would be unrecoverable through Platform.
+The target must pass the same readiness checks as fresh selection. Platform never substitutes another channel. An entry saying the actor is absent only refuses.
+
+By owner decision U22, G1 is built now and not deferred. In G1:
+
+- the node that commits a placement change writes a durable outbox row in the same transaction;
+- it reports the change with its own locator certificate;
+- Platform accepts a report only from the scope's current assignment, so a deposed owner cannot move a route.
+
+Contract §19.14 is the ready-to-dispatch Game packet. The release gate stays in force until G1 runs: no Game channel transition is enabled together with recovery.
 
 ### 5. Multiple channels per World
 
 - **Distinct endpoints (M1).** One route record per `(WorldId, ChannelId)`, as in contract §7.3. Two current records never share `(host, port)`.
-- **Response.** The protocol 3 login response adds `channel_selection` (`requested` or `automatic`) and `channels`, the eligible candidates as `{channel_id, key}` for display only.
+- **Response.** The protocol 3 login response adds `channel_selection` (`requested` or `automatic`) and `channels`, the eligible candidates as `{channel_id, key, label}` for display only.
+- **First multichannel World (owner decision U19).** Three channels with the keys `antica`, `obscura` and `pythera`, and the labels `Antica`, `Obscura` and `Pythera`. The label is the capitalised key, computed when the response is built, so a later label column needs no protocol change. The existing staging channel `oteryn-staging-1` stays as it is, for staging only.
 - **Refusal.** A requested channel that is not eligible, while another is, returns `NATIVE_LOGIN_CHANNEL_UNAVAILABLE` with the eligible list. The ticket is unused, so the client retries with a new `attempt_ref`.
 - **Selection rule.** Unchanged: requested if eligible, otherwise the lowest canonical eligible `channel_id`.
 - **Preproduction store.** ADR 0044's one-record fence widens to every Channel of the one configured World. This replaces only ADR 0044's "exactly one route record" clause. Everything else in ADR 0044 stays: one World, the code allowlist and the audit.
@@ -91,8 +102,8 @@ The target must pass the same readiness checks as fresh selection. Platform neve
 
 ## Game dependencies (not changed by this ADR)
 
-- **G1 (Game-node contract change):** a recovery locator feed reporting each Character placement change to Platform over a dedicated mTLS identity. It is needed before any channel transition is combined with recovery.
-- **G2 (Game profile clarification):** the recovery profile §1 phrase "Platform freshly authenticated AccountId" covers a Platform recovery handle created by a fresh sign-in in the same play session and checked against the current security generation at issuance. Without G2, the recovery path needs a browser sign-in.
+- **G1 (Game-node contract change, built now):** the recovery locator producer. Packet `OTV2-20261012-recovery-locator-producer` is in contract §19.14.
+- **G2 (Game profile clarification):** the recovery profile §1 phrase "Platform freshly authenticated AccountId" covers a Platform recovery handle (owner decision U21). The handle is created by a fresh sign-in in the same play session and checked against the current security generation at issuance.
 - **Client:** protocol 3 support in the Game client (`crates/platform-client`). This is not a node change.
 
 ## Rollout and rollback
@@ -101,4 +112,9 @@ See contract §19.11. Rollback switches protocol 3 off. Protocol 2 is unaffected
 
 ## Open questions for acceptance
 
-U19–U25 in contract §19.12. The decisive ones are U21/G2 (handle as reauthentication), U20 (handle lifetime) and U22/G1 (locator).
+The owner resolved U19–U22 on 2026-10-12. These remain open:
+
+- U23, linked to H1;
+- U24, the per-account recovery attempt limit;
+- U25, shared endpoints;
+- the Game architect's acceptance of this ADR, of G1 and of G2.
