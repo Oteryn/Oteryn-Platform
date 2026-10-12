@@ -33,7 +33,7 @@ Derived from a fresh read of the tunnel configuration, never from memory of a pr
 
 The states are disjoint and exhaustive: `open`, `closed` and `split` are matched first by exact comparison, and whatever matches none is `unknown`. `split` and `unknown` never satisfy the external check and never count as open.
 
-`audit` prints `gate_state=<state>`, `edge_version=<n>` and `other_origin_routes=<n>`. A closed gate is reported as bounded drift, not as failure, and audit's exit code semantics are unchanged (success whenever the state is safely readable).
+`audit` prints `gate_state=<state>`, `edge_version=<n>` and `other_origin_routes=<n>` (and `closure_match` when asked, below). A closed gate is reported as bounded drift, not as failure, and audit's exit code semantics are unchanged (success whenever the state is safely readable).
 
 ## Mode contract
 
@@ -45,8 +45,8 @@ All new modes are `workflow_dispatch` only, from `main`, under `production-cloud
 | --- | --- | --- |
 | `mode` | all | Adds `maintenance-close` and `maintenance-open` to `audit`, `apply` |
 | `confirmation` | all but `audit` | `maintenance-close`: `CLOSE-OTERYN-EDGE`. `maintenance-open`: `OPEN-OTERYN-EDGE`. Checked by the workflow and again by the script |
-| `task_id` | both gate modes | Matches `^OTERYN-[0-9]{8}-[a-z0-9-]+$`. Names the cutover packet |
-| `closure_run_id` | `maintenance-open` | Run id of the `maintenance-close` run that produced the current closure |
+| `task_id` | both gate modes; optional on `audit` | Matches `^OTERYN-[0-9]{8}-[a-z0-9-]+$`. Names the cutover packet |
+| `closure_run_id` | `maintenance-open`; optional on `audit` | Run id of the `maintenance-close` run that produced the current closure |
 | `evidence_run_id` | `maintenance-open` | Run id of the cutover (`deploy-synology-staging.yml`) run that produced the cutover evidence |
 
 ### `maintenance-close`
@@ -83,10 +83,12 @@ All new modes are `workflow_dispatch` only, from `main`, under `production-cloud
 Implemented once in the script and used in three places: `maintenance-close` (refuses), `audit` (prints `other_origin_routes`), and the cutover (see below).
 
 - Scope: every ingress rule whose hostname is not exactly `oteryn.molehill.cloud` or `gateway.molehill.cloud`, including rules with a wildcard hostname, the legacy Gateway hostname, path-only rules and the final catch-all.
-- A rule matches when its `service` is a `scheme://[userinfo@]host[:port][/path]` URL whose effective port is 8000 or 8080 and whose host is the connector host: `localhost`, any `127.0.0.0/8` address, `[::1]`, `0.0.0.0`, `[::]`, or an IPv4-mapped form of those. Default ports apply when no port is given (`http` and `ws` 80, `https` and `wss` 443). `http_status:*`, `hello_world`, `bastion`, `socks5` and `unix:` services do not match.
+- A rule matches when its `service` is a `scheme://[userinfo@]host[:port][/path]` URL whose effective port is 8000 or 8080 and whose host, after normalization, is the connector host. Normalization comes first: lowercase the host, strip any trailing dots (`localhost.` is `localhost`), strip userinfo and brackets, then compare. The connector host is `localhost`, any `127.0.0.0/8` address, `[::1]`, `0.0.0.0`, `[::]`, or an IPv4-mapped form of those. Default ports apply when no port is given (`http` and `ws` 80, `https` and `wss` 443). `http_status:*`, `hello_world`, `bastion`, `socks5` and `unix:` services do not match.
+- The same normalization applies to the canonical hostnames when the rules are classified (case-insensitive, trailing dot stripped).
 - A `service` value that cannot be parsed, or a host in a numeric form other than dotted decimal, counts as a match when the rule could target port 8000 or 8080. The check fails closed.
 - The result is a count only. Hostnames, services and ports of unrelated rules are never printed, because the tunnel may carry operationally sensitive topology.
 - Cutover use: before the freeze, the cutover requires `audit` evidence for the same day: an `audit` run id from `main` whose output has `gate_state=open` and `other_origin_routes=0`. `maintenance-close` repeats the check at close time on the same read it writes from, and the hash check at `PUT` proves that read is still current. A rule added between the audit and the close is caught by the close.
+- Cutover use after the close: the cutover does not trust the close run id alone. `audit` accepts optional `task_id` and `closure_run_id` inputs and, when given, fetches the closure artifact with the same provenance rules as `maintenance-open`, then compares the task, `edge_version` and `config_hash` to the live configuration. It prints and records (artifact `oteryn-edge-audit-result`, JSON) `closure_match=yes` only when the live state is `closed` and all three match, otherwise `no`. The cutover requires, before the freeze steps and again before it writes its evidence, a successful `audit` run from `main` with `gate_state=closed`, `closure_match=yes` and the same `closure_run_id` and `task_id` it was started with. After a second close the earlier `closure_run_id` yields `closure_match=no`, so the cutover stops. The cutover reads that JSON, never a log.
 - Unverified residual risk, not detected by this design: a route to the loopback origins that does not pass through this tunnel (another connector, a host port forward). The plan keeps the host bindings loopback-only to prevent it, but the gate has no authoritative inventory of connectors or host forwards and claims no detection. The external probes below cover only the two canonical names, synthetic labels and the hostnames enumerated from this tunnel, so they cannot prove its absence. Closing this gap needs an authoritative inventory check, which is an owner decision (see *Owner approval*).
 
 ## External probes (`edge-probe` job)
@@ -156,9 +158,10 @@ Implemented only after this note is accepted, in one packet, on the paths the pl
 
 Test cases (script tests against the mock, workflow-shape tests in Python):
 
+- `audit` with `closure_run_id`: `closure_match=yes` for the current closure; `no` for an earlier close run id after a second close, for another task, for a changed `edge_version` or `config_hash`, and for a non-closed state; the audit result JSON is produced and contains no hostname other than the canonical ones.
 - One test per transition row, including both no-op rows and the `apply` refusals, including `apply` from `unknown` without a `503` rule.
 - Classification: `open`, `closed`, `split`, and `unknown` for a missing rule, a locally managed tunnel, one rule on `503` and the other on an arbitrary service.
-- Origin-route precondition: refusal for a wildcard, the legacy Gateway hostname, a path-only rule and the catch-all on `127.0.0.1`, `localhost`, `[::1]`, `0.0.0.0` and another `127.x` address with port 8000 or 8080, including IPv4-mapped and default-port forms; no refusal for `http_status:*`, other ports and `unix:`; an unparseable service refuses; the count is printed and no hostname or service is.
+- Origin-route precondition: refusal for a wildcard, the legacy Gateway hostname, a path-only rule and the catch-all on `127.0.0.1`, `localhost`, `[::1]`, `0.0.0.0` and another `127.x` address with port 8000 or 8080, including IPv4-mapped and default-port forms, and the case and trailing-dot aliases (`LOCALHOST`, `localhost.`, `127.0.0.1.`, `[::1]`); no refusal for `http_status:*`, other ports and `unix:`; an unparseable service refuses; the count is printed and no hostname or service is.
 - Close: unrelated rules and catch-all preserved byte for byte; other fields of the canonical rules preserved; hash, `version` or classification change between the first read and the `PUT` aborts with no write, on the renewal path as well (an unrelated ingress edit in between is preserved); read-back failure and a wrong `version` increment report failure; close from `closed` performs the renewal write and uploads a new closure artifact, and the earlier closure plus its evidence are then refused by `maintenance-open` (the stale-reuse case that a no-write close would have missed); an old closure and evidence refused after `maintenance-open` itself succeeded and the gate was closed again; ambiguous `PUT` then re-dispatch converges.
 - Open: no provenance lookup and no evidence needed from `open` (a retry with no ids succeeds); a final read that matches the hash but not the `version` aborts before the `PUT`; refused without the closure or the evidence artifact; with an expired or duplicate artifact; with evidence from another task; with evidence naming an earlier `close_run_id` (rollback, second close, stop at step 4); with an evidence run in any state outside the allowlist (failure, cancelled, skipped, neutral, stale, action_required, queued); with a stopped step; with a `version` bumped by an external edit, including one that restores identical closed rules; from `split`. Accepted with `cutover_complete` and with `rollback_verified`.
 - Serialization: three dispatches while one is running, with a close among them; a replaced pending run never yields a closure artifact and the next step refuses on that.
