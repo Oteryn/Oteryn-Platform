@@ -28,7 +28,8 @@ This is a documentation-only change. It does not change code, configuration, sch
 ## Acceptance criteria
 
 - [x] ADR 0046 `docs/architecture/adr/0046-platform-persistence-moves-to-postgresql.md`, Accepted, with the owner rationale, ADR-0013 §2 reference, ADR-0004 invariants and separate-instance placement; registered in the ADR README inventory.
-- [x] Plan `docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md` with packets P1 to P7, each with owned paths, validation and rollback, owner/operator inputs and open owner questions.
+- [x] Plan `docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md` with packets P1 to P7, each with owned paths, validation and rollback, and owner/operator inputs.
+- [x] Owner answers Q1 to Q6 (2026-10-12) applied consistently to ADR 0046 and the plan: clean-slate bootstrap, rollback only before the first native evidence write, MariaDB volume deleted after a successful cutover smoke test with no dump, stack-CA TLS, NAS-only staging backups with provisional RPO 24 h / RTO 4 h and off-NAS required before production, accent-sensitive search.
 - [x] No secret, certificate or credential in the repository; no new legacy-token occurrence; baseline not raised.
 - [ ] Exact-head CI and Agent Governance gates pass.
 
@@ -56,7 +57,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-12T12:00:00Z
+updated_at: 2026-10-12T16:00:00Z
 head: UNKNOWN
 branch: claude/platform-postgres-migration-plan-20261012
 pr: 1561
@@ -75,16 +76,19 @@ proven:
   - the Platform runtime DB user holds ALL PRIVILEGES on the schema and migrations run inside the runtime container
   - ADR 0044 allowlists exactly one store identity (driver mysql, host mariadb, port 3306) and needs a new decision to change it
   - the CI workflow budget is full (53 of 53), so packets extend existing workflows
+  - the staging deploy already runs migrate, passport:keys, oauth-client:ensure, world:ensure, native-admission publish-trust, native-topology:issue and native-route:publish idempotently
+  - owner answers Q1 to Q6 were given on 2026-10-12 and relayed by the lead
 derived:
-  - copying data is preferred over re-seeding because Game references AccountIds and operation ids, and the native evidence witness fails closed below its floor
+  - a clean-slate bootstrap is safe because the Game node is not deployed and all staging data is test data; the witness directory must be reset together with the database
 unknown:
-  - owner answers Q1 to Q6 in the plan
+  - none
 conflicts: []
 first_failure:
   marker: none
   evidence: none
 rejected_hypotheses:
   - one PostgreSQL cluster shared with Game; PITR is cluster-wide and DUR-02 needs independent restore
+  - copying MariaDB data to PostgreSQL as a required step; superseded by owner answer Q1 (clean slate), kept only as an optional fallback
 changed_paths:
   - docs/architecture/adr/0046-platform-persistence-moves-to-postgresql.md
   - docs/architecture/adr/README.md
@@ -96,7 +100,7 @@ validation:
     evidence: local run before push
 blockers:
   - none
-next_action: Lead review; on merge, archive this record and route plan questions Q1 to Q6 to the owner before P1 starts.
+next_action: Lead review of the owner-answer update; on merge, archive this record. P1 may start under its own task.
 terminal_pr_policy: archive_pending
 ```
 
@@ -110,4 +114,4 @@ source_branch_evidence: pending
 
 ## Notes
 
-The review in PR #1560 recommended staying on MariaDB. The owner chose to migrate. ADR 0046 records the rationale honestly: the benefits are prospective, and the timing (all data is test data) is what decides it.
+The review in PR #1560 recommended staying on MariaDB. The owner chose to migrate. ADR 0046 records the rationale honestly: the benefits are prospective, and the timing (all data is test data) is what decides it. The owner answered the plan's six questions on 2026-10-12; the plan's §6 records the answers.
