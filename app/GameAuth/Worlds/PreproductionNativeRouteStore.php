@@ -45,6 +45,11 @@ final class PreproductionNativeRouteStore
     /** The only libpq TLS mode the PostgreSQL identity admits: encrypted and the server name verified. */
     public const REQUIRED_PGSQL_SSLMODE = 'verify-full';
 
+    /** The runtime connection and role (ADR 0046 §5): never `pgsql_migrations`, whose credentials are the schema owner's. */
+    public const ALLOWED_PGSQL_CONNECTION = 'pgsql';
+
+    public const ALLOWED_PGSQL_USERNAME = 'oteryn_platform_app';
+
     /** True only when the explicit switch is on; off when unset or false; a malformed value refuses. */
     public function requested(): bool
     {
@@ -110,7 +115,7 @@ final class PreproductionNativeRouteStore
         return [$connection, $worldId];
     }
 
-    /** The driver selects one identity; host, port and (for PostgreSQL) the TLS mode must all match it. */
+    /** The driver selects one identity; host, port and (for PostgreSQL) the TLS mode, the default `pgsql` connection and the runtime app role must all match it. */
     private function isAllowlistedStore(Connection $connection): bool
     {
         $host = $connection->getConfig('host');
@@ -119,7 +124,9 @@ final class PreproductionNativeRouteStore
         return match ($connection->getDriverName()) {
             'mysql' => in_array($host, self::ALLOWED_HOSTS, true)
                 && in_array($port, [self::ALLOWED_PORT, (string) self::ALLOWED_PORT], true),
-            'pgsql' => in_array($host, self::ALLOWED_PGSQL_HOSTS, true)
+            'pgsql' => $connection->getName() === self::ALLOWED_PGSQL_CONNECTION
+                && $connection->getConfig('username') === self::ALLOWED_PGSQL_USERNAME
+                && in_array($host, self::ALLOWED_PGSQL_HOSTS, true)
                 && in_array($port, [self::ALLOWED_PGSQL_PORT, (string) self::ALLOWED_PGSQL_PORT], true)
                 && $connection->getConfig('sslmode') === self::REQUIRED_PGSQL_SSLMODE,
             default => false,

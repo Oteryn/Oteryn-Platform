@@ -42,6 +42,17 @@ final class PreproductionStoreRouteCommandsTest extends TestCase
         'prefix' => '',
     ];
 
+    private const PGSQL_STORE = [
+        'driver' => 'pgsql',
+        'host' => 'postgres',
+        'port' => '5432',
+        'database' => 'oteryn_platform',
+        'username' => 'oteryn_platform_app',
+        'password' => self::PASSWORD,
+        'sslmode' => 'verify-full',
+        'prefix' => '',
+    ];
+
     /**
      * The store double runs on the migrated in-memory sqlite database whatever the suite's default driver is, so the
      * PostgreSQL lane (DB_DATABASE names a PostgreSQL database there) exercises the same fence on the same double.
@@ -63,6 +74,8 @@ final class PreproductionStoreRouteCommandsTest extends TestCase
             config(['game-auth.native_route_preproduction_store.enabled' => false]);
             DB::setDefaultConnection('sqlite');
             DB::purge('preprod_store');
+            DB::purge('pgsql');
+            DB::purge('pgsql_migrations');
             Artisan::call('migrate:fresh', ['--force' => true]);
         }
         parent::tearDown();
@@ -158,6 +171,17 @@ final class PreproductionStoreRouteCommandsTest extends TestCase
         }
     }
 
+    public function test_the_pgsql_runtime_connection_with_the_app_role_is_admitted(): void
+    {
+        $world = Str::uuid7()->toString();
+        $this->preproductionStore($world, self::PGSQL_STORE, 'pgsql');
+
+        [$connection, $admittedWorld] = app(\App\GameAuth\Worlds\PreproductionNativeRouteStore::class)->admit();
+
+        self::assertSame('pgsql', $connection->getName());
+        self::assertSame($world, $admittedWorld);
+    }
+
     public function test_each_violated_fence_condition_refuses_with_its_named_reason_and_nothing_written(): void
     {
         $this->provisionedWorld();
@@ -179,6 +203,10 @@ final class PreproductionStoreRouteCommandsTest extends TestCase
             'unix socket' => [NativePreproductionStoreRefused::DATABASE, fn () => $this->preproductionStore($world, ['unix_socket' => '/run/mysqld/mysqld.sock'])],
             'other driver' => [NativePreproductionStoreRefused::DATABASE, fn () => $this->preproductionStore($world, ['driver' => 'mariadb'])],
             'read replica' => [NativePreproductionStoreRefused::DATABASE, fn () => $this->preproductionStore($world, ['read' => ['host' => ['replica']]])],
+            'pgsql schema-owner migrations connection' => [NativePreproductionStoreRefused::DATABASE, fn () => $this->preproductionStore($world, array_merge(self::PGSQL_STORE, ['username' => 'oteryn_platform_owner']), 'pgsql_migrations')],
+            'pgsql migrations connection with the app role' => [NativePreproductionStoreRefused::DATABASE, fn () => $this->preproductionStore($world, self::PGSQL_STORE, 'pgsql_migrations')],
+            'pgsql owner role on the default connection' => [NativePreproductionStoreRefused::DATABASE, fn () => $this->preproductionStore($world, array_merge(self::PGSQL_STORE, ['username' => 'oteryn_platform_owner']), 'pgsql')],
+            'pgsql app role on another connection name' => [NativePreproductionStoreRefused::DATABASE, fn () => $this->preproductionStore($world, self::PGSQL_STORE)],
             'disposable sqlite store' => [NativePreproductionStoreRefused::DATABASE, fn () => DB::setDefaultConnection('sqlite')],
         ];
 
@@ -252,23 +280,23 @@ final class PreproductionStoreRouteCommandsTest extends TestCase
     }
 
     /** @param array<string, mixed> $override */
-    private function preproductionStore(string $worldId, array $override = []): void
+    private function preproductionStore(string $worldId, array $override = [], string $name = 'preprod_store'): void
     {
         $config = array_merge(self::STORE, $override);
         config([
-            'database.connections.preprod_store' => $config,
+            "database.connections.{$name}" => $config,
             'game-auth.native_route_preproduction_store.enabled' => true,
             'game-auth.native_admission.unverified_character_world_id' => $worldId,
         ]);
         $pdo = DB::connection('sqlite')->getPdo();
-        DB::extend('preprod_store', fn (array $config, string $name): SQLiteConnection => new SQLiteConnection(
+        DB::extend($name, fn (array $config, string $name): SQLiteConnection => new SQLiteConnection(
             $pdo,
             is_string($config['database'] ?? null) ? $config['database'] : '',
             '',
             array_merge($config, ['name' => $name]),
         ));
-        DB::purge('preprod_store');
-        DB::setDefaultConnection('preprod_store');
+        DB::purge($name);
+        DB::setDefaultConnection($name);
         $this->useEnvironment('preproduction');
     }
 

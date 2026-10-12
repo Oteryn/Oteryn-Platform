@@ -133,6 +133,7 @@ The database condition of the fence becomes one identity per driver, still fixed
 | `pgsql` | `postgres` (the Compose service) | `5432` | `sslmode` exactly `verify-full` | `oteryn_platform` |
 
 - The driver of the default connection selects the identity. A driver crossed with the other identity's host or port refuses, as does every other driver.
+- For `pgsql` the default connection must be named `pgsql` and connect as the runtime role `oteryn_platform_app`; `pgsql_migrations` (the schema owner's credentials, same host, database and TLS) and any other role or connection name refuse, so the commands never mutate with schema-owner authority.
 - Every other condition is unchanged: `APP_ENV` exactly `preproduction`, a canonical UUIDv7 World, no outer transaction, no unix socket and no read/write split. Each violation refuses with `NATIVE_PREPROD_STORE_DATABASE_REFUSED` (or the existing named reason) and nothing written.
 - No environment variable widens the allowlist. A deployment has one default connection, chosen by `PLATFORM_DB_ENGINE` in `deploy/synology/release-contract.env`, so exactly one identity is reachable at a time.
 - Scope, idempotence, audit and output are unchanged.
