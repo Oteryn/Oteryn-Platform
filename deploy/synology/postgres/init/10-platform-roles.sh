@@ -130,6 +130,22 @@ ALTER DEFAULT PRIVILEGES FOR ROLE $owner IN SCHEMA public REVOKE ALL ON FUNCTION
 ALTER DEFAULT PRIVILEGES FOR ROLE $owner REVOKE ALL ON TABLES FROM $app, $dump, $backup;
 ALTER DEFAULT PRIVILEGES FOR ROLE $owner REVOKE ALL ON SEQUENCES FROM $app, $dump, $backup;
 ALTER DEFAULT PRIVILEGES FOR ROLE $owner REVOKE ALL ON FUNCTIONS FROM $app, $dump, $backup;
+-- PostgreSQL grants EXECUTE on functions and USAGE on types to PUBLIC by default; with schema USAGE the
+-- runtime and dump roles would inherit both. Revoke them from PUBLIC for everything that exists and for
+-- everything the owner (or this superuser session) creates later. The runtime needs no function today; a
+-- future one is granted to it explicitly by name.
+REVOKE ALL ON ALL ROUTINES IN SCHEMA public FROM PUBLIC;
+REVOKE ALL ON ALL ROUTINES IN SCHEMA public FROM $app, $dump, $backup;
+ALTER DEFAULT PRIVILEGES FOR ROLE $owner REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE $owner IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE $owner REVOKE USAGE ON TYPES FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES REVOKE USAGE ON TYPES FROM PUBLIC;
+SELECT format('REVOKE ALL ON TYPE %s FROM PUBLIC', t.oid::regtype)
+    FROM pg_type t
+    LEFT JOIN pg_class c ON c.oid = t.typrelid
+    WHERE t.typnamespace = 'public'::regnamespace
+      AND (t.typtype IN ('e', 'd', 'r', 'm') OR (t.typtype = 'c' AND c.relkind = 'c')) \gexec
 GRANT USAGE ON SCHEMA public TO $app, $dump;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO $app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO $app;
