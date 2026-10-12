@@ -53,7 +53,7 @@ owned_paths:
   - docs/operations/PLATFORM_POSTGRES_RESTORE_DRILL_EVIDENCE.md
   - docs/operations/INCIDENT_RECOVERY_RUNBOOK.md (Platform PostgreSQL section)
   - docs/operations/PRODUCTION_READINESS_CHECKLIST.md (§5 rows)
-  - docs/agents/tasks/archive/OTERYN-20261012-platform-pg-p5.md
+  - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p5.md
 modules:
   - deploy
 dependencies:
@@ -73,7 +73,8 @@ updated_at: 2026-10-13T04:30:00Z
 head: a17978379e032eeeb19472c9955df94b7790a95f
 branch: claude/platform-pg-p5-20261012
 pr: 1583
-status: completed
+status: validating
+terminal_pr_policy: archive_pending
 context_routes:
   - deploy
 owned_paths:
@@ -95,7 +96,7 @@ owned_paths:
   - docs/operations/PLATFORM_POSTGRES_RESTORE_DRILL_EVIDENCE.md
   - docs/operations/INCIDENT_RECOVERY_RUNBOOK.md
   - docs/operations/PRODUCTION_READINESS_CHECKLIST.md
-  - docs/agents/tasks/archive/OTERYN-20261012-platform-pg-p5.md
+  - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p5.md
 proven:
   - Local rehearsal on the pinned image (2026-10-12) passed the reconcile, check, and the probe, target-time and immediate drills. A low-space preflight refused, and a degraded check exited 3.
   - Retention, WAL pruning, archive refusal paths and restore exit codes (1 for absent, 199 for damage) are covered by tests/ci/test_synology_postgres_backup_contract.py.
@@ -137,7 +138,7 @@ validation:
     evidence: probe, target-time and immediate drills passed; scratch discarded; probe drill re-run passed after the self-review hardening
 blockers:
   - none
-next_action: none; PR #1583 merged as ba971b872ba243454b3a045d0b8ccb86bc8e68c7
+next_action: archive this record when the P6 drill and cutover packet records the staging pitr-drill pass and the 24 h archiver run without failures; those two criteria stay open here and move to that packet
 ```
 
 ## Source branch closeout
