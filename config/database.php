@@ -67,20 +67,4 @@ return [
         'table' => 'migrations',
         'update_date_on_publish' => true,
     ],
-    'redis' => [
-        'client' => env('CANARY_RUNTIME_REDIS_CLIENT', 'phpredis'),
-        'options' => [
-            'prefix' => '',
-        ],
-        'canary_runtime' => [
-            'scheme' => env('CANARY_RUNTIME_REDIS_SCHEME', 'tcp'),
-            'host' => env('CANARY_RUNTIME_REDIS_HOST', '127.0.0.1'),
-            'username' => env('CANARY_RUNTIME_REDIS_USERNAME'),
-            'password' => env('CANARY_RUNTIME_REDIS_PASSWORD'),
-            'port' => env('CANARY_RUNTIME_REDIS_PORT', '6379'),
-            'database' => env('CANARY_RUNTIME_REDIS_DB', '0'),
-            'timeout' => env('CANARY_RUNTIME_REDIS_TIMEOUT', '2.0'),
-            'read_timeout' => env('CANARY_RUNTIME_REDIS_READ_TIMEOUT', '2.0'),
-        ],
-    ],
 ];

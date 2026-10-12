@@ -35,7 +35,7 @@ Operation-specific contracts carry the exact evidence pins relevant to their wri
 - `account_sessions` and `cluster_sessions` are separate concepts.
 - `players_online` is not a valid cluster-wide authoritative online-character source.
 - fresh `cluster_sessions` with explicit status/expiry filtering support the implemented sanitized online-character read model.
-- Redis channel runtime state is the implemented bounded per-channel availability fast path; SQL runtime mirror/process-local status are not authoritative public fallbacks.
+- Redis channel runtime state was the former bounded per-channel availability fast path; the Platform no longer reads it (retired), and the SQL runtime mirror/process-local status were never authoritative public fallbacks.
 
 ### Derived default
 
@@ -193,9 +193,9 @@ The future authoritative Platform game-login bridge must define its own session-
 
 ## Runtime Redis
 
-The implemented `canary_runtime` connection is read-only from the Platform perspective.
+The Platform no longer opens any runtime Redis connection: the `canary_runtime` connection, its environment variables and its reader were removed, and the public server and home pages show the runtime as unavailable. Live per-channel population returns only through the accepted native projection.
 
-Runtime state is not a Phase 5 mutation surface.
+Runtime state was never a Phase 5 mutation surface.
 
 ## Phase 5 mutation inventory
 
