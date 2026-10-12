@@ -104,6 +104,7 @@ rejected_hypotheses:
   - Scoping restore detection to one store id. Restoring the database and platform_storage to before the init after a committed run let a new store S2 be created (Codex P1, round 5); the evidence directory is now bound to one store id, and a missing or different store is refused before the init as `store-changed`.
   - Checking anchors only in classify. A deleted run file emptied the directory before the continuity rule read it (Codex P1, round 6); `open` now verifies the fetched anchor set against the directory first and refuses with `evidence-lost`.
   - Writing the `init` record only after D1. A runner that died between D1 and that record left a store with no record, so a later restore looked like a first run (Codex P1, round 7); an anchored `init-intent` now precedes D1, and an unfinished one blocks `open` until `--close-init` closes it.
+  - Closing a committed run with `done: false` after a failed self-check. Every later `open` was `step4-complete`, so the cutover could never finish (Codex P2, round 8); the run now stays open, and `step4-recheck` reruns only the read-only self-check and closes it with `done: true`.
 changed_paths:
   - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
   - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p6a.md
