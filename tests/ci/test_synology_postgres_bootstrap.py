@@ -327,8 +327,27 @@ class StaticBootstrapTest(BootstrapCase):
 
     def test_record_writes_after_the_first_change_exit_with_the_failed_status(self) -> None:
         script = SCRIPT.read_text()
-        self.assertRegex(script, r'> "\$moved_file\.tmp" \\\n\s+&& chmod 600 "\$moved_file\.tmp" \\\n\s+&& mv -- "\$moved_file\.tmp" "\$moved_file" \\\n\s+\|\| failed ')
-        self.assertRegex(script, r'> "\$complete_file\.tmp" \\\n\s+&& chmod 600 "\$complete_file\.tmp" \\\n\s+&& mv -- "\$complete_file\.tmp" "\$complete_file" \\\n\s+\|\| failed ')
+        self.assertRegex(script, r'> "\$moved_file\.tmp" \\\n\s+&& chmod 600 "\$moved_file\.tmp" \\\n\s+&& mv -- "\$moved_file\.tmp" "\$moved_file" \\\n\s+\|\| \{ rm -f -- "\$moved_file\.tmp"; failed ')
+        self.assertRegex(script, r'> "\$complete_file\.tmp" \\\n\s+&& chmod 600 "\$complete_file\.tmp" \\\n\s+&& mv -- "\$complete_file\.tmp" "\$complete_file" \\\n\s+\|\| \{ rm -f -- "\$complete_file\.tmp"; failed ')
+
+    def test_failed_move_record_is_recoverable_by_adopting_the_intact_aside(self) -> None:
+        script = SCRIPT.read_text()
+        self.assertIn("find-aside)", script)
+        self.assertIn('witness find-aside "$frozen_manifest" "$frozen_store_id"', script)
+        self.assertIn('witness_aside_count "$aside_found")" == 1', script)
+        adopt = script[script.index('if [[ -n "$adopt_aside_to" ]]'):]
+        adopt = adopt[: adopt.index("echo \"Adopted")]
+        self.assertLess(script.index("\nprepare_state_dir\n", script.index("Nothing was changed.")), script.index('if [[ -n "$adopt_aside_to" ]]'))
+        self.assertIn("rm -f -- \"$moved_file.tmp\"", adopt)
+
+    def test_record_write_failures_after_the_first_mutation_exit_2_and_clean_their_tmp(self) -> None:
+        script = SCRIPT.read_text()
+        record = script[script.index("record_witness() {") : script.index('if [[ "$subcommand" == record-witness ]]')]
+        self.assertIn('rm -f -- "$freeze_file.tmp"; failed', record)
+        self.assertNotIn('refuse "the freeze record', record)
+        self.assertLess(script.index("\nfailed() {"), script.index("record_witness() {"))
+        self.assertIn('rm -f -- "$complete_file.tmp"; failed', script)
+        self.assertIn('rm -f -- "$moved_file.tmp"; failed', script)
 
 
 class LiveBootstrapCase(BootstrapCase):
@@ -543,6 +562,24 @@ class LiveRefusalTest(LiveBootstrapCase):
         program = script[script.index("verify-aside)"):script.index("prepare-empty)")]
         for needle in ('[ ! -L "$dir" ]', '[ -O "$dir" ]', '"$manifest" = "$expected_manifest"', '"$store_id" = "$expected_store_id"'):
             self.assertIn(needle, program)
+
+    def test_failed_move_record_is_adopted_on_the_next_run(self) -> None:
+        self.mariadb_era_witness()
+        mariadb_tree = tree(self.witness_dir)
+        self.assertEqual(self.bootstrap("record-witness", "--local").returncode, 0)
+        # Simulate the failed record write: the directory was moved aside, no moved-aside record exists.
+        aside = self.witness_dir.with_name(self.witness_dir.name + ".mariadb-era-20260101T000000Z")
+        self.witness_dir.rename(aside)
+        result = self.bootstrap("run", "--local")
+        self.assertNotIn("no intact preserved copy", result.stderr)
+        self.assertEqual(tree(aside), mariadb_tree)
+        self.assertTrue((self.state_dir / "witness-moved-aside.env").exists() or result.returncode != 0)
+        # A modified preserved copy is not adopted.
+        if (self.state_dir / "witness-moved-aside.env").exists():
+            return
+        victim = next(p for p in sorted(aside.iterdir()) if p.name != "witness-store.id")
+        victim.write_bytes(victim.read_bytes() + b"x")
+        self.assert_refused(self.bootstrap("run", "--local"), "no intact preserved copy")
 
 
 if __name__ == "__main__":

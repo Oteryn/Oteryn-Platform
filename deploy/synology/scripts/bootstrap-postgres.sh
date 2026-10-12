@@ -91,6 +91,17 @@ moved_file="$state_dir/witness-moved-aside.env"
 complete_file="$state_dir/bootstrap-complete.env"
 lock_dir="$state_dir/run.lock"
 
+witnessed_write_started=false
+failed() {
+    printf 'Bootstrap failed: %s\n' "$*" >&2
+    if [[ "$witnessed_write_started" == true ]]; then
+        echo "The first witnessed write (native admission trust publication) already happened: there is no rollback and no re-run. Only forward reconciliation by the operator is possible (runbook). Never edit or reuse the moved-aside MariaDB-era directory." >&2
+    else
+        echo "A change already began. Before the first witnessed write the only way forward is a clean-slate re-run: empty the PostgreSQL database and the new witness directory (runbook). Never edit or reuse the moved-aside MariaDB-era directory." >&2
+    fi
+    exit 2
+}
+
 # The first mutation of either subcommand. Still a refusal (exit 1): nothing else has changed yet.
 prepare_state_dir() {
     mkdir -p -- "$state_dir" || refuse "cannot create the bootstrap state directory $state_dir."
@@ -201,6 +212,25 @@ case "$action" in
         [ "$state" = present ] && [ "$manifest" = "$expected_manifest" ] && [ "$store_id" = "$expected_store_id" ] \
             || fail aside_changed
         echo "witness_aside=verified"
+        ;;
+    find-aside)
+        # Recovery after a move whose record could not be written: the preserved directories of this witness
+        # that still verify byte-identical against the freeze. Exactly one is adoptable.
+        expected_manifest="${2:-}"; expected_store_id="${3:-}"
+        found=0; found_path=""
+        for candidate in "$dir".mariadb-era-*; do
+            [ -e "$candidate" ] || [ -L "$candidate" ] || continue
+            if (
+                dir="$candidate"
+                [ -d "$dir" ] && [ ! -L "$dir" ] && [ -O "$dir" ] || exit 1
+                inspect
+                [ "$state" = present ] && [ "$manifest" = "$expected_manifest" ] && [ "$store_id" = "$expected_store_id" ]
+            ) >/dev/null 2>&1; then
+                found=$((found + 1)); found_path="$candidate"
+            fi
+        done
+        echo "witness_aside_count=$found"
+        [ "$found" -ne 1 ] || echo "witness_aside_path=$found_path"
         ;;
     prepare-empty)
         inspect
@@ -399,10 +429,12 @@ record_witness() {
     [[ ! -e "$freeze_file.tmp" && ! -L "$freeze_file.tmp" ]] \
         || refuse "$freeze_file.tmp already exists; remove the stale temporary record first."
     prepare_state_dir
+    # The state directory exists now: a write failure is a change that began, so it exits 2, removes its own
+    # temporary file (a stale one would block the next attempt) and is safe to re-run.
     printf '%s\nFROZEN_AT=%s\n' "$record" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$freeze_file.tmp" \
         && chmod 600 "$freeze_file.tmp" \
         && mv -- "$freeze_file.tmp" "$freeze_file" \
-        || refuse "the freeze record $freeze_file could not be written; nothing else was changed."
+        || { rm -f -- "$freeze_file.tmp"; failed "the freeze record $freeze_file could not be written; no witness was touched, and record-witness can be re-run."; }
     echo "Recorded the MariaDB-era witness: state=$witness_state store_id=$witness_store_id ($freeze_file)."
 }
 
@@ -432,6 +464,7 @@ inspect_witness
 
 witness_action=''
 moved_to=''
+adopt_aside_to=''
 if [[ "$witness_state" == present ]]; then
     if [[ -e "$moved_file" ]]; then
         reasons+=("the witness directory is not empty although this bootstrap already moved the MariaDB-era one aside. Unless the operator proves that no trust publication or provenance init ran, a PostgreSQL witness wrote to it: the first witnessed write happened and a re-run is impossible (forward reconciliation only).")
@@ -446,7 +479,15 @@ if [[ "$witness_state" == present ]]; then
     fi
 else
     if [[ "$frozen_state" == present && ! -e "$moved_file" ]]; then
-        reasons+=("the freeze recorded a non-empty MariaDB-era witness directory, but it is empty now and this bootstrap did not move it aside.")
+        # An earlier attempt may have moved the directory aside and then failed to write its record (disk full,
+        # I/O error). Adopt the preserved directory only when exactly one verifies byte-identical to the freeze.
+        aside_found="$(witness find-aside "$frozen_manifest" "$frozen_store_id")" || true
+        if [[ "$(value_of witness_aside_count "$aside_found")" == 1 && -n "$(value_of witness_aside_path "$aside_found")" ]]; then
+            adopt_aside_to="$(value_of witness_aside_path "$aside_found")"
+            moved_to="$adopt_aside_to"
+        else
+            reasons+=("the freeze recorded a non-empty MariaDB-era witness directory, but it is empty now and no intact preserved copy of it was found (verified copies: $(value_of witness_aside_count "$aside_found")); this bootstrap did not move it aside.")
+        fi
     elif [[ -e "$moved_file" ]]; then
         moved_to="$(read_record_key "$moved_file" MOVED_ASIDE_TO)"
         if [[ "$moved_to" != "$frozen_dir".mariadb-era-* \
@@ -581,21 +622,19 @@ fi
 # finished or moved the witness aside between the checks above and the lock).
 prepare_state_dir
 [[ ! -e "$complete_file" ]] || refuse "this state directory already records a completed bootstrap ($complete_file); a re-run is refused."
+if [[ -n "$adopt_aside_to" ]]; then
+    # Re-establish the move record of the earlier attempt (its write had failed); nothing else changes.
+    printf 'MOVED_ASIDE_TO=%s\nWITNESS_STORE_ID=%s\nMOVED_AT=%s\n' "$adopt_aside_to" "$frozen_store_id" \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$moved_file.tmp" \
+        && chmod 600 "$moved_file.tmp" \
+        && mv -- "$moved_file.tmp" "$moved_file" \
+        || { rm -f -- "$moved_file.tmp"; refuse "the moved-aside record $moved_file for the preserved directory $adopt_aside_to could not be written; nothing else was changed."; }
+    echo "Adopted the intact preserved MariaDB-era witness directory: $adopt_aside_to"
+fi
 [[ "$witness_action" != move-aside || ! -e "$moved_file" ]] \
     || refuse "this bootstrap already moved the MariaDB-era witness aside ($moved_file) in a concurrent run."
 
 # --- run: steps 1 to 8 ---------------------------------------------------------------------
-witnessed_write_started=false
-failed() {
-    printf 'Bootstrap failed: %s\n' "$*" >&2
-    if [[ "$witnessed_write_started" == true ]]; then
-        echo "The first witnessed write (native admission trust publication) already happened: there is no rollback and no re-run. Only forward reconciliation by the operator is possible (runbook). Never edit or reuse the moved-aside MariaDB-era directory." >&2
-    else
-        echo "A change already began. Before the first witnessed write the only way forward is a clean-slate re-run: empty the PostgreSQL database and the new witness directory (runbook). Never edit or reuse the moved-aside MariaDB-era directory." >&2
-    fi
-    exit 2
-}
-
 echo "Step 1/8: native evidence witness reset."
 if [[ "$witness_action" == move-aside ]]; then
     target="$frozen_dir.mariadb-era-$(date -u +%Y%m%dT%H%M%SZ)"
@@ -606,7 +645,7 @@ if [[ "$witness_action" == move-aside ]]; then
             "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$moved_file.tmp" \
             && chmod 600 "$moved_file.tmp" \
             && mv -- "$moved_file.tmp" "$moved_file" \
-            || failed "the MariaDB-era witness was moved aside to $moved_to but its record $moved_file could not be written."
+            || { rm -f -- "$moved_file.tmp"; failed "the MariaDB-era witness was moved aside to $moved_to but its record $moved_file could not be written; a re-run adopts the intact preserved directory."; }
         echo "MariaDB-era witness directory moved aside, unedited: $moved_to"
     fi
 else
@@ -759,7 +798,7 @@ printf 'BOOTSTRAPPED_AT=%s\nOAUTH_CLIENT_ID=%s\nOAUTH_RUST_CLIENT_ID=%s\nNATIVE_
     > "$complete_file.tmp" \
     && chmod 600 "$complete_file.tmp" \
     && mv -- "$complete_file.tmp" "$complete_file" \
-    || failed "the completion record $complete_file could not be written."
+    || { rm -f -- "$complete_file.tmp"; failed "the completion record $complete_file could not be written."; }
 
 echo "Non-secret values for the operator:"
 echo "bootstrap_result=complete"

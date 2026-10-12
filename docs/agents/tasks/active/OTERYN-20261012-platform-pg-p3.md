@@ -35,7 +35,7 @@ owned_paths:
   - deploy/synology/tests/**
   - tests/ci/test_synology_*.py
   - docs/operations/PLATFORM_POSTGRES_BOOTSTRAP.md
-  - docs/agents/tasks/archive/OTERYN-20261012-platform-pg-p3.md
+  - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p3.md
 modules:
   - synology-deploy
   - database
@@ -54,8 +54,8 @@ checkpoint_version: 1
 updated_at: 2026-10-12T23:30:00Z
 head: branch head of claude/platform-pg-p3-20261012 (the PR's head)
 branch: claude/platform-pg-p3-20261012
-pr: the PR from claude/platform-pg-p3-20261012 to main
-status: completed
+pr: 1578
+status: waiting
 context_routes:
   - database
   - synology-deploy
@@ -64,7 +64,7 @@ owned_paths:
   - deploy/synology/tests/**
   - tests/ci/test_synology_*.py
   - docs/operations/PLATFORM_POSTGRES_BOOTSTRAP.md
-  - docs/agents/tasks/archive/OTERYN-20261012-platform-pg-p3.md
+  - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p3.md
 proven:
   - Local run (PostgreSQL 16.15, PHP 8.5.11) of tests/ci/test_synology_postgres_bootstrap.py with OTERYN_PG_BOOTSTRAP_REQUIRE_LIVE=1, 18 tests pass; without PostgreSQL the 9 live cases skip.
   - With native admission off (APP_ENV production) the run migrates, seeds roles, creates both OAuth clients and the World row, passes production:verify-configuration, and leaves no trust row, no witness binding and an empty 0700 witness directory.
@@ -89,7 +89,7 @@ changed_paths:
   - deploy/synology/scripts/bootstrap-postgres.sh
   - tests/ci/test_synology_postgres_bootstrap.py
   - docs/operations/PLATFORM_POSTGRES_BOOTSTRAP.md
-  - docs/agents/tasks/archive/OTERYN-20261012-platform-pg-p3.md
+  - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p3.md
 validation:
   - command: OTERYN_PG_BOOTSTRAP_REQUIRE_LIVE=1 python3 tests/ci/test_synology_postgres_bootstrap.py (local PostgreSQL 16, PHP 8.5)
     result: PASS
