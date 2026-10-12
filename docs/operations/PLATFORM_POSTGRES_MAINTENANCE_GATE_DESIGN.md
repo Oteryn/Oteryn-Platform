@@ -20,8 +20,10 @@ Derived from a fresh read of the tunnel ingress, never from memory of a previous
 | --- | --- |
 | `open` | Both canonical rules on their fixed loopback origins |
 | `closed` | Both canonical rules on `http_status:503` |
-| `split` | One canonical rule closed, the other not (only an external edit can cause it, because both rules change in one `PUT`) |
-| `unknown` | Read failed, tunnel locally managed, rules ambiguous, or any value outside the above |
+| `split` | Exactly one canonical rule is on `http_status:503` and the other is on its fixed loopback origin (only an external edit can cause it, because both rules change in one `PUT`) |
+| `unknown` | Everything else: read failed, tunnel locally managed, rules ambiguous or missing, or a canonical rule on any service other than its fixed loopback origin or `http_status:503` (including one rule on `503` and the other on an arbitrary service) |
+
+The four states are disjoint and exhaustive. Classification checks `open`, `closed` and `split` first by exact match on the two rule services; whatever matches none of them is `unknown`.
 
 `split` and `unknown` are treated as not open. They never satisfy the external check.
 
@@ -46,10 +48,10 @@ Derived from a fresh read of the tunnel ingress, never from memory of a previous
 
 **Evidence precondition for `maintenance-open` (*proposal*).** From `closed` or `split` the mode refuses unless the dispatch names a task id and a run id and exactly one of these holds, checked by the workflow before any `PUT`:
 
-1. Cutover completed: the cutover run for that task reached step 7 and recorded success, including the post-cutover health check.
+1. Cutover ready to open: the cutover run for that task recorded step 6 as done (step 5 native login smoke passed and the cutover was declared done). Step 7 is the opening step, so this evidence is the authorization for `maintenance-open` and cannot require step 7 itself to be complete. The post-open `audit` and external requests are the step 7 result, not its precondition.
 2. Rollback verified: the MariaDB rollback for that task finished and `health-check.sh` passed against it in a recorded run.
 
-A closed gate with a stopped step (for example step 4 on ambiguous trust state) satisfies neither case, so `maintenance-open` refuses and the gate stays closed. Missing, unreadable or unbound evidence also refuses. The evidence run ids are logged in the summary.
+A closed gate with a stopped step (for example step 4 on ambiguous trust state, or step 5 or 6 not recorded) satisfies neither case, so `maintenance-open` refuses and the gate stays closed. Missing, unreadable or unbound evidence also refuses. The evidence run ids are logged in the summary.
 
 Ordering: read, validate, re-read and hash check, `PUT`, read back. A failed read-back leaves the state as read, reported as failure, never as success.
 
@@ -63,7 +65,7 @@ Ordering: read, validate, re-read and hash check, `PUT`, read back. A failed rea
 
 ## Tests per transition (`tests/operations/cloudflare-oteryn-endpoints/**`)
 
-One test per row of the transition table, plus: `apply` refuses from `closed`, `split` and `unknown`; `maintenance-open` refuses without cutover-complete or rollback-verified evidence, with evidence from another task, and with a stopped step; refusal on another rule targeting `127.0.0.1`, `localhost`, `[::1]` or `0.0.0.0` on port 8000 or 8080 (including wildcard, legacy Gateway and catch-all); unrelated rules and the catch-all preserved byte for byte; hash mismatch aborts; read-back failure reported as failure; `audit` reports `closed` as bounded drift; confirmation phrase required; no secret or bypass value in output.
+One test per row of the transition table, plus: classification of one rule on `503` and the other on an arbitrary service as `unknown`, not `split`; `apply` refuses from `closed`, `split` and `unknown`; `maintenance-open` refuses without cutover-complete or rollback-verified evidence, with evidence from another task, and with a stopped step; refusal on another rule targeting `127.0.0.1`, `localhost`, `[::1]` or `0.0.0.0` on port 8000 or 8080 (including wildcard, legacy Gateway and catch-all); unrelated rules and the catch-all preserved byte for byte; hash mismatch aborts; read-back failure reported as failure; `audit` reports `closed` as bounded drift; confirmation phrase required; no secret or bypass value in output.
 
 ## Open questions for the reviewer
 
