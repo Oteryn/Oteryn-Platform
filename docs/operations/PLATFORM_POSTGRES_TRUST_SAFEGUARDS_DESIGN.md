@@ -21,7 +21,7 @@ Items marked *proposal* are choices this note asks the reviewer to accept. Every
 
 ### 2. Attempt evidence
 
-- Append-only records on host storage outside the database, outside the witness directory and outside the Platform volumes, so that no database or Platform volume restore rolls them back. *Proposal*: the host key-custody directory that already holds `used.kids` (`generate-native-admission-key.sh`), in a new file next to it. Implementation must show that this directory is outside every restore scope, or choose another host location that is.
+- Append-only records on host storage outside the database, outside the witness directory and outside the Platform volumes, so that no database or Platform volume restore rolls them back. *Proposal*: the new NAS host directory `/volume1/docker/oteryn/attempt-evidence/` (override `OTERYN_ATTEMPT_EVIDENCE_HOST_PATH`), one file per P6 run, created `0600`, written with `O_APPEND` and `fsync`, and set append-only (`chattr +a`) where the filesystem supports it. It is a plain host path, not a Docker volume, and is deliberately not the key-custody directory beside `used.kids` and not inside `oteryn-native-admission-keys`, `platform_storage`, `postgres_data` or the WAL spool, because the migration plan backs those up and a restore of any of them would roll the records back. The directory is excluded from every backup and restore task, and no restore task targets it. `cutover-postgres.sh` refuses to run the publication when the resolved real path lies inside any of those volumes or spool paths, or when the directory is not writable.
 - Each record binds: the new P6 run id, the PostgreSQL witness-store id, the trust scope and the key id being published.
 - Two records per attempt (*proposal*): `intent`, written and flushed before `publish-trust` runs, and `result` (success or failure), written after. An `intent` without a `result` means the witness may have advanced. If an `intent` cannot be written, `cutover-postgres.sh` does not run the publication.
 - The evidence is a record for the operator and the owner. No code reads it to authorise a repair.
@@ -66,5 +66,5 @@ No repair is designed here and nothing in P6 depends on one. A future repair nee
 
 ## Open questions for the reviewer
 
-1. Is the `used.kids` custody directory outside all restore scope on the Synology host? If not, which host location is?
+1. Is `/volume1/docker/oteryn/attempt-evidence/` outside every Synology backup and restore task, with `chattr +a` available on that share? If not, which host path is?
 2. Is the two-record `intent`/`result` shape acceptable, or is a single record preferred?
