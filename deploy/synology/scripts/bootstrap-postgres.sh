@@ -102,6 +102,7 @@ lock_dir="$state_dir/run.lock"
 
 witnessed_write_started=false
 failed() {
+    commit_state_dir
     printf 'Bootstrap failed: %s\n' "$*" >&2
     if [[ "$witnessed_write_started" == true ]]; then
         echo "The first witnessed write (native admission trust publication) already happened: there is no rollback and no re-run. Only forward reconciliation by the operator is possible (runbook). Never edit or reuse the moved-aside MariaDB-era directory." >&2
@@ -118,8 +119,12 @@ failed() {
 target_lock_held=''
 run_lock_held=false
 state_dir_created=false
+# restrict_state_dir changes the mode of an existing directory; until commit_state_dir (the first real
+# change: a record write, the witness move or reset) an exit-1 refusal puts the original mode back.
+state_dir_original_mode=''
 release_locks() {
     [[ "$run_lock_held" != true ]] || rmdir -- "$lock_dir" 2>/dev/null || true
+    [[ -z "$state_dir_original_mode" ]] || chmod "$state_dir_original_mode" -- "$state_dir" 2>/dev/null || true
     [[ -z "$target_lock_held" ]] || rmdir -- "$target_lock_held" 2>/dev/null || true
     [[ "$state_dir_created" != true ]] || rmdir -- "$state_dir" 2>/dev/null || true
 }
@@ -158,7 +163,16 @@ prepare_state_dir() {
 
 # After the lock and every re-check: the first change to an existing state directory.
 restrict_state_dir() {
+    local mode
+    mode="$(stat -c '%a' -- "$state_dir" 2>/dev/null || stat -f '%Lp' -- "$state_dir" 2>/dev/null)" || mode=''
     chmod 700 -- "$state_dir" || refuse "cannot restrict the bootstrap state directory $state_dir to its owner."
+    [[ "$mode" == 700 ]] || state_dir_original_mode="$mode"
+}
+
+# From here the run has changed something that stays (a record, the witness directory): the directory keeps
+# its restricted mode and is not removed, whatever happens next.
+commit_state_dir() {
+    state_dir_original_mode=''
     state_dir_created=false
 }
 
@@ -514,6 +528,7 @@ record_witness() {
     restrict_state_dir
     # The state directory exists now: a write failure is a change that began, so it exits 2, removes its own
     # temporary file (a stale one would block the next attempt) and is safe to re-run.
+    commit_state_dir
     printf '%s\nFROZEN_AT=%s\n' "$record" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$freeze_file.tmp" \
         && chmod 600 "$freeze_file.tmp" \
         && mv -- "$freeze_file.tmp" "$freeze_file" \
@@ -615,6 +630,16 @@ elif [[ "$probe_result" == wrong_engine ]]; then
 elif [[ "$probe_result" == unreachable ]]; then
     reasons+=("the target PostgreSQL database is unreachable through the runtime or the pgsql_migrations connection ($(value_of error "$probe_output")).")
 else
+    # The server major the stack is built and tested for: the Compose service pins PostgreSQL 17; --local also
+    # accepts 16, the other CI matrix leg. A wrong major is refused before Step 1, not discovered after it.
+    server_version="$(value_of server_version_num "$probe_output")"
+    if [[ "$local_mode" == true ]]; then
+        [[ "$server_version" =~ ^1[67][0-9]{4}$ ]] || reasons+=("the target PostgreSQL server_version_num is ${server_version:-unknown}; only PostgreSQL 16 or 17 is supported.")
+    else
+        [[ "$server_version" =~ ^17[0-9]{4}$ ]] || reasons+=("the target PostgreSQL server_version_num is ${server_version:-unknown}; the Compose stack runs, and this bootstrap supports, only PostgreSQL 17.")
+        [[ "$(value_of runtime_connection "$probe_output")" == pgsql ]] \
+            || reasons+=("the default database connection is $(value_of runtime_connection "$probe_output"), not pgsql (the connection the Platform runtime and the preproduction store fence require).")
+    fi
     [[ "$(value_of same_database "$probe_output")" == true ]] \
         || reasons+=("the runtime and pgsql_migrations connections do not point at the same PostgreSQL database.")
     native_rows="$(value_of native_rows "$probe_output")"
@@ -730,6 +755,7 @@ if [[ -n "$adopt_aside_to" ]]; then
         && chmod 600 "$moved_file.tmp" \
         && mv -- "$moved_file.tmp" "$moved_file" \
         || { rm -f -- "$moved_file.tmp"; refuse "the moved-aside record $moved_file for the preserved directory $adopt_aside_to could not be written; nothing else was changed."; }
+    commit_state_dir
     echo "Adopted the intact preserved MariaDB-era witness directory: $adopt_aside_to"
 fi
 [[ "$witness_action" != move-aside || ! -e "$moved_file" ]] \
@@ -742,6 +768,7 @@ if [[ "$witness_action" == move-aside ]]; then
     witness_output="$(witness move-aside "$frozen_manifest" "$frozen_store_id" "$target")" || true
     moved_to="$(value_of witness_moved_aside_to "$witness_output")"
     if [[ -n "$moved_to" ]]; then
+        commit_state_dir
         printf 'MOVED_ASIDE_TO=%s\nWITNESS_STORE_ID=%s\nMOVED_AT=%s\n' "$moved_to" "$frozen_store_id" \
             "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$moved_file.tmp" \
             && chmod 600 "$moved_file.tmp" \
@@ -750,6 +777,7 @@ if [[ "$witness_action" == move-aside ]]; then
         echo "MariaDB-era witness directory moved aside, unedited: $moved_to"
     fi
 else
+    commit_state_dir
     witness_output="$(witness prepare-empty)" || true
 fi
 if [[ "$(value_of witness_new_directory "$witness_output")" != empty ]]; then

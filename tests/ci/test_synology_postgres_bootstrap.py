@@ -287,6 +287,33 @@ class StaticBootstrapTest(BootstrapCase):
         held.rmdir()
         target.rmdir()
 
+    def test_state_directory_mode_is_restored_by_a_refusal_before_the_first_change(self) -> None:
+        text = SCRIPT.read_text()
+        restrict = text[text.index("restrict_state_dir() {") : text.index("commit_state_dir() {")]
+        self.assertIn('state_dir_original_mode="$mode"', restrict)
+        release = text[text.index("release_locks() {") : text.index("prepare_state_dir() {")]
+        self.assertIn('chmod "$state_dir_original_mode"', release)
+        # failed() (exit 2, a change began) keeps the mode; so does every record write and the witness reset.
+        self.assertLess(text.index("failed() {"), text.index("    commit_state_dir\n    printf 'Bootstrap failed"))
+        run = text[text.index("# --- run: steps 1 to 8"):]
+        self.assertLess(run.index("witness move-aside"), run.index("        commit_state_dir\n        printf 'MOVED_ASIDE_TO"))
+        self.assertLess(run.index("    commit_state_dir\n    witness_output=\"$(witness prepare-empty)"), run.index("Step 2/8"))
+        # The refusal for a move that moved nothing is reached before any commit, so it restores the mode.
+        move_failed = run.index("the witness directory could not be moved aside")
+        self.assertLess(run.index("witness move-aside"), move_failed)
+        self.assertNotIn("commit_state_dir", run[run.index('if [[ -z "$moved_to" && "$witness_action"') : move_failed])
+        self.assertIn("    commit_state_dir\n    printf '%s\\nFROZEN_AT=%s", text)
+
+    def test_server_major_version_is_validated_before_the_first_change(self) -> None:
+        text = SCRIPT.read_text()
+        check = text.index("server_version_num")  # emitted by the probe
+        reasons = text.index('server_version="$(value_of server_version_num')
+        self.assertGreater(reasons, check)
+        self.assertIn("^17[0-9]{4}$", text)
+        self.assertIn("^1[67][0-9]{4}$", text)
+        self.assertLess(reasons, text.index("\nprepare_state_dir\n"))
+        self.assertIn('"$(value_of runtime_connection "$probe_output")" == pgsql', text)
+
     def test_held_target_lock_creates_no_state_directory(self) -> None:
         self.witness_dir.mkdir(mode=0o700)
         (self.witness_dir / "witness-store.id").write_text(secrets.token_hex(32) + "\n")
