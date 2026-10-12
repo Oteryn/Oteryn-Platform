@@ -117,6 +117,16 @@ fail() {
     exit 1
 }
 
+# Keeps an earlier failure as the reported one and adds the cleanup failure to it.
+cleanup_failed() {
+    if [[ "${evidence[result]:-}" == failed ]]; then
+        record cleanup_failure "$1"
+    else
+        record result failed
+        record failure "cleanup: $1"
+    fi
+}
+
 cleanup() {
     local status=$? deadline
     if [[ "$scratch_created" == true ]]; then
@@ -128,11 +138,15 @@ cleanup() {
         while docker container inspect "$scratch" > /dev/null 2>&1 && (( SECONDS < deadline )); do
             sleep 1
         done
+        # A drill that passed its checks but left its scratch instance behind is a failed drill: the
+        # evidence and the summary say so, not only the exit status.
         if docker container inspect "$scratch" > /dev/null 2>&1; then
             echo "Scratch container $scratch is still present; remove it by hand (docker stop $scratch)." >&2
+            cleanup_failed "scratch container $scratch is still present"
             status=1
         elif [[ -n "$scratch_volume" ]] && docker volume inspect "$scratch_volume" > /dev/null 2>&1; then
             echo "Scratch data volume $scratch_volume is still present (anonymous volume of the drill)." >&2
+            cleanup_failed "scratch data volume $scratch_volume is still present"
             status=1
         else
             log "scratch instance discarded"

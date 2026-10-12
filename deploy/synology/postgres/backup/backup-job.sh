@@ -15,8 +15,8 @@
 # weeks. WAL older than the start of the oldest retained daily base backup is removed, so PITR reaches
 # back to that backup; a weekly backup restores to its own end (it carries its WAL in pg_wal.tar.gz).
 #
-# Modes: service | loop | credentials | base [due|stale] | dump [due|stale] | ensure | prune | preflight | status
-#        | retained <kind>
+# Modes: service | loop | credentials | base [due|stale] | dump [due|stale] | ensure | prune
+#        | preflight [base|dump] | status | retained <kind>
 set -euo pipefail
 umask 077
 export LC_ALL=C TZ=UTC
@@ -31,8 +31,9 @@ BACKUP_HOUR_UTC="${OTERYN_BACKUP_HOUR_UTC:-2}"
 INTERVAL_SECONDS="${OTERYN_BACKUP_INTERVAL_SECONDS:-300}"
 KEEP_DAILY="${OTERYN_BACKUP_KEEP_DAILY:-7}"
 KEEP_WEEKLY="${OTERYN_BACKUP_KEEP_WEEKLY:-4}"
-# Free space the spool must keep before a backup starts (preflight): room for one more base backup and
-# one more dump at the uncompressed database size each, plus a day of WAL, and never below MIN_FREE_MB.
+# Free space the spool must keep (preflight), at the uncompressed database size per backup plus a day of
+# WAL and never below MIN_FREE_MB: room for the next base backup and dump together (`preflight`, the
+# deploy reconcile and `check`), or for the one backup a job is about to take (`preflight base|dump`).
 MIN_FREE_MB="${OTERYN_BACKUP_MIN_FREE_MB:-2048}"
 WAL_RESERVE_MB="${OTERYN_BACKUP_WAL_RESERVE_MB:-1024}"
 RETRY_BACKOFF_SECONDS=3600
@@ -139,8 +140,16 @@ take_lock() {
 }
 
 # Prints database_mb, required_free_mb, spool_free_mb and result; exits 1 when the spool lacks room.
+# Without an argument it reserves the next base backup and dump together; a job passes its own kind and
+# reserves only the backup it takes, so a dump after the day's base backup is not refused for space the
+# base backup already used.
 preflight() {
-    local db_bytes db_mb required free
+    local work="${1:-pair}" backups db_bytes db_mb required free
+    case "$work" in
+        pair) backups=2 ;;
+        base | dump) backups=1 ;;
+        *) die "preflight expects no argument, base or dump" ;;
+    esac
     require_spool
     use_credentials || { printf 'result=credentials_missing\n'; return 1; }
     if ! db_bytes="$(dump_sql 'SELECT pg_database_size(current_database())')" || [[ ! "$db_bytes" =~ ^[0-9]+$ ]]; then
@@ -149,14 +158,14 @@ preflight() {
         return 1
     fi
     db_mb=$(( (db_bytes + 1048575) / 1048576 ))
-    required=$(( 2 * (db_mb + 64) + WAL_RESERVE_MB ))
+    required=$(( backups * (db_mb + 64) + WAL_RESERVE_MB ))
     (( required >= MIN_FREE_MB )) || required="$MIN_FREE_MB"
     free="$(spool_free_mb)"
     [[ "$free" =~ ^[0-9]+$ ]] || die "cannot read the spool free space"
     printf 'database_mb=%s\nrequired_free_mb=%s\nspool_free_mb=%s\n' "$db_mb" "$required" "$free"
     if (( free < required )); then
         printf 'result=refused\n'
-        log "refused: the NAS spool has ${free} MiB free, ${required} MiB required (2 x (database ${db_mb} MiB + 64) + ${WAL_RESERVE_MB} MiB WAL, minimum ${MIN_FREE_MB} MiB)"
+        log "refused: the NAS spool has ${free} MiB free, ${required} MiB required for $work (${backups} x (database ${db_mb} MiB + 64) + ${WAL_RESERVE_MB} MiB WAL, minimum ${MIN_FREE_MB} MiB)"
         return 1
     fi
     printf 'result=ok\n'
@@ -165,7 +174,7 @@ preflight() {
 # Runs preflight before a job; records why it refused (refused | database_unreachable | credentials_missing).
 preflight_or_refuse() {
     local output
-    if ! output="$(preflight)"; then
+    if ! output="$(preflight "$1")"; then
         record_status "$1" refused "$(sed -n 's/^result=//p' <<< "$output" | head -n 1)"
         exit 1
     fi
@@ -468,14 +477,17 @@ case "$mode" in
     prune) run_prune ;;
     ensure) run_ensure ;;
     credentials) write_credentials ;;
-    preflight) preflight ;;
+    preflight)
+        [[ $# -le 2 ]] || die "preflight expects no argument, base or dump"
+        preflight "${2:-pair}"
+        ;;
     status) print_status ;;
     retained)
         [[ "${2:-}" == base || "${2:-}" == dump ]] || die "retained expects base or dump"
         retained "$2"
         ;;
     *)
-        echo "usage: backup-job.sh service|loop|credentials|base [due|stale]|dump [due|stale]|ensure|prune|preflight|status|retained <kind>" >&2
+        echo "usage: backup-job.sh service|loop|credentials|base [due|stale]|dump [due|stale]|ensure|prune|preflight [base|dump]|status|retained <kind>" >&2
         exit 2
         ;;
 esac

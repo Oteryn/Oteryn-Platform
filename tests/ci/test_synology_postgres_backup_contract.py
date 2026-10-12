@@ -563,6 +563,118 @@ class JobLockTest(SpoolTestCase):
             self.assertLess(body.index(f"job_still_needed {kind}"), body.index(f"preflight_or_refuse {kind}"))
 
 
+class JobPreflightTest(SpoolTestCase):
+    """A job reserves only its own backup; the deploy and check reserve the next base backup and dump together."""
+
+    DATABASE_MB = 1000  # pair: 2 x 1064 + 1024 = 3152 MiB; one backup: 1064 + 1024 = 2088 MiB
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.bin = self.tmp / "bin"
+        self.bin.mkdir()
+        pgpass = self.tmp / "pgpass"
+        pgpass.write_text("postgres:5432:oteryn_platform:oteryn_platform_dump:" + "d" * 32 + "\n")
+        pgpass.chmod(0o600)
+        tools = {
+            "psql": f"echo {self.DATABASE_MB * 1048576}",
+            "df": 'echo "Filesystem 1M-blocks Used Available Capacity Mounted"; echo "spool 99999 0 $FAKE_FREE_MB 1% /spool"',
+            "pg_dump": 'while (( $# )); do if [[ "$1" == -f ]]; then echo dump > "$2"; fi; shift; done',
+            "pg_restore": "echo ';  toc'",
+        }
+        for name, body in tools.items():
+            (self.bin / name).write_text(f"#!/bin/bash\n{body}\n")
+            (self.bin / name).chmod(0o755)
+        self.env = {
+            **self.env, "OTERYN_BACKUP_PGPASS_FILE": str(pgpass), "OTERYN_BACKUP_MIN_FREE_MB": "0",
+            "PATH": f"{self.bin}:{os.environ['PATH']}", "FAKE_FREE_MB": "2500",
+        }
+
+    def test_a_dump_after_the_base_backup_needs_room_for_itself_only(self) -> None:
+        pair = run(["bash", str(JOB), "preflight"], env=self.env)
+        self.assertEqual(pair.returncode, 1)
+        self.assertIn("required_free_mb=3152", pair.stdout)
+        self.assertIn("result=refused", pair.stdout)
+        for kind in ("base", "dump"):
+            single = run(["bash", str(JOB), "preflight", kind], env=self.env)
+            self.assertEqual(single.returncode, 0, single.stderr)
+            self.assertIn("required_free_mb=2088", single.stdout)
+        result = run(["bash", str(JOB), "dump", "stale"], env=self.env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("result=ok", (self.spool / "status" / "dump.last").read_text())
+        short = run(["bash", str(JOB), "dump"], env={**self.env, "FAKE_FREE_MB": "2000"})
+        self.assertEqual(short.returncode, 1)
+        self.assertIn("detail=refused", (self.spool / "status" / "dump.last").read_text())
+        self.assertEqual(run(["bash", str(JOB), "preflight", "wal"], env=self.env).returncode, 1)
+
+    def test_jobs_pass_their_kind_and_status_keeps_the_pair_reserve(self) -> None:
+        job = JOB.read_text()
+        self.assertIn('output="$(preflight "$1")"', job)
+        self.assertIn("preflight_or_refuse base", job)
+        self.assertIn("preflight_or_refuse dump", job)
+        self.assertIn("    preflight || true\n", job.split("print_status() {", 1)[1])
+
+
+class DrillEvidenceTest(unittest.TestCase):
+    """A drill whose scratch instance outlives it is reported failed in its evidence, not only by its exit."""
+
+    FUNCTIONS = ("log", "record", "cleanup_failed", "cleanup", "write_evidence")
+
+    def harness(self, mode: str, *, failed_before: bool = False) -> tuple[subprocess.CompletedProcess[str], str, str]:
+        tmp = Path(tempfile.mkdtemp(prefix="oteryn-p5-evidence-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        drill = DRILL.read_text()
+        functions = []
+        for name in self.FUNCTIONS:
+            match = re.search(rf"^{name}\(\) \{{(\n.*?^\}}| [^\n]*\}})\n", drill, re.M | re.S)
+            self.assertIsNotNone(match, name)
+            functions.append(match.group(0))
+        (tmp / "bin").mkdir()
+        (tmp / "bin" / "docker").write_text(
+            "#!/bin/bash\n"
+            'case "$1 $2:$FAKE_MODE" in\n'
+            '  "container inspect:container") exit 0 ;;\n'
+            '  "volume inspect:volume") exit 0 ;;\n'
+            '  "container inspect:"* | "volume inspect:"*) exit 1 ;;\n'
+            "esac\nexit 0\n"
+        )
+        (tmp / "bin" / "docker").chmod(0o755)
+        outcome = "record result failed; record failure 'checks failed'; exit 1" if failed_before else "record result passed; exit 0"
+        script = "\n".join([
+            "set -euo pipefail",
+            "declare -A evidence=(); evidence_order=()",
+            f"scratch=oteryn-pitr-drill-x; scratch_volume=scratch-volume; scratch_created=true; DRILL=/tmp/d; stamp=S; evidence_dir={tmp}/evidence",
+            # The 60-second wait for the container advances the clock instead of sleeping.
+            "sleep() { SECONDS=$((SECONDS + 30)); }",
+            *functions,
+            "trap cleanup EXIT",
+            outcome,
+        ])
+        result = run(["bash", "-c", script], env={
+            "PATH": f"{tmp / 'bin'}:{os.environ['PATH']}", "FAKE_MODE": mode, "GITHUB_STEP_SUMMARY": str(tmp / "summary.md"),
+        })
+        evidence = (tmp / "evidence" / "S" / "evidence.env").read_text()
+        return result, evidence, (tmp / "summary.md").read_text()
+
+    def test_a_scratch_instance_left_behind_fails_the_recorded_result(self) -> None:
+        for mode, what in (("container", "scratch container"), ("volume", "scratch data volume")):
+            with self.subTest(mode=mode):
+                result, evidence, summary = self.harness(mode)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("RESULT=failed\n", evidence)
+                self.assertIn(f"FAILURE=cleanup: {what}", evidence)
+                self.assertNotIn("RESULT=passed", evidence)
+                self.assertIn("| result | failed |", summary)
+
+    def test_a_clean_drill_stays_passed_and_an_earlier_failure_stays_first(self) -> None:
+        result, evidence, _ = self.harness("clean")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("RESULT=passed\n", evidence)
+        result, evidence, _ = self.harness("volume", failed_before=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("FAILURE=checks failed\n", evidence)
+        self.assertIn("CLEANUP_FAILURE=scratch data volume", evidence)
+
+
 class DrillLockTest(unittest.TestCase):
     """The drill's scratch instance holds the spool job lock while it chooses and replays a base backup."""
 
