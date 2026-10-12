@@ -60,3 +60,13 @@ def test_deploy_removes_the_retired_redis_container_without_an_orphan_sweep() ->
     removal = deploy.index("label=com.docker.compose.service=redis")
     assert removal < deploy.index('"${compose[@]}" up -d mariadb\n')
     assert "--remove-orphans" not in deploy
+
+
+def test_candidate_finalization_creates_the_scheduler_before_the_health_contract() -> None:
+    deploy = (SYNOLOGY / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+    start = deploy.index("finalize_previous_candidate_if_healthy()")
+    body = deploy[start:]
+    gateway = body.index("up -d --no-deps --force-recreate internal-proxy gateway")
+    scheduler = body.index('"${candidate_compose[@]}" up -d --no-deps --force-recreate marketplace-scheduler')
+    health = body.index('OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"')
+    assert gateway < scheduler < health

@@ -668,6 +668,12 @@ finalize_previous_candidate_if_healthy() {
         rm -f "$candidate_env"
         return 1
     fi
+    # The scheduler is a mandatory base service in the health contract; a pre-change candidate may not
+    # have one. Create it from the bounded candidate environment before the full health proof.
+    if ! "${candidate_compose[@]}" up -d --no-deps --force-recreate marketplace-scheduler; then
+        rm -f "$candidate_env"
+        return 1
+    fi
     if ! OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"; then
         rm -f "$candidate_env"
         echo "Previous candidate remains unresolved because its full staging health contract failed." >&2
