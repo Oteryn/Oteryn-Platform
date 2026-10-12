@@ -42,6 +42,24 @@ gateway_repo="$(bash "$script_dir/repository-ghcr-image.sh" oteryn-game-gateway)
     || fail "OTERYN_RUN_RESTORE_DRILL must be true or false"
 [[ -n "$mariadb_root_password" ]] || fail "MARIADB_ROOT_PASSWORD is required"
 
+# The Platform database engine of the checked-out release contract (ADR 0046, plan P4): mariadb or
+# postgres. On postgres the Platform database is the postgres service; MariaDB keeps running until the
+# cutover retires it, so it is still checked. The PostgreSQL checks need no secret: they run as the local
+# superuser over the socket (peer), and the Platform probe uses the Platform container's own settings.
+platform_db_engine="$(sed -n 's/^PLATFORM_DB_ENGINE=//p' "$script_dir/../release-contract.env")"
+[[ "$platform_db_engine" == mariadb || "$platform_db_engine" == postgres ]] \
+    || fail "release-contract.env PLATFORM_DB_ENGINE must be mariadb or postgres"
+[[ "$platform_db_engine" == mariadb || "$platform_db" == oteryn_platform ]] \
+    || fail "the PostgreSQL Platform database is oteryn_platform"
+services=(mariadb platform internal-proxy gateway marketplace-scheduler)
+healthy_services=(mariadb marketplace-scheduler)
+unpublished_services=(mariadb marketplace-scheduler internal-proxy)
+if [[ "$platform_db_engine" == postgres ]]; then
+    services+=(postgres)
+    healthy_services+=(postgres)
+    unpublished_services+=(postgres)
+fi
+
 rm -rf "$work_dir"
 mkdir -p "$work_dir" "$(dirname "$evidence_path")"
 chmod 700 "$work_dir"
@@ -64,23 +82,23 @@ find_single_container() {
     containers["$service"]="${ids[0]}"
 }
 
-for service in mariadb platform internal-proxy gateway marketplace-scheduler; do
+for service in "${services[@]}"; do
     find_single_container "$service"
 done
 
-for service in mariadb platform internal-proxy gateway marketplace-scheduler; do
+for service in "${services[@]}"; do
     id="${containers[$service]}"
     [[ "$(docker inspect --format '{{.State.Running}}' "$id")" == "true" ]] \
         || fail "$service is not running"
 done
 
-for service in mariadb platform internal-proxy gateway marketplace-scheduler; do
+for service in "${services[@]}"; do
     id="${containers[$service]}"
     [[ "$(docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' "$id")" == "always" ]] \
         || fail "$service does not use restart policy always"
 done
 
-for service in mariadb marketplace-scheduler; do
+for service in "${healthy_services[@]}"; do
     id="${containers[$service]}"
     health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id")"
     [[ "$health" == "healthy" ]] || fail "$service health status is $health"
@@ -89,7 +107,7 @@ done
 expected_network="${project_name}_private"
 [[ "$(docker network inspect --format '{{.Driver}}' "$expected_network")" == "bridge" ]] \
     || fail "$expected_network is not a bridge network"
-for service in mariadb platform internal-proxy gateway marketplace-scheduler; do
+for service in "${services[@]}"; do
     docker inspect --format '{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}' \
         "${containers[$service]}" \
         | grep -Fxq "$expected_network" \
@@ -115,9 +133,9 @@ assert_no_published_ports() {
     [[ -z "$published" ]] || fail "$service unexpectedly publishes a host port"
 }
 
-assert_no_published_ports mariadb
-assert_no_published_ports marketplace-scheduler
-assert_no_published_ports internal-proxy
+for service in "${unpublished_services[@]}"; do
+    assert_no_published_ports "$service"
+done
 
 python3 - \
     "$(docker inspect --format '{{json .NetworkSettings.Ports}}' "${containers[platform]}")" \
@@ -221,6 +239,7 @@ assert_named_volume() {
 assert_named_volume mariadb /var/lib/mysql
 assert_named_volume platform /var/www/html/storage
 assert_named_volume internal-proxy /etc/nginx/tls
+[[ "$platform_db_engine" != postgres ]] || assert_named_volume postgres /var/lib/postgresql/data
 
 [[ -d "$state_dir" ]] || fail "persistent runner state directory is missing"
 [[ "$(stat -c '%a' "$state_dir")" == "700" ]] \
@@ -245,6 +264,134 @@ docker exec "${containers[platform]}" sh -ec '
     test "$MAIL_MAILER" = array
 '
 
+postgres_tls_and_roles="NOT_APPLICABLE"
+if [[ "$platform_db_engine" == postgres ]]; then
+    postgres_sql() {
+        docker exec -u postgres "${containers[postgres]}" \
+            psql -X -q -t -A -v ON_ERROR_STOP=1 -d "$platform_db" -c "$1"
+    }
+
+    [[ "$(postgres_sql 'SHOW ssl')" == on ]] || fail "PostgreSQL ssl is not on"
+    [[ "$(postgres_sql 'SHOW ssl_min_protocol_version')" == TLSv1.3 ]] \
+        || fail "PostgreSQL does not require TLS 1.3"
+    [[ "$(postgres_sql 'SHOW password_encryption')" == scram-sha-256 ]] \
+        || fail "PostgreSQL password_encryption is not scram-sha-256"
+    # Every pg_hba rule parses and is a reject, a TLS-only SCRAM login or the superuser's local peer login.
+    [[ "$(postgres_sql "SELECT count(*) FROM pg_hba_file_rules WHERE error IS NOT NULL
+        OR NOT (auth_method = 'reject'
+            OR (type = 'hostssl' AND auth_method = 'scram-sha-256')
+            OR (type = 'local' AND auth_method = 'peer' AND user_name = ARRAY['postgres']))")" == 0 ]] \
+        || fail "PostgreSQL pg_hba.conf allows a login without TLS and SCRAM"
+    [[ "$(postgres_sql "SELECT count(*) FROM pg_hba_file_rules WHERE type = 'hostssl'")" =~ ^[1-9][0-9]*$ ]] \
+        || fail "PostgreSQL pg_hba.conf has no TLS login rule"
+    # The role split (plan P4): the owner owns the database and schema public, the runtime, dump and
+    # backup roles own nothing, no Platform role is elevated and only the backup role replicates.
+    platform_roles="'oteryn_platform_owner','oteryn_platform_app','oteryn_platform_backup','oteryn_platform_dump'"
+    [[ "$(postgres_sql "SELECT count(*) FROM pg_roles WHERE rolname IN ($platform_roles) AND rolcanlogin")" == 4 ]] \
+        || fail "a Platform PostgreSQL role is missing"
+    [[ "$(postgres_sql "
+        SELECT (SELECT count(*) FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner
+                 WHERE r.rolname IN ('oteryn_platform_app', 'oteryn_platform_dump', 'oteryn_platform_backup'))
+             + (SELECT count(*) FROM pg_roles WHERE rolname IN ($platform_roles)
+                 AND (rolsuper OR rolcreatedb OR rolcreaterole OR rolbypassrls))
+             + (SELECT count(*) FROM pg_roles WHERE rolname IN ($platform_roles)
+                 AND rolreplication <> (rolname = 'oteryn_platform_backup'))
+             + (SELECT count(*) FROM pg_namespace n JOIN pg_roles r ON r.oid = n.nspowner
+                 WHERE n.nspname = 'public' AND r.rolname <> 'oteryn_platform_owner')
+             + (SELECT count(*) FROM pg_database d JOIN pg_roles r ON r.oid = d.datdba
+                 WHERE d.datname = '$platform_db' AND r.rolname <> 'oteryn_platform_owner')")" == 0 ]] \
+        || fail "the PostgreSQL role split does not hold (ownership or role attributes)"
+    # The grants themselves (effective privileges, PUBLIC and role membership included): the runtime role has
+    # DML only, the dump role SELECT only, the backup role no data access, on the database, schema public, every
+    # table, every sequence and every function. Any drift (a dump INSERT, an app that lost DML, a PUBLIC
+    # EXECUTE) leaves the roles check failed instead of PASS.
+    [[ "$(postgres_sql "
+        WITH want(rolname, kind, priv, allowed) AS (VALUES
+            ('oteryn_platform_app', 'table', 'SELECT', true), ('oteryn_platform_app', 'table', 'INSERT', true),
+            ('oteryn_platform_app', 'table', 'UPDATE', true), ('oteryn_platform_app', 'table', 'DELETE', true),
+            ('oteryn_platform_app', 'table', 'TRUNCATE', false), ('oteryn_platform_app', 'table', 'REFERENCES', false),
+            ('oteryn_platform_app', 'table', 'TRIGGER', false),
+            ('oteryn_platform_dump', 'table', 'SELECT', true), ('oteryn_platform_dump', 'table', 'INSERT', false),
+            ('oteryn_platform_dump', 'table', 'UPDATE', false), ('oteryn_platform_dump', 'table', 'DELETE', false),
+            ('oteryn_platform_dump', 'table', 'TRUNCATE', false), ('oteryn_platform_dump', 'table', 'REFERENCES', false),
+            ('oteryn_platform_dump', 'table', 'TRIGGER', false),
+            ('oteryn_platform_backup', 'table', 'SELECT', false), ('oteryn_platform_backup', 'table', 'INSERT', false),
+            ('oteryn_platform_backup', 'table', 'UPDATE', false), ('oteryn_platform_backup', 'table', 'DELETE', false),
+            ('oteryn_platform_app', 'sequence', 'USAGE', true), ('oteryn_platform_app', 'sequence', 'SELECT', true),
+            ('oteryn_platform_app', 'sequence', 'UPDATE', false),
+            ('oteryn_platform_dump', 'sequence', 'SELECT', true), ('oteryn_platform_dump', 'sequence', 'USAGE', false),
+            ('oteryn_platform_dump', 'sequence', 'UPDATE', false),
+            ('oteryn_platform_backup', 'sequence', 'USAGE', false), ('oteryn_platform_backup', 'sequence', 'SELECT', false),
+            ('oteryn_platform_backup', 'sequence', 'UPDATE', false),
+            ('oteryn_platform_app', 'schema', 'USAGE', true), ('oteryn_platform_app', 'schema', 'CREATE', false),
+            ('oteryn_platform_dump', 'schema', 'USAGE', true), ('oteryn_platform_dump', 'schema', 'CREATE', false),
+            ('oteryn_platform_backup', 'schema', 'USAGE', false), ('oteryn_platform_backup', 'schema', 'CREATE', false),
+            ('oteryn_platform_app', 'database', 'CONNECT', true), ('oteryn_platform_app', 'database', 'CREATE', false),
+            ('oteryn_platform_dump', 'database', 'CONNECT', true), ('oteryn_platform_dump', 'database', 'CREATE', false),
+            ('oteryn_platform_backup', 'database', 'CONNECT', false), ('oteryn_platform_backup', 'database', 'CREATE', false))
+        SELECT (SELECT count(*) FROM want w JOIN pg_class c ON c.relnamespace = 'public'::regnamespace
+                    AND c.relkind IN ('r', 'p') WHERE w.kind = 'table'
+                    AND has_table_privilege(w.rolname, c.oid, w.priv) <> w.allowed)
+             + (SELECT count(*) FROM want w JOIN pg_class c ON c.relnamespace = 'public'::regnamespace
+                    AND c.relkind = 'S' WHERE w.kind = 'sequence'
+                    AND has_sequence_privilege(w.rolname, c.oid, w.priv) <> w.allowed)
+             + (SELECT count(*) FROM want w WHERE w.kind = 'schema'
+                    AND has_schema_privilege(w.rolname, 'public', w.priv) <> w.allowed)
+             + (SELECT count(*) FROM want w WHERE w.kind = 'database'
+                    AND has_database_privilege(w.rolname, '$platform_db', w.priv) <> w.allowed)
+             + (SELECT count(*) FROM pg_proc p JOIN pg_roles r ON r.rolname IN ('oteryn_platform_app', 'oteryn_platform_dump', 'oteryn_platform_backup')
+                    WHERE p.pronamespace = 'public'::regnamespace AND has_function_privilege(r.rolname, p.oid, 'EXECUTE')
+                    AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e'))")" == 0 ]] \
+        || fail "the PostgreSQL role grants drifted (app DML only, dump SELECT only, backup no data access)"
+    [[ "$(postgres_sql "SELECT count(*) FROM pg_stat_activity a JOIN pg_stat_ssl s ON s.pid = a.pid
+        WHERE a.backend_type = 'client backend' AND a.client_addr IS NOT NULL AND NOT s.ssl")" == 0 ]] \
+        || fail "a PostgreSQL client session over TCP is not encrypted"
+
+    # The Platform runs on the app role over verify-full TLS and never holds the owner or any PostgreSQL
+    # secret; the names are checked, never the values.
+    docker exec "${containers[platform]}" sh -ec '
+        test "$DB_CONNECTION" = pgsql
+        test "$DB_HOST" = postgres
+        test "$DB_USERNAME" = oteryn_platform_app
+        test "$DB_SSLMODE" = verify-full
+        test -s "$DB_SSLROOTCERT"
+        test -z "${DB_MIGRATIONS_PASSWORD+set}"
+        test -z "${POSTGRES_PASSWORD+set}"
+        if env | grep -q "^PLATFORM_POSTGRES_"; then exit 1; fi
+    ' || fail "Platform does not run on the PostgreSQL app role with verify-full TLS only"
+    probe_status=0
+    docker exec "${containers[platform]}" php -r '
+        $dsn = sprintf("pgsql:host=%s;port=%s;dbname=%s;sslmode=%s;sslrootcert=%s",
+            getenv("DB_HOST"), getenv("DB_PORT"), getenv("DB_DATABASE"), getenv("DB_SSLMODE"), getenv("DB_SSLROOTCERT"));
+        try {
+            $pdo = new PDO($dsn, getenv("DB_USERNAME"), getenv("DB_PASSWORD"), [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        } catch (Throwable $e) {
+            exit(3);
+        }
+        $row = $pdo->query("SELECT current_user AS role, s.ssl::int AS ssl, s.version FROM pg_stat_ssl s WHERE s.pid = pg_backend_pid()")->fetch(PDO::FETCH_ASSOC);
+        if ($row["role"] !== "oteryn_platform_app" || (int) $row["ssl"] !== 1 || $row["version"] !== "TLSv1.3") {
+            exit(4);
+        }
+        $pdo->beginTransaction();
+        try {
+            $pdo->exec("CREATE TABLE oteryn_preflight_privilege_probe (id integer)");
+            $pdo->rollBack();
+            exit(5);
+        } catch (PDOException $e) {
+            $pdo->rollBack();
+            exit($e->getCode() === "42501" ? 0 : 6);
+        }
+    ' || probe_status=$?
+    case "$probe_status" in
+        0) ;;
+        3) fail "Platform cannot log in to PostgreSQL as the app role" ;;
+        4) fail "the Platform PostgreSQL session is not the app role over TLS 1.3" ;;
+        5) fail "the Platform PostgreSQL app role can create tables" ;;
+        *) fail "the Platform PostgreSQL privilege probe failed ($probe_status)" ;;
+    esac
+    postgres_tls_and_roles="PASS"
+fi
+
 probe_http() {
     local service="$1"
     local port="$2"
@@ -267,7 +414,135 @@ restore_result="NOT_RUN"
 restore_duration_ms=0
 platform_table_count=0
 
-if [[ "$run_restore_drill" == "true" ]]; then
+if [[ "$run_restore_drill" == "true" && "$platform_db_engine" == postgres ]]; then
+    # PostgreSQL drill: a plain dump of the Platform database streams into a scratch database in one
+    # transaction; both dumps must hash equal (pg_dump's per-run \restrict key lines excluded) and hold
+    # the same base tables. The local superuser runs it over the socket (peer); nothing touches the disk.
+    export OTERYN_PREFLIGHT_POSTGRES_CONTAINER="${containers[postgres]}"
+    export OTERYN_PREFLIGHT_PLATFORM_DB="$platform_db"
+    export OTERYN_PREFLIGHT_RUN_SUFFIX="${GITHUB_RUN_ID:-$(date +%s)}_${GITHUB_RUN_ATTEMPT:-1}"
+    export OTERYN_PREFLIGHT_RESTORE_SUMMARY="$work_dir/restore-summary.json"
+
+    python3 <<'PY'
+import hashlib
+import json
+import os
+import re
+import subprocess
+import time
+
+container = os.environ['OTERYN_PREFLIGHT_POSTGRES_CONTAINER']
+platform_db = os.environ['OTERYN_PREFLIGHT_PLATFORM_DB']
+summary_path = os.environ['OTERYN_PREFLIGHT_RESTORE_SUMMARY']
+suffix = re.sub(r'[^0-9_]', '_', os.environ['OTERYN_PREFLIGHT_RUN_SUFFIX'])
+target = f'oteryn_preflight_platform_{suffix}'
+
+for name in [container, platform_db]:
+    if not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', name):
+        raise SystemExit('invalid bounded restore-drill identifier')
+if not re.fullmatch(r'[a-z0-9_]{1,63}', target):
+    raise SystemExit('invalid bounded restore-drill database name')
+
+PSQL = ['docker', 'exec', '-i', '-u', 'postgres', container, 'psql', '-X', '-q', '-t', '-A', '-v', 'ON_ERROR_STOP=1']
+
+
+def psql(database, sql):
+    return subprocess.run(
+        [*PSQL, '-d', database, '-c', sql],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    ).stdout
+
+
+def drop_restore_database():
+    # The scratch database holds a copy of Platform data: a failed drop, or a database that is still there
+    # afterwards, must fail the drill instead of being reported as PASS. IF EXISTS already makes a missing
+    # database harmless, so nothing here is ignored.
+    try:
+        psql('postgres', f'DROP DATABASE IF EXISTS "{target}" WITH (FORCE)')
+        remaining = psql('postgres', f"SELECT count(*) FROM pg_database WHERE datname = '{target}'").decode().strip()
+    except subprocess.CalledProcessError:
+        raise SystemExit('restore-drill scratch database could not be dropped; it may still hold Platform data')
+    if remaining != '0':
+        raise SystemExit('restore-drill scratch database still exists after the drop')
+
+
+def dump_command(database):
+    return [
+        'docker', 'exec', '-u', 'postgres', container,
+        'pg_dump', '--format=plain', '--no-owner', '--no-privileges', '--dbname', database,
+    ]
+
+
+def digest_line(digest, line):
+    # pg_dump wraps a plain dump in \restrict / \unrestrict lines with a random per-run key.
+    if not line.startswith((b'\\restrict ', b'\\unrestrict ')):
+        digest.update(line)
+
+
+def stream_dump_into_restore(source):
+    source_process = subprocess.Popen(dump_command(source), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    restore_process = subprocess.Popen(
+        [*PSQL, '--single-transaction', '-d', target],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    digest = hashlib.sha256()
+    assert source_process.stdout is not None
+    assert restore_process.stdin is not None
+    for line in source_process.stdout:
+        digest_line(digest, line)
+        restore_process.stdin.write(line)
+    restore_process.stdin.close()
+    source_rc = source_process.wait()
+    restore_rc = restore_process.wait()
+    if source_rc != 0 or restore_rc != 0:
+        raise SystemExit('streaming database restore failed')
+    return digest.hexdigest()
+
+
+def dump_digest(database):
+    process = subprocess.Popen(dump_command(database), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    digest = hashlib.sha256()
+    assert process.stdout is not None
+    for line in process.stdout:
+        digest_line(digest, line)
+    if process.wait() != 0:
+        raise SystemExit('restored database verification dump failed')
+    return digest.hexdigest()
+
+
+def table_count(database):
+    raw = psql(database, "SELECT count(*) FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema')")
+    return int(raw.decode().strip())
+
+
+started = time.monotonic_ns()
+drop_restore_database()
+try:
+    psql('postgres', f"CREATE DATABASE \"{target}\" TEMPLATE template0 ENCODING 'UTF8' LOCALE_PROVIDER libc LOCALE 'C.UTF-8'")
+    # Same schema public owner as the source (asserted above), so both dumps carry the same header.
+    psql(target, 'ALTER SCHEMA public OWNER TO oteryn_platform_owner')
+    source_digest = stream_dump_into_restore(platform_db)
+    if source_digest != dump_digest(target):
+        raise SystemExit('restored database content digest differs from streamed source dump')
+    source_count = table_count(platform_db)
+    if source_count != table_count(target):
+        raise SystemExit('restored database base-table count differs')
+finally:
+    drop_restore_database()
+
+elapsed_ms = (time.monotonic_ns() - started) // 1_000_000
+with open(summary_path, 'w', encoding='utf-8') as handle:
+    json.dump(
+        {'result': 'PASS', 'duration_ms': elapsed_ms, 'platform_table_count': source_count},
+        handle,
+        separators=(',', ':'),
+    )
+PY
+elif [[ "$run_restore_drill" == "true" ]]; then
     export OTERYN_PREFLIGHT_MARIADB_CONTAINER="${containers[mariadb]}"
     export OTERYN_PREFLIGHT_MARIADB_ROOT_PASSWORD="$mariadb_root_password"
     export OTERYN_PREFLIGHT_PLATFORM_DB="$platform_db"
@@ -318,11 +593,23 @@ def quote_identifier(value):
 
 
 def drop_restore_databases():
+    # The scratch databases hold copies of Platform data: a failed drop, or a database that is still there
+    # afterwards, must fail the drill instead of being reported as PASS.
+    failed = False
     for target in restore_databases.values():
         try:
             docker_mysql('-e', f'DROP DATABASE IF EXISTS {quote_identifier(target)};')
+            remaining = docker_mysql(
+                '-N', '-B', '-e',
+                "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = '" + target.replace("'", "''") + "';",
+            ).decode().strip()
         except subprocess.CalledProcessError:
-            pass
+            failed = True
+            continue
+        if remaining != '0':
+            failed = True
+    if failed:
+        raise SystemExit('restore-drill scratch databases could not be dropped; they may still hold Platform data')
 
 
 def dump_command(database):
@@ -427,7 +714,8 @@ with open(summary_path, 'w', encoding='utf-8') as handle:
         separators=(',', ':'),
     )
 PY
-
+fi
+if [[ "$run_restore_drill" == "true" ]]; then
     restore_result="$(python3 -c 'import json,os; print(json.load(open(os.environ["OTERYN_PREFLIGHT_RESTORE_SUMMARY"]))["result"])')"
     restore_duration_ms="$(python3 -c 'import json,os; print(json.load(open(os.environ["OTERYN_PREFLIGHT_RESTORE_SUMMARY"]))["duration_ms"])')"
     platform_table_count="$(python3 -c 'import json,os; print(json.load(open(os.environ["OTERYN_PREFLIGHT_RESTORE_SUMMARY"]))["platform_table_count"])')"
@@ -459,6 +747,8 @@ cat > "$evidence_path" <<EOF
   "runner_state_and_last_good_snapshot": "PASS",
   "application_and_gateway_health": "PASS",
   "scheduler_running_and_healthy": "PASS",
+  "platform_db_engine": "$platform_db_engine",
+  "postgres_tls_and_roles": "$postgres_tls_and_roles",
   "database_restore_drill": "$restore_result",
   "restore_duration_ms": $restore_duration_ms,
   "platform_base_table_count": $platform_table_count,

@@ -8,6 +8,11 @@
 # The four role passwords arrive on standard input, one per line, in this order: owner, app (runtime),
 # backup (physical, REPLICATION), dump (logical, read-only). They never appear in a command line, an
 # environment variable or the server log (statement logging is switched off for this session).
+#
+# --database-only (recover-schema.sh, after it dropped the database for a restore): reads no password and
+# leaves every role as it is; it only recreates the database with its CONNECT boundary and re-applies the
+# schema ownership and grants. The restore runs it before pg_restore and again after, so the restored
+# objects get the same grants a deploy gives them.
 set -eu
 umask 077
 
@@ -17,6 +22,43 @@ app=oteryn_platform_app
 backup=oteryn_platform_backup
 dump=oteryn_platform_dump
 
+mode=full
+case "${1:-}" in
+    '') ;;
+    --database-only) mode="database-only" ;;
+    *)
+        echo "Usage: 10-platform-roles.sh [--database-only]" >&2
+        exit 2
+        ;;
+esac
+
+# The database with its owner and CONNECT boundary; shared by both modes, run in the cluster session.
+database_boundary_sql() {
+    cat <<SQL
+SELECT 'CREATE DATABASE $database OWNER $owner ENCODING ''UTF8'' LOCALE_PROVIDER ''libc'' LOCALE ''C.UTF-8'' TEMPLATE template0'
+    WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = '$database') \gexec
+ALTER DATABASE $database OWNER TO $owner;
+REVOKE ALL ON DATABASE $database FROM PUBLIC;
+REVOKE ALL ON DATABASE $database FROM $app, $dump, $backup;
+GRANT CONNECT ON DATABASE $database TO $app, $dump;
+SQL
+}
+
+if [ "$mode" = database-only ]; then
+    # The roles must already exist: a restore never creates or re-keys a role.
+    {
+        cat <<SQL
+DO \$\$
+BEGIN
+    IF (SELECT count(*) FROM pg_roles WHERE rolname IN ('$owner', '$app', '$backup', '$dump')) <> 4 THEN
+        RAISE EXCEPTION 'A Platform PostgreSQL role is missing; run a full deploy first.';
+    END IF;
+END
+\$\$;
+SQL
+        database_boundary_sql
+    } | psql -X -q -v ON_ERROR_STOP=1 -d postgres
+else
 IFS= read -r owner_password || true
 IFS= read -r app_password || true
 IFS= read -r backup_password || true
@@ -66,13 +108,9 @@ SELECT format('REVOKE %I FROM %I', g.rolname, m.rolname)
     JOIN pg_roles g ON g.oid = am.roleid
     JOIN pg_roles m ON m.oid = am.member
     WHERE m.rolname IN ('$owner', '$app', '$backup', '$dump') \gexec
-SELECT 'CREATE DATABASE $database OWNER $owner ENCODING ''UTF8'' LOCALE_PROVIDER ''libc'' LOCALE ''C.UTF-8'' TEMPLATE template0'
-    WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = '$database') \gexec
-ALTER DATABASE $database OWNER TO $owner;
-REVOKE ALL ON DATABASE $database FROM PUBLIC;
-REVOKE ALL ON DATABASE $database FROM $app, $dump, $backup;
-GRANT CONNECT ON DATABASE $database TO $app, $dump;
+$(database_boundary_sql)
 SQL
+fi
 
 # Database level: the owner owns schema public and every object the migrations create; the runtime role
 # gets DML only, the dump role SELECT only, now and for every future object the owner creates.

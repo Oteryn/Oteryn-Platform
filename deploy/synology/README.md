@@ -249,7 +249,15 @@ The D171 fallback and its `OTERYN_STAGING_NATIVE_WORLD_ID` tie are gone from the
 
 ADR 0046 and `docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md` (packet P4) add a PostgreSQL 17 service beside MariaDB. In P4 it is **idle**: Platform and the scheduler keep using MariaDB, and nothing reads or writes Platform data in PostgreSQL. The service exists so the role split, TLS and health contract are proven on the NAS before the staging cutover (P6).
 
-Engine switch: `release-contract.env` `PLATFORM_DB_ENGINE` (`mariadb`, the committed value, or `postgres`). `lib.sh` exports the runtime connection (`OTERYN_PLATFORM_DB_*`) that `compose.yml` passes to Platform and the scheduler as `DB_*`. Every image carries the engine in its release contract, and a candidate built for the other engine is refused. In this package `deploy.sh` refuses `postgres`, and schema recovery, the fresh-schema baseline and Marketplace staging control refuse it too, until their PostgreSQL branches land with the cutover.
+Engine switch: `release-contract.env` `PLATFORM_DB_ENGINE` (`mariadb`, the committed value, or `postgres`). `lib.sh` exports the runtime connection (`OTERYN_PLATFORM_DB_*`) that `compose.yml` passes to Platform and the scheduler as `DB_*`. Every image carries the engine in its release contract, and a candidate built for the other engine is refused. The committed value stays `mariadb` until the P6 cutover; with `mariadb` nothing below changes.
+
+With `postgres` (packet P4b), the scripts branch on the engine:
+
+- `deploy.sh` requires all five secrets and `PLATFORM_DB_NAME=oteryn_platform`, reconciles the roles before Platform starts, and runs migrations as `oteryn_platform_owner` in a one-off `platform` container (`docker compose run --rm` with `--database=pgsql_migrations`). The owner password reaches that container only as a named environment variable and never reaches the long-running services, which connect as `oteryn_platform_app`. Route publication (`OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED=true`) stays refused on `postgres` until the ADR 0044 PostgreSQL amendment is accepted.
+- The pre-migration backup and the fresh-schema baseline write `platform.dump`: `pg_dump -Fc` as `oteryn_platform_dump` over `verify-full` TLS, password on standard input, kept only when `pg_restore --list` reads it. The evidence then starts with `BACKUP_DB_ENGINE=postgres`.
+- Schema recovery restores a backup only into the engine that wrote it; evidence without `BACKUP_DB_ENGINE` is a MariaDB backup. On `postgres` the local superuser (socket, peer, no password) drops the database `WITH (FORCE)`, recreates it with the role script in `--database-only` mode, runs `pg_restore --single-transaction` as the owner and re-applies the grants.
+- Marketplace staging control checks pending auctions in PostgreSQL and migrates as the owner.
+- The health check requires the Platform container to connect as the app role over `verify-full`. The production-target preflight additionally checks TLS 1.3, SCRAM, `pg_hba`, the role attributes and ownership, that no TCP client is connected without TLS, and a Platform PDO probe proving the app role cannot create tables. Its restore drill streams a plain dump into a scratch database and drops it afterwards.
 
 Service contract (`compose.yml` service `postgres`, profile `postgres`):
 

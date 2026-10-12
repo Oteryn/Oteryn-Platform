@@ -9,8 +9,8 @@ COMPOSE_FILE="$DEPLOY_DIR/compose.yml"
 # shellcheck source=deploy/synology/scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
 load_oteryn_env_file "$ENV_FILE"
-# MariaDB-only until the PostgreSQL branch lands with the staging cutover (plan P4/P6).
-oteryn_require_mariadb_engine "The fresh-schema baseline" || exit 1
+# All five PostgreSQL secrets on the postgres engine (none or a partial set otherwise refused), before any change.
+oteryn_require_postgres_secrets_for_engine || exit 1
 
 state_dir="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
 current_file="$state_dir/current-release.env"
@@ -36,9 +36,20 @@ fi
 mkdir -p "$state_dir/backups"
 chmod 700 "$state_dir" "$state_dir/backups"
 
-table_count="$(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T \
-    -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb mariadb -uroot -N -e \
-    "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$PLATFORM_DB_NAME';")" || {
+# Both engines: the Platform database must hold no table (PostgreSQL: no relation outside the system
+# schemas), counted by the database superuser (MariaDB root; PostgreSQL local peer, no password).
+platform_db_compose=(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+platform_db_table_count() {
+    if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres ]]; then
+        oteryn_postgres_relation_count "${platform_db_compose[@]}"
+        return
+    fi
+    "${platform_db_compose[@]}" exec -T \
+        -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb mariadb -uroot -N -e \
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$PLATFORM_DB_NAME';"
+}
+
+table_count="$(platform_db_table_count)" || {
     echo "Cannot prove the fresh Platform DB baseline; refusing migration." >&2
     exit 1
 }
@@ -59,24 +70,30 @@ scheduler_id="$(_oteryn_marketplace_scheduler_id)"
 release_sha="$(_oteryn_release_sha)" || exit 1
 backup_dir="$state_dir/backups/fresh-empty-before-${release_sha}"
 backup_file="$backup_dir/platform.sql"
+[[ "$OTERYN_PLATFORM_DB_ENGINE" != postgres ]] || backup_file="$backup_dir/platform.dump"
 evidence_file="$backup_dir/evidence.env"
 mkdir -p "$backup_dir"
 chmod 700 "$backup_dir"
 
-command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T \
-    -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb \
-    mariadb-dump -uroot --single-transaction --routines --triggers --events "$PLATFORM_DB_NAME" >"$backup_file.tmp"
-chmod 600 "$backup_file.tmp"
-mv "$backup_file.tmp" "$backup_file"
+if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres ]]; then
+    # pg_dump -Fc by the read-only dump role over TLS, validated with pg_restore --list (lib.sh).
+    oteryn_postgres_dump_platform "${platform_db_compose[@]}" "$backup_file" || exit 1
+else
+    command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T \
+        -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb \
+        mariadb-dump -uroot --single-transaction --routines --triggers --events "$PLATFORM_DB_NAME" >"$backup_file.tmp"
+    chmod 600 "$backup_file.tmp"
+    mv "$backup_file.tmp" "$backup_file"
+fi
 
 # Re-prove emptiness after the dump so concurrent or unexpected writes cannot be
 # promoted as a recoverable fresh baseline.
-table_count_after="$(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T \
-    -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb mariadb -uroot -N -e \
-    "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$PLATFORM_DB_NAME';")"
+table_count_after="$(platform_db_table_count)"
 [[ "$table_count_after" == 0 ]] || { echo "Fresh baseline changed while being captured; refusing migration." >&2; exit 1; }
 
 {
+    # Absent means mariadb (every baseline written before the engine switch).
+    [[ "$OTERYN_PLATFORM_DB_ENGINE" != postgres ]] || printf 'BACKUP_DB_ENGINE=postgres\n'
     printf 'BACKUP_BASELINE_KIND=fresh-empty\n'
     printf 'BACKUP_BEFORE_RELEASE_SHA=%s\n' "$release_sha"
     printf 'BACKUP_SCHEMA_COMPATIBILITY_ID=fresh-empty\n'

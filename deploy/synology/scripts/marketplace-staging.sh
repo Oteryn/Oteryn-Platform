@@ -12,8 +12,14 @@ ACTION="${1:-verify}"
 # shellcheck source=deploy/synology/scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
 load_oteryn_env_file "$ENV_FILE"
-# MariaDB-only until the PostgreSQL branch lands with the staging cutover (plan P4/P6).
-oteryn_require_mariadb_engine "Marketplace staging control" || exit 1
+# On PLATFORM_DB_ENGINE=postgres the Platform database is the postgres service: migrations run as the owner
+# role in a one-off container and the auction check runs as the local superuser (lib.sh).
+if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres ]]; then
+    [[ "$(oteryn_postgres_secret_state)" == configured ]] || {
+        echo "PLATFORM_DB_ENGINE=postgres requires all five PostgreSQL secrets." >&2
+        exit 1
+    }
+fi
 
 case "$ACTION" in
     enable|verify|prepare-rollback) ;;
@@ -90,7 +96,11 @@ service_container_id() {
     local service="$1"
     local ids
 
-    ids="$("${compose[@]}" ps -a -q "$service")"
+    local -a profile=()
+    # The postgres service is profile-gated in compose.yml; ps lists it only with its profile.
+    [[ "$service" != postgres ]] || profile=(--profile postgres)
+
+    ids="$("${compose[@]}" ${profile[@]+"${profile[@]}"} ps -a -q "$service")"
     if [[ -z "$ids" || "$(printf '%s\n' "$ids" | sed '/^$/d' | wc -l | tr -d ' ')" != "1" ]]; then
         echo "Expected exactly one Compose container for service: $service" >&2
         exit 1
@@ -131,8 +141,12 @@ assert_no_pending_marketplace_work() {
     local pending_count
 
     "${compose[@]}" exec -T platform php artisan marketplace:reconcile --limit=1000
-    pending_count="$(root_sql -N -B -e \
-        "SELECT COUNT(*) FROM \`$PLATFORM_DB_NAME\`.character_auctions WHERE status IN ('escrow_pending','active','settlement_pending','cancel_pending','recovery_required');")"
+    if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres ]]; then
+        pending_count="$(oteryn_postgres_non_terminal_auction_count "${compose[@]}")"
+    else
+        pending_count="$(root_sql -N -B -e \
+            "SELECT COUNT(*) FROM \`$PLATFORM_DB_NAME\`.character_auctions WHERE status IN ('escrow_pending','active','settlement_pending','cancel_pending','recovery_required');")"
+    fi
     if [[ "$pending_count" != "0" ]]; then
         echo "Character Bazaar cannot be disabled or rolled back while non-terminal auctions exist." >&2
         exit 1
@@ -183,7 +197,9 @@ verify_enabled_runtime() {
     probe_marketplace_route
 }
 
-for service in mariadb platform internal-proxy gateway; do
+platform_db_service=mariadb
+[[ "$OTERYN_PLATFORM_DB_ENGINE" != postgres ]] || platform_db_service=postgres
+for service in "$platform_db_service" platform internal-proxy gateway; do
     require_running_service "$service"
 done
 verify_current_image_supports_marketplace
@@ -195,7 +211,11 @@ case "$ACTION" in
         # Ingress stays stopped until the final Platform passes the trust gate (lib.sh).
         oteryn_native_admission_ingress_stop "${compose[@]}" >/dev/null
         "${compose[@]}" up -d --no-deps --force-recreate platform
-        "${compose[@]}" exec -T platform php artisan migrate --force --no-interaction
+        if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres ]]; then
+            oteryn_platform_migrate_postgres "${compose[@]}"
+        else
+            "${compose[@]}" exec -T platform php artisan migrate --force --no-interaction
+        fi
         oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || exit 1
         "${compose[@]}" exec -T platform php artisan marketplace:reconcile --limit=1000
 
