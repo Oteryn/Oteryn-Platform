@@ -198,6 +198,9 @@ inspect() {
         return 0
     fi
     [ -d "$dir" ] || fail not_directory
+    # The same predicate verify-aside applies to the preserved copy later: a directory this user does not own
+    # would be moved, migrated against and then rejected, after the first change. Refused here instead.
+    [ -O "$dir" ] || fail owner
     lines=""
     count=0
     # A glob loop, never a parsed ls: a file name made of newlines (or starting with a dash) must be seen,
@@ -226,6 +229,12 @@ inspect() {
 }
 
 report() {
+    # What the move or the creation later needs, evaluated now: the parent must be writable and searchable
+    # (rename and mkdir) for the user that will do it.
+    parent="${dir%/*}"
+    [ -n "$parent" ] || parent=/
+    if [ -d "$parent" ] && [ -w "$parent" ] && [ -x "$parent" ]; then echo "witness_parent_writable=true"; else echo "witness_parent_writable=false"; fi
+    if [ -e "$dir" ]; then echo "witness_exists=true"; else echo "witness_exists=false"; fi
     echo "witness_directory=$dir"
     echo "witness_state=$state"
     echo "witness_store_id=$store_id"
@@ -482,6 +491,8 @@ inspect_witness() {
     witness_state="$(value_of witness_state "$output")"
     witness_store_id="$(value_of witness_store_id "$output")"
     witness_manifest="$(value_of witness_manifest "$output")"
+    witness_parent_writable="$(value_of witness_parent_writable "$output")"
+    witness_exists="$(value_of witness_exists "$output")"
     [[ "$witness_state" =~ ^(empty|present)$ && -n "$witness_dir" ]] \
         || refuse "the native evidence witness directory inspection returned no state."
 }
@@ -563,6 +574,12 @@ services_must_be_stopped platform marketplace-scheduler internal-proxy gateway i
 inspect_witness
 [[ "$witness_dir" == "$frozen_dir" ]] \
     || refuse "the witness directory $witness_dir differs from the one recorded at the freeze ($frozen_dir)."
+# The move-aside renames the directory and creates a new one, and a missing directory is created: both need
+# a writable, searchable parent. Found out here, not by a failed rename after the first change.
+if [[ "$witness_state" == present || "$witness_exists" != true ]]; then
+    [[ "$witness_parent_writable" == true ]] \
+        || refuse "the parent of the witness directory $witness_dir is not writable by the user that moves or creates it; nothing was changed."
+fi
 
 witness_action=''
 moved_to=''
