@@ -54,9 +54,9 @@ All new modes are `workflow_dispatch` only, from `main`, under `production-cloud
 1. Workflow boundary: ref is `main`, confirmation exact, `task_id` well formed.
 2. Script: fresh read of token, tunnel (`config_src` must be `cloudflare`) and configuration; `validate_tunnel_config`; classify.
 3. *Origin-route precondition* (below). Refuses on any hit, with no write.
-4. State `closed`: no write. State `open` or `split`: re-read, require the same hash as planned, `PUT` the configuration in which only the `service` of the two canonical rules changes to `http_status:503` (every other field of those rules and every other rule is preserved byte for byte), then read back. State `unknown`: refuse.
-5. Success requires the read-back to classify `closed`, the hash of the unrelated rules to equal the pre-write hash, and, when a write happened, `version` to equal the pre-write `version` plus one. Anything else is a failure, reported with the observed state, never as success.
-6. Upload `closure.json` as artifact `oteryn-edge-gate-closure` (retention 30 days): `schema`, `task_id`, `close_run_id`, `run_attempt`, `edge_version`, `config_hash`, `wrote`. A no-op close from `closed` still uploads it, which is the recovery path after an ambiguous `PUT` (a fresh close run attests the current state).
+4. Every successful close writes, so that it supersedes every earlier closure: state `closed` re-`PUT`s the identical closed configuration (a renewal write whose only effect is a new `version`); state `open` or `split`: re-read, require the same hash as planned, `PUT` the configuration in which only the `service` of the two canonical rules changes to `http_status:503` (every other field of those rules and every other rule is preserved byte for byte), then read back. State `unknown`: refuse.
+5. Success requires the read-back to classify `closed`, the hash of the unrelated rules to equal the pre-write hash, and `version` to equal the pre-write `version` plus one (every successful close writes). Anything else is a failure, reported with the observed state, never as success.
+6. Upload `closure.json` as artifact `oteryn-edge-gate-closure` (retention 30 days): `schema`, `task_id`, `close_run_id`, `run_attempt`, `edge_version`, `config_hash`. A renewal close from `closed` uploads it too, and its new `edge_version` makes every earlier closure and its evidence fail the open check (a second close can never leave an older closure usable). That is the recovery path after an ambiguous `PUT` (a fresh close run attests the current state).
 7. Job `edge-probe` (separate job, no secrets, runs on a GitHub runner outside the NAS): *External probes* below. The close counts as complete for the cutover only when the manage job and the probe job both succeed.
 
 ### `maintenance-open`
@@ -116,7 +116,7 @@ A GitHub Actions `concurrency` group keeps at most one pending run and replaces 
 | From | Entry point | To | Rule |
 | --- | --- | --- | --- |
 | `open` | `maintenance-close` | `closed` | Origin-route precondition passes, one `PUT`, read back, closure artifact, probes |
-| `closed` | `maintenance-close` | `closed` | No write; new closure artifact attests the current state; probes |
+| `closed` | `maintenance-close` | `closed` | Renewal write (identical config, new `version`); new closure artifact; every earlier closure is superseded; probes |
 | `split` | `maintenance-close` | `closed` | Completes the close |
 | `closed` | `maintenance-open` | `open` | Classify first; then provenance and evidence checks, final read matching `edge_version` and `config_hash`, one `PUT`, read back, fresh `audit`, probes |
 | `open` | `maintenance-open` | `open` | No write, no evidence; fresh `audit` and probes |
@@ -132,9 +132,9 @@ A GitHub Actions `concurrency` group keeps at most one pending run and replaces 
 | --- | --- | --- |
 | Read, validation or origin-route check fails before the `PUT` | Unchanged | Nothing written; fix and re-dispatch. A failed close before the freeze means the cutover does not start |
 | Hash mismatch at `PUT` time | Unchanged | No write; re-run from a fresh read |
-| Transport failure or no response on the `PUT` | Unknown until read | No in-run retry (existing policy). Run `audit`; re-dispatch the same mode, which is a no-op if the write landed |
-| Read-back disagrees, or `version` is not pre-write plus one | As read back | Run fails with the observed `gate_state`; never success. If a close landed, re-dispatching close from `closed` is the no-write attestation |
-| Runner dies before / after the `PUT` | Unchanged / new state | Re-running the same mode converges; same-mode re-run after the `PUT` is a no-op |
+| Transport failure or no response on the `PUT` | Unknown until read | No in-run retry (existing policy). Run `audit`; re-dispatch the same mode, which from `closed` is a renewal write and yields a fresh closure |
+| Read-back disagrees, or `version` is not pre-write plus one | As read back | Run fails with the observed `gate_state`; never success. If a close landed, re-dispatching close from `closed` is a renewal write that creates the closure |
+| Runner dies before / after the `PUT` | Unchanged / new state | Re-running the same mode converges; a close re-run after the `PUT` is a renewal write, an open re-run is a no-op |
 | `maintenance-open` fails or is refused | Stays `closed` | Fail closed. Refused for missing, expired, unreadable or unbound evidence, a stopped cutover step, or evidence from another task or another closure |
 | Open landed but audit or probe fails | `open` | The run fails and reports it. No automatic re-close: the operator decides to investigate or to start a new closure |
 | Cutover script dies with the gate closed | `closed` | Stays closed until `maintenance-open` runs in step 7 or at the end of a rollback |
@@ -159,7 +159,7 @@ Test cases (script tests against the mock, workflow-shape tests in Python):
 - One test per transition row, including both no-op rows and the `apply` refusals.
 - Classification: `open`, `closed`, `split`, and `unknown` for a missing rule, a locally managed tunnel, one rule on `503` and the other on an arbitrary service.
 - Origin-route precondition: refusal for a wildcard, the legacy Gateway hostname, a path-only rule and the catch-all on `127.0.0.1`, `localhost`, `[::1]`, `0.0.0.0` and another `127.x` address with port 8000 or 8080, including IPv4-mapped and default-port forms; no refusal for `http_status:*`, other ports and `unix:`; an unparseable service refuses; the count is printed and no hostname or service is.
-- Close: unrelated rules and catch-all preserved byte for byte; other fields of the canonical rules preserved; hash mismatch aborts; read-back failure and a wrong `version` increment report failure; no-op close from `closed` writes a new closure artifact; ambiguous `PUT` then re-dispatch converges.
+- Close: unrelated rules and catch-all preserved byte for byte; other fields of the canonical rules preserved; hash mismatch aborts; read-back failure and a wrong `version` increment report failure; close from `closed` performs the renewal write and uploads a new closure artifact, and the earlier closure plus its evidence are then refused by `maintenance-open` (the stale-reuse case that a no-write close would have missed); an old closure and evidence refused after `maintenance-open` itself succeeded and the gate was closed again; ambiguous `PUT` then re-dispatch converges.
 - Open: no provenance lookup and no evidence needed from `open` (a retry with no ids succeeds); a final read that matches the hash but not the `version` aborts before the `PUT`; refused without the closure or the evidence artifact; with an expired or duplicate artifact; with evidence from another task; with evidence naming an earlier `close_run_id` (rollback, second close, stop at step 4); with an evidence run in any state outside the allowlist (failure, cancelled, skipped, neutral, stale, action_required, queued); with a stopped step; with a `version` bumped by an external edit, including one that restores identical closed rules; from `split`. Accepted with `cutover_complete` and with `rollback_verified`.
 - Serialization: three dispatches while one is running, with a close among them; a replaced pending run never yields a closure artifact and the next step refuses on that.
 - `audit` reports `closed` as bounded drift with exit 0; confirmation phrases required; no token, secret or bypass value in any output or artifact.
