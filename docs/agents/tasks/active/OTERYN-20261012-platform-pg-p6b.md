@@ -49,7 +49,8 @@ updated_at: 2026-10-12T22:00:00Z
 head: UNKNOWN
 branch: claude/platform-pg-p6b-20261012
 pr: 1588
-status: waiting
+status: validating
+terminal_pr_policy: archive_pending
 context_routes:
   - operations
 owned_paths:
@@ -81,7 +82,7 @@ validation:
     evidence: ratchet ok; 13 active checkpoints including this record validated; documentation IA validated; source-branch closeout validated
 blockers:
   - none
-next_action: wait for exact-head CI and the complete Codex review, fix all findings in one commit, then archive this record in the final authoring commit when the coordinator says so
+next_action: archive this record in the P6 cutover packet once the owner has accepted the P6b note; the source-branch closeout evidence is filled there when the branch deletion is verified
 ```
 
 ## Source branch closeout
