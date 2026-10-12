@@ -31,7 +31,7 @@ This is a documentation-only change. It does not change code, configuration, sch
 - [x] Plan `docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md` with packets P1 to P7, each with owned paths, validation and rollback, and owner/operator inputs.
 - [x] Owner answers Q1 to Q6 (2026-10-12) applied consistently to ADR 0046 and the plan: clean-slate bootstrap, rollback only before the first native evidence write, MariaDB volume deleted after a successful cutover smoke test with no dump, stack-CA TLS, NAS-only staging backups with provisional RPO 24 h / RTO 4 h and off-NAS required before production, accent-sensitive search.
 - [x] No secret, certificate or credential in the repository; no new legacy-token occurrence; baseline not raised.
-- [ ] Exact-head CI and Agent Governance gates pass.
+- [x] Exact-head CI and Agent Governance gates pass; PR #1561 merged as `dc3edffd` on 2026-10-12.
 
 ## Ownership
 
@@ -40,7 +40,6 @@ owned_paths:
   - docs/architecture/adr/0046-platform-persistence-moves-to-postgresql.md
   - docs/architecture/adr/README.md
   - docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md
-  - docs/agents/tasks/active/OTERYN-20261012-platform-postgres-plan.md
   - docs/agents/tasks/archive/OTERYN-20261012-platform-postgres-plan.md
 modules:
   - architecture-docs
@@ -57,11 +56,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-12T16:00:00Z
-head: UNKNOWN
+updated_at: 2026-10-12T19:00:00Z
+head: dc3edffd527e2375bf66c195a529e5b80e3a01ba
 branch: claude/platform-postgres-migration-plan-20261012
 pr: 1561
-status: validating
+status: completed
 context_routes:
   - architecture
   - database
@@ -69,7 +68,6 @@ owned_paths:
   - docs/architecture/adr/0046-platform-persistence-moves-to-postgresql.md
   - docs/architecture/adr/README.md
   - docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md
-  - docs/agents/tasks/active/OTERYN-20261012-platform-postgres-plan.md
   - docs/agents/tasks/archive/OTERYN-20261012-platform-postgres-plan.md
 proven:
   - open PR 1558 claims ADR prefix 0045, so this decision takes 0046
@@ -90,18 +88,17 @@ rejected_hypotheses:
   - one PostgreSQL cluster shared with Game; PITR is cluster-wide and DUR-02 needs independent restore
   - copying MariaDB data to PostgreSQL as a required step; superseded by owner answer Q1 (clean slate), kept only as an optional fallback
 changed_paths:
+  - docs/agents/tasks/archive/OTERYN-20261012-platform-postgres-plan.md
   - docs/architecture/adr/0046-platform-persistence-moves-to-postgresql.md
   - docs/architecture/adr/README.md
   - docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md
-  - docs/agents/tasks/active/OTERYN-20261012-platform-postgres-plan.md
 validation:
   - command: python3 tools/validation/adr_registry.py && python3 tools/validation/test_adr_registry.py; python3 tools/validation/legacy_token_ratchet.py; python3 tools/agents/checkpoint.py --tasks docs/agents/tasks/active --require-checkpoint; python3 tools/agents/documentation_ia.py
     result: PASS
     evidence: local run before push
 blockers:
   - none
-next_action: Lead review of the owner-answer update; on merge, archive this record. P1 may start under its own task.
-terminal_pr_policy: archive_pending
+next_action: none for this task. Two review findings on the last head are fixed under OTERYN-20261012-platform-postgres-plan-fixes (PR #1562). P1 starts under its own task.
 ```
 
 ## Source branch closeout
@@ -109,7 +106,7 @@ terminal_pr_policy: archive_pending
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository docs PR
-source_branch_evidence: pending
+source_branch_evidence: PR #1561 merged as dc3edffd on 2026-10-12; git ls-remote shows the source branch absent after merge
 ```
 
 ## Notes
