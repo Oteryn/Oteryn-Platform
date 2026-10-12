@@ -4,6 +4,7 @@ namespace Tests\Feature\GameAuth\NativeTopology;
 
 use App\GameAuth\Worlds\NativePreproductionStoreRefused;
 use App\GameAuth\Worlds\NativeRouteRecords;
+use App\GameAuth\Worlds\PreproductionNativeRouteStore;
 use Illuminate\Database\SQLiteConnection;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Artisan;
@@ -176,7 +177,7 @@ final class PreproductionStoreRouteCommandsTest extends TestCase
         $world = Str::uuid7()->toString();
         $this->preproductionStore($world, self::PGSQL_STORE, 'pgsql');
 
-        [$connection, $admittedWorld] = app(\App\GameAuth\Worlds\PreproductionNativeRouteStore::class)->admit();
+        [$connection, $admittedWorld] = app(PreproductionNativeRouteStore::class)->admit();
 
         self::assertSame('pgsql', $connection->getName());
         self::assertSame($world, $admittedWorld);
