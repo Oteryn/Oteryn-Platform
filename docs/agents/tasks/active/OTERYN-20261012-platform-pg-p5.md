@@ -45,6 +45,7 @@ owned_paths:
   - deploy/synology/tls/init.sh (postgres-backup bootstrap permissions)
   - .github/workflows/recover-synology-staging-schema.yml (pitr-drill mode)
   - .github/workflows/build-synology-staging-images.yml (path filters and bash -n list for the new scripts)
+  - .github/workflows/repair-synology-autostart.yml (postgres-backup in the restart repair)
   - scripts/ci/classify_synology_builds.py (route the new scripts)
   - tests/ci/test_synology_postgres_backup_contract.py
   - tests/ci/test_synology_deploy_release_identity.py (hook class only)
@@ -67,8 +68,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-12T21:00:00Z
-head: dfea5ef6b304462121ab396e9b25e37e4e58c80d
+updated_at: 2026-10-12T22:00:00Z
+head: e508d50b2452b50bb6ce27da16c44929837dbe17
 branch: claude/platform-pg-p5-20261012
 pr: 1583
 status: waiting
@@ -85,6 +86,7 @@ owned_paths:
   - deploy/synology/tls/init.sh
   - .github/workflows/recover-synology-staging-schema.yml
   - .github/workflows/build-synology-staging-images.yml
+  - .github/workflows/repair-synology-autostart.yml
   - scripts/ci/classify_synology_builds.py
   - tests/ci/test_synology_postgres_backup_contract.py
   - tests/ci/test_synology_deploy_release_identity.py
@@ -112,6 +114,7 @@ changed_paths:
   - deploy/synology/**
   - .github/workflows/recover-synology-staging-schema.yml
   - .github/workflows/build-synology-staging-images.yml
+  - .github/workflows/repair-synology-autostart.yml
   - scripts/ci/classify_synology_builds.py
   - tests/ci/test_synology_postgres_backup_contract.py
   - tests/ci/test_synology_deploy_release_identity.py
@@ -119,7 +122,7 @@ changed_paths:
 validation:
   - command: python3 -m pytest tests/ci deploy/synology/tests -q
     result: PASS
-    evidence: 426 passed, 91 subtests passed (after merging origin/main)
+    evidence: 431 passed, 91 subtests passed (after merging origin/main and the autostart repair fix)
   - command: shellcheck and bash -n on the new scripts; sh -n tls/init.sh; docker compose config with and without the postgres profile
     result: PASS
     evidence: clean; only SC1091 info for sourcing lib.sh

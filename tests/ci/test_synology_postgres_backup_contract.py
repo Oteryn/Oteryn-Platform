@@ -39,6 +39,7 @@ RECOVER_WORKFLOW = ROOT / ".github/workflows/recover-synology-staging-schema.yml
 RUNBOOK = ROOT / "docs/operations/PLATFORM_POSTGRES_BACKUP_PITR.md"
 CLASSIFIER = ROOT / "scripts/ci/classify_synology_builds.py"
 BUILD_WORKFLOW = ROOT / ".github/workflows/build-synology-staging-images.yml"
+AUTOSTART_WORKFLOW = ROOT / ".github/workflows/repair-synology-autostart.yml"
 
 SEGMENT = "000000010000000000000003"
 
@@ -197,6 +198,103 @@ class DeployWiringTest(unittest.TestCase):
         self.assertTrue(RUNBOOK.is_file())
         for script in (JOB, BACKUP_POSTGRES, DRILL, ARCHIVE):
             self.assertIn("docs/operations/PLATFORM_POSTGRES_BACKUP_PITR.md", script.read_text(), script.name)
+
+
+FAKE_DOCKER = r"""#!/bin/bash
+# Containers: $FAKE_CONTAINERS lists service=id (all exist); $FAKE_RUNNING lists the running services.
+log="$FAKE_LOG"
+cmd="$1"; shift
+case "$cmd" in
+    ps)
+        all=false service=''
+        for arg in "$@"; do
+            [[ "$arg" == -aq ]] && all=true
+            [[ "$arg" == label=com.docker.compose.service=* ]] && service="${arg#label=com.docker.compose.service=}"
+        done
+        for entry in $FAKE_CONTAINERS; do
+            [[ "${entry%%=*}" == "$service" ]] || continue
+            if [[ "$all" == true || " $FAKE_RUNNING " == *" $service "* ]]; then echo "${entry#*=}"; fi
+        done
+        ;;
+    update|start) echo "$cmd $*" >> "$log" ;;
+    inspect)
+        case "$2" in
+            *RestartPolicy*) echo always ;;
+            *State.Status*) echo running ;;
+            *) echo "/${4:-x}" ;;
+        esac
+        ;;
+esac
+"""
+
+
+class AutostartRepairTest(unittest.TestCase):
+    """The autostart repair keeps the backup sidecar with the configured PostgreSQL service."""
+
+    BASE = "platform=org-platform mariadb=c-mariadb internal-proxy=c-proxy gateway=c-gateway"
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="oteryn-p5-autostart-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        docker = self.tmp / "bin/docker"
+        docker.parent.mkdir()
+        docker.write_text(FAKE_DOCKER)
+        docker.chmod(0o755)
+        workflow = AUTOSTART_WORKFLOW.read_text()
+        lines = []
+        for line in workflow.split("        run: |\n", 1)[1].splitlines():
+            if line.strip() and not line.startswith(" " * 10):
+                break
+            lines.append(line[10:])
+        script = "\n".join(lines) + "\n"
+        # The repair waits for the containers to settle; the fake ones settle at once.
+        script = script.replace("\nsleep 3\n", "\n")
+        self.script = self.tmp / "repair.sh"
+        self.script.write_text(script)
+        self.log = self.tmp / "docker.log"
+
+    def repair(self, containers: str, running: str, secrets: bool) -> subprocess.CompletedProcess[str]:
+        env = {
+            "PATH": f"{self.tmp / 'bin'}:/usr/bin:/bin",
+            "FAKE_CONTAINERS": f"{self.BASE} {containers}",
+            "FAKE_RUNNING": running,
+            "FAKE_LOG": str(self.log),
+        }
+        for name in ("SUPERUSER", "OWNER", "APP", "BACKUP", "DUMP"):
+            env[f"PLATFORM_POSTGRES_{name}_PASSWORD"] = "x" * 24 if secrets else ""
+        return run(["bash", str(self.script)], env=env)
+
+    def started(self) -> str:
+        return self.log.read_text() if self.log.exists() else ""
+
+    def test_configured_postgres_repairs_the_backup_sidecar_too(self) -> None:
+        result = self.repair("postgres=c-pg postgres-backup=c-pgb", "", secrets=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("start c-pg", self.started())
+        self.assertIn("start c-pgb", self.started())
+        self.assertRegex(self.started(), r"update --restart=always .*c-pg .*c-pgb")
+
+    def test_a_stack_without_the_sidecar_yet_is_left_to_the_next_deployment(self) -> None:
+        result = self.repair("postgres=c-pg", "", secrets=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("postgres-backup is not created yet", result.stdout)
+        self.assertIn("start c-pg", self.started())
+
+    def test_a_duplicate_sidecar_fails_closed(self) -> None:
+        result = self.repair("postgres=c-pg postgres-backup=c-pgb postgres-backup=c-pgb2", "", secrets=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("start", self.started())
+
+    def test_a_running_sidecar_without_secrets_is_drift(self) -> None:
+        result = self.repair("postgres=c-pg postgres-backup=c-pgb", "postgres-backup", secrets=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("A postgres-backup container is running", result.stderr)
+        self.assertNotIn("start", self.started())
+
+    def test_stopped_postgres_containers_without_secrets_stay_stopped(self) -> None:
+        result = self.repair("postgres=c-pg postgres-backup=c-pgb", "", secrets=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("c-pg", self.started())
 
 
 class SpoolTestCase(unittest.TestCase):
