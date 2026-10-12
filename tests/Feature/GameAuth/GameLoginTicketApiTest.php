@@ -100,7 +100,6 @@ final class GameLoginTicketApiTest extends TestCase
             ->postJson('/api/v1/game-auth/tickets', [
                 'protocol_version' => 1,
                 'identity_id' => 999,
-                'canary_account_id' => 999,
             ]);
 
         $response->assertStatus(422);

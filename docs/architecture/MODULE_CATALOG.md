@@ -288,7 +288,7 @@ The merged Download Center provides a public platform-filtered route and permiss
 
 ### Current available boundary
 
-Implemented Phase 4 read-only surfaces use explicit field allowlists, bounded pagination and the database-enforced `canary` / `oteryn_readonly` SQL boundary. Runtime availability uses the separate read-only `canary_runtime` Redis boundary with TTL freshness and fail-closed semantics.
+Implemented Phase 4 read-only surfaces use explicit field allowlists, bounded pagination and the database-enforced `canary` / `oteryn_readonly` SQL boundary. The former `canary_runtime` Redis boundary for runtime availability was retired (#1556) and is historical, not current.
 
 Character Bazaar listing creation uses its own operation-specific transfer connection to capture an immutable public-safe allowlisted character snapshot before escrow. Public catalogue/detail reads use the Platform snapshot rather than live mutable legacy engine data.
 

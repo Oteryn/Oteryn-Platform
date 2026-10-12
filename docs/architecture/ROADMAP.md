@@ -105,7 +105,7 @@ Delivered:
 
 - shared public Blade layout/navigation for Home, News, Online, Highscores and Servers;
 - homepage exact-name character search routed to the existing bounded character profile read path;
-- configured server/channel metadata plus fresh per-channel runtime availability/count projection through the dedicated read-only `canary_runtime` Redis boundary;
+- configured server/channel metadata; the former per-channel runtime availability/count projection through the `canary_runtime` Redis boundary was retired with the runtime Redis path (#1556) and is no longer current;
 - Platform-owned published-only public news list/detail with deterministic pagination and escaped plain-text rendering;
 - read-only active character profiles;
 - read-only level highscores with deterministic ordering and pagination;
