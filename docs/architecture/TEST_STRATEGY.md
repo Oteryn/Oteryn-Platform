@@ -58,6 +58,8 @@ Use isolated test databases for:
 
 Never point automated tests at production data.
 
+Platform also runs the full suite against PostgreSQL 17 through `phpunit.pgsql.xml` and the non-blocking `platform-postgres` job in `.github/workflows/ci.yml`. The job is a report: it uploads the failing-test list and is not a required check. Wallet and Bazaar-bid concurrency tests (`tests/Feature/Wallet/Concurrency/**`, `tests/Feature/Marketplace/Concurrency/**`) fork eight real PHP processes against a throwaway PostgreSQL database and skip unless `PGSQL_INTEGRATION_HOST` is set. SQLite does not prove row locking, so these tests are the real-database proof for those races.
+
 Browser E2E must not replace real-database integration as the primary proof for locking, transaction races, uniqueness or persisted integrity. Browser scenarios may assert the user-visible outcome of a conflict only when that adds unique composed evidence.
 
 ### Contract tests
