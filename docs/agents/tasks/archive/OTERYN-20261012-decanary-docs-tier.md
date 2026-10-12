@@ -46,10 +46,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-12T09:00:00Z
-head: UNKNOWN
+head: 99d589a7daaeff576e9906242e5ab25c42b8750b
 branch: claude/decanary-docs-tier-20261012
-pr: none
-status: validating
+pr: 1564
+status: completed
 context_routes:
   - agent-governance
 owned_paths:
@@ -58,7 +58,7 @@ owned_paths:
   - docs/contracts/CANARY_DATA_CONTRACT.md
   - docs/contracts/GAME_SESSION_CANARY_CONTRACT.md
   - docs/contracts/IDENTITY_CANARY_ACCOUNT_BINDING_CONTRACT.md
-  - docs/agents/tasks/active/OTERYN-20261012-decanary-docs-tier.md
+  - docs/agents/tasks/archive/OTERYN-20261012-decanary-docs-tier.md
 proven:
   - #1478 already labelled the routes and contracts LEGACY / COMPATIBILITY
 derived:
@@ -76,15 +76,14 @@ changed_paths:
   - docs/contracts/CANARY_DATA_CONTRACT.md
   - docs/contracts/GAME_SESSION_CANARY_CONTRACT.md
   - docs/contracts/IDENTITY_CANARY_ACCOUNT_BINDING_CONTRACT.md
-  - docs/agents/tasks/active/OTERYN-20261012-decanary-docs-tier.md
+  - docs/agents/tasks/archive/OTERYN-20261012-decanary-docs-tier.md
 validation:
   - command: legacy_token_ratchet, adr_registry, checkpoint, documentation_ia, task_liveness
     result: PASS
     evidence: local run
 blockers:
   - none
-next_action: Archive this record once the PR is merged.
-terminal_pr_policy: archive_pending
+next_action: none; PR #1564 carries the change and this record is archived in its final commit.
 ```
 
 ## Source branch closeout
@@ -92,7 +91,7 @@ terminal_pr_policy: archive_pending
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository PR
-source_branch_evidence: pending
+source_branch_evidence: PR #1564 same-repository branch; deletion on merge to be verified after merge.
 ```
 
 ## Notes
