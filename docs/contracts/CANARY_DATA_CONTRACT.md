@@ -193,7 +193,7 @@ The future authoritative Platform game-login bridge must define its own session-
 
 ## Runtime Redis
 
-The Platform no longer opens any runtime Redis connection: the `canary_runtime` connection, its environment variables and its reader were removed, and the public server and home pages show the runtime as unavailable. Live per-channel population returns only through the accepted native projection.
+The Platform no longer opens any runtime Redis connection: the `canary_runtime` connection, its environment variables and its reader were removed, and the public server and home pages show the server/channel runtime as unavailable. This does not affect the online-character read model, which still reads sanitized `cluster_sessions` while the legacy public-data source is enabled. Live per-channel population returns only through the accepted native projection.
 
 Runtime state was never a Phase 5 mutation surface.
 

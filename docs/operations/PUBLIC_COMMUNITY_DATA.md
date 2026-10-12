@@ -6,7 +6,7 @@ Public community pages use:
 
 - the Platform database for Identity privacy flags and ready Identity-to-legacy engine bindings;
 - the dedicated read-only legacy engine MariaDB principal for character, guild, house and death data;
-- no runtime Redis principal: the Platform no longer reads live online/server state, and the pages show it as unavailable.
+- no runtime Redis principal: the Platform no longer reads live server/channel runtime state, and the pages show it as unavailable. The online-character list is separate: it still reads `cluster_sessions` through the read-only legacy engine principal while the legacy public-data source is enabled, so that grant stays in the dependency contract.
 
 No page in this lifecycle writes to legacy engine.
 

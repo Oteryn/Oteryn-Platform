@@ -110,7 +110,7 @@ Do not broaden application permissions to accommodate an over-privileged credent
 
 ## Public server runtime state
 
-The Platform no longer reads a runtime Redis store. The public server and home pages always show the live runtime as unavailable, without offline or zero counts, until the native projection provides it.
+The Platform no longer reads a runtime Redis store. The public server and home pages always show the live server/channel runtime as unavailable (the `/online` character list is unaffected and still reads `cluster_sessions` while the legacy public-data source is enabled), without offline or zero counts, until the native projection provides it.
 
 Actions:
 

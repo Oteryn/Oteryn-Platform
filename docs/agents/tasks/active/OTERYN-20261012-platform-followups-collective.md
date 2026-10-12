@@ -69,7 +69,7 @@ checkpoint_version: 1
 updated_at: 2026-10-12T05:40:00Z
 head: UNKNOWN
 branch: claude/platform-followups-collective-20261012
-pr: none
+pr: 1556
 status: validating
 context_routes:
   - public-game-data
