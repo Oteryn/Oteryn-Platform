@@ -263,6 +263,20 @@ class StaticBootstrapTest(BootstrapCase):
                     self.assert_refused(result, f"{name} must")
                     self.assertFalse(self.witness_dir.exists())
 
+    def test_whitespace_only_world_options_are_refused_like_the_command_trims_them(self) -> None:
+        reason = platform_unavailable_reason()
+        if reason is not None:
+            self.skipTest(reason)
+        self.assertEqual(self.bootstrap("record-witness", "--local", env=self.base_env(
+            DB_CONNECTION="sqlite", DB_DATABASE=":memory:")).returncode, 0)
+        for name in ("GAME_WORLD_ID", "GAME_WORLD_SLUG", "GAME_WORLD_NAME", "GAME_WORLD_REGION",
+                     "GAME_WORLD_HOST", "GAME_WORLD_PORT"):
+            with self.subTest(name=name):
+                result = self.bootstrap("run", "--local", env=self.base_env(
+                    DB_CONNECTION="sqlite", DB_DATABASE=":memory:", **{name: "   "}))
+                self.assert_refused(result, f"{name} is not set")
+                self.assertFalse(self.witness_dir.exists())
+
 
 class LiveBootstrapCase(BootstrapCase):
     def setUp(self) -> None:

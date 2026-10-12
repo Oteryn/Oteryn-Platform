@@ -465,6 +465,17 @@ elif [[ "$native_admission" != true && "$with_native_admission" == true ]]; then
     reasons+=("--with-native-admission was given but native admission is off in the Platform configuration.")
 fi
 
+# EnsureGameWorld trims every option (PHP trim: space, \t, \n, \r, NUL, \v) before validating it, so a
+# whitespace-only value is empty there. Apply the same trim here, so the checks below see what step 6 sees.
+trim_world_option() {
+    local value="${!1:-}"
+    value="${value#"${value%%[!$' \t\n\r\v']*}"}"
+    value="${value%"${value##*[!$' \t\n\r\v']}"}"
+    printf -v "$1" '%s' "$value"
+}
+for name in GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT; do
+    trim_world_option "$name"
+done
 for name in GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT; do
     [[ -n "${!name:-}" ]] || reasons+=("$name is not set (World Registry row for game-auth:world:ensure).")
 done
