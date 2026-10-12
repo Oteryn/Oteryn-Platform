@@ -30,7 +30,7 @@ This is a documentation-only change. It does not change code, configuration, sch
 - [x] ADR 0046 §8 and Reversal match the plan.
 - [x] The merged PR #1561 task record is archived as completed.
 - [x] No secret in the repository; no new legacy-token occurrence; baseline not raised.
-- [ ] Exact-head CI and Agent Governance gates pass.
+- [x] Exact-head CI and Agent Governance gates pass.
 
 ## Ownership
 
@@ -56,11 +56,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-13T02:50:00Z
-head: UNKNOWN
+updated_at: 2026-10-12T21:00:00Z
+head: 962c441b5e3ef9527844a862c9b2c72b7f5cd104
 branch: claude/platform-postgres-plan-fixes-20261012
 pr: 1562
-status: validating
+status: completed
 context_routes:
   - architecture
   - database
@@ -104,8 +104,7 @@ validation:
     evidence: local run before push
 blockers:
   - none
-next_action: Lead review; on merge, archive this record.
-terminal_pr_policy: archive_pending
+next_action: none for this task. PR #1562 is merged and this record is archived. P1 starts under its own task.
 ```
 
 ## Source branch closeout
@@ -113,5 +112,5 @@ terminal_pr_policy: archive_pending
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository docs PR
-source_branch_evidence: pending
+source_branch_evidence: PR #1562 merged as 962c441b on 2026-10-12; source branch auto-deleted after merge
 ```
