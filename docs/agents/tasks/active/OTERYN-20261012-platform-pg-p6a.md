@@ -110,6 +110,7 @@ rejected_hypotheses:
   - Recording the path-picking observation in a late `init`. With `marker_only` it predates D1, while D4 uses the `init` observation as the post-init baseline (Codex P1, round 11); `--close-init` now observes again after D1 and records that.
   - Relying on the create mode `0640`. The deploy workflow runs with `umask 077`, which leaves the run file `0600` and unreadable to the Platform user (Codex P1, round 12); `open` now sets the mode with `fchmod` and checks it.
   - The WAL write position and `xmax` as cross-run progress. Both can fall back after a crash or power loss without a restore (Codex P2, round 13); continuity now uses `pg_current_wal_flush_lsn()` only, and `xmax` stays an in-attempt check.
+  - Requiring a failed `self-check` record before `step4-recheck`. A deploy that exited before the self-check left a committed run with no such record and no way on (Codex P2, round 14); the recheck now also accepts a run that ends with its `committed` observation.
   - Redesigning for each further edge case. The owner accepted the residual risks on 2026-10-12; the note lists them under *Accepted residual risks*, including a witness volume replaced after the fence's last marker and inode check (Codex P1, round 10).
 changed_paths:
   - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
