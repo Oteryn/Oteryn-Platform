@@ -47,7 +47,11 @@ case "$*" in
     *' ps -q gateway') printf '%s\\n' "${FAKE_GATEWAY-gateway-1}"; exit "${FAKE_INGRESS_PS_RC:-0}" ;;
     *' stop gateway internal-proxy') exit "${FAKE_STOP_RC:-0}" ;;
     *' rm -s -f gateway internal-proxy platform') exit "${FAKE_RM_RC:-0}" ;;
+    *' rm -s -f internal-mtls') exit "${FAKE_MTLS_RM_RC:-0}" ;;
     *' up -d '*) exit "${FAKE_UP_RC:-0}" ;;
+    'ps -a '*) printf '%s\\n' "${FAKE_SCHEDULER-scheduler-1}"; exit 0 ;;
+    'inspect --format {{.State.Running}} '*) printf true; exit 0 ;;
+    'inspect --format {{.Config.Image}} '*) printf %s "${PLATFORM_IMAGE-}"; exit 0 ;;
     'start '*) exit "${FAKE_START_RC:-0}" ;;
     *'GAME_AUTH_NATIVE_ADMISSION_ENABLED'*) printf %s "$FAKE_FLAG"; exit "${FAKE_FLAG_RC:-0}" ;;
     *'publish-trust'*) printf '%s\\n' "$FAKE_OUTPUT"; exit "${FAKE_PUBLISH_RC:-0}" ;;
@@ -71,8 +75,8 @@ def test_compose_scopes_the_trust_registry_and_keeps_the_witness_on_retained_sto
 
 
 def test_marketplace_scheduler_shares_the_platform_witness() -> None:
-    text = MARKETPLACE.read_text(encoding="utf-8")
-    scheduler = text[text.index("\n  marketplace-scheduler:\n") :]
+    text = COMPOSE.read_text(encoding="utf-8")
+    scheduler = text[text.index("\n  marketplace-scheduler:\n") : text.index("\nvolumes:\n")]
     platform = platform_environment()
     for name in ("GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE", "GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY"):
         expected = re.search(rf"\n      {name}: (\S+)\n", platform)
@@ -240,7 +244,7 @@ def test_marketplace_switches_start_ingress_only_after_the_final_trust_gate() ->
         INGRESS_STOP,
         "--force-recreate platform",
         PUBLISH_CALL,
-        "stop marketplace-scheduler",
+        "up -d --no-deps --force-recreate marketplace-scheduler",
         "--force-recreate internal-proxy",
         '"${compose[@]}" start gateway',
         "Character Bazaar staging is drained",
@@ -528,7 +532,13 @@ def test_ingress_stop_reports_the_running_ingress_in_start_order(fake_docker: pa
     result, calls = run_lib(fake_docker, 'oteryn_native_admission_ingress_stop "$@"', "docker", "compose", "-f", "x.yml")
     assert result.returncode == 0, result.stderr
     assert result.stdout.split() == ["proxy-1", "gateway-1"]
-    assert calls == ["compose -f x.yml ps -q internal-proxy", "compose -f x.yml ps -q gateway", "compose -f x.yml stop gateway internal-proxy"]
+    assert calls == [
+        "compose -f x.yml ps -q internal-proxy",
+        "compose -f x.yml ps -q gateway",
+        "compose -f x.yml stop gateway internal-proxy",
+        # The mTLS listener is off here, so any existing one is removed (lib.sh).
+        "compose -f x.yml rm -s -f internal-mtls",
+    ]
 
 
 def test_ingress_stop_on_a_first_deploy_has_nothing_to_restart(fake_docker: pathlib.Path) -> None:
@@ -537,7 +547,7 @@ def test_ingress_stop_on_a_first_deploy_has_nothing_to_restart(fake_docker: path
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout == ""
-    assert calls[-1] == "compose -f x.yml stop gateway internal-proxy"
+    assert calls[-2:] == ["compose -f x.yml stop gateway internal-proxy", "compose -f x.yml rm -s -f internal-mtls"]
 
 
 @pytest.mark.parametrize("fake", [{"FAKE_STOP_RC": "1"}, {"FAKE_INGRESS_PS_RC": "1"}])

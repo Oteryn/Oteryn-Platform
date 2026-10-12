@@ -46,6 +46,7 @@ Validation must be proportional to changed paths, risk and the current project m
 | Docker/deployment/workflow | YAML/config validation and focused script tests | Image/build/health/rollback/staging checks only when affected |
 | Ordinary workflow definition | Workflow inventory, immutable-action pinning, trigger economy, core CI | The workflow's own affected lane; no unrelated heavy fan-out |
 | Central CI router (`ci.yml`, `scripts/ci/**`, `tests/ci/**`) | Routing fixtures + workflow inventory/economy contracts | Fail-closed heavy-gate generation on the candidate head |
+| PostgreSQL probe (`phpunit.pgsql.xml`, `platform-postgres` job in `ci.yml`) | Run the touched tests against a local PostgreSQL 17 only when the change touches database code or the concurrency tests | Non-blocking report job: the full suite runs on a `postgres:17` service and uploads the failing-test list; never a required check until the migration plan promotes it |
 | CI/governance only | YAML/schema/check-name review | Observe emitted lightweight checks; no unrelated application build |
 
 ## Workflow lifecycle

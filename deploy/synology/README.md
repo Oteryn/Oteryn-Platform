@@ -15,13 +15,16 @@ Synology host loopback
   8000 -> Platform
   8080 -> Game Gateway
 
+Synology LAN address (opt-in, see Platform internal mTLS listener)
+  8543 -> internal-mtls (TLS 1.3 + client certificate) -> FastCGI unix socket -> Platform
+
 Docker private bridge
   Platform <-> MariaDB
-  Platform <-> Redis
+  Scheduler (always on) <-> MariaDB
   Gateway -> HTTPS internal proxy -> Platform private API
 ```
 
-The Gateway never receives database credentials. Its non-loopback dependencies use generated staging-only TLS certificates and hostname verification. MariaDB and Redis are not published on host ports. Platform and Gateway remain host-loopback-only.
+The Gateway never receives database credentials. Its non-loopback dependencies use generated staging-only TLS certificates and hostname verification. MariaDB is not published on host ports. Platform and Gateway remain host-loopback-only.
 
 The user-visible Platform origin is a separate concern from the private origin binding. The guarded public staging deployment requires `APP_URL=https://oteryn.molehill.cloud` for requestless console, scheduler, notification, reset, verification and signed URL generation while continuing to bind Platform only to `127.0.0.1:8000`.
 
@@ -69,7 +72,6 @@ Required secrets:
 OTERYN_STAGING_APP_KEY
 OTERYN_STAGING_MARIADB_ROOT_PASSWORD
 OTERYN_STAGING_PLATFORM_DB_PASSWORD
-OTERYN_STAGING_REDIS_PASSWORD
 OTERYN_STAGING_PLATFORM_SERVICE_TOKEN
 OTERYN_STAGING_PLATFORM_SERVICE_TOKEN_SHA256
 ```
@@ -102,6 +104,8 @@ PLATFORM_BIND_ADDRESS=127.0.0.1
 GATEWAY_BIND_ADDRESS=127.0.0.1
 ```
 
+The Platform internal mTLS listener has its own bind control, `PLATFORM_MTLS_BIND_ADDRESS` (default `127.0.0.1`, staging value `192.168.1.2` from `native-defaults.env`). It must be loopback or one exact RFC1918 private IPv4 address present on the host, and only that listener (TLS 1.3, client certificate required) is published there.
+
 `GAME_WORLD_HOST` is the Platform-owned route returned to OTClient; it must be loopback or one exact RFC1918 private IPv4 address. Wildcard, public, multicast and link-local addresses are rejected.
 
 ## Deployment behavior
@@ -114,7 +118,7 @@ A `deploy` run:
 4. writes a permission-restricted ephemeral `.env` from GitHub Environment secrets;
 5. validates required values and service-token hashes;
 6. pulls prebuilt images;
-7. starts MariaDB, Redis and internal TLS bootstrap;
+7. starts MariaDB and internal TLS bootstrap;
 8. starts Platform, runs migrations and ensures the native OAuth client exists;
 9. starts the internal TLS proxy and Game Gateway;
 10. verifies Platform/Gateway health and every exact host-port binding;
@@ -157,6 +161,78 @@ Account-character projection has no producer on Synology, so `GAME_AUTH_NATIVE_A
 
 Rollback of a Platform image that predates the self-check sets `OTERYN_NATIVE_ADMISSION_ENABLED=false` for that image only (both flags stay paired), so the older release restores with native login off.
 
+## Platform internal mTLS listener
+
+The Game node calls Platform's Game-node internal routes over mutual TLS on the LAN. `compose.yml` service `internal-mtls` (Compose profile `internal-mtls`, nginx config `nginx/internal-mtls.conf`) terminates TLS on `${PLATFORM_MTLS_BIND_ADDRESS}:${PLATFORM_MTLS_PORT}` and passes requests to Platform's PHP-FPM pool over a unix socket:
+
+- TLS 1.3 only, `ssl_verify_client on`, depth 1 (client certificates are issued directly by the preprod CA), no session tickets.
+- `SSL_CLIENT_VERIFY`, `SSL_PROTOCOL` and `SSL_CLIENT_S_DN` reach PHP only as FastCGI parameters from the TLS session; request headers cannot set them, and forwarding headers are blanked. Platform's peer middleware still requires `SUCCESS`, `TLSv1.3` and an allowlisted subject DN on every request.
+- Only `POST /internal/v1/game-auth/{native-evidence, native-runtime-status, native-scope-assignments, native-account-characters, native-account-characters/watermark, character-bootstrap-intents/read}` exist. `native-admissions` (Gateway only), the premium-snapshot and game-public families and every other path return 404.
+- The FastCGI socket lives on the `platform_fastcgi` tmpfs volume, shared only by `platform` and `internal-mtls`; there is no FastCGI TCP port. The terminator joins only the `mtls_edge` network, so it cannot reach MariaDB, Gateway or the internal proxy. With Platform stopped it answers 502.
+- Platform starts its pool only when `OTERYN_PLATFORM_FASTCGI_ENABLED=true` (fed from the same `OTERYN_PLATFORM_MTLS_ENABLED` value); `php artisan serve` on :8000 is unchanged.
+
+Settings (environment file or exported variable, else `native-defaults.env` `OTERYN_STAGING_NATIVE_PLATFORM_MTLS_*`, else the built-in default):
+
+| Variable | Staging value | Built-in default |
+| --- | --- | --- |
+| `OTERYN_PLATFORM_MTLS_ENABLED` | `true` | `false` |
+| `PLATFORM_MTLS_BIND_ADDRESS` | `192.168.1.2` | `127.0.0.1` |
+| `PLATFORM_MTLS_PORT` | `8543` | `8543` |
+| `PLATFORM_MTLS_SERVER_CERT_FILE` | `/volume1/oteryn/preprod-platform-tls/platform-internal-preprod.fullchain.pem` | same |
+| `PLATFORM_MTLS_SERVER_KEY_FILE` | `/volume1/oteryn/preprod-platform-tls/platform-internal-preprod.key` | same |
+| `PLATFORM_MTLS_CLIENT_CA_FILE` | `/volume1/oteryn/preprod-platform-tls/oteryn-preprod-ca.crt` | same |
+
+The three files are host files mounted read-only with `create_host_path: false`; a missing file fails the deployment instead of creating an empty directory. They are never copied into the repository, the Compose context, the rendered `.env` or CI output. `deploy.sh` checks the settings, that the Platform image carries the FastCGI pool, that the bind address exists on the host, that the server certificate is valid and that nginx accepts the config with the mounted files (`nginx -t`) before changing the stack. The certificate check runs a TLS 1.3 handshake in memory in a container with no network: the chain must verify against the mounted CA file, be inside its validity period, carry the DNS SAN `platform-internal.preprod.oteryn.internal` and allow server authentication, and the key file must match the certificate. Only the verdict leaves the container. After the preflight, it, starts or removes `internal-mtls` after Platform and the Gateway. `rollback.sh` runs the same settings check and preflight before stopping anything, so a rollback cannot take down a working listener. While the listener is on, it refuses a last-good Platform image built before the listener; set `OTERYN_PLATFORM_MTLS_ENABLED=false` to roll back to such an image. It then reconciles the listener the same way. An unresolved migration candidate is finalized with the listener off (logged) when its Platform image was built before the listener or its running Platform has FastCGI off; the deploy then turns the listener on with its own preflighted image. While the listener is on, the shared ingress stop (`lib.sh` `oteryn_native_admission_ingress_stop`) stops `internal-mtls` together with the internal proxy and the Gateway. Every route that replaces Platform uses it: the fast, full and candidate deploy paths, rollback, the Platform reconcile, key promotion, Character Bazaar enable and prepare-rollback, the Marketplace runtime recreation and the failure restore. The listener comes back only after the gates pass: it starts again with the ingress, at the final self-check, or it is recreated by the listener reconcile. While the setting is off, the same stop removes any existing `internal-mtls` (a no-op when there is none), so a listener left from before the setting was turned off cannot keep answering for a replaced Platform or come back through `restart: always`. `health-check.sh` fails when the listener is on and the running Platform image has no FastCGI pool, and verifies the binding, the FastCGI socket, the server chain for `platform-internal.preprod.oteryn.internal` against the client CA file over TLS 1.3, and that a request without a client certificate is refused (400). It also checks that the nginx user can open the FastCGI socket. Both services mount `platform_fastcgi` with `nocopy`, so the tmpfs keeps its own owner and mode. The fast deploy path takes the full path when the listener's bind address, port, host paths, certificate, key, client CA or nginx config changed. It compares a digest of these inputs with the `oteryn.platform-mtls.fingerprint` label of the running `internal-mtls`. While the pool runs, the Platform entrypoint stays PID 1, and when either the pool or the main process exits it stops the container, so `restart: always` brings both back.
+
+Independence from tls-init: the server chain and the client trust file come from the long-lived preprod CA (`/volume1/oteryn/preprod-ca-public/oteryn-preprod-ca.crt`, nameConstraints `DNS:preprod.oteryn.internal`), not from the `internal_tls` volume. A tls-init rotation therefore changes neither the server certificate the Game node verifies nor the CA that verifies Game node certificates.
+
+Host steps to (re)issue the server certificate (run on the Synology host as root, with the preprod CA key wherever the operator keeps it; nothing here goes into Git):
+
+```bash
+umask 077
+d=/volume1/oteryn/preprod-platform-tls
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$d/platform-internal-preprod.key"
+openssl req -new -key "$d/platform-internal-preprod.key" -subj "/CN=platform-internal.preprod.oteryn.internal" \
+  -out "$d/platform-internal-preprod.csr"
+printf '%s\n' 'basicConstraints=critical,CA:FALSE' 'keyUsage=critical,digitalSignature' \
+  'extendedKeyUsage=serverAuth' 'subjectAltName=DNS:platform-internal.preprod.oteryn.internal' > "$d/server.ext"
+openssl x509 -req -in "$d/platform-internal-preprod.csr" -CA /volume1/oteryn/preprod-ca-public/oteryn-preprod-ca.crt \
+  -CAkey <preprod-ca-key> -CAcreateserial -days 730 -sha256 -extfile "$d/server.ext" -out "$d/platform-internal-preprod.crt"
+cat "$d/platform-internal-preprod.crt" /volume1/oteryn/preprod-ca-public/oteryn-preprod-ca.crt > "$d/platform-internal-preprod.fullchain.pem"
+cp /volume1/oteryn/preprod-ca-public/oteryn-preprod-ca.crt "$d/oteryn-preprod-ca.crt"
+rm -f "$d/platform-internal-preprod.csr" "$d/server.ext"
+chmod 0700 "$d"; chmod 0600 "$d/platform-internal-preprod.key"; chmod 0644 "$d"/*.crt "$d"/*.pem
+openssl verify -CAfile "$d/oteryn-preprod-ca.crt" "$d/platform-internal-preprod.crt"
+```
+
+The nginx master reads the key as root before dropping privileges, so 0600 root-owned is sufficient. After replacing files, redeploy (the reconcile recreates `internal-mtls`).
+
+Client identities: the subject DN Platform compares is nginx's RFC 2253 form, for example `CN=oteryn-preprod-character-projection`. Each route's allowlist is its own Platform setting (`GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES`, `GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES`, `GAME_AUTH_NATIVE_EVIDENCE_MTLS_CLIENT_IDENTITY`, `GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_IDENTITIES`, ...); a certificate the CA accepts but no allowlist names is refused by Platform.
+
+Route settings per Game-node route (Platform answers 503 while a route's settings are incomplete):
+
+| Route | Platform settings | Staging state |
+| --- | --- | --- |
+| `native-runtime-status` | `GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED`, `GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES` | rendered by the deploy workflow from `native-defaults.env` |
+| `native-scope-assignments` | `GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_ENABLED`, `GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES` | rendered by the deploy workflow from `native-defaults.env` |
+| `native-account-characters`, `native-account-characters/watermark` | `GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_*` | pinned off in `compose.yml` (D171 fallback, see below) |
+| `native-evidence` | `GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED`, `_MTLS_CLIENT_IDENTITY`, `_FRESH_ACCOUNT_PURPOSE`, `_FRESH_ACCOUNT_SCOPE`, `_CLOCK_UNCERTAINTY_SECONDS` (0..5), `_SOURCE_AUTHORITY` (default `platform`), `_REQUESTS_PER_MINUTE` (default `120`) | not configured (off) |
+| `character-bootstrap-intents/read` | `GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY`, `GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS` (1..300) | not configured (off) |
+
+The deploy workflow does not render the native-evidence and bootstrap-intent settings, so `lib.sh` `oteryn_resolve_game_node_route_settings` resolves each from the environment file or exported variable, else `native-defaults.env` (`OTERYN_STAGING_NATIVE_EVIDENCE_*`, `OTERYN_STAGING_NATIVE_BOOTSTRAP_INTENT_*`), else the fail-closed built-in (not activated, empty identity, binding and TTL; source authority and rate limit mirror the Platform config defaults, because an empty value would replace them). A value other than `true` or `false` for the activation switch refuses the run before any stack change. Turning a route on is a reviewed change to `native-defaults.env` that names the issued client certificate's subject DN, distinct from every other route's identity.
+
+Fail closed: every gate failure that removes Platform, the internal proxy and the Gateway (trust gate, self-check gate, Marketplace runtime recreation, failure restore) first removes `internal-mtls` as well (`lib.sh` `oteryn_platform_mtls_remove_fail_closed`), so a listener the ingress stop only stopped cannot come back through `restart: always` in front of an unproven Platform. The next deploy recreates it behind the gates. The failure restore (fast deploy and Platform reconcile EXIT traps) reconciles the listener after the restored Platform passes the trust gate: recreated while the setting is on, even when the failed forward gate already removed it, and removed while it is off.
+
+Native account-character push from the Game node is documented here but not switched on by this package. Enabling it is a separate change that sets, on Platform:
+
+```text
+GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED=true
+GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_SOURCE_AUTHORITY=oteryn:character-authority:primary
+GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_IDENTITIES=["CN=oteryn-preprod-character-projection"]
+```
+
+and drops the D171 fallback (`OTERYN_STAGING_NATIVE_WORLD_ID`) in the same change.
+
 ## Early workstation testing through loopback
 
 The safe default binds Platform and Gateway ports only to Synology loopback. From a workstation with SSH access to the NAS, forward them locally:
@@ -198,7 +274,7 @@ bash deploy/synology/scripts/rollback.sh
 
 - This package does not make staging evidence `PRODUCTION_PROVEN`.
 - It does not configure Cloudflare certificates, WAF/Bot/Access rules, redirects or HSTS.
-- It does not expose DSM, Docker Engine TCP, MariaDB, Redis publicly.
+- It does not expose DSM, Docker Engine TCP, MariaDB publicly.
 - It does not authorize router port forwarding or Internet exposure of game TCP.
 - A fully usable desktop native-login flow additionally requires an exact compatible OTClient build and trusted browser/OAuth/Gateway endpoint configuration.
 
