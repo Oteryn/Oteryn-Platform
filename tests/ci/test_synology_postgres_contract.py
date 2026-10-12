@@ -165,13 +165,41 @@ class ComposeServiceTest(unittest.TestCase):
         self.assertIn("pair is not current", preflight)
         self.assertLess(preflight.index("oteryn_postgres_certificate_is_current"), preflight.index("want_mtls="))
 
+    def test_preflight_verifies_the_effective_role_grants_before_reporting_roles_pass(self) -> None:
+        preflight = (SCRIPTS / "production-target-preflight.sh").read_text()
+        grants = preflight.split("The grants themselves", 1)[1].split("a PostgreSQL client session over TCP", 1)[0]
+        for marker in (
+            "has_table_privilege(w.rolname, c.oid, w.priv)",
+            "has_sequence_privilege(w.rolname, c.oid, w.priv)",
+            "has_schema_privilege(w.rolname, 'public', w.priv)",
+            "has_database_privilege(w.rolname, '$platform_db', w.priv)",
+            "has_function_privilege(r.rolname, p.oid, 'EXECUTE')",
+            "('oteryn_platform_dump', 'table', 'INSERT', false)",
+            "('oteryn_platform_app', 'table', 'DELETE', true)",
+            "the PostgreSQL role grants drifted",
+        ):
+            self.assertIn(marker, grants)
+        self.assertLess(preflight.index("the PostgreSQL role grants drifted"), preflight.index('postgres_tls_and_roles="PASS"'))
+
+    def test_mutating_scripts_require_all_secrets_on_the_postgres_engine_before_any_change(self) -> None:
+        lib = LIB.read_text()
+        helper = lib.split("oteryn_require_postgres_secrets_for_engine() {", 1)[1].split("\n}\n", 1)[0]
+        self.assertIn('"${OTERYN_PLATFORM_DB_ENGINE:-}" == postgres && "$state" != configured', helper)
+        for name in ("rollback.sh", "recover-schema.sh", "prepare-fresh-schema-baseline.sh"):
+            text = (DEPLOY.parent / name).read_text()
+            guard = text.index("oteryn_require_postgres_secrets_for_engine || exit 1")
+            self.assertGreater(guard, text.index("load_oteryn_env_file"), name)
+            for stop in ("release-state.sh", "docker compose", '"${compose[@]}"', "stop platform"):
+                if stop in text:
+                    self.assertLess(guard, text.index(stop), f"{name}: {stop}")
+
     def test_every_action_rejects_a_partial_secret_set_before_any_stack_change(self) -> None:
         workflow = (WORKFLOWS / "deploy-synology-staging.yml").read_text()
         config = workflow[: workflow.index("- name: Upgrade legacy release provenance state")]
         self.assertIn("postgres_configured != 0 && postgres_configured != 5", config)
         self.assertNotIn("inputs.action == 'deploy'", config[config.index("postgres_configured=0") - 400 : config.index("postgres_configured != 0")])
         rollback = (DEPLOY.parent / "rollback.sh").read_text()
-        guard = rollback.index("oteryn_postgres_secret_state >/dev/null || exit 1")
+        guard = rollback.index("oteryn_require_postgres_secrets_for_engine || exit 1")
         self.assertGreater(guard, rollback.index("load_oteryn_env_file"))
         for stop in ("release-state.sh", "docker compose", '"${compose[@]}"'):
             if stop in rollback:
@@ -968,7 +996,7 @@ class PostgresEngineBranchTest(unittest.TestCase):
             evidence = backup / "evidence.env"
             contract = root / "release-contract.env"
             env_file = root / "staging.env"
-            env_file.write_text("PLATFORM_DB_NAME=oteryn_platform\n")
+            env_file.write_text("PLATFORM_DB_NAME=oteryn_platform\n" + "".join(f"{name}={name[-12:].lower() * 3}\n" for name in SECRET_NAMES))
             fake_bin = root / "bin"
             fake_bin.mkdir()
             (fake_bin / "docker").write_text("#!/bin/sh\necho docker-called >&2\nexit 99\n")

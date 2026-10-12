@@ -301,6 +301,48 @@ if [[ "$platform_db_engine" == postgres ]]; then
              + (SELECT count(*) FROM pg_database d JOIN pg_roles r ON r.oid = d.datdba
                  WHERE d.datname = '$platform_db' AND r.rolname <> 'oteryn_platform_owner')")" == 0 ]] \
         || fail "the PostgreSQL role split does not hold (ownership or role attributes)"
+    # The grants themselves (effective privileges, PUBLIC and role membership included): the runtime role has
+    # DML only, the dump role SELECT only, the backup role no data access, on the database, schema public, every
+    # table, every sequence and every function. Any drift (a dump INSERT, an app that lost DML, a PUBLIC
+    # EXECUTE) leaves the roles check failed instead of PASS.
+    [[ "$(postgres_sql "
+        WITH want(rolname, kind, priv, allowed) AS (VALUES
+            ('oteryn_platform_app', 'table', 'SELECT', true), ('oteryn_platform_app', 'table', 'INSERT', true),
+            ('oteryn_platform_app', 'table', 'UPDATE', true), ('oteryn_platform_app', 'table', 'DELETE', true),
+            ('oteryn_platform_app', 'table', 'TRUNCATE', false), ('oteryn_platform_app', 'table', 'REFERENCES', false),
+            ('oteryn_platform_app', 'table', 'TRIGGER', false),
+            ('oteryn_platform_dump', 'table', 'SELECT', true), ('oteryn_platform_dump', 'table', 'INSERT', false),
+            ('oteryn_platform_dump', 'table', 'UPDATE', false), ('oteryn_platform_dump', 'table', 'DELETE', false),
+            ('oteryn_platform_dump', 'table', 'TRUNCATE', false), ('oteryn_platform_dump', 'table', 'REFERENCES', false),
+            ('oteryn_platform_dump', 'table', 'TRIGGER', false),
+            ('oteryn_platform_backup', 'table', 'SELECT', false), ('oteryn_platform_backup', 'table', 'INSERT', false),
+            ('oteryn_platform_backup', 'table', 'UPDATE', false), ('oteryn_platform_backup', 'table', 'DELETE', false),
+            ('oteryn_platform_app', 'sequence', 'USAGE', true), ('oteryn_platform_app', 'sequence', 'SELECT', true),
+            ('oteryn_platform_app', 'sequence', 'UPDATE', false),
+            ('oteryn_platform_dump', 'sequence', 'SELECT', true), ('oteryn_platform_dump', 'sequence', 'USAGE', false),
+            ('oteryn_platform_dump', 'sequence', 'UPDATE', false),
+            ('oteryn_platform_backup', 'sequence', 'USAGE', false), ('oteryn_platform_backup', 'sequence', 'SELECT', false),
+            ('oteryn_platform_backup', 'sequence', 'UPDATE', false),
+            ('oteryn_platform_app', 'schema', 'USAGE', true), ('oteryn_platform_app', 'schema', 'CREATE', false),
+            ('oteryn_platform_dump', 'schema', 'USAGE', true), ('oteryn_platform_dump', 'schema', 'CREATE', false),
+            ('oteryn_platform_backup', 'schema', 'USAGE', false), ('oteryn_platform_backup', 'schema', 'CREATE', false),
+            ('oteryn_platform_app', 'database', 'CONNECT', true), ('oteryn_platform_app', 'database', 'CREATE', false),
+            ('oteryn_platform_dump', 'database', 'CONNECT', true), ('oteryn_platform_dump', 'database', 'CREATE', false),
+            ('oteryn_platform_backup', 'database', 'CONNECT', false), ('oteryn_platform_backup', 'database', 'CREATE', false))
+        SELECT (SELECT count(*) FROM want w JOIN pg_class c ON c.relnamespace = 'public'::regnamespace
+                    AND c.relkind IN ('r', 'p') WHERE w.kind = 'table'
+                    AND has_table_privilege(w.rolname, c.oid, w.priv) <> w.allowed)
+             + (SELECT count(*) FROM want w JOIN pg_class c ON c.relnamespace = 'public'::regnamespace
+                    AND c.relkind = 'S' WHERE w.kind = 'sequence'
+                    AND has_sequence_privilege(w.rolname, c.oid, w.priv) <> w.allowed)
+             + (SELECT count(*) FROM want w WHERE w.kind = 'schema'
+                    AND has_schema_privilege(w.rolname, 'public', w.priv) <> w.allowed)
+             + (SELECT count(*) FROM want w WHERE w.kind = 'database'
+                    AND has_database_privilege(w.rolname, '$platform_db', w.priv) <> w.allowed)
+             + (SELECT count(*) FROM pg_proc p JOIN pg_roles r ON r.rolname IN ('oteryn_platform_app', 'oteryn_platform_dump', 'oteryn_platform_backup')
+                    WHERE p.pronamespace = 'public'::regnamespace AND has_function_privilege(r.rolname, p.oid, 'EXECUTE')
+                    AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e'))")" == 0 ]] \
+        || fail "the PostgreSQL role grants drifted (app DML only, dump SELECT only, backup no data access)"
     [[ "$(postgres_sql "SELECT count(*) FROM pg_stat_activity a JOIN pg_stat_ssl s ON s.pid = a.pid
         WHERE a.backend_type = 'client backend' AND a.client_addr IS NOT NULL AND NOT s.ssl")" == 0 ]] \
         || fail "a PostgreSQL client session over TCP is not encrypted"

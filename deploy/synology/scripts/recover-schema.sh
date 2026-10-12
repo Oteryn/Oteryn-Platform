@@ -9,6 +9,8 @@ COMPOSE_FILE="$DEPLOY_DIR/compose.yml"
 # shellcheck source=deploy/synology/scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
 load_oteryn_env_file "$ENV_FILE"
+# All five PostgreSQL secrets on the postgres engine (none or a partial set otherwise refused), before any change.
+oteryn_require_postgres_secrets_for_engine || exit 1
 state_dir="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
 
 if [[ $# -ne 1 ]]; then

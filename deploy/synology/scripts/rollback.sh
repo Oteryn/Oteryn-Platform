@@ -10,7 +10,9 @@ COMPOSE_FILE="$DEPLOY_DIR/compose.yml"
 source "$SCRIPT_DIR/lib.sh"
 load_oteryn_env_file "$ENV_FILE"
 # All five PostgreSQL secrets or none (lib.sh), refused before any metadata is read or any service is stopped.
-oteryn_postgres_secret_state >/dev/null || exit 1
+# The postgres engine recreates Platform on the app role: with no PostgreSQL secrets the rollback would stop
+# ingress and bring Platform back with an empty DB_PASSWORD, so that state is refused here, as in deploy.sh.
+oteryn_require_postgres_secrets_for_engine || exit 1
 
 state_dir="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
 last_good_file="$state_dir/last-good-release.env"

@@ -120,6 +120,18 @@ oteryn_platform_db_engine_settings() {
         OTERYN_PLATFORM_DB_PORT OTERYN_PLATFORM_DB_USERNAME OTERYN_PLATFORM_DB_PASSWORD OTERYN_PLATFORM_DB_SSLMODE
 }
 
+# Refuses (returns 1) a partial PostgreSQL secret set, and on the postgres engine anything but all five: the
+# stack would otherwise be stopped and recreated with an empty runtime password. Call it right after
+# load_oteryn_env_file in every script that mutates the stack, before the first mutation.
+oteryn_require_postgres_secrets_for_engine() {
+    local state
+    state="$(oteryn_postgres_secret_state)" || return 1
+    if [[ "${OTERYN_PLATFORM_DB_ENGINE:-}" == postgres && "$state" != configured ]]; then
+        echo "PLATFORM_DB_ENGINE=postgres requires all five PostgreSQL secrets." >&2
+        return 1
+    fi
+}
+
 # PostgreSQL branches of the deploy, baseline, recovery and Marketplace scripts (plan P4 work 4 and 5). The
 # database name and every role name are fixed identifiers (postgres/init/10-platform-roles.sh).
 #
