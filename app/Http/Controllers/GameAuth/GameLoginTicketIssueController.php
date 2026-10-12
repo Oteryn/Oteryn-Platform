@@ -18,7 +18,6 @@ final class GameLoginTicketIssueController
             'protocol_version' => ['required', 'integer', 'in:1'],
             'identity_id' => ['prohibited'],
             'account_id' => ['prohibited'],
-            'canary_account_id' => ['prohibited'],
         ]);
 
         $identity = $request->user('api');

@@ -635,7 +635,6 @@ final class NativeAdmissionIssuerTest extends TestCase
         GameLoginTicket::query()->create([
             'ticket_hash' => hash('sha256', $ticket),
             'identity_id' => $identity->id,
-            'canary_account_id' => null,
             'account_id' => $identity->account_id,
             'audience' => NativeGameLoginTickets::AUDIENCE,
             'security_generation' => $identity->game_auth_generation,

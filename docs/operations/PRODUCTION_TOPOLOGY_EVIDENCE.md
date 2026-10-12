@@ -130,8 +130,7 @@ Controlled production-like verification has exercised least-privilege dependency
 
 `REPOSITORY_PROVEN`
 
-- A dedicated `canary_runtime` Redis configuration surface exists.
-- Its intended boundary is read-only runtime data with a dedicated ACL/user, separate from Platform cache/session credentials.
+- Historical: a dedicated `canary_runtime` Redis configuration surface existed. The runtime Redis path was retired (#1556); this boundary is no longer current and the evidence below is retained as historical provenance.
 
 `STAGING_PROVEN`
 
