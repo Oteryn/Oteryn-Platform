@@ -36,6 +36,7 @@ owned_paths:
   - deploy/synology/scripts/{deploy,lib,health-check,recover-schema,prepare-fresh-schema-baseline,production-target-preflight,marketplace-staging}.sh
   - deploy/synology/README.md
   - .github/workflows/character-bazaar-staging-control.yml
+  - .github/workflows/recover-synology-staging-schema.yml
   - tests/ci/test_synology_postgres_contract.py
   - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p4b.md
 modules:
@@ -65,6 +66,7 @@ owned_paths:
   - deploy/synology/scripts/**
   - deploy/synology/README.md
   - .github/workflows/character-bazaar-staging-control.yml
+  - .github/workflows/recover-synology-staging-schema.yml
   - tests/ci/test_synology_postgres_contract.py
   - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p4b.md
 proven:
@@ -93,6 +95,7 @@ changed_paths:
   - deploy/synology/scripts/production-target-preflight.sh
   - deploy/synology/README.md
   - .github/workflows/character-bazaar-staging-control.yml
+  - .github/workflows/recover-synology-staging-schema.yml
   - tests/ci/test_synology_postgres_contract.py
 validation:
   - command: python3 -m pytest tests/ci deploy/synology/tests -q
