@@ -103,24 +103,23 @@ failed() {
 }
 
 # The first mutation of either subcommand. Still a refusal (exit 1): nothing else has changed yet.
+# Every refusal after this function must leave nothing behind: the locks are removed by the exit trap, and a
+# state directory this call created is removed again (it is empty) until restrict_state_dir commits it.
+target_lock_held=''
+state_dir_created=false
+release_locks() {
+    rmdir -- "$lock_dir" 2>/dev/null || true
+    [[ -z "$target_lock_held" ]] || rmdir -- "$target_lock_held" 2>/dev/null || true
+    [[ "$state_dir_created" != true ]] || rmdir -- "$state_dir" 2>/dev/null || true
+}
+
 prepare_state_dir() {
-    # Take the lock before the mode change: a refused run (stale or held lock) must not have chmodded an
-    # existing directory. A missing directory is created owner-only from the start (umask 077), and no lock
-    # can exist in a directory that did not exist.
-    if [[ ! -e "$state_dir" ]]; then
-        (umask 077; mkdir -p -- "$state_dir") || refuse "cannot create the bootstrap state directory $state_dir."
-    fi
-    [[ -d "$state_dir" && ! -L "$state_dir" && -O "$state_dir" ]] \
-        || refuse "the bootstrap state directory $state_dir must be an owner-only directory, not a link."
-    if ! mkdir -- "$lock_dir" 2>/dev/null; then
-        refuse "another bootstrap-postgres.sh holds $lock_dir (or a stale lock is left); remove it only when no bootstrap is running. Nothing was changed."
-    fi
-    target_lock_held=''
-    trap 'rmdir -- "$lock_dir" 2>/dev/null || true; [[ -z "$target_lock_held" ]] || rmdir -- "$target_lock_held" 2>/dev/null || true' EXIT
+    trap release_locks EXIT
     # run.lock is per state directory, but the resource to protect is the database and the witness directory:
-    # two runs with different state directories would otherwise race on both. A second lock is keyed on the
-    # target itself: next to the witness directory with --local, a fixed host path for the Compose stack
-    # (override: OTERYN_PG_BOOTSTRAP_TARGET_LOCK; the default parent /var/lock is world-writable).
+    # two runs with different state directories would otherwise race on both. The target-wide lock is keyed on
+    # the target itself (next to the witness directory with --local, a fixed host path for the Compose stack;
+    # override: OTERYN_PG_BOOTSTRAP_TARGET_LOCK, whose default parent /var/lock is world-writable) and is taken
+    # first, before the state directory can be created.
     local target_lock
     if [[ "$local_mode" == true ]]; then
         target_lock="$witness_dir.bootstrap-lock"
@@ -131,11 +130,24 @@ prepare_state_dir() {
         refuse "another bootstrap holds the target-wide lock $target_lock (or a stale lock is left); remove it only when no bootstrap is running. Nothing was changed."
     fi
     target_lock_held="$target_lock"
+    # Take the state lock before the mode change: a refused run (stale or held lock) must not have chmodded an
+    # existing directory. A missing directory is created owner-only from the start (umask 077), and no lock
+    # can exist in a directory that did not exist.
+    if [[ ! -e "$state_dir" ]]; then
+        (umask 077; mkdir -p -- "$state_dir") || refuse "cannot create the bootstrap state directory $state_dir."
+        state_dir_created=true
+    fi
+    [[ -d "$state_dir" && ! -L "$state_dir" && -O "$state_dir" ]] \
+        || refuse "the bootstrap state directory $state_dir must be an owner-only directory, not a link."
+    if ! mkdir -- "$lock_dir" 2>/dev/null; then
+        refuse "another bootstrap-postgres.sh holds $lock_dir (or a stale lock is left); remove it only when no bootstrap is running. Nothing was changed."
+    fi
 }
 
 # After the lock and every re-check: the first change to an existing state directory.
 restrict_state_dir() {
     chmod 700 -- "$state_dir" || refuse "cannot restrict the bootstrap state directory $state_dir to its owner."
+    state_dir_created=false
 }
 
 # --- Witness directory access ---------------------------------------------------------------

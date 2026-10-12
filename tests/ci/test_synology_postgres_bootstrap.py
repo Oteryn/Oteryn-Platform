@@ -258,6 +258,25 @@ class StaticBootstrapTest(BootstrapCase):
         self.assertFalse(lock.exists())
         self.assertFalse((self.state_dir / "run.lock").exists())
 
+    def test_held_target_lock_creates_no_state_directory(self) -> None:
+        self.witness_dir.mkdir(mode=0o700)
+        (self.witness_dir / "witness-store.id").write_text(secrets.token_hex(32) + "\n")
+        lock = Path(str(self.witness_dir) + ".bootstrap-lock")
+        lock.mkdir()
+        self.assertFalse(self.state_dir.exists())
+        self.assert_refused(self.bootstrap("record-witness", "--local"), "target-wide lock")
+        self.assertFalse(self.state_dir.exists())
+        lock.rmdir()
+
+    def test_refusal_after_the_locks_removes_a_state_directory_it_created(self) -> None:
+        # A witness directory holding a floor but no store id is refused by the checks that run again under the lock
+        # only when it changes in between; here the first pass refuses, and nothing may be created either way.
+        self.witness_dir.mkdir(mode=0o700)
+        (self.witness_dir / (secrets.token_hex(32) + ".floor")).write_text("floor\n")
+        self.assert_refused(self.bootstrap("record-witness", "--local"), "carries no witness-store.id")
+        self.assertFalse(self.state_dir.exists())
+        self.assertFalse(Path(str(self.witness_dir) + ".bootstrap-lock").exists())
+
     def test_world_host_is_validated_by_the_commands_own_filter(self) -> None:
         text = SCRIPT.read_text()
         self.assertIn("FILTER_VALIDATE_IP", text)
