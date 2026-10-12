@@ -238,6 +238,19 @@ jobs:
             fi
           done
 
+          # All five PostgreSQL secrets or none, for every action (rollback included): a partial set must stop
+          # the run here, before any stack change, not later in a health check after ingress was stopped.
+          postgres_configured=0
+          for name in \
+            PLATFORM_POSTGRES_SUPERUSER_PASSWORD PLATFORM_POSTGRES_OWNER_PASSWORD PLATFORM_POSTGRES_APP_PASSWORD \
+            PLATFORM_POSTGRES_BACKUP_PASSWORD PLATFORM_POSTGRES_DUMP_PASSWORD; do
+            if [[ -n "${!name:-}" ]]; then postgres_configured=$((postgres_configured + 1)); fi
+          done
+          if (( postgres_configured != 0 && postgres_configured != 5 )); then
+            echo "PostgreSQL secrets are partially configured ($postgres_configured of 5); set all of them or none." >&2
+            exit 1
+          fi
+
           if [[ ! "$APP_KEY" =~ ^base64:[A-Za-z0-9+/=]+$ ]]; then
             echo "OTERYN_STAGING_APP_KEY must be a Laravel base64 application key." >&2
             exit 1

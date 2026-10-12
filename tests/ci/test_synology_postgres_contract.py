@@ -165,6 +165,22 @@ class ComposeServiceTest(unittest.TestCase):
         self.assertIn("pair is not current", preflight)
         self.assertLess(preflight.index("oteryn_postgres_certificate_is_current"), preflight.index("want_mtls="))
 
+    def test_every_action_rejects_a_partial_secret_set_before_any_stack_change(self) -> None:
+        workflow = (WORKFLOWS / "deploy-synology-staging.yml").read_text()
+        config = workflow[: workflow.index("- name: Upgrade legacy release provenance state")]
+        self.assertIn("postgres_configured != 0 && postgres_configured != 5", config)
+        self.assertNotIn("inputs.action == 'deploy'", config[config.index("postgres_configured=0") - 400 : config.index("postgres_configured != 0")])
+        rollback = (DEPLOY.parent / "rollback.sh").read_text()
+        guard = rollback.index("oteryn_postgres_secret_state >/dev/null || exit 1")
+        self.assertGreater(guard, rollback.index("load_oteryn_env_file"))
+        for stop in ("release-state.sh", "docker compose", '"${compose[@]}"'):
+            if stop in rollback:
+                self.assertLess(guard, rollback.index(stop), stop)
+        # The other workflows count the same five secrets and fail on a partial set before touching anything.
+        for name in ("synology-diagnostics.yml", "repair-synology-autostart.yml"):
+            text = (WORKFLOWS / name).read_text()
+            self.assertIn("partially configured", text, name)
+
     def test_fast_path_requires_a_current_reconcile_record(self) -> None:
         lib = LIB.read_text()
         deploy = DEPLOY.read_text()
