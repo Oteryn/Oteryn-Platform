@@ -258,6 +258,35 @@ class StaticBootstrapTest(BootstrapCase):
         self.assertFalse(lock.exists())
         self.assertFalse((self.state_dir / "run.lock").exists())
 
+    def test_group_writable_state_directory_is_refused_before_any_record_is_read(self) -> None:
+        self.witness_dir.mkdir(mode=0o700)
+        (self.witness_dir / "witness-store.id").write_text(secrets.token_hex(32) + "\n")
+        self.state_dir.mkdir(mode=0o700)
+        self.assertEqual(self.bootstrap("record-witness", "--local").returncode, 0)
+        self.state_dir.chmod(0o770)
+        # The record is unchanged, so the idempotent path would succeed without the early check.
+        self.assert_refused(self.bootstrap("record-witness", "--local"), "not group- or world-writable")
+        self.state_dir.chmod(0o707)
+        self.assert_refused(self.bootstrap("record-witness", "--local"), "not group- or world-writable")
+        self.state_dir.chmod(0o700)
+
+    def test_a_refused_run_never_removes_a_lock_it_did_not_take(self) -> None:
+        self.witness_dir.mkdir(mode=0o700)
+        (self.witness_dir / "witness-store.id").write_text(secrets.token_hex(32) + "\n")
+        self.state_dir.mkdir(mode=0o700)
+        held = self.state_dir / "run.lock"
+        held.mkdir()
+        self.assert_refused(self.bootstrap("record-witness", "--local"), "run.lock")
+        self.assertTrue(held.is_dir())
+        held.rmdir()
+        target = Path(str(self.witness_dir) + ".bootstrap-lock")
+        target.mkdir()
+        held.mkdir()
+        self.assert_refused(self.bootstrap("record-witness", "--local"), "target-wide lock")
+        self.assertTrue(held.is_dir() and target.is_dir())
+        held.rmdir()
+        target.rmdir()
+
     def test_held_target_lock_creates_no_state_directory(self) -> None:
         self.witness_dir.mkdir(mode=0o700)
         (self.witness_dir / "witness-store.id").write_text(secrets.token_hex(32) + "\n")

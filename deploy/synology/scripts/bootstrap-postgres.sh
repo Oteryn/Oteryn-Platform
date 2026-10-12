@@ -84,8 +84,17 @@ fi
 # directory is created, chmodded and locked only by prepare_state_dir, after every refusal check.
 [[ ! -L "$state_dir" ]] \
     || refuse "the bootstrap state directory $state_dir must be an owner-only directory, not a link."
-[[ ! -e "$state_dir" ]] || [[ -d "$state_dir" && -O "$state_dir" ]] \
-    || refuse "the bootstrap state directory $state_dir must be an owner-only directory, not a link."
+# Every record in this directory is a trust input (the freeze and move records decide what is skipped or
+# refused), so an existing directory is checked for owner and mode before any record is read, on every path
+# (including the idempotent record-witness one): owned by the caller, not group- or world-writable.
+state_dir_is_trusted() {
+    local mode
+    [[ -d "$state_dir" && ! -L "$state_dir" && -O "$state_dir" ]] || return 1
+    mode="$(stat -c '%a' -- "$state_dir" 2>/dev/null || stat -f '%Lp' -- "$state_dir" 2>/dev/null)" || return 1
+    [[ "$mode" =~ ^[0-7]+$ ]] && (( (8#$mode & 8#022) == 0 ))
+}
+[[ ! -e "$state_dir" ]] || state_dir_is_trusted \
+    || refuse "the bootstrap state directory $state_dir must be an owner-only directory (not a link, not group- or world-writable)."
 freeze_file="$state_dir/witness-freeze.env"
 moved_file="$state_dir/witness-moved-aside.env"
 complete_file="$state_dir/bootstrap-complete.env"
@@ -105,10 +114,12 @@ failed() {
 # The first mutation of either subcommand. Still a refusal (exit 1): nothing else has changed yet.
 # Every refusal after this function must leave nothing behind: the locks are removed by the exit trap, and a
 # state directory this call created is removed again (it is empty) until restrict_state_dir commits it.
+# Each is set only by the process that acquired it, so a refused run never removes another run's lock.
 target_lock_held=''
+run_lock_held=false
 state_dir_created=false
 release_locks() {
-    rmdir -- "$lock_dir" 2>/dev/null || true
+    [[ "$run_lock_held" != true ]] || rmdir -- "$lock_dir" 2>/dev/null || true
     [[ -z "$target_lock_held" ]] || rmdir -- "$target_lock_held" 2>/dev/null || true
     [[ "$state_dir_created" != true ]] || rmdir -- "$state_dir" 2>/dev/null || true
 }
@@ -137,11 +148,12 @@ prepare_state_dir() {
         (umask 077; mkdir -p -- "$state_dir") || refuse "cannot create the bootstrap state directory $state_dir."
         state_dir_created=true
     fi
-    [[ -d "$state_dir" && ! -L "$state_dir" && -O "$state_dir" ]] \
-        || refuse "the bootstrap state directory $state_dir must be an owner-only directory, not a link."
+    state_dir_is_trusted \
+        || refuse "the bootstrap state directory $state_dir must be an owner-only directory (not a link, not group- or world-writable)."
     if ! mkdir -- "$lock_dir" 2>/dev/null; then
         refuse "another bootstrap-postgres.sh holds $lock_dir (or a stale lock is left); remove it only when no bootstrap is running. Nothing was changed."
     fi
+    run_lock_held=true
 }
 
 # After the lock and every re-check: the first change to an existing state directory.
