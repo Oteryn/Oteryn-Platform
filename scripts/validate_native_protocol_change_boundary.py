@@ -26,7 +26,6 @@ ALLOWED_RUNTIME_PREFIXES = (
 
 ALLOWED_RUNTIME_EXACT = frozenset(
     {
-        "app/Http/Controllers/GameAuth/GameLoginContextController.php",
         "database/migrations/2026_08_05_130000_migrate_native_protocol_identity_to_version.php",
     }
 )
