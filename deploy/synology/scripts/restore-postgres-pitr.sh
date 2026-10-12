@@ -33,6 +33,9 @@ DATA=/var/lib/postgresql/data
 RTO_SECONDS=14400
 RPO_SECONDS=86400
 ARCHIVE_WAIT_SECONDS="${OTERYN_ARCHIVE_WAIT_SECONDS:-180}"
+# How long the scratch instance waits for a running backup job before it takes the spool lock.
+LOCK_WAIT_SECONDS="${OTERYN_DRILL_LOCK_WAIT_SECONDS:-7200}"
+LOCKED_MARKER=/tmp/oteryn-drill.locked
 # Room for WAL replay beyond the restored cluster on the scratch data volume.
 WAL_MARGIN_MB="${OTERYN_DRILL_WAL_MARGIN_MB:-1024}"
 DRILL_APP_URL="${OTERYN_DRILL_APP_URL:-https://oteryn.molehill.cloud}"
@@ -72,7 +75,8 @@ fi
 [[ -f "$RESTORE_WAL" ]] || { echo "Missing $RESTORE_WAL" >&2; exit 1; }
 # The project name reaches Docker label filters: Compose project names only.
 [[ "$PROJECT" =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]] || { echo "COMPOSE_PROJECT_NAME must be a Compose project name" >&2; exit 2; }
-[[ "$WAL_MARGIN_MB" =~ ^[0-9]{1,7}$ && "$ARCHIVE_WAIT_SECONDS" =~ ^[1-9][0-9]{0,5}$ ]] || usage
+[[ "$WAL_MARGIN_MB" =~ ^[0-9]{1,7}$ && "$ARCHIVE_WAIT_SECONDS" =~ ^[1-9][0-9]{0,5}$ && "$LOCK_WAIT_SECONDS" =~ ^[1-9][0-9]{0,5}$ ]] \
+    || usage
 WAL_MARGIN_MB=$((10#$WAL_MARGIN_MB))
 
 started_epoch="$(date +%s)"
@@ -84,6 +88,24 @@ declare -A evidence=()
 evidence_order=()
 
 log() { printf '[pitr-drill] %s\n' "$*"; }
+
+# PID 1 of the scratch container. It holds a shared lock on the spool's job lock (backup-job.sh take_lock)
+# for the life of the container, so no base backup, dump or retention run of the sidecar changes the spool
+# while the drill chooses a base backup, replays its WAL and checks the newest dump. A backup job waits for
+# the drill (at most its own lock timeout). Arguments: spool, lock wait seconds, marker file.
+# Exit 3: the spool has no job lock (no backup job ever ran); exit 4: a job held the lock too long.
+# shellcheck disable=SC2016 # expanded by the scratch container's bash
+# The trap is set before the marker, and the wait runs in short steps: a TERM that arrives just before a
+# `wait` is handled when that step ends, never lost behind an endless sleep.
+SCRATCH_MAIN='exec 9< "$1/status/job.lock" || exit 3
+flock -s -w "$2" 9 || exit 4
+trap "exit 0" TERM
+: > "$3"
+while :; do
+    sleep 5 9<&- &
+    wait $!
+done'
+
 record() {
     [[ -n "${evidence[$1]+set}" ]] || evidence_order+=("$1")
     evidence[$1]="$2"
@@ -286,11 +308,21 @@ log "starting scratch instance $scratch (no network, anonymous data volume, spoo
 docker create --name "$scratch" --rm --label oteryn.pitr-drill=true --network none --user postgres \
     --mount "type=volume,source=$spool_volume,target=$SPOOL,readonly" \
     --mount "type=volume,target=$DATA" \
-    --entrypoint bash "$image" -c 'trap "exit 0" TERM; sleep infinity & wait' > /dev/null \
+    --entrypoint bash "$image" -c "$SCRATCH_MAIN" oteryn-pitr-drill "$SPOOL" "$LOCK_WAIT_SECONDS" "$LOCKED_MARKER" > /dev/null \
     || fail "cannot create the scratch container"
 scratch_created=true
 docker start "$scratch" > /dev/null || fail "cannot start the scratch container"
-scratch_volume="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "'"$DATA"'"}}{{.Name}}{{end}}{{end}}' "$scratch")"
+# The container removes itself (--rm) when its lock holder exits: an empty name is no error here.
+scratch_volume="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "'"$DATA"'"}}{{.Name}}{{end}}{{end}}' "$scratch" 2> /dev/null)" || true
+log "waiting for the spool job lock (a running backup job finishes first, at most ${LOCK_WAIT_SECONDS}s)"
+deadline=$((SECONDS + LOCK_WAIT_SECONDS + 60))
+until drill_sh "test -f $LOCKED_MARKER" 2> /dev/null; do
+    [[ "$(docker inspect --format '{{.State.Running}}' "$scratch" 2> /dev/null)" == true ]] \
+        || fail "the scratch instance could not take the spool job lock (no backup job ever ran, or one held it over ${LOCK_WAIT_SECONDS}s)"
+    (( SECONDS < deadline )) || fail "the scratch instance did not take the spool job lock within ${LOCK_WAIT_SECONDS}s"
+    sleep 2
+done
+record spool_lock "shared job lock held from base backup choice to the end of the drill"
 restore_started="$(date +%s)"
 
 backups="$(drill_sh "for f in $SPOOL/base/*Z/backup.info; do [ -f \"\$f\" ] || continue; printf '%s %s %s %s\n' \"\$(sed -n 's/^stamp=//p' \"\$f\")\" \"\$(sed -n 's/^end_epoch=//p' \"\$f\")\" \"\$(sed -n 's/^cluster_bytes=//p' \"\$f\")\" \"\$(sed -n 's/^system_identifier=//p' \"\$f\")\"; done | sort -r")"

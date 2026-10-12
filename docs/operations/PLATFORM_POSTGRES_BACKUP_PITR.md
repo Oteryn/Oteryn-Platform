@@ -50,6 +50,7 @@ The owner provides the space. These numbers are a starting point; check them wit
 
 - **Daily jobs.** One base backup (`pg_basebackup -Ft -z -X stream`, SHA-256 manifest) and one dump (`pg_dump -Fc`). Each runs when the newest one is at least 20 hours old at the configured hour, or at once when none exists or the newest is 25 hours old.
 - **Deploy.** The deploy reconcile (`ensure`) also takes one when the newest is 24 hours old or more.
+- **One job at a time.** Every job takes the spool job lock (`status/job.lock`) and decides again under it whether its backup is still needed, so the sidecar loop and a deploy's `ensure` never both take the same day's backup.
 - **Kept backups.** For base backups and dumps alike: the newest 7, plus the newest backup of each of the 4 most recent older ISO weeks.
 - **WAL cutoff.** WAL files older than the start WAL of the oldest of the newest 7 base backups are removed, which reaches back about seven days. Timeline history files are never removed.
 - **Weekly backups.** A weekly base backup restores to its own end only (`--target immediate`), because it carries its WAL in `pg_wal.tar.gz`.
@@ -104,7 +105,7 @@ The probe drill does the following:
 
 A `--target-time` drill takes a time in the past. Recovery stops only at a commit after the target, so the drill first writes marker C into the same maintenance table and archives its segment.
 
-The restore runs in a scratch container from the same image. The container has no network (`--network none`), reads the spool read-only, uses its own anonymous data volume and runs with `--rm`. The drill then checks the following:
+The restore runs in a scratch container from the same image. The container has no network (`--network none`), reads the spool read-only, uses its own anonymous data volume and runs with `--rm`. It holds a shared lock on the spool job lock for its whole life, so retention cannot remove the chosen base backup, its WAL or the checked dump during the drill. The drill first waits for a running backup job (at most `OTERYN_DRILL_LOCK_WAIT_SECONDS`, default 7200). A backup job, retention run or deploy `ensure` started during the drill waits for it, and fails after two hours, to be retried by the next loop or deploy. The drill then checks the following:
 
 - the backup's `SHA256SUMS` and `pg_verifybackup`;
 - promotion at the target;

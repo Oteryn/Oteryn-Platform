@@ -15,7 +15,8 @@
 # weeks. WAL older than the start of the oldest retained daily base backup is removed, so PITR reaches
 # back to that backup; a weekly backup restores to its own end (it carries its WAL in pg_wal.tar.gz).
 #
-# Modes: service | loop | credentials | base | dump | ensure | prune | preflight | status | retained <kind>
+# Modes: service | loop | credentials | base [due|stale] | dump [due|stale] | ensure | prune | preflight | status
+#        | retained <kind>
 set -euo pipefail
 umask 077
 export LC_ALL=C TZ=UTC
@@ -184,11 +185,32 @@ job_trap() {
     fi
 }
 
+# Decides again under the job lock whether a job is still needed: the sidecar loop and a deploy's `ensure`
+# can both find a backup missing before either holds the lock, and the second must not take another one.
+#   always  an operator run (backup-postgres.sh run base|dump)
+#   due     the sidecar loop: due at the backup hour and not backing off after a failure
+#   stale   the deploy reconcile: missing or at least 24 hours old
+job_still_needed() {
+    local kind="$1" condition="$2" age
+    case "$condition" in
+        always) return 0 ;;
+        due) backup_due "$kind" && ! backing_off "$kind" ;;
+        stale)
+            age="$(newest_age "$kind")"
+            [[ "$age" == none ]] || (( age >= 86400 ))
+            ;;
+    esac
+}
+
 run_base() {
-    local stamp final work label start_wal start_time cluster_bytes end_epoch system_identifier
+    local condition="$1" stamp final work label start_wal start_time cluster_bytes end_epoch system_identifier
     require_spool
     take_lock
     trap "job_trap base ''" EXIT
+    if ! job_still_needed base "$condition"; then
+        log "base backup no longer needed ($condition): another job took it while this one waited for the lock"
+        return 0
+    fi
     preflight_or_refuse base
     stamp="$(date -u +%Y%m%dT%H%M%SZ)"
     final="$SPOOL/base/$stamp"
@@ -223,10 +245,14 @@ run_base() {
 }
 
 run_dump() {
-    local stamp final work end_epoch
+    local condition="$1" stamp final work end_epoch
     require_spool
     take_lock
     trap "job_trap dump ''" EXIT
+    if ! job_still_needed dump "$condition"; then
+        log "logical dump no longer needed ($condition): another job took it while this one waited for the lock"
+        return 0
+    fi
     preflight_or_refuse dump
     stamp="$(date -u +%Y%m%dT%H%M%SZ)"
     final="$SPOOL/dump/$stamp"
@@ -362,8 +388,9 @@ run_loop() {
         kill -0 "$heartbeat_pid" 2>/dev/null || die "the heartbeat writer stopped"
         for kind in base dump; do
             if backup_due "$kind" && ! backing_off "$kind"; then
-                # Each job is its own process, so errexit and its cleanup trap apply.
-                if bash "$self" "$kind"; then
+                # Each job is its own process, so errexit and its cleanup trap apply. It decides again
+                # under the lock (job_still_needed).
+                if bash "$self" "$kind" due; then
                     bash "$self" prune || log "retention failed"
                 else
                     log "$kind backup failed; next attempt in at least ${RETRY_BACKOFF_SECONDS}s"
@@ -382,7 +409,8 @@ run_ensure() {
     for kind in base dump; do
         age="$(newest_age "$kind")"
         if [[ "$age" == none ]] || (( age >= 86400 )); then
-            bash "$self" "$kind"
+            # The job decides again under the lock: the sidecar loop may be taking this backup right now.
+            bash "$self" "$kind" stale
         fi
     done
     bash "$self" prune
@@ -431,8 +459,12 @@ case "$mode" in
         exec gosu postgres bash /tmp/oteryn-backup-job.sh loop
         ;;
     loop) run_loop ;;
-    base) run_base ;;
-    dump) run_dump ;;
+    base | dump)
+        condition="${2:-always}"
+        [[ "$condition" == always || "$condition" == due || "$condition" == stale ]] \
+            || die "$mode expects no condition, due or stale"
+        "run_$mode" "$condition"
+        ;;
     prune) run_prune ;;
     ensure) run_ensure ;;
     credentials) write_credentials ;;
@@ -443,7 +475,7 @@ case "$mode" in
         retained "$2"
         ;;
     *)
-        echo "usage: backup-job.sh service|loop|credentials|base|dump|ensure|prune|preflight|status|retained <kind>" >&2
+        echo "usage: backup-job.sh service|loop|credentials|base [due|stale]|dump [due|stale]|ensure|prune|preflight|status|retained <kind>" >&2
         exit 2
         ;;
 esac

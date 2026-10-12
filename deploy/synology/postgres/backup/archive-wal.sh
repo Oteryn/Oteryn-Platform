@@ -42,9 +42,12 @@ main() {
     target="$dir/$name.gz"
     if [[ -e "$target" ]]; then
         # A retry after a crash between the rename and PostgreSQL recording success: accept identical content.
+        # The crash may also have come before the directory sync, so the success path makes the files and
+        # their directory entries durable before PostgreSQL may recycle the segment.
         if [[ -f "$target.sha256" ]] \
             && [[ "$(sha256sum < "$target" | awk '{ print $1 }')" == "$(awk '{ print $1 }' "$target.sha256")" ]] \
             && gzip -dc -- "$target" | cmp -s -- - "$source_path"; then
+            sync -- "$target.sha256" "$target" "$dir" || fail "cannot sync the archived $name"
             exit 0
         fi
         fail "$name is already archived with different content; refusing to overwrite it"

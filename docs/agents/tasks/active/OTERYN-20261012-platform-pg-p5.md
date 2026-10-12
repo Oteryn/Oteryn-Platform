@@ -68,8 +68,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-12T22:00:00Z
-head: e508d50b2452b50bb6ce27da16c44929837dbe17
+updated_at: 2026-10-13T00:30:00Z
+head: db938d78b8fce26601d6840d604816136d91bcd3
 branch: claude/platform-pg-p5-20261012
 pr: 1583
 status: waiting
@@ -98,6 +98,7 @@ owned_paths:
 proven:
   - Local rehearsal on the pinned image (2026-10-12) passed the reconcile, check, and the probe, target-time and immediate drills. A low-space preflight refused, and a degraded check exited 3.
   - Retention, WAL pruning, archive refusal paths and restore exit codes (1 for absent, 199 for damage) are covered by tests/ci/test_synology_postgres_backup_contract.py.
+  - Backup jobs decide again under the spool job lock, the drill's scratch instance holds a shared job lock from base backup choice to its end, and an identical archive retry syncs before success (JobLockTest, DrillLockTest, ArchiveWalTest).
 derived:
   - Recovery to a time stops only at a commit past the target, so the time-target drill writes and archives a marker commit first.
 unknown:
@@ -122,7 +123,7 @@ changed_paths:
 validation:
   - command: python3 -m pytest tests/ci deploy/synology/tests -q
     result: PASS
-    evidence: 431 passed, 91 subtests passed (after merging origin/main and the autostart repair fix)
+    evidence: 471 passed, 19 skipped, 109 subtests passed (after merging origin/main and the Codex fixes for the job lock, drill lock and archive sync)
   - command: shellcheck and bash -n on the new scripts; sh -n tls/init.sh; docker compose config with and without the postgres profile
     result: PASS
     evidence: clean; only SC1091 info for sourcing lib.sh

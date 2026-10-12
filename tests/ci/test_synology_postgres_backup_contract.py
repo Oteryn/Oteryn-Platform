@@ -9,6 +9,7 @@ no database: the live restore drill is deploy/synology/scripts/restore-postgres-
 
 from __future__ import annotations
 
+import fcntl
 import gzip
 import hashlib
 import importlib.util
@@ -325,6 +326,27 @@ class ArchiveWalTest(SpoolTestCase):
         self.assertEqual(run(["bash", str(ARCHIVE), str(source), SEGMENT], env=self.env).returncode, 0)
         self.assertEqual(sorted(p.name for p in (self.spool / "wal").iterdir()), [f"{SEGMENT}.gz", f"{SEGMENT}.gz.sha256"])
 
+    def test_an_identical_retry_syncs_the_files_and_directory_before_success(self) -> None:
+        source = self.segment(b"wal" * 100)
+        self.assertEqual(run(["bash", str(ARCHIVE), str(source), SEGMENT], env=self.env).returncode, 0)
+        fake_bin = self.tmp / "bin"
+        fake_bin.mkdir()
+        sync_log = self.tmp / "sync.log"
+        (fake_bin / "sync").write_text(f'#!/bin/bash\nprintf "%s\\n" "$@" >> {sync_log}\n')
+        (fake_bin / "sync").chmod(0o755)
+        env = {**self.env, "PATH": f"{fake_bin}:{os.environ['PATH']}"}
+        result = run(["bash", str(ARCHIVE), str(source), SEGMENT], env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        synced = sync_log.read_text().split("\n")
+        wal = self.spool / "wal"
+        for path in (wal / f"{SEGMENT}.gz", wal / f"{SEGMENT}.gz.sha256", wal):
+            self.assertIn(str(path), synced)
+        # A failed sync is no success: PostgreSQL keeps the segment and retries.
+        (fake_bin / "sync").write_text("#!/bin/bash\nexit 1\n")
+        result = run(["bash", str(ARCHIVE), str(source), SEGMENT], env=env)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("cannot sync", result.stderr)
+
     def test_refuses_to_overwrite_different_content(self) -> None:
         source = self.segment(b"first")
         self.assertEqual(run(["bash", str(ARCHIVE), str(source), SEGMENT], env=self.env).returncode, 0)
@@ -479,6 +501,132 @@ class RetentionTest(SpoolTestCase):
             f"postgres:5432:replication:oteryn_platform_backup:{backup}\n"
             f"postgres:5432:oteryn_platform:oteryn_platform_dump:{dump}\n",
         )
+
+
+class JobLockTest(SpoolTestCase):
+    """The sidecar loop and a deploy's ensure decide again under the job lock (backup-job.sh job_still_needed)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.env = {**self.env, "OTERYN_BACKUP_PGPASS_FILE": str(self.tmp / "absent.pgpass")}
+        self.lock_path = self.spool / "status" / "job.lock"
+
+    def complete(self, kind: str) -> None:
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        directory = self.spool / kind / stamp
+        directory.mkdir()
+        info = "backup.info" if kind == "base" else "dump.info"
+        (directory / info).write_text(f"format=1\nkind={kind}\nstamp={stamp}\nstart_wal=000000010000000000000001\n")
+
+    def test_a_job_that_waited_for_the_lock_skips_a_backup_another_job_took(self) -> None:
+        for kind, condition in (("base", "stale"), ("dump", "due")):
+            with self.subTest(kind=kind, condition=condition), open(self.lock_path, "w") as holder:
+                fcntl.flock(holder, fcntl.LOCK_EX)
+                job = subprocess.Popen(
+                    ["bash", str(JOB), kind, condition], env={**os.environ, **self.env},
+                    text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                )
+                try:
+                    time.sleep(1.5)
+                    self.assertIsNone(job.poll(), "the job must wait for the lock")
+                    # The other job finishes its backup while this one waits.
+                    self.complete(kind)
+                    fcntl.flock(holder, fcntl.LOCK_UN)
+                    _, stderr = job.communicate(timeout=60)
+                finally:
+                    if job.poll() is None:
+                        job.kill()
+                self.assertEqual(job.returncode, 0, stderr)
+                self.assertIn("no longer needed", stderr)
+                self.assertFalse((self.spool / "status" / f"{kind}.last").exists())
+
+    def test_a_backup_still_needed_under_the_lock_runs_and_an_operator_run_always_does(self) -> None:
+        # Without credentials the job stops at its preflight: it got past the decision.
+        result = run(["bash", str(JOB), "base", "stale"], env=self.env)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("result=refused", (self.spool / "status" / "base.last").read_text())
+        self.complete("dump")
+        result = run(["bash", str(JOB), "dump"], env=self.env)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("detail=credentials_missing", (self.spool / "status" / "dump.last").read_text())
+        result = run(["bash", str(JOB), "base", "later"], env=self.env)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("expects no condition, due or stale", result.stderr)
+
+    def test_loop_and_ensure_pass_their_condition(self) -> None:
+        job = JOB.read_text()
+        self.assertIn('bash "$self" "$kind" due', job)
+        self.assertIn('bash "$self" "$kind" stale', job)
+        for kind in ("base", "dump"):
+            body = job.split(f"run_{kind}() {{\n", 1)[1]
+            self.assertLess(body.index("take_lock"), body.index(f"job_still_needed {kind}"))
+            self.assertLess(body.index(f"job_still_needed {kind}"), body.index(f"preflight_or_refuse {kind}"))
+
+
+class DrillLockTest(unittest.TestCase):
+    """The drill's scratch instance holds the spool job lock while it chooses and replays a base backup."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="oteryn-p5-lock-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        (self.tmp / "status").mkdir()
+        self.lock_path = self.tmp / "status" / "job.lock"
+        drill = DRILL.read_text()
+        start = drill.index("SCRATCH_MAIN='")
+        end = drill.index("\ndone'\n", start) + len("\ndone'\n")
+        printed = run(["bash", "-c", drill[start:end] + 'printf %s "$SCRATCH_MAIN"'])
+        self.assertEqual(printed.returncode, 0, printed.stderr)
+        self.main = printed.stdout
+
+    def holder(self, wait_seconds: int) -> subprocess.Popen[str]:
+        return subprocess.Popen(
+            ["bash", "-c", self.main, "oteryn-pitr-drill", str(self.tmp), str(wait_seconds), str(self.tmp / "locked")],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+
+    def wait_for_marker(self, process: subprocess.Popen[str]) -> None:
+        deadline = time.time() + 30
+        while not (self.tmp / "locked").exists():
+            if process.poll() is not None:
+                self.fail(f"the lock holder exited {process.returncode}: {process.communicate()[1]}")
+            self.assertLess(time.time(), deadline)
+            time.sleep(0.1)
+
+    def test_the_scratch_instance_blocks_backup_jobs_until_it_stops(self) -> None:
+        self.lock_path.write_text("")
+        process = self.holder(5)
+        try:
+            self.wait_for_marker(process)
+            with open(self.lock_path, "w") as job:
+                with self.assertRaises(BlockingIOError):
+                    fcntl.flock(job, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            process.terminate()
+            self.assertEqual(process.wait(timeout=30), 0)
+            with open(self.lock_path, "w") as job:
+                fcntl.flock(job, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            if process.poll() is None:
+                process.kill()
+
+    def test_the_scratch_instance_waits_for_a_running_job_and_gives_up(self) -> None:
+        self.assertEqual(self.holder(1).wait(timeout=30), 3)
+        self.lock_path.write_text("")
+        with open(self.lock_path, "w") as job:
+            fcntl.flock(job, fcntl.LOCK_EX)
+            self.assertEqual(self.holder(1).wait(timeout=30), 4)
+        self.assertFalse((self.tmp / "locked").exists())
+
+    def test_the_lock_is_held_before_the_backup_is_chosen(self) -> None:
+        drill = DRILL.read_text()
+        self.assertIn('-c "$SCRATCH_MAIN" oteryn-pitr-drill "$SPOOL" "$LOCK_WAIT_SECONDS" "$LOCKED_MARKER"', drill)
+        locked = drill.index('until drill_sh "test -f $LOCKED_MARKER"')
+        self.assertLess(drill.index('docker start "$scratch"'), locked)
+        self.assertLess(locked, drill.index('restore_started="$(date +%s)"'))
+        self.assertLess(locked, drill.index('backups="$(drill_sh'))
+        self.assertLess(drill.index('backups="$(drill_sh'), drill.index("pg_ctl -D $DATA -o"))
+        self.assertLess(drill.index("pg_ctl -D $DATA -o"), drill.index("dump_result="))
+        result = run(["bash", str(DRILL)], env={"OTERYN_DRILL_LOCK_WAIT_SECONDS": "0", "PATH": "/usr/bin:/bin"})
+        self.assertEqual(result.returncode, 2)
 
 
 class DrillArgumentTest(unittest.TestCase):
