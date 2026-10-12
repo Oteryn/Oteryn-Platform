@@ -188,11 +188,8 @@ def test_platform_image_without_fastcgi_fails_instead_of_serving_502() -> None:
     preflight = re.search(r"^oteryn_platform_mtls_preflight\(\) \{\n(.*?)^\}", lib, re.M | re.S).group(1)
     assert 'oteryn_platform_mtls_image_ready "${PLATFORM_IMAGE:-}" || return 1' in preflight
 
-    rollback = ROLLBACK.read_text()
-    image_check = 'oteryn_platform_mtls_image_ready "$PLATFORM_IMAGE" || exit 1'
-    assert image_check in rollback
-    assert rollback.index('"${compose[@]}" pull platform gateway') < rollback.index(image_check)
-    assert rollback.index(image_check) < rollback.index("oteryn_native_admission_ingress_stop")
+    # rollback.sh checks the last-good image through the full preflight (see the rollback test).
+    assert "oteryn_platform_mtls_image_ready" not in ROLLBACK.read_text()
 
     health = HEALTH.read_text()
     listener = re.search(r"^check_platform_mtls_listener\(\) \{\n(.*?)^\}", health, re.M | re.S).group(1)
@@ -262,6 +259,50 @@ def test_request_headers_reach_php_and_nginx_workers_can_open_the_socket() -> No
     health = HEALTH.read_text()
     listener = re.search(r"^check_platform_mtls_listener\(\) \{\n(.*?)^\}", health, re.M | re.S).group(1)
     assert f'docker exec -u nginx "$mtls_id" test -w {SOCKET}' in listener
+
+
+def test_legacy_candidate_image_is_finalized_with_the_listener_off() -> None:
+    lib = LIB.read_text()
+    probe = re.search(r"^oteryn_platform_image_has_fastcgi\(\) \{\n(.*?)^\}", lib, re.M | re.S).group(1)
+    assert "then exit 0; fi; exit 3" in probe
+    flag = re.search(r"^oteryn_platform_mtls_flag_for_image\(\) \{\n(.*?)^\}", lib, re.M | re.S).group(1)
+    assert "0) echo true ;;" in flag and "3) echo false ;;" in flag
+    assert re.search(r"\*\) echo .*>&2; return 1 ;;", flag)  # an image that cannot be inspected fails
+    pin = re.search(r"^oteryn_pin_platform_mtls_flag\(\) \{\n(.*?)^\}", lib, re.M | re.S).group(1)
+    assert "grep -v '^OTERYN_PLATFORM_MTLS_ENABLED='" in pin and "chmod 600" in pin
+
+    deploy = DEPLOY.read_text()
+    body = re.search(r"^finalize_previous_candidate_if_healthy\(\) \{\n(.*?)^\}", deploy, re.M | re.S).group(1)
+    decide = 'candidate_mtls="$(oteryn_platform_mtls_flag_for_image "${candidate_state[3]}")"'
+    pin_call = 'oteryn_pin_platform_mtls_flag "$candidate_env" "$candidate_mtls"'
+    reconcile = 'OTERYN_PLATFORM_MTLS_ENABLED="$candidate_mtls" oteryn_reconcile_platform_mtls "${candidate_compose[@]}"'
+    for needle in (decide, pin_call, '"OTERYN_PLATFORM_MTLS_ENABLED=$candidate_mtls"', reconcile):
+        assert needle in body, needle
+    # Decided before any mutation of the stack, and the candidate health check reads the pinned file.
+    assert body.index(decide) < body.index(pin_call) < body.index("oteryn_native_admission_ingress_stop")
+    assert body.index("oteryn_native_admission_ingress_stop") < body.index(reconcile)
+    assert body.index(reconcile) < body.index('OTERYN_ENV_FILE="$candidate_env" bash "$SCRIPT_DIR/health-check.sh"')
+    assert "oteryn_reconcile_platform_mtls \"${candidate_compose[@]}\"" not in body.replace(reconcile, "")
+    # This deploy's own image is preflighted before the candidate is finalized.
+    assert deploy.index('oteryn_platform_mtls_preflight "${compose[@]}" || exit 1') < deploy.index(
+        "\nfinalize_previous_candidate_if_healthy\n"
+    )
+
+
+def test_rollback_preflights_the_listener_before_stopping_anything() -> None:
+    rollback = ROLLBACK.read_text()
+    valid = "oteryn_platform_mtls_settings_valid || exit 1"
+    preflight = 'oteryn_platform_mtls_preflight "${compose[@]}" || exit 1'
+    stop = "oteryn_native_admission_ingress_stop"
+    assert rollback.index('"${compose[@]}" pull platform gateway') < rollback.index(valid)
+    assert rollback.index(valid) < rollback.index(preflight) < rollback.index(stop)
+    assert rollback.index(stop) < rollback.index('oteryn_reconcile_platform_mtls "${compose[@]}"')
+
+    lib = LIB.read_text()
+    body = re.search(r"^oteryn_platform_mtls_preflight\(\) \{\n(.*?)^\}", lib, re.M | re.S).group(1)
+    assert 'oteryn_platform_mtls_image_ready "${PLATFORM_IMAGE:-}" || return 1' in body
+    assert "ip -o -4 addr show" in body  # bind address is on this host
+    assert "--entrypoint nginx internal-mtls -t -q -c /bootstrap/internal-mtls-nginx.conf" in body
 
 
 def main() -> None:

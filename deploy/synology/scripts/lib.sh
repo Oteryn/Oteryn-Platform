@@ -120,13 +120,37 @@ oteryn_platform_mtls_settings_valid() {
 }
 
 # True when a Platform image carries the FastCGI pool the listener needs (php-fpm and the pool file
-# from platform.Dockerfile). Images built before the listener have neither.
+# from platform.Dockerfile). Images built before the listener have neither: status 3. Any other
+# non-zero status means the image could not be inspected.
 oteryn_platform_image_has_fastcgi() {
     local image="$1"
-    [[ -n "$image" ]] || return 1
+    [[ -n "$image" ]] || return 2
     docker run --rm --network none --entrypoint sh "$image" \
-        -c 'command -v php-fpm >/dev/null && test -f /usr/local/etc/php-fpm.d/oteryn-internal-mtls.conf' \
+        -c 'if command -v php-fpm >/dev/null && test -f /usr/local/etc/php-fpm.d/oteryn-internal-mtls.conf; then exit 0; fi; exit 3' \
         >/dev/null 2>&1
+}
+
+# The listener setting a given Platform image can serve: the resolved setting, except false for an
+# image built before the listener (legacy path, deploy.sh finalize_previous_candidate_if_healthy).
+# Fails when the image cannot be inspected.
+oteryn_platform_mtls_flag_for_image() {
+    local image="$1" rc=0
+    [[ "${OTERYN_PLATFORM_MTLS_ENABLED:-false}" == true ]] || { echo false; return 0; }
+    oteryn_platform_image_has_fastcgi "$image" || rc=$?
+    case "$rc" in
+        0) echo true ;;
+        3) echo false ;;
+        *) echo "Unable to inspect Platform image $image for the FastCGI pool." >&2; return 1 ;;
+    esac
+}
+
+# Pins the listener setting into a derived environment file (the file's value wins when
+# health-check.sh loads it).
+oteryn_pin_platform_mtls_flag() {
+    local env_file="$1" flag="$2"
+    { grep -v '^OTERYN_PLATFORM_MTLS_ENABLED=' "$env_file" || true; printf 'OTERYN_PLATFORM_MTLS_ENABLED=%s\n' "$flag"; } >"$env_file.pin"
+    chmod 600 "$env_file.pin"
+    mv "$env_file.pin" "$env_file"
 }
 
 # Refuses, before any stack change, a Platform image that cannot serve the listener while it is on:

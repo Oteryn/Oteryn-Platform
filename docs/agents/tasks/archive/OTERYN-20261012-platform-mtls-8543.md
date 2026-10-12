@@ -91,6 +91,8 @@ proven:
   - Codex P2 on #1570 (supervision): the entrypoint stays PID 1 while the pool runs and stops the container when either process exits. Local smoke: FPM killed gave exit 8, main killed gave exit 9, docker stop finished at once with 143, and no zombies remained.
   - Codex P2 on #1570 (encodings): a smoke request showed HTTP_TRANSFER_ENCODING and HTTP_CONTENT_ENCODING reaching PHP, so the bounds middleware still sees them; fastcgi_pass_request_headers on is now explicit.
   - Found in smoke: with short-syntax mounts, a fresh platform_fastcgi volume first mounted by Platform copied the image directory's owner (82:82), so nginx got EACCES and answered 502. nocopy on both mounts kept 82:101 0750, and health-check.sh now checks that the nginx user can write the socket.
+  - Codex P1s on #1570 (head ca5e735b). (1) deploy.sh: an unresolved candidate whose Platform image was built before the listener is now finalized with the listener off. The decision is made, and pinned into the candidate health env, before any stack change, so later deploys no longer repeat the failure. An image that cannot be inspected fails closed. Local check: the probe returned 3 for an image without the pool, 0 for one with it, and 125 for a missing image. (2) rollback.sh runs the settings check and the full preflight before oteryn_native_admission_ingress_stop. The preflight covers the image, the bind address and nginx -t with the mounted files.
+  - Further P1s in this area after this round go to the named follow-up D282, unless they are a real regression (coordinator).
   - The Compose profile keeps the bind-mounted service out of the default render, so the CI "no bind mounts" render check passes.
 derived:
   - Coordinator answers 2026-10-12. (2) ssl_verify_depth 1 is correct because Game client certificates are issued directly by the preprod root (pathlen 0, no intermediates). (3) The listener stays on by default for staging. (4) The commit trailer names Opus 5.5 where the packet said Sonnet 5.5; the deviation is accepted and recorded.
@@ -122,7 +124,7 @@ changed_paths:
 validation:
   - command: python3 deploy/synology/tests/test_platform_mtls_contract.py
     result: PASS
-    evidence: 10 tests
+    evidence: 12 tests
   - command: CI-listed Synology python tests and container_supply_chain validate-repository
     result: PASS
     evidence: all pass, rc 0

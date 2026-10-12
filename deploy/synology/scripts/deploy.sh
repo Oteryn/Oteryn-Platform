@@ -549,7 +549,7 @@ finalize_previous_candidate_if_healthy() {
     local candidate_env="$state_dir/candidate-health.env"
     local service container_id image_id expected_image expected_image_id
     local gateway_container_id gateway_image_id expected_gateway_image expected_gateway_image_id
-    local index
+    local index candidate_mtls
     local -a candidate_state services expected_images candidate_compose
 
     [[ -f "$candidate_file" ]] || return 0
@@ -659,6 +659,18 @@ finalize_previous_candidate_if_healthy() {
     chmod 600 "$candidate_env.tmp"
     mv "$candidate_env.tmp" "$candidate_env"
     oteryn_pin_native_admission_flag "$candidate_env" "${candidate_state[3]}"
+    # Legacy path, before any mutation: a candidate Platform image built before the mTLS listener has
+    # no FastCGI pool, so it is finalized with the listener off instead of failing its health check on
+    # every later deploy. This deploy's own image passed oteryn_platform_mtls_preflight and turns the
+    # listener on again after finalization.
+    if ! candidate_mtls="$(oteryn_platform_mtls_flag_for_image "${candidate_state[3]}")"; then
+        rm -f "$candidate_env"
+        return 1
+    fi
+    if [[ "$candidate_mtls" != "${OTERYN_PLATFORM_MTLS_ENABLED:-false}" ]]; then
+        echo "Previous candidate Platform image has no FastCGI pool; finalizing it with the Platform mTLS listener off." >&2
+    fi
+    oteryn_pin_platform_mtls_flag "$candidate_env" "$candidate_mtls"
 
     candidate_compose=(
         env
@@ -669,6 +681,7 @@ finalize_previous_candidate_if_healthy() {
         "GATEWAY_IMAGE=${candidate_state[4]}"
         "GATEWAY_VERSION=sha-${candidate_state[2]}"
         "OTERYN_NATIVE_ADMISSION_ENABLED=$(oteryn_native_admission_flag_for_image "${candidate_state[3]}")"
+        "OTERYN_PLATFORM_MTLS_ENABLED=$candidate_mtls"
         docker compose --env-file "$candidate_env" -f "$COMPOSE_FILE"
     )
     # Only Gateway and the proxy are recreated here: refuse before any mutation when the effective flag
@@ -698,7 +711,7 @@ finalize_previous_candidate_if_healthy() {
         rm -f "$candidate_env"
         return 1
     fi
-    if ! oteryn_reconcile_platform_mtls "${candidate_compose[@]}"; then
+    if ! OTERYN_PLATFORM_MTLS_ENABLED="$candidate_mtls" oteryn_reconcile_platform_mtls "${candidate_compose[@]}"; then
         rm -f "$candidate_env"
         return 1
     fi
