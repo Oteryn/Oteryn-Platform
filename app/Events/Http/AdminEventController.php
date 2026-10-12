@@ -125,6 +125,8 @@ final class AdminEventController
             'canPublish' => $identity instanceof Identity
                 && $this->authorization->allows($identity, AdminPermission::PUBLISH_EVENTS),
             'newsPosts' => NewsPost::query()
+                // Unpublished drafts last on both engines (PostgreSQL sorts NULL first in DESC).
+                ->orderByRaw('published_at is null')
                 ->orderByDesc('published_at')
                 ->orderByDesc('id')
                 ->get(['id', 'title', 'slug', 'published_at']),

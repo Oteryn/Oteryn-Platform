@@ -32,11 +32,17 @@ final class NativeAdmissionAttempts
     /** MySQL/MariaDB ER_LOCK_WAIT_TIMEOUT and ER_LOCK_DEADLOCK. */
     private const LOCK_CONFLICTS = [1205, 1213];
 
+    /** PostgreSQL lock_not_available (lock_timeout), deadlock_detected and serialization_failure. */
+    private const PGSQL_LOCK_CONFLICTS = ['55P03', '40P01', '40001'];
+
     /** Contract §10: committed attempts per AccountId within the last 60 seconds. */
     public const ACCOUNT_ATTEMPTS_PER_MINUTE = 10;
 
     /** Set once the transaction body finished, so a later failure is an unknown commit outcome. */
     private bool $committing = false;
+
+    /** PostgreSQL lock_timeout in seconds for the next top-level issuer transaction, if bounded. */
+    private ?int $pgsqlLockTimeout = null;
 
     public function __construct(
         private readonly NativeGameLoginTickets $tickets,
@@ -84,6 +90,10 @@ final class NativeAdmissionAttempts
         $this->committing = false;
         try {
             return DB::transaction(function () use ($request): NativeAdmissionResult {
+                if ($this->pgsqlLockTimeout !== null) {
+                    // Scoped to this transaction only; it ends with the commit or rollback.
+                    DB::statement("SET LOCAL lock_timeout = '{$this->pgsqlLockTimeout}s'");
+                }
                 $existing = NativeAdmissionAttempt::query()
                     ->where('attempt_ref', $request->attemptRef)
                     ->lockForUpdate()
@@ -116,12 +126,22 @@ final class NativeAdmissionAttempts
      * Bounds every InnoDB row-lock wait of the issuer transaction (ticket, Identity, attempt row, epoch
      * lock) so a stuck writer yields a fast rollback (ER_LOCK_WAIT_TIMEOUT, then NATIVE_LOGIN_UNAVAILABLE)
      * instead of holding the Gateway call. The session value is restored for a reused connection.
+     * PostgreSQL gets the same bound as a transaction-local lock_timeout (lock_not_available, then
+     * NATIVE_LOGIN_UNAVAILABLE), so no session state outlives the issuer transaction.
      *
      * @param  Closure(): NativeAdmissionResult  $admit
      */
     private function withLockWaitTimeout(int $seconds, Closure $admit): NativeAdmissionResult
     {
         $connection = DB::connection();
+        if ($connection->getDriverName() === 'pgsql' && $connection->transactionLevel() === 0) {
+            $this->pgsqlLockTimeout = $seconds;
+            try {
+                return $admit();
+            } finally {
+                $this->pgsqlLockTimeout = null;
+            }
+        }
         if ($connection->getDriverName() !== 'mysql' || $connection->transactionLevel() !== 0) {
             return $admit();
         }
@@ -147,8 +167,14 @@ final class NativeAdmissionAttempts
 
     private static function isLockConflict(?Throwable $exception): bool
     {
-        return $exception instanceof QueryException
-            && in_array($exception->errorInfo[1] ?? null, self::LOCK_CONFLICTS, true);
+        if (! $exception instanceof QueryException) {
+            return false;
+        }
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            return in_array($exception->errorInfo[0] ?? null, self::PGSQL_LOCK_CONFLICTS, true);
+        }
+
+        return in_array($exception->errorInfo[1] ?? null, self::LOCK_CONFLICTS, true);
     }
 
     private function issue(NativeAdmissionRequest $request): NativeAdmissionResult

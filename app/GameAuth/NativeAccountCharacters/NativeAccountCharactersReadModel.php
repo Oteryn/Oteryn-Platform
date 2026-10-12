@@ -56,6 +56,9 @@ final class NativeAccountCharactersReadModel
         // Under InnoDB REPEATABLE READ a plain read uses the transaction's first consistent view, which can
         // predate the locked snapshot row; the rows must be a locking read too so they match that snapshot.
         // (With MariaDB innodb_snapshot_isolation the locked snapshot read itself fails with ER_CHECKREAD.)
+        // Under PostgreSQL READ COMMITTED every statement reads the latest committed versions and the shared
+        // lock held on the snapshot row keeps a writer from committing a new snapshot between the two reads,
+        // so the same locking reads stay consistent without REPEATABLE READ (ADR 0046).
         $rowsQuery = DB::table('native_account_character_rows')
             ->where('account_id', $accountId)
             ->orderBy('character_id');

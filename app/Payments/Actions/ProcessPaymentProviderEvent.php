@@ -15,6 +15,7 @@ use App\Payments\PaymentOrderStateMachine;
 use App\Payments\PaymentProviderResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 final class ProcessPaymentProviderEvent
@@ -447,14 +448,7 @@ final class ProcessPaymentProviderEvent
 
     private function isDuplicateKey(QueryException $exception): bool
     {
-        $sqlState = (string) $exception->getCode();
-        $driverCode = $exception->errorInfo[1] ?? null;
-
-        return $sqlState === '23000'
-            && (
-                (is_int($driverCode) || is_string($driverCode))
-                    ? in_array((int) $driverCode, [19, 1062], true)
-                    : false
-            );
+        // Laravel classifies MySQL/MariaDB 1062, PostgreSQL 23505 and SQLite UNIQUE failures.
+        return $exception instanceof UniqueConstraintViolationException;
     }
 }

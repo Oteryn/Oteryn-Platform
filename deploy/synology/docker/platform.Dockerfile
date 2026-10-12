@@ -10,6 +10,7 @@ RUN apk add --no-cache \
         icu-libs \
         libjpeg-turbo \
         libpng \
+        libpq \
         libwebp \
         libzip \
         oniguruma \
@@ -23,10 +24,12 @@ RUN apk add --no-cache \
         libwebp-dev \
         libzip-dev \
         oniguruma-dev \
+        postgresql-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
-    && docker-php-ext-install -j"$(nproc)" gd intl mbstring pcntl pdo_mysql zip \
+    && docker-php-ext-install -j"$(nproc)" gd intl mbstring pcntl pdo_mysql pdo_pgsql zip \
     && apk del .build-deps \
-    && php -r 'exit(extension_loaded("gd") && (imagetypes() & IMG_JPG) && (imagetypes() & IMG_PNG) && (imagetypes() & IMG_WEBP) ? 0 : 1);'
+    && php -r 'exit(extension_loaded("gd") && (imagetypes() & IMG_JPG) && (imagetypes() & IMG_PNG) && (imagetypes() & IMG_WEBP) ? 0 : 1);' \
+    && php -r 'exit(extension_loaded("pdo_mysql") && extension_loaded("pdo_pgsql") ? 0 : 1);'
 
 COPY --from=composer-bin /usr/bin/composer /usr/local/bin/composer
 COPY deploy/synology/docker/platform-media.ini /usr/local/etc/php/conf.d/zz-oteryn-media.ini

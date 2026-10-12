@@ -100,6 +100,37 @@ final class NativeIdsMigrationRollbackTest extends TestCase
         self::assertCount(10, $underLock);
     }
 
+    public function test_pgsql_checks_and_ddl_run_in_one_transaction_under_exclusive_table_locks(): void
+    {
+        if (DB::connection()->getDriverName() !== 'pgsql') {
+            self::markTestSkipped('LOCK TABLE ... IN ACCESS EXCLUSIVE MODE applies to PostgreSQL only.');
+        }
+
+        /** @var list<array{sql: string, level: int}> $statements */
+        $statements = [];
+        Event::listen(QueryExecuted::class, function (QueryExecuted $query) use (&$statements): void {
+            $statements[] = ['sql' => $query->sql, 'level' => $query->connection->transactionLevel()];
+        });
+
+        try {
+            $this->applyMigration('down');
+        } finally {
+            $this->applyMigration('up');
+        }
+
+        $down = array_slice($statements, 0, 11);
+        self::assertSame('LOCK TABLE character_auctions, character_profile_preferences IN ACCESS EXCLUSIVE MODE', $down[0]['sql']);
+        foreach ($down as $statement) {
+            self::assertGreaterThanOrEqual(1, $statement['level'], $statement['sql']);
+        }
+        $sql = array_column(array_slice($down, 1), 'sql');
+        self::assertCount(4, array_filter($sql, fn (string $statement): bool => str_starts_with($statement, 'select exists')));
+        self::assertCount(6, array_filter($sql, fn (string $statement): bool => str_starts_with($statement, 'alter table')
+            || str_starts_with($statement, 'drop index')));
+        self::assertSame(0, DB::transactionLevel());
+        $this->assertNativeColumnsPresent();
+    }
+
     private function assertNativeColumnsPresent(): void
     {
         self::assertTrue(Schema::hasColumn('character_auctions', 'seller_account_id'));

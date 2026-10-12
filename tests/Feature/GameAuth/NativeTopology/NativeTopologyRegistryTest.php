@@ -6,6 +6,8 @@ use App\GameAuth\Worlds\GameChannel;
 use App\GameAuth\Worlds\GameWorld;
 use App\GameAuth\Worlds\GameWorldStatus;
 use App\GameAuth\Worlds\NativeTopologyRegistry;
+use Illuminate\Database\Query\Builder;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -220,13 +222,17 @@ final class NativeTopologyRegistryTest extends TestCase
             '00000000-0000-0000-0000-000000000000', (string) Str::uuid(),
             '01890F4E-7C00-7000-8000-000000000001',
         ] as $invalid) {
-            DB::table('game_worlds')->where('id', $world->id)->update(['world_id' => $invalid]);
+            if (! $this->storeRetainedId(DB::table('game_worlds')->where('id', $world->id), 'world_id', $invalid)) {
+                continue;
+            }
             $this->assertRefused(fn () => $registry->readbackForPreproduction($world->id, 'entry-room'));
             $this->assertRefused(fn () => $registry->issueForPreproduction($world->id, 'entry-room'));
         }
         DB::table('game_worlds')->where('id', $world->id)->update(['world_id' => $pair->worldId]);
         foreach ([$pair->channelId."\n", $pair->channelId."\r", $pair->channelId.' '] as $invalid) {
-            DB::table('game_channels')->update(['channel_id' => $invalid]);
+            if (! $this->storeRetainedId(DB::table('game_channels'), 'channel_id', $invalid)) {
+                continue;
+            }
             $this->assertRefused(fn () => $registry->readbackForPreproduction($world->id, 'entry-room'));
             $this->assertRefused(fn () => $registry->issueForPreproduction($world->id, 'entry-room'));
         }
@@ -264,7 +270,8 @@ final class NativeTopologyRegistryTest extends TestCase
 
     public function test_controlled_regular_file_reconnect_retains_issuer_readback_and_symlink_profile_is_refused(): void
     {
-        self::assertSame('sqlite', DB::connection()->getDriverName());
+        // The retained SQLite file profile runs on its own connection whatever the suite engine is.
+        $originalDefault = DB::getDefaultConnection();
         $original = config('database.connections.sqlite.database');
         self::assertIsString($original);
         $temporaryRoot = realpath(sys_get_temp_dir());
@@ -277,7 +284,9 @@ final class NativeTopologyRegistryTest extends TestCase
 
         try {
             config(['database.connections.sqlite.database' => $database]);
-            DB::purge();
+            DB::purge('sqlite');
+            DB::setDefaultConnection('sqlite');
+            self::assertSame('sqlite', DB::connection()->getDriverName());
             self::assertSame(0, Artisan::call('migrate:fresh', ['--force' => true]));
             $world = $this->world('persistent');
             $this->app->detectEnvironment(fn (): string => 'preproduction');
@@ -303,9 +312,10 @@ final class NativeTopologyRegistryTest extends TestCase
             DB::purge();
             $this->assertRefused(fn () => (new NativeTopologyRegistry)->readbackForPreproduction($world->id, 'entry-room'));
         } finally {
-            DB::purge();
+            DB::purge('sqlite');
             $this->app->detectEnvironment(fn (): string => 'testing');
             config(['database.connections.sqlite.database' => $original]);
+            DB::setDefaultConnection($originalDefault);
             self::assertSame(0, Artisan::call('migrate:fresh', ['--force' => true]));
             if (is_link($linkedDirectory)) {
                 unlink($linkedDirectory);
@@ -337,6 +347,31 @@ final class NativeTopologyRegistryTest extends TestCase
             'game_host' => '127.0.0.1',
             'game_port' => 7172,
         ])->refresh();
+    }
+
+    /**
+     * Stores a non-canonical retained id for the registry to refuse, and reports whether it was stored as
+     * given. A PostgreSQL `uuid` column refuses malformed text itself (SQLSTATE 22P02) and stores uppercase
+     * text in canonical lowercase, so on that engine such a value never reaches the registry.
+     */
+    private function storeRetainedId(Builder $rows, string $column, string $value): bool
+    {
+        try {
+            (clone $rows)->update([$column => $value]);
+        } catch (QueryException $exception) {
+            self::assertSame('pgsql', DB::connection()->getDriverName(), $exception->getMessage());
+            self::assertSame('22P02', $exception->getCode());
+
+            return false;
+        }
+        $stored = (clone $rows)->value($column);
+        if ($stored === $value) {
+            return true;
+        }
+        self::assertSame('pgsql', DB::connection()->getDriverName());
+        self::assertSame(strtolower($value), $stored);
+
+        return false;
     }
 
     /** @param callable():mixed $operation */

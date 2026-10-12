@@ -9,11 +9,19 @@ use LogicException;
 /**
  * The one disposable-store guard of native topology issuance/readback, the route command and the trust
  * command (ARCH-PREPROD-ROUTE-PUBLISH-AUTH-V1 §2). `connection()` is the predicate moved unchanged out of
- * `NativeTopologyRegistry::isolatedConnection()`; it may not be relaxed or forked. The two further checks
- * narrow it for the operator commands only.
+ * `NativeTopologyRegistry::isolatedConnection()`; it may not be relaxed or forked. The one exception is the
+ * owner amendment D1023 (ADR 0044, "Amendment D1023"): a testing-only loopback PostgreSQL profile, fixed in
+ * code below and not widened by any environment variable. The two further checks narrow it for the
+ * operator commands only, which therefore still refuse PostgreSQL.
  */
 final class DisposableNativeStore
 {
+    /** D1023: the only PostgreSQL database name admitted, and only in `testing`. */
+    private const POSTGRES_TEST_DATABASE = 'oteryn_test';
+
+    /** D1023: loopback TCP hosts only; a socket path or any other host refuses. */
+    private const POSTGRES_LOOPBACK_HOSTS = ['127.0.0.1', 'localhost'];
+
     public function connection(): Connection
     {
         if (! app()->environment(['testing', 'preproduction'])) {
@@ -32,6 +40,18 @@ final class DisposableNativeStore
                 || ! in_array($connection->getConfig('unix_socket'), [null, ''], true)
                 || ! app()->environment('testing')) {
                 throw new LogicException('Native topology requires the registered loopback disposable MariaDB test database.');
+            }
+
+            return $connection;
+        }
+        if ($connection->getDriverName() === 'pgsql') {
+            // D1023: the PostgreSQL test suite's own database on loopback, in `testing` only.
+            $raw = config('database.connections.'.$connection->getName());
+            if ($database !== self::POSTGRES_TEST_DATABASE
+                || ! in_array($connection->getConfig('host'), self::POSTGRES_LOOPBACK_HOSTS, true)
+                || ! is_array($raw) || array_key_exists('read', $raw) || array_key_exists('write', $raw)
+                || ! app()->environment('testing')) {
+                throw new LogicException('Native topology requires the registered loopback disposable PostgreSQL test database.');
             }
 
             return $connection;
@@ -62,7 +82,8 @@ final class DisposableNativeStore
 
     /**
      * The guarded connection, admitted only as the retained per-run SQLite file in `testing` as in
-     * `preproduction`: `:memory:` and the loopback `oteryn_concurrency` database name no per-run directory.
+     * `preproduction`: `:memory:`, the loopback `oteryn_concurrency` database and the D1023 loopback
+     * PostgreSQL `oteryn_test` database name no per-run directory.
      *
      * @return array{Connection, string} the connection and its canonical per-run directory
      */

@@ -46,6 +46,25 @@ return [
             'sslrootcert' => env('DB_SSLROOTCERT'),
             'timezone' => 'UTC',
         ],
+        // Schema owner role for `php artisan migrate --database=pgsql_migrations` (ADR 0046).
+        // Same server and database as `pgsql`; only the credentials differ. The runtime
+        // container never receives the owner credentials (P4 provisions them).
+        'pgsql_migrations' => [
+            'driver' => 'pgsql',
+            'url' => env('DB_MIGRATIONS_URL'),
+            'host' => env('DB_HOST', '127.0.0.1'),
+            'port' => env('DB_PORT', '5432'),
+            'database' => env('DB_DATABASE', 'oteryn'),
+            'username' => env('DB_MIGRATIONS_USERNAME', 'oteryn_platform_owner'),
+            'password' => env('DB_MIGRATIONS_PASSWORD', ''),
+            'charset' => env('DB_CHARSET', 'utf8'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'search_path' => 'public',
+            'sslmode' => env('DB_SSLMODE', 'prefer'),
+            'sslrootcert' => env('DB_SSLROOTCERT'),
+            'timezone' => 'UTC',
+        ],
         'canary' => [
             'driver' => 'mysql',
             'url' => env('CANARY_DB_URL'),

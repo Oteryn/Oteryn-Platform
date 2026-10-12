@@ -32,6 +32,12 @@ final class NativeRuntimeStatusRow
 
     public static function bool(object $row, string $column): bool
     {
+        // PostgreSQL boolean columns arrive as PHP bool; MariaDB tinyint(1) as 0/1.
+        $raw = get_object_vars($row)[$column] ?? null;
+        if (is_bool($raw)) {
+            return $raw;
+        }
+
         $value = self::int($row, $column);
         if ($value !== 0 && $value !== 1) {
             throw new UnexpectedValueException('Runtime status column is not a boolean.');

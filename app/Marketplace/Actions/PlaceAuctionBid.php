@@ -9,6 +9,7 @@ use App\Marketplace\Models\AuctionBid;
 use App\Marketplace\Models\CharacterAuction;
 use App\Wallet\WalletMutator;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 final class PlaceAuctionBid
@@ -172,10 +173,7 @@ final class PlaceAuctionBid
 
     private function isDuplicateKey(QueryException $exception): bool
     {
-        $driverCode = $exception->errorInfo[1] ?? null;
-
-        return (string) $exception->getCode() === '23000'
-            && (is_int($driverCode) || is_string($driverCode))
-            && (int) $driverCode === 1062;
+        // Laravel classifies MySQL/MariaDB 1062, PostgreSQL 23505 and SQLite UNIQUE failures.
+        return $exception instanceof UniqueConstraintViolationException;
     }
 }

@@ -395,8 +395,23 @@ final class NativeDeviceSessionHttpTest extends TestCase
 
     private function assertIsolatedDatabase(): void
     {
-        if (DB::getDefaultConnection() !== 'sqlite' || config('database.connections.sqlite.database') !== ':memory:') {
-            throw new LogicException('Device HTTP tests require an isolated in-memory SQLite database.');
+        if (! $this->usesIsolatedTestDatabase()) {
+            throw new LogicException('Device HTTP tests require an isolated in-memory SQLite or loopback PostgreSQL test database.');
         }
+    }
+
+    /**
+     * In-memory SQLite, or the loopback PostgreSQL test database of phpunit.pgsql.xml; never a runtime database.
+     */
+    private function usesIsolatedTestDatabase(): bool
+    {
+        if (DB::getDefaultConnection() === 'sqlite') {
+            return config('database.connections.sqlite.database') === ':memory:';
+        }
+
+        return DB::getDefaultConnection() === 'pgsql'
+            && config('database.connections.pgsql.database') === 'oteryn_test'
+            && in_array(config('database.connections.pgsql.host'), ['127.0.0.1', '::1', 'localhost'], true)
+            && in_array(config('database.connections.pgsql.url'), [null, ''], true);
     }
 }

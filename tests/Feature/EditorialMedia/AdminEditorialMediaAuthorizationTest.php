@@ -91,7 +91,8 @@ final class AdminEditorialMediaAuthorizationTest extends EditorialMediaTestCase
         Storage::disk('editorial_media')->assertExists($media->storage_path);
 
         try {
-            DB::table('editorial_media')->where('id', $media->id)->delete();
+            // A savepoint keeps the test transaction usable after the rejected statement (PostgreSQL).
+            DB::transaction(fn () => DB::table('editorial_media')->where('id', $media->id)->delete());
             self::fail('The database must reject deletion while a reference exists.');
         } catch (\Throwable) {
             $this->assertDatabaseHas('editorial_media', ['id' => $media->id]);

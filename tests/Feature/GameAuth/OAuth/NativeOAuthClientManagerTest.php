@@ -41,7 +41,7 @@ final class NativeOAuthClientManagerTest extends TestCase
     public function test_existing_confidential_client_with_native_name_is_rejected(): void
     {
         Client::query()->create([
-            'id' => 'confidential-native-client',
+            'id' => '01890f4e-7c00-7000-8000-0000000000c1',
             'owner_id' => null,
             'owner_type' => null,
             'name' => 'Oteryn OTClient',

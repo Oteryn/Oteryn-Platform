@@ -4,6 +4,8 @@ namespace App\Operations;
 
 use App\Payments\Contracts\PaymentProviderGateway;
 use App\Payments\Contracts\PaymentWebhookVerifier;
+use Illuminate\Support\ConfigurationUrlParser;
+use InvalidArgumentException;
 
 final class ProductionConfigurationVerifier
 {
@@ -49,6 +51,8 @@ final class ProductionConfigurationVerifier
             }
         }
 
+        array_push($violations, ...$this->databaseViolations());
+
         if (config('session.secure') !== true) {
             $violations[] = 'Secure session cookies must be enabled.';
         }
@@ -71,6 +75,42 @@ final class ProductionConfigurationVerifier
         }
 
         return $violations;
+    }
+
+    /**
+     * The Platform database must be a server engine. An unset DB_CONNECTION falls back to
+     * SQLite (config/database.php), which is refused here (F-13, ADR 0046). The driver is
+     * read from the configuration Laravel actually connects with: a DB_URL overrides the
+     * declared driver through ConfigurationUrlParser, exactly as DatabaseManager resolves it.
+     *
+     * @return list<string>
+     */
+    private function databaseViolations(): array
+    {
+        $default = config('database.default');
+        if (! is_string($default) || trim($default) === '') {
+            return ['DB_CONNECTION must name the Platform database connection.'];
+        }
+
+        $connection = config("database.connections.{$default}");
+        if (! is_array($connection)) {
+            return ['DB_CONNECTION must use the pgsql or mysql driver; sqlite and other drivers are refused in production.'];
+        }
+
+        try {
+            $resolved = (new ConfigurationUrlParser)->parseConfiguration([
+                'driver' => $connection['driver'] ?? null,
+                'url' => $connection['url'] ?? null,
+            ]);
+        } catch (InvalidArgumentException) {
+            return ['DB_URL for the Platform database connection must be a valid database URL.'];
+        }
+
+        if (! in_array($resolved['driver'] ?? null, ['pgsql', 'mysql', 'mariadb'], true)) {
+            return ['DB_CONNECTION must use the pgsql or mysql driver; sqlite and other drivers are refused in production.'];
+        }
+
+        return [];
     }
 
     /** @return list<string> */
