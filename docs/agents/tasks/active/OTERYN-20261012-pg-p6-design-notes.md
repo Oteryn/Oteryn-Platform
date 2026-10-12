@@ -31,7 +31,6 @@ Write the two design notes that `PLATFORM_POSTGRES_MIGRATION_PLAN.md` requires b
 ```yaml
 owned_paths:
   - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
-  - docs/operations/PLATFORM_POSTGRES_MAINTENANCE_GATE_DESIGN.md
   - docs/agents/tasks/active/OTERYN-20261012-pg-p6-design-notes.md
 modules:
   - operations-docs
@@ -57,7 +56,6 @@ context_routes:
   - operations
 owned_paths:
   - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
-  - docs/operations/PLATFORM_POSTGRES_MAINTENANCE_GATE_DESIGN.md
   - docs/agents/tasks/active/OTERYN-20261012-pg-p6-design-notes.md
 proven:
   - the plan requires both notes accepted before P6 starts and fixes only the two gate claims

@@ -87,7 +87,7 @@ Implemented once in the script and used in three places: `maintenance-close` (re
 - A `service` value that cannot be parsed, or a host in a numeric form other than dotted decimal, counts as a match when the rule could target port 8000 or 8080. The check fails closed.
 - The result is a count only. Hostnames, services and ports of unrelated rules are never printed, because the tunnel may carry operationally sensitive topology.
 - Cutover use: before the freeze, the cutover requires `audit` evidence for the same day: an `audit` run id from `main` whose output has `gate_state=open` and `other_origin_routes=0`. `maintenance-close` repeats the check at close time on the same read it writes from, and the hash check at `PUT` proves that read is still current. A rule added between the audit and the close is caught by the close.
-- Residual, out of reach of any ingress check: a route to the loopback origins that does not pass through this tunnel (another connector, a host port forward). The plan keeps the host bindings loopback-only for that reason, and the external probes below detect it.
+- Unverified residual risk, not detected by this design: a route to the loopback origins that does not pass through this tunnel (another connector, a host port forward). The plan keeps the host bindings loopback-only to prevent it, but the gate has no authoritative inventory of connectors or host forwards and claims no detection. The external probes below cover only the two canonical names, synthetic labels and the hostnames enumerated from this tunnel, so they cannot prove its absence. Closing this gap needs an authoritative inventory check, which is an owner decision (see *Owner approval*).
 
 ## External probes (`edge-probe` job)
 
@@ -95,6 +95,7 @@ Run on a GitHub-hosted runner, no secrets, only the two canonical hostnames plus
 
 - After close: both canonical hostnames return HTTP 503 from the edge (`server: cloudflare`); a random unused label under each served wildcard parent domain (and under `molehill.cloud`) either fails DNS resolution or returns an edge error (5xx from the edge), and any 2xx or 3xx response fails the probe. Hostnames of other tunnel rules are probed from inside the job without being printed; only a count and pass/fail are logged.
 - After open: neither canonical hostname returns 503, and the documented success endpoint of each answers per the cutover smoke definition. The path and content of those checks are defined by P6; this gate requires only the non-503 result and a green job.
+- The probes are samples of this tunnel's own names. A pass is evidence for those names only, never proof that no other route to the origins exists.
 - A failed probe fails the workflow run. It never triggers an automatic gate change.
 
 ## Serialization
@@ -171,6 +172,7 @@ The owner approves, or changes, before implementation:
 2. That `maintenance-close` and `maintenance-open` run only by dispatch under `production-cloudflare`, and whether a required reviewer is enabled on that environment for these two modes (the management doc recommends it for every production edge mutation).
 3. The dashboard break-glass as the only bypass of the gate, recorded in the cutover evidence.
 4. The `GITHUB_TOKEN` `actions: read` permission on the manage job, and the artifact retention of 30 days.
-5. The interface P6 must satisfy: the cutover run ends step 6 by uploading `platform-cutover-gate-evidence`, and the operator passes the close run id to it.
+5. Whether to accept the unverified residual risk above (a route to the origins outside this tunnel) or to require an authoritative connector and port-forward inventory check before P6. Recommendation: accept for staging, with the loopback-only bindings the plan already enforces.
+6. The interface P6 must satisfy: the cutover run ends step 6 by uploading `platform-cutover-gate-evidence`, and the operator passes the close run id to it.
 
 Assumptions to verify before the implementation relies on them, with no silent fallback: the live `GET .../configurations` returns a numeric `version` that increases by one per `PUT` (the mock models it; one live `audit`-style read-only check confirms it); an `http_status:503` rule answers with HTTP 503 and `server: cloudflare`. If the live API does not expose a usable `version`, the implementation stops and returns to the owner rather than weakening the closure binding.
