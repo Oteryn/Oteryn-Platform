@@ -996,7 +996,9 @@ class PostgresEngineBranchTest(unittest.TestCase):
             evidence = backup / "evidence.env"
             contract = root / "release-contract.env"
             env_file = root / "staging.env"
-            env_file.write_text("PLATFORM_DB_NAME=oteryn_platform\n" + "".join(f"{name}={name[-12:].lower() * 3}\n" for name in SECRET_NAMES))
+            env_file.write_text("PLATFORM_DB_NAME=oteryn_platform\n")
+            # Distinct 32-character placeholders reach the script through the process environment, never a file.
+            secret_env = {name: f"placeholder{index:02d}" + "x" * 18 for index, name in enumerate(SECRET_NAMES)}
             fake_bin = root / "bin"
             fake_bin.mkdir()
             (fake_bin / "docker").write_text("#!/bin/sh\necho docker-called >&2\nexit 99\n")
@@ -1010,7 +1012,7 @@ class PostgresEngineBranchTest(unittest.TestCase):
                     env={
                         "PATH": f"{fake_bin}:{os.environ['PATH']}", "HOME": str(root),
                         "OTERYN_ENV_FILE": str(env_file), "OTERYN_STATE_DIR": str(state),
-                        "OTERYN_RELEASE_CONTRACT_FILE": str(contract),
+                        "OTERYN_RELEASE_CONTRACT_FILE": str(contract), **secret_env,
                     },
                 )
                 self.assertNotEqual(result.returncode, 0, engine_line)
