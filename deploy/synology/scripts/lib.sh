@@ -67,8 +67,345 @@ load_oteryn_env_file() {
         export APP_URL SESSION_SECURE_COOKIE
     fi
 
+    oteryn_platform_db_engine_settings
     oteryn_resolve_platform_mtls_settings
     oteryn_resolve_game_node_route_settings
+}
+
+# Platform database engine (ADR 0046, docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md P4). The single
+# switch is PLATFORM_DB_ENGINE in the committed deploy/synology/release-contract.env, read as data and never
+# sourced; absent means mariadb. P4 runs the postgres service idle beside MariaDB; only P6 flips the switch.
+oteryn_platform_db_engine() {
+    local file value
+    file="${OTERYN_RELEASE_CONTRACT_FILE:-$(dirname "${BASH_SOURCE[0]}")/../release-contract.env}"
+    if [[ ! -f "$file" ]]; then
+        echo "Missing release contract: $file" >&2
+        return 1
+    fi
+    value="$(sed -n 's/^PLATFORM_DB_ENGINE=//p' "$file" | tail -n 1)"
+    value="${value%$'\r'}"
+    case "${value:-mariadb}" in
+        mariadb|postgres) printf '%s\n' "${value:-mariadb}" ;;
+        *) echo "PLATFORM_DB_ENGINE must be mariadb or postgres." >&2; return 1 ;;
+    esac
+}
+
+# Exports the engine and the Platform runtime connection that compose.yml maps into the platform and
+# marketplace-scheduler services (x-platform-db-*). The postgres engine gives the runtime role only
+# (oteryn_platform_app) with verify-full TLS against the stack CA; the owner, backup, dump and superuser
+# passwords never reach a Platform container.
+oteryn_platform_db_engine_settings() {
+    local engine
+    engine="$(oteryn_platform_db_engine)" || return 1
+    case "$engine" in
+        mariadb)
+            OTERYN_PLATFORM_DB_CONNECTION=mysql
+            OTERYN_PLATFORM_DB_HOST=mariadb
+            OTERYN_PLATFORM_DB_PORT=3306
+            OTERYN_PLATFORM_DB_USERNAME="${PLATFORM_DB_USER:-}"
+            OTERYN_PLATFORM_DB_PASSWORD="${PLATFORM_DB_PASSWORD:-}"
+            OTERYN_PLATFORM_DB_SSLMODE=prefer
+            ;;
+        postgres)
+            OTERYN_PLATFORM_DB_CONNECTION=pgsql
+            OTERYN_PLATFORM_DB_HOST=postgres
+            OTERYN_PLATFORM_DB_PORT=5432
+            OTERYN_PLATFORM_DB_USERNAME=oteryn_platform_app
+            OTERYN_PLATFORM_DB_PASSWORD="${PLATFORM_POSTGRES_APP_PASSWORD:-}"
+            OTERYN_PLATFORM_DB_SSLMODE=verify-full
+            ;;
+    esac
+    OTERYN_PLATFORM_DB_ENGINE="$engine"
+    export OTERYN_PLATFORM_DB_ENGINE OTERYN_PLATFORM_DB_CONNECTION OTERYN_PLATFORM_DB_HOST \
+        OTERYN_PLATFORM_DB_PORT OTERYN_PLATFORM_DB_USERNAME OTERYN_PLATFORM_DB_PASSWORD OTERYN_PLATFORM_DB_SSLMODE
+}
+
+# MariaDB-only operator scripts (schema recovery, fresh baseline, Marketplace control) refuse the postgres
+# engine until their PostgreSQL branches exist, instead of acting on the wrong database.
+oteryn_require_mariadb_engine() {
+    local what="$1"
+    if [[ "${OTERYN_PLATFORM_DB_ENGINE:-}" != mariadb ]]; then
+        echo "$what supports only PLATFORM_DB_ENGINE=mariadb; refusing on '${OTERYN_PLATFORM_DB_ENGINE:-unset}'." >&2
+        return 1
+    fi
+}
+
+# The five PostgreSQL secrets (README: PostgreSQL service). The superuser password is used only by the
+# image's first-start initdb; the four role passwords are applied by postgres/init/10-platform-roles.sh.
+OTERYN_POSTGRES_SECRET_NAMES=(
+    PLATFORM_POSTGRES_SUPERUSER_PASSWORD
+    PLATFORM_POSTGRES_OWNER_PASSWORD
+    PLATFORM_POSTGRES_APP_PASSWORD
+    PLATFORM_POSTGRES_BACKUP_PASSWORD
+    PLATFORM_POSTGRES_DUMP_PASSWORD
+)
+
+# Digest of the staged postgresql.conf and pg_hba.conf (the postgres service label that makes Compose
+# recreate the container when they change). Refuses an unreadable file.
+oteryn_postgres_config_digest() {
+    local config_dir="${OTERYN_POSTGRES_CONFIG_DIR:-$(dirname "${BASH_SOURCE[0]}")/../postgres}" digest
+    digest="$(cat -- "$config_dir/postgresql.conf" "$config_dir/pg_hba.conf" | sha256sum | awk '{print $1}')" || return 1
+    [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || { echo "PostgreSQL configuration digest failed." >&2; return 1; }
+    printf '%s\n' "$digest"
+}
+
+# Reconcile record. oteryn_reconcile_postgres applies the role passwords and the role split, which the running
+# container does not reveal, so the fast deploy path trusts it only while this record still matches every input
+# the reconciliation depends on: the five secrets (rotated passwords are applied only by the reconcile), the
+# staged configuration digest, the role-setup script and the postgres service definition (image, probe
+# environment). The record holds a random salt and a salted SHA-256 over those inputs, mode 0600 beside the
+# release state, and is never printed. It is cleared before a reconcile starts and written only after it fully
+# succeeds, so a failed or absent reconcile can never look current.
+oteryn_postgres_reconcile_record_file() {
+    printf '%s/postgres-reconcile.env\n' "${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
+}
+
+_oteryn_postgres_reconcile_hash() {
+    local salt="$1" name root compose_file roles_file
+    root="${OTERYN_POSTGRES_CONFIG_DIR:-$(dirname "${BASH_SOURCE[0]}")/../postgres}"
+    compose_file="${OTERYN_POSTGRES_COMPOSE_FILE:-$(dirname "${BASH_SOURCE[0]}")/../compose.yml}"
+    roles_file="$root/init/10-platform-roles.sh"
+    {
+        printf 'salt=%s\n' "$salt"
+        for name in "${OTERYN_POSTGRES_SECRET_NAMES[@]}"; do
+            printf '%s=%s\n' "$name" "${!name:-}"
+        done
+        printf 'config=%s\n' "$(oteryn_postgres_config_digest)" || return 1
+        printf 'roles=%s\n' "$(sha256sum < "$roles_file" | awk '{print $1}')" || return 1
+        awk '/^  postgres:$/ {p = 1; next} p && /^  [a-z][a-z0-9-]*:$/ {exit} p' "$compose_file"
+    } | sha256sum | awk '{print $1}'
+}
+
+# Succeeds only when the record exists, is a regular file and matches the current inputs.
+oteryn_postgres_reconcile_is_current() {
+    local file salt recorded current
+    file="$(oteryn_postgres_reconcile_record_file)"
+    [[ -f "$file" && ! -L "$file" ]] || return 1
+    salt="$(sed -n 's/^SALT=//p' "$file" | head -n 1)"
+    recorded="$(sed -n 's/^FINGERPRINT=//p' "$file" | head -n 1)"
+    [[ "$salt" =~ ^[0-9a-f]{32}$ && "$recorded" =~ ^[0-9a-f]{64}$ ]] || return 1
+    current="$(_oteryn_postgres_reconcile_hash "$salt")" || return 1
+    [[ "$current" == "$recorded" ]]
+}
+
+oteryn_postgres_reconcile_clear() {
+    rm -f -- "$(oteryn_postgres_reconcile_record_file)" "$(oteryn_postgres_reconcile_record_file).tmp"
+}
+
+oteryn_postgres_reconcile_record() {
+    local file salt hash
+    file="$(oteryn_postgres_reconcile_record_file)"
+    salt="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')" || return 1
+    [[ "$salt" =~ ^[0-9a-f]{32}$ ]] || return 1
+    hash="$(_oteryn_postgres_reconcile_hash "$salt")" || return 1
+    mkdir -p -- "$(dirname "$file")" || return 1
+    ( umask 077; printf 'SALT=%s\nFINGERPRINT=%s\n' "$salt" "$hash" > "$file.tmp" ) \
+        && chmod 600 "$file.tmp" && mv -- "$file.tmp" "$file" || return 1
+}
+
+# Seconds before expiry at which tls/init.sh renews the PostgreSQL server certificate (7 days; the same
+# value as its `openssl x509 -checkend`, pinned by tests/ci/test_synology_postgres_contract.py).
+OTERYN_POSTGRES_CERT_RENEWAL_SECONDS=604800
+
+# True when the server pair the running postgres container serves is current by the same predicate tls-init
+# applies (tls/init.sh postgres_certificate_is_current, run here inside the container through its
+# --check-postgres-pair mode): outside the renewal window, verified by the CA copy next to it, certificate
+# and key a matching pair, key owner-only for the postgres user. Only tls-init renews it, so a deploy that
+# skips tls-init (the Platform fast path) must not run with a pair that is due or inconsistent. Anything the
+# check cannot prove, such as a missing openssl, counts as not current and takes the full path.
+oteryn_postgres_certificate_is_current() {
+    local container="$1" init
+    init="${OTERYN_TLS_INIT_SCRIPT:-$(dirname "${BASH_SOURCE[0]}")/../tls/init.sh}"
+    [[ -f "$init" ]] || return 1
+    docker exec -i -e POSTGRES_TLS_DIR=/run/oteryn-postgres-tls "$container" \
+        sh -s -- --check-postgres-pair < "$init" >/dev/null 2>&1
+}
+
+# Prints `configured` when all five secrets are set, `absent` when none is; refuses a partial or malformed
+# set. Each value is generated hex/alphanumeric of at least 24 characters, distinct from every other
+# PostgreSQL secret and from the MariaDB passwords. Values are never printed.
+oteryn_postgres_secret_state() {
+    local name value count=0 seen=' '
+    for name in "${OTERYN_POSTGRES_SECRET_NAMES[@]}"; do
+        value="${!name:-}"
+        [[ -n "$value" ]] || continue
+        count=$((count + 1))
+        if [[ ! "$value" =~ ^[A-Za-z0-9_.-]{24,}$ ]]; then
+            echo "$name must be at least 24 generated hex/alphanumeric characters." >&2
+            return 1
+        fi
+        if [[ "$seen" == *" $value "* || "$value" == "${PLATFORM_DB_PASSWORD:-}" || "$value" == "${MARIADB_ROOT_PASSWORD:-}" ]]; then
+            echo "$name must be distinct from every other database secret." >&2
+            return 1
+        fi
+        seen+="$value "
+    done
+    case "$count" in
+        0) printf 'absent\n' ;;
+        "${#OTERYN_POSTGRES_SECRET_NAMES[@]}") printf 'configured\n' ;;
+        *)
+            echo "PostgreSQL secrets are partially configured ($count of ${#OTERYN_POSTGRES_SECRET_NAMES[@]}); set all of them or none." >&2
+            return 1
+            ;;
+    esac
+}
+
+# Runs one SQL text inside the postgres container as the postgres OS user over the local socket (peer).
+_oteryn_postgres_local_sql() {
+    local -a compose=("${@:1:$#-2}")
+    local database="${*: -2:1}" sql="${*: -1}"
+    "${compose[@]}" --profile postgres exec -T -u postgres postgres \
+        psql -X -q -t -A -v ON_ERROR_STOP=1 -d "$database" -c "$sql"
+}
+
+# Runs one SQL text as a Platform role over TCP to `postgres` from inside the postgres container, with the
+# given sslmode and the stack CA. The password travels on standard input, never in an argument or env flag.
+_oteryn_postgres_role_sql() {
+    local -a compose=("${@:1:$#-4}")
+    local role="${*: -4:1}" password="${*: -3:1}" sslmode="${*: -2:1}" sql="${*: -1}"
+    printf '%s\n' "$password" | "${compose[@]}" --profile postgres exec -T postgres sh -c '
+        IFS= read -r PGPASSWORD
+        export PGPASSWORD
+        exec psql -X -w -q -t -A -v ON_ERROR_STOP=1 \
+            "host=postgres port=5432 dbname=oteryn_platform user=$1 sslmode=$2 sslrootcert=/run/oteryn-postgres-tls/ca.crt connect_timeout=5" \
+            -c "$3"' sh "$role" "$sslmode" "$sql"
+}
+
+# Starts the idle postgres service, re-applies pg_hba.conf, the database and the role split, and proves the
+# P4 contract before the deploy continues: TLS-only logins, verify-full works, the runtime role cannot
+# create objects, the runtime and dump roles own nothing and no Platform role has elevated attributes.
+# Without the PostgreSQL secrets the service is not started on the mariadb engine (P4 stays optional);
+# the postgres engine requires them. Usage: oteryn_reconcile_postgres <compose command...>
+oteryn_reconcile_postgres() {
+    local -a compose=("$@")
+    local state deadline status output container
+    local timeout="${OTERYN_POSTGRES_READY_TIMEOUT_SECONDS:-300}"
+    local roles="'oteryn_platform_owner','oteryn_platform_app','oteryn_platform_backup','oteryn_platform_dump'"
+
+    state="$(oteryn_postgres_secret_state)" || return 1
+    if [[ "$state" == absent ]]; then
+        if [[ "${OTERYN_PLATFORM_DB_ENGINE:-}" == postgres ]]; then
+            echo "PLATFORM_DB_ENGINE=postgres requires all PostgreSQL secrets." >&2
+            return 1
+        fi
+        echo "PostgreSQL secrets are not configured; the idle postgres service is not started."
+        oteryn_postgres_reconcile_clear
+        return 0
+    fi
+    oteryn_postgres_reconcile_clear
+    if [[ ! "$timeout" =~ ^[1-9][0-9]*$ ]]; then
+        echo "OTERYN_POSTGRES_READY_TIMEOUT_SECONDS must be a positive integer." >&2
+        return 1
+    fi
+
+    # tls-init has already run in this deploy, so the server certificate and bootstrap files are current.
+    # A startup-only setting (listen_addresses, max_connections, hba_file, ...) changed in postgresql.conf
+    # is ignored by pg_reload_conf(), and the volume content is not part of the Compose service definition.
+    # The digest label makes `up` recreate the container exactly when the staged configuration changed.
+    OTERYN_POSTGRES_CONFIG_DIGEST="$(oteryn_postgres_config_digest)" || return 1
+    export OTERYN_POSTGRES_CONFIG_DIGEST
+    "${compose[@]}" --profile postgres up -d --no-deps postgres || return 1
+
+    # Ready means the final server (PID 1), not the image's socket-only first-start init server.
+    deadline=$((SECONDS + timeout))
+    until "${compose[@]}" --profile postgres exec -T -u postgres postgres sh -c \
+        'pg_isready -q -h /var/run/postgresql && [ "$(head -n 1 "$PGDATA/postmaster.pid")" = 1 ]' >/dev/null 2>&1; do
+        if (( SECONDS >= deadline )); then
+            echo "PostgreSQL did not become ready within ${timeout} seconds." >&2
+            "${compose[@]}" --profile postgres ps postgres >&2 || true
+            "${compose[@]}" --profile postgres logs --no-color --tail 100 postgres >&2 || true
+            return 1
+        fi
+        sleep 2
+    done
+
+    _oteryn_postgres_local_sql "${compose[@]}" postgres 'SELECT pg_reload_conf()' >/dev/null || return 1
+    printf '%s\n%s\n%s\n%s\n' \
+        "$PLATFORM_POSTGRES_OWNER_PASSWORD" "$PLATFORM_POSTGRES_APP_PASSWORD" \
+        "$PLATFORM_POSTGRES_BACKUP_PASSWORD" "$PLATFORM_POSTGRES_DUMP_PASSWORD" \
+        | "${compose[@]}" --profile postgres exec -T -u postgres postgres sh /bootstrap/postgres-roles.sh || {
+            echo "PostgreSQL role bootstrap failed." >&2
+            return 1
+        }
+
+    container="$("${compose[@]}" --profile postgres ps -q postgres)" || return 1
+    if [[ -z "$container" || "$(docker inspect --format '{{len .HostConfig.PortBindings}}' "$container")" != 0 ]]; then
+        echo "The postgres service must exist and publish no host port." >&2
+        return 1
+    fi
+
+    output="$(_oteryn_postgres_role_sql "${compose[@]}" oteryn_platform_app "$PLATFORM_POSTGRES_APP_PASSWORD" verify-full \
+        'SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()' 2>&1)" || {
+        echo "The runtime role cannot log in with sslmode=verify-full." >&2
+        return 1
+    }
+    [[ "$output" == t ]] || { echo "The runtime role session is not encrypted." >&2; return 1; }
+    if _oteryn_postgres_role_sql "${compose[@]}" oteryn_platform_app "$PLATFORM_POSTGRES_APP_PASSWORD" disable \
+        'SELECT 1' >/dev/null 2>&1; then
+        echo "PostgreSQL accepted a connection without TLS." >&2
+        return 1
+    fi
+    output="$(_oteryn_postgres_role_sql "${compose[@]}" oteryn_platform_app "$PLATFORM_POSTGRES_APP_PASSWORD" verify-full \
+        'BEGIN; CREATE TABLE oteryn_p4_privilege_probe (id integer); ROLLBACK' 2>&1)" && {
+        echo "The runtime role can create tables in schema public." >&2
+        return 1
+    }
+    [[ "$output" == *"permission denied for schema public"* ]] || {
+        echo "The runtime role CREATE TABLE probe failed for an unexpected reason." >&2
+        return 1
+    }
+    output="$(_oteryn_postgres_local_sql "${compose[@]}" oteryn_platform "
+        SELECT (SELECT count(*) FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner
+                 WHERE r.rolname IN ('oteryn_platform_app', 'oteryn_platform_dump', 'oteryn_platform_backup'))
+             + (SELECT count(*) FROM pg_roles WHERE rolname IN ($roles)
+                 AND (rolsuper OR rolcreatedb OR rolcreaterole OR rolbypassrls))
+             + (SELECT count(*) FROM pg_roles WHERE rolname IN ($roles)
+                 AND rolreplication <> (rolname = 'oteryn_platform_backup'))
+             + (SELECT count(*) FROM pg_namespace n JOIN pg_roles r ON r.oid = n.nspowner
+                 WHERE n.nspname = 'public' AND r.rolname <> 'oteryn_platform_owner')
+             + (SELECT count(*) FROM pg_database d JOIN pg_roles r ON r.oid = d.datdba
+                 WHERE d.datname = 'oteryn_platform' AND r.rolname <> 'oteryn_platform_owner')
+             + (SELECT count(*) FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+                 AND (has_table_privilege('oteryn_platform_dump', c.oid, 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                      OR has_table_privilege('oteryn_platform_app', c.oid, 'TRUNCATE,REFERENCES,TRIGGER')))
+             + (SELECT count(*) FROM unnest(ARRAY['oteryn_platform_app', 'oteryn_platform_dump']) AS grantee
+                 WHERE has_schema_privilege(grantee, 'public', 'CREATE'))
+             + (SELECT count(*) FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace
+                 AND (p.proacl IS NULL OR EXISTS (SELECT 1 FROM aclexplode(p.proacl) a
+                                                  WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE')))
+             + (SELECT count(*) FROM pg_type t LEFT JOIN pg_class c ON c.oid = t.typrelid
+                 WHERE t.typnamespace = 'public'::regnamespace
+                 AND (t.typtype IN ('e', 'd', 'r', 'm') OR (t.typtype = 'c' AND c.relkind = 'c'))
+                 AND (t.typacl IS NULL OR EXISTS (SELECT 1 FROM aclexplode(t.typacl) a
+                                                  WHERE a.grantee = 0 AND a.privilege_type = 'USAGE')))
+             + (SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_default_acl d JOIN pg_roles r ON r.oid = d.defaclrole
+                                         WHERE r.rolname = 'oteryn_platform_owner' AND d.defaclobjtype = 'f'
+                                         AND d.defaclnamespace = 0
+                                         AND NOT EXISTS (SELECT 1 FROM aclexplode(d.defaclacl) a WHERE a.grantee = 0))
+                            THEN 0 ELSE 1 END)
+             + (SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_default_acl d JOIN pg_roles r ON r.oid = d.defaclrole
+                                         WHERE r.rolname = 'oteryn_platform_owner' AND d.defaclobjtype = 'T'
+                                         AND d.defaclnamespace = 0
+                                         AND NOT EXISTS (SELECT 1 FROM aclexplode(d.defaclacl) a WHERE a.grantee = 0))
+                            THEN 0 ELSE 1 END)
+             + (SELECT count(*) FROM unnest(ARRAY['oteryn_platform_app', 'oteryn_platform_dump']) AS grantee
+                 WHERE has_database_privilege(grantee, 'oteryn_platform', 'CREATE,TEMPORARY'))")" || return 1
+    [[ "$output" == 0 ]] || {
+        echo "The PostgreSQL role split does not hold (ownership, role attributes, stale write privileges or PUBLIC function/type access)." >&2
+        return 1
+    }
+
+    deadline=$((SECONDS + timeout))
+    until status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container")" \
+        && [[ "$status" == healthy ]]; do
+        if (( SECONDS >= deadline )); then
+            echo "The postgres service did not become healthy (status: ${status:-unknown})." >&2
+            return 1
+        fi
+        sleep 3
+    done
+    echo "Verified PostgreSQL: idle service healthy, TLS-only logins, role split in place."
+    oteryn_postgres_reconcile_record || { echo "The PostgreSQL reconcile record could not be written." >&2; return 1; }
 }
 
 # Platform settings of the Game-node routes behind the mTLS listener that compose.yml maps into the
@@ -460,7 +797,7 @@ _oteryn_release_sha() {
 
 _oteryn_contract_from_platform_image() {
     local platform_image="$1" payload line key value
-    local policy='' schema='' accepts=''
+    local policy='' schema='' accepts='' engine=''
     payload="$(command docker run --rm --network none --read-only --entrypoint cat "$platform_image" /var/www/html/deploy/synology/release-contract.env 2>/dev/null)" || {
         echo "Cannot read release compatibility contract from Platform image; refusing migration-bearing deployment." >&2
         return 1
@@ -475,6 +812,7 @@ _oteryn_contract_from_platform_image() {
             OTERYN_MIGRATION_POLICY) policy="$value" ;;
             OTERYN_SCHEMA_COMPATIBILITY_ID) schema="$value" ;;
             OTERYN_APP_ACCEPTS_SCHEMA_IDS) accepts="$value" ;;
+            PLATFORM_DB_ENGINE) engine="$value" ;;
             *) echo "Unexpected release contract key in Platform image: $key" >&2; return 1 ;;
         esac
     done <<<"$payload"
@@ -482,15 +820,25 @@ _oteryn_contract_from_platform_image() {
     [[ "$policy" == expand-contract ]] || { echo "Platform image migration policy must be expand-contract." >&2; return 1; }
     [[ "$schema" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || { echo "Platform image schema compatibility identity is invalid." >&2; return 1; }
     [[ "$accepts" =~ ^[A-Za-z0-9._-]+(,[A-Za-z0-9._-]+)*$ ]] || { echo "Platform image accepted schema identity list is invalid." >&2; return 1; }
-    printf '%s\t%s\t%s\n' "$policy" "$schema" "$accepts"
+    # An image built before the engine switch existed carries no PLATFORM_DB_ENGINE: it is a MariaDB image.
+    engine="${engine:-mariadb}"
+    [[ "$engine" == mariadb || "$engine" == postgres ]] || { echo "Platform image database engine is invalid." >&2; return 1; }
+    printf '%s\t%s\t%s\t%s\n' "$policy" "$schema" "$accepts" "$engine"
 }
 
 _oteryn_load_candidate_contract() {
     local contract
     contract="$(_oteryn_contract_from_platform_image "$PLATFORM_IMAGE")" || return 1
-    IFS=$'\t' read -r OTERYN_MIGRATION_POLICY OTERYN_SCHEMA_COMPATIBILITY_ID OTERYN_APP_ACCEPTS_SCHEMA_IDS <<<"$contract" || return 1
+    local candidate_engine
+    IFS=$'\t' read -r OTERYN_MIGRATION_POLICY OTERYN_SCHEMA_COMPATIBILITY_ID OTERYN_APP_ACCEPTS_SCHEMA_IDS candidate_engine <<<"$contract" || return 1
     [[ -n "${OTERYN_MIGRATION_POLICY:-}" && -n "${OTERYN_SCHEMA_COMPATIBILITY_ID:-}" && -n "${OTERYN_APP_ACCEPTS_SCHEMA_IDS:-}" ]] || {
         echo "Unable to load candidate release contract from Platform image." >&2
+        return 1
+    }
+    # The image and the deploy checkout must name the same database engine: an image built for the other
+    # engine would migrate or serve the wrong database.
+    [[ "$candidate_engine" == "${OTERYN_PLATFORM_DB_ENGINE:-}" ]] || {
+        echo "Platform image database engine (${candidate_engine:-unset}) differs from the deploy engine (${OTERYN_PLATFORM_DB_ENGINE:-unset}); refusing." >&2
         return 1
     }
     export OTERYN_MIGRATION_POLICY OTERYN_SCHEMA_COMPATIBILITY_ID OTERYN_APP_ACCEPTS_SCHEMA_IDS

@@ -9,6 +9,8 @@ COMPOSE_FILE="$DEPLOY_DIR/compose.yml"
 # shellcheck source=deploy/synology/scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
 load_oteryn_env_file "$ENV_FILE"
+# All five PostgreSQL secrets or none (lib.sh), refused before any metadata is read or any service is stopped.
+oteryn_postgres_secret_state >/dev/null || exit 1
 
 state_dir="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
 last_good_file="$state_dir/last-good-release.env"

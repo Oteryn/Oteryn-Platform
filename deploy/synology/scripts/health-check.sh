@@ -55,6 +55,30 @@ until [[ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}
 done
 echo "Verified scheduler: marketplace-scheduler is healthy"
 
+# PostgreSQL (plan P4) runs idle beside MariaDB once its secrets are configured: it must then be running,
+# healthy (its own TLS login probe) and publish no host port. Without the secrets it is not started.
+postgres_secret_state="$(oteryn_postgres_secret_state)" || exit 1
+if [[ "$postgres_secret_state" == configured ]]; then
+    postgres_id="$("${compose[@]}" --profile postgres ps -q postgres)"
+    if [[ -z "$postgres_id" || "$(docker inspect --format '{{.State.Running}}' "$postgres_id")" != true ]]; then
+        echo "Service is not running: postgres" >&2
+        exit 1
+    fi
+    if [[ "$(docker inspect --format '{{len .HostConfig.PortBindings}}' "$postgres_id")" != 0 ]]; then
+        echo "The postgres service must publish no host port." >&2
+        exit 1
+    fi
+    postgres_deadline=$((SECONDS + 120))
+    until [[ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$postgres_id")" == "healthy" ]]; do
+        if (( SECONDS >= postgres_deadline )); then
+            echo "PostgreSQL did not become healthy." >&2
+            exit 1
+        fi
+        sleep 3
+    done
+    echo "Verified database: postgres is healthy and publishes no port"
+fi
+
 assert_binding platform 8000 "$PLATFORM_BIND_ADDRESS" "$PLATFORM_PORT"
 assert_binding gateway 8080 "$GATEWAY_BIND_ADDRESS" "$GATEWAY_PORT"
 

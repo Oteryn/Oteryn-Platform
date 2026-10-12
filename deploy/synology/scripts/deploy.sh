@@ -41,6 +41,21 @@ for name in "${safe_credential_vars[@]}"; do
     fi
 done
 
+# Platform database engine (lib.sh oteryn_platform_db_engine_settings, plan P4). P4 runs PostgreSQL idle
+# beside MariaDB; the postgres engine is reserved for the staging cutover (P6), which also brings the owner-
+# role migration step and the PostgreSQL dump, restore and preflight branches. Route publication on the
+# postgres engine also needs the owner-accepted ADR 0044 amendment (PostgreSQL store identity).
+if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres && "${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}" == true ]]; then
+    echo "OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED must stay false on the postgres engine until the ADR 0044 PostgreSQL store amendment is accepted." >&2
+    exit 1
+fi
+if [[ "$OTERYN_PLATFORM_DB_ENGINE" != mariadb ]]; then
+    echo "PLATFORM_DB_ENGINE=$OTERYN_PLATFORM_DB_ENGINE is reserved for the staging cutover (plan P6); this deploy runs PostgreSQL idle only." >&2
+    exit 1
+fi
+# All five PostgreSQL secrets or none (lib.sh oteryn_postgres_secret_state); refused before any stack change.
+oteryn_postgres_secret_state >/dev/null || exit 1
+
 if [[ ! "$APP_KEY" =~ ^base64:[A-Za-z0-9+/=]+$ ]]; then
     echo "APP_KEY must be a Laravel base64 application key." >&2
     exit 1
@@ -304,6 +319,35 @@ _oteryn_fast_candidate() {
         FAST_DEPLOY_REASON='native admission projection settings incomplete'
         return 1
     fi
+    # The fast path neither reconciles nor restarts PostgreSQL. With the PostgreSQL secrets configured, the
+    # service must already be running, healthy, unpublished and carry the current configuration digest;
+    # otherwise (secrets first enabled, service stopped or unhealthy, configuration changed) the full path
+    # runs oteryn_reconcile_postgres.
+    local postgres_state postgres_id want_digest
+    postgres_state="$(oteryn_postgres_secret_state)" || return 2
+    if [[ "$postgres_state" == configured ]]; then
+        postgres_id="$("${compose[@]}" --profile postgres ps -q postgres 2>/dev/null)" || return 2
+        want_digest="$(oteryn_postgres_config_digest)" || return 2
+        if [[ -z "$postgres_id" \
+            || "$(docker inspect --format '{{.State.Running}}' "$postgres_id" 2>/dev/null)" != true \
+            || "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$postgres_id" 2>/dev/null)" != healthy \
+            || "$(docker inspect --format '{{len .HostConfig.PortBindings}}' "$postgres_id" 2>/dev/null)" != 0 \
+            || "$(docker inspect --format '{{index .Config.Labels "oteryn.postgres-config.digest"}}' "$postgres_id" 2>/dev/null)" != "$want_digest" ]]; then
+            FAST_DEPLOY_REASON='PostgreSQL needs reconciliation'
+            return 1
+        fi
+        # Rotated role secrets, a changed role-setup script or a changed service definition are applied only by
+        # the reconcile; the running container would still pass every probe above with the old values.
+        oteryn_postgres_reconcile_is_current || {
+            FAST_DEPLOY_REASON='PostgreSQL secrets, role setup or service definition changed since the last reconcile'
+            return 1
+        }
+        # Only tls-init renews the 30-day server certificate (7-day window), and the fast path skips it.
+        oteryn_postgres_certificate_is_current "$postgres_id" || {
+            FAST_DEPLOY_REASON='PostgreSQL server certificate pair is not current (renewal window, mismatch or key protection)'
+            return 1
+        }
+    fi
     # The fast path neither stages bootstrap files nor touches internal-mtls: any change of the
     # listener setting, or a listener that is not in its wanted state, takes the full path, and so
     # does any change of its bind address, port, host file paths, certificate, key, client CA or
@@ -506,6 +550,11 @@ stage_bootstrap_files() {
     docker cp "$DEPLOY_DIR/tls/init.sh" "$tls_container:/bootstrap/tls-init.sh"
     docker cp "$DEPLOY_DIR/nginx/internal.conf" "$tls_container:/bootstrap/internal-nginx.conf"
     docker cp "$DEPLOY_DIR/nginx/internal-mtls.conf" "$tls_container:/bootstrap/internal-mtls-nginx.conf"
+    # PostgreSQL server configuration and role bootstrap (plan P4); tls-init makes them readable by the
+    # postgres user, which mounts bootstrap_files read-only.
+    docker cp "$DEPLOY_DIR/postgres/postgresql.conf" "$tls_container:/bootstrap/postgres-postgresql.conf"
+    docker cp "$DEPLOY_DIR/postgres/pg_hba.conf" "$tls_container:/bootstrap/postgres-pg_hba.conf"
+    docker cp "$DEPLOY_DIR/postgres/init/10-platform-roles.sh" "$tls_container:/bootstrap/postgres-roles.sh"
 }
 
 snapshot_current_images() {
@@ -807,6 +856,10 @@ ALTER USER '$PLATFORM_DB_USER'@'%' IDENTIFIED BY '$PLATFORM_DB_PASSWORD';
 GRANT ALL PRIVILEGES ON \`$PLATFORM_DB_NAME\`.* TO '$PLATFORM_DB_USER'@'%';
 FLUSH PRIVILEGES;
 SQL
+
+# PostgreSQL runs idle beside MariaDB (plan P4): started, role split re-applied and its TLS and privilege
+# contract proven when its secrets are configured; skipped when none is. No Platform service uses it yet.
+oteryn_reconcile_postgres "${compose[@]}" || exit 1
 
 # A previous candidate whose migration succeeded but whose post-migration health
 # gate failed must be resolved before a newer release can own recovery state.
