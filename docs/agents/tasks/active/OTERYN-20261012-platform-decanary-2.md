@@ -54,7 +54,7 @@ checkpoint_version: 1
 updated_at: 2026-10-12T08:00:00Z
 head: UNKNOWN
 branch: claude/platform-decanary-2-20261012
-pr: 0
+pr: 1557
 status: validating
 context_routes:
   - ci-workflows
