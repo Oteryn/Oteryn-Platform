@@ -22,8 +22,8 @@ Promote the `platform-postgres` CI job from report to blocking on PostgreSQL 17 
 - [x] `platform-postgres` has no `continue-on-error`, runs a 17 and 16 matrix, fails on any failing test, and is a need of `platform-gate`.
 - [x] `deploy/ci/playwright-php.Dockerfile` installs and verifies `pdo_pgsql`.
 - [x] `FEDERATED_SEARCH_ARCHITECTURE.md` states accent-sensitive PostgreSQL matching with no `unaccent`.
-- [ ] Exact-head CI green on both PostgreSQL versions.
-- [ ] Owner adds `platform-postgres (17)` and `platform-postgres (16)` to the branch ruleset (admin step, not done here).
+- [x] Exact-head CI green on both PostgreSQL versions.
+- [x] No ruleset change needed: branch protection requires only `platform-gate`, which aggregates the `platform-postgres` results.
 
 ## Ownership
 
@@ -50,10 +50,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-12T22:00:00Z
-head: UNKNOWN
+head: 21a4be4b6b303ef7f071211eac308ffcc6e21686
 branch: claude/platform-pg-p1b-20261012
 pr: 1577
-status: validating
+status: completed
 context_routes:
   - ci
 owned_paths:
@@ -61,14 +61,14 @@ owned_paths:
   - deploy/ci/playwright-php.Dockerfile
   - docs/architecture/FEDERATED_SEARCH_ARCHITECTURE.md
   - tests/Feature/GameAuth/NativeTopology/PreproductionStoreRouteCommandsTest.php
-  - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p1b.md
+  - docs/agents/tasks/archive/OTERYN-20261012-platform-pg-p1b.md
 proven:
   - the plan makes P1 stage B the removal of continue-on-error plus an owner ruleset edit
   - the workflow already loads pdo_pgsql in the platform-postgres job
 derived:
   - other setup-php lists run SQLite or MariaDB suites and need no pdo_pgsql
 unknown:
-  - whether the suite is green on PostgreSQL 16 on this head
+  - none
 conflicts: []
 first_failure:
   marker: none
@@ -86,7 +86,7 @@ validation:
     evidence: local run
 blockers:
   - none
-next_action: wait for exact-head CI, then hand the ruleset step to the owner
+next_action: none for this task. PR #1577 is merged and this record is archived.
 ```
 
 ## Source branch closeout
@@ -94,7 +94,7 @@ next_action: wait for exact-head CI, then hand the ruleset step to the owner
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: pending
+source_branch_evidence: PR #1577 merged on 2026-10-12; source branch auto-deleted after merge
 ```
 
 ## Notes
