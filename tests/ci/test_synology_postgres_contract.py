@@ -311,6 +311,17 @@ class RoleBootstrapTest(unittest.TestCase):
             "ALTER DEFAULT PRIVILEGES FOR ROLE oteryn_platform_owner IN SCHEMA public GRANT SELECT ON SEQUENCES TO oteryn_platform_dump;",
         ):
             self.assertIn(statement, database)
+        # Stale privileges are revoked, current and default, before the intended sets are granted.
+        for revoke in (
+            "REVOKE ALL ON SCHEMA public FROM oteryn_platform_app, oteryn_platform_dump, oteryn_platform_backup;",
+            "REVOKE ALL ON ALL TABLES IN SCHEMA public FROM oteryn_platform_app, oteryn_platform_dump, oteryn_platform_backup;",
+            "REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM oteryn_platform_app, oteryn_platform_dump, oteryn_platform_backup;",
+            "ALTER DEFAULT PRIVILEGES FOR ROLE oteryn_platform_owner IN SCHEMA public REVOKE ALL ON TABLES FROM oteryn_platform_app, oteryn_platform_dump, oteryn_platform_backup;",
+            "ALTER DEFAULT PRIVILEGES FOR ROLE oteryn_platform_owner REVOKE ALL ON SEQUENCES FROM oteryn_platform_app, oteryn_platform_dump, oteryn_platform_backup;",
+        ):
+            self.assertIn(revoke, database)
+            self.assertLess(database.index(revoke), database.index("GRANT USAGE ON SCHEMA public"), revoke)
+        self.assertIn("has_table_privilege('oteryn_platform_dump'", LIB.read_text())
         # Neither the runtime nor the dump role ever receives CREATE, ownership, TRUNCATE or a superuser grant.
         for session in (cluster, database):
             for forbidden in ("GRANT CREATE", "GRANT ALL", "TRUNCATE", "pg_read_all_data", "pg_write_all_data", " SUPERUSER "):

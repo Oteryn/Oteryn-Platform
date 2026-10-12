@@ -39,9 +39,11 @@ def test_gateway_native_login_is_the_platform_admission_flag() -> None:
     assert 'x-native-admission-enabled: &native_admission_enabled "${OTERYN_NATIVE_ADMISSION_ENABLED:-false}"' in text
     for name in ("RUNTIME_STATUS_ENABLED", "RUNTIME_STATUS_IDENTITIES", "SCOPE_ASSIGNMENT_ENABLED", "SCOPE_ASSIGNMENT_IDENTITIES"):
         assert f"GAME_AUTH_NATIVE_{name}:" in text
-    # LCFA has no producer here: it is off and the D171 fallback is explicitly selected and configured.
-    assert 'GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED: "false"' in text
-    assert 'GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_OWNERSHIP: "true"' in text
+    # LCFA is on with the Character Authority projection identity; the D171 fallback is off.
+    assert 'GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED: "true"' in text
+    assert "GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_SOURCE_AUTHORITY: oteryn:character-authority:primary\n" in text
+    assert """GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_IDENTITIES: '["CN=oteryn-preprod-character-projection"]'\n""" in text
+    assert 'GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_OWNERSHIP: "false"' in text
     assert "GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID: ${GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID:-}" in text
     assert "GAME_AUTH_NATIVE_ADMISSION_ENABLED: *native_admission_enabled" in text
     assert "GATEWAY_NATIVE_LOGIN_ENABLED: *native_admission_enabled" in text
@@ -127,6 +129,35 @@ def test_health_check_runs_the_signing_self_check_when_admission_is_on() -> None
     assert check < script.index(PROBE_MARKER)
 
 
+def test_health_check_gates_admission_on_a_live_account_character_feed() -> None:
+    script = HEALTH_CHECK.read_text(encoding="utf-8")
+    check = script.index('oteryn_run_native_admission_self_check "${container_ids[platform]}" || exit 1')
+    feed = script.index('oteryn_wait_native_account_characters_feed "${container_ids[platform]}" || exit 1')
+    assert 'container_env_value platform GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED' in script
+    assert check < feed < script.index(PROBE_MARKER)
+
+
+def _run_feed_gate(tmp_path: pathlib.Path, evidence: str, wait: str = "0") -> subprocess.CompletedProcess[str]:
+    fake = tmp_path / "docker"
+    fake.write_text(f"#!/bin/sh\nprintf '%s' '{evidence}'\n", encoding="utf-8")
+    fake.chmod(0o755)
+    return subprocess.run(
+        ["bash", "-c", f'source "{LIB}"; oteryn_wait_native_account_characters_feed cid'],
+        env={"PATH": f"{tmp_path}:/usr/bin:/bin", "OTERYN_NATIVE_ACCOUNT_CHARACTERS_FEED_WAIT_SECONDS": wait},
+        capture_output=True, text=True, check=False,
+    )
+
+
+def test_account_character_feed_gate_passes_only_on_a_live_feed(tmp_path: pathlib.Path) -> None:
+    live = _run_feed_gate(tmp_path, "live")
+    assert live.returncode == 0, live.stderr
+    for evidence in ("stale", "unavailable", ""):
+        refused = _run_feed_gate(tmp_path, evidence)
+        assert refused.returncode == 1 and "no fresh watermark" in refused.stderr, evidence
+    invalid = _run_feed_gate(tmp_path, "live", wait="601")
+    assert invalid.returncode == 1 and "FEED_WAIT_SECONDS" in invalid.stderr
+
+
 def test_deploy_ensures_the_key_before_changes_and_self_checks_before_the_gateway() -> None:
     script = DEPLOY.read_text(encoding="utf-8")
     ensure = script.index("oteryn_ensure_native_admission_key || exit 1")
@@ -146,10 +177,24 @@ def test_rollback_and_candidate_recovery_gate_the_flag_on_the_image() -> None:
     assert "game-auth:native-admission:self-check" in LIB.read_text(encoding="utf-8").split("oteryn_native_admission_flag_for_image()")[1]
 
 
-def test_deploy_requires_the_native_world_uuid_and_workflow_renders_it() -> None:
+def test_deploy_does_not_require_the_native_world_uuid_and_workflow_still_renders_the_optional_input() -> None:
     script = DEPLOY.read_text(encoding="utf-8")
     assert script.index("oteryn_native_admission_projection_ready || exit 1") < script.index("oteryn_ensure_native_admission_key || exit 1")
-    assert "GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID:-" in LIB.read_text(encoding="utf-8")
+    ready = LIB.read_text(encoding="utf-8").split("oteryn_native_admission_projection_ready()")[1].split("\n}\n")[0]
+    assert "UNVERIFIED_CHARACTER_WORLD_ID" not in ready
+    identities = '{"CN=x":["w/c"]}'
+    env = {
+        "PATH": "/usr/bin:/bin",
+        "GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED": "true",
+        "GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES": identities,
+        "GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_ENABLED": "true",
+        "GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES": identities,
+    }
+    ok = subprocess.run(["bash", "-c", f'source "{LIB}"; oteryn_native_admission_projection_ready'], env=env, capture_output=True, text=True, check=False)
+    assert ok.returncode == 0, ok.stderr
+    env.pop("GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES")
+    bad = subprocess.run(["bash", "-c", f'source "{LIB}"; oteryn_native_admission_projection_ready'], env=env, capture_output=True, text=True, check=False)
+    assert bad.returncode == 1 and "SCOPE_ASSIGNMENT_IDENTITIES" in bad.stderr
     workflow = (WORKFLOWS / "deploy-synology-staging.yml").read_text(encoding="utf-8")
     assert "GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID=$NATIVE_WORLD_ID_INPUT" in workflow
 
@@ -482,8 +527,9 @@ def test_every_route_runs_the_self_check_gate_before_ingress() -> None:
 def test_native_defaults_file_is_non_secret_complete_and_overridable_by_variables() -> None:
     defaults = (ROOT / "deploy" / "synology" / "native-defaults.env").read_text(encoding="utf-8")
     values = dict(line.split("=", 1) for line in defaults.splitlines() if line and not line.startswith("#"))
-    world = values["OTERYN_STAGING_NATIVE_WORLD_ID"]
-    assert re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", world)
+    # The D171 World tie is dropped: the client directory lists the World from the native route record.
+    assert "OTERYN_STAGING_NATIVE_WORLD_ID" not in values
+    world = re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", values["OTERYN_STAGING_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES"]).group(0)
     assert values["OTERYN_STAGING_NATIVE_ADMISSION_ENABLED"] == "true"
     for name in ("RUNTIME_STATUS_IDENTITIES", "SCOPE_ASSIGNMENT_IDENTITIES"):
         identities = json.loads(values[f"OTERYN_STAGING_NATIVE_{name}"])

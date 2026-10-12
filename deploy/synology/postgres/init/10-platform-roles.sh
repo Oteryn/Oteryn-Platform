@@ -118,6 +118,18 @@ psql -X -q -v ON_ERROR_STOP=1 -d "$database" <<SQL
 SET log_statement = 'none';
 ALTER SCHEMA public OWNER TO $owner;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
+-- GRANT is additive: drop every privilege the runtime and dump roles hold, current and default, before
+-- granting the intended sets, so an existing cluster cannot keep a stale write or CREATE privilege.
+REVOKE ALL ON SCHEMA public FROM $app, $dump, $backup;
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM $app, $dump, $backup;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM $app, $dump, $backup;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM $app, $dump, $backup;
+ALTER DEFAULT PRIVILEGES FOR ROLE $owner IN SCHEMA public REVOKE ALL ON TABLES FROM $app, $dump, $backup;
+ALTER DEFAULT PRIVILEGES FOR ROLE $owner IN SCHEMA public REVOKE ALL ON SEQUENCES FROM $app, $dump, $backup;
+ALTER DEFAULT PRIVILEGES FOR ROLE $owner IN SCHEMA public REVOKE ALL ON FUNCTIONS FROM $app, $dump, $backup;
+ALTER DEFAULT PRIVILEGES FOR ROLE $owner REVOKE ALL ON TABLES FROM $app, $dump, $backup;
+ALTER DEFAULT PRIVILEGES FOR ROLE $owner REVOKE ALL ON SEQUENCES FROM $app, $dump, $backup;
+ALTER DEFAULT PRIVILEGES FOR ROLE $owner REVOKE ALL ON FUNCTIONS FROM $app, $dump, $backup;
 GRANT USAGE ON SCHEMA public TO $app, $dump;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO $app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO $app;

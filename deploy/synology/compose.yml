@@ -129,8 +129,13 @@ services:
       GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES: ${GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES:-null}
       GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_ENABLED: ${GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_ENABLED:-false}
       GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES: ${GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES:-null}
-      GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED: "false"
-      GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_OWNERSHIP: "true"
+      # Account-character projection is on: the Game node pushes the projection (certificate subject
+      # below) and the client directory lists the World from the native route record. The D171
+      # fallback is off, so no native World UUID is required (README: Native login).
+      GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED: "true"
+      GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_SOURCE_AUTHORITY: oteryn:character-authority:primary
+      GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_IDENTITIES: '["CN=oteryn-preprod-character-projection"]'
+      GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_OWNERSHIP: "false"
       GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID: ${GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID:-}
       # ADR 0044: the route publication switch also admits this stack's MariaDB for the native topology
       # and route commands (preproduction-store mode, allowlisted store and configured World only).

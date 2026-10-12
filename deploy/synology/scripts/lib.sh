@@ -236,6 +236,15 @@ OTERYN_POSTGRES_SECRET_NAMES=(
     PLATFORM_POSTGRES_DUMP_PASSWORD
 )
 
+# Digest of the staged postgresql.conf and pg_hba.conf (the postgres service label that makes Compose
+# recreate the container when they change). Refuses an unreadable file.
+oteryn_postgres_config_digest() {
+    local config_dir="${OTERYN_POSTGRES_CONFIG_DIR:-$(dirname "${BASH_SOURCE[0]}")/../postgres}" digest
+    digest="$(cat -- "$config_dir/postgresql.conf" "$config_dir/pg_hba.conf" | sha256sum | awk '{print $1}')" || return 1
+    [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || { echo "PostgreSQL configuration digest failed." >&2; return 1; }
+    printf '%s\n' "$digest"
+}
+
 # Prints `configured` when all five secrets are set, `absent` when none is; refuses a partial or malformed
 # set. Each value is generated hex/alphanumeric of at least 24 characters, distinct from every other
 # PostgreSQL secret and from the MariaDB passwords. Values are never printed.
@@ -315,9 +324,7 @@ oteryn_reconcile_postgres() {
     # A startup-only setting (listen_addresses, max_connections, hba_file, ...) changed in postgresql.conf
     # is ignored by pg_reload_conf(), and the volume content is not part of the Compose service definition.
     # The digest label makes `up` recreate the container exactly when the staged configuration changed.
-    local config_dir="${OTERYN_POSTGRES_CONFIG_DIR:-$(dirname "${BASH_SOURCE[0]}")/../postgres}"
-    OTERYN_POSTGRES_CONFIG_DIGEST="$(cat -- "$config_dir/postgresql.conf" "$config_dir/pg_hba.conf" | sha256sum | awk '{print $1}')" || return 1
-    [[ "$OTERYN_POSTGRES_CONFIG_DIGEST" =~ ^[0-9a-f]{64}$ ]] || { echo "PostgreSQL configuration digest failed." >&2; return 1; }
+    OTERYN_POSTGRES_CONFIG_DIGEST="$(oteryn_postgres_config_digest)" || return 1
     export OTERYN_POSTGRES_CONFIG_DIGEST
     "${compose[@]}" --profile postgres up -d --no-deps postgres || return 1
 
@@ -379,9 +386,14 @@ oteryn_reconcile_postgres() {
              + (SELECT count(*) FROM pg_namespace n JOIN pg_roles r ON r.oid = n.nspowner
                  WHERE n.nspname = 'public' AND r.rolname <> 'oteryn_platform_owner')
              + (SELECT count(*) FROM pg_database d JOIN pg_roles r ON r.oid = d.datdba
-                 WHERE d.datname = 'oteryn_platform' AND r.rolname <> 'oteryn_platform_owner')")" || return 1
+                 WHERE d.datname = 'oteryn_platform' AND r.rolname <> 'oteryn_platform_owner')
+             + (SELECT count(*) FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+                 AND (has_table_privilege('oteryn_platform_dump', c.oid, 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                      OR has_table_privilege('oteryn_platform_app', c.oid, 'TRUNCATE,REFERENCES,TRIGGER')))
+             + (SELECT count(*) FROM unnest(ARRAY['oteryn_platform_app', 'oteryn_platform_dump']) AS grantee
+                 WHERE has_schema_privilege(grantee, 'public', 'CREATE'))")" || return 1
     [[ "$output" == 0 ]] || {
-        echo "The PostgreSQL role split does not hold (ownership or role attributes)." >&2
+        echo "The PostgreSQL role split does not hold (ownership, role attributes or stale write privileges)." >&2
         return 1
     }
 
@@ -1501,7 +1513,7 @@ oteryn_publish_native_admission_trust() {
 # When on, every required value must be present and well-formed or the deploy refuses (fail closed);
 # nothing is guessed. Order: the Registry row must exist (game-auth:world:ensure ran), then
 # game-auth:native-topology:issue (idempotent) issues the WorldId/ChannelId, which must equal the
-# configured native World (OTERYN_STAGING_NATIVE_WORLD_ID, the D171 World), then the route is
+# configured native World (OTERYN_STAGING_NATIVE_WORLD_ID, an optional input needed only by this step), then the route is
 # published and read back. Descriptor reference: Game deploy/synology-game/preprod-topology.toml
 # ([scope] channel_key, [route] host, port, tls_server_name). Arguments: the route's Compose
 # command words.
@@ -1816,14 +1828,47 @@ oteryn_run_native_admission_self_check() {
     fi
 }
 
-# Validates the projection settings native login needs besides a signing key: the native World UUIDv7
-# for the D171 fallback and the Game runtime-status and scope-assignment identities that make a scope
-# routable. Reads the loaded environment; prints the reason to stderr and fails when incomplete.
-oteryn_native_admission_projection_ready() {
-    if [[ ! "${GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID:-}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; then
-        echo "Native admission needs OTERYN_STAGING_NATIVE_WORLD_ID (the native World UUIDv7; set the repository variable or the value in deploy/synology/native-defaults.env)." >&2
+# Proves the running Platform holds a fresh account-character projection (watermark received from the
+# Character Authority within the freshness bound) before native admission is left enabled while the D171
+# fallback is off: without it every authenticated login is refused although the unknown-ticket health
+# probe passes. Polls the application's own read model (feedEvidence) for up to
+# OTERYN_NATIVE_ACCOUNT_CHARACTERS_FEED_WAIT_SECONDS (default 90, 0..600) and fails closed otherwise.
+# Not part of the stop gate: the Game node can only push while Platform and its mTLS listener are up.
+oteryn_wait_native_account_characters_feed() {
+    local container_id="$1" wait_seconds="${OTERYN_NATIVE_ACCOUNT_CHARACTERS_FEED_WAIT_SECONDS:-90}"
+    local deadline evidence=unavailable
+
+    if [[ -z "$container_id" ]]; then
+        echo "Account-character feed check needs the running Platform container." >&2
         return 1
     fi
+    if [[ ! "$wait_seconds" =~ ^[0-9]+$ ]] || ((wait_seconds > 600)); then
+        echo "OTERYN_NATIVE_ACCOUNT_CHARACTERS_FEED_WAIT_SECONDS must be an integer from 0 to 600." >&2
+        return 1
+    fi
+    deadline=$((SECONDS + wait_seconds))
+    while :; do
+        evidence="$(docker exec "$container_id" /usr/local/bin/oteryn-platform-entrypoint php -r '
+            require "vendor/autoload.php";
+            $app = require "bootstrap/app.php";
+            $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+            echo (new App\GameAuth\NativeAccountCharacters\NativeAccountCharactersReadModel())->feedEvidence(time());
+        ' 2>/dev/null | tail -n 1)" || evidence=unavailable
+        if [[ "$evidence" == live ]]; then
+            echo "Account-character projection feed is live (fresh watermark received)."
+            return 0
+        fi
+        ((SECONDS < deadline)) || break
+        sleep 3
+    done
+    echo "Account-character projection feed is ${evidence:-unavailable}: no fresh watermark from the Character Authority within ${wait_seconds}s, so every native login would be refused; refusing to report the deployment healthy. Check the Game node projection push (CN=oteryn-preprod-character-projection)." >&2
+    return 1
+}
+
+# Validates the projection settings native login needs besides a signing key: the Game runtime-status
+# and scope-assignment identities that make a scope routable. No native World UUID is needed: account
+# characters are on in compose.yml, so the D171 fallback is off. Reads the loaded environment; prints the reason to stderr and fails when incomplete.
+oteryn_native_admission_projection_ready() {
     if [[ "${GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED:-}" != true || -z "${GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES:-}" \
         || "${GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_ENABLED:-}" != true || -z "${GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES:-}" ]]; then
         echo "Native admission needs OTERYN_STAGING_NATIVE_RUNTIME_STATUS_IDENTITIES and OTERYN_STAGING_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES (repository variables or deploy/synology/native-defaults.env); without them no scope is routable and every login would fail." >&2
