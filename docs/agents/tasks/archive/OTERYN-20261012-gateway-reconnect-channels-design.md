@@ -55,10 +55,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-12T18:00:00Z
-head: UNKNOWN
+head: b4f2359a75ec62287e5dcbf0c0fe65d7aea3b683
 branch: claude/gateway-reconnect-channels-design-20261012
 pr: 1558
-status: waiting
+status: completed
 context_routes:
   - game-auth native gateway contract
 owned_paths:
@@ -108,15 +108,15 @@ validation:
     evidence: documentation-only design; no code, route or configuration changed
 blockers:
   - Game architect acceptance of ADR 0045, contract section 19, G1 and G2
-next_action: Game architect reviews ADR 0045 and contract section 19; the Game lead dispatches the section 19.14 packet; DB-1 is written in the remembered-device contract
+next_action: none; PR #1558 merged as 54c7850d486fcf4556c07cb2054fee3a971b004d and this record is archived. Follow-up outside this record: Game architect reviews ADR 0045 and contract section 19; the Game lead dispatches the section 19.14 packet; DB-1 is written in the remembered-device contract
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR #1558 is terminal and the same-repository implementation branch has no durable post-merge purpose.
+source_branch_evidence: PR #1558 merged from exact head b4f2359a75ec62287e5dcbf0c0fe65d7aea3b683 and live branch lookup confirms claude/gateway-reconnect-channels-design-20261012 is absent.
 ```
 
 ## Notes
