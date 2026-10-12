@@ -336,6 +336,12 @@ _oteryn_fast_candidate() {
             FAST_DEPLOY_REASON='PostgreSQL needs reconciliation'
             return 1
         fi
+        # Rotated role secrets, a changed role-setup script or a changed service definition are applied only by
+        # the reconcile; the running container would still pass every probe above with the old values.
+        oteryn_postgres_reconcile_is_current || {
+            FAST_DEPLOY_REASON='PostgreSQL secrets, role setup or service definition changed since the last reconcile'
+            return 1
+        }
         # Only tls-init renews the 30-day server certificate (7-day window), and the fast path skips it.
         oteryn_postgres_certificate_is_current "$postgres_id" || {
             FAST_DEPLOY_REASON='PostgreSQL server certificate is inside its renewal window'

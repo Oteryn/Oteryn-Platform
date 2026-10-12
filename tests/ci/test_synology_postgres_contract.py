@@ -156,6 +156,53 @@ class ComposeServiceTest(unittest.TestCase):
         self.assertIn("renewal window", preflight)
         self.assertLess(preflight.index("oteryn_postgres_certificate_is_current"), preflight.index("want_mtls="))
 
+    def test_fast_path_requires_a_current_reconcile_record(self) -> None:
+        lib = LIB.read_text()
+        deploy = DEPLOY.read_text()
+        preflight = deploy[deploy.index("_oteryn_fast_candidate()") : deploy.index("_oteryn_fast_restore_on_exit()")]
+        self.assertIn("oteryn_postgres_reconcile_is_current ||", preflight)
+        self.assertLess(preflight.index("oteryn_postgres_reconcile_is_current"), preflight.index("want_mtls="))
+        reconcile = lib[lib.index("oteryn_reconcile_postgres() {") :]
+        reconcile = reconcile[: reconcile.index("\n}\n")]
+        # Cleared before any change, written only after the whole reconcile succeeded.
+        self.assertLess(reconcile.index("oteryn_postgres_reconcile_clear"), reconcile.index("up -d --no-deps postgres"))
+        self.assertGreater(reconcile.index("oteryn_postgres_reconcile_record"), reconcile.index("Verified PostgreSQL"))
+
+    def test_reconcile_record_tracks_secrets_script_and_service_definition(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp)
+            compose = state / "compose.yml"
+            compose.write_text(COMPOSE.read_text())
+            env = {
+                **os.environ,
+                "OTERYN_STATE_DIR": str(state),
+                "OTERYN_POSTGRES_COMPOSE_FILE": str(compose),
+                **{name: f"{name.lower()}-0123456789abcdef0123456789" for name in SECRET_NAMES},
+            }
+
+            def run(snippet: str, **extra: str) -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    ["bash", "-c", f'set -euo pipefail; source "{LIB}"; {snippet}'],
+                    env={**env, **extra}, capture_output=True, text=True, check=False,
+                )
+
+            self.assertNotEqual(run("oteryn_postgres_reconcile_is_current").returncode, 0)
+            self.assertEqual(run("oteryn_postgres_reconcile_record").returncode, 0)
+            record = state / "postgres-reconcile.env"
+            self.assertEqual(stat.S_IMODE(record.stat().st_mode), 0o600)
+            for value in env.values():
+                if "0123456789abcdef" in str(value):
+                    self.assertNotIn(value, record.read_text())
+            self.assertEqual(run("oteryn_postgres_reconcile_is_current").returncode, 0)
+            rotated = run("oteryn_postgres_reconcile_is_current", PLATFORM_POSTGRES_BACKUP_PASSWORD="rotated-0123456789abcdef01234567")
+            self.assertNotEqual(rotated.returncode, 0)
+            compose.write_text(compose.read_text().replace("postgres:17.11@", "postgres:17.12@", 1))
+            self.assertNotEqual(run("oteryn_postgres_reconcile_is_current").returncode, 0)
+            compose.write_text(COMPOSE.read_text())
+            self.assertEqual(run("oteryn_postgres_reconcile_is_current").returncode, 0)
+            self.assertEqual(run("oteryn_postgres_reconcile_clear").returncode, 0)
+            self.assertNotEqual(run("oteryn_postgres_reconcile_is_current").returncode, 0)
+
     def test_postgres_healthcheck_is_a_verified_tls_login_by_the_runtime_role(self) -> None:
         health = self.postgres.split("    healthcheck:\n", 1)[1]
         self.assertIn("pg_isready", health)

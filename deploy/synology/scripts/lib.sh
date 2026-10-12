@@ -149,6 +149,60 @@ oteryn_postgres_config_digest() {
     printf '%s\n' "$digest"
 }
 
+# Reconcile record. oteryn_reconcile_postgres applies the role passwords and the role split, which the running
+# container does not reveal, so the fast deploy path trusts it only while this record still matches every input
+# the reconciliation depends on: the five secrets (rotated passwords are applied only by the reconcile), the
+# staged configuration digest, the role-setup script and the postgres service definition (image, probe
+# environment). The record holds a random salt and a salted SHA-256 over those inputs, mode 0600 beside the
+# release state, and is never printed. It is cleared before a reconcile starts and written only after it fully
+# succeeds, so a failed or absent reconcile can never look current.
+oteryn_postgres_reconcile_record_file() {
+    printf '%s/postgres-reconcile.env\n' "${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
+}
+
+_oteryn_postgres_reconcile_hash() {
+    local salt="$1" name root compose_file roles_file
+    root="${OTERYN_POSTGRES_CONFIG_DIR:-$(dirname "${BASH_SOURCE[0]}")/../postgres}"
+    compose_file="${OTERYN_POSTGRES_COMPOSE_FILE:-$(dirname "${BASH_SOURCE[0]}")/../compose.yml}"
+    roles_file="$root/init/10-platform-roles.sh"
+    {
+        printf 'salt=%s\n' "$salt"
+        for name in "${OTERYN_POSTGRES_SECRET_NAMES[@]}"; do
+            printf '%s=%s\n' "$name" "${!name:-}"
+        done
+        printf 'config=%s\n' "$(oteryn_postgres_config_digest)" || return 1
+        printf 'roles=%s\n' "$(sha256sum < "$roles_file" | awk '{print $1}')" || return 1
+        awk '/^  postgres:$/ {p = 1; next} p && /^  [a-z][a-z0-9-]*:$/ {exit} p' "$compose_file"
+    } | sha256sum | awk '{print $1}'
+}
+
+# Succeeds only when the record exists, is a regular file and matches the current inputs.
+oteryn_postgres_reconcile_is_current() {
+    local file salt recorded current
+    file="$(oteryn_postgres_reconcile_record_file)"
+    [[ -f "$file" && ! -L "$file" ]] || return 1
+    salt="$(sed -n 's/^SALT=//p' "$file" | head -n 1)"
+    recorded="$(sed -n 's/^FINGERPRINT=//p' "$file" | head -n 1)"
+    [[ "$salt" =~ ^[0-9a-f]{32}$ && "$recorded" =~ ^[0-9a-f]{64}$ ]] || return 1
+    current="$(_oteryn_postgres_reconcile_hash "$salt")" || return 1
+    [[ "$current" == "$recorded" ]]
+}
+
+oteryn_postgres_reconcile_clear() {
+    rm -f -- "$(oteryn_postgres_reconcile_record_file)" "$(oteryn_postgres_reconcile_record_file).tmp"
+}
+
+oteryn_postgres_reconcile_record() {
+    local file salt hash
+    file="$(oteryn_postgres_reconcile_record_file)"
+    salt="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')" || return 1
+    [[ "$salt" =~ ^[0-9a-f]{32}$ ]] || return 1
+    hash="$(_oteryn_postgres_reconcile_hash "$salt")" || return 1
+    mkdir -p -- "$(dirname "$file")" || return 1
+    ( umask 077; printf 'SALT=%s\nFINGERPRINT=%s\n' "$salt" "$hash" > "$file.tmp" ) \
+        && chmod 600 "$file.tmp" && mv -- "$file.tmp" "$file" || return 1
+}
+
 # Seconds before expiry at which tls/init.sh renews the PostgreSQL server certificate (7 days; the same
 # value as its `openssl x509 -checkend`, pinned by tests/ci/test_synology_postgres_contract.py).
 OTERYN_POSTGRES_CERT_RENEWAL_SECONDS=604800
@@ -230,8 +284,10 @@ oteryn_reconcile_postgres() {
             return 1
         fi
         echo "PostgreSQL secrets are not configured; the idle postgres service is not started."
+        oteryn_postgres_reconcile_clear
         return 0
     fi
+    oteryn_postgres_reconcile_clear
     if [[ ! "$timeout" =~ ^[1-9][0-9]*$ ]]; then
         echo "OTERYN_POSTGRES_READY_TIMEOUT_SECONDS must be a positive integer." >&2
         return 1
@@ -324,6 +380,7 @@ oteryn_reconcile_postgres() {
         sleep 3
     done
     echo "Verified PostgreSQL: idle service healthy, TLS-only logins, role split in place."
+    oteryn_postgres_reconcile_record || { echo "The PostgreSQL reconcile record could not be written." >&2; return 1; }
 }
 
 # Platform settings of the Game-node routes behind the mTLS listener that compose.yml maps into the
