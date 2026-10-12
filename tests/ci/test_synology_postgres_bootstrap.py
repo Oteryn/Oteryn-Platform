@@ -187,6 +187,26 @@ class StaticBootstrapTest(BootstrapCase):
         self.assertIn('"$local_mode" != true && ( "$native_admission" == true || "$with_native_admission" == true )', text)
         self.assertIn("P6a safeguards", text)
 
+    def test_witness_directory_is_never_enumerated_by_parsing_ls(self) -> None:
+        self.assertNotRegex(SCRIPT.read_text(), r"\$\(\s*ls\b|`ls\b|\| *ls\b")
+
+    def test_refusal_checks_are_repeated_under_the_lock(self) -> None:
+        text = SCRIPT.read_text()
+        tail = text[text.index("\nrun_refusal_checks\n"):]
+        position = 0
+        for marker in ("\nrun_refusal_checks\n", "\nprepare_state_dir\n", "\nrun_refusal_checks\n", "\nrestrict_state_dir\n"):
+            found = tail.index(marker, position)
+            position = found + len(marker) - 1
+        self.assertLess(tail.index("restrict_state_dir\n"), tail.index("Step 1/8"))
+
+    def test_newline_only_file_name_is_not_dropped(self) -> None:
+        self.witness_dir.mkdir(mode=0o700)
+        (self.witness_dir / "\n").write_text("x")
+        result = self.bootstrap("record-witness", "--local")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("unsupported_name", result.stdout + result.stderr)
+        self.assertFalse((self.state_dir / "witness-freeze.env").exists())
+
     def test_local_mode_requires_a_state_directory(self) -> None:
         env = self.base_env()
         del env["OTERYN_PG_BOOTSTRAP_STATE_DIR"]
@@ -541,6 +561,15 @@ class LiveRefusalTest(LiveBootstrapCase):
         self.assertEqual(tree(moved[0]), mariadb_tree)
         # The MariaDB-era directory is gone from its place, so a second run cannot move anything.
         self.assert_refused(self.bootstrap("run", "--local"), "a PostgreSQL witness wrote to it")
+        self.assertEqual(self.relations(), 0)
+
+    def test_newline_named_file_in_the_new_directory_is_detected(self) -> None:
+        self.mariadb_era_witness()
+        self.assertEqual(self.bootstrap("record-witness", "--local").returncode, 0)
+        env = self.base_env(OTERYN_PG_BOOTSTRAP_LOCAL_TEST_PLANT_AFTER_MOVE="\n")
+        result = self.bootstrap("run", "--local", env=env)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("new_directory_not_empty", result.stderr)
         self.assertEqual(self.relations(), 0)
 
     def test_retry_requires_the_preserved_mariadb_era_witness_to_be_intact(self) -> None:

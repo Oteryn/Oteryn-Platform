@@ -116,6 +116,10 @@ prepare_state_dir() {
         refuse "another bootstrap-postgres.sh holds $lock_dir (or a stale lock is left); remove it only when no bootstrap is running. Nothing was changed."
     fi
     trap 'rmdir -- "$lock_dir" 2>/dev/null || true' EXIT
+}
+
+# After the lock and every re-check: the first change to an existing state directory.
+restrict_state_dir() {
     chmod 700 -- "$state_dir" || refuse "cannot restrict the bootstrap state directory $state_dir to its owner."
 }
 
@@ -143,9 +147,12 @@ inspect() {
     [ -d "$dir" ] || fail not_directory
     lines=""
     count=0
-    for name in $(ls -A -- "$dir"); do
-        case "$name" in *[!A-Za-z0-9._-]*) fail unsupported_name ;; esac
-        entry="$dir/$name"
+    # A glob loop, never a parsed ls: a file name made of newlines (or starting with a dash) must be seen,
+    # and refused, not dropped by command substitution. The patterns cover every dotfile.
+    for entry in "$dir"/.[!.]* "$dir"/..?* "$dir"/*; do
+        [ -e "$entry" ] || [ -L "$entry" ] || continue
+        name="${entry#"$dir"/}"
+        case "$name" in "" | *[!A-Za-z0-9._-]*) fail unsupported_name ;; esac
         if [ -L "$entry" ] || [ ! -f "$entry" ]; then fail unsupported_entry; fi
         digest="$(sha256sum < "$entry" | cut -d " " -f 1)"
         lines="${lines}${name} ${digest}
@@ -157,7 +164,7 @@ inspect() {
         return 0
     fi
     state=present
-    manifest="$(printf %s "$lines" | sha256sum | cut -d " " -f 1)"
+    manifest="$(printf %s "$lines" | sort | sha256sum | cut -d " " -f 1)"
     store_id=none
     if [ -e "$dir/witness-store.id" ]; then
         store_id="$(tr -d " \n\r\t" < "$dir/witness-store.id")"
@@ -183,7 +190,9 @@ verify_new_directory() {
     [ -d "$dir" ] && [ ! -L "$dir" ] || fail new_directory_missing
     [ -O "$dir" ] || fail new_directory_owner
     [ "$(stat -c %a -- "$dir")" = 700 ] || fail new_directory_mode
-    [ -z "$(ls -A -- "$dir")" ] || fail new_directory_not_empty
+    for entry in "$dir"/.[!.]* "$dir"/..?* "$dir"/*; do
+        if [ -e "$entry" ] || [ -L "$entry" ]; then fail new_directory_not_empty; fi
+    done
     echo "witness_new_directory=empty"
 }
 
@@ -434,6 +443,7 @@ record_witness() {
     [[ ! -e "$freeze_file.tmp" && ! -L "$freeze_file.tmp" ]] \
         || refuse "$freeze_file.tmp already exists; remove the stale temporary record first."
     prepare_state_dir
+    restrict_state_dir
     # The state directory exists now: a write failure is a change that began, so it exits 2, removes its own
     # temporary file (a stale one would block the next attempt) and is safe to re-run.
     printf '%s\nFROZEN_AT=%s\n' "$record" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$freeze_file.tmp" \
@@ -449,6 +459,10 @@ if [[ "$subcommand" == record-witness ]]; then
 fi
 
 # --- run: refusal checks (no change yet) ---------------------------------------------------
+# The whole refusal block is a function so it can run twice: once before any change, and again with the lock
+# held, because a concurrent run may have migrated the database or advanced the witness between the first pass
+# and the lock. Decisions are never taken on a probe older than the lock.
+run_refusal_checks() {
 reasons=()
 [[ -f "$freeze_file" ]] || refuse "no MariaDB-era witness freeze record ($freeze_file); run record-witness at the freeze first."
 [[ ! -e "$complete_file" ]] \
@@ -629,10 +643,14 @@ if ((${#reasons[@]} > 0)); then
     echo "Nothing was changed." >&2
     exit 1
 fi
+}
 
-# All refusal checks passed: take the lock, then re-check the records under it (a concurrent run may have
-# finished or moved the witness aside between the checks above and the lock).
+run_refusal_checks
+# All refusal checks passed: take the lock, then repeat every check under it (witness, services, database
+# probe, records), and only then restrict the state directory mode.
 prepare_state_dir
+run_refusal_checks
+restrict_state_dir
 [[ ! -e "$complete_file" ]] || refuse "this state directory already records a completed bootstrap ($complete_file); a re-run is refused."
 if [[ -n "$adopt_aside_to" ]]; then
     # Re-establish the move record of the earlier attempt (its write had failed); nothing else changes.
