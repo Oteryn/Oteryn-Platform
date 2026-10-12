@@ -112,6 +112,7 @@ rejected_hypotheses:
   - The WAL write position and `xmax` as cross-run progress. Both can fall back after a crash or power loss without a restore (Codex P2, round 13); continuity now uses `pg_current_wal_flush_lsn()` only, and `xmax` stays an in-attempt check.
   - Requiring a failed `self-check` record before `step4-recheck`. A deploy that exited before the self-check left a committed run with no such record and no way on (Codex P2, round 14); the recheck now also accepts a run that ends with its `committed` observation.
   - Treating the WAL flush high-water as proof against every restore. A snapshot restore that keeps the stable identity and later passes the high-water is accepted (Codex P1, round 15); under the owner's 2026-10-12 acceptance it is listed as an accepted residual risk, with no redesign.
+  - Counting every comment on the anchor issue as an anchor. Any commenter could post an anchor that names a missing run or line, and so cause a permanent `evidence-lost` (Codex P1, round 16). Only comments by the workflow's `github-actions[bot]` identity count, and the issue must be locked.
   - Redesigning for each further edge case. The owner accepted the residual risks on 2026-10-12; the note lists them under *Accepted residual risks*, including a witness volume replaced after the fence's last marker and inode check (Codex P1, round 10).
 changed_paths:
   - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
