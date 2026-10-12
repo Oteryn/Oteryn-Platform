@@ -130,7 +130,7 @@ next_action: none; P4 merged in #1579 and the owner sets the five secrets and ac
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: PR #1579 merged; this follow-up carries the rollback secret validation and the archive move
+source_branch_evidence: PR #1579 merged from claude/platform-pg-p4-20261012. That ref name was reused for follow-up PR #1585, so the ref still exists as #1585's head and is not absent yet; #1585 uses the same auto_delete_after_merge disposition and its merge deletes the ref (verify with git ls-remote --heads origin claude/platform-pg-p4-20261012 after #1585 merges). This follow-up carries the rollback secret validation and the archive move
 ```
 
 ## Notes
