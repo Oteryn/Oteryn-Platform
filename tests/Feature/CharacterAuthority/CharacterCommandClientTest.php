@@ -6,10 +6,12 @@ use App\CharacterAuthority\CharacterCommandBacklogFull;
 use App\CharacterAuthority\CharacterCommandClient;
 use App\CharacterAuthority\CharacterCommandConflict;
 use App\CharacterAuthority\CharacterCommandState;
+use App\CharacterAuthority\CharacterCommandStatus;
 use App\CharacterAuthority\CharacterCommandUnavailable;
 use App\CharacterAuthority\CharacterCommandWire;
 use App\CharacterAuthority\CharacterTransferPurpose;
 use App\CharacterAuthority\Http\CharacterCommandRoutes;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -317,6 +319,29 @@ final class CharacterCommandClientTest extends TestCase
 
         $this->publish($this->rejected(CharacterCommandWire::CREATE, $first->operationId, 'CHAR_CMD_NAME_UNAVAILABLE'))->assertOk();
         self::assertSame(CharacterCommandState::Pending, $client->requestCreate('submit-c', self::ACCOUNT, self::WORLD, 'Aldric')->state);
+    }
+
+    public function test_same_key_request_committed_while_waiting_for_the_backlog_lock_is_answered_not_refused(): void
+    {
+        $this->enable(['character-authority.commands.max_pending_intents' => 2]);
+        $client = $this->client();
+        $client->requestCreate('submit-a', self::ACCOUNT, self::WORLD, 'Aldric');
+
+        // The racing request commits the same key into the last slot after this request's
+        // initial idempotency lookup missed and before it takes the backlog lock.
+        $winner = null;
+        DB::listen(function (QueryExecuted $query) use (&$winner, $client): void {
+            if ($winner === null && str_contains($query->sql, 'request_key_sha256') && ! str_contains($query->sql, 'for update')) {
+                $winner = false;
+                $winner = $client->requestCreate('submit-race', self::ACCOUNT, self::WORLD, 'Aldric');
+            }
+        });
+
+        $status = $client->requestCreate('submit-race', self::ACCOUNT, self::WORLD, 'Aldric');
+
+        self::assertInstanceOf(CharacterCommandStatus::class, $winner);
+        self::assertSame($winner->operationId, $status->operationId);
+        self::assertSame(2, DB::table('character_command_intents')->count());
     }
 
     public function test_peer_guard_requires_the_dedicated_tls13_identity_and_rate_limits(): void
