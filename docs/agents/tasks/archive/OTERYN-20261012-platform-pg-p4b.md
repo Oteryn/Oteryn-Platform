@@ -38,7 +38,7 @@ owned_paths:
   - .github/workflows/character-bazaar-staging-control.yml
   - .github/workflows/recover-synology-staging-schema.yml
   - tests/ci/test_synology_postgres_contract.py
-  - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p4b.md
+  - docs/agents/tasks/archive/OTERYN-20261012-platform-pg-p4b.md
 modules:
   - deploy
 dependencies:
@@ -53,11 +53,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-12T22:00:00Z
-head: UNKNOWN
+updated_at: 2026-10-12T20:30:00Z
+head: 9d2c4cf86206bbd496570b167d4f61f95b04335b
 branch: claude/platform-pg-p4b-20261012
 pr: 1581
-status: waiting
+status: completed
 context_routes:
   - deploy
   - security
@@ -68,7 +68,7 @@ owned_paths:
   - .github/workflows/character-bazaar-staging-control.yml
   - .github/workflows/recover-synology-staging-schema.yml
   - tests/ci/test_synology_postgres_contract.py
-  - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p4b.md
+  - docs/agents/tasks/archive/OTERYN-20261012-platform-pg-p4b.md
 proven:
   - Against PostgreSQL 17.11 locally, the dump helper writes a mode-600 archive that pg_restore lists; the restore recreates the database owned by the owner with app DML, dump SELECT only, no app CREATE on public and no backup CONNECT, and the app can write afterwards.
   - The role script's --database-only mode refuses when a Platform role is missing and creates nothing; an unknown argument exits 2.
@@ -109,7 +109,7 @@ validation:
     evidence: postgres engine renders DB_CONNECTION=pgsql, DB_USERNAME=oteryn_platform_app, DB_SSLMODE=verify-full
 blockers:
   - none
-next_action: Wait for exact-head CI and review; after #1579 merges, merge origin/main into this branch.
+next_action: none; P4b merged in #1581 (squash 9d2c4cf). P6 owns the engine flip and the data move.
 ```
 
 ## Source branch closeout
@@ -117,7 +117,7 @@ next_action: Wait for exact-head CI and review; after #1579 merges, merge origin
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: pending
+source_branch_evidence: PR #1581 merged at 9d2c4cf from claude/platform-pg-p4b-20261012; git ls-remote --heads origin claude/platform-pg-p4b-20261012 returns nothing after the merge (verified)
 ```
 
 ## Notes
