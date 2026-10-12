@@ -260,7 +260,7 @@ Any future source weights, freshness boosts or personalization are product polic
 - no silent EN/PL merging that causes a localized slug/title to point at another language;
 - canonical URL and hreflang remain source responsibilities;
 - query normalization must not destroy meaningful locale-specific characters.
-- once the Platform database is PostgreSQL ([ADR 0046](adr/0046-platform-persistence-moves-to-postgresql.md)), provider text matching is case-sensitive unless a provider lowercases explicitly, and accent-sensitive: `ą`, `ć`, `ę`, `ł`, `ń`, `ó`, `ś`, `ź` and `ż` no longer match their plain-ASCII forms as `utf8mb4_unicode_ci` did. The owner accepted this and no `unaccent` extension is added (migration plan, owner answer Q6). A provider that needs accent-insensitive lookup must normalise in its own query or projection and record that choice; this document adds no shared folding rule.
+- once the Platform database is PostgreSQL ([ADR 0046](adr/0046-platform-persistence-moves-to-postgresql.md)), provider text matching is provider-specific for case (`LIKE` is case-sensitive on PostgreSQL, while Laravel's `whereLike()` used by the GameCatalog provider renders `ILIKE` and stays case-insensitive; a provider that needs a case rule must state it in its own query) and accent-sensitive: `ą`, `ć`, `ę`, `ł`, `ń`, `ó`, `ś`, `ź` and `ż` no longer match their plain-ASCII forms as `utf8mb4_unicode_ci` did. The owner accepted this and no `unaccent` extension is added (migration plan, owner answer Q6). A provider that needs accent-insensitive lookup must normalise in its own query or projection and record that choice; this document adds no shared folding rule.
 
 ## Publication, privacy and authorization
 
