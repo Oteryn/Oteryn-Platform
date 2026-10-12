@@ -1,4 +1,5 @@
-"""PostgreSQL service, TLS and role split on Synology (docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md P4).
+"""PostgreSQL service, TLS and role split on Synology (docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md P4),
+and the postgres-engine branches of deploy, recovery, baseline, Marketplace and preflight (P4b).
 
 Standard library only: ci.yml runs this module through test_synology_deploy_release_identity.py.
 """
@@ -28,6 +29,10 @@ SCRIPTS = SYNOLOGY / "scripts"
 LIB = SCRIPTS / "lib.sh"
 DEPLOY = SCRIPTS / "deploy.sh"
 HEALTH = SCRIPTS / "health-check.sh"
+RECOVER = SCRIPTS / "recover-schema.sh"
+BASELINE = SCRIPTS / "prepare-fresh-schema-baseline.sh"
+MARKETPLACE = SCRIPTS / "marketplace-staging.sh"
+PREFLIGHT = SCRIPTS / "production-target-preflight.sh"
 WORKFLOWS = ROOT / ".github/workflows"
 
 SECRET_NAMES = (
@@ -235,7 +240,7 @@ class ServerConfigurationTest(unittest.TestCase):
 class RoleBootstrapTest(unittest.TestCase):
     PASSWORDS = ("ownerTESTONLY" + "o" * 16, "appTESTONLY" + "a" * 16, "backupTESTONLY" + "b" * 16, "dumpTESTONLY" + "d" * 16)
 
-    def run_roles(self, lines: list[str]) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    def run_roles(self, lines: list[str], *args: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             log = root / "psql.log"
@@ -244,7 +249,7 @@ class RoleBootstrapTest(unittest.TestCase):
             psql.chmod(0o755)
             env = {"PATH": f"{root}:{os.environ['PATH']}", "PSQL_LOG": str(log)}
             result = subprocess.run(
-                ["sh", str(ROLES)], input="".join(f"{line}\n" for line in lines), text=True, capture_output=True, check=False, env=env
+                ["sh", str(ROLES), *args], input="".join(f"{line}\n" for line in lines), text=True, capture_output=True, check=False, env=env
             )
             sessions = log.read_text().split("--END--")[:-1] if log.exists() else []
             return result, sessions
@@ -311,6 +316,31 @@ class RoleBootstrapTest(unittest.TestCase):
             for forbidden in ("GRANT CREATE", "GRANT ALL", "TRUNCATE", "pg_read_all_data", "pg_write_all_data", " SUPERUSER "):
                 self.assertNotIn(forbidden, session)
         self.assertNotRegex(database, r"GRANT [^;]*(INSERT|UPDATE|DELETE)[^;]*TO oteryn_platform_dump")
+
+    def test_database_only_mode_recreates_the_database_and_grants_without_touching_a_role(self) -> None:
+        # The restore path (recover-schema.sh): no password is read, even when one is offered on stdin.
+        result, sessions = self.run_roles(list(self.PASSWORDS), "--database-only")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(sessions), 2)
+        cluster, database = sessions
+        self.assertIn("ARGS -X -q -v ON_ERROR_STOP=1 -d postgres", cluster)
+        self.assertIn("ARGS -X -q -v ON_ERROR_STOP=1 -d oteryn_platform", database)
+        for secret in self.PASSWORDS:
+            self.assertNotIn(secret, cluster + database)
+        for forbidden in ("ALTER ROLE", "CREATE ROLE", "PASSWORD", "\\set", "REVOKE %I FROM %I"):
+            self.assertNotIn(forbidden, cluster)
+        # The roles must exist before anything is created; then the same database boundary as a full run.
+        self.assertIn("RAISE EXCEPTION 'A Platform PostgreSQL role is missing", cluster)
+        self.assertLess(cluster.index("RAISE EXCEPTION"), cluster.index("CREATE DATABASE oteryn_platform OWNER oteryn_platform_owner"))
+        full_cluster = self.run_roles(list(self.PASSWORDS))[1][0]
+        boundary = full_cluster[full_cluster.index("SELECT 'CREATE DATABASE"):]
+        self.assertIn(boundary.strip(), cluster)
+        self.assertEqual(database, self.run_roles(list(self.PASSWORDS))[1][1])
+
+    def test_unknown_mode_is_refused_before_psql(self) -> None:
+        result, sessions = self.run_roles(list(self.PASSWORDS), "--roles-only")
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(sessions, [])
 
 
 class TlsInitTest(unittest.TestCase):
@@ -430,16 +460,12 @@ class EngineSwitchTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("requires all PostgreSQL secrets", result.stderr)
 
-    def test_mariadb_only_operator_scripts_refuse_the_postgres_engine(self) -> None:
-        for name in ("recover-schema.sh", "prepare-fresh-schema-baseline.sh", "marketplace-staging.sh"):
-            text = (SCRIPTS / name).read_text()
-            loader = 'load_oteryn_env_file "$ENV_FILE"\n'
-            self.assertIn(loader, text, name)
-            self.assertRegex(text.split(loader, 1)[1], r'^# [^\n]*\noteryn_require_mariadb_engine "[^"]+" \|\| exit 1\n', name)
-        result = run_lib('OTERYN_PLATFORM_DB_ENGINE=postgres; oteryn_require_mariadb_engine "Schema recovery"')
-        self.assertNotEqual(result.returncode, 0)
-        result = run_lib('OTERYN_PLATFORM_DB_ENGINE=mariadb; oteryn_require_mariadb_engine "Schema recovery"')
-        self.assertEqual(result.returncode, 0)
+    def test_operator_scripts_no_longer_refuse_the_postgres_engine(self) -> None:
+        self.assertNotIn("oteryn_require_mariadb_engine", LIB.read_text())
+        for path in (DEPLOY, RECOVER, BASELINE, MARKETPLACE):
+            text = path.read_text()
+            self.assertNotIn("oteryn_require_mariadb_engine", text, path.name)
+            self.assertNotIn("is reserved for the staging cutover", text, path.name)
 
 
 class DeployWiringTest(unittest.TestCase):
@@ -450,11 +476,13 @@ class DeployWiringTest(unittest.TestCase):
     def test_engine_and_secret_gates_run_before_any_stack_change(self) -> None:
         first_compose = self.deploy.index('compose=(docker compose --env-file "$ENV_FILE"')
         for gate in (
-            'if [[ "$OTERYN_PLATFORM_DB_ENGINE" != mariadb ]]; then',
             'OTERYN_PLATFORM_DB_ENGINE" == postgres && "${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}" == true',
-            "oteryn_postgres_secret_state >/dev/null || exit 1",
+            'postgres_secret_state="$(oteryn_postgres_secret_state)" || exit 1',
+            'echo "PLATFORM_DB_ENGINE=postgres requires all five PostgreSQL secrets." >&2',
+            'if [[ "$PLATFORM_DB_NAME" != oteryn_platform ]]; then',
         ):
             self.assertLess(self.deploy.index(gate), first_compose, gate)
+        self.assertNotIn('if [[ "$OTERYN_PLATFORM_DB_ENGINE" != mariadb ]]; then', self.deploy)
 
     def test_bootstrap_files_are_staged_and_postgres_reconciled_after_mariadb(self) -> None:
         stage = self.deploy.split("stage_bootstrap_files() {", 1)[1].split("\n}\n", 1)[0]
@@ -499,6 +527,317 @@ class DeployWiringTest(unittest.TestCase):
         self.assertIn('if [[ -n "${!name:-}" && ! "${!name}" =~ ^[A-Za-z0-9_.-]{24,}$ ]]; then', workflow)
         for name in ("character-bazaar-staging-control.yml", "recover-synology-staging-schema.yml"):
             self.assertNotIn("PLATFORM_POSTGRES_", (WORKFLOWS / name).read_text(), name)
+
+
+
+def fake_docker_env(td: Path) -> tuple[dict[str, str], Path]:
+    """A fake `docker` on PATH that logs its argv, the DB_MIGRATIONS_* names it sees and its stdin."""
+    log = td / "docker.log"
+    fake = td / "docker"
+    fake.write_text(
+        "#!/bin/sh\n"
+        'printf "ARGV %s\\n" "$*" >> "$DOCKER_LOG"\n'
+        'printf "ENV DB_MIGRATIONS_USERNAME=%s DB_MIGRATIONS_PASSWORD=%s\\n" "${DB_MIGRATIONS_USERNAME:-}" "${DB_MIGRATIONS_PASSWORD:-}" >> "$DOCKER_LOG"\n'
+        'case "$*" in *"pg_dump"*) cat >/dev/null; printf "PGDMP-archive";; *"pg_restore --list"*) cat >/dev/null;; *"psql"*) printf "0\\n";; esac\n'
+    )
+    fake.chmod(0o755)
+    return {"PATH": f"{td}:{os.environ['PATH']}", "DOCKER_LOG": str(log)}, log
+
+
+class PostgresEngineBranchTest(unittest.TestCase):
+    """Plan P4b: the postgres engine migrates as the owner role and dumps, restores and checks PostgreSQL."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.lib = LIB.read_text()
+        cls.deploy = DEPLOY.read_text()
+
+    def body(self, text: str, name: str) -> str:
+        return text.split(f"{name}() {{", 1)[1].split("\n}\n", 1)[0]
+
+    def test_migration_runs_in_a_one_off_container_as_the_owner_with_fastcgi_off(self) -> None:
+        args = self.lib.split("OTERYN_POSTGRES_MIGRATE_ARGS=(", 1)[1].split("\n)\n", 1)[0].split()
+        self.assertEqual(args[:4], ["run", "--rm", "--no-deps", "-T"])
+        self.assertIn("OTERYN_PLATFORM_FASTCGI_ENABLED=false", args)
+        # The owner credentials pass by name only, never as a value in an argument.
+        self.assertEqual(args.count("-e"), 3)
+        self.assertIn("DB_MIGRATIONS_USERNAME", args)
+        self.assertIn("DB_MIGRATIONS_PASSWORD", args)
+        self.assertEqual(" ".join(args[args.index("platform"):]), "platform php artisan migrate --force --no-interaction --database=pgsql_migrations")
+        config = (ROOT / "config/database.php").read_text()
+        self.assertIn("'pgsql_migrations' => [", config)
+        self.assertIn("DB_MIGRATIONS_USERNAME", config)
+
+    def test_migrate_helper_hands_the_owner_password_only_through_the_environment(self) -> None:
+        owner = FAKE["PLATFORM_POSTGRES_OWNER_PASSWORD"]
+        with tempfile.TemporaryDirectory() as td:
+            env, log = fake_docker_env(Path(td))
+            result = run_lib("oteryn_platform_migrate_postgres docker compose -f x.yml", {**env, **FAKE})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            argv, seen = log.read_text().splitlines()
+        self.assertEqual(
+            argv,
+            "ARGV compose -f x.yml run --rm --no-deps -T -e OTERYN_PLATFORM_FASTCGI_ENABLED=false "
+            "-e DB_MIGRATIONS_USERNAME -e DB_MIGRATIONS_PASSWORD platform php artisan migrate --force --no-interaction "
+            "--database=pgsql_migrations",
+        )
+        self.assertEqual(seen, f"ENV DB_MIGRATIONS_USERNAME=oteryn_platform_owner DB_MIGRATIONS_PASSWORD={owner}")
+        self.assertNotIn(owner, result.stdout + result.stderr)
+        # Without the owner password nothing runs.
+        with tempfile.TemporaryDirectory() as td:
+            env, log = fake_docker_env(Path(td))
+            result = run_lib("oteryn_platform_migrate_postgres docker compose", env)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(log.exists())
+
+    def test_deploy_migrates_by_engine_and_the_wrapper_brackets_both_forms(self) -> None:
+        branch = (
+            'if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres ]]; then\n'
+            "    # Owner role in a one-off container; the runtime platform container never holds the owner password.\n"
+            '    oteryn_platform_migrate_postgres "${compose[@]}"\n'
+            "else\n"
+            '    "${compose[@]}" exec -T platform php artisan migrate --force --no-interaction\n'
+            "fi\n"
+        )
+        self.assertIn('"${compose[@]}" up -d platform\n' + branch, self.deploy)
+        wrapper = self.body(self.lib, "docker")
+        self.assertIn('|| "$joined" == *" ${OTERYN_POSTGRES_MIGRATE_ARGS[*]} "* ]]; then', wrapper)
+        # The owner password never reaches the long-running services.
+        compose = COMPOSE.read_text()
+        for service in ("platform", "marketplace-scheduler"):
+            block = service_block(compose, service) if f"\n  {service}:\n" in compose else ""
+            self.assertNotIn("PLATFORM_POSTGRES_OWNER_PASSWORD", block, service)
+            self.assertNotIn("DB_MIGRATIONS_PASSWORD", block, service)
+
+    def test_deploy_wrapper_runs_the_before_and_after_hooks_around_the_postgres_migration(self) -> None:
+        script = (
+            'deploy_test() { _oteryn_before_platform_migrate() { echo BEFORE; }; '
+            '_oteryn_after_platform_migrate() { echo AFTER; }; OTERYN_MIGRATION_PREPARED=1; '
+            'docker compose -f x.yml "${OTERYN_POSTGRES_MIGRATE_ARGS[@]}"; }; deploy_test'
+        )
+        with tempfile.TemporaryDirectory() as td:
+            env, log = fake_docker_env(Path(td))
+            result = subprocess.run(
+                ["bash", "-c", f'source "$1"; {script}', "deploy.sh", str(LIB)],
+                text=True, capture_output=True, check=False, env={**env, "HOME": os.environ.get("HOME", "/tmp")},
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.split(), ["AFTER"])
+            self.assertIn("--database=pgsql_migrations", log.read_text())
+
+    def test_pre_migration_dump_is_a_validated_custom_archive_by_the_dump_role(self) -> None:
+        dump = self.body(self.lib, "oteryn_postgres_dump_platform")
+        self.assertIn("IFS= read -r PGPASSWORD", dump)
+        self.assertNotRegex(dump, r"-e PGPASSWORD")
+        self.assertIn("pg_dump --format=custom --no-password", dump)
+        self.assertIn("user=oteryn_platform_dump sslmode=verify-full sslrootcert=/run/oteryn-postgres-tls/ca.crt", dump)
+        self.assertIn("pg_restore --list", dump)
+        self.assertIn("umask 077", dump)
+        self.assertLess(dump.index("pg_restore --list"), dump.index('mv -- "$output.tmp" "$output"'))
+        before = self.body(self.lib, "_oteryn_before_platform_migrate")
+        self.assertIn('backup_file="$backup_dir/platform.dump"', before)
+        self.assertIn("printf 'BACKUP_DB_ENGINE=postgres\\n'", before)
+        self.assertLess(before.index("_oteryn_quiesce_platform_db_consumers"), before.index("oteryn_postgres_dump_platform"))
+
+    def test_dump_helper_keeps_only_an_archive_that_pg_restore_can_list(self) -> None:
+        dump_password = FAKE["PLATFORM_POSTGRES_DUMP_PASSWORD"]
+        with tempfile.TemporaryDirectory() as td:
+            env, log = fake_docker_env(Path(td))
+            out = Path(td) / "platform.dump"
+            result = run_lib(f'oteryn_postgres_dump_platform docker compose "{out}"', {**env, **FAKE})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(out.read_text(), "PGDMP-archive")
+            self.assertEqual(stat.S_IMODE(out.stat().st_mode), 0o600)
+            self.assertFalse(Path(f"{out}.tmp").exists())
+            self.assertNotIn(dump_password, log.read_text())
+            # A failed listing discards the archive.
+            failing = Path(td) / "docker"
+            failing.write_text(failing.read_text().replace('*"pg_restore --list"*) cat >/dev/null;;', '*"pg_restore --list"*) exit 1;;'))
+            out.unlink()
+            result = run_lib(f'oteryn_postgres_dump_platform docker compose "{out}"', {**env, **FAKE})
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(out.exists())
+            self.assertFalse(Path(f"{out}.tmp").exists())
+
+    def test_restore_drops_recreates_and_restores_as_the_owner_without_a_password(self) -> None:
+        restore = self.body(self.lib, "oteryn_postgres_restore_platform")
+        steps = [
+            "'DROP DATABASE IF EXISTS oteryn_platform WITH (FORCE)'",
+            'sh -s -- --database-only <"$roles_script"',
+            "pg_restore --exit-on-error --single-transaction --no-owner --no-privileges",
+            "--role=oteryn_platform_owner --dbname=oteryn_platform <\"$dump_file\"",
+        ]
+        positions = [restore.index(step) for step in steps]
+        self.assertEqual(positions, sorted(positions))
+        self.assertEqual(restore.count('sh -s -- --database-only <"$roles_script"'), 2)
+        self.assertIn("exec -T -u postgres postgres", restore)
+        self.assertNotIn("PASSWORD", restore)
+
+    def test_recovery_restores_only_into_the_engine_that_wrote_the_backup(self) -> None:
+        recover = RECOVER.read_text()
+        self.assertIn("unset BACKUP_DB_ENGINE BACKUP_BASELINE_KIND", recover)
+        self.assertIn("BACKUP_DB_ENGINE|BACKUP_BASELINE_KIND|", recover)
+        self.assertIn('backup_engine="${BACKUP_DB_ENGINE:-mariadb}"', recover)
+        self.assertIn('[[ "$backup_engine" == "$OTERYN_PLATFORM_DB_ENGINE" ]] || {', recover)
+        self.assertIn('[[ "$backup_engine" != postgres ]] || backup_file="$backup_dir/platform.dump"', recover)
+        self.assertIn(
+            'oteryn_postgres_restore_platform "${compose[@]}" "$DEPLOY_DIR/postgres/init/10-platform-roles.sh" "$backup_file"',
+            recover,
+        )
+        self.assertIn('restored_table_count="$(oteryn_postgres_relation_count "${compose[@]}")"', recover)
+        # The engine check runs with the other evidence checks, before uncertainty is persisted.
+        self.assertLess(recover.index('[[ "$backup_engine" == "$OTERYN_PLATFORM_DB_ENGINE" ]]'), recover.index("SCHEMA_STATE=unknown"))
+        self.assertLess(recover.index("SCHEMA_STATE=unknown"), recover.index("oteryn_postgres_restore_platform"))
+
+    def test_recovery_refuses_a_backup_of_the_other_engine_before_any_change(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            state = root / "state"
+            backup = state / "backups" / ("a" * 40 + "-before-" + "b" * 40)
+            backup.mkdir(parents=True)
+            (backup / "platform.sql").write_text("-- dump\n")
+            evidence = backup / "evidence.env"
+            contract = root / "release-contract.env"
+            env_file = root / "staging.env"
+            env_file.write_text("PLATFORM_DB_NAME=oteryn_platform\n")
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            (fake_bin / "docker").write_text("#!/bin/sh\necho docker-called >&2\nexit 99\n")
+            (fake_bin / "docker").chmod(0o755)
+            for engine_line, contract_engine in (("BACKUP_DB_ENGINE=postgres\n", "mariadb"), ("", "postgres"), ("BACKUP_DB_ENGINE=oracle\n", "mariadb")):
+                evidence.write_text(engine_line + "BACKUP_FROM_RELEASE_SHA=" + "a" * 40 + "\n")
+                contract.write_text(f"PLATFORM_DB_ENGINE={contract_engine}\n")
+                result = subprocess.run(
+                    ["bash", str(RECOVER), str(evidence)],
+                    text=True, capture_output=True, check=False,
+                    env={
+                        "PATH": f"{fake_bin}:{os.environ['PATH']}", "HOME": str(root),
+                        "OTERYN_ENV_FILE": str(env_file), "OTERYN_STATE_DIR": str(state),
+                        "OTERYN_RELEASE_CONTRACT_FILE": str(contract),
+                    },
+                )
+                self.assertNotEqual(result.returncode, 0, engine_line)
+                self.assertRegex(result.stderr, r"(taken on \w+ but the deploy engine is|unsupported database engine)", result.stderr)
+                self.assertNotIn("docker-called", result.stderr)
+
+    def test_fresh_baseline_counts_and_dumps_postgres_with_its_engine_in_the_evidence(self) -> None:
+        baseline = BASELINE.read_text()
+        counter = self.body(baseline, "platform_db_table_count")
+        self.assertIn('oteryn_postgres_relation_count "${platform_db_compose[@]}"', counter)
+        self.assertIn("information_schema.tables WHERE table_schema='$PLATFORM_DB_NAME'", counter)
+        self.assertEqual(baseline.count('"$(platform_db_table_count)"'), 2)
+        self.assertIn('oteryn_postgres_dump_platform "${platform_db_compose[@]}" "$backup_file" || exit 1', baseline)
+        self.assertIn('[[ "$OTERYN_PLATFORM_DB_ENGINE" != postgres ]] || backup_file="$backup_dir/platform.dump"', baseline)
+        self.assertLess(baseline.index("printf 'BACKUP_DB_ENGINE=postgres\\n'"), baseline.index("printf 'BACKUP_BASELINE_KIND=fresh-empty\\n'"))
+
+    def test_marketplace_uses_the_engine_database_service_and_owner_migration(self) -> None:
+        marketplace = MARKETPLACE.read_text()
+        self.assertIn('[[ "$OTERYN_PLATFORM_DB_ENGINE" != postgres ]] || platform_db_service=postgres', marketplace)
+        self.assertIn('for service in "$platform_db_service" platform internal-proxy gateway; do', marketplace)
+        self.assertIn('[[ "$service" != postgres ]] || profile=(--profile postgres)', marketplace)
+        self.assertIn('pending_count="$(oteryn_postgres_non_terminal_auction_count "${compose[@]}")"', marketplace)
+        enable = marketplace.split("    enable)\n", 1)[1].split("\n        ;;\n", 1)[0]
+        self.assertLess(enable.index("--force-recreate platform"), enable.index('oteryn_platform_migrate_postgres "${compose[@]}"'))
+        self.assertIn("requires all five PostgreSQL secrets", marketplace)
+
+    def test_auction_count_helper_reads_the_platform_database_as_the_local_superuser(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            env, log = fake_docker_env(Path(td))
+            result = run_lib("oteryn_postgres_non_terminal_auction_count docker compose", env)
+            self.assertEqual((result.returncode, result.stdout), (0, "0\n"), result.stderr)
+            argv = log.read_text()
+        self.assertIn("ARGV compose --profile postgres exec -T -u postgres postgres psql -X -q -t -A -v ON_ERROR_STOP=1 -d oteryn_platform -c", argv)
+        self.assertIn("tablename = 'character_auctions'", argv)
+
+    def test_health_check_requires_the_secrets_and_the_app_role_on_the_postgres_engine(self) -> None:
+        health = HEALTH.read_text()
+        self.assertIn('if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres && "$postgres_secret_state" != configured ]]; then', health)
+        self.assertIn("DB_CONNECTION:pgsql DB_HOST:postgres DB_USERNAME:oteryn_platform_app DB_SSLMODE:verify-full", health)
+        self.assertNotIn("container_env_value platform DB_PASSWORD", health)
+
+    def test_route_publication_stays_refused_on_the_postgres_engine(self) -> None:
+        self.assertIn(
+            'if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres && "${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}" == true ]]; then',
+            self.deploy,
+        )
+
+
+class PreflightPostgresTest(unittest.TestCase):
+    """Plan P4b: the production-target preflight validates PostgreSQL TLS, roles and a restore drill."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.preflight = PREFLIGHT.read_text()
+        cls.postgres = cls.preflight.split('if [[ "$platform_db_engine" == postgres ]]; then\n    postgres_sql() {', 1)[1]
+        cls.postgres = cls.postgres.split('    postgres_tls_and_roles="PASS"\nfi\n', 1)[0]
+
+    def test_engine_is_read_from_the_release_contract_and_adds_the_postgres_service(self) -> None:
+        self.assertIn(
+            "platform_db_engine=\"$(sed -n 's/^PLATFORM_DB_ENGINE=//p' \"$script_dir/../release-contract.env\")\"", self.preflight
+        )
+        self.assertIn("services+=(postgres)", self.preflight)
+        self.assertIn("healthy_services+=(postgres)", self.preflight)
+        self.assertIn("unpublished_services+=(postgres)", self.preflight)
+        self.assertIn("assert_named_volume postgres /var/lib/postgresql/data", self.preflight)
+        # MariaDB checks stay as they were on the mariadb engine.
+        self.assertIn("assert_named_volume mariadb /var/lib/mysql", self.preflight)
+        self.assertIn('[[ -n "$mariadb_root_password" ]] || fail "MARIADB_ROOT_PASSWORD is required"', self.preflight)
+
+    def test_server_tls_hba_and_role_split_are_checked_as_the_local_superuser(self) -> None:
+        for marker in (
+            'docker exec -u postgres "${containers[postgres]}"',
+            "SHOW ssl')\" == on ]]",
+            "SHOW ssl_min_protocol_version')\" == TLSv1.3 ]]",
+            "SHOW password_encryption')\" == scram-sha-256 ]]",
+            "pg_hba_file_rules WHERE error IS NOT NULL",
+            "(type = 'hostssl' AND auth_method = 'scram-sha-256')",
+            "rolreplication <> (rolname = 'oteryn_platform_backup')",
+            "r.rolname <> 'oteryn_platform_owner'",
+            "a.client_addr IS NOT NULL AND NOT s.ssl",
+        ):
+            self.assertIn(marker, self.postgres)
+        self.assertNotIn("PGPASSWORD", self.postgres)
+        self.assertNotIn("PLATFORM_POSTGRES_", self.postgres.replace('grep -q "^PLATFORM_POSTGRES_"', ""))
+
+    def test_platform_probe_proves_the_app_role_tls13_and_no_create(self) -> None:
+        for marker in (
+            'test "$DB_CONNECTION" = pgsql',
+            'test "$DB_USERNAME" = oteryn_platform_app',
+            'test "$DB_SSLMODE" = verify-full',
+            'test -z "${DB_MIGRATIONS_PASSWORD+set}"',
+            '$row["role"] !== "oteryn_platform_app"',
+            '$row["version"] !== "TLSv1.3"',
+            'CREATE TABLE oteryn_preflight_privilege_probe',
+            '$e->getCode() === "42501"',
+        ):
+            self.assertIn(marker, self.postgres)
+
+    def test_postgres_restore_drill_streams_into_a_scratch_database_and_always_drops_it(self) -> None:
+        drill = self.preflight.split('if [[ "$run_restore_drill" == "true" && "$platform_db_engine" == postgres ]]; then', 1)[1]
+        drill = drill.split('elif [[ "$run_restore_drill" == "true" ]]; then', 1)[0]
+        for marker in (
+            "'pg_dump', '--format=plain', '--no-owner', '--no-privileges'",
+            "'--single-transaction', '-d', target",
+            "DROP DATABASE IF EXISTS \"{target}\" WITH (FORCE)",
+            "TEMPLATE template0",
+            "ALTER SCHEMA public OWNER TO oteryn_platform_owner",
+            "(b'\\\\restrict ', b'\\\\unrestrict ')",
+            "finally:\n    drop_restore_database()",
+        ):
+            self.assertIn(marker, drill)
+        self.assertNotIn("PASSWORD", drill)
+        # The dump streams between processes; only the summary is written, after the drill.
+        self.assertNotRegex(drill.split("elapsed_ms", 1)[0], r"(?<![A-Za-z_.])open\(")
+
+    def test_workflow_markers_still_hold_and_the_evidence_names_the_engine(self) -> None:
+        for forbidden in ("set -x", ".Config.Env", "cat deploy/synology/.env", "mariadb-dump >"):
+            self.assertNotIn(forbidden, self.preflight)
+        for required in ("production_environment_proven", "database_restore_drill", "remaining_public_production_gaps", "DROP DATABASE IF EXISTS", "repository-ghcr-image.sh"):
+            self.assertIn(required, self.preflight)
+        self.assertIn('"platform_db_engine": "$platform_db_engine",', self.preflight)
+        self.assertIn('"postgres_tls_and_roles": "$postgres_tls_and_roles",', self.preflight)
+        workflow = (WORKFLOWS / "synology-production-target-preflight.yml").read_text()
+        self.assertNotIn("PLATFORM_POSTGRES_", workflow)
 
 
 if __name__ == "__main__":
