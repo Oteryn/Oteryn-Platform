@@ -54,7 +54,7 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-12T20:30:00Z
-head: 9d2c4cf86206bbd496570b167d4f61f95b04335b
+head: 8da9016120b1f726ed50a469eaa7c5550ccf7ad0
 branch: claude/platform-pg-p4b-20261012
 pr: 1581
 status: completed
@@ -109,7 +109,7 @@ validation:
     evidence: postgres engine renders DB_CONNECTION=pgsql, DB_USERNAME=oteryn_platform_app, DB_SSLMODE=verify-full
 blockers:
   - none
-next_action: none; P4b merged in #1581 (squash 9d2c4cf). P6 owns the engine flip and the data move.
+next_action: none; P4b merged in #1581 (final PR head 8da9016, squash merge commit 9d2c4cf). P6 owns the engine flip and the data move.
 ```
 
 ## Source branch closeout
@@ -117,7 +117,7 @@ next_action: none; P4b merged in #1581 (squash 9d2c4cf). P6 owns the engine flip
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: PR #1581 merged at 9d2c4cf from claude/platform-pg-p4b-20261012; git ls-remote --heads origin claude/platform-pg-p4b-20261012 returns nothing after the merge (verified)
+source_branch_evidence: PR #1581 (final head 8da9016) merged as squash commit 9d2c4cf from claude/platform-pg-p4b-20261012; git ls-remote --heads origin claude/platform-pg-p4b-20261012 returns nothing after the merge (verified)
 ```
 
 ## Notes
