@@ -207,6 +207,22 @@ class StaticBootstrapTest(BootstrapCase):
         self.assertIn("unsupported_name", result.stdout + result.stderr)
         self.assertFalse((self.state_dir / "witness-freeze.env").exists())
 
+    def test_compose_one_offs_never_start_the_fastcgi_pool(self) -> None:
+        # The one-off container runs the image entrypoint as PID 1; with FastCGI enabled it would start
+        # PHP-FPM and map the command's normal exit to status 9 (platform-entrypoint.sh run_supervised).
+        text = SCRIPT.read_text()
+        oneoff = text[text.index("platform_oneoff() {"):text.index("platform_exec() {")]
+        self.assertIn("-e OTERYN_PLATFORM_FASTCGI_ENABLED=false", oneoff)
+        self.assertIn("run --rm --no-deps -T --entrypoint sh platform", text)
+        runs = [line for line in text.splitlines() if '"${compose[@]}" run' in line]
+        self.assertEqual(len(runs), 2, runs)
+
+    def test_world_host_is_validated_by_the_commands_own_filter(self) -> None:
+        text = SCRIPT.read_text()
+        self.assertIn("FILTER_VALIDATE_IP", text)
+        self.assertIn("FILTER_VALIDATE_DOMAIN", text)
+        self.assertNotIn("host_label", text)
+
     def test_local_mode_requires_a_state_directory(self) -> None:
         env = self.base_env()
         del env["OTERYN_PG_BOOTSTRAP_STATE_DIR"]
@@ -278,7 +294,8 @@ class StaticBootstrapTest(BootstrapCase):
             "GAME_WORLD_SLUG": ("Oteryn", "-oteryn", "a" * 65),
             "GAME_WORLD_NAME": ("n" * 101,),
             "GAME_WORLD_REGION": ("EU West", "r" * 33),
-            "GAME_WORLD_HOST": ("https://game.oteryn.invalid", "game.oteryn.invalid/path", "-bad.invalid"),
+            "GAME_WORLD_HOST": ("https://game.oteryn.invalid", "game.oteryn.invalid/path", "-bad.invalid",
+                                 "abc:def", "dead:beef", "1:2:3:4:5:6:7:8:9"),
         }
         for name, values in cases.items():
             for value in values:

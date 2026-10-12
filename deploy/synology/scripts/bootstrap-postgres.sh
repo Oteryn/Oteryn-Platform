@@ -284,7 +284,8 @@ platform_oneoff() {
         (cd -- "$PLATFORM_ROOT" && "$PHP_BIN" "$@")
     else
         "${compose[@]}" run --rm --no-deps -T \
-            -e DB_MIGRATIONS_USERNAME -e DB_MIGRATIONS_PASSWORD platform php "$@"
+            -e DB_MIGRATIONS_USERNAME -e DB_MIGRATIONS_PASSWORD \
+            -e OTERYN_PLATFORM_FASTCGI_ENABLED=false platform php "$@"
     fi
 }
 
@@ -297,7 +298,9 @@ platform_exec() {
 }
 
 # Read-only probe of the target engine and database, run through the Platform's own configuration
-# (one-off, because it reads pending migrations on the pgsql_migrations owner connection). It prints probe_<key>=<value> lines and never writes.
+# (one-off, because it reads pending migrations on the pgsql_migrations owner connection). The one-off
+# container runs the image entrypoint as PID 1, which with FastCGI enabled would start PHP-FPM beside the
+# command and turn its normal exit into status 9; platform_oneoff therefore forces the pool off. It prints probe_<key>=<value> lines and never writes.
 # shellcheck disable=SC2016 # PHP source
 PROBE_PROGRAM='
 $mode = $argv[1] ?? "";
@@ -316,6 +319,14 @@ $emit("runtime_driver", $runtimeDriver === "" ? "none" : $runtimeDriver);
 $emit("owner_driver", $ownerDriver === "" ? "none" : $ownerDriver);
 $emit("app_env", (string) app()->environment());
 $emit("native_admission", config("game-auth.native_admission.enabled") === true ? "true" : "false");
+if ($mode === "preflight") {
+    // The same host validation as App\Console\Commands\EnsureGameWorld::validHost (step 6), so a value it would
+    // reject is refused before the first change.
+    $host = (string) ($argv[2] ?? "");
+    $emit("host_valid", $host !== "" && mb_strlen($host) <= 255 && !str_contains($host, "://") && !str_contains($host, "/")
+        && (filter_var($host, FILTER_VALIDATE_IP) !== false || filter_var($host, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME) !== false)
+        ? "true" : "false");
+}
 if ($runtimeDriver !== "pgsql" || $ownerDriver !== "pgsql") {
     $emit("result", "wrong_engine");
     exit(0);
@@ -523,7 +534,18 @@ else
     witness_action=prepare-empty
 fi
 
-probe_output="$(probe preflight)"
+# EnsureGameWorld trims every option (PHP trim: space, \t, \n, \r, NUL, \v) before validating it, so a
+# whitespace-only value is empty there. Apply the same trim here, so the checks below see what step 6 sees.
+trim_world_option() {
+    local value="${!1:-}"
+    value="${value#"${value%%[!$' \t\n\r\v']*}"}"
+    value="${value%"${value##*[!$' \t\n\r\v']}"}"
+    printf -v "$1" '%s' "$value"
+}
+for name in GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT; do
+    trim_world_option "$name"
+done
+probe_output="$(probe preflight "${GAME_WORLD_HOST:-}")"
 runtime_driver="$(value_of runtime_driver "$probe_output")"
 owner_driver="$(value_of owner_driver "$probe_output")"
 probe_result="$(value_of result "$probe_output")"
@@ -564,17 +586,6 @@ elif [[ "$native_admission" != true && "$with_native_admission" == true ]]; then
     reasons+=("--with-native-admission was given but native admission is off in the Platform configuration.")
 fi
 
-# EnsureGameWorld trims every option (PHP trim: space, \t, \n, \r, NUL, \v) before validating it, so a
-# whitespace-only value is empty there. Apply the same trim here, so the checks below see what step 6 sees.
-trim_world_option() {
-    local value="${!1:-}"
-    value="${value#"${value%%[!$' \t\n\r\v']*}"}"
-    value="${value%"${value##*[!$' \t\n\r\v']}"}"
-    printf -v "$1" '%s' "$value"
-}
-for name in GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT; do
-    trim_world_option "$name"
-done
 for name in GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT; do
     [[ -n "${!name:-}" ]] || reasons+=("$name is not set (World Registry row for game-auth:world:ensure).")
 done
@@ -606,13 +617,8 @@ if [[ -n "${GAME_WORLD_REGION:-}" ]]; then
     [[ "$GAME_WORLD_REGION" =~ ^[A-Za-z0-9_-]{1,32}$ ]] \
         || reasons+=("GAME_WORLD_REGION must be a simple 1 to 32 character label of letters, digits, underscores and hyphens.")
 fi
-if [[ -n "${GAME_WORLD_HOST:-}" ]]; then
-    host_label='[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?'
-    if (( ${#GAME_WORLD_HOST} > 255 )) \
-        || ! { [[ "$GAME_WORLD_HOST" =~ ^${host_label}(\.${host_label})*\.?$ ]] \
-            || [[ "$GAME_WORLD_HOST" =~ ^[0-9A-Fa-f:.]+$ && "$GAME_WORLD_HOST" == *:* ]]; }; then
-        reasons+=("GAME_WORLD_HOST must be an IPv4/IPv6 address or DNS hostname without a scheme or path.")
-    fi
+if [[ -n "${GAME_WORLD_HOST:-}" && -n "$probe_result" && "$(value_of host_valid "$probe_output")" != true ]]; then
+    reasons+=("GAME_WORLD_HOST must be an IPv4/IPv6 address or DNS hostname without a scheme or path (the same check as game-auth:world:ensure).")
 fi
 case "${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}" in
     true)
