@@ -18,8 +18,8 @@ Governing GitHub Issue: #1474 (native-only migration) is the canonical lifecycle
 
 Fix two review findings on the merged PostgreSQL migration plan (PR #1561, head `feb62ed`) and the matching ADR 0046 rule:
 
-- From the first witnessed write on PostgreSQL, which is the first native admission trust publication attempt because it advances the trust-state witness before its database write, the PostgreSQL witness directory is never emptied, deleted or lowered, and the database is never emptied under it. Recovery keeps the witness and reconciles forward only. A clean-slate re-run of P3 with a witness reset is allowed only before that write. Retiring the MariaDB-era witness with the MariaDB volume after a successful cutover is kept distinct from the live PostgreSQL witness.
-- P6 owns, as a cutover precondition, a bounded forward-only recovery for the missing-profile trust state, scoped to proven P6 failure evidence only: an open P6 attempt marker with a run id, the recorded PostgreSQL `witness-store.id`, a floor of exactly 1 and no trust, profile or evidence rows. Only then is the profile created revoked at floor 1, followed by a successor profile with a newly generated key whose id is checked against a durable key custody log outside the database. Every other state stays unavailable and is reconciled forward only.
+- From the first witnessed write on PostgreSQL, which comes at the start of P6 step 4 (a provenance-only witness-store init, then the first native admission trust publication attempt, which advances the trust-state witness before its database write), the PostgreSQL witness directory is never emptied, deleted or lowered, and the database is never emptied under it. Recovery keeps the witness and reconciles forward only. A clean-slate re-run of P3 with a witness reset is allowed only before that write. Retiring the MariaDB-era witness with the MariaDB volume after a successful cutover is kept distinct from the live PostgreSQL witness.
+- P6 owns, as a cutover precondition, a bounded forward-only recovery for the missing-profile trust state (P6a), stated in the plan as invariants: provenance-only witness-store init before the attempt, durable attempt evidence, a repair only on proven P6 failure evidence, every other state unavailable and forward-only, and a successor key id with exactly one custody record (its own generation) and no database history. The mechanism goes to a P6a design note reviewed separately before implementation.
 - The P6 smoke tests run against a running application on its loopback origins, not under `php artisan down`. The public edge is closed by switching only the two canonical Cloudflare Tunnel ingress rules to `http_status:503` through new bounded modes of the existing endpoint workflow, with an external closed-check before the smoke tests, no committed bypass secret and a defined reopen on unfreeze or rollback.
 
 This is a documentation-only change. It does not change code, configuration, schema, deployment, secrets or data.
@@ -56,7 +56,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-12T23:00:00Z
+updated_at: 2026-10-12T23:40:00Z
 head: UNKNOWN
 branch: claude/platform-postgres-plan-fixes-20261012
 pr: 1562
@@ -77,6 +77,8 @@ proven:
   - NativeSigningTrustRegistry::publishTrustedKey advances the trust-state witness inside withNamespace before the relational insert commits, so a failed publication can leave the witness ahead
   - game-auth:native-evidence:reconcile takes exactly one of --account-id or --trust=fresh|recovery; trust reconciliation leaves the profile version revoked, and no console command calls publishNextProfileVersion today
   - a first publication whose transaction rolls back after the witness advanced leaves floor 1 with no profile row; reconcileSigningTrustAsRevoked refuses it (NativeEvidenceRecoveryReconciler.php:61-71) and publishTrustedKey refuses it (NativeSigningTrustRegistry.php:47-50), so P6 must own a forward-only missing-profile recovery
+  - generate-native-admission-key.sh appends every generated key id to used.kids before returning the key, so a successor id always has its own generation record there
+  - NativeEvidenceHighWaterWitness::reconcileStoreProvenance creates witness-store.id and its binding only when a namespace is entered, so with native admission off P3 leaves no store id
   - historicalKeyIdExists() only sees database history, so after a restore or relational loss a synthesized profile would hide earlier key ids; the missing-profile repair therefore needs proof that the state came from the P6 first publication, and successor key ids need a custody log outside the database
 derived:
   - an edge gate on the two canonical tunnel ingress rules keeps the application testable on loopback during cutover without a maintenance bypass secret and without stopping a shared tunnel connector
