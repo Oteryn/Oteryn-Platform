@@ -91,15 +91,14 @@ final class AdminCmsManagementTest extends TestCase
         $this->get(route('news.index'))
             ->assertOk()
             ->assertDontSeeText('Published then hidden');
-        $this->assertDatabaseHas('admin_audit_events', [
+        $this->assertAuditMetadata([
             'actor_identity_id' => $actor->id,
             'action' => 'cms.news_updated',
             'target_type' => 'news_post',
             'target_id' => (string) $post->id,
-            'metadata' => json_encode([
-                'slug' => $post->slug,
-                'published' => false,
-            ], JSON_THROW_ON_ERROR),
+        ], [
+            'slug' => $post->slug,
+            'published' => false,
         ]);
     }
 
@@ -163,15 +162,14 @@ final class AdminCmsManagementTest extends TestCase
         self::assertSame('Updated body', $page->body);
         self::assertNull($page->published_at);
         $this->get(route('pages.show', ['slug' => $page->slug]))->assertNotFound();
-        $this->assertDatabaseHas('admin_audit_events', [
+        $this->assertAuditMetadata([
             'actor_identity_id' => $actor->id,
             'action' => 'cms.page_updated',
             'target_type' => 'managed_page',
             'target_id' => (string) $page->id,
-            'metadata' => json_encode([
-                'slug' => $page->slug,
-                'published' => false,
-            ], JSON_THROW_ON_ERROR),
+        ], [
+            'slug' => $page->slug,
+            'published' => false,
         ]);
     }
 
@@ -268,5 +266,20 @@ final class AdminCmsManagementTest extends TestCase
 
         $this->actingAs($identity, 'web')
             ->withSession([WebSessionState::GENERATION_KEY => $currentIdentity->web_session_generation]);
+    }
+
+    /**
+     * The json metadata column has no equality operator on PostgreSQL, so compare it decoded.
+     *
+     * @param  array<string, mixed>  $columns
+     * @param  array<string, mixed>  $metadata
+     */
+    private function assertAuditMetadata(array $columns, array $metadata): void
+    {
+        $this->assertDatabaseHas('admin_audit_events', $columns);
+        $stored = DB::table('admin_audit_events')->where($columns)->pluck('metadata')
+            ->map(fn (mixed $value): mixed => is_string($value) ? json_decode($value, true, flags: JSON_THROW_ON_ERROR) : $value)
+            ->all();
+        self::assertContains($metadata, $stored);
     }
 }

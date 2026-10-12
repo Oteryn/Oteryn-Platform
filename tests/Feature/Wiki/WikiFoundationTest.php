@@ -79,11 +79,12 @@ final class WikiFoundationTest extends TestCase
         ]);
 
         try {
-            WikiArticleTranslationFactory::new()->create([
+            // A savepoint keeps the test transaction usable after the rejected insert (PostgreSQL).
+            DB::transaction(fn () => WikiArticleTranslationFactory::new()->create([
                 'article_id' => $third->id,
                 'locale' => 'en',
                 'slug' => 'shared-slug',
-            ]);
+            ]));
             self::fail('Expected localized Wiki article slug uniqueness to be database-enforced.');
         } catch (QueryException) {
             self::assertDatabaseCount('wiki_article_translations', 2);

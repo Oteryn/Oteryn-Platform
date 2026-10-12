@@ -44,10 +44,10 @@ final readonly class DatabasePublicCatalogQuery
         $filtered = $this->baseItemQuery($context, $locale);
         $like = '%'.$this->escapeLike($search).'%';
         $filtered->where(function (Builder $builder) use ($like): void {
-            $builder->where('item.name', 'like', $like)
-                ->orWhere('translation.display_name', 'like', $like)
-                ->orWhere('item.description', 'like', $like)
-                ->orWhere('translation.summary', 'like', $like);
+            $builder->whereLike('item.name', $like)
+                ->orWhereLike('translation.display_name', $like)
+                ->orWhereLike('item.description', $like)
+                ->orWhereLike('translation.summary', $like);
         });
 
         $rows = $filtered
@@ -110,10 +110,10 @@ final readonly class DatabasePublicCatalogQuery
         $filtered = $this->baseCreatureQuery($context, $locale);
         $like = '%'.$this->escapeLike($search).'%';
         $filtered->where(function (Builder $builder) use ($like): void {
-            $builder->where('creature.name', 'like', $like)
-                ->orWhere('translation.display_name', 'like', $like)
-                ->orWhere('creature.description', 'like', $like)
-                ->orWhere('translation.summary', 'like', $like);
+            $builder->whereLike('creature.name', $like)
+                ->orWhereLike('translation.display_name', $like)
+                ->orWhereLike('creature.description', $like)
+                ->orWhereLike('translation.summary', $like);
         });
 
         $rows = $filtered
@@ -178,8 +178,8 @@ final readonly class DatabasePublicCatalogQuery
         if ($query !== '') {
             $like = '%'.$this->escapeLike($query).'%';
             $filtered->where(function (Builder $builder) use ($like): void {
-                $builder->where('item.name', 'like', $like)
-                    ->orWhere('translation.display_name', 'like', $like);
+                $builder->whereLike('item.name', $like)
+                    ->orWhereLike('translation.display_name', $like);
             });
         }
         if ($category !== null) {
@@ -334,8 +334,8 @@ final readonly class DatabasePublicCatalogQuery
         if ($query !== '') {
             $like = '%'.$this->escapeLike($query).'%';
             $filtered->where(function (Builder $builder) use ($like): void {
-                $builder->where('creature.name', 'like', $like)
-                    ->orWhere('translation.display_name', 'like', $like);
+                $builder->whereLike('creature.name', $like)
+                    ->orWhereLike('translation.display_name', $like);
             });
         }
         if ($bestiaryClass !== null) {

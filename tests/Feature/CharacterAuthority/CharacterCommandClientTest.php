@@ -281,9 +281,17 @@ final class CharacterCommandClientTest extends TestCase
         self::assertIsArray($pending);
         self::assertSame([$ids[0], $ids[1]], array_column($pending, 'operation_id'));
 
-        $rest = json_decode((string) $this->exchange(CharacterCommandWire::LIST_PATH, $this->listRequest('2', $ids[1], 2))->getContent(), true, 4, JSON_THROW_ON_ERROR);
+        // Revisions are row ids; PostgreSQL sequences do not roll back with the test transaction.
+        $revisions = [];
+        foreach ($ids as $operationId) {
+            $revision = DB::table('character_command_intents')->where('operation_id', $operationId)->value('id');
+            self::assertIsInt($revision);
+            $revisions[] = (string) $revision;
+        }
+        self::assertSame([$revisions[0], $revisions[1]], array_column($pending, 'source_revision'));
+        $rest = json_decode((string) $this->exchange(CharacterCommandWire::LIST_PATH, $this->listRequest($revisions[1], $ids[1], 2))->getContent(), true, 4, JSON_THROW_ON_ERROR);
         self::assertIsArray($rest);
-        self::assertSame([['command' => 'CreateCharacter', 'operation_id' => $ids[2], 'source_revision' => '3']], $rest['pending']);
+        self::assertSame([['command' => 'CreateCharacter', 'operation_id' => $ids[2], 'source_revision' => $revisions[2]]], $rest['pending']);
 
         self::assertSame('{"contract_version":1,"pending":[]}', $this->exchange(CharacterCommandWire::LIST_PATH, $this->listRequest('18446744073709551615', self::NIL, 32))->getContent());
         $this->exchange(CharacterCommandWire::LIST_PATH, $this->listRequest('0', self::NIL, 33))->assertStatus(400);

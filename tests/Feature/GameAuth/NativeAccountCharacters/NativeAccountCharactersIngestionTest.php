@@ -88,7 +88,7 @@ final class NativeAccountCharactersIngestionTest extends TestCase
         } catch (NativeAccountCharactersRefused $refused) {
             self::assertSame(409, $refused->status);
         }
-        self::assertSame(1, DB::table('native_account_character_snapshots')->where('account_id', self::ACCOUNT)->value('invalid'));
+        self::assertContains(DB::table('native_account_character_snapshots')->where('account_id', self::ACCOUNT)->value('invalid'), [1, true]);
 
         self::assertSame('accepted', $ingestion->snapshot($settings, self::IDENTITY, NativeAccountCharactersSnapshot::fromWire($this->snapshotWire([
             'projection_revision' => '43',
@@ -96,7 +96,7 @@ final class NativeAccountCharactersIngestionTest extends TestCase
         ], [
             ['character_id' => self::CHARACTER, 'world_id' => self::WORLD, 'name' => 'Aldric Prime', 'availability' => 'AVAILABLE'],
         ])), $this->now()));
-        self::assertSame(0, DB::table('native_account_character_snapshots')->where('account_id', self::ACCOUNT)->value('invalid'));
+        self::assertContains(DB::table('native_account_character_snapshots')->where('account_id', self::ACCOUNT)->value('invalid'), [0, false]);
     }
 
     public function test_higher_epoch_from_watermark_invalidates_every_old_account_until_resync(): void

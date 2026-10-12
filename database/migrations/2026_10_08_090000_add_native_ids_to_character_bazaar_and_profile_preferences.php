@@ -39,6 +39,17 @@ return new class extends Migration
             throw new LogicException('Run "php artisan down" before rolling back native account and character ids; rollback refused before DDL.');
         }
 
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            // PostgreSQL has transactional DDL: the checks and the DDL share one transaction that holds
+            // ACCESS EXCLUSIVE on both tables until it ends, so no writer can add a native id between them.
+            DB::transaction(function (): void {
+                DB::statement('LOCK TABLE character_auctions, character_profile_preferences IN ACCESS EXCLUSIVE MODE');
+                $this->dropNativeIds();
+            });
+
+            return;
+        }
+
         $locking = in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true);
 
         if ($locking) {

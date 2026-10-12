@@ -6,6 +6,7 @@ use App\GameAuth\Worlds\GameWorld;
 use App\GameAuth\Worlds\GameWorldStatus;
 use App\GameAuth\Worlds\NativeTopologyRegistry;
 use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -96,6 +97,18 @@ final class NativeTopologyMigrationRollbackTest extends TestCase
     {
         $world = $this->world('ambiguous-retained');
         $invalid = "01890f4e-7c00-7000-8000-000000000001\n";
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            // The native uuid column refuses the malformed identity, so it can never be retained.
+            try {
+                DB::table('game_worlds')->where('id', $world->id)->update(['world_id' => $invalid]);
+                self::fail('PostgreSQL must refuse a malformed retained identity.');
+            } catch (QueryException $exception) {
+                self::assertSame('22P02', $exception->errorInfo[0] ?? null);
+            }
+            self::assertNull(DB::table('game_worlds')->where('id', $world->id)->value('world_id'));
+
+            return;
+        }
         DB::table('game_worlds')->where('id', $world->id)->update(['world_id' => $invalid]);
 
         $this->assertRollbackRefused();

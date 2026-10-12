@@ -49,6 +49,8 @@ final class ProductionConfigurationVerifier
             }
         }
 
+        array_push($violations, ...$this->databaseViolations());
+
         if (config('session.secure') !== true) {
             $violations[] = 'Secure session cookies must be enabled.';
         }
@@ -71,6 +73,27 @@ final class ProductionConfigurationVerifier
         }
 
         return $violations;
+    }
+
+    /**
+     * The Platform database must be a server engine. An unset DB_CONNECTION falls back to
+     * SQLite (config/database.php), which is refused here (F-13, ADR 0046).
+     *
+     * @return list<string>
+     */
+    private function databaseViolations(): array
+    {
+        $default = config('database.default');
+        if (! is_string($default) || trim($default) === '') {
+            return ['DB_CONNECTION must name the Platform database connection.'];
+        }
+
+        $driver = config("database.connections.{$default}.driver");
+        if (! in_array($driver, ['pgsql', 'mysql', 'mariadb'], true)) {
+            return ['DB_CONNECTION must use the pgsql or mysql driver; sqlite and other drivers are refused in production.'];
+        }
+
+        return [];
     }
 
     /** @return list<string> */

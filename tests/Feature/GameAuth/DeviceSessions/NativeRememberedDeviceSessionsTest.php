@@ -50,8 +50,8 @@ final class NativeRememberedDeviceSessionsTest extends TestCase
     public function runDatabaseMigrations(): void
     {
         // This suite needs committed transactions; never migrate/reset a runtime database.
-        if (DB::getDefaultConnection() !== 'sqlite' || config('database.connections.sqlite.database') !== ':memory:') {
-            throw new LogicException('Remembered-device service tests require an isolated in-memory SQLite database.');
+        if (! $this->usesIsolatedTestDatabase()) {
+            throw new LogicException('Remembered-device service tests require an isolated in-memory SQLite or loopback PostgreSQL test database.');
         }
         $this->runEphemeralDatabaseMigrations();
     }
@@ -72,8 +72,8 @@ final class NativeRememberedDeviceSessionsTest extends TestCase
         config(['passport.connection' => $this->passportConnectionBeforeTest]);
         $this->app['env'] = $this->environmentBeforeTest;
 
-        if (DB::getDefaultConnection() !== 'sqlite' || config('database.connections.sqlite.database') !== ':memory:') {
-            throw new LogicException('Remembered-device fixture cleanup requires an isolated in-memory SQLite database.');
+        if (! $this->usesIsolatedTestDatabase()) {
+            throw new LogicException('Remembered-device fixture cleanup requires an isolated in-memory SQLite or loopback PostgreSQL test database.');
         }
 
         // Only discard this suite's ephemeral fixtures, letting the migration test retain
@@ -470,5 +470,20 @@ final class NativeRememberedDeviceSessionsTest extends TestCase
     {
         Carbon::setTestNow($at);
         CarbonImmutable::setTestNow($at);
+    }
+
+    /**
+     * In-memory SQLite, or the loopback PostgreSQL test database of phpunit.pgsql.xml; never a runtime database.
+     */
+    private function usesIsolatedTestDatabase(): bool
+    {
+        if (DB::getDefaultConnection() === 'sqlite') {
+            return config('database.connections.sqlite.database') === ':memory:';
+        }
+
+        return DB::getDefaultConnection() === 'pgsql'
+            && config('database.connections.pgsql.database') === 'oteryn_test'
+            && in_array(config('database.connections.pgsql.host'), ['127.0.0.1', '::1', 'localhost'], true)
+            && in_array(config('database.connections.pgsql.url'), [null, ''], true);
     }
 }

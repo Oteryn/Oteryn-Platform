@@ -18,6 +18,7 @@ final class ProductionConfigurationVerifierTest extends TestCase
             'app.debug' => false,
             'app.key' => 'base64:dGVzdC1vbmx5LXByb2R1Y3Rpb24ta2V5',
             'app.url' => 'https://platform.oteryn.com',
+            'database.default' => 'pgsql',
             'session.secure' => true,
             'session.http_only' => true,
             'mail.default' => 'smtp',
@@ -86,6 +87,29 @@ final class ProductionConfigurationVerifierTest extends TestCase
 
         config(['app.url' => 'https://[::1]']);
         $this->assertViolation('APP_URL must not use a localhost or loopback host.');
+    }
+
+    public function test_mysql_platform_connection_is_accepted(): void
+    {
+        config(['database.default' => 'mysql']);
+
+        self::assertSame([], app(ProductionConfigurationVerifier::class)->inspect());
+    }
+
+    public function test_sqlite_platform_connection_is_rejected(): void
+    {
+        config(['database.default' => 'sqlite']);
+
+        $this->assertViolation('DB_CONNECTION must use the pgsql or mysql driver; sqlite and other drivers are refused in production.');
+    }
+
+    public function test_missing_or_unknown_platform_connection_is_rejected(): void
+    {
+        config(['database.default' => '']);
+        $this->assertViolation('DB_CONNECTION must name the Platform database connection.');
+
+        config(['database.default' => 'undefined-connection']);
+        $this->assertViolation('DB_CONNECTION must use the pgsql or mysql driver; sqlite and other drivers are refused in production.');
     }
 
     public function test_insecure_session_cookie_is_rejected(): void

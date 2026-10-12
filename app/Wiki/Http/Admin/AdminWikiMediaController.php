@@ -45,8 +45,8 @@ final readonly class AdminWikiMediaController
                     $media->whereKey((int) $queryText);
                 }
 
-                $media->orWhere('alt_text', 'like', $pattern)
-                    ->orWhere('original_name', 'like', $pattern);
+                $media->orWhereLike('alt_text', $pattern)
+                    ->orWhereLike('original_name', $pattern);
             });
         }
 

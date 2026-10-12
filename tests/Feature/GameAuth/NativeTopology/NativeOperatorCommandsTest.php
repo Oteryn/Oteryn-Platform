@@ -230,11 +230,12 @@ final class NativeOperatorCommandsTest extends TestCase
         self::assertSame(1, $this->publishKeyExitCode($publicKey));
         $this->assertNothingWritten($otherRun.'/witness', true);
 
+        $default = config('database.default');
         $this->loopbackConcurrencyStore();
         self::assertSame(1, Artisan::call('game-auth:native-route:publish', $this->routeOptions()));
         self::assertSame(1, $this->publishKeyExitCode($publicKey));
         self::assertSame([], $this->files($otherRun.'/witness'));
-        config(['database.default' => 'sqlite']);
+        config(['database.default' => $default]);
         DB::table('game_channels')->delete();
         DB::table('game_worlds')->update(['world_id' => null]);
     }

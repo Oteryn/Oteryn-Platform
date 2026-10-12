@@ -81,6 +81,29 @@ final class CharacterCommandClient
         }
     }
 
+    /**
+     * Counts this issuer's pending intents while holding the lock that serializes issuers
+     * against the backlog bound. MariaDB takes next-key locks through a locking count.
+     * PostgreSQL rejects FOR UPDATE with an aggregate and has no gap locks, so it takes a
+     * transaction-scoped advisory lock per issuer before a plain count (ADR 0046).
+     */
+    private function lockedPendingCount(): int
+    {
+        $query = DB::table(CharacterCommandIntentRow::TABLE)
+            ->where('issuer_authority', CharacterCommandWire::ISSUER_AUTHORITY)
+            ->where('state', CharacterCommandIntentRow::PENDING);
+
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            DB::select('select pg_advisory_xact_lock(hashtextextended(?, 0))', [
+                CharacterCommandIntentRow::TABLE.':pending:'.CharacterCommandWire::ISSUER_AUTHORITY,
+            ]);
+
+            return $query->count();
+        }
+
+        return $query->lockForUpdate()->count();
+    }
+
     /** @param array<string, string> $binding */
     private function issue(CharacterCommandSettings $settings, string $keySha, string $bindingSha, string $command, array $binding): CharacterCommandStatus
     {
@@ -99,11 +122,7 @@ final class CharacterCommandClient
             }
 
             // The locking count serializes issuers against the backlog bound (CHARCMD-PENDING-BACKLOG).
-            $pending = DB::table(CharacterCommandIntentRow::TABLE)
-                ->where('issuer_authority', CharacterCommandWire::ISSUER_AUTHORITY)
-                ->where('state', CharacterCommandIntentRow::PENDING)
-                ->lockForUpdate()
-                ->count();
+            $pending = $this->lockedPendingCount();
             if ($pending >= $settings->maxPendingIntents) {
                 throw new CharacterCommandBacklogFull('Character command backlog is full; retry later.');
             }
