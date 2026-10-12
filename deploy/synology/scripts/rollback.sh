@@ -98,7 +98,8 @@ oteryn_platform_mtls_settings_valid || exit 1
 oteryn_platform_mtls_preflight "${compose[@]}" || exit 1
 
 oteryn_native_admission_ingress_stop "${compose[@]}" >/dev/null
-# The Game-node mTLS listener stops too; it is recreated after the gates (oteryn_reconcile_platform_mtls).
+# The ingress stop also stops the Game-node mTLS listener while it is on; this stops one left running
+# while it is off. It is recreated or removed after the gates (oteryn_reconcile_platform_mtls).
 oteryn_platform_mtls_stop "${compose[@]}" || exit 1
 "${compose[@]}" up -d platform
 oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || exit 1

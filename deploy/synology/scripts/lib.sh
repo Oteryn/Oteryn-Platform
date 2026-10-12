@@ -179,11 +179,74 @@ oteryn_platform_mtls_preflight() {
         echo "Platform mTLS bind address $PLATFORM_MTLS_BIND_ADDRESS is not an address of this host." >&2
         return 1
     fi
+    oteryn_platform_mtls_certificate_valid || return 1
     if ! "$@" run --rm --no-deps -T --entrypoint nginx internal-mtls -t -q -c /bootstrap/internal-mtls-nginx.conf; then
         echo "Platform mTLS listener configuration or its host certificate files were refused (README: Platform internal mTLS listener)." >&2
         return 1
     fi
     echo "Platform mTLS listener preflight passed for ${PLATFORM_MTLS_BIND_ADDRESS}:${PLATFORM_MTLS_PORT}."
+}
+
+# The name the Game node verifies; the server certificate must carry it as a DNS SAN.
+OTERYN_PLATFORM_MTLS_SERVER_NAME='platform-internal.preprod.oteryn.internal'
+
+# Proves, before any ingress mutation (oteryn_platform_mtls_preflight), that the mounted server
+# certificate will be accepted by the Game node: the chain verifies against the mounted CA, it is
+# inside its validity period (not expired, not yet valid), it carries the DNS SAN
+# OTERYN_PLATFORM_MTLS_SERVER_NAME, it is usable for server authentication and the key file matches
+# it. nginx -t checks none of that. A real TLS 1.3 handshake runs in memory in a throwaway container
+# with no network: the server side loads the chain and key (a key that does not match the
+# certificate is refused there), the client side trusts only the mounted CA and checks the name.
+# Only the verdict leaves the container; the key bytes never do. --mount fails on a missing file.
+oteryn_platform_mtls_certificate_valid() {
+    local verdict
+    if verdict="$(docker run --rm --network none \
+        --mount "type=bind,source=${PLATFORM_MTLS_SERVER_CERT_FILE},target=/m/server-fullchain.pem,readonly" \
+        --mount "type=bind,source=${PLATFORM_MTLS_SERVER_KEY_FILE},target=/m/server.key,readonly" \
+        --mount "type=bind,source=${PLATFORM_MTLS_CLIENT_CA_FILE},target=/m/ca.crt,readonly" \
+        python:3.12-alpine python3 -I -c '
+import ssl, sys
+name = sys.argv[1]
+try:
+    server = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server.minimum_version = ssl.TLSVersion.TLSv1_3
+    server.load_cert_chain("/m/server-fullchain.pem", "/m/server.key", password="")
+except (ssl.SSLError, OSError) as error:
+    sys.exit("the server chain or key cannot be loaded, or the key does not match the certificate (%s)" % (getattr(error, "reason", None) or type(error).__name__))
+try:
+    client = ssl.create_default_context(cafile="/m/ca.crt")
+except (ssl.SSLError, OSError) as error:
+    sys.exit("the CA file cannot be loaded (%s)" % (getattr(error, "reason", None) or type(error).__name__))
+client.minimum_version = ssl.TLSVersion.TLSv1_3
+pipes = [ssl.MemoryBIO() for _ in range(4)]
+tls_client = client.wrap_bio(pipes[0], pipes[1], server_hostname=name)
+tls_server = server.wrap_bio(pipes[2], pipes[3], server_side=True)
+done = set()
+try:
+    for _ in range(16):
+        for side in (tls_client, tls_server):
+            if side not in done:
+                try:
+                    side.do_handshake()
+                    done.add(side)
+                except ssl.SSLWantReadError:
+                    pass
+        pipes[2].write(pipes[1].read())
+        pipes[0].write(pipes[3].read())
+        if len(done) == 2:
+            break
+except ssl.SSLCertVerificationError as error:
+    sys.exit("the server certificate is refused: %s" % error.verify_message)
+except ssl.SSLError as error:
+    sys.exit("the TLS 1.3 handshake failed (%s)" % (error.reason or type(error).__name__))
+if len(done) != 2 or tls_client.version() != "TLSv1.3":
+    sys.exit("the TLS 1.3 handshake did not complete")
+print("ok")
+' "$OTERYN_PLATFORM_MTLS_SERVER_NAME" 2>&1)" && [[ "$verdict" == ok ]]; then
+        return 0
+    fi
+    echo "Platform mTLS server certificate refused for ${OTERYN_PLATFORM_MTLS_SERVER_NAME}: ${verdict:-the check could not run} (README: Platform internal mTLS listener)." >&2
+    return 1
 }
 
 # One digest of everything the running listener depends on: bind address, port, the three host
@@ -212,12 +275,10 @@ oteryn_platform_mtls_fingerprint_of() {
     command docker inspect --format '{{index .Config.Labels "oteryn.platform-mtls.fingerprint"}}' "$1" 2>/dev/null
 }
 
-# Brings the listener to the resolved setting after Platform is up: recreated while on (it then
-# re-reads the host certificate files and carries their fingerprint), removed while off. Arguments:
-# the route's Compose command words.
-# Stops the Game-node mTLS listener together with the rest of the ingress while Platform is replaced
-# and migrated (deploy.sh full path, rollback.sh), so no Game-node request reaches a Platform that has
-# not passed its gates. oteryn_reconcile_platform_mtls recreates it after the gates.
+# Stops the Game-node mTLS listener whatever the setting (deploy.sh full path, rollback.sh, right
+# after oteryn_native_admission_ingress_stop, which stops it only while the setting is on): a
+# listener left running from before the setting was turned off must not reach the Platform being
+# replaced and migrated either. oteryn_reconcile_platform_mtls recreates or removes it after the gates.
 oteryn_platform_mtls_stop() {
     (($# > 0)) || { echo "Platform mTLS stop needs the Compose command." >&2; return 1; }
     local id
@@ -225,6 +286,9 @@ oteryn_platform_mtls_stop() {
     [[ -z "$id" ]] || "$@" stop internal-mtls >&2
 }
 
+# Brings the listener to the resolved setting after Platform is up: recreated while on (it then
+# re-reads the host certificate files and carries their fingerprint), removed while off. Arguments:
+# the route's Compose command words.
 oteryn_reconcile_platform_mtls() {
     (($# > 0)) || { echo "Platform mTLS reconcile needs the Compose command." >&2; return 1; }
     if [[ "${OTERYN_PLATFORM_MTLS_ENABLED:-false}" == true ]]; then
@@ -233,10 +297,12 @@ oteryn_reconcile_platform_mtls() {
             echo "Platform mTLS listener files could not be fingerprinted (README: Platform internal mTLS listener)." >&2
             return 1
         }
-        OTERYN_PLATFORM_MTLS_FINGERPRINT="$fingerprint" "$@" up -d --no-deps --force-recreate internal-mtls
+        OTERYN_PLATFORM_MTLS_FINGERPRINT="$fingerprint" "$@" up -d --no-deps --force-recreate internal-mtls || return 1
     else
-        "$@" rm -s -f internal-mtls >/dev/null
+        "$@" rm -s -f internal-mtls >/dev/null || return 1
     fi
+    # The listener the ingress stop kept is replaced (or removed); nothing is left to start.
+    OTERYN_PLATFORM_MTLS_STOPPED_ID=''
 }
 
 # The Platform FastCGI switch a running Platform container carries (absent means false).
@@ -1131,6 +1197,20 @@ oteryn_publish_native_route() {
 #
 # oteryn_native_admission_ingress_stop <compose command words>: prints the ids of the ingress
 # containers that were running (start order), then stops Gateway and the internal proxy.
+#
+# The Game-node mTLS listener (internal-mtls) is ingress too: it passes Game-node requests straight
+# to Platform's FastCGI pool. While the listener is on it is stopped here with the rest, so every
+# route that replaces Platform through this helper (deploy.sh fast, full and candidate paths,
+# rollback.sh, deploy-impact.sh Platform reconcile, generate-native-admission-key.sh promotion,
+# marketplace-staging.sh, the Marketplace runtime recreation and the failure restore below) keeps
+# it stopped until the gates pass. Its id is printed last and also kept in
+# OTERYN_PLATFORM_MTLS_STOPPED_ID (only for a direct call; a later stop that finds it already
+# stopped keeps the first id), so it comes back through whichever way the route returns ingress:
+# oteryn_native_admission_ingress_start (given ids or the kept id), the self-check gate below, or
+# oteryn_reconcile_platform_mtls, which recreates it and forgets the kept id. While the listener is
+# off it is not running (oteryn_reconcile_platform_mtls removes it and health-check.sh refuses a
+# running one), so nothing more is stopped.
+OTERYN_PLATFORM_MTLS_STOPPED_ID=''
 oteryn_native_admission_ingress_stop() {
     local service id
     local -a running=()
@@ -1140,18 +1220,28 @@ oteryn_native_admission_ingress_stop() {
         [[ -z "$id" ]] || running+=("$id")
     done
     "$@" stop gateway internal-proxy >&2 || return 1
+    if [[ "${OTERYN_PLATFORM_MTLS_ENABLED:-false}" == true ]]; then
+        id="$("$@" ps -q internal-mtls)" || return 1
+        if [[ -n "$id" ]]; then
+            "$@" stop internal-mtls >&2 || return 1
+            running+=("$id")
+            OTERYN_PLATFORM_MTLS_STOPPED_ID="$id"
+        fi
+    fi
     ((${#running[@]} == 0)) || printf '%s\n' "${running[@]}"
 }
 
 # Starts the given ingress container ids again (the output of oteryn_native_admission_ingress_stop,
-# or a route's preserved ids). Only call it after the trust gate passed.
+# or a route's preserved ids), and the Game-node mTLS listener this shell's ingress stop kept.
+# Only call it after the trust gate passed.
 oteryn_native_admission_ingress_start() {
     local id
     local -a ids=()
-    for id in "$@"; do
-        [[ -z "$id" ]] || ids+=("$id")
+    for id in "$@" "$OTERYN_PLATFORM_MTLS_STOPPED_ID"; do
+        [[ -z "$id" || " ${ids[*]} " == *" $id "* ]] || ids+=("$id")
     done
-    ((${#ids[@]} == 0)) || command docker start "${ids[@]}" >/dev/null
+    ((${#ids[@]} == 0)) || command docker start "${ids[@]}" >/dev/null || return 1
+    OTERYN_PLATFORM_MTLS_STOPPED_ID=''
 }
 
 # The trust gate. The arguments are the route's Compose command words (for example
@@ -1182,6 +1272,13 @@ oteryn_native_admission_self_check_or_stop() {
     if id="$("$@" ps -q platform)" && [[ -n "$id" ]] \
         && env_out="$(command docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$id")" \
         && { ! grep -qx 'GAME_AUTH_NATIVE_ADMISSION_ENABLED=true' <<<"$env_out" || oteryn_run_native_admission_self_check "$id"; }; then
+        # This is the last gate of every route that runs it, on the Platform that will serve: the
+        # Game-node mTLS listener this shell's ingress stop kept returns now (marketplace-staging.sh
+        # returns the internal proxy and Gateway by hand, without oteryn_native_admission_ingress_start).
+        oteryn_native_admission_ingress_start || {
+            echo "Native admission self-check passed, but the Game-node mTLS listener could not be started again." >&2
+            return 1
+        }
         return 0
     fi
     echo "Native admission self-check gate failed; removing the Platform, internal proxy and Gateway containers (fail closed)." >&2
@@ -1210,8 +1307,9 @@ oteryn_restore_previous_platform_behind_trust_gate() {
         return 1
     fi
     local rc=0
-    "${base[@]}" up -d --no-deps internal-proxy gateway >/dev/null 2>&1 || {
-        echo "$label could not start the internal proxy and Gateway." >&2
+    # With the Game-node mTLS listener kept by the ingress stop (the route's own or the one above).
+    { "${base[@]}" up -d --no-deps internal-proxy gateway && oteryn_native_admission_ingress_start; } >/dev/null 2>&1 || {
+        echo "$label could not start the internal proxy, Gateway and Game-node mTLS listener." >&2
         rc=1
     }
     _oteryn_reconcile_marketplace_scheduler_after_runtime_change >/dev/null 2>&1 || {

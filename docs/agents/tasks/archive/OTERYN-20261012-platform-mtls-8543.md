@@ -94,6 +94,7 @@ proven:
   - Codex P1s on #1570 (head ca5e735b). (1) deploy.sh: an unresolved candidate whose Platform image was built before the listener is now finalized with the listener off. The decision is made, and pinned into the candidate health env, before any stack change, so later deploys no longer repeat the failure. An image that cannot be inspected fails closed. Local check: the probe returned 3 for an image without the pool, 0 for one with it, and 125 for a missing image. (2) rollback.sh runs the settings check and the full preflight before oteryn_native_admission_ingress_stop. The preflight covers the image, the bind address and nginx -t with the mounted files.
   - Codex P1s on #1570 (head e2b79f2d), the last round in this area. (1) A full deploy and a rollback stop internal-mtls together with the rest of the ingress before Platform is replaced or migrated, and reconcile recreates it after the gates. (2) A candidate keeps the listener off when its running Platform has FastCGI off, even if its image has the pool. Anything further goes to the follow-up synology-mtls-hardening.
   - Further P1s in this area after this round go to the named follow-up D282, unless they are a real regression (coordinator).
+  - Codex P1s on #1570 (head c576b672), fixed at the root on coordinator direction. (1) The shared ingress stop (lib.sh oteryn_native_admission_ingress_stop) stops internal-mtls while the listener is on, so all ten call sites are covered. These are deploy.sh fast, candidate and full; rollback.sh; deploy-impact.sh reconcile; key promotion; marketplace-staging.sh enable and prepare-rollback; the Marketplace runtime recreation; and the failure restore. The listener comes back only behind the gates: with ingress_start, at the final self-check, or through the listener reconcile. A contract test enumerates the callers and checks that order. (2) The shared preflight now validates the server certificate before any ingress mutation. A no-network container runs an in-memory TLS 1.3 handshake, trusting only the mounted CA, with the expected name. Local check with scratch PKI: a valid set passed; a wrong key, wrong CA, wrong SAN, expired certificate, client-only EKU and missing file were each refused.
   - The Compose profile keeps the bind-mounted service out of the default render, so the CI "no bind mounts" render check passes.
 derived:
   - Coordinator answers 2026-10-12. (2) ssl_verify_depth 1 is correct because Game client certificates are issued directly by the preprod root (pathlen 0, no intermediates). (3) The listener stays on by default for staging. (4) The commit trailer names Opus 5.5 where the packet said Sonnet 5.5; the deviation is accepted and recorded.
@@ -125,7 +126,7 @@ changed_paths:
 validation:
   - command: python3 deploy/synology/tests/test_platform_mtls_contract.py
     result: PASS
-    evidence: 14 tests
+    evidence: 17 tests
   - command: CI-listed Synology python tests and container_supply_chain validate-repository
     result: PASS
     evidence: all pass, rc 0

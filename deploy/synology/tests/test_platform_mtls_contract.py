@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import pathlib
 import re
+import subprocess
+import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SYNOLOGY = ROOT / "deploy" / "synology"
@@ -17,6 +20,7 @@ DEPLOY = SYNOLOGY / "scripts" / "deploy.sh"
 ROLLBACK = SYNOLOGY / "scripts" / "rollback.sh"
 HEALTH = SYNOLOGY / "scripts" / "health-check.sh"
 ROUTES = ROOT / "routes" / "internal.php"
+SCRIPTS = SYNOLOGY / "scripts"
 
 GAME_NODE_ROUTES = {
     "native-evidence",
@@ -336,6 +340,150 @@ def test_candidate_keeps_the_listener_off_when_its_platform_runs_without_fastcgi
         assert needle in body, needle
     assert body.index(decide) < body.index(running) < body.index(off) < body.index(pin_call)
     assert body.index(pin_call) < body.index("oteryn_native_admission_ingress_stop")
+
+
+# Every route that replaces Platform behind the native admission gates stops ingress through
+# lib.sh oteryn_native_admission_ingress_stop; that one helper also stops the Game-node mTLS
+# listener. The list below is every call site: a new one must be added here together with the way
+# it returns the listener.
+INGRESS_STOP_CALLERS = {
+    "deploy-impact.sh": 1,  # _oteryn_platform_reconcile
+    "deploy.sh": 3,  # fast path, previous-candidate finalization, full path
+    "generate-native-admission-key.sh": 1,  # key promotion
+    "lib.sh": 2,  # _oteryn_recreate_marketplace_runtime_gated, failure restore
+    "marketplace-staging.sh": 2,  # enable, prepare-rollback
+    "rollback.sh": 1,
+}
+LISTENER_RETURNS = (
+    "oteryn_native_admission_ingress_start",
+    "oteryn_native_admission_self_check_or_stop",
+    "oteryn_reconcile_platform_mtls",
+)
+
+FAKE_DOCKER = """#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$FAKE_DOCKER_LOG"
+case "$*" in
+    *' ps -q internal-proxy') echo proxy-1 ;;
+    *' ps -q gateway') echo gateway-1 ;;
+    *' ps -q internal-mtls') printf '%s\\n' "${FAKE_MTLS-mtls-1}" ;;
+    *' ps -q platform') echo platform-1 ;;
+    'inspect '*) echo GAME_AUTH_NATIVE_ADMISSION_ENABLED=false ;;
+esac
+exit 0
+"""
+
+
+def _run_lib(script: str, **env: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    with tempfile.TemporaryDirectory() as tmp:
+        directory = pathlib.Path(tmp)
+        (directory / "docker").write_text(FAKE_DOCKER)
+        (directory / "docker").chmod(0o755)
+        log = directory / "docker.log"
+        result = subprocess.run(
+            ["bash", "-c", 'source "$1"; ' + script, "bash", str(LIB)],
+            text=True,
+            capture_output=True,
+            check=False,
+            env={**os.environ, "PATH": f"{directory}:{os.environ['PATH']}", "FAKE_DOCKER_LOG": str(log), **env},
+        )
+        calls = log.read_text().splitlines() if log.exists() else []
+    return result, calls
+
+
+def test_every_ingress_stop_caller_returns_the_listener_only_after_its_gates() -> None:
+    found: dict[str, int] = {}
+    call = re.compile(r"^(?!\s*#).*\boteryn_native_admission_ingress_stop \"\$\{", re.M)
+    for script in sorted(SCRIPTS.glob("*.sh")):
+        text = script.read_text()
+        for match in call.finditer(text):
+            found[script.name] = found.get(script.name, 0) + 1
+            rest = text[match.end():]
+            # The caller's own scope: its function body or case branch, or the rest of a top-level script.
+            ends = [i for i in (rest.find("\n}"), rest.find(";;")) if i >= 0]
+            scope = rest[: min(ends)] if ends else rest
+            scope = "\n".join(line for line in scope.splitlines() if not line.lstrip().startswith("#"))
+            returns = [m.start() for name in LISTENER_RETURNS for m in re.finditer(re.escape(name), scope)]
+            assert returns, f"{script.name}: ingress stop without a way back for the mTLS listener"
+            # Once Platform is (re)created, the listener returns only behind the trust gate. (A route
+            # may return ingress unchanged before touching Platform, as a refused key promotion does.)
+            replaced = [m.start() for m in re.finditer(r"up -d (--no-deps --force-recreate )?platform\b", scope)]
+            after = [r for r in returns if not replaced or r > min(replaced)]
+            gate = scope.find("oteryn_publish_native_admission_trust_or_stop", min(replaced) if replaced else 0)
+            assert after and 0 <= gate < min(after), f"{script.name}: the listener could return before the trust gate"
+    assert found == INGRESS_STOP_CALLERS
+
+
+def test_ingress_stop_takes_the_listener_down_and_every_way_back_returns_it() -> None:
+    lib = LIB.read_text()
+    body = re.search(r"^oteryn_native_admission_ingress_stop\(\) \{\n(.*?)^\}", lib, re.M | re.S).group(1)
+    assert '"$@" stop internal-mtls' in body
+
+    result, calls = _run_lib(
+        'ids="$(oteryn_native_admission_ingress_stop docker compose)"; echo "$ids"; '
+        "oteryn_native_admission_ingress_stop docker compose >/dev/null; "
+        "oteryn_native_admission_ingress_start; oteryn_native_admission_ingress_start",
+        OTERYN_PLATFORM_MTLS_ENABLED="true",
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == ["proxy-1", "gateway-1", "mtls-1"]
+    assert "compose stop internal-mtls" in calls
+    # The direct stop kept the listener; the first start returns it, the second has nothing left.
+    assert calls.count("start mtls-1") == 1 and calls[-1] == "start mtls-1"
+
+    # Given ids (the printed list) and the kept id are started once together.
+    result, calls = _run_lib(
+        "oteryn_native_admission_ingress_stop docker compose >/dev/null; oteryn_native_admission_ingress_start proxy-1 gateway-1 mtls-1",
+        OTERYN_PLATFORM_MTLS_ENABLED="true",
+    )
+    assert result.returncode == 0, result.stderr
+    assert calls[-1] == "start proxy-1 gateway-1 mtls-1"
+
+    # marketplace-staging.sh returns the proxy and Gateway by hand: the self-check gate returns the listener.
+    result, calls = _run_lib(
+        "oteryn_native_admission_ingress_stop docker compose >/dev/null; oteryn_native_admission_self_check_or_stop docker compose",
+        OTERYN_PLATFORM_MTLS_ENABLED="true",
+    )
+    assert result.returncode == 0, result.stderr
+    assert calls[-1] == "start mtls-1"
+
+    # A reconcile replaces the listener, so nothing stale is started afterwards.
+    result, calls = _run_lib(
+        "oteryn_platform_mtls_fingerprint() { echo f; }; oteryn_native_admission_ingress_stop docker compose >/dev/null; "
+        "oteryn_reconcile_platform_mtls docker compose; oteryn_native_admission_ingress_start",
+        OTERYN_PLATFORM_MTLS_ENABLED="true",
+    )
+    assert result.returncode == 0, result.stderr
+    assert calls[-1] == "compose up -d --no-deps --force-recreate internal-mtls"
+
+    # While the listener is off nothing about it is touched (it is not running; health-check.sh).
+    result, calls = _run_lib(
+        "oteryn_native_admission_ingress_stop docker compose; oteryn_native_admission_ingress_start",
+        OTERYN_PLATFORM_MTLS_ENABLED="false",
+    )
+    assert result.returncode == 0, result.stderr
+    assert not [c for c in calls if "internal-mtls" in c or c.startswith("start")]
+
+
+def test_preflight_validates_the_server_certificate_before_any_ingress_mutation() -> None:
+    lib = LIB.read_text()
+    preflight = re.search(r"^oteryn_platform_mtls_preflight\(\) \{\n(.*?)^\}", lib, re.M | re.S).group(1)
+    assert preflight.index("oteryn_platform_mtls_certificate_valid || return 1") < preflight.index("--entrypoint nginx")
+    body = re.search(r"^oteryn_platform_mtls_certificate_valid\(\) \{\n(.*?)^\}", lib, re.M | re.S).group(1)
+    assert "OTERYN_PLATFORM_MTLS_SERVER_NAME='platform-internal.preprod.oteryn.internal'" in lib
+    assert "--network none" in body and body.count(",readonly\"") == 3
+    # The client side trusts only the mounted CA and checks the name, so the chain, the validity
+    # period, the SAN and the server-auth purpose are all verified; the server side loads the key.
+    assert 'ssl.create_default_context(cafile="/m/ca.crt")' in body
+    assert "server_hostname=name" in body
+    assert 'server.load_cert_chain("/m/server-fullchain.pem", "/m/server.key"' in body
+    assert "ssl.TLSVersion.TLSv1_3" in body and 'tls_client.version() != "TLSv1.3"' in body
+    # deploy.sh preflights before the previous-candidate finalization and the full path stop ingress;
+    # rollback.sh before its ingress stop.
+    deploy = DEPLOY.read_text()
+    preflight_call = 'oteryn_platform_mtls_preflight "${compose[@]}" || exit 1'
+    assert deploy.index(preflight_call) < deploy.index("\nfinalize_previous_candidate_if_healthy\n")
+    rollback = ROLLBACK.read_text()
+    assert rollback.index(preflight_call) < rollback.index("oteryn_native_admission_ingress_stop")
 
 
 def main() -> None:

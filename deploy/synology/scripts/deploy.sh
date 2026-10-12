@@ -430,7 +430,8 @@ _oteryn_fast_deploy_platform() {
 
     "${compose[@]}" config --quiet
     # Ingress is stopped until the recreated Platform passes the trust gate (lib.sh), then the same
-    # preserved internal proxy and Gateway containers start again.
+    # preserved internal proxy and Gateway containers start again, with the Game-node mTLS listener
+    # the ingress stop kept.
     oteryn_native_admission_ingress_stop "${compose[@]}" >/dev/null
     "${compose[@]}" up -d --no-deps --force-recreate platform
     oteryn_publish_native_admission_trust_or_stop "${compose[@]}" || return 1
@@ -812,7 +813,8 @@ OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/prepare-fresh-schema-baseline.sh"
 # Ingress stays stopped until the new Platform passes the trust gate below (lib.sh); the migration
 # quiesce does not run on a first deploy, a same-release redeploy or a resumed candidate.
 oteryn_native_admission_ingress_stop "${compose[@]}" >/dev/null
-# The Game-node mTLS listener stops too; it is recreated after the gates (oteryn_reconcile_platform_mtls).
+# The ingress stop also stops the Game-node mTLS listener while it is on; this stops one left running
+# while it is off. It is recreated or removed after the gates (oteryn_reconcile_platform_mtls).
 oteryn_platform_mtls_stop "${compose[@]}" || exit 1
 "${compose[@]}" up -d platform
 "${compose[@]}" exec -T platform php artisan migrate --force --no-interaction
