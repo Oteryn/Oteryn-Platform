@@ -61,14 +61,15 @@ All new modes are `workflow_dispatch` only, from `main`, under `production-cloud
 
 ### `maintenance-open`
 
-1. Workflow boundary: ref is `main`, confirmation exact, `task_id`, `closure_run_id` and `evidence_run_id` present and numeric.
-2. Provenance, before any Cloudflare call, through `gh api` with the run's `GITHUB_TOKEN` (`actions: read`):
+1. Workflow boundary: ref is `main`, confirmation exact, `task_id` well formed. `closure_run_id` and `evidence_run_id` are optional at this point.
+2. Classify first. The script does a fresh read-only classification before any provenance work. State `open`: no write, no evidence and no provenance check (idempotent retry); go to step 6. State `split` or `unknown`: refuse (a `split` is an external edit, so the closure is no longer provable). State `closed`: continue.
+3. Only for `closed`, `closure_run_id` and `evidence_run_id` must be present and numeric, and provenance is checked through `gh api` with the run's `GITHUB_TOKEN` (`actions: read`):
    - The closure run: workflow path `.github/workflows/cloudflare-oteryn-endpoints.yml`, event `workflow_dispatch`, branch `main`, conclusion `success`, `run_attempt` 1, exactly one unexpired `oteryn-edge-gate-closure` artifact.
    - The evidence run: workflow path `.github/workflows/deploy-synology-staging.yml`, event `workflow_dispatch`, branch `main`, not `failure`/`cancelled`/`timed_out` (it may still be in progress, so that step 7 can live in the same run), exactly one unexpired `platform-cutover-gate-evidence` artifact.
    - Contents: `closure.task_id == evidence.task_id == task_id`, `evidence.close_run_id == closure_run_id`, `closure.close_run_id == closure_run_id`, and `evidence.outcome` is `cutover_complete` or `rollback_verified`.
-3. Script: fresh read and classify. State `open`: no write and no evidence needed (idempotent retry). State `closed`: require live `edge_version == closure.edge_version` and live `config_hash == closure.config_hash`. State `split` or `unknown`: refuse (a `split` is an external edit, so the closure is no longer provable).
-4. Re-read, same-hash check, `PUT` the fixed loopback origins for the two canonical rules (all other fields preserved), read back; the same success rule as the close.
-5. In the same job, a fresh `audit` pass must show `gate_state=open`, `tunnel_contract=current` and current DNS; then job `edge-probe` proves the normal contract.
+4. Script, still `closed`: require live `edge_version == closure.edge_version` and live `config_hash == closure.config_hash` on the classification read.
+5. Re-read immediately before the `PUT`: the final read must again classify `closed` and match both `closure.edge_version` and `closure.config_hash` (a matching hash alone is not enough, because an external update that restores identical rules still raises `version`). Any mismatch aborts with no write. Then `PUT` the fixed loopback origins for the two canonical rules (all other fields preserved) and read back; same success rule as the close.
+6. In the same job, a fresh `audit` pass must show `gate_state=open`, `tunnel_contract=current` and current DNS; then job `edge-probe` proves the normal contract.
 
 ### Evidence artifacts
 
@@ -100,7 +101,7 @@ Run on a GitHub-hosted runner, no secrets, only the two canonical hostnames plus
 
 A GitHub Actions `concurrency` group keeps at most one pending run and replaces an earlier pending one, even with `cancel-in-progress: false`. This note claims no lock stronger than that. The mechanism:
 
-1. Every mutating mode (`apply`, `maintenance-close`, `maintenance-open`) shares one job-level group, `cloudflare-oteryn-edge-write`, with `cancel-in-progress: false`. `audit` keeps a per-run group, so a read can never displace a mutation.
+1. Every job that can write to the tunnel shares one job-level group, `cloudflare-oteryn-edge-write`, with `cancel-in-progress: false`: the dispatch `manage` job in its `apply`, `maintenance-close` and `maintenance-open` modes, `marker-manage` and `comment-manage` in `cloudflare-oteryn-endpoints.yml`, and the `operate` job of `cloudflare-oteryn-endpoint-main-operation.yml` (apply on a push marker). Audit-only paths keep per-run groups. `audit` keeps a per-run group, so a read can never displace a mutation.
 2. The cancelled run is visible: GitHub marks a replaced pending run `cancelled`. A cancelled, failed, timed-out or missing run never produces the closure or the open record, and the cutover treats it as not done.
 3. The cutover proceeds only on positive proof, never on dispatch: a successful close run with the closure artifact, followed by the fresh `audit` showing `gate_state=closed`. A dropped `maintenance-close` therefore stops the cutover before the freeze instead of leaving the origins silently open.
 4. A dropped `maintenance-open` leaves the gate closed (fail closed) and is repeated.
@@ -113,7 +114,7 @@ A GitHub Actions `concurrency` group keeps at most one pending run and replaces 
 | `open` | `maintenance-close` | `closed` | Origin-route precondition passes, one `PUT`, read back, closure artifact, probes |
 | `closed` | `maintenance-close` | `closed` | No write; new closure artifact attests the current state; probes |
 | `split` | `maintenance-close` | `closed` | Completes the close |
-| `closed` | `maintenance-open` | `open` | Provenance and live-version evidence checks, one `PUT`, read back, fresh `audit`, probes |
+| `closed` | `maintenance-open` | `open` | Classify first; then provenance and evidence checks, final read matching `edge_version` and `config_hash`, one `PUT`, read back, fresh `audit`, probes |
 | `open` | `maintenance-open` | `open` | No write, no evidence; fresh `audit` and probes |
 | `split` | `maintenance-open` | unchanged | Refuses |
 | `unknown` | either mode | unchanged | Refuses, no write |
@@ -142,7 +143,8 @@ There is no automatic gate rollback and no automatic reopen. The application rol
 Implemented only after this note is accepted, in one packet, on the paths the plan already assigns:
 
 - `scripts/operations/cloudflare-oteryn-endpoints.sh`: mode parsing, `classify_gate_state`, `other_origin_routes`, `edge_version`, the `maintenance-close` and `maintenance-open` flows, the `apply` refusal, the `audit` fields, evidence-file validation.
-- `.github/workflows/cloudflare-oteryn-endpoints.yml`: mode enum and inputs, boundary step, job-level concurrency for mutating modes, provenance step (`gh api`), closure artifact upload, `edge-probe` job, `actions: read` for the manage job only. The `pull_request_target` and `issue_comment` jobs stay `audit`/`apply` only.
+- `.github/workflows/cloudflare-oteryn-endpoint-main-operation.yml`: the `operate` job joins the shared write group (it runs `apply` through the same script, which carries the refusal); its test `check-main-operation-workflow.py` asserts the group.
+- `.github/workflows/cloudflare-oteryn-endpoints.yml`: mode enum and inputs, boundary step, job-level concurrency on `manage`, `marker-manage` and `comment-manage` (audit runs keep per-run groups), provenance step (`gh api`), closure artifact upload, `edge-probe` job, `actions: read` for the manage job only. The `pull_request_target` and `issue_comment` jobs stay `audit`/`apply` only.
 - `tests/operations/cloudflare-oteryn-endpoints/mock_cloudflare.py`: a real `version` that increments on every `PUT`, controllable external edits between reads, injectable failures (transport, read-back, interleaved write), `service` classes for the origin-route cases.
 - `tests/operations/cloudflare-oteryn-endpoints/run.sh`, `check-marker-workflow.py`, `check-main-operation-workflow.py`, and new `check-gate-workflow.py`: workflow-shape assertions (inputs, confirmation phrases, shared concurrency group, `audit` group not shared, gate modes absent from marker and comment jobs, `actions: read` only on the manage job, no secret in logs or artifacts).
 - `docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md`: the two modes, the evidence artifacts, the break-glass note.
@@ -154,7 +156,7 @@ Test cases (script tests against the mock, workflow-shape tests in Python):
 - Classification: `open`, `closed`, `split`, and `unknown` for a missing rule, a locally managed tunnel, one rule on `503` and the other on an arbitrary service.
 - Origin-route precondition: refusal for a wildcard, the legacy Gateway hostname, a path-only rule and the catch-all on `127.0.0.1`, `localhost`, `[::1]`, `0.0.0.0` and another `127.x` address with port 8000 or 8080, including IPv4-mapped and default-port forms; no refusal for `http_status:*`, other ports and `unix:`; an unparseable service refuses; the count is printed and no hostname or service is.
 - Close: unrelated rules and catch-all preserved byte for byte; other fields of the canonical rules preserved; hash mismatch aborts; read-back failure and a wrong `version` increment report failure; no-op close from `closed` writes a new closure artifact; ambiguous `PUT` then re-dispatch converges.
-- Open: refused without the closure or the evidence artifact; with an expired or duplicate artifact; with evidence from another task; with evidence naming an earlier `close_run_id` (rollback, second close, stop at step 4); with a failed or cancelled evidence run; with a stopped step; with a `version` bumped by an external edit, including one that restores identical closed rules; from `split`. Accepted with `cutover_complete` and with `rollback_verified`.
+- Open: no provenance lookup and no evidence needed from `open` (a retry with no ids succeeds); a final read that matches the hash but not the `version` aborts before the `PUT`; refused without the closure or the evidence artifact; with an expired or duplicate artifact; with evidence from another task; with evidence naming an earlier `close_run_id` (rollback, second close, stop at step 4); with a failed or cancelled evidence run; with a stopped step; with a `version` bumped by an external edit, including one that restores identical closed rules; from `split`. Accepted with `cutover_complete` and with `rollback_verified`.
 - Serialization: three dispatches while one is running, with a close among them; a replaced pending run never yields a closure artifact and the next step refuses on that.
 - `audit` reports `closed` as bounded drift with exit 0; confirmation phrases required; no token, secret or bypass value in any output or artifact.
 
