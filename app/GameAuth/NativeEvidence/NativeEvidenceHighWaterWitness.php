@@ -260,12 +260,9 @@ final class NativeEvidenceHighWaterWitness
             $fence->verify($marker);
             $floor = $this->readFloor($floorPath);
             $current = $floor;
-            $checked = false;
-            $advance = function (int $revision) use ($floorPath, &$current, &$checked, $fence, $marker, $storeLock, $storeLockPath, $floorLock, $realDirectory): void {
-                if (! $checked) {
-                    $this->assertFencedBound($fence, $marker, $realDirectory, $storeLock, $storeLockPath, $floorLock, $floorPath.'.lock');
-                    $checked = true;
-                }
+            $advance = function (int $revision) use ($floorPath, &$current, $fence, $marker, $storeLock, $storeLockPath, $floorLock, $realDirectory): void {
+                // Re-asserted on every call: a retried DB::transaction attempt has lost the previous attempt's table locks.
+                $this->assertFencedBound($fence, $marker, $realDirectory, $storeLock, $storeLockPath, $floorLock, $floorPath.'.lock');
                 if ($revision < 0 || ($current !== null && $revision < $current)) {
                     throw new NativeEvidenceUnavailable('Native evidence high-water cannot roll back.');
                 }

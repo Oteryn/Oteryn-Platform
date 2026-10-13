@@ -95,6 +95,11 @@ if [[ "$ACTION" == check ]]; then
     exit $?
 fi
 
+if [[ "$ACTION" == check-kid-history ]] && ! docker volume inspect "$VOLUME_NAME" >/dev/null 2>&1; then
+    echo "The native admission key volume '$VOLUME_NAME' does not exist; the read-only history check will not create it." >&2
+    exit 1
+fi
+
 docker volume create "$VOLUME_NAME" >/dev/null
 
 # Runs inside the Platform image as root only to set ownership; no network, no extra privileges.
