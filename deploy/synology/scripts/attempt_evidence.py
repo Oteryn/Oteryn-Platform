@@ -906,6 +906,10 @@ def intent_precondition(A, runs, init, obs, key_id, data):
         return "anchor-issue-unlocked"
     if binding_of(obs) != "match" or store_id_of(obs) != sid or not continues(obs, A.stable, highwater(runs, sid)):
         return "store-changed"
+    # The attempt's own observations and recheck require the fence; an intent observed without it can never
+    # be classified committed, so the irreversible first publication is not begun on it.
+    if obs.get("fence_required") is not True:
+        return "precondition:fence"
     if floor_value(obs) is not None or floor_temp(obs):
         return "precondition:floor"
     if profile_of(obs) is not None:
