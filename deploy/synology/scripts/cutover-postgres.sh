@@ -469,6 +469,7 @@ do_freeze() {
     require_env_file
     has_step PREFLIGHT || refuse "preflight has not passed for this cutover."
     ! has_step FREEZE || refuse "the freeze is already recorded."
+    [[ "$(contract_engine)" == mariadb ]] || refuse "the release contract must still declare PLATFORM_DB_ENGINE=mariadb before the freeze."
     native_admission_off || refuse "native admission must be off before the freeze."
     marketplace_disabled || refuse "MARKETPLACE_ENABLED must be false."
     require_audit closed

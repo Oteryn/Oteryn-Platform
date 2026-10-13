@@ -662,7 +662,8 @@ evaluate_fingerprint_candidate() {
                and usable(.hosts[$www]) and usable(.hosts[$gateway])
             then {status: "collected", fingerprint: (.hosts | map_values(.elements | unique))}
             else {status: "unavailable", fingerprint: null} end
-        ) catch {status: "unavailable", fingerprint: null}' "$candidate_file"
+        ) catch {status: "unavailable", fingerprint: null}' "$candidate_file" 2>/dev/null \
+        || printf '{"status":"unavailable","fingerprint":null}'
 }
 
 # --- artifact retrieval (gh api compatible) ---------------------------------
