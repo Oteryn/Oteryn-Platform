@@ -13,8 +13,17 @@ REQUIRED_REPOSITORY='Oteryn/Oteryn-Platform'
 TRUSTED_ANCHOR_AUTHOR_ID=41898282
 TRUSTED_ANCHOR_AUTHOR_LOGIN='github-actions[bot]'
 
+# HOOK_FAIL_HINT, when set, is printed once after any failing exit (hook_fail, or a command that stops the
+# hook under set -e): the forward exit from the state the hook leaves.
+hook_hint() {
+    [[ -n "${HOOK_FAIL_HINT:-}" ]] || return 0
+    printf '%s: next: %s\n' "${HOOK_NAME:-cutover-hook}" "$HOOK_FAIL_HINT" >&2
+    HOOK_FAIL_HINT=""
+}
+
 hook_fail() {
     printf '%s: %s\n' "${HOOK_NAME:-cutover-hook}" "$*" >&2
+    hook_hint
     exit 1
 }
 
@@ -29,7 +38,7 @@ hook_require_tools() {
 hook_workdir() {
     HOOK_WORK="$(mktemp -d "${TMPDIR:-/tmp}/oteryn-cutover-hook.XXXXXX")" || hook_fail "cannot create a scratch directory."
     chmod 700 "$HOOK_WORK"
-    trap 'rm -rf -- "$HOOK_WORK"' EXIT
+    trap 'status=$?; rm -rf -- "$HOOK_WORK"; ((status == 0)) || hook_hint' EXIT
 }
 
 hook_env_get() {

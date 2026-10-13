@@ -430,7 +430,7 @@ ev_step4_after_deploy() {
         ev_require_ref "$adoptable"
         hook_fail "run $adoptable holds an init but no anchored attempt intent (the runner stopped during native-reenable); run the evidence-close-init step for run $adoptable, which writes the intent, then the deploy. Nothing was written."
     else
-        hook_fail "no attempt waits for its observation and none is committed; native-reenable (step 4) has not recorded an attempt. The owner decides."
+        hook_fail "no attempt waits for its observation and none is committed; native-reenable (step 4) has not recorded an attempt. While native admission is still off, the evidence-rebegin step begins it again (evidence_run_id empty when no run of this cutover exists, else its newest run); otherwise the owner decides."
     fi
     # The summary was read before this step wrote; the run must now be closed with done: true.
     ev_summary

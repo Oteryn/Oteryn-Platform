@@ -597,7 +597,8 @@ class ProvenanceInitTest(HookHarness):
 
     def test_rejects_bad_arguments(self):
         for args in ([], ["init"], ["init", TASK], ["run", TASK, CLOSE_RUN], ["init", "bad task", CLOSE_RUN],
-                     ["init", TASK, "0"], ["init", TASK, "12x"], ["init", TASK, CLOSE_RUN, "extra"]):
+                     ["init", TASK, "0"], ["init", TASK, "12x"], ["init", TASK, CLOSE_RUN, "extra"],
+                     ["close-init", TASK, CLOSE_RUN], ["retry", TASK, CLOSE_RUN], ["rebegin", TASK, CLOSE_RUN, "x"]):
             with self.subTest(args=args):
                 proc = self.run_hook("provenance-init", *args)
                 self.assertEqual(proc.returncode, 1)
@@ -953,6 +954,76 @@ class CloseInitTest(HookHarness):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("permanent begin-refused (init-lost)", proc.stderr)
         self.assertEqual(self.all_records(), before)
+
+    def test_init_failing_before_open_is_begun_again_without_a_run_id(self):
+        # native-reenable records its forward-only marker, then each check before open fails: nothing is written
+        # and the hook names the step that goes on without a run id.
+        for state_values, text in (({"observe_fail_at": 1}, "trust observation"), ({"post_fail": True}, "issues: write"),
+                                   ({"kid_count": 2}, "used.kids")):
+            with self.subTest(text=text):
+                self.update_state(**state_values)
+                proc = self.run_hook("provenance-init", "init", TASK, CLOSE_RUN)
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertIn(text, proc.stderr)
+                self.assertIn("next: no new evidence run was opened", proc.stderr)
+                self.assertIn("evidence-rebegin step with evidence_run_id left empty", proc.stderr)
+                self.assertEqual(list(self.evidence.iterdir()), [])
+                self.update_state(observe_fail_at=None, observe_calls=0, post_fail=False, kid_count=1)
+        # Only while the cutover state records native re-enable for this task and close run, native admission off.
+        for reenable, native, text in ((False, False, "records no native re-enable"),
+                                       (True, True, "native admission is on")):
+            with self.subTest(text=text):
+                self.write_cutover_state(TASK, CLOSE_RUN, reenable=reenable)
+                self.write_env(native=native)
+                proc = self.run_hook("provenance-init", "rebegin", TASK, CLOSE_RUN)
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertIn(text, proc.stderr)
+                self.assertEqual(list(self.evidence.iterdir()), [])
+        self.write_cutover_state(TASK, CLOSE_RUN)
+        self.write_env(native=False)
+        proc = self.run_hook("provenance-init", "rebegin", TASK, CLOSE_RUN)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = self.outputs(proc)
+        records = self.run_records()
+        self.assertEqual((out["rebegin_of"], out["attempt_run_id"], out["provenance_init_result"]),
+                         ("none", records[0]["run_id"], "created"))
+        self.assertEqual(records[0]["cutover_ref"], f"{TASK}/close-{CLOSE_RUN}")
+        self.assertEqual([r["type"] for r in records],
+                         ["run-open", "init-intent", "anchored", "init", "attempt-intent", "anchored"])
+        self.assert_verified()
+        self.assert_open_attempt()
+        self.assert_no_secret(proc)
+        # A run of this cutover exists now: a rebegin without a run id names it and writes nothing.
+        before, posts = self.all_records(), self.bot_posts()
+        proc = self.run_hook("provenance-init", "rebegin", TASK, CLOSE_RUN)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn(f"holds run {records[0]['run_id']} (last line anchored) of this cutover", proc.stderr)
+        self.assertEqual((self.all_records(), self.bot_posts()), (before, posts))
+
+    def test_a_run_written_by_open_is_named_and_resumed(self):
+        # The probe is posted, the run-open anchor post fails: the run id is printed with the failure, and a
+        # rebegin without a run id (the run id lost with the runner log) names the run instead of opening another.
+        self.update_state(post_limit=1)
+        proc = self.run_hook("provenance-init", "init", TASK, CLOSE_RUN)
+        self.assertNotEqual(proc.returncode, 0)
+        run = self.run_records()[0]["run_id"]
+        self.assertEqual(self.outputs(proc)["attempt_run_id"], run)
+        self.assertIn(f"next: evidence run {run} of this cutover holds the begin", proc.stderr)
+        self.update_state(post_limit=None)
+        proc = self.run_hook("provenance-init", "rebegin", TASK, CLOSE_RUN)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn(f"holds run {run} (last line run-open) of this cutover", proc.stderr)
+        self.assertEqual(len(self.all_records()), 1)
+        proc = self.run_hook("provenance-init", "close-init", TASK, CLOSE_RUN, run)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.outputs(proc)["close_init_result"], "resumed-begin")
+        self.assert_open_attempt()
+
+    def test_a_failure_after_open_names_the_run_id(self):
+        # D1 prints no result: init-intent is unfinished; the hint carries the run id for evidence-close-init.
+        run, proc = self.leave_unfinished_init()
+        self.assertEqual(self.outputs(proc)["attempt_run_id"], run)
+        self.assertIn(f"with evidence_run_id {run}.", proc.stderr)
 
     def assert_open_attempt(self):
         identity = json.dumps(self.load_state()["observations"]["post"]["database"]["identity"])
@@ -1398,7 +1469,9 @@ class HookContractTest(unittest.TestCase):
             self.assertNotIn("${{", step.split("        run: |\n", 1)[1])
         evidence = next(step for step in steps if step.startswith("Run cutover evidence step\n"))
         self.assertIn("if: inputs.action == 'cutover' && startsWith(inputs.cutover_step, 'evidence-')", evidence)
-        self.assertIn('"$hook" "$command" "$OTERYN_CUTOVER_TASK_ID"', evidence)
+        self.assertIn('args=("$command" "$OTERYN_CUTOVER_TASK_ID" "$OTERYN_CUTOVER_CLOSE_RUN_ID")', evidence)
+        self.assertIn('[[ -z "$OTERYN_CUTOVER_EVIDENCE_RUN_ID" ]] || args+=("$OTERYN_CUTOVER_EVIDENCE_RUN_ID")', evidence)
+        self.assertIn('"$hook" "${args[@]}"', evidence)
         for choice in ("evidence-close-init", "evidence-observe", "evidence-retry", "evidence-rebegin"):
             self.assertIn(f"          - {choice}\n", text)
         self.assertIn("if: inputs.action == 'cutover' && !startsWith(inputs.cutover_step, 'evidence-')", text)

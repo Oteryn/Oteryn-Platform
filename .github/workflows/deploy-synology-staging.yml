@@ -124,7 +124,7 @@ on:
         required: false
         type: string
       evidence_run_id:
-        description: Cutover evidence-* steps only - the attempt evidence run id (UUID) to close, retry or begin again after
+        description: Cutover evidence-* steps only - the attempt evidence run id (UUID) to close, retry or begin again after; empty for evidence-rebegin when no run of the cutover exists
         required: false
         type: string
 
@@ -559,7 +559,10 @@ jobs:
             [[ "$CUTOVER_TASK_ID" =~ ^OTERYN-[0-9]{8}-[a-z0-9][a-z0-9-]{0,80}$ ]] || { echo "task_id must look like OTERYN-YYYYMMDD-slug." >&2; exit 1; }
           fi
           if [[ "$CUTOVER_STEP" == evidence-* ]]; then
-            [[ "$CUTOVER_EVIDENCE_RUN_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] || { echo "evidence_run_id must be the attempt evidence run id (UUID)." >&2; exit 1; }
+            # evidence-rebegin alone may leave it empty: native-reenable failed before any run of the cutover existed.
+            if [[ "$CUTOVER_STEP" != evidence-rebegin || -n "$CUTOVER_EVIDENCE_RUN_ID" ]]; then
+              [[ "$CUTOVER_EVIDENCE_RUN_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] || { echo "evidence_run_id must be the attempt evidence run id (UUID)." >&2; exit 1; }
+            fi
             [[ "$CUTOVER_CLOSE_RUN_ID" =~ ^[1-9][0-9]{0,18}$ ]] || { echo "close_run_id is required for an evidence step." >&2; exit 1; }
           else
             [[ -z "$CUTOVER_EVIDENCE_RUN_ID" ]] || { echo "evidence_run_id is only for the evidence steps." >&2; exit 1; }
@@ -570,8 +573,9 @@ jobs:
 
       # P6a D5 recovery through the provenance hook: close-init closes an unfinished init-intent or resumes a
       # begin, observe writes the late observation of an unclosed attempt, retry writes attempt-intent n+1 after
-      # failed-before-witness, rebegin takes a refused or init-late begin again in a new run. Only this job's token is the trusted anchor author, so these
-      # never run by hand. A dry run prints the command only.
+      # failed-before-witness, rebegin takes a refused or init-late begin again in a new run (without a run id:
+      # native-reenable failed before it opened one). Only this job's token is the trusted anchor author, so
+      # these never run by hand. A dry run prints the command only.
       - name: Run cutover evidence step
         if: inputs.action == 'cutover' && startsWith(inputs.cutover_step, 'evidence-')
         env:
@@ -590,11 +594,13 @@ jobs:
           hook="$OTERYN_CUTOVER_PROVENANCE_INIT_COMMAND"
           [[ "$hook" == /* && -x "$hook" ]] || { echo "OTERYN_STAGING_CUTOVER_PROVENANCE_INIT_COMMAND must name the executable provenance hook." >&2; exit 1; }
           command="${CUTOVER_STEP#evidence-}"
+          args=("$command" "$OTERYN_CUTOVER_TASK_ID" "$OTERYN_CUTOVER_CLOSE_RUN_ID")
+          [[ -z "$OTERYN_CUTOVER_EVIDENCE_RUN_ID" ]] || args+=("$OTERYN_CUTOVER_EVIDENCE_RUN_ID")
           if [[ "$CUTOVER_DRY_RUN" == 1 ]]; then
-            printf 'DRY RUN: would run %s %s %s %s %s\n' "$hook" "$command" "$OTERYN_CUTOVER_TASK_ID" "$OTERYN_CUTOVER_CLOSE_RUN_ID" "$OTERYN_CUTOVER_EVIDENCE_RUN_ID"
+            printf 'DRY RUN: would run %s %s\n' "$hook" "${args[*]}"
             exit 0
           fi
-          "$hook" "$command" "$OTERYN_CUTOVER_TASK_ID" "$OTERYN_CUTOVER_CLOSE_RUN_ID" "$OTERYN_CUTOVER_EVIDENCE_RUN_ID"
+          "$hook" "${args[@]}"
 
       - name: Run cutover step
         if: inputs.action == 'cutover' && !startsWith(inputs.cutover_step, 'evidence-')

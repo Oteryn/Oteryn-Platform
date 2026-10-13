@@ -31,8 +31,14 @@
 #   provenance-init.sh observe <task_id> <close_run_id> <run_id>      D5 step4-observe --run <id> (late: true)
 #   provenance-init.sh retry <task_id> <close_run_id> <run_id>        D5 step4-begin --retry: attempt-intent n+1
 #       after a failed-before-witness observation, the last line of the run.
-#   provenance-init.sh rebegin <task_id> <close_run_id> <run_id>      the begin of `init` again, in a new run, after
+#   provenance-init.sh rebegin <task_id> <close_run_id> [<run_id>]    the begin of `init` again, in a new run, after
 #       the newest run of this cutover ended in a non-permanent begin-refused or in init-late (native admission off).
+#       Without a run id it is the begin of a cutover whose `init` failed before any run of it existed (a check,
+#       the pre-init observation, the probe or open itself failed after the forward-only marker); it refuses, and
+#       names the newest run, when a run of this cutover is in the evidence directory.
+#
+# Every failure of `init` from its first check on prints the next step (HOOK_FAIL_HINT): rebegin without a run
+# id before run-open exists, then the run id the recovery steps take.
 #
 # All act only on a run whose run-open records cutover_ref "<task_id>/close-<close_run_id>", and only while the
 # cutover state (OTERYN_CUTOVER_STATE_DIR, default $OTERYN_STATE_DIR/postgres-cutover) records native re-enable
@@ -54,6 +60,7 @@ source "$HOOK_SELF/evidence.sh"
 usage() {
     echo "Usage: provenance-init.sh {init|preflight} <task_id> <close_run_id>" >&2
     echo "       provenance-init.sh {close-init|observe|retry|rebegin} <task_id> <close_run_id> <run_id>" >&2
+    echo "       provenance-init.sh rebegin <task_id> <close_run_id>" >&2
     exit 1
 }
 
@@ -61,16 +68,24 @@ usage() {
 command="$1"
 task_id="$2"
 close_run_id="$3"
+run_id=""
 case "$command" in
     init | preflight) (($# == 3)) || usage ;;
     close-init | observe | retry | rebegin)
-        (($# == 4)) || usage
-        run_id="$4"
-        [[ "$run_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] \
+        # rebegin alone may go without a run id: no run of this cutover exists yet.
+        (($# == 4)) || [[ "$command" == rebegin && $# == 3 ]] || usage
+        run_id="${4:-}"
+        [[ -z "$run_id" || "$run_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] \
             || hook_fail "the evidence run id is malformed."
         ;;
     *) usage ;;
 esac
+# pre_open_hint: the forward exit while no new run exists. `init` runs after cutover-postgres.sh recorded its
+# forward-only marker, so a failure here must not need a run id that was never printed.
+pre_open_hint() {
+    HOOK_FAIL_HINT="no new evidence run was opened; fix the cause, keep native admission off and run the cutover evidence-rebegin step with evidence_run_id ${run_id:-left empty}."
+}
+[[ "$command" != init ]] || pre_open_hint
 [[ "$task_id" =~ ^OTERYN-[0-9]{8}-[a-z0-9][a-z0-9-]{0,80}$ ]] || hook_fail "the task id is malformed."
 [[ "$close_run_id" =~ ^[1-9][0-9]{0,18}$ ]] || hook_fail "the maintenance-close run id is malformed."
 ev_bind_cutover "$task_id" "$close_run_id"
@@ -88,6 +103,8 @@ W="$HOOK_WORK"
 # are checked before any anchor post or evidence write.
 if [[ "$command" != init && "$command" != preflight ]]; then
     ev_require_cutover_state "$task_id" "$close_run_id"
+fi
+if [[ -n "$run_id" ]]; then
     ev_summary
     [[ -n "$(jq -r --arg r "$run_id" '.runs[] | select(.run_id == $r) | .run_id' "$W/summary.json")" ]] \
         || hook_fail "run $run_id has no file in the evidence directory."
@@ -301,24 +318,34 @@ if [[ "$command" == rebegin ]]; then
     # (a refused open, init or intent, init-not-run) or the run-close of init-late. cutover-postgres.sh never
     # reruns native-reenable after its forward-only marker, so this step takes the begin again in a new run,
     # exactly as `init` does (open decides on the whole directory). Only the newest run of this cutover
-    # qualifies, and native admission must still be off.
+    # qualifies, and native admission must still be off. Without a run id, no run of this cutover may exist:
+    # `init` failed before open wrote one.
     [[ "$(hook_env_get OTERYN_NATIVE_ADMISSION_ENABLED)" != true ]] \
         || hook_fail "native admission is on in the deployed environment; a new begin is refused. The owner decides."
     begin_checks
     ev_summary
-    ev_require_ref "$run_id"
-    state="$(jq -c --arg r "$run_id" '.runs[] | select(.run_id == $r)' "$W/summary.json")"
-    [[ "$(jq -r --arg r "$run_id" --arg ref "$EV_CUTOVER_REF" '.runs as $all | ($all[] | select(.run_id == $r) | .opened_at) as $at
-        | [$all[] | select(.cutover_ref == $ref and .run_id != $r and (.opened_at // "") >= ($at // ""))] | length' "$W/summary.json")" == 0 ]] \
-        || hook_fail "run $run_id is not the newest run of this cutover; name the newest one. Nothing was written."
-    if [[ "$(jq -r '.last_type' <<<"$state")" == begin-refused ]]; then
-        [[ "$(jq -r '.last_permanent' <<<"$state")" != true ]] \
-            || hook_fail "run $run_id ended in a permanent begin-refused ($(jq -r '.last_reason' <<<"$state")); the owner decides. Nothing was written."
+    if [[ -z "$run_id" ]]; then
+        newest="$(jq -r --arg ref "$EV_CUTOVER_REF" '[.runs[] | select(.cutover_ref == $ref)] | sort_by(.opened_at // "")
+            | last // empty | "\(.run_id) (last line \(.last_type))"' "$W/summary.json")"
+        [[ -z "$newest" ]] \
+            || hook_fail "the evidence directory holds run $newest of this cutover; run the evidence step for that run id. Nothing was written."
+        printf 'rebegin_of=none\n'
     else
-        [[ "$(jq -r '.closed and (.done | not) and .init != null and .init.late == true' <<<"$state")" == true ]] \
-            || hook_fail "run $run_id did not end in a begin that may be taken again (last line $(jq -r '.last_type' <<<"$state")). Nothing was written."
+        ev_require_ref "$run_id"
+        state="$(jq -c --arg r "$run_id" '.runs[] | select(.run_id == $r)' "$W/summary.json")"
+        [[ "$(jq -r --arg r "$run_id" --arg ref "$EV_CUTOVER_REF" '.runs as $all | ($all[] | select(.run_id == $r) | .opened_at) as $at
+            | [$all[] | select(.cutover_ref == $ref and .run_id != $r and (.opened_at // "") >= ($at // ""))] | length' "$W/summary.json")" == 0 ]] \
+            || hook_fail "run $run_id is not the newest run of this cutover; name the newest one. Nothing was written."
+        if [[ "$(jq -r '.last_type' <<<"$state")" == begin-refused ]]; then
+            [[ "$(jq -r '.last_permanent' <<<"$state")" != true ]] \
+                || hook_fail "run $run_id ended in a permanent begin-refused ($(jq -r '.last_reason' <<<"$state")); the owner decides. Nothing was written."
+        else
+            [[ "$(jq -r '.closed and (.done | not) and .init != null and .init.late == true' <<<"$state")" == true ]] \
+                || hook_fail "run $run_id did not end in a begin that may be taken again (last line $(jq -r '.last_type' <<<"$state")). Nothing was written."
+        fi
+        printf 'rebegin_of=%s\n' "$run_id"
     fi
-    printf 'rebegin_of=%s\n' "$run_id"
+    pre_open_hint
     command=init
 fi
 
@@ -344,6 +371,9 @@ ev "$W/open.json" open --dir "$EVIDENCE_DIR" --anchors "$W/anchors.json" --pre-i
     --location "@$W/location.json" --cutover-ref "$task_id/close-$close_run_id" || open_status=$?
 run_id="$(jq -r '.run_id // empty' "$W/open.json")"
 [[ -n "$run_id" ]] || hook_fail "open wrote no run ($(ev_error "$W/open.json"))."
+# From here on run_id is the run every recovery step takes; each failure prints it.
+printf 'attempt_run_id=%s\n' "$run_id"
+HOOK_FAIL_HINT="evidence run $run_id of this cutover holds the begin; run the cutover evidence step its last line calls for (evidence-close-init, or evidence-rebegin after a begin-refused) with evidence_run_id $run_id."
 ev_anchor_lines "$W/open.json"
 ((open_status == 0)) || hook_fail "the run was refused before the init: $(jq -r '.reason // .error' "$W/open.json") (run $run_id)."
 
@@ -360,5 +390,4 @@ write_attempt_intent "$store_id"
 
 printf 'provenance_init_result=%s\n' "$init_result"
 printf 'witness_store_id=%s\n' "$store_id"
-printf 'attempt_run_id=%s\n' "$run_id"
 printf 'attempt_intent_line_sha256=%s\n' "$(jq -r '.line_sha256' "$W/intent.json")"
