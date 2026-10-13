@@ -123,6 +123,10 @@ on:
         description: Cutover retire-mariadb only - must equal task_id
         required: false
         type: string
+      native_smoke_waiver:
+        description: Cutover native-smoke only - the owner's waiver of the successful native login (no smoke actor); must equal task_id, empty otherwise
+        required: false
+        type: string
       evidence_run_id:
         description: Cutover evidence-* steps only - the attempt evidence run id (UUID) to close, retry or begin again after; empty for evidence-rebegin when no run of the cutover exists
         required: false
@@ -621,11 +625,12 @@ jobs:
           OTERYN_CUTOVER_ANCHOR_ISSUE: ${{ vars.OTERYN_STAGING_CUTOVER_ANCHOR_ISSUE }}
           OTERYN_STATE_DIR: ${{ vars.OTERYN_STAGING_STATE_DIR }}
           # The native smoke actor (native-smoke.sh): an identity without MFA that owns the smoke character.
-          # All three unset is the owner's waiver of the successful native login. The password reaches only the
-          # native-smoke step.
+          # The password reaches only the native-smoke step. Without an actor, native-smoke fails unless the
+          # owner waived the successful native login: native_smoke_waiver equal to task_id.
           OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL: ${{ vars.OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_EMAIL }}
           OTERYN_CUTOVER_NATIVE_SMOKE_CHARACTER_ID: ${{ vars.OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_CHARACTER_ID }}
           OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD: ${{ inputs.cutover_step == 'native-smoke' && secrets.OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_PASSWORD || '' }}
+          OTERYN_CUTOVER_NATIVE_SMOKE_WAIVER: ${{ inputs.cutover_step == 'native-smoke' && inputs.native_smoke_waiver || '' }}
         run: |
           set -euo pipefail
           rm -rf -- "$OTERYN_CUTOVER_EVIDENCE_DIR"

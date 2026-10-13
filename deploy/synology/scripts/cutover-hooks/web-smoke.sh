@@ -14,15 +14,18 @@
 #     tables; none touches the native-evidence witness. The smoke identity stays in the database (test data).
 #   - the admin boundary: the signed-in smoke identity gets 403 from /admin (it has no confirmed MFA and no
 #     admin role, so auth then mfa.confirmed refuse it). This proves only the refusal, so:
-#   - the administrator, in the running platform service (read-only, before any web write): at least one active
-#     identity holds admin.access through its PostgreSQL role rows; its MFA secret decrypts with the deployed
-#     application key and is confirmed; the admin route's own middleware (mfa.confirmed, then
-#     admin.permission:admin.access) admits it; and the admin dashboard renders for it with its permission
-#     navigation. Fails closed when no MFA-confirmed administrator exists: the operator bootstraps the first
-#     administrator (admin:bootstrap for an MFA-confirmed identity) before this smoke. It registers no session
-#     and writes no security event. Not exercised: the administrator's own password and TOTP entry (that would
-#     need the administrator's password and TOTP secret in the workflow); the password sign-in path is the one
-#     the smoke identity takes.
+#   - the administrator, in the running platform service (before any web write): at least one active identity
+#     holds admin.access through its PostgreSQL role rows, and its MFA secret decrypts with the deployed
+#     application key and is confirmed. A web session for that administrator is started in the deployed session
+#     store and registered as the MFA challenge registers one after a correct code; then a real GET /admin with
+#     that session's encrypted cookie goes through the HTTP kernel with the full middleware stack (cookie
+#     decryption, the session, EnsureIdentitySessionIsCurrent, auth, mfa.confirmed and
+#     admin.permission:admin.access) and must return 200 with the admin dashboard. The session is revoked and
+#     destroyed afterwards (it leaves one revoked identity_web_sessions row). Fails closed when no MFA-confirmed
+#     administrator exists: the operator bootstraps the first administrator (admin:bootstrap for an
+#     MFA-confirmed identity) before this smoke. Not exercised (stated limit): the administrator typing the
+#     password and TOTP code into the sign-in forms, since the runner holds no administrator credentials; the
+#     password sign-in form is the one the smoke identity takes.
 #   - the wallet read, independent of the Marketplace switch, in the same in-container probe: the wallet tables
 #     through their models (balances and ledger entries load), and the ledger reconciles (every balance equals
 #     the sum of its ledger deltas, no ledger entry without its account), in a read-only transaction.
@@ -51,17 +54,17 @@ $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 
 use App\Admin\AdminAuthorization;
 use App\Admin\AdminPermission;
-use App\Http\Middleware\EnsureConfirmedMfa;
-use App\Http\Middleware\RequireAdminPermission;
 use App\Identity\Models\Identity;
+use App\Identity\Sessions\IdentityWebSessionManager;
+use App\Identity\Sessions\IdentityWebSessionRegistry;
+use App\Identity\Sessions\WebSessionState;
 use App\Wallet\Models\WalletAccount;
 use App\Wallet\Models\WalletLedgerEntry;
 use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Contracts\Http\Kernel as HttpKernel;
+use Illuminate\Cookie\CookieValuePrefix;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\ViewErrorBag;
-use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
-use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 function smoke_fail(string $message, int $code): never
 {
@@ -107,33 +110,55 @@ function smoke_admin(Illuminate\Foundation\Application $app): void
         smoke_fail('The administrator permission projection does not list admin.access.', 44);
     }
 
-    // The admin route's own middleware (mfa.confirmed, then admin.permission:admin.access) on a request whose
-    // user is that administrator, then the dashboard view with its permission navigation. Read-only: no session is
-    // registered and no security event is written, so the administrator's sign-in state is untouched.
-    $request = Request::create('https://oteryn.molehill.cloud/admin', 'GET');
-    $request->setUserResolver(static fn (): Identity => $admin);
-    $app->instance('request', $request);
-    $auth = $app->make('auth');
-    $auth->shouldUse('web');
-    $auth->guard('web')->setUser($admin);
+    // A real admin page read. A web session for that administrator is started in the deployed session store and
+    // registered as the MFA challenge registers it after a correct code (IdentityWebSessionManager login and
+    // establish). Then GET /admin with that session's cookie goes through the HTTP kernel: the global middleware,
+    // routing, the web group (cookie decryption, the session, EnsureIdentitySessionIsCurrent) and the route's auth,
+    // mfa.confirmed and admin.permission:admin.access. The session is revoked and destroyed afterwards.
+    $server = ['REMOTE_ADDR' => '127.0.0.1', 'HTTP_USER_AGENT' => 'oteryn-cutover-web-smoke', 'HTTP_ACCEPT' => 'text/html'];
+    $establish = Request::create('https://oteryn.molehill.cloud/mfa/challenge', 'POST', [], [], [], $server);
+    $store = $app['session']->driver();
+    $store->start();
+    $establish->setLaravelSession($store);
+    $app->instance('request', $establish);
+    $sessions = $app->make(IdentityWebSessionManager::class);
+    $sessions->login($admin);
+    $sessions->establish($establish, $admin);
+    $store->save();
+    $sessionId = $store->getId();
+    $registryId = $store->get(WebSessionState::REGISTRY_ID_KEY);
+    $status = null;
+    $dashboard = false;
+    $failure = null;
     try {
-        $passed = $app->make(EnsureConfirmedMfa::class)->handle(
-            $request,
-            static fn (Request $inner): SymfonyResponse => $app->make(RequireAdminPermission::class)->handle(
-                $inner,
-                static fn (): SymfonyResponse => new SymfonyResponse('admitted'),
-                AdminPermission::ACCESS,
-            ),
-        );
-    } catch (HttpExceptionInterface $refused) {
-        smoke_fail("The admin route middleware refused the administrator (status {$refused->getStatusCode()}).", 45);
+        $app['auth']->forgetGuards();
+        $app['session']->forgetDrivers();
+        $cookie = config('session.cookie');
+        $encrypter = $app->make('encrypter');
+        $value = $encrypter->encrypt(CookieValuePrefix::create($cookie, $encrypter->getKey()).$sessionId, false);
+        $read = Request::create('https://oteryn.molehill.cloud/admin', 'GET', [], [$cookie => $value], [], $server);
+        $kernel = $app->make(HttpKernel::class);
+        $response = $kernel->handle($read);
+        $kernel->terminate($read, $response);
+        $status = $response->getStatusCode();
+        $html = (string) $response->getContent();
+        $dashboard = str_contains($html, 'admin-task-grid') && str_contains($html, 'https://oteryn.molehill.cloud/admin');
+    } catch (Throwable $unexpected) {
+        $failure = $unexpected::class;
+    } finally {
+        if (is_string($registryId)) {
+            $app->make(IdentityWebSessionRegistry::class)->revokeOwned($admin, $registryId);
+        }
+        $app['session']->driver()->getHandler()->destroy($sessionId);
     }
-    if ($passed->getStatusCode() !== 200 || $passed->getContent() !== 'admitted') {
-        smoke_fail('The admin route middleware did not admit the administrator.', 45);
+    if ($failure !== null) {
+        smoke_fail("The admin page request failed: {$failure}.", 45);
     }
-    $html = view('admin.dashboard', ['errors' => new ViewErrorBag])->render();
-    if (! str_contains($html, 'admin-task-grid') || ! str_contains($html, 'https://oteryn.molehill.cloud/admin')) {
-        smoke_fail('The admin dashboard did not render for the administrator.', 46);
+    if ($status !== 200) {
+        smoke_fail("GET /admin returned {$status} to the administrator's registered session, not 200.", 45);
+    }
+    if (! $dashboard) {
+        smoke_fail('GET /admin did not return the admin dashboard to the administrator.', 46);
     }
     echo "web_smoke_admin_access=granted\n";
     echo "web_smoke_admin_mfa=confirmed\n";

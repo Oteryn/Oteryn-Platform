@@ -26,10 +26,12 @@
 #     The actor comes from OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL, OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD (a secret,
 #     passed to the request container by name only) and OTERYN_CUTOVER_NATIVE_SMOKE_CHARACTER_ID: an identity
 #     without MFA that owns that bootstrapped character on the published native route of a ready Game node
-#     (NATIVE_LOGIN_OWNER_STEPS.md steps 9 and 10). A partly set or malformed actor fails closed before any
-#     evidence write. With none of the three set, the owner's waiver applies: only the unknown-ticket refusal is
-#     checked and the hook prints native_smoke_login=owner-waived (stated limit: no successful end-to-end
-#     native login before MariaDB retirement); with the actor set it prints native_smoke_login=end-to-end.
+#     (NATIVE_LOGIN_OWNER_STEPS.md steps 9 and 10); the hook then prints native_smoke_login=end-to-end. A
+#     missing, partly set or malformed actor fails closed before any evidence write, unless the owner waived the
+#     successful native login for this cutover: OTERYN_CUTOVER_NATIVE_SMOKE_WAIVER (workflow input
+#     native_smoke_waiver) equal to the task id, with no actor set. Then only the unknown-ticket refusal is checked
+#     and the hook prints native_smoke_login=owner-waived (stated limit: no successful end-to-end native login
+#     before MariaDB retirement). A waiver that names another task, or a waiver next to an actor, is refused.
 #     These logins write the OAuth, ticket and admission-attempt rows (P6 step 5 allows
 #     witnessed writes);
 #   - requires a fresh read-only trust observation (D2), taken after the login smoke with the attempt's key id,
@@ -63,16 +65,21 @@ hook_evidence_setup
 hook_workdir
 hook_runtime_env
 [[ "$(hook_env_get OTERYN_NATIVE_ADMISSION_ENABLED)" == true ]] || hook_fail "native admission is not on in the deployed environment."
-# The native smoke actor (owner-provisioned; never printed). Checked before any evidence write. None of the three
-# set is the owner's waiver of the successful native login; anything in between is a misconfiguration.
+# The native smoke actor (owner-provisioned; never printed), or the owner's task-bound waiver of the successful
+# native login. Checked before any evidence write; neither is a failure.
 smoke_character="${OTERYN_CUTOVER_NATIVE_SMOKE_CHARACTER_ID:-}"
-if [[ -z "${OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL:-}${OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD:-}$smoke_character" ]]; then
+smoke_waiver="${OTERYN_CUTOVER_NATIVE_SMOKE_WAIVER:-}"
+if [[ -n "$smoke_waiver" ]]; then
+    [[ "$smoke_waiver" == "${OTERYN_CUTOVER_TASK_ID:-}" ]] \
+        || hook_fail "the native smoke waiver (workflow input native_smoke_waiver) must equal this cutover's task id."
+    [[ -z "${OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL:-}${OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD:-}$smoke_character" ]] \
+        || hook_fail "both a native smoke waiver and a native smoke actor are set; give the actor or the waiver, not both."
     native_login=owner-waived
 else
     native_login=end-to-end
     [[ "${OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL:-}" =~ ^[^[:space:]@]+@[^[:space:]@]+$ \
         && -n "${OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD:-}" ]] \
-        || hook_fail "the native smoke actor is not fully configured: set OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_EMAIL (variable), OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_PASSWORD (secret) and OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_CHARACTER_ID (variable) for an identity without MFA that owns the smoke character, or none of them (owner waiver)."
+        || hook_fail "the native smoke actor is not configured: set OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_EMAIL (variable), OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_PASSWORD (secret) and OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_CHARACTER_ID (variable) for an identity without MFA that owns the smoke character, or, only on the owner's decision, dispatch with native_smoke_waiver set to the task id."
     [[ "$smoke_character" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] \
         || hook_fail "OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_CHARACTER_ID must be the smoke character's lower-case UUIDv7."
 fi
@@ -198,9 +205,11 @@ status, _, code = gateway_login(login_body('oteryn-cutover-probe-' + secrets.tok
 if status != 401 or code != 'NATIVE_LOGIN_AUTHENTICATION_REQUIRED':
     raise SystemExit(f'Native login with an unknown ticket did not reach the Platform issuer: status {status}, code {code}')
 if native_login == 'owner-waived':
-    # The owner waived the successful native login: no actor and no published route before MariaDB retirement.
+    # The owner waived the successful native login for this task: no actor and no published route before MariaDB
+    # retirement.
     print('Verified the native login refusal of an unknown ticket by the Platform issuer; the successful native login '
-          'is owner-waived (no smoke actor configured).')
+          'is owner-waived for this cutover (stated limit: no successful end-to-end native login before MariaDB '
+          'retirement).')
     print('native_smoke_unknown_ticket=refused')
     print('native_smoke_login=owner-waived')
     raise SystemExit(0)

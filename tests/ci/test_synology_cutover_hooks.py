@@ -1664,13 +1664,15 @@ class NativeSmokeTest(HookHarness):
                 self.assertNotIn("native_smoke_result=passed", proc.stdout)
                 self.assert_no_secret(proc)
 
-    def test_owner_waiver_without_an_actor_checks_only_the_unknown_ticket(self):
-        # The owner waived the successful native login: with no actor set (unset or empty, as the workflow passes
-        # them), only the issuer's refusal of an unknown ticket is checked, and the waiver is in the output.
+    def test_owner_waiver_for_this_task_checks_only_the_unknown_ticket(self):
+        # The owner waived the successful native login for this task: with no actor set (unset or empty, as the
+        # workflow passes them) and the waiver equal to the task id, only the issuer's refusal of an unknown ticket
+        # is checked, and the waiver is in the output.
         for value in (None, ""):
             with self.subTest(value=value):
                 unset = {name: value for name in ("OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL", "OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD",
                                                    "OTERYN_CUTOVER_NATIVE_SMOKE_CHARACTER_ID")}
+                unset["OTERYN_CUTOVER_NATIVE_SMOKE_WAIVER"] = TASK
                 (self.stub / "docker.log").unlink(missing_ok=True)
                 proc = self.run_hook("native-smoke", **unset)
                 self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -1704,9 +1706,9 @@ class NativeSmokeTest(HookHarness):
     def test_refuses_a_partial_native_smoke_actor_before_any_evidence_write(self):
         before, posts = self.all_records(), len(self.posts())
         cases = (
-            ({"OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL": None}, "native smoke actor is not fully configured"),
-            ({"OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL": "not-an-address"}, "native smoke actor is not fully configured"),
-            ({"OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD": ""}, "native smoke actor is not fully configured"),
+            ({"OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL": None}, "native smoke actor is not configured"),
+            ({"OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL": "not-an-address"}, "native smoke actor is not configured"),
+            ({"OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD": ""}, "native smoke actor is not configured"),
             ({"OTERYN_CUTOVER_NATIVE_SMOKE_CHARACTER_ID": None}, "lower-case UUIDv7"),
             ({"OTERYN_CUTOVER_NATIVE_SMOKE_CHARACTER_ID": NATIVE_CHARACTER.upper()}, "lower-case UUIDv7"),
         )
@@ -1723,6 +1725,32 @@ class NativeSmokeTest(HookHarness):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("printed no client id", proc.stderr)
         self.assertFalse(self.http.native)
+
+    def test_without_an_actor_the_waiver_must_name_this_task_before_any_evidence_write(self):
+        # No default waiver: with no actor, only the owner's waiver for this very task lets the smoke run.
+        before, posts = self.all_records(), len(self.posts())
+        no_actor = {"OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL": "", "OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD": "",
+                    "OTERYN_CUTOVER_NATIVE_SMOKE_CHARACTER_ID": ""}
+        cases = (
+            (dict(no_actor), "native smoke actor is not configured"),
+            (dict(no_actor, OTERYN_CUTOVER_NATIVE_SMOKE_WAIVER=""), "native smoke actor is not configured"),
+            (dict(no_actor, OTERYN_CUTOVER_NATIVE_SMOKE_WAIVER="OTERYN-20261012-other-task"), "must equal this cutover's task id"),
+            (dict(no_actor, OTERYN_CUTOVER_NATIVE_SMOKE_WAIVER=TASK + " "), "must equal this cutover's task id"),
+            (dict(no_actor, OTERYN_CUTOVER_NATIVE_SMOKE_WAIVER="yes"), "must equal this cutover's task id"),
+            ({"OTERYN_CUTOVER_NATIVE_SMOKE_WAIVER": TASK}, "not both"),
+            ({"OTERYN_CUTOVER_NATIVE_SMOKE_WAIVER": TASK, "OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL": ""}, "not both"),
+        )
+        for overrides, text in cases:
+            with self.subTest(overrides=overrides):
+                (self.stub / "docker.log").unlink(missing_ok=True)
+                proc = self.run_hook("native-smoke", **overrides)
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertIn(text, proc.stderr)
+                self.assertNotIn("native_smoke_login=", proc.stdout)
+                self.assertEqual((self.all_records(), len(self.posts())), (before, posts))
+                self.assertFalse(self.http.native)
+                self.assertEqual(self.log("docker.log"), [])
+                self.assert_no_secret(proc)
 
     def test_fails_when_admission_is_off_or_unpaired(self):
         self.update_state(container_env=dict(self.load_state()["container_env"], **{"cid-gateway": ["GATEWAY_NATIVE_LOGIN_ENABLED=false"]}))
@@ -1856,8 +1884,13 @@ class HookContractTest(unittest.TestCase):
         for line in ("OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL: ${{ vars.OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_EMAIL }}",
                      "OTERYN_CUTOVER_NATIVE_SMOKE_CHARACTER_ID: ${{ vars.OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_CHARACTER_ID }}",
                      "OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD: ${{ inputs.cutover_step == 'native-smoke' && "
-                     "secrets.OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_PASSWORD || '' }}"):
+                     "secrets.OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_PASSWORD || '' }}",
+                     "OTERYN_CUTOVER_NATIVE_SMOKE_WAIVER: ${{ inputs.cutover_step == 'native-smoke' && "
+                     "inputs.native_smoke_waiver || '' }}"):
             self.assertIn(line, step)
+        # The waiver is a per-dispatch owner decision, never a repository setting.
+        self.assertIn("      native_smoke_waiver:\n", text)
+        self.assertNotIn("vars.OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_WAIVER", text)
         self.assertEqual(text.count("secrets.OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_PASSWORD"), 1)
 
     def test_contract_workflow_runs_the_cutover_suites(self):
