@@ -132,9 +132,23 @@ hook_gateway_port() {
     printf '%s\n' "$port"
 }
 
-# hook_loopback_python <args...>: runs the Python program on stdin against the NAS loopback, as health-check.sh does.
+# hook_platform_php: runs the PHP program on stdin in the running platform service, through the image
+# entrypoint, as hook_artisan does (the health-check.sh in-container probe pattern).
+hook_platform_php() {
+    hook_compose exec -T platform /usr/local/bin/oteryn-platform-entrypoint php
+}
+
+# hook_loopback_python <args...>: runs the Python program on stdin against the NAS loopback, as health-check.sh
+# does. HOOK_LOOPBACK_ENV names hook environment variables passed into the container by name (docker -e NAME),
+# so a secret value never appears on a command line.
 hook_loopback_python() {
-    docker run --rm --network host -i python:3.12-alpine python3 - "$@"
+    local -a env_args=()
+    local name
+    for name in ${HOOK_LOOPBACK_ENV:-}; do
+        [[ "$name" =~ ^[A-Z][A-Z0-9_]*$ ]] || hook_fail "HOOK_LOOPBACK_ENV holds an invalid name."
+        env_args+=(-e "$name")
+    done
+    docker run --rm --network host "${env_args[@]}" -i python:3.12-alpine python3 - "$@"
 }
 
 # --- Attempt evidence (P6a D3 to D5) --------------------------------------------------------------

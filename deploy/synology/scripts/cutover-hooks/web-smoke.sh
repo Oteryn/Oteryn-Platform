@@ -12,15 +12,24 @@
 #     through /login (redirect to /), reads /account, which shows its address, and signs out (after which
 #     /account redirects to /login). These are writes to the PostgreSQL identity, session and security-event
 #     tables; none touches the native-evidence witness. The smoke identity stays in the database (test data).
-#   - the admin boundary: the signed-in smoke identity gets 403 from /admin (auth, then mfa.confirmed).
-#   - the wallet read: the only wallet read path on the web is the Character Bazaar account page. When the
-#     Bazaar is enabled, the smoke identity must read /account/bazaar (200); when it is disabled, /bazaar must
-#     be 404, so no wallet surface is served at all.
-# Declared limitation: admin login itself is not exercised. A fresh P3 bootstrap has no administrator;
-# admin:bootstrap assigns the one-time first platform_admin to an MFA-confirmed identity, which the operator
-# does after the cutover, and a smoke must neither consume that assignment nor hold an admin password or TOTP
-# secret. The hook proves the admin boundary instead and prints web_smoke_admin_login=not-exercised.
-# Output: key=value result lines; never an address, a password, a cookie, a token or a body.
+#   - the admin boundary: the signed-in smoke identity gets 403 from /admin (it has no confirmed MFA and no
+#     admin role, so auth then mfa.confirmed refuse it). This proves only the refusal, so:
+#   - the administrator, in the running platform service (read-only, before any web write): at least one active
+#     identity holds admin.access through its PostgreSQL role rows; its MFA secret decrypts with the deployed
+#     application key and is confirmed; the admin route's own middleware (mfa.confirmed, then
+#     admin.permission:admin.access) admits it; and the admin dashboard renders for it with its permission
+#     navigation. Fails closed when no MFA-confirmed administrator exists: the operator bootstraps the first
+#     administrator (admin:bootstrap for an MFA-confirmed identity) before this smoke. It registers no session
+#     and writes no security event. Not exercised: the administrator's own password and TOTP entry (that would
+#     need the administrator's password and TOTP secret in the workflow); the password sign-in path is the one
+#     the smoke identity takes.
+#   - the wallet read, independent of the Marketplace switch, in the same in-container probe: the wallet tables
+#     through their models (balances and ledger entries load), and the ledger reconciles (every balance equals
+#     the sum of its ledger deltas, no ledger entry without its account), in a read-only transaction.
+#   - the Marketplace switch matches what is served: when config marketplace.enabled is true, /bazaar is 200
+#     and the smoke identity reads /account/bazaar (200); when it is false, /bazaar is 404. Any other pairing
+#     fails.
+# Output: key=value result lines; never an address, a password, a cookie, a token, an identity id or a body.
 set -euo pipefail
 umask 077
 
@@ -29,12 +38,179 @@ HOOK_NAME=web-smoke
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 (($# == 0)) || hook_fail "takes no arguments."
-hook_require_tools docker sed
+hook_require_tools docker grep sed
 hook_workdir
 hook_runtime_env
 port="$(hook_platform_port)"
 
-hook_loopback_python "$port" <<'PY' || hook_fail "the Platform web smoke failed."
+hook_platform_php > "$HOOK_WORK/probe.out" <<'PHP' || hook_fail "the administrator and wallet probe failed."
+<?php
+require '/var/www/html/vendor/autoload.php';
+$app = require '/var/www/html/bootstrap/app.php';
+$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+
+use App\Admin\AdminAuthorization;
+use App\Admin\AdminPermission;
+use App\Http\Middleware\EnsureConfirmedMfa;
+use App\Http\Middleware\RequireAdminPermission;
+use App\Identity\Models\Identity;
+use App\Wallet\Models\WalletAccount;
+use App\Wallet\Models\WalletLedgerEntry;
+use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\ViewErrorBag;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
+
+function smoke_fail(string $message, int $code): never
+{
+    fwrite(STDERR, $message."\n");
+    exit($code);
+}
+
+function smoke_admin(Illuminate\Foundation\Application $app): void
+{
+    // --- Administrator: role loading, MFA confirmation and an authorized admin page read -------------------
+    $holders = DB::table('identity_admin_roles')
+        ->join('admin_role_permissions', 'admin_role_permissions.role_id', '=', 'identity_admin_roles.role_id')
+        ->join('admin_permissions', 'admin_permissions.id', '=', 'admin_role_permissions.permission_id')
+        ->where('admin_permissions.key', AdminPermission::ACCESS)
+        ->distinct()
+        ->orderBy('identity_admin_roles.identity_id')
+        ->pluck('identity_admin_roles.identity_id')
+        ->all();
+    if ($holders === []) {
+        smoke_fail('No identity holds admin.access: bootstrap the first administrator (admin:bootstrap for an MFA-confirmed identity) before the smoke.', 41);
+    }
+    $authorization = $app->make(AdminAuthorization::class);
+    $admin = null;
+    foreach ($holders as $holder) {
+        $identity = Identity::query()->find($holder);
+        if (! $identity instanceof Identity || $identity->disabled_at !== null || $identity->isTerminated()) {
+            continue;
+        }
+        try {
+            $confirmed = $identity->hasConfirmedMfa();
+        } catch (DecryptException) {
+            smoke_fail('An administrator MFA secret does not decrypt with the deployed application key.', 42);
+        }
+        if ($confirmed && $authorization->allows($identity, AdminPermission::ACCESS)) {
+            $admin = $identity;
+            break;
+        }
+    }
+    if (! $admin instanceof Identity) {
+        smoke_fail('No active administrator with confirmed MFA holds admin.access: confirm MFA for an administrator before the smoke.', 43);
+    }
+    if (! in_array(AdminPermission::ACCESS, $authorization->grantedPermissions($admin), true)) {
+        smoke_fail('The administrator permission projection does not list admin.access.', 44);
+    }
+
+    // The admin route's own middleware (mfa.confirmed, then admin.permission:admin.access) on a request whose
+    // user is that administrator, then the dashboard view with its permission navigation. Read-only: no session is
+    // registered and no security event is written, so the administrator's sign-in state is untouched.
+    $request = Request::create('https://oteryn.molehill.cloud/admin', 'GET');
+    $request->setUserResolver(static fn (): Identity => $admin);
+    $app->instance('request', $request);
+    $auth = $app->make('auth');
+    $auth->shouldUse('web');
+    $auth->guard('web')->setUser($admin);
+    try {
+        $passed = $app->make(EnsureConfirmedMfa::class)->handle(
+            $request,
+            static fn (Request $inner): SymfonyResponse => $app->make(RequireAdminPermission::class)->handle(
+                $inner,
+                static fn (): SymfonyResponse => new SymfonyResponse('admitted'),
+                AdminPermission::ACCESS,
+            ),
+        );
+    } catch (HttpExceptionInterface $refused) {
+        smoke_fail("The admin route middleware refused the administrator (status {$refused->getStatusCode()}).", 45);
+    }
+    if ($passed->getStatusCode() !== 200 || $passed->getContent() !== 'admitted') {
+        smoke_fail('The admin route middleware did not admit the administrator.', 45);
+    }
+    $html = view('admin.dashboard', ['errors' => new ViewErrorBag])->render();
+    if (! str_contains($html, 'admin-task-grid') || ! str_contains($html, 'https://oteryn.molehill.cloud/admin')) {
+        smoke_fail('The admin dashboard did not render for the administrator.', 46);
+    }
+    echo "web_smoke_admin_access=granted\n";
+    echo "web_smoke_admin_mfa=confirmed\n";
+    echo "web_smoke_admin_page=read\n";
+}
+
+function smoke_wallet(): void
+{
+    // --- Wallet read, independent of the Marketplace switch ----------------------------------------------
+    // Read-only: the wallet tables through their models, and the ledger reconciliation (every balance is the sum
+    // of its ledger deltas, every ledger entry has its account), in one transaction that is rolled back.
+    DB::beginTransaction();
+    try {
+        if (DB::getDriverName() === 'pgsql') {
+            DB::statement('SET TRANSACTION READ ONLY');
+        }
+        $accounts = WalletAccount::query()->count();
+        $entries = WalletLedgerEntry::query()->count();
+        foreach (WalletAccount::query()->orderBy('identity_id')->limit(50)->get() as $wallet) {
+            if (! is_int($wallet->available_balance) || ! is_int($wallet->reserved_balance)
+                || $wallet->available_balance < 0 || $wallet->reserved_balance < 0) {
+                smoke_fail('A wallet account holds an invalid balance.', 51);
+            }
+        }
+        foreach (WalletLedgerEntry::query()->orderBy('id')->limit(50)->get() as $entry) {
+            if (! is_int($entry->available_delta) || ! is_int($entry->reserved_delta) || ! is_string($entry->idempotency_key)) {
+                smoke_fail('A wallet ledger entry did not load.', 52);
+            }
+        }
+        $sums = DB::table('wallet_ledger_entries')
+            ->select('identity_id')
+            ->selectRaw('SUM(available_delta) AS available_sum, SUM(reserved_delta) AS reserved_sum')
+            ->groupBy('identity_id');
+        $unreconciled = DB::table('wallet_accounts')
+            ->leftJoinSub($sums, 'ledger', 'ledger.identity_id', '=', 'wallet_accounts.identity_id')
+            ->whereRaw('wallet_accounts.available_balance <> COALESCE(ledger.available_sum, 0)')
+            ->orWhereRaw('wallet_accounts.reserved_balance <> COALESCE(ledger.reserved_sum, 0)')
+            ->count();
+        $orphans = DB::table('wallet_ledger_entries')
+            ->leftJoin('wallet_accounts', 'wallet_accounts.identity_id', '=', 'wallet_ledger_entries.identity_id')
+            ->whereNull('wallet_accounts.identity_id')
+            ->count();
+    } finally {
+        DB::rollBack();
+    }
+    if ($unreconciled !== 0 || $orphans !== 0) {
+        smoke_fail("The wallet ledger does not reconcile ({$unreconciled} accounts differ from their ledger, {$orphans} entries without an account).", 53);
+    }
+    echo "web_smoke_wallet_accounts={$accounts}\n";
+    echo "web_smoke_wallet_ledger_entries={$entries}\n";
+    echo "web_smoke_wallet=read-reconciled\n";
+    echo 'web_smoke_marketplace_enabled='.(config('marketplace.enabled') === true ? 'true' : 'false')."\n";
+}
+
+// An exception the probe does not expect fails it by class only (the console handler would exit 0, and a
+// message could carry data).
+try {
+    smoke_admin($app);
+    smoke_wallet();
+} catch (Throwable $unexpected) {
+    smoke_fail('The admin and wallet probe failed: '.$unexpected::class, 40);
+}
+PHP
+probe="$(cat -- "$HOOK_WORK/probe.out")"
+# The console exception handler can exit 0, so the probe passes only with every result line.
+for line in web_smoke_admin_access=granted web_smoke_admin_mfa=confirmed web_smoke_admin_page=read \
+    web_smoke_wallet=read-reconciled; do
+    grep -qx "$line" <<<"$probe" || hook_fail "the administrator and wallet probe did not report $line."
+done
+for pattern in 'web_smoke_wallet_accounts=[0-9]+' 'web_smoke_wallet_ledger_entries=[0-9]+'; do
+    grep -qxE "$pattern" <<<"$probe" || hook_fail "the wallet probe did not report its counts."
+done
+marketplace="$(sed -nE 's/^web_smoke_marketplace_enabled=(true|false)$/\1/p' <<<"$probe" | tail -n 1)"
+[[ "$marketplace" == true || "$marketplace" == false ]] || hook_fail "the probe did not report the Marketplace switch."
+grep -E '^web_smoke_(admin_(access|mfa|page)|wallet(_accounts|_ledger_entries)?)=[a-z0-9-]+$' <<<"$probe"
+
+hook_loopback_python "$port" "$marketplace" <<'PY' || hook_fail "the Platform web smoke failed."
 import http.client
 import re
 import secrets
@@ -43,6 +219,7 @@ import time
 import urllib.parse
 
 port = int(sys.argv[1])
+marketplace_enabled = sys.argv[2] == 'true'
 CANONICAL = 'oteryn.molehill.cloud'
 PROXY_HEADERS = {
     'Host': CANONICAL,
@@ -175,15 +352,17 @@ if status != 403:
     raise SystemExit(f'/admin returned {status} to a signed-in identity without MFA or an admin role, not 403')
 
 status, _, _ = browser.send('GET', '/bazaar')
-if status == 404:
-    wallet = 'no-route'
-elif status == 200:
+if marketplace_enabled:
+    if status != 200:
+        raise SystemExit(f'/bazaar returned {status} while the Marketplace is enabled')
     status, _, _ = browser.send('GET', '/account/bazaar')
     if status != 200:
-        raise SystemExit(f'the wallet read (/account/bazaar) returned unexpected status: {status}')
-    wallet = 'read'
+        raise SystemExit(f'the Bazaar account page (/account/bazaar) returned unexpected status: {status}')
+    marketplace = 'read'
+elif status == 404:
+    marketplace = 'off'
 else:
-    raise SystemExit(f'/bazaar returned unexpected status: {status}')
+    raise SystemExit(f'/bazaar returned {status} while the Marketplace is disabled, not 404')
 
 status, location, _ = browser.send('POST', '/logout', {'_token': logout_token})
 if status != 302:
@@ -195,9 +374,8 @@ if status != 302 or redirect_path(location) != '/login':
 print('Verified Platform /health, login form, public news, registration, sign-in, account read, '
       'the admin boundary and sign-out over host loopback.')
 print('web_smoke_account=registered-signed-in-signed-out')
-print('web_smoke_admin_boundary=refused')
-print('web_smoke_admin_login=not-exercised')
-print(f'web_smoke_wallet={wallet}')
+print('web_smoke_admin_boundary=refused-without-mfa')
+print(f'web_smoke_marketplace={marketplace}')
 PY
 
 printf 'web_smoke_result=passed\n'

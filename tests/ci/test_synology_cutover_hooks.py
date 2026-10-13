@@ -14,6 +14,9 @@ Run: python3 tests/ci/test_synology_cutover_hooks.py
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import html
 import http.server
 import json
 import os
@@ -51,6 +54,15 @@ GH_TOKEN = "ghtokensentinel0123456789abcdef"
 PUBLIC_KEY = "PUBLICKEYSENTINEL0123456789"
 COOKIE = "cookiesentinel0123456789"
 CSRF = "csrfsentinel0123456789"
+# The owner-provisioned native smoke actor and the values its login carries; none may reach the output.
+NATIVE_EMAIL = "native-actor@example.invalid"
+NATIVE_PASSWORD = "nativepasswordsentinel0123456789"
+NATIVE_CHARACTER = "0192abcd-0000-7def-8000-00000000beef"
+CLIENT_ID = "0199abcd-1111-7222-8333-444455556666"
+AUTH_TOKEN = "authtokensentinel&0123"
+BEARER = "bearersentinel0123456789"
+TICKET = "ticketsentinel0123456789"
+GRANT = "grantsentinel0123456789"
 
 
 def observation(store=S1, binding="match", floor=None, profile=None, lsn=0x1000, configured=None, is_trusted=False,
@@ -98,8 +110,40 @@ if args[:1] == ["compose"]:
     if rest[:2] == ["ps", "-q"]:
         print("cid-" + rest[-1])
         sys.exit(0)
+    if rest[:3] == ["exec", "-T", "platform"] and "artisan" not in rest:
+        # The web smoke's in-container administrator and wallet probe (PHP on stdin; never logged).
+        program = sys.stdin.read()
+        assert rest[-1] == "php" and program.startswith("<?php") and "SET TRANSACTION READ ONLY" in program, rest
+        mode = state["probe"]
+        admin = ["web_smoke_admin_access=granted", "web_smoke_admin_mfa=confirmed", "web_smoke_admin_page=read"]
+        wallet = ["web_smoke_wallet_accounts=3", "web_smoke_wallet_ledger_entries=7", "web_smoke_wallet=read-reconciled",
+                  "web_smoke_marketplace_enabled=" + ("true" if state["marketplace"] else "false")]
+        if mode == "no-admin":
+            print("No active identity holds admin.access; bootstrap the first administrator.", file=sys.stderr)
+            sys.exit(41)
+        if mode == "no-mfa":
+            print("No administrator has confirmed MFA.", file=sys.stderr)
+            sys.exit(43)
+        if mode == "unreconciled":
+            print("\n".join(admin))
+            print("A wallet balance does not equal the sum of its ledger deltas.", file=sys.stderr)
+            sys.exit(53)
+        if mode == "silent":
+            sys.exit(0)
+        if mode == "no-wallet":
+            print("\n".join(admin))
+            sys.exit(0)
+        if mode == "no-switch":
+            wallet = wallet[:-1]
+        print("\n".join(admin + wallet))
+        sys.exit(0)
     if rest[:3] == ["exec", "-T", "platform"]:
         command = rest[rest.index("artisan") + 1]
+        if command == "game-auth:oauth-client:ensure":
+            assert "--rust" in rest, rest
+            if state["client_id"]:
+                print("Oteryn native OAuth client id: " + state["client_id"])
+            sys.exit(0)
         if command == "game-auth:native-evidence:observe-trust":
             key = next((a.split("=", 1)[1] for a in rest if a.startswith("--key-id=")), None)
             phase = state["phase"] if state["phase"] == "native" else ("post" if state["init_done"] else "pre")
@@ -252,6 +296,8 @@ class FakeHttp:
         self.identities = {}
         self.signed_in = None
         self.smoke_posts = []
+        self.native_mode = "ok"
+        self.native = {}
         owner = self
 
         class Platform(http.server.BaseHTTPRequestHandler):
@@ -280,6 +326,20 @@ class FakeHttp:
                     status = 500 if owner.platform_mode == "account-error" else 200
                     return self.reply(status, "text/html", (f'<dd>{owner.signed_in}</dd><form method="POST"><input '
                                                             f'type="hidden" name="_token" value="{CSRF}"></form>').encode())
+                if self.path.startswith("/oauth/authorize?"):
+                    if not self.session():
+                        return self.redirect("/login")
+                    query = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(self.path).query))
+                    expected = {"client_id": CLIENT_ID, "redirect_uri": "http://127.0.0.1/callback",
+                                "response_type": "code", "scope": "game:ticket", "code_challenge_method": "S256"}
+                    if any(query.get(k) != v for k, v in expected.items()) or not query.get("code_challenge"):
+                        return self.reply(400, "text/html", b"invalid request")
+                    owner.native["authorize"] = query
+                    if owner.native_mode == "oauth-denied":
+                        return self.location(f"http://127.0.0.1/callback?error=access_denied&state={query['state']}")
+                    body = (f'<form method="POST"><input type="hidden" name="_token" value="{CSRF}"><input '
+                            f'type="hidden" name="auth_token" value="{html.escape(AUTH_TOKEN)}"></form>').encode()
+                    return self.reply(200, "text/html", body)
                 if self.path == "/admin":
                     if not self.session():
                         return self.redirect("/login")
@@ -295,7 +355,12 @@ class FakeHttp:
 
             def do_POST(self):
                 length = int(self.headers.get("Content-Length", "0"))
-                form = dict(urllib.parse.parse_qsl(self.rfile.read(length).decode()))
+                raw = self.rfile.read(length)
+                if self.path == "/oauth/token":
+                    return self.token_exchange(dict(urllib.parse.parse_qsl(raw.decode())))
+                if self.path == "/v1/game-auth/tickets":
+                    return self.ticket_issue(raw)
+                form = dict(urllib.parse.parse_qsl(raw.decode()))
                 owner.smoke_posts.append((self.path, sorted(form)))
                 if form.get("_token") != CSRF or f"oteryn_session={COOKIE}" not in self.headers.get("Cookie", ""):
                     return self.reply(419, "text/html", b"page expired")
@@ -307,18 +372,57 @@ class FakeHttp:
                     return self.redirect("/register")
                 if self.path == "/login?locale=en":
                     if owner.platform_mode != "login-fails" and owner.identities.get(form.get("email")) == form.get("password"):
+                        if owner.native_mode == "actor-mfa":
+                            return self.redirect("/mfa/challenge")
                         owner.signed_in = form["email"]
                         return self.redirect("/")
                     return self.redirect("/login")
+                if self.path == "/oauth/authorize":
+                    pending = owner.native.get("authorize") or {}
+                    if (not self.session() or form.get("auth_token") != AUTH_TOKEN or form.get("state") != pending.get("state")
+                            or form.get("client_id") != CLIENT_ID):
+                        return self.reply(400, "text/html", b"invalid request")
+                    owner.native["code"] = "code-" + pending["state"][:8]
+                    return self.location("http://127.0.0.1/callback?" + urllib.parse.urlencode(
+                        {"code": owner.native["code"], "state": pending["state"]}))
                 if self.path == "/logout":
                     if owner.platform_mode != "logout-keeps":
                         owner.signed_in = None
                     return self.redirect("/")
                 return self.reply(404, "text/html", b"not found")
 
+            def token_exchange(self, form):
+                pending = owner.native.get("authorize") or {}
+                challenge = base64.urlsafe_b64encode(
+                    hashlib.sha256(form.get("code_verifier", "").encode()).digest()).decode().rstrip("=")
+                if (owner.native_mode == "token-error" or form.get("grant_type") != "authorization_code"
+                        or form.get("code") != owner.native.get("code") or form.get("client_id") != CLIENT_ID
+                        or form.get("redirect_uri") != "http://127.0.0.1/callback"
+                        or challenge != pending.get("code_challenge")):
+                    return self.json(400, {"error": "invalid_grant"})
+                owner.native["code"] = None
+                owner.native["bearer"] = "live"
+                return self.json(200, {"token_type": "Bearer", "expires_in": 600, "access_token": BEARER})
+
+            def ticket_issue(self, raw):
+                owner.native["ticket_posts"] = owner.native.get("ticket_posts", 0) + 1
+                if (self.headers.get("Authorization") != f"Bearer {BEARER}" or owner.native.get("bearer") != "live"
+                        or json.loads(raw or b"{}") != {"protocol_version": 1}):
+                    return self.json(401, {"message": "Unauthenticated."})
+                if owner.native_mode != "bearer-kept":
+                    owner.native["bearer"] = "revoked"
+                expires = 0 if owner.native_mode == "ticket-expired" else 60
+                return self.json(200, {"protocol_version": 1, "ticket": TICKET, "expires_in": expires})
+
+            def json(self, status, payload):
+                self.reply(status, "application/json", json.dumps(payload).encode())
+
             def redirect(self, path):
+                self.location(f"https://oteryn.molehill.cloud{path}")
+
+            def location(self, url):
                 self.send_response(302)
-                self.send_header("Location", f"https://oteryn.molehill.cloud{path}")
+                self.send_header("Location", url)
                 self.send_header("Content-Length", "0")
                 self.end_headers()
 
@@ -338,16 +442,35 @@ class FakeHttp:
             def do_POST(self):
                 length = int(self.headers.get("Content-Length", "0"))
                 payload = json.loads(self.rfile.read(length) or b"{}")
-                if self.path == "/v1/login" and payload.get("protocol_version") == 2 and owner.gateway_on:
-                    status, body = 401, {"error": {"code": "NATIVE_LOGIN_AUTHENTICATION_REQUIRED"}}
-                else:
+                if self.path != "/v1/login" or payload.get("protocol_version") != 2 or not owner.gateway_on:
                     status, body = 400, {"error": "invalid_request"}
+                elif payload.get("game_login_ticket") == TICKET and payload.get("character_id") == NATIVE_CHARACTER:
+                    status, body = self.admission(payload["attempt_ref"])
+                else:
+                    status, body = 401, {"error": {"code": "NATIVE_LOGIN_AUTHENTICATION_REQUIRED"}}
                 raw = json.dumps(body).encode()
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(raw)))
                 self.end_headers()
                 self.wfile.write(raw)
+
+            def admission(self, attempt_ref):
+                logins = owner.native.setdefault("logins", [])
+                logins.append(attempt_ref)
+                mode = owner.native_mode
+                if mode == "busy-once" and len(logins) == 1:
+                    return 503, {"error": {"code": "ROUTE_UNAVAILABLE", "retryable": True}}
+                if mode == "conflict":
+                    return 409, {"error": {"code": "CHARACTER_CONFLICT"}}
+                if mode == "route-unpublished":
+                    return 404, {"error": {"code": "ROUTE_NOT_FOUND"}}
+                channel = "channel-2" if mode == "replay-differs" and len(logins) > 1 else "channel-1"
+                grant = {"profile": "oteryn-pre-admission-v0" if mode == "bad-grant" else "oteryn-pre-admission-v1",
+                         "token": GRANT, "valid_for_seconds": 30}
+                return 200, {"protocol_version": 2, "attempt_ref": attempt_ref, "world_id": "world-1",
+                             "channel_id": channel, "endpoint": {"host": "game.molehill.cloud", "port": 7000},
+                             "grant": grant}
 
         self.servers = [http.server.ThreadingHTTPServer(("127.0.0.1", 0), Platform),
                         http.server.ThreadingHTTPServer(("127.0.0.1", 0), Gateway)]
@@ -375,9 +498,11 @@ class HookHarness(unittest.TestCase):
         self.http.platform_mode = "ok"
         self.http.gateway_on = True
         self.http.bazaar = False
-        self.http.identities = {}
+        self.http.identities = {NATIVE_EMAIL: NATIVE_PASSWORD}  # the owner-provisioned native smoke actor
         self.http.signed_in = None
         self.http.smoke_posts = []
+        self.http.native_mode = "ok"
+        self.http.native = {}
         self.tmp = Path(tempfile.mkdtemp(prefix="cutover-hooks-test-"))
         self.stub = self.tmp / "stub"
         self.bin = self.tmp / "bin"
@@ -416,6 +541,7 @@ class HookHarness(unittest.TestCase):
             "issue": ISSUE, "locked": True, "post_fail": False, "next_id": 9001, "poster": BOT,
             "comments": [{"id": 9000, "user": {"id": 5, "login": "someone"}, "body": "not an anchor"}],
             "kid": KID, "kid_count": 1,
+            "probe": "ok", "marketplace": False, "client_id": CLIENT_ID,
         }
         self.save_state()
 
@@ -476,6 +602,9 @@ class HookHarness(unittest.TestCase):
             "OTERYN_CUTOVER_CLOSE_RUN_ID": CLOSE_RUN,
             "GITHUB_REPOSITORY": "Oteryn/Oteryn-Platform",
             "GH_TOKEN": GH_TOKEN,
+            "OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL": NATIVE_EMAIL,
+            "OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD": NATIVE_PASSWORD,
+            "OTERYN_CUTOVER_NATIVE_SMOKE_CHARACTER_ID": NATIVE_CHARACTER,
         }
         for key, value in overrides.items():
             if value is None:
@@ -490,7 +619,8 @@ class HookHarness(unittest.TestCase):
 
     def assert_no_secret(self, proc):
         text = proc.stdout + proc.stderr
-        for value in [*SECRETS.values(), GH_TOKEN, PUBLIC_KEY, COOKIE, CSRF]:
+        for value in [*SECRETS.values(), GH_TOKEN, PUBLIC_KEY, COOKIE, CSRF, NATIVE_EMAIL, NATIVE_PASSWORD, AUTH_TOKEN,
+                      BEARER, TICKET, GRANT]:
             self.assertNotIn(value, text)
 
     def log(self, name):
@@ -1097,31 +1227,71 @@ class WebSmokeTest(HookHarness):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(proc.stdout.splitlines()[-1], "web_smoke_result=passed")
         out = self.outputs(proc)
-        self.assertEqual((out["web_smoke_account"], out["web_smoke_admin_boundary"], out["web_smoke_admin_login"],
-                          out["web_smoke_wallet"]),
-                         ("registered-signed-in-signed-out", "refused", "not-exercised", "no-route"))
+        self.assertEqual({k: v for k, v in out.items() if k != "web_smoke_result"}, {
+            "web_smoke_admin_access": "granted", "web_smoke_admin_mfa": "confirmed", "web_smoke_admin_page": "read",
+            "web_smoke_wallet_accounts": "3", "web_smoke_wallet_ledger_entries": "7",
+            "web_smoke_wallet": "read-reconciled", "web_smoke_account": "registered-signed-in-signed-out",
+            "web_smoke_admin_boundary": "refused-without-mfa", "web_smoke_marketplace": "off"})
+        self.assertNotIn("not-exercised", proc.stdout)
         # A fresh identity is registered and signs in with the same random credentials, then signs out.
         self.assertEqual([path for path, _ in self.http.smoke_posts], ["/register", "/login?locale=en", "/logout"])
         self.assertEqual(self.http.smoke_posts[0][1], ["_token", "email", "password", "password_confirmation"])
-        (email, password), = self.http.identities.items()
+        (email, password), = [item for item in self.http.identities.items() if item[0] != NATIVE_EMAIL]
         self.assertRegex(email, r"^cutover-smoke-[0-9a-f]{16}@example\.invalid$")
         self.assertIsNone(self.http.signed_in)
         for value in (email, password, "example.invalid"):
             self.assertNotIn(value, proc.stdout + proc.stderr)
-        runs = [entry["run"] for entry in self.log("docker.log") if "run" in entry]
-        self.assertEqual(runs, [["run", "--rm", "--network", "host", "-i", "python:3.12-alpine"]])
-        self.assertEqual(list(self.scratch.iterdir()), [])
+        # The administrator and wallet probe runs in the platform service before any web write.
+        calls = [entry for entry in self.log("docker.log")]
+        probe = [i for i, entry in enumerate(calls) if entry.get("compose", [])[-1:] == ["php"]]
+        self.assertEqual(len(probe), 1)
+        self.assertEqual(calls[probe[0]]["compose"][:3], ["exec", "-T", "platform"])
+        runs = [i for i, entry in enumerate(calls) if "run" in entry]
+        self.assertEqual([calls[i]["run"] for i in runs], [["run", "--rm", "--network", "host", "-i", "python:3.12-alpine"]])
+        self.assertLess(probe[0], runs[0])
+        self.assert_compose_used_derived_env()
         self.assert_no_secret(proc)
 
-    def test_reads_the_wallet_when_the_bazaar_is_enabled(self):
+    def test_the_marketplace_switch_must_match_what_is_served(self):
+        self.update_state(marketplace=True)
         self.http.bazaar = True
         proc = self.run_hook("web-smoke")
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(self.outputs(proc)["web_smoke_wallet"], "read")
+        self.assertEqual(self.outputs(proc)["web_smoke_marketplace"], "read")
+        self.assertEqual(self.outputs(proc)["web_smoke_wallet"], "read-reconciled")
         self.http.platform_mode = "wallet-error"
         proc = self.run_hook("web-smoke")
         self.assertNotEqual(proc.returncode, 0)
-        self.assertIn("wallet read", proc.stderr)
+        self.assertIn("/account/bazaar", proc.stderr)
+        # A 404 /bazaar passes only while the switch is off; a served /bazaar while it is off fails too.
+        self.http.platform_mode = "ok"
+        for enabled, served, text in ((True, False, "while the Marketplace is enabled"),
+                                      (False, True, "while the Marketplace is disabled")):
+            with self.subTest(enabled=enabled, served=served):
+                self.update_state(marketplace=enabled)
+                self.http.bazaar = served
+                proc = self.run_hook("web-smoke")
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertIn(text, proc.stderr)
+                self.assertNotIn("web_smoke_result=passed", proc.stdout)
+
+    def test_administrator_and_wallet_probe_fails_closed_before_any_web_write(self):
+        cases = {
+            "no-admin": "probe failed", "no-mfa": "probe failed", "unreconciled": "probe failed",
+            "silent": "did not report web_smoke_admin_access=granted", "no-wallet": "did not report web_smoke_wallet",
+            "no-switch": "Marketplace switch",
+        }
+        for mode, text in cases.items():
+            with self.subTest(mode=mode):
+                self.update_state(probe=mode)
+                self.http.smoke_posts = []
+                proc = self.run_hook("web-smoke")
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertIn(text, proc.stderr)
+                self.assertNotIn("web_smoke_result=passed", proc.stdout)
+                self.assertEqual(self.http.smoke_posts, [])
+                self.assertFalse([entry for entry in self.log("docker.log") if "run" in entry])
+                self.assert_no_secret(proc)
 
     def test_fails_closed(self):
         for mode in ("bad-action", "news-error", "register-error", "login-fails", "account-error", "admin-open",
@@ -1167,6 +1337,24 @@ class NativeSmokeTest(HookHarness):
         self.assertEqual(self.classify()["directory"], "committed")
         self.assert_compose_used_derived_env()
         self.assert_no_secret(proc)
+        self.assertEqual({k: out[k] for k in out if k.startswith("native_smoke_") and k != "native_smoke_result"}, {
+            "native_smoke_unknown_ticket": "refused", "native_smoke_oauth": "authorized",
+            "native_smoke_ticket": "issued-bearer-revoked", "native_smoke_admission": "granted",
+            "native_smoke_replay": "same-admission"})
+        # The actor's ticket was admitted, then replayed with the same attempt; the bearer was refused after issue.
+        logins = self.http.native["logins"]
+        self.assertEqual(len(logins), 2)
+        self.assertEqual(logins[0], logins[1])
+        self.assertEqual((self.http.native["ticket_posts"], self.http.native["bearer"]), (2, "revoked"))
+        self.assertIsNone(self.http.signed_in)
+        self.assertEqual([path for path, _ in self.http.smoke_posts], ["/login?locale=en", "/oauth/authorize", "/logout"])
+        # The actor's credentials reach the request container by name only.
+        runs = [entry["run"] for entry in self.log("docker.log") if "run" in entry]
+        self.assertEqual(runs, [["run", "--rm", "--network", "host", "-e", "OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL",
+                                 "-e", "OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD", "-i", "python:3.12-alpine"]])
+        logged = (self.stub / "docker.log").read_text()
+        for value in (NATIVE_EMAIL, NATIVE_PASSWORD):
+            self.assertNotIn(value, logged)
         # A rerun leaves the closed attempt as it is.
         proc = self.run_hook("native-smoke")
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -1457,6 +1645,56 @@ class NativeSmokeTest(HookHarness):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("native login smoke failed", proc.stderr)
 
+    def test_native_login_must_be_admitted_end_to_end(self):
+        cases = {
+            "actor-mfa": "has MFA confirmed", "oauth-denied": "returned no code", "token-error": "token exchange",
+            "bearer-kept": "issuance must revoke it", "ticket-expired": "already expired",
+            "conflict": "status 409, code CHARACTER_CONFLICT", "route-unpublished": "status 404, code ROUTE_NOT_FOUND",
+            "replay-differs": "different admission", "bad-grant": "without the native admission contract body",
+        }
+        for mode, text in cases.items():
+            with self.subTest(mode=mode):
+                self.http.native_mode = mode
+                self.http.native = {}
+                self.http.signed_in = None
+                proc = self.run_hook("native-smoke")
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertIn(text, proc.stderr)
+                self.assertIn("native login smoke failed", proc.stderr)
+                self.assertNotIn("native_smoke_result=passed", proc.stdout)
+                self.assert_no_secret(proc)
+
+    def test_a_busy_route_is_retried_with_the_same_attempt(self):
+        self.http.native_mode = "busy-once"
+        proc = self.run_hook("native-smoke")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        logins = self.http.native["logins"]
+        self.assertEqual(len(logins), 3)
+        self.assertEqual(len(set(logins)), 1)
+
+    def test_refuses_without_the_native_smoke_actor_before_any_evidence_write(self):
+        before, posts = self.all_records(), len(self.posts())
+        cases = (
+            ({"OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL": None}, "native smoke actor is not configured"),
+            ({"OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL": "not-an-address"}, "native smoke actor is not configured"),
+            ({"OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD": ""}, "native smoke actor is not configured"),
+            ({"OTERYN_CUTOVER_NATIVE_SMOKE_CHARACTER_ID": None}, "lower-case UUIDv7"),
+            ({"OTERYN_CUTOVER_NATIVE_SMOKE_CHARACTER_ID": NATIVE_CHARACTER.upper()}, "lower-case UUIDv7"),
+        )
+        for overrides, text in cases:
+            with self.subTest(overrides=overrides):
+                proc = self.run_hook("native-smoke", **overrides)
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertIn(text, proc.stderr)
+                self.assertEqual((self.all_records(), len(self.posts())), (before, posts))
+                self.assertFalse(self.http.native)
+                self.assert_no_secret(proc)
+        self.update_state(client_id=None)
+        proc = self.run_hook("native-smoke")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("printed no client id", proc.stderr)
+        self.assertFalse(self.http.native)
+
     def test_fails_when_admission_is_off_or_unpaired(self):
         self.update_state(container_env=dict(self.load_state()["container_env"], **{"cid-gateway": ["GATEWAY_NATIVE_LOGIN_ENABLED=false"]}))
         proc = self.run_hook("native-smoke")
@@ -1561,6 +1799,14 @@ class HookContractTest(unittest.TestCase):
         preflight = cutover.index('"$hook" preflight "$OTERYN_CUTOVER_TASK_ID" "$OTERYN_CUTOVER_CLOSE_RUN_ID"')
         self.assertLess(preflight, cutover.index('bash deploy/synology/scripts/cutover-postgres.sh "$CUTOVER_STEP"'))
         self.assertIn('if [[ "$CUTOVER_STEP" == native-reenable && "$OTERYN_CUTOVER_DRY_RUN" != 1 ]]; then', cutover)
+        # The native smoke actor: names from variables, the password secret only for the native-smoke step.
+        step = next(step for step in steps if step.startswith("Run cutover step\n"))
+        for line in ("OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL: ${{ vars.OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_EMAIL }}",
+                     "OTERYN_CUTOVER_NATIVE_SMOKE_CHARACTER_ID: ${{ vars.OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_CHARACTER_ID }}",
+                     "OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD: ${{ inputs.cutover_step == 'native-smoke' && "
+                     "secrets.OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_PASSWORD || '' }}"):
+            self.assertIn(line, step)
+        self.assertEqual(text.count("secrets.OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_PASSWORD"), 1)
 
     def test_contract_workflow_runs_the_cutover_suites(self):
         text = (ROOT / ".github" / "workflows" / "synology-rollback-contract.yml").read_text()

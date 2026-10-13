@@ -12,9 +12,23 @@
 #     D5 step4-recheck instead; an attempt already closed with done: true is left as it is. Any other
 #     classification writes run-close with done: false (failed-before-witness leaves the run open for
 #     provenance-init.sh retry, the evidence-retry step) and fails;
-#   - sends a well-formed native (protocol_version 2) login with an unknown ticket to the Gateway over host
-#     loopback, as health-check.sh does, and requires 401 NATIVE_LOGIN_AUTHENTICATION_REQUIRED from the
-#     Platform issuer (not 400 refused at the Gateway, not 503 issuer unavailable);
+#   - a native login, actor to result, over host loopback with the canonical proxy headers (as health-check.sh):
+#     a well-formed protocol_version 2 login with an unknown ticket must get 401 NATIVE_LOGIN_AUTHENTICATION_
+#     REQUIRED from the Platform issuer; then the owner-provisioned native smoke actor signs in on the web,
+#     authorizes the first-party native (Rust) OAuth client with PKCE (game:ticket), exchanges the code for a
+#     bearer token, issues a native Game Login Ticket with it (after which the same bearer is refused: the
+#     ticket issuance revoked it), and logs in through the Gateway with that ticket and its character: the
+#     login must be admitted (200, the same attempt_ref, a World and channel, a Registry endpoint and an
+#     oteryn-pre-admission-v1 grant), which covers ticket redemption, the scope assignment, route resolution and
+#     grant signing on PostgreSQL; a replay of the same attempt must return the same admission. The web session
+#     is signed out at the end. A 503 (route, reconciliation or issuer unavailable) is retried with the same
+#     attempt a bounded number of times, as the contract allows; any other answer fails with its public code.
+#     The actor comes from OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL, OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD (a secret,
+#     passed to the request container by name only) and OTERYN_CUTOVER_NATIVE_SMOKE_CHARACTER_ID: an identity
+#     without MFA that owns that bootstrapped character on the published native route of a ready Game node
+#     (NATIVE_LOGIN_OWNER_STEPS.md steps 9 and 10). The hook fails closed, before any evidence write, while
+#     they are not set. These logins write the OAuth, ticket and admission-attempt rows (P6 step 5 allows
+#     witnessed writes);
 #   - requires a fresh read-only trust observation (D2), taken after the login smoke with the attempt's key id,
 #     to continue the committed attempt (the tool's D5 recheck predicate: same PostgreSQL identity and store,
 #     a WAL position at or past every recorded observation, nothing in flight, and no blocking state) and to
@@ -46,6 +60,13 @@ hook_evidence_setup
 hook_workdir
 hook_runtime_env
 [[ "$(hook_env_get OTERYN_NATIVE_ADMISSION_ENABLED)" == true ]] || hook_fail "native admission is not on in the deployed environment."
+# The native smoke actor (owner-provisioned; never printed). Checked before any evidence write.
+[[ "${OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL:-}" =~ ^[^[:space:]@]+@[^[:space:]@]+$ \
+    && -n "${OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD:-}" ]] \
+    || hook_fail "the native smoke actor is not configured: set OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_EMAIL (variable) and OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_PASSWORD (secret) for an identity without MFA that owns the smoke character."
+smoke_character="${OTERYN_CUTOVER_NATIVE_SMOKE_CHARACTER_ID:-}"
+[[ "$smoke_character" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] \
+    || hook_fail "OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_CHARACTER_ID must be the smoke character's lower-case UUIDv7."
 
 # container_flag <service> <key>: one environment value of the running service container.
 container_flag() {
@@ -62,14 +83,41 @@ gateway_flag="$(container_flag gateway GATEWAY_NATIVE_LOGIN_ENABLED)"
 
 ev_step4_after_deploy
 
-hook_loopback_python "$(hook_gateway_port)" <<'PY' || hook_fail "the native login smoke failed."
+# The first-party native (Rust) OAuth client the Windows client uses; the deploy ensured it, so this only reads
+# and checks it, as the deploy and bootstrap-postgres.sh do.
+client_output="$(hook_artisan game-auth:oauth-client:ensure --rust 2>&1)" || hook_fail "the native OAuth client check failed."
+client_id="$(sed -n 's/.*OAuth client id: \([A-Za-z0-9-]*\).*/\1/p' <<<"$client_output" | tail -n 1)"
+[[ "$client_id" =~ ^[A-Za-z0-9-]{1,64}$ ]] || hook_fail "the native OAuth client check printed no client id."
+
+HOOK_LOOPBACK_ENV="OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD"
+hook_loopback_python "$(hook_platform_port)" "$(hook_gateway_port)" "$client_id" "$smoke_character" \
+    <<'PY' || hook_fail "the native login smoke failed."
+import base64
+import hashlib
+import html
 import http.client
 import json
+import os
+import re
 import secrets
 import sys
 import time
+import urllib.parse
 
-gateway_port = int(sys.argv[1])
+platform_port, gateway_port = int(sys.argv[1]), int(sys.argv[2])
+client_id, character_id = sys.argv[3], sys.argv[4]
+email = os.environ.get('OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL', '')
+password = os.environ.get('OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD', '')
+if not email or not password:
+    raise SystemExit('the native smoke actor did not reach the request container')
+CANONICAL = 'oteryn.molehill.cloud'
+REDIRECT_URI = 'http://127.0.0.1/callback'
+PROXY_HEADERS = {
+    'Host': CANONICAL,
+    'X-Forwarded-Host': CANONICAL,
+    'X-Forwarded-Proto': 'https',
+    'X-Forwarded-Port': '443',
+}
 
 
 def uuid7():
@@ -82,53 +130,201 @@ def uuid7():
     return f'{text[:8]}-{text[8:12]}-{text[12:16]}-{text[16:20]}-{text[20:]}'
 
 
-def post(path, body):
+def exchange(port, method, path, body=None, headers=None, retries=1):
+    """One request over host loopback; connection errors are retried (bounded), never an HTTP answer."""
     last_error = None
-    for attempt in range(15):
-        connection = http.client.HTTPConnection('127.0.0.1', gateway_port, timeout=5)
+    for attempt in range(retries):
+        connection = http.client.HTTPConnection('127.0.0.1', port, timeout=10)
         try:
-            connection.request('POST', path, body=body, headers={
-                'Host': 'gateway.molehill.cloud',
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-            })
+            connection.request(method, path, body=body, headers=headers or {})
             response = connection.getresponse()
-            return response.status, response.read(8192)
+            return response.status, response.getheaders(), response.read(1048576)
         except OSError as exc:
             last_error = exc
-            if attempt == 14:
-                break
-            time.sleep(2)
+            if attempt + 1 < retries:
+                time.sleep(2)
         finally:
             connection.close()
-    raise SystemExit(f'Host-loopback request failed after bounded retries: POST {path} ({type(last_error).__name__})')
+    raise SystemExit(f'Host-loopback request failed: {method} {path.split("?")[0]} ({type(last_error).__name__})')
 
 
-native_login = json.dumps(
-    {
+def header(headers, name):
+    return [value for key, value in headers if key.lower() == name]
+
+
+def json_body(body, what):
+    try:
+        payload = json.loads(body)
+    except ValueError as exc:
+        raise SystemExit(f'{what} did not return JSON') from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f'{what} did not return a JSON object')
+    return payload
+
+
+def gateway_login(payload):
+    status, _, body = exchange(gateway_port, 'POST', '/v1/login', json.dumps(payload, separators=(',', ':')).encode(), {
+        'Host': 'gateway.molehill.cloud', 'Accept': 'application/json', 'Content-Type': 'application/json'}, retries=15)
+    answer = json_body(body, f'Native Gateway login (status {status})')
+    error = answer.get('error')
+    return status, answer, (error.get('code') if isinstance(error, dict) else None)
+
+
+def login_body(ticket, attempt_ref):
+    return {
         'protocol_version': 2,
-        'game_login_ticket': 'oteryn-cutover-probe-' + secrets.token_hex(16),
-        'attempt_ref': uuid7(),
-        'character_id': uuid7(),
+        'game_login_ticket': ticket,
+        'attempt_ref': attempt_ref,
+        'character_id': character_id,
         'channel_id': None,
         'offer': {
-            'client_build': 'cutover-probe',
+            'client_build': 'cutover-smoke',
             'client_platform': 'windows',
             'transports': [{'protocol_major': 1, 'transport_profile': 1, 'alpn': 'oteryn-game/1'}],
         },
-    },
-    separators=(',', ':'),
-).encode()
-status, body = post('/v1/login', native_login)
-try:
-    payload = json.loads(body)
-except json.JSONDecodeError as exc:
-    raise SystemExit(f'Native Gateway login did not return JSON (status {status})') from exc
-error = payload.get('error') if isinstance(payload, dict) else None
-code = error.get('code') if isinstance(error, dict) else None
+    }
+
+
+# --- 1. An unknown ticket is refused by the Platform issuer --------------------------------------------------
+status, _, code = gateway_login(login_body('oteryn-cutover-probe-' + secrets.token_hex(16), uuid7()))
 if status != 401 or code != 'NATIVE_LOGIN_AUTHENTICATION_REQUIRED':
-    raise SystemExit(f'Native login did not reach the Platform issuer: status {status}, code {code}')
-print('Verified native login through the Gateway to the Platform issuer (unknown ticket rejected as 401).')
+    raise SystemExit(f'Native login with an unknown ticket did not reach the Platform issuer: status {status}, code {code}')
+
+
+# --- 2. The smoke actor signs in on the web --------------------------------------------------------------------
+class Browser:
+    """One web session on the Platform: cookies kept from Set-Cookie, redirects not followed."""
+
+    def __init__(self):
+        self.cookies = {}
+
+    def send(self, method, path, form=None):
+        headers = {**PROXY_HEADERS, 'Accept': 'text/html'}
+        if self.cookies:
+            headers['Cookie'] = '; '.join(f'{k}={v}' for k, v in self.cookies.items())
+        payload = None
+        if form is not None:
+            payload = urllib.parse.urlencode(form).encode()
+            headers['Content-Type'] = 'application/x-www-form-urlencoded'
+            headers['Origin'] = 'https://' + CANONICAL
+        status, response_headers, body = exchange(platform_port, method, path, payload, headers, retries=3)
+        for value in header(response_headers, 'set-cookie'):
+            name, _, rest = value.partition('=')
+            self.cookies[name.strip()] = rest.split(';', 1)[0]
+        return status, (header(response_headers, 'location') or [''])[0], body
+
+    def token(self, path):
+        status, _, body = self.send('GET', path)
+        if status != 200:
+            raise SystemExit(f'Platform {path.split("?")[0]} returned unexpected status: {status}')
+        return field(body, '_token', path)
+
+
+def field(body, name, where):
+    match = (re.search(rb'name="' + name.encode() + rb'"\s+value="([^"]+)"', body)
+             or re.search(rb'value="([^"]+)"\s+name="' + name.encode() + rb'"', body))
+    if not match:
+        raise SystemExit(f'Platform {where.split("?")[0]} has no {name} field')
+    return html.unescape(match.group(1).decode())
+
+
+def canonical_path(location):
+    parts = urllib.parse.urlsplit(location)
+    if parts.scheme != 'https' or parts.netloc != CANONICAL:
+        raise SystemExit('a redirect left the canonical HTTPS origin')
+    return parts.path
+
+
+browser = Browser()
+status, location, _ = browser.send('POST', '/login?locale=en', {
+    '_token': browser.token('/login?locale=en'), 'email': email, 'password': password})
+if status == 302 and canonical_path(location) == '/mfa/challenge':
+    raise SystemExit('the native smoke actor has MFA confirmed; the smoke needs an actor without MFA')
+if status != 302 or canonical_path(location) != '/':
+    raise SystemExit(f'the native smoke actor could not sign in (status {status})')
+
+# --- 3. Native OAuth authorization code with PKCE, as the Windows client does -----------------------------------
+verifier = secrets.token_urlsafe(48)
+challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
+state = secrets.token_urlsafe(24)
+query = urllib.parse.urlencode({
+    'client_id': client_id, 'redirect_uri': REDIRECT_URI, 'response_type': 'code', 'scope': 'game:ticket',
+    'state': state, 'code_challenge': challenge, 'code_challenge_method': 'S256'}, quote_via=urllib.parse.quote)
+status, location, body = browser.send('GET', '/oauth/authorize?' + query)
+if status == 200:
+    status, location, _ = browser.send('POST', '/oauth/authorize', {
+        '_token': field(body, '_token', '/oauth/authorize'), 'state': state, 'client_id': client_id,
+        'auth_token': field(body, 'auth_token', '/oauth/authorize')})
+if status != 302 or not location.startswith(REDIRECT_URI + '?'):
+    raise SystemExit(f'the native OAuth authorization did not redirect to the client (status {status})')
+answer = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(location).query))
+if answer.get('state') != state or not answer.get('code'):
+    raise SystemExit(f'the native OAuth authorization returned no code for this state (error {answer.get("error")})')
+
+status, _, body = exchange(platform_port, 'POST', '/oauth/token', urllib.parse.urlencode({
+    'grant_type': 'authorization_code', 'client_id': client_id, 'redirect_uri': REDIRECT_URI,
+    'code': answer['code'], 'code_verifier': verifier}).encode(), {
+    **PROXY_HEADERS, 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded'})
+token = json_body(body, f'The OAuth token exchange (status {status})')
+if status != 200 or not isinstance(token.get('access_token'), str) or str(token.get('token_type', '')).lower() != 'bearer':
+    raise SystemExit(f'the OAuth token exchange returned unexpected status: {status}')
+bearer = {**PROXY_HEADERS, 'Accept': 'application/json', 'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + token['access_token']}
+
+# --- 4. A native Game Login Ticket; the bearer is single-use ---------------------------------------------------
+status, _, body = exchange(platform_port, 'POST', '/v1/game-auth/tickets', b'{"protocol_version":1}', bearer)
+issued = json_body(body, f'The ticket issue (status {status})')
+ticket = issued.get('ticket')
+if status != 200 or issued.get('protocol_version') != 1 or not isinstance(ticket, str) or not ticket:
+    raise SystemExit(f'the native ticket issue returned unexpected status: {status}')
+expires_in = issued.get('expires_in')
+if not isinstance(expires_in, int) or isinstance(expires_in, bool) or expires_in < 1:
+    raise SystemExit('the native ticket was issued already expired')
+status, _, _ = exchange(platform_port, 'POST', '/v1/game-auth/tickets', b'{"protocol_version":1}', bearer)
+if status != 401:
+    raise SystemExit(f'the bearer still issued a ticket after its ticket (status {status}); issuance must revoke it')
+
+# --- 5. Admission through the Gateway, then a replay of the same attempt ----------------------------------------
+attempt_ref = uuid7()
+request = login_body(ticket, attempt_ref)
+
+
+def admit(what):
+    for attempt in range(6):
+        status, answer, code = gateway_login(request)
+        if status != 503 or attempt == 5:
+            break
+        time.sleep(3)
+    if status != 200:
+        raise SystemExit(f'{what} was not admitted: status {status}, code {code}')
+    grant = answer.get('grant')
+    endpoint = answer.get('endpoint')
+    if (answer.get('protocol_version') != 2 or answer.get('attempt_ref') != attempt_ref
+            or not isinstance(answer.get('world_id'), str) or not isinstance(answer.get('channel_id'), str)
+            or not isinstance(endpoint, dict) or not endpoint.get('host') or not isinstance(endpoint.get('port'), int)
+            or not isinstance(grant, dict) or grant.get('profile') != 'oteryn-pre-admission-v1'
+            or not isinstance(grant.get('token'), str) or not grant['token']
+            or not isinstance(grant.get('valid_for_seconds'), int) or grant['valid_for_seconds'] < 1):
+        raise SystemExit(f'{what} returned 200 without the native admission contract body')
+    return answer['world_id'], answer['channel_id'], endpoint
+
+
+admitted = admit('The native smoke login')
+if admit('The replay of the native smoke login') != admitted:
+    raise SystemExit('the replay of the admitted attempt returned a different admission')
+
+# --- 6. Sign the web session out -------------------------------------------------------------------------------
+status, _, _ = browser.send('POST', '/logout', {'_token': browser.token('/account')})
+if status != 302:
+    raise SystemExit(f'the native smoke actor could not sign out (status {status})')
+
+print('Verified native login end to end: unknown ticket refused, web sign-in, native OAuth with PKCE, ticket '
+      'issue with bearer revocation, Gateway admission with an oteryn-pre-admission-v1 grant, and its replay.')
+print('native_smoke_unknown_ticket=refused')
+print('native_smoke_oauth=authorized')
+print('native_smoke_ticket=issued-bearer-revoked')
+print('native_smoke_admission=granted')
+print('native_smoke_replay=same-admission')
 PY
 
 ev_require_continuity "$EV_ATTEMPT_RUN" "$HOOK_WORK/trust.json"
