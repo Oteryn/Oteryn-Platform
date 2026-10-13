@@ -113,10 +113,18 @@ final class ProductionConfigurationVerifierTest extends TestCase
         ]);
 
         // Connections on a driver the verifier refuses outright (e.g. sqlsrv) fail on the driver check instead.
-        $privileged = array_values(array_filter(
-            array_diff(array_keys(config('database.connections')), ['pgsql', 'mysql', 'mariadb', 'sqlite']),
-            static fn (string $name): bool => in_array(config("database.connections.{$name}.driver"), ['pgsql', 'mysql', 'mariadb'], true),
-        ));
+        $connections = config('database.connections');
+        self::assertIsArray($connections);
+        $privileged = [];
+        foreach ($connections as $name => $connection) {
+            $name = (string) $name;
+            if (in_array($name, ['pgsql', 'mysql', 'mariadb', 'sqlite'], true)) {
+                continue;
+            }
+            if (is_array($connection) && in_array($connection['driver'] ?? null, ['pgsql', 'mysql', 'mariadb'], true)) {
+                $privileged[] = $name;
+            }
+        }
         self::assertContains('pgsql_migrations', $privileged);
         self::assertGreaterThan(3, count($privileged));
 
