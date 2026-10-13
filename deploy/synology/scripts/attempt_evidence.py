@@ -486,7 +486,9 @@ def raw_classification(att):
         if rev < fl:
             return "witness-ahead"
         key = O1.get("key") if isinstance(O1.get("key"), dict) else {}
-        if rev == fl and not prof.get("revoked") and key.get("trusted") is True:
+        both = all(isinstance(o.get("key"), dict) and o["key"].get("requested") == att["intent"].get("key_id")
+                   for o in (O1, O2))
+        if rev == fl and not prof.get("revoked") and key.get("trusted") is True and both:
             return "committed"
         return "unknown"
     if fl is None:
@@ -933,7 +935,8 @@ def recheck_ok(A, runs, att, obs):
     fl = floor_value(obs)
     return bool(obs_db(obs) and binding_of(obs) == "match" and store_id_of(obs) == S
                 and continues(obs, A.stable, highwater(runs, S)) and prof and fl is not None
-                and prof.get("issuer_revision") == fl and not prof.get("revoked") and key.get("trusted") is True)
+                and prof.get("issuer_revision") == fl and not prof.get("revoked") and key.get("trusted") is True
+                and key.get("requested") == att["intent"].get("key_id"))
 
 
 def build_self_check(A, runs, run, data, a):

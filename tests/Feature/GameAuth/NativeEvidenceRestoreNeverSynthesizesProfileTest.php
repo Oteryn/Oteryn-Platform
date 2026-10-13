@@ -232,10 +232,10 @@ final class NativeEvidenceRestoreNeverSynthesizesProfileTest extends TestCase
         ]);
     }
 
-    /** @return array{result?: string, store_id?: string, store: array{binding: string}, profile: array{present: bool}} */
+    /** @return array{result: string, store_id: string, store: array{binding: string}, profile: array{present: bool}} */
     private function decoded(): array
     {
-        /** @var array{result?: string, store_id?: string, store: array{binding: string}, profile: array{present: bool}} $decoded */
+        /** @var array{result: string, store_id: string, store: array{binding: string}, profile: array{present: bool}} $decoded */
         $decoded = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
 
         return $decoded;

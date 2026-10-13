@@ -555,6 +555,12 @@ class ClassifyTest(Base):
         self.assertEqual(self.d.append("run-close", run, {"done": True})[0], 0)
         self.assertEqual(self.d.verdict(), "committed")
 
+    def test_observation_for_another_key_is_not_committed(self):
+        other = committed_obs(lsn=0x1100)
+        other["key"]["requested"] = "kid-other"
+        _, cls = self.run_attempt(other)
+        self.assertNotEqual(cls, "committed")
+
     def test_failed_before_witness_and_retry(self):
         run, cls = self.run_attempt(obs(lsn=0x1100))
         self.assertEqual(cls, "failed-before-witness")

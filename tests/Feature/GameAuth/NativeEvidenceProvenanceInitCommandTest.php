@@ -69,7 +69,8 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
 
     public function test_unchanged_reports_floor_class_counts_and_changes_nothing(): void
     {
-        self::assertSame(0, $this->initialize());
+        $first = $this->initialize();
+        self::assertSame(0, $first);
         $storeId = $this->commandOutput()['store_id'];
         $hash = str_repeat('a', 64);
         file_put_contents($this->directory.'/'.$hash.'.floor', "1\n");
