@@ -62,7 +62,7 @@ updated_at: 2026-10-13T00:00:00Z
 head: UNKNOWN
 branch: claude/platform-p6b-cutover-20261013
 pr: 1590
-status: review
+status: validating
 context_routes:
   - operations
 owned_paths:
@@ -99,10 +99,15 @@ changed_paths:
   - .github/workflows/deploy-synology-staging.yml
   - tests/ci/test_synology_cutover_postgres.py
 validation:
-  - tests/operations/cloudflare-oteryn-endpoints/run.sh and check-*.py PASS (mock Cloudflare, fake gh)
-  - tests/ci/test_synology_cutover_postgres.py 56/56 PASS (stub docker/gh/curl)
-  - tests/ci/test_synology_postgres_contract.py PASS
-  - PHP checks run in CI only; nothing executed on Synology or Cloudflare
+  - command: bash tests/operations/cloudflare-oteryn-endpoints/run.sh and check-*.py
+    result: PASS
+    evidence: mock Cloudflare and fake gh; no real Cloudflare call
+  - command: python3 tests/ci/test_synology_cutover_postgres.py; python3 tests/ci/test_synology_postgres_contract.py
+    result: PASS
+    evidence: 56 cutover tests with stub docker/gh/curl; nothing run on Synology
+  - command: python3 tools/validation/legacy_token_ratchet.py; python3 tools/agents/documentation_ia.py
+    result: PASS
+    evidence: ratchet ok; documentation IA validated; PHP checks run in CI only
 blockers:
   - none
 next_action: full Codex review, one fixes commit, resolve threads, auto-merge squash
