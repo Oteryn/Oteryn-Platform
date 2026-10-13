@@ -23,6 +23,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import urllib.parse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -247,6 +248,10 @@ class FakeHttp:
     def __init__(self):
         self.platform_mode = "ok"
         self.gateway_on = True
+        self.bazaar = False
+        self.identities = {}
+        self.signed_in = None
+        self.smoke_posts = []
         owner = self
 
         class Platform(http.server.BaseHTTPRequestHandler):
@@ -266,7 +271,56 @@ class FakeHttp:
                 if self.path == "/news?locale=en":
                     status = 500 if owner.platform_mode == "news-error" else 200
                     return self.reply(status, "text/html; charset=UTF-8", b"<html>news</html>")
+                if self.path == "/register?locale=en":
+                    return self.reply(200, "text/html", f'<input type="hidden" name="_token" value="{CSRF}">'.encode(),
+                                      cookie=True)
+                if self.path == "/account":
+                    if not self.session():
+                        return self.redirect("/login")
+                    status = 500 if owner.platform_mode == "account-error" else 200
+                    return self.reply(status, "text/html", (f'<dd>{owner.signed_in}</dd><form method="POST"><input '
+                                                            f'type="hidden" name="_token" value="{CSRF}"></form>').encode())
+                if self.path == "/admin":
+                    if not self.session():
+                        return self.redirect("/login")
+                    return self.reply(200 if owner.platform_mode == "admin-open" else 403, "text/html", b"admin")
+                if self.path == "/bazaar" and owner.bazaar:
+                    return self.reply(200, "text/html", b"bazaar")
+                if self.path == "/account/bazaar" and owner.bazaar and self.session():
+                    return self.reply(500 if owner.platform_mode == "wallet-error" else 200, "text/html", b"wallet")
                 return self.reply(404, "text/html", b"not found")
+
+            def session(self):
+                return owner.signed_in is not None and f"oteryn_session={COOKIE}" in self.headers.get("Cookie", "")
+
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length", "0"))
+                form = dict(urllib.parse.parse_qsl(self.rfile.read(length).decode()))
+                owner.smoke_posts.append((self.path, sorted(form)))
+                if form.get("_token") != CSRF or f"oteryn_session={COOKIE}" not in self.headers.get("Cookie", ""):
+                    return self.reply(419, "text/html", b"page expired")
+                if self.path == "/register":
+                    if owner.platform_mode == "register-error":
+                        return self.reply(500, "text/html", b"error")
+                    if form.get("password") == form.get("password_confirmation") and form.get("email"):
+                        owner.identities[form["email"]] = form["password"]
+                    return self.redirect("/register")
+                if self.path == "/login?locale=en":
+                    if owner.platform_mode != "login-fails" and owner.identities.get(form.get("email")) == form.get("password"):
+                        owner.signed_in = form["email"]
+                        return self.redirect("/")
+                    return self.redirect("/login")
+                if self.path == "/logout":
+                    if owner.platform_mode != "logout-keeps":
+                        owner.signed_in = None
+                    return self.redirect("/")
+                return self.reply(404, "text/html", b"not found")
+
+            def redirect(self, path):
+                self.send_response(302)
+                self.send_header("Location", f"https://oteryn.molehill.cloud{path}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
 
             def reply(self, status, ctype, body, cookie=False):
                 self.send_response(status)
@@ -320,6 +374,10 @@ class HookHarness(unittest.TestCase):
     def setUp(self):
         self.http.platform_mode = "ok"
         self.http.gateway_on = True
+        self.http.bazaar = False
+        self.http.identities = {}
+        self.http.signed_in = None
+        self.http.smoke_posts = []
         self.tmp = Path(tempfile.mkdtemp(prefix="cutover-hooks-test-"))
         self.stub = self.tmp / "stub"
         self.bin = self.tmp / "bin"
@@ -1038,13 +1096,36 @@ class WebSmokeTest(HookHarness):
         proc = self.run_hook("web-smoke")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(proc.stdout.splitlines()[-1], "web_smoke_result=passed")
+        out = self.outputs(proc)
+        self.assertEqual((out["web_smoke_account"], out["web_smoke_admin_boundary"], out["web_smoke_admin_login"],
+                          out["web_smoke_wallet"]),
+                         ("registered-signed-in-signed-out", "refused", "not-exercised", "no-route"))
+        # A fresh identity is registered and signs in with the same random credentials, then signs out.
+        self.assertEqual([path for path, _ in self.http.smoke_posts], ["/register", "/login?locale=en", "/logout"])
+        self.assertEqual(self.http.smoke_posts[0][1], ["_token", "email", "password", "password_confirmation"])
+        (email, password), = self.http.identities.items()
+        self.assertRegex(email, r"^cutover-smoke-[0-9a-f]{16}@example\.invalid$")
+        self.assertIsNone(self.http.signed_in)
+        for value in (email, password, "example.invalid"):
+            self.assertNotIn(value, proc.stdout + proc.stderr)
         runs = [entry["run"] for entry in self.log("docker.log") if "run" in entry]
         self.assertEqual(runs, [["run", "--rm", "--network", "host", "-i", "python:3.12-alpine"]])
         self.assertEqual(list(self.scratch.iterdir()), [])
         self.assert_no_secret(proc)
 
+    def test_reads_the_wallet_when_the_bazaar_is_enabled(self):
+        self.http.bazaar = True
+        proc = self.run_hook("web-smoke")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.outputs(proc)["web_smoke_wallet"], "read")
+        self.http.platform_mode = "wallet-error"
+        proc = self.run_hook("web-smoke")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("wallet read", proc.stderr)
+
     def test_fails_closed(self):
-        for mode in ("bad-action", "news-error"):
+        for mode in ("bad-action", "news-error", "register-error", "login-fails", "account-error", "admin-open",
+                     "logout-keeps"):
             with self.subTest(mode=mode):
                 self.http.platform_mode = mode
                 proc = self.run_hook("web-smoke")
