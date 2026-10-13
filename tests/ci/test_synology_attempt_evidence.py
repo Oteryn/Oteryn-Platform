@@ -40,14 +40,14 @@ BOT = {"id": 41898282, "login": "github-actions[bot]"}
 
 def obs(store=S1, binding="match", floor=None, profile=None, lsn=0x1000, xmax=100, pmst="t0", sysid="7001", tl=1,
         oid=16384, rel=(1, 2, 3), in_flight=0, fence=True, in_history=False, configured=K, trusted=False,
-        temp=0, db=True):
+        temp=0, db=True, requested=K):
     o = {
         "result": "ok", "fence_required": fence,
         "store": {"marker": store, "row": store, "binding": binding},
         "scope": SCOPE,
         "floor": {"value": floor, "temp_entries": temp},
         "profile": profile if profile else {"present": False},
-        "key": {"requested": K, "configured_key_id": configured, "in_history": in_history, "trusted": trusted},
+        "key": {"requested": requested, "configured_key_id": configured, "in_history": in_history, "trusted": trusted},
         "database": None,
     }
     if db:
@@ -479,6 +479,7 @@ class WriterTest(Base):
             ("profile", obs(profile=profile()), "precondition:profile"),
             ("history", obs(in_history=True), "precondition:key-history"),
             ("configured", obs(configured="other"), "precondition:configured-key"),
+            ("requested", obs(requested="kid-other"), "precondition:requested-key"),
             ("inflight", obs(in_flight=1), "precondition:in-flight"),
             ("nulldb", obs(db=False), "store-changed"),
             ("binding", obs(binding="marker_only"), "store-changed"),

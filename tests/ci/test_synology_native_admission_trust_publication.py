@@ -692,6 +692,8 @@ def test_guard_refuses_without_an_open_attempt_and_never_publishes(fake_docker: 
         {"database": {**OBSERVED_NO_PROFILE["database"], "in_flight": {"sessions": 0, "prepared": 1}}},
         {"key": {**OBSERVED_NO_PROFILE["key"], "configured_key_id": None}},
         {"result": "witness_busy"},
+        {"fence_required": False},
+        {"fence_required": None},
     ],
 )
 def test_guard_refuses_an_unsafe_observation(fake_docker: pathlib.Path, change: dict) -> None:

@@ -911,6 +911,9 @@ def intent_precondition(A, runs, init, obs, key_id, data):
     if profile_of(obs) is not None:
         return "precondition:profile"
     key = obs.get("key") if isinstance(obs.get("key"), dict) else {}
+    # in_history and trusted describe key.requested, so the observation must be about the intent's key.
+    if key.get("requested") != key_id:
+        return "precondition:requested-key"
     if key.get("in_history") is not False:
         return "precondition:key-history"
     if key.get("configured_key_id") not in (key_id, None):

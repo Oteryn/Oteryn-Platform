@@ -1609,7 +1609,8 @@ elif (o.get("profile") or {}).get("present") is True:
 else:
     inflight = ((o.get("database") or {}).get("in_flight")) or {}
     ok = (
-        (o.get("store") or {}).get("binding") == "match"
+        o.get("fence_required") is True
+        and (o.get("store") or {}).get("binding") == "match"
         and (o.get("floor") or {}).get("value") is None
         and o.get("database") is not None
         and inflight.get("sessions") == 0
@@ -1632,7 +1633,7 @@ else:
         nofence) return 0 ;;
         fence) ;;
         *)
-            echo "First-publication guard refused (${parsed%%$'\n'*}): no profile exists and the witness, floor, binding, database or key state does not allow a first publication." >&2
+            echo "First-publication guard refused (${parsed%%$'\n'*}): no profile exists and the fence setting, witness, floor, binding, database or key state does not allow a first publication." >&2
             return 1
             ;;
     esac
