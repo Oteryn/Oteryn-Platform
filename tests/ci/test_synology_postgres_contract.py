@@ -104,16 +104,22 @@ class VolumeGuardTest(unittest.TestCase):
         for name in ("synology-diagnostics.yml", "repair-synology-autostart.yml"):
             text = (WORKFLOWS / name).read_text()
             self.assertIn("OTERYN_STAGING_PLATFORM_POSTGRES_DUMP_PASSWORD", text, name)
-            self.assertIn('case "$configured" in', text, name)
             self.assertNotRegex(text, r'if \[\[ -n "\$\(docker ps -aq[^\]]*service=postgres', name)
             self.assertNotRegex(text, r'if \[\[ -n "\$postgres_ids" \]\]', name)
             self.assertIn("environment: synology-staging", text, f"{name} must see the environment secrets")
-            self.assertIn("A RUNNING postgres service without its secrets", text, name)
-            self.assertIn("partially configured", text, name)
+            # PostgreSQL is the Platform database (plan P7): a missing or partial secret set fails.
+            self.assertIn("only $configured of its 5 secrets are configured", text, name)
+            self.assertNotIn("partially configured", text, name)
         diag = (WORKFLOWS / "synology-diagnostics.yml").read_text()
-        block = diag[diag.index('case "$configured" in'):]
-        self.assertIn('.State.Running}}\')" = "true"', block.split("esac")[0])
-        self.assertIn("Health.Status", block.split("esac")[0])
+        self.assertIn('if [[ "$configured" -ne 5 ]]; then', diag)
+        self.assertIn("expected='platform gateway marketplace-scheduler postgres'", diag)
+        self.assertIn('.State.Running}}\')" = "true"', diag)
+        health = diag[diag.index("postgres_id=\"$(docker ps -q"):]
+        self.assertIn("Health.Status", health.split("scheduler_id=")[0])
+        repair = (WORKFLOWS / "repair-synology-autostart.yml").read_text()
+        block = repair[repair.index('case "$configured" in'):].split("esac")[0]
+        self.assertNotRegex(block, r"^\s*0\)", "the repair must not accept a stack without PostgreSQL secrets")
+        self.assertIn("5)", block)
 
     def test_compose_keeps_every_data_volume_named_and_local(self) -> None:
         volumes = COMPOSE.read_text().split("\nvolumes:\n", 1)[1].split("\nnetworks:\n", 1)[0]
@@ -211,18 +217,19 @@ class ComposeServiceTest(unittest.TestCase):
     def test_every_action_rejects_a_partial_secret_set_before_any_stack_change(self) -> None:
         workflow = (WORKFLOWS / "deploy-synology-staging.yml").read_text()
         config = workflow[: workflow.index("- name: Upgrade legacy release provenance state")]
-        self.assertIn("postgres_configured != 0 && postgres_configured != 5", config)
-        self.assertNotIn("inputs.action == 'deploy'", config[config.index("postgres_configured=0") - 400 : config.index("postgres_configured != 0")])
+        self.assertIn("if (( postgres_configured != 5 )); then", config)
+        self.assertNotIn("postgres_configured != 0", config)
+        self.assertNotIn("inputs.action == 'deploy'", config[config.index("postgres_configured=0") - 400 : config.index("postgres_configured != 5")])
         rollback = (DEPLOY.parent / "rollback.sh").read_text()
         guard = rollback.index("oteryn_require_postgres_secrets_for_engine || exit 1")
         self.assertGreater(guard, rollback.index("load_oteryn_env_file"))
         for stop in ("release-state.sh", "docker compose", '"${compose[@]}"'):
             if stop in rollback:
                 self.assertLess(guard, rollback.index(stop), stop)
-        # The other workflows count the same five secrets and fail on a partial set before touching anything.
+        # The other workflows count the same five secrets and fail on a missing or partial set before touching anything.
         for name in ("synology-diagnostics.yml", "repair-synology-autostart.yml"):
             text = (WORKFLOWS / name).read_text()
-            self.assertIn("partially configured", text, name)
+            self.assertIn("only $configured of its 5 secrets are configured", text, name)
 
     def test_fast_path_requires_a_current_reconcile_record(self) -> None:
         lib = LIB.read_text()
@@ -829,6 +836,24 @@ class DeployWiringTest(unittest.TestCase):
             self.assertIn(f"      {name}: ${{{{ secrets.OTERYN_STAGING_{name} }}}}\n", workflow)
             self.assertIn(f"          {name}=${name}\n", workflow)
         self.assertIn('if [[ -n "${!name:-}" && ! "${!name}" =~ ^[A-Za-z0-9_.-]{24,}$ ]]; then', workflow)
+
+    def test_staging_workflows_no_longer_read_or_render_the_retired_mariadb_secrets(self) -> None:
+        # Plan P7: MariaDB is retired, so the operator can delete its two secrets without breaking a workflow.
+        for name in ("deploy-synology-staging.yml", "recover-synology-staging-schema.yml",
+                     "character-bazaar-staging-control.yml", "synology-production-target-preflight.yml",
+                     "repair-synology-autostart.yml", "synology-diagnostics.yml"):
+            workflow = (WORKFLOWS / name).read_text()
+            for retired in ("secrets.OTERYN_STAGING_MARIADB_ROOT_PASSWORD", "secrets.OTERYN_STAGING_PLATFORM_DB_PASSWORD",
+                            "MARIADB_ROOT_PASSWORD=", "PLATFORM_DB_USER=", "PLATFORM_DB_PASSWORD="):
+                self.assertNotIn(retired, workflow, f"{name}: {retired}")
+        deploy = (WORKFLOWS / "deploy-synology-staging.yml").read_text()
+        self.assertIn("          PLATFORM_DB_NAME=oteryn_platform\n", deploy)
+        self.assertIn("if (( postgres_configured != 5 )); then", deploy)
+        self.assertLess(deploy.index("postgres_configured != 5"), deploy.index("cat > deploy/synology/.env"))
+        env_example = (SYNOLOGY / ".env.example").read_text()
+        self.assertNotIn("MARIADB", env_example)
+        for name in SECRET_NAMES:
+            self.assertIn(f"\n{name}=REQUIRED_RANDOM_HEX\n", env_example)
 
     def test_recovery_workflow_renders_the_five_optional_secrets_all_or_none(self) -> None:
         workflow = (WORKFLOWS / "recover-synology-staging-schema.yml").read_text()

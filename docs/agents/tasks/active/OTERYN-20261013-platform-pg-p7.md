@@ -29,9 +29,11 @@ Plan P7 (ADR 0046): remove the MariaDB Platform paths from the Synology staging 
 - [x] Synology contract tests follow.
 - [ ] Merged only after `retire-mariadb` is recorded on staging (owner sequencing).
 
-Kept on purpose (outside this unit or still needed): `cutover-postgres.sh`, `bootstrap-postgres.sh` (the deploy workflow's cutover action); `restore-postgres-pitr.sh`; `pdo_mysql` in the image; `deploy/synology/mariadb/init` and `BUILD_ROUTING.md` (deleting it needs `build-synology-staging-images.yml` and its classifier, a CP-owned workflow change).
+Kept on purpose (outside this unit or still needed): `cutover-postgres.sh`, `bootstrap-postgres.sh` (the deploy workflow's cutover action); `restore-postgres-pitr.sh`; `pdo_mysql` in the image; the tolerant `mariadb` entries in `synology-container-hygiene.yml` and `repair-synology-compose-orphans.yml` (they skip an absent service).
 
-Follow-ups for CP/owner (P7c, not in this PR): `deploy-synology-staging.yml` stops rendering `MARIADB_ROOT_PASSWORD`/`PLATFORM_DB_PASSWORD`; `repair-synology-autostart.yml` drops `mariadb` from its loop (it fails closed once retire-mariadb removes the container); CI/acceptance MariaDB service containers; `config/database.php` mysql connection and phpunit; the ADR 0044 mysql row (with Amendment P4); live operations docs, `synology-diagnostics.yml`, the recovery workflow; then the operator removes the two retired MariaDB secrets.
+Codex review on PR 1599 (P1) plus the small P7c items, taken here: `repair-synology-autostart.yml` and `synology-diagnostics.yml` no longer resolve or require `mariadb` and require PostgreSQL with all five secrets; the deploy, schema recovery, Character Bazaar and production preflight workflows no longer read or render `MARIADB_ROOT_PASSWORD`/`PLATFORM_DB_PASSWORD`; `.env.example` lists the PostgreSQL secrets; `deploy/synology/mariadb/init` is deleted with its build paths, classifier prefix and `BUILD_ROUTING.md` entry.
+
+Follow-ups for CP/owner (not in this PR): CI/acceptance MariaDB service containers; `config/database.php` mysql connection and phpunit; the ADR 0044 mysql row (with Amendment P4); live operations docs; the hygiene and orphan workflows' `mariadb` entries; then the operator removes the two retired MariaDB secrets.
 
 ## Ownership
 
@@ -59,6 +61,19 @@ owned_paths:
   - tests/ci/test_synology_postgres_backup_contract.py
   - tests/ci/test_synology_rollback_contract.py
   - tests/ci/test_synology_rollback_recovery_contract.py
+  - .github/workflows/repair-synology-autostart.yml
+  - .github/workflows/synology-diagnostics.yml
+  - .github/workflows/deploy-synology-staging.yml
+  - .github/workflows/recover-synology-staging-schema.yml
+  - .github/workflows/character-bazaar-staging-control.yml
+  - .github/workflows/synology-production-target-preflight.yml
+  - .github/workflows/build-synology-staging-images.yml
+  - deploy/synology/.env.example
+  - deploy/synology/BUILD_ROUTING.md
+  - deploy/synology/mariadb/init/10-platform-database.sh
+  - scripts/ci/classify_synology_builds.py
+  - tests/ci/test_synology_deployment_package_routing.py
+  - tests/ci/test_synology_auto_staging_deploy.py
   - docs/agents/tasks/active/OTERYN-20261013-platform-pg-p7.md
   - docs/agents/tasks/archive/OTERYN-20261013-platform-pg-p7.md
 modules:
@@ -78,8 +93,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-13T16:00:00Z
-head: 317b53addfe5165dbf3646e3c82b0ca143515488
+updated_at: 2026-10-13T23:00:00Z
+head: b8c75078fcbe5f740d35ec7ef05184bf0ecf0c73
 branch: claude/platform-p7-20261013
 pr: 1599
 status: validating
@@ -108,10 +123,24 @@ owned_paths:
   - tests/ci/test_synology_postgres_backup_contract.py
   - tests/ci/test_synology_rollback_contract.py
   - tests/ci/test_synology_rollback_recovery_contract.py
+  - .github/workflows/repair-synology-autostart.yml
+  - .github/workflows/synology-diagnostics.yml
+  - .github/workflows/deploy-synology-staging.yml
+  - .github/workflows/recover-synology-staging-schema.yml
+  - .github/workflows/character-bazaar-staging-control.yml
+  - .github/workflows/synology-production-target-preflight.yml
+  - .github/workflows/build-synology-staging-images.yml
+  - deploy/synology/.env.example
+  - deploy/synology/BUILD_ROUTING.md
+  - deploy/synology/mariadb/init/10-platform-database.sh
+  - scripts/ci/classify_synology_builds.py
+  - tests/ci/test_synology_deployment_package_routing.py
+  - tests/ci/test_synology_auto_staging_deploy.py
   - docs/agents/tasks/active/OTERYN-20261013-platform-pg-p7.md
 proven:
   - cutover-postgres.sh rollback needs the mariadb service, its secrets and the mariadb engine until retire-mariadb; health-check.sh checks mariadb on the mariadb engine; so no MariaDB path is removable before retire-mariadb.
   - The engine-flip gate (PR 1598) refuses a deploy after retire-mariadb while compose.yml still defines mariadb; this PR is the compose change that clears it.
+  - After retire-mariadb, repair-synology-autostart.yml (resolve_one mariadb) and synology-diagnostics.yml (healthy mariadb required) failed closed; both now require the one postgres container and all five PostgreSQL secrets, and the autostart contract test no longer tolerates a mariadb entry.
   - retire-mariadb (step 6b) removes the mariadb container and the mariadb_data volume and warns that an ordinary deploy must wait for P7, which would otherwise recreate the retired service.
 derived:
   - Merged before retire-mariadb, the next deploy would stop managing the running mariadb container and drop the cutover rollback path.
@@ -146,23 +175,36 @@ changed_paths:
   - tests/ci/test_synology_postgres_backup_contract.py
   - tests/ci/test_synology_rollback_contract.py
   - tests/ci/test_synology_rollback_recovery_contract.py
+  - .github/workflows/repair-synology-autostart.yml
+  - .github/workflows/synology-diagnostics.yml
+  - .github/workflows/deploy-synology-staging.yml
+  - .github/workflows/recover-synology-staging-schema.yml
+  - .github/workflows/character-bazaar-staging-control.yml
+  - .github/workflows/synology-production-target-preflight.yml
+  - .github/workflows/build-synology-staging-images.yml
+  - deploy/synology/.env.example
+  - deploy/synology/BUILD_ROUTING.md
+  - deploy/synology/mariadb/init/10-platform-database.sh
+  - scripts/ci/classify_synology_builds.py
+  - tests/ci/test_synology_deployment_package_routing.py
+  - tests/ci/test_synology_auto_staging_deploy.py
   - docs/agents/tasks/active/OTERYN-20261013-platform-pg-p7.md
 validation:
   - command: python3 tests/ci/test_synology_postgres_contract.py
     result: PASS
-    evidence: 67 tests OK
-  - command: pytest tests/ci/test_synology_*.py
+    evidence: 84 tests OK (2 skipped as root)
+  - command: python3 -m pytest -q tests/ci/test_synology_*.py tests/ci/test_workflow_trigger_economy.py tests/ci/test_container_supply_chain.py deploy/synology/tests
     result: PASS
-    evidence: see PR body for counts
-  - command: pytest deploy/synology/tests
+    evidence: 537 passed, 21 skipped
+  - command: tightened workflow tests against the previous repair and diagnostics workflows
     result: PASS
-    evidence: 37 passed
+    evidence: 9 failures without the workflow fix (autostart, backup and postgres contract tests)
   - command: bash -n and shellcheck -x on the changed scripts
     result: PASS
     evidence: no new shellcheck findings against the base
 blockers:
   - retire-mariadb not yet recorded on staging (merge only)
-next_action: CP posts the Codex review on PR 1599; one fix commit; merge only after PR 1598 and retire-mariadb.
+next_action: CP re-requests review on PR 1599; merge only after PR 1598 and retire-mariadb.
 ```
 
 ## Source branch closeout
