@@ -494,6 +494,18 @@ class RollbackTests(CutoverTestBase):
         self.assertFalse(h.bootstrap_state.exists())
         self.assertTrue(any(p.name.startswith("postgres-bootstrap") or p.name.startswith("bootstrap-state.rolled-back") for p in h.root.iterdir()))
 
+    def test_bootstrap_adopts_a_completed_record_without_rerunning(self) -> None:
+        h = self.h
+        h.advance_to("freeze")
+        h.bootstrap_state.mkdir(parents=True, exist_ok=True)
+        (h.bootstrap_state / "bootstrap-complete.env").write_text(
+            "BOOTSTRAPPED_AT=2026-10-13T00:00:00Z\nOAUTH_CLIENT_ID=11111111-1111-1111-1111-111111111111\n"
+            "OAUTH_RUST_CLIENT_ID=22222222-2222-2222-2222-222222222222\nNATIVE_WORLD_ID=42\nNATIVE_ADMISSION=off\n"
+        )
+        h.bootstrap()
+        self.assertTrue(h.has_state("BOOTSTRAP"))
+        self.assertNotIn("bootstrap run", "\n".join(h.log_lines()))
+
     def test_rollback_before_bootstrap_restores_no_witness(self) -> None:
         h = self.h
         h.advance_to("freeze")
@@ -762,7 +774,7 @@ class UnfreezeTests(CutoverTestBase):
         open_run = h.make_audit("open")
         h.refused("unfreeze", "does not reach its origin", OTERYN_CUTOVER_AUDIT_RUN_ID=open_run)
         h.ok("unfreeze", OTERYN_CUTOVER_AUDIT_RUN_ID=open_run, STUB_CANONICAL_STATUS="200")
-        self.assertIn("up -d marketplace-scheduler", "\n".join(h.log_lines()))
+        self.assertIn("up -d --no-deps marketplace-scheduler", "\n".join(h.log_lines()))
         self.assertTrue(h.has_state("UNFROZEN"))
 
     def test_unfreeze_requires_an_open_audit(self) -> None:

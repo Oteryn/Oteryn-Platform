@@ -498,6 +498,23 @@ do_bootstrap() {
     prepare_state
     use_runtime_env
     local out
+    local complete_file="$bootstrap_state_dir/bootstrap-complete.env"
+    if [[ -e "$complete_file" || -L "$complete_file" ]]; then
+        # A previous run finished the bootstrap but stopped before the step was recorded: adopt its durable record.
+        [[ -f "$complete_file" && ! -L "$complete_file" ]] || refuse "the bootstrap completion record is not a regular file."
+        local c_oauth c_rust c_world
+        c_oauth="$(sed -n 's/^OAUTH_CLIENT_ID=//p' "$complete_file" | tail -n 1)"
+        c_rust="$(sed -n 's/^OAUTH_RUST_CLIENT_ID=//p' "$complete_file" | tail -n 1)"
+        c_world="$(sed -n 's/^NATIVE_WORLD_ID=//p' "$complete_file" | tail -n 1)"
+        grep -q '^BOOTSTRAPPED_AT=' "$complete_file" && [[ -n "$c_oauth" && -n "$c_rust" && -n "$c_world" ]] \
+            || refuse "the bootstrap completion record is incomplete; inspect it or roll back."
+        if [[ "$dry_run" == true ]]; then
+            echo "PLAN: adopt the completed bootstrap record and record the BOOTSTRAP step"
+            return 0
+        fi
+        record_step BOOTSTRAP "OAUTH_CLIENT_ID=$c_oauth" "OAUTH_RUST_CLIENT_ID=$c_rust" "NATIVE_WORLD_ID=$c_world" "BOOTSTRAP_PLATFORM_IMAGE=$(env_get PLATFORM_IMAGE)"
+        return 0
+    fi
     if [[ "$dry_run" == true ]]; then
         mutate bash "${OTERYN_CUTOVER_BOOTSTRAP_SCRIPT:-$SCRIPT_DIR/bootstrap-postgres.sh}" run
         return 0
@@ -707,7 +724,7 @@ do_unfreeze() {
     external_check_open
     prepare_state
     use_runtime_env
-    mutate "${compose[@]}" up -d marketplace-scheduler
+    mutate "${compose[@]}" up -d --no-deps marketplace-scheduler
     record_step UNFROZEN "UNFREEZE_AUDIT_RUN_ID=$audit_run_id"
     result unfreeze_result done
 }
