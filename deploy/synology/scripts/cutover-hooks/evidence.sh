@@ -26,6 +26,7 @@ ev_error() {
 # ev_state <command> <args...>: read-only helpers over the evidence directory, built on the tool's own parser.
 #   pending <dir> <anchors-file>  prints the anchor of every run whose last line is not anchored (D3 retry)
 #   summary <dir>                 prints the runs, their unfinished init-intent and their attempts as JSON
+#   continuity <dir> <run> <obs>  exits 0 when the observation continues the run's committed attempt
 ev_state() {
     python3 -I - "$SCRIPTS_DIR/attempt_evidence.py" "$@" <<'PY'
 import importlib.util
@@ -68,6 +69,26 @@ elif cmd == "summary":
                           "classification": x["cls"]} for x in A.attempts if x["run"] is run],
         })
     print(json.dumps(out, sort_keys=True))
+elif cmd == "continuity":
+    # A fresh observation against the run's committed attempt: the tool's own D5 recheck predicate (store
+    # binding, D4 identity and WAL high-water over every recorded observation, fence, nothing in flight,
+    # published profile, floor, the intent's key trusted) and no blocking state anywhere in the directory.
+    A = ae.analyze(runs)
+    with open(sys.argv[5]) as handle:
+        obs = json.load(handle)
+    run = next((r for r in runs if r.id == sys.argv[4]), None)
+    att = next((x for x in A.attempts if x["run"] is run and x["obs"] is not None and x["cls"] == "committed"), None)
+    others = [x for x in A.attempts if x is not att and x["cls"] in ae.BLOCKING | {"committed", "witness-ahead"}]
+    if att is None:
+        reason = "the run has no committed attempt"
+    elif A.permanent or A.unfinished or others or any(x["obs"] is None for x in A.attempts):
+        reason = "a blocking state exists in the evidence directory"
+    elif not isinstance(obs, dict) or not ae.recheck_ok(A, runs, att, obs):
+        reason = "the observation does not continue the committed attempt (identity, WAL position, in-flight or trust)"
+    else:
+        reason = None
+    print(json.dumps({"ok": reason is None, "reason": reason}))
+    sys.exit(0 if reason is None else 1)
 else:
     sys.exit(2)
 PY
@@ -258,9 +279,39 @@ ev_step4_recheck() {
     ev_self_check "$run" "$HOOK_WORK/recheck.json" true
 }
 
+# ev_require_continuity <run> <observation-out>: a fresh read-only observation with the committed attempt's
+# key id, retried while the witness is busy or a session or prepared transaction is in flight, that must
+# continue the attempt: the same PostgreSQL identity and store, a WAL position at or past every recorded
+# observation, nothing in flight and the attempt's key, which must be the configured one, still trusted under
+# a published profile (the first publication on the PostgreSQL store). Every native-smoke success path ends
+# with it, so a rerun never accepts recorded evidence on its own.
+ev_require_continuity() {
+    local run="$1" out="$2" key_id round
+    key_id="$(ev_attempt_key_id "$run")"
+    [[ "$key_id" =~ $EV_KID_PATTERN ]] || hook_fail "the committed attempt of run $run names no well-formed key id."
+    for ((round = 1; round <= EV_OBSERVE_ROUNDS; round++)); do
+        ev_observe_any "$out" --key-id="$key_id" || hook_fail "the trust observation printed no JSON."
+        ev_settled "$out" && break
+        ((round == EV_OBSERVE_ROUNDS)) && hook_fail "the trust observation never settled (witness busy or a transaction in flight); the committed attempt of run $run is not confirmed."
+        sleep 5
+    done
+    jq -e '
+        .store.binding == "match"
+        and (.profile | type == "object" and .present == true and .revoked != true)
+        and (.floor | type == "object" and .value != null)
+        and .key.trusted == true
+        and .key.configured_key_id != null
+        and .key.requested == .key.configured_key_id
+    ' "$out" >/dev/null \
+        || hook_fail "the trust observation does not show the first publication on the PostgreSQL store (binding match, profile, floor, trusted configured key)."
+    ev_state continuity "$EVIDENCE_DIR" "$run" "$out" > "$HOOK_WORK/continuity.json" \
+        || hook_fail "the current database does not continue the committed attempt of run $run: $(jq -r '.reason // "unreadable"' "$HOOK_WORK/continuity.json" 2>/dev/null || echo unreadable). Nothing was written; the owner decides."
+}
+
 # ev_step4_after_deploy: what native-smoke runs. It closes the attempt that the deploy just used:
 # step4-observe for the one unobserved attempt, step4-recheck for a committed attempt still waiting for a
-# passing self-check, nothing for an attempt already closed with done: true. Anything else stops.
+# passing self-check, nothing for an attempt already closed with done: true. Anything else stops. Sets
+# EV_ATTEMPT_RUN to the committed run; the caller confirms it with ev_require_continuity before it passes.
 ev_step4_after_deploy() {
     local unobserved pending finished
     ev_verified_anchors "$HOOK_WORK/anchors.json"
@@ -271,12 +322,22 @@ ev_step4_after_deploy() {
     if [[ -n "$unobserved" ]]; then
         [[ "$unobserved" != *" "* && -z "$pending$finished" ]] || hook_fail "the evidence directory holds more than one open or committed attempt; the owner decides."
         ev_step4_observe "$unobserved" false
+        EV_ATTEMPT_RUN="$unobserved"
     elif [[ -n "$pending" ]]; then
         [[ "$pending" != *" "* && -z "$finished" ]] || hook_fail "the evidence directory holds more than one committed attempt; the owner decides."
         ev_step4_recheck "$pending"
+        EV_ATTEMPT_RUN="$pending"
     elif [[ -n "$finished" && "$finished" != *" "* ]]; then
+        # A rerun after the run was closed (for example a lost runner before NATIVE_SMOKE was recorded): the
+        # recorded attempt counts only once a fresh observation continues it.
+        ev_require_continuity "$finished" "$HOOK_WORK/rerun.json"
         printf 'attempt_run_id=%s\nattempt_result=committed\n' "$finished"
+        EV_ATTEMPT_RUN="$finished"
     else
         hook_fail "no attempt waits for its observation and none is committed; native-reenable (step 4) has not recorded an attempt. The owner decides."
     fi
+    # The summary was read before this step wrote; the run must now be closed with done: true.
+    ev_summary
+    [[ "$(jq -r --arg r "$EV_ATTEMPT_RUN" '.runs[] | select(.run_id == $r) | .done' "$HOOK_WORK/summary.json")" == true ]] \
+        || hook_fail "run $EV_ATTEMPT_RUN is not closed with done: true; the owner decides."
 }

@@ -24,7 +24,7 @@ Status: **pending – not executed**. Every field below is a placeholder until t
 | --- | --- | --- | --- |
 | `OTERYN_STAGING_CUTOVER_WEB_SMOKE_COMMAND` | `/work/Oteryn-Platform/Oteryn-Platform/deploy/synology/scripts/cutover-hooks/web-smoke.sh` | 3. `smoke`, after `health-check.sh` | Over host loopback, with the canonical proxy headers: `/health` returns 200. `/login` returns 200 with the canonical HTTPS form action, a CSRF field and a session cookie. `/news` returns 200 HTML. Read-only. |
 | `OTERYN_STAGING_CUTOVER_PROVENANCE_INIT_COMMAND` | `/work/Oteryn-Platform/Oteryn-Platform/deploy/synology/scripts/cutover-hooks/provenance-init.sh` | 4. `native-reenable`, called as `init <task_id> <close_run_id>` | The P6a step-4 begin (`PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md` D5). See the steps below this table. |
-| `OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_COMMAND` | `/work/Oteryn-Platform/Oteryn-Platform/deploy/synology/scripts/cutover-hooks/native-smoke.sh` | 5. `native-smoke`, after the signing self-check | Native admission is on and paired in the environment file and in both running containers. The step-4 attempt is observed and closed (see below). A protocol-2 login with an unknown ticket, sent to the Gateway over loopback, gets 401 `NATIVE_LOGIN_AUTHENTICATION_REQUIRED` from the Platform issuer. The final trust observation shows binding `match`, a profile, a non-null floor and the configured key trusted. Writes attempt evidence and anchors. |
+| `OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_COMMAND` | `/work/Oteryn-Platform/Oteryn-Platform/deploy/synology/scripts/cutover-hooks/native-smoke.sh` | 5. `native-smoke`, after the signing self-check | Native admission is on and paired in the environment file and in both running containers. The step-4 attempt is observed and closed (see below). A protocol-2 login with an unknown ticket, sent to the Gateway over loopback, gets 401 `NATIVE_LOGIN_AUTHENTICATION_REQUIRED` from the Platform issuer. The final trust observation shows binding `match`, a profile, a non-null floor and the configured key trusted, and continues the committed attempt (identity, WAL position, nothing in flight). Writes attempt evidence and anchors. |
 
 `provenance-init.sh` runs these steps in order:
 
@@ -50,10 +50,12 @@ Each hook that writes evidence needs three more inputs: `OTERYN_CUTOVER_ANCHOR_I
   - `failed-before-witness`: the run stays open. Retry `n+1` is not implemented; the owner decides.
   - Any other class: write `run-close` with `done: false` and exit non-zero. The owner decides.
 - One committed attempt whose self-check failed: observe again and write a late `self-check` with `--anchors`. The tool refuses it unless the late observation still classifies `committed`.
-- One closed committed attempt: nothing is written.
+- One closed committed attempt (a rerun, for example after a runner loss before `NATIVE_SMOKE` was recorded): nothing is written, but the attempt counts only after a fresh continuity check (below).
 - Anything else: exit non-zero (`has not recorded an attempt`).
 
 The login smoke and the final trust check run only after that.
+
+Continuity check: a fresh trust observation with the attempt's key id, retried while the witness is busy or a transaction is in flight (at most 12 rounds). It must show the first publication (binding `match`, a profile, a non-null floor, the configured key trusted) and pass the tool's step-4 recheck rule against the committed attempt: the same PostgreSQL identity and store (a restart is allowed), a WAL position at or past every recorded observation, nothing in flight, and no blocking state in the directory. A swapped or restored database therefore fails even with the same store id and trust rows. The final trust check is this check; a rerun over a closed attempt also takes it before the login smoke. It writes nothing.
 
 ### Evidence recovery steps
 

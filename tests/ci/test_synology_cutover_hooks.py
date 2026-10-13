@@ -773,6 +773,55 @@ class NativeSmokeTest(HookHarness):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(self.run_records(), records)
 
+    def test_rerun_after_close_passes_only_on_a_database_that_continues_the_attempt(self):
+        proc = self.run_hook("native-smoke")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        records = self.run_records()
+
+        def variant(change):
+            obs = json.loads(json.dumps(COMMITTED))
+            change(obs)
+            return obs
+
+        def swap(obs, **identity):
+            obs["database"]["identity"].update(identity)
+
+        cases = {
+            "other cluster": (variant(lambda o: swap(o, system_identifier="7999")), "does not continue"),
+            "new timeline": (variant(lambda o: swap(o, timeline_id=2)), "does not continue"),
+            "restored relfilenodes": (variant(lambda o: swap(o, relfilenodes=[4, 5, 6])), "does not continue"),
+            "WAL behind": (variant(lambda o: o["database"]["progress"].update(wal_flush_lsn="0/1800")), "does not continue"),
+            "in flight": (variant(lambda o: o["database"]["in_flight"].update(sessions=1)), "never settled"),
+        }
+        for name, (obs, text) in cases.items():
+            with self.subTest(name=name):
+                self.update_state(observations=dict(self.load_state()["observations"], native=obs))
+                proc = self.run_hook("native-smoke")
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertIn(text, proc.stderr)
+                self.assertNotIn("attempt_result=committed", proc.stdout)
+                self.assertNotIn("native_smoke_result=passed", proc.stdout)
+                self.assertEqual(self.run_records(), records)
+                self.assert_no_secret(proc)
+        # A restart (new postmaster start time) with WAL moved forward still continues the attempt.
+        restarted = variant(lambda o: (swap(o, postmaster_start_time="t9"),
+                                       o["database"]["progress"].update(wal_flush_lsn="0/3000", xmax="200")))
+        self.update_state(observations=dict(self.load_state()["observations"], native=restarted))
+        proc = self.run_hook("native-smoke")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.outputs(proc)["attempt_result"], "committed")
+        self.assertEqual(self.run_records(), records)
+
+    def test_final_observation_must_continue_the_attempt_it_just_closed(self):
+        swapped = json.loads(json.dumps(COMMITTED))
+        swapped["database"]["identity"]["system_identifier"] = "7999"
+        self.update_state(phase="native", native_queue=[COMMITTED, COMMITTED, swapped])
+        proc = self.run_hook("native-smoke")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("does not continue the committed attempt", proc.stderr)
+        self.assertNotIn("native_smoke_result=passed", proc.stdout)
+        self.assertIs(self.run_records()[-1]["done"], True)
+
     def test_finished_attempt_is_accepted_only_while_its_anchors_verify(self):
         proc = self.run_hook("native-smoke")
         self.assertEqual(proc.returncode, 0, proc.stderr)

@@ -14,8 +14,12 @@
 #   - sends a well-formed native (protocol_version 2) login with an unknown ticket to the Gateway over host
 #     loopback, as health-check.sh does, and requires 401 NATIVE_LOGIN_AUTHENTICATION_REQUIRED from the
 #     Platform issuer (not 400 refused at the Gateway, not 503 issuer unavailable);
-#   - requires the read-only trust observation (D2) to show the first publication on the PostgreSQL store:
-#     binding match, a profile present and not revoked, a non-null floor, and the configured key trusted.
+#   - requires a fresh read-only trust observation (D2), taken after the login smoke with the attempt's key id,
+#     to continue the committed attempt (the tool's D5 recheck predicate: same PostgreSQL identity and store,
+#     a WAL position at or past every recorded observation, nothing in flight, and no blocking state) and to
+#     show the first publication: binding match, a profile present and not revoked, a non-null floor, and the
+#     configured key trusted. A rerun after the run was closed (an attempt already done: true) also takes this
+#     check before the login smoke, so recorded evidence alone never passes.
 # It changes no trust state; it writes only attempt evidence and its anchors. Inputs as provenance-init.sh:
 # OTERYN_CUTOVER_ANCHOR_ISSUE, GITHUB_REPOSITORY and GH_TOKEN (issues: write). Output: key=value result lines
 # only; never an environment value, a ticket, a key or an observation.
@@ -122,15 +126,6 @@ if status != 401 or code != 'NATIVE_LOGIN_AUTHENTICATION_REQUIRED':
 print('Verified native login through the Gateway to the Platform issuer (unknown ticket rejected as 401).')
 PY
 
-hook_observe "$HOOK_WORK/trust.json"
-jq -e '
-    .store.binding == "match"
-    and (.profile | type == "object" and .present == true and .revoked != true)
-    and (.floor | type == "object" and .value != null)
-    and .key.trusted == true
-    and .key.configured_key_id != null
-    and .key.requested == .key.configured_key_id
-' "$HOOK_WORK/trust.json" >/dev/null \
-    || hook_fail "the trust observation does not show the first publication on the PostgreSQL store (binding match, profile, floor, trusted configured key)."
+ev_require_continuity "$EV_ATTEMPT_RUN" "$HOOK_WORK/trust.json"
 
 printf 'native_smoke_result=passed\n'
