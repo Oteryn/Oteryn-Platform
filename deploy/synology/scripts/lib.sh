@@ -138,8 +138,14 @@ oteryn_require_postgres_secrets_for_engine() {
 #     state directory, as cutover-postgres.sh refuses a linked one, or a read error): a missed FREEZE, ROLLBACK_STARTED or MARIADB_RETIRED would let the deploy
 #     restart the frozen stack, race a rollback or recreate the retired service, so it fails closed. Only an
 #     absent state file means no cutover step is recorded;
+#   - a cutover run.lock (a step running, or one interrupted before it recorded its marker, such as a freeze that
+#     stopped the stack before STEP_FREEZE);
+#   - a readable state file that is empty, truncated or malformed (not the newline-terminated KEY=value record
+#     cutover-postgres.sh writes, with a valid TASK_ID, STEP_PREFLIGHT, known steps each after the step it needs,
+#     and the freeze keys once STEP_FREEZE is recorded): it is never taken as "no step recorded";
 #   - the mariadb engine from the recorded freeze until a verified rollback: it would restart the frozen stack
-#     (the cutover rollback itself runs rollback.sh, which this gate leaves alone);
+#     (the cutover rollback itself runs rollback.sh, which this gate leaves alone), and on mariadb a PostgreSQL
+#     bootstrap completion record that exists or cannot be ruled out (the verified rollback moves it aside);
 #   - the postgres engine before the clean-slate bootstrap finished: a merge-triggered deploy would migrate the
 #     empty database, which the bootstrap then refuses, or cut the stack over without the freeze. The completion
 #     record must be a readable regular file with BOOTSTRAPPED_AT and nonempty OAUTH_CLIENT_ID,
@@ -182,15 +188,35 @@ oteryn_require_cutover_deploy_window() {
         echo "Deploy refused: the cutover state $state_file cannot be inspected; restore access to its directory before deploying." >&2
         return 1
     fi
-    if [[ -e "$state_file" ]] && ! state_text="$(_oteryn_read_state_file "$state_file")"; then
-        echo "Deploy refused: the cutover state $state_file cannot be read; restore its access before deploying." >&2
+    # cutover-postgres.sh holds run.lock while a step runs; a lock left behind marks a step interrupted before it
+    # recorded its marker (a freeze that stopped the stack before STEP_FREEZE).
+    if [[ -e "$state_dir/run.lock" || -L "$state_dir/run.lock" ]]; then
+        echo "Deploy refused: a cutover step holds or left $state_dir/run.lock; finish or inspect that step first." >&2
         return 1
+    fi
+    if [[ -e "$state_file" ]]; then
+        # The trailing "." keeps a missing final newline visible (command substitution strips newlines).
+        if ! state_text="$(_oteryn_read_state_file "$state_file" && printf .)"; then
+            echo "Deploy refused: the cutover state $state_file cannot be read; restore its access before deploying." >&2
+            return 1
+        fi
+        state_text="${state_text%.}"
+        if ! _oteryn_cutover_state_valid "$state_text"; then
+            echo "Deploy refused: the cutover state $state_file is empty, truncated or malformed; inspect it before deploying." >&2
+            return 1
+        fi
     fi
     case "${OTERYN_PLATFORM_DB_ENGINE:-}" in
         mariadb)
             if _oteryn_cutover_step_recorded "$state_text" FREEZE \
                 && ! _oteryn_cutover_step_recorded "$state_text" ROLLBACK_VERIFIED; then
                 echo "Deploy refused: the PostgreSQL cutover froze the stack and no verified rollback is recorded; continue the cutover or finish its rollback first." >&2
+                return 1
+            fi
+            # The cutover rollback moves the bootstrap state aside before it records ROLLBACK_VERIFIED, so a
+            # completion record on mariadb means a cutover is under way whatever the state file says.
+            if [[ -e "$complete_file" || -L "$complete_file" ]] || ! _oteryn_state_path_absent "$complete_file"; then
+                echo "Deploy refused: a PostgreSQL bootstrap record ($complete_file) exists (or cannot be ruled out) on the mariadb engine; a cutover owns the stack until its rollback moves it aside." >&2
                 return 1
             fi
             ;;
@@ -297,6 +323,40 @@ _oteryn_state_path_absent() {
         dir="$(dirname -- "$dir")"
     done
     [[ -d "$dir" && -x "$dir" ]]
+}
+
+# The structure cutover-postgres.sh writes: newline-terminated KEY=value lines, a valid TASK_ID, STEP_ markers
+# of known steps with UTC timestamps, each with the step it requires, and the keys the freeze records. A
+# readable but empty, truncated or foreign file is never taken as "no step recorded".
+# Usage: _oteryn_cutover_state_valid <state text>
+_oteryn_cutover_state_valid() {
+    local text="$1" line name pair step required seen=" " key
+    local requires="PREFLIGHT: FREEZE:PREFLIGHT BOOTSTRAP:FREEZE SMOKE:BOOTSTRAP ROLLBACK_STARTED:FREEZE
+        ROLLBACK_VERIFIED:ROLLBACK_STARTED REENABLE_STARTED:SMOKE NATIVE_SMOKE:REENABLE_STARTED
+        DECLARED_DONE:NATIVE_SMOKE RETIRE_STARTED:DECLARED_DONE MARIADB_RETIRED:RETIRE_STARTED UNFROZEN:FREEZE"
+    [[ "$text" == *$'\n' ]] || return 1
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[A-Z][A-Z0-9_]*= ]] || return 1
+        [[ "$line" == STEP_* ]] || continue
+        name="${line%%=*}"
+        name="${name#STEP_}"
+        [[ " ${requires//$'\n'/ } " == *" $name:"* ]] || return 1
+        [[ "${line#*=}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || return 1
+        seen+="$name "
+    done <<<"${text%$'\n'}"
+    [[ "$(_oteryn_state_value "$text" TASK_ID)" =~ ^OTERYN-[0-9]{8}-[a-z0-9][a-z0-9-]{0,80}$ ]] || return 1
+    [[ "$seen" == *" PREFLIGHT "* ]] || return 1
+    for pair in $requires; do
+        step="${pair%%:*}"
+        required="${pair#*:}"
+        [[ "$seen" == *" $step "* && -n "$required" ]] || continue
+        [[ "$seen" == *" $required "* ]] || return 1
+    done
+    if [[ "$seen" == *" FREEZE "* ]]; then
+        for key in CLOSE_RUN_ID MARIADB_VOLUME FREEZE_PLATFORM_IMAGE FREEZE_GATEWAY_IMAGE; do
+            [[ -n "$(_oteryn_state_value "$text" "$key")" ]] || return 1
+        done
+    fi
 }
 
 # Prints a state file; fails on any read error (an unreadable file is never taken as an empty one).

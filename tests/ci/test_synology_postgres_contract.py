@@ -877,8 +877,10 @@ class CutoverDeployWindowTest(unittest.TestCase):
             (state / "postgres-cutover/cutover-state.env").write_text(
                 "TASK_ID=OTERYN-20261013-test\n" + "".join(
                     f"STEP_{step}=2026-10-13T00:00:00Z\n"
-                    + (f"CLOSE_RUN_ID=1\nFREEZE_PLATFORM_IMAGE={self.FROZEN[1]}\n"
-                       if step == "FREEZE" and freeze_image else "")
+                    + ("CLOSE_RUN_ID=1\nMARIADB_VOLUME=oteryn-staging_mariadb_data\n"
+                       + (f"FREEZE_PLATFORM_IMAGE={self.FROZEN[1]}\n" if freeze_image else "")
+                       + "FREEZE_GATEWAY_IMAGE=ghcr.io/oteryn/gateway@sha256:" + "d" * 64 + "\n"
+                       if step == "FREEZE" else "")
                     for step in steps)
             )
         current_file = state / "current-release.env"
@@ -983,10 +985,14 @@ class CutoverDeployWindowTest(unittest.TestCase):
         self.assertEqual(run(window + ("SMOKE", "REENABLE_STARTED"), pg1, pg2).returncode, 0)
         self.assertEqual(run(window + ("SMOKE", "REENABLE_STARTED"), None, pg2).returncode, 0)
         # Another release after step 2 would put the PostgreSQL release into last-good.
-        for steps, freeze_image in ((window, True), (window + ("SMOKE",), True), (window, False)):
-            result = run(steps, pg1, pg2, freeze_image=freeze_image)
+        for steps in (window, window + ("SMOKE",)):
+            result = run(steps, pg1, pg2)
             self.assertNotEqual(result.returncode, 0, f"{steps}: {result.stderr}")
             self.assertIn("rollback window is open", result.stderr, steps)
+        # A freeze record without the frozen image never matches by accident.
+        result = run(window, pg1, pg2, freeze_image=False)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("malformed", result.stderr)
         # Without the current record the frozen release would never reach last-good.
         result = run(window, None, pg1[0])
         self.assertNotEqual(result.returncode, 0, result.stderr)
@@ -1127,7 +1133,7 @@ class CutoverDeployWindowTest(unittest.TestCase):
             for linked in ("postgres-cutover", "postgres-bootstrap"):
                 with self.subTest(engine=engine, steps=steps, linked=linked), tempfile.TemporaryDirectory() as td:
                     base = Path(td)
-                    self.assertEqual(self.gate(base, engine, steps, True).returncode, 0)
+                    self.assertEqual(self.gate(base, engine, steps, engine == "postgres").returncode, 0)
                     directory = base / "state" / linked
                     target = base / f"{linked}-target"
                     directory.rename(target)
@@ -1135,6 +1141,81 @@ class CutoverDeployWindowTest(unittest.TestCase):
                     result = self.gate(base, engine)
                     self.assertNotEqual(result.returncode, 0, result.stderr)
                     self.assertIn("state directory is a link", result.stderr)
+
+    def test_a_held_or_stale_cutover_lock_refuses_every_deploy(self) -> None:
+        # A freeze interrupted after it stopped the stack leaves run.lock but no STEP_FREEZE.
+        for engine, steps, bootstrapped in (("mariadb", (), False), ("mariadb", ("PREFLIGHT",), False),
+                                            ("postgres", ("PREFLIGHT", "FREEZE", "BOOTSTRAP"), True)):
+            for kind in ("dir", "file", "link"):
+                with self.subTest(engine=engine, steps=steps, kind=kind), tempfile.TemporaryDirectory() as td:
+                    base = Path(td)
+                    self.assertEqual(self.gate(base, engine, steps, bootstrapped).returncode, 0)
+                    lock = base / "state/postgres-cutover/run.lock"
+                    if kind == "dir":
+                        lock.mkdir()
+                    elif kind == "file":
+                        lock.write_text("")
+                    else:
+                        lock.symlink_to(base / "missing")
+                    result = self.gate(base, engine)
+                    self.assertNotEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("run.lock", result.stderr)
+
+    def test_a_readable_but_corrupt_cutover_state_fails_closed(self) -> None:
+        frozen = ("TASK_ID=OTERYN-20261013-test\nSTEP_PREFLIGHT=2026-10-13T00:00:00Z\n"
+                  "STEP_FREEZE=2026-10-13T00:00:01Z\nCLOSE_RUN_ID=1\nMARIADB_VOLUME=oteryn-staging_mariadb_data\n"
+                  f"FREEZE_PLATFORM_IMAGE={self.FROZEN[1]}\nFREEZE_GATEWAY_IMAGE=g@sha256:{'d' * 64}\n")
+        bootstrapped = frozen + "STEP_BOOTSTRAP=2026-10-13T00:00:02Z\n"
+        corrupt = {
+            "empty": "",
+            "only a newline": "\n",
+            "truncated mid-line": frozen[:-10],
+            "truncated after the freeze marker": frozen.split("CLOSE_RUN_ID")[0],
+            "no TASK_ID": frozen.replace("TASK_ID=OTERYN-20261013-test\n", ""),
+            "malformed TASK_ID": frozen.replace("OTERYN-20261013-test", "x"),
+            "no PREFLIGHT": frozen.replace("STEP_PREFLIGHT=2026-10-13T00:00:00Z\n", ""),
+            "unknown step": frozen + "STEP_FROZE=2026-10-13T00:00:02Z\n",
+            "lowercase key": frozen + "step_freeze=2026-10-13T00:00:02Z\n",
+            "malformed timestamp": frozen.replace("STEP_FREEZE=2026-10-13T00:00:01Z", "STEP_FREEZE=yesterday"),
+            "blank line": frozen + "\n",
+            "foreign line": frozen + "# edited by hand\n",
+            "freeze without its volume": frozen.replace("MARIADB_VOLUME=oteryn-staging_mariadb_data\n", ""),
+            "freeze with an empty gateway image": frozen + "FREEZE_GATEWAY_IMAGE=\n",
+            "bootstrap without the freeze": frozen.split("STEP_FREEZE")[0] + "STEP_BOOTSTRAP=2026-10-13T00:00:02Z\n",
+            "re-enable without the smoke": bootstrapped + "STEP_REENABLE_STARTED=2026-10-13T00:00:03Z\n",
+            "verified without a started rollback": frozen + "STEP_ROLLBACK_VERIFIED=2026-10-13T00:00:03Z\n",
+        }
+        for engine in ("mariadb", "postgres"):
+            for label, text in corrupt.items():
+                with self.subTest(engine=engine, case=label), tempfile.TemporaryDirectory() as td:
+                    base = Path(td)
+                    self.gate(base, engine, (), engine == "postgres")
+                    (base / "state/postgres-cutover/cutover-state.env").write_text(text)
+                    result = self.gate(base, engine)
+                    self.assertNotEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("empty, truncated or malformed", result.stderr)
+        # The well-formed records pass (postgres in the step 2 window, with the frozen release current).
+        for engine, text in (("mariadb", "TASK_ID=OTERYN-20261013-test\nSTEP_PREFLIGHT=2026-10-13T00:00:00Z\n"),
+                             ("postgres", bootstrapped)):
+            with self.subTest(engine=engine, case="valid"), tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                self.gate(base, engine, (), engine == "postgres")
+                (base / "state/postgres-cutover/cutover-state.env").write_text(text)
+                result = self.gate(base, engine)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_mariadb_refuses_a_bootstrap_record_whatever_the_state_says(self) -> None:
+        # A verified rollback moves the bootstrap state aside; a record left on mariadb means a cutover is running.
+        for steps in ((), ("PREFLIGHT",)):
+            with self.subTest(steps=steps):
+                self.assert_gate(False, "mariadb", steps, True, needle="bootstrap record")
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            self.gate(base, "mariadb")
+            complete = base / "state/postgres-bootstrap/bootstrap-complete.env"
+            complete.symlink_to(base / "missing")
+            result = self.gate(base, "mariadb")
+        self.assertNotEqual(result.returncode, 0, result.stderr)
 
     def test_postgres_requires_a_complete_readable_bootstrap_record(self) -> None:
         steps = ("PREFLIGHT", "FREEZE", "BOOTSTRAP")
