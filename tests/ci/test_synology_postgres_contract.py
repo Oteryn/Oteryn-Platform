@@ -863,7 +863,7 @@ class CutoverDeployWindowTest(unittest.TestCase):
              unreadable: Path | None = None) -> subprocess.CompletedProcess[str]:
         state = td / "state"
         for directory in (state / "postgres-cutover", state / "postgres-bootstrap"):
-            if not directory.exists():
+            if not directory.exists() and not directory.is_symlink():
                 directory.mkdir(parents=True)
         if steps:
             (state / "postgres-cutover/cutover-state.env").write_text(
@@ -1007,6 +1007,22 @@ class CutoverDeployWindowTest(unittest.TestCase):
                 result = self.gate(base, engine)
             self.assertNotEqual(result.returncode, 0, f"{engine}: {result.stderr}")
             self.assertIn("cannot be inspected", result.stderr, engine)
+
+    def test_a_linked_state_directory_fails_closed_before_any_marker_is_read(self) -> None:
+        # A linked directory whose target holds a passing state (or none) must still be refused.
+        for engine, steps in (("mariadb", ()), ("mariadb", ("PREFLIGHT",)),
+                              ("postgres", ("PREFLIGHT", "FREEZE", "BOOTSTRAP"))):
+            for linked in ("postgres-cutover", "postgres-bootstrap"):
+                with self.subTest(engine=engine, steps=steps, linked=linked), tempfile.TemporaryDirectory() as td:
+                    base = Path(td)
+                    self.assertEqual(self.gate(base, engine, steps, True).returncode, 0)
+                    directory = base / "state" / linked
+                    target = base / f"{linked}-target"
+                    directory.rename(target)
+                    directory.symlink_to(target, target_is_directory=True)
+                    result = self.gate(base, engine)
+                    self.assertNotEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("state directory is a link", result.stderr)
 
     def test_postgres_requires_a_complete_readable_bootstrap_record(self) -> None:
         steps = ("PREFLIGHT", "FREEZE", "BOOTSTRAP")

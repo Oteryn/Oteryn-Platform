@@ -134,8 +134,8 @@ oteryn_require_postgres_secrets_for_engine() {
 
 # Cutover deploy window (ADR 0046, plan P6, scripts/cutover-postgres.sh). An ordinary deploy must not touch the
 # stack while the cutover owns it. Refuses (returns 1), read-only and before any stack change:
-#   - a cutover state that exists but cannot be inspected (not a regular file, a link, an unsearchable state
-#     directory or a read error): a missed FREEZE, ROLLBACK_STARTED or MARIADB_RETIRED would let the deploy
+#   - a cutover state that exists but cannot be inspected (not a regular file, a link, a linked or unsearchable
+#     state directory, as cutover-postgres.sh refuses a linked one, or a read error): a missed FREEZE, ROLLBACK_STARTED or MARIADB_RETIRED would let the deploy
 #     restart the frozen stack, race a rollback or recreate the retired service, so it fails closed. Only an
 #     absent state file means no cutover step is recorded;
 #   - the mariadb engine from the recorded freeze until a verified rollback: it would restart the frozen stack
@@ -151,12 +151,19 @@ oteryn_require_postgres_secrets_for_engine() {
 # The paths follow cutover-postgres.sh (OTERYN_STATE_DIR, OTERYN_CUTOVER_STATE_DIR, OTERYN_PG_BOOTSTRAP_STATE_DIR).
 # Usage: oteryn_require_cutover_deploy_window <compose file>
 oteryn_require_cutover_deploy_window() {
-    local compose_file="$1" root state_dir state_file complete_file state_text="" complete_text
+    local compose_file="$1" root state_dir bootstrap_dir state_file complete_file state_text="" complete_text
     root="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
     state_dir="${OTERYN_CUTOVER_STATE_DIR:-$root/postgres-cutover}"
+    bootstrap_dir="${OTERYN_PG_BOOTSTRAP_STATE_DIR:-$root/postgres-bootstrap}"
     state_file="$state_dir/cutover-state.env"
-    complete_file="${OTERYN_PG_BOOTSTRAP_STATE_DIR:-$root/postgres-bootstrap}/bootstrap-complete.env"
-    if [[ -e "$state_dir" || -L "$state_dir" ]] && [[ ! -d "$state_dir" || ! -x "$state_dir" ]]; then
+    complete_file="$bootstrap_dir/bootstrap-complete.env"
+    # Checked before any marker is read: -d and -x follow a link, and the cutover and bootstrap scripts refuse
+    # linked state directories, so a linked one is never inspected through its target.
+    if [[ -L "$state_dir" || -L "$bootstrap_dir" ]]; then
+        echo "Deploy refused: a cutover or bootstrap state directory is a link ($state_dir, $bootstrap_dir)." >&2
+        return 1
+    fi
+    if [[ -e "$state_dir" ]] && [[ ! -d "$state_dir" || ! -x "$state_dir" ]]; then
         echo "Deploy refused: the cutover state directory $state_dir cannot be inspected." >&2
         return 1
     fi

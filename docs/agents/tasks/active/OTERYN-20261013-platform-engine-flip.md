@@ -23,7 +23,7 @@ P6 cutover step 2 (ADR 0046, plan P6, `deploy/synology/scripts/cutover-postgres.
 ## Acceptance criteria
 
 - [x] `deploy/synology/release-contract.env` declares `PLATFORM_DB_ENGINE=postgres`; the committed-engine test follows.
-- [x] `lib.sh` `oteryn_require_cutover_deploy_window` refuses, read-only and before any stack change: the mariadb engine from the recorded freeze until a verified rollback; the postgres engine without a readable regular `bootstrap-complete.env` holding `BOOTSTRAPPED_AT` and nonempty OAuth and world IDs (the `cutover-postgres.sh` adoption rule), once a cutover rollback started, and after `retire-mariadb` while `compose.yml` still defines `mariadb`; and any cutover state that exists but cannot be read or inspected (Codex review on PR 1598).
+- [x] `lib.sh` `oteryn_require_cutover_deploy_window` refuses, read-only and before any stack change: the mariadb engine from the recorded freeze until a verified rollback; the postgres engine without a readable regular `bootstrap-complete.env` holding `BOOTSTRAPPED_AT` and nonempty OAuth and world IDs (the `cutover-postgres.sh` adoption rule), once a cutover rollback started, and after `retire-mariadb` while `compose.yml` still defines `mariadb`; and any cutover state that exists but cannot be read or inspected, or a linked cutover or bootstrap state directory (Codex review on PR 1598).
 - [x] `deploy.sh` and `deploy-impact.sh` call it before their first compose command; `rollback.sh`, `health-check.sh`, `cutover-postgres.sh` and `bootstrap-postgres.sh` do not.
 - [x] README engine-switch paragraph states the merge timing (after the recorded freeze), the rollback revert and the gate.
 - [ ] Merged only after the cutover `freeze` step is recorded on staging (owner sequencing; preflight and freeze refuse a postgres contract).
@@ -58,7 +58,7 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-13T15:00:00Z
-head: 82e15f4a1650610ce0a1e86c0574bf5dc70a8d0b
+head: fdfdf874ec13689846539451a90674e27e1f43c6
 branch: claude/platform-engine-flip-20261013
 pr: 1598
 status: validating
@@ -77,7 +77,7 @@ proven:
   - The deploy workflow's cutover action checks out main HEAD, so the flip must be on main between freeze and bootstrap.
   - A push to main that changes release-contract.env builds a Platform image and dispatches an ordinary staging deploy; without the gate it would migrate the empty PostgreSQL database before the bootstrap (which refuses a non-empty database) or, merged before the freeze, cut over without the gate.
   - The bootstrap runbook and plan step 2 expect a deploy after the bootstrap; the gate lets it pass once bootstrap-complete.env is complete (BOOTSTRAPPED_AT and nonempty OAUTH_CLIENT_ID, OAUTH_RUST_CLIENT_ID, NATIVE_WORLD_ID, last value wins as in the adoption path).
-  - Review fix: the gate reads the cutover state once and refuses on a read error, an unsearchable state directory or a non-regular file; an unreadable state is never taken as an absent one. Refusal tests simulate the read error with failing readers on PATH (tests run as root in some sandboxes) and, when not root, with mode 000.
+  - Review fix: the gate reads the cutover state once and refuses on a read error, an unsearchable state directory or a non-regular file, and refuses a linked cutover or bootstrap state directory before any marker is read (both cutover scripts refuse linked state directories); an unreadable state is never taken as an absent one. Refusal tests simulate the read error with failing readers on PATH (tests run as root in some sandboxes) and, when not root, with mode 000.
   - No cutover step had been recorded on staging when this branch was cut (recent staging runs were plain deploys).
 derived:
   - The flip's own merge-dispatched deploy fails closed at the gate by design; the operator deploys after the bootstrap.
@@ -100,7 +100,7 @@ changed_paths:
 validation:
   - command: python3 tests/ci/test_synology_postgres_contract.py
     result: PASS
-    evidence: 71 tests OK (1 skipped as root), including CutoverDeployWindowTest; the four new refusal tests fail against the previous gate
+    evidence: 72 tests OK (1 skipped as root), including CutoverDeployWindowTest; the new refusal tests fail against the previous gate
   - command: python3 tests/ci/test_synology_cutover_postgres.py
     result: PASS
     evidence: 60 tests OK
