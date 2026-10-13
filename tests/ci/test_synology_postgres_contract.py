@@ -1003,6 +1003,57 @@ class CutoverDeployWindowTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stderr)
         self.assertIn("cannot be read", result.stderr)
 
+    def test_an_unreadable_compose_file_after_retirement_fails_closed(self) -> None:
+        # grep status 2 (a read error) is never taken as "the compose file no longer defines mariadb".
+        retired = ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "SMOKE", "REENABLE_STARTED", "NATIVE_SMOKE", "DECLARED_DONE",
+                   "RETIRE_STARTED", "MARIADB_RETIRED")
+        for steps in (retired, retired[:-1]):
+            with self.subTest(steps=steps[-1]), tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                result = self.gate(base, "postgres", steps, True, unreadable=base / "compose.yml")
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertIn("cannot be read to prove", result.stderr)
+                # The same state with a readable compose file without mariadb passes.
+                self.assertEqual(self.gate(base, "postgres", steps, True).returncode, 0)
+
+    @staticmethod
+    def gate_at(root: Path, compose: Path, engine: str = "mariadb") -> subprocess.CompletedProcess[str]:
+        """Runs the gate on a state root the fixture does not create."""
+        compose.write_text("services:\n  platform:\n    image: x\n")
+        env = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/tmp"), "OTERYN_STATE_DIR": str(root)}
+        return subprocess.run(
+            ["bash", "-c", f'source "$1"; OTERYN_PLATFORM_DB_ENGINE={engine}; oteryn_require_cutover_deploy_window "$2"',
+             "bash", str(LIB), str(compose)],
+            text=True, capture_output=True, check=False, env=env,
+        )
+
+    def test_an_absence_that_cannot_be_proven_fails_closed(self) -> None:
+        # -e is false on any stat error: a state root that is not a searchable directory hides the markers.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "state"
+            root.write_text("not a directory\n")
+            result = self.gate_at(root, Path(td) / "compose.yml")
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("cannot be inspected", result.stderr)
+        # A state root that does not exist yet below a searchable directory is a real absence.
+        with tempfile.TemporaryDirectory() as td:
+            result = self.gate_at(Path(td) / "missing/state", Path(td) / "compose.yml")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipIf(os.geteuid() == 0, "root searches a mode 000 directory")
+    def test_an_unsearchable_state_root_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "state"
+            (root / "postgres-cutover").mkdir(parents=True)
+            (root / "postgres-cutover/cutover-state.env").write_text("STEP_PREFLIGHT=x\nSTEP_FREEZE=x\n")
+            root.chmod(0o600)
+            try:
+                result = self.gate_at(root, Path(td) / "compose.yml")
+            finally:
+                root.chmod(0o700)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("cannot be inspected", result.stderr)
+
     def test_links_and_unresolved_engines_are_refused(self) -> None:
         self.assert_gate(False, "", needle="engine is not resolved")
         with tempfile.TemporaryDirectory() as td:

@@ -177,6 +177,11 @@ oteryn_require_cutover_deploy_window() {
         echo "Deploy refused: the cutover state $state_file is not a regular file." >&2
         return 1
     fi
+    # -e is false on any stat error, not only on a missing file: absence counts only below a searchable directory.
+    if [[ ! -e "$state_file" ]] && ! _oteryn_state_path_absent "$state_file"; then
+        echo "Deploy refused: the cutover state $state_file cannot be inspected; restore access to its directory before deploying." >&2
+        return 1
+    fi
     if [[ -e "$state_file" ]] && ! state_text="$(_oteryn_read_state_file "$state_file")"; then
         echo "Deploy refused: the cutover state $state_file cannot be read; restore its access before deploying." >&2
         return 1
@@ -214,11 +219,22 @@ oteryn_require_cutover_deploy_window() {
             fi
             # RETIRE_STARTED is the durable mark of an interrupted retire-mariadb that may already have removed the
             # container or volume; a deploy then would recreate the service on an empty volume.
-            if { _oteryn_cutover_step_recorded "$state_text" RETIRE_STARTED \
-                    || _oteryn_cutover_step_recorded "$state_text" MARIADB_RETIRED; } \
-                && grep -q '^  mariadb:' "$compose_file"; then
-                echo "Deploy refused: MariaDB retirement started or finished but the compose file still defines the mariadb service; land P7 first." >&2
-                return 1
+            # grep: 0 = the service is defined, 1 = it is not, anything else (unreadable file) fails closed.
+            if _oteryn_cutover_step_recorded "$state_text" RETIRE_STARTED \
+                || _oteryn_cutover_step_recorded "$state_text" MARIADB_RETIRED; then
+                local compose_status=0
+                grep -q '^  mariadb:' -- "$compose_file" || compose_status=$?
+                case "$compose_status" in
+                    0)
+                        echo "Deploy refused: MariaDB retirement started or finished but the compose file still defines the mariadb service; land P7 first." >&2
+                        return 1
+                        ;;
+                    1) ;;
+                    *)
+                        echo "Deploy refused: MariaDB retirement started or finished and the compose file $compose_file cannot be read to prove it no longer defines the mariadb service." >&2
+                        return 1
+                        ;;
+                esac
             fi
             ;;
         *)
@@ -240,7 +256,7 @@ _oteryn_cutover_keeps_rollback_release() {
     release_dir="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
     current_file="$release_dir/current-release.env"
     candidate_file="$release_dir/candidate-release.env"
-    if [[ -e "$candidate_file" || -L "$candidate_file" ]]; then
+    if [[ -e "$candidate_file" || -L "$candidate_file" ]] || ! _oteryn_state_path_absent "$candidate_file"; then
         if ! text="$(_oteryn_read_state_file "$candidate_file")"; then
             echo "Deploy refused: the pending candidate $candidate_file cannot be read in the cutover rollback window." >&2
             return 1
@@ -268,6 +284,19 @@ _oteryn_cutover_keeps_rollback_release() {
     [[ -z "$frozen_image" || "$current_image" != "$frozen_image" ]] || return 0
     echo "Deploy refused: the cutover rollback window is open (bootstrap complete, native re-enable not started) and the current release ${current_sha:-?} is not the frozen MariaDB release; deploying ${requested:-an unnamed release} would move it into last-good-release.env, which the cutover rollback restores. Redeploy the current release, roll back, or run native re-enable first." >&2
     return 1
+}
+
+# True only when the path is provably absent: nothing is there and the nearest existing ancestor is a searchable
+# directory. A stat error (an unsearchable or non-directory ancestor) is never taken as absence.
+# Usage: _oteryn_state_path_absent <path>
+_oteryn_state_path_absent() {
+    local path="$1" dir
+    [[ ! -e "$path" && ! -L "$path" ]] || return 1
+    dir="$(dirname -- "$path")"
+    while [[ ! -e "$dir" && ! -L "$dir" && "$dir" != / && "$dir" != . ]]; do
+        dir="$(dirname -- "$dir")"
+    done
+    [[ -d "$dir" && -x "$dir" ]]
 }
 
 # Prints a state file; fails on any read error (an unreadable file is never taken as an empty one).

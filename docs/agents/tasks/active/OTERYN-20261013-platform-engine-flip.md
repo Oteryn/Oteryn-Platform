@@ -58,7 +58,7 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-13T18:00:00Z
-head: 3597dad800e830a2423aa44bf7df650ab69fa924
+head: 45c2cdd2fbab10b6d5e7c39513fe3e82fc2640a2
 branch: claude/platform-engine-flip-20261013
 pr: 1598
 status: validating
@@ -80,6 +80,7 @@ proven:
   - Review fix: the gate reads the cutover state once and refuses on a read error, an unsearchable state directory or a non-regular file, and refuses a linked cutover or bootstrap state directory before any marker is read (both cutover scripts refuse linked state directories); an unreadable state is never taken as an absent one. Refusal tests simulate the read error with failing readers on PATH (tests run as root in some sandboxes) and, when not root, with mode 000.
   - Review fix (Codex P1): a deploy of another release copies current-release.env into last-good-release.env (finalizing a pending candidate first), and cutover-postgres.sh rollback runs rollback.sh, which restores that file and refuses a PostgreSQL image. In the rollback window the gate passes only the deploy that replaces the frozen MariaDB release (current PLATFORM_IMAGE equals FREEZE_PLATFORM_IMAGE; plan step 2) and a redeploy of the current release; a missing FREEZE_PLATFORM_IMAGE, a missing or unreadable current release record or a pending candidate of another release is refused (absence during the cutover is never taken as a first deployment).
   - Review fix (Codex P1): retire-mariadb records RETIRE_STARTED before it deletes the container and volume and MARIADB_RETIRED after; the gate refuses on either while compose.yml still defines mariadb, so an interrupted retirement cannot be undone by a deploy that recreates the service on an empty volume.
+  - Review fix (Codex P1) and audit of the gate's other checks: the mariadb-in-compose grep refuses on status 0 and on any status other than 1 (an unreadable compose file); a state or candidate file counts as absent only when the nearest existing ancestor is a searchable directory (`-e` is false on any stat error, so an unsearchable or non-directory state root no longer hides the FREEZE marker); the completion record, current release and state reads already failed closed.
   - No cutover step had been recorded on staging when this branch was cut (recent staging runs were plain deploys).
 derived:
   - The flip's own merge-dispatched deploy fails closed at the gate by design; the operator deploys after the bootstrap.
@@ -102,7 +103,7 @@ changed_paths:
 validation:
   - command: python3 tests/ci/test_synology_postgres_contract.py
     result: PASS
-    evidence: 73 tests OK (1 skipped as root), including CutoverDeployWindowTest; the new refusal tests fail against the previous gate
+    evidence: 76 tests OK (2 skipped as root; the gate tests also pass as a non-root user), including CutoverDeployWindowTest; the new refusal tests fail against the previous gate
   - command: python3 tests/ci/test_synology_cutover_postgres.py
     result: PASS
     evidence: 60 tests OK
@@ -114,7 +115,7 @@ validation:
     evidence: no new shellcheck findings against main
   - command: python3 -m pytest -q tests/ci/test_synology_*.py deploy/synology/tests
     result: FAIL
-    evidence: 506 passed, 20 skipped (with deploy/synology/tests); test_synology_rollback_contract.py::test_marketplace_enable_and_verify_are_refused_without_transfer_contract fails on 82e15f4 too (committed postgres engine without secrets; pytest-only, the workflow runs the file's main()), outside owned paths
+    evidence: 508 passed, 21 skipped (with deploy/synology/tests); test_synology_rollback_contract.py::test_marketplace_enable_and_verify_are_refused_without_transfer_contract fails on 82e15f4 too (committed postgres engine without secrets; pytest-only, the workflow runs the file's main()), outside owned paths
 blockers:
   - none
 next_action: CP re-requests review on PR 1598; merge only after the cutover freeze is recorded.
