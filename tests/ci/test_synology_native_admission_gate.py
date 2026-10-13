@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import base64
 import http.server
 import json
+import os
 import pathlib
 import re
+import shutil
 import socketserver
 import subprocess
 import threading
+
+import pytest
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -570,3 +575,67 @@ def test_check_kid_history_is_a_read_only_action_that_needs_exactly_one_record()
         assert forbidden not in tool
     assert "$count === 1" in tool
     assert "exit($ok ? 0 : 1)" in tool
+
+
+def _run_key_tool(keys: pathlib.Path, *args: str) -> subprocess.CompletedProcess[str]:
+    # The real PHP key tool, pointed at a temp custody directory and the current user as the owner.
+    probe = 'exit(function_exists("sodium_crypto_sign_seed_keypair") && function_exists("posix_getpwuid") ? 0 : 1);'
+    if shutil.which("php") is None or subprocess.run(["php", "-r", probe], check=False).returncode != 0:
+        pytest.skip("php with sodium and posix is not installed")
+    text = KEY_SCRIPT.read_text(encoding="utf-8")
+    tool = text.split("read -r -d '' PHP_TOOL <<'PHP' || true\n", 1)[1].split("\nPHP\n", 1)[0]
+    assert tool.count("$dir = '/keys';") == 1 and tool.count("posix_getpwnam('www-data')") == 1
+    tool = tool.replace("$dir = '/keys';", "$dir = getenv('OTERYN_TEST_KEYS');")
+    tool = tool.replace("posix_getpwnam('www-data')", "posix_getpwuid(posix_geteuid())")
+    return subprocess.run(
+        ["php", "-d", "display_errors=stderr", "-r", tool, "--", *args],
+        env={"PATH": "/usr/bin:/bin", "OTERYN_TEST_KEYS": str(keys)},
+        capture_output=True, text=True, check=False,
+    )
+
+
+def _custody(tmp_path: pathlib.Path) -> tuple[pathlib.Path, str, str]:
+    keys = tmp_path / "keys"
+    keys.mkdir(mode=0o700)
+    seed = base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("=")
+    kid = "oteryn-admission-20261013-000000-abcdef"
+    for name, value in (("current.key", seed), ("current.kid", kid), ("used.kids", kid)):
+        (keys / name).write_text(value + "\n", encoding="utf-8")
+        (keys / name).chmod(0o600)
+    return keys, seed, kid
+
+
+def test_check_kid_history_counts_a_well_formed_custody(tmp_path: pathlib.Path) -> None:
+    keys, seed, kid = _custody(tmp_path)
+    result = _run_key_tool(keys, "check-kid-history")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == f"kid_history current {kid} count=1\n"
+    assert seed not in result.stdout + result.stderr
+
+
+def test_check_kid_history_never_prints_a_symlinked_role_kid(tmp_path: pathlib.Path) -> None:
+    # Codex P2 on #1591: current.kid -> current.key must not print the Ed25519 seed as a key id.
+    keys, seed, _ = _custody(tmp_path)
+    (keys / "current.kid").unlink()
+    (keys / "current.kid").symlink_to("current.key")
+    result = _run_key_tool(keys, "check-kid-history")
+    assert result.returncode != 0
+    assert "kid_history" not in result.stdout
+    assert seed not in result.stdout + result.stderr
+
+
+def test_check_kid_history_refuses_unsafe_custody_and_malformed_kids_before_printing(tmp_path: pathlib.Path) -> None:
+    keys, seed, _ = _custody(tmp_path)
+    (keys / "current.kid").chmod(0o644)
+    result = _run_key_tool(keys, "check-kid-history")
+    assert result.returncode != 0 and result.stdout == "" and "unsafe ownership" in result.stderr
+    (keys / "current.kid").chmod(0o600)
+    (keys / "used.kids").unlink()
+    (keys / "used.kids").symlink_to("current.key")
+    result = _run_key_tool(keys, "check-kid-history")
+    assert result.returncode != 0 and result.stdout == "" and seed not in result.stderr
+    (keys / "used.kids").unlink()
+    (keys / "used.kids").write_text("x\n", encoding="utf-8")
+    (keys / "used.kids").chmod(0o600)
+    result = _run_key_tool(keys, "check-kid-history", "--kid", "bad kid\n")
+    assert result.returncode != 0 and result.stdout == ""

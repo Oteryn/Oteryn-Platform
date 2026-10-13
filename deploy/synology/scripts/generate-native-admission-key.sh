@@ -162,12 +162,13 @@ function load(string $dir, string $role, int $uid): ?array
 {
     $keyFile = $dir . '/' . $role . '.key';
     $kidFile = $dir . '/' . $role . '.kid';
-    $haveKey = is_file($keyFile);
-    $haveKid = is_file($kidFile);
+    // A symlink counts as present (even a dangling one) so it is refused below, never skipped.
+    $haveKey = is_file($keyFile) || is_link($keyFile);
+    $haveKid = is_file($kidFile) || is_link($kidFile);
     if (! $haveKey && ! $haveKid) {
         return null;
     }
-    if (! $haveKey || ! $haveKid || is_link($keyFile) || is_link($kidFile)) {
+    if (! $haveKey || ! $haveKid || is_link($keyFile) || is_link($kidFile) || ! is_file($keyFile) || ! is_file($kidFile)) {
         fail("The $role key custody is incomplete; refusing to continue.");
     }
     foreach ([$keyFile, $kidFile] as $file) {
@@ -191,16 +192,24 @@ function load(string $dir, string $role, int $uid): ?array
     return [$kid, b64u($public)];
 }
 
-function usedKids(string $dir): array
+function usedKids(string $dir, int $uid): array
 {
     $file = $dir . '/used.kids';
+    if (! is_file($file) && ! is_link($file)) {
+        return [];
+    }
+    // Same custody rules as load(): a regular file (never a symlink) owned by the process user, 0600.
+    $stat = is_link($file) || ! is_file($file) ? false : stat($file);
+    if ($stat === false || ($stat['mode'] & 0o077) !== 0 || $stat['uid'] !== $uid) {
+        fail('The key id history has an unsafe type, ownership or permissions; refusing to continue.');
+    }
 
-    return is_file($file) ? array_filter(array_map('trim', file($file, FILE_IGNORE_NEW_LINES) ?: [])) : [];
+    return array_filter(array_map('trim', file($file, FILE_IGNORE_NEW_LINES) ?: []));
 }
 
 function generate(string $dir, string $role, int $uid, int $gid): void
 {
-    $used = usedKids($dir);
+    $used = usedKids($dir, $uid);
     do {
         $kid = 'oteryn-admission-' . gmdate('Ymd-His') . '-' . bin2hex(random_bytes(3));
     } while (in_array($kid, $used, true));
@@ -241,20 +250,21 @@ if (! is_dir($dir)) {
 }
 if ($action === 'check-kid-history') {
     // Read-only (P6a D7): changes nothing on the volume. Each role key and each --kid must have
-    // exactly one used.kids record.
-    $counts = array_count_values(usedKids($dir));
+    // exactly one used.kids record. Role key ids are read only through load() (regular non-symlink
+    // files, owner and mode, canonical seed, key id format) and every key id is validated before
+    // anything is printed, so custody content that fails validation never reaches the output.
+    $counts = array_count_values(usedKids($dir, $uid));
     $kids = [];
     foreach (['current', 'next', 'retiring'] as $role) {
-        $file = $dir . '/' . $role . '.kid';
-        $kid = is_file($file) ? trim((string) file_get_contents($file)) : '';
-        if ($kid !== '') {
-            $kids[$role] = $kid;
+        $loaded = load($dir, $role, $uid);
+        if ($loaded !== null) {
+            $kids[$role] = $loaded[0];
         }
     }
     $extra = array_slice($argv, 2);
     for ($i = 0; $i < count($extra); $i += 2) {
-        if (($extra[$i] ?? '') !== '--kid' || ! isset($extra[$i + 1]) || $extra[$i + 1] === '') {
-            fail('check-kid-history accepts only --kid <kid> arguments.');
+        if (($extra[$i] ?? '') !== '--kid' || ! isset($extra[$i + 1]) || preg_match('/\A[A-Za-z0-9._-]{1,64}\z/', $extra[$i + 1]) !== 1) {
+            fail('check-kid-history accepts only --kid <kid> arguments with a well-formed key id.');
         }
         $kids['kid:' . $extra[$i + 1]] = $extra[$i + 1];
     }
