@@ -31,7 +31,14 @@ BUILD_WORKFLOW = ROOT / ".github" / "workflows" / "build-synology-staging-images
 
 TASK = "OTERYN-20261013-platform-p6b-cutover"
 CLOSE_RUN = "7000000001"
-HEAD_SHA = "a" * 40
+def _checkout_sha() -> str:
+    # The script refuses a dispatched SHA that differs from the checked-out tooling, so tests use the real checkout.
+    out = subprocess.run(["git", "-C", str(Path(__file__).resolve().parents[2]), "rev-parse", "HEAD"], capture_output=True, text=True)
+    sha = out.stdout.strip()
+    return sha if re.fullmatch(r"[0-9a-f]{40}", sha) else "a" * 40
+
+
+HEAD_SHA = _checkout_sha()
 STORE_ID = "b" * 64
 ASIDE = "/var/www/html/storage/app/native-evidence-witness.mariadb-era-20261013T010101Z"
 PHRASE = "DELETE-MARIADB-VOLUME"
@@ -644,6 +651,16 @@ class EvidenceTests(CutoverTestBase):
         h.advance_to("native_smoke")
         self.assertFalse((h.evidence / "gate-evidence.json").exists())
         self.assertFalse(h.evidence.exists() and any(h.evidence.iterdir()))
+
+    def test_evidence_refuses_a_dispatched_sha_that_is_not_the_checked_out_tooling(self) -> None:
+        h = self.h
+        h.advance_to("native_smoke")
+        other = "b" * 40 if HEAD_SHA != "b" * 40 else "c" * 40
+        result = h.run("declare-done", GITHUB_SHA=other, **h.closed())
+        if HEAD_SHA != "a" * 40:
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("differs from the dispatched SHA", result.stdout + result.stderr)
+            self.assertFalse(h.evidence.exists() and any(h.evidence.iterdir()))
 
     def test_missing_head_sha_is_refused(self) -> None:
         h = self.h

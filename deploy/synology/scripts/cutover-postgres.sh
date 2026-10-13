@@ -341,7 +341,12 @@ native_admission_off() { [[ "$(env_get OTERYN_NATIVE_ADMISSION_ENABLED)" != true
 
 head_sha() {
     local sha="${GITHUB_SHA:-}"
-    [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || sha="$(git -C "$DEPLOY_DIR" rev-parse HEAD 2>/dev/null || true)"
+    local checked_out
+    checked_out="$(git -C "$DEPLOY_DIR" rev-parse HEAD 2>/dev/null || true)"
+    if [[ "$sha" =~ ^[0-9a-f]{40}$ && "$checked_out" =~ ^[0-9a-f]{40}$ && "$sha" != "$checked_out" ]]; then
+        refuse "the checked-out tooling ($checked_out) differs from the dispatched SHA ($sha); evidence would name the wrong tooling."
+    fi
+    [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || sha="$checked_out"
     [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || refuse "cannot determine the head SHA for the gate evidence."
     printf '%s\n' "$sha"
 }
@@ -706,6 +711,7 @@ do_retire_mariadb() {
     [[ "$dry_run" == false ]] || return 0
     record_step MARIADB_RETIRED "MARIADB_DELETED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     result retire_mariadb_result done
+    echo "note: do not run an ordinary staging deploy until P7 removes mariadb from the compose and deploy path; it would recreate the retired service."
     result mariadb_deleted_at "$(state_get MARIADB_DELETED_AT)"
 }
 

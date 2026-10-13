@@ -73,5 +73,6 @@ Total frozen window (freeze to maintenance-open): pending. Rollback outcome, if 
 ## Notes and deferrals
 
 - Rollback is forward-only once step 4 starts; the recorded marker, not operator memory, enforces it.
+- Until P7 removes `mariadb` from the compose and deploy path, an ordinary staging deploy would recreate the retired service and an empty volume; run none between retirement and P7.
 - `health-check.sh` requires the MariaDB service, so health checks cannot run after retirement.
 - Pending: record who approved the window and where the owner decision is archived (no personal data).

@@ -156,7 +156,7 @@ jobs:
       - name: Checkout exact release tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.action == 'deploy' && inputs.release_sha || 'main' }}
+          ref: ${{ inputs.action == 'deploy' && inputs.release_sha || inputs.action == 'cutover' && github.sha || 'main' }}
           fetch-depth: 0
 
       - name: Validate runner tools
@@ -316,6 +316,7 @@ jobs:
           done
 
       - name: Upgrade legacy release provenance state
+        if: ${{ inputs.action != 'cutover' || !inputs.cutover_dry_run }}
         env:
           OTERYN_STATE_DIR_INPUT: ${{ vars.OTERYN_STAGING_STATE_DIR }}
         run: |
