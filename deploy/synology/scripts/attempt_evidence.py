@@ -934,11 +934,16 @@ def build_observation(run, data):
 
 
 def recheck_ok(A, runs, att, obs):
+    """The `committed` row of D6 for one fresh observation, with a restart allowed (D5 step4-recheck).
+
+    It keeps the single-observation parts of C: the fence is required and nothing is in flight, so no
+    other transaction can still commit a trust mutation after this observation and the self-check."""
     S = att["intent"].get("store_id")
     key = obs.get("key") if isinstance(obs.get("key"), dict) else {}
     prof = profile_of(obs)
     fl = floor_value(obs)
     return bool(obs_db(obs) and binding_of(obs) == "match" and store_id_of(obs) == S
+                and obs.get("fence_required") is True and in_flight_zero(obs)
                 and continues(obs, A.stable, highwater(runs, S)) and prof and fl is not None
                 and prof.get("issuer_revision") == fl and not prof.get("revoked") and key.get("trusted") is True
                 and key.get("requested") == att["intent"].get("key_id"))
@@ -1088,10 +1093,38 @@ def parse_mountinfo(text):
     return out
 
 
-def canonical_from(source, root):
-    if not source.startswith("/") or not source.split("/")[1]:
-        return None
-    return "/" + source.split("/")[1] + ("" if root == "/" else root)
+def volume_mount_points(mounts, mi, docker_root):
+    """Host mount point of each device ({major:minor: path}), learned only from Docker named volumes.
+
+    The daemon resolves symlinks in its root directory, so `DockerRootDir` is a real host path, and it
+    creates `volumes/<name>/_data` itself. A named volume of the runner under that root therefore has a
+    `Source` that is a real host path, and its `mountinfo` root is the same directory inside its file
+    system: `Source` minus that root is where the device is mounted on the host. A device without such
+    a volume, or with volumes that disagree, has no entry, and a bind mount on it cannot be resolved."""
+    base = posixpath.normpath(docker_root) if docker_root.startswith("/") else None
+    seen = {}
+    for m in mounts:
+        src = m.get("Source") or ""
+        if base is None or m.get("Type") != "volume" or not src.startswith("/") \
+                or not posixpath.normpath(src).startswith(base.rstrip("/") + "/"):
+            continue
+        entry = mi(m.get("Destination", ""))
+        if entry is None:
+            continue
+        src, root = posixpath.normpath(src), entry["root"]
+        if root == "/":
+            prefix = src
+        elif src.endswith(root):
+            prefix = src[:-len(root)]
+        else:
+            prefix = None
+        seen.setdefault(entry["dev"], set()).add(prefix)
+    return {dev: p.pop() for dev, p in seen.items() if len(p) == 1 and None not in p}
+
+
+def canonical_at(prefix, root):
+    """The host path of a mount whose file system is mounted at `prefix` (`""` for `/`)."""
+    return (prefix + ("" if root == "/" else root)) or "/"
 
 
 def overlaps(x, y):
@@ -1131,6 +1164,7 @@ def cmd_check_location(a):
         return hits[-1] if hits else None
 
     mounts = runner_doc.get("Mounts") or []
+    points = volume_mount_points(mounts, mi, docker_root)
     ev = next((m for m in mounts if m.get("Destination") == target), None)
     canonical = ev_dev = source = None
     if ev is None:
@@ -1142,10 +1176,13 @@ def cmd_check_location(a):
         entry = mi(target)
         if entry is None:
             errors.append("mountinfo-missing")
+        elif entry["dev"] not in points:
+            # Which host volume holds this device is not known, so Source cannot be checked.
+            errors.append("source-volume-unverified")
         else:
             ev_dev = entry["dev"]
-            canonical = canonical_from(source, entry["root"])
-            if canonical is None or canonical != source:
+            canonical = canonical_at(points[ev_dev], entry["root"])
+            if canonical != source:
                 errors.append("source-not-canonical")
         if canonical is None or "source-not-canonical" in errors:
             canonical = None
@@ -1158,8 +1195,10 @@ def cmd_check_location(a):
             dest = m.get("Destination", "")
             src = m.get("Source", "")
             entry = mi(dest) if m.get("Type") == "bind" else None
-            path = (canonical_from(src, entry["root"]) if entry else None) or src
             dev = entry["dev"] if entry else None
+            # A bind on the evidence device resolves through that device's verified mount point; one on
+            # another device is on another volume and is skipped below.
+            path = canonical_at(points[dev], entry["root"]) if dev in points else src
             if dev is not None and ev_dev is not None and dev != ev_dev:
                 continue
             if overlaps(canonical, path):

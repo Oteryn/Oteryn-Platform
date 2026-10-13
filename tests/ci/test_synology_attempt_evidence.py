@@ -35,6 +35,9 @@ K = "kid-1"
 SCOPE = {"issuer": "iss", "profile": "prof", "key_purpose": "fresh"}
 TARGET = "/var/lib/oteryn-attempt-evidence"
 SOURCE = "/volume1/oteryn-attempt-evidence"
+# The runner's own named volume under DockerRootDir: the only proof of where a device is mounted on the host.
+WORK = "/volume1/@docker/volumes/oteryn-runner_runner_work/_data"
+WORK_LINE = "102 50 0:50 /@docker/volumes/oteryn-runner_runner_work/_data /work rw - btrfs /dev/vg1 rw\n"
 BOT = {"id": 41898282, "login": "github-actions[bot]"}
 
 
@@ -197,11 +200,13 @@ class LocationTest(Base):
         self.mountinfo = (
             f"100 50 0:50 /oteryn-attempt-evidence {TARGET} rw - btrfs /dev/vg1 rw\n"
             "101 50 0:50 /docker/oteryn/state /var/lib/oteryn/state rw - btrfs /dev/vg1 rw\n"
+            + WORK_LINE
         )
         self.runner = {"Id": "runner1", "Mounts": [
             {"Type": "bind", "Source": SOURCE, "Destination": TARGET, "RW": True},
             {"Type": "bind", "Source": "/volume1/docker/oteryn/state", "Destination": "/var/lib/oteryn/state", "RW": True},
             {"Type": "bind", "Source": "/var/run/docker.sock", "Destination": "/var/run/docker.sock", "RW": True},
+            {"Type": "volume", "Name": "oteryn-runner_runner_work", "Source": WORK, "Destination": "/work", "RW": True},
         ]}
         self.project = [
             {"Id": "pg", "Name": "/postgres", "Config": {"Labels": {"com.docker.compose.service": "postgres"}},
@@ -284,16 +289,57 @@ class LocationTest(Base):
         runner["Mounts"][0]["Source"] = "/volume1/link-to-share"
         self.assertRefused("source-not-canonical", runner=runner)
         # the kernel's root differs from Source: a host bind mount at a component
-        self.assertRefused("source-not-canonical", mountinfo=f"100 50 0:50 /other/place {TARGET} rw - btrfs /dev/vg1 rw\n")
-        self.assertRefused("source-not-canonical", mountinfo=f"100 50 0:50 /deep/oteryn-attempt-evidence {TARGET} rw - btrfs x rw\n")
+        self.assertRefused("source-not-canonical", mountinfo=f"100 50 0:50 /other/place {TARGET} rw - btrfs /dev/vg1 rw\n" + WORK_LINE)
+        self.assertRefused("source-not-canonical", mountinfo=f"100 50 0:50 /deep/oteryn-attempt-evidence {TARGET} rw - btrfs x rw\n" + WORK_LINE)
 
     def test_state_mount_alias_into_evidence_share_refuses_on_mountinfo_path(self):
         self.fixtures()
         runner = json.loads(json.dumps(self.runner))
         runner["Mounts"][1]["Source"] = "/volume1/docker/alias"
         mountinfo = (f"100 50 0:50 /oteryn-attempt-evidence {TARGET} rw - btrfs x rw\n"
-                     "101 50 0:50 /oteryn-attempt-evidence/state /var/lib/oteryn/state rw - btrfs x rw\n")
+                     "101 50 0:50 /oteryn-attempt-evidence/state /var/lib/oteryn/state rw - btrfs x rw\n" + WORK_LINE)
         self.assertRefused("overlap:", runner=runner, mountinfo=mountinfo)
+
+    def test_source_on_another_volume_than_its_prefix_refuses(self):
+        # /volume1/oteryn-attempt-evidence is a symlink or host bind to /volume2/oteryn-attempt-evidence:
+        # the kernel root is still /oteryn-attempt-evidence, but the device is volume2's (0:60).
+        self.fixtures()
+        aliased = (f"100 50 0:60 /oteryn-attempt-evidence {TARGET} rw - btrfs /dev/vg2 rw\n"
+                   "101 50 0:50 /docker/oteryn/state /var/lib/oteryn/state rw - btrfs /dev/vg1 rw\n" + WORK_LINE)
+        project = json.loads(json.dumps(self.project))
+        project[0]["Mounts"][0]["Source"] = "/volume2/oteryn-attempt-evidence/restore-scope"
+        # Docker's volumes are on volume1, so nothing proves where 0:60 is mounted: refuse.
+        code, out = self.check(mountinfo=aliased, project=project)
+        self.assertEqual(code, 1, out)
+        self.assertIn("source-volume-unverified", out["errors"])
+        self.assertIsNone(out["canonical_source"])
+        # Docker's volumes are on volume2 (0:60): the real path is /volume2/..., not Source.
+        runner = json.loads(json.dumps(self.runner))
+        runner["Mounts"][3]["Source"] = WORK.replace("/volume1/", "/volume2/")
+        code, out = self.check(mountinfo=aliased.replace(WORK_LINE, WORK_LINE.replace(" 0:50 ", " 0:60 ")),
+                               runner=runner, info={"DockerRootDir": "/volume2/@docker"})
+        self.assertEqual(code, 1, out)
+        self.assertIn("source-not-canonical", out["errors"])
+
+    def test_device_mount_point_only_from_consistent_docker_volumes(self):
+        self.fixtures()
+        # a named volume outside DockerRootDir proves nothing
+        runner = json.loads(json.dumps(self.runner))
+        runner["Mounts"][3]["Source"] = "/volume1/elsewhere/_data"
+        self.assertRefused("source-volume-unverified", runner=runner,
+                           mountinfo=self.mountinfo.replace(WORK_LINE, "102 50 0:50 /elsewhere/_data /work rw - btrfs x rw\n"))
+        # a bind mount, even under DockerRootDir, proves nothing
+        runner = json.loads(json.dumps(self.runner))
+        runner["Mounts"][3]["Type"] = "bind"
+        self.assertRefused("source-volume-unverified", runner=runner)
+        # two volumes that disagree on where the device is mounted
+        runner = json.loads(json.dumps(self.runner))
+        runner["Mounts"].append({"Type": "volume", "Source": "/volume1/@docker/volumes/cfg/_data", "Destination": "/runner"})
+        self.assertRefused("source-volume-unverified", runner=runner,
+                           mountinfo=self.mountinfo + "103 50 0:50 /x/@docker/volumes/cfg/_data /runner rw - btrfs x rw\n")
+        # a kernel root that is not a suffix of the volume's Source
+        self.assertRefused("source-volume-unverified",
+                           mountinfo=self.mountinfo.replace(WORK_LINE, "102 50 0:50 /other/_data /work rw - btrfs x rw\n"))
 
     def test_directory_ownership_mode_writability_readonly_and_foreign_entries(self):
         self.fixtures()
@@ -894,12 +940,17 @@ class RecheckTest(Base):
         self.assertEqual(self.recheck(committed_obs(lsn=0x1300))[0], 0)
 
     def test_recheck_refusals_write_nothing(self):
+        prepared = committed_obs(lsn=0x1300)
+        prepared["database"]["in_flight"]["prepared"] = 1
         bad = {
             "other identity": committed_obs(sysid="zz", lsn=0x1300),
             "other store": committed_obs(store=S2, lsn=0x1300),
             "no profile": obs(lsn=0x1300),
             "floor above profile": obs(floor=2, profile=profile(1), trusted=True, lsn=0x1300),
             "lower lsn": committed_obs(lsn=0x10),
+            "session in flight": committed_obs(lsn=0x1300, in_flight=1),
+            "prepared in flight": prepared,
+            "fence off": committed_obs(lsn=0x1300, fence=False),
         }
         before = Path(self.dir, self.run + ".jsonl").read_bytes()
         for name, o in bad.items():
