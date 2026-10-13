@@ -157,6 +157,10 @@ services:
       # same values; deploy creates the directory on every run.
       GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE: fresh_admission
       GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY: /var/www/html/storage/app/native-evidence-witness
+      # P6a D8: on PostgreSQL deploy.sh/lib.sh export `required`; a first trust publication then needs a fence
+      # that names an open, anchored attempt intent in the read-only evidence mount below.
+      GAME_AUTH_NATIVE_EVIDENCE_FIRST_PUBLICATION_FENCE: ${OTERYN_PLATFORM_FIRST_PUBLICATION_FENCE:-off}
+      GAME_AUTH_NATIVE_EVIDENCE_ATTEMPT_DIRECTORY: /var/lib/oteryn-attempt-evidence
       MAIL_MAILER: array
       GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256: ${GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256}
       GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256: ${GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256:-}
@@ -208,6 +212,10 @@ services:
       - native_admission_keys:/run/oteryn-native-admission:ro
       # The stack CA certificate only (no key), for sslmode=verify-full on the postgres engine.
       - postgres_client_ca:/run/oteryn-postgres-ca:ro
+      # P6a D3: the attempt-evidence share, read-only. The producer verifies the first-publication fence
+      # against it and can never write it. check-location (attempt_evidence.py) refuses a path that is not
+      # the dedicated, restore-excluded share, so a path Docker creates here fails closed before step 4.
+      - ${OTERYN_ATTEMPT_EVIDENCE_HOST_PATH:-/volume1/oteryn-attempt-evidence}:/var/lib/oteryn-attempt-evidence:ro
     networks:
       - private
     depends_on:
@@ -354,6 +362,7 @@ services:
       # writes through it).
       GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE: fresh_admission
       GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY: /var/www/html/storage/app/native-evidence-witness
+      GAME_AUTH_NATIVE_EVIDENCE_FIRST_PUBLICATION_FENCE: ${OTERYN_PLATFORM_FIRST_PUBLICATION_FENCE:-off}
     volumes:
       - platform_storage:/var/www/html/storage
       - postgres_client_ca:/run/oteryn-postgres-ca:ro

@@ -559,3 +559,14 @@ def test_native_default_resolver_prefers_the_variable_then_the_file(tmp_path: pa
     assert resolve("OTERYN_STAGING_NATIVE_WORLD_ID", "override") == "override"
     assert resolve("OTERYN_STAGING_NATIVE_ADMISSION_ENABLED", "") == "false"
     assert resolve("OTERYN_STAGING_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES", "") == ""
+
+
+def test_check_kid_history_is_a_read_only_action_that_needs_exactly_one_record() -> None:
+    text = KEY_SCRIPT.read_text(encoding="utf-8")
+    assert "check-kid-history" in text.split("set -euo pipefail", 1)[0]
+    tool = text[text.index("if ($action === 'check-kid-history')") : text.index("secure($dir, $uid, $gid, 0700);\n\nswitch")]
+    # Runs before secure(): no chown, chmod, write, rename or generation on this path.
+    for forbidden in ("secure(", "chown", "chmod", "fopen", "file_put_contents", "rename(", "unlink", "generate("):
+        assert forbidden not in tool
+    assert "$count === 1" in tool
+    assert "exit($ok ? 0 : 1)" in tool

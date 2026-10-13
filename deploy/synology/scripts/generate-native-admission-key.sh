@@ -9,7 +9,7 @@
 # printed, logged, passed on a command line or written anywhere else. Only the key id and the PUBLIC
 # key (base64url, the encoding of the Platform trust registry and Game's trust config) are printed.
 #
-# Usage: generate-native-admission-key.sh [ensure|stage|promote|rotate|drop-retiring|show|check]
+# Usage: generate-native-admission-key.sh [ensure|stage|promote|rotate|drop-retiring|show|check|check-kid-history]
 #   stage          generate the NEXT key (never loaded by Platform, so nothing changes at runtime);
 #                  idempotent; prints its key id and public key for Game's trust configuration
 #   promote        staged rotation: with ingress stopped, next -> current and current -> retiring,
@@ -19,6 +19,9 @@
 #   rotate         current -> retiring, then a new current with a never-used key id
 #   drop-retiring  remove the retiring key once every attempt it signed has passed exp
 #   show           print the key ids and public keys, changing nothing
+#   check-kid-history [--kid <kid>...]
+#                  read-only (P6a D7): print how many used.kids records exist for each role key
+#                  (current, next, retiring) and each --kid; exit non-zero unless every count is 1
 #   check          run the Platform signing self-check in the running Platform container
 #
 # rotate moves the trusted current key to retiring and restarts Platform with a new current key whose
@@ -45,9 +48,9 @@ ACTION="${1:-ensure}"
 MAINTENANCE="${2:-}"
 
 case "$ACTION" in
-    ensure | stage | promote | rotate | drop-retiring | show | check) ;;
+    ensure | stage | promote | rotate | drop-retiring | show | check | check-kid-history) ;;
     *)
-        echo "Usage: $0 [ensure|stage|promote|rotate [--maintenance]|drop-retiring|show|check]" >&2
+        echo "Usage: $0 [ensure|stage|promote|rotate [--maintenance]|drop-retiring|show|check|check-kid-history [--kid <kid>...]]" >&2
         exit 2
         ;;
 esac
@@ -231,6 +234,33 @@ function report(string $dir, int $uid): void
 if (! is_dir($dir)) {
     fail('The key volume is not mounted.');
 }
+if ($action === 'check-kid-history') {
+    // Read-only (P6a D7): changes nothing on the volume. Each role key and each --kid must have
+    // exactly one used.kids record.
+    $counts = array_count_values(usedKids($dir));
+    $kids = [];
+    foreach (['current', 'next', 'retiring'] as $role) {
+        $file = $dir . '/' . $role . '.kid';
+        $kid = is_file($file) ? trim((string) file_get_contents($file)) : '';
+        if ($kid !== '') {
+            $kids[$role] = $kid;
+        }
+    }
+    $extra = array_slice($argv, 2);
+    for ($i = 0; $i < count($extra); $i += 2) {
+        if (($extra[$i] ?? '') !== '--kid' || ! isset($extra[$i + 1]) || $extra[$i + 1] === '') {
+            fail('check-kid-history accepts only --kid <kid> arguments.');
+        }
+        $kids['kid:' . $extra[$i + 1]] = $extra[$i + 1];
+    }
+    $ok = $kids !== [];
+    foreach ($kids as $label => $kid) {
+        $count = $counts[$kid] ?? 0;
+        echo 'kid_history ' . $label . ' ' . $kid . ' count=' . $count . "\n";
+        $ok = $ok && $count === 1;
+    }
+    exit($ok ? 0 : 1);
+}
 secure($dir, $uid, $gid, 0700);
 
 switch ($action) {
@@ -327,7 +357,7 @@ run_key_tool() {
         --security-opt no-new-privileges \
         --entrypoint php \
         --volume "$VOLUME_NAME:/keys" \
-        "$PLATFORM_IMAGE" -d display_errors=stderr -r "$PHP_TOOL" -- "$1"
+        "$PLATFORM_IMAGE" -d display_errors=stderr -r "$PHP_TOOL" -- "$@"
 }
 
 if [[ "$ACTION" == promote ]]; then
@@ -414,6 +444,11 @@ if [[ "$ACTION" == drop-retiring ]]; then
         fi
         echo "Retiring key revoked in the Platform trust registry." >&2
     fi
+fi
+
+if [[ "$ACTION" == check-kid-history ]]; then
+    run_key_tool "$ACTION" "${@:2}"
+    exit $?
 fi
 
 run_key_tool "$ACTION"
