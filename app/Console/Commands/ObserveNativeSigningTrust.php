@@ -93,10 +93,11 @@ final class ObserveNativeSigningTrust extends Command
                 });
             },
         );
-        if (($observed['result'] ?? null) !== 'observed') {
-            return ['result' => (string) ($observed['result'] ?? 'witness_busy')];
+        if ($observed['result'] !== 'observed') {
+            return ['result' => $observed['result']];
         }
 
+        /** @var array{trust: array{profile: array<string, mixed>, in_history: bool, trusted: bool}, database: array<string, mixed>|null} $reads */
         $reads = $observed['reads'];
 
         return [

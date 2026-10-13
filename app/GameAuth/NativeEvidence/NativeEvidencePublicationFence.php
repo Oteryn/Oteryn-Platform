@@ -27,7 +27,7 @@ final class NativeEvidencePublicationFence
 
     private ?string $keyId = null;
 
-    /** @var array{store_id: string, attempt: int, identity: array<string, mixed>, wal_flush_lsn: string, xmax: string}|null */
+    /** @var array{store_id: string, attempt: int, identity: array<mixed, mixed>, wal_flush_lsn: string, xmax: string}|null */
     private ?array $verified = null;
 
     public function __construct(
@@ -133,7 +133,7 @@ final class NativeEvidencePublicationFence
                     if (($data['store_id'] ?? null) !== $storeId) {
                         throw new NativeEvidenceUnavailable('The evidence directory holds an init for another witness store.');
                     }
-                    $identity = $data['observation']['database']['identity'] ?? null;
+                    $identity = self::path($data, 'observation', 'database', 'identity');
                     if ($stableIdentity === null && is_array($identity)) {
                         $stableIdentity = NativeEvidenceDatabaseIdentity::stable($identity);
                     }
@@ -170,9 +170,12 @@ final class NativeEvidencePublicationFence
         }
         $lines = $runs[$this->runId];
         $count = count($lines);
-        $anchored = $lines[$count - 1] ?? null;
-        $intent = $lines[$count - 2] ?? null;
-        if ($count < 2 || $anchored['data']['type'] !== 'anchored' || $intent['data']['type'] !== 'attempt-intent'
+        if ($count < 2) {
+            throw new NativeEvidenceUnavailable('The named intent is not anchored.');
+        }
+        $anchored = $lines[$count - 1];
+        $intent = $lines[$count - 2];
+        if ($anchored['data']['type'] !== 'anchored' || $intent['data']['type'] !== 'attempt-intent'
             || ! hash_equals($intent['sha'], $this->intentSha256)
             || ($anchored['data']['for_seq'] ?? null) !== $intent['data']['seq']
             || ! is_string($anchored['data']['for_line_sha256'] ?? null)
@@ -195,26 +198,26 @@ final class NativeEvidencePublicationFence
             || ! is_array($observation)) {
             throw new NativeEvidenceUnavailable('The named intent does not match this store, scope and key id.');
         }
-        $database = $observation['database'] ?? null;
         $floorObservation = $observation['floor'] ?? null;
+        $identityObserved = self::path($observation, 'database', 'identity');
+        $baselineLsn = self::path($observation, 'database', 'progress', 'wal_flush_lsn');
+        $baselineXmax = self::path($observation, 'database', 'progress', 'xmax');
         if (! is_array($floorObservation) || ! array_key_exists('value', $floorObservation) || $floorObservation['value'] !== null
-            || ($observation['profile']['present'] ?? null) !== false
-            || ! is_array($database)
-            || ! is_array($database['identity'] ?? null)
-            || ! NativeEvidenceDatabaseIdentity::validLsn($database['progress']['wal_flush_lsn'] ?? null)
-            || ! is_string($database['progress']['xmax'] ?? null)
-            || preg_match('/\A[0-9]{1,20}\z/', $database['progress']['xmax']) !== 1) {
+            || self::path($observation, 'profile', 'present') !== false
+            || ! is_array($identityObserved)
+            || ! NativeEvidenceDatabaseIdentity::validLsn($baselineLsn)
+            || ! is_string($baselineXmax)
+            || preg_match('/\A[0-9]{1,20}\z/', $baselineXmax) !== 1) {
             throw new NativeEvidenceUnavailable('The named intent observation is not a clean database baseline.');
         }
 
         // Database continuity (D4): same stable identity as the first init, progress not below any observation.
         if ($stableIdentity === null
-            || NativeEvidenceDatabaseIdentity::stable($database['identity']) !== $stableIdentity) {
+            || NativeEvidenceDatabaseIdentity::stable($identityObserved) !== $stableIdentity) {
             throw new NativeEvidenceUnavailable('The named intent does not continue the initialised witness store.');
         }
-        $baselineLsn = $database['progress']['wal_flush_lsn'];
         foreach ($observations as $other) {
-            $otherLsn = $other['database']['progress']['wal_flush_lsn'] ?? null;
+            $otherLsn = self::path($other, 'database', 'progress', 'wal_flush_lsn');
             if ($otherLsn !== null && (! NativeEvidenceDatabaseIdentity::validLsn($otherLsn)
                 || NativeEvidenceDatabaseIdentity::compareLsn($baselineLsn, $otherLsn) < 0)) {
                 throw new NativeEvidenceUnavailable('The named intent is behind an earlier recorded database position.');
@@ -224,9 +227,9 @@ final class NativeEvidencePublicationFence
         $this->verified = [
             'store_id' => $storeId,
             'attempt' => $attempt,
-            'identity' => NativeEvidenceDatabaseIdentity::sorted($database['identity']),
+            'identity' => NativeEvidenceDatabaseIdentity::sorted($identityObserved),
             'wal_flush_lsn' => $baselineLsn,
-            'xmax' => $database['progress']['xmax'],
+            'xmax' => $baselineXmax,
         ];
     }
 
@@ -250,7 +253,7 @@ final class NativeEvidencePublicationFence
     }
 
     /**
-     * @return array<string, list<array{data: array<string, mixed>, sha: string}>> keyed by run id
+     * @return array<string, list<array{data: array<mixed, mixed>, sha: string}>> keyed by run id
      */
     private function readDirectory(): array
     {
@@ -281,7 +284,7 @@ final class NativeEvidencePublicationFence
         return $runs;
     }
 
-    /** @return list<array{data: array<string, mixed>, sha: string}> */
+    /** @return list<array{data: array<mixed, mixed>, sha: string}> */
     private function readRun(string $path, string $runId): array
     {
         $size = @filesize($path);
@@ -313,6 +316,19 @@ final class NativeEvidencePublicationFence
         }
 
         return $lines;
+    }
+
+    /** Walks nested evidence JSON; any missing step or non-array parent reads as null. */
+    private static function path(mixed $value, string ...$keys): mixed
+    {
+        foreach ($keys as $key) {
+            if (! is_array($value) || ! array_key_exists($key, $value)) {
+                return null;
+            }
+            $value = $value[$key];
+        }
+
+        return $value;
     }
 
     private function hasCommentId(mixed $value): bool

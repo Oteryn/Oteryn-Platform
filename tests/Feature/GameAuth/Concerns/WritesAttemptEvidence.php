@@ -70,7 +70,10 @@ trait WritesAttemptEvidence
         ];
     }
 
-    /** @param array<string, mixed>|null $database */
+    /**
+     * @param  array<string, mixed>|null  $database
+     * @return array<string, mixed>
+     */
     private function fixtureObservation(?array $database, ?string $storeId): array
     {
         return [

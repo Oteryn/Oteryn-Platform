@@ -24,7 +24,7 @@ final class NativeEvidenceDatabaseIdentity
     }
 
     /**
-     * @return array{identity: array<string, mixed>, progress: array{wal_flush_lsn: string, xmax: string}, in_flight: array{sessions: int, prepared: int}}|null
+     * @return array{identity: array<mixed, mixed>, progress: array{wal_flush_lsn: string, xmax: string}, in_flight: array{sessions: int, prepared: int}}|null
      */
     public function read(): ?array
     {
@@ -39,28 +39,27 @@ final class NativeEvidenceDatabaseIdentity
         ];
     }
 
-    /** @return array<string, mixed> */
+    /** @return array<mixed, mixed> */
     public function identity(): array
     {
-        $system = DB::selectOne('select system_identifier::text as system_identifier from pg_control_system()');
-        $checkpoint = DB::selectOne('select timeline_id from pg_control_checkpoint()');
-        $postmaster = DB::selectOne(
+        $system = self::scalar(DB::selectOne('select system_identifier::text as system_identifier from pg_control_system()'), 'system_identifier');
+        $checkpoint = self::scalar(DB::selectOne('select timeline_id from pg_control_checkpoint()'), 'timeline_id');
+        $postmaster = self::scalar(DB::selectOne(
             "select to_char(pg_postmaster_start_time() at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') as started",
-        );
-        $database = DB::selectOne('select oid::text as oid from pg_database where datname = current_database()');
+        ), 'started');
+        $database = self::scalar(DB::selectOne('select oid::text as oid from pg_database where datname = current_database()'), 'oid');
 
         $filenodes = [];
         foreach (self::TRACKED_TABLES as $table) {
-            $row = DB::selectOne('select pg_relation_filenode(to_regclass(?))::text as node', [$table]);
-            $node = $row->node ?? null;
-            $filenodes[$table] = is_string($node) || is_int($node) ? (int) $node : null;
+            $node = self::scalar(DB::selectOne('select pg_relation_filenode(to_regclass(?))::text as node', [$table]), 'node');
+            $filenodes[$table] = $node !== '' ? (int) $node : null;
         }
 
         return [
-            'system_identifier' => (string) ($system->system_identifier ?? ''),
-            'timeline_id' => (int) ($checkpoint->timeline_id ?? 0),
-            'postmaster_start_time' => (string) ($postmaster->started ?? ''),
-            'database_oid' => (int) ($database->oid ?? 0),
+            'system_identifier' => $system,
+            'timeline_id' => (int) $checkpoint,
+            'postmaster_start_time' => $postmaster,
+            'database_oid' => (int) $database,
             'relfilenodes' => $filenodes,
         ];
     }
@@ -73,8 +72,8 @@ final class NativeEvidenceDatabaseIdentity
         );
 
         return [
-            'wal_flush_lsn' => (string) ($row->lsn ?? ''),
-            'xmax' => (string) ($row->xmax ?? ''),
+            'wal_flush_lsn' => self::scalar($row, 'lsn'),
+            'xmax' => self::scalar($row, 'xmax'),
         ];
     }
 
@@ -88,8 +87,8 @@ final class NativeEvidenceDatabaseIdentity
         $prepared = DB::selectOne('select count(*) as n from pg_prepared_xacts');
 
         return [
-            'sessions' => (int) ($sessions->n ?? 0),
-            'prepared' => (int) ($prepared->n ?? 0),
+            'sessions' => (int) self::scalar($sessions, 'n'),
+            'prepared' => (int) self::scalar($prepared, 'n'),
         ];
     }
 
@@ -108,7 +107,7 @@ final class NativeEvidenceDatabaseIdentity
         }
         $row = DB::selectOne('select (pg_current_wal_flush_lsn() >= ?::pg_lsn) as ok', [$baseline]);
 
-        return filter_var($row->ok ?? false, FILTER_VALIDATE_BOOL);
+        return filter_var(self::scalar($row, 'ok'), FILTER_VALIDATE_BOOL);
     }
 
     public function xmaxAtLeast(string $baseline): bool
@@ -118,9 +117,19 @@ final class NativeEvidenceDatabaseIdentity
         }
         $row = DB::selectOne('select (pg_snapshot_xmax(pg_current_snapshot()) >= ?::xid8) as ok', [$baseline]);
 
-        return filter_var($row->ok ?? false, FILTER_VALIDATE_BOOL);
+        return filter_var(self::scalar($row, 'ok'), FILTER_VALIDATE_BOOL);
     }
 
+    /** One column of a `selectOne` row as text; an absent row, column or non-scalar value reads as ''. */
+    private static function scalar(mixed $row, string $column): string
+    {
+        $values = is_object($row) ? get_object_vars($row) : [];
+        $value = $values[$column] ?? null;
+
+        return is_scalar($value) ? (string) $value : '';
+    }
+
+    /** @phpstan-assert-if-true string $value */
     public static function validLsn(mixed $value): bool
     {
         return is_string($value) && preg_match('/\A[0-9A-Fa-f]{1,8}\/[0-9A-Fa-f]{1,8}\z/', $value) === 1;
@@ -138,8 +147,8 @@ final class NativeEvidenceDatabaseIdentity
     /**
      * Identity without postmaster_start_time, key-sorted, for the stable-identity comparison across runs.
      *
-     * @param  array<string, mixed>  $identity
-     * @return array<string, mixed>
+     * @param  array<mixed, mixed>  $identity
+     * @return array<mixed, mixed>
      */
     public static function stable(array $identity): array
     {
@@ -149,8 +158,8 @@ final class NativeEvidenceDatabaseIdentity
     }
 
     /**
-     * @param  array<string, mixed>  $value
-     * @return array<string, mixed>
+     * @param  array<mixed, mixed>  $value
+     * @return array<mixed, mixed>
      */
     public static function sorted(array $value): array
     {

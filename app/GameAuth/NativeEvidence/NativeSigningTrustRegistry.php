@@ -33,8 +33,10 @@ final class NativeSigningTrustRegistry
         // profile, null floor) only runs through the fenced witness entry. A fence is ignored when a
         // profile exists or the setting is off.
         $fenceRequired = NativeEvidencePublicationFence::required();
-        $fenced = $fenceRequired && $fence instanceof NativeEvidencePublicationFence
-            && ! $this->profileExists($issuer, $profile, $keyPurpose);
+        $activeFence = $fenceRequired && $fence !== null && ! $this->profileExists($issuer, $profile, $keyPurpose)
+            ? $fence
+            : null;
+        $fenced = $activeFence !== null;
 
         $callback = function (?int $floor, Closure $advance) use (
             $issuer,
@@ -125,10 +127,10 @@ final class NativeSigningTrustRegistry
             }, 3);
         };
 
-        if ($fenced && $fence instanceof NativeEvidencePublicationFence) {
+        if ($activeFence !== null) {
             return $this->witness->withNamespaceFenced(
                 $stateNamespace,
-                $fence->bind($issuer, $profile, $keyPurpose, $keyId),
+                $activeFence->bind($issuer, $profile, $keyPurpose, $keyId),
                 $callback,
             );
         }

@@ -153,7 +153,7 @@ final class NativeEvidenceHighWaterWitness
      * each lock file that exists; a busy lock gives result witness_busy. The optional callback runs while
      * the locks are held and its return value is reported as `reads`.
      *
-     * @return array{result: string, store?: array<string, mixed>, floor?: array<string, mixed>, reads?: mixed}
+     * @return array{result: 'witness_busy'}|array{result: 'observed', store: array<string, mixed>, floor: array<string, mixed>, reads: mixed}
      */
     public function observe(string $namespaceHash, ?Closure $reads = null): array
     {

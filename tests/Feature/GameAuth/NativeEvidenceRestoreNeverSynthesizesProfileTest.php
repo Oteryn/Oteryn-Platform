@@ -3,7 +3,6 @@
 namespace Tests\Feature\GameAuth;
 
 use App\GameAuth\NativeEvidence\NativeEvidenceContract;
-use App\GameAuth\NativeEvidence\NativeEvidenceHighWaterWitness;
 use App\GameAuth\NativeEvidence\NativeEvidenceNamespace;
 use App\GameAuth\NativeEvidence\NativeEvidencePublicationFence;
 use App\GameAuth\NativeEvidence\NativeEvidenceUnavailable;
