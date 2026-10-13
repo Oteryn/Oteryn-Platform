@@ -146,8 +146,10 @@ oteryn_require_postgres_secrets_for_engine() {
 #     contradictory or foreign; see _oteryn_cutover_step_allowed for the step model): it is never taken as
 #     "no step recorded";
 #   - the mariadb engine from the recorded freeze until a verified rollback: it would restart the frozen stack
-#     (the cutover rollback itself runs rollback.sh, which this gate leaves alone), and on mariadb a PostgreSQL
-#     bootstrap completion record that exists or cannot be ruled out (the verified rollback moves it aside);
+#     (the cutover rollback itself runs rollback.sh, which this gate leaves alone), and on mariadb a bootstrap
+#     state record (witness-freeze.env, witness-moved-aside.env, bootstrap-complete.env) that exists in any form
+#     or cannot be ruled out: the freeze writes witness-freeze.env after it stopped the stack and before
+#     STEP_FREEZE, and the verified rollback moves the bootstrap state aside;
 #   - the postgres engine before the clean-slate bootstrap finished: a merge-triggered deploy would migrate the
 #     empty database, which the bootstrap then refuses, or cut the stack over without the freeze. The completion
 #     record must be a readable regular file with BOOTSTRAPPED_AT and nonempty OAUTH_CLIENT_ID,
@@ -227,11 +229,17 @@ oteryn_require_cutover_deploy_window() {
                 return 1
             fi
             # The cutover rollback moves the bootstrap state aside before it records ROLLBACK_VERIFIED, so a
-            # completion record on mariadb means a cutover is under way whatever the state file says.
-            if [[ -e "$complete_file" || -L "$complete_file" ]] || ! _oteryn_state_path_absent "$complete_file"; then
-                echo "Deploy refused: a PostgreSQL bootstrap record ($complete_file) exists (or cannot be ruled out) on the mariadb engine; a cutover owns the stack until its rollback moves it aside." >&2
-                return 1
-            fi
+            # bootstrap record on mariadb means a cutover is under way whatever the state file says. The freeze
+            # writes witness-freeze.env (record-witness) after it stopped the stack and before STEP_FREEZE, so a
+            # freeze that exited in between (its run.lock removed on exit) is still seen. Any such record that
+            # exists, in whatever form or content, or whose absence cannot be proven, refuses.
+            local bootstrap_record
+            for bootstrap_record in "$bootstrap_dir/witness-freeze.env" "$bootstrap_dir/witness-moved-aside.env" "$complete_file"; do
+                if [[ -e "$bootstrap_record" || -L "$bootstrap_record" ]] || ! _oteryn_state_path_absent "$bootstrap_record"; then
+                    echo "Deploy refused: a PostgreSQL cutover record ($bootstrap_record) exists (or cannot be ruled out) on the mariadb engine; the cutover froze the stack, and it owns it until its verified rollback moves the bootstrap state aside." >&2
+                    return 1
+                fi
+            done
             ;;
         postgres)
             if [[ ! -f "$complete_file" || -L "$complete_file" ]]; then

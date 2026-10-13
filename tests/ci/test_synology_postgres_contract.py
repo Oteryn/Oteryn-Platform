@@ -1414,7 +1414,7 @@ class CutoverDeployWindowTest(unittest.TestCase):
         # A verified rollback moves the bootstrap state aside; a record left on mariadb means a cutover is running.
         for steps in ((), ("PREFLIGHT",)):
             with self.subTest(steps=steps):
-                self.assert_gate(False, "mariadb", steps, True, needle="bootstrap record")
+                self.assert_gate(False, "mariadb", steps, True, needle="cutover record (")
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             self.gate(base, "mariadb")
@@ -1422,6 +1422,59 @@ class CutoverDeployWindowTest(unittest.TestCase):
             complete.symlink_to(base / "missing")
             result = self.gate(base, "mariadb")
         self.assertNotEqual(result.returncode, 0, result.stderr)
+
+    # What record-witness writes at the freeze, after the stack stopped and before STEP_FREEZE.
+    WITNESS = ("RECORD_VERSION=1\nWITNESS_DIRECTORY=/srv/witness\nWITNESS_STATE=empty\nWITNESS_STORE_ID=none\n"
+               "WITNESS_MANIFEST_SHA256=" + "0" * 64 + "\nFROZEN_AT=2026-10-13T00:00:00Z\n")
+
+    def test_mariadb_refuses_a_freeze_interrupted_after_its_witness_record(self) -> None:
+        # The freeze stopped the stack and record-witness wrote witness-freeze.env, then the step exited before
+        # STEP_FREEZE and removed run.lock: only the witness record shows the frozen stack.
+        def put(record: Path, form: str) -> None:
+            if form == "symlink":
+                record.symlink_to(record.parent / "missing")
+            elif form == "directory":
+                record.mkdir()
+            elif form == "unreadable":
+                record.write_text(self.WITNESS)
+                record.chmod(0)
+            else:
+                record.write_text({"valid": self.WITNESS, "empty": "", "garbage": "not a record\x00"}[form])
+
+        records = ("witness-freeze.env", "witness-moved-aside.env", "bootstrap-complete.env")
+        forms = ("valid", "empty", "garbage", "unreadable", "symlink", "directory")
+        for name in records:
+            for form in forms:
+                for steps in ((), ("PREFLIGHT",)):
+                    with self.subTest(record=name, form=form, steps=steps), tempfile.TemporaryDirectory() as td:
+                        base = Path(td)
+                        self.assertEqual(self.gate(base, "mariadb", steps).returncode, 0)
+                        put(base / "state/postgres-bootstrap" / name, form)
+                        result = self.gate(base, "mariadb", steps)
+                        self.assertNotEqual(result.returncode, 0, result.stderr)
+                        self.assertIn(f"cutover record ({base}/state/postgres-bootstrap/{name})", result.stderr)
+        # The verified rollback moved the bootstrap state aside: the deploy passes again.
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            self.gate(base, "mariadb", ("PREFLIGHT",))
+            bootstrap = base / "state/postgres-bootstrap"
+            (bootstrap / "witness-freeze.env").write_text(self.WITNESS)
+            bootstrap.rename(base / "state/postgres-bootstrap.rolled-back-20261013T000000Z")
+            result = self.gate(base, "mariadb", ("PREFLIGHT", "FREEZE", "ROLLBACK_STARTED", "ROLLBACK_VERIFIED"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # A bootstrap state directory whose entries cannot be listed never proves the witness absent.
+        if os.geteuid() != 0:
+            with tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                self.gate(base, "mariadb", ("PREFLIGHT",))
+                bootstrap = base / "state/postgres-bootstrap"
+                bootstrap.chmod(0o600)
+                try:
+                    result = self.gate(base, "mariadb", ("PREFLIGHT",))
+                finally:
+                    bootstrap.chmod(0o700)
+            self.assertNotEqual(result.returncode, 0, result.stderr)
+            self.assertIn("cutover record (", result.stderr)
 
     def test_postgres_requires_a_complete_readable_bootstrap_record(self) -> None:
         steps = ("PREFLIGHT", "FREEZE", "BOOTSTRAP")
