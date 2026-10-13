@@ -149,9 +149,11 @@ oteryn_require_postgres_secrets_for_engine() {
 #   - the postgres engine in the rollback window (bootstrap complete, native re-enable not started) for a release
 #     whose deploy would move a PostgreSQL release into last-good-release.env: the cutover rollback runs
 #     rollback.sh, which restores that file and refuses a PostgreSQL image there. Only the deploy that replaces
-#     the frozen MariaDB release (plan step 2) and a redeploy of the current release pass;
-#   - the postgres engine after retire-mariadb while the compose file still defines the mariadb service: it
-#     would recreate the retired service.
+#     the frozen MariaDB release (plan step 2) and a redeploy of the current release pass, and a missing
+#     current-release.env is refused;
+#   - the postgres engine once retire-mariadb started (RETIRE_STARTED, also after an interrupted run) or finished
+#     while the compose file still defines the mariadb service: it would recreate the retired service on an
+#     empty volume.
 # The paths follow cutover-postgres.sh (OTERYN_STATE_DIR, OTERYN_CUTOVER_STATE_DIR, OTERYN_PG_BOOTSTRAP_STATE_DIR).
 # Usage: oteryn_require_cutover_deploy_window <compose file>
 oteryn_require_cutover_deploy_window() {
@@ -210,8 +212,12 @@ oteryn_require_cutover_deploy_window() {
             if ! _oteryn_cutover_step_recorded "$state_text" REENABLE_STARTED; then
                 _oteryn_cutover_keeps_rollback_release "$state_text" || return 1
             fi
-            if _oteryn_cutover_step_recorded "$state_text" MARIADB_RETIRED && grep -q '^  mariadb:' "$compose_file"; then
-                echo "Deploy refused: MariaDB is retired but the compose file still defines the mariadb service; land P7b first." >&2
+            # RETIRE_STARTED is the durable mark of an interrupted retire-mariadb that may already have removed the
+            # container or volume; a deploy then would recreate the service on an empty volume.
+            if { _oteryn_cutover_step_recorded "$state_text" RETIRE_STARTED \
+                    || _oteryn_cutover_step_recorded "$state_text" MARIADB_RETIRED; } \
+                && grep -q '^  mariadb:' "$compose_file"; then
+                echo "Deploy refused: MariaDB retirement started or finished but the compose file still defines the mariadb service; land P7 first." >&2
                 return 1
             fi
             ;;
@@ -225,7 +231,8 @@ oteryn_require_cutover_deploy_window() {
 # Rollback window rule of oteryn_require_cutover_deploy_window. A deploy of another release copies
 # current-release.env into last-good-release.env (and first finalizes a pending candidate the same way), so it
 # passes only while the current release is the frozen MariaDB one (FREEZE_PLATFORM_IMAGE) and no candidate of
-# another release is pending; a redeploy of the current release moves nothing.
+# another release is pending; a redeploy of the current release moves nothing, and a missing current record is
+# refused.
 # Usage: _oteryn_cutover_keeps_rollback_release <cutover state text>
 _oteryn_cutover_keeps_rollback_release() {
     local state_text="$1" release_dir current_file candidate_file text frozen_image current_sha current_image candidate_sha
@@ -244,7 +251,12 @@ _oteryn_cutover_keeps_rollback_release() {
             return 1
         fi
     fi
-    [[ -e "$current_file" || -L "$current_file" ]] || return 0
+    # Without the current record the deploy would not move the frozen release into last-good at all, so the
+    # rollback could restore an older release: absence during the cutover is never taken as a first deployment.
+    if [[ ! -e "$current_file" && ! -L "$current_file" ]]; then
+        echo "Deploy refused: the cutover rollback window is open and $current_file is missing; the frozen MariaDB release must stay recoverable through last-good-release.env. Restore it, roll back, or run native re-enable first." >&2
+        return 1
+    fi
     if ! text="$(_oteryn_read_state_file "$current_file")"; then
         echo "Deploy refused: the current release $current_file cannot be read in the cutover rollback window." >&2
         return 1

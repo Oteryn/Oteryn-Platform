@@ -858,19 +858,34 @@ class CutoverDeployWindowTest(unittest.TestCase):
     RECORD = ("BOOTSTRAPPED_AT=2026-10-13T00:00:00Z\nOAUTH_CLIENT_ID=0199-oauth\nOAUTH_RUST_CLIENT_ID=0199-rust\n"
               "NATIVE_WORLD_ID=0199-world\nNATIVE_ADMISSION=disabled\n")
 
+    # The release frozen by the cutover (FREEZE_PLATFORM_IMAGE) and the next release the deploy would promote.
+    IMAGE = "ghcr.io/oteryn/platform@sha256:"
+    FROZEN = ("a" * 40, IMAGE + "a" * 64)
+    NEXT = "b" * 40
+
     def gate(self, td: Path, engine: str, steps: tuple[str, ...] = (), bootstrapped: bool | str = False,
              compose: str = "services:\n  platform:\n    image: x\n",
-             unreadable: Path | None = None, *, state_extra: str = "",
-             release: str | None = None) -> subprocess.CompletedProcess[str]:
+             unreadable: Path | None = None, *, freeze_image: bool = True,
+             current: tuple[str, str] | None = FROZEN, candidate: str | None = None,
+             release: str = NEXT) -> subprocess.CompletedProcess[str]:
+        """Runs the gate; by default the current release is the frozen one and the deploy promotes NEXT."""
         state = td / "state"
         for directory in (state / "postgres-cutover", state / "postgres-bootstrap"):
             if not directory.exists() and not directory.is_symlink():
                 directory.mkdir(parents=True)
         if steps:
             (state / "postgres-cutover/cutover-state.env").write_text(
-                "TASK_ID=OTERYN-20261013-test\n" + "".join(f"STEP_{step}=2026-10-13T00:00:00Z\n" for step in steps)
-                + state_extra
+                "TASK_ID=OTERYN-20261013-test\n" + "".join(
+                    f"STEP_{step}=2026-10-13T00:00:00Z\n"
+                    + (f"CLOSE_RUN_ID=1\nFREEZE_PLATFORM_IMAGE={self.FROZEN[1]}\n"
+                       if step == "FREEZE" and freeze_image else "")
+                    for step in steps)
             )
+        current_file = state / "current-release.env"
+        if current is not None and not current_file.exists():
+            current_file.write_text(f"RELEASE_SHA={current[0]}\nPLATFORM_IMAGE={current[1]}\n")
+        if candidate is not None:
+            (state / "candidate-release.env").write_text(f"RELEASE_SHA={candidate}\n")
         if bootstrapped:
             record = self.RECORD if bootstrapped is True else bootstrapped
             (state / "postgres-bootstrap/bootstrap-complete.env").write_text(record)
@@ -879,8 +894,7 @@ class CutoverDeployWindowTest(unittest.TestCase):
         env = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/tmp"), "OTERYN_STATE_DIR": str(state)}
         if unreadable is not None:
             env["PATH"] = f"{self.unreadable_readers(td, unreadable)}:{env['PATH']}"
-        if release is not None:
-            env["OTERYN_RELEASE_SHA"] = release
+        env["OTERYN_RELEASE_SHA"] = release
         return subprocess.run(
             ["bash", "-c", f'source "$1"; OTERYN_PLATFORM_DB_ENGINE={engine}; oteryn_require_cutover_deploy_window "$2"',
              "bash", str(LIB), str(compose_file)],
@@ -940,44 +954,43 @@ class CutoverDeployWindowTest(unittest.TestCase):
         retired = ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "SMOKE", "REENABLE_STARTED", "NATIVE_SMOKE", "DECLARED_DONE",
                    "RETIRE_STARTED", "MARIADB_RETIRED")
         with_mariadb = "services:\n  mariadb:\n    image: mariadb\n  platform:\n    image: x\n"
-        self.assert_gate(False, "postgres", retired, True, with_mariadb, needle="land P7b first")
+        self.assert_gate(False, "postgres", retired, True, with_mariadb, needle="land P7 first")
+        # An interrupted retire-mariadb may already have removed the container or volume.
+        self.assert_gate(False, "postgres", retired[:-1], True, with_mariadb, needle="retirement started or finished")
+        self.assert_gate(True, "postgres", retired[:-1], True)
         self.assert_gate(True, "postgres", retired, True)
         self.assert_gate(True, "postgres", retired, True, COMPOSE.read_text().replace("\n  mariadb:\n", "\n  retired:\n"))
         if "\n  mariadb:\n" in COMPOSE.read_text():
-            self.assert_gate(False, "postgres", retired, True, COMPOSE.read_text(), needle="land P7b first")
+            self.assert_gate(False, "postgres", retired, True, COMPOSE.read_text(), needle="land P7 first")
+            self.assert_gate(False, "postgres", retired[:-1], True, COMPOSE.read_text(), needle="land P7 first")
 
     def test_the_rollback_window_keeps_the_mariadb_release_in_last_good(self) -> None:
         # cutover-postgres.sh rollback runs rollback.sh, which restores last-good-release.env and refuses a
         # PostgreSQL image there. A deploy of another release moves current-release.env into that file.
-        image = "ghcr.io/oteryn/platform@sha256:"
-        frozen, pg1, pg2 = ("a" * 40, image + "a" * 64), ("b" * 40, image + "b" * 64), "c" * 40
+        frozen, pg1, pg2 = self.FROZEN, (self.NEXT, self.IMAGE + "b" * 64), "c" * 40
         window = ("PREFLIGHT", "FREEZE", "BOOTSTRAP")
-        freeze = f"CLOSE_RUN_ID=1\nFREEZE_PLATFORM_IMAGE={frozen[1]}\n"
 
         def run(steps: tuple[str, ...], current: tuple[str, str] | None, requested: str,
-                candidate: str | None = None, state_extra: str = freeze) -> subprocess.CompletedProcess[str]:
+                **kwargs: object) -> subprocess.CompletedProcess[str]:
             with tempfile.TemporaryDirectory() as td:
-                base = Path(td)
-                (base / "state").mkdir()
-                if current is not None:
-                    (base / "state/current-release.env").write_text(
-                        f"RELEASE_SHA={current[0]}\nPLATFORM_IMAGE={current[1]}\n")
-                if candidate is not None:
-                    (base / "state/candidate-release.env").write_text(f"RELEASE_SHA={candidate}\n")
-                return self.gate(base, "postgres", steps, True, state_extra=state_extra, release=requested)
+                return self.gate(Path(td), "postgres", steps, True, current=current, release=requested, **kwargs)
 
         # The plan step 2 deploy replaces the frozen MariaDB release, which becomes last-good.
         self.assertEqual(run(window, frozen, pg1[0]).returncode, 0)
-        self.assertEqual(run(window, None, pg1[0]).returncode, 0)
         # A redeploy of the current PostgreSQL release moves nothing into last-good.
         self.assertEqual(run(window, pg1, pg1[0]).returncode, 0)
         # Native re-enable ended the rollback window: later releases are promoted as usual.
         self.assertEqual(run(window + ("SMOKE", "REENABLE_STARTED"), pg1, pg2).returncode, 0)
+        self.assertEqual(run(window + ("SMOKE", "REENABLE_STARTED"), None, pg2).returncode, 0)
         # Another release after step 2 would put the PostgreSQL release into last-good.
-        for steps, state_extra in ((window, freeze), (window + ("SMOKE",), freeze), (window, "CLOSE_RUN_ID=1\n")):
-            result = run(steps, pg1, pg2, state_extra=state_extra)
+        for steps, freeze_image in ((window, True), (window + ("SMOKE",), True), (window, False)):
+            result = run(steps, pg1, pg2, freeze_image=freeze_image)
             self.assertNotEqual(result.returncode, 0, f"{steps}: {result.stderr}")
             self.assertIn("rollback window is open", result.stderr, steps)
+        # Without the current record the frozen release would never reach last-good.
+        result = run(window, None, pg1[0])
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("current-release.env is missing", result.stderr)
         # A pending candidate of another release would be finalized and then moved into last-good.
         result = run(window, frozen, pg2, candidate=pg1[0])
         self.assertNotEqual(result.returncode, 0, result.stderr)
@@ -985,10 +998,8 @@ class CutoverDeployWindowTest(unittest.TestCase):
         self.assertEqual(run(window, frozen, pg1[0], candidate=pg1[0]).returncode, 0)
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
-            (base / "state").mkdir()
             current = base / "state/current-release.env"
-            current.write_text(f"RELEASE_SHA={pg1[0]}\nPLATFORM_IMAGE={pg1[1]}\n")
-            result = self.gate(base, "postgres", window, True, unreadable=current, state_extra=freeze, release=pg1[0])
+            result = self.gate(base, "postgres", window, True, unreadable=current, current=pg1, release=pg1[0])
         self.assertNotEqual(result.returncode, 0, result.stderr)
         self.assertIn("cannot be read", result.stderr)
 
