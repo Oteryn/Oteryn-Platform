@@ -17,7 +17,7 @@ Review finding on #1577/#1579, real on main: `ProductionConfigurationVerifier` a
 
 - [x] Default connection must be on the runtime allowlist; other server-driver connections are refused.
 - [x] Unit tests cover acceptance (pgsql, mysql, mariadb) and refusal of every non-runtime server connection in config/database.php plus owner/backup/dump-style names.
-- [ ] Exact-head CI passes.
+- [x] Exact-head CI passes.
 
 ## Ownership
 
@@ -42,10 +42,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-13T00:00:00Z
-head: branch head of claude/platform-verifier-allowlist-20261012 (the PR's head)
+head: 2b477ffdd5884a1b72c6891914285b24fea4f0c3
 branch: claude/platform-verifier-allowlist-20261012
 pr: 1580
-status: validating
+status: completed
 terminal_pr_policy: archive_pending
 context_routes: []
 owned_paths:
@@ -80,7 +80,7 @@ validation:
     evidence: production configuration verifier hardening, no product path
 blockers:
   - none
-next_action: archive this record after the PR merges (terminal_pr_policy archive_pending)
+next_action: none. PR #1580 is merged as 2b477ffd on 2026-10-12 and this record is archived.
 ```
 
 ## Source branch closeout
@@ -88,7 +88,7 @@ next_action: archive this record after the PR merges (terminal_pr_policy archive
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository PR
-source_branch_evidence: pending
+source_branch_evidence: PR #1580 merged as 2b477ffdd5884a1b72c6891914285b24fea4f0c3; git ls-remote on 2026-10-13 shows claude/platform-verifier-allowlist-20261012 no longer exists (auto-deleted after merge)
 ```
 
 ## Notes

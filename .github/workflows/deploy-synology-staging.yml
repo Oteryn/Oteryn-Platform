@@ -4,12 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: Deploy selected immutable component images or roll back to the last compatible runtime release
+        description: Deploy selected immutable component images, roll back to the last compatible runtime release, or run one step of the PostgreSQL cutover (plan P6)
         required: true
         type: choice
         options:
           - deploy
           - rollback
+          - cutover
         default: deploy
       release_sha:
         description: Full 40-character protected-main release/tooling SHA; required for deploy
@@ -72,10 +73,57 @@ on:
         required: true
         type: string
         default: LAN
+      cutover_step:
+        description: Cutover only (action=cutover) - the single PostgreSQL cutover step to run
+        required: false
+        type: choice
+        options:
+          - status
+          - preflight
+          - freeze
+          - bootstrap
+          - smoke
+          - rollback
+          - native-reenable
+          - native-smoke
+          - declare-done
+          - retire-mariadb
+          - unfreeze
+        default: status
+      cutover_dry_run:
+        description: Cutover only - true prints the planned commands and changes nothing; false executes the step
+        required: false
+        type: boolean
+        default: true
+      task_id:
+        description: Cutover only - the task id (OTERYN-YYYYMMDD-slug) that owns this cutover
+        required: false
+        type: string
+      close_run_id:
+        description: Cutover only - run id of the Cloudflare maintenance-close run the cutover runs behind
+        required: false
+        type: string
+      audit_run_id:
+        description: Cutover only - run id of the Cloudflare audit run for this step (open before the close and after the open, closed otherwise)
+        required: false
+        type: string
+      owner_go_ack:
+        description: Cutover preflight only - the owner go decision; must equal task_id
+        required: false
+        type: string
+      owner_delete_confirmation:
+        description: Cutover retire-mariadb only - the exact owner confirmation phrase
+        required: false
+        type: string
+      owner_delete_ack:
+        description: Cutover retire-mariadb only - must equal task_id
+        required: false
+        type: string
 
 permissions:
   contents: read
   packages: read
+  actions: read
 
 concurrency:
   group: synology-staging-deployment
@@ -108,7 +156,7 @@ jobs:
       - name: Checkout exact release tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.action == 'deploy' && inputs.release_sha || 'main' }}
+          ref: ${{ inputs.action == 'deploy' && inputs.release_sha || inputs.action == 'cutover' && github.sha || 'main' }}
           fetch-depth: 0
 
       - name: Validate runner tools
@@ -268,6 +316,7 @@ jobs:
           done
 
       - name: Upgrade legacy release provenance state
+        if: ${{ inputs.action != 'cutover' || !inputs.cutover_dry_run }}
         env:
           OTERYN_STATE_DIR_INPUT: ${{ vars.OTERYN_STAGING_STATE_DIR }}
         run: |
@@ -478,6 +527,54 @@ jobs:
           OTERYN_STATE_DIR=$state_dir
           EOF
           chmod 600 deploy/synology/.env
+
+      - name: Validate cutover inputs
+        if: inputs.action == 'cutover'
+        env:
+          CUTOVER_STEP: ${{ inputs.cutover_step }}
+          CUTOVER_TASK_ID: ${{ inputs.task_id }}
+          CUTOVER_CLOSE_RUN_ID: ${{ inputs.close_run_id }}
+          CUTOVER_AUDIT_RUN_ID: ${{ inputs.audit_run_id }}
+        run: |
+          set -euo pipefail
+          if [[ "$CUTOVER_STEP" != status ]]; then
+            [[ "$CUTOVER_TASK_ID" =~ ^OTERYN-[0-9]{8}-[a-z0-9][a-z0-9-]{0,80}$ ]] || { echo "task_id must look like OTERYN-YYYYMMDD-slug." >&2; exit 1; }
+          fi
+          for value in "$CUTOVER_CLOSE_RUN_ID" "$CUTOVER_AUDIT_RUN_ID"; do
+            [[ -z "$value" || "$value" =~ ^[1-9][0-9]{0,18}$ ]] || { echo "Run ids must be numeric." >&2; exit 1; }
+          done
+
+      - name: Run cutover step
+        if: inputs.action == 'cutover'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CUTOVER_STEP: ${{ inputs.cutover_step }}
+          OTERYN_CUTOVER_DRY_RUN: ${{ inputs.cutover_dry_run && '1' || '0' }}
+          OTERYN_CUTOVER_TASK_ID: ${{ inputs.task_id }}
+          OTERYN_CUTOVER_CLOSE_RUN_ID: ${{ inputs.close_run_id }}
+          OTERYN_CUTOVER_AUDIT_RUN_ID: ${{ inputs.audit_run_id }}
+          OTERYN_CUTOVER_OWNER_GO: ${{ inputs.owner_go_ack }}
+          OTERYN_OWNER_DELETE_CONFIRMATION: ${{ inputs.owner_delete_confirmation }}
+          OTERYN_OWNER_DELETE_ACK: ${{ inputs.owner_delete_ack }}
+          OTERYN_CUTOVER_EVIDENCE_DIR: ${{ runner.temp }}/platform-cutover-gate-evidence
+          OTERYN_CUTOVER_PROVENANCE_INIT_COMMAND: ${{ vars.OTERYN_STAGING_CUTOVER_PROVENANCE_INIT_COMMAND }}
+          OTERYN_CUTOVER_WEB_SMOKE_COMMAND: ${{ vars.OTERYN_STAGING_CUTOVER_WEB_SMOKE_COMMAND }}
+          OTERYN_CUTOVER_NATIVE_SMOKE_COMMAND: ${{ vars.OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_COMMAND }}
+          OTERYN_STATE_DIR: ${{ vars.OTERYN_STAGING_STATE_DIR }}
+        run: |
+          set -euo pipefail
+          rm -rf -- "$OTERYN_CUTOVER_EVIDENCE_DIR"
+          export OTERYN_STATE_DIR="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
+          bash deploy/synology/scripts/cutover-postgres.sh "$CUTOVER_STEP"
+
+      - name: Upload cutover gate evidence
+        if: inputs.action == 'cutover' && inputs.cutover_dry_run == false && (inputs.cutover_step == 'declare-done' || inputs.cutover_step == 'rollback')
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: platform-cutover-gate-evidence
+          path: ${{ runner.temp }}/platform-cutover-gate-evidence/gate-evidence.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Deploy prebuilt images
         if: inputs.action == 'deploy'

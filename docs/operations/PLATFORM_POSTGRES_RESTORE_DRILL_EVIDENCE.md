@@ -12,7 +12,30 @@ Provisional staging targets: RPO 86400 s (24 h), RTO 14400 s (4 h).
 
 ## Staging drill
 
-Status: **pending.** The staging drill runs after this mechanism merges and deploys with the PostgreSQL secrets configured (plan P4). Then run the workflow in mode `pitr-drill` and append a dated entry below. The entry records the run id, the SHA and the `evidence.env` keys from the workflow summary. P5 exit requires one passing staging drill, plus 24 hours of `pg_stat_archiver` without failures.
+Status: **one passing staging drill recorded** (2026-10-12, below). P5 exit still requires 24 hours of `pg_stat_archiver` without failures; that record is not yet attached.
+
+## 2026-10-12: staging drill (`STAGING_PROVEN`)
+
+Source: *Recover Synology Staging Schema*, mode `pitr-drill`, run `38310896412` (attempt 1, `workflow_dispatch` on `main`), head `ba971b872ba243454b3a045d0b8ccb86bc8e68c7` (#1583). Job `pitr-drill` succeeded on runner `oteryn-synology-platform` (group `platform-runners`); job `recover` was skipped. Run window 2026-10-12 21:28:58Z to 21:31:58Z. Values below are the `evidence.env` keys printed in the job log (`pitr-drills/20261012T212920Z/evidence.env`).
+
+| Key | Value |
+| --- | --- |
+| `RESULT` | `passed`, `CHECKS_PASSED=5` |
+| `POSTGRES_IMAGE` | `postgres:17.11@sha256:2d2b8998…df9e3` |
+| `ARCHIVER_HEALTHY` | `true`; forced segment `000000010000000000000006` |
+| `BASE_BACKUP` | `20261012T211602Z`; `SHA256SUMS` and `pg_verifybackup` passed |
+| `TARGET_TIME` / `REPLAYED_TO` | 2026-10-12 21:29:27 UTC / 21:29:24 UTC |
+| `MARKERS` | A present, B absent |
+| `TABLES` / `MIGRATIONS_HEAD` / `ROW_COUNTS` | 0 / absent / equal to the reference snapshot (the PostgreSQL database holds no Platform schema yet, engine `mariadb`) |
+| `LEDGER_INVARIANT` | `not_applicable` |
+| `DUMP_VERIFIED` | `20261012T211624Z` (`SHA256SUMS` and `pg_restore -l`) |
+| `PLATFORM_IMAGE` / `PLATFORM_ENGINE` | `ghcr.io/oteryn/oteryn-platform@sha256:15e845d7…266c8f` / `mariadb` |
+| `MIGRATE_STATUS` / `VERIFY_CONFIGURATION` | `not_applicable` (engine `mariadb`) / `passed` |
+| `RESTORE_SECONDS` / `TOTAL_SECONDS` | 41 / 100 |
+| `DATA_LOSS_BOUND_SECONDS` | 60 (basis: `archive_timeout` of a healthy archiver) against `RPO_SECONDS=86400` |
+| `RTO_SECONDS` | 14400 (target); measured restore 41 s, total 100 s |
+
+Limits: the drill ran against an idle database with no Platform schema, so it proves the mechanism and the NAS path but not a restore of Platform data. The post-cutover P5 drill (P6 validation) covers that.
 
 ## 2026-10-12: local rehearsal (`LOCAL_REHEARSAL`)
 

@@ -23,7 +23,7 @@ Governing GitHub Issue: #1474. Complete the P6b maintenance-gate design note tha
 - [x] The note fixes how the "only two canonical ingress rules" precondition is checked.
 - [x] The note fixes failure and rollback behaviour, the implementation files and tests, and the owner approval items.
 - [x] No claim beyond the plan except items marked as decisions for owner approval; no secret; no new legacy-token occurrence.
-- [ ] Exact-head CI passes, the complete Codex review is addressed and no thread is unresolved (PR #1588, pending).
+- [x] Exact-head CI passes, the complete Codex review is addressed and no thread is unresolved.
 
 ## Ownership
 
@@ -46,10 +46,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-12T22:00:00Z
-head: UNKNOWN
+head: 787527fe96b59ece217851ada9e6c7df82c22365
 branch: claude/platform-pg-p6b-20261012
 pr: 1588
-status: validating
+status: completed
 terminal_pr_policy: archive_pending
 context_routes:
   - operations
@@ -82,7 +82,7 @@ validation:
     evidence: ratchet ok; 13 active checkpoints including this record validated; documentation IA validated; source-branch closeout validated
 blockers:
   - none
-next_action: archive this record in the P6 cutover packet once the owner has accepted the P6b note; the source-branch closeout evidence is filled there when the branch deletion is verified
+next_action: none. PR #1588 is merged as 787527fe on 2026-10-12 and this record is archived.
 ```
 
 ## Source branch closeout
@@ -90,7 +90,7 @@ next_action: archive this record in the P6 cutover packet once the owner has acc
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: pending merge; verify the source ref disappears after merge
+source_branch_evidence: PR #1588 merged as 787527fe96b59ece217851ada9e6c7df82c22365; git ls-remote on 2026-10-13 shows claude/platform-pg-p6b-20261012 no longer exists (auto-deleted after merge)
 ```
 
 ## Notes
