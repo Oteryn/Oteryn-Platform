@@ -134,29 +134,44 @@ oteryn_require_postgres_secrets_for_engine() {
 
 # Cutover deploy window (ADR 0046, plan P6, scripts/cutover-postgres.sh). An ordinary deploy must not touch the
 # stack while the cutover owns it. Refuses (returns 1), read-only and before any stack change:
+#   - a cutover state that exists but cannot be inspected (not a regular file, a link, an unsearchable state
+#     directory or a read error): a missed FREEZE, ROLLBACK_STARTED or MARIADB_RETIRED would let the deploy
+#     restart the frozen stack, race a rollback or recreate the retired service, so it fails closed. Only an
+#     absent state file means no cutover step is recorded;
 #   - the mariadb engine from the recorded freeze until a verified rollback: it would restart the frozen stack
 #     (the cutover rollback itself runs rollback.sh, which this gate leaves alone);
-#   - the postgres engine before the clean-slate bootstrap finished (no regular bootstrap-complete.env): a
-#     merge-triggered deploy would migrate the empty database, which the bootstrap then refuses, or cut the
-#     stack over without the freeze. The deploy after the bootstrap (plan step 2) and every later one pass;
+#   - the postgres engine before the clean-slate bootstrap finished: a merge-triggered deploy would migrate the
+#     empty database, which the bootstrap then refuses, or cut the stack over without the freeze. The completion
+#     record must be a readable regular file with BOOTSTRAPPED_AT and nonempty OAUTH_CLIENT_ID,
+#     OAUTH_RUST_CLIENT_ID and NATIVE_WORLD_ID, the rule the cutover-postgres.sh adoption path applies. The
+#     deploy after the bootstrap (plan step 2) and every later one pass;
 #   - the postgres engine once a cutover rollback started;
 #   - the postgres engine after retire-mariadb while the compose file still defines the mariadb service: it
 #     would recreate the retired service.
 # The paths follow cutover-postgres.sh (OTERYN_STATE_DIR, OTERYN_CUTOVER_STATE_DIR, OTERYN_PG_BOOTSTRAP_STATE_DIR).
 # Usage: oteryn_require_cutover_deploy_window <compose file>
 oteryn_require_cutover_deploy_window() {
-    local compose_file="$1" root state_file complete_file
+    local compose_file="$1" root state_dir state_file complete_file state_text="" complete_text
     root="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
-    state_file="${OTERYN_CUTOVER_STATE_DIR:-$root/postgres-cutover}/cutover-state.env"
+    state_dir="${OTERYN_CUTOVER_STATE_DIR:-$root/postgres-cutover}"
+    state_file="$state_dir/cutover-state.env"
     complete_file="${OTERYN_PG_BOOTSTRAP_STATE_DIR:-$root/postgres-bootstrap}/bootstrap-complete.env"
+    if [[ -e "$state_dir" || -L "$state_dir" ]] && [[ ! -d "$state_dir" || ! -x "$state_dir" ]]; then
+        echo "Deploy refused: the cutover state directory $state_dir cannot be inspected." >&2
+        return 1
+    fi
     if [[ -L "$state_file" ]] || [[ -e "$state_file" && ! -f "$state_file" ]]; then
         echo "Deploy refused: the cutover state $state_file is not a regular file." >&2
         return 1
     fi
+    if [[ -e "$state_file" ]] && ! state_text="$(_oteryn_read_state_file "$state_file")"; then
+        echo "Deploy refused: the cutover state $state_file cannot be read; restore its access before deploying." >&2
+        return 1
+    fi
     case "${OTERYN_PLATFORM_DB_ENGINE:-}" in
         mariadb)
-            if _oteryn_cutover_step_recorded "$state_file" FREEZE \
-                && ! _oteryn_cutover_step_recorded "$state_file" ROLLBACK_VERIFIED; then
+            if _oteryn_cutover_step_recorded "$state_text" FREEZE \
+                && ! _oteryn_cutover_step_recorded "$state_text" ROLLBACK_VERIFIED; then
                 echo "Deploy refused: the PostgreSQL cutover froze the stack and no verified rollback is recorded; continue the cutover or finish its rollback first." >&2
                 return 1
             fi
@@ -166,11 +181,22 @@ oteryn_require_cutover_deploy_window() {
                 echo "Deploy refused: PLATFORM_DB_ENGINE=postgres but the PostgreSQL bootstrap is not complete ($complete_file); run the cutover (preflight, freeze, bootstrap) first." >&2
                 return 1
             fi
-            if _oteryn_cutover_step_recorded "$state_file" ROLLBACK_STARTED; then
+            if ! complete_text="$(_oteryn_read_state_file "$complete_file")"; then
+                echo "Deploy refused: the PostgreSQL bootstrap completion record $complete_file cannot be read; restore its access before deploying." >&2
+                return 1
+            fi
+            if [[ $'\n'"$complete_text" != *$'\n'BOOTSTRAPPED_AT=* ]] \
+                || [[ -z "$(_oteryn_state_value "$complete_text" OAUTH_CLIENT_ID)" ]] \
+                || [[ -z "$(_oteryn_state_value "$complete_text" OAUTH_RUST_CLIENT_ID)" ]] \
+                || [[ -z "$(_oteryn_state_value "$complete_text" NATIVE_WORLD_ID)" ]]; then
+                echo "Deploy refused: the PostgreSQL bootstrap completion record $complete_file is incomplete (BOOTSTRAPPED_AT and nonempty OAuth client and native world IDs required); inspect it or roll back." >&2
+                return 1
+            fi
+            if _oteryn_cutover_step_recorded "$state_text" ROLLBACK_STARTED; then
                 echo "Deploy refused: a cutover rollback to MariaDB was started; it ends only through cutover-postgres.sh rollback." >&2
                 return 1
             fi
-            if _oteryn_cutover_step_recorded "$state_file" MARIADB_RETIRED && grep -q '^  mariadb:' "$compose_file"; then
+            if _oteryn_cutover_step_recorded "$state_text" MARIADB_RETIRED && grep -q '^  mariadb:' "$compose_file"; then
                 echo "Deploy refused: MariaDB is retired but the compose file still defines the mariadb service; land P7b first." >&2
                 return 1
             fi
@@ -182,8 +208,25 @@ oteryn_require_cutover_deploy_window() {
     esac
 }
 
+# Prints a state file; fails on any read error (an unreadable file is never taken as an empty one).
+_oteryn_read_state_file() {
+    [[ -r "$1" ]] || return 1
+    cat -- "$1"
+}
+
+# Usage: _oteryn_cutover_step_recorded <state text> <step>
 _oteryn_cutover_step_recorded() {
-    [[ -f "$1" ]] && grep -q "^STEP_$2=" "$1"
+    [[ $'\n'"$1" == *$'\n'"STEP_$2="* ]]
+}
+
+# Prints the last value of KEY= in a state text (the cutover-postgres.sh `sed | tail -n 1` rule).
+# Usage: _oteryn_state_value <state text> <key>
+_oteryn_state_value() {
+    local line value=""
+    while IFS= read -r line; do
+        [[ "$line" == "$2="* ]] && value="${line#"$2="}"
+    done <<<"$1"
+    printf '%s' "$value"
 }
 
 # PostgreSQL branches of the deploy, baseline, recovery and Marketplace scripts (plan P4 work 4 and 5). The

@@ -854,32 +854,59 @@ class CutoverDeployWindowTest(unittest.TestCase):
 
     GATE = 'oteryn_require_cutover_deploy_window "$COMPOSE_FILE" || exit 1'
 
-    def gate(self, td: Path, engine: str, steps: tuple[str, ...] = (), bootstrapped: bool = False,
-             compose: str = "services:\n  platform:\n    image: x\n") -> subprocess.CompletedProcess[str]:
+    # The record bootstrap-postgres.sh writes; cutover-postgres.sh adopts only BOOTSTRAPPED_AT plus nonempty IDs.
+    RECORD = ("BOOTSTRAPPED_AT=2026-10-13T00:00:00Z\nOAUTH_CLIENT_ID=0199-oauth\nOAUTH_RUST_CLIENT_ID=0199-rust\n"
+              "NATIVE_WORLD_ID=0199-world\nNATIVE_ADMISSION=disabled\n")
+
+    def gate(self, td: Path, engine: str, steps: tuple[str, ...] = (), bootstrapped: bool | str = False,
+             compose: str = "services:\n  platform:\n    image: x\n",
+             unreadable: Path | None = None) -> subprocess.CompletedProcess[str]:
         state = td / "state"
-        (state / "postgres-cutover").mkdir(parents=True, exist_ok=True)
-        (state / "postgres-bootstrap").mkdir(parents=True, exist_ok=True)
+        for directory in (state / "postgres-cutover", state / "postgres-bootstrap"):
+            if not directory.exists():
+                directory.mkdir(parents=True)
         if steps:
             (state / "postgres-cutover/cutover-state.env").write_text(
                 "TASK_ID=OTERYN-20261013-test\n" + "".join(f"STEP_{step}=2026-10-13T00:00:00Z\n" for step in steps)
             )
         if bootstrapped:
-            (state / "postgres-bootstrap/bootstrap-complete.env").write_text("BOOTSTRAPPED_AT=2026-10-13T00:00:00Z\n")
+            record = self.RECORD if bootstrapped is True else bootstrapped
+            (state / "postgres-bootstrap/bootstrap-complete.env").write_text(record)
         compose_file = td / "compose.yml"
         compose_file.write_text(compose)
+        env = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/tmp"), "OTERYN_STATE_DIR": str(state)}
+        if unreadable is not None:
+            env["PATH"] = f"{self.unreadable_readers(td, unreadable)}:{env['PATH']}"
         return subprocess.run(
             ["bash", "-c", f'source "$1"; OTERYN_PLATFORM_DB_ENGINE={engine}; oteryn_require_cutover_deploy_window "$2"',
              "bash", str(LIB), str(compose_file)],
-            text=True, capture_output=True, check=False,
-            env={"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/tmp"), "OTERYN_STATE_DIR": str(state)},
+            text=True, capture_output=True, check=False, env=env,
         )
 
-    def assert_gate(self, expected_ok: bool, engine: str, steps: tuple[str, ...] = (), bootstrapped: bool = False,
+    @staticmethod
+    def unreadable_readers(td: Path, target: Path) -> Path:
+        """Readers that fail on target like EACCES or EIO would (the tests may run as root, where mode 000 reads)."""
+        fake = td / "fake-bin"
+        fake.mkdir(exist_ok=True)
+        for tool in ("cat", "grep", "sed", "head", "tail", "awk"):
+            real = shutil.which(tool)
+            if real is None:
+                continue
+            script = fake / tool
+            script.write_text(
+                "#!/bin/bash\n"
+                f'for arg in "$@"; do [[ "$arg" == "{target}" ]] && {{ echo "{tool}: $arg: Permission denied" >&2; '
+                f'exit 2; }}; done\nexec "{real}" "$@"\n'
+            )
+            script.chmod(0o755)
+        return fake
+
+    def assert_gate(self, expected_ok: bool, engine: str, steps: tuple[str, ...] = (), bootstrapped: bool | str = False,
                     compose: str | None = None, needle: str = "") -> None:
         with tempfile.TemporaryDirectory() as td:
             kwargs = {"compose": compose} if compose is not None else {}
             result = self.gate(Path(td), engine, steps, bootstrapped, **kwargs)
-        label = f"{engine} {steps} bootstrapped={bootstrapped}"
+        label = f"{engine} {steps} bootstrapped={bootstrapped!r}"
         self.assertEqual(result.returncode == 0, expected_ok, f"{label}: {result.stderr}")
         self.assertIn(needle, result.stderr, label)
 
@@ -933,6 +960,81 @@ class CutoverDeployWindowTest(unittest.TestCase):
             result = self.gate(base, "postgres")
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("not a regular file", result.stderr)
+
+    def test_an_unreadable_cutover_state_fails_closed(self) -> None:
+        cases = (
+            ("mariadb", ("PREFLIGHT", "FREEZE")),
+            ("postgres", ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "ROLLBACK_STARTED")),
+            ("postgres", ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "SMOKE", "REENABLE_STARTED", "NATIVE_SMOKE",
+                          "DECLARED_DONE", "RETIRE_STARTED", "MARIADB_RETIRED")),
+            # Even a state that would pass when readable: an unreadable one is never taken as an absent one.
+            ("mariadb", ("PREFLIGHT",)),
+            ("postgres", ("PREFLIGHT", "FREEZE", "BOOTSTRAP")),
+        )
+        with_mariadb = "services:\n  mariadb:\n    image: mariadb\n  platform:\n    image: x\n"
+        for engine, steps in cases:
+            with tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                state = base / "state/postgres-cutover/cutover-state.env"
+                result = self.gate(base, engine, steps, True, with_mariadb, unreadable=state)
+            self.assertNotEqual(result.returncode, 0, f"{engine} {steps}: {result.stderr}")
+            self.assertIn("cannot be read", result.stderr, f"{engine} {steps}")
+
+    @unittest.skipIf(os.geteuid() == 0, "root reads a mode 000 file")
+    def test_a_permission_denied_cutover_state_fails_closed(self) -> None:
+        for engine, steps in (("mariadb", ("PREFLIGHT", "FREEZE")),
+                              ("postgres", ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "ROLLBACK_STARTED"))):
+            with tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                self.gate(base, engine, steps, True)
+                state = base / "state/postgres-cutover/cutover-state.env"
+                state.chmod(0)
+                try:
+                    result = self.gate(base, engine)
+                finally:
+                    state.chmod(0o600)
+            self.assertNotEqual(result.returncode, 0, f"{engine} {steps}: {result.stderr}")
+            self.assertIn("cannot be read", result.stderr, f"{engine} {steps}")
+
+    def test_a_cutover_state_directory_that_cannot_be_inspected_fails_closed(self) -> None:
+        for engine in ("mariadb", "postgres"):
+            with tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                state_dir = base / "state/postgres-cutover"
+                self.gate(base, engine, (), True)
+                state_dir.rmdir()
+                state_dir.write_text("STEP_FREEZE=2026-10-13T00:00:00Z\n")
+                result = self.gate(base, engine)
+            self.assertNotEqual(result.returncode, 0, f"{engine}: {result.stderr}")
+            self.assertIn("cannot be inspected", result.stderr, engine)
+
+    def test_postgres_requires_a_complete_readable_bootstrap_record(self) -> None:
+        steps = ("PREFLIGHT", "FREEZE", "BOOTSTRAP")
+        self.assert_gate(True, "postgres", steps, self.RECORD)
+        # The last value wins, as in the cutover-postgres.sh adoption path.
+        self.assert_gate(True, "postgres", steps, self.RECORD.replace("OAUTH_CLIENT_ID=0199-oauth\n", "OAUTH_CLIENT_ID=\n")
+                         + "OAUTH_CLIENT_ID=0199-oauth\n")
+        incomplete = {
+            "empty": "\n",
+            "truncated": "BOOTSTRAPPED_AT=2026-10-13T00:00:00Z\n",
+            "no BOOTSTRAPPED_AT": self.RECORD.replace("BOOTSTRAPPED_AT=2026-10-13T00:00:00Z\n", ""),
+            "commented BOOTSTRAPPED_AT": "# " + self.RECORD,
+            "empty OAuth client": self.RECORD.replace("OAUTH_CLIENT_ID=0199-oauth", "OAUTH_CLIENT_ID="),
+            "empty Rust client": self.RECORD.replace("OAUTH_RUST_CLIENT_ID=0199-rust", "OAUTH_RUST_CLIENT_ID="),
+            "missing world": self.RECORD.replace("NATIVE_WORLD_ID=0199-world\n", ""),
+            "emptied by a later line": self.RECORD + "NATIVE_WORLD_ID=\n",
+        }
+        for label, record in incomplete.items():
+            with self.subTest(label):
+                self.assert_gate(False, "postgres", steps, record, needle="completion record")
+                self.assert_gate(False, "postgres", steps, record, needle="is incomplete")
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            complete = base / "state/postgres-bootstrap/bootstrap-complete.env"
+            result = self.gate(base, "postgres", steps, True, unreadable=complete)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("completion record", result.stderr)
+        self.assertIn("cannot be read", result.stderr)
 
     def test_deploy_and_impact_call_the_gate_before_any_stack_change(self) -> None:
         for path in (DEPLOY, SCRIPTS / "deploy-impact.sh"):
