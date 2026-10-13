@@ -358,7 +358,7 @@ class FakeHttp:
                 raw = self.rfile.read(length)
                 if self.path == "/oauth/token":
                     return self.token_exchange(dict(urllib.parse.parse_qsl(raw.decode())))
-                if self.path == "/v1/game-auth/tickets":
+                if self.path == "/api/v1/game-auth/tickets":  # routes/api.php: under the api prefix
                     return self.ticket_issue(raw)
                 form = dict(urllib.parse.parse_qsl(raw.decode()))
                 owner.smoke_posts.append((self.path, sorted(form)))
@@ -1340,7 +1340,7 @@ class NativeSmokeTest(HookHarness):
         self.assertEqual({k: out[k] for k in out if k.startswith("native_smoke_") and k != "native_smoke_result"}, {
             "native_smoke_unknown_ticket": "refused", "native_smoke_oauth": "authorized",
             "native_smoke_ticket": "issued-bearer-revoked", "native_smoke_admission": "granted",
-            "native_smoke_replay": "same-admission"})
+            "native_smoke_replay": "same-admission", "native_smoke_login": "end-to-end"})
         # The actor's ticket was admitted, then replayed with the same attempt; the bearer was refused after issue.
         logins = self.http.native["logins"]
         self.assertEqual(len(logins), 2)
@@ -1664,6 +1664,35 @@ class NativeSmokeTest(HookHarness):
                 self.assertNotIn("native_smoke_result=passed", proc.stdout)
                 self.assert_no_secret(proc)
 
+    def test_owner_waiver_without_an_actor_checks_only_the_unknown_ticket(self):
+        # The owner waived the successful native login: with no actor set (unset or empty, as the workflow passes
+        # them), only the issuer's refusal of an unknown ticket is checked, and the waiver is in the output.
+        for value in (None, ""):
+            with self.subTest(value=value):
+                unset = {name: value for name in ("OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL", "OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD",
+                                                   "OTERYN_CUTOVER_NATIVE_SMOKE_CHARACTER_ID")}
+                (self.stub / "docker.log").unlink(missing_ok=True)
+                proc = self.run_hook("native-smoke", **unset)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(proc.stdout.splitlines()[-1], "native_smoke_result=passed")
+                out = self.outputs(proc)
+                self.assertEqual({k: out[k] for k in out if k.startswith("native_smoke_") and k != "native_smoke_result"},
+                                 {"native_smoke_unknown_ticket": "refused", "native_smoke_login": "owner-waived"})
+                self.assertEqual(self.http.native, {})
+                self.assertEqual(self.http.smoke_posts, [])
+                calls = self.log("docker.log")
+                self.assertFalse([c for c in calls if "game-auth:oauth-client:ensure" in c.get("compose", [])])
+                self.assertEqual([c["run"] for c in calls if "run" in c],
+                                 [["run", "--rm", "--network", "host", "-i", "python:3.12-alpine"]])
+                self.assertEqual([r["type"] for r in self.run_records()][-3:], ["attempt-observation", "self-check", "run-close"])
+                self.assert_verified()
+                self.assert_no_secret(proc)
+        # The negative check is still real: a Gateway that does not reach the issuer fails the waived smoke.
+        self.http.gateway_on = False
+        proc = self.run_hook("native-smoke", **unset)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("native login smoke failed", proc.stderr)
+
     def test_a_busy_route_is_retried_with_the_same_attempt(self):
         self.http.native_mode = "busy-once"
         proc = self.run_hook("native-smoke")
@@ -1672,12 +1701,12 @@ class NativeSmokeTest(HookHarness):
         self.assertEqual(len(logins), 3)
         self.assertEqual(len(set(logins)), 1)
 
-    def test_refuses_without_the_native_smoke_actor_before_any_evidence_write(self):
+    def test_refuses_a_partial_native_smoke_actor_before_any_evidence_write(self):
         before, posts = self.all_records(), len(self.posts())
         cases = (
-            ({"OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL": None}, "native smoke actor is not configured"),
-            ({"OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL": "not-an-address"}, "native smoke actor is not configured"),
-            ({"OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD": ""}, "native smoke actor is not configured"),
+            ({"OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL": None}, "native smoke actor is not fully configured"),
+            ({"OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL": "not-an-address"}, "native smoke actor is not fully configured"),
+            ({"OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD": ""}, "native smoke actor is not fully configured"),
             ({"OTERYN_CUTOVER_NATIVE_SMOKE_CHARACTER_ID": None}, "lower-case UUIDv7"),
             ({"OTERYN_CUTOVER_NATIVE_SMOKE_CHARACTER_ID": NATIVE_CHARACTER.upper()}, "lower-case UUIDv7"),
         )
@@ -1757,6 +1786,29 @@ class HookContractTest(unittest.TestCase):
             if path.name not in ("common.sh", "evidence.sh"):
                 self.assertTrue(text.startswith("#!/usr/bin/env bash\n"), path.name)
                 self.assertIn("set -euo pipefail", text)
+
+    def test_platform_paths_the_smokes_use_are_declared_routes(self):
+        # Each Platform path the hooks request, against the route file that declares it: routes/api.php is served
+        # under the default /api prefix, routes/web.php and its modules at the root, Passport under /oauth.
+        web = (ROOT / "routes" / "web.php").read_text()
+        api = (ROOT / "routes" / "api.php").read_text()
+        marketplace = (ROOT / "routes" / "modules" / "marketplace.php").read_text()
+        app = (ROOT / "bootstrap" / "app.php").read_text()
+        self.assertIn("api: __DIR__.'/../routes/api.php'", app)
+        self.assertNotIn("apiPrefix", app)
+        self.assertFalse((ROOT / "config" / "passport.php").exists(), "a Passport path override would move /oauth")
+        self.assertIn("Route::post('/v1/game-auth/tickets'", api)
+        for route in ("Route::get('/register'", "Route::post('/register'", "Route::get('/login'", "Route::post('/login'",
+                      "Route::post('/logout'", "Route::get('/account'", "Route::view('/admin'", "Route::get('/news'"):
+            self.assertIn(route, web)
+        self.assertIn("Route::get('/bazaar'", marketplace)
+        self.assertIn("prefix('account/bazaar')", marketplace)
+        native = (HOOKS / "native-smoke.sh").read_text()
+        self.assertEqual(native.count("'/api/v1/game-auth/tickets'"), 2)
+        self.assertNotRegex(native, r"'/v1/game-auth/")
+        for path in ("'/oauth/authorize?'", "'/oauth/authorize'", "'/oauth/token'", "'/v1/login'", "'/login?locale=en'",
+                     "'/account'", "'/logout'"):
+            self.assertIn(path, native)
 
     def test_evidence_doc_names_each_stable_path(self):
         doc = DOC.read_text()

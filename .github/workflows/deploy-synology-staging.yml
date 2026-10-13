@@ -621,7 +621,8 @@ jobs:
           OTERYN_CUTOVER_ANCHOR_ISSUE: ${{ vars.OTERYN_STAGING_CUTOVER_ANCHOR_ISSUE }}
           OTERYN_STATE_DIR: ${{ vars.OTERYN_STAGING_STATE_DIR }}
           # The native smoke actor (native-smoke.sh): an identity without MFA that owns the smoke character.
-          # The password reaches only the native-smoke step.
+          # All three unset is the owner's waiver of the successful native login. The password reaches only the
+          # native-smoke step.
           OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL: ${{ vars.OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_EMAIL }}
           OTERYN_CUTOVER_NATIVE_SMOKE_CHARACTER_ID: ${{ vars.OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_CHARACTER_ID }}
           OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD: ${{ inputs.cutover_step == 'native-smoke' && secrets.OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_PASSWORD || '' }}

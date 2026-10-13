@@ -26,8 +26,11 @@
 #     The actor comes from OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL, OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD (a secret,
 #     passed to the request container by name only) and OTERYN_CUTOVER_NATIVE_SMOKE_CHARACTER_ID: an identity
 #     without MFA that owns that bootstrapped character on the published native route of a ready Game node
-#     (NATIVE_LOGIN_OWNER_STEPS.md steps 9 and 10). The hook fails closed, before any evidence write, while
-#     they are not set. These logins write the OAuth, ticket and admission-attempt rows (P6 step 5 allows
+#     (NATIVE_LOGIN_OWNER_STEPS.md steps 9 and 10). A partly set or malformed actor fails closed before any
+#     evidence write. With none of the three set, the owner's waiver applies: only the unknown-ticket refusal is
+#     checked and the hook prints native_smoke_login=owner-waived (stated limit: no successful end-to-end
+#     native login before MariaDB retirement); with the actor set it prints native_smoke_login=end-to-end.
+#     These logins write the OAuth, ticket and admission-attempt rows (P6 step 5 allows
 #     witnessed writes);
 #   - requires a fresh read-only trust observation (D2), taken after the login smoke with the attempt's key id,
 #     to continue the committed attempt (the tool's D5 recheck predicate: same PostgreSQL identity and store,
@@ -60,13 +63,19 @@ hook_evidence_setup
 hook_workdir
 hook_runtime_env
 [[ "$(hook_env_get OTERYN_NATIVE_ADMISSION_ENABLED)" == true ]] || hook_fail "native admission is not on in the deployed environment."
-# The native smoke actor (owner-provisioned; never printed). Checked before any evidence write.
-[[ "${OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL:-}" =~ ^[^[:space:]@]+@[^[:space:]@]+$ \
-    && -n "${OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD:-}" ]] \
-    || hook_fail "the native smoke actor is not configured: set OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_EMAIL (variable) and OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_PASSWORD (secret) for an identity without MFA that owns the smoke character."
+# The native smoke actor (owner-provisioned; never printed). Checked before any evidence write. None of the three
+# set is the owner's waiver of the successful native login; anything in between is a misconfiguration.
 smoke_character="${OTERYN_CUTOVER_NATIVE_SMOKE_CHARACTER_ID:-}"
-[[ "$smoke_character" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] \
-    || hook_fail "OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_CHARACTER_ID must be the smoke character's lower-case UUIDv7."
+if [[ -z "${OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL:-}${OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD:-}$smoke_character" ]]; then
+    native_login=owner-waived
+else
+    native_login=end-to-end
+    [[ "${OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL:-}" =~ ^[^[:space:]@]+@[^[:space:]@]+$ \
+        && -n "${OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD:-}" ]] \
+        || hook_fail "the native smoke actor is not fully configured: set OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_EMAIL (variable), OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_PASSWORD (secret) and OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_CHARACTER_ID (variable) for an identity without MFA that owns the smoke character, or none of them (owner waiver)."
+    [[ "$smoke_character" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] \
+        || hook_fail "OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_CHARACTER_ID must be the smoke character's lower-case UUIDv7."
+fi
 
 # container_flag <service> <key>: one environment value of the running service container.
 container_flag() {
@@ -83,14 +92,17 @@ gateway_flag="$(container_flag gateway GATEWAY_NATIVE_LOGIN_ENABLED)"
 
 ev_step4_after_deploy
 
-# The first-party native (Rust) OAuth client the Windows client uses; the deploy ensured it, so this only reads
-# and checks it, as the deploy and bootstrap-postgres.sh do.
-client_output="$(hook_artisan game-auth:oauth-client:ensure --rust 2>&1)" || hook_fail "the native OAuth client check failed."
-client_id="$(sed -n 's/.*OAuth client id: \([A-Za-z0-9-]*\).*/\1/p' <<<"$client_output" | tail -n 1)"
-[[ "$client_id" =~ ^[A-Za-z0-9-]{1,64}$ ]] || hook_fail "the native OAuth client check printed no client id."
+client_id=-
+if [[ "$native_login" == end-to-end ]]; then
+    # The first-party native (Rust) OAuth client the Windows client uses; the deploy ensured it, so this only reads
+    # and checks it, as the deploy and bootstrap-postgres.sh do.
+    client_output="$(hook_artisan game-auth:oauth-client:ensure --rust 2>&1)" || hook_fail "the native OAuth client check failed."
+    client_id="$(sed -n 's/.*OAuth client id: \([A-Za-z0-9-]*\).*/\1/p' <<<"$client_output" | tail -n 1)"
+    [[ "$client_id" =~ ^[A-Za-z0-9-]{1,64}$ ]] || hook_fail "the native OAuth client check printed no client id."
+    HOOK_LOOPBACK_ENV="OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD"
+fi
 
-HOOK_LOOPBACK_ENV="OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD"
-hook_loopback_python "$(hook_platform_port)" "$(hook_gateway_port)" "$client_id" "$smoke_character" \
+hook_loopback_python "$(hook_platform_port)" "$(hook_gateway_port)" "$client_id" "${smoke_character:--}" "$native_login" \
     <<'PY' || hook_fail "the native login smoke failed."
 import base64
 import hashlib
@@ -105,11 +117,7 @@ import time
 import urllib.parse
 
 platform_port, gateway_port = int(sys.argv[1]), int(sys.argv[2])
-client_id, character_id = sys.argv[3], sys.argv[4]
-email = os.environ.get('OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL', '')
-password = os.environ.get('OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD', '')
-if not email or not password:
-    raise SystemExit('the native smoke actor did not reach the request container')
+client_id, character_id, native_login = sys.argv[3], sys.argv[4], sys.argv[5]
 CANONICAL = 'oteryn.molehill.cloud'
 REDIRECT_URI = 'http://127.0.0.1/callback'
 PROXY_HEADERS = {
@@ -170,12 +178,12 @@ def gateway_login(payload):
     return status, answer, (error.get('code') if isinstance(error, dict) else None)
 
 
-def login_body(ticket, attempt_ref):
+def login_body(ticket, attempt_ref, character=None):
     return {
         'protocol_version': 2,
         'game_login_ticket': ticket,
         'attempt_ref': attempt_ref,
-        'character_id': character_id,
+        'character_id': character or character_id,
         'channel_id': None,
         'offer': {
             'client_build': 'cutover-smoke',
@@ -186,9 +194,22 @@ def login_body(ticket, attempt_ref):
 
 
 # --- 1. An unknown ticket is refused by the Platform issuer --------------------------------------------------
-status, _, code = gateway_login(login_body('oteryn-cutover-probe-' + secrets.token_hex(16), uuid7()))
+status, _, code = gateway_login(login_body('oteryn-cutover-probe-' + secrets.token_hex(16), uuid7(), uuid7()))
 if status != 401 or code != 'NATIVE_LOGIN_AUTHENTICATION_REQUIRED':
     raise SystemExit(f'Native login with an unknown ticket did not reach the Platform issuer: status {status}, code {code}')
+if native_login == 'owner-waived':
+    # The owner waived the successful native login: no actor and no published route before MariaDB retirement.
+    print('Verified the native login refusal of an unknown ticket by the Platform issuer; the successful native login '
+          'is owner-waived (no smoke actor configured).')
+    print('native_smoke_unknown_ticket=refused')
+    print('native_smoke_login=owner-waived')
+    raise SystemExit(0)
+if native_login != 'end-to-end':
+    raise SystemExit('unknown native login mode')
+email = os.environ.get('OTERYN_CUTOVER_NATIVE_SMOKE_EMAIL', '')
+password = os.environ.get('OTERYN_CUTOVER_NATIVE_SMOKE_PASSWORD', '')
+if not email or not password:
+    raise SystemExit('the native smoke actor did not reach the request container')
 
 
 # --- 2. The smoke actor signs in on the web --------------------------------------------------------------------
@@ -272,7 +293,7 @@ bearer = {**PROXY_HEADERS, 'Accept': 'application/json', 'Content-Type': 'applic
           'Authorization': 'Bearer ' + token['access_token']}
 
 # --- 4. A native Game Login Ticket; the bearer is single-use ---------------------------------------------------
-status, _, body = exchange(platform_port, 'POST', '/v1/game-auth/tickets', b'{"protocol_version":1}', bearer)
+status, _, body = exchange(platform_port, 'POST', '/api/v1/game-auth/tickets', b'{"protocol_version":1}', bearer)
 issued = json_body(body, f'The ticket issue (status {status})')
 ticket = issued.get('ticket')
 if status != 200 or issued.get('protocol_version') != 1 or not isinstance(ticket, str) or not ticket:
@@ -280,7 +301,7 @@ if status != 200 or issued.get('protocol_version') != 1 or not isinstance(ticket
 expires_in = issued.get('expires_in')
 if not isinstance(expires_in, int) or isinstance(expires_in, bool) or expires_in < 1:
     raise SystemExit('the native ticket was issued already expired')
-status, _, _ = exchange(platform_port, 'POST', '/v1/game-auth/tickets', b'{"protocol_version":1}', bearer)
+status, _, _ = exchange(platform_port, 'POST', '/api/v1/game-auth/tickets', b'{"protocol_version":1}', bearer)
 if status != 401:
     raise SystemExit(f'the bearer still issued a ticket after its ticket (status {status}); issuance must revoke it')
 
@@ -325,6 +346,7 @@ print('native_smoke_oauth=authorized')
 print('native_smoke_ticket=issued-bearer-revoked')
 print('native_smoke_admission=granted')
 print('native_smoke_replay=same-admission')
+print('native_smoke_login=end-to-end')
 PY
 
 ev_require_continuity "$EV_ATTEMPT_RUN" "$HOOK_WORK/trust.json"
