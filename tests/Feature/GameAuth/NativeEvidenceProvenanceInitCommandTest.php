@@ -126,10 +126,24 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
 
         self::assertSame(1, $this->run());
 
-        self::assertStringContainsString('Native evidence provenance init refused:', Artisan::output());
-        self::assertStringContainsString('"result":"refused"', Artisan::output());
+        $output = Artisan::output();
+        self::assertStringContainsString('Native evidence provenance init refused:', $output);
+        self::assertStringContainsString('"result":"refused"', $output);
         self::assertSame($before, $this->snapshot());
         self::assertSame($floorsBefore, glob($this->directory.'/*.floor') ?: [], 'The init never writes or removes a floor.');
+    }
+
+    public function test_a_symlinked_store_lock_refuses_without_creating_its_target(): void
+    {
+        $target = $this->directory.'-lock-target';
+        symlink($target, $this->directory.'/witness-store.lock');
+
+        try {
+            self::assertSame(1, $this->run());
+            self::assertFileDoesNotExist($target);
+        } finally {
+            @unlink($this->directory.'/witness-store.lock');
+        }
     }
 
     /** @return array<string, array{string}> */

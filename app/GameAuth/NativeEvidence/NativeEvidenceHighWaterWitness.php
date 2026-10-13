@@ -92,7 +92,12 @@ final class NativeEvidenceHighWaterWitness
             throw new NativeEvidenceUnavailable('Native evidence witness-store provenance schema is unavailable.');
         }
 
-        $lock = @fopen($realDirectory.DIRECTORY_SEPARATOR.self::STORE_LOCK_FILENAME, 'c+b');
+        $lockPath = $realDirectory.DIRECTORY_SEPARATOR.self::STORE_LOCK_FILENAME;
+        // fopen() would follow a symlink and could create its target before the entries are classified.
+        if (is_link($lockPath)) {
+            throw new NativeEvidenceUnavailable('Native evidence witness directory holds an unclassified entry.');
+        }
+        $lock = @fopen($lockPath, 'c+b');
         if (! is_resource($lock)) {
             throw new NativeEvidenceUnavailable('Native evidence witness-store provenance lock is unavailable.');
         }
