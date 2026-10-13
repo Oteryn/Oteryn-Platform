@@ -1,0 +1,129 @@
+---
+task_id: OTERYN-20261013-platform-engine-flip
+governing_issue: 1474
+required_reads:
+  - docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md
+  - docs/architecture/adr/0046-platform-persistence-moves-to-postgresql.md
+search_first:
+  - deploy/synology/scripts/cutover-postgres.sh
+  - deploy/synology/scripts/lib.sh
+  - deploy/synology/release-contract.env
+optional_reads:
+  - docs/operations/PLATFORM_POSTGRES_BOOTSTRAP.md
+---
+
+# OTERYN-20261013-platform-engine-flip
+
+## Goal
+
+Governing GitHub Issue: #1474 — canonical lifecycle authority for this task. The top-level `governing_issue` frontmatter field is machine-required while this packet remains active.
+
+P6 cutover step 2 (ADR 0046, plan P6, `deploy/synology/scripts/cutover-postgres.sh`): the reviewed change that sets `PLATFORM_DB_ENGINE=postgres` in the release contract, with a deploy gate that keeps ordinary deploys off the stack while the cutover owns it, so the cutover rollback keeps working until native re-enable (step 4).
+
+## Acceptance criteria
+
+- [x] `deploy/synology/release-contract.env` declares `PLATFORM_DB_ENGINE=postgres`; the committed-engine test follows.
+- [x] `lib.sh` `oteryn_require_cutover_deploy_window` refuses, read-only and before any stack change: the mariadb engine from the recorded freeze until a verified rollback; the postgres engine without a regular `bootstrap-complete.env`, once a cutover rollback started, and after `retire-mariadb` while `compose.yml` still defines `mariadb`.
+- [x] `deploy.sh` and `deploy-impact.sh` call it before their first compose command; `rollback.sh`, `health-check.sh`, `cutover-postgres.sh` and `bootstrap-postgres.sh` do not.
+- [x] README engine-switch paragraph states the merge timing (after the recorded freeze), the rollback revert and the gate.
+- [ ] Merged only after the cutover `freeze` step is recorded on staging (owner sequencing; preflight and freeze refuse a postgres contract).
+
+## Ownership
+
+```yaml
+owned_paths:
+  - deploy/synology/release-contract.env
+  - deploy/synology/scripts/lib.sh
+  - deploy/synology/scripts/deploy.sh
+  - deploy/synology/scripts/deploy-impact.sh
+  - deploy/synology/README.md
+  - tests/ci/test_synology_postgres_contract.py
+  - docs/agents/tasks/active/OTERYN-20261013-platform-engine-flip.md
+  - docs/agents/tasks/archive/OTERYN-20261013-platform-engine-flip.md
+modules:
+  - deploy/synology
+dependencies:
+  - PR #1591 (P6a) merged and deployed before preflight (plan P6 precondition)
+  - ADR 0044 Amendment P4 accepted by the owner (plan P6 precondition; route publication stays off on postgres until then)
+blockers:
+  - none
+cross_repository_tasks:
+  - none
+```
+
+## Context checkpoint
+
+`checkpoint_version` remains structural version 1. Validate with `python tools/agents/checkpoint.py <task-path> --require-checkpoint`.
+
+```yaml
+checkpoint_version: 1
+updated_at: 2026-10-13T12:00:00Z
+head: UNKNOWN
+branch: claude/platform-engine-flip-20261013
+pr: none
+status: validating
+context_routes:
+  - deploy
+owned_paths:
+  - deploy/synology/release-contract.env
+  - deploy/synology/scripts/lib.sh
+  - deploy/synology/scripts/deploy.sh
+  - deploy/synology/scripts/deploy-impact.sh
+  - deploy/synology/README.md
+  - tests/ci/test_synology_postgres_contract.py
+  - docs/agents/tasks/active/OTERYN-20261013-platform-engine-flip.md
+proven:
+  - cutover-postgres.sh preflight and freeze refuse unless the contract says mariadb; bootstrap, smoke, native-reenable, native-smoke, declare-done and retire-mariadb refuse unless it says postgres; rollback refuses unless it says mariadb again.
+  - The deploy workflow's cutover action checks out main HEAD, so the flip must be on main between freeze and bootstrap.
+  - A push to main that changes release-contract.env builds a Platform image and dispatches an ordinary staging deploy; without the gate it would migrate the empty PostgreSQL database before the bootstrap (which refuses a non-empty database) or, merged before the freeze, cut over without the gate.
+  - The bootstrap runbook and plan step 2 expect a deploy after the bootstrap; the gate lets it pass once bootstrap-complete.env exists.
+  - No cutover step had been recorded on staging when this branch was cut (recent staging runs were plain deploys).
+derived:
+  - The flip's own merge-dispatched deploy fails closed at the gate by design; the operator deploys after the bootstrap.
+unknown:
+  - Whether more than one postgres deploy before step 4 moves last-good-release.env to a postgres image (rollback.sh then refuses the engine); keep platform-input merges out of the steps 2-3 window.
+conflicts: []
+first_failure:
+  marker: none
+  evidence: none
+rejected_hypotheses:
+  - Refusing every postgres deploy until native re-enable; rejected because plan step 2 deploys after the bootstrap.
+changed_paths:
+  - deploy/synology/release-contract.env
+  - deploy/synology/scripts/lib.sh
+  - deploy/synology/scripts/deploy.sh
+  - deploy/synology/scripts/deploy-impact.sh
+  - deploy/synology/README.md
+  - tests/ci/test_synology_postgres_contract.py
+  - docs/agents/tasks/active/OTERYN-20261013-platform-engine-flip.md
+validation:
+  - command: python3 tests/ci/test_synology_postgres_contract.py
+    result: PASS
+    evidence: 67 tests OK, including CutoverDeployWindowTest
+  - command: python3 tests/ci/test_synology_cutover_postgres.py
+    result: PASS
+    evidence: 60 tests OK
+  - command: Synology contract suites (rollback, rollback recovery, deploy release identity, auto staging deploy, gateway build inputs, package routing, fresh baseline, platform mTLS, compose runtime, marketplace legacy state, native admission gate and trust publication, native route publication)
+    result: PASS
+    evidence: all modules OK locally
+  - command: bash -n and shellcheck -x on lib.sh, deploy.sh, deploy-impact.sh
+    result: PASS
+    evidence: no new shellcheck findings against main
+blockers:
+  - none
+next_action: Open the PR; CP posts the Codex review; merge only after the cutover freeze is recorded.
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: pending
+source_branch_reason: task is still active
+source_branch_evidence: pending
+```
+
+## Notes
+
+- Merge timing: after `cutover-postgres.sh freeze` is recorded and before `bootstrap`. Merged earlier, preflight and freeze refuse and the merge-dispatched deploy fails at the gate; the fix is a revert.
+- Rollback before step 4: a reviewed revert PR of the release-contract line to `mariadb`, then `cutover-postgres.sh rollback`. Its merge-dispatched deploy fails at the gate (freeze recorded, rollback not verified) by design.
+- The ADR 0044 Amendment P4 sentence saying deploy.sh refuses the postgres engine is stale since P4b; it is left for the owner's acceptance of the amendment.

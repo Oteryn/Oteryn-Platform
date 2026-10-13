@@ -74,7 +74,7 @@ load_oteryn_env_file() {
 
 # Platform database engine (ADR 0046, docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md P4). The single
 # switch is PLATFORM_DB_ENGINE in the committed deploy/synology/release-contract.env, read as data and never
-# sourced; absent means mariadb. P4 runs the postgres service idle beside MariaDB; only P6 flips the switch.
+# sourced; absent means mariadb. P4 ran the postgres service idle beside MariaDB; P6 cutover step 2 commits postgres.
 oteryn_platform_db_engine() {
     local file value
     file="${OTERYN_RELEASE_CONTRACT_FILE:-$(dirname "${BASH_SOURCE[0]}")/../release-contract.env}"
@@ -130,6 +130,60 @@ oteryn_require_postgres_secrets_for_engine() {
         echo "PLATFORM_DB_ENGINE=postgres requires all five PostgreSQL secrets." >&2
         return 1
     fi
+}
+
+# Cutover deploy window (ADR 0046, plan P6, scripts/cutover-postgres.sh). An ordinary deploy must not touch the
+# stack while the cutover owns it. Refuses (returns 1), read-only and before any stack change:
+#   - the mariadb engine from the recorded freeze until a verified rollback: it would restart the frozen stack
+#     (the cutover rollback itself runs rollback.sh, which this gate leaves alone);
+#   - the postgres engine before the clean-slate bootstrap finished (no regular bootstrap-complete.env): a
+#     merge-triggered deploy would migrate the empty database, which the bootstrap then refuses, or cut the
+#     stack over without the freeze. The deploy after the bootstrap (plan step 2) and every later one pass;
+#   - the postgres engine once a cutover rollback started;
+#   - the postgres engine after retire-mariadb while the compose file still defines the mariadb service: it
+#     would recreate the retired service.
+# The paths follow cutover-postgres.sh (OTERYN_STATE_DIR, OTERYN_CUTOVER_STATE_DIR, OTERYN_PG_BOOTSTRAP_STATE_DIR).
+# Usage: oteryn_require_cutover_deploy_window <compose file>
+oteryn_require_cutover_deploy_window() {
+    local compose_file="$1" root state_file complete_file
+    root="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
+    state_file="${OTERYN_CUTOVER_STATE_DIR:-$root/postgres-cutover}/cutover-state.env"
+    complete_file="${OTERYN_PG_BOOTSTRAP_STATE_DIR:-$root/postgres-bootstrap}/bootstrap-complete.env"
+    if [[ -L "$state_file" ]] || [[ -e "$state_file" && ! -f "$state_file" ]]; then
+        echo "Deploy refused: the cutover state $state_file is not a regular file." >&2
+        return 1
+    fi
+    case "${OTERYN_PLATFORM_DB_ENGINE:-}" in
+        mariadb)
+            if _oteryn_cutover_step_recorded "$state_file" FREEZE \
+                && ! _oteryn_cutover_step_recorded "$state_file" ROLLBACK_VERIFIED; then
+                echo "Deploy refused: the PostgreSQL cutover froze the stack and no verified rollback is recorded; continue the cutover or finish its rollback first." >&2
+                return 1
+            fi
+            ;;
+        postgres)
+            if [[ ! -f "$complete_file" || -L "$complete_file" ]]; then
+                echo "Deploy refused: PLATFORM_DB_ENGINE=postgres but the PostgreSQL bootstrap is not complete ($complete_file); run the cutover (preflight, freeze, bootstrap) first." >&2
+                return 1
+            fi
+            if _oteryn_cutover_step_recorded "$state_file" ROLLBACK_STARTED; then
+                echo "Deploy refused: a cutover rollback to MariaDB was started; it ends only through cutover-postgres.sh rollback." >&2
+                return 1
+            fi
+            if _oteryn_cutover_step_recorded "$state_file" MARIADB_RETIRED && grep -q '^  mariadb:' "$compose_file"; then
+                echo "Deploy refused: MariaDB is retired but the compose file still defines the mariadb service; land P7b first." >&2
+                return 1
+            fi
+            ;;
+        *)
+            echo "Deploy refused: the Platform database engine is not resolved." >&2
+            return 1
+            ;;
+    esac
+}
+
+_oteryn_cutover_step_recorded() {
+    [[ -f "$1" ]] && grep -q "^STEP_$2=" "$1"
 }
 
 # PostgreSQL branches of the deploy, baseline, recovery and Marketplace scripts (plan P4 work 4 and 5). The

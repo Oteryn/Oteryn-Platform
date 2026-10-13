@@ -65,6 +65,9 @@ if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres ]]; then
         exit 1
     fi
 fi
+# The PostgreSQL cutover owns the stack from its freeze until native re-enable or a verified rollback, and a
+# postgres deploy needs the completed clean-slate bootstrap (lib.sh oteryn_require_cutover_deploy_window).
+oteryn_require_cutover_deploy_window "$COMPOSE_FILE" || exit 1
 
 if [[ ! "$APP_KEY" =~ ^base64:[A-Za-z0-9+/=]+$ ]]; then
     echo "APP_KEY must be a Laravel base64 application key." >&2

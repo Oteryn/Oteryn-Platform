@@ -695,9 +695,10 @@ class TlsInitTest(unittest.TestCase):
 
 
 class EngineSwitchTest(unittest.TestCase):
-    def test_committed_engine_is_mariadb(self) -> None:
+    def test_committed_engine_is_postgres(self) -> None:
+        # Plan P6 cutover step 2 (scripts/cutover-postgres.sh): the reviewed flip, merged after the freeze.
         lines = [line for line in CONTRACT.read_text().splitlines() if line.startswith("PLATFORM_DB_ENGINE=")]
-        self.assertEqual(lines, ["PLATFORM_DB_ENGINE=mariadb"])
+        self.assertEqual(lines, ["PLATFORM_DB_ENGINE=postgres"])
 
     def test_engine_is_read_as_data_with_a_mariadb_default(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -781,6 +782,7 @@ class DeployWiringTest(unittest.TestCase):
             'postgres_secret_state="$(oteryn_postgres_secret_state)" || exit 1',
             'echo "PLATFORM_DB_ENGINE=postgres requires all five PostgreSQL secrets." >&2',
             'if [[ "$PLATFORM_DB_NAME" != oteryn_platform ]]; then',
+            'oteryn_require_cutover_deploy_window "$COMPOSE_FILE" || exit 1',
         ):
             self.assertLess(self.deploy.index(gate), first_compose, gate)
         self.assertNotIn('if [[ "$OTERYN_PLATFORM_DB_ENGINE" != mariadb ]]; then', self.deploy)
@@ -845,6 +847,103 @@ class DeployWiringTest(unittest.TestCase):
         self.assertIn('=~ ^[A-Za-z0-9_.-]{24,}$', workflow)
         self.assertLess(workflow.index("postgres_configured != 0"), workflow.index("cat > deploy/synology/.env"))
 
+
+
+class CutoverDeployWindowTest(unittest.TestCase):
+    """Plan P6: an ordinary deploy stays off the stack while cutover-postgres.sh owns it."""
+
+    GATE = 'oteryn_require_cutover_deploy_window "$COMPOSE_FILE" || exit 1'
+
+    def gate(self, td: Path, engine: str, steps: tuple[str, ...] = (), bootstrapped: bool = False,
+             compose: str = "services:\n  platform:\n    image: x\n") -> subprocess.CompletedProcess[str]:
+        state = td / "state"
+        (state / "postgres-cutover").mkdir(parents=True, exist_ok=True)
+        (state / "postgres-bootstrap").mkdir(parents=True, exist_ok=True)
+        if steps:
+            (state / "postgres-cutover/cutover-state.env").write_text(
+                "TASK_ID=OTERYN-20261013-test\n" + "".join(f"STEP_{step}=2026-10-13T00:00:00Z\n" for step in steps)
+            )
+        if bootstrapped:
+            (state / "postgres-bootstrap/bootstrap-complete.env").write_text("BOOTSTRAPPED_AT=2026-10-13T00:00:00Z\n")
+        compose_file = td / "compose.yml"
+        compose_file.write_text(compose)
+        return subprocess.run(
+            ["bash", "-c", f'source "$1"; OTERYN_PLATFORM_DB_ENGINE={engine}; oteryn_require_cutover_deploy_window "$2"',
+             "bash", str(LIB), str(compose_file)],
+            text=True, capture_output=True, check=False,
+            env={"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/tmp"), "OTERYN_STATE_DIR": str(state)},
+        )
+
+    def assert_gate(self, expected_ok: bool, engine: str, steps: tuple[str, ...] = (), bootstrapped: bool = False,
+                    compose: str | None = None, needle: str = "") -> None:
+        with tempfile.TemporaryDirectory() as td:
+            kwargs = {"compose": compose} if compose is not None else {}
+            result = self.gate(Path(td), engine, steps, bootstrapped, **kwargs)
+        label = f"{engine} {steps} bootstrapped={bootstrapped}"
+        self.assertEqual(result.returncode == 0, expected_ok, f"{label}: {result.stderr}")
+        self.assertIn(needle, result.stderr, label)
+
+    def test_mariadb_deploys_until_the_freeze_and_after_a_verified_rollback(self) -> None:
+        self.assert_gate(True, "mariadb")
+        self.assert_gate(True, "mariadb", ("PREFLIGHT",))
+        for steps in (("PREFLIGHT", "FREEZE"), ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "SMOKE", "ROLLBACK_STARTED"),
+                      ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "SMOKE", "REENABLE_STARTED")):
+            self.assert_gate(False, "mariadb", steps, True, needle="froze the stack")
+        self.assert_gate(True, "mariadb", ("PREFLIGHT", "FREEZE", "ROLLBACK_STARTED", "ROLLBACK_VERIFIED"))
+
+    def test_postgres_deploys_only_after_the_bootstrap(self) -> None:
+        # Merged before the freeze, or the merge-triggered deploy right after it: no bootstrap yet.
+        self.assert_gate(False, "postgres", needle="bootstrap is not complete")
+        self.assert_gate(False, "postgres", ("PREFLIGHT", "FREEZE"), needle="bootstrap is not complete")
+        # The deploy after the bootstrap (plan step 2), the step 4 deploy and every deploy after the cutover.
+        for steps in (("PREFLIGHT", "FREEZE"), ("PREFLIGHT", "FREEZE", "BOOTSTRAP"),
+                      ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "SMOKE", "REENABLE_STARTED", "NATIVE_SMOKE", "DECLARED_DONE")):
+            self.assert_gate(True, "postgres", steps, True)
+        # A started rollback ends only through the cutover; a verified one moved the bootstrap state aside.
+        self.assert_gate(False, "postgres", ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "ROLLBACK_STARTED"), True,
+                         needle="rollback to MariaDB was started")
+        self.assert_gate(False, "postgres", ("PREFLIGHT", "FREEZE", "ROLLBACK_STARTED", "ROLLBACK_VERIFIED"),
+                         needle="bootstrap is not complete")
+
+    def test_postgres_after_retire_mariadb_needs_the_compose_without_mariadb(self) -> None:
+        retired = ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "SMOKE", "REENABLE_STARTED", "NATIVE_SMOKE", "DECLARED_DONE",
+                   "RETIRE_STARTED", "MARIADB_RETIRED")
+        with_mariadb = "services:\n  mariadb:\n    image: mariadb\n  platform:\n    image: x\n"
+        self.assert_gate(False, "postgres", retired, True, with_mariadb, needle="land P7b first")
+        self.assert_gate(True, "postgres", retired, True)
+        self.assert_gate(True, "postgres", retired, True, COMPOSE.read_text().replace("\n  mariadb:\n", "\n  retired:\n"))
+        if "\n  mariadb:\n" in COMPOSE.read_text():
+            self.assert_gate(False, "postgres", retired, True, COMPOSE.read_text(), needle="land P7b first")
+
+    def test_links_and_unresolved_engines_are_refused(self) -> None:
+        self.assert_gate(False, "", needle="engine is not resolved")
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            self.gate(base, "postgres", ("PREFLIGHT",), True)
+            complete = base / "state/postgres-bootstrap/bootstrap-complete.env"
+            target = base / "elsewhere.env"
+            complete.rename(target)
+            complete.symlink_to(target)
+            self.assertNotEqual(self.gate(base, "postgres").returncode, 0)
+            state = base / "state/postgres-cutover/cutover-state.env"
+            state.rename(base / "state.env")
+            state.symlink_to(base / "state.env")
+            complete.unlink()
+            target.rename(complete)
+            result = self.gate(base, "postgres")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("not a regular file", result.stderr)
+
+    def test_deploy_and_impact_call_the_gate_before_any_stack_change(self) -> None:
+        for path in (DEPLOY, SCRIPTS / "deploy-impact.sh"):
+            text = path.read_text()
+            self.assertEqual(text.count(self.GATE), 1, path.name)
+            self.assertLess(text.index(self.GATE), text.index('compose=(docker compose --env-file "$ENV_FILE"'), path.name)
+            self.assertLess(text.index("load_oteryn_env_file"), text.index(self.GATE), path.name)
+
+    def test_the_cutover_rollback_path_is_not_gated(self) -> None:
+        for name in ("rollback.sh", "health-check.sh", "cutover-postgres.sh", "bootstrap-postgres.sh"):
+            self.assertNotIn("oteryn_require_cutover_deploy_window", (SCRIPTS / name).read_text(), name)
 
 
 def fake_docker_env(td: Path) -> tuple[dict[str, str], Path]:

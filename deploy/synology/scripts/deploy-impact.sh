@@ -84,6 +84,10 @@ done
 [[ "$GAME_WORLD_REGION" =~ ^[A-Za-z0-9_-]{1,32}$ ]] || { echo "GAME_WORLD_REGION must be a simple bounded label." >&2; exit 1; }
 (( ${#GAME_WORLD_NAME} >= 1 && ${#GAME_WORLD_NAME} <= 100 )) || { echo "GAME_WORLD_NAME must contain 1..100 characters." >&2; exit 1; }
 
+# Before the reconcile fast path can recreate anything: the PostgreSQL cutover owns the stack from its freeze,
+# and a postgres deploy needs the completed bootstrap (lib.sh oteryn_require_cutover_deploy_window).
+oteryn_require_cutover_deploy_window "$COMPOSE_FILE" || exit 1
+
 compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 state_dir="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
 mkdir -p "$state_dir"
