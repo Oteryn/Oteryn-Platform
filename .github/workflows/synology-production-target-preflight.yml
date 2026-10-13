@@ -77,7 +77,7 @@ jobs:
               'shell tracing': 'set -x',
               'full container environment inspection': '.Config.Env',
               'environment-file output': 'cat deploy/synology/.env',
-              'persistent database dump path': 'mariadb-dump >',
+              'persistent database dump path': 'pg_dump >',
           }
           failures = [label for label, marker in forbidden.items() if marker in script]
           if failures:

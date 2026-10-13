@@ -82,6 +82,45 @@ class VolumeGuardTest(unittest.TestCase):
             for volume in ("mariadb_data", "postgres_data", "platform_storage"):
                 self.assertNotIn(volume, text, f"{name} names {volume}")
 
+    @staticmethod
+    def compose_services() -> set[str]:
+        services: set[str] = set()
+        for source in sorted(SYNOLOGY.glob("compose*.yml")):
+            block = re.search(r"^services:\n(.*?)(?=^\S|\Z)", source.read_text(), re.MULTILINE | re.DOTALL)
+            if block:
+                services |= set(re.findall(r"^  ([A-Za-z0-9][A-Za-z0-9_-]*):$", block.group(1), re.MULTILINE))
+        return services
+
+    def test_hygiene_and_orphan_service_lists_follow_the_postgres_only_compose(self) -> None:
+        # Plan P7: the retired mariadb service is gone from compose.yml; a runtime service list that still names it
+        # fails the hygiene static validation and the live inventory (validate_canonical_runtime).
+        services = self.compose_services()
+        self.assertIn("postgres", services)
+        self.assertNotIn("mariadb", services)
+        for name, variable in (("synology-container-hygiene.yml", "runtime_services"),
+                               ("repair-synology-compose-orphans.yml", "services")):
+            text = (WORKFLOWS / name).read_text()
+            listed = re.search(rf"^\s*{variable}=\(([^)]*)\)\s*$", text, re.MULTILINE)
+            self.assertIsNotNone(listed, name)
+            names = set(listed.group(1).split())
+            self.assertNotIn("mariadb", names, name)
+            self.assertIn("postgres", names, name)
+            self.assertLessEqual(names, services, name)
+
+    def test_the_hygiene_static_validation_passes(self) -> None:
+        # Runs the workflow's own pull-request validator, as the static-validation job does.
+        text = (WORKFLOWS / "synology-container-hygiene.yml").read_text()
+        step = text.split("- name: Validate retained fail-closed hygiene contract", 1)[1]
+        body = re.search(r"python3 - <<'PY'\n(.*?)\n\s*PY\n", step, re.DOTALL)
+        self.assertIsNotNone(body)
+        script = "\n".join(line[10:] for line in body.group(1).splitlines())
+        result = subprocess.run(["python3", "-c", script], cwd=ROOT, text=True, capture_output=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+
+    def test_the_production_preflight_forbids_a_persistent_pg_dump(self) -> None:
+        text = (WORKFLOWS / "synology-production-target-preflight.yml").read_text()
+        self.assertIn("'persistent database dump path': 'pg_dump >'", text)
+
     def test_staging_workflows_and_deploy_scripts_never_remove_a_volume(self) -> None:
         sources = [
             WORKFLOWS / name
