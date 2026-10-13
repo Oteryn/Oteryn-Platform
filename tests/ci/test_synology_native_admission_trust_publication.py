@@ -89,7 +89,11 @@ def test_marketplace_scheduler_shares_the_platform_witness() -> None:
 
 def test_command_is_restricted_to_testing_or_preproduction_and_prints_one_json_line() -> None:
     source = COMMAND.read_text(encoding="utf-8")
-    assert "protected $signature = 'game-auth:native-admission:publish-trust';" in source
+    assert (
+        "protected $signature = 'game-auth:native-admission:publish-trust\n"
+        "        {--first-publication-fence= : base64url JSON {run_id, intent_sha256} "
+        "naming the open attempt intent (PostgreSQL P6a)}';"
+    ) in source
     assert "app()->environment(['testing', 'preproduction'])" in source
     assert "'production'" not in source
     assert "$this->line((string) json_encode($published, JSON_UNESCAPED_SLASHES));" in source
