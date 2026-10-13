@@ -57,8 +57,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-13T22:00:00Z
-head: 8ef4f1d4648ca0f39abd5fe6950d0fafa265469c
+updated_at: 2026-10-13T23:30:00Z
+head: 368afb010e6aa96e22059725ba6d76a87fe5c020
 branch: claude/platform-engine-flip-20261013
 pr: 1598
 status: validating
@@ -85,6 +85,7 @@ proven:
   - Review fix (Codex P1, the state model): the state validator replays the record against a step model derived from the cutover-postgres.sh step guards (lib.sh _oteryn_cutover_step_allowed): TASK_ID first, each marker allowed for the markers before it, nondecreasing UTC times, and exactly the keys its step records. Contradictory histories (re-enable with a started or verified rollback, a rollback after re-enable), markers before their prerequisites and once-only steps recorded twice are refused. The tests carry an independent Python model of the same guards and check the bash validator on every one of the 118 reachable histories (repeatable steps up to twice), all 4095 step-ordered marker sets, and every single drop and adjacent swap; they also check the gate decision on every reachable history for both engines. The validator still accepts all 47 state files the cutover test harness produces.
   - Review fix (Codex P1, the release records): in the rollback window the current and pending candidate release records count only after release-state.sh validate (the check rollback.sh applies) accepts them; a link, a read error or an invalid record is refused before any stack change.
   - Review fix (Codex P2): before any record is read, an existing cutover or bootstrap state directory must be owner-only (owned by the caller, not group- or world-writable), the rule bootstrap-postgres.sh state_dir_is_trusted applies; the deploy and the cutover run as the same workflow user.
+  - Review fix (Codex P1): the freeze stops the stack, then record-witness writes postgres-bootstrap/witness-freeze.env, then STEP_FREEZE is recorded; a freeze that exits in between removes run.lock on exit, so on mariadb the gate also refuses while witness-freeze.env, witness-moved-aside.env or bootstrap-complete.env exists in any form (valid, empty, garbage, unreadable, link, directory) or its absence cannot be proven, until the verified rollback moves the bootstrap state aside. The test fails against the previous gate on every witness case.
   - No cutover step had been recorded on staging when this branch was cut (recent staging runs were plain deploys).
 derived:
   - The flip's own merge-dispatched deploy fails closed at the gate by design; the operator deploys after the bootstrap.
@@ -107,7 +108,7 @@ changed_paths:
 validation:
   - command: python3 tests/ci/test_synology_postgres_contract.py
     result: PASS
-    evidence: 84 tests OK (2 skipped as root; the gate tests also pass as a non-root user), including CutoverDeployWindowTest; the new refusal tests fail against the previous gate
+    evidence: 85 tests OK (2 skipped as root; the gate tests also pass as a non-root user), including CutoverDeployWindowTest; the new refusal tests fail against the previous gate
   - command: python3 tests/ci/test_synology_cutover_postgres.py
     result: PASS
     evidence: 60 tests OK
