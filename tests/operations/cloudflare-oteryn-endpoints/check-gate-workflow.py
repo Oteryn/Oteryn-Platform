@@ -94,11 +94,11 @@ for needle in ('/oteryn-cloudflare-endpoints maintenance', 'mode: maintenance'):
     if needle in ENDPOINTS or needle in MAIN_OP:
         fail(f'marker/comment surface carries gate mode: {needle}')
 
-# actions: read only on manage and guard jobs.
+# actions: read (read-only) only on manage, edge-probe and guard jobs.
 for prefix, table in (('e', ejobs), ('m', mjobs)):
     for name, job in table.items():
         has = 'actions: read' in job
-        allowed = name == 'manage' or name.endswith('guard')
+        allowed = name in ('manage', 'edge-probe') or name.endswith('guard')
         if has != allowed:
             fail(f'{prefix}:{name} actions: read must be {allowed}')
 if re.search(r'(?m)^permissions:\n  contents: read\n', ENDPOINTS) is None:
