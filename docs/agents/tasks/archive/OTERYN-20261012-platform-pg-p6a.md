@@ -38,14 +38,13 @@ It designs no missing-profile repair. This task is documentation only.
 - [x] Classification and a proof of soundness for `failed-after-witness`, with its assumptions and limits.
 - [x] The negative test "a restore never synthesizes a profile", fully specified.
 - [x] Exact files and tests; questions for the producer-contract owner and the owner; no repair.
-- [ ] Exact-head CI passes, the complete Codex review is addressed and no thread is unresolved (pending at push; the lead verifies before merge).
+- [x] Exact-head CI passes, the complete Codex review is addressed and no thread is unresolved: PR #1589 (final reviewed head de943945a0) merged as squash commit fd95d96; the last Codex review on de943945a0 found no major issues. The owner accepted the residual risks on 2026-10-12.
 
 ## Ownership
 
 ```yaml
 owned_paths:
   - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
-  - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p6a.md
   - docs/agents/tasks/archive/OTERYN-20261012-platform-pg-p6a.md
   - docs/agents/tasks/active/OTERYN-20261012-pg-p6-design-notes.md
 modules:
@@ -63,18 +62,17 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-12T23:59:30Z
+updated_at: 2026-10-13T00:30:00Z
 head: branch head of claude/platform-pg-p6a-20261012 (the PR's head)
 branch: claude/platform-pg-p6a-20261012
 pr: 1589
-status: validating
+status: completed
 terminal_pr_policy: archive_pending
 context_routes:
   - operations
   - database
 owned_paths:
   - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
-  - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p6a.md
   - docs/agents/tasks/archive/OTERYN-20261012-platform-pg-p6a.md
   - docs/agents/tasks/active/OTERYN-20261012-pg-p6-design-notes.md
 proven:
@@ -116,7 +114,7 @@ rejected_hypotheses:
   - Redesigning for each further edge case. The owner accepted the residual risks on 2026-10-12; the note lists them under *Accepted residual risks*, including a witness volume replaced after the fence's last marker and inode check (Codex P1, round 10).
 changed_paths:
   - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
-  - docs/agents/tasks/active/OTERYN-20261012-platform-pg-p6a.md
+  - docs/agents/tasks/archive/OTERYN-20261012-platform-pg-p6a.md
   - docs/agents/tasks/active/OTERYN-20261012-pg-p6-design-notes.md
 validation:
   - command: python3 tools/validation/legacy_token_ratchet.py; python3 tools/agents/checkpoint.py --tasks docs/agents/tasks/active --require-checkpoint; python3 tools/agents/documentation_ia.py
@@ -127,7 +125,7 @@ validation:
     evidence: local run before push
 blockers:
   - none
-next_action: archive this record in the P6 cutover packet once the owner has accepted the P6a note; the source-branch closeout evidence is filled there when the branch deletion is verified
+next_action: none; the design note merged in PR #1589 (squash commit fd95d96). The implementation continues in OTERYN-20261013-platform-pg-p6a-impl.
 ```
 
 ## Source branch closeout
@@ -135,5 +133,5 @@ next_action: archive this record in the P6 cutover packet once the owner has acc
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository docs PR
-source_branch_evidence: pending merge; verify the source ref disappears after merge
+source_branch_evidence: PR #1589 merged as squash commit fd95d96 from claude/platform-pg-p6a-20261012; git ls-remote --heads origin claude/platform-pg-p6a-20261012 returns nothing (verified 2026-10-13)
 ```
