@@ -103,6 +103,10 @@ if args[:1] == ["compose"]:
             key = next((a.split("=", 1)[1] for a in rest if a.startswith("--key-id=")), None)
             phase = state["phase"] if state["phase"] == "native" else ("post" if state["init_done"] else "pre")
             state["observe_calls"] += 1
+            if state.get("observe_fail_at") == state["observe_calls"]:
+                save()
+                print("Killed")
+                sys.exit(137)
             obs = state["observations"][phase]
             if phase == "native" and state["native_queue"]:
                 obs = state["native_queue"].pop(0)
@@ -715,6 +719,136 @@ class CloseInitTest(HookHarness):
         self.assertEqual(self.all_records(), before)
 
 
+    def bot_posts(self):
+        return len([c for c in self.load_state()["comments"] if c["user"] == BOT])
+
+    def test_run_open_only_resumes_the_whole_begin(self):
+        # The probe is posted, the run-open anchor post fails: the runner stopped after run-open.
+        self.update_state(post_limit=1)
+        proc = self.run_hook("provenance-init", "init", TASK, CLOSE_RUN)
+        self.assertNotEqual(proc.returncode, 0)
+        records = self.run_records()
+        self.assertEqual([r["type"] for r in records], ["run-open"])
+        self.update_state(post_limit=None)
+        proc = self.run_hook("provenance-init", "close-init", TASK, CLOSE_RUN, records[0]["run_id"])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = self.outputs(proc)
+        self.assertEqual((out["close_init_result"], out["provenance_init_result"], out["witness_store_id"]),
+                         ("resumed-begin", "created", S1))
+        self.assertEqual([r["type"] for r in self.run_records()],
+                         ["run-open", "init-intent", "anchored", "init", "attempt-intent", "anchored"])
+        self.assertEqual(self.load_state()["init_calls"], 1)
+        self.assert_verified()
+        self.assert_no_secret(proc)
+        self.assert_open_attempt()
+
+    def test_run_open_only_retakes_a_refused_open_decision(self):
+        # A refused open whose begin-refused line was lost with the runner: run-open is the only durable line.
+        self.state["observations"]["pre"] = observation(store=None, binding="none", floor=1, lsn=0x1000)
+        self.state["post_limit"] = 2
+        self.save_state()
+        proc = self.run_hook("provenance-init", "init", TASK, CLOSE_RUN)
+        self.assertNotEqual(proc.returncode, 0)
+        path = next(self.evidence.glob("*.jsonl"))
+        lines = path.read_text().splitlines()
+        self.assertEqual([json.loads(l)["type"] for l in lines], ["run-open", "begin-refused"])
+        path.write_text(lines[0] + "\n")
+        self.update_state(post_limit=None)
+        proc = self.run_hook("provenance-init", "close-init", TASK, CLOSE_RUN, json.loads(lines[0])["run_id"])
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("precondition:floor", proc.stderr)
+        records = self.run_records()
+        self.assertEqual([r["type"] for r in records], ["run-open", "begin-refused"])
+        self.assertEqual(records[1]["observation"], records[0]["pre_init"])
+        self.assertEqual(self.load_state()["init_calls"], 0)
+        self.assert_verified()
+
+    def test_init_without_attempt_intent_is_resumed_and_native_smoke_waits_for_it(self):
+        # pre, post-D1, then the intent observation dies: init is durable, the attempt intent is not.
+        self.update_state(observe_fail_at=3)
+        proc = self.run_hook("provenance-init", "init", TASK, CLOSE_RUN)
+        self.assertNotEqual(proc.returncode, 0)
+        records = self.run_records()
+        run = records[0]["run_id"]
+        self.assertEqual([r["type"] for r in records], ["run-open", "init-intent", "anchored", "init"])
+        self.update_state(observe_fail_at=None)
+        # The deploy cannot have an open attempt; native-smoke points to evidence-close-init and writes nothing.
+        self.write_env(native=True)
+        self.update_state(phase="native")
+        proc = self.run_hook("native-smoke")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn(f"run the evidence-close-init step for run {run}", proc.stderr)
+        self.assertEqual(self.run_records(), records)
+        # Native admission on: the begin is not resumed.
+        proc = self.run_hook("provenance-init", "close-init", TASK, CLOSE_RUN, run)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("native admission is on", proc.stderr)
+        self.assertEqual(self.run_records(), records)
+        self.write_env(native=False)
+        self.update_state(phase="cutover")
+        proc = self.run_hook("provenance-init", "close-init", TASK, CLOSE_RUN, run)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = self.outputs(proc)
+        self.assertEqual((out["close_init_result"], out["witness_store_id"], out["attempt_run_id"]),
+                         ("resumed-attempt", S1, run))
+        self.assertEqual([r["type"] for r in self.run_records()],
+                         ["run-open", "init-intent", "anchored", "init", "attempt-intent", "anchored"])
+        self.assertEqual(self.load_state()["init_calls"], 1)
+        self.assert_verified()
+        self.assert_open_attempt()
+        # Then the deploy and native-smoke close the attempt as usual.
+        self.write_env(native=True)
+        self.update_state(phase="native")
+        proc = self.run_hook("native-smoke")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual([r["type"] for r in self.run_records()][-3:], ["attempt-observation", "self-check", "run-close"])
+
+    def test_unanchored_attempt_intent_gets_its_anchored_line(self):
+        self.update_state(post_limit=4)
+        proc = self.run_hook("provenance-init", "init", TASK, CLOSE_RUN)
+        self.assertNotEqual(proc.returncode, 0)
+        records = self.run_records()
+        run = records[0]["run_id"]
+        self.assertEqual(records[-1]["type"], "attempt-intent")
+        self.update_state(post_limit=None)
+        self.write_env(native=True)
+        self.update_state(phase="native")
+        proc = self.run_hook("native-smoke")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("has no anchored line; run the evidence-close-init step", proc.stderr)
+        self.assertEqual(self.run_records(), records)
+        proc = self.run_hook("provenance-init", "close-init", TASK, CLOSE_RUN, run)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.outputs(proc)["close_init_result"], "resumed-anchor")
+        self.assertEqual([r["type"] for r in self.run_records()][-2:], ["attempt-intent", "anchored"])
+        self.assert_verified()
+        self.assert_open_attempt()
+
+    def test_late_init_without_run_close_is_closed(self):
+        run, _ = self.leave_unfinished_init()
+        self.update_state(init_done=True, init_result={"result": "completed", "store_id": S1, "entries": 0},
+                          post_limit=self.bot_posts())
+        proc = self.run_hook("provenance-init", "close-init", TASK, CLOSE_RUN, run)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual([r["type"] for r in self.run_records()][-1], "init")
+        self.update_state(post_limit=None)
+        proc = self.run_hook("provenance-init", "close-init", TASK, CLOSE_RUN, run)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.outputs(proc)["close_init_result"], "init-late")
+        records = self.run_records()
+        self.assertEqual([r["type"] for r in records][-2:], ["init", "run-close"])
+        self.assertIs(records[-1]["done"], False)
+        self.assertEqual(self.load_state()["init_calls"], 2)
+        self.assert_verified()
+
+    def assert_open_attempt(self):
+        identity = json.dumps(self.load_state()["observations"]["post"]["database"]["identity"])
+        code, payload = self.tool("require-open-attempt", "--dir", str(self.evidence), "--store", S1, "--key-id", KID,
+                                  "--scope", json.dumps(SCOPE), "--identity", identity,
+                                  "--anchors", str(self.anchors_file()))
+        self.assertEqual(code, 0, payload)
+
+
 class WebSmokeTest(HookHarness):
     def test_passes_on_a_healthy_platform(self):
         proc = self.run_hook("web-smoke")
@@ -911,6 +1045,52 @@ class NativeSmokeTest(HookHarness):
         self.assertEqual(self.types()[-1], "attempt-observation")
         self.assertEqual(self.run_records()[-1]["classification"], "failed-before-witness")
         self.assert_verified()
+
+    def bot_posts(self):
+        return len([c for c in self.load_state()["comments"] if c["user"] == BOT])
+
+    def test_passing_self_check_without_run_close_is_closed_from_the_record(self):
+        # The observation anchor is posted, the self-check anchor post fails: the runner stopped after a
+        # durable passing self-check and before run-close.
+        self.update_state(post_limit=self.bot_posts() + 1)
+        proc = self.run_hook("native-smoke")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual(self.types()[-2:], ["attempt-observation", "self-check"])
+        self.assertIs(self.run_records()[-1]["passed"], True)
+        self.update_state(post_limit=None)
+        proc = self.run_hook("native-smoke")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.splitlines()[-1], "native_smoke_result=passed")
+        out = self.outputs(proc)
+        self.assertEqual((out["attempt_run_id"], out["attempt_result"], out["self_check"]), (self.run_id, "committed", "passed"))
+        records = self.run_records()
+        self.assertEqual([r["type"] for r in records][-3:], ["attempt-observation", "self-check", "run-close"])
+        self.assertIs(records[-1]["done"], True)
+        self.assertEqual(self.load_state()["self_check_calls"], 1)
+        self.assertEqual(self.classify()["directory"], "committed")
+        self.assert_verified()
+
+    def test_classified_observation_without_run_close_gets_its_run_close(self):
+        marker_only = json.loads(json.dumps(COMMITTED))
+        marker_only["store"]["binding"] = "marker_only"
+        self.update_state(observations=dict(self.load_state()["observations"], native=marker_only),
+                          post_limit=self.bot_posts() + 1)
+        proc = self.run_hook("native-smoke")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual(self.types()[-2:], ["attempt-observation", "run-close"])
+        # The run-close anchor post failed; drop that line to leave the runner's crash window.
+        path = next(f for f in self.evidence.glob("*.jsonl") if f.name.startswith(self.run_id))
+        path.write_text("\n".join(path.read_text().splitlines()[:-1]) + "\n")
+        self.assertEqual(self.types()[-1], "attempt-observation")
+        self.update_state(post_limit=None)
+        proc = self.run_hook("native-smoke")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("missing run-close (done: false) is now written", proc.stderr)
+        records = self.run_records()
+        self.assertEqual([r["type"] for r in records][-2:], ["attempt-observation", "run-close"])
+        self.assertEqual((records[-1]["done"], records[-1]["classification"]), (False, "unknown"))
+        self.assert_verified()
+        self.assertNotIn("native_smoke_result=passed", proc.stdout)
 
     def test_late_observe_command_closes_an_unclosed_attempt(self):
         proc = self.run_hook("provenance-init", "observe", TASK, CLOSE_RUN, self.run_id)

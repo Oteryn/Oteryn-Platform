@@ -27,6 +27,8 @@ ev_error() {
 #   pending <dir> <anchors-file>  prints the anchor of every run whose last line is not anchored (D3 retry)
 #   summary <dir>                 prints the runs, their unfinished init-intent and their attempts as JSON
 #   continuity <dir> <run> <obs>  exits 0 when the observation continues the run's committed attempt
+#   last-anchor <dir> <run>       prints {"anchor": ...} for the run's last line (to anchor a resumed intent)
+#   open-decision <dir> <anchors-file> <run>  prints open's {reason, observation} for a run-open-only run
 ev_state() {
     python3 -I - "$SCRIPTS_DIR/attempt_evidence.py" "$@" <<'PY'
 import importlib.util
@@ -53,6 +55,7 @@ elif cmd == "summary":
     for run in runs:
         recs = run.recs
         last = recs[-1] if recs else {}
+        init = ae.run_init(run) if recs else None
         intent_anchored = None
         if run.id in A.unfinished:
             i = max(n for n, r in enumerate(recs) if r["type"] == "init-intent")
@@ -65,10 +68,28 @@ elif cmd == "summary":
             "closed": last.get("type") == "run-close",
             "unfinished_init": run.id in A.unfinished,
             "init_intent_anchored": intent_anchored,
+            "init": None if init is None else {"store_id": init.get("store_id"), "late": init.get("late") is True},
+            "last_passed": last.get("passed") is True if last.get("type") == "self-check" else None,
             "attempts": [{"attempt": x["n"], "key_id": x["intent"].get("key_id"), "observed": x["obs"] is not None,
-                          "classification": x["cls"]} for x in A.attempts if x["run"] is run],
+                          "anchored": x["anchored"], "classification": x["cls"]}
+                         for x in A.attempts if x["run"] is run],
         })
     print(json.dumps(out, sort_keys=True))
+elif cmd == "open-decision":
+    # The decision `open` takes after it writes run-open (begin-refused or none), for a run whose runner died
+    # between the two lines: the same check on the same recorded pre-init observation.
+    import argparse
+    run = next((r for r in runs if r.id == sys.argv[5] and not r.errors and r.recs), None)
+    if run is None or len(run.recs) != 1 or run.recs[0]["type"] != "run-open":
+        sys.exit(1)
+    _, foreign = ae.load_runs(sys.argv[3])
+    reason = ae.decide_open(argparse.Namespace(anchors=sys.argv[4]), runs, foreign, run.recs[0]["pre_init"])
+    print(json.dumps({"reason": reason, "observation": run.recs[0]["pre_init"]}))
+elif cmd == "last-anchor":
+    run = next((r for r in runs if r.id == sys.argv[4] and not r.errors and r.recs), None)
+    if run is None:
+        sys.exit(1)
+    print(json.dumps({"anchor": ae.anchor_of(run.recs[-1], run.hashes[-1])}, sort_keys=True))
 elif cmd == "continuity":
     # A fresh observation against the run's committed attempt: the tool's own D5 recheck predicate (store
     # binding, D4 identity and WAL high-water over every recorded observation, fence, nothing in flight,
@@ -230,6 +251,10 @@ ev_step4_observe() {
     local run="$1" late="$2" key_id round cls
     key_id="$(ev_attempt_key_id "$run")"
     [[ "$key_id" =~ $EV_KID_PATTERN ]] || hook_fail "the open attempt of run $run names no well-formed key id."
+    # An intent without its anchored line was never open for the deploy (require-open-attempt refuses it);
+    # provenance-init.sh close-init (the evidence-close-init step) writes the missing line first.
+    [[ "$(jq -r --arg r "$run" '.runs[] | select(.run_id == $r) | .attempts | last | .anchored' "$HOOK_WORK/summary.json")" == true ]] \
+        || hook_fail "the attempt intent of run $run has no anchored line; run the evidence-close-init step for run $run first. Nothing was written."
     for ((round = 1; round <= EV_OBSERVE_ROUNDS; round++)); do
         ev_observe_any "$HOOK_WORK/o1.json" --key-id="$key_id" \
             || hook_fail "the trust observation printed no JSON; the attempt of run $run stays unobserved."
@@ -313,19 +338,41 @@ ev_require_continuity() {
 # passing self-check, nothing for an attempt already closed with done: true. Anything else stops. Sets
 # EV_ATTEMPT_RUN to the committed run; the caller confirms it with ev_require_continuity before it passes.
 ev_step4_after_deploy() {
-    local unobserved pending finished
+    local unobserved pending finished unclosed adoptable cls
     ev_verified_anchors "$HOOK_WORK/anchors.json"
     ev_summary
     unobserved="$(jq -r '[.runs[] | select(any(.attempts[]; .observed == false)) | .run_id] | join(" ")' "$HOOK_WORK/summary.json")"
     pending="$(jq -r '[.runs[] | select(any(.attempts[]; .classification == "committed") and (.closed | not)) | .run_id] | join(" ")' "$HOOK_WORK/summary.json")"
     finished="$(jq -r '[.runs[] | select(any(.attempts[]; .classification == "committed") and .done) | .run_id] | join(" ")' "$HOOK_WORK/summary.json")"
-    if [[ -n "$unobserved" ]]; then
+    # Crash window: an observation classified other than committed or failed-before-witness was written, but
+    # the runner died before its run-close with done: false.
+    unclosed="$(jq -r '[.runs[] | select((.closed | not) and (.attempts | length > 0)
+        and (.attempts | last | .observed and .classification != "committed" and .classification != "failed-before-witness"))
+        | .run_id] | join(" ")' "$HOOK_WORK/summary.json")"
+    # Crash window: an init was written, but the runner died before the attempt intent (or its anchored line).
+    adoptable="$(jq -r '[.runs[] | select((.closed | not) and .init != null and .init.late == false and (.attempts | length == 0)) | .run_id] | join(" ")' "$HOOK_WORK/summary.json")"
+    if [[ -n "$unclosed" ]]; then
+        [[ "$unclosed" != *" "* ]] || hook_fail "the evidence directory holds more than one unclosed classified attempt; the owner decides."
+        cls="$(jq -r --arg r "$unclosed" '.runs[] | select(.run_id == $r) | .attempts | last | .classification // "unknown"' "$HOOK_WORK/summary.json")"
+        printf 'attempt_run_id=%s\nattempt_classification=%s\n' "$unclosed" "$cls"
+        ev_close "$unclosed" false "$cls"
+        hook_fail "the attempt of run $unclosed is classified $cls; the missing run-close (done: false) is now written and the cutover stops for the owner."
+    elif [[ -n "$unobserved" ]]; then
         [[ "$unobserved" != *" "* && -z "$pending$finished" ]] || hook_fail "the evidence directory holds more than one open or committed attempt; the owner decides."
         ev_step4_observe "$unobserved" false
         EV_ATTEMPT_RUN="$unobserved"
     elif [[ -n "$pending" ]]; then
         [[ "$pending" != *" "* && -z "$finished" ]] || hook_fail "the evidence directory holds more than one committed attempt; the owner decides."
-        ev_step4_recheck "$pending"
+        if [[ "$(jq -r --arg r "$pending" '.runs[] | select(.run_id == $r) | .last_passed' "$HOOK_WORK/summary.json")" == true ]]; then
+            # Crash window: the passing self-check is durable and anchored, the run-close was never written. The
+            # tool refuses a second self-check after a passing one, so the run is closed from the record; the
+            # continuity check below still takes a fresh observation before native-smoke passes.
+            printf 'attempt_run_id=%s\nattempt_classification=committed\n' "$pending"
+            ev_close "$pending" true
+            printf 'attempt_result=committed\nself_check=passed\n'
+        else
+            ev_step4_recheck "$pending"
+        fi
         EV_ATTEMPT_RUN="$pending"
     elif [[ -n "$finished" && "$finished" != *" "* ]]; then
         # A rerun after the run was closed (for example a lost runner before NATIVE_SMOKE was recorded): the
@@ -333,6 +380,8 @@ ev_step4_after_deploy() {
         ev_require_continuity "$finished" "$HOOK_WORK/rerun.json"
         printf 'attempt_run_id=%s\nattempt_result=committed\n' "$finished"
         EV_ATTEMPT_RUN="$finished"
+    elif [[ -n "$adoptable" && "$adoptable" != *" "* ]]; then
+        hook_fail "run $adoptable holds an init but no anchored attempt intent (the runner stopped during native-reenable); run the evidence-close-init step for run $adoptable, which writes the intent, then the deploy. Nothing was written."
     else
         hook_fail "no attempt waits for its observation and none is committed; native-reenable (step 4) has not recorded an attempt. The owner decides."
     fi

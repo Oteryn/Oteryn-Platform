@@ -25,6 +25,9 @@
 # the workflow token posts anchors as the trusted author:
 #
 #   provenance-init.sh close-init <task_id> <close_run_id> <run_id>   D5 step4-begin --close-init --run <id>
+#       For a run without an unfinished init-intent it resumes a begin the runner left between two durable
+#       lines (run-open only, an init without its attempt intent, an intent without its anchored line); see
+#       resume_begin. Native admission must still be off for a resume that writes an intent.
 #   provenance-init.sh observe <task_id> <close_run_id> <run_id>      D5 step4-observe --run <id> (late: true)
 #
 # Inputs: the cutover step environment plus OTERYN_CUTOVER_ANCHOR_ISSUE (the locked anchor issue number),
@@ -109,10 +112,93 @@ refuse() {
     [[ "$(jq -r '.record.type' "$W/refused.json")" == begin-refused ]] || hook_fail "cannot write begin-refused; run $run_id."
 }
 
+# write_init_intent: init-intent after run-open, anchored with its anchored line.
+write_init_intent() {
+    ev "$W/init-intent.json" append init-intent --dir "$EVIDENCE_DIR" --run "$run_id" \
+        || hook_fail "cannot write init-intent ($(ev_error "$W/init-intent.json"))."
+    ev_append_anchored "$run_id" "$W/init-intent.json"
+}
+
+# write_attempt_intent <store_id>: observes with --key-id=K and writes attempt-intent 1, anchored with its
+# anchored line. The tool checks continuity and every precondition; a refusal is an anchored begin-refused.
+write_attempt_intent() {
+    hook_observe "$W/intent-obs.json" --key-id="$EV_KEY_ID"
+    jq -c --arg kid "$EV_KEY_ID" --arg sid "$1" --argjson count "$EV_KID_COUNT" \
+        '{observation: ., scope: .scope, key_id: $kid, store_id: $sid, kid_record_count: $count, anchor_issue_locked: true}' \
+        "$W/intent-obs.json" > "$W/intent-data.json"
+    local intent_status=0
+    ev "$W/intent.json" append attempt-intent --dir "$EVIDENCE_DIR" --run "$run_id" --data "@$W/intent-data.json" \
+        || intent_status=$?
+    [[ -n "$(jq -r '.record.type // empty' "$W/intent.json")" ]] \
+        || hook_fail "cannot write attempt-intent ($(ev_error "$W/intent.json")); run $run_id."
+    if ((intent_status != 0)); then
+        ev_anchor_lines "$W/intent.json"
+        hook_fail "the attempt intent was refused: $(jq -r '.reason // .error' "$W/intent.json") (run $run_id)."
+    fi
+    ev_append_anchored "$run_id" "$W/intent.json"
+}
+
 # probe: proves the job token can post to the anchor issue; the probe comment is not an anchor.
 probe() {
     hook_post_comment "$(jq -cn --arg ref "$task_id/close-$close_run_id" '{oteryn_cutover_preflight: $ref}')" >/dev/null \
         || hook_fail "cannot post to the anchor issue as $TRUSTED_ANCHOR_AUTHOR_LOGIN (issues: write); nothing was written."
+}
+
+# resume_begin <run-state>: the runner died between two durable lines of `init` outside the init-intent window
+# that D5 --close-init covers. The durable prefix is adopted and the begin goes on from the next line:
+#   run-open only        open's own decision is retaken on the recorded pre-init observation (a refusal is
+#                        written as begin-refused); then init-intent, D1, init and attempt-intent as in `init`.
+#   init (late: false)   attempt-intent 1, anchored.
+#   init (late: true)    the run-close with done: false of the init-late path.
+#   attempt-intent       its anchored line (the anchor comment is reused if it was posted).
+resume_begin() {
+    local state="$1" last init_late store decision
+    last="$(jq -r '.last_type' <<<"$state")"
+    init_late="$(jq -r 'if .init == null then "" else (.init.late | tostring) end' <<<"$state")"
+    store="$(jq -r '.init.store_id // empty' <<<"$state")"
+    if [[ "$last" == run-open || "$last:$init_late" == init:false ]]; then
+        # The begin runs before the deploy that turns native admission on, as in `init`.
+        [[ "$(hook_env_get OTERYN_NATIVE_ADMISSION_ENABLED)" != true ]] \
+            || hook_fail "native admission is on in the deployed environment; run $run_id cannot resume its begin. The owner decides."
+    fi
+    case "$last:$init_late" in
+        run-open:)
+            ev_state open-decision "$EVIDENCE_DIR" "$W/anchors.json" "$run_id" > "$W/open-decision.json" \
+                || hook_fail "cannot retake the open decision for run $run_id."
+            decision="$(jq -r '.reason // empty' "$W/open-decision.json")"
+            if [[ -n "$decision" ]]; then
+                jq -c '{reason, observation}' "$W/open-decision.json" > "$W/refused-data.json"
+                ev_append refused begin-refused "$run_id" --data "@$W/refused-data.json" || true
+                hook_fail "run $run_id: the open is refused ($decision); begin-refused is written. The owner decides."
+            fi
+            probe
+            write_init_intent
+            run_d1 "$W/post.json"
+            write_init false
+            store="$(jq -r '.record.store_id' "$W/init.json")"
+            write_attempt_intent "$store"
+            printf 'close_init_result=resumed-begin\nprovenance_init_result=%s\n' "$(jq -r '.result' "$W/init-result.json")"
+            ;;
+        init:false)
+            probe
+            write_attempt_intent "$store"
+            printf 'close_init_result=resumed-attempt\n'
+            ;;
+        init:true)
+            ev_close "$run_id" false
+            printf 'close_init_result=init-late\n'
+            ;;
+        attempt-intent:*)
+            ev_state last-anchor "$EVIDENCE_DIR" "$run_id" > "$W/intent.json" || hook_fail "cannot read run $run_id."
+            ev_append_anchored "$run_id" "$W/intent.json"
+            printf 'close_init_result=resumed-anchor\n'
+            ;;
+        *)
+            hook_fail "run $run_id holds no unfinished init-intent and no resumable begin (last line $last); nothing to resume."
+            ;;
+    esac
+    [[ -z "$store" ]] || printf 'witness_store_id=%s\n' "$store"
+    printf 'attempt_run_id=%s\n' "$run_id"
 }
 
 if [[ "$command" == preflight ]]; then
@@ -128,7 +214,11 @@ if [[ "$command" == close-init ]]; then
     ev_summary
     state="$(jq -c --arg r "$run_id" '.runs[] | select(.run_id == $r)' "$W/summary.json")"
     [[ -n "$state" ]] || hook_fail "run $run_id has no file in the evidence directory."
-    [[ "$(jq -r '.unfinished_init' <<<"$state")" == true ]] || hook_fail "run $run_id holds no unfinished init-intent."
+    [[ "$(jq -r '.closed' <<<"$state")" != true ]] || hook_fail "run $run_id is closed; nothing to resume."
+    if [[ "$(jq -r '.unfinished_init' <<<"$state")" != true ]]; then
+        resume_begin "$state"
+        exit 0
+    fi
     intent_anchored="$(jq -r '.init_intent_anchored' <<<"$state")"
     hook_observe "$W/first.json" --key-id="$EV_KEY_ID"
     binding="$(jq -r '.store.binding // empty' "$W/first.json")"
@@ -189,9 +279,7 @@ run_id="$(jq -r '.run_id // empty' "$W/open.json")"
 ev_anchor_lines "$W/open.json"
 ((open_status == 0)) || hook_fail "the run was refused before the init: $(jq -r '.reason // .error' "$W/open.json") (run $run_id)."
 
-ev "$W/init-intent.json" append init-intent --dir "$EVIDENCE_DIR" --run "$run_id" \
-    || hook_fail "cannot write init-intent ($(ev_error "$W/init-intent.json"))."
-ev_append_anchored "$run_id" "$W/init-intent.json"
+write_init_intent
 
 # --- 4. D1 init, observation, init record ----------------------------------------------------------
 run_d1 "$W/post.json"
@@ -200,20 +288,7 @@ init_result="$(jq -r '.result' "$W/init-result.json")"
 store_id="$(jq -r '.record.store_id' "$W/init.json")"
 
 # --- 5. attempt-intent 1 ----------------------------------------------------------------------------
-hook_observe "$W/intent-obs.json" --key-id="$EV_KEY_ID"
-jq -c --arg kid "$EV_KEY_ID" --arg sid "$store_id" --argjson count "$EV_KID_COUNT" \
-    '{observation: ., scope: .scope, key_id: $kid, store_id: $sid, kid_record_count: $count, anchor_issue_locked: true}' \
-    "$W/intent-obs.json" > "$W/intent-data.json"
-intent_status=0
-ev "$W/intent.json" append attempt-intent --dir "$EVIDENCE_DIR" --run "$run_id" --data "@$W/intent-data.json" \
-    || intent_status=$?
-[[ -n "$(jq -r '.record.type // empty' "$W/intent.json")" ]] \
-    || hook_fail "cannot write attempt-intent ($(ev_error "$W/intent.json")); run $run_id."
-if ((intent_status != 0)); then
-    ev_anchor_lines "$W/intent.json"
-    hook_fail "the attempt intent was refused: $(jq -r '.reason // .error' "$W/intent.json") (run $run_id)."
-fi
-ev_append_anchored "$run_id" "$W/intent.json"
+write_attempt_intent "$store_id"
 
 printf 'provenance_init_result=%s\n' "$init_result"
 printf 'witness_store_id=%s\n' "$store_id"
