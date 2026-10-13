@@ -81,7 +81,8 @@ final class ObserveNativeSigningTrust extends Command
             NativeEvidenceNamespace::trustState($issuer, $profile, $keyPurpose),
             function () use ($trust, $database, $issuer, $profile, $keyPurpose, $keyId): array {
                 return DB::transaction(function () use ($trust, $database, $issuer, $profile, $keyPurpose, $keyId): array {
-                    if ($database->supported()) {
+                    // Only the outermost transaction can be switched; a caller's wider transaction is left alone.
+                    if ($database->supported() && DB::transactionLevel() === 1) {
                         DB::statement('SET TRANSACTION READ ONLY');
                     }
 
