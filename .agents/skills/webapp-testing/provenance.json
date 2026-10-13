@@ -1,0 +1,39 @@
+{
+  "repository": "anthropics/skills",
+  "commit": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+  "files": [
+    {
+      "file": "references/upstream.md",
+      "source": "https://raw.githubusercontent.com/anthropics/skills/dbd4588f9e1033efb41dad4bef2f7947c8993d44/skills/webapp-testing/SKILL.md",
+      "sha256": "e0a7a625dd8e88ff1a7ab51aaeae3da902d82a5bc9dc668e4478fa594dda96be",
+      "source_sha256": "51b7349e77ec63b7744a6f63647e7566a0b4d2e301121cc10e8c2113af6556a2",
+      "adaptation": "Trailing whitespace normalized; wording unchanged."
+    },
+    {
+      "file": "LICENSE.txt",
+      "source": "https://raw.githubusercontent.com/anthropics/skills/dbd4588f9e1033efb41dad4bef2f7947c8993d44/skills/webapp-testing/LICENSE.txt",
+      "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362"
+    },
+    {
+      "file": "examples/console_logging.py",
+      "source": "https://raw.githubusercontent.com/anthropics/skills/dbd4588f9e1033efb41dad4bef2f7947c8993d44/skills/webapp-testing/examples/console_logging.py",
+      "sha256": "ea46877289acb82da7e7ce59d0bc37c8977cd57e2a006d0c88d7a1c625bf95da"
+    },
+    {
+      "file": "examples/element_discovery.py",
+      "source": "https://raw.githubusercontent.com/anthropics/skills/dbd4588f9e1033efb41dad4bef2f7947c8993d44/skills/webapp-testing/examples/element_discovery.py",
+      "sha256": "d63c89604a22f8845d724e95dda45db49b1bf57c25ce0a83afbb7b8da3d402f0"
+    },
+    {
+      "file": "examples/static_html_automation.py",
+      "source": "https://raw.githubusercontent.com/anthropics/skills/dbd4588f9e1033efb41dad4bef2f7947c8993d44/skills/webapp-testing/examples/static_html_automation.py",
+      "sha256": "9d533aafb875ee3ab8b8ebf8f5b9003ac8d999da3d09b285cce252e623140064"
+    }
+  ],
+  "excluded_upstream_files": [
+    {
+      "path": "skills/webapp-testing/scripts/with_server.py",
+      "reason": "Port probing does not prove ownership by the spawned process; reuse the repository test launcher instead of maintaining a fork."
+    }
+  ]
+}

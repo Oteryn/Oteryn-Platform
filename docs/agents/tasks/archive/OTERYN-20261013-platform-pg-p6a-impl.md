@@ -62,11 +62,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-13T00:30:00Z
+updated_at: 2026-10-13T18:00:31.204463Z
 head: UNKNOWN
 branch: claude/platform-p6a-tooling-20261013
 pr: 1591
-status: implementing
+status: completed
 context_routes:
   - operations
   - database
@@ -81,8 +81,7 @@ owned_paths:
 proven:
   - github-actions[bot] has user id 41898282 (issue comment 5358096189 on #1183, read through the GitHub API).
 derived: []
-unknown:
-  - CI result of the PHP tests (PHP runs only in CI for this task).
+unknown: []
 conflicts: []
 first_failure:
   marker: none
@@ -98,7 +97,7 @@ validation:
     evidence: local run of the existing and new Python tests
 blockers:
   - none
-next_action: finish the PHP and Python tool, open the PR, run the full Codex review, then merge.
+next_action: Terminal delivery is archived; no remaining implementation in this packet.
 ```
 
 ## Source branch closeout
@@ -106,5 +105,14 @@ next_action: finish the PHP and Python tool, open the PR, run the full Codex rev
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository implementation PR
-source_branch_evidence: pending merge; verify the source ref disappears after merge
+source_branch_evidence: PR 1591 merged at 2026-10-13T15:46:10Z; source ref readback returned 404 on 2026-10-13.
 ```
+
+## Verified terminal reconciliation
+
+Archived while repairing the pre-existing live-task failure in Agent Governance run 38442836688 for optional-skills PR #1603. Original implementation details remain historical evidence; this reconciliation changes no P6 runtime or deployment behavior.
+
+- PR #1591 is merged with commit `5bef05f369821899855c7d449113b87a822490d0` at `2026-10-13T15:46:10Z`.
+- Exact implementation head `aac3882320e3ac1bde0240f12b189721c2ea0b11` has successful `platform-gate`: run 38423257910, job 115388852193.
+- Source branch `claude/platform-p6a-tooling-20261013` no longer exists (GitHub ref readback 404).
+- Governing Issue #1474 is the larger migration programme and remains open; archiving this packet does not close that programme.
