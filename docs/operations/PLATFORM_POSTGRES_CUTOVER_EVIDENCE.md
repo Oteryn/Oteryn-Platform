@@ -16,6 +16,33 @@ Status: **pending – not executed**. Every field below is a placeholder until t
 | Runner | pending |
 | `MARKETPLACE_ENABLED` | `false` (checked by preflight) |
 
+## Cutover hooks
+
+`cutover-postgres.sh` runs three executable hooks. Each repository variable holds the hook's absolute path in the runner checkout. The workflow maps `vars.<name>` to `OTERYN_CUTOVER_<…>_COMMAND`. Every hook exits non-zero on any failure, so its step fails closed. No hook prints the environment file, a password, a token, a cookie or a key.
+
+| Variable | Stable path | Step | What it checks or writes |
+| --- | --- | --- | --- |
+| `OTERYN_STAGING_CUTOVER_WEB_SMOKE_COMMAND` | `/work/Oteryn-Platform/Oteryn-Platform/deploy/synology/scripts/cutover-hooks/web-smoke.sh` | 3. `smoke`, after `health-check.sh` | Over host loopback, with the canonical proxy headers: `/health` returns 200. `/login` returns 200 with the canonical HTTPS form action, a CSRF field and a session cookie. `/news` returns 200 HTML. Read-only. |
+| `OTERYN_STAGING_CUTOVER_PROVENANCE_INIT_COMMAND` | `/work/Oteryn-Platform/Oteryn-Platform/deploy/synology/scripts/cutover-hooks/provenance-init.sh` | 4. `native-reenable`, called as `init <task_id> <close_run_id>` | The P6a step-4 begin (`PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md` D5). See the steps below this table. |
+| `OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_COMMAND` | `/work/Oteryn-Platform/Oteryn-Platform/deploy/synology/scripts/cutover-hooks/native-smoke.sh` | 5. `native-smoke`, after the signing self-check | Native admission is on and paired in the environment file and in both running containers. A protocol-2 login with an unknown ticket, sent to the Gateway over loopback, gets 401 `NATIVE_LOGIN_AUTHENTICATION_REQUIRED` from the Platform issuer. The read-only trust observation shows binding `match`, a profile, a non-null floor and the configured key trusted. Read-only. |
+
+`provenance-init.sh` runs these steps in order:
+
+1. Run the location check and read the current kid and its `used.kids` count. The count must be 1.
+2. Take a pre-init observation with `--key-id`.
+3. Fetch every anchor of the locked anchor issue and post a write probe. `verify --anchors` must pass. Nothing is written before this point.
+4. Write `run-open`, then `init-intent`. Anchor each one, and write `anchored` for the intent.
+5. Run `php artisan game-auth:native-evidence:init-provenance` in the compose `platform` service, then observe and write `init`.
+6. Observe with `--key-id`, then write `attempt-intent`. Anchor it and write `anchored`.
+
+A refused `open`, init or intent writes an anchored `begin-refused` and exits non-zero.
+
+`provenance-init.sh` needs three more inputs: `OTERYN_CUTOVER_ANCHOR_ISSUE`, the number of the locked anchor issue (D3); `GITHUB_REPOSITORY`; and a `GH_TOKEN` with `issues: write`. Without them it exits before any evidence write.
+
+The *Run cutover step* job does not yet map an anchor-issue variable or grant `issues: write`. Until a reviewed workflow change adds both, step 4 fails closed, and the cutover cannot go past `native-reenable`.
+
+`step4-observe`, `--close-init` and the retry of an earlier unanchored line are not implemented yet. Each of those cases stops the cutover for the owner.
+
 ## Gate checks
 
 | Check | Run id | Result |
