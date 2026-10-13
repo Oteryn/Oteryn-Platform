@@ -58,9 +58,9 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-13T12:00:00Z
-head: UNKNOWN
+head: 87d8a07708301d172669cecd30c957e33d234ee0
 branch: claude/platform-engine-flip-20261013
-pr: none
+pr: 1598
 status: validating
 context_routes:
   - deploy
@@ -111,14 +111,14 @@ validation:
     evidence: no new shellcheck findings against main
 blockers:
   - none
-next_action: Open the PR; CP posts the Codex review; merge only after the cutover freeze is recorded.
+next_action: CP posts the Codex review on PR 1598; one fix commit; merge only after the cutover freeze is recorded.
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository squash merge of PR 1598
 source_branch_evidence: pending
 ```
 
