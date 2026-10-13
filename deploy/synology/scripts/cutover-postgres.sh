@@ -561,8 +561,20 @@ do_rollback() {
     if has_step REENABLE_STARTED || has_step NATIVE_SMOKE || has_step DECLARED_DONE; then
         refuse "forward-only: native re-enable (plan step 4) has started, so there is no rollback to MariaDB and the PostgreSQL witness is never touched."
     fi
-    ! has_step ROLLBACK_VERIFIED || refuse "the rollback is already verified."
     require_close_run
+    if has_step ROLLBACK_VERIFIED; then
+        # Recovery: the rollback itself already ran; only the evidence is missing.
+        [[ ! -f "$evidence_dir/gate-evidence.json" ]] || refuse "the rollback is already verified and its evidence exists."
+        require_audit closed
+        prepare_state
+        if [[ "$dry_run" == true ]]; then
+            echo "DRY RUN: would re-emit gate-evidence.json (rollback_verified) without repeating the rollback."
+            return 0
+        fi
+        write_gate_evidence rollback_verified
+        result rollback_result verified
+        return 0
+    fi
     [[ "$(contract_engine)" == mariadb ]] || refuse "revert the release contract to PLATFORM_DB_ENGINE=mariadb through the reviewed path before the rollback."
     require_audit closed
     local aside store_id

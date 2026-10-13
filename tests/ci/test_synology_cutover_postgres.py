@@ -501,6 +501,19 @@ class RollbackTests(CutoverTestBase):
         self.assertFalse(h.bootstrap_state.exists())
         self.assertTrue(any(p.name.startswith("postgres-bootstrap") or p.name.startswith("bootstrap-state.rolled-back") for p in h.root.iterdir()))
 
+    def test_verified_rollback_regenerates_missing_evidence_without_repeating(self) -> None:
+        h = self.h
+        h.advance_to("smoke")
+        h.set_engine("mariadb")
+        h.ok("rollback", **h.closed())
+        self.evidence_file().unlink()
+        before = "\n".join(h.log_lines())
+        h.ok("rollback", **h.closed())
+        after = "\n".join(h.log_lines())
+        self.assertEqual(before.count("rollback.sh"), after.count("rollback.sh"))
+        self.assertEqual(json.loads(self.evidence_file().read_text())["outcome"], "rollback_verified")
+        h.refused("rollback", "evidence exists", **h.closed())
+
     def test_bootstrap_adopts_a_completed_record_without_rerunning(self) -> None:
         h = self.h
         h.advance_to("freeze")
