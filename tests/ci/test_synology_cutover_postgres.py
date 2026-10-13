@@ -425,6 +425,27 @@ class AuditValidationTests(CutoverTestBase):
         self.assertFalse(h.has_state("UNFROZEN"))
         h.ok("unfreeze", OTERYN_CUTOVER_AUDIT_RUN_ID=h.make_audit("open"), STUB_CANONICAL_STATUS="200")
 
+    def test_missing_or_malformed_preserved_hash_fails_closed(self) -> None:
+        h = self.h
+        h.advance_to("preflight")
+        state_file = h.state_root / "postgres-cutover" / "cutover-state.env"
+        original = state_file.read_text()
+        for broken in ("", "PRESERVED_RULES_HASH=\n", "PRESERVED_RULES_HASH=" + "F" * 64 + "\n"):
+            kept = [line for line in original.splitlines(keepends=True) if not line.startswith("PRESERVED_RULES_HASH=")]
+            state_file.write_text("".join(kept) + broken)
+            h.refused("freeze", "no valid PRESERVED_RULES_HASH", **h.closed())
+            self.assertFalse(h.has_state("FREEZE"))
+        state_file.write_text(original)
+        h.advance_to("smoke")
+        h.set_engine("mariadb")
+        h.ok("rollback", **h.closed())
+        kept = [line for line in state_file.read_text().splitlines(keepends=True)
+                if not line.startswith("PRESERVED_RULES_HASH=")]
+        state_file.write_text("".join(kept))
+        h.refused("unfreeze", "no valid PRESERVED_RULES_HASH", STUB_CANONICAL_STATUS="200",
+                  OTERYN_CUTOVER_AUDIT_RUN_ID=h.make_audit("open"))
+        self.assertFalse(h.has_state("UNFROZEN"))
+
     def test_closed_audit_must_carry_the_close_run(self) -> None:
         self.h.preflight()
         wrong = self.h.make_audit("closed", close_run="1234")

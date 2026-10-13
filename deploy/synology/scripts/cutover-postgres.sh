@@ -300,15 +300,22 @@ sys.stdout.buffer.write(z.read("audit.json"))' "$tmp" || { rm -f "$tmp"; return 
     rm -f "$tmp"
 }
 
-# require_audit <open|closed>: sets audit_preserved_hash. Once the freeze is recorded, every audit must show
-# the preserved (non-Oteryn) ingress rules recorded at preflight, byte-identical by hash.
+# require_audit <open|closed>: sets audit_preserved_hash. Every closed audit, and every audit once the freeze
+# is recorded, must show the preserved (non-Oteryn) ingress rules recorded at preflight, byte-identical by
+# hash; a missing or malformed recorded hash is refused.
 audit_preserved_hash=''
 require_audit() {
     local expected="$1" json close='' preserved=''
     valid_run_id "$audit_run_id" || refuse "OTERYN_CUTOVER_AUDIT_RUN_ID must be a numeric run id."
     require_repository
     [[ "$expected" != closed ]] || { require_close_run; close="$close_run_id"; }
-    if [[ "$expected" == closed ]] || has_step FREEZE; then preserved="$(state_get PRESERVED_RULES_HASH)"; fi
+    if [[ "$expected" == closed ]] || has_step FREEZE; then
+        # Fail closed: a state without a well-formed hash (written before this check existed, or
+        # a record interrupted after STEP_PREFLIGHT) cannot prove the preserved rules unchanged.
+        preserved="$(state_get PRESERVED_RULES_HASH)"
+        [[ "$preserved" =~ ^[0-9a-f]{64}$ ]] \
+            || refuse "the state records no valid PRESERVED_RULES_HASH from preflight; the preserved ingress rules cannot be verified."
+    fi
     json="$(fetch_audit_json "$audit_run_id")" || refuse "the audit evidence for run $audit_run_id could not be fetched and verified."
     validate_audit_json "$expected" "$audit_run_id" "$task_id" "$close" <<<"$json" \
         || refuse "the audit result does not show the required $expected gate state for this task."
