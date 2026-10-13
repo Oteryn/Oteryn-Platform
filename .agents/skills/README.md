@@ -23,7 +23,7 @@ These are project-local Codex skill entry points in `.agents/skills`. Existing C
 
 - Frontend Design: `anthropics/skills@dbd4588f9e1033efb41dad4bef2f7947c8993d44`, `skills/frontend-design/SKILL.md`. Unmodified reference and Apache-2.0 license are in `frontend-design/references/`, with SHA-256 provenance.
 - Web interface rules: `vercel-labs/web-interface-guidelines@434b7f91364665f2f733b310ec54809bf8f37937`, `command.md`; MIT license retained. The local wrapper is independently written; it does not redistribute the separate Vercel agent-skills wrapper.
-- Browser testing: `anthropics/skills@dbd4588f9e1033efb41dad4bef2f7947c8993d44`, `skills/webapp-testing/`; unmodified helper/examples/reference and Apache-2.0 license retained.
+- Browser testing: `anthropics/skills@dbd4588f9e1033efb41dad4bef2f7947c8993d44`, `skills/webapp-testing/`; examples, a reference with trailing whitespace normalized, and Apache-2.0 license retained. The server helper is omitted; use the repository launcher. Source and normalized local hashes are recorded separately.
 
 Provenance manifests record exact files, URLs and SHA-256 hashes. Use reviewed pinned updates; do not fetch moving upstream instructions during ordinary execution. Python/Playwright/browser dependencies are checked when testing is selected, not installed by this change. No external paid API is required by these files.
 
@@ -31,7 +31,7 @@ UI/UX Pro Max and Skill Creator are not installed. Native performance and future
 
 ## Qualification and limits
 
-This is an instruction-level permission gate, not technical access control. A fresh Codex session starting in this repository should discover `.agents/skills`; actual discovery and behavior require client qualification before broad rollout. Static checks are not proof that an agent follows the gate.
+This is an instruction-level permission gate, not technical access control. Use the catalog referenced by root AGENTS.md as the explicit discovery route, then load a selected entry point only within the user grant. Native automatic discovery is not required for this route and remains unqualified here. Static checks are not proof that an agent follows the gate.
 
 | Representative case | Expected result |
 |---|---|
@@ -46,4 +46,4 @@ This is an instruction-level permission gate, not technical access control. A fr
 | Delegated worker with explicit same-task grant | Select only within grant and worker scope |
 | Backend-only task | No optional UI skill; normal required checks |
 
-Actual client discovery: NOT_EVALUATED. Model trials: 0; behavior: NOT_EVALUATED. No measured token-saving or universal enforcement claim is made.
+Qualification evidence: [evaluation.json](evaluation.json). One baseline and one candidate trial ran on the actual Codex agent evaluation surface with the same inherited model/effort and explicit root/bootstrap/catalog delivery. The candidate selected correctly in all 12 decision cases; the baseline had no project-local optional skills. This is decision-level screening, not a visual-quality test or a guarantee of enforcement. Native CLI auto-discovery is BLOCKED by authentication failure before a model response; token/time telemetry was not exposed. No measured cost-saving or universal enforcement claim is made.

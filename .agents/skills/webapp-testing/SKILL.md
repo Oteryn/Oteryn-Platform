@@ -13,8 +13,8 @@ Check current-task authorization in root AGENTS.md. Without a grant, use normal 
 4. Prefer semantic locators and assertions about visible, actionable UI. Wait for the actual ready element or response. Upstream examples using `networkidle` or fixed waits are not a readiness guarantee for persistent network connections.
 5. Check the requested behavior and relevant errors/focus/viewport states. Capture bounded screenshots and browser errors without credentials, cookies or personal data. Record tested scope and limits.
 
-The pinned upstream procedure is `references/upstream.md`. Its example paths are relative to this skill directory. `scripts/with_server.py` is an optional helper, not the default repository launcher: run `--help` first, use only trusted local commands, and never put credentials in its command arguments (it prints commands). It only probes a TCP port and terminates its immediate subprocess; prove application readiness and clean up any descendants with the existing test launcher when applicable. Do not use it for long-running/noisy servers whose piped output could block execution.
+The pinned upstream procedure is `references/upstream.md`, with trailing whitespace normalized. Its examples are available under this skill directory. The upstream `with_server.py` helper is deliberately not installed: a TCP-port probe can accept an unrelated listener and its subprocess cleanup is incomplete. Ignore reference instructions to run that absent helper; use the repository's existing test launcher and prove application readiness with a real element/response. No downstream server-launcher fork is introduced.
 
 Do not run a browser suite on every edit or mirror implementation with redundant tests. Follow repository-required checks even if this optional skill is not enabled.
 
-The wrapper follows the repository license. The unmodified Anthropic examples/helper/reference retain Apache-2.0 under `LICENSE.txt`; pinned provenance is in `provenance.json`.
+The wrapper follows the repository license. The Anthropic examples and normalized reference retain Apache-2.0 under `LICENSE.txt`; pinned provenance is in `provenance.json`.

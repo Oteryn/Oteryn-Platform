@@ -28,7 +28,7 @@ owned_paths:
   - AGENTS.md
   - .agents/skills/**
   - docs/agents/tasks/active/OTERYN-20261013-optional-ui-skills.md
-  - docs/agents/tasks/archive/OTERYN-20261013-optional-ui-skills.md
+  - docs/agents/tasks/active/OTERYN-20261013-optional-ui-skills.md
 modules:
   - agent-governance
 dependencies:
@@ -47,6 +47,7 @@ updated_at: 2026-10-13T17:53:59.601261Z
 head: UNKNOWN
 branch: codex/optional-ui-skills-20261013
 pr: 1603
+terminal_pr_policy: archive_pending
 status: ready
 context_routes:
   - agent-governance
@@ -54,12 +55,12 @@ owned_paths:
   - AGENTS.md
   - .agents/skills/**
   - docs/agents/tasks/active/OTERYN-20261013-optional-ui-skills.md
-  - docs/agents/tasks/archive/OTERYN-20261013-optional-ui-skills.md
+  - docs/agents/tasks/active/OTERYN-20261013-optional-ui-skills.md
 proven:
   - Sources are pinned and licenses retained.
 derived: []
 unknown:
-  - Actual client discovery and model behavior are NOT_EVALUATED.
+  - Native CLI auto-discovery is BLOCKED by authentication failure.
 conflicts: []
 first_failure:
   marker: none
@@ -75,7 +76,7 @@ validation:
     evidence: No runtime UI, dependency, security or application code changes.
 blockers:
   - none
-next_action: Freeze the final candidate and qualify live PR 1603 before governed integration.
+next_action: Qualify the final candidate; archive this packet only after terminal PR 1603 readback.
 ```
 
 ## Review and evidence
@@ -90,7 +91,7 @@ source_branch_reason: Ordinary same-repository delivery; verify deletion after m
 source_branch_evidence: Live PR 1603; terminal readback remains pending.
 ```
 
-## Validation and archive disposition
+## Validation and terminal disposition
 
 - Checkpoint and Documentation/Agent IA validation: PASS.
 - `OTERYN_META_POLICY_ROOT=/workspace/oteryn-meta-policy python -m unittest discover -s tools/agents -p 'test_*.py' -q`: PASS, 158 tests.
@@ -99,10 +100,18 @@ source_branch_evidence: Live PR 1603; terminal readback remains pending.
 - Source SHA-256/license checks and `git diff --check`: PASS.
 - Changed-file self-review: PASS.
 
-PR: https://github.com/Oteryn/Oteryn-Platform/pull/1603 . This record is placed in archive in the final authoring delta; it reaches main only if that PR merges. Exact final SHA, CI, queue and terminal merge evidence are maintained in the live PR. Source deletion and ownership release require terminal readback. Runtime E2E is NOT_APPLICABLE because only optional agent aids are added. Actual client discovery/model behavior are NOT_EVALUATED; no automatic enforcement claim.
+PR: https://github.com/Oteryn/Oteryn-Platform/pull/1603 . This packet remains active through qualification. Once PR #1603 is verified terminal, archive it with the terminal evidence in a bounded closeout change. The explicit archive-pending disposition preserves ownership during the terminal transition. Exact final SHA, CI, queue and terminal merge evidence are maintained in the live PR. Source deletion and ownership release require terminal readback. Runtime E2E is NOT_APPLICABLE because only optional agent aids are added. Explicit bootstrap/catalog model qualification passed: paired baseline/candidate trials, 12 decision cases each, candidate 12/12 intended selections. Native CLI auto-discovery remains BLOCKED; no universal enforcement claim.
 
 ## Bounded CI repair
 
 The initial exact-head Agent Governance run 38442836688 found stale active ownership for already-merged PR #1591. This task also moves only `OTERYN-20261013-platform-pg-p6a-impl.md` from active to archive with verified merge, gate and branch-deletion evidence. No open PR #1598/#1599/#1601 owned that record at the allocation check; no P6 runtime or deploy implementation is modified. Live task liveness is rerun before the repaired head is frozen.
 
 Live task liveness after reconciliation: PASS, 12 active tasks and 0 advisory findings. Both archived checkpoints and the same 158 agent-tool tests, documentation IA and deterministic prompt contracts passed after repair.
+
+## Automatic review repairs
+
+- Kept this packet active until verified terminal PR readback; recorded the explicit archive-pending transition.
+- Removed the unmodified upstream server helper because port-only readiness cannot establish process ownership. No fork or new launcher is introduced.
+- Normalized trailing whitespace in the upstream browser-testing reference and recorded separate source/local SHA-256 hashes; exact candidate whitespace validation is required, not an unstaged diff on a clean checkout.
+
+Model qualification is recorded in .agents/skills/evaluation.json with the exact root/catalog/entry-point hashes consumed by the trial. Actual model IDs, token/time telemetry and native auto-discovery are not inferred.
