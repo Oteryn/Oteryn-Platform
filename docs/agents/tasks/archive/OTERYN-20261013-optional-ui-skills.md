@@ -100,3 +100,9 @@ source_branch_evidence: Live PR 1603; terminal readback remains pending.
 - Changed-file self-review: PASS.
 
 PR: https://github.com/Oteryn/Oteryn-Platform/pull/1603 . This record is placed in archive in the final authoring delta; it reaches main only if that PR merges. Exact final SHA, CI, queue and terminal merge evidence are maintained in the live PR. Source deletion and ownership release require terminal readback. Runtime E2E is NOT_APPLICABLE because only optional agent aids are added. Actual client discovery/model behavior are NOT_EVALUATED; no automatic enforcement claim.
+
+## Bounded CI repair
+
+The initial exact-head Agent Governance run 38442836688 found stale active ownership for already-merged PR #1591. This task also moves only `OTERYN-20261013-platform-pg-p6a-impl.md` from active to archive with verified merge, gate and branch-deletion evidence. No open PR #1598/#1599/#1601 owned that record at the allocation check; no P6 runtime or deploy implementation is modified. Live task liveness is rerun before the repaired head is frozen.
+
+Live task liveness after reconciliation: PASS, 12 active tasks and 0 advisory findings. Both archived checkpoints and the same 158 agent-tool tests, documentation IA and deterministic prompt contracts passed after repair.
