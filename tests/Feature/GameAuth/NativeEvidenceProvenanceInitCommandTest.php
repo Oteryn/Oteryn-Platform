@@ -238,6 +238,7 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
         ]);
     }
 
+    /** @phpstan-impure */
     private function initialize(): int
     {
         return Artisan::call(self::COMMAND);

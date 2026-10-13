@@ -10,10 +10,12 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Feature\GameAuth\Concerns\ReadsJsonOutput;
 use Tests\TestCase;
 
 final class NativeSigningTrustObservationCommandTest extends TestCase
 {
+    use ReadsJsonOutput;
     use RefreshDatabase;
 
     private const COMMAND = 'game-auth:native-evidence:observe-trust';
@@ -49,7 +51,7 @@ final class NativeSigningTrustObservationCommandTest extends TestCase
     public function test_an_empty_directory_is_observed_without_creating_any_file_lock_or_row(): void
     {
         self::assertSame(0, $this->observe(['--key-id' => 'kid-1']));
-        $output = $this->commandOutput();
+        $output = self::jsonOutput();
 
         self::assertSame('observed', $output['result']);
         self::assertFalse($output['fence_required']);
@@ -89,7 +91,7 @@ final class NativeSigningTrustObservationCommandTest extends TestCase
 
         self::assertSame(0, $this->observe(['--key-id' => 'kid-1']));
 
-        self::assertSame(['marker' => $marker, 'row' => $row, 'binding' => $binding], $this->commandOutput()['store']);
+        self::assertSame(['marker' => $marker, 'row' => $row, 'binding' => $binding], self::jsonOutput()['store']);
         self::assertSame($files, glob($this->directory.'/*') ?: []);
         self::assertSame($row === null ? 0 : 1, DB::table('native_game_evidence_witness_stores')->count());
     }
@@ -119,23 +121,23 @@ final class NativeSigningTrustObservationCommandTest extends TestCase
         $before = $this->directorySnapshot();
 
         self::assertSame(0, $this->observe(['--key-id' => 'kid-1']));
-        $output = $this->commandOutput();
+        $output = self::jsonOutput();
 
-        self::assertSame('match', $output['store']['binding']);
-        self::assertSame(1, $output['floor']['value']);
-        self::assertTrue($output['profile']['present']);
-        self::assertSame(1, $output['profile']['profile_version']);
-        self::assertSame(1, $output['profile']['issuer_revision']);
-        self::assertFalse($output['profile']['revoked']);
-        self::assertIsInt($output['profile']['id']);
-        self::assertTrue($output['key']['in_history']);
-        self::assertTrue($output['key']['trusted']);
+        self::assertSame('match', self::at($output, 'store', 'binding'));
+        self::assertSame(1, self::at($output, 'floor', 'value'));
+        self::assertTrue(self::at($output, 'profile', 'present'));
+        self::assertSame(1, self::at($output, 'profile', 'profile_version'));
+        self::assertSame(1, self::at($output, 'profile', 'issuer_revision'));
+        self::assertFalse(self::at($output, 'profile', 'revoked'));
+        self::assertIsInt(self::at($output, 'profile', 'id'));
+        self::assertTrue(self::at($output, 'key', 'in_history'));
+        self::assertTrue(self::at($output, 'key', 'trusted'));
         self::assertSame($before, $this->directorySnapshot());
 
         self::assertSame(0, $this->observe(['--key-id' => 'kid-2']));
-        $other = $this->commandOutput()['key'];
-        self::assertFalse($other['in_history']);
-        self::assertFalse($other['trusted']);
+        $other = self::jsonOutput();
+        self::assertFalse(self::at($other, 'key', 'in_history'));
+        self::assertFalse(self::at($other, 'key', 'trusted'));
     }
 
     public function test_fence_required_follows_the_setting(): void
@@ -144,7 +146,7 @@ final class NativeSigningTrustObservationCommandTest extends TestCase
 
         self::assertSame(0, $this->observe(['--key-id' => 'kid-1']));
 
-        self::assertTrue($this->commandOutput()['fence_required']);
+        self::assertTrue(self::jsonOutput()['fence_required']);
     }
 
     public function test_witness_busy_while_the_store_lock_is_held(): void
@@ -172,7 +174,7 @@ final class NativeSigningTrustObservationCommandTest extends TestCase
 
         self::assertSame(1, $this->observe(['--key-id' => 'kid-1']));
 
-        self::assertSame('scope_unconfigured', $this->commandOutput()['result']);
+        self::assertSame('scope_unconfigured', self::jsonOutput()['result']);
     }
 
     public function test_only_the_fresh_trust_is_supported(): void
@@ -184,7 +186,7 @@ final class NativeSigningTrustObservationCommandTest extends TestCase
     public function test_database_identity_is_null_off_postgres_and_complete_on_postgres(): void
     {
         self::assertSame(0, $this->observe(['--key-id' => 'kid-1']));
-        $database = $this->commandOutput()['database'];
+        $database = self::at(self::jsonOutput(), 'database');
 
         if (DB::connection()->getDriverName() !== 'pgsql') {
             self::assertNull($database);
@@ -193,13 +195,13 @@ final class NativeSigningTrustObservationCommandTest extends TestCase
         }
         self::assertIsArray($database);
         foreach (['system_identifier', 'timeline_id', 'postmaster_start_time', 'database_oid', 'relfilenodes'] as $field) {
-            self::assertArrayHasKey($field, $database['identity']);
+            self::at($database, 'identity', $field);
         }
-        self::assertArrayHasKey('native_game_signing_trust_profiles', $database['identity']['relfilenodes']);
-        self::assertMatchesRegularExpression('/\A[0-9A-F]+\/[0-9A-F]+\z/', $database['progress']['wal_flush_lsn']);
-        self::assertMatchesRegularExpression('/\A[0-9]+\z/', $database['progress']['xmax']);
-        self::assertArrayHasKey('sessions', $database['in_flight']);
-        self::assertArrayHasKey('prepared', $database['in_flight']);
+        self::at($database, 'identity', 'relfilenodes', 'native_game_signing_trust_profiles');
+        self::assertMatchesRegularExpression('/\A[0-9A-F]+\/[0-9A-F]+\z/', self::stringAt($database, 'progress', 'wal_flush_lsn'));
+        self::assertMatchesRegularExpression('/\A[0-9]+\z/', self::stringAt($database, 'progress', 'xmax'));
+        self::at($database, 'in_flight', 'sessions');
+        self::at($database, 'in_flight', 'prepared');
     }
 
     private function assertBusyWhileHeld(string $lockPath): void
@@ -210,7 +212,7 @@ final class NativeSigningTrustObservationCommandTest extends TestCase
 
         try {
             self::assertSame(1, $this->observe(['--key-id' => 'kid-1']));
-            self::assertSame(['result' => 'witness_busy'], (array) $this->commandOutput());
+            self::assertSame(['result' => 'witness_busy'], self::jsonOutput());
         } finally {
             flock($lock, LOCK_UN);
             fclose($lock);
@@ -221,15 +223,6 @@ final class NativeSigningTrustObservationCommandTest extends TestCase
     private function observe(array $options): int
     {
         return Artisan::call(self::COMMAND, ['--trust' => 'fresh'] + $options);
-    }
-
-    /** @return array{result: string, fence_required: bool, scope: array<string, string>, store: array{binding: string}, floor: array{value: int|null}, profile: array{present: bool, profile_version: int, issuer_revision: int, revoked: bool, id: mixed}, key: array{in_history: bool, trusted: bool}, database: array{identity: array{relfilenodes: array<string, int>}&array<string, mixed>, progress: array{wal_flush_lsn: string, xmax: string}, in_flight: array<string, int>}|null} */
-    private function commandOutput(): array
-    {
-        /** @var array{result: string, fence_required: bool, scope: array<string, string>, store: array{binding: string}, floor: array{value: int|null}, profile: array{present: bool, profile_version: int, issuer_revision: int, revoked: bool, id: mixed}, key: array{in_history: bool, trusted: bool}, database: array{identity: array{relfilenodes: array<string, int>}&array<string, mixed>, progress: array{wal_flush_lsn: string, xmax: string}, in_flight: array<string, int>}|null} $decoded */
-        $decoded = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
-
-        return $decoded;
     }
 
     /** @return array<string, string> */

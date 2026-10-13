@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use LogicException;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Feature\GameAuth\Concerns\ReadsJsonOutput;
 use Tests\Feature\GameAuth\Concerns\WritesAttemptEvidence;
 use Tests\TestCase;
 use Throwable;
@@ -23,6 +24,7 @@ use Throwable;
  */
 final class NativeEvidenceRestoreNeverSynthesizesProfileTest extends TestCase
 {
+    use ReadsJsonOutput;
     use RefreshDatabase;
     use WritesAttemptEvidence;
 
@@ -82,7 +84,7 @@ final class NativeEvidenceRestoreNeverSynthesizesProfileTest extends TestCase
 
         // Arrange: provenance by the init, then a real publication that commits for kid-1.
         self::assertSame(0, Artisan::call('game-auth:native-evidence:init-provenance'));
-        $this->storeId = (string) $this->decoded()['store_id'];
+        $this->storeId = self::stringAt(self::jsonOutput(), 'store_id');
         $registry = app(NativeSigningTrustRegistry::class);
         $registry->publishTrustedKey(...$this->scope(), ...['kid-1', $this->publicKey($seedOne)]);
         self::assertSame(1, DB::table('native_game_signing_trust_profiles')->count());
@@ -108,7 +110,7 @@ final class NativeEvidenceRestoreNeverSynthesizesProfileTest extends TestCase
         // Act. The init and the observation run first: every runtime witness call re-binds a missing row.
         self::assertSame($restore === 'A' ? 0 : 1, Artisan::call('game-auth:native-evidence:init-provenance'));
         if ($restore === 'A') {
-            self::assertSame('unchanged', $this->decoded()['result']);
+            self::assertSame('unchanged', self::at(self::jsonOutput(), 'result'));
         }
         $this->assertUnsynthesized();
 

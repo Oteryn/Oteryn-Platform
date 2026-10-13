@@ -124,6 +124,8 @@ final class NativeEvidencePublicationFenceTest extends TestCase
             'intent followed by another line' => ['extra line'],
             'second open intent in another run' => ['second intent'],
             'broken hash chain in another file' => ['broken chain'],
+            'chain starting at seq 0 in another file' => ['seq from zero'],
+            'identity differs from an earlier init in a later-named run' => ['earlier init elsewhere'],
             'blocking classification in another run' => ['blocking classification'],
             'missing evidence directory' => ['missing directory'],
             'unconfigured evidence directory' => ['unconfigured directory'],
@@ -285,7 +287,8 @@ final class NativeEvidencePublicationFenceTest extends TestCase
     /** Writes the evidence of one case and returns the fence that names its intent. */
     private function arrange(string $case): NativeEvidencePublicationFence
     {
-        $other = 'c'.substr($this->storeId, 1);
+        // Differs from the random store id in its first digit (a fixed 'c' collides one time in sixteen).
+        $other = ($this->storeId[0] === 'c' ? 'd' : 'c').substr($this->storeId, 1);
         $options = match ($case) {
             'foreign init' => ['initStore' => $other],
             'identity changed' => ['intentDatabase' => $this->withIdentity(['system_identifier' => '7000000000000000002'])],
@@ -311,6 +314,20 @@ final class NativeEvidencePublicationFenceTest extends TestCase
             'second intent' => [['type' => 'run-open'], ['type' => 'attempt-intent', 'attempt' => 1], ['type' => 'anchored']],
             'blocking classification' => [['type' => 'run-open'], ['type' => 'attempt-observation', 'attempt' => 1, 'classification' => 'unknown']],
             'broken chain' => [['type' => 'run-open', 'prev' => str_repeat('a', 64)]],
+            'seq from zero' => [['type' => 'run-open', 'seq' => 0]],
+            // Sorts after FIXTURE_RUN by name but starts earlier, so its init is the first one (D4).
+            'earlier init elsewhere' => [
+                ['type' => 'run-open', 'store_id' => null, 'at' => '2026-10-13T09:00:00Z'],
+                ['type' => 'init-intent', 'at' => '2026-10-13T09:00:00Z'],
+                ['type' => 'anchored', 'at' => '2026-10-13T09:00:00Z'],
+                [
+                    'type' => 'init',
+                    'at' => '2026-10-13T09:00:00Z',
+                    'store_id' => $this->storeId,
+                    'result' => 'created',
+                    'observation' => $this->fixtureObservation($this->withIdentity(['system_identifier' => '7000000000000000002']), $this->storeId),
+                ],
+            ],
             'lsn below earlier' => [['type' => 'run-open', 'pre_init' => $this->fixtureObservation($this->fixtureDatabase('0/9000000', '720'), null)]],
             default => null,
         };

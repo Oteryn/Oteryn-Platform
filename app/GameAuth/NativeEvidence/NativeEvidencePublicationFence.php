@@ -281,6 +281,10 @@ final class NativeEvidencePublicationFence
             $runs[$runId] = $this->readRun($path, $runId);
         }
 
+        // Chronological order, as attempt_evidence.py reads it: first line's `at`, then run id. The first
+        // `init` in this order fixes the stable identity (D4).
+        uksort($runs, static fn (string $a, string $b): int => [$runs[$a][0]['data']['at'], $a] <=> [$runs[$b][0]['data']['at'], $b]);
+
         return $runs;
     }
 
@@ -306,7 +310,7 @@ final class NativeEvidencePublicationFence
             if (! is_array($data) || ($data['v'] ?? null) !== 1 || ($data['run_id'] ?? null) !== $runId
                 || ! is_int($seq) || ! is_string($data['type'] ?? null) || ! is_string($data['at'] ?? null)
                 || ! array_key_exists('prev', $data) || $data['prev'] !== $previousSha
-                || ($previousSeq === null ? ($seq < 0 || $seq > 1) : $seq !== $previousSeq + 1)) {
+                || $seq !== ($previousSeq ?? 0) + 1) {
                 throw new NativeEvidenceUnavailable('An attempt evidence hash chain is broken.');
             }
             $sha = hash('sha256', $text);
