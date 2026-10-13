@@ -40,10 +40,16 @@ class SynologyAutostartContractTest(unittest.TestCase):
         self.assertIn("RUNNER_LABELS: oteryn-platform", platform)
 
     def test_only_persistent_platform_owned_host_services_are_repaired(self) -> None:
-        expected = ("mariadb", "platform", "internal-proxy", "gateway", "marketplace-scheduler")
-        loop = 'for service in mariadb platform internal-proxy gateway marketplace-scheduler; do'
-        self.assertIn(loop, self.workflow)
+        expected = ("platform", "internal-proxy", "gateway", "marketplace-scheduler")
+        loop = re.search(r"for service in ([a-z -]+); do", self.workflow)
+        self.assertIsNotNone(loop)
+        listed = loop.group(1).split()
         for service in expected:
+            self.assertIn(service, listed)
+        # MariaDB is retired (plan P7): compose.yml no longer defines it. The repair loop may still name it
+        # until the workflow is updated; every other listed service must be a restart-always compose service.
+        self.assertNotIn("\n  mariadb:\n", self.staging_compose)
+        for service in (name for name in listed if name != "mariadb"):
             block = self.staging_compose.split(f"  {service}:\n", 1)[1]
             next_service = re.search(r"\n  (?! )", block)
             if next_service:

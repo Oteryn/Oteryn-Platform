@@ -25,11 +25,12 @@ def test_first_empty_database_gets_recoverable_baseline_before_platform_start() 
 
     helper = FRESH_BASELINE.read_text()
     assert "Fresh baseline rejected: Platform DB is non-empty" in helper
-    assert "mariadb-dump" in helper
+    assert "oteryn_postgres_dump_platform" in helper
+    assert "mariadb-dump" not in helper
     assert "BACKUP_BASELINE_KIND=fresh-empty" in helper
     assert "fresh-empty-before-${release_sha}" in helper
     assert '_oteryn_write_schema_state_known "$state_dir" fresh-empty "$release_sha"' in helper
-    assert helper.index("mariadb-dump") < helper.index("BACKUP_BASELINE_KIND=fresh-empty")
+    assert helper.index("oteryn_postgres_dump_platform") < helper.index("BACKUP_BASELINE_KIND=fresh-empty")
 
 
 def test_fresh_empty_recovery_is_bounded_and_verified() -> None:
@@ -38,7 +39,7 @@ def test_fresh_empty_recovery_is_bounded_and_verified() -> None:
     assert "Fresh-empty recovery evidence must not claim a source application release." in recovery
     assert '"fresh-empty-before-${candidate_sha}"' in recovery
     assert '"$state_dir/current-release.env" "$state_dir/last-good-release.env" "$state_dir/last-good.env"' in recovery
-    destructive = recovery.index("DROP " + "DATABASE IF EXISTS")
+    destructive = recovery.index("oteryn_postgres_restore_platform")
     verify_empty = recovery.index("restored_table_count=", destructive)
     known = recovery.index('_oteryn_write_schema_state_known "$state_dir" fresh-empty "$candidate_sha"', verify_empty)
     assert destructive < verify_empty < known
@@ -124,11 +125,12 @@ def test_fast_deploy_recreates_platform_but_not_full_stack_services() -> None:
     assert '"${compose[@]}" up -d --no-deps --force-recreate platform' in fast
     assert "_oteryn_reconcile_marketplace_scheduler_after_runtime_change" in fast
     assert "_oteryn_fast_platform_smoke" in fast
-    for service in ("mariadb", "internal-proxy", "gateway"):
+    for service in ("postgres", "internal-proxy", "gateway"):
         assert f"_oteryn_fast_assert_preserved_service {service}" in fast
     for forbidden in (
         "php artisan migrate",
-        '"${compose[@]}" up -d mariadb',
+        "oteryn_platform_migrate_postgres",
+        '"${compose[@]}" up -d postgres',
         'bash "$SCRIPT_DIR/health-check.sh"',
         '"${compose[@]}" up -d gateway',
         "tls-init",
@@ -140,7 +142,7 @@ def test_fast_deploy_recreates_platform_but_not_full_stack_services() -> None:
     legacy_cleanup = "label=com.docker.compose.service=canary"
     assert legacy_cleanup in full
     assert full.index(legacy_cleanup) > full.rindex('bash "$SCRIPT_DIR/health-check.sh"')
-    assert 'php artisan migrate --force --no-interaction' in full
+    assert 'oteryn_platform_migrate_postgres "${compose[@]}"' in full
     assert 'bash "$SCRIPT_DIR/health-check.sh"' in full
     assert '"${compose[@]}" up -d gateway' in full
 
@@ -179,7 +181,7 @@ def test_fast_deploy_fails_closed_and_restores_previous_release_on_failure() -> 
     assert 'mv "$FAST_PREVIOUS_LAST_GOOD" "$state_dir/last-good-release.env"' in restore
 
     smoke = fast.index("_oteryn_fast_platform_smoke")
-    preserved = fast.index("_oteryn_fast_assert_preserved_service mariadb", smoke)
+    preserved = fast.index("_oteryn_fast_assert_preserved_service postgres", smoke)
     write_state = fast.index('release-state.sh" write "$state_dir/current-release.env.fast"', preserved)
     promote = fast.index('mv "$state_dir/current-release.env.fast" "$current_file"', write_state)
     assert smoke < preserved < write_state < promote
@@ -312,7 +314,7 @@ def test_platform_reconcile_restarts_only_platform_and_runs_full_health_before_p
     assert "_oteryn_reconcile_marketplace_scheduler_after_runtime_change" in reconcile
     assert "_oteryn_platform_smoke" in reconcile
     health = reconcile.index('bash "$SCRIPT_DIR/health-check.sh"')
-    for service in ("mariadb", "internal-proxy", "gateway"):
+    for service in ("postgres", "internal-proxy", "gateway"):
         marker = f"_oteryn_assert_preserved_service {service}"
         assert marker in reconcile
         assert reconcile.index(marker) > health
@@ -321,7 +323,8 @@ def test_platform_reconcile_restarts_only_platform_and_runs_full_health_before_p
     assert health < write_state < promote
     for forbidden in (
         "php artisan migrate",
-        '"${compose[@]}" up -d mariadb',
+        "oteryn_platform_migrate_postgres",
+        '"${compose[@]}" up -d postgres',
         '"${compose[@]}" up -d gateway',
         "tls-init",
     ):

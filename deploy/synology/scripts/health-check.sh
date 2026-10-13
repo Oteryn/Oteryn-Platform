@@ -13,7 +13,7 @@ load_oteryn_env_file "$ENV_FILE"
 compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 
 declare -A container_ids=()
-for service in mariadb platform internal-proxy gateway marketplace-scheduler; do
+for service in platform internal-proxy gateway marketplace-scheduler; do
     container_id="$("${compose[@]}" ps -q "$service")"
     if [[ -z "$container_id" ]]; then
         echo "Service is not created: $service" >&2
@@ -55,43 +55,40 @@ until [[ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}
 done
 echo "Verified scheduler: marketplace-scheduler is healthy"
 
-# PostgreSQL (plan P4) runs idle beside MariaDB once its secrets are configured: it must then be running,
-# healthy (its own TLS login probe) and publish no host port. Without the secrets it is not started.
-# On PLATFORM_DB_ENGINE=postgres it is the Platform database, so the secrets are required.
+# PostgreSQL is the Platform database (plan P7; MariaDB retired by the P6 cutover): its secrets are required
+# and it must be running, healthy (its own TLS login probe) and publish no host port.
 postgres_secret_state="$(oteryn_postgres_secret_state)" || exit 1
-if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres && "$postgres_secret_state" != configured ]]; then
+if [[ "$postgres_secret_state" != configured ]]; then
     echo "PLATFORM_DB_ENGINE=postgres requires all five PostgreSQL secrets." >&2
     exit 1
 fi
-if [[ "$postgres_secret_state" == configured ]]; then
-    postgres_id="$("${compose[@]}" --profile postgres ps -q postgres)"
-    if [[ -z "$postgres_id" || "$(docker inspect --format '{{.State.Running}}' "$postgres_id")" != true ]]; then
-        echo "Service is not running: postgres" >&2
-        exit 1
-    fi
-    if [[ "$(docker inspect --format '{{len .HostConfig.PortBindings}}' "$postgres_id")" != 0 ]]; then
-        echo "The postgres service must publish no host port." >&2
-        exit 1
-    fi
-    postgres_deadline=$((SECONDS + 120))
-    until [[ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$postgres_id")" == "healthy" ]]; do
-        if (( SECONDS >= postgres_deadline )); then
-            echo "PostgreSQL did not become healthy." >&2
-            exit 1
-        fi
-        sleep 3
-    done
-    echo "Verified database: postgres is healthy and publishes no port"
-    # Plan P5: the backup sidecar runs with archive_mode on (exit 1 fails); a degraded backup (exit 3:
-    # archive backlog, stale base backup or dump, spool space) warns here and fails the deploy reconcile.
-    backup_status=0
-    OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/backup-postgres.sh" check || backup_status=$?
-    case "$backup_status" in
-        0) ;;
-        3) echo "WARNING: PostgreSQL backups are degraded (see above); the deploy reconcile repairs or refuses them." >&2 ;;
-        *) exit 1 ;;
-    esac
+postgres_id="$("${compose[@]}" --profile postgres ps -q postgres)"
+if [[ -z "$postgres_id" || "$(docker inspect --format '{{.State.Running}}' "$postgres_id")" != true ]]; then
+    echo "Service is not running: postgres" >&2
+    exit 1
 fi
+if [[ "$(docker inspect --format '{{len .HostConfig.PortBindings}}' "$postgres_id")" != 0 ]]; then
+    echo "The postgres service must publish no host port." >&2
+    exit 1
+fi
+postgres_deadline=$((SECONDS + 120))
+until [[ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$postgres_id")" == "healthy" ]]; do
+    if (( SECONDS >= postgres_deadline )); then
+        echo "PostgreSQL did not become healthy." >&2
+        exit 1
+    fi
+    sleep 3
+done
+echo "Verified database: postgres is healthy and publishes no port"
+# Plan P5: the backup sidecar runs with archive_mode on (exit 1 fails); a degraded backup (exit 3:
+# archive backlog, stale base backup or dump, spool space) warns here and fails the deploy reconcile.
+backup_status=0
+OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/backup-postgres.sh" check || backup_status=$?
+case "$backup_status" in
+    0) ;;
+    3) echo "WARNING: PostgreSQL backups are degraded (see above); the deploy reconcile repairs or refuses them." >&2 ;;
+    *) exit 1 ;;
+esac
 
 assert_binding platform 8000 "$PLATFORM_BIND_ADDRESS" "$PLATFORM_PORT"
 assert_binding gateway 8080 "$GATEWAY_BIND_ADDRESS" "$GATEWAY_PORT"
@@ -106,15 +103,13 @@ container_env_value() {
 
 # On postgres the Platform connects as the app role over verify-full TLS (non-secret names only; the
 # password is never read).
-if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres ]]; then
-    for pair in DB_CONNECTION:pgsql DB_HOST:postgres DB_USERNAME:oteryn_platform_app DB_SSLMODE:verify-full; do
-        if [[ "$(container_env_value platform "${pair%%:*}")" != "${pair#*:}" ]]; then
-            echo "Platform ${pair%%:*} does not match PLATFORM_DB_ENGINE=postgres." >&2
-            exit 1
-        fi
-    done
-    echo "Verified Platform database settings: PostgreSQL app role, verify-full TLS"
-fi
+for pair in DB_CONNECTION:pgsql DB_HOST:postgres DB_USERNAME:oteryn_platform_app DB_SSLMODE:verify-full; do
+    if [[ "$(container_env_value platform "${pair%%:*}")" != "${pair#*:}" ]]; then
+        echo "Platform ${pair%%:*} does not match PLATFORM_DB_ENGINE=postgres." >&2
+        exit 1
+    fi
+done
+echo "Verified Platform database settings: PostgreSQL app role, verify-full TLS"
 
 # Native login is on only while the Platform issuer can really sign: the pairing check keeps the two
 # flags in step, and with the flag on the Platform signing self-check must pass (lib.sh).

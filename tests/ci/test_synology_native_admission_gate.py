@@ -162,7 +162,7 @@ def test_deploy_ensures_the_key_before_changes_and_self_checks_before_the_gatewa
     script = DEPLOY.read_text(encoding="utf-8")
     ensure = script.index("oteryn_ensure_native_admission_key || exit 1")
     assert ensure < script.index("fast_candidate_rc=0")
-    assert ensure < script.index('"${compose[@]}" up -d mariadb')
+    assert ensure < script.index('"${compose[@]}" up -d --force-recreate tls-init')
     self_check = script.index('oteryn_run_native_admission_self_check "$("${compose[@]}" ps -q platform)" || exit 1')
     assert script.index("game-auth:oauth-client:ensure") < self_check < script.index('"${compose[@]}" up -d gateway')
     # The fast path recreates Platform only, so it re-proves signing before it can finish.

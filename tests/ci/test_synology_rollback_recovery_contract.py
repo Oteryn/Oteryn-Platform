@@ -22,7 +22,7 @@ def test_backup_evidence_binds_destructive_target() -> None:
     target_check = recovery.index('[[ "$BACKUP_COMPOSE_PROJECT_NAME" == "$effective_compose_project" ]]')
     db_check = recovery.index('[[ "$BACKUP_PLATFORM_DB_NAME" == "$PLATFORM_DB_NAME" ]]')
     unknown = recovery.index("printf 'SCHEMA_STATE=unknown")
-    drop = recovery.index("DROP DATABASE IF EXISTS")
+    drop = recovery.index("oteryn_postgres_restore_platform")
     assert target_check < unknown < drop
     assert db_check < unknown < drop
 
@@ -104,7 +104,7 @@ def test_pending_candidate_resume_is_proven_before_candidate_or_backup_rewrite()
     guard = baseline.index('if [[ -f "$candidate_file" ]]')
     resume = baseline.index('_oteryn_resume_candidate_if_safe "$state_dir" "$release_sha"', guard)
     managed_baseline_return = baseline.index('if [[ -f "$current_file" || -f "$legacy_file" || -f "$last_good_file" ]]')
-    dump = baseline.index("mariadb-dump")
+    dump = baseline.index("oteryn_postgres_dump_platform")
     assert guard < resume < managed_baseline_return < dump
 
     helper_start = lib.index("_oteryn_resume_candidate_if_safe()")

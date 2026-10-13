@@ -117,8 +117,11 @@ class VolumeGuardTest(unittest.TestCase):
 
     def test_compose_keeps_every_data_volume_named_and_local(self) -> None:
         volumes = COMPOSE.read_text().split("\nvolumes:\n", 1)[1].split("\nnetworks:\n", 1)[0]
-        for volume in ("mariadb_data", "postgres_data", "platform_storage", "postgres_tls", "postgres_client_ca", "postgres_ca_signer"):
+        for volume in ("postgres_data", "platform_storage", "postgres_tls", "postgres_client_ca", "postgres_ca_signer"):
             self.assertRegex(volumes, rf"(?m)^  {volume}:$")
+        # P7: the retired MariaDB service and its volume are gone from the stack; the volume itself is never removed
+        # by a workflow (cutover-postgres.sh retire-mariadb keeps it).
+        self.assertNotRegex(COMPOSE.read_text(), r"(?m)^  (mariadb|mariadb_data):$")
 
 
 class ComposeServiceTest(unittest.TestCase):
@@ -285,12 +288,12 @@ class ComposeServiceTest(unittest.TestCase):
 
     def test_platform_runtime_gets_the_engine_connection_and_never_a_privileged_postgres_secret(self) -> None:
         anchors = {
-            "connection": '"${OTERYN_PLATFORM_DB_CONNECTION:-mysql}"',
-            "host": '"${OTERYN_PLATFORM_DB_HOST:-mariadb}"',
-            "port": '"${OTERYN_PLATFORM_DB_PORT:-3306}"',
-            "username": '"${OTERYN_PLATFORM_DB_USERNAME:-${PLATFORM_DB_USER}}"',
-            "password": '"${OTERYN_PLATFORM_DB_PASSWORD:-${PLATFORM_DB_PASSWORD}}"',
-            "sslmode": '"${OTERYN_PLATFORM_DB_SSLMODE:-prefer}"',
+            "connection": '"${OTERYN_PLATFORM_DB_CONNECTION:-pgsql}"',
+            "host": '"${OTERYN_PLATFORM_DB_HOST:-postgres}"',
+            "port": '"${OTERYN_PLATFORM_DB_PORT:-5432}"',
+            "username": '"${OTERYN_PLATFORM_DB_USERNAME:-oteryn_platform_app}"',
+            "password": '"${OTERYN_PLATFORM_DB_PASSWORD:-${PLATFORM_POSTGRES_APP_PASSWORD}}"',
+            "sslmode": '"${OTERYN_PLATFORM_DB_SSLMODE:-verify-full}"',
         }
         for name, value in anchors.items():
             self.assertIn(f"x-platform-db-{name}: &platform_db_{name} {value}\n", self.compose)
@@ -323,7 +326,7 @@ class ComposeServiceTest(unittest.TestCase):
             "      - postgres_ca_signer:/postgres-signer\n",
         ):
             self.assertIn(line, block)
-        for service in ("internal-proxy", "gateway", "mariadb"):
+        for service in ("internal-proxy", "gateway"):
             self.assertNotIn("postgres_tls", service_block(self.compose, service), service)
 
     def test_the_postgres_ca_key_volume_is_mounted_by_tls_init_alone(self) -> None:
@@ -700,32 +703,34 @@ class EngineSwitchTest(unittest.TestCase):
         lines = [line for line in CONTRACT.read_text().splitlines() if line.startswith("PLATFORM_DB_ENGINE=")]
         self.assertEqual(lines, ["PLATFORM_DB_ENGINE=postgres"])
 
-    def test_engine_is_read_as_data_with_a_mariadb_default(self) -> None:
+    def test_engine_is_read_as_data_and_only_postgres_is_accepted(self) -> None:
+        # P7: MariaDB was retired by the P6 cutover; an absent or mariadb engine is refused, not defaulted.
         with tempfile.TemporaryDirectory() as td:
             contract = Path(td) / "release-contract.env"
-            for body, expected in (("", "mariadb"), ("PLATFORM_DB_ENGINE=mariadb\n", "mariadb"), ("PLATFORM_DB_ENGINE=postgres\r\n", "postgres")):
+            for body in ("PLATFORM_DB_ENGINE=postgres\n", "PLATFORM_DB_ENGINE=postgres\r\n"):
                 contract.write_text("OTERYN_MIGRATION_POLICY=expand-contract\n" + body)
                 result = run_lib("oteryn_platform_db_engine", {"OTERYN_RELEASE_CONTRACT_FILE": str(contract)})
-                self.assertEqual((result.returncode, result.stdout.strip()), (0, expected), body)
-            for body in ("PLATFORM_DB_ENGINE=pgsql\n", "PLATFORM_DB_ENGINE=$(id)\n"):
+                self.assertEqual((result.returncode, result.stdout.strip()), (0, "postgres"), body)
+            for body in ("", "PLATFORM_DB_ENGINE=mariadb\n", "PLATFORM_DB_ENGINE=pgsql\n", "PLATFORM_DB_ENGINE=$(id)\n"):
                 contract.write_text(body)
                 result = run_lib("oteryn_platform_db_engine", {"OTERYN_RELEASE_CONTRACT_FILE": str(contract)})
                 self.assertNotEqual(result.returncode, 0, body)
             result = run_lib("oteryn_platform_db_engine", {"OTERYN_RELEASE_CONTRACT_FILE": str(Path(td) / "missing.env")})
             self.assertNotEqual(result.returncode, 0)
 
-    def test_engine_settings_render_the_runtime_connection_for_both_engines(self) -> None:
+    def test_engine_settings_render_the_postgres_runtime_connection(self) -> None:
         printer = (
             "oteryn_platform_db_engine_settings || exit 1; "
             'printf "%s|" "$OTERYN_PLATFORM_DB_ENGINE" "$OTERYN_PLATFORM_DB_CONNECTION" "$OTERYN_PLATFORM_DB_HOST" '
             '"$OTERYN_PLATFORM_DB_PORT" "$OTERYN_PLATFORM_DB_USERNAME" "$OTERYN_PLATFORM_DB_PASSWORD" "$OTERYN_PLATFORM_DB_SSLMODE"'
         )
-        base = {"PLATFORM_DB_USER": "oteryn_platform", "PLATFORM_DB_PASSWORD": "mariadbTESTONLY", **FAKE}
+        base = dict(FAKE)
         with tempfile.TemporaryDirectory() as td:
             contract = Path(td) / "release-contract.env"
             contract.write_text("PLATFORM_DB_ENGINE=mariadb\n")
             result = run_lib(printer, {**base, "OTERYN_RELEASE_CONTRACT_FILE": str(contract)})
-            self.assertEqual(result.stdout, "mariadb|mysql|mariadb|3306|oteryn_platform|mariadbTESTONLY|prefer|", result.stderr)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "")
             contract.write_text("PLATFORM_DB_ENGINE=postgres\n")
             result = run_lib(printer, {**base, "OTERYN_RELEASE_CONTRACT_FILE": str(contract)})
             app = FAKE["PLATFORM_POSTGRES_APP_PASSWORD"]
@@ -737,7 +742,7 @@ class EngineSwitchTest(unittest.TestCase):
         self.assertIn("    oteryn_platform_db_engine_settings\n", loader)
 
     def test_secret_state_is_all_or_none_and_never_prints_a_value(self) -> None:
-        base = {"PLATFORM_DB_PASSWORD": "mariadbTESTONLY" + "m" * 16, "MARIADB_ROOT_PASSWORD": "rootTESTONLY" + "r" * 16}
+        base: dict[str, str] = {}
         cases = [
             ({}, 0, "absent"),
             (dict(FAKE), 0, "configured"),
@@ -745,8 +750,6 @@ class EngineSwitchTest(unittest.TestCase):
             ({**FAKE, "PLATFORM_POSTGRES_DUMP_PASSWORD": "short-but-safe"}, 1, ""),
             ({**FAKE, "PLATFORM_POSTGRES_DUMP_PASSWORD": "a" * 30 + " b"}, 1, ""),
             ({**FAKE, "PLATFORM_POSTGRES_DUMP_PASSWORD": FAKE["PLATFORM_POSTGRES_APP_PASSWORD"]}, 1, ""),
-            ({**FAKE, "PLATFORM_POSTGRES_OWNER_PASSWORD": base["PLATFORM_DB_PASSWORD"]}, 1, ""),
-            ({**FAKE, "PLATFORM_POSTGRES_SUPERUSER_PASSWORD": base["MARIADB_ROOT_PASSWORD"]}, 1, ""),
         ]
         for env, code, output in cases:
             result = run_lib("oteryn_postgres_secret_state", {**base, **env})
@@ -754,10 +757,7 @@ class EngineSwitchTest(unittest.TestCase):
             for value in list(FAKE.values()) + list(base.values()):
                 self.assertNotIn(value, result.stderr)
 
-    def test_reconcile_skips_without_secrets_and_refuses_the_postgres_engine_without_them(self) -> None:
-        result = run_lib('OTERYN_PLATFORM_DB_ENGINE=mariadb; oteryn_reconcile_postgres false')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("not started", result.stdout)
+    def test_reconcile_refuses_without_the_secrets(self) -> None:
         result = run_lib('OTERYN_PLATFORM_DB_ENGINE=postgres; oteryn_reconcile_postgres false')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("requires all PostgreSQL secrets", result.stderr)
@@ -787,7 +787,7 @@ class DeployWiringTest(unittest.TestCase):
             self.assertLess(self.deploy.index(gate), first_compose, gate)
         self.assertNotIn('if [[ "$OTERYN_PLATFORM_DB_ENGINE" != mariadb ]]; then', self.deploy)
 
-    def test_bootstrap_files_are_staged_and_postgres_reconciled_after_mariadb(self) -> None:
+    def test_bootstrap_files_are_staged_and_postgres_reconciled_after_tls_init(self) -> None:
         stage = self.deploy.split("stage_bootstrap_files() {", 1)[1].split("\n}\n", 1)[0]
         for source, target in (
             ("postgres/postgresql.conf", "postgres-postgresql.conf"),
@@ -797,7 +797,8 @@ class DeployWiringTest(unittest.TestCase):
             self.assertIn(f'docker cp "$DEPLOY_DIR/{source}" "$tls_container:/bootstrap/{target}"', stage)
         reconcile = self.deploy.index('oteryn_reconcile_postgres "${compose[@]}" || exit 1')
         self.assertLess(self.deploy.index('"${compose[@]}" up -d --force-recreate tls-init'), reconcile)
-        self.assertLess(self.deploy.index("FLUSH PRIVILEGES;"), reconcile)
+        self.assertNotIn("FLUSH PRIVILEGES;", self.deploy)
+        self.assertNotIn("up -d mariadb", self.deploy)
         self.assertLess(reconcile, self.deploy.index("\nfinalize_previous_candidate_if_healthy\n"))
         self.assertLess(reconcile, self.deploy.index('"${compose[@]}" up -d platform'))
 
@@ -883,13 +884,10 @@ class CutoverDeployWindowTest(unittest.TestCase):
         self.assertEqual(result.returncode == 0, expected_ok, f"{label}: {result.stderr}")
         self.assertIn(needle, result.stderr, label)
 
-    def test_mariadb_deploys_until_the_freeze_and_after_a_verified_rollback(self) -> None:
-        self.assert_gate(True, "mariadb")
-        self.assert_gate(True, "mariadb", ("PREFLIGHT",))
-        for steps in (("PREFLIGHT", "FREEZE"), ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "SMOKE", "ROLLBACK_STARTED"),
-                      ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "SMOKE", "REENABLE_STARTED")):
-            self.assert_gate(False, "mariadb", steps, True, needle="froze the stack")
-        self.assert_gate(True, "mariadb", ("PREFLIGHT", "FREEZE", "ROLLBACK_STARTED", "ROLLBACK_VERIFIED"))
+    def test_the_retired_mariadb_engine_never_deploys(self) -> None:
+        # P7: the engine resolver refuses mariadb, and the gate refuses it too whatever the cutover state.
+        for steps in ((), ("PREFLIGHT",), ("PREFLIGHT", "FREEZE", "ROLLBACK_STARTED", "ROLLBACK_VERIFIED")):
+            self.assert_gate(False, "mariadb", steps, True, needle="engine is not resolved")
 
     def test_postgres_deploys_only_after_the_bootstrap(self) -> None:
         # Merged before the freeze, or the merge-triggered deploy right after it: no bootstrap yet.
@@ -909,11 +907,10 @@ class CutoverDeployWindowTest(unittest.TestCase):
         retired = ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "SMOKE", "REENABLE_STARTED", "NATIVE_SMOKE", "DECLARED_DONE",
                    "RETIRE_STARTED", "MARIADB_RETIRED")
         with_mariadb = "services:\n  mariadb:\n    image: mariadb\n  platform:\n    image: x\n"
-        self.assert_gate(False, "postgres", retired, True, with_mariadb, needle="land P7b first")
+        self.assert_gate(False, "postgres", retired, True, with_mariadb, needle="still defines the mariadb service")
         self.assert_gate(True, "postgres", retired, True)
-        self.assert_gate(True, "postgres", retired, True, COMPOSE.read_text().replace("\n  mariadb:\n", "\n  retired:\n"))
-        if "\n  mariadb:\n" in COMPOSE.read_text():
-            self.assert_gate(False, "postgres", retired, True, COMPOSE.read_text(), needle="land P7b first")
+        self.assertNotIn("\n  mariadb:\n", COMPOSE.read_text())
+        self.assert_gate(True, "postgres", retired, True, COMPOSE.read_text())
 
     def test_links_and_unresolved_engines_are_refused(self) -> None:
         self.assert_gate(False, "", needle="engine is not resolved")
@@ -1006,16 +1003,13 @@ class PostgresEngineBranchTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(log.exists())
 
-    def test_deploy_migrates_by_engine_and_the_wrapper_brackets_both_forms(self) -> None:
+    def test_deploy_migrates_as_the_owner_and_the_wrapper_brackets_the_migration(self) -> None:
         branch = (
-            'if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres ]]; then\n'
-            "    # Owner role in a one-off container; the runtime platform container never holds the owner password.\n"
-            '    oteryn_platform_migrate_postgres "${compose[@]}"\n'
-            "else\n"
-            '    "${compose[@]}" exec -T platform php artisan migrate --force --no-interaction\n'
-            "fi\n"
+            "# Owner role in a one-off container; the runtime platform container never holds the owner password.\n"
+            'oteryn_platform_migrate_postgres "${compose[@]}"\n'
         )
         self.assertIn('"${compose[@]}" up -d platform\n' + branch, self.deploy)
+        self.assertNotIn("exec -T platform php artisan migrate", self.deploy)
         wrapper = self.body(self.lib, "docker")
         self.assertIn('|| "$joined" == *" ${OTERYN_POSTGRES_MIGRATE_ARGS[*]} "* ]]; then', wrapper)
         # The owner password never reaches the long-running services.
@@ -1089,13 +1083,17 @@ class PostgresEngineBranchTest(unittest.TestCase):
         self.assertIn("exec -T -u postgres postgres", restore)
         self.assertNotIn("PASSWORD", restore)
 
-    def test_recovery_restores_only_into_the_engine_that_wrote_the_backup(self) -> None:
+    def test_recovery_restores_only_a_postgres_backup(self) -> None:
         recover = RECOVER.read_text()
         self.assertIn("unset BACKUP_DB_ENGINE BACKUP_BASELINE_KIND", recover)
         self.assertIn("BACKUP_DB_ENGINE|BACKUP_BASELINE_KIND|", recover)
         self.assertIn('backup_engine="${BACKUP_DB_ENGINE:-mariadb}"', recover)
+        self.assertIn("Recovery rejected: the backup is MariaDB-era", recover)
         self.assertIn('[[ "$backup_engine" == "$OTERYN_PLATFORM_DB_ENGINE" ]] || {', recover)
-        self.assertIn('[[ "$backup_engine" != postgres ]] || backup_file="$backup_dir/platform.dump"', recover)
+        self.assertIn('backup_file="$backup_dir/platform.dump"', recover)
+        self.assertNotIn("platform.sql", recover)
+        self.assertNotIn("mariadb-dump", recover)
+        self.assertNotIn("MARIADB_", recover)
         self.assertIn(
             'oteryn_postgres_restore_platform "${compose[@]}" "$DEPLOY_DIR/postgres/init/10-platform-roles.sh" "$backup_file"',
             recover,
@@ -1105,7 +1103,7 @@ class PostgresEngineBranchTest(unittest.TestCase):
         self.assertLess(recover.index('[[ "$backup_engine" == "$OTERYN_PLATFORM_DB_ENGINE" ]]'), recover.index("SCHEMA_STATE=unknown"))
         self.assertLess(recover.index("SCHEMA_STATE=unknown"), recover.index("oteryn_postgres_restore_platform"))
 
-    def test_recovery_refuses_a_backup_of_the_other_engine_before_any_change(self) -> None:
+    def test_recovery_refuses_a_mariadb_era_or_unknown_backup_before_any_change(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             state = root / "state"
@@ -1122,7 +1120,8 @@ class PostgresEngineBranchTest(unittest.TestCase):
             fake_bin.mkdir()
             (fake_bin / "docker").write_text("#!/bin/sh\necho docker-called >&2\nexit 99\n")
             (fake_bin / "docker").chmod(0o755)
-            for engine_line, contract_engine in (("BACKUP_DB_ENGINE=postgres\n", "mariadb"), ("", "postgres"), ("BACKUP_DB_ENGINE=oracle\n", "mariadb")):
+            for engine_line, contract_engine in (("BACKUP_DB_ENGINE=postgres\n", "mariadb"), ("", "postgres"),
+                                                 ("BACKUP_DB_ENGINE=mariadb\n", "postgres"), ("BACKUP_DB_ENGINE=oracle\n", "postgres")):
                 evidence.write_text(engine_line + "BACKUP_FROM_RELEASE_SHA=" + "a" * 40 + "\n")
                 contract.write_text(f"PLATFORM_DB_ENGINE={contract_engine}\n")
                 result = subprocess.run(
@@ -1135,28 +1134,32 @@ class PostgresEngineBranchTest(unittest.TestCase):
                     },
                 )
                 self.assertNotEqual(result.returncode, 0, engine_line)
-                self.assertRegex(result.stderr, r"(taken on \w+ but the deploy engine is|unsupported database engine)", result.stderr)
+                self.assertRegex(result.stderr, r"(PLATFORM_DB_ENGINE must be postgres|backup is MariaDB-era|unsupported database engine)", result.stderr)
                 self.assertNotIn("docker-called", result.stderr)
 
     def test_fresh_baseline_counts_and_dumps_postgres_with_its_engine_in_the_evidence(self) -> None:
         baseline = BASELINE.read_text()
         counter = self.body(baseline, "platform_db_table_count")
         self.assertIn('oteryn_postgres_relation_count "${platform_db_compose[@]}"', counter)
-        self.assertIn("information_schema.tables WHERE table_schema='$PLATFORM_DB_NAME'", counter)
+        self.assertNotIn("information_schema.tables WHERE table_schema='$PLATFORM_DB_NAME'", counter)
         self.assertEqual(baseline.count('"$(platform_db_table_count)"'), 2)
         self.assertIn('oteryn_postgres_dump_platform "${platform_db_compose[@]}" "$backup_file" || exit 1', baseline)
-        self.assertIn('[[ "$OTERYN_PLATFORM_DB_ENGINE" != postgres ]] || backup_file="$backup_dir/platform.dump"', baseline)
+        self.assertIn('backup_file="$backup_dir/platform.dump"', baseline)
+        self.assertNotIn("mariadb-dump", baseline)
         self.assertLess(baseline.index("printf 'BACKUP_DB_ENGINE=postgres\\n'"), baseline.index("printf 'BACKUP_BASELINE_KIND=fresh-empty\\n'"))
 
-    def test_marketplace_uses_the_engine_database_service_and_owner_migration(self) -> None:
+    def test_marketplace_uses_the_postgres_service_and_owner_migration(self) -> None:
         marketplace = MARKETPLACE.read_text()
-        self.assertIn('[[ "$OTERYN_PLATFORM_DB_ENGINE" != postgres ]] || platform_db_service=postgres', marketplace)
-        self.assertIn('for service in "$platform_db_service" platform internal-proxy gateway; do', marketplace)
+        self.assertIn("for service in postgres platform internal-proxy gateway; do", marketplace)
+        self.assertNotIn("mariadb", marketplace)
+        self.assertNotIn("MARIADB_", marketplace)
         self.assertIn('[[ "$service" != postgres ]] || profile=(--profile postgres)', marketplace)
         self.assertIn('pending_count="$(oteryn_postgres_non_terminal_auction_count "${compose[@]}")"', marketplace)
         enable = marketplace.split("    enable)\n", 1)[1].split("\n        ;;\n", 1)[0]
         self.assertLess(enable.index("--force-recreate platform"), enable.index('oteryn_platform_migrate_postgres "${compose[@]}"'))
         self.assertIn("requires all five PostgreSQL secrets", marketplace)
+        # The Bazaar transfer-contract refusal still answers first, before any secret or stack check.
+        self.assertLess(marketplace.index("no character transfer/escrow contract"), marketplace.index("requires all five PostgreSQL secrets"))
 
     def test_auction_count_helper_reads_the_platform_database_as_the_local_superuser(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -1167,9 +1170,10 @@ class PostgresEngineBranchTest(unittest.TestCase):
         self.assertIn("ARGV compose --profile postgres exec -T -u postgres postgres psql -X -q -t -A -v ON_ERROR_STOP=1 -d oteryn_platform -c", argv)
         self.assertIn("tablename = 'character_auctions'", argv)
 
-    def test_health_check_requires_the_secrets_and_the_app_role_on_the_postgres_engine(self) -> None:
+    def test_health_check_requires_the_secrets_and_the_app_role(self) -> None:
         health = HEALTH.read_text()
-        self.assertIn('if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres && "$postgres_secret_state" != configured ]]; then', health)
+        self.assertIn('postgres_secret_state="$(oteryn_postgres_secret_state)" || exit 1\nif [[ "$postgres_secret_state" != configured ]]; then', health)
+        self.assertNotIn("mariadb", health)
         self.assertIn("DB_CONNECTION:pgsql DB_HOST:postgres DB_USERNAME:oteryn_platform_app DB_SSLMODE:verify-full", health)
         self.assertNotIn("container_env_value platform DB_PASSWORD", health)
 
@@ -1186,20 +1190,21 @@ class PreflightPostgresTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.preflight = PREFLIGHT.read_text()
-        cls.postgres = cls.preflight.split('if [[ "$platform_db_engine" == postgres ]]; then\n    postgres_sql() {', 1)[1]
-        cls.postgres = cls.postgres.split('    postgres_tls_and_roles="PASS"\nfi\n', 1)[0]
+        cls.postgres = cls.preflight.split("\npostgres_sql() {", 1)[1]
+        cls.postgres = cls.postgres.split('\npostgres_tls_and_roles="PASS"\n', 1)[0]
 
     def test_engine_is_read_from_the_release_contract_and_adds_the_postgres_service(self) -> None:
         self.assertIn(
             "platform_db_engine=\"$(sed -n 's/^PLATFORM_DB_ENGINE=//p' \"$script_dir/../release-contract.env\")\"", self.preflight
         )
-        self.assertIn("services+=(postgres)", self.preflight)
-        self.assertIn("healthy_services+=(postgres)", self.preflight)
-        self.assertIn("unpublished_services+=(postgres)", self.preflight)
+        self.assertIn('[[ "$platform_db_engine" == postgres ]] \\\n    || fail "release-contract.env PLATFORM_DB_ENGINE must be postgres"', self.preflight)
+        self.assertIn("services=(postgres platform internal-proxy gateway marketplace-scheduler)", self.preflight)
+        self.assertIn("healthy_services=(postgres marketplace-scheduler)", self.preflight)
+        self.assertIn("unpublished_services=(postgres marketplace-scheduler internal-proxy)", self.preflight)
         self.assertIn("assert_named_volume postgres /var/lib/postgresql/data", self.preflight)
-        # MariaDB checks stay as they were on the mariadb engine.
-        self.assertIn("assert_named_volume mariadb /var/lib/mysql", self.preflight)
-        self.assertIn('[[ -n "$mariadb_root_password" ]] || fail "MARIADB_ROOT_PASSWORD is required"', self.preflight)
+        # P7: the retired MariaDB checks are gone.
+        self.assertNotIn("mariadb", self.preflight)
+        self.assertNotIn("MARIADB_", self.preflight)
 
     def test_server_tls_hba_and_role_split_are_checked_as_the_local_superuser(self) -> None:
         for marker in (
@@ -1231,22 +1236,16 @@ class PreflightPostgresTest(unittest.TestCase):
             self.assertIn(marker, self.postgres)
 
     def test_restore_drill_cleanup_failure_fails_the_drill_instead_of_reporting_pass(self) -> None:
-        for engine_marker, end_marker in (
-            ("def drop_restore_database():", "def dump_command(database):"),
-            ("def drop_restore_databases():", "def dump_command(database):"),
-        ):
-            drop = self.preflight.split(engine_marker, 1)[1].split(end_marker, 1)[0]
-            self.assertNotRegex(drop, r"except subprocess\.CalledProcessError:\s*\n\s*pass")
-            self.assertIn("SystemExit", drop)
-            self.assertIn("may still hold Platform data", drop)
-        postgres = self.preflight.split("def drop_restore_database():", 1)[1].split("def dump_command(database):", 1)[0]
-        self.assertIn("FROM pg_database WHERE datname", postgres)
-        mariadb = self.preflight.split("def drop_restore_databases():", 1)[1].split("def dump_command(database):", 1)[0]
-        self.assertIn("information_schema.schemata", mariadb)
+        drop = self.preflight.split("def drop_restore_database():", 1)[1].split("def dump_command(database):", 1)[0]
+        self.assertNotRegex(drop, r"except subprocess\.CalledProcessError:\s*\n\s*pass")
+        self.assertIn("SystemExit", drop)
+        self.assertIn("may still hold Platform data", drop)
+        self.assertIn("FROM pg_database WHERE datname", drop)
+        self.assertNotIn("def drop_restore_databases():", self.preflight)
 
     def test_postgres_restore_drill_streams_into_a_scratch_database_and_always_drops_it(self) -> None:
-        drill = self.preflight.split('if [[ "$run_restore_drill" == "true" && "$platform_db_engine" == postgres ]]; then', 1)[1]
-        drill = drill.split('elif [[ "$run_restore_drill" == "true" ]]; then', 1)[0]
+        drill = self.preflight.split('if [[ "$run_restore_drill" == "true" ]]; then\n    # PostgreSQL drill', 1)[1]
+        drill = drill.split("\nfi\n", 1)[0]
         for marker in (
             "'pg_dump', '--format=plain', '--no-owner', '--no-privileges'",
             "'--single-transaction', '-d', target",

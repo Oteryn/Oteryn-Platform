@@ -19,12 +19,12 @@ Synology LAN address (opt-in, see Platform internal mTLS listener)
   8543 -> internal-mtls (TLS 1.3 + client certificate) -> FastCGI unix socket -> Platform
 
 Docker private bridge
-  Platform <-> MariaDB
-  Scheduler (always on) <-> MariaDB
+  Platform <-> PostgreSQL (verify-full TLS)
+  Scheduler (always on) <-> PostgreSQL (verify-full TLS)
   Gateway -> HTTPS internal proxy -> Platform private API
 ```
 
-The Gateway never receives database credentials. Its non-loopback dependencies use generated staging-only TLS certificates and hostname verification. MariaDB is not published on host ports. Platform and Gateway remain host-loopback-only.
+The Gateway never receives database credentials. Its non-loopback dependencies use generated staging-only TLS certificates and hostname verification. PostgreSQL is not published on host ports. Platform and Gateway remain host-loopback-only.
 
 The user-visible Platform origin is a separate concern from the private origin binding. The guarded public staging deployment requires `APP_URL=https://oteryn.molehill.cloud` for requestless console, scheduler, notification, reset, verification and signed URL generation while continuing to bind Platform only to `127.0.0.1:8000`.
 
@@ -70,11 +70,11 @@ Required secrets:
 
 ```text
 OTERYN_STAGING_APP_KEY
-OTERYN_STAGING_MARIADB_ROOT_PASSWORD
-OTERYN_STAGING_PLATFORM_DB_PASSWORD
 OTERYN_STAGING_PLATFORM_SERVICE_TOKEN
 OTERYN_STAGING_PLATFORM_SERVICE_TOKEN_SHA256
 ```
+
+plus the five `OTERYN_STAGING_PLATFORM_POSTGRES_*_PASSWORD` secrets (*PostgreSQL service*). The retired `OTERYN_STAGING_MARIADB_ROOT_PASSWORD` and `OTERYN_STAGING_PLATFORM_DB_PASSWORD` are no longer read by any deploy script (plan P7); remove them only after the deploy workflow stops rendering them.
 
 Optional rotation secrets:
 
@@ -128,7 +128,7 @@ A `deploy` run:
 4. writes a permission-restricted ephemeral `.env` from GitHub Environment secrets;
 5. validates required values and service-token hashes;
 6. pulls prebuilt images;
-7. starts MariaDB and internal TLS bootstrap;
+7. starts internal TLS bootstrap and reconciles PostgreSQL (roles, TLS and privilege contract) and its backups;
 8. starts Platform, runs migrations and ensures the native OAuth client exists;
 9. starts the internal TLS proxy and Game Gateway;
 10. verifies Platform/Gateway health and every exact host-port binding;
@@ -178,7 +178,7 @@ The Game node calls Platform's Game-node internal routes over mutual TLS on the 
 - TLS 1.3 only, `ssl_verify_client on`, depth 1 (client certificates are issued directly by the preprod CA), no session tickets.
 - `SSL_CLIENT_VERIFY`, `SSL_PROTOCOL` and `SSL_CLIENT_S_DN` reach PHP only as FastCGI parameters from the TLS session; request headers cannot set them, and forwarding headers are blanked. Platform's peer middleware still requires `SUCCESS`, `TLSv1.3` and an allowlisted subject DN on every request.
 - Only `POST /internal/v1/game-auth/{native-evidence, native-runtime-status, native-scope-assignments, native-account-characters, native-account-characters/watermark, character-bootstrap-intents/read}` exist. `native-admissions` (Gateway only), the premium-snapshot and game-public families and every other path return 404.
-- The FastCGI socket lives on the `platform_fastcgi` tmpfs volume, shared only by `platform` and `internal-mtls`; there is no FastCGI TCP port. The terminator joins only the `mtls_edge` network, so it cannot reach MariaDB, Gateway or the internal proxy. With Platform stopped it answers 502.
+- The FastCGI socket lives on the `platform_fastcgi` tmpfs volume, shared only by `platform` and `internal-mtls`; there is no FastCGI TCP port. The terminator joins only the `mtls_edge` network, so it cannot reach PostgreSQL, Gateway or the internal proxy. With Platform stopped it answers 502.
 - Platform starts its pool only when `OTERYN_PLATFORM_FASTCGI_ENABLED=true` (fed from the same `OTERYN_PLATFORM_MTLS_ENABLED` value); `php artisan serve` on :8000 is unchanged.
 
 Settings (environment file or exported variable, else `native-defaults.env` `OTERYN_STAGING_NATIVE_PLATFORM_MTLS_*`, else the built-in default):
@@ -247,17 +247,15 @@ The D171 fallback and its `OTERYN_STAGING_NATIVE_WORLD_ID` tie are gone from the
 
 ## PostgreSQL service
 
-ADR 0046 and `docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md` (packet P4) add a PostgreSQL 17 service beside MariaDB. In P4 it is **idle**: Platform and the scheduler keep using MariaDB, and nothing reads or writes Platform data in PostgreSQL. The service exists so the role split, TLS and health contract are proven on the NAS before the staging cutover (P6).
+ADR 0046 makes PostgreSQL 17 the Platform database. `docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md` added it beside MariaDB (P4), cut staging over (P6, `scripts/cutover-postgres.sh`) and removed MariaDB (P7): `compose.yml` has no `mariadb` service or `mariadb_data` volume, and no deploy script reads `MARIADB_ROOT_PASSWORD`, `PLATFORM_DB_USER` or `PLATFORM_DB_PASSWORD`.
 
-Engine switch: `release-contract.env` `PLATFORM_DB_ENGINE` (`postgres`, the committed value since P6 cutover step 2, or `mariadb`). `lib.sh` exports the runtime connection (`OTERYN_PLATFORM_DB_*`) that `compose.yml` passes to Platform and the scheduler as `DB_*`. Every image carries the engine in its release contract, and a candidate built for the other engine is refused. The flip to `postgres` merges only after the cutover freeze is recorded (`cutover-postgres.sh` preflight and freeze refuse a `postgres` contract); until native re-enable (step 4) the rollback is a reviewed revert to `mariadb`, with which nothing below changes. While the cutover owns the stack, `deploy.sh` and `deploy-impact.sh` refuse before any change (`lib.sh` `oteryn_require_cutover_deploy_window`): on `mariadb` from the recorded freeze until a verified rollback; on `postgres` until the clean-slate bootstrap wrote `bootstrap-complete.env`, once a cutover rollback started, and after `retire-mariadb` while `compose.yml` still defines the `mariadb` service. So the deploy that the flip's merge dispatches fails closed, and the operator deploys after the bootstrap (plan step 2).
+Engine: `release-contract.env` `PLATFORM_DB_ENGINE=postgres`, the only value `lib.sh` accepts. `lib.sh` exports the runtime connection (`OTERYN_PLATFORM_DB_*`) that `compose.yml` passes to Platform and the scheduler as `DB_*`. Every image carries the engine in its release contract, and a candidate or rollback image built for MariaDB (no engine, or `mariadb`) is refused. `deploy.sh` and `deploy-impact.sh` still run `lib.sh` `oteryn_require_cutover_deploy_window` before any change: a deploy needs the clean-slate bootstrap's `bootstrap-complete.env`, and is refused once a cutover rollback started or when a compose file defines the retired `mariadb` service after `retire-mariadb`.
 
-With `postgres` (packet P4b), the scripts branch on the engine:
-
-- `deploy.sh` requires all five secrets and `PLATFORM_DB_NAME=oteryn_platform`, reconciles the roles before Platform starts, and runs migrations as `oteryn_platform_owner` in a one-off `platform` container (`docker compose run --rm` with `--database=pgsql_migrations`). The owner password reaches that container only as a named environment variable and never reaches the long-running services, which connect as `oteryn_platform_app`. Route publication (`OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED=true`) stays refused on `postgres` until the ADR 0044 PostgreSQL amendment is accepted.
-- The pre-migration backup and the fresh-schema baseline write `platform.dump`: `pg_dump -Fc` as `oteryn_platform_dump` over `verify-full` TLS, password on standard input, kept only when `pg_restore --list` reads it. The evidence then starts with `BACKUP_DB_ENGINE=postgres`.
-- Schema recovery restores a backup only into the engine that wrote it; evidence without `BACKUP_DB_ENGINE` is a MariaDB backup. On `postgres` the local superuser (socket, peer, no password) drops the database `WITH (FORCE)`, recreates it with the role script in `--database-only` mode, runs `pg_restore --single-transaction` as the owner and re-applies the grants.
+- `deploy.sh` requires all five secrets and `PLATFORM_DB_NAME=oteryn_platform`, reconciles the roles before Platform starts, and runs migrations as `oteryn_platform_owner` in a one-off `platform` container (`docker compose run --rm` with `--database=pgsql_migrations`). The owner password reaches that container only as a named environment variable and never reaches the long-running services, which connect as `oteryn_platform_app`. Route publication (`OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED=true`) stays refused until the ADR 0044 PostgreSQL amendment is accepted. The fast and reconcile paths preserve the `postgres` container.
+- The pre-migration backup and the fresh-schema baseline write `platform.dump`: `pg_dump -Fc` as `oteryn_platform_dump` over `verify-full` TLS, password on standard input, kept only when `pg_restore --list` reads it. The evidence starts with `BACKUP_DB_ENGINE=postgres`.
+- Schema recovery refuses evidence without `BACKUP_DB_ENGINE=postgres` (a MariaDB-era backup). The local superuser (socket, peer, no password) drops the database `WITH (FORCE)`, recreates it with the role script in `--database-only` mode, runs `pg_restore --single-transaction` as the owner and re-applies the grants.
 - Marketplace staging control checks pending auctions in PostgreSQL and migrates as the owner.
-- The health check requires the Platform container to connect as the app role over `verify-full`. The production-target preflight additionally checks TLS 1.3, SCRAM, `pg_hba`, the role attributes and ownership, that no TCP client is connected without TLS, and a Platform PDO probe proving the app role cannot create tables. Its restore drill streams a plain dump into a scratch database and drops it afterwards.
+- The health check requires the `postgres` service and the Platform container to connect as the app role over `verify-full`. The production-target preflight additionally checks TLS 1.3, SCRAM, `pg_hba`, the role attributes and ownership, that no TCP client is connected without TLS, and a Platform PDO probe proving the app role cannot create tables. Its restore drill streams a plain dump into a scratch database and drops it afterwards.
 
 Service contract (`compose.yml` service `postgres`, profile `postgres`):
 
@@ -278,7 +276,7 @@ Roles (`postgres/init/10-platform-roles.sh`, re-applied on every full deploy):
 
 None has `SUPERUSER`, `CREATEDB`, `CREATEROLE` or `BYPASSRLS`. Default privileges extend the grants to every object the owner creates later.
 
-Secrets (owner action): the five optional `OTERYN_STAGING_PLATFORM_POSTGRES_*_PASSWORD` secrets of the `synology-staging` environment. Set all five or none; each must be a distinct generated value of at least 24 characters from `A-Z a-z 0-9 . _ -` (for example `openssl rand -hex 32`), and none may equal the MariaDB passwords. The deploy workflow and `lib.sh` refuse a partial or unsafe set before any stack change and never print a value. While none is set, the deploy skips PostgreSQL and the health check ignores it. Once all are set, every full deploy:
+Secrets (owner action): the five `OTERYN_STAGING_PLATFORM_POSTGRES_*_PASSWORD` secrets of the `synology-staging` environment, all required. Each must be a distinct generated value of at least 24 characters from `A-Z a-z 0-9 . _ -` (for example `openssl rand -hex 32`). The deploy workflow and `lib.sh` refuse a missing, partial or unsafe set before any stack change and never print a value. Every full deploy:
 
 1. stages `postgresql.conf`, `pg_hba.conf` and the role script into `bootstrap_files`;
 2. starts `postgres` (the first start runs `initdb` with the superuser password and data checksums);
@@ -332,7 +330,7 @@ bash deploy/synology/scripts/rollback.sh
 
 - This package does not make staging evidence `PRODUCTION_PROVEN`.
 - It does not configure Cloudflare certificates, WAF/Bot/Access rules, redirects or HSTS.
-- It does not expose DSM, Docker Engine TCP, MariaDB publicly.
+- It does not expose DSM, Docker Engine TCP or PostgreSQL publicly.
 - It does not authorize router port forwarding or Internet exposure of game TCP.
 - A fully usable desktop native-login flow additionally requires an exact compatible OTClient build and trusted browser/OAuth/Gateway endpoint configuration.
 

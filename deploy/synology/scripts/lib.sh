@@ -72,9 +72,10 @@ load_oteryn_env_file() {
     oteryn_resolve_game_node_route_settings
 }
 
-# Platform database engine (ADR 0046, docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md P4). The single
-# switch is PLATFORM_DB_ENGINE in the committed deploy/synology/release-contract.env, read as data and never
-# sourced; absent means mariadb. P4 ran the postgres service idle beside MariaDB; P6 cutover step 2 commits postgres.
+# Platform database engine (ADR 0046, docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md P7). The committed
+# deploy/synology/release-contract.env declares PLATFORM_DB_ENGINE, read as data and never sourced. PostgreSQL is
+# the only engine since the P6 cutover retired MariaDB; the value stays in the contract (and in every Platform
+# image) so a rollback still refuses a MariaDB-era image (oteryn_require_image_db_engine).
 oteryn_platform_db_engine() {
     local file value
     file="${OTERYN_RELEASE_CONTRACT_FILE:-$(dirname "${BASH_SOURCE[0]}")/../release-contract.env}"
@@ -84,37 +85,26 @@ oteryn_platform_db_engine() {
     fi
     value="$(sed -n 's/^PLATFORM_DB_ENGINE=//p' "$file" | tail -n 1)"
     value="${value%$'\r'}"
-    case "${value:-mariadb}" in
-        mariadb|postgres) printf '%s\n' "${value:-mariadb}" ;;
-        *) echo "PLATFORM_DB_ENGINE must be mariadb or postgres." >&2; return 1 ;;
-    esac
+    if [[ "$value" != postgres ]]; then
+        echo "PLATFORM_DB_ENGINE must be postgres (MariaDB was retired by the P6 cutover)." >&2
+        return 1
+    fi
+    printf '%s\n' "$value"
 }
 
 # Exports the engine and the Platform runtime connection that compose.yml maps into the platform and
-# marketplace-scheduler services (x-platform-db-*). The postgres engine gives the runtime role only
-# (oteryn_platform_app) with verify-full TLS against the stack CA; the owner, backup, dump and superuser
-# passwords never reach a Platform container.
+# marketplace-scheduler services (x-platform-db-*): the runtime role only (oteryn_platform_app) with
+# verify-full TLS against the stack CA; the owner, backup, dump and superuser passwords never reach a
+# Platform container.
 oteryn_platform_db_engine_settings() {
     local engine
     engine="$(oteryn_platform_db_engine)" || return 1
-    case "$engine" in
-        mariadb)
-            OTERYN_PLATFORM_DB_CONNECTION=mysql
-            OTERYN_PLATFORM_DB_HOST=mariadb
-            OTERYN_PLATFORM_DB_PORT=3306
-            OTERYN_PLATFORM_DB_USERNAME="${PLATFORM_DB_USER:-}"
-            OTERYN_PLATFORM_DB_PASSWORD="${PLATFORM_DB_PASSWORD:-}"
-            OTERYN_PLATFORM_DB_SSLMODE=prefer
-            ;;
-        postgres)
-            OTERYN_PLATFORM_DB_CONNECTION=pgsql
-            OTERYN_PLATFORM_DB_HOST=postgres
-            OTERYN_PLATFORM_DB_PORT=5432
-            OTERYN_PLATFORM_DB_USERNAME=oteryn_platform_app
-            OTERYN_PLATFORM_DB_PASSWORD="${PLATFORM_POSTGRES_APP_PASSWORD:-}"
-            OTERYN_PLATFORM_DB_SSLMODE=verify-full
-            ;;
-    esac
+    OTERYN_PLATFORM_DB_CONNECTION=pgsql
+    OTERYN_PLATFORM_DB_HOST=postgres
+    OTERYN_PLATFORM_DB_PORT=5432
+    OTERYN_PLATFORM_DB_USERNAME=oteryn_platform_app
+    OTERYN_PLATFORM_DB_PASSWORD="${PLATFORM_POSTGRES_APP_PASSWORD:-}"
+    OTERYN_PLATFORM_DB_SSLMODE=verify-full
     OTERYN_PLATFORM_DB_ENGINE="$engine"
     export OTERYN_PLATFORM_DB_ENGINE OTERYN_PLATFORM_DB_CONNECTION OTERYN_PLATFORM_DB_HOST \
         OTERYN_PLATFORM_DB_PORT OTERYN_PLATFORM_DB_USERNAME OTERYN_PLATFORM_DB_PASSWORD OTERYN_PLATFORM_DB_SSLMODE
@@ -133,15 +123,14 @@ oteryn_require_postgres_secrets_for_engine() {
 }
 
 # Cutover deploy window (ADR 0046, plan P6, scripts/cutover-postgres.sh). An ordinary deploy must not touch the
-# stack while the cutover owns it. Refuses (returns 1), read-only and before any stack change:
-#   - the mariadb engine from the recorded freeze until a verified rollback: it would restart the frozen stack
-#     (the cutover rollback itself runs rollback.sh, which this gate leaves alone);
+# stack while the cutover owns it. Since P7 the engine is postgres only. Refuses (returns 1), read-only and
+# before any stack change:
 #   - the postgres engine before the clean-slate bootstrap finished (no regular bootstrap-complete.env): a
 #     merge-triggered deploy would migrate the empty database, which the bootstrap then refuses, or cut the
 #     stack over without the freeze. The deploy after the bootstrap (plan step 2) and every later one pass;
 #   - the postgres engine once a cutover rollback started;
-#   - the postgres engine after retire-mariadb while the compose file still defines the mariadb service: it
-#     would recreate the retired service.
+#   - a compose file that defines the retired mariadb service after retire-mariadb (a reverted P7): it would
+#     recreate the retired service.
 # The paths follow cutover-postgres.sh (OTERYN_STATE_DIR, OTERYN_CUTOVER_STATE_DIR, OTERYN_PG_BOOTSTRAP_STATE_DIR).
 # Usage: oteryn_require_cutover_deploy_window <compose file>
 oteryn_require_cutover_deploy_window() {
@@ -154,13 +143,6 @@ oteryn_require_cutover_deploy_window() {
         return 1
     fi
     case "${OTERYN_PLATFORM_DB_ENGINE:-}" in
-        mariadb)
-            if _oteryn_cutover_step_recorded "$state_file" FREEZE \
-                && ! _oteryn_cutover_step_recorded "$state_file" ROLLBACK_VERIFIED; then
-                echo "Deploy refused: the PostgreSQL cutover froze the stack and no verified rollback is recorded; continue the cutover or finish its rollback first." >&2
-                return 1
-            fi
-            ;;
         postgres)
             if [[ ! -f "$complete_file" || -L "$complete_file" ]]; then
                 echo "Deploy refused: PLATFORM_DB_ENGINE=postgres but the PostgreSQL bootstrap is not complete ($complete_file); run the cutover (preflight, freeze, bootstrap) first." >&2
@@ -171,7 +153,7 @@ oteryn_require_cutover_deploy_window() {
                 return 1
             fi
             if _oteryn_cutover_step_recorded "$state_file" MARIADB_RETIRED && grep -q '^  mariadb:' "$compose_file"; then
-                echo "Deploy refused: MariaDB is retired but the compose file still defines the mariadb service; land P7b first." >&2
+                echo "Deploy refused: MariaDB is retired but the compose file still defines the mariadb service." >&2
                 return 1
             fi
             ;;
@@ -195,7 +177,7 @@ _oteryn_cutover_step_recorded() {
 # the runtime platform and marketplace-scheduler services keep the app role only. FastCGI is off in the
 # one-off container: its entrypoint would otherwise start a second pool and replace the socket the
 # running Platform shares with internal-mtls. The deploy.sh docker() wrapper below matches these exact
-# arguments for the pre-migration dump and the schema-state bookkeeping, as for the MariaDB exec form.
+# arguments for the pre-migration dump and the schema-state bookkeeping.
 OTERYN_POSTGRES_MIGRATE_ARGS=(
     run --rm --no-deps -T
     -e OTERYN_PLATFORM_FASTCGI_ENABLED=false
@@ -385,7 +367,7 @@ oteryn_postgres_certificate_is_current() {
 
 # Prints `configured` when all five secrets are set, `absent` when none is; refuses a partial or malformed
 # set. Each value is generated hex/alphanumeric of at least 24 characters, distinct from every other
-# PostgreSQL secret and from the MariaDB passwords. Values are never printed.
+# PostgreSQL secret. Values are never printed.
 oteryn_postgres_secret_state() {
     local name value count=0 seen=' '
     for name in "${OTERYN_POSTGRES_SECRET_NAMES[@]}"; do
@@ -396,7 +378,7 @@ oteryn_postgres_secret_state() {
             echo "$name must be at least 24 generated hex/alphanumeric characters." >&2
             return 1
         fi
-        if [[ "$seen" == *" $value "* || "$value" == "${PLATFORM_DB_PASSWORD:-}" || "$value" == "${MARIADB_ROOT_PASSWORD:-}" ]]; then
+        if [[ "$seen" == *" $value "* ]]; then
             echo "$name must be distinct from every other database secret." >&2
             return 1
         fi
@@ -436,8 +418,7 @@ _oteryn_postgres_role_sql() {
 # Starts the idle postgres service, re-applies pg_hba.conf, the database and the role split, and proves the
 # P4 contract before the deploy continues: TLS-only logins, verify-full works, the runtime role cannot
 # create objects, the runtime and dump roles own nothing and no Platform role has elevated attributes.
-# Without the PostgreSQL secrets the service is not started on the mariadb engine (P4 stays optional);
-# the postgres engine requires them. Usage: oteryn_reconcile_postgres <compose command...>
+# The postgres engine requires all PostgreSQL secrets. Usage: oteryn_reconcile_postgres <compose command...>
 oteryn_reconcile_postgres() {
     local -a compose=("$@")
     local state deadline status output container
@@ -446,13 +427,8 @@ oteryn_reconcile_postgres() {
 
     state="$(oteryn_postgres_secret_state)" || return 1
     if [[ "$state" == absent ]]; then
-        if [[ "${OTERYN_PLATFORM_DB_ENGINE:-}" == postgres ]]; then
-            echo "PLATFORM_DB_ENGINE=postgres requires all PostgreSQL secrets." >&2
-            return 1
-        fi
-        echo "PostgreSQL secrets are not configured; the idle postgres service is not started."
-        oteryn_postgres_reconcile_clear
-        return 0
+        echo "PLATFORM_DB_ENGINE=postgres requires all PostgreSQL secrets." >&2
+        return 1
     fi
     oteryn_postgres_reconcile_clear
     if [[ ! "$timeout" =~ ^[1-9][0-9]*$ ]]; then
@@ -982,7 +958,8 @@ _oteryn_contract_from_platform_image() {
     [[ "$policy" == expand-contract ]] || { echo "Platform image migration policy must be expand-contract." >&2; return 1; }
     [[ "$schema" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || { echo "Platform image schema compatibility identity is invalid." >&2; return 1; }
     [[ "$accepts" =~ ^[A-Za-z0-9._-]+(,[A-Za-z0-9._-]+)*$ ]] || { echo "Platform image accepted schema identity list is invalid." >&2; return 1; }
-    # An image built before the engine switch existed carries no PLATFORM_DB_ENGINE: it is a MariaDB image.
+    # An image built before the engine switch existed carries no PLATFORM_DB_ENGINE: it is a MariaDB image,
+    # which every deploy and rollback now refuses (oteryn_require_image_db_engine).
     engine="${engine:-mariadb}"
     [[ "$engine" == mariadb || "$engine" == postgres ]] || { echo "Platform image database engine is invalid." >&2; return 1; }
     printf '%s\t%s\t%s\t%s\n' "$policy" "$schema" "$accepts" "$engine"
@@ -1065,19 +1042,10 @@ _oteryn_bootstrap_legacy_current_release() {
     [[ ! -f "$current_file" ]] || return 0
 
     if [[ ! -f "$legacy_file" ]]; then
-        if [[ "${OTERYN_PLATFORM_DB_ENGINE:-}" == postgres ]]; then
-            table_count="$(oteryn_postgres_relation_count command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")" || {
-                echo "Cannot determine whether Platform DB is fresh; refusing migration." >&2
-                return 1
-            }
-        else
-            table_count="$(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T \
-                -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb mariadb -uroot -N -e \
-                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$PLATFORM_DB_NAME';")" || {
-                echo "Cannot determine whether Platform DB is fresh; refusing migration." >&2
-                return 1
-            }
-        fi
+        table_count="$(oteryn_postgres_relation_count command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")" || {
+            echo "Cannot determine whether Platform DB is fresh; refusing migration." >&2
+            return 1
+        }
         [[ "$table_count" =~ ^[0-9]+$ ]] || { echo "Cannot determine whether Platform DB is fresh; refusing migration." >&2; return 1; }
         if (( table_count > 0 )); then
             echo "Existing Platform DB has no managed application baseline; refusing migration before backup-capable baseline is proven." >&2
@@ -1119,24 +1087,7 @@ OTERYN_RETIRED_MARKETPLACE_STATE_KEYS=(
 )
 
 _oteryn_marketplace_non_terminal_auction_count() {
-    local -a db=(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T
-        -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb mariadb -uroot -N -B -e)
-    local table_count pending
-
-    if [[ "${OTERYN_PLATFORM_DB_ENGINE:-}" == postgres ]]; then
-        oteryn_postgres_non_terminal_auction_count command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE"
-        return
-    fi
-
-    table_count="$("${db[@]}" "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$PLATFORM_DB_NAME' AND table_name='character_auctions';")" || return 1
-    [[ "$table_count" =~ ^[0-9]+$ ]] || return 1
-    if [[ "$table_count" == 0 ]]; then
-        printf '0\n'
-        return 0
-    fi
-    pending="$("${db[@]}" "SELECT COUNT(*) FROM \`$PLATFORM_DB_NAME\`.character_auctions WHERE status IN ('escrow_pending','active','settlement_pending','cancel_pending','recovery_required');")" || return 1
-    [[ "$pending" =~ ^[0-9]+$ ]] || return 1
-    printf '%s\n' "$pending"
+    oteryn_postgres_non_terminal_auction_count command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE"
 }
 
 # Reverse of _oteryn_quiesce_platform_db_consumers for a refused migration: starts only
@@ -1530,22 +1481,13 @@ _oteryn_before_platform_migrate() {
         backup_dir="$state_dir/backups/${old_sha}-before-${release_sha}"
         mkdir -p "$backup_dir"
         chmod 700 "$backup_dir"
-        if [[ "${OTERYN_PLATFORM_DB_ENGINE:-}" == postgres ]]; then
-            # pg_dump -Fc by the read-only dump role, validated with pg_restore --list (plan P4 work 5).
-            backup_file="$backup_dir/platform.dump"
-            oteryn_postgres_dump_platform command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$backup_file" || return 1
-        else
-            backup_file="$backup_dir/platform.sql"
-            command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T \
-                -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb \
-                mariadb-dump -uroot --single-transaction --routines --triggers --events "$PLATFORM_DB_NAME" >"$backup_file.tmp"
-            chmod 600 "$backup_file.tmp"
-            mv "$backup_file.tmp" "$backup_file"
-        fi
+        # pg_dump -Fc by the read-only dump role, validated with pg_restore --list (plan P4 work 5).
+        backup_file="$backup_dir/platform.dump"
+        oteryn_postgres_dump_platform command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$backup_file" || return 1
         backup_meta="$backup_dir/evidence.env"
         {
-            # Absent means mariadb (every backup written before the engine switch).
-            [[ "${OTERYN_PLATFORM_DB_ENGINE:-}" != postgres ]] || printf 'BACKUP_DB_ENGINE=postgres\n'
+            # A backup without this key is MariaDB-era; recover-schema.sh refuses it.
+            printf 'BACKUP_DB_ENGINE=postgres\n'
             printf 'BACKUP_FROM_RELEASE_SHA=%s\n' "$old_sha"
             printf 'BACKUP_BEFORE_RELEASE_SHA=%s\n' "$release_sha"
             printf 'BACKUP_SCHEMA_COMPATIBILITY_ID=%s\n' "$old_schema"
@@ -1633,7 +1575,7 @@ docker() {
 
 # Owner decision D1006: with native admission switched on, every Platform (re)creation for a
 # release, rollback or Marketplace switch trusts the PUBLIC half of the
-# Platform issuer's current signing key in the deployment's own signing trust registry (MariaDB),
+# Platform issuer's current signing key in the deployment's own signing trust registry (PostgreSQL),
 # after the key exists and before the signing self-check verifies against that registry. The
 # command derives the public key from the loaded private key, refuses outside testing or
 # preproduction, keeps every registry rule (a kid is bound to one key forever, revoked kids stay

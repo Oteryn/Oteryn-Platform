@@ -234,7 +234,7 @@ def test_fast_deploy_path_reconciles_when_listener_inputs_change() -> None:
     assert 'want_mtls_fingerprint="$(oteryn_platform_mtls_fingerprint)"' in check
     assert '"$(oteryn_platform_mtls_fingerprint_of "$mtls_id")" != "$want_mtls_fingerprint"' in check
     assert "FAST_DEPLOY_REASON='platform mTLS listener configuration or certificate files changed'" in check
-    assert check.index("return 1") < check.index("FAST_MARIADB_ID")
+    assert check.index("return 1") < check.index("FAST_POSTGRES_ID")
 
 
 def test_entrypoint_supervises_the_fastcgi_pool_as_pid_1() -> None:
@@ -321,7 +321,7 @@ def test_listener_is_stopped_while_platform_is_replaced_and_migrated() -> None:
     deploy = DEPLOY.read_text()
     main = deploy[deploy.index("\nfinalize_previous_candidate_if_healthy\n"):]
     assert main.index(stop) < main.index('"${compose[@]}" up -d platform')
-    assert main.index(stop) < main.index("php artisan migrate --force")
+    assert main.index(stop) < main.index("oteryn_platform_migrate_postgres")
     assert main.index("oteryn_publish_native_admission_trust_or_stop") < main.index(reconcile)
 
     rollback = ROLLBACK.read_text()

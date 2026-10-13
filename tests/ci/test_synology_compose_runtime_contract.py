@@ -35,7 +35,9 @@ def test_scheduler_is_an_always_on_base_service() -> None:
     assert "      - schedule:work\n" in SCHEDULER
     assert "    healthcheck:\n" in SCHEDULER
     assert "    ports:" not in SCHEDULER
-    assert "      mariadb:\n        condition: service_healthy\n" in SCHEDULER
+    # MariaDB is retired (plan P7): the scheduler depends on no database service of a disabled profile.
+    assert "mariadb" not in SCHEDULER
+    assert "depends_on:" not in SCHEDULER
 
 
 def test_marketplace_overlay_no_longer_defines_the_scheduler_process() -> None:
@@ -58,7 +60,7 @@ def test_deploy_scripts_keep_the_scheduler_running_across_reconciliation() -> No
 def test_deploy_removes_the_retired_redis_container_without_an_orphan_sweep() -> None:
     deploy = (SYNOLOGY / "scripts" / "deploy.sh").read_text(encoding="utf-8")
     removal = deploy.index("label=com.docker.compose.service=redis")
-    assert removal < deploy.index('"${compose[@]}" up -d mariadb\n')
+    assert removal < deploy.index('"${compose[@]}" up -d --force-recreate tls-init\n')
     assert "--remove-orphans" not in deploy
 
 

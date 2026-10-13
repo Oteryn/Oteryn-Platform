@@ -130,8 +130,9 @@ class DeployWiringTest(unittest.TestCase):
     def test_health_check_fails_on_structure_and_warns_on_degraded_backups(self) -> None:
         health = HEALTH.read_text()
         self.assertIn('bash "$SCRIPT_DIR/backup-postgres.sh" check || backup_status=$?', health)
-        self.assertIn("        3) echo \"WARNING: PostgreSQL backups are degraded", health)
-        self.assertIn("        *) exit 1 ;;", health)
+        self.assertIn("\n    3) echo \"WARNING: PostgreSQL backups are degraded", health)
+        self.assertIn('case "$backup_status" in\n    0) ;;\n', health)
+        self.assertIn("\n    *) exit 1 ;;\nesac\n", health)
         script = BACKUP_POSTGRES.read_text()
         self.assertIn("        exit 3\n", script)
         # The deploy reconcile is strict when its backups finish within the budget: it ends with a check

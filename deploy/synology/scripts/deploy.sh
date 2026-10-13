@@ -17,7 +17,7 @@ required_vars=(
     PLATFORM_BIND_ADDRESS GATEWAY_BIND_ADDRESS
     PLATFORM_PORT GATEWAY_PORT
     GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT
-    APP_KEY MARIADB_ROOT_PASSWORD PLATFORM_DB_NAME PLATFORM_DB_USER PLATFORM_DB_PASSWORD
+    APP_KEY PLATFORM_DB_NAME
     OTERYN_PLATFORM_SERVICE_TOKEN GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256
 )
 
@@ -30,7 +30,7 @@ for name in "${required_vars[@]}"; do
 done
 
 safe_credential_vars=(
-    PLATFORM_DB_NAME PLATFORM_DB_USER PLATFORM_DB_PASSWORD
+    PLATFORM_DB_NAME
     OTERYN_PLATFORM_SERVICE_TOKEN
 )
 for name in "${safe_credential_vars[@]}"; do
@@ -41,10 +41,9 @@ for name in "${safe_credential_vars[@]}"; do
     fi
 done
 
-# Platform database engine (lib.sh oteryn_platform_db_engine_settings, plan P4). With mariadb, PostgreSQL
-# runs idle beside MariaDB. With postgres, Platform and the scheduler connect as the app role, migrations run
-# as the owner role in a one-off container (lib.sh oteryn_platform_migrate_postgres) and the pre-migration
-# dump is a pg_dump by the dump role; MariaDB keeps running, unused, until the cutover (P6) removes it.
+# Platform database (lib.sh oteryn_platform_db_engine_settings, plan P7): PostgreSQL only. Platform and the
+# scheduler connect as the app role, migrations run as the owner role in a one-off container (lib.sh
+# oteryn_platform_migrate_postgres) and the pre-migration dump is a pg_dump by the dump role.
 # Route publication on the postgres engine needs the owner-accepted ADR 0044 amendment (PostgreSQL store
 # identity) first. Every gate here is refused before any stack change.
 if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres && "${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}" == true ]]; then
@@ -142,11 +141,6 @@ fi
 
 compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 state_dir="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
-mariadb_ready_timeout_seconds="${OTERYN_MARIADB_READY_TIMEOUT_SECONDS:-420}"
-if [[ ! "$mariadb_ready_timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
-    echo "OTERYN_MARIADB_READY_TIMEOUT_SECONDS must be a positive integer." >&2
-    exit 1
-fi
 mkdir -p "$state_dir"
 chmod 700 "$state_dir"
 
@@ -196,7 +190,9 @@ _oteryn_fast_non_runtime_path() {
 
 _oteryn_fast_running_service_id() {
     local service="$1" expected_image="${2:-}" container_id running image_id expected_image_id
-    container_id="$("${compose[@]}" ps -q "$service" 2>/dev/null || true)"
+    local -a profile=()
+    [[ "$service" != postgres ]] || profile=(--profile postgres)
+    container_id="$("${compose[@]}" "${profile[@]}" ps -q "$service" 2>/dev/null || true)"
     [[ -n "$container_id" ]] || { echo "Fast deploy rejected: $service is not created." >&2; return 1; }
     running="$(docker inspect --format '{{.State.Running}}' "$container_id" 2>/dev/null || true)"
     [[ "$running" == true ]] || { echo "Fast deploy rejected: $service is not running." >&2; return 1; }
@@ -219,7 +215,7 @@ FAST_OLD_GATEWAY_SOURCE_SHA=''
 FAST_OLD_PLATFORM_IMAGE=''
 FAST_OLD_GATEWAY_IMAGE=''
 FAST_SCHEMA_ID=''
-FAST_MARIADB_ID=''
+FAST_POSTGRES_ID=''
 FAST_PROXY_ID=''
 FAST_GATEWAY_ID=''
 FAST_OLD_PLATFORM_ID=''
@@ -391,7 +387,7 @@ _oteryn_fast_candidate() {
             return 1
         fi
     fi
-    FAST_MARIADB_ID="$(_oteryn_fast_running_service_id mariadb)" || return 2
+    FAST_POSTGRES_ID="$(_oteryn_fast_running_service_id postgres)" || return 2
     FAST_PROXY_ID="$(_oteryn_fast_running_service_id internal-proxy)" || return 2
 
     FAST_DEPLOY_REASON='presentation-only accumulated runtime impact'
@@ -446,7 +442,11 @@ _oteryn_fast_restore_on_exit() {
 
 _oteryn_fast_assert_preserved_service() {
     local service="$1" expected_id="$2" actual_id running
-    actual_id="$("${compose[@]}" ps -q "$service" 2>/dev/null || true)"
+    if [[ "$service" == postgres ]]; then
+        actual_id="$("${compose[@]}" --profile postgres ps -q postgres 2>/dev/null || true)"
+    else
+        actual_id="$("${compose[@]}" ps -q "$service" 2>/dev/null || true)"
+    fi
     [[ "$actual_id" == "$expected_id" ]] || { echo "Fast deploy changed $service container identity." >&2; return 1; }
     running="$(docker inspect --format '{{.State.Running}}' "$actual_id" 2>/dev/null || true)"
     [[ "$running" == true ]] || { echo "Fast deploy left $service non-running." >&2; return 1; }
@@ -505,7 +505,7 @@ _oteryn_fast_deploy_platform() {
     _oteryn_reconcile_marketplace_scheduler_after_runtime_change
     _oteryn_fast_platform_smoke
 
-    _oteryn_fast_assert_preserved_service mariadb "$FAST_MARIADB_ID"
+    _oteryn_fast_assert_preserved_service postgres "$FAST_POSTGRES_ID"
     _oteryn_fast_assert_preserved_service internal-proxy "$FAST_PROXY_ID"
     _oteryn_fast_assert_preserved_service gateway "$FAST_GATEWAY_ID"
 
@@ -519,7 +519,7 @@ _oteryn_fast_deploy_platform() {
     rm -f "$FAST_PREVIOUS_LAST_GOOD"
     FAST_SWAP_STARTED=0
     trap - EXIT
-    echo "Oteryn Synology staging Platform fast deploy is healthy in $((SECONDS - started))s; MariaDB, internal proxy and Gateway were preserved."
+    echo "Oteryn Synology staging Platform fast deploy is healthy in $((SECONDS - started))s; PostgreSQL, internal proxy and Gateway were preserved."
 }
 
 # Native game login is part of every deployment (compose.yml native admission flag). Before any
@@ -857,33 +857,10 @@ while IFS= read -r retired_redis_id; do
 done < <(docker ps -aq \
     --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-oteryn-staging}" \
     --filter "label=com.docker.compose.service=redis")
-"${compose[@]}" up -d mariadb
 "${compose[@]}" up -d --force-recreate tls-init
 
-mariadb_deadline=$((SECONDS + mariadb_ready_timeout_seconds))
-while ! "${compose[@]}" exec -T -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb \
-    mariadb -uroot -N -e 'SELECT 1' >/dev/null 2>&1; do
-    if (( SECONDS >= mariadb_deadline )); then
-        echo "MariaDB did not become ready within ${mariadb_ready_timeout_seconds} seconds; refusing to continue deployment." >&2
-        "${compose[@]}" ps mariadb >&2 || true
-        "${compose[@]}" logs --no-color --tail 100 mariadb >&2 || true
-        exit 1
-    fi
-    sleep 2
-done
-
-"${compose[@]}" exec -T -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb mariadb -uroot <<SQL
-CREATE DATABASE IF NOT EXISTS \`$PLATFORM_DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS '$PLATFORM_DB_USER'@'%' IDENTIFIED BY '$PLATFORM_DB_PASSWORD';
-ALTER USER '$PLATFORM_DB_USER'@'%' IDENTIFIED BY '$PLATFORM_DB_PASSWORD';
-GRANT ALL PRIVILEGES ON \`$PLATFORM_DB_NAME\`.* TO '$PLATFORM_DB_USER'@'%';
-FLUSH PRIVILEGES;
-SQL
-
-# PostgreSQL (plan P4): started, role split re-applied and its TLS and privilege contract proven when its
-# secrets are configured; skipped when none is (mariadb engine only; the postgres engine requires them).
-# On the mariadb engine no Platform service uses it yet; on the postgres engine this runs before the
-# Platform starts, so the roles and grants exist for the owner-role migration below.
+# PostgreSQL (plan P4): started, role split re-applied and its TLS and privilege contract proven. This runs
+# before the Platform starts, so the roles and grants exist for the owner-role migration below.
 oteryn_reconcile_postgres "${compose[@]}" || exit 1
 # Backups and the WAL archive of that database (plan P5): starts the backup sidecar, refuses when the NAS
 # spool lacks the required free space and proves a forced WAL segment reaches the archive. It waits for a
@@ -908,12 +885,8 @@ oteryn_native_admission_ingress_stop "${compose[@]}" >/dev/null
 # The ingress stop also stops the Game-node mTLS listener (removes it while the setting is off); it
 # is recreated or removed after the gates (oteryn_reconcile_platform_mtls).
 "${compose[@]}" up -d platform
-if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres ]]; then
-    # Owner role in a one-off container; the runtime platform container never holds the owner password.
-    oteryn_platform_migrate_postgres "${compose[@]}"
-else
-    "${compose[@]}" exec -T platform php artisan migrate --force --no-interaction
-fi
+# Owner role in a one-off container; the runtime platform container never holds the owner password.
+oteryn_platform_migrate_postgres "${compose[@]}"
 if ! "${compose[@]}" exec -T platform sh -ec 'test -s storage/oauth-private.key && test -s storage/oauth-public.key'; then
     "${compose[@]}" exec -T platform php artisan passport:keys --no-interaction
 fi
@@ -954,7 +927,7 @@ oteryn_publish_native_route "${compose[@]}" || exit 1
 # native-only Gateway has passed the full health contract. Only that service is
 # then removed by label; a compose orphan sweep is never used because it would also
 # remove services that Compose does not own.
-legacy_project="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$("${compose[@]}" ps -q mariadb)" 2>/dev/null || true)"
+legacy_project="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$("${compose[@]}" ps -q platform)" 2>/dev/null || true)"
 if [[ -n "$legacy_project" ]]; then
     while IFS= read -r legacy_id; do
         [[ -n "$legacy_id" ]] && docker rm -f "$legacy_id" >/dev/null
