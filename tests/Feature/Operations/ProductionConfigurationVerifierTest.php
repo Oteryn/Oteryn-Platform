@@ -120,7 +120,11 @@ final class ProductionConfigurationVerifierTest extends TestCase
             // CI exports URLs for some of these connections; the name check must not depend on them.
             config(['database.default' => $name, "database.connections.{$name}.url" => null]);
 
-            $this->assertViolation('DB_CONNECTION must name a runtime connection (pgsql, mysql or mariadb); privileged connections (migration, owner, backup, dump and character transfer) are refused as the application default in production.');
+            self::assertContains(
+                'DB_CONNECTION must name a runtime connection (pgsql, mysql or mariadb); privileged connections (migration, owner, backup, dump and character transfer) are refused as the application default in production.',
+                app(ProductionConfigurationVerifier::class)->inspect(),
+                "Connection {$name}: ".json_encode([config("database.connections.{$name}"), app(ProductionConfigurationVerifier::class)->inspect()]),
+            );
         }
     }
 
