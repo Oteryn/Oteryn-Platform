@@ -43,7 +43,7 @@ Each hook that writes evidence needs three more inputs: `OTERYN_CUTOVER_ANCHOR_I
 
 ### Step 4 observe (native-smoke)
 
-`native-smoke.sh` first retries pending anchors and runs `verify --anchors` over the whole directory; if that fails, it stops before it reads or writes evidence. Then it reads the evidence directory:
+`native-smoke.sh` takes the task and close run from `OTERYN_CUTOVER_TASK_ID` and `OTERYN_CUTOVER_CLOSE_RUN_ID`, which `cutover-postgres.sh` checks against its state. It acts only on a run whose `run-open` records `cutover_ref` `<task_id>/close-<close_run_id>`; any other selected run stops it before a write. It first retries pending anchors and runs `verify --anchors` over the whole directory; if that fails, it stops before it reads or writes evidence. Then it reads the evidence directory:
 
 - One attempt without an observation: take two trust observations at least 5 s apart. While the witness is busy or a transaction is in flight, try again, at most 12 rounds. Write `attempt-observation` (the tool classifies it) and anchor it.
   - `committed`: run the read-only signing self-check and write `self-check`. If it passed, write `run-close` with `done: true`. If it failed, the run stays open; the next `native-smoke` rechecks.
@@ -62,7 +62,7 @@ Continuity check: a fresh trust observation with the attempt's key id, retried w
 
 ### Evidence recovery steps
 
-Anchors count only when the workflow token posts them, so the recovery commands run through the workflow, never by hand. Run `deploy-synology-staging.yml` with `action=cutover`, the task id, `close_run_id`, `evidence_run_id` (the run's uuid4) and one of these `cutover_step` values. The *Run cutover evidence step* step calls `provenance-init.sh <command> <task_id> <close_run_id> <run_id>`; `dry_run` only prints the command.
+Anchors count only when the workflow token posts them, so the recovery commands run through the workflow, never by hand. Run `deploy-synology-staging.yml` with `action=cutover`, the task id, `close_run_id`, `evidence_run_id` (the run's uuid4) and one of these `cutover_step` values. The *Run cutover evidence step* step calls `provenance-init.sh <command> <task_id> <close_run_id> <run_id>`; `dry_run` only prints the command. Both commands refuse before any anchor post or evidence write unless the cutover state (`$OTERYN_STATE_DIR/postgres-cutover/cutover-state.env`) records `STEP_REENABLE_STARTED` with `TASK_ID` equal to `task_id` and `REENABLE_CLOSE_RUN_ID` equal to `close_run_id`, and the run's `run-open` records `cutover_ref` `<task_id>/close-<close_run_id>`.
 
 | `cutover_step` | Command | Use it when | Result |
 | --- | --- | --- | --- |

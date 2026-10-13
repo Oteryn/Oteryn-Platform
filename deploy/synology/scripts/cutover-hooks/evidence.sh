@@ -64,6 +64,7 @@ elif cmd == "summary":
             "run_id": run.id,
             "errors": run.errors,
             "last_type": last.get("type"),
+            "cutover_ref": recs[0].get("cutover_ref") if recs and recs[0].get("type") == "run-open" else None,
             "done": last.get("type") == "run-close" and last.get("done") is True,
             "closed": last.get("type") == "run-close",
             "unfinished_init": run.id in A.unfinished,
@@ -171,6 +172,38 @@ ev_verified_anchors() {
 
 ev_summary() {
     ev_state summary "$EVIDENCE_DIR" > "$HOOK_WORK/summary.json" || hook_fail "cannot read the attempt evidence directory."
+}
+
+# ev_bind_cutover <task_id> <close_run_id>: sets EV_CUTOVER_REF, the cutover_ref that `init` records in run-open
+# ("<task_id>/close-<close_run_id>"). Every run a hook acts on must record exactly this ref (ev_require_ref).
+ev_bind_cutover() {
+    [[ "$1" =~ ^OTERYN-[0-9]{8}-[a-z0-9][a-z0-9-]{0,80}$ ]] || hook_fail "the task id is malformed."
+    [[ "$2" =~ ^[1-9][0-9]{0,18}$ ]] || hook_fail "the maintenance-close run id is malformed."
+    EV_CUTOVER_REF="$1/close-$2"
+}
+
+# ev_require_ref <run>: the run (read from $HOOK_WORK/summary.json) must record EV_CUTOVER_REF in its run-open.
+# A run selected by its id alone, or by its state, is never acted on for another task or close run.
+ev_require_ref() {
+    local ref
+    ref="$(jq -r --arg r "$1" '.runs[] | select(.run_id == $r) | .cutover_ref // empty' "$HOOK_WORK/summary.json")"
+    [[ -n "${EV_CUTOVER_REF:-}" && "$ref" == "$EV_CUTOVER_REF" ]] \
+        || hook_fail "run $1 records cutover ${ref:-none}, not ${EV_CUTOVER_REF:-none}; nothing was written."
+}
+
+# ev_require_cutover_state <task_id> <close_run_id>: for a recovery step started by hand through the workflow.
+# The cutover state of cutover-postgres.sh must record native re-enable for this task and close run, so the
+# step acts only on the cutover in progress.
+ev_require_cutover_state() {
+    local file value
+    file="${OTERYN_CUTOVER_STATE_DIR:-${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}/postgres-cutover}/cutover-state.env"
+    [[ -f "$file" ]] || hook_fail "the cutover state file is missing; native re-enable has not started. Nothing was written."
+    [[ -n "$(sed -n 's/^STEP_REENABLE_STARTED=//p' "$file" | tail -n 1)" ]] \
+        || hook_fail "the cutover state records no native re-enable; nothing to recover. Nothing was written."
+    value="$(sed -n 's/^TASK_ID=//p' "$file" | tail -n 1)"
+    [[ "$value" == "$1" ]] || hook_fail "the cutover state records another task; nothing was written."
+    value="$(sed -n 's/^REENABLE_CLOSE_RUN_ID=//p' "$file" | tail -n 1)"
+    [[ "$value" == "$2" ]] || hook_fail "the cutover state records native re-enable for another close run; nothing was written."
 }
 
 ev_check_location() {
@@ -353,16 +386,19 @@ ev_step4_after_deploy() {
     adoptable="$(jq -r '[.runs[] | select((.closed | not) and .init != null and .init.late == false and (.attempts | length == 0)) | .run_id] | join(" ")' "$HOOK_WORK/summary.json")"
     if [[ -n "$unclosed" ]]; then
         [[ "$unclosed" != *" "* ]] || hook_fail "the evidence directory holds more than one unclosed classified attempt; the owner decides."
+        ev_require_ref "$unclosed"
         cls="$(jq -r --arg r "$unclosed" '.runs[] | select(.run_id == $r) | .attempts | last | .classification // "unknown"' "$HOOK_WORK/summary.json")"
         printf 'attempt_run_id=%s\nattempt_classification=%s\n' "$unclosed" "$cls"
         ev_close "$unclosed" false "$cls"
         hook_fail "the attempt of run $unclosed is classified $cls; the missing run-close (done: false) is now written and the cutover stops for the owner."
     elif [[ -n "$unobserved" ]]; then
         [[ "$unobserved" != *" "* && -z "$pending$finished" ]] || hook_fail "the evidence directory holds more than one open or committed attempt; the owner decides."
+        ev_require_ref "$unobserved"
         ev_step4_observe "$unobserved" false
         EV_ATTEMPT_RUN="$unobserved"
     elif [[ -n "$pending" ]]; then
         [[ "$pending" != *" "* && -z "$finished" ]] || hook_fail "the evidence directory holds more than one committed attempt; the owner decides."
+        ev_require_ref "$pending"
         if [[ "$(jq -r --arg r "$pending" '.runs[] | select(.run_id == $r) | .last_passed' "$HOOK_WORK/summary.json")" == true ]]; then
             # Crash window: the passing self-check is durable and anchored, the run-close was never written. The
             # tool refuses a second self-check after a passing one, so the run is closed from the record; the
@@ -377,10 +413,12 @@ ev_step4_after_deploy() {
     elif [[ -n "$finished" && "$finished" != *" "* ]]; then
         # A rerun after the run was closed (for example a lost runner before NATIVE_SMOKE was recorded): the
         # recorded attempt counts only once a fresh observation continues it.
+        ev_require_ref "$finished"
         ev_require_continuity "$finished" "$HOOK_WORK/rerun.json"
         printf 'attempt_run_id=%s\nattempt_result=committed\n' "$finished"
         EV_ATTEMPT_RUN="$finished"
     elif [[ -n "$adoptable" && "$adoptable" != *" "* ]]; then
+        ev_require_ref "$adoptable"
         hook_fail "run $adoptable holds an init but no anchored attempt intent (the runner stopped during native-reenable); run the evidence-close-init step for run $adoptable, which writes the intent, then the deploy. Nothing was written."
     else
         hook_fail "no attempt waits for its observation and none is committed; native-reenable (step 4) has not recorded an attempt. The owner decides."

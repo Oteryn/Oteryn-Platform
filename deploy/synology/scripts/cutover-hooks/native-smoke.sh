@@ -20,6 +20,9 @@
 #     show the first publication: binding match, a profile present and not revoked, a non-null floor, and the
 #     configured key trusted. A rerun after the run was closed (an attempt already done: true) also takes this
 #     check before the login smoke, so recorded evidence alone never passes.
+# It acts only on a run whose run-open records cutover_ref "<task_id>/close-<close_run_id>" from
+# OTERYN_CUTOVER_TASK_ID and OTERYN_CUTOVER_CLOSE_RUN_ID (the cutover step environment, which cutover-postgres.sh
+# checks against its state); any other selected run is refused before a write.
 # It changes no trust state; it writes only attempt evidence and its anchors. Inputs as provenance-init.sh:
 # OTERYN_CUTOVER_ANCHOR_ISSUE, GITHUB_REPOSITORY and GH_TOKEN (issues: write). Output: key=value result lines
 # only; never an environment value, a ticket, a key or an observation.
@@ -34,6 +37,7 @@ source "$HOOK_SELF/common.sh"
 source "$HOOK_SELF/evidence.sh"
 
 (($# == 0)) || hook_fail "takes no arguments."
+ev_bind_cutover "${OTERYN_CUTOVER_TASK_ID:-}" "${OTERYN_CUTOVER_CLOSE_RUN_ID:-}"
 hook_require_tools docker gh jq python3 sed
 hook_evidence_setup
 [[ -f "$EVIDENCE_TOOL" ]] || hook_fail "the attempt evidence tool is missing."

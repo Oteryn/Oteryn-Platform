@@ -30,6 +30,10 @@
 #       resume_begin. Native admission must still be off for a resume that writes an intent.
 #   provenance-init.sh observe <task_id> <close_run_id> <run_id>      D5 step4-observe --run <id> (late: true)
 #
+# Both act only on a run whose run-open records cutover_ref "<task_id>/close-<close_run_id>", and only while the
+# cutover state (OTERYN_CUTOVER_STATE_DIR, default $OTERYN_STATE_DIR/postgres-cutover) records native re-enable
+# for that task and close run; otherwise they refuse before any anchor post or evidence write.
+#
 # Inputs: the cutover step environment plus OTERYN_CUTOVER_ANCHOR_ISSUE (the locked anchor issue number),
 # GITHUB_REPOSITORY and GH_TOKEN (issues: write). Output: key=value result lines only; never the environment
 # file, a key, a token or an observation.
@@ -65,6 +69,7 @@ case "$command" in
 esac
 [[ "$task_id" =~ ^OTERYN-[0-9]{8}-[a-z0-9][a-z0-9-]{0,80}$ ]] || hook_fail "the task id is malformed."
 [[ "$close_run_id" =~ ^[1-9][0-9]{0,18}$ ]] || hook_fail "the maintenance-close run id is malformed."
+ev_bind_cutover "$task_id" "$close_run_id"
 
 hook_require_tools docker gh jq python3 sed
 hook_evidence_setup
@@ -73,6 +78,17 @@ hook_evidence_setup
 hook_workdir
 hook_runtime_env
 W="$HOOK_WORK"
+
+# A recovery command acts only on a run of the cutover in progress: the cutover state must record native
+# re-enable for this task and close run, and the run must record the same cutover_ref in its run-open. Both
+# are checked before any anchor post or evidence write.
+if [[ "$command" == close-init || "$command" == observe ]]; then
+    ev_require_cutover_state "$task_id" "$close_run_id"
+    ev_summary
+    [[ -n "$(jq -r --arg r "$run_id" '.runs[] | select(.run_id == $r) | .run_id' "$W/summary.json")" ]] \
+        || hook_fail "run $run_id has no file in the evidence directory."
+    ev_require_ref "$run_id"
+fi
 
 # begin_checks: location, key id and kid history, then every anchor with the D3 retry and verify --anchors,
 # all before any new evidence write.
@@ -214,6 +230,7 @@ if [[ "$command" == close-init ]]; then
     ev_summary
     state="$(jq -c --arg r "$run_id" '.runs[] | select(.run_id == $r)' "$W/summary.json")"
     [[ -n "$state" ]] || hook_fail "run $run_id has no file in the evidence directory."
+    ev_require_ref "$run_id"
     [[ "$(jq -r '.closed' <<<"$state")" != true ]] || hook_fail "run $run_id is closed; nothing to resume."
     if [[ "$(jq -r '.unfinished_init' <<<"$state")" != true ]]; then
         resume_begin "$state"
@@ -259,6 +276,7 @@ if [[ "$command" == observe ]]; then
     # D5 step4-observe --run <id>: the missing observation of an unclosed attempt, with late: true.
     ev_verified_anchors "$W/anchors.json"
     ev_summary
+    ev_require_ref "$run_id"
     [[ "$(jq -r --arg r "$run_id" '.runs[] | select(.run_id == $r) | .attempts | last | .observed' "$W/summary.json")" == false ]] \
         || hook_fail "run $run_id has no attempt waiting for its observation."
     ev_step4_observe "$run_id" true

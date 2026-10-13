@@ -340,6 +340,7 @@ class HookHarness(unittest.TestCase):
         (self.state_dir / "current-release.env").write_text(
             f"RELEASE_SHA={'d' * 40}\nPLATFORM_SOURCE_SHA={'e' * 40}\nGATEWAY_SOURCE_SHA={'f' * 40}\n"
             f"PLATFORM_IMAGE={PLATFORM_IMAGE}\nGATEWAY_IMAGE={GATEWAY_IMAGE}\n")
+        self.write_cutover_state(TASK, CLOSE_RUN)
         self.state = {
             "phase": "cutover", "init_done": False, "init_calls": 0, "observe_calls": 0,
             "self_check_ok": True, "self_check_calls": 0, "native_queue": [], "post_limit": None,
@@ -385,6 +386,15 @@ class HookHarness(unittest.TestCase):
         ] + [f"{k}={v}" for k, v in SECRETS.items()]
         self.env_file.write_text("\n".join(lines) + "\n")
 
+    def write_cutover_state(self, task, close_run, reenable=True):
+        # cutover-postgres.sh state: preflight records the task, freeze the close run, native-reenable its marker.
+        lines = [f"TASK_ID={task}", "STEP_FREEZE=2026-10-13T10:00:00Z", f"CLOSE_RUN_ID={close_run}"]
+        if reenable:
+            lines += ["STEP_REENABLE_STARTED=2026-10-13T11:00:00Z", f"REENABLE_CLOSE_RUN_ID={close_run}"]
+        path = self.state_dir / "postgres-cutover" / "cutover-state.env"
+        path.parent.mkdir(exist_ok=True)
+        path.write_text("\n".join(lines) + "\n")
+
     def save_state(self):
         (self.stub / "state.json").write_text(json.dumps(self.state))
 
@@ -404,6 +414,8 @@ class HookHarness(unittest.TestCase):
             "OTERYN_ATTEMPT_EVIDENCE_TOOL": str(self.stub / "evidence.py"),
             "OTERYN_CUTOVER_KEY_SCRIPT": str(self.stub / "key-tool.sh"),
             "OTERYN_CUTOVER_ANCHOR_ISSUE": ISSUE,
+            "OTERYN_CUTOVER_TASK_ID": TASK,
+            "OTERYN_CUTOVER_CLOSE_RUN_ID": CLOSE_RUN,
             "GITHUB_REPOSITORY": "Oteryn/Oteryn-Platform",
             "GH_TOKEN": GH_TOKEN,
         }
@@ -841,6 +853,44 @@ class CloseInitTest(HookHarness):
         self.assertEqual(self.load_state()["init_calls"], 2)
         self.assert_verified()
 
+    def test_recovery_is_bound_to_the_task_and_close_run_of_the_cutover(self):
+        run, _ = self.leave_unfinished_init()
+        other_task, other_close = "OTERYN-20261013-other-cutover", "7000000002"
+        before, posts = self.all_records(), self.bot_posts()
+        for command in ("close-init", "observe"):
+            # The arguments name another task or close run than the cutover state records.
+            for task, close, text in ((other_task, CLOSE_RUN, "records another task"),
+                                      (TASK, other_close, "for another close run")):
+                with self.subTest(command=command, task=task, close=close):
+                    proc = self.run_hook("provenance-init", command, task, close, run)
+                    self.assertNotEqual(proc.returncode, 0)
+                    self.assertIn(text, proc.stderr)
+            # State and arguments agree, but the run was opened for another task or close run.
+            for task, close in ((other_task, CLOSE_RUN), (TASK, other_close)):
+                with self.subTest(command=command, task=task, close=close, state="agrees"):
+                    self.write_cutover_state(task, close)
+                    proc = self.run_hook("provenance-init", command, task, close, run)
+                    self.assertNotEqual(proc.returncode, 0)
+                    self.assertIn(f"records cutover {TASK}/close-{CLOSE_RUN}, not {task}/close-{close}", proc.stderr)
+            # No native re-enable in the cutover state, or no state at all.
+            self.write_cutover_state(TASK, CLOSE_RUN, reenable=False)
+            proc = self.run_hook("provenance-init", command, TASK, CLOSE_RUN, run)
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("records no native re-enable", proc.stderr)
+            (self.state_dir / "postgres-cutover" / "cutover-state.env").unlink()
+            proc = self.run_hook("provenance-init", command, TASK, CLOSE_RUN, run)
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("cutover state file is missing", proc.stderr)
+            self.write_cutover_state(TASK, CLOSE_RUN)
+        self.assertEqual(self.all_records(), before)
+        self.assertEqual(self.bot_posts(), posts)
+        self.assertEqual(self.load_state()["init_calls"], 1)
+        # With the matching task and close run the same run is closed.
+        self.update_state(init_done=True, init_result={"result": "completed", "store_id": S1, "entries": 0})
+        proc = self.run_hook("provenance-init", "close-init", TASK, CLOSE_RUN, run)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.outputs(proc)["close_init_result"], "init-late")
+
     def assert_open_attempt(self):
         identity = json.dumps(self.load_state()["observations"]["post"]["database"]["identity"])
         code, payload = self.tool("require-open-attempt", "--dir", str(self.evidence), "--store", S1, "--key-id", KID,
@@ -1091,6 +1141,26 @@ class NativeSmokeTest(HookHarness):
         self.assertEqual((records[-1]["done"], records[-1]["classification"]), (False, "unknown"))
         self.assert_verified()
         self.assertNotIn("native_smoke_result=passed", proc.stdout)
+
+    def test_acts_only_on_a_run_of_its_task_and_close_run(self):
+        before, posts = self.all_records(), self.bot_posts()
+        for env, text in (({"OTERYN_CUTOVER_TASK_ID": "OTERYN-20261013-other-cutover"}, "records cutover"),
+                          ({"OTERYN_CUTOVER_CLOSE_RUN_ID": "7000000002"}, "records cutover"),
+                          ({"OTERYN_CUTOVER_TASK_ID": None}, "task id is malformed"),
+                          ({"OTERYN_CUTOVER_CLOSE_RUN_ID": None}, "close run id is malformed")):
+            with self.subTest(env=env):
+                proc = self.run_hook("native-smoke", **env)
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertIn(text, proc.stderr)
+                self.assertNotIn("native_smoke_result=passed", proc.stdout)
+        self.assertEqual(self.all_records(), before)
+        self.assertEqual(self.bot_posts(), posts)
+        # A committed and closed attempt of this cutover still does not pass a smoke for another one.
+        proc = self.run_hook("native-smoke")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        proc = self.run_hook("native-smoke", OTERYN_CUTOVER_CLOSE_RUN_ID="7000000002")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("records cutover", proc.stderr)
 
     def test_late_observe_command_closes_an_unclosed_attempt(self):
         proc = self.run_hook("provenance-init", "observe", TASK, CLOSE_RUN, self.run_id)
