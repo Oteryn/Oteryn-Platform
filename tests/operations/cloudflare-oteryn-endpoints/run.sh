@@ -186,9 +186,66 @@ done
 [[ "$(other_origin_routes_count "$(jq '.ingress[-1].service = "http://127.0.0.1:8080"' <<<"$OPEN_CFG")")" == 1 ]] || fail_test 'catch-all on a protected origin not counted'
 [[ "$(other_origin_routes_count "$(jq '.ingress[0].service = "http://127.0.0.1:8000"' <<<"$OPEN_CFG")")" == 0 ]] || fail_test 'canonical rules must not be counted'
 
+# Scoped gate: other services on the tunnel are preserved; only bypass rules block a close.
+# A tunnel shaped like the production one: canonical rules plus unrelated local and LAN services.
+SHARED_CFG="$(jq -c '.ingress = ([.ingress[0], .ingress[1],
+    {"hostname":"ha.example.test","service":"http://192.168.1.83:8123"},
+    {"hostname":"nas.example.test","service":"https://localhost:5001","originRequest":{"noTLSVerify":true}},
+    {"hostname":"site.example.test","service":"https://127.0.0.1:18574"},
+    {"hostname":"site.example.test:8443","service":"https://127.0.0.1:18574"}] + .ingress[2:])' <<<"$OPEN_CFG")"
+[[ "$(other_origin_routes_count "$SHARED_CFG")" == 4 ]] || fail_test 'shared tunnel origin routes miscounted'
+[[ "$(oteryn_bypass_rules_count "$SHARED_CFG")" == 0 ]] || fail_test 'unrelated services were counted as bypass rules'
+[[ "$(oteryn_bypass_rules_count "$OPEN_CFG")" == 0 ]] || fail_test 'clean configuration has bypass rules'
+[[ "$(preserved_rules_count "$SHARED_CFG")" == 6 ]] || fail_test 'preserved rule count is wrong'
+[[ "$(preserved_rules_count "$OPEN_CFG")" == 2 ]] || fail_test 'preserved rule count must include the catch-all'
+SHARED_CLOSED="$(set_gate_services "$SHARED_CFG" "$GATE_SERVICE" "$GATE_SERVICE")"
+[[ "$(classify_gate_state "$SHARED_CLOSED")" == closed ]] || fail_test 'shared tunnel did not close'
+[[ "$(jq -c '.ingress[2:]' <<<"$SHARED_CLOSED")" == "$(jq -c '.ingress[2:]' <<<"$SHARED_CFG")" ]] || fail_test 'close changed preserved rules or their order'
+[[ "$(preserved_rules_hash "$SHARED_CLOSED")" == "$(preserved_rules_hash "$SHARED_CFG")" ]] || fail_test 'preserved hash differs between open and closed'
+[[ "$(preserved_rules_hash "$(jq '.ingress[3].service = "http://192.168.1.83:8124"' <<<"$SHARED_CFG")")" != "$(preserved_rules_hash "$SHARED_CFG")" ]] || fail_test 'preserved hash ignores a changed service'
+[[ "$(preserved_rules_hash "$(jq '.ingress = (.ingress[0:2] + [.ingress[3], .ingress[2]] + .ingress[4:])' <<<"$SHARED_CFG")")" != "$(preserved_rules_hash "$SHARED_CFG")" ]] || fail_test 'preserved hash ignores rule order'
+[[ "$(preserved_rules_hash "$(jq '.originRequest.connectTimeout = "31s"' <<<"$SHARED_CFG")")" != "$(preserved_rules_hash "$SHARED_CFG")" ]] || fail_test 'preserved hash ignores top-level fields'
+[[ "$(preserved_rules_hash "$(jq '.ingress[0].originRequest.httpHostHeader = "x"' <<<"$SHARED_CFG")")" == "$(preserved_rules_hash "$SHARED_CFG")" ]] || fail_test 'preserved hash must exclude the canonical rules'
+check_bypass() { # check_bypass <rule-json> <position: before|after> <expected-count>
+    local cfg
+    if [[ "$2" == before ]]; then
+        cfg="$(jq -c --argjson rule "$1" '.ingress = ([$rule] + .ingress)' <<<"$SHARED_CFG")"
+    else
+        cfg="$(jq -c --argjson rule "$1" '.ingress = (.ingress[0:-1] + [$rule] + [.ingress[-1]])' <<<"$SHARED_CFG")"
+    fi
+    [[ "$(oteryn_bypass_rules_count "$cfg")" == "$3" ]] || fail_test "bypass count for $1 ($2) is not $3"
+}
+for rule in \
+    '{"hostname":"x.example","service":"http://127.0.0.1:8000"}' \
+    '{"hostname":"x.example","service":"http://platform.internal:8080"}' \
+    '{"hostname":"x.example","service":"http://192.168.1.5:8000"}' \
+    '{"hostname":"x.example","path":"/p","service":"http://[::1]:8080"}' \
+    '{"hostname":"login.oteryn.molehill.cloud","service":"http://old-gateway:8080"}' \
+    '{"hostname":"x.example","service":"garbage"}' \
+    '{"hostname":"oteryn.molehill.cloud:8443","service":"https://127.0.0.1:18574"}' \
+    '{"hostname":"GATEWAY.molehill.cloud.:443","service":"http_status:404"}'; do
+    check_bypass "$rule" after 1
+    check_bypass "$rule" before 1
+done
+for rule in '{"hostname":"*.molehill.cloud","service":"https://127.0.0.1:18574"}' '{"path":"/x","service":"http://svc.example.test:9000"}' \
+    '{"hostname":"*","service":"http_status:404"}' '{"hostname":"*.cloud","service":"http_status:404"}' \
+    '{"hostname":"*.oteryn.molehill.cloud","service":"http_status:404"}' '{"hostname":"a*.molehill.cloud","service":"http_status:404"}' \
+    '{"hostname":"*.MOLEHILL.cloud.:8443","service":"http_status:404"}' '{"hostname":7,"service":"http_status:404"}'; do
+    check_bypass "$rule" before 1
+    check_bypass "$rule" after 0
+done
+# a wildcard that cannot match a canonical hostname does not shadow it
+check_bypass '{"hostname":"*.example.test","service":"https://127.0.0.1:18574"}' before 0
+check_bypass '{"hostname":"*.other.molehill.cloud","service":"http_status:404"}' before 0
+check_bypass '{"hostname":"x.example","service":"https://127.0.0.1:18574"}' before 0
+[[ "$(oteryn_bypass_rules_count "$(jq '.ingress[-1].service = "http://127.0.0.1:8080"' <<<"$SHARED_CFG")")" == 1 ]] || fail_test 'catch-all on an Oteryn origin port is not a bypass'
+ALLOWED_ORIGIN_HOSTS=(platform.internal)
+check_bypass '{"hostname":"x.example","service":"http://platform.internal:8080"}' after 0
+ALLOWED_ORIGIN_HOSTS=()
+
 # Evidence, closure, run provenance and fingerprint validators (offline).
 TASK='OTERYN-20261013-p6b'
-GOOD_CLOSURE="$(jq -cn --arg task "$TASK" '{schema:"oteryn-edge-gate-closure/v1",task_id:$task,close_run_id:"1001",run_attempt:1,edge_version:2,config_hash:("a"*1|"a"),fingerprint_status:"unavailable",origin_fingerprint:null}' | jq -c ".config_hash = \"$(printf 'a%.0s' $(seq 64))\"")"
+GOOD_CLOSURE="$(jq -cn --arg task "$TASK" '{schema:"oteryn-edge-gate-closure/v2",task_id:$task,close_run_id:"1001",run_attempt:1,edge_version:2,config_hash:("a"*1|"a"),preserved_rules_count:2,preserved_rules_hash:"",fingerprint_status:"unavailable",origin_fingerprint:null}' | jq -c ".config_hash = \"$(printf 'a%.0s' $(seq 64))\" | .preserved_rules_hash = \"$(printf 'c%.0s' $(seq 64))\"")"
 ok validate_closure_json "$GOOD_CLOSURE" "$TASK" 1001
 no validate_closure_json "$GOOD_CLOSURE" "$TASK" 1002
 no validate_closure_json "$GOOD_CLOSURE" 'OTERYN-20261013-other' 1001
@@ -197,10 +254,19 @@ no validate_closure_json "$(jq '.schema = "x"' <<<"$GOOD_CLOSURE")" "$TASK" 1001
 no validate_closure_json "$(jq '.fingerprint_status = "collected"' <<<"$GOOD_CLOSURE")" "$TASK" 1001
 no validate_closure_json "$(jq '.edge_version = "2"' <<<"$GOOD_CLOSURE")" "$TASK" 1001
 no validate_closure_json 'not json' "$TASK" 1001
+no validate_closure_json "$(jq '.schema = "oteryn-edge-gate-closure/v1"' <<<"$GOOD_CLOSURE")" "$TASK" 1001
+no validate_closure_json "$(jq 'del(.preserved_rules_hash)' <<<"$GOOD_CLOSURE")" "$TASK" 1001
+no validate_closure_json "$(jq '.preserved_rules_hash = "C"' <<<"$GOOD_CLOSURE")" "$TASK" 1001
+no validate_closure_json "$(jq 'del(.preserved_rules_count)' <<<"$GOOD_CLOSURE")" "$TASK" 1001
+no validate_closure_json "$(jq '.preserved_rules_count = 0' <<<"$GOOD_CLOSURE")" "$TASK" 1001
+no validate_closure_json "$(jq '.preserved_rules_count = 1.5' <<<"$GOOD_CLOSURE")" "$TASK" 1001
 HASH64="$(printf 'a%.0s' $(seq 64))"
-ok closure_matches_live "$GOOD_CLOSURE" 2 "$HASH64"
-no closure_matches_live "$GOOD_CLOSURE" 3 "$HASH64"
-no closure_matches_live "$GOOD_CLOSURE" 2 "$(printf 'b%.0s' $(seq 64))"
+PHASH64="$(printf 'c%.0s' $(seq 64))"
+ok closure_matches_live "$GOOD_CLOSURE" 2 "$HASH64" "$PHASH64"
+no closure_matches_live "$GOOD_CLOSURE" 3 "$HASH64" "$PHASH64"
+no closure_matches_live "$GOOD_CLOSURE" 2 "$(printf 'b%.0s' $(seq 64))" "$PHASH64"
+no closure_matches_live "$GOOD_CLOSURE" 2 "$HASH64" "$HASH64"
+no closure_matches_live "$GOOD_CLOSURE" 2 "$HASH64" ""
 
 GOOD_EVIDENCE="$(jq -cn --arg task "$TASK" '{schema:"s/v1",task_id:$task,close_run_id:"1001",outcome:"cutover_complete",head_sha:"0123456789012345678901234567890123456789"}')"
 ok validate_evidence_json "$GOOD_EVIDENCE" "$TASK" 1001
@@ -362,7 +428,7 @@ audit_output="$OUT"
 [[ "$audit_output" != *test-token* ]] || fail_test 'audit output exposed the API token'
 [[ "$audit_output" == *'gateway_dns=missing'* ]] || fail_test 'audit did not report missing Gateway DNS'
 [[ "$audit_output" == *'legacy_gateway_dns=safe-to-retire'* ]] || fail_test 'audit did not classify the exact legacy DNS record'
-[[ "$audit_output" == *'gate_state=unknown'* && "$audit_output" == *'edge_version=1'* && "$audit_output" == *'other_origin_routes=2'* ]] || fail_test 'audit did not report gate fields'
+[[ "$audit_output" == *'gate_state=unknown'* && "$audit_output" == *'edge_version=1'* && "$audit_output" == *'other_origin_routes=2'* && "$audit_output" == *'oteryn_bypass_rules=1'* && "$audit_output" == *'preserved_rules=3'* ]] || fail_test 'audit did not report gate fields'
 [[ "$audit_output" != *old-gateway* && "$audit_output" != *127.0.0.1* && "$audit_output" != *other.molehill* ]] || fail_test 'audit printed topology of unrelated rules'
 expect_no_write 0 'audit mode mutated Cloudflare state'
 
@@ -419,8 +485,8 @@ run_open() { # run_open [extra env...]
 reset_mock "$OPEN_CFG"
 run_script "${TASK_ENV[@]}" GITHUB_RUN_ID=300 "OTERYN_AUDIT_RESULT_FILE=$AUDIT_FILE" bash "$SCRIPT" audit
 expect_rc 0 'audit on open failed'
-[[ "$OUT" == *'gate_state=open'* && "$OUT" == *'edge_version=1'* && "$OUT" == *'other_origin_routes=0'* && "$OUT" == *'closure_match=not_requested'* ]] || fail_test "audit gate fields wrong: $OUT"
-assert_jq "$(cat "$AUDIT_FILE")" '.schema == "oteryn-edge-audit-result/v1" and .audit_run_id == "300" and .gate_state == "open" and .edge_version == 1 and .other_origin_routes == 0 and .closure_match == "not_requested" and .task_id == "OTERYN-20261013-p6b"' 'audit.json is wrong'
+[[ "$OUT" == *'gate_state=open'* && "$OUT" == *'edge_version=1'* && "$OUT" == *'other_origin_routes=0'* && "$OUT" == *'oteryn_bypass_rules=0'* && "$OUT" == *'preserved_rules=2'* && "$OUT" == *'closure_match=not_requested'* ]] || fail_test "audit gate fields wrong: $OUT"
+assert_jq "$(cat "$AUDIT_FILE")" '.schema == "oteryn-edge-audit-result/v2" and .audit_run_id == "300" and .gate_state == "open" and .edge_version == 1 and .other_origin_routes == 0 and .oteryn_bypass_rules == 0 and .preserved_rules.count == 2 and (.preserved_rules.hash | test("^[0-9a-f]{64}$")) and .closure_match == "not_requested" and .task_id == "OTERYN-20261013-p6b"' 'audit.json is wrong'
 [[ "$(cat "$AUDIT_FILE")" != *other.molehill* && "$(cat "$AUDIT_FILE")" != *svc.example* ]] || fail_test 'audit.json contains unrelated hostnames'
 
 # refusals before any write
@@ -431,11 +497,62 @@ run_close 1001 OTERYN_TASK_ID=bad-task
 run_close 1001 GITHUB_RUN_ATTEMPT=2
 [[ "$RC" != 0 ]] || fail_test 'close accepted run_attempt 2'
 expect_no_write 0 'refused close wrote'
-reset_mock "$(routes_for '{"hostname":"x.example","service":"http://127.0.0.1:80"}')"
+for rule in '{"hostname":"x.example","service":"http://127.0.0.1:8000"}' '{"hostname":"oteryn.molehill.cloud:8443","service":"https://127.0.0.1:18574"}'; do
+    reset_mock "$(routes_for "$rule")"
+    run_close 1001
+    [[ "$RC" != 0 && "$OUT" == *'oteryn_bypass_rules=1'* && "$OUT" != *x.example* && "$OUT" != *18574* ]] || fail_test "close did not refuse on a bypass rule: $OUT"
+    expect_no_write 0 'close with a bypass rule wrote'
+    [[ ! -e "$CLOSURE_FILE" ]] || fail_test 'refused close produced a closure'
+done
+reset_mock "$(jq -c '.ingress = ([{"hostname":"*.molehill.cloud","service":"https://127.0.0.1:18574"}] + .ingress)' <<<"$OPEN_CFG")"
 run_close 1001
-[[ "$RC" != 0 && "$OUT" == *'other_origin_routes=1'* && "$OUT" != *x.example* ]] || fail_test 'close did not refuse on an origin route'
-expect_no_write 0 'close with an origin route wrote'
-[[ ! -e "$CLOSURE_FILE" ]] || fail_test 'refused close produced a closure'
+[[ "$RC" != 0 && "$OUT" == *'oteryn_bypass_rules=1'* ]] || fail_test 'close did not refuse on a wildcard rule that shadows a canonical rule'
+expect_no_write 0 'close with a shadowing rule wrote'
+
+# close on a shared tunnel: other services' rules (local, LAN and IP-literal origins) are
+# preserved verbatim, in order, with the catch-all; only the two canonical rules change.
+reset_mock "$SHARED_CFG"
+run_script "${TASK_ENV[@]}" GITHUB_RUN_ID=301 "OTERYN_AUDIT_RESULT_FILE=$AUDIT_FILE" bash "$SCRIPT" audit
+expect_rc 0 'audit on a shared open tunnel failed'
+SHARED_PRESERVED="$(preserved_rules_hash "$SHARED_CFG")"
+assert_jq "$(cat "$AUDIT_FILE")" '.gate_state == "open" and .other_origin_routes == 4 and .oteryn_bypass_rules == 0 and .preserved_rules.count == 6 and .preserved_rules.hash == "'"$SHARED_PRESERVED"'"' 'shared audit.json is wrong'
+for leak in ha.example nas.example site.example 192.168 18574 5001 8123 localhost; do
+    [[ "$OUT" != *"$leak"* && "$(cat "$AUDIT_FILE")" != *"$leak"* && "$(cat "$SUMMARY_FILE")" != *"$leak"* ]] || fail_test "audit leaked unrelated topology: $leak"
+done
+run_close 1001
+expect_rc 0 'close on a shared tunnel failed'
+[[ "$OUT" == *'other_origin_routes=4'* && "$OUT" == *'oteryn_bypass_rules=0'* && "$OUT" == *'preserved_rules=6'* && "$OUT" == *'gate_state=closed'* ]] || fail_test "shared close output wrong: $OUT"
+for leak in ha.example nas.example site.example 192.168 18574 5001 8123 localhost; do
+    [[ "$OUT" != *"$leak"* ]] || fail_test "close leaked unrelated topology: $leak"
+done
+state="$(mock_state)"
+assert_jq "$state" '.mutations == ["tunnel-put"] and .config.ingress[0].service == "http_status:503" and .config.ingress[1].service == "http_status:503"' 'shared close did not close exactly the canonical rules'
+[[ "$(jq -c '.config.ingress[2:]' <<<"$state")" == "$(jq -c '.ingress[2:]' <<<"$SHARED_CFG")" ]] || fail_test 'shared close changed preserved rules'
+[[ "$(jq -c '.config.originRequest' <<<"$state")" == "$(jq -c '.originRequest' <<<"$SHARED_CFG")" ]] || fail_test 'shared close changed top-level fields'
+assert_jq "$(cat "$CLOSURE_FILE")" '.preserved_rules_count == 6 and .preserved_rules_hash == "'"$SHARED_PRESERVED"'"' 'shared closure does not record the preserved rules'
+SHARED_CLOSURE="$(cat "$CLOSURE_FILE")"
+fixture run 1001 "$EP" workflow_dispatch main completed success 1
+rm -f "$GH_DIR"/*_runs_1001_artifacts.json "$GH_DIR"/*_artifacts_91_zip.zip
+fixture artifact 1001 oteryn-edge-gate-closure 91 false closure.json "$SHARED_CLOSURE"
+run_script "${TASK_ENV[@]}" OTERYN_CLOSURE_RUN_ID=1001 "OTERYN_AUDIT_RESULT_FILE=$AUDIT_FILE" bash "$SCRIPT" audit
+assert_jq "$(cat "$AUDIT_FILE")" '.gate_state == "closed" and .closure_match == "yes" and .preserved_rules.hash == "'"$SHARED_PRESERVED"'"' 'shared closed audit is wrong'
+fixture run 2090 "$CP" workflow_dispatch main in_progress null 1
+fixture artifact 2090 platform-cutover-gate-evidence 190 false gate-evidence.json "$(jq -cn --arg task "$TASK" '{schema:"s/v1",task_id:$task,close_run_id:"1001",outcome:"rollback_verified",head_sha:"x"}')"
+run_open OTERYN_CLOSURE_RUN_ID=1001 OTERYN_EVIDENCE_RUN_ID=2090
+expect_rc 0 'open on a shared tunnel failed'
+[[ "$(jq -c .config <<<"$(mock_state)")" == "$(jq -c . <<<"$SHARED_CFG")" ]] || fail_test 'shared open did not restore the exact original configuration'
+# a closure whose preserved hash disagrees with the live edge never opens
+reset_mock "$SHARED_CFG"
+run_close 1001
+expect_rc 0 'second shared close failed'
+TAMPERED="$(jq -c --arg h "$(printf 'd%.0s' $(seq 64))" '.preserved_rules_hash = $h' "$CLOSURE_FILE")"
+rm -f "$GH_DIR"/*_runs_1001_artifacts.json "$GH_DIR"/*_artifacts_91_zip.zip
+fixture artifact 1001 oteryn-edge-gate-closure 91 false closure.json "$TAMPERED"
+run_open OTERYN_CLOSURE_RUN_ID=1001 OTERYN_EVIDENCE_RUN_ID=2090
+[[ "$RC" != 0 && "$OUT" == *'preserved rules'* ]] || fail_test "open accepted a closure with a different preserved hash: $OUT"
+expect_no_write 1 'open with a mismatching preserved hash wrote'
+rm -f "$GH_DIR"/*_runs_1001_artifacts.json "$GH_DIR"/*_artifacts_91_zip.zip
+reset_mock "$OPEN_CFG"
 
 # local tunnel and split/unknown refusal
 reset_mock "$OPEN_CFG"
@@ -459,7 +576,7 @@ assert_jq "$state" '.config.ingress[0].service == "http_status:503" and .config.
 assert_jq "$state" '.config.ingress[2:] == '"$(jq -c '.ingress[2:]' <<<"$OPEN_CFG")"' and .config.originRequest.connectTimeout == "30s" and .config.ingress[0].originRequest.httpHostHeader == "www"' 'close changed unrelated configuration'
 CLOSED_LIVE="$(jq -c .config <<<"$state")"
 closure="$(cat "$CLOSURE_FILE")"
-assert_jq "$closure" '.schema == "oteryn-edge-gate-closure/v1" and .task_id == "OTERYN-20261013-p6b" and .close_run_id == "1001" and .run_attempt == 1 and .edge_version == 2 and .fingerprint_status == "collected" and (.origin_fingerprint["oteryn.molehill.cloud"] | length) == 2' 'closure.json is wrong'
+assert_jq "$closure" '.schema == "oteryn-edge-gate-closure/v2" and .task_id == "OTERYN-20261013-p6b" and .close_run_id == "1001" and .run_attempt == 1 and .edge_version == 2 and .preserved_rules_count == 2 and .preserved_rules_hash == "'"$(preserved_rules_hash "$OPEN_CFG")"'" and .fingerprint_status == "collected" and (.origin_fingerprint["oteryn.molehill.cloud"] | length) == 2' 'closure.json is wrong'
 [[ "$(jq -r .config_hash <<<"$closure")" == "$(sha256_json <<<"$CLOSED_LIVE")" ]] || fail_test 'closure config_hash does not match the live closed edge'
 
 # audit on a closed gate is bounded drift (exit 0); apply refuses; split cannot be applied either

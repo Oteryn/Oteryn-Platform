@@ -344,8 +344,8 @@ readonly ENDPOINTS_WORKFLOW_PATH=".github/workflows/cloudflare-oteryn-endpoints.
 readonly CUTOVER_WORKFLOW_PATH=".github/workflows/deploy-synology-staging.yml"
 readonly CLOSURE_ARTIFACT="oteryn-edge-gate-closure"
 readonly EVIDENCE_ARTIFACT="platform-cutover-gate-evidence"
-readonly CLOSURE_SCHEMA="oteryn-edge-gate-closure/v1"
-readonly AUDIT_RESULT_SCHEMA="oteryn-edge-audit-result/v1"
+readonly CLOSURE_SCHEMA="oteryn-edge-gate-closure/v2"
+readonly AUDIT_RESULT_SCHEMA="oteryn-edge-audit-result/v2"
 readonly FINGERPRINT_SCHEMA="oteryn-edge-fingerprint-candidate/v1"
 readonly ORIGIN_MARKER_ELEMENT="header:x-oteryn-origin"
 readonly GH_BIN="${OTERYN_GH_BIN:-gh}"
@@ -359,6 +359,8 @@ EDGE_CONFIG=""
 EDGE_VERSION=""
 EDGE_HASH=""
 EDGE_STATE="unknown"
+EDGE_PRESERVED_COUNT=""
+EDGE_PRESERVED_HASH=""
 TUNNEL_STATE="unknown"
 
 gh_api() {
@@ -413,6 +415,27 @@ set_gate_services() {
 # every unrelated rule and every other field of the canonical rules is unchanged.
 config_shape_hash() {
     set_gate_services "$1" "" "" | sha256_json
+}
+
+# The configuration without the two canonical rules: every other ingress rule in its
+# original order (the catch-all included) plus every top-level field. The gate never
+# changes any of it; close and open prove that by comparing its hash before and after.
+preserved_config() {
+    jq -c --arg www "$WWW_HOST" --arg gateway "$GATEWAY_HOST" '
+        def norm: ((.hostname // "") | if type == "string" then ascii_downcase | sub("\\.+$"; "") else tostring end);
+        if type == "object" and (.ingress | type) == "array"
+        then .ingress |= map(select(type != "object" or (norm != $www and norm != $gateway)))
+        else . end' <<<"$1"
+}
+
+# Number of preserved ingress rules (count only; never a hostname, service or port).
+preserved_rules_count() {
+    preserved_config "$1" | jq 'if type == "object" and (.ingress | type) == "array" then (.ingress | length) else 0 end'
+}
+
+# sha256 of the canonical JSON (sorted keys, rule order kept) of the preserved configuration.
+preserved_rules_hash() {
+    preserved_config "$1" | sha256_json
 }
 
 # --- origin routes --------------------------------------------------------
@@ -541,6 +564,59 @@ other_origin_routes_count() {
     printf '%s' "$count"
 }
 
+# Returns 0 when a service could reach an Oteryn origin: the effective port is 8000 or 8080
+# on any host that is not explicitly allowed, or the service cannot be parsed (fail closed).
+service_targets_oteryn_origin() {
+    local service="$1" parsed host port
+    case "$service" in
+        http_status:* | hello_world | bastion | socks5 | socks-proxy | unix: | unix:* | unix+tls:*) return 1 ;;
+    esac
+    parsed="$(parse_service_origin "$service")" || return 0
+    host="${parsed%%$'\t'*}"
+    port="${parsed#*$'\t'}"
+    host_is_allowed "$host" && return 1
+    [[ "$port" == 8000 || "$port" == 8080 ]]
+}
+
+# Prints only the number of rules (other than the two canonical ones) that could bypass a
+# closed gate: a rule that routes to an Oteryn origin port (above), a rule whose hostname
+# without a port is a canonical hostname, or a rule placed before a canonical rule whose
+# hostname is empty, "*" or a wildcard that matches a canonical hostname (ingress is
+# first-match, so it can shadow the canonical rule). These rules block maintenance-close;
+# every other rule is preserved untouched. Never prints a hostname, service or port.
+oteryn_bypass_rules_count() {
+    local config_json="$1" count=0 shadow encoded service rows
+    rows="$(jq -r --arg www "$WWW_HOST" --arg gateway "$GATEWAY_HOST" '
+        def hostval: (if type == "object" then (.hostname // "") else "" end);
+        def norm: (hostval | if type == "string" then ascii_downcase | sub("\\.+$"; "") else tostring end);
+        def canonical: type == "object" and (norm == $www or norm == $gateway);
+        def portless: (norm | sub(":[0-9]*$"; "") | sub("\\.+$"; ""));
+        # cloudflared matches "" and "*" against every host and "*.<suffix>" by suffix; any other
+        # wildcard spelling is treated as matching (fail closed).
+        def wide: (hostval | if type != "string" then true
+            else (ascii_downcase | sub(":[0-9]*$"; "") | sub("\\.+$"; "")) as $h
+            | if $h == "" or $h == "*" then true
+              elif ($h | startswith("*.")) and ($h[2:] | contains("*") | not)
+                then ($h[2:]) as $s | (($www | endswith($s)) or ($gateway | endswith($s)))
+              else ($h | contains("*")) end end);
+        (if type == "object" and (.ingress | type) == "array" then .ingress else [] end) as $rules
+        | ([range(0; $rules | length) | select($rules[.] | canonical)] | max // -1) as $last
+        | range(0; $rules | length) as $i
+        | $rules[$i]
+        | select(canonical | not)
+        | [(if (type != "object") or (portless == $www) or (portless == $gateway) or ($i < $last and wide) then "1" else "0" end),
+           ((if type == "object" then (.service // "") else "" end) | if type == "string" then . else "" end | @base64)]
+        | @tsv' <<<"$config_json")" || { fail "tunnel configuration could not be checked for bypass rules"; return 1; }
+    while IFS=$'\t' read -r shadow encoded; do
+        [[ -n "$shadow" ]] || continue
+        service="$(printf '%s' "$encoded" | base64 -d)"
+        if [[ "$shadow" == 1 ]] || service_targets_oteryn_origin "$service"; then
+            count=$((count + 1))
+        fi
+    done <<<"$rows"
+    printf '%s' "$count"
+}
+
 # --- pure validators (JSON in, verdict out; no network) --------------------
 
 # Prints ok | needs_jobs on success; prints a reason to stderr and returns 1 otherwise.
@@ -606,6 +682,8 @@ validate_closure_json() {
         elif (.run_attempt | tostring) != "1" then "closure run_attempt"
         elif (.edge_version | type) != "number" then "closure edge_version"
         elif ((.config_hash | type) != "string") or ((.config_hash | test("^[0-9a-f]{64}$")) | not) then "closure config_hash"
+        elif ((.preserved_rules_count | type) != "number") or (.preserved_rules_count != (.preserved_rules_count | floor)) or (.preserved_rules_count < 1) then "closure preserved_rules_count"
+        elif ((.preserved_rules_hash | type) != "string") or ((.preserved_rules_hash | test("^[0-9a-f]{64}$")) | not) then "closure preserved_rules_hash"
         elif (.fingerprint_status != "collected" and .fingerprint_status != "unavailable") then "closure fingerprint_status"
         elif (.fingerprint_status == "unavailable" and .origin_fingerprint != null) then "closure fingerprint"
         elif (.fingerprint_status == "collected" and ((.origin_fingerprint | type) != "object")) then "closure fingerprint"
@@ -628,12 +706,13 @@ validate_evidence_json() {
     return 1
 }
 
-# The closure must describe exactly the live closed edge (version and hash).
+# The closure must describe exactly the live closed edge (version, hash and the preserved
+# rules that the gate left untouched).
 closure_matches_live() {
-    local closure_json="$1" live_version="$2" live_hash="$3"
-    jq -e --argjson version "${live_version:-null}" --arg hash "$live_hash" '
-        .edge_version == $version and .config_hash == $hash' <<<"$closure_json" >/dev/null 2>&1 || {
-        fail "closure no longer matches the live edge (edge_version or config_hash changed)"
+    local closure_json="$1" live_version="$2" live_hash="$3" live_preserved_hash="$4"
+    jq -e --argjson version "${live_version:-null}" --arg hash "$live_hash" --arg preserved "$live_preserved_hash" '
+        .edge_version == $version and .config_hash == $hash and .preserved_rules_hash == $preserved' <<<"$closure_json" >/dev/null 2>&1 || {
+        fail "closure no longer matches the live edge (edge_version, config_hash or preserved rules changed)"
         return 1
     }
 }
@@ -771,6 +850,8 @@ read_edge() {
     [[ -n "$EDGE_CONFIG" ]] || { fail "Cloudflare returned no remote tunnel configuration"; return 1; }
     EDGE_VERSION="$(jq -r '.result.version | if type == "number" and . == floor and . >= 0 then tostring else "" end' <<<"$response")"
     EDGE_HASH="$(sha256_json <<<"$EDGE_CONFIG")"
+    EDGE_PRESERVED_COUNT="$(preserved_rules_count "$EDGE_CONFIG")"
+    EDGE_PRESERVED_HASH="$(preserved_rules_hash "$EDGE_CONFIG")"
     if [[ -z "$EDGE_VERSION" ]]; then
         EDGE_STATE="unknown"
     else
@@ -801,7 +882,7 @@ compute_closure_match() {
         return 0
     fi
     if validate_closure_json "$closure_json" "$OTERYN_TASK_ID" "$OTERYN_CLOSURE_RUN_ID" >/dev/null 2>&1 \
-        && closure_matches_live "$closure_json" "$EDGE_VERSION" "$EDGE_HASH" >/dev/null 2>&1; then
+        && closure_matches_live "$closure_json" "$EDGE_VERSION" "$EDGE_HASH" "$EDGE_PRESERVED_HASH" >/dev/null 2>&1; then
         printf 'yes'
     else
         printf 'no'
@@ -829,8 +910,9 @@ audit_snapshot() {
 }
 
 print_report() {
-    local mode="$1" drift="$2" www="$3" gateway="$4" legacy="$5" mutation="$6" routes closure_match
+    local mode="$1" drift="$2" www="$3" gateway="$4" legacy="$5" mutation="$6" routes bypass closure_match
     routes="$(other_origin_routes_count "$EDGE_CONFIG")"
+    bypass="$(oteryn_bypass_rules_count "$EDGE_CONFIG")"
     closure_match="not_requested"
     if [[ "$mode" == audit ]]; then
         closure_match="$(compute_closure_match)"
@@ -845,15 +927,20 @@ print_report() {
     printf 'gate_state=%s\n' "$EDGE_STATE"
     printf 'edge_version=%s\n' "${EDGE_VERSION:-unknown}"
     printf 'other_origin_routes=%s\n' "$routes"
+    printf 'oteryn_bypass_rules=%s\n' "$bypass"
+    printf 'preserved_rules=%s\n' "$EDGE_PRESERVED_COUNT"
+    printf 'preserved_rules_hash=%s\n' "$EDGE_PRESERVED_HASH"
     if [[ "$mode" == audit ]]; then
         printf 'closure_match=%s\n' "$closure_match"
-        write_audit_result "$drift" "$www" "$gateway" "$legacy" "$routes" "$closure_match"
+        write_audit_result "$drift" "$www" "$gateway" "$legacy" "$routes" "$bypass" "$closure_match"
     fi
 
     append_summary '## Cloudflare Oteryn endpoints'
     append_summary "- mode: \`${mode}\`"
     append_summary "- gate state: \`${EDGE_STATE}\` (edge version \`${EDGE_VERSION:-unknown}\`)"
-    append_summary "- other origin routes: \`${routes}\`"
+    append_summary "- other origin routes (preserved, informational): \`${routes}\`"
+    append_summary "- Oteryn bypass rules (must be 0 to close): \`${bypass}\`"
+    append_summary "- preserved rules: \`${EDGE_PRESERVED_COUNT}\` (hash \`${EDGE_PRESERVED_HASH}\`)"
     append_summary "- tunnel status: \`${TUNNEL_STATE}\`"
     append_summary "- tunnel contract: \`${drift}\`"
     append_summary "- WWW DNS: \`${www}\`"
@@ -863,7 +950,7 @@ print_report() {
 }
 
 write_audit_result() {
-    local drift="$1" www="$2" gateway="$3" legacy="$4" routes="$5" closure_match="$6"
+    local drift="$1" www="$2" gateway="$3" legacy="$4" routes="$5" bypass="$6" closure_match="$7"
     [[ -n "${OTERYN_AUDIT_RESULT_FILE:-}" ]] || return 0
     jq -n \
         --arg schema "$AUDIT_RESULT_SCHEMA" \
@@ -877,6 +964,9 @@ write_audit_result() {
         --arg contract "$drift" \
         --arg www "$www" --arg gateway "$gateway" --arg legacy "$legacy" \
         --argjson routes "$routes" \
+        --argjson bypass "$bypass" \
+        --argjson preserved_count "$EDGE_PRESERVED_COUNT" \
+        --arg preserved_hash "$EDGE_PRESERVED_HASH" \
         --arg closure_match "$closure_match" '
         {
             schema: $schema,
@@ -890,6 +980,8 @@ write_audit_result() {
             tunnel_contract: $contract,
             dns: {www: $www, gateway: $gateway, legacy_gateway: $legacy},
             other_origin_routes: $routes,
+            oteryn_bypass_rules: $bypass,
+            preserved_rules: {count: $preserved_count, hash: $preserved_hash},
             closure_match: $closure_match
         }' >"$OTERYN_AUDIT_RESULT_FILE"
 }
@@ -897,7 +989,7 @@ write_audit_result() {
 # --- maintenance-close ----------------------------------------------------------
 
 run_maintenance_close() {
-    local pre_state pre_version pre_hash pre_shape routes closure_run_id closure_json
+    local pre_state pre_version pre_hash pre_shape pre_preserved pre_preserved_count routes bypass closure_run_id closure_json
     local fp_status="unavailable" fp_json="null" fp_eval planned mutation="gate-close"
 
     [[ "${CLOUDFLARE_GATE_CONFIRMATION:-}" == "$CLOSE_CONFIRMATION" ]] || fail "maintenance-close requires exact confirmation: ${CLOSE_CONFIRMATION}"
@@ -913,21 +1005,30 @@ run_maintenance_close() {
     pre_version="$EDGE_VERSION"
     pre_hash="$EDGE_HASH"
     pre_shape="$(config_shape_hash "$EDGE_CONFIG")"
+    pre_preserved="$EDGE_PRESERVED_HASH"
+    pre_preserved_count="$EDGE_PRESERVED_COUNT"
     case "$pre_state" in
         open | split | closed) ;;
         *) fail "maintenance-close refused: gate_state=${pre_state}" ;;
     esac
 
+    # Only the two canonical rules are closed. Every other rule (other services on the same
+    # tunnel) is preserved untouched and reported as a count and a hash; it never blocks
+    # the close unless it could bypass the closed canonical rules.
     routes="$(other_origin_routes_count "$EDGE_CONFIG")"
+    bypass="$(oteryn_bypass_rules_count "$EDGE_CONFIG")"
     printf 'other_origin_routes=%s\n' "$routes"
-    [[ "$routes" == 0 ]] || fail "maintenance-close refused: other_origin_routes=${routes}"
+    printf 'oteryn_bypass_rules=%s\n' "$bypass"
+    printf 'preserved_rules=%s\n' "$pre_preserved_count"
+    printf 'preserved_rules_hash=%s\n' "$pre_preserved"
+    [[ "$bypass" == 0 ]] || fail "maintenance-close refused: oteryn_bypass_rules=${bypass}"
 
     if [[ "$pre_state" == closed ]]; then
         closure_run_id="${OTERYN_CLOSURE_RUN_ID:-}"
         [[ "$closure_run_id" =~ $RUN_ID_REGEX ]] || fail "renewal from a closed gate requires closure_run_id"
         closure_json="$(fetch_run_artifact_json "$closure_run_id" "$ENDPOINTS_WORKFLOW_PATH" "$CLOSURE_ARTIFACT" closure.json renewal)"
         validate_closure_json "$closure_json" "$OTERYN_TASK_ID" "$closure_run_id" || fail "renewal refused"
-        closure_matches_live "$closure_json" "$pre_version" "$pre_hash" || fail "renewal refused"
+        closure_matches_live "$closure_json" "$pre_version" "$pre_hash" "$pre_preserved" || fail "renewal refused"
         fp_status="$(jq -r '.fingerprint_status' <<<"$closure_json")"
         fp_json="$(jq -c '.origin_fingerprint' <<<"$closure_json")"
         planned="$EDGE_CONFIG"
@@ -937,9 +1038,10 @@ run_maintenance_close() {
     fi
 
     read_edge
-    if [[ "$EDGE_HASH" != "$pre_hash" || "$EDGE_VERSION" != "$pre_version" || "$EDGE_STATE" != "$pre_state" ]]; then
+    if [[ "$EDGE_HASH" != "$pre_hash" || "$EDGE_VERSION" != "$pre_version" || "$EDGE_STATE" != "$pre_state" || "$EDGE_PRESERVED_HASH" != "$pre_preserved" ]]; then
         fail "edge changed between the first read and the write; nothing was written (gate_state=${EDGE_STATE})"
     fi
+    [[ "$(preserved_rules_hash "$planned")" == "$pre_preserved" ]] || fail "planned configuration would change preserved rules; nothing was written"
 
     if [[ "$pre_state" == open ]] && [[ -n "${OTERYN_FINGERPRINT_FILE:-}" ]]; then
         fp_eval="$(evaluate_fingerprint_candidate "$OTERYN_FINGERPRINT_FILE")"
@@ -952,24 +1054,27 @@ run_maintenance_close() {
     read_edge
     [[ "$EDGE_STATE" == closed ]] || fail "close verification failed: observed gate_state=${EDGE_STATE}"
     [[ "$(config_shape_hash "$EDGE_CONFIG")" == "$pre_shape" ]] || fail "close verification failed: unrelated configuration changed (gate_state=${EDGE_STATE})"
+    [[ "$EDGE_PRESERVED_HASH" == "$pre_preserved" && "$EDGE_PRESERVED_COUNT" == "$pre_preserved_count" ]] || fail "close verification failed: preserved rules changed (gate_state=${EDGE_STATE})"
     [[ "$EDGE_VERSION" == "$((pre_version + 1))" ]] || fail "close verification failed: edge_version ${EDGE_VERSION} is not ${pre_version} plus one (gate_state=${EDGE_STATE})"
 
     jq -n \
         --arg schema "$CLOSURE_SCHEMA" --arg task "$OTERYN_TASK_ID" --arg run "$GITHUB_RUN_ID" \
         --argjson version "$EDGE_VERSION" --arg hash "$EDGE_HASH" \
+        --argjson preserved_count "$EDGE_PRESERVED_COUNT" --arg preserved_hash "$EDGE_PRESERVED_HASH" \
         --arg fp_status "$fp_status" --argjson fp "$fp_json" '
         {schema: $schema, task_id: $task, close_run_id: $run, run_attempt: 1, edge_version: $version,
-         config_hash: $hash, fingerprint_status: $fp_status, origin_fingerprint: $fp}' >"$OTERYN_CLOSURE_FILE"
+         config_hash: $hash, preserved_rules_count: $preserved_count, preserved_rules_hash: $preserved_hash,
+         fingerprint_status: $fp_status, origin_fingerprint: $fp}' >"$OTERYN_CLOSURE_FILE"
 
     print_report maintenance-close not_checked not_checked not_checked not_checked "$mutation"
     printf 'fingerprint_status=%s\n' "$fp_status"
-    append_summary "- close run id: \`${GITHUB_RUN_ID}\`, config hash: \`${EDGE_HASH}\`, fingerprint: \`${fp_status}\`"
+    append_summary "- close run id: \`${GITHUB_RUN_ID}\`, config hash: \`${EDGE_HASH}\`, preserved rules hash: \`${EDGE_PRESERVED_HASH}\`, fingerprint: \`${fp_status}\`"
 }
 
 # --- maintenance-open -----------------------------------------------------------
 
 run_maintenance_open() {
-    local pre_version pre_hash pre_shape closure_json evidence_json planned mutation="none"
+    local pre_version pre_hash pre_shape pre_preserved closure_json evidence_json planned mutation="none"
     [[ "${CLOUDFLARE_GATE_CONFIRMATION:-}" == "$OPEN_CONFIRMATION" ]] || fail "maintenance-open requires exact confirmation: ${OPEN_CONFIRMATION}"
     require_task_id
 
@@ -984,22 +1089,26 @@ run_maintenance_open() {
             evidence_json="$(fetch_run_artifact_json "$OTERYN_EVIDENCE_RUN_ID" "$CUTOVER_WORKFLOW_PATH" "$EVIDENCE_ARTIFACT" gate-evidence.json evidence)"
             validate_closure_json "$closure_json" "$OTERYN_TASK_ID" "$OTERYN_CLOSURE_RUN_ID" || fail "open refused"
             validate_evidence_json "$evidence_json" "$OTERYN_TASK_ID" "$OTERYN_CLOSURE_RUN_ID" || fail "open refused"
-            closure_matches_live "$closure_json" "$EDGE_VERSION" "$EDGE_HASH" || fail "open refused"
+            closure_matches_live "$closure_json" "$EDGE_VERSION" "$EDGE_HASH" "$EDGE_PRESERVED_HASH" || fail "open refused"
             pre_version="$EDGE_VERSION"
             pre_hash="$EDGE_HASH"
             pre_shape="$(config_shape_hash "$EDGE_CONFIG")"
+            pre_preserved="$EDGE_PRESERVED_HASH"
 
             read_edge
-            if [[ "$EDGE_STATE" != closed || "$EDGE_VERSION" != "$pre_version" || "$EDGE_HASH" != "$pre_hash" ]]; then
+            if [[ "$EDGE_STATE" != closed || "$EDGE_VERSION" != "$pre_version" || "$EDGE_HASH" != "$pre_hash" || "$EDGE_PRESERVED_HASH" != "$pre_preserved" ]]; then
                 fail "edge changed before the write; nothing was written (gate_state=${EDGE_STATE})"
             fi
-            closure_matches_live "$closure_json" "$EDGE_VERSION" "$EDGE_HASH" || fail "open refused"
+            closure_matches_live "$closure_json" "$EDGE_VERSION" "$EDGE_HASH" "$EDGE_PRESERVED_HASH" || fail "open refused"
 
             planned="$(set_gate_services "$EDGE_CONFIG" "$WWW_SERVICE" "$GATEWAY_SERVICE")"
+            [[ "$(preserved_rules_hash "$planned")" == "$pre_preserved" ]] || fail "planned configuration would change preserved rules; nothing was written"
             put_edge_config "$planned"
             read_edge
             [[ "$EDGE_STATE" == open ]] || fail "open verification failed: observed gate_state=${EDGE_STATE}"
             [[ "$(config_shape_hash "$EDGE_CONFIG")" == "$pre_shape" ]] || fail "open verification failed: unrelated configuration changed"
+            jq -e --arg preserved "$EDGE_PRESERVED_HASH" '.preserved_rules_hash == $preserved' <<<"$closure_json" >/dev/null \
+                || fail "open verification failed: preserved rules differ from the closure"
             [[ "$EDGE_VERSION" == "$((pre_version + 1))" ]] || fail "open verification failed: edge_version ${EDGE_VERSION} is not ${pre_version} plus one"
             mutation="gate-open"
             ;;

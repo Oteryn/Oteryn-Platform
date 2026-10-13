@@ -97,18 +97,28 @@ artifact_age_ok() {
     (( $2 >= created && $2 - created < $3 ))
 }
 
-# validate_audit_json <expected-state> <audit-run-id> <task-id> <close-run-id-or-empty>  (audit.json on stdin).
-# open: gate_state=open, closure_match=not_requested, other_origin_routes=0.
+# validate_audit_json <expected-state> <audit-run-id> <task-id> <close-run-id-or-empty> [<preserved-hash-or-empty>]
+# (audit.json on stdin). The tunnel may carry other services' ingress rules: the gate cuts only the two
+# canonical rules and preserves the others verbatim, so other_origin_routes is informational (a count).
+# Both states: oteryn_bypass_rules=0 (no other rule reaches or shadows the Oteryn origin) and a
+# preserved_rules {count, hash}; when a preserved hash is given it must match (the rules are unchanged).
+# open: gate_state=open, closure_match=not_requested.
 # closed: gate_state=closed, closure_match=yes, closure_run_id equal. No hostname but the canonical ones anywhere.
 validate_audit_json() {
-    jq -e --arg state "$1" --arg run "$2" --arg task "$3" --arg close "$4" '
+    jq -e --arg state "$1" --arg run "$2" --arg task "$3" --arg close "$4" --arg preserved "${5:-}" '
         def hosts: [.. | strings | select(test("^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)*\\.[A-Za-z]{2,}$"))
                     | select(. != "oteryn.molehill.cloud" and . != "gateway.molehill.cloud")];
+        def count: type == "number" and . >= 0 and . == floor;
         (.schema | type == "string" and length > 0)
         and (.audit_run_id | tostring) == $run
         and .task_id == $task
         and .gate_state == $state
-        and ((.other_origin_routes | tostring) == "0")
+        and (.other_origin_routes | count)
+        and .oteryn_bypass_rules == 0
+        and (.preserved_rules | type == "object")
+        and (.preserved_rules.count | count and . >= 1)
+        and (.preserved_rules.hash | type == "string" and test("^[0-9a-f]{64}$"))
+        and ($preserved == "" or .preserved_rules.hash == $preserved)
         and (if $state == "open" then .closure_match == "not_requested"
              else .closure_match == "yes" and (.closure_run_id | tostring) == $close end)
         and ((del(.schema) | hosts) | length == 0)
@@ -290,15 +300,23 @@ sys.stdout.buffer.write(z.read("audit.json"))' "$tmp" || { rm -f "$tmp"; return 
     rm -f "$tmp"
 }
 
-# require_audit <open|closed>
+# require_audit <open|closed>: sets audit_preserved_hash. Once the freeze is recorded, every audit must show
+# the preserved (non-Oteryn) ingress rules recorded at preflight, byte-identical by hash.
+audit_preserved_hash=''
 require_audit() {
-    local expected="$1" json close=''
+    local expected="$1" json close='' preserved=''
     valid_run_id "$audit_run_id" || refuse "OTERYN_CUTOVER_AUDIT_RUN_ID must be a numeric run id."
     require_repository
     [[ "$expected" != closed ]] || { require_close_run; close="$close_run_id"; }
+    if [[ "$expected" == closed ]] || has_step FREEZE; then preserved="$(state_get PRESERVED_RULES_HASH)"; fi
     json="$(fetch_audit_json "$audit_run_id")" || refuse "the audit evidence for run $audit_run_id could not be fetched and verified."
     validate_audit_json "$expected" "$audit_run_id" "$task_id" "$close" <<<"$json" \
         || refuse "the audit result does not show the required $expected gate state for this task."
+    if [[ -n "$preserved" ]]; then
+        validate_audit_json "$expected" "$audit_run_id" "$task_id" "$close" "$preserved" <<<"$json" \
+            || refuse "the audit shows the preserved ingress rules changed since preflight."
+    fi
+    audit_preserved_hash="$(jq -r '.preserved_rules.hash' <<<"$json")"
     echo "Audit $audit_run_id verified: gate_state=$expected."
 }
 
@@ -459,7 +477,7 @@ do_preflight() {
     require_audit open
     prepare_state
     [[ -n "$(state_get TASK_ID)" || "$dry_run" == true ]] || printf 'TASK_ID=%s\n' "$task_id" >> "$state_file"
-    record_step PREFLIGHT
+    record_step PREFLIGHT "PRESERVED_RULES_HASH=$audit_preserved_hash"
     result preflight_result passed
 }
 
