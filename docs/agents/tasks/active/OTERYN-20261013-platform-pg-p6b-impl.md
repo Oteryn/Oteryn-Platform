@@ -21,9 +21,9 @@ Implement the accepted P6b maintenance-gate design (PR #1588): the `maintenance-
 
 ## Acceptance criteria
 
-- [ ] Gate modes, origin-route precondition, apply refusal, audit fields and evidence artifacts are implemented and tested against the mock.
-- [ ] `cutover-postgres.sh` enforces step order, forward-only after step 4 and the destructive entry gate, covered by stub tests.
-- [ ] Cutover evidence template and PITR drill evidence entry exist; the two records are archived with terminal source-branch evidence.
+- [x] Gate modes, origin-route precondition, apply refusal, audit fields and evidence artifacts are implemented and tested against the mock.
+- [x] `cutover-postgres.sh` enforces step order, forward-only after step 4 and the destructive entry gate, covered by stub tests.
+- [x] Cutover evidence template and PITR drill evidence entry exist; the two records are archived with terminal source-branch evidence.
 - [ ] Exact-head CI passes, the full Codex review is addressed and no thread is unresolved.
 
 ## Ownership
@@ -61,8 +61,8 @@ checkpoint_version: 1
 updated_at: 2026-10-13T00:00:00Z
 head: UNKNOWN
 branch: claude/platform-p6b-cutover-20261013
-pr: none
-status: implementing
+pr: 1590
+status: review
 context_routes:
   - operations
 owned_paths:
@@ -90,11 +90,22 @@ first_failure:
   marker: none
   evidence: none
 rejected_hypotheses: []
-changed_paths: []
-validation: []
+changed_paths:
+  - scripts/operations/cloudflare-oteryn-endpoints.sh
+  - .github/workflows/cloudflare-oteryn-endpoints.yml
+  - .github/workflows/cloudflare-oteryn-endpoint-main-operation.yml
+  - tests/operations/cloudflare-oteryn-endpoints/**
+  - deploy/synology/scripts/cutover-postgres.sh
+  - .github/workflows/deploy-synology-staging.yml
+  - tests/ci/test_synology_cutover_postgres.py
+validation:
+  - tests/operations/cloudflare-oteryn-endpoints/run.sh and check-*.py PASS (mock Cloudflare, fake gh)
+  - tests/ci/test_synology_cutover_postgres.py 56/56 PASS (stub docker/gh/curl)
+  - tests/ci/test_synology_postgres_contract.py PASS
+  - PHP checks run in CI only; nothing executed on Synology or Cloudflare
 blockers:
   - none
-next_action: finish implementation, run local tests, open the PR, request the full Codex review
+next_action: full Codex review, one fixes commit, resolve threads, auto-merge squash
 ```
 
 ## Source branch closeout
