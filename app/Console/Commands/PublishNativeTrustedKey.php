@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\GameAuth\NativeEvidence\NativeEvidenceContract;
+use App\GameAuth\NativeEvidence\NativeEvidencePublicationFence;
 use App\GameAuth\NativeEvidence\NativeSigningTrustRegistry;
 use App\GameAuth\Worlds\DisposableNativeStore;
 use Illuminate\Console\Command;
@@ -13,7 +14,8 @@ final class PublishNativeTrustedKey extends Command
 {
     protected $signature = 'game-auth:native-trust:publish-key
         {--key-id= : Fresh admission signing key id}
-        {--public-key-file= : Regular non-symlink file holding the 32 raw Ed25519 public key bytes}';
+        {--public-key-file= : Regular non-symlink file holding the 32 raw Ed25519 public key bytes}
+        {--first-publication-fence= : base64url JSON {run_id, intent_sha256} naming the open attempt intent (PostgreSQL P6a)}';
 
     protected $description = 'Trust one fresh admission public key in a disposable preproduction run (testing/preproduction only).';
 
@@ -38,6 +40,8 @@ final class PublishNativeTrustedKey extends Command
             }
             NativeEvidenceContract::assertKeyId($keyId);
             $publicKey = $this->publicKeyBytes($keyFile);
+            $fenceOption = $this->option('first-publication-fence');
+            $fence = is_string($fenceOption) && $fenceOption !== '' ? NativeEvidencePublicationFence::fromEncoded($fenceOption) : null;
 
             $stored = $registry->publishTrustedKey(
                 NativeEvidenceContract::FRESH_ISSUER,
@@ -45,6 +49,7 @@ final class PublishNativeTrustedKey extends Command
                 $keyPurpose,
                 $keyId,
                 $publicKey,
+                $fence,
             );
             $profileVersion = $connection->table('native_game_signing_trust_profiles')
                 ->where('id', $stored->profile_id ?? null)->value('profile_version');
