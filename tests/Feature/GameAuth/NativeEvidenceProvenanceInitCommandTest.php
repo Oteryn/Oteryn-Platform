@@ -42,7 +42,7 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
     public function test_created_on_a_clean_slate_writes_the_marker_then_the_row_and_no_floor(): void
     {
         self::assertSame(0, Artisan::call(self::COMMAND));
-        $output = $this->output();
+        $output = $this->commandOutput();
 
         self::assertSame('created', $output['result']);
         self::assertMatchesRegularExpression('/\A[0-9a-f]{64}\z/', $output['store_id']);
@@ -59,7 +59,7 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
         file_put_contents($this->directory.'/witness-store.id', $storeId."\n");
 
         self::assertSame(0, Artisan::call(self::COMMAND));
-        $output = $this->output();
+        $output = $this->commandOutput();
 
         self::assertSame('completed', $output['result']);
         self::assertSame($storeId, $output['store_id']);
@@ -69,7 +69,7 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
     public function test_unchanged_reports_floor_class_counts_and_changes_nothing(): void
     {
         self::assertSame(0, Artisan::call(self::COMMAND));
-        $storeId = $this->output()['store_id'];
+        $storeId = $this->commandOutput()['store_id'];
         $hash = str_repeat('a', 64);
         file_put_contents($this->directory.'/'.$hash.'.floor', "1\n");
         file_put_contents($this->directory.'/'.$hash.'.floor.lock', '');
@@ -77,7 +77,7 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
         $before = $this->snapshot();
 
         self::assertSame(0, Artisan::call(self::COMMAND));
-        $output = $this->output();
+        $output = $this->commandOutput();
 
         self::assertSame('unchanged', $output['result']);
         self::assertSame($storeId, $output['store_id']);
@@ -94,7 +94,7 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
 
         self::assertSame(0, Artisan::call(self::COMMAND));
 
-        self::assertSame(1, $this->output()['entries']['marker-temp']);
+        self::assertSame(1, $this->commandOutput()['entries']['marker-temp']);
         self::assertSame('partial', file_get_contents($temporary));
     }
 
@@ -106,7 +106,7 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
 
         try {
             self::assertSame(1, Artisan::call(self::COMMAND));
-            self::assertSame('busy', $this->output()['result']);
+            self::assertSame('busy', $this->commandOutput()['result']);
         } finally {
             flock($lock, LOCK_UN);
             fclose($lock);
@@ -221,7 +221,7 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
     }
 
     /** @return array<string, mixed> */
-    private function output(): array
+    private function commandOutput(): array
     {
         $decoded = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
         self::assertIsArray($decoded);

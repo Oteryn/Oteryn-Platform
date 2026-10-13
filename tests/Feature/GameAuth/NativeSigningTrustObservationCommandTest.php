@@ -49,7 +49,7 @@ final class NativeSigningTrustObservationCommandTest extends TestCase
     public function test_an_empty_directory_is_observed_without_creating_any_file_lock_or_row(): void
     {
         self::assertSame(0, $this->observe(['--key-id' => 'kid-1']));
-        $output = $this->output();
+        $output = $this->commandOutput();
 
         self::assertSame('observed', $output['result']);
         self::assertFalse($output['fence_required']);
@@ -89,7 +89,7 @@ final class NativeSigningTrustObservationCommandTest extends TestCase
 
         self::assertSame(0, $this->observe(['--key-id' => 'kid-1']));
 
-        self::assertSame(['marker' => $marker, 'row' => $row, 'binding' => $binding], $this->output()['store']);
+        self::assertSame(['marker' => $marker, 'row' => $row, 'binding' => $binding], $this->commandOutput()['store']);
         self::assertSame($files, glob($this->directory.'/*') ?: []);
         self::assertSame($row === null ? 0 : 1, DB::table('native_game_evidence_witness_stores')->count());
     }
@@ -119,7 +119,7 @@ final class NativeSigningTrustObservationCommandTest extends TestCase
         $before = $this->directorySnapshot();
 
         self::assertSame(0, $this->observe(['--key-id' => 'kid-1']));
-        $output = $this->output();
+        $output = $this->commandOutput();
 
         self::assertSame('match', $output['store']['binding']);
         self::assertSame(1, $output['floor']['value']);
@@ -133,7 +133,7 @@ final class NativeSigningTrustObservationCommandTest extends TestCase
         self::assertSame($before, $this->directorySnapshot());
 
         self::assertSame(0, $this->observe(['--key-id' => 'kid-2']));
-        $other = $this->output()['key'];
+        $other = $this->commandOutput()['key'];
         self::assertFalse($other['in_history']);
         self::assertFalse($other['trusted']);
     }
@@ -144,7 +144,7 @@ final class NativeSigningTrustObservationCommandTest extends TestCase
 
         self::assertSame(0, $this->observe(['--key-id' => 'kid-1']));
 
-        self::assertTrue($this->output()['fence_required']);
+        self::assertTrue($this->commandOutput()['fence_required']);
     }
 
     public function test_witness_busy_while_the_store_lock_is_held(): void
@@ -172,7 +172,7 @@ final class NativeSigningTrustObservationCommandTest extends TestCase
 
         self::assertSame(1, $this->observe(['--key-id' => 'kid-1']));
 
-        self::assertSame('scope_unconfigured', $this->output()['result']);
+        self::assertSame('scope_unconfigured', $this->commandOutput()['result']);
     }
 
     public function test_only_the_fresh_trust_is_supported(): void
@@ -184,7 +184,7 @@ final class NativeSigningTrustObservationCommandTest extends TestCase
     public function test_database_identity_is_null_off_postgres_and_complete_on_postgres(): void
     {
         self::assertSame(0, $this->observe(['--key-id' => 'kid-1']));
-        $database = $this->output()['database'];
+        $database = $this->commandOutput()['database'];
 
         if (DB::connection()->getDriverName() !== 'pgsql') {
             self::assertNull($database);
@@ -210,7 +210,7 @@ final class NativeSigningTrustObservationCommandTest extends TestCase
 
         try {
             self::assertSame(1, $this->observe(['--key-id' => 'kid-1']));
-            self::assertSame(['result' => 'witness_busy'], $this->output());
+            self::assertSame(['result' => 'witness_busy'], $this->commandOutput());
         } finally {
             flock($lock, LOCK_UN);
             fclose($lock);
@@ -224,7 +224,7 @@ final class NativeSigningTrustObservationCommandTest extends TestCase
     }
 
     /** @return array<string, mixed> */
-    private function output(): array
+    private function commandOutput(): array
     {
         $decoded = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
         self::assertIsArray($decoded);
