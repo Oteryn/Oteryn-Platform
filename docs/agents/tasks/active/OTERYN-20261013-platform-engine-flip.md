@@ -23,7 +23,7 @@ P6 cutover step 2 (ADR 0046, plan P6, `deploy/synology/scripts/cutover-postgres.
 ## Acceptance criteria
 
 - [x] `deploy/synology/release-contract.env` declares `PLATFORM_DB_ENGINE=postgres`; the committed-engine test follows.
-- [x] `lib.sh` `oteryn_require_cutover_deploy_window` refuses, read-only and before any stack change: the mariadb engine from the recorded freeze until a verified rollback; the postgres engine without a readable regular `bootstrap-complete.env` holding `BOOTSTRAPPED_AT` and nonempty OAuth and world IDs (the `cutover-postgres.sh` adoption rule), once a cutover rollback started, and after `retire-mariadb` while `compose.yml` still defines `mariadb`; and any cutover state that exists but cannot be read or inspected, or a linked cutover or bootstrap state directory (Codex review on PR 1598).
+- [x] `lib.sh` `oteryn_require_cutover_deploy_window` refuses, read-only and before any stack change: the mariadb engine from the recorded freeze until a verified rollback; the postgres engine without a readable regular `bootstrap-complete.env` holding `BOOTSTRAPPED_AT` and nonempty OAuth and world IDs (the `cutover-postgres.sh` adoption rule), once a cutover rollback started, in the rollback window (bootstrap complete, `REENABLE_STARTED` absent) for any release other than the current one once the frozen MariaDB release (`FREEZE_PLATFORM_IMAGE`) left `current-release.env` or while a candidate of another release is pending, and after `retire-mariadb` while `compose.yml` still defines `mariadb`; and any cutover state that exists but cannot be read or inspected, or a linked cutover or bootstrap state directory (Codex review on PR 1598).
 - [x] `deploy.sh` and `deploy-impact.sh` call it before their first compose command; `rollback.sh`, `health-check.sh`, `cutover-postgres.sh` and `bootstrap-postgres.sh` do not.
 - [x] README engine-switch paragraph states the merge timing (after the recorded freeze), the rollback revert and the gate.
 - [ ] Merged only after the cutover `freeze` step is recorded on staging (owner sequencing; preflight and freeze refuse a postgres contract).
@@ -57,8 +57,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-13T15:00:00Z
-head: fdfdf874ec13689846539451a90674e27e1f43c6
+updated_at: 2026-10-13T18:00:00Z
+head: dbbc9180d8e30c6ad7bf05624bda2090471d0680
 branch: claude/platform-engine-flip-20261013
 pr: 1598
 status: validating
@@ -78,11 +78,12 @@ proven:
   - A push to main that changes release-contract.env builds a Platform image and dispatches an ordinary staging deploy; without the gate it would migrate the empty PostgreSQL database before the bootstrap (which refuses a non-empty database) or, merged before the freeze, cut over without the gate.
   - The bootstrap runbook and plan step 2 expect a deploy after the bootstrap; the gate lets it pass once bootstrap-complete.env is complete (BOOTSTRAPPED_AT and nonempty OAUTH_CLIENT_ID, OAUTH_RUST_CLIENT_ID, NATIVE_WORLD_ID, last value wins as in the adoption path).
   - Review fix: the gate reads the cutover state once and refuses on a read error, an unsearchable state directory or a non-regular file, and refuses a linked cutover or bootstrap state directory before any marker is read (both cutover scripts refuse linked state directories); an unreadable state is never taken as an absent one. Refusal tests simulate the read error with failing readers on PATH (tests run as root in some sandboxes) and, when not root, with mode 000.
+  - Review fix (Codex P1): a deploy of another release copies current-release.env into last-good-release.env (finalizing a pending candidate first), and cutover-postgres.sh rollback runs rollback.sh, which restores that file and refuses a PostgreSQL image. In the rollback window the gate passes only the deploy that replaces the frozen MariaDB release (current PLATFORM_IMAGE equals FREEZE_PLATFORM_IMAGE; plan step 2) and a redeploy of the current release; a missing FREEZE_PLATFORM_IMAGE, an unreadable release record or a pending candidate of another release is refused.
   - No cutover step had been recorded on staging when this branch was cut (recent staging runs were plain deploys).
 derived:
   - The flip's own merge-dispatched deploy fails closed at the gate by design; the operator deploys after the bootstrap.
 unknown:
-  - Whether more than one postgres deploy before step 4 moves last-good-release.env to a postgres image (rollback.sh then refuses the engine); keep platform-input merges out of the steps 2-3 window.
+  - Whether staging writes PLATFORM_IMAGE identically to the runtime .env and current-release.env (both come from the deploy's PLATFORM_IMAGE); a mismatch refuses the step 2 deploy (fail closed), never the rollback.
 conflicts: []
 first_failure:
   marker: none
@@ -100,7 +101,7 @@ changed_paths:
 validation:
   - command: python3 tests/ci/test_synology_postgres_contract.py
     result: PASS
-    evidence: 72 tests OK (1 skipped as root), including CutoverDeployWindowTest; the new refusal tests fail against the previous gate
+    evidence: 73 tests OK (1 skipped as root), including CutoverDeployWindowTest; the new refusal tests fail against the previous gate
   - command: python3 tests/ci/test_synology_cutover_postgres.py
     result: PASS
     evidence: 60 tests OK
@@ -110,9 +111,9 @@ validation:
   - command: bash -n and shellcheck -x on lib.sh, deploy.sh, deploy-impact.sh
     result: PASS
     evidence: no new shellcheck findings against main
-  - command: python3 -m pytest -q tests/ci/test_synology_*.py
+  - command: python3 -m pytest -q tests/ci/test_synology_*.py deploy/synology/tests
     result: FAIL
-    evidence: 467 passed, 20 skipped; test_synology_rollback_contract.py::test_marketplace_enable_and_verify_are_refused_without_transfer_contract fails on 82e15f4 too (committed postgres engine without secrets; pytest-only, the workflow runs the file's main()), outside owned paths
+    evidence: 506 passed, 20 skipped (with deploy/synology/tests); test_synology_rollback_contract.py::test_marketplace_enable_and_verify_are_refused_without_transfer_contract fails on 82e15f4 too (committed postgres engine without secrets; pytest-only, the workflow runs the file's main()), outside owned paths
 blockers:
   - none
 next_action: CP re-requests review on PR 1598; merge only after the cutover freeze is recorded.

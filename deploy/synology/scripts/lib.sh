@@ -146,6 +146,10 @@ oteryn_require_postgres_secrets_for_engine() {
 #     OAUTH_RUST_CLIENT_ID and NATIVE_WORLD_ID, the rule the cutover-postgres.sh adoption path applies. The
 #     deploy after the bootstrap (plan step 2) and every later one pass;
 #   - the postgres engine once a cutover rollback started;
+#   - the postgres engine in the rollback window (bootstrap complete, native re-enable not started) for a release
+#     whose deploy would move a PostgreSQL release into last-good-release.env: the cutover rollback runs
+#     rollback.sh, which restores that file and refuses a PostgreSQL image there. Only the deploy that replaces
+#     the frozen MariaDB release (plan step 2) and a redeploy of the current release pass;
 #   - the postgres engine after retire-mariadb while the compose file still defines the mariadb service: it
 #     would recreate the retired service.
 # The paths follow cutover-postgres.sh (OTERYN_STATE_DIR, OTERYN_CUTOVER_STATE_DIR, OTERYN_PG_BOOTSTRAP_STATE_DIR).
@@ -203,6 +207,9 @@ oteryn_require_cutover_deploy_window() {
                 echo "Deploy refused: a cutover rollback to MariaDB was started; it ends only through cutover-postgres.sh rollback." >&2
                 return 1
             fi
+            if ! _oteryn_cutover_step_recorded "$state_text" REENABLE_STARTED; then
+                _oteryn_cutover_keeps_rollback_release "$state_text" || return 1
+            fi
             if _oteryn_cutover_step_recorded "$state_text" MARIADB_RETIRED && grep -q '^  mariadb:' "$compose_file"; then
                 echo "Deploy refused: MariaDB is retired but the compose file still defines the mariadb service; land P7b first." >&2
                 return 1
@@ -213,6 +220,42 @@ oteryn_require_cutover_deploy_window() {
             return 1
             ;;
     esac
+}
+
+# Rollback window rule of oteryn_require_cutover_deploy_window. A deploy of another release copies
+# current-release.env into last-good-release.env (and first finalizes a pending candidate the same way), so it
+# passes only while the current release is the frozen MariaDB one (FREEZE_PLATFORM_IMAGE) and no candidate of
+# another release is pending; a redeploy of the current release moves nothing.
+# Usage: _oteryn_cutover_keeps_rollback_release <cutover state text>
+_oteryn_cutover_keeps_rollback_release() {
+    local state_text="$1" release_dir current_file candidate_file text frozen_image current_sha current_image candidate_sha
+    local requested="${OTERYN_RELEASE_SHA:-}"
+    release_dir="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
+    current_file="$release_dir/current-release.env"
+    candidate_file="$release_dir/candidate-release.env"
+    if [[ -e "$candidate_file" || -L "$candidate_file" ]]; then
+        if ! text="$(_oteryn_read_state_file "$candidate_file")"; then
+            echo "Deploy refused: the pending candidate $candidate_file cannot be read in the cutover rollback window." >&2
+            return 1
+        fi
+        candidate_sha="$(_oteryn_state_value "$text" RELEASE_SHA)"
+        if [[ -z "$candidate_sha" || "$candidate_sha" != "$requested" ]]; then
+            echo "Deploy refused: the cutover rollback window is open and the pending candidate ${candidate_sha:-?} is not the requested release; finishing it would replace the MariaDB rollback release in last-good-release.env. Redeploy the candidate release, roll back, or run native re-enable first." >&2
+            return 1
+        fi
+    fi
+    [[ -e "$current_file" || -L "$current_file" ]] || return 0
+    if ! text="$(_oteryn_read_state_file "$current_file")"; then
+        echo "Deploy refused: the current release $current_file cannot be read in the cutover rollback window." >&2
+        return 1
+    fi
+    current_sha="$(_oteryn_state_value "$text" RELEASE_SHA)"
+    current_image="$(_oteryn_state_value "$text" PLATFORM_IMAGE)"
+    [[ -z "$current_sha" || "$current_sha" != "$requested" ]] || return 0
+    frozen_image="$(_oteryn_state_value "$state_text" FREEZE_PLATFORM_IMAGE)"
+    [[ -z "$frozen_image" || "$current_image" != "$frozen_image" ]] || return 0
+    echo "Deploy refused: the cutover rollback window is open (bootstrap complete, native re-enable not started) and the current release ${current_sha:-?} is not the frozen MariaDB release; deploying ${requested:-an unnamed release} would move it into last-good-release.env, which the cutover rollback restores. Redeploy the current release, roll back, or run native re-enable first." >&2
+    return 1
 }
 
 # Prints a state file; fails on any read error (an unreadable file is never taken as an empty one).
