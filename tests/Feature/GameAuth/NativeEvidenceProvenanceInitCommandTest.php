@@ -127,6 +127,7 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
         self::assertSame(1, Artisan::call(self::COMMAND));
 
         self::assertStringContainsString('Native evidence provenance init refused:', Artisan::output());
+        self::assertStringContainsString('"result":"refused"', Artisan::output());
         self::assertSame($before, $this->snapshot());
         self::assertSame($floorsBefore, glob($this->directory.'/*.floor') ?: [], 'The init never writes or removes a floor.');
     }

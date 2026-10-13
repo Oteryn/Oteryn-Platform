@@ -14,7 +14,7 @@ use Throwable;
  * between the two writes of a previous init, or an equal marker and row is refused with nothing changed.
  *
  * Output is one JSON line {"result", "store_id", "entries"}; the exit status is non-zero for `busy` and
- * for every refusal.
+ * for every refusal; a refusal prints {"result": "refused", "reason"} first.
  */
 final class InitNativeEvidenceProvenance extends Command
 {
@@ -40,6 +40,7 @@ final class InitNativeEvidenceProvenance extends Command
 
     private function refuse(string $reason): int
     {
+        $this->line((string) json_encode(['result' => 'refused', 'reason' => $reason], JSON_UNESCAPED_SLASHES));
         $this->components->error('Native evidence provenance init refused: '.$reason);
 
         return self::FAILURE;

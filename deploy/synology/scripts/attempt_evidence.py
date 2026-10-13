@@ -1226,7 +1226,7 @@ def build_parser():
     c.add_argument("--dir", required=True)
     c.add_argument("--target")
     c.add_argument("--runner-container")
-    c.add_argument("--project", default="oteryn")
+    c.add_argument("--project", default=os.environ.get("COMPOSE_PROJECT_NAME") or "oteryn-staging")
     c.add_argument("--platform-service", default="platform")
     c.add_argument("--owner-uid", type=int, default=0)
     c.add_argument("--group-gid", type=int, default=82)
