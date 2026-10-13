@@ -1,0 +1,16 @@
+{
+  "repository": "vercel-labs/web-interface-guidelines",
+  "commit": "434b7f91364665f2f733b310ec54809bf8f37937",
+  "files": [
+    {
+      "file": "references/guidelines.md",
+      "source": "https://raw.githubusercontent.com/vercel-labs/web-interface-guidelines/434b7f91364665f2f733b310ec54809bf8f37937/command.md",
+      "sha256": "d246b026f4f29b5823a9cc857f9edf3d2507002e055e32040cadeaf3b38e0234"
+    },
+    {
+      "file": "references/LICENSE",
+      "source": "https://raw.githubusercontent.com/vercel-labs/web-interface-guidelines/434b7f91364665f2f733b310ec54809bf8f37937/LICENSE",
+      "sha256": "6cd1609c9c12233507cdd2ce0d32e9a721e3c27494951be06b90090deeeb7af2"
+    }
+  ]
+}

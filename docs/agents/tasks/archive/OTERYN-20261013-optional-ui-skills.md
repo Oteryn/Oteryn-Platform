@@ -19,7 +19,7 @@ Install project-local design, UI-review and browser-testing skills behind the ta
 - [x] Explicit grant, continuation, revocation, named-skill scope and worker handoff rules.
 - [x] Pinned sources, SHA-256 provenance and retained Apache-2.0/MIT licenses.
 - [x] Laravel/Blade-specific wrappers and browser helper limits.
-- [ ] Focused validation, exact-head CI and governed integration.
+- [x] Focused validation completed; exact-head CI and governed integration remain live PR prerequisites.
 
 ## Ownership
 
@@ -46,8 +46,8 @@ checkpoint_version: 1
 updated_at: 2026-10-13T17:53:59.601261Z
 head: UNKNOWN
 branch: codex/optional-ui-skills-20261013
-pr: none
-status: implementing
+pr: 1603
+status: ready
 context_routes:
   - agent-governance
 owned_paths:
@@ -75,7 +75,7 @@ validation:
     evidence: No runtime UI, dependency, security or application code changes.
 blockers:
   - none
-next_action: Run focused checks and publish the authoring branch.
+next_action: Freeze the final candidate and qualify live PR 1603 before governed integration.
 ```
 
 ## Review and evidence
@@ -85,7 +85,18 @@ Independent AI review not selected: optional-aid instructions narrow selection w
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: Await exact-head qualification and governed integration.
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: Ordinary same-repository delivery; verify deletion after merge.
+source_branch_evidence: Live PR 1603; terminal readback remains pending.
 ```
+
+## Validation and archive disposition
+
+- Checkpoint and Documentation/Agent IA validation: PASS.
+- `OTERYN_META_POLICY_ROOT=/workspace/oteryn-meta-policy python -m unittest discover -s tools/agents -p 'test_*.py' -q`: PASS, 158 tests.
+- `python tools/validation/prompt_eval.py`: PASS, deterministic contract only; model trials 0.
+- `python tools/agents/policy_consistency.py --meta-root /workspace/oteryn-meta-policy`: PASS against authenticated bound META revision.
+- Source SHA-256/license checks and `git diff --check`: PASS.
+- Changed-file self-review: PASS.
+
+PR: https://github.com/Oteryn/Oteryn-Platform/pull/1603 . This record is placed in archive in the final authoring delta; it reaches main only if that PR merges. Exact final SHA, CI, queue and terminal merge evidence are maintained in the live PR. Source deletion and ownership release require terminal readback. Runtime E2E is NOT_APPLICABLE because only optional agent aids are added. Actual client discovery/model behavior are NOT_EVALUATED; no automatic enforcement claim.
