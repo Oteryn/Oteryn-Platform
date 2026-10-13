@@ -24,7 +24,7 @@ Implement the accepted P6b maintenance-gate design (PR #1588): the `maintenance-
 - [x] Gate modes, origin-route precondition, apply refusal, audit fields and evidence artifacts are implemented and tested against the mock.
 - [x] `cutover-postgres.sh` enforces step order, forward-only after step 4 and the destructive entry gate, covered by stub tests.
 - [x] Cutover evidence template and PITR drill evidence entry exist; the two records are archived with terminal source-branch evidence.
-- [ ] Exact-head CI passes, the full Codex review is addressed and no thread is unresolved.
+- [x] Exact-head CI passes, the full Codex review is addressed and no thread is unresolved.
 
 ## Ownership
 
@@ -58,11 +58,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-13T00:00:00Z
-head: UNKNOWN
+updated_at: 2026-10-13T12:00:00Z
+head: 10d4ff55a4e7c1973ed7db66004c43aefb92f113
 branch: claude/platform-p6b-cutover-20261013
-pr: 1590
-status: validating
+pr: 1592
+status: completed
+terminal_pr_policy: archive_pending
 context_routes:
   - operations
 owned_paths:
@@ -110,7 +111,7 @@ validation:
     evidence: ratchet ok; documentation IA validated; PHP checks run in CI only
 blockers:
   - none
-next_action: full Codex review, one fixes commit, resolve threads, auto-merge squash
+next_action: none. PR #1590 merged as 9d0c154e and follow-up PR #1592 merged as 10d4ff55 on 2026-10-13; this record is archived.
 ```
 
 ## Source branch closeout
@@ -118,7 +119,7 @@ next_action: full Codex review, one fixes commit, resolve threads, auto-merge sq
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: pending merge; verify the source ref disappears after merge
+source_branch_evidence: PRs #1590 and #1592 merged as 9d0c154e67bc8e644ceb890685fbeb02cdfa3892 and 10d4ff55a4e7c1973ed7db66004c43aefb92f113 from claude/platform-p6b-cutover-20261013; git ls-remote on 2026-10-13 shows the branch no longer exists (auto-deleted after merge)
 ```
 
 ## Notes
