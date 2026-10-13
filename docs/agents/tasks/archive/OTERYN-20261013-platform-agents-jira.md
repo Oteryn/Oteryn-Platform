@@ -74,7 +74,7 @@ validation:
     evidence: documentation-only change
 blockers:
   - none
-next_action: none; merge PR #1596 and this record is already archived.
+next_action: none; PR #1596 merged as ef95c021831fd51859ad91a8aabeff86192a4a09 and this record is archived.
 ```
 
 ## Source branch closeout
@@ -82,7 +82,7 @@ next_action: none; merge PR #1596 and this record is already archived.
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: PR #1596 is terminal and the same-repository branch has no durable post-merge purpose.
-source_branch_evidence: pending until PR #1596 merges; verify the source ref disappears.
+source_branch_evidence: PR #1596 merged as ef95c021831fd51859ad91a8aabeff86192a4a09 from exact head 60413e2f214de1053140c1bdc2d861969338bd9b; live git ls-remote readback confirms claude/platform-agents-jira-20261013 is absent.
 ```
 
 ## Notes
