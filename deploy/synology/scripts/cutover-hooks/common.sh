@@ -172,10 +172,10 @@ hook_post_anchor() {
     local anchor existing id attempt
     anchor="$(jq -cS . <<<"$1")" || hook_fail "malformed anchor."
     for attempt in 1 2 3; do
-        hook_fetch_anchors "$HOOK_WORK/anchors.json"
+        hook_fetch_anchors "$HOOK_WORK/anchors-post.json"
         existing="$(jq -r --argjson a "$anchor" --argjson uid "$TRUSTED_ANCHOR_AUTHOR_ID" --arg login "$TRUSTED_ANCHOR_AUTHOR_LOGIN" '
             [.comments[] | select(.author.id == $uid and .author.login == $login)
-             | select((.body | try fromjson catch null) == $a) | .id] | first // empty' "$HOOK_WORK/anchors.json")"
+             | select((.body | try fromjson catch null) == $a) | .id] | first // empty' "$HOOK_WORK/anchors-post.json")"
         if [[ -n "$existing" ]]; then
             printf '%s\n' "$existing"
             return 0

@@ -89,6 +89,8 @@ on:
           - declare-done
           - retire-mariadb
           - unfreeze
+          - evidence-close-init
+          - evidence-observe
         default: status
       cutover_dry_run:
         description: Cutover only - true prints the planned commands and changes nothing; false executes the step
@@ -119,6 +121,10 @@ on:
         description: Cutover retire-mariadb only - must equal task_id
         required: false
         type: string
+      evidence_run_id:
+        description: Cutover evidence-close-init and evidence-observe only - the attempt evidence run id (UUID) to close
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -137,6 +143,14 @@ jobs:
       labels: oteryn-platform
     environment: synology-staging
     timeout-minutes: 30
+    # The job-level set replaces the workflow-level one. issues: write is for the cutover only: its attempt
+    # evidence hooks post anchor comments to the locked anchor issue (P6a D3) with this job's token, the only
+    # trusted anchor author. GH_TOKEN is set in the cutover steps alone.
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+      issues: write
     env:
       CANONICAL_PUBLIC_APP_URL: https://oteryn.molehill.cloud
       APP_KEY: ${{ secrets.OTERYN_STAGING_APP_KEY }}
@@ -536,17 +550,51 @@ jobs:
           CUTOVER_TASK_ID: ${{ inputs.task_id }}
           CUTOVER_CLOSE_RUN_ID: ${{ inputs.close_run_id }}
           CUTOVER_AUDIT_RUN_ID: ${{ inputs.audit_run_id }}
+          CUTOVER_EVIDENCE_RUN_ID: ${{ inputs.evidence_run_id }}
         run: |
           set -euo pipefail
           if [[ "$CUTOVER_STEP" != status ]]; then
             [[ "$CUTOVER_TASK_ID" =~ ^OTERYN-[0-9]{8}-[a-z0-9][a-z0-9-]{0,80}$ ]] || { echo "task_id must look like OTERYN-YYYYMMDD-slug." >&2; exit 1; }
           fi
+          if [[ "$CUTOVER_STEP" == evidence-* ]]; then
+            [[ "$CUTOVER_EVIDENCE_RUN_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] || { echo "evidence_run_id must be the attempt evidence run id (UUID)." >&2; exit 1; }
+            [[ "$CUTOVER_CLOSE_RUN_ID" =~ ^[1-9][0-9]{0,18}$ ]] || { echo "close_run_id is required for an evidence step." >&2; exit 1; }
+          else
+            [[ -z "$CUTOVER_EVIDENCE_RUN_ID" ]] || { echo "evidence_run_id is only for the evidence steps." >&2; exit 1; }
+          fi
           for value in "$CUTOVER_CLOSE_RUN_ID" "$CUTOVER_AUDIT_RUN_ID"; do
             [[ -z "$value" || "$value" =~ ^[1-9][0-9]{0,18}$ ]] || { echo "Run ids must be numeric." >&2; exit 1; }
           done
 
+      # P6a D5 recovery through the provenance hook: close-init closes an unfinished init-intent, observe writes
+      # the late observation of an unclosed attempt. Only this job's token is the trusted anchor author, so these
+      # never run by hand. A dry run prints the command only.
+      - name: Run cutover evidence step
+        if: inputs.action == 'cutover' && startsWith(inputs.cutover_step, 'evidence-')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CUTOVER_STEP: ${{ inputs.cutover_step }}
+          CUTOVER_DRY_RUN: ${{ inputs.cutover_dry_run && '1' || '0' }}
+          OTERYN_CUTOVER_TASK_ID: ${{ inputs.task_id }}
+          OTERYN_CUTOVER_CLOSE_RUN_ID: ${{ inputs.close_run_id }}
+          OTERYN_CUTOVER_EVIDENCE_RUN_ID: ${{ inputs.evidence_run_id }}
+          OTERYN_CUTOVER_PROVENANCE_INIT_COMMAND: ${{ vars.OTERYN_STAGING_CUTOVER_PROVENANCE_INIT_COMMAND }}
+          OTERYN_CUTOVER_ANCHOR_ISSUE: ${{ vars.OTERYN_STAGING_CUTOVER_ANCHOR_ISSUE }}
+          OTERYN_STATE_DIR: ${{ vars.OTERYN_STAGING_STATE_DIR }}
+        run: |
+          set -euo pipefail
+          export OTERYN_STATE_DIR="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
+          hook="$OTERYN_CUTOVER_PROVENANCE_INIT_COMMAND"
+          [[ "$hook" == /* && -x "$hook" ]] || { echo "OTERYN_STAGING_CUTOVER_PROVENANCE_INIT_COMMAND must name the executable provenance hook." >&2; exit 1; }
+          command="${CUTOVER_STEP#evidence-}"
+          if [[ "$CUTOVER_DRY_RUN" == 1 ]]; then
+            printf 'DRY RUN: would run %s %s %s %s %s\n' "$hook" "$command" "$OTERYN_CUTOVER_TASK_ID" "$OTERYN_CUTOVER_CLOSE_RUN_ID" "$OTERYN_CUTOVER_EVIDENCE_RUN_ID"
+            exit 0
+          fi
+          "$hook" "$command" "$OTERYN_CUTOVER_TASK_ID" "$OTERYN_CUTOVER_CLOSE_RUN_ID" "$OTERYN_CUTOVER_EVIDENCE_RUN_ID"
+
       - name: Run cutover step
-        if: inputs.action == 'cutover'
+        if: inputs.action == 'cutover' && !startsWith(inputs.cutover_step, 'evidence-')
         env:
           GH_TOKEN: ${{ github.token }}
           CUTOVER_STEP: ${{ inputs.cutover_step }}
@@ -561,6 +609,7 @@ jobs:
           OTERYN_CUTOVER_PROVENANCE_INIT_COMMAND: ${{ vars.OTERYN_STAGING_CUTOVER_PROVENANCE_INIT_COMMAND }}
           OTERYN_CUTOVER_WEB_SMOKE_COMMAND: ${{ vars.OTERYN_STAGING_CUTOVER_WEB_SMOKE_COMMAND }}
           OTERYN_CUTOVER_NATIVE_SMOKE_COMMAND: ${{ vars.OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_COMMAND }}
+          OTERYN_CUTOVER_ANCHOR_ISSUE: ${{ vars.OTERYN_STAGING_CUTOVER_ANCHOR_ISSUE }}
           OTERYN_STATE_DIR: ${{ vars.OTERYN_STAGING_STATE_DIR }}
         run: |
           set -euo pipefail

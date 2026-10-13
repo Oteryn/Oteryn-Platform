@@ -1,24 +1,39 @@
 #!/usr/bin/env bash
 # Cutover hook OTERYN_CUTOVER_NATIVE_SMOKE_COMMAND (plan P6 step 5). cutover-postgres.sh native-smoke runs it,
 # with no arguments, after the deploy turned native admission on and right after the Platform signing
-# self-check (game-auth:native-admission:self-check) passed. It checks the native login path end to end:
-#   - the deployed environment and both running containers have native admission on, paired
+# self-check (game-auth:native-admission:self-check) passed. It:
+#   - checks that the deployed environment and both running containers have native admission on, paired
 #     (Platform GAME_AUTH_NATIVE_ADMISSION_ENABLED and Gateway GATEWAY_NATIVE_LOGIN_ENABLED both true);
-#   - a well-formed native (protocol_version 2) login with an unknown ticket, sent to the Gateway over host
-#     loopback as health-check.sh does, reaches the Platform issuer and is rejected with 401
-#     NATIVE_LOGIN_AUTHENTICATION_REQUIRED (not 400 refused at the Gateway, not 503 issuer unavailable);
-#   - the read-only trust observation (D2) shows the first publication landed on the PostgreSQL store:
+#   - closes the step-4 attempt evidence (PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md D5 step4-observe): after
+#     the D3 anchor retry, two read-only observations at least 5 s apart (retried while the witness is busy or
+#     a transaction is in flight), an anchored attempt-observation with the tool's D6 classification, and for
+#     `committed` an anchored self-check record from a rerun of the read-only signing self-check and an
+#     anchored run-close with done: true. A committed attempt still waiting for a passing self-check gets
+#     D5 step4-recheck instead; an attempt already closed with done: true is left as it is. Any other
+#     classification writes run-close with done: false (failed-before-witness leaves the run open) and fails;
+#   - sends a well-formed native (protocol_version 2) login with an unknown ticket to the Gateway over host
+#     loopback, as health-check.sh does, and requires 401 NATIVE_LOGIN_AUTHENTICATION_REQUIRED from the
+#     Platform issuer (not 400 refused at the Gateway, not 503 issuer unavailable);
+#   - requires the read-only trust observation (D2) to show the first publication on the PostgreSQL store:
 #     binding match, a profile present and not revoked, a non-null floor, and the configured key trusted.
-# Read-only. Output: one result line; never an environment value, a ticket or a key.
+# It changes no trust state; it writes only attempt evidence and its anchors. Inputs as provenance-init.sh:
+# OTERYN_CUTOVER_ANCHOR_ISSUE, GITHUB_REPOSITORY and GH_TOKEN (issues: write). Output: key=value result lines
+# only; never an environment value, a ticket, a key or an observation.
 set -euo pipefail
 umask 077
 
 HOOK_NAME=native-smoke
+HOOK_SELF="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=deploy/synology/scripts/cutover-hooks/common.sh
-source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/common.sh"
+source "$HOOK_SELF/common.sh"
+# shellcheck source=deploy/synology/scripts/cutover-hooks/evidence.sh
+source "$HOOK_SELF/evidence.sh"
 
 (($# == 0)) || hook_fail "takes no arguments."
-hook_require_tools docker jq python3 sed
+hook_require_tools docker gh jq python3 sed
+hook_evidence_setup
+[[ -f "$EVIDENCE_TOOL" ]] || hook_fail "the attempt evidence tool is missing."
+[[ -d "$EVIDENCE_DIR" ]] || hook_fail "the attempt evidence directory is missing."
 hook_workdir
 hook_runtime_env
 [[ "$(hook_env_get OTERYN_NATIVE_ADMISSION_ENABLED)" == true ]] || hook_fail "native admission is not on in the deployed environment."
@@ -35,6 +50,8 @@ platform_flag="$(container_flag platform GAME_AUTH_NATIVE_ADMISSION_ENABLED)"
 gateway_flag="$(container_flag gateway GATEWAY_NATIVE_LOGIN_ENABLED)"
 [[ "$platform_flag" == true && "$gateway_flag" == true ]] \
     || hook_fail "native admission is not on and paired in the running containers (platform=${platform_flag:-unset}, gateway=${gateway_flag:-unset})."
+
+ev_step4_after_deploy
 
 hook_loopback_python "$(hook_gateway_port)" <<'PY' || hook_fail "the native login smoke failed."
 import http.client
