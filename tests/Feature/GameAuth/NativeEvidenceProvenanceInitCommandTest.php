@@ -50,7 +50,8 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
         self::assertSame($output['store_id'], DB::table('native_game_evidence_witness_stores')->value('store_id'));
         self::assertSame([], glob($this->directory.'/*.floor*') ?: []);
         self::assertSame(1, $output['entries']['store-lock']);
-        self::assertSame(1, $output['entries']['marker']);
+        // The counts describe the directory as classified before the init wrote anything.
+        self::assertSame(0, $output['entries']['marker']);
     }
 
     public function test_completed_after_a_crash_between_the_two_writes_inserts_the_row_from_the_marker(): void
@@ -121,12 +122,13 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
     {
         $this->arrange($case);
         $before = $this->snapshot();
+        $floorsBefore = glob($this->directory.'/*.floor') ?: [];
 
         self::assertSame(1, Artisan::call(self::COMMAND));
 
         self::assertStringContainsString('Native evidence provenance init refused:', Artisan::output());
         self::assertSame($before, $this->snapshot());
-        self::assertSame([], glob($this->directory.'/*.floor') ?: [], 'The init never writes a floor.');
+        self::assertSame($floorsBefore, glob($this->directory.'/*.floor') ?: [], 'The init never writes or removes a floor.');
     }
 
     /** @return array<string, array{string}> */
