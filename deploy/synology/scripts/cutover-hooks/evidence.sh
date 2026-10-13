@@ -65,12 +65,15 @@ elif cmd == "summary":
             "errors": run.errors,
             "last_type": last.get("type"),
             "cutover_ref": recs[0].get("cutover_ref") if recs and recs[0].get("type") == "run-open" else None,
+            "opened_at": recs[0].get("at") if recs else None,
             "done": last.get("type") == "run-close" and last.get("done") is True,
             "closed": last.get("type") == "run-close",
             "unfinished_init": run.id in A.unfinished,
             "init_intent_anchored": intent_anchored,
             "init": None if init is None else {"store_id": init.get("store_id"), "late": init.get("late") is True},
             "last_passed": last.get("passed") is True if last.get("type") == "self-check" else None,
+            "last_reason": last.get("reason") if last.get("type") == "begin-refused" else None,
+            "last_permanent": last.get("reason") in ae.PERMANENT if last.get("type") == "begin-refused" else None,
             "attempts": [{"attempt": x["n"], "key_id": x["intent"].get("key_id"), "observed": x["obs"] is not None,
                           "anchored": x["anchored"], "classification": x["cls"]}
                          for x in A.attempts if x["run"] is run],
@@ -316,7 +319,7 @@ ev_step4_observe() {
             ev_self_check "$run" "$HOOK_WORK/o2.json" false
             ;;
         failed-before-witness)
-            hook_fail "the attempt of run $run failed before the witness. Fix the cause outside trust state; a retry (D5 step4-begin --retry, intent n+1) is not implemented in the hooks, so run $run stays open and the owner decides."
+            hook_fail "the attempt of run $run failed before the witness. Fix the cause outside trust state, then run the evidence-retry step for run $run (D5 step4-begin --retry, attempt-intent n+1), the deploy and native-smoke again."
             ;;
         *)
             ev_close "$run" false "$cls"
@@ -371,7 +374,7 @@ ev_require_continuity() {
 # passing self-check, nothing for an attempt already closed with done: true. Anything else stops. Sets
 # EV_ATTEMPT_RUN to the committed run; the caller confirms it with ev_require_continuity before it passes.
 ev_step4_after_deploy() {
-    local unobserved pending finished unclosed adoptable cls
+    local unobserved pending finished unclosed adoptable retryable cls
     ev_verified_anchors "$HOOK_WORK/anchors.json"
     ev_summary
     unobserved="$(jq -r '[.runs[] | select(any(.attempts[]; .observed == false)) | .run_id] | join(" ")' "$HOOK_WORK/summary.json")"
@@ -383,6 +386,9 @@ ev_step4_after_deploy() {
         and (.attempts | last | .observed and .classification != "committed" and .classification != "failed-before-witness"))
         | .run_id] | join(" ")' "$HOOK_WORK/summary.json")"
     # Crash window: an init was written, but the runner died before the attempt intent (or its anchored line).
+    # A failed-before-witness attempt that is the last line of its open run: D5 step4-begin --retry writes n+1.
+    retryable="$(jq -r '[.runs[] | select((.closed | not) and .last_type == "attempt-observation"
+        and (.attempts | last | .classification == "failed-before-witness")) | .run_id] | join(" ")' "$HOOK_WORK/summary.json")"
     adoptable="$(jq -r '[.runs[] | select((.closed | not) and .init != null and .init.late == false and (.attempts | length == 0)) | .run_id] | join(" ")' "$HOOK_WORK/summary.json")"
     if [[ -n "$unclosed" ]]; then
         [[ "$unclosed" != *" "* ]] || hook_fail "the evidence directory holds more than one unclosed classified attempt; the owner decides."
@@ -417,6 +423,9 @@ ev_step4_after_deploy() {
         ev_require_continuity "$finished" "$HOOK_WORK/rerun.json"
         printf 'attempt_run_id=%s\nattempt_result=committed\n' "$finished"
         EV_ATTEMPT_RUN="$finished"
+    elif [[ -n "$retryable" && "$retryable" != *" "* ]]; then
+        ev_require_ref "$retryable"
+        hook_fail "the last attempt of run $retryable failed before the witness; fix the cause outside trust state, then run the evidence-retry step for run $retryable (attempt-intent n+1), the deploy and native-smoke. Nothing was written."
     elif [[ -n "$adoptable" && "$adoptable" != *" "* ]]; then
         ev_require_ref "$adoptable"
         hook_fail "run $adoptable holds an init but no anchored attempt intent (the runner stopped during native-reenable); run the evidence-close-init step for run $adoptable, which writes the intent, then the deploy. Nothing was written."

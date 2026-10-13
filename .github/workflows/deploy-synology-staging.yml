@@ -91,6 +91,8 @@ on:
           - unfreeze
           - evidence-close-init
           - evidence-observe
+          - evidence-retry
+          - evidence-rebegin
         default: status
       cutover_dry_run:
         description: Cutover only - true prints the planned commands and changes nothing; false executes the step
@@ -122,7 +124,7 @@ on:
         required: false
         type: string
       evidence_run_id:
-        description: Cutover evidence-close-init and evidence-observe only - the attempt evidence run id (UUID) to close
+        description: Cutover evidence-* steps only - the attempt evidence run id (UUID) to close, retry or begin again after
         required: false
         type: string
 
@@ -566,8 +568,9 @@ jobs:
             [[ -z "$value" || "$value" =~ ^[1-9][0-9]{0,18}$ ]] || { echo "Run ids must be numeric." >&2; exit 1; }
           done
 
-      # P6a D5 recovery through the provenance hook: close-init closes an unfinished init-intent, observe writes
-      # the late observation of an unclosed attempt. Only this job's token is the trusted anchor author, so these
+      # P6a D5 recovery through the provenance hook: close-init closes an unfinished init-intent or resumes a
+      # begin, observe writes the late observation of an unclosed attempt, retry writes attempt-intent n+1 after
+      # failed-before-witness, rebegin takes a refused or init-late begin again in a new run. Only this job's token is the trusted anchor author, so these
       # never run by hand. A dry run prints the command only.
       - name: Run cutover evidence step
         if: inputs.action == 'cutover' && startsWith(inputs.cutover_step, 'evidence-')

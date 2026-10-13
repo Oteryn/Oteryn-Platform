@@ -21,7 +21,7 @@
 # records its forward-only marker: steps 1 and 2 (location, kid, anchors with the D3 retry, verify --anchors,
 # a write probe) without any evidence write, so a missing anchor issue or permission cannot strand the cutover.
 #
-# Two recovery commands run through the deploy workflow's cutover evidence step, never by hand, because only
+# The recovery commands run through the deploy workflow's cutover evidence step, never by hand, because only
 # the workflow token posts anchors as the trusted author:
 #
 #   provenance-init.sh close-init <task_id> <close_run_id> <run_id>   D5 step4-begin --close-init --run <id>
@@ -29,8 +29,12 @@
 #       lines (run-open only, an init without its attempt intent, an intent without its anchored line); see
 #       resume_begin. Native admission must still be off for a resume that writes an intent.
 #   provenance-init.sh observe <task_id> <close_run_id> <run_id>      D5 step4-observe --run <id> (late: true)
+#   provenance-init.sh retry <task_id> <close_run_id> <run_id>        D5 step4-begin --retry: attempt-intent n+1
+#       after a failed-before-witness observation, the last line of the run.
+#   provenance-init.sh rebegin <task_id> <close_run_id> <run_id>      the begin of `init` again, in a new run, after
+#       the newest run of this cutover ended in a non-permanent begin-refused or in init-late (native admission off).
 #
-# Both act only on a run whose run-open records cutover_ref "<task_id>/close-<close_run_id>", and only while the
+# All act only on a run whose run-open records cutover_ref "<task_id>/close-<close_run_id>", and only while the
 # cutover state (OTERYN_CUTOVER_STATE_DIR, default $OTERYN_STATE_DIR/postgres-cutover) records native re-enable
 # for that task and close run; otherwise they refuse before any anchor post or evidence write.
 #
@@ -49,7 +53,7 @@ source "$HOOK_SELF/evidence.sh"
 
 usage() {
     echo "Usage: provenance-init.sh {init|preflight} <task_id> <close_run_id>" >&2
-    echo "       provenance-init.sh {close-init|observe} <task_id> <close_run_id> <run_id>" >&2
+    echo "       provenance-init.sh {close-init|observe|retry|rebegin} <task_id> <close_run_id> <run_id>" >&2
     exit 1
 }
 
@@ -59,7 +63,7 @@ task_id="$2"
 close_run_id="$3"
 case "$command" in
     init | preflight) (($# == 3)) || usage ;;
-    close-init | observe)
+    close-init | observe | retry | rebegin)
         (($# == 4)) || usage
         run_id="$4"
         [[ "$run_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] \
@@ -82,7 +86,7 @@ W="$HOOK_WORK"
 # A recovery command acts only on a run of the cutover in progress: the cutover state must record native
 # re-enable for this task and close run, and the run must record the same cutover_ref in its run-open. Both
 # are checked before any anchor post or evidence write.
-if [[ "$command" == close-init || "$command" == observe ]]; then
+if [[ "$command" != init && "$command" != preflight ]]; then
     ev_require_cutover_state "$task_id" "$close_run_id"
     ev_summary
     [[ -n "$(jq -r --arg r "$run_id" '.runs[] | select(.run_id == $r) | .run_id' "$W/summary.json")" ]] \
@@ -270,6 +274,52 @@ if [[ "$command" == close-init ]]; then
             ;;
     esac
     exit 0
+fi
+
+if [[ "$command" == retry ]]; then
+    # D5 step4-begin --retry: the last attempt of the run is failed-before-witness (nothing was witnessed) and
+    # the operator fixed the cause outside trust state. attempt-intent n+1 follows in the same run file after a
+    # fresh observation, with the same preconditions, anchor and anchored line; a refusal is begin-refused.
+    begin_checks
+    ev_summary
+    ev_require_ref "$run_id"
+    state="$(jq -c --arg r "$run_id" '.runs[] | select(.run_id == $r)' "$W/summary.json")"
+    [[ "$(jq -r '.closed' <<<"$state")" != true && "$(jq -r '.last_type' <<<"$state")" == attempt-observation \
+        && "$(jq -r '.attempts | last | .classification' <<<"$state")" == failed-before-witness ]] \
+        || hook_fail "the last line of run $run_id is no failed-before-witness observation; nothing to retry."
+    store="$(jq -r '.init.store_id // empty' <<<"$state")"
+    [[ -n "$store" ]] || hook_fail "run $run_id holds no init; nothing to retry."
+    probe
+    write_attempt_intent "$store"
+    printf 'retry_result=intent\nattempt=%s\nwitness_store_id=%s\nattempt_run_id=%s\nattempt_intent_line_sha256=%s\n' \
+        "$(jq -r '.record.attempt' "$W/intent.json")" "$store" "$run_id" "$(jq -r '.line_sha256' "$W/intent.json")"
+    exit 0
+fi
+
+if [[ "$command" == rebegin ]]; then
+    # A begin of this cutover ended without an attempt that can go on: a begin-refused that is not permanent
+    # (a refused open, init or intent, init-not-run) or the run-close of init-late. cutover-postgres.sh never
+    # reruns native-reenable after its forward-only marker, so this step takes the begin again in a new run,
+    # exactly as `init` does (open decides on the whole directory). Only the newest run of this cutover
+    # qualifies, and native admission must still be off.
+    [[ "$(hook_env_get OTERYN_NATIVE_ADMISSION_ENABLED)" != true ]] \
+        || hook_fail "native admission is on in the deployed environment; a new begin is refused. The owner decides."
+    begin_checks
+    ev_summary
+    ev_require_ref "$run_id"
+    state="$(jq -c --arg r "$run_id" '.runs[] | select(.run_id == $r)' "$W/summary.json")"
+    [[ "$(jq -r --arg r "$run_id" --arg ref "$EV_CUTOVER_REF" '.runs as $all | ($all[] | select(.run_id == $r) | .opened_at) as $at
+        | [$all[] | select(.cutover_ref == $ref and .run_id != $r and (.opened_at // "") >= ($at // ""))] | length' "$W/summary.json")" == 0 ]] \
+        || hook_fail "run $run_id is not the newest run of this cutover; name the newest one. Nothing was written."
+    if [[ "$(jq -r '.last_type' <<<"$state")" == begin-refused ]]; then
+        [[ "$(jq -r '.last_permanent' <<<"$state")" != true ]] \
+            || hook_fail "run $run_id ended in a permanent begin-refused ($(jq -r '.last_reason' <<<"$state")); the owner decides. Nothing was written."
+    else
+        [[ "$(jq -r '.closed and (.done | not) and .init != null and .init.late == true' <<<"$state")" == true ]] \
+            || hook_fail "run $run_id did not end in a begin that may be taken again (last line $(jq -r '.last_type' <<<"$state")). Nothing was written."
+    fi
+    printf 'rebegin_of=%s\n' "$run_id"
+    command=init
 fi
 
 if [[ "$command" == observe ]]; then

@@ -891,6 +891,69 @@ class CloseInitTest(HookHarness):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(self.outputs(proc)["close_init_result"], "init-late")
 
+    def test_rebegin_takes_a_refused_begin_again_in_a_new_run(self):
+        self.update_state(observations=dict(self.load_state()["observations"],
+                                            pre=observation(store=None, binding="none", floor=1, lsn=0x1000)))
+        proc = self.run_hook("provenance-init", "init", TASK, CLOSE_RUN)
+        self.assertNotEqual(proc.returncode, 0)
+        first = self.run_records()[0]["run_id"]
+        # The cause is still there: open refuses again, in a second run.
+        proc = self.run_hook("provenance-init", "rebegin", TASK, CLOSE_RUN, first)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("precondition:floor", proc.stderr)
+        second = self.run_records(count=2)
+        self.assertEqual([r["type"] for r in second], ["run-open", "begin-refused"])
+        before = self.all_records()
+        proc = self.run_hook("provenance-init", "rebegin", TASK, CLOSE_RUN, first)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("not the newest run of this cutover", proc.stderr)
+        self.write_env(native=True)
+        proc = self.run_hook("provenance-init", "rebegin", TASK, CLOSE_RUN, second[0]["run_id"])
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("native admission is on", proc.stderr)
+        self.assertEqual(self.all_records(), before)
+        # Cause fixed, native admission off: the whole begin runs in a third run.
+        self.write_env(native=False)
+        self.update_state(observations=dict(self.load_state()["observations"],
+                                            pre=observation(store=None, binding="none", lsn=0x1000)))
+        proc = self.run_hook("provenance-init", "rebegin", TASK, CLOSE_RUN, second[0]["run_id"])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = self.outputs(proc)
+        self.assertEqual((out["rebegin_of"], out["provenance_init_result"], out["witness_store_id"]),
+                         (second[0]["run_id"], "created", S1))
+        third = self.run_records(count=3)
+        self.assertEqual(out["attempt_run_id"], third[0]["run_id"])
+        self.assertEqual([r["type"] for r in third],
+                         ["run-open", "init-intent", "anchored", "init", "attempt-intent", "anchored"])
+        self.assert_verified()
+        self.assert_open_attempt()
+        proc = self.run_hook("provenance-init", "rebegin", TASK, CLOSE_RUN, third[0]["run_id"])
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("did not end in a begin that may be taken again", proc.stderr)
+
+    def test_rebegin_after_init_late_but_not_after_init_lost(self):
+        run, _ = self.leave_unfinished_init()
+        self.update_state(init_done=True, init_result={"result": "completed", "store_id": S1, "entries": 0})
+        proc = self.run_hook("provenance-init", "close-init", TASK, CLOSE_RUN, run)
+        self.assertEqual(self.outputs(proc)["close_init_result"], "init-late")
+        self.update_state(init_result={"result": "unchanged", "store_id": S1, "entries": 0})
+        proc = self.run_hook("provenance-init", "rebegin", TASK, CLOSE_RUN, run)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual([r["type"] for r in self.run_records(count=2)],
+                         ["run-open", "init-intent", "anchored", "init", "attempt-intent", "anchored"])
+        self.assert_verified()
+        self.assert_open_attempt()
+
+    def test_rebegin_refuses_a_permanent_refusal(self):
+        run, _ = self.leave_unfinished_init()
+        proc = self.run_hook("provenance-init", "close-init", TASK, CLOSE_RUN, run)
+        self.assertIn("init-lost", proc.stderr)
+        before = self.all_records()
+        proc = self.run_hook("provenance-init", "rebegin", TASK, CLOSE_RUN, run)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("permanent begin-refused (init-lost)", proc.stderr)
+        self.assertEqual(self.all_records(), before)
+
     def assert_open_attempt(self):
         identity = json.dumps(self.load_state()["observations"]["post"]["database"]["identity"])
         code, payload = self.tool("require-open-attempt", "--dir", str(self.evidence), "--store", S1, "--key-id", KID,
@@ -1086,14 +1149,77 @@ class NativeSmokeTest(HookHarness):
         self.assert_verified()
         self.assertNotIn("native_smoke_result=passed", proc.stdout)
 
-    def test_failed_before_witness_leaves_the_run_open_for_the_owner(self):
+    def test_failed_before_witness_is_retried_with_attempt_two(self):
         unpublished = observation(configured=KID, is_trusted=True, lsn=0x2000)
         self.update_state(observations=dict(self.load_state()["observations"], native=unpublished))
         proc = self.run_hook("native-smoke")
         self.assertNotEqual(proc.returncode, 0)
-        self.assertIn("failed before the witness", proc.stderr)
+        self.assertIn(f"run the evidence-retry step for run {self.run_id}", proc.stderr)
         self.assertEqual(self.types()[-1], "attempt-observation")
         self.assertEqual(self.run_records()[-1]["classification"], "failed-before-witness")
+        self.assert_verified()
+        # A rerun before the retry writes nothing and names the retry step.
+        before = self.run_records()
+        proc = self.run_hook("native-smoke")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn(f"run the evidence-retry step for run {self.run_id}", proc.stderr)
+        self.assertEqual(self.run_records(), before)
+        for command in ("close-init", "observe"):
+            self.assertNotEqual(self.run_hook("provenance-init", command, TASK, CLOSE_RUN, self.run_id).returncode, 0)
+        self.assertEqual(self.run_records(), before)
+        # The retry: a fresh observation and attempt-intent 2, anchored, that the deploy's fence check accepts.
+        proc = self.run_hook("provenance-init", "retry", TASK, CLOSE_RUN, self.run_id)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = self.outputs(proc)
+        self.assertEqual((out["retry_result"], out["attempt"], out["attempt_run_id"]), ("intent", "2", self.run_id))
+        records = self.run_records()
+        self.assertEqual([r["type"] for r in records][-3:], ["attempt-observation", "attempt-intent", "anchored"])
+        self.assertEqual(records[-2]["attempt"], 2)
+        self.assertEqual(out["attempt_intent_line_sha256"],
+                         self.tool("require-open-attempt", "--dir", str(self.evidence), "--store", S1, "--key-id", KID,
+                                   "--scope", json.dumps(SCOPE), "--identity",
+                                   json.dumps(unpublished["database"]["identity"]),
+                                   "--anchors", str(self.anchors_file()))[1]["intent_sha256"])
+        self.assert_verified()
+        proc = self.run_hook("provenance-init", "retry", TASK, CLOSE_RUN, self.run_id)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("no failed-before-witness observation", proc.stderr)
+        # The deploy publishes; native-smoke closes attempt 2 as committed.
+        self.update_state(observations=dict(self.load_state()["observations"], native=COMMITTED))
+        proc = self.run_hook("native-smoke")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        records = self.run_records()
+        self.assertEqual([r["type"] for r in records][-3:], ["attempt-observation", "self-check", "run-close"])
+        self.assertEqual(records[-3]["classification"], "committed")
+        self.assertIs(records[-1]["done"], True)
+        self.assert_verified()
+
+    def test_retry_refusal_ends_the_run_and_rebegin_opens_a_new_one(self):
+        unpublished = observation(configured=KID, is_trusted=True, lsn=0x2000)
+        self.update_state(observations=dict(self.load_state()["observations"], native=unpublished))
+        self.run_hook("native-smoke")
+        busy = json.loads(json.dumps(unpublished))
+        busy["database"]["in_flight"]["sessions"] = 1
+        self.update_state(observations=dict(self.load_state()["observations"], native=busy))
+        proc = self.run_hook("provenance-init", "retry", TASK, CLOSE_RUN, self.run_id)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("precondition:in-flight", proc.stderr)
+        self.assertEqual(self.types()[-1], "begin-refused")
+        self.assert_verified()
+        # native-smoke has no attempt to close and stops without a write.
+        before = self.all_records()
+        proc = self.run_hook("native-smoke")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual(self.all_records(), before)
+        # With native admission off again, the begin is taken again in a new run.
+        self.write_env(native=False)
+        self.update_state(phase="cutover", observations=dict(self.load_state()["observations"],
+                          pre=observation(lsn=0x2100), post=observation(lsn=0x2200)))
+        self.update_state(init_result={"result": "unchanged", "store_id": S1, "entries": 0})
+        proc = self.run_hook("provenance-init", "rebegin", TASK, CLOSE_RUN, self.run_id)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual([r["type"] for r in self.run_records(count=2)],
+                         ["run-open", "init-intent", "anchored", "init", "attempt-intent", "anchored"])
         self.assert_verified()
 
     def bot_posts(self):
@@ -1249,12 +1375,13 @@ class HookContractTest(unittest.TestCase):
         for var in ("OTERYN_STAGING_CUTOVER_PROVENANCE_INIT_COMMAND", "OTERYN_STAGING_CUTOVER_WEB_SMOKE_COMMAND",
                     "OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_COMMAND", "OTERYN_CUTOVER_ANCHOR_ISSUE"):
             self.assertIn(var, doc)
-        for text in ("OTERYN_STAGING_CUTOVER_ANCHOR_ISSUE", "evidence-close-init", "evidence-observe", "evidence_run_id",
+        for text in ("OTERYN_STAGING_CUTOVER_ANCHOR_ISSUE", "evidence-close-init", "evidence-observe", "evidence-retry",
+                     "evidence-rebegin", "evidence_run_id",
                      "provenance-init.sh preflight <task_id> <close_run_id>"):
             self.assertIn(text, doc)
         # native-reenable refuses once REENABLE_STARTED is recorded, so no recovery may send the operator back to it.
         self.assertNotIn("run `native-reenable` again", doc)
-        self.assertIn("it has no resume path", doc)
+        self.assertIn("`cutover-postgres.sh` never runs it again", doc)
 
     def test_workflow_maps_the_anchor_issue_and_scopes_issues_write(self):
         text = (ROOT / ".github" / "workflows" / "deploy-synology-staging.yml").read_text()
@@ -1272,7 +1399,7 @@ class HookContractTest(unittest.TestCase):
         evidence = next(step for step in steps if step.startswith("Run cutover evidence step\n"))
         self.assertIn("if: inputs.action == 'cutover' && startsWith(inputs.cutover_step, 'evidence-')", evidence)
         self.assertIn('"$hook" "$command" "$OTERYN_CUTOVER_TASK_ID"', evidence)
-        for choice in ("evidence-close-init", "evidence-observe"):
+        for choice in ("evidence-close-init", "evidence-observe", "evidence-retry", "evidence-rebegin"):
             self.assertIn(f"          - {choice}\n", text)
         self.assertIn("if: inputs.action == 'cutover' && !startsWith(inputs.cutover_step, 'evidence-')", text)
         # native-reenable's hook prerequisites are checked before cutover-postgres.sh records its marker.

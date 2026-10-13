@@ -10,7 +10,8 @@
 #     `committed` an anchored self-check record from a rerun of the read-only signing self-check and an
 #     anchored run-close with done: true. A committed attempt still waiting for a passing self-check gets
 #     D5 step4-recheck instead; an attempt already closed with done: true is left as it is. Any other
-#     classification writes run-close with done: false (failed-before-witness leaves the run open) and fails;
+#     classification writes run-close with done: false (failed-before-witness leaves the run open for
+#     provenance-init.sh retry, the evidence-retry step) and fails;
 #   - sends a well-formed native (protocol_version 2) login with an unknown ticket to the Gateway over host
 #     loopback, as health-check.sh does, and requires 401 NATIVE_LOGIN_AUTHENTICATION_REQUIRED from the
 #     Platform issuer (not 400 refused at the Gateway, not 503 issuer unavailable);
