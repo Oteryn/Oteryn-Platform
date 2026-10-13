@@ -112,7 +112,11 @@ final class ProductionConfigurationVerifierTest extends TestCase
             'database.connections.platform_dump' => ['driver' => 'mariadb', 'url' => null],
         ]);
 
-        $privileged = array_values(array_diff(array_keys(config('database.connections')), ['pgsql', 'mysql', 'mariadb', 'sqlite']));
+        // Connections on a driver the verifier refuses outright (e.g. sqlsrv) fail on the driver check instead.
+        $privileged = array_values(array_filter(
+            array_diff(array_keys(config('database.connections')), ['pgsql', 'mysql', 'mariadb', 'sqlite']),
+            static fn (string $name): bool => in_array(config("database.connections.{$name}.driver"), ['pgsql', 'mysql', 'mariadb'], true),
+        ));
         self::assertContains('pgsql_migrations', $privileged);
         self::assertGreaterThan(3, count($privileged));
 
@@ -120,11 +124,7 @@ final class ProductionConfigurationVerifierTest extends TestCase
             // CI exports URLs for some of these connections; the name check must not depend on them.
             config(['database.default' => $name, "database.connections.{$name}.url" => null]);
 
-            self::assertContains(
-                'DB_CONNECTION must name a runtime connection (pgsql, mysql or mariadb); privileged connections (migration, owner, backup, dump and character transfer) are refused as the application default in production.',
-                app(ProductionConfigurationVerifier::class)->inspect(),
-                "Connection {$name}: ".json_encode([config("database.connections.{$name}"), app(ProductionConfigurationVerifier::class)->inspect()]),
-            );
+            $this->assertViolation('DB_CONNECTION must name a runtime connection (pgsql, mysql or mariadb); privileged connections (migration, owner, backup, dump and character transfer) are refused as the application default in production.');
         }
     }
 
