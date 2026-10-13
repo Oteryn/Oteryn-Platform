@@ -118,6 +118,15 @@ ev_retry_anchors() {
     hook_fetch_anchors "$out"
 }
 
+# ev_verified_anchors <anchors-out>: the D3 retry, then verify --anchors over the whole directory. Every
+# summary a hook acts on is read only after this passes, so a deleted or rewritten anchor, or a run file with
+# integrity errors, stops the hook before it writes or accepts anything.
+ev_verified_anchors() {
+    ev_retry_anchors "$1"
+    ev "$HOOK_WORK/verify.json" verify --dir "$EVIDENCE_DIR" --anchors "$1" \
+        || hook_fail "verify --anchors fails over the evidence directory ($(jq -r '.errors | first // "unknown"' "$HOOK_WORK/verify.json" 2>/dev/null)). Nothing was written; the owner decides."
+}
+
 ev_summary() {
     ev_state summary "$EVIDENCE_DIR" > "$HOOK_WORK/summary.json" || hook_fail "cannot read the attempt evidence directory."
 }
@@ -254,7 +263,7 @@ ev_step4_recheck() {
 # passing self-check, nothing for an attempt already closed with done: true. Anything else stops.
 ev_step4_after_deploy() {
     local unobserved pending finished
-    ev_retry_anchors "$HOOK_WORK/anchors.json"
+    ev_verified_anchors "$HOOK_WORK/anchors.json"
     ev_summary
     unobserved="$(jq -r '[.runs[] | select(any(.attempts[]; .observed == false)) | .run_id] | join(" ")' "$HOOK_WORK/summary.json")"
     pending="$(jq -r '[.runs[] | select(any(.attempts[]; .classification == "committed") and (.closed | not)) | .run_id] | join(" ")' "$HOOK_WORK/summary.json")"

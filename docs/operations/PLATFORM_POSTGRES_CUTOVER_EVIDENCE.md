@@ -39,9 +39,11 @@ A refused `open`, init or intent writes an anchored `begin-refused` and exits no
 
 Each hook that writes evidence needs three more inputs: `OTERYN_CUTOVER_ANCHOR_ISSUE`, the number of the locked anchor issue (D3); `GITHUB_REPOSITORY`; and a `GH_TOKEN` with `issues: write`. Without them it exits before any evidence write. The *Run cutover step* and *Run cutover evidence step* steps map `vars.OTERYN_STAGING_CUTOVER_ANCHOR_ISSUE` to `OTERYN_CUTOVER_ANCHOR_ISSUE` and set `GH_TOKEN` to the job token. The `deploy` job grants `issues: write`. The owner must create and lock the anchor issue and set `OTERYN_STAGING_CUTOVER_ANCHOR_ISSUE` before the window.
 
+`native-reenable` records its forward-only marker before the hook runs. So, unless it is a dry run, the *Run cutover step* step first runs `provenance-init.sh preflight <task_id> <close_run_id>`: steps 1 and 2 and the write probe, with no evidence write. A missing anchor issue, an unlocked issue, a token without `issues: write` or a failing `verify --anchors` then stops the step before the marker.
+
 ### Step 4 observe (native-smoke)
 
-`native-smoke.sh` first retries pending anchors, then reads the evidence directory:
+`native-smoke.sh` first retries pending anchors and runs `verify --anchors` over the whole directory; if that fails, it stops before it reads or writes evidence. Then it reads the evidence directory:
 
 - One attempt without an observation: take two trust observations at least 5 s apart. While the witness is busy or a transaction is in flight, try again, at most 12 rounds. Write `attempt-observation` (the tool classifies it) and anchor it.
   - `committed`: run the read-only signing self-check and write `self-check`. If it passed, write `run-close` with `done: true`. If it failed, the run stays open; the next `native-smoke` rechecks.
@@ -62,7 +64,7 @@ Anchors count only when the workflow token posts them, so the recovery commands 
 | `evidence-close-init` | `close-init` | step 4 stopped between `init-intent` and `init` | Binding `marker_only` or `match` with an anchored intent: rerun D1, write `init` with `late: true` and `run-close` with `done: false` (`close_init_result=init-late`). Binding `none` and no `anchored` line, or the store unchanged: `begin-refused` `init-not-run`, exit 0. Anything else: `begin-refused` `init-lost`, which blocks every later begin; the owner decides. |
 | `evidence-observe` | `observe` | the attempt of `native-reenable` was not observed, for example after a runner loss | The same observe and close as in `native-smoke`, with `late: true`. |
 
-After `init-late` or `init-not-run`, run `native-reenable` again. Any `run-close` with `done: false`, `init-lost` and `failed-before-witness` stop the cutover for the owner.
+After `init-late` or `init-not-run`, the evidence directory accepts a new begin, but the cutover cannot make one yet. `native-reenable` already recorded `REENABLE_STARTED`, and `cutover-postgres.sh` refuses to run it again; it has no resume path. Keep native admission off and stop for the owner: resuming step 4 needs a reviewed resume path in `cutover-postgres.sh`. `evidence-observe` and the `native-smoke` recheck need no resume, because they close an attempt that step 4 already recorded. Any `run-close` with `done: false`, `init-lost` and `failed-before-witness` also stop the cutover for the owner.
 
 ## Gate checks
 

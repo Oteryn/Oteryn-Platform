@@ -17,6 +17,10 @@
 # Every record except an anchored line is anchored before the next action. Any failure exits non-zero, so the
 # cutover step fails and native admission stays off; the deploy that turns it on is the operator's next step.
 #
+# The deploy workflow runs `provenance-init.sh preflight <task_id> <close_run_id>` before native-reenable
+# records its forward-only marker: steps 1 and 2 (location, kid, anchors with the D3 retry, verify --anchors,
+# a write probe) without any evidence write, so a missing anchor issue or permission cannot strand the cutover.
+#
 # Two recovery commands run through the deploy workflow's cutover evidence step, never by hand, because only
 # the workflow token posts anchors as the trusted author:
 #
@@ -37,7 +41,7 @@ source "$HOOK_SELF/common.sh"
 source "$HOOK_SELF/evidence.sh"
 
 usage() {
-    echo "Usage: provenance-init.sh init <task_id> <close_run_id>" >&2
+    echo "Usage: provenance-init.sh {init|preflight} <task_id> <close_run_id>" >&2
     echo "       provenance-init.sh {close-init|observe} <task_id> <close_run_id> <run_id>" >&2
     exit 1
 }
@@ -47,7 +51,7 @@ command="$1"
 task_id="$2"
 close_run_id="$3"
 case "$command" in
-    init) (($# == 3)) || usage ;;
+    init | preflight) (($# == 3)) || usage ;;
     close-init | observe)
         (($# == 4)) || usage
         run_id="$4"
@@ -72,9 +76,7 @@ W="$HOOK_WORK"
 begin_checks() {
     ev_check_location
     ev_key_id
-    ev_retry_anchors "$W/anchors.json"
-    ev "$W/verify.json" verify --dir "$EVIDENCE_DIR" --anchors "$W/anchors.json" \
-        || hook_fail "verify --anchors fails over the evidence directory ($(jq -r '.errors | first // "unknown"' "$W/verify.json" 2>/dev/null)). Nothing was written; the owner decides."
+    ev_verified_anchors "$W/anchors.json"
 }
 
 # run_d1 <observation-out>: the D1 init in the platform service, then a D2 observation with up to three tries.
@@ -106,6 +108,19 @@ refuse() {
     ev_append refused begin-refused "$run_id" --data "@$W/refused-data.json" || true
     [[ "$(jq -r '.record.type' "$W/refused.json")" == begin-refused ]] || hook_fail "cannot write begin-refused; run $run_id."
 }
+
+# probe: proves the job token can post to the anchor issue; the probe comment is not an anchor.
+probe() {
+    hook_post_comment "$(jq -cn --arg ref "$task_id/close-$close_run_id" '{oteryn_cutover_preflight: $ref}')" >/dev/null \
+        || hook_fail "cannot post to the anchor issue as $TRUSTED_ANCHOR_AUTHOR_LOGIN (issues: write); nothing was written."
+}
+
+if [[ "$command" == preflight ]]; then
+    begin_checks
+    probe
+    printf 'provenance_preflight=passed\n'
+    exit 0
+fi
 
 if [[ "$command" == close-init ]]; then
     # D5 step4-begin --close-init --run <id>: the first observation only picks the path.
@@ -152,7 +167,7 @@ fi
 
 if [[ "$command" == observe ]]; then
     # D5 step4-observe --run <id>: the missing observation of an unclosed attempt, with late: true.
-    ev_retry_anchors "$W/anchors.json"
+    ev_verified_anchors "$W/anchors.json"
     ev_summary
     [[ "$(jq -r --arg r "$run_id" '.runs[] | select(.run_id == $r) | .attempts | last | .observed' "$W/summary.json")" == false ]] \
         || hook_fail "run $run_id has no attempt waiting for its observation."
@@ -163,8 +178,7 @@ fi
 # --- init: 1 and 2. Location, key, anchors (with the D3 retry), a write probe; nothing written before ---
 begin_checks
 hook_observe "$W/pre.json" --key-id="$EV_KEY_ID"
-hook_post_comment "$(jq -cn --arg ref "$task_id/close-$close_run_id" '{oteryn_cutover_preflight: $ref}')" >/dev/null \
-    || hook_fail "cannot post to the anchor issue as $TRUSTED_ANCHOR_AUTHOR_LOGIN (issues: write); nothing was written."
+probe
 
 # --- 3. run-open, then init-intent ------------------------------------------------------------------
 open_status=0

@@ -615,6 +615,13 @@ jobs:
           set -euo pipefail
           rm -rf -- "$OTERYN_CUTOVER_EVIDENCE_DIR"
           export OTERYN_STATE_DIR="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
+          # native-reenable records a forward-only marker before its hook runs, so the hook's anchor issue,
+          # token and evidence checks run first; they write no evidence.
+          if [[ "$CUTOVER_STEP" == native-reenable && "$OTERYN_CUTOVER_DRY_RUN" != 1 ]]; then
+            hook="$OTERYN_CUTOVER_PROVENANCE_INIT_COMMAND"
+            [[ "$hook" == /* && -x "$hook" ]] || { echo "OTERYN_STAGING_CUTOVER_PROVENANCE_INIT_COMMAND must name the executable provenance hook." >&2; exit 1; }
+            "$hook" preflight "$OTERYN_CUTOVER_TASK_ID" "$OTERYN_CUTOVER_CLOSE_RUN_ID"
+          fi
           bash deploy/synology/scripts/cutover-postgres.sh "$CUTOVER_STEP"
 
       - name: Upload cutover gate evidence

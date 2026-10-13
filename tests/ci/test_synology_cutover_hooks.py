@@ -140,7 +140,10 @@ if args[:1] == ["compose"]:
     sys.exit(0)
 if args[:1] == ["inspect"]:
     log({"inspect": args[-1]})
-    print("\n".join(state["container_env"][args[-1]]))
+    # A "<NAME>=@env-file" entry takes its value from the environment file, so state.json holds no secret.
+    env_lines = dict(line.split("=", 1) for line in open(os.path.join(stub, "..", ".env")).read().splitlines() if "=" in line)
+    print("\n".join(f"{line[:-10]}={env_lines[line[:-10]]}" if line.endswith("=@env-file") else line
+                    for line in state["container_env"][args[-1]]))
     sys.exit(0)
 if args[:1] == ["run"]:
     log({"run": args[:args.index("python3")]})
@@ -344,7 +347,7 @@ class HookHarness(unittest.TestCase):
             },
             "container_env": {
                 "cid-platform": ["APP_ENV=staging", "GAME_AUTH_NATIVE_ADMISSION_ENABLED=true",
-                                 f"APP_KEY={SECRETS['APP_KEY']}"],
+                                 "APP_KEY=@env-file"],
                 "cid-gateway": ["GATEWAY_NATIVE_LOGIN_ENABLED=true"],
             },
             "issue": ISSUE, "locked": True, "post_fail": False, "next_id": 9001, "poster": BOT,
@@ -586,6 +589,26 @@ class ProvenanceInitTest(HookHarness):
         self.assertEqual(list(self.evidence.iterdir()), [])
 
 
+    def test_preflight_checks_anchor_access_without_writing_evidence(self):
+        proc = self.run_hook("provenance-init", "preflight", TASK, CLOSE_RUN)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.outputs(proc), {"provenance_preflight": "passed"})
+        self.assertEqual(list(self.evidence.iterdir()), [])
+        state = self.load_state()
+        self.assertEqual(state["init_calls"], 0)
+        bodies = [json.loads(c["body"]) for c in state["comments"] if c["user"] == BOT]
+        self.assertEqual(bodies, [{"oteryn_cutover_preflight": f"{TASK}/close-{CLOSE_RUN}"}])
+        self.assert_no_secret(proc)
+        for env, state_values, text in (({"OTERYN_CUTOVER_ANCHOR_ISSUE": None}, {}, "OTERYN_CUTOVER_ANCHOR_ISSUE"),
+                                        ({}, {"locked": False}, "locked"),
+                                        ({}, {"post_fail": True}, "issues: write")):
+            with self.subTest(text=text):
+                self.update_state(**{"locked": True, "post_fail": False, **state_values})
+                proc = self.run_hook("provenance-init", "preflight", TASK, CLOSE_RUN, **env)
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertIn(text, proc.stderr)
+                self.assertEqual(list(self.evidence.iterdir()), [])
+
     def test_anchor_retry_posts_an_unanchored_last_line_before_open(self):
         # The probe, run-open, init-intent and init are posted; the attempt-intent post fails.
         self.update_state(post_limit=4)
@@ -750,6 +773,30 @@ class NativeSmokeTest(HookHarness):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(self.run_records(), records)
 
+    def test_finished_attempt_is_accepted_only_while_its_anchors_verify(self):
+        proc = self.run_hook("native-smoke")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        records = self.run_records()
+        comments = self.load_state()["comments"]
+        # An earlier anchor disappears from the issue: the rerun refuses instead of taking the finished branch.
+        intent = next(c for c in comments if c["user"] == BOT and json.loads(c["body"]).get("type") == "attempt-intent")
+        self.update_state(comments=[c for c in comments if c is not intent and c != intent])
+        proc = self.run_hook("native-smoke")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("verify --anchors fails", proc.stderr)
+        self.assertNotIn("native_smoke_result=passed", proc.stdout)
+        # A rewritten run file is refused the same way, with every anchor in place.
+        self.update_state(comments=comments)
+        path = next(p for p in self.evidence.iterdir() if p.name.endswith(".jsonl") and records[0]["run_id"] in p.read_text())
+        text = path.read_text()
+        path.write_text(text.replace('"passed":true', '"passed":false', 1) if '"passed":true' in text
+                        else text.replace('"passed": true', '"passed": false', 1))
+        self.assertNotEqual(path.read_text(), text)
+        proc = self.run_hook("native-smoke")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("verify --anchors fails", proc.stderr)
+        self.assertEqual(len(self.run_records()), len(records))
+
     def test_waits_while_the_witness_is_busy_or_a_transaction_is_in_flight(self):
         busy = {"result": "witness_busy"}
         in_flight = json.loads(json.dumps(COMMITTED))
@@ -849,6 +896,12 @@ class NativeSmokeTest(HookHarness):
         self.assertIn("OTERYN_CUTOVER_ANCHOR_ISSUE", proc.stderr)
         for path in self.evidence.iterdir():
             path.unlink()
+        # Anchors that name a missing run file fail verify before anything is read.
+        proc = self.run_hook("native-smoke")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("has no file", proc.stderr)
+        # An empty directory on a fresh anchor issue: step 4 recorded nothing.
+        self.update_state(comments=[c for c in self.load_state()["comments"] if c["user"] != BOT])
         proc = self.run_hook("native-smoke")
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("has not recorded an attempt", proc.stderr)
@@ -897,8 +950,12 @@ class HookContractTest(unittest.TestCase):
         for var in ("OTERYN_STAGING_CUTOVER_PROVENANCE_INIT_COMMAND", "OTERYN_STAGING_CUTOVER_WEB_SMOKE_COMMAND",
                     "OTERYN_STAGING_CUTOVER_NATIVE_SMOKE_COMMAND", "OTERYN_CUTOVER_ANCHOR_ISSUE"):
             self.assertIn(var, doc)
-        for text in ("OTERYN_STAGING_CUTOVER_ANCHOR_ISSUE", "evidence-close-init", "evidence-observe", "evidence_run_id"):
+        for text in ("OTERYN_STAGING_CUTOVER_ANCHOR_ISSUE", "evidence-close-init", "evidence-observe", "evidence_run_id",
+                     "provenance-init.sh preflight <task_id> <close_run_id>"):
             self.assertIn(text, doc)
+        # native-reenable refuses once REENABLE_STARTED is recorded, so no recovery may send the operator back to it.
+        self.assertNotIn("run `native-reenable` again", doc)
+        self.assertIn("it has no resume path", doc)
 
     def test_workflow_maps_the_anchor_issue_and_scopes_issues_write(self):
         text = (ROOT / ".github" / "workflows" / "deploy-synology-staging.yml").read_text()
@@ -919,6 +976,11 @@ class HookContractTest(unittest.TestCase):
         for choice in ("evidence-close-init", "evidence-observe"):
             self.assertIn(f"          - {choice}\n", text)
         self.assertIn("if: inputs.action == 'cutover' && !startsWith(inputs.cutover_step, 'evidence-')", text)
+        # native-reenable's hook prerequisites are checked before cutover-postgres.sh records its marker.
+        cutover = next(step for step in steps if step.startswith("Run cutover step\n")).split("        run: |\n", 1)[1]
+        preflight = cutover.index('"$hook" preflight "$OTERYN_CUTOVER_TASK_ID" "$OTERYN_CUTOVER_CLOSE_RUN_ID"')
+        self.assertLess(preflight, cutover.index('bash deploy/synology/scripts/cutover-postgres.sh "$CUTOVER_STEP"'))
+        self.assertIn('if [[ "$CUTOVER_STEP" == native-reenable && "$OTERYN_CUTOVER_DRY_RUN" != 1 ]]; then', cutover)
 
     def test_contract_workflow_runs_the_cutover_suites(self):
         text = (ROOT / ".github" / "workflows" / "synology-rollback-contract.yml").read_text()
