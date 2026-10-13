@@ -92,7 +92,9 @@ class VolumeGuardTest(unittest.TestCase):
                 "repair-synology-autostart.yml",
             )
         ]
-        sources += sorted(SCRIPTS.glob("*.sh"))
+        # cutover-postgres.sh is the single owner-gated exception (plan P6 step 6, retire-mariadb); its entry gates
+        # and dry-run default are proven by test_synology_cutover_postgres.py.
+        sources += [path for path in sorted(SCRIPTS.glob("*.sh")) if path.name != "cutover-postgres.sh"]
         for source in sources:
             text = source.read_text()
             for pattern in self.REMOVAL:

@@ -9,6 +9,7 @@ required = [
     'branches:\n      - main',
     'ops/triggers/cloudflare-oteryn-endpoints.md',
     "if: github.event_name == 'push'",
+    "needs.classify.outputs.mode == 'apply'",
     'environment: production-cloudflare',
     'ref: ${{ github.sha }}',
     "[[ \"$GITHUB_REF\" == 'refs/heads/main' ]]",
@@ -20,10 +21,11 @@ required = [
     'An operational audit/apply marker PR may change only the marker file.',
     "[[ \"$changed_files\" == 'ops/triggers/cloudflare-oteryn-endpoints.md' ]]",
     "export CLOUDFLARE_APPLY_CONFIRMATION='APPLY-OTERYN-CLOUDFLARE'",
-    "grep -E '^(mode|tunnel_status|tunnel_contract|www_dns|gateway_dns|legacy_gateway_dns|mutation)='",
+    "grep -E '^(mode|tunnel_status|tunnel_contract|www_dns|gateway_dns|legacy_gateway_dns|gate_state|edge_version|other_origin_routes|closure_match|mutation)='",
     "ISSUE_NUMBER: '91'",
     'gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" -f body="$body"',
     'permissions:\n      contents: read\n      issues: write',
+    'group: cloudflare-oteryn-edge-write',
     'Only bounded endpoint status fields are published.',
 ]
 

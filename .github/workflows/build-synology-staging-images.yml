@@ -52,6 +52,7 @@ on:
       - deploy/synology/runner/compose.yml
       - deploy/synology/scripts/backup-postgres.sh
       - deploy/synology/scripts/deploy.sh
+      - deploy/synology/scripts/cutover-postgres.sh
       - deploy/synology/scripts/deploy-impact.sh
       - deploy/synology/scripts/health-check.sh
       - deploy/synology/scripts/lib.sh
@@ -129,6 +130,7 @@ on:
       - deploy/synology/runner/compose.yml
       - deploy/synology/scripts/backup-postgres.sh
       - deploy/synology/scripts/deploy.sh
+      - deploy/synology/scripts/cutover-postgres.sh
       - deploy/synology/scripts/deploy-impact.sh
       - deploy/synology/scripts/health-check.sh
       - deploy/synology/scripts/lib.sh
@@ -234,6 +236,7 @@ jobs:
             deploy/synology/scripts/upgrade-legacy-release-state.sh \
             deploy/synology/scripts/validate-ipv4.sh \
             deploy/synology/scripts/backup-postgres.sh \
+            deploy/synology/scripts/cutover-postgres.sh \
             deploy/synology/scripts/restore-postgres-pitr.sh \
             deploy/synology/postgres/backup/archive-wal.sh \
             deploy/synology/postgres/backup/restore-wal.sh \

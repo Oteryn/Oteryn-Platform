@@ -1,4 +1,5 @@
 name: Cloudflare Oteryn Endpoints
+run-name: Cloudflare Oteryn Endpoints [${{ inputs.mode || github.event_name }}]
 
 on:
   pull_request:
@@ -23,15 +24,29 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Audit current state or apply the fixed Oteryn endpoint contract
+        description: Audit, apply from the open state, or close or open the edge maintenance gate
         required: true
         default: audit
         type: choice
         options:
           - audit
           - apply
+          - maintenance-close
+          - maintenance-open
       confirmation:
-        description: For apply only, enter APPLY-OTERYN-CLOUDFLARE exactly
+        description: apply APPLY-OTERYN-CLOUDFLARE, maintenance-close CLOSE-OTERYN-EDGE, maintenance-open OPEN-OTERYN-EDGE
+        required: false
+        type: string
+      task_id:
+        description: Gate modes only. Task identifier OTERYN-YYYYMMDD-slug
+        required: false
+        type: string
+      closure_run_id:
+        description: Run id of the closing run. Required for open and for renewing a closed gate
+        required: false
+        type: string
+      evidence_run_id:
+        description: Run id of the cutover run that produced the gate evidence. Required for open
         required: false
         type: string
 
@@ -67,18 +82,142 @@ jobs:
       - name: Validate trusted trigger and result boundary
         run: python3 tests/operations/cloudflare-oteryn-endpoints/check-marker-workflow.py
 
-  manage:
+  classify:
     if: github.event_name == 'workflow_dispatch'
     needs: validate
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.boundary.outputs.mode }}
+    steps:
+      - name: Enforce production dispatch boundary
+        id: boundary
+        env:
+          REQUESTED_MODE: ${{ inputs.mode }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+          TASK_ID: ${{ inputs.task_id }}
+          CLOSURE_RUN_ID: ${{ inputs.closure_run_id }}
+          EVIDENCE_RUN_ID: ${{ inputs.evidence_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+            echo "This workflow may manage Cloudflare only from main." >&2
+            exit 1
+          }
+          case "$REQUESTED_MODE" in
+            audit) ;;
+            apply)
+              [[ "$CONFIRMATION" == "APPLY-OTERYN-CLOUDFLARE" ]] || {
+                echo "Apply confirmation is invalid." >&2
+                exit 1
+              }
+              ;;
+            maintenance-close | maintenance-open)
+              expected='CLOSE-OTERYN-EDGE'
+              [[ "$REQUESTED_MODE" == "maintenance-open" ]] && expected='OPEN-OTERYN-EDGE'
+              [[ "$CONFIRMATION" == "$expected" ]] || {
+                echo "Gate confirmation is invalid." >&2
+                exit 1
+              }
+              [[ "$TASK_ID" =~ ^OTERYN-[0-9]{8}-[a-z0-9-]+$ ]] || {
+                echo "task_id is invalid." >&2
+                exit 1
+              }
+              ;;
+            *)
+              echo "Unsupported mode: $REQUESTED_MODE" >&2
+              exit 1
+              ;;
+          esac
+          for value in "$CLOSURE_RUN_ID" "$EVIDENCE_RUN_ID"; do
+            [[ -z "$value" || "$value" =~ ^[1-9][0-9]{0,19}$ ]] || {
+              echo "Run ids must be numeric." >&2
+              exit 1
+            }
+          done
+          echo "mode=$REQUESTED_MODE" >>"$GITHUB_OUTPUT"
+
+  guard:
+    needs: classify
+    if: github.event_name == 'workflow_dispatch' && needs.classify.outputs.mode == 'apply'
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout trusted implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Refuse while a gate operation is queued or running
+        run: bash scripts/operations/cloudflare-oteryn-endpoints.sh gate-guard
+
+  edge-fingerprint:
+    needs: classify
+    if: github.event_name == 'workflow_dispatch' && needs.classify.outputs.mode == 'maintenance-close'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: cloudflare-oteryn-edge-fingerprint-${{ github.run_id }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout exact main SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Collect public application fingerprint candidate
+        continue-on-error: true
+        env:
+          OTERYN_FINGERPRINT_OUT: ${{ runner.temp }}/fingerprint/fingerprint-candidate.json
+        run: |
+          mkdir -p "$(dirname "$OTERYN_FINGERPRINT_OUT")"
+          bash scripts/operations/cloudflare-oteryn-endpoints.sh edge-fingerprint
+
+      - name: Upload fingerprint candidate
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oteryn-edge-fingerprint-candidate
+          path: ${{ runner.temp }}/fingerprint/fingerprint-candidate.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+  manage:
+    name: manage
+    needs: [validate, classify, guard, edge-fingerprint]
+    if: >-
+      !cancelled() && github.event_name == 'workflow_dispatch' &&
+      needs.validate.result == 'success' && needs.classify.result == 'success' &&
+      (needs.guard.result == 'success' || needs.guard.result == 'skipped') &&
+      (needs.edge-fingerprint.result == 'success' || needs.edge-fingerprint.result == 'skipped')
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: production-cloudflare
+    concurrency:
+      group: ${{ needs.classify.outputs.mode == 'audit' && format('cloudflare-oteryn-edge-audit-{0}', github.run_id) || 'cloudflare-oteryn-edge-write' }}
+      cancel-in-progress: false
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
       CLOUDFLARE_TUNNEL_ID: ${{ vars.CLOUDFLARE_TUNNEL_ID }}
-      CLOUDFLARE_APPLY_CONFIRMATION: ${{ inputs.confirmation }}
+      CLOUDFLARE_APPLY_CONFIRMATION: ${{ inputs.mode == 'apply' && inputs.confirmation || '' }}
+      CLOUDFLARE_GATE_CONFIRMATION: ${{ startsWith(inputs.mode, 'maintenance-') && inputs.confirmation || '' }}
+      OTERYN_TASK_ID: ${{ inputs.task_id }}
+      OTERYN_CLOSURE_RUN_ID: ${{ inputs.closure_run_id }}
+      OTERYN_EVIDENCE_RUN_ID: ${{ inputs.evidence_run_id }}
+      OTERYN_CLOSURE_FILE: ${{ runner.temp }}/closure/closure.json
+      OTERYN_FINGERPRINT_FILE: ${{ runner.temp }}/candidate/fingerprint-candidate.json
+      OTERYN_AUDIT_RESULT_FILE: ${{ runner.temp }}/audit/audit.json
+      GH_TOKEN: ${{ github.token }}
+      REQUESTED_MODE: ${{ needs.classify.outputs.mode }}
 
     steps:
       - name: Checkout exact main SHA
@@ -86,48 +225,81 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
-      - name: Enforce production dispatch boundary
+      - name: Download fingerprint candidate
+        if: needs.classify.outputs.mode == 'maintenance-close' && needs.edge-fingerprint.result == 'success'
+        continue-on-error: true
         env:
-          REQUESTED_MODE: ${{ inputs.mode }}
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name oteryn-edge-fingerprint-candidate --dir "$RUNNER_TEMP/candidate"
+
+      - name: Audit, reconcile or switch the maintenance gate
         run: |
           set -euo pipefail
-          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
-            echo "This workflow may manage Cloudflare only from main." >&2
-            exit 1
-          }
-          [[ "$REQUESTED_MODE" == "audit" || "$REQUESTED_MODE" == "apply" ]] || {
-            echo "Unsupported mode: $REQUESTED_MODE" >&2
-            exit 1
-          }
-          if [[ "$REQUESTED_MODE" == "apply" ]]; then
-            [[ "$CLOUDFLARE_APPLY_CONFIRMATION" == "APPLY-OTERYN-CLOUDFLARE" ]] || {
-              echo "Apply confirmation is invalid." >&2
-              exit 1
-            }
-          fi
+          mkdir -p "$(dirname "$OTERYN_CLOSURE_FILE")" "$(dirname "$OTERYN_AUDIT_RESULT_FILE")"
+          bash scripts/operations/cloudflare-oteryn-endpoints.sh "$REQUESTED_MODE"
 
-      - name: Audit or reconcile canonical endpoints
+      - name: Upload edge gate closure
+        if: success() && needs.classify.outputs.mode == 'maintenance-close'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oteryn-edge-gate-closure
+          path: ${{ runner.temp }}/closure/closure.json
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload edge audit result
+        if: always() && needs.classify.outputs.mode == 'audit'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oteryn-edge-audit-result
+          path: ${{ runner.temp }}/audit/audit.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+  edge-probe:
+    name: edge-probe
+    needs: [classify, manage]
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      (needs.classify.outputs.mode == 'maintenance-close' || needs.classify.outputs.mode == 'maintenance-open') &&
+      needs.manage.result == 'success'
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: cloudflare-oteryn-edge-probe-${{ github.run_id }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout exact main SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Download edge gate closure
+        if: needs.classify.outputs.mode == 'maintenance-close'
         env:
-          REQUESTED_MODE: ${{ inputs.mode }}
-        run: bash scripts/operations/cloudflare-oteryn-endpoints.sh "$REQUESTED_MODE"
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name oteryn-edge-gate-closure --dir "$RUNNER_TEMP/closure"
 
-  marker-manage:
+      - name: Probe the public edge
+        env:
+          OTERYN_CLOSURE_FILE: ${{ runner.temp }}/closure/closure.json
+          PROBE_PHASE: ${{ needs.classify.outputs.mode == 'maintenance-close' && 'closed' || 'open' }}
+        run: bash scripts/operations/cloudflare-oteryn-endpoints.sh edge-probe "$PROBE_PHASE"
+
+  marker-classify:
     if: >-
       github.event_name == 'pull_request_target' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.base.ref == 'main'
     permissions:
       contents: read
-      issues: write
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: production-cloudflare
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
-      CLOUDFLARE_TUNNEL_ID: ${{ vars.CLOUDFLARE_TUNNEL_ID }}
-
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.operation.outputs.mode }}
     steps:
       - name: Checkout trusted main implementation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -135,7 +307,7 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
 
-      - name: Enforce exact marker boundary and run trusted operation
+      - name: Enforce exact marker boundary
         id: operation
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -155,18 +327,46 @@ jobs:
 
           if [[ "$marker" == "$audit_marker" ]]; then
             requested_mode='audit'
-            export CLOUDFLARE_APPLY_CONFIRMATION=''
           elif [[ "$marker" == "$apply_marker" ]]; then
             requested_mode='apply'
-            export CLOUDFLARE_APPLY_CONFIRMATION='APPLY-OTERYN-CLOUDFLARE'
           else
             echo "Marker content is not an allowed exact audit/apply request." >&2
             exit 1
           fi
+          echo "mode=$requested_mode" >>"$GITHUB_OUTPUT"
 
+  marker-audit:
+    needs: marker-classify
+    if: needs.marker-classify.outputs.mode == 'audit'
+    permissions:
+      contents: read
+      issues: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-cloudflare
+    concurrency:
+      group: cloudflare-oteryn-edge-audit-${{ github.run_id }}
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+      CLOUDFLARE_TUNNEL_ID: ${{ vars.CLOUDFLARE_TUNNEL_ID }}
+
+    steps:
+      - name: Checkout trusted implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - name: Run trusted audit operation
+        id: operation
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_APPLY_CONFIRMATION=''
           raw_output="$(mktemp)"
           set +e
-          bash scripts/operations/cloudflare-oteryn-endpoints.sh "$requested_mode" >"$raw_output" 2>&1
+          bash scripts/operations/cloudflare-oteryn-endpoints.sh audit >"$raw_output" 2>&1
           exit_code=$?
           set -e
 
@@ -176,7 +376,7 @@ jobs:
             else
               echo 'operation_status=failed'
             fi
-            grep -E '^(mode|tunnel_status|tunnel_contract|www_dns|gateway_dns|legacy_gateway_dns|mutation)=' "$raw_output" || true
+            grep -E '^(mode|tunnel_status|tunnel_contract|www_dns|gateway_dns|legacy_gateway_dns|gate_state|edge_version|other_origin_routes|closure_match|mutation)=' "$raw_output" || true
           } >endpoint-result.txt
           echo "exit_code=$exit_code" >>"$GITHUB_OUTPUT"
 
@@ -184,18 +384,97 @@ jobs:
         if: always() && steps.operation.outcome != 'skipped'
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          TARGET_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           result="$(cat endpoint-result.txt 2>/dev/null || printf 'operation_status=failed')"
-          body="$(printf '## Cloudflare endpoint operation\n\n```text\nrun_id=%s\n%s\n```\n\nTrusted base SHA: `%s`. Only bounded status fields are published.' "$GITHUB_RUN_ID" "$result" '${{ github.event.pull_request.base.sha }}')"
-          gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" -f body="$body" >/dev/null
+          body="$(printf '## Cloudflare endpoint operation\n\n```text\nrun_id=%s\n%s\n```\n\nTrusted base SHA: `%s`. Only bounded status fields are published.' "$GITHUB_RUN_ID" "$result" "$GITHUB_SHA")"
+          gh api "repos/$GITHUB_REPOSITORY/issues/$TARGET_NUMBER/comments" -f body="$body" >/dev/null
 
       - name: Propagate operation failure
         if: steps.operation.outputs.exit_code != '0'
         run: exit 1
 
-  comment-manage:
+  marker-guard:
+    needs: marker-classify
+    if: needs.marker-classify.outputs.mode == 'apply'
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout trusted implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - name: Refuse while a gate operation is queued or running
+        run: bash scripts/operations/cloudflare-oteryn-endpoints.sh gate-guard
+
+  marker-apply:
+    needs: [marker-classify, marker-guard]
+    if: needs.marker-classify.outputs.mode == 'apply'
+    permissions:
+      contents: read
+      issues: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-cloudflare
+    concurrency:
+      group: cloudflare-oteryn-edge-write
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+      CLOUDFLARE_TUNNEL_ID: ${{ vars.CLOUDFLARE_TUNNEL_ID }}
+
+    steps:
+      - name: Checkout trusted implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - name: Run trusted apply operation
+        id: operation
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_APPLY_CONFIRMATION='APPLY-OTERYN-CLOUDFLARE'
+          raw_output="$(mktemp)"
+          set +e
+          bash scripts/operations/cloudflare-oteryn-endpoints.sh apply >"$raw_output" 2>&1
+          exit_code=$?
+          set -e
+
+          {
+            if [[ "$exit_code" == "0" ]]; then
+              echo 'operation_status=success'
+            else
+              echo 'operation_status=failed'
+            fi
+            grep -E '^(mode|tunnel_status|tunnel_contract|www_dns|gateway_dns|legacy_gateway_dns|gate_state|edge_version|other_origin_routes|closure_match|mutation)=' "$raw_output" || true
+          } >endpoint-result.txt
+          echo "exit_code=$exit_code" >>"$GITHUB_OUTPUT"
+
+      - name: Publish sanitized endpoint result
+        if: always() && steps.operation.outcome != 'skipped'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          result="$(cat endpoint-result.txt 2>/dev/null || printf 'operation_status=failed')"
+          body="$(printf '## Cloudflare endpoint operation\n\n```text\nrun_id=%s\n%s\n```\n\nTrusted base SHA: `%s`. Only bounded status fields are published.' "$GITHUB_RUN_ID" "$result" "$GITHUB_SHA")"
+          gh api "repos/$GITHUB_REPOSITORY/issues/$TARGET_NUMBER/comments" -f body="$body" >/dev/null
+
+      - name: Propagate operation failure
+        if: steps.operation.outputs.exit_code != '0'
+        run: exit 1
+
+  comment-classify:
     if: >-
       github.event_name == 'issue_comment' &&
       github.event.issue.pull_request != null &&
@@ -205,20 +484,15 @@ jobs:
        github.event.comment.body == '/oteryn-cloudflare-endpoints apply APPLY-OTERYN-CLOUDFLARE')
     permissions:
       contents: read
-      issues: write
       pull-requests: read
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: production-cloudflare
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.operation.outputs.mode }}
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
-      CLOUDFLARE_TUNNEL_ID: ${{ vars.CLOUDFLARE_TUNNEL_ID }}
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.issue.number }}
       REQUEST_COMMENT: ${{ github.event.comment.body }}
-
     steps:
       - name: Checkout trusted default-branch implementation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -226,7 +500,7 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Validate owner command, marker PR and run trusted operation
+      - name: Validate owner command and marker PR
         id: operation
         run: |
           set -euo pipefail
@@ -253,18 +527,46 @@ jobs:
 
           if [[ "$REQUEST_COMMENT" == "$AUDIT_COMMAND" && "$marker" == "$audit_marker" ]]; then
             requested_mode='audit'
-            export CLOUDFLARE_APPLY_CONFIRMATION=''
           elif [[ "$REQUEST_COMMENT" == "$APPLY_COMMAND" && "$marker" == "$apply_marker" ]]; then
             requested_mode='apply'
-            export CLOUDFLARE_APPLY_CONFIRMATION='APPLY-OTERYN-CLOUDFLARE'
           else
             echo 'Comment and exact marker content do not authorize the same operation.' >&2
             exit 1
           fi
+          echo "mode=$requested_mode" >>"$GITHUB_OUTPUT"
 
+  comment-audit:
+    needs: comment-classify
+    if: needs.comment-classify.outputs.mode == 'audit'
+    permissions:
+      contents: read
+      issues: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-cloudflare
+    concurrency:
+      group: cloudflare-oteryn-edge-audit-${{ github.run_id }}
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+      CLOUDFLARE_TUNNEL_ID: ${{ vars.CLOUDFLARE_TUNNEL_ID }}
+
+    steps:
+      - name: Checkout trusted implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Run trusted audit operation
+        id: operation
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_APPLY_CONFIRMATION=''
           raw_output="$(mktemp)"
           set +e
-          bash scripts/operations/cloudflare-oteryn-endpoints.sh "$requested_mode" >"$raw_output" 2>&1
+          bash scripts/operations/cloudflare-oteryn-endpoints.sh audit >"$raw_output" 2>&1
           exit_code=$?
           set -e
 
@@ -274,18 +576,99 @@ jobs:
             else
               echo 'operation_status=failed'
             fi
-            grep -E '^(mode|tunnel_status|tunnel_contract|www_dns|gateway_dns|legacy_gateway_dns|mutation)=' "$raw_output" || true
+            grep -E '^(mode|tunnel_status|tunnel_contract|www_dns|gateway_dns|legacy_gateway_dns|gate_state|edge_version|other_origin_routes|closure_match|mutation)=' "$raw_output" || true
           } >endpoint-result.txt
           echo "exit_code=$exit_code" >>"$GITHUB_OUTPUT"
-          echo "trusted_sha=$GITHUB_SHA" >>"$GITHUB_OUTPUT"
 
       - name: Publish sanitized endpoint result
         if: always() && steps.operation.outcome != 'skipped'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_NUMBER: ${{ github.event.issue.number }}
         run: |
           set -euo pipefail
           result="$(cat endpoint-result.txt 2>/dev/null || printf 'operation_status=failed')"
-          body="$(printf '## Cloudflare endpoint operation\n\n```text\nrun_id=%s\n%s\n```\n\nTrusted default-branch SHA: `%s`. Only bounded status fields are published.' "$GITHUB_RUN_ID" "$result" '${{ github.sha }}')"
-          gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" -f body="$body" >/dev/null
+          body="$(printf '## Cloudflare endpoint operation\n\n```text\nrun_id=%s\n%s\n```\n\nTrusted default-branch SHA: `%s`. Only bounded status fields are published.' "$GITHUB_RUN_ID" "$result" "$GITHUB_SHA")"
+          gh api "repos/$GITHUB_REPOSITORY/issues/$TARGET_NUMBER/comments" -f body="$body" >/dev/null
+
+      - name: Propagate operation failure
+        if: steps.operation.outputs.exit_code != '0'
+        run: exit 1
+
+  comment-guard:
+    needs: comment-classify
+    if: needs.comment-classify.outputs.mode == 'apply'
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout trusted implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Refuse while a gate operation is queued or running
+        run: bash scripts/operations/cloudflare-oteryn-endpoints.sh gate-guard
+
+  comment-apply:
+    needs: [comment-classify, comment-guard]
+    if: needs.comment-classify.outputs.mode == 'apply'
+    permissions:
+      contents: read
+      issues: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-cloudflare
+    concurrency:
+      group: cloudflare-oteryn-edge-write
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+      CLOUDFLARE_TUNNEL_ID: ${{ vars.CLOUDFLARE_TUNNEL_ID }}
+
+    steps:
+      - name: Checkout trusted implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Run trusted apply operation
+        id: operation
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_APPLY_CONFIRMATION='APPLY-OTERYN-CLOUDFLARE'
+          raw_output="$(mktemp)"
+          set +e
+          bash scripts/operations/cloudflare-oteryn-endpoints.sh apply >"$raw_output" 2>&1
+          exit_code=$?
+          set -e
+
+          {
+            if [[ "$exit_code" == "0" ]]; then
+              echo 'operation_status=success'
+            else
+              echo 'operation_status=failed'
+            fi
+            grep -E '^(mode|tunnel_status|tunnel_contract|www_dns|gateway_dns|legacy_gateway_dns|gate_state|edge_version|other_origin_routes|closure_match|mutation)=' "$raw_output" || true
+          } >endpoint-result.txt
+          echo "exit_code=$exit_code" >>"$GITHUB_OUTPUT"
+
+      - name: Publish sanitized endpoint result
+        if: always() && steps.operation.outcome != 'skipped'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          result="$(cat endpoint-result.txt 2>/dev/null || printf 'operation_status=failed')"
+          body="$(printf '## Cloudflare endpoint operation\n\n```text\nrun_id=%s\n%s\n```\n\nTrusted default-branch SHA: `%s`. Only bounded status fields are published.' "$GITHUB_RUN_ID" "$result" "$GITHUB_SHA")"
+          gh api "repos/$GITHUB_REPOSITORY/issues/$TARGET_NUMBER/comments" -f body="$body" >/dev/null
 
       - name: Propagate operation failure
         if: steps.operation.outputs.exit_code != '0'

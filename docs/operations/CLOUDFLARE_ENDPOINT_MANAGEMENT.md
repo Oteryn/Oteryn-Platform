@@ -103,6 +103,38 @@ Apply can perform only these changes:
 
 Apply does not delete arbitrary DNS records, tunnels or unrelated ingress rules. It does not modify WAF, Access, TLS, certificates, Pages, Workers, cache, account membership or billing.
 
+## Edge maintenance gate
+
+The gate closes the public edge during the PostgreSQL cutover (design: `PLATFORM_POSTGRES_MAINTENANCE_GATE_DESIGN.md`). Closing switches exactly the two canonical ingress rules (`oteryn.molehill.cloud`, `gateway.molehill.cloud`) to `http_status:503`; every other rule and field is preserved. Both modes run only from `main` through `workflow_dispatch`, in the `production-cloudflare` environment, and are never available from marker or comment triggers.
+
+State is classified from the live tunnel configuration as `open`, `closed`, `split` (one rule closed) or `unknown` (anything else). Audit reports `gate_state`, `edge_version`, `other_origin_routes` (a count only) and `closure_match` (`not_requested`, `yes` or `no`), and uploads the same fields as `audit.json` in the `oteryn-edge-audit-result` artifact (30 days).
+
+### maintenance-close
+
+Inputs: `confirmation=CLOSE-OTERYN-EDGE`, `task_id` (`OTERYN-YYYYMMDD-slug`), optional `closure_run_id`.
+
+- Refused unless `other_origin_routes` is 0: no other rule may route to an IP literal in any spelling, a local origin on any port, or port 8000 or 8080 on any host. Hosts that must stay are listed in `ALLOWED_ORIGIN_HOSTS` in the script (empty by default).
+- From `open`, the script re-reads the edge immediately before the PUT, aborts if its hash, version or classification changed, writes once, reads back, and requires the version to have increased by exactly one.
+- From `closed`, the run is a renewal and requires `closure_run_id` of a verifiable earlier closure that still matches the live edge version and hash. The recorded origin fingerprint is carried forward.
+- The result is the `oteryn-edge-gate-closure` artifact (30 days) holding `closure.json`: schema, `task_id`, `close_run_id`, `run_attempt`, `edge_version`, `config_hash`, `fingerprint_status`, `origin_fingerprint`. Any later edit of the tunnel, even identical rules, raises the version and invalidates the closure.
+- A secret-free `edge-fingerprint` job records which cookie and header names the application sends. The secret-free `edge-probe` job then requires both canonical hosts to answer 503 from the edge and a random synthetic hostname not to return the recorded application fingerprint. Without a usable fingerprint the wildcard probe is informational only.
+
+### maintenance-open
+
+Inputs: `confirmation=OPEN-OTERYN-EDGE`, `task_id`, `closure_run_id`, `evidence_run_id`.
+
+- Allowed only from `closed`; `open` is an idempotent no-op that needs no ids. `split` and `unknown` are refused.
+- Provenance is read through `gh api`: the closure run must be a successful `cloudflare-oteryn-endpoints.yml` dispatch on `main` at attempt 1 with exactly one unexpired closure artifact that matches the live version and hash. The evidence run must be a `deploy-synology-staging.yml` dispatch on `main` at attempt 1 that is in progress or successful, with `platform-cutover-gate-evidence` whose `task_id`, `close_run_id` and `outcome` (`cutover_complete` or `rollback_verified`) match.
+- A failed closing run is accepted for renewal only when `manage` succeeded, `edge-probe` failed and every other job succeeded or was skipped.
+
+### Serialization and apply
+
+`apply`, `maintenance-close` and `maintenance-open` writes share the job-level concurrency group `cloudflare-oteryn-edge-write` (no cancellation). Audit, fingerprint and probe jobs use per-run groups. Before any `apply`, a read-only `guard` job fails while a gate run (display title `Cloudflare Oteryn Endpoints [maintenance-close|open]`) is queued, waiting, pending or in progress in either endpoint workflow.
+
+`apply` itself now refuses unless `gate_state=open`, at script level and before any DNS or tunnel write, so it cannot reopen a closed gate or run against an unrecognized edge. Repair of an `unknown` edge is done in the Cloudflare dashboard, then audit and apply are run again.
+
+Break-glass: if the gate cannot be opened through the workflow, the owner restores the two rules to `http://127.0.0.1:8000` and `http://127.0.0.1:8080` in the Cloudflare dashboard. This raises the version and invalidates any closure, so record the action on the task and rerun audit.
+
 ## Migration order and preservation rules
 
 Before a Tunnel update, the script:
