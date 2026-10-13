@@ -79,9 +79,9 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-13T16:00:00Z
-head: 82e15f4a1650610ce0a1e86c0574bf5dc70a8d0b
+head: 317b53addfe5165dbf3646e3c82b0ca143515488
 branch: claude/platform-p7-20261013
-pr: pending
+pr: 1599
 status: validating
 context_routes:
   - deploy
@@ -162,14 +162,14 @@ validation:
     evidence: no new shellcheck findings against the base
 blockers:
   - retire-mariadb not yet recorded on staging (merge only)
-next_action: CP posts the Codex review; one fix commit; merge only after PR 1598 and retire-mariadb.
+next_action: CP posts the Codex review on PR 1599; one fix commit; merge only after PR 1598 and retire-mariadb.
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository squash merge of the P7 PR
+source_branch_reason: ordinary same-repository squash merge of PR 1599
 source_branch_evidence: pending
 ```
 
