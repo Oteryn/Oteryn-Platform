@@ -959,6 +959,7 @@ class CutoverDeployWindowTest(unittest.TestCase):
         for directory in (state / "postgres-cutover", state / "postgres-bootstrap"):
             if not directory.exists() and not directory.is_symlink():
                 directory.mkdir(parents=True)
+                directory.chmod(0o700)  # owner-only, as both cutover scripts create it
         if steps:
             (state / "postgres-cutover/cutover-state.env").write_text(
                 cutover_state_text(steps, self.FROZEN[1], freeze_image))
@@ -1255,6 +1256,33 @@ class CutoverDeployWindowTest(unittest.TestCase):
                     result = self.gate(base, engine)
                     self.assertNotEqual(result.returncode, 0, result.stderr)
                     self.assertIn("state directory is a link", result.stderr)
+
+    def test_a_state_directory_that_is_not_owner_only_fails_closed(self) -> None:
+        # As bootstrap-postgres.sh requires before it reads a record: a writable directory could carry planted
+        # records (a complete bootstrap, a verified rollback) that open the gate.
+        for engine, steps in (("mariadb", ()), ("postgres", ("PREFLIGHT", "FREEZE", "BOOTSTRAP"))):
+            for linked in ("postgres-cutover", "postgres-bootstrap"):
+                for mode in (0o720, 0o702, 0o777):
+                    with self.subTest(engine=engine, directory=linked, mode=oct(mode)), \
+                            tempfile.TemporaryDirectory() as td:
+                        base = Path(td)
+                        self.assertEqual(self.gate(base, engine, steps, engine == "postgres").returncode, 0)
+                        (base / "state" / linked).chmod(mode)
+                        result = self.gate(base, engine)
+                        self.assertNotEqual(result.returncode, 0, result.stderr)
+                        self.assertIn("must be an owner-only directory", result.stderr)
+
+    @unittest.skipUnless(os.geteuid() == 0, "only root can hand a directory to another owner")
+    def test_a_state_directory_owned_by_another_user_fails_closed(self) -> None:
+        for linked in ("postgres-cutover", "postgres-bootstrap"):
+            with self.subTest(directory=linked), tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                steps = ("PREFLIGHT", "FREEZE", "BOOTSTRAP")
+                self.assertEqual(self.gate(base, "postgres", steps, True).returncode, 0)
+                os.chown(base / "state" / linked, 65534, 65534)
+                result = self.gate(base, "postgres")
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertIn("must be an owner-only directory", result.stderr)
 
     def test_a_held_or_stale_cutover_lock_refuses_every_deploy(self) -> None:
         # A freeze interrupted after it stopped the stack leaves run.lock but no STEP_FREEZE.

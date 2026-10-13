@@ -138,6 +138,8 @@ oteryn_require_postgres_secrets_for_engine() {
 #     state directory, as cutover-postgres.sh refuses a linked one, or a read error): a missed FREEZE, ROLLBACK_STARTED or MARIADB_RETIRED would let the deploy
 #     restart the frozen stack, race a rollback or recreate the retired service, so it fails closed. Only an
 #     absent state file means no cutover step is recorded;
+#   - a cutover or bootstrap state directory that is not owner-only (owned by the caller, not group- or
+#     world-writable; the rule bootstrap-postgres.sh applies to its own), before any record in it is read;
 #   - a cutover run.lock (a step running, or one interrupted before it recorded its marker, such as a freeze that
 #     stopped the stack before STEP_FREEZE);
 #   - a readable state file that cutover-postgres.sh cannot have written (empty, truncated, reordered,
@@ -180,6 +182,16 @@ oteryn_require_cutover_deploy_window() {
         echo "Deploy refused: the cutover state directory $state_dir cannot be inspected." >&2
         return 1
     fi
+    # Every record in these directories decides the gate, so an existing one must be trusted as
+    # bootstrap-postgres.sh requires before it reads any record: owned by the caller (the workflow runs the
+    # deploy and the cutover as the same user), not group- or world-writable.
+    local trusted_dir
+    for trusted_dir in "$state_dir" "$bootstrap_dir"; do
+        if [[ -e "$trusted_dir" ]] && ! _oteryn_state_dir_trusted "$trusted_dir"; then
+            echo "Deploy refused: the cutover or bootstrap state directory $trusted_dir must be an owner-only directory (owned by the deploying user, not group- or world-writable)." >&2
+            return 1
+        fi
+    done
     if [[ -L "$state_file" ]] || [[ -e "$state_file" && ! -f "$state_file" ]]; then
         echo "Deploy refused: the cutover state $state_file is not a regular file." >&2
         return 1
@@ -444,6 +456,16 @@ _oteryn_cutover_state_valid() {
         last_time="$time"
     done
     ((${#expected[@]} == 0)) && [[ "$seen" == *" PREFLIGHT "* ]]
+}
+
+# True for a directory, not a link, owned by the caller and not group- or world-writable (bootstrap-postgres.sh
+# state_dir_is_trusted).
+# Usage: _oteryn_state_dir_trusted <dir>
+_oteryn_state_dir_trusted() {
+    local dir="$1" mode
+    [[ -d "$dir" && ! -L "$dir" && -O "$dir" ]] || return 1
+    mode="$(stat -c '%a' -- "$dir" 2>/dev/null || stat -f '%Lp' -- "$dir" 2>/dev/null)" || return 1
+    [[ "$mode" =~ ^[0-7]+$ ]] && (( (8#$mode & 8#022) == 0 ))
 }
 
 # Prints a state file; fails on any read error (an unreadable file is never taken as an empty one).

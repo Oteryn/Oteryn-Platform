@@ -58,7 +58,7 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-13T22:00:00Z
-head: 9142aee1abd1ec914c8dcf28ec952210d841b3ba
+head: 8ef4f1d4648ca0f39abd5fe6950d0fafa265469c
 branch: claude/platform-engine-flip-20261013
 pr: 1598
 status: validating
@@ -84,6 +84,7 @@ proven:
   - Review fix (Codex P1) and audit of readable-but-corrupt inputs: cutover-postgres.sh holds state_dir/run.lock (mkdir) through every step and removes it only on exit, so a lock left by a freeze killed after it stopped the stack but before STEP_FREEZE now refuses every deploy. A readable cutover-state.env must be the record cutover-postgres.sh appends (newline-terminated KEY=value lines, a valid TASK_ID, STEP_PREFLIGHT, known steps with UTC timestamps each after the step it needs, CLOSE_RUN_ID, MARIADB_VOLUME, FREEZE_PLATFORM_IMAGE and FREEZE_GATEWAY_IMAGE once STEP_FREEZE is recorded); an empty, truncated or foreign file is refused. The validator accepts all 47 state files the cutover test harness produces. On mariadb, a bootstrap-complete.env that exists or cannot be ruled out is refused too (the verified rollback moves it aside). The completion record, current and candidate release records and the compose file were already validated or failed closed.
   - Review fix (Codex P1, the state model): the state validator replays the record against a step model derived from the cutover-postgres.sh step guards (lib.sh _oteryn_cutover_step_allowed): TASK_ID first, each marker allowed for the markers before it, nondecreasing UTC times, and exactly the keys its step records. Contradictory histories (re-enable with a started or verified rollback, a rollback after re-enable), markers before their prerequisites and once-only steps recorded twice are refused. The tests carry an independent Python model of the same guards and check the bash validator on every one of the 118 reachable histories (repeatable steps up to twice), all 4095 step-ordered marker sets, and every single drop and adjacent swap; they also check the gate decision on every reachable history for both engines. The validator still accepts all 47 state files the cutover test harness produces.
   - Review fix (Codex P1, the release records): in the rollback window the current and pending candidate release records count only after release-state.sh validate (the check rollback.sh applies) accepts them; a link, a read error or an invalid record is refused before any stack change.
+  - Review fix (Codex P2): before any record is read, an existing cutover or bootstrap state directory must be owner-only (owned by the caller, not group- or world-writable), the rule bootstrap-postgres.sh state_dir_is_trusted applies; the deploy and the cutover run as the same workflow user.
   - No cutover step had been recorded on staging when this branch was cut (recent staging runs were plain deploys).
 derived:
   - The flip's own merge-dispatched deploy fails closed at the gate by design; the operator deploys after the bootstrap.
@@ -106,7 +107,7 @@ changed_paths:
 validation:
   - command: python3 tests/ci/test_synology_postgres_contract.py
     result: PASS
-    evidence: 82 tests OK (2 skipped as root; the gate tests also pass as a non-root user), including CutoverDeployWindowTest; the new refusal tests fail against the previous gate
+    evidence: 84 tests OK (2 skipped as root; the gate tests also pass as a non-root user), including CutoverDeployWindowTest; the new refusal tests fail against the previous gate
   - command: python3 tests/ci/test_synology_cutover_postgres.py
     result: PASS
     evidence: 60 tests OK
@@ -118,7 +119,7 @@ validation:
     evidence: no new shellcheck findings against main
   - command: python3 -m pytest -q tests/ci/test_synology_*.py deploy/synology/tests
     result: FAIL
-    evidence: 514 passed, 21 skipped (with deploy/synology/tests); test_synology_rollback_contract.py::test_marketplace_enable_and_verify_are_refused_without_transfer_contract fails on 82e15f4 too (committed postgres engine without secrets; pytest-only, the workflow runs the file's main()), outside owned paths
+    evidence: 516 passed, 21 skipped (with deploy/synology/tests); test_synology_rollback_contract.py::test_marketplace_enable_and_verify_are_refused_without_transfer_contract fails on 82e15f4 too (committed postgres engine without secrets; pytest-only, the workflow runs the file's main()), outside owned paths
 blockers:
   - none
 next_action: CP re-requests review on PR 1598; merge only after the cutover freeze is recorded.
