@@ -53,6 +53,7 @@ case "$*" in
     'inspect --format {{.State.Running}} '*) printf true; exit 0 ;;
     'inspect --format {{.Config.Image}} '*) printf %s "${PLATFORM_IMAGE-}"; exit 0 ;;
     'start '*) exit "${FAKE_START_RC:-0}" ;;
+    *'observe-trust'*) printf '%s\\n' "$FAKE_OBSERVE"; exit "${FAKE_OBSERVE_RC:-0}" ;;
     *'GAME_AUTH_NATIVE_ADMISSION_ENABLED'*) printf %s "$FAKE_FLAG"; exit "${FAKE_FLAG_RC:-0}" ;;
     *'publish-trust'*) printf '%s\\n' "$FAKE_OUTPUT"; exit "${FAKE_PUBLISH_RC:-0}" ;;
 esac
@@ -88,7 +89,11 @@ def test_marketplace_scheduler_shares_the_platform_witness() -> None:
 
 def test_command_is_restricted_to_testing_or_preproduction_and_prints_one_json_line() -> None:
     source = COMMAND.read_text(encoding="utf-8")
-    assert "protected $signature = 'game-auth:native-admission:publish-trust';" in source
+    assert (
+        "protected $signature = 'game-auth:native-admission:publish-trust\n"
+        "        {--first-publication-fence= : base64url JSON {run_id, intent_sha256} "
+        "naming the open attempt intent (PostgreSQL P6a)}';"
+    ) in source
     assert "app()->environment(['testing', 'preproduction'])" in source
     assert "'production'" not in source
     assert "$this->line((string) json_encode($published, JSON_UNESCAPED_SLASHES));" in source
@@ -593,3 +598,123 @@ def test_restore_never_recreates_platform_while_ingress_could_not_be_stopped(fak
     assert "removed the runtime containers (fail closed)" in result.stderr
     assert f"{BASE} up -d --no-deps --force-recreate platform" not in calls
     assert calls[-1] == f"{BASE} rm -s -f gateway internal-proxy platform"
+
+
+OBSERVED_NO_PROFILE = {
+    "result": "observed",
+    "fence_required": True,
+    "store": {"marker": "a" * 64, "row": "a" * 64, "binding": "match"},
+    "scope": {"issuer": "urn:oteryn:platform:game-admission", "profile": "oteryn-pre-admission-v1", "key_purpose": "fresh_admission"},
+    "floor": {"value": None, "temp_entries": 0},
+    "profile": {"present": False},
+    "key": {"requested": "admission-1", "configured_key_id": "admission-1", "in_history": False, "trusted": False},
+    "database": {
+        "identity": {"system_identifier": "1", "timeline_id": 1, "database_oid": 5},
+        "progress": {"wal_flush_lsn": "0/10", "xmax": "9"},
+        "in_flight": {"sessions": 0, "prepared": 0},
+    },
+}
+FENCE_JSON = '{"run_id":"r","intent_sha256":"' + "b" * 64 + '"}'
+FAKE_TOOL = """#!/usr/bin/env python3
+import os, pathlib, sys
+pathlib.Path(os.environ["FAKE_TOOL_LOG"]).write_text(" ".join(sys.argv[1:]), encoding="utf-8")
+if os.environ.get("FAKE_TOOL_RC", "0") != "0":
+    sys.exit(1)
+print(os.environ["FAKE_TOOL_OUT"])
+"""
+
+
+def run_guarded(tmp: pathlib.Path, observation: dict, engine: str = "postgres", tool_rc: str = "0", **fake: str):
+    lib_dir = tmp / "lib"
+    lib_dir.mkdir(exist_ok=True)
+    (lib_dir / "lib.sh").write_text(LIB.read_text(encoding="utf-8"), encoding="utf-8")
+    (lib_dir / "attempt_evidence.py").write_text(FAKE_TOOL, encoding="utf-8")
+    log = tmp / "docker.log"
+    tool_log = tmp / "tool.log"
+    env = {
+        **os.environ,
+        "PATH": f"{tmp / 'bin'}:{os.environ['PATH']}",
+        "FAKE_DOCKER_LOG": str(log),
+        "FAKE_FLAG": "true",
+        "FAKE_OUTPUT": TRUSTED,
+        "FAKE_OBSERVE": json.dumps(observation),
+        "FAKE_TOOL_LOG": str(tool_log),
+        "FAKE_TOOL_OUT": FENCE_JSON,
+        "FAKE_TOOL_RC": tool_rc,
+        "OTERYN_PLATFORM_DB_ENGINE": engine,
+        **fake,
+    }
+    result = subprocess.run(
+        ["bash", "-c", 'source "$1"; oteryn_publish_native_admission_trust platform-1', "bash", str(lib_dir / "lib.sh")],
+        text=True,
+        capture_output=True,
+        check=False,
+        env=env,
+    )
+    calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+    return result, calls, tool_log.read_text(encoding="utf-8") if tool_log.exists() else ""
+
+
+def test_guard_with_a_profile_present_publishes_without_a_fence(fake_docker: pathlib.Path) -> None:
+    observed = {**OBSERVED_NO_PROFILE, "profile": {"present": True}}
+    result, calls, tool = run_guarded(fake_docker, observed)
+    assert result.returncode == 0, result.stderr
+    assert tool == ""
+    assert calls[-1].endswith("publish-trust --no-interaction")
+    assert "first-publication-fence" not in "\n".join(calls)
+
+
+def test_guard_with_an_open_attempt_passes_the_fence_to_publish_trust(fake_docker: pathlib.Path) -> None:
+    result, calls, tool = run_guarded(fake_docker, OBSERVED_NO_PROFILE)
+    assert result.returncode == 0, result.stderr
+    assert tool.startswith("require-open-attempt --dir /var/lib/oteryn-attempt-evidence --store " + "a" * 64)
+    assert "--key-id admission-1" in tool
+    import base64
+
+    expected = base64.urlsafe_b64encode(FENCE_JSON.encode()).decode().rstrip("=")
+    assert calls[-1].endswith(f"publish-trust --no-interaction --first-publication-fence={expected}")
+
+
+def test_guard_refuses_without_an_open_attempt_and_never_publishes(fake_docker: pathlib.Path) -> None:
+    result, calls, _ = run_guarded(fake_docker, OBSERVED_NO_PROFILE, tool_rc="1")
+    assert result.returncode == 1
+    assert "no open, anchored attempt intent" in result.stderr
+    assert not any("publish-trust" in call for call in calls)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"store": {"marker": "a" * 64, "row": None, "binding": "marker_only"}},
+        {"floor": {"value": 1, "temp_entries": 0}},
+        {"database": None},
+        {"database": {**OBSERVED_NO_PROFILE["database"], "in_flight": {"sessions": 1, "prepared": 0}}},
+        {"database": {**OBSERVED_NO_PROFILE["database"], "in_flight": {"sessions": 0, "prepared": 1}}},
+        {"key": {**OBSERVED_NO_PROFILE["key"], "configured_key_id": None}},
+        {"result": "witness_busy"},
+        {"fence_required": False},
+        {"fence_required": None},
+    ],
+)
+def test_guard_refuses_an_unsafe_observation(fake_docker: pathlib.Path, change: dict) -> None:
+    result, calls, tool = run_guarded(fake_docker, {**OBSERVED_NO_PROFILE, **change})
+    assert result.returncode == 1
+    assert tool == ""
+    assert not any("publish-trust" in call for call in calls)
+
+
+def test_guard_refuses_when_the_observation_fails(fake_docker: pathlib.Path) -> None:
+    result, calls, _ = run_guarded(fake_docker, OBSERVED_NO_PROFILE, FAKE_OBSERVE_RC="1")
+    assert result.returncode == 1
+    assert not any("publish-trust" in call for call in calls)
+
+
+def test_guard_leaves_mariadb_untouched_and_the_engine_sets_the_fence_setting(fake_docker: pathlib.Path) -> None:
+    result, calls, tool = run_guarded(fake_docker, OBSERVED_NO_PROFILE, engine="mariadb")
+    assert result.returncode == 0, result.stderr
+    assert tool == ""
+    assert not any("observe-trust" in call for call in calls)
+    lib = LIB.read_text(encoding="utf-8")
+    assert lib.count("OTERYN_PLATFORM_FIRST_PUBLICATION_FENCE=required") == 1
+    assert lib.count("OTERYN_PLATFORM_FIRST_PUBLICATION_FENCE=off") == 1
+    assert "GAME_AUTH_NATIVE_EVIDENCE_FIRST_PUBLICATION_FENCE: ${OTERYN_PLATFORM_FIRST_PUBLICATION_FENCE:-off}" in COMPOSE.read_text(encoding="utf-8")

@@ -317,6 +317,10 @@ jobs:
           for service_name, service in data.get('services', {}).items():
               for mount in service.get('volumes', []) or []:
                   if mount.get('type') == 'bind':
+                      # The P6a attempt-evidence share is a dedicated host path, not a checkout; only the read-only platform mount is allowed.
+                      if (service_name == 'platform' and mount.get('target') == '/var/lib/oteryn-attempt-evidence'
+                              and mount.get('read_only') is True):
+                          continue
                       bind_mounts.append((service_name, mount.get('source'), mount.get('target')))
           if bind_mounts:
               raise SystemExit(f'runtime Compose must not depend on runner checkout bind mounts: {bind_mounts}')

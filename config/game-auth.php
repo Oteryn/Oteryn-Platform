@@ -48,6 +48,11 @@ return [
         'fresh_account_purpose' => env('GAME_AUTH_NATIVE_EVIDENCE_FRESH_ACCOUNT_PURPOSE'),
         'fresh_account_scope' => env('GAME_AUTH_NATIVE_EVIDENCE_FRESH_ACCOUNT_SCOPE'),
         'fresh_key_purpose' => env('GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE'),
+        // PostgreSQL P6a first-publication fence: `required` or `off`. With `required` a first signing trust
+        // publication (no profile, null floor) is refused unless it names an open, anchored attempt intent
+        // in the read-only attempt evidence directory.
+        'first_publication_fence' => env('GAME_AUTH_NATIVE_EVIDENCE_FIRST_PUBLICATION_FENCE', 'off'),
+        'attempt_evidence_directory' => env('GAME_AUTH_NATIVE_EVIDENCE_ATTEMPT_DIRECTORY'),
         'clock_uncertainty_seconds' => $nativeEvidenceClockUncertainty,
         'requests_per_minute' => $nativeEvidenceRequestsPerMinute,
     ],

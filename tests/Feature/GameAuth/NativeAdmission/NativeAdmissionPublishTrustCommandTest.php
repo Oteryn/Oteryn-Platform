@@ -55,6 +55,46 @@ final class NativeAdmissionPublishTrustCommandTest extends TestCase
         parent::tearDown();
     }
 
+    public function test_malformed_first_publication_fence_refuses_and_writes_nothing(): void
+    {
+        $this->installKey('admission-1');
+        $before = $this->registryState();
+
+        foreach (['!!not-base64!!', $this->encode('not json'), $this->encode('{"run_id":"x","intent_sha256":"y"}')] as $value) {
+            self::assertSame(1, Artisan::call(self::COMMAND, ['--first-publication-fence' => $value]));
+            self::assertSame($before, $this->registryState());
+            self::assertSame([], glob($this->directory.'/witness/*') ?: []);
+        }
+    }
+
+    public function test_valid_first_publication_fence_is_ignored_while_the_setting_is_off(): void
+    {
+        config(['game-auth.native_evidence.first_publication_fence' => 'off']);
+        $this->installKey('admission-1');
+        $fence = $this->encode((string) json_encode([
+            'run_id' => '11111111-1111-4111-8111-111111111111',
+            'intent_sha256' => str_repeat('a', 64),
+        ]));
+
+        self::assertSame(0, Artisan::call(self::COMMAND, ['--first-publication-fence' => $fence]));
+        /** @var array<string, mixed> $result */
+        $result = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertSame('published', $result['result']);
+        self::assertArrayHasKey('fence', $result);
+        self::assertNull($result['fence']);
+    }
+
+    public function test_result_has_no_fence_field_without_the_option(): void
+    {
+        $this->installKey('admission-1');
+
+        self::assertSame(0, Artisan::call(self::COMMAND));
+        /** @var array<string, mixed> $result */
+        $result = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertArrayNotHasKey('fence', $result);
+    }
+
     public function test_publishes_the_loaded_current_public_key_and_the_self_check_then_passes(): void
     {
         Event::fake([MessageLogged::class]);

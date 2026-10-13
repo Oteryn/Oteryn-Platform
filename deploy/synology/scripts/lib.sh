@@ -105,6 +105,7 @@ oteryn_platform_db_engine_settings() {
             OTERYN_PLATFORM_DB_USERNAME="${PLATFORM_DB_USER:-}"
             OTERYN_PLATFORM_DB_PASSWORD="${PLATFORM_DB_PASSWORD:-}"
             OTERYN_PLATFORM_DB_SSLMODE=prefer
+            OTERYN_PLATFORM_FIRST_PUBLICATION_FENCE=off
             ;;
         postgres)
             OTERYN_PLATFORM_DB_CONNECTION=pgsql
@@ -113,11 +114,15 @@ oteryn_platform_db_engine_settings() {
             OTERYN_PLATFORM_DB_USERNAME=oteryn_platform_app
             OTERYN_PLATFORM_DB_PASSWORD="${PLATFORM_POSTGRES_APP_PASSWORD:-}"
             OTERYN_PLATFORM_DB_SSLMODE=verify-full
+            # P6a D8: on PostgreSQL the producer refuses a first trust publication without a fence that names
+            # an open, anchored attempt intent (attempt_evidence.py).
+            OTERYN_PLATFORM_FIRST_PUBLICATION_FENCE=required
             ;;
     esac
     OTERYN_PLATFORM_DB_ENGINE="$engine"
     export OTERYN_PLATFORM_DB_ENGINE OTERYN_PLATFORM_DB_CONNECTION OTERYN_PLATFORM_DB_HOST \
-        OTERYN_PLATFORM_DB_PORT OTERYN_PLATFORM_DB_USERNAME OTERYN_PLATFORM_DB_PASSWORD OTERYN_PLATFORM_DB_SSLMODE
+        OTERYN_PLATFORM_DB_PORT OTERYN_PLATFORM_DB_USERNAME OTERYN_PLATFORM_DB_PASSWORD OTERYN_PLATFORM_DB_SSLMODE \
+        OTERYN_PLATFORM_FIRST_PUBLICATION_FENCE
 }
 
 # Refuses (returns 1) a partial PostgreSQL secret set, and on the postgres engine anything but all five: the
@@ -1577,6 +1582,75 @@ docker() {
     command docker "${args[@]}"
 }
 
+# P6a D8 guard: on PostgreSQL, picks the open attempt intent for a first trust publication. Prints nothing
+# when no fence is needed (a profile already exists) and the base64url fence otherwise. It writes nothing;
+# the producer repeats every check from the evidence directory, so this is an early, clear refusal and not
+# the security boundary. Argument: the Platform container id.
+oteryn_first_publication_guard() {
+    local container_id="${1:-}"
+    local evidence_dir="${OTERYN_ATTEMPT_EVIDENCE_DIR:-/var/lib/oteryn-attempt-evidence}"
+    local tool observation parsed fence
+    tool="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/attempt_evidence.py"
+
+    if ! observation="$(docker exec "$container_id" /usr/local/bin/oteryn-platform-entrypoint \
+        php artisan game-auth:native-evidence:observe-trust --trust=fresh --no-interaction 2>&1)"; then
+        printf '%s\n' "$observation" >&2
+        echo "First-publication guard: the read-only trust observation failed." >&2
+        return 1
+    fi
+    observation="$(printf '%s\n' "$observation" | tail -n 1)"
+    if ! parsed="$(printf '%s' "$observation" | python3 -I -c '
+import json, sys
+o = json.load(sys.stdin)
+if o.get("result") != "observed":
+    print("refuse:observation " + str(o.get("result")))
+elif (o.get("profile") or {}).get("present") is True:
+    print("nofence")
+else:
+    inflight = ((o.get("database") or {}).get("in_flight")) or {}
+    ok = (
+        o.get("fence_required") is True
+        and (o.get("store") or {}).get("binding") == "match"
+        and (o.get("floor") or {}).get("value") is None
+        and o.get("database") is not None
+        and inflight.get("sessions") == 0
+        and inflight.get("prepared") == 0
+        and (o.get("key") or {}).get("configured_key_id")
+    )
+    if not ok:
+        print("refuse:state")
+    else:
+        print("fence")
+        print((o["store"]).get("marker") or "")
+        print(o["key"]["configured_key_id"])
+        print(json.dumps(o["scope"], sort_keys=True, separators=(",", ":")))
+        print(json.dumps(o["database"]["identity"], sort_keys=True, separators=(",", ":")))
+' 2>/dev/null)"; then
+        echo "First-publication guard: the trust observation is not valid JSON." >&2
+        return 1
+    fi
+    case "${parsed%%$'\n'*}" in
+        nofence) return 0 ;;
+        fence) ;;
+        *)
+            echo "First-publication guard refused (${parsed%%$'\n'*}): no profile exists and the fence setting, witness, floor, binding, database or key state does not allow a first publication." >&2
+            return 1
+            ;;
+    esac
+    local lines store key_id scope identity
+    mapfile -t lines <<<"$parsed"
+    store="${lines[1]}"
+    key_id="${lines[2]}"
+    scope="${lines[3]}"
+    identity="${lines[4]}"
+    if ! fence="$(python3 -I "$tool" require-open-attempt --dir "$evidence_dir" --store "$store" \
+        --key-id "$key_id" --scope "$scope" --identity "$identity")"; then
+        echo "First-publication guard: no open, anchored attempt intent for this store, key and scope (attempt_evidence.py require-open-attempt)." >&2
+        return 1
+    fi
+    python3 -I -c 'import base64, sys; print(base64.urlsafe_b64encode(sys.stdin.buffer.read().strip()).decode().rstrip("="))' <<<"$fence"
+}
+
 # Owner decision D1006: with native admission switched on, every Platform (re)creation for a
 # release, rollback or Marketplace switch trusts the PUBLIC half of the
 # Platform issuer's current signing key in the deployment's own signing trust registry (MariaDB),
@@ -1614,8 +1688,13 @@ oteryn_publish_native_admission_trust() {
     fi
     # Through the image entrypoint, exactly like the signing self-check: it exports the signing key id
     # and file path from the key volume, which a bare docker exec does not see.
+    local fence="" fence_args=()
+    if [[ "${OTERYN_PLATFORM_DB_ENGINE:-}" == postgres ]]; then
+        fence="$(oteryn_first_publication_guard "$container_id")" || return 1
+        [[ -z "$fence" ]] || fence_args=("--first-publication-fence=$fence")
+    fi
     if ! output="$(docker exec "$container_id" /usr/local/bin/oteryn-platform-entrypoint \
-        php artisan game-auth:native-admission:publish-trust --no-interaction 2>&1)"; then
+        php artisan game-auth:native-admission:publish-trust --no-interaction ${fence_args[@]+"${fence_args[@]}"} 2>&1)"; then
         printf '%s\n' "$output" >&2
         echo "Native admission signing key trust publication refused; deploy stops before the signing self-check." >&2
         return 1

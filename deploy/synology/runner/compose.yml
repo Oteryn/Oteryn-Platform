@@ -21,6 +21,9 @@ services:
       - runner_work:/work
       - /var/run/docker.sock:/var/run/docker.sock
       - ${OTERYN_STATE_HOST_PATH:-/volume1/docker/oteryn/state}:/var/lib/oteryn-staging-state
+      # P6a D3: dedicated attempt-evidence share, written only by attempt_evidence.py. Excluded from every
+      # snapshot, replication and Hyper Backup task; owned by root, group 82, mode 2750 (README).
+      - ${OTERYN_ATTEMPT_EVIDENCE_HOST_PATH:-/volume1/oteryn-attempt-evidence}:/var/lib/oteryn-attempt-evidence
 
 volumes:
   runner_config:

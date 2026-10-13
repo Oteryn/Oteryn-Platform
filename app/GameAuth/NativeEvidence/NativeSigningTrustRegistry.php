@@ -22,18 +22,30 @@ final class NativeSigningTrustRegistry
         string $keyPurpose,
         string $keyId,
         string $publicKeyBytes,
+        ?NativeEvidencePublicationFence $fence = null,
     ): stdClass {
         $this->assertSupportedScope($issuer, $profile, $keyPurpose);
         $this->assertKeyId($keyId);
         $encoded = NativeEvidenceContract::encodePublicKey($publicKeyBytes);
         $stateNamespace = NativeEvidenceNamespace::trustState($issuer, $profile, $keyPurpose);
 
-        return $this->witness->withNamespace($stateNamespace, function (?int $floor, Closure $advance) use (
+        // First-publication fence (design note D8): with the setting `required` a first publication (no
+        // profile, null floor) only runs through the fenced witness entry. A fence is ignored when a
+        // profile exists or the setting is off.
+        $fenceRequired = NativeEvidencePublicationFence::required();
+        $activeFence = $fenceRequired && $fence !== null && ! $this->profileExists($issuer, $profile, $keyPurpose)
+            ? $fence
+            : null;
+        $fenced = $activeFence !== null;
+
+        $callback = function (?int $floor, Closure $advance) use (
             $issuer,
             $profile,
             $keyPurpose,
             $keyId,
             $encoded,
+            $fenceRequired,
+            $fenced,
         ): stdClass {
             return DB::transaction(function () use (
                 $floor,
@@ -43,11 +55,16 @@ final class NativeSigningTrustRegistry
                 $keyPurpose,
                 $keyId,
                 $encoded,
+                $fenceRequired,
+                $fenced,
             ): stdClass {
                 $trustProfile = $this->lockedProfileOrNull($issuer, $profile, $keyPurpose);
                 if (! $trustProfile instanceof stdClass) {
                     if ($floor !== null) {
                         throw new NativeEvidenceUnavailable('Signing trust profile is missing below retained high-water.');
+                    }
+                    if ($fenceRequired && ! $fenced) {
+                        throw new NativeEvidenceUnavailable('A first signing trust publication requires a first publication fence.');
                     }
 
                     $advance(1);
@@ -108,7 +125,62 @@ final class NativeSigningTrustRegistry
 
                 return $this->insertKeyVersion($profileId, $keyId, $keyRevision, $encoded, true, null);
             }, 3);
-        });
+        };
+
+        if ($activeFence !== null) {
+            return $this->witness->withNamespaceFenced(
+                $stateNamespace,
+                $activeFence->bind($issuer, $profile, $keyPurpose, $keyId),
+                $callback,
+            );
+        }
+
+        return $this->witness->withNamespace($stateNamespace, $callback);
+    }
+
+    /**
+     * Read-only view of the profile and one key id for the observation command (design note D2). Does not
+     * touch the witness.
+     *
+     * @return array{profile: array<string, mixed>, in_history: bool, trusted: bool}
+     */
+    public function observe(string $issuer, string $profile, string $keyPurpose, string $keyId): array
+    {
+        $this->assertSupportedScope($issuer, $profile, $keyPurpose);
+        $this->assertKeyId($keyId);
+
+        $trustProfile = DB::table('native_game_signing_trust_profiles')
+            ->where('issuer', $issuer)
+            ->where('profile', $profile)
+            ->where('key_purpose', $keyPurpose)
+            ->orderByDesc('profile_version')
+            ->first();
+        $inHistory = $this->historicalKeyIdExists($issuer, $profile, $keyPurpose, $keyId);
+        if (! $trustProfile instanceof stdClass) {
+            return ['profile' => ['present' => false], 'in_history' => $inHistory, 'trusted' => false];
+        }
+        $latest = $this->latestKeyVersion(self::int($trustProfile->id), $keyId, false);
+
+        return [
+            'profile' => [
+                'present' => true,
+                'id' => self::int($trustProfile->id),
+                'profile_version' => self::int($trustProfile->profile_version),
+                'issuer_revision' => self::int($trustProfile->issuer_revision),
+                'revoked' => ($trustProfile->revoked_at ?? null) !== null,
+            ],
+            'in_history' => $inHistory,
+            'trusted' => $latest instanceof stdClass && (bool) $latest->trusted,
+        ];
+    }
+
+    private function profileExists(string $issuer, string $profile, string $keyPurpose): bool
+    {
+        return DB::table('native_game_signing_trust_profiles')
+            ->where('issuer', $issuer)
+            ->where('profile', $profile)
+            ->where('key_purpose', $keyPurpose)
+            ->exists();
     }
 
     public function publishNextProfileVersion(
@@ -437,5 +509,10 @@ final class NativeSigningTrustRegistry
         }
 
         return $current + 1;
+    }
+
+    private static function int(mixed $value): int
+    {
+        return is_numeric($value) ? (int) $value : 0;
     }
 }

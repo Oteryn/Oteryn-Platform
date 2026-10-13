@@ -291,6 +291,17 @@ Rotation: change the GitHub secret and run a full deploy; the role script re-app
 
 Rollback: remove all five secrets. The next deploy skips PostgreSQL and the health check ignores it. To stop the idle service, an operator runs `docker compose --profile postgres stop postgres`; the volume and its data stay. Never remove `postgres_data` without the restore drill and owner sign-off required by the plan.
 
+## Attempt evidence and first-publication fence (P6a)
+
+Design: `docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md`. Applies only to the PostgreSQL engine; MariaDB deploys get the fence setting `off` and are unchanged.
+
+- **Evidence share (owner action before P6 step 4).** A dedicated Synology shared folder `/volume1/oteryn-attempt-evidence` (override: `OTERYN_ATTEMPT_EVIDENCE_HOST_PATH`), owned by root, group 82, mode `2750`. It must be excluded from every snapshot, replication, Hyper Backup and restore task, and must be the real share, not a symlink or bind mount, on the same volume as Docker's root directory (`check-location` verifies the volume through the runner's named volumes). Set `chattr +a` on the directory if the file system allows it (hardening only). It is mounted read-write into the deploy runner (`runner/compose.yml`) and read-only into the `platform` service (`compose.yml`) at `/var/lib/oteryn-attempt-evidence`. If the path does not exist, Docker creates a plain directory there; `attempt_evidence.py check-location` then refuses it, so step 4 fails closed.
+- **Writer.** `scripts/attempt_evidence.py` is the only writer of the evidence directory (`check-location`, `open`, `append`, `verify`, `classify`, `require-open-attempt`). It makes no network call; the P6 cutover posts every anchor as a comment by `github-actions[bot]` (user id 41898282) on a locked anchor issue.
+- **Guard.** On PostgreSQL with native admission on, `oteryn_publish_native_admission_trust` observes trust state (`game-auth:native-evidence:observe-trust`). With a profile present it publishes as before. With none, it requires an open, anchored attempt intent (`require-open-attempt`) and passes `--first-publication-fence` to `publish-trust`; otherwise it refuses.
+- **Fence.** The producer repeats every check from the read-only evidence mount (`GAME_AUTH_NATIVE_EVIDENCE_FIRST_PUBLICATION_FENCE=required`), so a direct `publish-trust` or `publish-key` cannot bypass the guard.
+- **Provenance init.** `game-auth:native-evidence:init-provenance` creates only the witness-store id and its binding row; it advances no floor.
+- **Kid history.** `generate-native-admission-key.sh check-kid-history [--kid <kid>...]` is read-only and exits non-zero unless each kid has exactly one `used.kids` record.
+
 ## Early workstation testing through loopback
 
 The safe default binds Platform and Gateway ports only to Synology loopback. From a workstation with SSH access to the NAS, forward them locally:
