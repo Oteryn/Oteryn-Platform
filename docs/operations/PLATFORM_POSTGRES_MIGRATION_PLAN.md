@@ -187,7 +187,7 @@ A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synolo
 
 - `deploy/synology/compose.yml`, `deploy/synology/compose.marketplace.yml`
 - `deploy/synology/postgres/**` (new: `init/` role and database bootstrap, `postgresql.conf`, `pg_hba.conf`)
-- `deploy/synology/tls/**`: a PostgreSQL server certificate issued by the stack CA in `tls-init`
+- `deploy/synology/tls/**`: a PostgreSQL server certificate issued in `tls-init` by a dedicated PostgreSQL CA whose key only `tls-init` mounts (not the stack CA)
 - `deploy/synology/scripts/{deploy,lib,health-check,deploy-impact,recover-schema,prepare-fresh-schema-baseline,production-target-preflight,marketplace-staging,rollback}.sh`
 - `deploy/synology/release-contract.env`
 - `deploy/synology/README.md`, `deploy/synology/tests/**`, `tests/ci/test_synology_*.py`
@@ -203,7 +203,7 @@ A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synolo
    - Healthcheck: `pg_isready` plus a TLS-only login probe by the runtime role.
    - `restart: always`.
 2. **TLS.**
-   - `ssl=on`, TLS 1.3 minimum, with the server certificate signed by the stack CA from `tls-init` (owner answer Q4). No operator-supplied certificate.
+   - `ssl=on`, TLS 1.3 minimum, with the server certificate signed by the dedicated PostgreSQL CA from `tls-init` (owner answer Q4). No operator-supplied certificate.
    - `pg_hba.conf` has only `hostssl ... scram-sha-256` lines plus local socket access for bootstrap; `host` without SSL is rejected.
    - Platform connects with `sslmode=verify-full` and the CA mounted read-only.
 3. **Roles.** The init script is idempotent and refuses unsafe names, like the MariaDB one.
@@ -213,7 +213,7 @@ A PR in this packet that touches `deploy/synology/compose.yml` or `deploy/synolo
    - `oteryn_platform_dump`: `LOGIN`, read-only, used for the deploy's pre-migration logical dump. It gets `CONNECT` on `oteryn_platform` only, `USAGE` on schema `public`, `SELECT` on all current tables and sequences, and `SELECT` on future ones through `ALTER DEFAULT PRIVILEGES FOR ROLE oteryn_platform_owner`. It gets no DML, no `CREATE`, no `pg_read_all_data` and no access to other databases.
    - `REVOKE ALL ON DATABASE oteryn_platform FROM PUBLIC`, and `REVOKE CREATE ON SCHEMA public FROM PUBLIC`.
    - The superuser password is used only by the init step and never reaches the `platform` service.
-4. **Migration step.** Replace `compose exec -T platform php artisan migrate` (`deploy.sh:765`, `marketplace-staging.sh:196`) with a one-off `compose run --rm` container on the `pgsql_migrations` connection that receives the owner credentials. The runtime `platform` container gets only the app role.
+4. **Migration step.** Replace `compose exec -T platform php artisan migrate` (`deploy.sh:765`, `marketplace-staging.sh:196`) with a one-off `compose run --rm` container on the `pgsql_migrations` connection that receives the owner credentials and runs with `OTERYN_PLATFORM_FASTCGI_ENABLED=false` (as PID 1 the image entrypoint would otherwise start PHP-FPM beside the command and map its exit to status 9). The runtime `platform` container gets only the app role.
 5. **Engine switch.**
    - `PLATFORM_DB_ENGINE=mariadb|postgres` in the release contract, default `mariadb`. Deploy scripts branch on it for readiness, pre-migration dump (`pg_dump -Fc` as `oteryn_platform_dump`, then validated with `pg_restore --list` and, in the P4 validation, a full restore into a scratch database), restore, preflight and health.
    - With `mariadb`, PostgreSQL runs idle and empty except for roles. Only P6 flips the switch.

@@ -16,9 +16,16 @@ use Illuminate\Support\Facades\DB;
  * every condition must hold or the command refuses with a named reason and nothing written:
  * `APP_ENV` is exactly `preproduction` (not `testing`), the configured native World
  * (`game-auth.native_admission.unverified_character_world_id`) is a canonical UUIDv7, no outer
- * transaction is open, and the default connection is the allowlisted deployed MariaDB store: driver
- * `mysql`, host, port and database name from the constants below, no unix socket and no read/write
- * split. The allowlist is code, not configuration, so an environment variable cannot widen it.
+ * transaction is open, and the default connection is the allowlisted deployed store of its engine,
+ * with no unix socket and no read/write split.
+ *
+ * The store identity is keyed by the default connection's driver (ADR 0044 amendment P4, ADR 0046 §8):
+ * `mysql` admits only the Synology MariaDB store (host `mariadb`, port 3306), removed in P7; `pgsql`
+ * admits only the Synology PostgreSQL store (host `postgres`, port 5432) and only over TLS with
+ * `sslmode=verify-full`. Both name the database `oteryn_platform`. A deployment has one default
+ * connection, chosen by the engine switch `PLATFORM_DB_ENGINE`, so exactly one identity is reachable at
+ * a time; a driver crossed with the other identity's host or port refuses. The allowlist is code, not
+ * configuration, so an environment variable cannot widen it.
  */
 final class PreproductionNativeRouteStore
 {
@@ -29,6 +36,19 @@ final class PreproductionNativeRouteStore
     public const ALLOWED_DATABASES = ['oteryn_platform'];
 
     public const ALLOWED_PORT = 3306;
+
+    /** The Compose service name of the Synology preproduction PostgreSQL (deploy/synology/compose.yml). */
+    public const ALLOWED_PGSQL_HOSTS = ['postgres'];
+
+    public const ALLOWED_PGSQL_PORT = 5432;
+
+    /** The only libpq TLS mode the PostgreSQL identity admits: encrypted and the server name verified. */
+    public const REQUIRED_PGSQL_SSLMODE = 'verify-full';
+
+    /** The runtime connection and role (ADR 0046 §5): never `pgsql_migrations`, whose credentials are the schema owner's. */
+    public const ALLOWED_PGSQL_CONNECTION = 'pgsql';
+
+    public const ALLOWED_PGSQL_USERNAME = 'oteryn_platform_app';
 
     /** True only when the explicit switch is on; off when unset or false; a malformed value refuses. */
     public function requested(): bool
@@ -82,12 +102,9 @@ final class PreproductionNativeRouteStore
         }
 
         $raw = config('database.connections.'.$connection->getName());
-        $port = $connection->getConfig('port');
-        if ($connection->getDriverName() !== 'mysql'
-            || ! in_array($connection->getConfig('host'), self::ALLOWED_HOSTS, true)
+        if (! $this->isAllowlistedStore($connection)
             || ! in_array($connection->getDatabaseName(), self::ALLOWED_DATABASES, true)
             || ! in_array($connection->getConfig('unix_socket'), [null, ''], true)
-            || ! in_array($port, [self::ALLOWED_PORT, (string) self::ALLOWED_PORT], true)
             || ! is_array($raw) || array_key_exists('read', $raw) || array_key_exists('write', $raw)) {
             throw new NativePreproductionStoreRefused(
                 NativePreproductionStoreRefused::DATABASE,
@@ -96,5 +113,23 @@ final class PreproductionNativeRouteStore
         }
 
         return [$connection, $worldId];
+    }
+
+    /** The driver selects one identity; host, port and (for PostgreSQL) the TLS mode, the default `pgsql` connection and the runtime app role must all match it. */
+    private function isAllowlistedStore(Connection $connection): bool
+    {
+        $host = $connection->getConfig('host');
+        $port = $connection->getConfig('port');
+
+        return match ($connection->getDriverName()) {
+            'mysql' => in_array($host, self::ALLOWED_HOSTS, true)
+                && in_array($port, [self::ALLOWED_PORT, (string) self::ALLOWED_PORT], true),
+            'pgsql' => $connection->getName() === self::ALLOWED_PGSQL_CONNECTION
+                && $connection->getConfig('username') === self::ALLOWED_PGSQL_USERNAME
+                && in_array($host, self::ALLOWED_PGSQL_HOSTS, true)
+                && in_array($port, [self::ALLOWED_PGSQL_PORT, (string) self::ALLOWED_PGSQL_PORT], true)
+                && $connection->getConfig('sslmode') === self::REQUIRED_PGSQL_SSLMODE,
+            default => false,
+        };
     }
 }

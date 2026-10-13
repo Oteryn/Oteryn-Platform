@@ -245,7 +245,30 @@ def test_candidate_contract_is_loaded_from_platform_image() -> None:
         "OTERYN_APP_ACCEPTS_SCHEMA_IDS=schema-v1,schema-v2\n"
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "expand-contract\tschema-v2\tschema-v1,schema-v2"
+    # An image without PLATFORM_DB_ENGINE predates the engine switch and is a MariaDB image (plan P4).
+    assert result.stdout.strip() == "expand-contract\tschema-v2\tschema-v1,schema-v2\tmariadb"
+
+
+def test_candidate_contract_carries_the_image_database_engine() -> None:
+    base = (
+        "OTERYN_MIGRATION_POLICY=expand-contract\n"
+        "OTERYN_SCHEMA_COMPATIBILITY_ID=schema-v2\n"
+        "OTERYN_APP_ACCEPTS_SCHEMA_IDS=schema-v2\n"
+    )
+    for engine in ("mariadb", "postgres"):
+        result = run_image_contract(base + f"PLATFORM_DB_ENGINE={engine}\n")
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip().split("\t")[3] == engine
+    for engine in ("mysql", "pgsql", "Postgres", " postgres"):
+        result = run_image_contract(base + f"PLATFORM_DB_ENGINE={engine}\n")
+        assert result.returncode != 0
+        assert "database engine is invalid" in result.stderr
+
+
+def test_candidate_contract_refuses_an_image_for_the_other_engine() -> None:
+    lib = LIB.read_text()
+    loader = lib.split("_oteryn_load_candidate_contract() {", 1)[1].split("\n}\n", 1)[0]
+    assert 'candidate_engine" == "${OTERYN_PLATFORM_DB_ENGINE:-}"' in loader
 
 
 def test_candidate_contract_rejects_unexpected_image_metadata() -> None:

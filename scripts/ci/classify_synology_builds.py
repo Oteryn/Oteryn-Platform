@@ -73,6 +73,7 @@ DEPLOYMENT_RUNTIME_EXACT = {
     "deploy/synology/compose.yml",
     "deploy/synology/compose.marketplace.yml",
     "deploy/synology/native-defaults.env",
+    "deploy/synology/scripts/backup-postgres.sh",
     "deploy/synology/scripts/deploy.sh",
     "deploy/synology/scripts/deploy-impact.sh",
     "deploy/synology/scripts/health-check.sh",
@@ -87,6 +88,7 @@ DEPLOYMENT_RUNTIME_EXACT = {
 DEPLOYMENT_RUNTIME_PREFIXES = (
     "deploy/synology/mariadb/init/",
     "deploy/synology/nginx/",
+    "deploy/synology/postgres/",
     "deploy/synology/tls/",
 )
 
@@ -96,6 +98,7 @@ DEPLOYMENT_OPERATOR_EXACT = {
     "deploy/synology/runner/.env.example",
     "deploy/synology/runner/compose.yml",
     "deploy/synology/scripts/marketplace-staging.sh",
+    "deploy/synology/scripts/restore-postgres-pitr.sh",
 }
 
 # Validation/preflight assets may exercise Synology contracts without changing

@@ -80,7 +80,7 @@ This closes review finding F-06, where the runtime user is the schema owner with
 
 ### 6. Transport
 
-Platform connections to its PostgreSQL instance require TLS with server verification, even inside the Compose network. `pg_hba` admits only `hostssl` with SCRAM-SHA-256. The server certificate is issued by the stack CA that `tls-init` already creates (owner answer Q4), so no certificate or key is handed over.
+Platform connections to its PostgreSQL instance require TLS with server verification, even inside the Compose network. `pg_hba` admits only `hostssl` with SCRAM-SHA-256. The server certificate is issued by `tls-init` (owner answer Q4: no certificate or key is handed over), from a dedicated PostgreSQL CA rather than the stack CA: the stack CA key sits in the volume the root-started ingress mounts, and a compromised ingress could otherwise mint a certificate Platform accepts for `postgres`. The PostgreSQL CA key lives in a volume only `tls-init` mounts; Platform and PostgreSQL receive its public certificate. A deployment that already has a stack-CA-signed pair is migrated by the next full deploy (new CA, never a reused key); a CA that is due or inconsistent is replaced and everything it signed is reissued.
 
 ### 7. Backup gate
 

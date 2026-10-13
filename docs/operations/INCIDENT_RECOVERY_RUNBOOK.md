@@ -181,7 +181,22 @@ Do not improvise a restore from undocumented backups.
 7. Re-run critical application flows and applicable integration privilege verifiers.
 8. Record measured recovery time and data loss.
 
-Current repository state does not prove that an operational backup/restore mechanism exists. Until a dated restore test succeeds, production readiness remains blocked.
+Current repository state does not prove that an operational backup/restore mechanism exists for production. Until a dated production restore test succeeds, production readiness remains blocked.
+
+### Platform PostgreSQL on the Synology staging NAS
+
+The staging mechanism is documented in `PLATFORM_POSTGRES_BACKUP_PITR.md`: WAL archive, daily base backup and dump, retention, the restore drill and the PITR procedure. Its dated drill results are in `PLATFORM_POSTGRES_RESTORE_DRILL_EVIDENCE.md`. It keeps backups on the NAS only. It is not a production backup until an encrypted off-NAS copy and a drill restored from it exist.
+
+Restore order:
+
+1. **Database.** Restore to the chosen target time T through `PLATFORM_POSTGRES_BACKUP_PITR.md`, *Real point-in-time restore*. First run the drill against T, then restore into a new volume and never over `postgres_data`.
+2. **Native evidence witness.** Restore it only after the database. The witness directory (`GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY` on `platform_storage`) is never lowered, emptied, edited or deleted. If the database at T is below the witness's retained floor, evidence reads stay fail-closed by design. Then either choose a restore point at or above the floor, or fix forward under an owner decision. Never lower the witness to match the database.
+3. **Reconcile.** Run `game-auth:native-evidence:reconcile` where the native evidence contract allows it, then `game-auth:native-admission:self-check` when native admission is on.
+4. **Verify and record.** Run the checks in step 6 above, then the health check. Take a fresh base backup and record the measured RTO and data loss.
+
+Backup of the witness directory and of the external `oteryn-native-admission-keys` volume is not automated yet. Copying admission keys changes their custody (`deploy/synology/scripts/generate-native-admission-key.sh`). Owner decision (2026-10-12): a follow-up adds a separate root-only job that writes an encrypted copy of both, outside the PostgreSQL backup spool and outside the `postgres-backup` sidecar. Until that job exists, losing `platform_storage` or the key volume is recovered by fix-forward under an owner decision, not from a backup.
+
+**Cross-system restore (F-04).** This is the Platform side only. When the Game node is deployed, a restore of either side follows the joint Platform and Game procedure, which Game owns on its side. Until then no Game state depends on a Platform restore point.
 
 ## Legacy engine shared-data inconsistency after partial failure
 

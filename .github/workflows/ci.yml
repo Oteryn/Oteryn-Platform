@@ -221,21 +221,26 @@ jobs:
           retention-days: 7
 
   platform_postgres:
-    name: platform-postgres
-    # Stage A of the Platform PostgreSQL migration probe: report only. This job is not listed in
-    # the needs of `test` or `platform-gate`, and continue-on-error keeps its failures from
-    # failing the workflow. The known suite failures are the P2 work queue: the suite step
-    # records them (step-level continue-on-error) and they are uploaded as an artifact. The job
-    # itself fails only when no JUnit report is produced or a PostgreSQL concurrency test
-    # (tests/Feature/*/Concurrency/*PgsqlTest) fails, is skipped or does not run.
+    name: platform-postgres (${{ matrix.postgres }})
+    # Stage B of the Platform PostgreSQL migration probe: blocking. The full suite and the
+    # PostgreSQL concurrency tests (tests/Feature/*/Concurrency/*PgsqlTest) must pass on
+    # PostgreSQL 17 (the target engine) and 16 (the previous major). The job is part of the
+    # `platform-gate` needs below. Adding "platform-postgres (17)" and "platform-postgres (16)"
+    # to the branch ruleset's required checks is an owner step.
+    # It does not honour runtime-tests reuse: the reuse lookup only proves a prior successful
+    # `runtime-tests` job, which is no PostgreSQL evidence, so a skipped job would otherwise
+    # let `platform-gate` pass without any PostgreSQL run on the head.
     needs: classify_changes
-    if: ${{ needs.classify_changes.result == 'success' && needs.classify_changes.outputs.ci == 'true' && needs.classify_changes.outputs.reuse_heavy != 'true' }}
-    continue-on-error: true
+    if: ${{ needs.classify_changes.result == 'success' && needs.classify_changes.outputs.ci == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ['17', '16']
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
       postgres:
-        image: postgres:17
+        image: postgres:${{ matrix.postgres }}
         env:
           POSTGRES_PASSWORD: oteryn-ci-postgres-password
           POSTGRES_DB: oteryn_test
@@ -272,8 +277,7 @@ jobs:
       - name: Install dependencies from lockfile
         run: composer install --no-interaction --prefer-dist --no-progress
 
-      - name: Run the full suite on PostgreSQL 17
-        continue-on-error: true
+      - name: Run the full suite on PostgreSQL ${{ matrix.postgres }}
         run: |
           mkdir -p artifacts/ci
           php artisan config:clear --ansi
@@ -312,26 +316,29 @@ jobs:
           failed = sorted(set(failed))
           with open("artifacts/ci/pgsql-failing-tests.txt", "w", encoding="utf-8") as handle:
               handle.write("\n".join(failed) + ("\n" if failed else ""))
-          summary = f"PostgreSQL 17 probe: {total} tests, {skipped} skipped, {len(failed)} failing."
+          summary = f"PostgreSQL ${{ matrix.postgres }}: {total} tests, {skipped} skipped, {len(failed)} failing."
           print(summary)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
               handle.write(f"### {summary}\n\n")
-              handle.write("Report only: this job is not a required check. The failing list is the P2 work queue.\n\n")
+              handle.write("Blocking: any failing test fails this job.\n\n")
               for name in failed[:200]:
                   handle.write(f"- `{name}`\n")
           for name in concurrency_bad:
               print(f"::error::PostgreSQL concurrency test did not pass: {name}")
+          if failed:
+              print(f"::error::{len(failed)} tests failed on PostgreSQL.")
+              sys.exit(1)
           if concurrency_bad or concurrency_ok == 0:
               print(f"::error::PostgreSQL concurrency tests: {concurrency_ok} passed, {len(concurrency_bad)} not passed.")
               sys.exit(1)
           print(f"PostgreSQL concurrency tests: {concurrency_ok} passed.")
           PY
 
-      - name: Upload PostgreSQL probe output
+      - name: Upload PostgreSQL test output
         if: ${{ !cancelled() && hashFiles('artifacts/ci/phpunit-pgsql-junit.xml') != '' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ci-pgsql-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ci-pgsql-${{ matrix.postgres }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             artifacts/ci/phpunit-pgsql-junit.xml
             artifacts/ci/pgsql-failing-tests.txt
@@ -452,6 +459,7 @@ jobs:
     needs:
       - classify_changes
       - test
+      - platform_postgres
       - php_coverage
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -461,9 +469,11 @@ jobs:
         env:
           CLASSIFY_CHANGES_RESULT: ${{ needs.classify_changes.result }}
           TEST_RESULT: ${{ needs.test.result }}
+          PLATFORM_POSTGRES_RESULT: ${{ needs.platform_postgres.result }}
           PHP_COVERAGE_RESULT: ${{ needs.php_coverage.result }}
         run: |
           set -euo pipefail
           test "$CLASSIFY_CHANGES_RESULT" = success
           test "$TEST_RESULT" = success
+          test "$PLATFORM_POSTGRES_RESULT" = success -o "$PLATFORM_POSTGRES_RESULT" = skipped
           test "$PHP_COVERAGE_RESULT" = success -o "$PHP_COVERAGE_RESULT" = skipped

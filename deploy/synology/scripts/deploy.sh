@@ -41,6 +41,31 @@ for name in "${safe_credential_vars[@]}"; do
     fi
 done
 
+# Platform database engine (lib.sh oteryn_platform_db_engine_settings, plan P4). With mariadb, PostgreSQL
+# runs idle beside MariaDB. With postgres, Platform and the scheduler connect as the app role, migrations run
+# as the owner role in a one-off container (lib.sh oteryn_platform_migrate_postgres) and the pre-migration
+# dump is a pg_dump by the dump role; MariaDB keeps running, unused, until the cutover (P6) removes it.
+# Route publication on the postgres engine needs the owner-accepted ADR 0044 amendment (PostgreSQL store
+# identity) first. Every gate here is refused before any stack change.
+if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres && "${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}" == true ]]; then
+    echo "OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED must stay false on the postgres engine until the ADR 0044 PostgreSQL store amendment is accepted." >&2
+    exit 1
+fi
+# All five PostgreSQL secrets or none (lib.sh oteryn_postgres_secret_state); the postgres engine needs all.
+postgres_secret_state="$(oteryn_postgres_secret_state)" || exit 1
+if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres ]]; then
+    if [[ "$postgres_secret_state" != configured ]]; then
+        echo "PLATFORM_DB_ENGINE=postgres requires all five PostgreSQL secrets." >&2
+        exit 1
+    fi
+    # The PostgreSQL database name is fixed (postgres/init/10-platform-roles.sh); backup evidence and
+    # schema recovery bind to PLATFORM_DB_NAME, so it must name that database.
+    if [[ "$PLATFORM_DB_NAME" != oteryn_platform ]]; then
+        echo "PLATFORM_DB_NAME must be oteryn_platform on the postgres engine." >&2
+        exit 1
+    fi
+fi
+
 if [[ ! "$APP_KEY" =~ ^base64:[A-Za-z0-9+/=]+$ ]]; then
     echo "APP_KEY must be a Laravel base64 application key." >&2
     exit 1
@@ -304,6 +329,43 @@ _oteryn_fast_candidate() {
         FAST_DEPLOY_REASON='native admission projection settings incomplete'
         return 1
     fi
+    # The fast path neither reconciles nor restarts PostgreSQL. With the PostgreSQL secrets configured, the
+    # service must already be running, healthy, unpublished and carry the current configuration digest;
+    # otherwise (secrets first enabled, service stopped or unhealthy, configuration changed) the full path
+    # runs oteryn_reconcile_postgres.
+    local postgres_state postgres_id want_digest
+    postgres_state="$(oteryn_postgres_secret_state)" || return 2
+    if [[ "$postgres_state" == configured ]]; then
+        postgres_id="$("${compose[@]}" --profile postgres ps -q postgres 2>/dev/null)" || return 2
+        want_digest="$(oteryn_postgres_config_digest)" || return 2
+        if [[ -z "$postgres_id" \
+            || "$(docker inspect --format '{{.State.Running}}' "$postgres_id" 2>/dev/null)" != true \
+            || "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$postgres_id" 2>/dev/null)" != healthy \
+            || "$(docker inspect --format '{{len .HostConfig.PortBindings}}' "$postgres_id" 2>/dev/null)" != 0 \
+            || "$(docker inspect --format '{{index .Config.Labels "oteryn.postgres-config.digest"}}' "$postgres_id" 2>/dev/null)" != "$want_digest" ]]; then
+            FAST_DEPLOY_REASON='PostgreSQL needs reconciliation'
+            return 1
+        fi
+        # Rotated role secrets, a changed role-setup script or a changed service definition are applied only by
+        # the reconcile; the running container would still pass every probe above with the old values.
+        oteryn_postgres_reconcile_is_current || {
+            FAST_DEPLOY_REASON='PostgreSQL secrets, role setup or service definition changed since the last reconcile'
+            return 1
+        }
+        # Only tls-init renews the 30-day server certificate (7-day window), and the fast path skips it.
+        oteryn_postgres_certificate_is_current "$postgres_id" || {
+            FAST_DEPLOY_REASON='PostgreSQL server certificate pair is not current (renewal window, mismatch or key protection)'
+            return 1
+        }
+        # The fast path skips the backup reconcile (plan P5), which can fail after the PostgreSQL reconcile
+        # recorded success. The backups must pass the strict check the reconcile ends with; a stopped
+        # sidecar, a failed earlier reconcile or a degraded backup takes the full path.
+        OTERYN_ENV_FILE="$ENV_FILE" OTERYN_BACKUP_READY_TIMEOUT_SECONDS=1 \
+            bash "$SCRIPT_DIR/backup-postgres.sh" check > /dev/null 2>&1 || {
+            FAST_DEPLOY_REASON='PostgreSQL backups need reconciliation'
+            return 1
+        }
+    fi
     # The fast path neither stages bootstrap files nor touches internal-mtls: any change of the
     # listener setting, or a listener that is not in its wanted state, takes the full path, and so
     # does any change of its bind address, port, host file paths, certificate, key, client CA or
@@ -506,6 +568,13 @@ stage_bootstrap_files() {
     docker cp "$DEPLOY_DIR/tls/init.sh" "$tls_container:/bootstrap/tls-init.sh"
     docker cp "$DEPLOY_DIR/nginx/internal.conf" "$tls_container:/bootstrap/internal-nginx.conf"
     docker cp "$DEPLOY_DIR/nginx/internal-mtls.conf" "$tls_container:/bootstrap/internal-mtls-nginx.conf"
+    # PostgreSQL server configuration and role bootstrap (plan P4); tls-init makes them readable by the
+    # postgres user, which mounts bootstrap_files read-only.
+    docker cp "$DEPLOY_DIR/postgres/postgresql.conf" "$tls_container:/bootstrap/postgres-postgresql.conf"
+    docker cp "$DEPLOY_DIR/postgres/pg_hba.conf" "$tls_container:/bootstrap/postgres-pg_hba.conf"
+    docker cp "$DEPLOY_DIR/postgres/init/10-platform-roles.sh" "$tls_container:/bootstrap/postgres-roles.sh"
+    # WAL archive and backup jobs (plan P5): archive_command and the postgres-backup sidecar run them.
+    docker cp "$DEPLOY_DIR/postgres/backup/." "$tls_container:/bootstrap/postgres-backup"
 }
 
 snapshot_current_images() {
@@ -808,6 +877,17 @@ GRANT ALL PRIVILEGES ON \`$PLATFORM_DB_NAME\`.* TO '$PLATFORM_DB_USER'@'%';
 FLUSH PRIVILEGES;
 SQL
 
+# PostgreSQL (plan P4): started, role split re-applied and its TLS and privilege contract proven when its
+# secrets are configured; skipped when none is (mariadb engine only; the postgres engine requires them).
+# On the mariadb engine no Platform service uses it yet; on the postgres engine this runs before the
+# Platform starts, so the roles and grants exist for the owner-role migration below.
+oteryn_reconcile_postgres "${compose[@]}" || exit 1
+# Backups and the WAL archive of that database (plan P5): starts the backup sidecar, refuses when the NAS
+# spool lacks the required free space and proves a forced WAL segment reaches the archive. It waits for a
+# due base backup and dump at most OTERYN_BACKUP_ENSURE_BUDGET_SECONDS (default 300, inside the 30-minute
+# deploy job); past that they finish in the sidecar and the backups are reported degraded until then.
+OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/backup-postgres.sh" reconcile || exit 1
+
 # A previous candidate whose migration succeeded but whose post-migration health
 # gate failed must be resolved before a newer release can own recovery state.
 # Finalization is allowed only after exact running-image/world/schema identity and
@@ -825,7 +905,12 @@ oteryn_native_admission_ingress_stop "${compose[@]}" >/dev/null
 # The ingress stop also stops the Game-node mTLS listener (removes it while the setting is off); it
 # is recreated or removed after the gates (oteryn_reconcile_platform_mtls).
 "${compose[@]}" up -d platform
-"${compose[@]}" exec -T platform php artisan migrate --force --no-interaction
+if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres ]]; then
+    # Owner role in a one-off container; the runtime platform container never holds the owner password.
+    oteryn_platform_migrate_postgres "${compose[@]}"
+else
+    "${compose[@]}" exec -T platform php artisan migrate --force --no-interaction
+fi
 if ! "${compose[@]}" exec -T platform sh -ec 'test -s storage/oauth-private.key && test -s storage/oauth-public.key'; then
     "${compose[@]}" exec -T platform php artisan passport:keys --no-interaction
 fi
@@ -875,7 +960,8 @@ if [[ -n "$legacy_project" ]]; then
         --filter "label=com.docker.compose.service=canary")
 fi
 
-rm -f "$state_dir/backups/fresh-empty-before-"*/evidence.env "$state_dir/backups/fresh-empty-before-"*/platform.sql 2>/dev/null || true
+rm -f "$state_dir/backups/fresh-empty-before-"*/evidence.env "$state_dir/backups/fresh-empty-before-"*/platform.sql \
+    "$state_dir/backups/fresh-empty-before-"*/platform.dump 2>/dev/null || true
 rmdir "$state_dir/backups/fresh-empty-before-"* 2>/dev/null || true
 
 echo "Oteryn Synology staging deployment is healthy."

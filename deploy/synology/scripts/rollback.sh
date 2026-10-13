@@ -9,6 +9,10 @@ COMPOSE_FILE="$DEPLOY_DIR/compose.yml"
 # shellcheck source=deploy/synology/scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
 load_oteryn_env_file "$ENV_FILE"
+# All five PostgreSQL secrets or none (lib.sh), refused before any metadata is read or any service is stopped.
+# The postgres engine recreates Platform on the app role: with no PostgreSQL secrets the rollback would stop
+# ingress and bring Platform back with an empty DB_PASSWORD, so that state is refused here, as in deploy.sh.
+oteryn_require_postgres_secrets_for_engine || exit 1
 
 state_dir="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
 last_good_file="$state_dir/last-good-release.env"
@@ -40,6 +44,9 @@ source "$last_good_file"
 for name in RELEASE_SHA PLATFORM_SOURCE_SHA GATEWAY_SOURCE_SHA PLATFORM_IMAGE GATEWAY_IMAGE GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT; do
     [[ -n "${!name:-}" ]] || { echo "Rollback configuration is incomplete: $name" >&2; exit 1; }
 done
+
+# The last-good image must declare the current database engine, checked before anything is stopped.
+oteryn_require_image_db_engine "$PLATFORM_IMAGE" || { echo "Rollback rejected: the last-good Platform image does not match the deploy database engine." >&2; exit 1; }
 
 OTERYN_RELEASE_SHA="$RELEASE_SHA"
 GATEWAY_VERSION="sha-$GATEWAY_SOURCE_SHA"

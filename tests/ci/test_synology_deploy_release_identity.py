@@ -483,5 +483,29 @@ class SynologyDeployReleaseIdentityContractTest(unittest.TestCase):
         self.assertIn("OTERYN_GHCR_OWNER: ${{ github.repository_owner }}", self.preflight_workflow)
 
 
+class SynologyPostgresContractHookTest(unittest.TestCase):
+    """ci.yml runs this module on every PR; it carries the PostgreSQL service contract (plan P4) with it."""
+
+    def test_postgres_service_tls_and_role_contract(self) -> None:
+        module = ROOT / "tests/ci/test_synology_postgres_contract.py"
+        env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+        result = subprocess.run(
+            [sys.executable, str(module)], cwd=ROOT, env=env, text=True, capture_output=True, check=False
+        )
+        self.assertEqual(result.returncode, 0, result.stdout[-4000:] + result.stderr[-4000:])
+
+
+class SynologyPostgresBackupContractHookTest(unittest.TestCase):
+    """ci.yml runs this module on every PR; it carries the backup and PITR contract (plan P5) with it."""
+
+    def test_postgres_backup_and_pitr_contract(self) -> None:
+        module = ROOT / "tests/ci/test_synology_postgres_backup_contract.py"
+        env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+        result = subprocess.run(
+            [sys.executable, str(module)], cwd=ROOT, env=env, text=True, capture_output=True, check=False
+        )
+        self.assertEqual(result.returncode, 0, result.stdout[-4000:] + result.stderr[-4000:])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
