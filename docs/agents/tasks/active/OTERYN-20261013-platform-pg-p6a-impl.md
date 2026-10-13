@@ -42,6 +42,8 @@ owned_paths:
   - deploy/synology/compose.yml
   - deploy/synology/runner/compose.yml
   - deploy/synology/README.md
+  - .github/workflows/character-bazaar-staging-validation.yml
+  - .github/workflows/build-synology-staging-images.yml
   - docs/operations/PLATFORM_POSTGRES_TRUST_SAFEGUARDS_DESIGN.md
   - docs/agents/tasks/active/OTERYN-20261013-platform-pg-p6a-impl.md
   - docs/agents/tasks/archive/OTERYN-20261012-platform-pg-p6a.md
@@ -63,7 +65,7 @@ checkpoint_version: 1
 updated_at: 2026-10-13T00:30:00Z
 head: UNKNOWN
 branch: claude/platform-p6a-tooling-20261013
-pr: none
+pr: 1591
 status: implementing
 context_routes:
   - operations
