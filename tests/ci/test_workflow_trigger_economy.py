@@ -309,7 +309,33 @@ assert "github.event_name == 'pull_request'" not in coverage_job, (
 assert (
     "ref: ${{ github.event.merge_group.head_sha || github.sha }}" in coverage_job
 ), "ci.yml: PHP coverage must checkout the exact Merge Queue candidate"
+postgres_job = ci.split("\n  platform_postgres:\n", 1)[1].split("\n  platform_postgres_not_required:\n", 1)[0]
+postgres_stub = ci.split("\n  platform_postgres_not_required:\n", 1)[1].split("\n  php_coverage:\n", 1)[0]
+POSTGRES_NAME = "    name: platform-postgres (${{ matrix.postgres }})\n"
+POSTGRES_MATRIX = "      matrix:\n        postgres: ['17', '16']\n"
+assert POSTGRES_NAME in postgres_job and POSTGRES_NAME in postgres_stub, (
+    "ci.yml: both PostgreSQL jobs must report the required platform-postgres (N) check names"
+)
+assert POSTGRES_MATRIX in postgres_job and POSTGRES_MATRIX in postgres_stub, (
+    "ci.yml: the not-required PostgreSQL job must report exactly the real job's matrix names"
+)
+assert (
+    "    if: ${{ needs.classify_changes.result == 'success' && needs.classify_changes.outputs.ci == 'true' }}\n"
+    in postgres_job
+), "ci.yml: PostgreSQL suite must run for every CI-relevant change, without reuse"
+assert "reuse_heavy" not in postgres_job, "ci.yml: PostgreSQL suite must not honour runtime-tests reuse"
+assert (
+    "    if: ${{ needs.classify_changes.result == 'success' && needs.classify_changes.outputs.ci == 'false' }}\n"
+    in postgres_stub
+), "ci.yml: not-required PostgreSQL checks may report only when classification proves ci == 'false'"
+assert 'test "$CI_REQUIRED" = false\n' in postgres_stub
+for forbidden in ("services:", "uses:", "phpunit", "continue-on-error"):
+    assert forbidden not in postgres_stub, (
+        f"ci.yml: not-required PostgreSQL job must stay a report-only stub ({forbidden})"
+    )
 platform_gate = ci.split("\n  platform_gate:\n", 1)[1]
+assert "      - platform_postgres\n" in platform_gate
+assert 'test "$PLATFORM_POSTGRES_RESULT" = success -o "$PLATFORM_POSTGRES_RESULT" = skipped' in platform_gate
 assert "      - php_coverage\n" in platform_gate, (
     "ci.yml: platform-gate must depend on PHP coverage"
 )

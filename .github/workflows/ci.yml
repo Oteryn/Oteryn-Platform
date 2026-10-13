@@ -345,6 +345,36 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  platform_postgres_not_required:
+    name: platform-postgres (${{ matrix.postgres }})
+    # Reports the required "platform-postgres (17)" and "platform-postgres (16)" checks when
+    # classify-changes proves the change needs no CI (ci == 'false', e.g. a docs-only PR).
+    # A skipped matrix job reports only its unrendered name, so without this job those
+    # required checks never report and the PR stays blocked. It runs only on an explicit
+    # 'false': a failed classification or ci == 'true' leaves it skipped, and then
+    # `platform_postgres` above is the only job that reports these names. Its matrix must
+    # match `platform_postgres` exactly (tests/ci/test_workflow_trigger_economy.py).
+    needs: classify_changes
+    if: ${{ needs.classify_changes.result == 'success' && needs.classify_changes.outputs.ci == 'false' }}
+    strategy:
+      matrix:
+        postgres: ['17', '16']
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Record that PostgreSQL validation is not required
+        env:
+          POSTGRES_MAJOR: ${{ matrix.postgres }}
+          CI_REQUIRED: ${{ needs.classify_changes.outputs.ci }}
+          CHANGE_CLASSES: ${{ needs.classify_changes.outputs.classes }}
+        run: |
+          set -euo pipefail
+          test "$CI_REQUIRED" = false
+          summary="PostgreSQL ${POSTGRES_MAJOR}: not required; classify-changes reported ci=false (classes: ${CHANGE_CLASSES:-none})."
+          echo "$summary"
+          echo "### $summary" >> "$GITHUB_STEP_SUMMARY"
+
   php_coverage:
     name: php-coverage-report
     needs: classify_changes
