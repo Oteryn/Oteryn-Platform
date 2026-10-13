@@ -140,9 +140,9 @@ oteryn_require_postgres_secrets_for_engine() {
 #     absent state file means no cutover step is recorded;
 #   - a cutover run.lock (a step running, or one interrupted before it recorded its marker, such as a freeze that
 #     stopped the stack before STEP_FREEZE);
-#   - a readable state file that is empty, truncated or malformed (not the newline-terminated KEY=value record
-#     cutover-postgres.sh writes, with a valid TASK_ID, STEP_PREFLIGHT, known steps each after the step it needs,
-#     and the freeze keys once STEP_FREEZE is recorded): it is never taken as "no step recorded";
+#   - a readable state file that cutover-postgres.sh cannot have written (empty, truncated, reordered,
+#     contradictory or foreign; see _oteryn_cutover_step_allowed for the step model): it is never taken as
+#     "no step recorded";
 #   - the mariadb engine from the recorded freeze until a verified rollback: it would restart the frozen stack
 #     (the cutover rollback itself runs rollback.sh, which this gate leaves alone), and on mariadb a PostgreSQL
 #     bootstrap completion record that exists or cannot be ruled out (the verified rollback moves it aside);
@@ -156,7 +156,8 @@ oteryn_require_postgres_secrets_for_engine() {
 #     whose deploy would move a PostgreSQL release into last-good-release.env: the cutover rollback runs
 #     rollback.sh, which restores that file and refuses a PostgreSQL image there. Only the deploy that replaces
 #     the frozen MariaDB release (plan step 2) and a redeploy of the current release pass, and a missing
-#     current-release.env is refused;
+#     current-release.env is refused. The current and pending candidate records count only after
+#     release-state.sh validate accepted them (a link, a read error or an invalid record is refused);
 #   - the postgres engine once retire-mariadb started (RETIRE_STARTED, also after an interrupted run) or finished
 #     while the compose file still defines the mariadb service: it would recreate the retired service on an
 #     empty volume.
@@ -277,19 +278,17 @@ oteryn_require_cutover_deploy_window() {
 # refused.
 # Usage: _oteryn_cutover_keeps_rollback_release <cutover state text>
 _oteryn_cutover_keeps_rollback_release() {
-    local state_text="$1" release_dir current_file candidate_file text frozen_image current_sha current_image candidate_sha
+    local state_text="$1" release_dir current_file candidate_file frozen_image current_sha current_image candidate_sha
     local requested="${OTERYN_RELEASE_SHA:-}"
     release_dir="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
     current_file="$release_dir/current-release.env"
     candidate_file="$release_dir/candidate-release.env"
     if [[ -e "$candidate_file" || -L "$candidate_file" ]] || ! _oteryn_state_path_absent "$candidate_file"; then
-        if ! text="$(_oteryn_read_state_file "$candidate_file")"; then
-            echo "Deploy refused: the pending candidate $candidate_file cannot be read in the cutover rollback window." >&2
+        if ! read -r candidate_sha _ < <(_oteryn_release_record_identity "$candidate_file" "pending candidate"); then
             return 1
         fi
-        candidate_sha="$(_oteryn_state_value "$text" RELEASE_SHA)"
-        if [[ -z "$candidate_sha" || "$candidate_sha" != "$requested" ]]; then
-            echo "Deploy refused: the cutover rollback window is open and the pending candidate ${candidate_sha:-?} is not the requested release; finishing it would replace the MariaDB rollback release in last-good-release.env. Redeploy the candidate release, roll back, or run native re-enable first." >&2
+        if [[ "$candidate_sha" != "$requested" ]]; then
+            echo "Deploy refused: the cutover rollback window is open and the pending candidate $candidate_sha is not the requested release; finishing it would replace the MariaDB rollback release in last-good-release.env. Redeploy the candidate release, roll back, or run native re-enable first." >&2
             return 1
         fi
     fi
@@ -299,17 +298,47 @@ _oteryn_cutover_keeps_rollback_release() {
         echo "Deploy refused: the cutover rollback window is open and $current_file is missing; the frozen MariaDB release must stay recoverable through last-good-release.env. Restore it, roll back, or run native re-enable first." >&2
         return 1
     fi
-    if ! text="$(_oteryn_read_state_file "$current_file")"; then
-        echo "Deploy refused: the current release $current_file cannot be read in the cutover rollback window." >&2
+    if ! read -r current_sha current_image < <(_oteryn_release_record_identity "$current_file" "current release"); then
         return 1
     fi
-    current_sha="$(_oteryn_state_value "$text" RELEASE_SHA)"
-    current_image="$(_oteryn_state_value "$text" PLATFORM_IMAGE)"
-    [[ -z "$current_sha" || "$current_sha" != "$requested" ]] || return 0
+    [[ "$current_sha" != "$requested" ]] || return 0
     frozen_image="$(_oteryn_state_value "$state_text" FREEZE_PLATFORM_IMAGE)"
     [[ -z "$frozen_image" || "$current_image" != "$frozen_image" ]] || return 0
-    echo "Deploy refused: the cutover rollback window is open (bootstrap complete, native re-enable not started) and the current release ${current_sha:-?} is not the frozen MariaDB release; deploying ${requested:-an unnamed release} would move it into last-good-release.env, which the cutover rollback restores. Redeploy the current release, roll back, or run native re-enable first." >&2
+    echo "Deploy refused: the cutover rollback window is open (bootstrap complete, native re-enable not started) and the current release $current_sha is not the frozen MariaDB release; deploying ${requested:-an unnamed release} would move it into last-good-release.env, which the cutover rollback restores. Redeploy the current release, roll back, or run native re-enable first." >&2
     return 1
+}
+
+# Prints "<RELEASE_SHA> <PLATFORM_IMAGE>" of a release record only after the full release-state.sh validator
+# accepted it (the check rollback.sh applies to last-good-release.env); refuses a link, a read error or an
+# invalid record, so a corrupt record is never evidence that the rollback release is kept.
+# Usage: _oteryn_release_record_identity <file> <label>
+_oteryn_release_record_identity() {
+    local file="$1" label="$2" validator
+    validator="$(dirname -- "${BASH_SOURCE[0]}")/release-state.sh"
+    if [[ -L "$file" || ! -f "$file" ]]; then
+        echo "Deploy refused: the $label $file in the cutover rollback window is not a regular file." >&2
+        return 1
+    fi
+    if ! _oteryn_read_state_file "$file" >/dev/null; then
+        echo "Deploy refused: the $label $file cannot be read in the cutover rollback window." >&2
+        return 1
+    fi
+    if ! bash "$validator" validate "$file" >/dev/null 2>&1; then
+        echo "Deploy refused: the $label $file is not a valid release record (release-state.sh validate); the cutover rollback window needs it intact." >&2
+        return 1
+    fi
+    # The validator sources the record (release-state.sh writes every value with printf %q); read the values it
+    # accepted the same way, in a subshell.
+    (
+        unset RELEASE_SHA PLATFORM_IMAGE
+        # shellcheck disable=SC1090
+        source -- "$file" >/dev/null 2>&1 || exit 1
+        [[ "${RELEASE_SHA:-}" =~ ^[0-9a-f]{40}$ && "${PLATFORM_IMAGE:-}" =~ @sha256:[0-9a-f]{64}$ ]] || exit 1
+        printf '%s %s\n' "$RELEASE_SHA" "$PLATFORM_IMAGE"
+    ) || {
+        echo "Deploy refused: the $label $file is not a valid release record; the cutover rollback window needs it intact." >&2
+        return 1
+    }
 }
 
 # True only when the path is provably absent: nothing is there and the nearest existing ancestor is a searchable
@@ -325,38 +354,96 @@ _oteryn_state_path_absent() {
     [[ -d "$dir" && -x "$dir" ]]
 }
 
-# The structure cutover-postgres.sh writes: newline-terminated KEY=value lines, a valid TASK_ID, STEP_ markers
-# of known steps with UTC timestamps, each with the step it requires, and the keys the freeze records. A
-# readable but empty, truncated or foreign file is never taken as "no step recorded".
+# The cutover state model, derived from scripts/cutover-postgres.sh. The script writes TASK_ID once, right
+# before the first STEP_PREFLIGHT, and otherwise only appends a step's marker (STEP_<step>=<UTC time>) followed
+# by exactly the keys that step records. Each marker is appended only when the step's guard holds for the
+# markers already recorded:
+#   PREFLIGHT          not FREEZE (repeatable until the freeze)
+#   FREEZE             PREFLIGHT; once
+#   BOOTSTRAP          FREEZE; once; not REENABLE_STARTED, not ROLLBACK_STARTED
+#   SMOKE              BOOTSTRAP; not REENABLE_STARTED, not ROLLBACK_STARTED (repeatable)
+#   ROLLBACK_STARTED   FREEZE; once; not ROLLBACK_VERIFIED; not REENABLE_STARTED, NATIVE_SMOKE or DECLARED_DONE
+#   ROLLBACK_VERIFIED  ROLLBACK_STARTED; once; not REENABLE_STARTED, NATIVE_SMOKE or DECLARED_DONE
+#   REENABLE_STARTED   SMOKE; once; not ROLLBACK_STARTED (forward-only from here)
+#   NATIVE_SMOKE       REENABLE_STARTED; not ROLLBACK_STARTED (repeatable)
+#   DECLARED_DONE      NATIVE_SMOKE; once; not ROLLBACK_STARTED
+#   RETIRE_STARTED     NATIVE_SMOKE and DECLARED_DONE; once; not MARIADB_RETIRED, not ROLLBACK_STARTED
+#   MARIADB_RETIRED    RETIRE_STARTED; once; not ROLLBACK_STARTED
+#   UNFROZEN           ROLLBACK_VERIFIED, or DECLARED_DONE and MARIADB_RETIRED; once
+# Usage: _oteryn_cutover_step_allowed <step> <recorded markers as " A B ... ">
+_oteryn_cutover_step_allowed() {
+    local step="$1" seen="$2"
+    case "$step" in
+        PREFLIGHT) [[ "$seen" != *" FREEZE "* ]] ;;
+        FREEZE) [[ "$seen" == *" PREFLIGHT "* && "$seen" != *" FREEZE "* ]] ;;
+        BOOTSTRAP)
+            [[ "$seen" == *" FREEZE "* && "$seen" != *" BOOTSTRAP "* && "$seen" != *" REENABLE_STARTED "* \
+                && "$seen" != *" ROLLBACK_STARTED "* ]] ;;
+        SMOKE) [[ "$seen" == *" BOOTSTRAP "* && "$seen" != *" REENABLE_STARTED "* && "$seen" != *" ROLLBACK_STARTED "* ]] ;;
+        ROLLBACK_STARTED)
+            [[ "$seen" == *" FREEZE "* && "$seen" != *" ROLLBACK_STARTED "* && "$seen" != *" ROLLBACK_VERIFIED "* \
+                && "$seen" != *" REENABLE_STARTED "* && "$seen" != *" NATIVE_SMOKE "* && "$seen" != *" DECLARED_DONE "* ]] ;;
+        ROLLBACK_VERIFIED)
+            [[ "$seen" == *" ROLLBACK_STARTED "* && "$seen" != *" ROLLBACK_VERIFIED "* && "$seen" != *" REENABLE_STARTED "* \
+                && "$seen" != *" NATIVE_SMOKE "* && "$seen" != *" DECLARED_DONE "* ]] ;;
+        REENABLE_STARTED)
+            [[ "$seen" == *" SMOKE "* && "$seen" != *" REENABLE_STARTED "* && "$seen" != *" ROLLBACK_STARTED "* ]] ;;
+        NATIVE_SMOKE) [[ "$seen" == *" REENABLE_STARTED "* && "$seen" != *" ROLLBACK_STARTED "* ]] ;;
+        DECLARED_DONE)
+            [[ "$seen" == *" NATIVE_SMOKE "* && "$seen" != *" DECLARED_DONE "* && "$seen" != *" ROLLBACK_STARTED "* ]] ;;
+        RETIRE_STARTED)
+            [[ "$seen" == *" NATIVE_SMOKE "* && "$seen" == *" DECLARED_DONE "* && "$seen" != *" RETIRE_STARTED "* \
+                && "$seen" != *" MARIADB_RETIRED "* && "$seen" != *" ROLLBACK_STARTED "* ]] ;;
+        MARIADB_RETIRED)
+            [[ "$seen" == *" RETIRE_STARTED "* && "$seen" != *" MARIADB_RETIRED "* && "$seen" != *" ROLLBACK_STARTED "* ]] ;;
+        UNFROZEN)
+            [[ "$seen" != *" UNFROZEN "* ]] \
+                && [[ "$seen" == *" ROLLBACK_VERIFIED "* || ( "$seen" == *" DECLARED_DONE "* && "$seen" == *" MARIADB_RETIRED "* ) ]] ;;
+        *) return 1 ;;
+    esac
+}
+
+# The keys record_step writes after a step's marker, in order (cutover-postgres.sh); every value is nonempty.
+# Usage: _oteryn_cutover_step_keys <step>
+_oteryn_cutover_step_keys() {
+    case "$1" in
+        FREEZE) echo "CLOSE_RUN_ID MARIADB_VOLUME FREEZE_PLATFORM_IMAGE FREEZE_GATEWAY_IMAGE" ;;
+        BOOTSTRAP) echo "OAUTH_CLIENT_ID OAUTH_RUST_CLIENT_ID NATIVE_WORLD_ID BOOTSTRAP_PLATFORM_IMAGE" ;;
+        REENABLE_STARTED) echo "REENABLE_CLOSE_RUN_ID" ;;
+        MARIADB_RETIRED) echo "MARIADB_DELETED_AT" ;;
+        UNFROZEN) echo "UNFREEZE_AUDIT_RUN_ID" ;;
+        *) echo "" ;;
+    esac
+}
+
+# True only for a state text cutover-postgres.sh can have written: newline-terminated, TASK_ID first, then
+# step blocks (a marker with a UTC timestamp no earlier than the previous one, followed by exactly its keys),
+# each step allowed by _oteryn_cutover_step_allowed for the markers before it. A readable but empty,
+# truncated, reordered, contradictory or foreign file is never taken as "no step recorded".
 # Usage: _oteryn_cutover_state_valid <state text>
 _oteryn_cutover_state_valid() {
-    local text="$1" line name pair step required seen=" " key
-    local requires="PREFLIGHT: FREEZE:PREFLIGHT BOOTSTRAP:FREEZE SMOKE:BOOTSTRAP ROLLBACK_STARTED:FREEZE
-        ROLLBACK_VERIFIED:ROLLBACK_STARTED REENABLE_STARTED:SMOKE NATIVE_SMOKE:REENABLE_STARTED
-        DECLARED_DONE:NATIVE_SMOKE RETIRE_STARTED:DECLARED_DONE MARIADB_RETIRED:RETIRE_STARTED UNFROZEN:FREEZE"
+    local text="$1" seen=" " last_time="" line step time key
+    local -a lines expected=()
     [[ "$text" == *$'\n' ]] || return 1
-    while IFS= read -r line; do
-        [[ "$line" =~ ^[A-Z][A-Z0-9_]*= ]] || return 1
-        [[ "$line" == STEP_* ]] || continue
-        name="${line%%=*}"
-        name="${name#STEP_}"
-        [[ " ${requires//$'\n'/ } " == *" $name:"* ]] || return 1
-        [[ "${line#*=}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || return 1
-        seen+="$name "
-    done <<<"${text%$'\n'}"
-    [[ "$(_oteryn_state_value "$text" TASK_ID)" =~ ^OTERYN-[0-9]{8}-[a-z0-9][a-z0-9-]{0,80}$ ]] || return 1
-    [[ "$seen" == *" PREFLIGHT "* ]] || return 1
-    for pair in $requires; do
-        step="${pair%%:*}"
-        required="${pair#*:}"
-        [[ "$seen" == *" $step "* && -n "$required" ]] || continue
-        [[ "$seen" == *" $required "* ]] || return 1
+    mapfile -t lines <<<"${text%$'\n'}"
+    [[ "${lines[0]:-}" =~ ^TASK_ID=OTERYN-[0-9]{8}-[a-z0-9][a-z0-9-]{0,80}$ ]] || return 1
+    for line in "${lines[@]:1}"; do
+        if ((${#expected[@]} > 0)); then
+            key="${expected[0]}"
+            [[ "$line" == "$key="?* ]] || return 1
+            expected=("${expected[@]:1}")
+            continue
+        fi
+        [[ "$line" =~ ^STEP_([A-Z_]+)=([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)$ ]] || return 1
+        step="${BASH_REMATCH[1]}"
+        time="${BASH_REMATCH[2]}"
+        [[ ! "$time" < "$last_time" ]] || return 1
+        _oteryn_cutover_step_allowed "$step" "$seen" || return 1
+        read -r -a expected <<<"$(_oteryn_cutover_step_keys "$step")"
+        seen+="$step "
+        last_time="$time"
     done
-    if [[ "$seen" == *" FREEZE "* ]]; then
-        for key in CLOSE_RUN_ID MARIADB_VOLUME FREEZE_PLATFORM_IMAGE FREEZE_GATEWAY_IMAGE; do
-            [[ -n "$(_oteryn_state_value "$text" "$key")" ]] || return 1
-        done
-    fi
+    ((${#expected[@]} == 0)) && [[ "$seen" == *" PREFLIGHT "* ]]
 }
 
 # Prints a state file; fails on any read error (an unreadable file is never taken as an empty one).

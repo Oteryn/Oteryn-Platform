@@ -849,6 +849,92 @@ class DeployWiringTest(unittest.TestCase):
 
 
 
+# The cutover state model, written independently from the step guards of scripts/cutover-postgres.sh: a step's
+# marker is appended only when its guard holds for the markers already recorded (lib.sh mirrors it in bash).
+CUTOVER_STEP_KEYS = {
+    "FREEZE": ("CLOSE_RUN_ID", "MARIADB_VOLUME", "FREEZE_PLATFORM_IMAGE", "FREEZE_GATEWAY_IMAGE"),
+    "BOOTSTRAP": ("OAUTH_CLIENT_ID", "OAUTH_RUST_CLIENT_ID", "NATIVE_WORLD_ID", "BOOTSTRAP_PLATFORM_IMAGE"),
+    "REENABLE_STARTED": ("REENABLE_CLOSE_RUN_ID",),
+    "MARIADB_RETIRED": ("MARIADB_DELETED_AT",),
+    "UNFROZEN": ("UNFREEZE_AUDIT_RUN_ID",),
+}
+CUTOVER_STEPS = ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "SMOKE", "ROLLBACK_STARTED", "ROLLBACK_VERIFIED",
+                 "REENABLE_STARTED", "NATIVE_SMOKE", "DECLARED_DONE", "RETIRE_STARTED", "MARIADB_RETIRED", "UNFROZEN")
+
+
+def cutover_step_allowed(step: str, seen: set[str]) -> bool:
+    """The guard under which cutover-postgres.sh appends the step's marker (do_<step> and its record_step)."""
+    rollback_closed = not seen & {"REENABLE_STARTED", "NATIVE_SMOKE", "DECLARED_DONE"}
+    guards = {
+        "PREFLIGHT": "FREEZE" not in seen,
+        "FREEZE": "PREFLIGHT" in seen and "FREEZE" not in seen,
+        "BOOTSTRAP": "FREEZE" in seen and not seen & {"BOOTSTRAP", "REENABLE_STARTED", "ROLLBACK_STARTED"},
+        "SMOKE": "BOOTSTRAP" in seen and not seen & {"REENABLE_STARTED", "ROLLBACK_STARTED"},
+        "ROLLBACK_STARTED": "FREEZE" in seen and rollback_closed
+                            and not seen & {"ROLLBACK_STARTED", "ROLLBACK_VERIFIED"},
+        "ROLLBACK_VERIFIED": "ROLLBACK_STARTED" in seen and rollback_closed and "ROLLBACK_VERIFIED" not in seen,
+        "REENABLE_STARTED": "SMOKE" in seen and not seen & {"REENABLE_STARTED", "ROLLBACK_STARTED"},
+        "NATIVE_SMOKE": "REENABLE_STARTED" in seen and "ROLLBACK_STARTED" not in seen,
+        "DECLARED_DONE": "NATIVE_SMOKE" in seen and not seen & {"DECLARED_DONE", "ROLLBACK_STARTED"},
+        "RETIRE_STARTED": {"NATIVE_SMOKE", "DECLARED_DONE"} <= seen
+                          and not seen & {"RETIRE_STARTED", "MARIADB_RETIRED", "ROLLBACK_STARTED"},
+        "MARIADB_RETIRED": "RETIRE_STARTED" in seen and not seen & {"MARIADB_RETIRED", "ROLLBACK_STARTED"},
+        "UNFROZEN": "UNFROZEN" not in seen
+                    and ("ROLLBACK_VERIFIED" in seen or {"DECLARED_DONE", "MARIADB_RETIRED"} <= seen),
+    }
+    return guards[step]
+
+
+def cutover_reachable(max_repeats: int) -> set[tuple[str, ...]]:
+    """Every marker sequence the cutover can record, a repeatable step recorded at most max_repeats times."""
+    found: set[tuple[str, ...]] = set()
+    frontier: list[tuple[str, ...]] = [("PREFLIGHT",)]
+    while frontier:
+        history = frontier.pop()
+        if history in found:
+            continue
+        found.add(history)
+        for step in CUTOVER_STEPS:
+            if history.count(step) < max_repeats and cutover_step_allowed(step, set(history)):
+                frontier.append(history + (step,))
+    return found
+
+
+def cutover_state_text(steps: tuple[str, ...], frozen_image: str = "ghcr.io/oteryn/platform@sha256:" + "a" * 64,
+                       freeze_image: bool = True) -> str:
+    """The state text cutover-postgres.sh appends for the steps, in order."""
+    values = {"CLOSE_RUN_ID": "1", "MARIADB_VOLUME": "oteryn-staging_mariadb_data",
+              "FREEZE_PLATFORM_IMAGE": frozen_image, "FREEZE_GATEWAY_IMAGE": "ghcr.io/oteryn/gateway@sha256:" + "d" * 64,
+              "OAUTH_CLIENT_ID": "0199-oauth", "OAUTH_RUST_CLIENT_ID": "0199-rust", "NATIVE_WORLD_ID": "0199-world",
+              "BOOTSTRAP_PLATFORM_IMAGE": "ghcr.io/oteryn/platform@sha256:" + "b" * 64, "REENABLE_CLOSE_RUN_ID": "2",
+              "MARIADB_DELETED_AT": "2026-10-13T00:00:00Z", "UNFREEZE_AUDIT_RUN_ID": "3"}
+    text = "TASK_ID=OTERYN-20261013-test\n"
+    for index, step in enumerate(steps):
+        text += f"STEP_{step}=2026-10-13T00:{index // 60:02d}:{index % 60:02d}Z\n"
+        for key in CUTOVER_STEP_KEYS.get(step, ()):
+            if key != "FREEZE_PLATFORM_IMAGE" or freeze_image:
+                text += f"{key}={values[key]}\n"
+    return text
+
+
+def release_record(sha: str, image: str) -> str:
+    """A current or candidate release record as release-state.sh write produces it."""
+    return (f"RELEASE_SHA={sha}\nPLATFORM_SOURCE_SHA={sha}\nGATEWAY_SOURCE_SHA={sha}\nPLATFORM_IMAGE={image}\n"
+            f"GATEWAY_IMAGE=ghcr.io/oteryn/gateway@sha256:{'d' * 64}\nSCHEMA_COMPATIBILITY_ID=s1\n"
+            "APP_ACCEPTS_SCHEMA_IDS=s1\nMIGRATION_POLICY=expand-contract\nROLLBACK_ELIGIBLE=1\n")
+
+
+def lib_state_verdicts(texts: list[str]) -> list[bool]:
+    """Runs lib.sh _oteryn_cutover_state_valid on each text in one shell."""
+    script = ('source "$1"; while IFS= read -r -d "" text; do '
+              'if _oteryn_cutover_state_valid "$text"; then echo 1; else echo 0; fi; done')
+    result = subprocess.run(["bash", "-c", script, "bash", str(LIB)], input="".join(f"{text}\0" for text in texts),
+                            text=True, capture_output=True, check=True)
+    verdicts = result.stdout.split()
+    assert len(verdicts) == len(texts), result.stderr
+    return [verdict == "1" for verdict in verdicts]
+
+
 class CutoverDeployWindowTest(unittest.TestCase):
     """Plan P6: an ordinary deploy stays off the stack while cutover-postgres.sh owns it."""
 
@@ -875,19 +961,12 @@ class CutoverDeployWindowTest(unittest.TestCase):
                 directory.mkdir(parents=True)
         if steps:
             (state / "postgres-cutover/cutover-state.env").write_text(
-                "TASK_ID=OTERYN-20261013-test\n" + "".join(
-                    f"STEP_{step}=2026-10-13T00:00:00Z\n"
-                    + ("CLOSE_RUN_ID=1\nMARIADB_VOLUME=oteryn-staging_mariadb_data\n"
-                       + (f"FREEZE_PLATFORM_IMAGE={self.FROZEN[1]}\n" if freeze_image else "")
-                       + "FREEZE_GATEWAY_IMAGE=ghcr.io/oteryn/gateway@sha256:" + "d" * 64 + "\n"
-                       if step == "FREEZE" else "")
-                    for step in steps)
-            )
+                cutover_state_text(steps, self.FROZEN[1], freeze_image))
         current_file = state / "current-release.env"
         if current is not None and not current_file.exists():
-            current_file.write_text(f"RELEASE_SHA={current[0]}\nPLATFORM_IMAGE={current[1]}\n")
+            current_file.write_text(release_record(*current))
         if candidate is not None:
-            (state / "candidate-release.env").write_text(f"RELEASE_SHA={candidate}\n")
+            (state / "candidate-release.env").write_text(release_record(candidate, self.IMAGE + "c" * 64))
         if bootstrapped:
             record = self.RECORD if bootstrapped is True else bootstrapped
             (state / "postgres-bootstrap/bootstrap-complete.env").write_text(record)
@@ -1008,6 +1087,41 @@ class CutoverDeployWindowTest(unittest.TestCase):
             result = self.gate(base, "postgres", window, True, unreadable=current, current=pg1, release=pg1[0])
         self.assertNotEqual(result.returncode, 0, result.stderr)
         self.assertIn("cannot be read", result.stderr)
+
+    def test_the_rollback_window_trusts_only_valid_release_records(self) -> None:
+        # The records that prove the frozen release stays in last-good pass release-state.sh validate first.
+        window = ("PREFLIGHT", "FREEZE", "BOOTSTRAP")
+        frozen_record = release_record(*self.FROZEN)
+        corrupt = {
+            "empty": "",
+            "truncated": frozen_record.split("GATEWAY_IMAGE")[0],
+            "only the identity": f"RELEASE_SHA={self.FROZEN[0]}\nPLATFORM_IMAGE={self.FROZEN[1]}\n",
+            "mutable gateway image": frozen_record.replace(f"@sha256:{'d' * 64}", ":latest"),
+            "short release sha": frozen_record.replace(f"RELEASE_SHA={self.FROZEN[0]}", "RELEASE_SHA=abc"),
+            "wrong migration policy": frozen_record.replace("expand-contract", "destructive"),
+            "no rollback eligibility": frozen_record.replace("ROLLBACK_ELIGIBLE=1\n", ""),
+        }
+        for which in ("current-release.env", "candidate-release.env"):
+            for label, text in corrupt.items():
+                with self.subTest(which=which, case=label), tempfile.TemporaryDirectory() as td:
+                    base = Path(td)
+                    # Valid records: the frozen release is current and the requested release is the candidate.
+                    self.assertEqual(self.gate(base, "postgres", window, True, candidate=self.NEXT).returncode, 0)
+                    (base / "state" / which).write_text(text.replace(self.FROZEN[0], self.NEXT)
+                                                        if which.startswith("candidate") else text)
+                    result = self.gate(base, "postgres")
+                    self.assertNotEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("not a valid release record", result.stderr)
+        for which in ("current-release.env", "candidate-release.env"):
+            with self.subTest(which=which, case="link"), tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                self.assertEqual(self.gate(base, "postgres", window, True, candidate=self.NEXT).returncode, 0)
+                record = base / "state" / which
+                record.rename(base / "elsewhere.env")
+                record.symlink_to(base / "elsewhere.env")
+                result = self.gate(base, "postgres")
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertIn("not a regular file", result.stderr)
 
     def test_an_unreadable_compose_file_after_retirement_fails_closed(self) -> None:
         # grep status 2 (a read error) is never taken as "the compose file no longer defines mariadb".
@@ -1162,28 +1276,51 @@ class CutoverDeployWindowTest(unittest.TestCase):
                     self.assertIn("run.lock", result.stderr)
 
     def test_a_readable_but_corrupt_cutover_state_fails_closed(self) -> None:
-        frozen = ("TASK_ID=OTERYN-20261013-test\nSTEP_PREFLIGHT=2026-10-13T00:00:00Z\n"
-                  "STEP_FREEZE=2026-10-13T00:00:01Z\nCLOSE_RUN_ID=1\nMARIADB_VOLUME=oteryn-staging_mariadb_data\n"
-                  f"FREEZE_PLATFORM_IMAGE={self.FROZEN[1]}\nFREEZE_GATEWAY_IMAGE=g@sha256:{'d' * 64}\n")
-        bootstrapped = frozen + "STEP_BOOTSTRAP=2026-10-13T00:00:02Z\n"
+        window = ("PREFLIGHT", "FREEZE", "BOOTSTRAP")
+        frozen = cutover_state_text(("PREFLIGHT", "FREEZE"), self.FROZEN[1])
+        bootstrapped = cutover_state_text(window, self.FROZEN[1])
+        smoked = cutover_state_text(window + ("SMOKE",), self.FROZEN[1])
         corrupt = {
             "empty": "",
             "only a newline": "\n",
+            "only the task id": "TASK_ID=OTERYN-20261013-test\n",
             "truncated mid-line": frozen[:-10],
             "truncated after the freeze marker": frozen.split("CLOSE_RUN_ID")[0],
             "no TASK_ID": frozen.replace("TASK_ID=OTERYN-20261013-test\n", ""),
+            "TASK_ID after the first step": frozen.replace("TASK_ID=OTERYN-20261013-test\n", "") + "TASK_ID=OTERYN-20261013-test\n",
+            "second TASK_ID": frozen + "TASK_ID=OTERYN-20261013-other\n",
             "malformed TASK_ID": frozen.replace("OTERYN-20261013-test", "x"),
             "no PREFLIGHT": frozen.replace("STEP_PREFLIGHT=2026-10-13T00:00:00Z\n", ""),
             "unknown step": frozen + "STEP_FROZE=2026-10-13T00:00:02Z\n",
             "lowercase key": frozen + "step_freeze=2026-10-13T00:00:02Z\n",
             "malformed timestamp": frozen.replace("STEP_FREEZE=2026-10-13T00:00:01Z", "STEP_FREEZE=yesterday"),
+            "earlier timestamp than the step before": frozen.replace("STEP_FREEZE=2026-10-13T00:00:01Z",
+                                                                     "STEP_FREEZE=2026-10-12T23:59:59Z"),
             "blank line": frozen + "\n",
             "foreign line": frozen + "# edited by hand\n",
+            "foreign key after a step": frozen + "OPERATOR_NOTE=ok\n",
             "freeze without its volume": frozen.replace("MARIADB_VOLUME=oteryn-staging_mariadb_data\n", ""),
-            "freeze with an empty gateway image": frozen + "FREEZE_GATEWAY_IMAGE=\n",
-            "bootstrap without the freeze": frozen.split("STEP_FREEZE")[0] + "STEP_BOOTSTRAP=2026-10-13T00:00:02Z\n",
-            "re-enable without the smoke": bootstrapped + "STEP_REENABLE_STARTED=2026-10-13T00:00:03Z\n",
+            "freeze keys out of order": frozen.replace("CLOSE_RUN_ID=1\nMARIADB_VOLUME=oteryn-staging_mariadb_data\n",
+                                                       "MARIADB_VOLUME=oteryn-staging_mariadb_data\nCLOSE_RUN_ID=1\n"),
+            "freeze with an empty gateway image": frozen.replace(f"FREEZE_GATEWAY_IMAGE=ghcr.io/oteryn/gateway@sha256:{'d' * 64}",
+                                                                 "FREEZE_GATEWAY_IMAGE="),
+            "bootstrap without its IDs": bootstrapped.split("OAUTH_CLIENT_ID")[0],
+            "bootstrap without the freeze": cutover_state_text(("PREFLIGHT",)) + "STEP_BOOTSTRAP=2026-10-13T00:00:02Z\n",
+            "marker before its prerequisite": cutover_state_text(("PREFLIGHT",)).replace(
+                "STEP_PREFLIGHT", "STEP_FREEZE=2026-10-13T00:00:00Z\nCLOSE_RUN_ID=1\nMARIADB_VOLUME=v\n"
+                "FREEZE_PLATFORM_IMAGE=i\nFREEZE_GATEWAY_IMAGE=g\nSTEP_PREFLIGHT"),
+            "re-enable without the smoke": cutover_state_text(window + ("REENABLE_STARTED",), self.FROZEN[1]),
+            "re-enable after a started rollback": cutover_state_text(window + ("SMOKE", "ROLLBACK_STARTED", "REENABLE_STARTED")),
+            "rollback after re-enable": cutover_state_text(window + ("SMOKE", "REENABLE_STARTED", "ROLLBACK_STARTED")),
+            "verified rollback next to re-enable": cutover_state_text(
+                window + ("SMOKE", "ROLLBACK_STARTED", "ROLLBACK_VERIFIED", "REENABLE_STARTED")),
             "verified without a started rollback": frozen + "STEP_ROLLBACK_VERIFIED=2026-10-13T00:00:03Z\n",
+            "second freeze": cutover_state_text(("PREFLIGHT", "FREEZE", "FREEZE")),
+            "preflight after the freeze": cutover_state_text(("PREFLIGHT", "FREEZE", "PREFLIGHT")),
+            "retired without declared done": cutover_state_text(
+                window + ("SMOKE", "REENABLE_STARTED", "NATIVE_SMOKE", "RETIRE_STARTED")),
+            "unfrozen while frozen": cutover_state_text(window + ("SMOKE", "UNFROZEN")),
+            "bootstrap after the smoke window": smoked + "STEP_BOOTSTRAP=2026-10-13T00:00:09Z\n",
         }
         for engine in ("mariadb", "postgres"):
             for label, text in corrupt.items():
@@ -1195,14 +1332,55 @@ class CutoverDeployWindowTest(unittest.TestCase):
                     self.assertNotEqual(result.returncode, 0, result.stderr)
                     self.assertIn("empty, truncated or malformed", result.stderr)
         # The well-formed records pass (postgres in the step 2 window, with the frozen release current).
-        for engine, text in (("mariadb", "TASK_ID=OTERYN-20261013-test\nSTEP_PREFLIGHT=2026-10-13T00:00:00Z\n"),
-                             ("postgres", bootstrapped)):
+        for engine, text in (("mariadb", cutover_state_text(("PREFLIGHT",))), ("postgres", bootstrapped)):
             with self.subTest(engine=engine, case="valid"), tempfile.TemporaryDirectory() as td:
                 base = Path(td)
                 self.gate(base, engine, (), engine == "postgres")
                 (base / "state/postgres-cutover/cutover-state.env").write_text(text)
                 result = self.gate(base, engine)
                 self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_the_state_validator_accepts_exactly_the_reachable_cutover_histories(self) -> None:
+        reachable = cutover_reachable(max_repeats=2)
+        self.assertIn(CUTOVER_STEPS[:4] + ("REENABLE_STARTED", "NATIVE_SMOKE", "DECLARED_DONE", "RETIRE_STARTED",
+                                           "MARIADB_RETIRED", "UNFROZEN"), reachable)
+        cases: dict[tuple[str, ...], bool] = {history: True for history in reachable}
+        # Every set of markers in step order, every single-marker drop and every adjacent swap of a reachable
+        # history: refused unless the cutover can record exactly that sequence.
+        for mask in range(1, 1 << len(CUTOVER_STEPS)):
+            history = tuple(step for bit, step in enumerate(CUTOVER_STEPS) if mask >> bit & 1)
+            cases.setdefault(history, history in reachable)
+        for history in reachable:
+            for index in range(len(history)):
+                dropped = history[:index] + history[index + 1:]
+                if dropped:
+                    cases.setdefault(dropped, dropped in reachable)
+                if index + 1 < len(history) and history[index] != history[index + 1]:
+                    swapped = history[:index] + (history[index + 1], history[index]) + history[index + 2:]
+                    cases.setdefault(swapped, swapped in reachable)
+        histories = list(cases)
+        verdicts = lib_state_verdicts([cutover_state_text(history) for history in histories])
+        wrong = [(history, cases[history]) for history, verdict in zip(histories, verdicts) if verdict != cases[history]]
+        self.assertEqual(wrong[:5], [], f"{len(wrong)} of {len(histories)} histories judged against the model")
+        self.assertGreater(sum(not expected for expected in cases.values()), 4000)
+
+    def test_the_gate_decides_every_reachable_history_as_the_model_says(self) -> None:
+        with_mariadb = "services:\n  mariadb:\n    image: mariadb\n  platform:\n    image: x\n"
+        for history in sorted(cutover_reachable(max_repeats=1)):
+            seen = set(history)
+            expected = {
+                ("mariadb", False): not ("FREEZE" in seen and "ROLLBACK_VERIFIED" not in seen),
+                # Postgres with the frozen release current and the next release requested.
+                ("postgres", False): "ROLLBACK_STARTED" not in seen
+                                     and ("REENABLE_STARTED" in seen or "FREEZE" in seen),
+            }
+            expected[("postgres", True)] = expected[("postgres", False)] and not seen & {"RETIRE_STARTED", "MARIADB_RETIRED"}
+            for (engine, mariadb_in_compose), ok in expected.items():
+                with self.subTest(history=history, engine=engine, compose_mariadb=mariadb_in_compose), \
+                        tempfile.TemporaryDirectory() as td:
+                    kwargs = {"compose": with_mariadb} if mariadb_in_compose else {}
+                    result = self.gate(Path(td), engine, history, engine == "postgres", **kwargs)
+                    self.assertEqual(result.returncode == 0, ok, result.stderr)
 
     def test_mariadb_refuses_a_bootstrap_record_whatever_the_state_says(self) -> None:
         # A verified rollback moves the bootstrap state aside; a record left on mariadb means a cutover is running.
