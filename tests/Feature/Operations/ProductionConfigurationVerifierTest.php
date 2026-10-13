@@ -96,6 +96,46 @@ final class ProductionConfigurationVerifierTest extends TestCase
         self::assertSame([], app(ProductionConfigurationVerifier::class)->inspect());
     }
 
+    public function test_mariadb_runtime_connection_name_is_accepted(): void
+    {
+        config(['database.connections.mariadb' => ['driver' => 'mariadb', 'url' => null]]);
+        config(['database.default' => 'mariadb']);
+
+        self::assertSame([], app(ProductionConfigurationVerifier::class)->inspect());
+    }
+
+    public function test_non_runtime_connections_are_refused_as_the_application_default(): void
+    {
+        config([
+            'database.connections.oteryn_owner' => ['driver' => 'pgsql', 'url' => null],
+            'database.connections.platform_backup' => ['driver' => 'mysql', 'url' => null],
+            'database.connections.platform_dump' => ['driver' => 'mariadb', 'url' => null],
+        ]);
+
+        // Connections on a driver the verifier refuses outright (e.g. sqlsrv) fail on the driver check instead.
+        $connections = config('database.connections');
+        self::assertIsArray($connections);
+        $privileged = [];
+        foreach ($connections as $name => $connection) {
+            $name = (string) $name;
+            if (in_array($name, ['pgsql', 'mysql', 'mariadb', 'sqlite'], true)) {
+                continue;
+            }
+            if (is_array($connection) && in_array($connection['driver'] ?? null, ['pgsql', 'mysql', 'mariadb'], true)) {
+                $privileged[] = $name;
+            }
+        }
+        self::assertContains('pgsql_migrations', $privileged);
+        self::assertGreaterThan(3, count($privileged));
+
+        foreach ($privileged as $name) {
+            // CI exports URLs for some of these connections; the name check must not depend on them.
+            config(['database.default' => $name, "database.connections.{$name}.url" => null]);
+
+            $this->assertViolation('DB_CONNECTION must name a runtime connection (pgsql, mysql or mariadb); privileged connections (migration, owner, backup, dump and character transfer) are refused as the application default in production.');
+        }
+    }
+
     public function test_sqlite_platform_connection_is_rejected(): void
     {
         config(['database.default' => 'sqlite']);
@@ -108,17 +148,21 @@ final class ProductionConfigurationVerifierTest extends TestCase
         config(['database.connections.pgsql.url' => 'sqlite:///tmp/oteryn-platform.sqlite']);
         $this->assertViolation('DB_CONNECTION must use the pgsql or mysql driver; sqlite and other drivers are refused in production.');
 
-        config(['database.connections.pgsql.url' => 'postgresql://oteryn:secret@db.internal:5432/oteryn_platform']);
-        $postgresUrl = app(ProductionConfigurationVerifier::class)->inspect();
+        config([
+            'database.connections.pgsql.driver' => 'sqlite',
+            'database.connections.pgsql.url' => 'postgresql://oteryn:secret@db.internal:5432/oteryn_platform',
+        ]);
+        $postgresUrlOverDeclaredSqlite = app(ProductionConfigurationVerifier::class)->inspect();
 
         config([
             'database.default' => 'sqlite',
             'database.connections.sqlite.url' => 'postgres://oteryn:secret@db.internal:5432/oteryn_platform',
         ]);
-        $postgresUrlOverSqlite = app(ProductionConfigurationVerifier::class)->inspect();
+        $postgresUrlOnSqliteName = app(ProductionConfigurationVerifier::class)->inspect();
 
-        self::assertSame([], $postgresUrl);
-        self::assertSame([], $postgresUrlOverSqlite);
+        self::assertSame([], $postgresUrlOverDeclaredSqlite);
+        // The URL driver is accepted, but the connection name must still be a runtime connection.
+        self::assertContains('DB_CONNECTION must name a runtime connection (pgsql, mysql or mariadb); privileged connections (migration, owner, backup, dump and character transfer) are refused as the application default in production.', $postgresUrlOnSqliteName);
     }
 
     public function test_malformed_database_url_is_rejected(): void
