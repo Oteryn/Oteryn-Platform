@@ -112,10 +112,14 @@ final class ProductionConfigurationVerifierTest extends TestCase
             'database.connections.platform_dump' => ['driver' => 'mariadb', 'url' => null],
         ]);
 
-        foreach (['pgsql_migrations', 'canary_character_transfer', 'canary', 'oteryn_owner', 'platform_backup', 'platform_dump'] as $name) {
+        $privileged = array_values(array_diff(array_keys(config('database.connections')), ['pgsql', 'mysql', 'mariadb', 'sqlite']));
+        self::assertContains('pgsql_migrations', $privileged);
+        self::assertGreaterThan(3, count($privileged));
+
+        foreach ($privileged as $name) {
             config(['database.default' => $name]);
 
-            $this->assertViolation('DB_CONNECTION must name a runtime connection (pgsql, mysql or mariadb); migration, owner, backup, dump and Canary connections are refused as the application default in production.');
+            $this->assertViolation('DB_CONNECTION must name a runtime connection (pgsql, mysql or mariadb); privileged connections (migration, owner, backup, dump and character transfer) are refused as the application default in production.');
         }
     }
 
@@ -131,17 +135,21 @@ final class ProductionConfigurationVerifierTest extends TestCase
         config(['database.connections.pgsql.url' => 'sqlite:///tmp/oteryn-platform.sqlite']);
         $this->assertViolation('DB_CONNECTION must use the pgsql or mysql driver; sqlite and other drivers are refused in production.');
 
-        config(['database.connections.pgsql.url' => 'postgresql://oteryn:secret@db.internal:5432/oteryn_platform']);
-        $postgresUrl = app(ProductionConfigurationVerifier::class)->inspect();
+        config([
+            'database.connections.pgsql.driver' => 'sqlite',
+            'database.connections.pgsql.url' => 'postgresql://oteryn:secret@db.internal:5432/oteryn_platform',
+        ]);
+        $postgresUrlOverDeclaredSqlite = app(ProductionConfigurationVerifier::class)->inspect();
 
         config([
             'database.default' => 'sqlite',
             'database.connections.sqlite.url' => 'postgres://oteryn:secret@db.internal:5432/oteryn_platform',
         ]);
-        $postgresUrlOverSqlite = app(ProductionConfigurationVerifier::class)->inspect();
+        $postgresUrlOnSqliteName = app(ProductionConfigurationVerifier::class)->inspect();
 
-        self::assertSame([], $postgresUrl);
-        self::assertSame([], $postgresUrlOverSqlite);
+        self::assertSame([], $postgresUrlOverDeclaredSqlite);
+        // The URL driver is accepted, but the connection name must still be a runtime connection.
+        self::assertContains('DB_CONNECTION must name a runtime connection (pgsql, mysql or mariadb); privileged connections (migration, owner, backup, dump and character transfer) are refused as the application default in production.', $postgresUrlOnSqliteName);
     }
 
     public function test_malformed_database_url_is_rejected(): void

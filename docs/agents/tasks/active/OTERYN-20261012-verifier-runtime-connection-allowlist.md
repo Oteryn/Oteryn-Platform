@@ -1,6 +1,6 @@
 ---
 task_id: OTERYN-20261012-verifier-runtime-connection-allowlist
-governing_issue: none
+governing_issue: 1474
 required_reads: []
 search_first:
   - app/Operations/ProductionConfigurationVerifier.php
@@ -11,12 +11,12 @@ optional_reads: []
 
 ## Goal
 
-Review finding on #1577/#1579, real on main: `ProductionConfigurationVerifier` accepted any default connection whose driver was pgsql or mysql, including `pgsql_migrations` (schema-owner credentials) and `canary_character_transfer`. The verifier now also requires the default connection name to be a runtime connection (`pgsql`, `mysql`, `mariadb`) and refuses migration, owner, backup, dump and Canary connections with a clear message. No governing GitHub Issue; the review finding is the authority.
+Review finding on #1577/#1579, real on main: `ProductionConfigurationVerifier` accepted any default connection whose driver was pgsql or mysql, including `pgsql_migrations` (schema-owner credentials) and the character-transfer connection. The verifier now also requires the default connection name to be a runtime connection (`pgsql`, `mysql`, `mariadb`) and refuses migration, owner, backup, dump and character-transfer connections with a clear message. Governing GitHub Issue: #1474 (the review finding is the trigger).
 
 ## Acceptance criteria
 
 - [x] Default connection must be on the runtime allowlist; other server-driver connections are refused.
-- [x] Unit tests cover acceptance (pgsql, mysql, mariadb) and refusal of pgsql_migrations, canary_character_transfer, canary and owner/backup/dump-style names.
+- [x] Unit tests cover acceptance (pgsql, mysql, mariadb) and refusal of every non-runtime server connection in config/database.php plus owner/backup/dump-style names.
 - [ ] Exact-head CI passes.
 
 ## Ownership
@@ -25,6 +25,7 @@ Review finding on #1577/#1579, real on main: `ProductionConfigurationVerifier` a
 owned_paths:
   - app/Operations/ProductionConfigurationVerifier.php
   - tests/Feature/Operations/ProductionConfigurationVerifierTest.php
+  - docs/agents/tasks/active/OTERYN-20261012-verifier-runtime-connection-allowlist.md
   - docs/agents/tasks/archive/OTERYN-20261012-verifier-runtime-connection-allowlist.md
 modules:
   - Operations
@@ -40,18 +41,20 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-12T00:00:00Z
-head: UNKNOWN
+updated_at: 2026-10-13T00:00:00Z
+head: branch head of claude/platform-verifier-allowlist-20261012 (the PR's head)
 branch: claude/platform-verifier-allowlist-20261012
-pr: UNKNOWN
+pr: 1580
 status: validating
 terminal_pr_policy: archive_pending
 context_routes: []
 owned_paths:
   - app/Operations/ProductionConfigurationVerifier.php
   - tests/Feature/Operations/ProductionConfigurationVerifierTest.php
+  - docs/agents/tasks/active/OTERYN-20261012-verifier-runtime-connection-allowlist.md
+  - docs/agents/tasks/archive/OTERYN-20261012-verifier-runtime-connection-allowlist.md
 proven:
-  - config/database.php has runtime connections pgsql and mysql and privileged pgsql_migrations, canary, canary_character_transfer with server drivers
+  - config/database.php has runtime connections pgsql and mysql and privileged pgsql_migrations plus game-data connections with server drivers
 derived:
   - allowlist is checked after the driver check so existing sqlite and unknown-connection messages are unchanged
 unknown:
@@ -60,7 +63,8 @@ conflicts: []
 first_failure:
   marker: none
   evidence: none
-rejected_hypotheses: []
+rejected_hypotheses:
+  - Judging a DB_URL driver override by the URL driver alone. The allowlist is on the connection name, so a PostgreSQL URL on the sqlite connection is still refused (Codex P1).
 changed_paths:
   - app/Operations/ProductionConfigurationVerifier.php
   - tests/Feature/Operations/ProductionConfigurationVerifierTest.php
@@ -76,7 +80,7 @@ validation:
     evidence: production configuration verifier hardening, no product path
 blockers:
   - none
-next_action: none; record archived in the authoring commit
+next_action: archive this record after the PR merges (terminal_pr_policy archive_pending)
 ```
 
 ## Source branch closeout
