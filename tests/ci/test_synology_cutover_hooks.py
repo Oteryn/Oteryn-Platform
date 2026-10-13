@@ -52,7 +52,7 @@ COOKIE = "cookiesentinel0123456789"
 CSRF = "csrfsentinel0123456789"
 
 
-def observation(store=S1, binding="match", floor=None, profile=None, lsn=0x1000, configured=None, trusted=False,
+def observation(store=S1, binding="match", floor=None, profile=None, lsn=0x1000, configured=None, is_trusted=False,
                 result="observed"):
     return {
         "result": result, "fence_required": True,
@@ -60,7 +60,7 @@ def observation(store=S1, binding="match", floor=None, profile=None, lsn=0x1000,
         "scope": SCOPE,
         "floor": {"value": floor, "temp_entries": 0},
         "profile": profile or {"present": False},
-        "key": {"requested": None, "configured_key_id": configured, "in_history": False, "trusted": trusted},
+        "key": {"requested": None, "configured_key_id": configured, "in_history": False, "trusted": is_trusted},
         "database": {
             "identity": {"system_identifier": "7001", "timeline_id": 1, "postmaster_start_time": "t0",
                          "database_oid": 16384, "relfilenodes": [1, 2, 3]},
@@ -70,7 +70,7 @@ def observation(store=S1, binding="match", floor=None, profile=None, lsn=0x1000,
     }
 
 
-COMMITTED = observation(floor=1, configured=KID, trusted=True, lsn=0x2000,
+COMMITTED = observation(floor=1, configured=KID, is_trusted=True, lsn=0x2000,
                         profile={"present": True, "id": 1, "profile_version": 1, "issuer_revision": 1, "revoked": False})
 
 DOCKER_STUB = r"""#!/usr/bin/env python3
@@ -854,7 +854,7 @@ class NativeSmokeTest(HookHarness):
         self.assertNotIn("native_smoke_result=passed", proc.stdout)
 
     def test_failed_before_witness_leaves_the_run_open_for_the_owner(self):
-        unpublished = observation(configured=KID, trusted=True, lsn=0x2000)
+        unpublished = observation(configured=KID, is_trusted=True, lsn=0x2000)
         self.update_state(observations=dict(self.load_state()["observations"], native=unpublished))
         proc = self.run_hook("native-smoke")
         self.assertNotEqual(proc.returncode, 0)
@@ -909,7 +909,7 @@ class NativeSmokeTest(HookHarness):
     def test_final_trust_check_fails_without_a_published_profile(self):
         proc = self.run_hook("native-smoke")
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        unpublished = observation(configured=KID, trusted=True, lsn=0x2000)
+        unpublished = observation(configured=KID, is_trusted=True, lsn=0x2000)
         untrusted = json.loads(json.dumps(COMMITTED))
         untrusted["key"]["trusted"] = False
         for obs in (unpublished, untrusted):
