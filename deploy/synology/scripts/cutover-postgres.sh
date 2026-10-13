@@ -641,6 +641,7 @@ do_native_smoke() {
     has_step REENABLE_STARTED || refuse "native re-enable has not started."
     ! has_step ROLLBACK_STARTED || refuse "a rollback was started; this cutover can only end through it."
     require_close_run
+    [[ "$(contract_engine)" == postgres ]] || refuse "the release contract must still declare PLATFORM_DB_ENGINE=postgres."
     [[ "$(env_get OTERYN_NATIVE_ADMISSION_ENABLED)" == true ]] || refuse "native admission is not on in the deployed environment; run the deploy that publishes trust first."
     local smoke
     smoke="$(hook_command OTERYN_CUTOVER_NATIVE_SMOKE_COMMAND)"
@@ -657,6 +658,7 @@ do_declare_done() {
     require_tools
     require_env_file
     has_step NATIVE_SMOKE || refuse "the step 5 native login smoke is not recorded."
+    [[ "$(contract_engine)" == postgres ]] || refuse "the release contract must still declare PLATFORM_DB_ENGINE=postgres."
     ! has_step ROLLBACK_STARTED || refuse "a rollback was started; this cutover can only end through it."
     require_close_run
     require_audit closed
@@ -688,6 +690,7 @@ do_retire_mariadb() {
     [[ -n "$task_id" && "${OTERYN_OWNER_DELETE_ACK:-}" == "$task_id" ]] \
         || refuse "the owner delete acknowledgement must name this task id."
     require_close_run
+    [[ "$(contract_engine)" == postgres ]] || refuse "the release contract must still declare PLATFORM_DB_ENGINE=postgres."
     require_audit closed
     local volume aside store_id
     volume="$(state_get MARIADB_VOLUME)"

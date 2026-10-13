@@ -694,6 +694,12 @@ class RetireMariadbTests(CutoverTestBase):
         self.assertFalse(self.h.has_state("MARIADB_RETIRED"))
         self.assertFalse(self.h.has_state("RETIRE_STARTED"))
 
+    def test_refused_when_the_contract_is_back_on_mariadb(self) -> None:
+        self.ready()
+        self.h.set_engine("mariadb")
+        self.h.refused("retire-mariadb", "PLATFORM_DB_ENGINE=postgres", **self.h.retire_env())
+        self.assert_nothing_destroyed()
+
     def test_refused_without_the_owner_gate(self) -> None:
         self.ready()
         self.h.refused("retire-mariadb", "owner delete confirmation", **self.h.closed(OTERYN_OWNER_DELETE_ACK=TASK))
