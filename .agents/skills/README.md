@@ -31,7 +31,7 @@ UI/UX Pro Max and Skill Creator are not installed. Native performance and future
 
 ## Qualification and limits
 
-This is an instruction-level permission gate, not technical access control. Use the catalog referenced by root AGENTS.md as the explicit discovery route, then load a selected entry point only within the user grant. Native automatic discovery is not required for this route and remains unqualified here. Static checks are not proof that an agent follows the gate.
+This is an instruction-level permission gate, not technical access control. Use the catalog referenced by root AGENTS.md as the explicit discovery route, then load a selected entry point only within the user grant. Automatic skill injection into a CLI model session is not required for this explicit route and remains unqualified here; native registry discovery is separately verified. Static checks are not proof that an agent follows the gate.
 
 | Representative case | Expected result |
 |---|---|
@@ -46,4 +46,4 @@ This is an instruction-level permission gate, not technical access control. Use 
 | Delegated worker with explicit same-task grant | Select only within grant and worker scope |
 | Backend-only task | No optional UI skill; normal required checks |
 
-Qualification evidence: [evaluation.json](evaluation.json). One baseline and one candidate trial ran on the actual Codex agent evaluation surface with the same inherited model/effort and explicit root/bootstrap/catalog delivery. The candidate selected correctly in all 12 decision cases; the baseline had no project-local optional skills. This is decision-level screening, not a visual-quality test or a guarantee of enforcement. Native CLI auto-discovery is BLOCKED by authentication failure before a model response; token/time telemetry was not exposed. No measured cost-saving or universal enforcement claim is made.
+Qualification evidence: [evaluation.json](evaluation.json). One baseline and one candidate trial ran on the actual Codex agent evaluation surface with the same inherited model/effort and explicit root/bootstrap/catalog delivery. The candidate selected correctly in all 12 decision cases; the baseline had no project-local optional skills. This is decision-level screening, not a visual-quality test or a guarantee of enforcement. Native registry discovery is PASS via local app-server skills/list; full CLI model startup remains BLOCKED by authentication before a response; token/time telemetry was not exposed. No measured cost-saving or universal enforcement claim is made.
