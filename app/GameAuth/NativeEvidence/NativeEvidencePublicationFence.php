@@ -54,7 +54,7 @@ final class NativeEvidencePublicationFence
         } catch (JsonException) {
             throw new NativeEvidenceUnavailable('The first publication fence is malformed.');
         }
-        if (! is_array($data) || array_keys($data) !== ['run_id', 'intent_sha256']
+        if (! is_array($data) || count($data) !== 2 || ! array_key_exists('run_id', $data) || ! array_key_exists('intent_sha256', $data)
             || ! is_string($data['run_id']) || ! is_string($data['intent_sha256'])) {
             throw new NativeEvidenceUnavailable('The first publication fence is malformed.');
         }

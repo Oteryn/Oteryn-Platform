@@ -135,6 +135,19 @@ final class NativeEvidencePublicationFenceTest extends TestCase
         ];
     }
 
+    public function test_the_encoded_fence_is_accepted_in_either_key_order_but_extras_are_refused(): void
+    {
+        $encode = static fn (array $payload): string => rtrim(strtr(base64_encode((string) json_encode($payload)), '+/', '-_'), '=');
+        $hash = str_repeat('a', 64);
+
+        $sorted = NativeEvidencePublicationFence::fromEncoded($encode(['intent_sha256' => $hash, 'run_id' => self::FIXTURE_RUN]));
+        self::assertSame(self::FIXTURE_RUN, $sorted->runId);
+        self::assertSame($hash, $sorted->intentSha256);
+
+        $this->expectException(NativeEvidenceUnavailable::class);
+        NativeEvidencePublicationFence::fromEncoded($encode(['run_id' => self::FIXTURE_RUN, 'intent_sha256' => $hash, 'extra' => 'x']));
+    }
+
     public function test_marker_only_state_refuses_and_the_row_is_not_rebound(): void
     {
         $fence = $this->arrange('valid');

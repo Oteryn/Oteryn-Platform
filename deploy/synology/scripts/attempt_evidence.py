@@ -419,8 +419,10 @@ def analyze(runs):
                 cur["obs_hash"] = run.hashes[i]
         if pending_init:
             A.unfinished.append(run.id)
-        if run.recs and run.recs[-1]["type"] == "begin-refused" and run.recs[-1].get("reason") in PERMANENT:
-            A.permanent.append((run.id, run.recs[-1]["reason"]))
+        for rec in run.recs:
+            if rec["type"] == "begin-refused" and rec.get("reason") in PERMANENT:
+                A.permanent.append((run.id, rec["reason"]))
+                break
     A.S0 = A.inits[0][1].get("store_id") if A.inits else None
     A.stable = None
     if A.inits:

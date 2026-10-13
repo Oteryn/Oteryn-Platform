@@ -945,6 +945,16 @@ class InitIntentTest(Base):
         code, out = self.d.open(none_obs())
         self.assertEqual(out["reason"], "blocked:init-lost")
 
+    def test_init_lost_stays_permanent_after_run_close(self):
+        run = self.d.start()
+        self.d.append("init-intent", run)
+        self.d.anchored(run)
+        self.d.append("begin-refused", run, {"reason": "init-lost", "observation": none_obs()})
+        self.d.append("run-close", run, {"done": False})
+        self.assertEqual(self.d.verdict(), "unknown")
+        code, out = self.d.open(none_obs())
+        self.assertEqual(out["reason"], "blocked:init-lost")
+
     def test_late_init_for_marker_only_carries_post_d1_observation(self):
         run = self.d.start()
         self.d.append("init-intent", run)
