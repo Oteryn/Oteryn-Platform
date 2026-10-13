@@ -186,8 +186,7 @@ final class NativeEvidencePublicationFenceTest extends TestCase
     public function test_pgsql_fenced_first_publication_commits_and_reports_the_intent(): void
     {
         $this->requirePgsql();
-        $live = (new NativeEvidenceDatabaseIdentity)->read();
-        self::assertIsArray($live);
+        $live = $this->live();
         $fence = $this->arrangeLive($live['identity'], $live['progress']);
 
         $this->publish($fence);
@@ -201,16 +200,16 @@ final class NativeEvidencePublicationFenceTest extends TestCase
     public function test_pgsql_identity_and_progress_mismatches_refuse_before_the_floor_write(string $case): void
     {
         $this->requirePgsql();
-        $live = (new NativeEvidenceDatabaseIdentity)->read();
-        self::assertIsArray($live);
+        $live = $this->live();
         $identity = $live['identity'];
         $progress = $live['progress'];
         match ($case) {
-            'timeline' => $identity['timeline_id'] = $identity['timeline_id'] + 1,
+            'timeline' => $identity['timeline_id']++,
             'system identifier' => $identity['system_identifier'] = '1',
             'relfilenode' => $identity['relfilenodes']['native_game_signing_trust_profiles'] = 1,
             'lsn above live' => $progress['wal_flush_lsn'] = 'FFFFFFFF/FFFFFFFF',
             'xmax above live' => $progress['xmax'] = '18446744073709551000',
+            default => self::fail('Unknown case '.$case),
         };
         $fence = $this->arrangeLive($identity, $progress);
 
@@ -238,8 +237,7 @@ final class NativeEvidencePublicationFenceTest extends TestCase
     public function test_pgsql_marker_or_lock_replaced_after_the_binding_row_refuses(string $swap): void
     {
         $this->requirePgsql();
-        $live = (new NativeEvidenceDatabaseIdentity)->read();
-        self::assertIsArray($live);
+        $live = $this->live();
         $fence = $this->arrangeLive($live['identity'], $live['progress']);
 
         DB::listen(function (QueryExecuted $query) use ($swap): void {
@@ -340,9 +338,21 @@ final class NativeEvidencePublicationFenceTest extends TestCase
     private function withIdentity(array $changes): array
     {
         $database = $this->fixtureDatabase('0/2000000', '710');
-        $database['identity'] = $changes + $database['identity'];
+        $identity = $database['identity'];
+        self::assertIsArray($identity);
+        $database['identity'] = $changes + $identity;
 
         return $database;
+    }
+
+    /** @return array{identity: array{system_identifier: string, timeline_id: int, postmaster_start_time: string, database_oid: int, relfilenodes: array<string, int>}, progress: array{wal_flush_lsn: string, xmax: string}} */
+    private function live(): array
+    {
+        $live = (new NativeEvidenceDatabaseIdentity)->read();
+        self::assertIsArray($live);
+        /** @var array{identity: array{system_identifier: string, timeline_id: int, postmaster_start_time: string, database_oid: int, relfilenodes: array<string, int>}, progress: array{wal_flush_lsn: string, xmax: string}} $live */
+
+        return $live;
     }
 
     /** @return array{string, string, string, string} */

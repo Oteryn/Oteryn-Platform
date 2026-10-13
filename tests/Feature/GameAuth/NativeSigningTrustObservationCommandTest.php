@@ -210,7 +210,7 @@ final class NativeSigningTrustObservationCommandTest extends TestCase
 
         try {
             self::assertSame(1, $this->observe(['--key-id' => 'kid-1']));
-            self::assertSame(['result' => 'witness_busy'], $this->commandOutput());
+            self::assertSame(['result' => 'witness_busy'], (array) $this->commandOutput());
         } finally {
             flock($lock, LOCK_UN);
             fclose($lock);
@@ -223,11 +223,11 @@ final class NativeSigningTrustObservationCommandTest extends TestCase
         return Artisan::call(self::COMMAND, ['--trust' => 'fresh'] + $options);
     }
 
-    /** @return array<string, mixed> */
+    /** @return array{result?: string, store: array{binding: string}, floor: array{value: int|null}, profile: array{present: bool, profile_version: int, issuer_revision: int, revoked: bool, id: mixed}, key: array{in_history: bool, trusted: bool}, database: array{identity: array{relfilenodes: array<string, int>}&array<string, mixed>, progress: array{wal_flush_lsn: string, xmax: string}, in_flight: array<string, int>}|null} */
     private function commandOutput(): array
     {
+        /** @var array{result?: string, store: array{binding: string}, floor: array{value: int|null}, profile: array{present: bool, profile_version: int, issuer_revision: int, revoked: bool, id: mixed}, key: array{in_history: bool, trusted: bool}, database: array{identity: array{relfilenodes: array<string, int>}&array<string, mixed>, progress: array{wal_flush_lsn: string, xmax: string}, in_flight: array<string, int>}|null} $decoded */
         $decoded = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
-        self::assertIsArray($decoded);
 
         return $decoded;
     }

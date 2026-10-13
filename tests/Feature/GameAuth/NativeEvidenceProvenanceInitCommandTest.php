@@ -41,7 +41,7 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
 
     public function test_created_on_a_clean_slate_writes_the_marker_then_the_row_and_no_floor(): void
     {
-        self::assertSame(0, Artisan::call(self::COMMAND));
+        self::assertSame(0, $this->run());
         $output = $this->commandOutput();
 
         self::assertSame('created', $output['result']);
@@ -59,7 +59,7 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
         $storeId = bin2hex(random_bytes(32));
         file_put_contents($this->directory.'/witness-store.id', $storeId."\n");
 
-        self::assertSame(0, Artisan::call(self::COMMAND));
+        self::assertSame(0, $this->run());
         $output = $this->commandOutput();
 
         self::assertSame('completed', $output['result']);
@@ -69,7 +69,7 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
 
     public function test_unchanged_reports_floor_class_counts_and_changes_nothing(): void
     {
-        self::assertSame(0, Artisan::call(self::COMMAND));
+        self::assertSame(0, $this->run());
         $storeId = $this->commandOutput()['store_id'];
         $hash = str_repeat('a', 64);
         file_put_contents($this->directory.'/'.$hash.'.floor', "1\n");
@@ -77,7 +77,7 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
         file_put_contents($this->directory.'/'.$hash.'.floor.tmp.'.str_repeat('b', 16), '1');
         $before = $this->snapshot();
 
-        self::assertSame(0, Artisan::call(self::COMMAND));
+        self::assertSame(0, $this->run());
         $output = $this->commandOutput();
 
         self::assertSame('unchanged', $output['result']);
@@ -93,7 +93,7 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
         $temporary = $this->directory.'/witness-store.id.tmp.'.str_repeat('c', 16);
         file_put_contents($temporary, 'partial');
 
-        self::assertSame(0, Artisan::call(self::COMMAND));
+        self::assertSame(0, $this->run());
 
         self::assertSame(1, $this->commandOutput()['entries']['marker-temp']);
         self::assertSame('partial', file_get_contents($temporary));
@@ -106,7 +106,7 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
         self::assertTrue(flock($lock, LOCK_SH | LOCK_NB));
 
         try {
-            self::assertSame(1, Artisan::call(self::COMMAND));
+            self::assertSame(1, $this->run());
             self::assertSame('busy', $this->commandOutput()['result']);
         } finally {
             flock($lock, LOCK_UN);
@@ -124,7 +124,7 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
         $before = $this->snapshot();
         $floorsBefore = glob($this->directory.'/*.floor') ?: [];
 
-        self::assertSame(1, Artisan::call(self::COMMAND));
+        self::assertSame(1, $this->run());
 
         self::assertStringContainsString('Native evidence provenance init refused:', Artisan::output());
         self::assertStringContainsString('"result":"refused"', Artisan::output());
@@ -223,11 +223,16 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
         ]);
     }
 
-    /** @return array<string, mixed> */
+    private function run(): int
+    {
+        return Artisan::call(self::COMMAND);
+    }
+
+    /** @return array{result: string, store_id: string, entries: array<string, int>} */
     private function commandOutput(): array
     {
+        /** @var array{result: string, store_id: string, entries: array<string, int>} $decoded */
         $decoded = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
-        self::assertIsArray($decoded);
 
         return $decoded;
     }
@@ -250,9 +255,9 @@ final class NativeEvidenceProvenanceInitCommandTest extends TestCase
 
         return [
             'files' => $files,
-            'rows' => DB::table('native_game_evidence_witness_stores')->orderBy('id')->get()->map(
+            'rows' => array_values(DB::table('native_game_evidence_witness_stores')->orderBy('id')->get()->map(
                 static fn (object $row): array => ['id' => $row->id, 'store_id' => $row->store_id],
-            )->all(),
+            )->all()),
         ];
     }
 }

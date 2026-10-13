@@ -159,14 +159,14 @@ final class NativeSigningTrustRegistry
         if (! $trustProfile instanceof stdClass) {
             return ['profile' => ['present' => false], 'in_history' => $inHistory, 'trusted' => false];
         }
-        $latest = $this->latestKeyVersion((int) $trustProfile->id, $keyId, false);
+        $latest = $this->latestKeyVersion(self::int($trustProfile->id), $keyId, false);
 
         return [
             'profile' => [
                 'present' => true,
-                'id' => (int) $trustProfile->id,
-                'profile_version' => (int) $trustProfile->profile_version,
-                'issuer_revision' => (int) $trustProfile->issuer_revision,
+                'id' => self::int($trustProfile->id),
+                'profile_version' => self::int($trustProfile->profile_version),
+                'issuer_revision' => self::int($trustProfile->issuer_revision),
                 'revoked' => ($trustProfile->revoked_at ?? null) !== null,
             ],
             'in_history' => $inHistory,
@@ -509,5 +509,10 @@ final class NativeSigningTrustRegistry
         }
 
         return $current + 1;
+    }
+
+    private static function int(mixed $value): int
+    {
+        return is_numeric($value) ? (int) $value : 0;
     }
 }

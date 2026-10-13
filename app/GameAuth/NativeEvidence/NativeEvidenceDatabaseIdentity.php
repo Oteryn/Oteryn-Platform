@@ -100,7 +100,7 @@ final class NativeEvidenceDatabaseIdentity
         }
     }
 
-    public function flushLsnAtLeast(string $baseline): bool
+    public function flushLsnAtLeast(mixed $baseline): bool
     {
         if (! self::validLsn($baseline)) {
             return false;

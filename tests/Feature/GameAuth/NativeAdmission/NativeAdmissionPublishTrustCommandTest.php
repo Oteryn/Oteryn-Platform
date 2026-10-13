@@ -77,6 +77,7 @@ final class NativeAdmissionPublishTrustCommandTest extends TestCase
         ]));
 
         self::assertSame(0, Artisan::call(self::COMMAND, ['--first-publication-fence' => $fence]));
+        /** @var array<string, mixed> $result */
         $result = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
 
         self::assertSame('published', $result['result']);
@@ -89,7 +90,9 @@ final class NativeAdmissionPublishTrustCommandTest extends TestCase
         $this->installKey('admission-1');
 
         self::assertSame(0, Artisan::call(self::COMMAND));
-        self::assertArrayNotHasKey('fence', json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR));
+        /** @var array<string, mixed> $result */
+        $result = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertArrayNotHasKey('fence', $result);
     }
 
     public function test_publishes_the_loaded_current_public_key_and_the_self_check_then_passes(): void

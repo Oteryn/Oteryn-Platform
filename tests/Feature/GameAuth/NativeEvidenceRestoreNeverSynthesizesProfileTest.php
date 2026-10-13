@@ -82,7 +82,7 @@ final class NativeEvidenceRestoreNeverSynthesizesProfileTest extends TestCase
 
         // Arrange: provenance by the init, then a real publication that commits for kid-1.
         self::assertSame(0, Artisan::call('game-auth:native-evidence:init-provenance'));
-        $this->storeId = (string) json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR)['store_id'];
+        $this->storeId = (string) $this->decoded()['store_id'];
         $registry = app(NativeSigningTrustRegistry::class);
         $registry->publishTrustedKey(...$this->scope(), ...['kid-1', $this->publicKey($seedOne)]);
         self::assertSame(1, DB::table('native_game_signing_trust_profiles')->count());
@@ -108,12 +108,12 @@ final class NativeEvidenceRestoreNeverSynthesizesProfileTest extends TestCase
         // Act. The init and the observation run first: every runtime witness call re-binds a missing row.
         self::assertSame($restore === 'A' ? 0 : 1, Artisan::call('game-auth:native-evidence:init-provenance'));
         if ($restore === 'A') {
-            self::assertSame('unchanged', json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR)['result']);
+            self::assertSame('unchanged', $this->decoded()['result']);
         }
         $this->assertUnsynthesized();
 
         self::assertSame(0, Artisan::call('game-auth:native-evidence:observe-trust', ['--trust' => 'fresh', '--key-id' => 'kid-1']));
-        $observed = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
+        $observed = $this->decoded();
         self::assertSame($restore === 'A' ? 'match' : 'marker_only', $observed['store']['binding']);
         self::assertFalse($observed['profile']['present']);
         $this->assertUnsynthesized();
@@ -232,8 +232,19 @@ final class NativeEvidenceRestoreNeverSynthesizesProfileTest extends TestCase
         ]);
     }
 
+    /** @return array{result?: string, store_id?: string, store: array{binding: string}, profile: array{present: bool}} */
+    private function decoded(): array
+    {
+        /** @var array{result?: string, store_id?: string, store: array{binding: string}, profile: array{present: bool}} $decoded */
+        $decoded = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
+
+        return $decoded;
+    }
+
     private function publicKey(string $seed): string
     {
+        assert($seed !== '');
+
         return sodium_crypto_sign_publickey(sodium_crypto_sign_seed_keypair($seed));
     }
 }
