@@ -170,6 +170,7 @@ jobs:
           git --version >/dev/null
 
       - name: Log in to GHCR
+        if: ${{ inputs.action != 'cutover' || !inputs.cutover_dry_run }}
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
@@ -589,5 +590,5 @@ jobs:
         run: rm -f deploy/synology/.env
 
       - name: Log out of GHCR
-        if: always()
+        if: ${{ always() && (inputs.action != 'cutover' || !inputs.cutover_dry_run) }}
         run: docker logout ghcr.io >/dev/null 2>&1 || true
