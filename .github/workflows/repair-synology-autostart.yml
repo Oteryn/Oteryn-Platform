@@ -26,8 +26,17 @@ jobs:
     # count below would always be 0 and a configured service would be silently ignored.
     environment: synology-staging
     timeout-minutes: 10
+    # Read access only for the checkout of the shared cutover state gate (deploy/synology/scripts/lib.sh).
+    permissions:
+      contents: read
 
     steps:
+      - name: Checkout the cutover state gate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: deploy/synology/scripts
+
       - name: Set persistent services to always restart
         shell: bash
         env:
@@ -37,8 +46,56 @@ jobs:
           PLATFORM_POSTGRES_APP_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_APP_PASSWORD }}
           PLATFORM_POSTGRES_BACKUP_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_BACKUP_PASSWORD }}
           PLATFORM_POSTGRES_DUMP_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_DUMP_PASSWORD }}
+          OTERYN_STATE_DIR_INPUT: ${{ vars.OTERYN_STAGING_STATE_DIR }}
         run: |
           set -Eeuo pipefail
+
+          # PostgreSQL cutover (ADR 0046, plan P6): the stack is deliberately frozen between the
+          # freeze and unfreeze steps, so restarting it here would undo the freeze, and after retire-mariadb no
+          # mariadb container exists by design. The state is read through the deploy gate's own check
+          # (lib.sh oteryn_read_cutover_state): a linked, unsearchable or not owner-only state directory and a
+          # state file that is not a regular file, cannot be read or is not a state the cutover script can have
+          # written refuse; it is never taken as "no cutover".
+          state_root="${OTERYN_STATE_DIR_INPUT:-/var/lib/oteryn-staging-state}"
+          if [[ ! "$state_root" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
+            echo "OTERYN_STAGING_STATE_DIR must be an absolute simple path." >&2
+            exit 1
+          fi
+          export OTERYN_STATE_DIR="$state_root"
+          # shellcheck source=deploy/synology/scripts/lib.sh
+          source deploy/synology/scripts/lib.sh
+          # lib.sh also wraps docker for deploy.sh; the repair calls the Docker CLI directly.
+          unset -f docker
+          state_rc=0
+          oteryn_read_cutover_state "Autostart repair refused" || state_rc=$?
+          case "$state_rc" in
+            0) ;;
+            3)
+              echo "::notice::A PostgreSQL cutover step holds or left ${OTERYN_CUTOVER_STATE_LOCK}; restart policies are left unchanged."
+              exit 0
+              ;;
+            *) exit 1 ;;
+          esac
+          cutover_state="$OTERYN_CUTOVER_STATE_TEXT"
+          cutover_has() { _oteryn_cutover_step_recorded "$cutover_state" "$1"; }
+          if cutover_has FREEZE && ! cutover_has UNFROZEN; then
+            echo "::notice::The stack is frozen for the PostgreSQL cutover; restart policies are left unchanged until unfreeze."
+            exit 0
+          fi
+          # The freeze writes the bootstrap witness after it stopped the stack and before STEP_FREEZE, and the
+          # verified rollback moves the bootstrap state aside, so short of a finished forward cutover
+          # (MARIADB_RETIRED, which keeps bootstrap-complete.env) any bootstrap record, in whatever form, or one
+          # whose absence cannot be proven, means the cutover owns the stack (the deploy gate's mariadb rule).
+          if ! cutover_has MARIADB_RETIRED && bootstrap_record="$(oteryn_cutover_bootstrap_record)"; then
+            echo "Autostart repair refused: a PostgreSQL cutover record (${bootstrap_record}) exists (or cannot be ruled out) and no finished cutover (MARIADB_RETIRED) is recorded; the cutover owns the stack until its verified rollback moves the bootstrap state aside. Continue the cutover or finish its rollback first." >&2
+            exit 1
+          fi
+          persistent_services=(platform internal-proxy gateway marketplace-scheduler)
+          if cutover_has RETIRE_STARTED || cutover_has MARIADB_RETIRED; then
+            echo "MariaDB is retired by the PostgreSQL cutover; it is not repaired."
+          else
+            persistent_services=(mariadb "${persistent_services[@]}")
+          fi
 
           resolve_one() {
             local project="$1"
@@ -57,7 +114,7 @@ jobs:
 
           declare -a containers=()
           containers+=("$(resolve_one oteryn-organization-runners platform)")
-          for service in mariadb platform internal-proxy gateway marketplace-scheduler; do
+          for service in "${persistent_services[@]}"; do
             # One-time rollout: the scheduler is created by the next deployment, so a stack
             # deployed before it became a base service legitimately has none yet.
             if [[ "$service" == marketplace-scheduler ]] && [[ -z "$(docker ps -aq \

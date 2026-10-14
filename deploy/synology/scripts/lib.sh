@@ -137,6 +137,90 @@ oteryn_require_postgres_secrets_for_engine() {
     fi
 }
 
+# The read-only cutover state check shared by oteryn_require_cutover_deploy_window and the Synology autostart
+# repair (.github/workflows/repair-synology-autostart.yml), so both stay off the stack on the same evidence.
+# Refuses (returns 1, "<refusal>: ..." on stderr) a linked, unsearchable or not owner-only cutover or bootstrap
+# state directory, a state file that is not a regular file, cannot be proven absent or cannot be read, and a
+# state text cutover-postgres.sh cannot have written (_oteryn_cutover_state_valid). Returns 3 without a
+# message while $OTERYN_CUTOVER_STATE_LOCK (run.lock) exists, before the state is read: a running step may be
+# mid-append. Returns 0 with the validated state text in OTERYN_CUTOVER_STATE_TEXT ("" only when the state
+# file is provably absent).
+# Usage: oteryn_read_cutover_state <refusal prefix>
+oteryn_read_cutover_state() {
+    local refused="$1" root state_dir bootstrap_dir state_file state_text=""
+    OTERYN_CUTOVER_STATE_TEXT=""
+    root="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
+    state_dir="${OTERYN_CUTOVER_STATE_DIR:-$root/postgres-cutover}"
+    bootstrap_dir="${OTERYN_PG_BOOTSTRAP_STATE_DIR:-$root/postgres-bootstrap}"
+    state_file="$state_dir/cutover-state.env"
+    OTERYN_CUTOVER_STATE_LOCK="$state_dir/run.lock"
+    # Checked before any marker is read: -d and -x follow a link, and the cutover and bootstrap scripts refuse
+    # linked state directories, so a linked one is never inspected through its target.
+    if [[ -L "$state_dir" || -L "$bootstrap_dir" ]]; then
+        echo "$refused: a cutover or bootstrap state directory is a link ($state_dir, $bootstrap_dir)." >&2
+        return 1
+    fi
+    if [[ -e "$state_dir" ]] && [[ ! -d "$state_dir" || ! -x "$state_dir" ]]; then
+        echo "$refused: the cutover state directory $state_dir cannot be inspected." >&2
+        return 1
+    fi
+    # Every record in these directories decides the gate, so an existing one must be trusted as
+    # bootstrap-postgres.sh requires before it reads any record: owned by the caller (the workflows run the
+    # deploy, the repair and the cutover as the same user), not group- or world-writable.
+    local trusted_dir
+    for trusted_dir in "$state_dir" "$bootstrap_dir"; do
+        if [[ -e "$trusted_dir" ]] && ! _oteryn_state_dir_trusted "$trusted_dir"; then
+            echo "$refused: the cutover or bootstrap state directory $trusted_dir must be an owner-only directory (owned by the deploying user, not group- or world-writable)." >&2
+            return 1
+        fi
+    done
+    if [[ -L "$state_file" ]] || [[ -e "$state_file" && ! -f "$state_file" ]]; then
+        echo "$refused: the cutover state $state_file is not a regular file." >&2
+        return 1
+    fi
+    # -e is false on any stat error, not only on a missing file: absence counts only below a searchable directory.
+    if [[ ! -e "$state_file" ]] && ! _oteryn_state_path_absent "$state_file"; then
+        echo "$refused: the cutover state $state_file cannot be inspected; restore access to its directory first." >&2
+        return 1
+    fi
+    if [[ -e "$OTERYN_CUTOVER_STATE_LOCK" || -L "$OTERYN_CUTOVER_STATE_LOCK" ]]; then
+        return 3
+    fi
+    if [[ -e "$state_file" ]]; then
+        # The trailing "." keeps a missing final newline visible (command substitution strips newlines).
+        if ! state_text="$(_oteryn_read_state_file "$state_file" && printf .)"; then
+            echo "$refused: the cutover state $state_file cannot be read; restore its access first." >&2
+            return 1
+        fi
+        state_text="${state_text%.}"
+        if ! _oteryn_cutover_state_valid "$state_text"; then
+            echo "$refused: the cutover state $state_file is empty, truncated or malformed; inspect it first." >&2
+            return 1
+        fi
+    fi
+    OTERYN_CUTOVER_STATE_TEXT="$state_text"
+}
+
+# Prints the first PostgreSQL bootstrap state record (witness-freeze.env, witness-moved-aside.env,
+# bootstrap-complete.env) that exists in any form or whose absence cannot be proven, and returns 0; returns 1
+# when all three are provably absent. The freeze writes witness-freeze.env (record-witness) after it stopped the
+# stack and before STEP_FREEZE, so a freeze that exited in between (its run.lock removed on exit) is still seen;
+# the verified cutover rollback moves the whole bootstrap state directory aside.
+# Usage: oteryn_cutover_bootstrap_record
+oteryn_cutover_bootstrap_record() {
+    local root bootstrap_dir record
+    root="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
+    bootstrap_dir="${OTERYN_PG_BOOTSTRAP_STATE_DIR:-$root/postgres-bootstrap}"
+    for record in "$bootstrap_dir/witness-freeze.env" "$bootstrap_dir/witness-moved-aside.env" \
+        "$bootstrap_dir/bootstrap-complete.env"; do
+        if [[ -e "$record" || -L "$record" ]] || ! _oteryn_state_path_absent "$record"; then
+            printf '%s\n' "$record"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Cutover deploy window (ADR 0046, plan P6, scripts/cutover-postgres.sh). An ordinary deploy must not touch the
 # stack while the cutover owns it. Refuses (returns 1), read-only and before any stack change:
 #   - a cutover state that exists but cannot be inspected (not a regular file, a link, a linked or unsearchable
@@ -173,59 +257,22 @@ oteryn_require_postgres_secrets_for_engine() {
 # The paths follow cutover-postgres.sh (OTERYN_STATE_DIR, OTERYN_CUTOVER_STATE_DIR, OTERYN_PG_BOOTSTRAP_STATE_DIR).
 # Usage: oteryn_require_cutover_deploy_window <compose file>
 oteryn_require_cutover_deploy_window() {
-    local compose_file="$1" root state_dir bootstrap_dir state_file complete_file state_text="" complete_text
+    local compose_file="$1" root bootstrap_dir complete_file state_text complete_text state_rc=0
     root="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
-    state_dir="${OTERYN_CUTOVER_STATE_DIR:-$root/postgres-cutover}"
     bootstrap_dir="${OTERYN_PG_BOOTSTRAP_STATE_DIR:-$root/postgres-bootstrap}"
-    state_file="$state_dir/cutover-state.env"
     complete_file="$bootstrap_dir/bootstrap-complete.env"
-    # Checked before any marker is read: -d and -x follow a link, and the cutover and bootstrap scripts refuse
-    # linked state directories, so a linked one is never inspected through its target.
-    if [[ -L "$state_dir" || -L "$bootstrap_dir" ]]; then
-        echo "Deploy refused: a cutover or bootstrap state directory is a link ($state_dir, $bootstrap_dir)." >&2
-        return 1
-    fi
-    if [[ -e "$state_dir" ]] && [[ ! -d "$state_dir" || ! -x "$state_dir" ]]; then
-        echo "Deploy refused: the cutover state directory $state_dir cannot be inspected." >&2
-        return 1
-    fi
-    # Every record in these directories decides the gate, so an existing one must be trusted as
-    # bootstrap-postgres.sh requires before it reads any record: owned by the caller (the workflow runs the
-    # deploy and the cutover as the same user), not group- or world-writable.
-    local trusted_dir
-    for trusted_dir in "$state_dir" "$bootstrap_dir"; do
-        if [[ -e "$trusted_dir" ]] && ! _oteryn_state_dir_trusted "$trusted_dir"; then
-            echo "Deploy refused: the cutover or bootstrap state directory $trusted_dir must be an owner-only directory (owned by the deploying user, not group- or world-writable)." >&2
+    oteryn_read_cutover_state "Deploy refused" || state_rc=$?
+    case "$state_rc" in
+        0) ;;
+        # cutover-postgres.sh holds run.lock while a step runs; a lock left behind marks a step interrupted before
+        # it recorded its marker (a freeze that stopped the stack before STEP_FREEZE).
+        3)
+            echo "Deploy refused: a cutover step holds or left $OTERYN_CUTOVER_STATE_LOCK; finish or inspect that step first." >&2
             return 1
-        fi
-    done
-    if [[ -L "$state_file" ]] || [[ -e "$state_file" && ! -f "$state_file" ]]; then
-        echo "Deploy refused: the cutover state $state_file is not a regular file." >&2
-        return 1
-    fi
-    # -e is false on any stat error, not only on a missing file: absence counts only below a searchable directory.
-    if [[ ! -e "$state_file" ]] && ! _oteryn_state_path_absent "$state_file"; then
-        echo "Deploy refused: the cutover state $state_file cannot be inspected; restore access to its directory before deploying." >&2
-        return 1
-    fi
-    # cutover-postgres.sh holds run.lock while a step runs; a lock left behind marks a step interrupted before it
-    # recorded its marker (a freeze that stopped the stack before STEP_FREEZE).
-    if [[ -e "$state_dir/run.lock" || -L "$state_dir/run.lock" ]]; then
-        echo "Deploy refused: a cutover step holds or left $state_dir/run.lock; finish or inspect that step first." >&2
-        return 1
-    fi
-    if [[ -e "$state_file" ]]; then
-        # The trailing "." keeps a missing final newline visible (command substitution strips newlines).
-        if ! state_text="$(_oteryn_read_state_file "$state_file" && printf .)"; then
-            echo "Deploy refused: the cutover state $state_file cannot be read; restore its access before deploying." >&2
-            return 1
-        fi
-        state_text="${state_text%.}"
-        if ! _oteryn_cutover_state_valid "$state_text"; then
-            echo "Deploy refused: the cutover state $state_file is empty, truncated or malformed; inspect it before deploying." >&2
-            return 1
-        fi
-    fi
+            ;;
+        *) return 1 ;;
+    esac
+    state_text="$OTERYN_CUTOVER_STATE_TEXT"
     case "${OTERYN_PLATFORM_DB_ENGINE:-}" in
         mariadb)
             if _oteryn_cutover_step_recorded "$state_text" FREEZE \
@@ -239,12 +286,10 @@ oteryn_require_cutover_deploy_window() {
             # freeze that exited in between (its run.lock removed on exit) is still seen. Any such record that
             # exists, in whatever form or content, or whose absence cannot be proven, refuses.
             local bootstrap_record
-            for bootstrap_record in "$bootstrap_dir/witness-freeze.env" "$bootstrap_dir/witness-moved-aside.env" "$complete_file"; do
-                if [[ -e "$bootstrap_record" || -L "$bootstrap_record" ]] || ! _oteryn_state_path_absent "$bootstrap_record"; then
-                    echo "Deploy refused: a PostgreSQL cutover record ($bootstrap_record) exists (or cannot be ruled out) on the mariadb engine; the cutover froze the stack, and it owns it until its verified rollback moves the bootstrap state aside." >&2
-                    return 1
-                fi
-            done
+            if bootstrap_record="$(oteryn_cutover_bootstrap_record)"; then
+                echo "Deploy refused: a PostgreSQL cutover record ($bootstrap_record) exists (or cannot be ruled out) on the mariadb engine; the cutover froze the stack, and it owns it until its verified rollback moves the bootstrap state aside." >&2
+                return 1
+            fi
             ;;
         postgres)
             if [[ ! -f "$complete_file" || -L "$complete_file" ]]; then
