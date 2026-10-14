@@ -168,7 +168,7 @@ While native admission is live, `rotate` refuses (exit 3) unless run as `rotate 
 
 Native-login settings need no hand-set GitHub variable: `deploy/synology/native-defaults.env` holds committed non-secret defaults (native World, runtime-status and scope-assignment identities, admission on). A repository variable of the same name overrides the file, and a change to the file ships through a normal PR. Native admission is opt-in. Set the repository variable (or the file value) `OTERYN_STAGING_NATIVE_ADMISSION_ENABLED=true` only together with `OTERYN_STAGING_NATIVE_RUNTIME_STATUS_IDENTITIES` and `OTERYN_STAGING_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES` (the Game identities that report runtime status and own scope assignment; without them no scope is routable); deploy refuses otherwise. Rollback enables it for an image only if that image has both the self-check command and the entrypoint key export.
 
-Account-character projection is on: `compose.yml` pins `GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED=true` with source authority `oteryn:character-authority:primary` and the projection identity `CN=oteryn-preprod-character-projection`, and turns the D171 fallback off (`GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_OWNERSHIP=false`). No native World UUID is committed or required: the client directory lists the World from the native route record. `OTERYN_STAGING_NATIVE_WORLD_ID` remains an optional repository variable, needed only by the opt-in route publication step.
+Account-character projection is on: `compose.yml` pins `GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_ENABLED=true` with source authority `oteryn:character-authority:primary` and the projection identity `CN=oteryn-preprod-character-projection`, and turns the D171 fallback off (`GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_OWNERSHIP=false`). Native admission needs no World UUID: the client directory lists the World from the native route record. Route publication does: it is on by default (`OTERYN_STAGING_NATIVE_ROUTE_PUBLISH_ENABLED=true` in `native-defaults.env`), and `oteryn_native_route_publish_validate` refuses the deploy without `OTERYN_STAGING_NATIVE_WORLD_ID`, so that committed default must stay (a repository variable overrides it).
 
 Rollback of a Platform image that predates the self-check sets `OTERYN_NATIVE_ADMISSION_ENABLED=false` for that image only (both flags stay paired), so the older release restores with native login off.
 
@@ -244,7 +244,7 @@ GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_IDENTITIES=["CN=oteryn-preprod-character-pro
 
 `health-check.sh` leaves native admission enabled only after the running Platform reports a live account-character feed (a fresh watermark from the Character Authority; `lib.sh` `oteryn_wait_native_account_characters_feed`, waits up to `OTERYN_NATIVE_ACCOUNT_CHARACTERS_FEED_WAIT_SECONDS`, default 90). Without it every login would be refused while the unknown-ticket probe passes, so the check fails closed and the deployment is not reported healthy.
 
-The D171 fallback and its `OTERYN_STAGING_NATIVE_WORLD_ID` tie are gone from the committed defaults; deploy no longer refuses native admission for a missing World UUID.
+The D171 fallback is off, and native admission no longer needs a World UUID. `OTERYN_STAGING_NATIVE_WORLD_ID` stays committed in `native-defaults.env` because route publication, on by default, requires it; removing it makes every deploy fail before route publication.
 
 ## PostgreSQL service
 
