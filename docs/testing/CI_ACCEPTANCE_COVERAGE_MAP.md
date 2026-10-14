@@ -22,9 +22,9 @@ Read-only inventory of which workflow runs on which event, taken from `.github/w
 | Core CI | `ci.yml` | all PRs | yes | all pushes |
 | Portal and content acceptance | `acceptance-validation`, `portal-acceptance-contract`, `announcements-`, `community-data-`, `content-scale-`, `downloads-`, `editorial-media-`, `error-state-`, `events-`, `support-legal-`, `support-moderation-`, `wiki-reconciliation-acceptance` | path-filtered | no | same path filter |
 | Portal audit (PR only) | `portal-e2e-audit` | path-filtered (its own workflow file) | no | not run after merge |
-| Runtime and contract | `playwright-runtime-validation`, `game-catalog-contract`, `game-gateway-ci`, `native-protocol-contract`, `native-protocol-contract-audits`, `codeql`, `agent-governance`, `branch-lifecycle`, `terminal-branch-lifecycle`, `parallel-coordinator-prompt-eval` | path-filtered | no | same path filter |
+| Runtime and contract | `playwright-runtime-validation`, `tibia-linux-live-reference` (PR only, no push), `game-catalog-contract`, `game-gateway-ci`, `native-protocol-contract`, `native-protocol-contract-audits`, `codeql`, `agent-governance`, `branch-lifecycle`, `terminal-branch-lifecycle`, `parallel-coordinator-prompt-eval`, `historical-branch-audit` (also weekly cron) | path-filtered | no | same path filter |
 | Whole-tree validation | `phase7-production-like-validation`, `platform-db-outage-validation`, `game-auth-ticket-concurrency`, `edge-security-emulation` | every PR except `paths-ignore` (agent docs and templates) | no | not run |
-| Deploy and edge | `synology-rollback-contract`, `character-bazaar-staging-validation`, `build-synology-staging-images`, `cloudflare-*`, `oteryn-public-edge-validation`, `synology-*` | path-filtered | no | not run, same filter, or a narrower trigger-file filter (see below) |
+| Deploy and edge | `synology-rollback-contract`, `character-bazaar-staging-validation`, `build-synology-staging-images`, `cloudflare-*`, `oteryn-public-edge-validation`, `synology-container-hygiene`, `synology-production-target-preflight` (PR only), `synology-diagnostics` (push and manual only, never a PR) | path-filtered | no | not run, same filter, or a narrower trigger-file filter (see below) |
 | Scheduled soak | `acceptance-soak`, `acceptance-stability` | no | no | no (weekly cron) |
 
 ## Reading the map
@@ -34,6 +34,66 @@ Read-only inventory of which workflow runs on which event, taken from `.github/w
 - The Whole-tree validation group runs on PRs only. It has no `push` or `merge_group` trigger, so after a merge nothing re-runs it until the next PR.
 - Specialist workflows have no `merge_group` trigger, so a Merge Queue candidate is not re-checked by them. Adding one requires the `merge_group` invocation and its required aggregation together; removing only the PR or `push` trigger leaves a gap.
 - A specialist workflow that is path-filtered and not required does not block `platform-gate`; a skipped one is invisible to the aggregate.
+
+## Complete per-workflow triggers
+
+Generated from the `on:` block of every file in `.github/workflows/` on `main`. `paths(n)` is a path filter with n entries; `narrower` means the `push` filter is a strict subset of the `pull_request` filter. This table, not the group summary above, is authoritative when the two differ. The last column is `workflow_dispatch` (`no (reusable)` marks `workflow_call` files).
+
+| Workflow | `pull_request` | `merge_group` | `push` to `main` | `schedule` | Manual |
+|---|---|---|---|---|---|
+| `acceptance-soak.yml` | no | no | no | weekly/cron | yes |
+| `acceptance-stability.yml` | no | no | no | weekly/cron | yes |
+| `acceptance-validation.yml` | paths(11) | no | paths(11) (same) | no | yes |
+| `agent-governance.yml` | paths(7) | no | paths(7) (same) | no | yes |
+| `announcements-acceptance.yml` | paths(13) | no | paths(13) (same) | no | yes |
+| `branch-lifecycle.yml` | paths(6) | no | paths(6) (same) | no | yes |
+| `build-synology-staging-images.yml` | paths(74) | no | paths(74) (same) | no | yes |
+| `character-bazaar-staging-control.yml` | no | no | paths(5) | no | yes |
+| `character-bazaar-staging-validation.yml` | paths(9) | no | paths(9) (same) | no | yes |
+| `ci.yml` | all | all | all | no | no |
+| `cloudflare-oteryn-edge-audit.yml` | paths(9) | no | no | no | no |
+| `cloudflare-oteryn-endpoint-main-operation.yml` | paths(3) | no | paths(1) (narrower) | no | no |
+| `cloudflare-oteryn-endpoints.yml` | paths(7) | no | no | no | yes |
+| `cloudflare-oteryn-hsts-stage1.yml` | paths(5) | no | paths(1) (narrower) | no | no |
+| `cloudflare-oteryn-public-edge-repair.yml` | paths(5) | no | paths(1) (narrower) | no | no |
+| `cloudflare-zone-edge-audit.yml` | paths(7) | no | paths(7) (same) | no | yes |
+| `codeql.yml` | paths(14) | no | paths(14) (same) | weekly/cron | yes |
+| `community-data-acceptance.yml` | paths(31) | no | paths(31) (same) | no | yes |
+| `content-scale-acceptance.yml` | paths(36) | no | paths(36) (same) | no | yes |
+| `deploy-synology-staging.yml` | no | no | no | no | yes |
+| `downloads-acceptance.yml` | paths(18) | no | paths(18) (same) | no | yes |
+| `edge-security-emulation.yml` | all except 5 ignored | no | no | no | yes |
+| `editorial-media-acceptance.yml` | paths(14) | no | paths(14) (same) | no | yes |
+| `error-state-acceptance.yml` | paths(17) | no | paths(17) (same) | no | yes |
+| `events-acceptance.yml` | paths(10) | no | paths(10) (same) | no | yes |
+| `game-auth-ticket-concurrency.yml` | all except 5 ignored | no | no | no | no |
+| `game-catalog-contract.yml` | paths(10) | no | paths(10) (same) | no | yes |
+| `game-gateway-ci.yml` | paths(2) | no | paths(2) (same) | no | no |
+| `github-actions-storage-hygiene.yml` | paths(3) | no | no | weekly/cron | yes |
+| `historical-branch-audit.yml` | paths(11) | no | paths(11) (same) | weekly/cron | yes |
+| `native-protocol-contract-audits.yml` | paths(8) | no | paths(8) (same) | no | no |
+| `native-protocol-contract.yml` | paths(5) | no | paths(5) (same) | no | no |
+| `oteryn-public-edge-validation.yml` | paths(6) | no | paths(1) (narrower) | no | no |
+| `parallel-coordinator-prompt-eval.yml` | paths(3) | no | paths(3) (same) | no | yes |
+| `phase7-production-like-validation.yml` | all except 5 ignored | no | no | no | yes |
+| `platform-db-outage-validation.yml` | all except 5 ignored | no | no | no | yes |
+| `playwright-runtime-validation.yml` | paths(8) | no | paths(8) (same) | no | yes |
+| `portal-acceptance-contract.yml` | paths(17) | no | paths(17) (same) | no | yes |
+| `portal-e2e-audit.yml` | paths(1) | no | no | no | yes |
+| `recover-synology-staging-schema.yml` | no | no | no | no | yes |
+| `repair-synology-autostart.yml` | no | no | paths(3) | no | yes |
+| `repair-synology-compose-orphans.yml` | no | no | no | no | yes |
+| `support-legal-acceptance.yml` | paths(23) | no | paths(23) (same) | no | yes |
+| `support-moderation-acceptance.yml` | paths(24) | no | paths(24) (same) | no | yes |
+| `synology-container-hygiene.yml` | paths(5) | no | no | no | yes |
+| `synology-diagnostics.yml` | no | no | paths(1) | no | yes |
+| `synology-production-target-preflight.yml` | paths(8) | no | no | no | yes |
+| `synology-rollback-contract.yml` | paths(11) | no | paths(11) (same) | no | yes |
+| `terminal-branch-lifecycle-read-reusable.yml` | no | no | no | no | no (reusable) |
+| `terminal-branch-lifecycle-reusable.yml` | no | no | no | no | no (reusable) |
+| `terminal-branch-lifecycle.yml` | paths(15) | no | paths(15) (same) | no | yes |
+| `tibia-linux-live-reference.yml` | paths(2) | no | no | no | yes |
+| `wiki-reconciliation-acceptance.yml` | paths(23) | no | paths(23) (same) | no | yes |
 
 ## Not decided here
 
