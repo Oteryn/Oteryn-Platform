@@ -193,6 +193,10 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(5)->by($this->authenticatedIdentitySourceKey($request));
         });
 
+        RateLimiter::for('character-create-status', function (Request $request): Limit {
+            return Limit::perMinute(60)->by($this->authenticatedIdentitySourceKey($request));
+        });
+
         RateLimiter::for('marketplace-listing', function (Request $request): Limit {
             return Limit::perMinute(3)->by($this->authenticatedIdentitySourceKey($request));
         });

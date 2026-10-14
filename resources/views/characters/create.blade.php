@@ -37,6 +37,17 @@
                 <option value="1" @selected((string) old('sex', '1') === '1')>{{ __('portal.create.male') }}</option>
             </select>
         </div>
+        @if ($commandsEnabled)
+        <input type="hidden" name="submission" value="{{ $submission }}">
+        <div class="form-field">
+            <label for="world">{{ __('portal.create.world') }}</label>
+            <select id="world" name="world" required>
+                @foreach ($worlds as $world)
+                <option value="{{ $world->world_id }}" @selected((string) old('world') === $world->world_id)>{{ $world->name }}</option>
+                @endforeach
+            </select>
+        </div>
+        @endif
         <button type="submit">{{ __('portal.create.submit') }}</button>
     </form>
 

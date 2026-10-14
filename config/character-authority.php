@@ -24,4 +24,19 @@ return [
         'requests_per_minute' => env('CHARACTER_AUTHORITY_COMMAND_REQUESTS_PER_MINUTE', 600),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Web character creation (Game contract §14 step 3)
+    |--------------------------------------------------------------------------
+    |
+    | When on, and the command surface above is usable, the Account Center form records a
+    | `CreateCharacter` intent and shows the outcome from Game's receipt. Off by default: the form
+    | keeps answering "temporarily unavailable". Enablement (step 4) waits on U-CC7 and U-CC9.
+    |
+    */
+
+    'create' => [
+        'enabled' => filter_var(env('CHARACTER_AUTHORITY_WEB_CREATE_ENABLED', false), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) === true,
+    ],
+
 ];
