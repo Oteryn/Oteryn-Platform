@@ -1093,8 +1093,25 @@ def parse_mountinfo(text):
         f = line.split(" ")
         if len(f) < 10 or "-" not in f:
             continue
-        out.append({"dev": f[2], "root": _unescape(f[3]), "mp": _unescape(f[4])})
+        sep = f.index("-")
+        fstype = f[sep + 1] if len(f) > sep + 1 else ""
+        opts = f[sep + 3].split(",") if len(f) > sep + 3 else []
+        subvol = next((_unescape(o[len("subvol="):]) for o in opts if o.startswith("subvol=")), None)
+        out.append({"dev": f[2], "root": _unescape(f[3]), "mp": _unescape(f[4]),
+                    "subvol": subvol if fstype == "btrfs" else None})
     return out
+
+
+def subvolume_split(entry):
+    """(subvolume, root inside it) of a mountinfo entry.
+
+    On btrfs the kernel reports `root` from the file system's top level, so it carries the path of the
+    subvolume the host mounted (Synology mounts `/@syno` at `/volume1`). Without a btrfs `subvol=` that
+    prefixes the root, the subvolume is the file system itself (`""`)."""
+    root, subvol = entry["root"], (entry.get("subvol") or "").rstrip("/")
+    if subvol and (root == subvol or root.startswith(subvol + "/")):
+        return subvol, root[len(subvol):] or "/"
+    return "", root
 
 
 def volume_mount_points(mounts, mi, docker_root):
@@ -1103,8 +1120,10 @@ def volume_mount_points(mounts, mi, docker_root):
     The daemon resolves symlinks in its root directory, so `DockerRootDir` is a real host path, and it
     creates `volumes/<name>/_data` itself. A named volume of the runner under that root therefore has a
     `Source` that is a real host path, and its `mountinfo` root is the same directory inside its file
-    system: `Source` minus that root is where the device is mounted on the host. A device without such
-    a volume, or with volumes that disagree, has no entry, and a bind mount on it cannot be resolved."""
+    system: `Source` minus that root is where the device is mounted on the host. On btrfs the root is
+    taken inside the volume's subvolume, and the entry is (subvolume, host mount point of it). A device
+    without such a volume, or with volumes that disagree, has no entry, and a bind mount on it cannot be
+    resolved."""
     base = posixpath.normpath(docker_root) if docker_root.startswith("/") else None
     seen = {}
     for m in mounts:
@@ -1115,19 +1134,26 @@ def volume_mount_points(mounts, mi, docker_root):
         entry = mi(m.get("Destination", ""))
         if entry is None:
             continue
-        src, root = posixpath.normpath(src), entry["root"]
+        src = posixpath.normpath(src)
+        subvol, root = subvolume_split(entry)
         if root == "/":
-            prefix = src
+            point = (subvol, src)
         elif src.endswith(root):
-            prefix = src[:-len(root)]
+            point = (subvol, src[:-len(root)])
         else:
-            prefix = None
-        seen.setdefault(entry["dev"], set()).add(prefix)
+            point = None
+        seen.setdefault(entry["dev"], set()).add(point)
     return {dev: p.pop() for dev, p in seen.items() if len(p) == 1 and None not in p}
 
 
-def canonical_at(prefix, root):
-    """The host path of a mount whose file system is mounted at `prefix` (`""` for `/`)."""
+def canonical_at(point, root):
+    """The host path of a mount at file-system `root`, given its device's (subvolume, host mount point)
+    (`""` for `/`); None when the root lies outside that subvolume."""
+    subvol, prefix = point
+    if subvol:
+        if root != subvol and not root.startswith(subvol + "/"):
+            return None
+        root = root[len(subvol):] or "/"
     return (prefix + ("" if root == "/" else root)) or "/"
 
 
@@ -1202,7 +1228,7 @@ def cmd_check_location(a):
             dev = entry["dev"] if entry else None
             # A bind on the evidence device resolves through that device's verified mount point; one on
             # another device is on another volume and is skipped below.
-            path = canonical_at(points[dev], entry["root"]) if dev in points else src
+            path = (canonical_at(points[dev], entry["root"]) if dev in points else None) or src
             if dev is not None and ev_dev is not None and dev != ev_dev:
                 continue
             if overlaps(canonical, path):
