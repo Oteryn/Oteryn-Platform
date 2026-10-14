@@ -23,7 +23,7 @@ jobs:
       group: platform-runners
       labels: oteryn-platform
     # Environment secrets reach only jobs bound to their environment; without this the PostgreSQL secret
-    # count below would always be 0 and a configured service would be silently ignored.
+    # count below would always be 0 and the required service would be refused as unconfigured.
     environment: synology-staging
     timeout-minutes: 10
     # Read access only for the checkout of the shared cutover state gate (deploy/synology/scripts/lib.sh).
@@ -40,7 +40,7 @@ jobs:
       - name: Set persistent services to always restart
         shell: bash
         env:
-          # Presence only, never printed: the durable desired-state signal for the idle PostgreSQL service.
+          # Presence only, never printed: PostgreSQL is the Platform database (plan P7), so all five are required.
           PLATFORM_POSTGRES_SUPERUSER_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_SUPERUSER_PASSWORD }}
           PLATFORM_POSTGRES_OWNER_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_OWNER_PASSWORD }}
           PLATFORM_POSTGRES_APP_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_APP_PASSWORD }}
@@ -85,17 +85,15 @@ jobs:
           # The freeze writes the bootstrap witness after it stopped the stack and before STEP_FREEZE, and the
           # verified rollback moves the bootstrap state aside, so short of a finished forward cutover
           # (MARIADB_RETIRED, which keeps bootstrap-complete.env) any bootstrap record, in whatever form, or one
-          # whose absence cannot be proven, means the cutover owns the stack (the deploy gate's mariadb rule).
+          # whose absence cannot be proven, means the cutover owns the stack: an interrupted freeze or rollback is
+          # never given restart=always.
           if ! cutover_has MARIADB_RETIRED && bootstrap_record="$(oteryn_cutover_bootstrap_record)"; then
             echo "Autostart repair refused: a PostgreSQL cutover record (${bootstrap_record}) exists (or cannot be ruled out) and no finished cutover (MARIADB_RETIRED) is recorded; the cutover owns the stack until its verified rollback moves the bootstrap state aside. Continue the cutover or finish its rollback first." >&2
             exit 1
           fi
+          # MariaDB is retired (plan P7, the cutover retire-mariadb step): compose.yml no longer defines it and
+          # no mariadb container is resolved, restarted or given a restart policy here.
           persistent_services=(platform internal-proxy gateway marketplace-scheduler)
-          if cutover_has RETIRE_STARTED || cutover_has MARIADB_RETIRED; then
-            echo "MariaDB is retired by the PostgreSQL cutover; it is not repaired."
-          else
-            persistent_services=(mariadb "${persistent_services[@]}")
-          fi
 
           resolve_one() {
             local project="$1"
@@ -125,28 +123,14 @@ jobs:
             fi
             containers+=("$(resolve_one oteryn-staging "$service")")
           done
-          # The idle PostgreSQL service (plan P4) is desired exactly when its five secrets are configured, never
-          # because a container exists: after the documented rollback the stopped container is kept for
-          # postgres_data and must not be restarted or given restart=always here.
+          # PostgreSQL is the Platform database since the P6 cutover (plan P7): its five secrets are required, as
+          # deploy.sh and health-check.sh require them, and exactly one postgres container must exist.
           configured=0
           for name in PLATFORM_POSTGRES_SUPERUSER_PASSWORD PLATFORM_POSTGRES_OWNER_PASSWORD \
             PLATFORM_POSTGRES_APP_PASSWORD PLATFORM_POSTGRES_BACKUP_PASSWORD PLATFORM_POSTGRES_DUMP_PASSWORD; do
             if [[ -n "${!name:-}" ]]; then configured=$((configured + 1)); fi
           done
           case "$configured" in
-            0)
-              echo "PostgreSQL is not configured; any stopped postgres container is retired and left alone."
-              # A RUNNING postgres service without its secrets is drift or a lost configuration, not "disabled".
-              # The same holds for its backup sidecar (plan P5).
-              for pg_service in postgres postgres-backup; do
-                if [[ -n "$(docker ps -q \
-                      --filter "label=com.docker.compose.project=oteryn-staging" \
-                      --filter "label=com.docker.compose.service=${pg_service}")" ]]; then
-                  echo "A ${pg_service} container is running but the PostgreSQL secrets are not configured." >&2
-                  exit 1
-                fi
-              done
-              ;;
             5)
               containers+=("$(resolve_one oteryn-staging postgres)")
               # The backup sidecar (plan P5) belongs to the configured service. One-time rollout: a stack
@@ -159,7 +143,7 @@ jobs:
                 containers+=("$(resolve_one oteryn-staging postgres-backup)")
               fi
               ;;
-            *) echo "PostgreSQL secrets are partially configured ($configured of 5)." >&2; exit 1 ;;
+            *) echo "PostgreSQL is the Platform database but only $configured of its 5 secrets are configured." >&2; exit 1 ;;
           esac
 
           docker update --restart=always "${containers[@]}" >/dev/null

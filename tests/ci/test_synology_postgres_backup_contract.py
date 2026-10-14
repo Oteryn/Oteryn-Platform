@@ -130,8 +130,9 @@ class DeployWiringTest(unittest.TestCase):
     def test_health_check_fails_on_structure_and_warns_on_degraded_backups(self) -> None:
         health = HEALTH.read_text()
         self.assertIn('bash "$SCRIPT_DIR/backup-postgres.sh" check || backup_status=$?', health)
-        self.assertIn("        3) echo \"WARNING: PostgreSQL backups are degraded", health)
-        self.assertIn("        *) exit 1 ;;", health)
+        self.assertIn("\n    3) echo \"WARNING: PostgreSQL backups are degraded", health)
+        self.assertIn('case "$backup_status" in\n    0) ;;\n', health)
+        self.assertIn("\n    *) exit 1 ;;\nesac\n", health)
         script = BACKUP_POSTGRES.read_text()
         self.assertIn("        exit 3\n", script)
         # The deploy reconcile is strict when its backups finish within the budget: it ends with a check
@@ -308,16 +309,26 @@ class AutostartRepairTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("start", self.started())
 
-    def test_a_running_sidecar_without_secrets_is_drift(self) -> None:
-        result = self.repair("postgres=c-pg postgres-backup=c-pgb", "postgres-backup", secrets=False)
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("A postgres-backup container is running", result.stderr)
-        self.assertNotIn("start", self.started())
-
-    def test_stopped_postgres_containers_without_secrets_stay_stopped(self) -> None:
-        result = self.repair("postgres=c-pg postgres-backup=c-pgb", "", secrets=False)
+    def test_a_leftover_mariadb_container_is_never_repaired(self) -> None:
+        result = self.repair("postgres=c-pg postgres-backup=c-pgb", "", secrets=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn("c-pg", self.started())
+        self.assertNotIn("c-mariadb", self.started())
+
+    def test_missing_secrets_fail_before_any_container_is_touched(self) -> None:
+        for running in ("", "postgres postgres-backup"):
+            with self.subTest(running=running):
+                result = self.repair("postgres=c-pg postgres-backup=c-pgb", running, secrets=False)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("only 0 of its 5 secrets are configured", result.stderr)
+                self.assertEqual(self.started(), "")
+
+    def test_a_partial_secret_set_fails_before_any_container_is_touched(self) -> None:
+        env_script = self.script.read_text()
+        self.script.write_text("PLATFORM_POSTGRES_DUMP_PASSWORD=\n" + env_script)
+        result = self.repair("postgres=c-pg postgres-backup=c-pgb", "", secrets=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("only 4 of its 5 secrets are configured", result.stderr)
+        self.assertEqual(self.started(), "")
 
 
 class SpoolTestCase(unittest.TestCase):

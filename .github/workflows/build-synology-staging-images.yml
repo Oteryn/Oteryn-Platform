@@ -40,7 +40,6 @@ on:
       - deploy/synology/docker/platform-media.ini
       - deploy/synology/docker/gateway.Dockerfile
       - deploy/synology/docker/gateway.Dockerfile.dockerignore
-      - deploy/synology/mariadb/init/**
       - deploy/synology/nginx/**
       - deploy/synology/postgres/**
       - deploy/synology/tls/**
@@ -118,7 +117,6 @@ on:
       - deploy/synology/docker/platform-media.ini
       - deploy/synology/docker/gateway.Dockerfile
       - deploy/synology/docker/gateway.Dockerfile.dockerignore
-      - deploy/synology/mariadb/init/**
       - deploy/synology/nginx/**
       - deploy/synology/postgres/**
       - deploy/synology/tls/**
@@ -243,8 +241,7 @@ jobs:
             deploy/synology/postgres/backup/backup-job.sh \
             deploy/synology/runner/entrypoint.sh
           sh -n \
-            deploy/synology/tls/init.sh \
-            deploy/synology/mariadb/init/10-platform-database.sh
+            deploy/synology/tls/init.sh
 
       - name: Validate Synology contracts
         run: |

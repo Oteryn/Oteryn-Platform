@@ -21,40 +21,21 @@ x-native-admission-enabled: &native_admission_enabled "${OTERYN_NATIVE_ADMISSION
 # on the platform_fastcgi socket volume and deploy.sh starts the internal-mtls profile service.
 x-internal-mtls-enabled: &internal_mtls_enabled "${OTERYN_PLATFORM_MTLS_ENABLED:-false}"
 
-# Platform database engine (ADR 0046, docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md P4). lib.sh
-# oteryn_platform_db_engine_settings resolves PLATFORM_DB_ENGINE from release-contract.env and exports the
-# OTERYN_PLATFORM_DB_* values below; the defaults are the MariaDB engine, so a render without lib.sh is the
-# MariaDB stack. On the postgres engine the runtime services get driver pgsql, host postgres, the runtime
-# role oteryn_platform_app and sslmode verify-full against the dedicated PostgreSQL CA (postgres_client_ca, read-only).
-x-platform-db-connection: &platform_db_connection "${OTERYN_PLATFORM_DB_CONNECTION:-mysql}"
-x-platform-db-host: &platform_db_host "${OTERYN_PLATFORM_DB_HOST:-mariadb}"
-x-platform-db-port: &platform_db_port "${OTERYN_PLATFORM_DB_PORT:-3306}"
-x-platform-db-username: &platform_db_username "${OTERYN_PLATFORM_DB_USERNAME:-${PLATFORM_DB_USER}}"
-x-platform-db-password: &platform_db_password "${OTERYN_PLATFORM_DB_PASSWORD:-${PLATFORM_DB_PASSWORD}}"
-x-platform-db-sslmode: &platform_db_sslmode "${OTERYN_PLATFORM_DB_SSLMODE:-prefer}"
+# Platform database (ADR 0046, docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md P7). PostgreSQL is the
+# only engine since the P6 cutover retired MariaDB. lib.sh oteryn_platform_db_engine_settings exports the
+# OTERYN_PLATFORM_DB_* values below; the defaults are the same PostgreSQL values: driver pgsql, host postgres,
+# the runtime role oteryn_platform_app and sslmode verify-full against the dedicated PostgreSQL CA
+# (postgres_client_ca, read-only).
+x-platform-db-connection: &platform_db_connection "${OTERYN_PLATFORM_DB_CONNECTION:-pgsql}"
+x-platform-db-host: &platform_db_host "${OTERYN_PLATFORM_DB_HOST:-postgres}"
+x-platform-db-port: &platform_db_port "${OTERYN_PLATFORM_DB_PORT:-5432}"
+x-platform-db-username: &platform_db_username "${OTERYN_PLATFORM_DB_USERNAME:-oteryn_platform_app}"
+x-platform-db-password: &platform_db_password "${OTERYN_PLATFORM_DB_PASSWORD:-${PLATFORM_POSTGRES_APP_PASSWORD}}"
+x-platform-db-sslmode: &platform_db_sslmode "${OTERYN_PLATFORM_DB_SSLMODE:-verify-full}"
 
 services:
-  mariadb:
-    image: mariadb:11.8
-    restart: always
-    environment:
-      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
-      PLATFORM_DB_NAME: ${PLATFORM_DB_NAME}
-      PLATFORM_DB_USER: ${PLATFORM_DB_USER}
-      PLATFORM_DB_PASSWORD: ${PLATFORM_DB_PASSWORD}
-    volumes:
-      - mariadb_data:/var/lib/mysql
-    networks:
-      - private
-    healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-
-  # Platform PostgreSQL (ADR 0046, docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md P4). Beside MariaDB
-  # and idle until the engine switch PLATFORM_DB_ENGINE=postgres (P6): it holds only the database and the
-  # role split. Profile-only: deploy.sh starts it with --profile postgres once the five PostgreSQL secrets
+  # Platform PostgreSQL (ADR 0046, docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md P4): the Platform
+  # database and its role split. Profile-only: deploy.sh starts it with --profile postgres once the five PostgreSQL secrets
   # are set (README: PostgreSQL service), never by a plain `up`. No host port; TLS 1.3 and SCRAM only
   # (postgres/pg_hba.conf), with the server certificate from tls-init. The superuser password is used by
   # the image's first-start init only and never reaches a Platform service; the runtime role password is
@@ -152,7 +133,7 @@ services:
       # Signing trust registry scope and the native evidence high-water witness, needed by
       # game-auth:native-admission:publish-trust (deploy trusts the issuer PUBLIC key), the signing
       # self-check and every identity security revocation. The witness lives on the retained
-      # platform_storage volume, independent of MariaDB, so a restored database below the witness
+      # platform_storage volume, independent of the database, so a restored database below the witness
       # fails closed (README: Native login). compose.marketplace.yml gives marketplace-scheduler the
       # same values; deploy creates the directory on every run.
       GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE: fresh_admission
@@ -177,7 +158,7 @@ services:
       GAME_AUTH_NATIVE_ACCOUNT_CHARACTERS_IDENTITIES: '["CN=oteryn-preprod-character-projection"]'
       GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_OWNERSHIP: "false"
       GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID: ${GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID:-}
-      # ADR 0044: the route publication switch also admits this stack's MariaDB for the native topology
+      # ADR 0044: the route publication switch also admits this stack's database for the native topology
       # and route commands (preproduction-store mode, allowlisted store and configured World only).
       GAME_AUTH_NATIVE_ROUTE_PREPRODUCTION_STORE_ENABLED: ${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}
       OTERYN_PLATFORM_FASTCGI_ENABLED: *internal_mtls_enabled
@@ -218,9 +199,6 @@ services:
       - ${OTERYN_ATTEMPT_EVIDENCE_HOST_PATH:-/volume1/oteryn-attempt-evidence}:/var/lib/oteryn-attempt-evidence:ro
     networks:
       - private
-    depends_on:
-      mariadb:
-        condition: service_healthy
 
   tls-init:
     image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
@@ -371,20 +349,16 @@ services:
     healthcheck:
       # PID 1 is the schedule:work process itself (no entrypoint wrapper), so the check proves that
       # the scheduler loop is alive and the application can still reach the database of the selected
-      # engine (MariaDB, or PostgreSQL over verify-full TLS) with its own runtime credentials.
-      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'schedule:work' && php -r '$$p = getenv(\"DB_CONNECTION\") === \"pgsql\"; new PDO(($$p ? \"pgsql\" : \"mysql\").\":host=\".getenv(\"DB_HOST\").\";port=\".getenv(\"DB_PORT\").\";dbname=\".getenv(\"DB_DATABASE\").($$p ? \";sslmode=verify-full;sslrootcert=\".getenv(\"DB_SSLROOTCERT\") : \"\"), getenv(\"DB_USERNAME\"), getenv(\"DB_PASSWORD\"), [PDO::ATTR_TIMEOUT => 3]);'"]
+      # database (PostgreSQL over verify-full TLS) with its own runtime credentials.
+      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'schedule:work' && php -r 'new PDO(\"pgsql:host=\".getenv(\"DB_HOST\").\";port=\".getenv(\"DB_PORT\").\";dbname=\".getenv(\"DB_DATABASE\").\";sslmode=verify-full;sslrootcert=\".getenv(\"DB_SSLROOTCERT\"), getenv(\"DB_USERNAME\"), getenv(\"DB_PASSWORD\"), [PDO::ATTR_TIMEOUT => 3]);'"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
-    depends_on:
-      mariadb:
-        condition: service_healthy
 
 volumes:
-  mariadb_data:
   # PostgreSQL data (P4). Never removed by a workflow: hygiene and orphan repair touch containers only
-  # (tests/ci/test_synology_postgres_contract.py). Deleting mariadb_data is an explicit P6 operator step.
+  # (tests/ci/test_synology_postgres_contract.py).
   postgres_data:
   platform_storage:
   bootstrap_files:
@@ -416,7 +390,7 @@ networks:
     driver: bridge
     internal: false
   # Only the published :8543 port of internal-mtls; no other service joins it, so the terminator cannot
-  # reach MariaDB, Redis, Gateway or the internal proxy.
+  # reach PostgreSQL, Redis, Gateway or the internal proxy.
   mtls_edge:
     driver: bridge
     internal: false

@@ -368,7 +368,7 @@ def test_pre_migration_backup_quiesces_db_consumers_and_restores_scheduler() -> 
     lib = LIB.read_text()
     before = lib.index("_oteryn_before_platform_migrate()")
     quiesce_call = lib.index("_oteryn_quiesce_platform_db_consumers", before)
-    dump = lib.index("mariadb-dump", quiesce_call)
+    dump = lib.index("oteryn_postgres_dump_platform", quiesce_call)
     unknown = lib.index("printf 'SCHEMA_STATE=unknown\\n'", dump)
     assert before < quiesce_call < dump < unknown
     quiesce = lib[lib.index("_oteryn_quiesce_platform_db_consumers()") : before]
@@ -417,7 +417,7 @@ def test_recovery_requires_verified_managed_backup_and_never_runs_implicitly() -
     rollback = (SCRIPTS / "rollback.sh").read_text()
     assert "BACKUP_SHA256" in recovery
     assert '"$state_dir"/backups/*/evidence.env' in recovery
-    assert "DROP DATABASE IF EXISTS" in recovery
+    assert "oteryn_postgres_restore_platform" in recovery
     assert "recover-schema.sh" not in deploy
     assert "bash \"$SCRIPT_DIR/recover-schema.sh\"" not in rollback
 
@@ -445,7 +445,7 @@ def test_recovery_accepts_actual_backup_schema_via_last_good_contract() -> None:
 def test_recovery_marks_schema_unknown_before_destructive_restore() -> None:
     recovery = (SCRIPTS / "recover-schema.sh").read_text()
     unknown = "printf 'SCHEMA_STATE=unknown\\n'"
-    drop = "DROP DATABASE IF EXISTS"
+    drop = "oteryn_postgres_restore_platform"
     known = '_oteryn_write_schema_state_known "$state_dir"'
     assert unknown in recovery and drop in recovery and known in recovery
     assert recovery.index(unknown) < recovery.index(drop) < recovery.rindex(known)
@@ -454,7 +454,7 @@ def test_recovery_marks_schema_unknown_before_destructive_restore() -> None:
 def test_recovery_stops_optional_marketplace_scheduler_before_drop() -> None:
     recovery = (SCRIPTS / "recover-schema.sh").read_text()
     scheduler_stop = 'command docker stop "$marketplace_scheduler_id"'
-    drop = "DROP DATABASE IF EXISTS"
+    drop = "oteryn_postgres_restore_platform"
     assert "_oteryn_marketplace_scheduler_id" in recovery
     assert scheduler_stop in recovery
     assert "Recovery rejected: marketplace-scheduler is still running." in recovery

@@ -13,6 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/repair-synology-autostart.yml"
+DIAGNOSTICS = ROOT / ".github/workflows/synology-diagnostics.yml"
 ORG_COMPOSE = ROOT / "deploy/synology/runner/compose.organization.example.yml"
 STAGING_COMPOSE = ROOT / "deploy/synology/compose.yml"
 
@@ -21,6 +22,7 @@ class SynologyAutostartContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
+        cls.diagnostics = DIAGNOSTICS.read_text(encoding="utf-8")
         cls.org_compose = ORG_COMPOSE.read_text(encoding="utf-8")
         cls.staging_compose = STAGING_COMPOSE.read_text(encoding="utf-8")
 
@@ -44,11 +46,21 @@ class SynologyAutostartContractTest(unittest.TestCase):
         self.assertIn("RUNNER_LABELS: oteryn-platform", platform)
 
     def test_only_persistent_platform_owned_host_services_are_repaired(self) -> None:
-        expected = ("mariadb", "platform", "internal-proxy", "gateway", "marketplace-scheduler")
-        self.assertIn("persistent_services=(platform internal-proxy gateway marketplace-scheduler)", self.workflow)
-        self.assertIn('persistent_services=(mariadb "${persistent_services[@]}")', self.workflow)
+        expected = ("platform", "internal-proxy", "gateway", "marketplace-scheduler")
+        loop = re.search(r"persistent_services=\(([a-z -]+)\)", self.workflow)
+        self.assertIsNotNone(loop)
+        listed = loop.group(1).split()
+        self.assertEqual(self.workflow.count("persistent_services=("), 1)
         self.assertIn('for service in "${persistent_services[@]}"; do', self.workflow)
         for service in expected:
+            self.assertIn(service, listed)
+        # MariaDB is retired (plan P7): neither compose.yml nor the repair workflow names it, and every listed
+        # service is a restart-always compose service.
+        self.assertNotIn("\n  mariadb:\n", self.staging_compose)
+        self.assertNotIn("mariadb", listed)
+        self.assertNotIn("service=mariadb", self.workflow)
+        self.assertNotRegex(self.workflow, r"resolve_one oteryn-staging \"?mariadb")
+        for service in listed:
             block = self.staging_compose.split(f"  {service}:\n", 1)[1]
             next_service = re.search(r"\n  (?! )", block)
             if next_service:
@@ -57,6 +69,24 @@ class SynologyAutostartContractTest(unittest.TestCase):
         self.assertNotIn("resolve_one oteryn-staging tls-init", self.workflow)
         self.assertNotIn("resolve_one oteryn-organization-runners atlas", self.workflow)
         self.assertNotIn("resolve_one oteryn-organization-runners game", self.workflow)
+
+    def test_postgres_is_required_with_all_five_secrets(self) -> None:
+        # PostgreSQL is the Platform database (plan P7): no "not configured" branch may skip it.
+        self.assertIn('            5)\n              containers+=("$(resolve_one oteryn-staging postgres)")', self.workflow)
+        self.assertNotIn("            0)\n", self.workflow)
+        self.assertIn("of its 5 secrets are configured", self.workflow)
+
+    def test_diagnostics_require_postgres_and_never_mariadb(self) -> None:
+        validate = self.diagnostics.split("      - name: Validate replacement route and diagnostic access\n", 1)[1]
+        validate = validate.split("      - name: Collect read-only diagnostics\n", 1)[0]
+        self.assertNotIn("service=mariadb", validate)
+        self.assertNotIn("mariadb_id", validate)
+        self.assertNotRegex(validate, r"expected='[^']*mariadb")
+        self.assertIn("expected='platform gateway marketplace-scheduler postgres'", validate)
+        self.assertIn("--filter 'label=com.docker.compose.service=postgres')\"", validate)
+        self.assertIn('if [[ "$configured" -ne 5 ]]; then', validate)
+        self.assertNotIn("            0)\n", validate)
+        self.assertNotIn("MariaDB health", self.diagnostics)
 
     def test_missing_or_duplicate_container_remains_fail_closed(self) -> None:
         self.assertIn('if [[ "${#matches[@]}" -ne 1 ]]; then', self.workflow)
@@ -148,12 +178,16 @@ class SynologyAutostartContractTest(unittest.TestCase):
         self.assertIn("oteryn_cutover_bootstrap_record", prelude)
         self.assertNotIn("grep", prelude)
 
-    def test_repair_keeps_mariadb_without_cutover_state(self) -> None:
+    PERSISTENT = "services=platform internal-proxy gateway marketplace-scheduler\n"
+
+    def test_repair_never_lists_retired_mariadb_without_cutover_state(self) -> None:
+        # MariaDB is retired (plan P7): no cutover state brings it back into the repaired services.
         for steps in ((), ("PREFLIGHT",)):
             with self.subTest(steps=steps):
                 result = self._run_prelude(steps)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn("services=mariadb platform internal-proxy gateway marketplace-scheduler", result.stdout)
+                self.assertIn(self.PERSISTENT, result.stdout)
+                self.assertNotIn("mariadb", result.stdout)
 
     def test_repair_leaves_frozen_cutover_stack_alone(self) -> None:
         for steps, lock in (
@@ -177,12 +211,14 @@ class SynologyAutostartContractTest(unittest.TestCase):
             self.FORWARD + ("UNFROZEN",), bootstrap=("witness-freeze.env", "bootstrap-complete.env")
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("services=platform internal-proxy gateway marketplace-scheduler", result.stdout)
+        self.assertIn(self.PERSISTENT, result.stdout)
+        self.assertNotIn("mariadb", result.stdout)
 
-    def test_repair_keeps_mariadb_after_rolled_back_cutover(self) -> None:
+    def test_repair_never_lists_mariadb_after_rolled_back_cutover(self) -> None:
         result = self._run_prelude(self.ROLLED_BACK)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("services=mariadb platform", result.stdout)
+        self.assertIn(self.PERSISTENT, result.stdout)
+        self.assertNotIn("mariadb", result.stdout)
 
     def test_repair_honours_the_bootstrap_witness_of_an_interrupted_freeze(self) -> None:
         # Codex P1 on PR 1609: record-witness stopped the stack and wrote witness-freeze.env, then the freeze

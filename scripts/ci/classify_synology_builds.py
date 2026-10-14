@@ -86,7 +86,6 @@ DEPLOYMENT_RUNTIME_EXACT = {
     "deploy/synology/scripts/validate-ipv4.sh",
 }
 DEPLOYMENT_RUNTIME_PREFIXES = (
-    "deploy/synology/mariadb/init/",
     "deploy/synology/nginx/",
     "deploy/synology/postgres/",
     "deploy/synology/tls/",
