@@ -1,0 +1,81 @@
+name: Stage Synology Deploy Runner Image
+
+# The NAS Docker host holds no GHCR credentials, so it cannot pull a private deploy-runner image when the
+# organization runners in /volume1/docker/oteryn/organization-runners/compose.yaml are repinned. This job runs on
+# the current platform runner, logs in with its own short-lived job token, pulls the exact published digest into the
+# shared host daemon and logs out again. The repin itself (compose image line, `docker compose up -d`) stays an
+# operator step; it then uses the locally present image.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner_image:
+        description: Exact ghcr.io/oteryn/oteryn-deploy-runner@sha256:<64 hex> published by Build Synology Staging Images from protected main
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: synology-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    runs-on:
+      group: platform-runners
+      labels: oteryn-platform
+    timeout-minutes: 15
+    steps:
+      - name: Checkout protected main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate the requested image
+        env:
+          RUNNER_IMAGE: ${{ inputs.runner_image }}
+          EXPECTED_REPOSITORY: ghcr.io/${{ github.repository_owner }}/oteryn-deploy-runner
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || { echo "Dispatch from protected main only." >&2; exit 1; }
+          expected="${EXPECTED_REPOSITORY,,}"
+          [[ "$RUNNER_IMAGE" =~ ^${expected}@sha256:[0-9a-f]{64}$ ]] || {
+            echo "runner_image must be ${expected}@sha256:<64 hex>." >&2
+            exit 1
+          }
+
+      - name: Pull the exact digest with the job token
+        env:
+          RUNNER_IMAGE: ${{ inputs.runner_image }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          docker_config="$(mktemp -d)"
+          trap 'rm -rf "$docker_config"' EXIT
+          export DOCKER_CONFIG="$docker_config"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin >/dev/null
+          docker pull "$RUNNER_IMAGE" >/dev/null
+          docker logout ghcr.io >/dev/null
+
+      - name: Verify the image comes from protected main
+        env:
+          RUNNER_IMAGE: ${{ inputs.runner_image }}
+        run: |
+          set -euo pipefail
+          revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$RUNNER_IMAGE")"
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || { echo "Image carries no source revision label." >&2; exit 1; }
+          git merge-base --is-ancestor "$revision" origin/main || {
+            echo "Image revision $revision is not in the protected-main lineage." >&2
+            exit 1
+          }
+          {
+            echo "### Deploy-runner image staged"
+            echo "- image: \`$RUNNER_IMAGE\`"
+            echo "- source revision: \`$revision\`"
+          } >> "$GITHUB_STEP_SUMMARY"
