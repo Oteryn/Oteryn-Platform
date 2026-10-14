@@ -321,6 +321,30 @@ class LocationTest(Base):
         self.assertEqual(code, 1, out)
         self.assertIn("source-not-canonical", out["errors"])
 
+    def test_synology_btrfs_subvolume_roots(self):
+        # DSM mounts subvolume /@syno at /volume1, and the kernel reports roots from the btrfs top level,
+        # with the bind's own (possibly nested) subvolume in the super options.
+        self.fixtures()
+        opts = "rw,ssd,space_cache=v2,subvolid=256,subvol=/@syno"
+        syno = (f"100 50 0:37 /@syno/oteryn-attempt-evidence {TARGET} rw - btrfs /dev/mapper/cachedev_1 {opts}\n"
+                "101 50 0:37 /@syno/docker/oteryn/state /var/lib/oteryn/state rw - btrfs /dev/mapper/cachedev_1 "
+                "rw,ssd,subvolid=259,subvol=/@syno/docker\n"
+                f"102 50 0:37 /@syno/@docker/volumes/oteryn-runner_runner_work/_data /work rw - btrfs "
+                f"/dev/mapper/cachedev_1 {opts}\n")
+        code, out = self.check(mountinfo=syno)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["canonical_source"], SOURCE)
+        # the subvolume still binds the root: a bind root outside it does not resolve to Source
+        self.assertRefused("source-not-canonical", mountinfo=syno.replace(
+            f"/@syno/oteryn-attempt-evidence {TARGET}", f"/@other/oteryn-attempt-evidence {TARGET}"))
+        # the state bind in nested subvolume /@syno/docker resolves through /volume1 and still refuses an alias
+        runner = json.loads(json.dumps(self.runner))
+        runner["Mounts"][1]["Source"] = "/volume1/docker/alias"
+        self.assertRefused("overlap:", runner=runner, mountinfo=syno.replace(
+            "/@syno/docker/oteryn/state", "/@syno/oteryn-attempt-evidence/state"))
+        # without the subvol option the top-level root is not a suffix of Source: unverified
+        self.assertRefused("source-volume-unverified", mountinfo=syno.replace(",subvol=/@syno", ""))
+
     def test_device_mount_point_only_from_consistent_docker_volumes(self):
         self.fixtures()
         # a named volume outside DockerRootDir proves nothing
