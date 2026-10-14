@@ -542,10 +542,14 @@ def test_native_defaults_file_is_non_secret_complete_and_overridable_by_variable
         assert identities and all(s.startswith("CN=") and scopes for s, scopes in identities.items())
         assert all(scope.startswith(f"{world}/") for scopes in identities.values() for scope in scopes)
     assert re.search(r"(?i)secret|password|token|private", "\n".join(f"{k}={v}" for k, v in values.items())) is None
-    for name, count in (("deploy-synology-staging.yml", 9), ("character-bazaar-staging-control.yml", 4)):
+    # Both workflows that run deploy.sh render the same native settings, route publication included.
+    for name in ("deploy-synology-staging.yml", "character-bazaar-staging-control.yml"):
         workflow = (WORKFLOWS / name).read_text(encoding="utf-8")
-        assert workflow.count('oteryn_native_default OTERYN_STAGING_NATIVE_') == count
+        assert workflow.count('oteryn_native_default OTERYN_STAGING_NATIVE_') == 9
         assert "vars.OTERYN_STAGING_NATIVE_WORLD_ID" in workflow
+        for key in ("PUBLISH_ENABLED", "HOST", "PORT", "TLS_SERVER_NAME", "LOGIN_ENABLED"):
+            assert f"OTERYN_NATIVE_ROUTE_{key}=" in workflow
+        assert "OTERYN_NATIVE_CHANNEL_KEY=" in workflow
 
 
 def test_native_default_resolver_prefers_the_variable_then_the_file(tmp_path: pathlib.Path) -> None:
