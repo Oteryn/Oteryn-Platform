@@ -32,7 +32,7 @@ final readonly class CharacterCreationOutcome
         return match ($status->state) {
             CharacterCommandState::Pending => new self('pending', self::message('pending')),
             CharacterCommandState::Committed => new self('created', self::created($status->receipt['name'] ?? null)),
-            CharacterCommandState::Rejected => new self('rejected', self::message(self::REJECTIONS[$status->resultCode] ?? 'failed')),
+            CharacterCommandState::Rejected => new self('rejected', self::message(self::REJECTIONS[$status->resultCode ?? ''] ?? 'failed')),
         };
     }
 

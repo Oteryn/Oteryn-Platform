@@ -79,11 +79,11 @@ final class CharacterCreationCommandTest extends TestCase
         $second = $this->post('/account/characters', $this->input());
 
         self::assertSame(1, DB::table('character_command_intents')->count());
-        $operationId = (string) DB::table('character_command_intents')->value('operation_id');
+        $operationId = $this->latestIntent('operation_id');
         $first->assertRedirect(route('account.characters.requests.show', ['operation' => $operationId, 'locale' => 'en']));
         $second->assertRedirect(route('account.characters.requests.show', ['operation' => $operationId, 'locale' => 'en']));
 
-        $intent = json_decode((string) DB::table('character_command_intents')->value('intent_json'), true, 2, JSON_THROW_ON_ERROR);
+        $intent = json_decode($this->latestIntent('intent_json'), true, 2, JSON_THROW_ON_ERROR);
         self::assertIsArray($intent);
         self::assertSame(CharacterCommandWire::CREATE, $intent['command']);
         self::assertSame($identity->account_id, $intent['account_id']);
@@ -103,7 +103,7 @@ final class CharacterCreationCommandTest extends TestCase
         $this->login($this->identity());
 
         $response = $this->post('/account/characters?locale=pl', $this->input());
-        $operationId = (string) DB::table('character_command_intents')->value('operation_id');
+        $operationId = $this->latestIntent('operation_id');
         $response->assertRedirect(route('account.characters.requests.show', ['operation' => $operationId, 'locale' => 'pl']));
 
         $page = $this->get(route('account.characters.requests.show', ['operation' => $operationId, 'locale' => 'pl']));
@@ -229,7 +229,15 @@ final class CharacterCreationCommandTest extends TestCase
     {
         $this->post('/account/characters', [...$this->input(), 'submission' => $submission])->assertRedirect();
 
-        return (string) DB::table('character_command_intents')->orderByDesc('id')->value('operation_id');
+        return $this->latestIntent('operation_id');
+    }
+
+    private function latestIntent(string $column): string
+    {
+        $value = DB::table('character_command_intents')->orderByDesc('id')->value($column);
+        self::assertIsString($value);
+
+        return $value;
     }
 
     private function enable(): void

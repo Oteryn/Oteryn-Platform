@@ -94,14 +94,14 @@ final class CreateCharacter
             // Re-read eligibility under the Identity row lock that termination finalization also takes,
             // so a termination committed after the session loaded this Identity cannot be bypassed.
             $status = DB::transaction(function () use ($identity, $worldId, $canonicalName, $submission): CharacterCommandStatus {
-                $current = Identity::query()->lockForUpdate()->find($identity->getKey());
+                $current = Identity::query()->whereKey($identity->id)->lockForUpdate()->first();
                 $accountId = $current?->getAttribute('account_id');
                 if (! $current instanceof Identity || ! is_string($accountId) || $current->disabled_at !== null || $current->isTerminated()) {
                     throw new CharacterBindingNotReady('The Identity has no eligible AccountId.');
                 }
 
                 return $this->commands->requestCreate(
-                    'web-create:'.$current->getKey().':'.$submission,
+                    'web-create:'.$current->id.':'.$submission,
                     $accountId,
                     $worldId,
                     $canonicalName,
