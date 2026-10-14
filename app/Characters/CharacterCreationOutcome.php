@@ -12,16 +12,15 @@ use App\CharacterAuthority\CharacterCommandStatus;
  */
 final readonly class CharacterCreationOutcome
 {
+    /** Receipt result codes with their own message key under `portal.create.outcome`. */
     private const REJECTIONS = [
-        'CHAR_CMD_NAME_INVALID' => 'That character name is not allowed.',
-        'CHAR_CMD_NAME_UNAVAILABLE' => 'That character name is not available.',
-        'CHAR_CMD_WORLD_NOT_ACCEPTED' => 'That world is not accepting new characters.',
-        'CHAR_CMD_ACCOUNT_CHARACTER_LIMIT' => 'This account already has the maximum number of active characters.',
-        'CHAR_CMD_ACCOUNT_NOT_ELIGIBLE' => 'Your game account is not ready for character creation.',
-        'CHAR_CMD_INTENT_EXPIRED' => 'The request expired before it was processed. Please submit it again.',
+        'CHAR_CMD_NAME_INVALID' => 'name_invalid',
+        'CHAR_CMD_NAME_UNAVAILABLE' => 'name_unavailable',
+        'CHAR_CMD_WORLD_NOT_ACCEPTED' => 'world_not_accepted',
+        'CHAR_CMD_ACCOUNT_CHARACTER_LIMIT' => 'character_limit',
+        'CHAR_CMD_ACCOUNT_NOT_ELIGIBLE' => 'account_not_eligible',
+        'CHAR_CMD_INTENT_EXPIRED' => 'intent_expired',
     ];
-
-    private const FAILED = 'Character creation could not be completed. Please try again later.';
 
     private function __construct(
         public string $state,
@@ -31,14 +30,22 @@ final readonly class CharacterCreationOutcome
     public static function of(CharacterCommandStatus $status): self
     {
         return match ($status->state) {
-            CharacterCommandState::Pending => new self('pending', 'Your character request is being processed. Refresh this page to see the result.'),
+            CharacterCommandState::Pending => new self('pending', self::message('pending')),
             CharacterCommandState::Committed => new self('created', self::created($status->receipt['name'] ?? null)),
-            CharacterCommandState::Rejected => new self('rejected', self::REJECTIONS[$status->resultCode] ?? self::FAILED),
+            CharacterCommandState::Rejected => new self('rejected', self::message(self::REJECTIONS[$status->resultCode] ?? 'failed')),
         };
     }
 
     private static function created(mixed $name): string
     {
-        return is_string($name) ? "Character {$name} created." : 'Character created.';
+        return is_string($name) ? self::message('created_named', ['name' => $name]) : self::message('created');
+    }
+
+    /** @param array<string, string> $replace */
+    private static function message(string $key, array $replace = []): string
+    {
+        $message = __('portal.create.outcome.'.$key, $replace);
+
+        return is_string($message) ? $message : '';
     }
 }

@@ -80,8 +80,8 @@ final class CharacterCreationCommandTest extends TestCase
 
         self::assertSame(1, DB::table('character_command_intents')->count());
         $operationId = (string) DB::table('character_command_intents')->value('operation_id');
-        $first->assertRedirect(route('account.characters.requests.show', ['operation' => $operationId]));
-        $second->assertRedirect(route('account.characters.requests.show', ['operation' => $operationId]));
+        $first->assertRedirect(route('account.characters.requests.show', ['operation' => $operationId, 'locale' => 'en']));
+        $second->assertRedirect(route('account.characters.requests.show', ['operation' => $operationId, 'locale' => 'en']));
 
         $intent = json_decode((string) DB::table('character_command_intents')->value('intent_json'), true, 2, JSON_THROW_ON_ERROR);
         self::assertIsArray($intent);
@@ -94,6 +94,23 @@ final class CharacterCreationCommandTest extends TestCase
         $pending->assertOk();
         $pending->assertSee('data-outcome="pending"', false);
         $pending->assertSee('Your character request is being processed.');
+    }
+
+    public function test_the_selected_locale_carries_to_the_translated_result_page(): void
+    {
+        $this->enable();
+        $this->world();
+        $this->login($this->identity());
+
+        $response = $this->post('/account/characters?locale=pl', $this->input());
+        $operationId = (string) DB::table('character_command_intents')->value('operation_id');
+        $response->assertRedirect(route('account.characters.requests.show', ['operation' => $operationId, 'locale' => 'pl']));
+
+        $page = $this->get(route('account.characters.requests.show', ['operation' => $operationId, 'locale' => 'pl']));
+        $page->assertOk();
+        $page->assertSee('Zgłoszenie postaci');
+        $page->assertSee('Twoje zgłoszenie postaci jest przetwarzane.');
+        $page->assertDontSee('Your character request is being processed.');
     }
 
     public function test_the_same_submission_with_other_details_is_refused(): void

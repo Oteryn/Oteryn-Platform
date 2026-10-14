@@ -62,8 +62,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-14T22:45:00Z
-head: 3dbf4f66eabb8ad42c6cb025ef51a0c2452d12fb
+updated_at: 2026-10-14T22:40:00Z
+head: bc825873bfaaca4f916a3cfa2f0b5e70436d5782
 branch: claude/char-cmd-wire-1
 pr: 1622
 status: validating
@@ -103,6 +103,7 @@ first_failure:
 rejected_hypotheses:
   - Classifying the internal command routes as portal surfaces; they are mTLS machine endpoints, so the portal manifest excludes them by prefix like other framework/protocol routes.
   - Reusing commands.enabled as the web switch; Bazaar transfers and web creation need separate enablement.
+  - Keeping outcome messages as English literals; the result page must honor the portal locale, so they live in portal.create.outcome and the store redirect carries the locale query.
 changed_paths:
   - app/Characters/Actions/CreateCharacter.php
   - app/Characters/CharacterCreationOutcome.php

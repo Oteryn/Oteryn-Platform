@@ -65,7 +65,11 @@ final class CharacterCreationController
             return back()->withInput()->withErrors(['character' => 'Character creation is temporarily unavailable.']);
         }
 
-        return redirect()->route('account.characters.requests.show', ['operation' => $result->operationId]);
+        // The account routes take their locale from the query string, so carry it to the result page.
+        return redirect()->route('account.characters.requests.show', [
+            'operation' => $result->operationId,
+            'locale' => app()->getLocale(),
+        ]);
     }
 
     /** The outcome of one of the signed-in Identity's create requests, from Game's receipt. */
