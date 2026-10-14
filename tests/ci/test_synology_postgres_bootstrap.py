@@ -542,6 +542,54 @@ class StaticBootstrapTest(BootstrapCase):
         self.assertIn('rm -f -- "$complete_file.tmp"; failed', script)
         self.assertIn('rm -f -- "$moved_file.tmp"; failed', script)
 
+    def compose_mode_owner_credentials(self, env_lines: list[str]) -> tuple[dict[str, str], str]:
+        # Compose mode with a docker stub that records the migration owner variables it inherits (what
+        # `-e NAME` would hand the one-off container) and then fails, so the invocation stops at a refusal.
+        stub_dir = self.temp / "stub-bin"
+        stub_dir.mkdir()
+        record = self.temp / "docker-env"
+        stub = stub_dir / "docker"
+        stub.write_text(
+            "#!/usr/bin/env bash\n"
+            f'{{ printf "USERNAME=%s\\n" "${{DB_MIGRATIONS_USERNAME-<unset>}}"; '
+            f'printf "PASSWORD=%s\\n" "${{DB_MIGRATIONS_PASSWORD-<unset>}}"; }} > "{record}"\n'
+            "exit 1\n"
+        )
+        stub.chmod(0o700)
+        env_file = self.temp / "staging.env"
+        env_file.write_text("\n".join(["APP_ENV=production", *env_lines]) + "\n")
+        env = self.base_env(PATH=f"{stub_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}", OTERYN_ENV_FILE=str(env_file))
+        del env["DB_MIGRATIONS_USERNAME"]
+        del env["DB_MIGRATIONS_PASSWORD"]
+        result = self.bootstrap("record-witness", env=env)
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1, output)
+        self.assertTrue(record.exists(), output)
+        seen = dict(line.split("=", 1) for line in record.read_text().splitlines())
+        return seen, output
+
+    def test_compose_mode_derives_the_owner_credentials_from_the_owner_password(self) -> None:
+        # The staging environment file carries PLATFORM_POSTGRES_OWNER_PASSWORD only; lib.sh
+        # oteryn_platform_migrate_postgres maps it to the owner role, and the bootstrap must do the same.
+        password = "owner-" + secrets.token_hex(8)
+        seen, output = self.compose_mode_owner_credentials([f"PLATFORM_POSTGRES_OWNER_PASSWORD={password}"])
+        self.assertEqual(seen, {"USERNAME": "oteryn_platform_owner", "PASSWORD": password})
+        self.assertNotIn(password, output)
+
+    def test_compose_mode_keeps_explicit_owner_credentials(self) -> None:
+        seen, _ = self.compose_mode_owner_credentials([
+            "PLATFORM_POSTGRES_OWNER_PASSWORD=from-owner-secret",
+            "DB_MIGRATIONS_USERNAME=explicit_owner",
+            "DB_MIGRATIONS_PASSWORD=explicit-password",
+        ])
+        self.assertEqual(seen, {"USERNAME": "explicit_owner", "PASSWORD": "explicit-password"})
+
+    def test_compose_mode_without_an_owner_password_derives_nothing(self) -> None:
+        seen, _ = self.compose_mode_owner_credentials([])
+        self.assertEqual(seen, {"USERNAME": "<unset>", "PASSWORD": "<unset>"})
+        text = SCRIPT.read_text()
+        self.assertIn('[[ -n "${DB_MIGRATIONS_USERNAME:-}" && -n "${DB_MIGRATIONS_PASSWORD:-}" ]]', text)
+
 
 class LiveBootstrapCase(BootstrapCase):
     def setUp(self) -> None:
