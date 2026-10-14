@@ -3,6 +3,8 @@
 namespace Tests\Feature\Characters;
 
 use App\CharacterAuthority\CharacterCommandWire;
+use App\Characters\Actions\CreateCharacter;
+use App\Characters\Exceptions\CharacterBindingNotReady;
 use App\GameAuth\Worlds\GameWorld;
 use App\GameAuth\Worlds\GameWorldStatus;
 use App\Identity\Models\Identity;
@@ -118,6 +120,24 @@ final class CharacterCreationCommandTest extends TestCase
             ->assertSessionHasErrors(['character' => 'The character creation input is invalid.']);
         $this->post('/account/characters', [...$this->input(), 'name' => 'OterynSupport'])
             ->assertSessionHasErrors('name');
+        self::assertSame(0, DB::table('character_command_intents')->count());
+    }
+
+    public function test_termination_committed_after_the_identity_was_loaded_blocks_the_intent(): void
+    {
+        $this->enable();
+        $this->world();
+        $identity = $this->identity();
+        DB::table('identities')->where('id', $identity->getKey())->update(['terminated_at' => now()]);
+
+        $refused = false;
+        try {
+            app(CreateCharacter::class)->execute($identity, 'Alice Moon', 9, 1, self::WORLD, self::SUBMISSION);
+        } catch (CharacterBindingNotReady) {
+            $refused = true;
+        }
+        self::assertTrue($refused);
+        self::assertNull($identity->terminated_at);
         self::assertSame(0, DB::table('character_command_intents')->count());
     }
 

@@ -5,6 +5,7 @@ namespace App\Characters\Actions;
 use App\CharacterAuthority\CharacterCommandClient;
 use App\CharacterAuthority\CharacterCommandConflict;
 use App\CharacterAuthority\CharacterCommandSettings;
+use App\CharacterAuthority\CharacterCommandStatus;
 use App\CharacterAuthority\CharacterCommandUnavailable;
 use App\CharacterAuthority\CharacterCommandWire;
 use App\Characters\Data\CharacterCreationResult;
@@ -16,6 +17,7 @@ use App\Characters\Policies\CharacterNamePolicy;
 use App\GameAuth\Worlds\GameWorld;
 use App\Identity\Models\Identity;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 /**
@@ -88,18 +90,23 @@ final class CreateCharacter
             throw new CharacterInputInvalid('The character creation input is invalid.');
         }
 
-        $accountId = $identity->getAttribute('account_id');
-        if (! is_string($accountId) || $identity->disabled_at !== null || $identity->isTerminated()) {
-            throw new CharacterBindingNotReady('The Identity has no eligible AccountId.');
-        }
-
         try {
-            $status = $this->commands->requestCreate(
-                'web-create:'.$identity->getKey().':'.$submission,
-                $accountId,
-                $worldId,
-                $canonicalName,
-            );
+            // Re-read eligibility under the Identity row lock that termination finalization also takes,
+            // so a termination committed after the session loaded this Identity cannot be bypassed.
+            $status = DB::transaction(function () use ($identity, $worldId, $canonicalName, $submission): CharacterCommandStatus {
+                $current = Identity::query()->lockForUpdate()->find($identity->getKey());
+                $accountId = $current?->getAttribute('account_id');
+                if (! $current instanceof Identity || ! is_string($accountId) || $current->disabled_at !== null || $current->isTerminated()) {
+                    throw new CharacterBindingNotReady('The Identity has no eligible AccountId.');
+                }
+
+                return $this->commands->requestCreate(
+                    'web-create:'.$current->getKey().':'.$submission,
+                    $accountId,
+                    $worldId,
+                    $canonicalName,
+                );
+            });
         } catch (CharacterCommandConflict) {
             // The same submission was already recorded with other details.
             throw new CharacterInputInvalid('The character creation input is invalid.');
