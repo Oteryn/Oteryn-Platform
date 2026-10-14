@@ -375,7 +375,8 @@ class FakeHttp:
                         if owner.native_mode == "actor-mfa":
                             return self.redirect("/mfa/challenge")
                         owner.signed_in = form["email"]
-                        return self.redirect("/")
+                        # Laravel redirects to url('/'), the bare origin.
+                        return self.redirect("")
                     return self.redirect("/login")
                 if self.path == "/oauth/authorize":
                     pending = owner.native.get("authorize") or {}
