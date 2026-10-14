@@ -66,7 +66,8 @@ jobs:
           }
           run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BUILD_RUN_ID}")"
           check() { [[ "$(jq -r "$1" <<<"$run_json")" == "$2" ]] || { echo "Build run $BUILD_RUN_ID: $1 is not $2." >&2; exit 1; }; }
-          check .path .github/workflows/build-synology-staging-images.yml
+          # The API may report the path with a ref suffix (".yml@main"); the head branch is checked separately.
+          check '.path | sub("@.*$"; "")' .github/workflows/build-synology-staging-images.yml
           check .head_branch main
           check .head_repository.full_name "$GITHUB_REPOSITORY"
           check .status completed
@@ -79,7 +80,19 @@ jobs:
             echo "Build run head $head_sha is not in the protected-main lineage." >&2
             exit 1
           }
-          echo "artifact=synology-supply-chain-deploy-runner-${head_sha}-$(jq -r .run_attempt <<<"$run_json")" >> "$GITHUB_OUTPUT"
+          # A re-run of failed jobs raises run_attempt without re-running the deploy-runner job, so the evidence keeps the
+          # attempt that built it; take the newest unexpired deploy-runner evidence this run holds for its head.
+          prefix="synology-supply-chain-deploy-runner-${head_sha}-"
+          artifact="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${BUILD_RUN_ID}/artifacts?per_page=100" \
+            --jq '.artifacts[] | [.name, .expired, .workflow_run.id] | @tsv' |
+            awk -F'\t' -v prefix="$prefix" -v run="$BUILD_RUN_ID" '
+              $2 == "false" && $3 == run && index($1, prefix) == 1 {
+                attempt = substr($1, length(prefix) + 1)
+                if (attempt ~ /^[1-9][0-9]*$/ && attempt + 0 > best) { best = attempt + 0; name = $1 }
+              }
+              END { if (name != "") print name }')"
+          [[ -n "$artifact" ]] || { echo "Build run $BUILD_RUN_ID holds no unexpired deploy-runner provenance for $head_sha." >&2; exit 1; }
+          echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
           echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
 
       - name: Download the run's deploy-runner provenance
