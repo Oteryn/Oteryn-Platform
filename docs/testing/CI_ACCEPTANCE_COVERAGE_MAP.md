@@ -46,57 +46,57 @@ Evidence about the exact PR head SHA applies only to workflows whose checkout re
 |---|---|---|---|---|---|---|---|
 | `acceptance-soak.yml` | no | no | no | cron | yes | - | no checkout |
 | `acceptance-stability.yml` | no | no | no | cron | yes | - | no checkout |
-| `acceptance-validation.yml` | paths(11) | no | paths(11) (same) | no | yes | `workflow_call` | PR head |
+| `acceptance-validation.yml` | paths(11) | no | paths(11) (same) | no | yes | `workflow_call` | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
 | `agent-governance.yml` | paths(7) | no | paths(7) (same) | no | yes | - | default (PR merge ref); other: `1bfb5ff98c8aa156e73669a14e083a1d464c29fb` |
-| `announcements-acceptance.yml` | paths(13) | no | paths(13) (same) | no | yes | - | PR head |
+| `announcements-acceptance.yml` | paths(13) | no | paths(13) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
 | `branch-lifecycle.yml` | paths(6) | no | paths(6) (same) | no | yes | - | default (PR merge ref); other: `main` |
-| `build-synology-staging-images.yml` | paths(74) | no | paths(74) (same) | no | yes | - | PR head; other: `${{ github.sha }}` |
+| `build-synology-staging-images.yml` | paths(74) | no | paths(74) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; other: `${{ github.sha }}` |
 | `character-bazaar-staging-control.yml` | no | no | paths(5) | no | yes | - | other: `${{ github.sha }}` |
 | `character-bazaar-staging-validation.yml` | paths(9) | no | paths(9) (same) | no | yes | - | default (PR merge ref) |
-| `ci.yml` | all | all | all | no | no | - | PR head; default (PR merge ref) |
-| `cloudflare-oteryn-edge-audit.yml` | paths(9) | no | no | no | no | `pull_request_target` | PR head; base |
-| `cloudflare-oteryn-endpoint-main-operation.yml` | paths(3) | no | paths(1) (narrower) | no | no | - | PR head; other: `${{ github.sha }}` |
-| `cloudflare-oteryn-endpoints.yml` | paths(7) | no | no | no | yes | `issue_comment`, `pull_request_target` | PR head; base; other: `${{ github.sha }}` |
-| `cloudflare-oteryn-hsts-stage1.yml` | paths(5) | no | paths(1) (narrower) | no | no | - | PR head; other: `${{ github.sha }}` |
-| `cloudflare-oteryn-public-edge-repair.yml` | paths(5) | no | paths(1) (narrower) | no | no | - | PR head; other: `${{ github.sha }}` |
-| `cloudflare-zone-edge-audit.yml` | paths(7) | no | paths(7) (same) | no | yes | - | PR head; other: `${{ github.sha }}` |
+| `ci.yml` | all | all | all | no | no | - | PR head: `${{ github.event.merge_group.head_sha \|\| github.event.pull_request.head.sha \|\| github.sha }}`; PR head: `${{ github.event.merge_group.head_sha \|\| github.sha }}`; PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; default (PR merge ref) |
+| `cloudflare-oteryn-edge-audit.yml` | paths(9) | no | no | no | no | `pull_request_target` | PR head: `${{ github.event.pull_request.head.sha }}`; base: `${{ github.event.pull_request.base.sha }}` |
+| `cloudflare-oteryn-endpoint-main-operation.yml` | paths(3) | no | paths(1) (narrower) | no | no | - | PR head: `${{ github.event.pull_request.head.sha }}`; other: `${{ github.sha }}` |
+| `cloudflare-oteryn-endpoints.yml` | paths(7) | no | no | no | yes | `issue_comment`, `pull_request_target` | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; base: `${{ github.event.pull_request.base.sha }}`; other: `${{ github.sha }}` |
+| `cloudflare-oteryn-hsts-stage1.yml` | paths(5) | no | paths(1) (narrower) | no | no | - | PR head: `${{ github.event.pull_request.head.sha }}`; other: `${{ github.sha }}` |
+| `cloudflare-oteryn-public-edge-repair.yml` | paths(5) | no | paths(1) (narrower) | no | no | - | PR head: `${{ github.event.pull_request.head.sha }}`; other: `${{ github.sha }}` |
+| `cloudflare-zone-edge-audit.yml` | paths(7) | no | paths(7) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; other: `${{ github.sha }}` |
 | `codeql.yml` | paths(14) | no | paths(14) (same) | cron | yes | - | default (PR merge ref) |
-| `community-data-acceptance.yml` | paths(31) | no | paths(31) (same) | no | yes | - | PR head |
-| `content-scale-acceptance.yml` | paths(36) | no | paths(36) (same) | no | yes | - | PR head |
-| `deploy-synology-staging.yml` | no | no | no | no | yes | - | other: `${{ inputs.action == 'deploy' && inputs.` |
-| `downloads-acceptance.yml` | paths(18) | no | paths(18) (same) | no | yes | - | PR head |
-| `edge-security-emulation.yml` | all except 5 ignored | no | no | no | yes | - | PR head |
-| `editorial-media-acceptance.yml` | paths(14) | no | paths(14) (same) | no | yes | - | PR head |
-| `error-state-acceptance.yml` | paths(17) | no | paths(17) (same) | no | yes | - | PR head |
-| `events-acceptance.yml` | paths(10) | no | paths(10) (same) | no | yes | - | PR head |
-| `game-auth-ticket-concurrency.yml` | all except 5 ignored | no | no | no | no | - | PR head; default (PR merge ref) |
+| `community-data-acceptance.yml` | paths(31) | no | paths(31) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
+| `content-scale-acceptance.yml` | paths(36) | no | paths(36) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
+| `deploy-synology-staging.yml` | no | no | no | no | yes | - | other: `${{ inputs.action == 'deploy' && inputs.release_sha \|\| inputs.action == 'cutover' && github.sha \|\| 'main' }}` |
+| `downloads-acceptance.yml` | paths(18) | no | paths(18) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
+| `edge-security-emulation.yml` | all except 5 ignored | no | no | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
+| `editorial-media-acceptance.yml` | paths(14) | no | paths(14) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
+| `error-state-acceptance.yml` | paths(17) | no | paths(17) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
+| `events-acceptance.yml` | paths(10) | no | paths(10) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
+| `game-auth-ticket-concurrency.yml` | all except 5 ignored | no | no | no | no | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; default (PR merge ref) |
 | `game-catalog-contract.yml` | paths(10) | no | paths(10) (same) | no | yes | - | default (PR merge ref) |
 | `game-gateway-ci.yml` | paths(2) | no | paths(2) (same) | no | no | - | default (PR merge ref) |
-| `github-actions-storage-hygiene.yml` | paths(3) | no | no | cron | yes | `pull_request_target` | PR head; other: `refs/heads/main` |
+| `github-actions-storage-hygiene.yml` | paths(3) | no | no | cron | yes | `pull_request_target` | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; other: `refs/heads/main` |
 | `historical-branch-audit.yml` | paths(11) | no | paths(11) (same) | cron | yes | `pull_request_target` | default (PR merge ref); other: `${{ github.sha }}`; other: `main` |
 | `native-protocol-contract-audits.yml` | paths(8) | no | paths(8) (same) | no | no | - | default (PR merge ref) |
 | `native-protocol-contract.yml` | paths(5) | no | paths(5) (same) | no | no | - | default (PR merge ref) |
-| `oteryn-public-edge-validation.yml` | paths(6) | no | paths(1) (narrower) | no | no | - | PR head; other: `${{ github.sha }}` |
+| `oteryn-public-edge-validation.yml` | paths(6) | no | paths(1) (narrower) | no | no | - | PR head: `${{ github.event.pull_request.head.sha }}`; other: `${{ github.sha }}` |
 | `parallel-coordinator-prompt-eval.yml` | paths(3) | no | paths(3) (same) | no | yes | - | default (PR merge ref) |
-| `phase7-production-like-validation.yml` | all except 5 ignored | no | no | no | yes | - | PR head |
-| `platform-db-outage-validation.yml` | all except 5 ignored | no | no | no | yes | - | PR head |
-| `playwright-runtime-validation.yml` | paths(8) | no | paths(8) (same) | no | yes | - | PR head; other: `${{ github.sha }}` |
-| `portal-acceptance-contract.yml` | paths(17) | no | paths(17) (same) | no | yes | - | PR head |
+| `phase7-production-like-validation.yml` | all except 5 ignored | no | no | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
+| `platform-db-outage-validation.yml` | all except 5 ignored | no | no | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
+| `playwright-runtime-validation.yml` | paths(8) | no | paths(8) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; other: `${{ github.sha }}` |
+| `portal-acceptance-contract.yml` | paths(17) | no | paths(17) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
 | `portal-e2e-audit.yml` | paths(1) | no | no | no | yes | - | no checkout |
 | `recover-synology-staging-schema.yml` | no | no | no | no | yes | - | other: `${{ github.sha }}` |
 | `repair-synology-autostart.yml` | no | no | paths(3) | no | yes | - | no checkout |
 | `repair-synology-compose-orphans.yml` | no | no | no | no | yes | - | other: `main` |
-| `support-legal-acceptance.yml` | paths(23) | no | paths(23) (same) | no | yes | - | PR head |
-| `support-moderation-acceptance.yml` | paths(24) | no | paths(24) (same) | no | yes | - | PR head |
-| `synology-container-hygiene.yml` | paths(5) | no | no | no | yes | - | PR head; other: `main` |
+| `support-legal-acceptance.yml` | paths(23) | no | paths(23) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
+| `support-moderation-acceptance.yml` | paths(24) | no | paths(24) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
+| `synology-container-hygiene.yml` | paths(5) | no | no | no | yes | - | PR head: `${{ github.event.pull_request.head.sha }}`; other: `main` |
 | `synology-diagnostics.yml` | no | no | paths(1) | no | yes | - | no checkout |
-| `synology-production-target-preflight.yml` | paths(8) | no | no | no | yes | - | PR head; other: `main` |
+| `synology-production-target-preflight.yml` | paths(8) | no | no | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; other: `main` |
 | `synology-rollback-contract.yml` | paths(11) | no | paths(11) (same) | no | yes | - | default (PR merge ref) |
 | `terminal-branch-lifecycle-read-reusable.yml` | no | no | no | no | no | `workflow_call` | default (PR merge ref); other: `${{ inputs.platform_ref }}` |
 | `terminal-branch-lifecycle-reusable.yml` | no | no | no | no | no | `workflow_call` | other: `${{ inputs.platform_ref }}`; other: `main` |
 | `terminal-branch-lifecycle.yml` | paths(15) | no | paths(15) (same) | no | yes | `pull_request_target` | default (PR merge ref); other: `main` |
 | `tibia-linux-live-reference.yml` | paths(2) | no | no | no | yes | - | default (PR merge ref) |
-| `wiki-reconciliation-acceptance.yml` | paths(23) | no | paths(23) (same) | no | yes | - | PR head |
+| `wiki-reconciliation-acceptance.yml` | paths(23) | no | paths(23) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
 
 ## Not decided here
 
