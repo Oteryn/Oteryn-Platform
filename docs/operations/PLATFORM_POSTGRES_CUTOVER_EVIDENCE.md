@@ -145,7 +145,7 @@ All values are from run 38595760762.
 | Owner delete confirmation supplied (phrase value is not recorded) | yes (`OTERYN_OWNER_DELETE_CONFIRMATION` was set; value not recorded) |
 | `owner_delete_ack` names the task id | yes (`OTERYN_OWNER_DELETE_ACK` was `OTERYN-20261013-pg-cutover`) |
 | Prerequisites: native smoke and declare-done recorded | yes: native-smoke run 38594579918 (`native_smoke_result=passed`) and declare-done run 38595000727 (`declare_done_result=recorded`) precede it; the step ran only after the closed-gate audit 38522229083 verified |
-| Volume deleted | `oteryn-staging_mariadb_data` (name printed by the delete step; `retire_mariadb_result=done`). A later compose line in the same log shows a volume of that name `Created` for the witness-deletion container. |
+| Volume deleted | Not complete. The delete step removed `oteryn-staging_mariadb_data` (`retire_mariadb_result=done`), but a later compose line in the same log shows a volume of that name `Created` for the witness-deletion container, and `docker volume ls` on the NAS still listed it on 2026-10-14 (created 16:11:43Z, no container attached). It must be removed again and verified absent before step 6 counts as done. |
 | Container removed | `oteryn-staging-mariadb-1` (`Container … Removed`) |
 | MariaDB-era witness directory deleted | yes (`witness_aside_deleted=true`) |
 | MariaDB deleted at (UTC) | 2026-10-14T16:12:26Z (`mariadb_deleted_at`) |
@@ -156,4 +156,5 @@ All values are from run 38595760762.
 - Until P7 removes `mariadb` from the compose and deploy path, an ordinary staging deploy would recreate the retired service and an empty volume; run none between retirement and P7.
 - `health-check.sh` requires the MariaDB service, so health checks cannot run after retirement.
 - Open: the real `unfreeze` (step 7, start the scheduler after the open edge). Dispatch it with `cutover_dry_run=false`; run 38605943395 was a dry run.
-- Approval: the owner approved the window, the `native_smoke_waiver` and `retire-mariadb`. Where that decision is archived is not recorded in any run log (no personal data here).
+- Approval: unverified by this record. The runs prove only that the confirmation phrase, the acknowledgement and the waiver passed their gates; no archived owner decision for the window, the `native_smoke_waiver` or `retire-mariadb` is linked here.
+- Open: remove the recreated `oteryn-staging_mariadb_data` volume and record its absence (see step 6 above).
