@@ -695,9 +695,10 @@ class TlsInitTest(unittest.TestCase):
 
 
 class EngineSwitchTest(unittest.TestCase):
-    def test_committed_engine_is_mariadb(self) -> None:
+    def test_committed_engine_is_postgres(self) -> None:
+        # Plan P6 cutover step 2 (scripts/cutover-postgres.sh): the reviewed flip, merged after the freeze.
         lines = [line for line in CONTRACT.read_text().splitlines() if line.startswith("PLATFORM_DB_ENGINE=")]
-        self.assertEqual(lines, ["PLATFORM_DB_ENGINE=mariadb"])
+        self.assertEqual(lines, ["PLATFORM_DB_ENGINE=postgres"])
 
     def test_engine_is_read_as_data_with_a_mariadb_default(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -781,6 +782,7 @@ class DeployWiringTest(unittest.TestCase):
             'postgres_secret_state="$(oteryn_postgres_secret_state)" || exit 1',
             'echo "PLATFORM_DB_ENGINE=postgres requires all five PostgreSQL secrets." >&2',
             'if [[ "$PLATFORM_DB_NAME" != oteryn_platform ]]; then',
+            'oteryn_require_cutover_deploy_window "$COMPOSE_FILE" || exit 1',
         ):
             self.assertLess(self.deploy.index(gate), first_compose, gate)
         self.assertNotIn('if [[ "$OTERYN_PLATFORM_DB_ENGINE" != mariadb ]]; then', self.deploy)
@@ -845,6 +847,673 @@ class DeployWiringTest(unittest.TestCase):
         self.assertIn('=~ ^[A-Za-z0-9_.-]{24,}$', workflow)
         self.assertLess(workflow.index("postgres_configured != 0"), workflow.index("cat > deploy/synology/.env"))
 
+
+
+# The cutover state model, written independently from the step guards of scripts/cutover-postgres.sh: a step's
+# marker is appended only when its guard holds for the markers already recorded (lib.sh mirrors it in bash).
+CUTOVER_STEP_KEYS = {
+    "FREEZE": ("CLOSE_RUN_ID", "MARIADB_VOLUME", "FREEZE_PLATFORM_IMAGE", "FREEZE_GATEWAY_IMAGE"),
+    "BOOTSTRAP": ("OAUTH_CLIENT_ID", "OAUTH_RUST_CLIENT_ID", "NATIVE_WORLD_ID", "BOOTSTRAP_PLATFORM_IMAGE"),
+    "REENABLE_STARTED": ("REENABLE_CLOSE_RUN_ID",),
+    "MARIADB_RETIRED": ("MARIADB_DELETED_AT",),
+    "UNFROZEN": ("UNFREEZE_AUDIT_RUN_ID",),
+}
+CUTOVER_STEPS = ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "SMOKE", "ROLLBACK_STARTED", "ROLLBACK_VERIFIED",
+                 "REENABLE_STARTED", "NATIVE_SMOKE", "DECLARED_DONE", "RETIRE_STARTED", "MARIADB_RETIRED", "UNFROZEN")
+
+
+def cutover_step_allowed(step: str, seen: set[str]) -> bool:
+    """The guard under which cutover-postgres.sh appends the step's marker (do_<step> and its record_step)."""
+    rollback_closed = not seen & {"REENABLE_STARTED", "NATIVE_SMOKE", "DECLARED_DONE"}
+    guards = {
+        "PREFLIGHT": "FREEZE" not in seen,
+        "FREEZE": "PREFLIGHT" in seen and "FREEZE" not in seen,
+        "BOOTSTRAP": "FREEZE" in seen and not seen & {"BOOTSTRAP", "REENABLE_STARTED", "ROLLBACK_STARTED"},
+        "SMOKE": "BOOTSTRAP" in seen and not seen & {"REENABLE_STARTED", "ROLLBACK_STARTED"},
+        "ROLLBACK_STARTED": "FREEZE" in seen and rollback_closed
+                            and not seen & {"ROLLBACK_STARTED", "ROLLBACK_VERIFIED"},
+        "ROLLBACK_VERIFIED": "ROLLBACK_STARTED" in seen and rollback_closed and "ROLLBACK_VERIFIED" not in seen,
+        "REENABLE_STARTED": "SMOKE" in seen and not seen & {"REENABLE_STARTED", "ROLLBACK_STARTED"},
+        "NATIVE_SMOKE": "REENABLE_STARTED" in seen and "ROLLBACK_STARTED" not in seen,
+        "DECLARED_DONE": "NATIVE_SMOKE" in seen and not seen & {"DECLARED_DONE", "ROLLBACK_STARTED"},
+        "RETIRE_STARTED": {"NATIVE_SMOKE", "DECLARED_DONE"} <= seen
+                          and not seen & {"RETIRE_STARTED", "MARIADB_RETIRED", "ROLLBACK_STARTED"},
+        "MARIADB_RETIRED": "RETIRE_STARTED" in seen and not seen & {"MARIADB_RETIRED", "ROLLBACK_STARTED"},
+        "UNFROZEN": "UNFROZEN" not in seen
+                    and ("ROLLBACK_VERIFIED" in seen or {"DECLARED_DONE", "MARIADB_RETIRED"} <= seen),
+    }
+    return guards[step]
+
+
+def cutover_reachable(max_repeats: int) -> set[tuple[str, ...]]:
+    """Every marker sequence the cutover can record, a repeatable step recorded at most max_repeats times."""
+    found: set[tuple[str, ...]] = set()
+    frontier: list[tuple[str, ...]] = [("PREFLIGHT",)]
+    while frontier:
+        history = frontier.pop()
+        if history in found:
+            continue
+        found.add(history)
+        for step in CUTOVER_STEPS:
+            if history.count(step) < max_repeats and cutover_step_allowed(step, set(history)):
+                frontier.append(history + (step,))
+    return found
+
+
+def cutover_state_text(steps: tuple[str, ...], frozen_image: str = "ghcr.io/oteryn/platform@sha256:" + "a" * 64,
+                       freeze_image: bool = True) -> str:
+    """The state text cutover-postgres.sh appends for the steps, in order."""
+    values = {"CLOSE_RUN_ID": "1", "MARIADB_VOLUME": "oteryn-staging_mariadb_data",
+              "FREEZE_PLATFORM_IMAGE": frozen_image, "FREEZE_GATEWAY_IMAGE": "ghcr.io/oteryn/gateway@sha256:" + "d" * 64,
+              "OAUTH_CLIENT_ID": "0199-oauth", "OAUTH_RUST_CLIENT_ID": "0199-rust", "NATIVE_WORLD_ID": "0199-world",
+              "BOOTSTRAP_PLATFORM_IMAGE": "ghcr.io/oteryn/platform@sha256:" + "b" * 64, "REENABLE_CLOSE_RUN_ID": "2",
+              "MARIADB_DELETED_AT": "2026-10-13T00:00:00Z", "UNFREEZE_AUDIT_RUN_ID": "3"}
+    text = "TASK_ID=OTERYN-20261013-test\n"
+    for index, step in enumerate(steps):
+        text += f"STEP_{step}=2026-10-13T00:{index // 60:02d}:{index % 60:02d}Z\n"
+        for key in CUTOVER_STEP_KEYS.get(step, ()):
+            if key != "FREEZE_PLATFORM_IMAGE" or freeze_image:
+                text += f"{key}={values[key]}\n"
+    return text
+
+
+def release_record(sha: str, image: str) -> str:
+    """A current or candidate release record as release-state.sh write produces it."""
+    return (f"RELEASE_SHA={sha}\nPLATFORM_SOURCE_SHA={sha}\nGATEWAY_SOURCE_SHA={sha}\nPLATFORM_IMAGE={image}\n"
+            f"GATEWAY_IMAGE=ghcr.io/oteryn/gateway@sha256:{'d' * 64}\nSCHEMA_COMPATIBILITY_ID=s1\n"
+            "APP_ACCEPTS_SCHEMA_IDS=s1\nMIGRATION_POLICY=expand-contract\nROLLBACK_ELIGIBLE=1\n")
+
+
+def lib_state_verdicts(texts: list[str]) -> list[bool]:
+    """Runs lib.sh _oteryn_cutover_state_valid on each text in one shell."""
+    script = ('source "$1"; while IFS= read -r -d "" text; do '
+              'if _oteryn_cutover_state_valid "$text"; then echo 1; else echo 0; fi; done')
+    result = subprocess.run(["bash", "-c", script, "bash", str(LIB)], input="".join(f"{text}\0" for text in texts),
+                            text=True, capture_output=True, check=True)
+    verdicts = result.stdout.split()
+    assert len(verdicts) == len(texts), result.stderr
+    return [verdict == "1" for verdict in verdicts]
+
+
+class CutoverDeployWindowTest(unittest.TestCase):
+    """Plan P6: an ordinary deploy stays off the stack while cutover-postgres.sh owns it."""
+
+    GATE = 'oteryn_require_cutover_deploy_window "$COMPOSE_FILE" || exit 1'
+
+    # The record bootstrap-postgres.sh writes; cutover-postgres.sh adopts only BOOTSTRAPPED_AT plus nonempty IDs.
+    RECORD = ("BOOTSTRAPPED_AT=2026-10-13T00:00:00Z\nOAUTH_CLIENT_ID=0199-oauth\nOAUTH_RUST_CLIENT_ID=0199-rust\n"
+              "NATIVE_WORLD_ID=0199-world\nNATIVE_ADMISSION=disabled\n")
+
+    # The release frozen by the cutover (FREEZE_PLATFORM_IMAGE) and the next release the deploy would promote.
+    IMAGE = "ghcr.io/oteryn/platform@sha256:"
+    FROZEN = ("a" * 40, IMAGE + "a" * 64)
+    NEXT = "b" * 40
+
+    def gate(self, td: Path, engine: str, steps: tuple[str, ...] = (), bootstrapped: bool | str = False,
+             compose: str = "services:\n  platform:\n    image: x\n",
+             unreadable: Path | None = None, *, freeze_image: bool = True,
+             current: tuple[str, str] | None = FROZEN, candidate: str | None = None,
+             release: str = NEXT) -> subprocess.CompletedProcess[str]:
+        """Runs the gate; by default the current release is the frozen one and the deploy promotes NEXT."""
+        state = td / "state"
+        for directory in (state / "postgres-cutover", state / "postgres-bootstrap"):
+            if not directory.exists() and not directory.is_symlink():
+                directory.mkdir(parents=True)
+                directory.chmod(0o700)  # owner-only, as both cutover scripts create it
+        if steps:
+            (state / "postgres-cutover/cutover-state.env").write_text(
+                cutover_state_text(steps, self.FROZEN[1], freeze_image))
+        current_file = state / "current-release.env"
+        if current is not None and not current_file.exists():
+            current_file.write_text(release_record(*current))
+        if candidate is not None:
+            (state / "candidate-release.env").write_text(release_record(candidate, self.IMAGE + "c" * 64))
+        if bootstrapped:
+            record = self.RECORD if bootstrapped is True else bootstrapped
+            (state / "postgres-bootstrap/bootstrap-complete.env").write_text(record)
+        compose_file = td / "compose.yml"
+        compose_file.write_text(compose)
+        env = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/tmp"), "OTERYN_STATE_DIR": str(state)}
+        if unreadable is not None:
+            env["PATH"] = f"{self.unreadable_readers(td, unreadable)}:{env['PATH']}"
+        env["OTERYN_RELEASE_SHA"] = release
+        return subprocess.run(
+            ["bash", "-c", f'source "$1"; OTERYN_PLATFORM_DB_ENGINE={engine}; oteryn_require_cutover_deploy_window "$2"',
+             "bash", str(LIB), str(compose_file)],
+            text=True, capture_output=True, check=False, env=env,
+        )
+
+    @staticmethod
+    def unreadable_readers(td: Path, target: Path) -> Path:
+        """Readers that fail on target like EACCES or EIO would (the tests may run as root, where mode 000 reads)."""
+        fake = td / "fake-bin"
+        fake.mkdir(exist_ok=True)
+        for tool in ("cat", "grep", "sed", "head", "tail", "awk"):
+            real = shutil.which(tool)
+            if real is None:
+                continue
+            script = fake / tool
+            script.write_text(
+                "#!/bin/bash\n"
+                f'for arg in "$@"; do [[ "$arg" == "{target}" ]] && {{ echo "{tool}: $arg: Permission denied" >&2; '
+                f'exit 2; }}; done\nexec "{real}" "$@"\n'
+            )
+            script.chmod(0o755)
+        return fake
+
+    def assert_gate(self, expected_ok: bool, engine: str, steps: tuple[str, ...] = (), bootstrapped: bool | str = False,
+                    compose: str | None = None, needle: str = "") -> None:
+        with tempfile.TemporaryDirectory() as td:
+            kwargs = {"compose": compose} if compose is not None else {}
+            result = self.gate(Path(td), engine, steps, bootstrapped, **kwargs)
+        label = f"{engine} {steps} bootstrapped={bootstrapped!r}"
+        self.assertEqual(result.returncode == 0, expected_ok, f"{label}: {result.stderr}")
+        self.assertIn(needle, result.stderr, label)
+
+    def test_mariadb_deploys_until_the_freeze_and_after_a_verified_rollback(self) -> None:
+        self.assert_gate(True, "mariadb")
+        self.assert_gate(True, "mariadb", ("PREFLIGHT",))
+        for steps in (("PREFLIGHT", "FREEZE"), ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "SMOKE", "ROLLBACK_STARTED"),
+                      ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "SMOKE", "REENABLE_STARTED")):
+            self.assert_gate(False, "mariadb", steps, True, needle="froze the stack")
+        self.assert_gate(True, "mariadb", ("PREFLIGHT", "FREEZE", "ROLLBACK_STARTED", "ROLLBACK_VERIFIED"))
+
+    def test_postgres_deploys_only_after_the_bootstrap(self) -> None:
+        # Merged before the freeze, or the merge-triggered deploy right after it: no bootstrap yet.
+        self.assert_gate(False, "postgres", needle="bootstrap is not complete")
+        self.assert_gate(False, "postgres", ("PREFLIGHT", "FREEZE"), needle="bootstrap is not complete")
+        # The deploy after the bootstrap (plan step 2), the step 4 deploy and every deploy after the cutover.
+        for steps in (("PREFLIGHT", "FREEZE"), ("PREFLIGHT", "FREEZE", "BOOTSTRAP"),
+                      ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "SMOKE", "REENABLE_STARTED", "NATIVE_SMOKE", "DECLARED_DONE")):
+            self.assert_gate(True, "postgres", steps, True)
+        # A started rollback ends only through the cutover; a verified one moved the bootstrap state aside.
+        self.assert_gate(False, "postgres", ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "ROLLBACK_STARTED"), True,
+                         needle="rollback to MariaDB was started")
+        self.assert_gate(False, "postgres", ("PREFLIGHT", "FREEZE", "ROLLBACK_STARTED", "ROLLBACK_VERIFIED"),
+                         needle="bootstrap is not complete")
+
+    def test_postgres_after_retire_mariadb_needs_the_compose_without_mariadb(self) -> None:
+        retired = ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "SMOKE", "REENABLE_STARTED", "NATIVE_SMOKE", "DECLARED_DONE",
+                   "RETIRE_STARTED", "MARIADB_RETIRED")
+        with_mariadb = "services:\n  mariadb:\n    image: mariadb\n  platform:\n    image: x\n"
+        self.assert_gate(False, "postgres", retired, True, with_mariadb, needle="land P7 first")
+        # An interrupted retire-mariadb may already have removed the container or volume.
+        self.assert_gate(False, "postgres", retired[:-1], True, with_mariadb, needle="retirement started or finished")
+        self.assert_gate(True, "postgres", retired[:-1], True)
+        self.assert_gate(True, "postgres", retired, True)
+        self.assert_gate(True, "postgres", retired, True, COMPOSE.read_text().replace("\n  mariadb:\n", "\n  retired:\n"))
+        if "\n  mariadb:\n" in COMPOSE.read_text():
+            self.assert_gate(False, "postgres", retired, True, COMPOSE.read_text(), needle="land P7 first")
+            self.assert_gate(False, "postgres", retired[:-1], True, COMPOSE.read_text(), needle="land P7 first")
+
+    def test_the_rollback_window_keeps_the_mariadb_release_in_last_good(self) -> None:
+        # cutover-postgres.sh rollback runs rollback.sh, which restores last-good-release.env and refuses a
+        # PostgreSQL image there. A deploy of another release moves current-release.env into that file.
+        frozen, pg1, pg2 = self.FROZEN, (self.NEXT, self.IMAGE + "b" * 64), "c" * 40
+        window = ("PREFLIGHT", "FREEZE", "BOOTSTRAP")
+
+        def run(steps: tuple[str, ...], current: tuple[str, str] | None, requested: str,
+                **kwargs: object) -> subprocess.CompletedProcess[str]:
+            with tempfile.TemporaryDirectory() as td:
+                return self.gate(Path(td), "postgres", steps, True, current=current, release=requested, **kwargs)
+
+        # The plan step 2 deploy replaces the frozen MariaDB release, which becomes last-good.
+        self.assertEqual(run(window, frozen, pg1[0]).returncode, 0)
+        # A redeploy of the current PostgreSQL release moves nothing into last-good.
+        self.assertEqual(run(window, pg1, pg1[0]).returncode, 0)
+        # Native re-enable ended the rollback window: later releases are promoted as usual.
+        self.assertEqual(run(window + ("SMOKE", "REENABLE_STARTED"), pg1, pg2).returncode, 0)
+        self.assertEqual(run(window + ("SMOKE", "REENABLE_STARTED"), None, pg2).returncode, 0)
+        # Another release after step 2 would put the PostgreSQL release into last-good.
+        for steps in (window, window + ("SMOKE",)):
+            result = run(steps, pg1, pg2)
+            self.assertNotEqual(result.returncode, 0, f"{steps}: {result.stderr}")
+            self.assertIn("rollback window is open", result.stderr, steps)
+        # A freeze record without the frozen image never matches by accident.
+        result = run(window, pg1, pg2, freeze_image=False)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("malformed", result.stderr)
+        # Without the current record the frozen release would never reach last-good.
+        result = run(window, None, pg1[0])
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("current-release.env is missing", result.stderr)
+        # A pending candidate of another release would be finalized and then moved into last-good.
+        result = run(window, frozen, pg2, candidate=pg1[0])
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("pending candidate", result.stderr)
+        self.assertEqual(run(window, frozen, pg1[0], candidate=pg1[0]).returncode, 0)
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            current = base / "state/current-release.env"
+            result = self.gate(base, "postgres", window, True, unreadable=current, current=pg1, release=pg1[0])
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("cannot be read", result.stderr)
+
+    def test_the_rollback_window_trusts_only_valid_release_records(self) -> None:
+        # The records that prove the frozen release stays in last-good pass release-state.sh validate first.
+        window = ("PREFLIGHT", "FREEZE", "BOOTSTRAP")
+        frozen_record = release_record(*self.FROZEN)
+        corrupt = {
+            "empty": "",
+            "truncated": frozen_record.split("GATEWAY_IMAGE")[0],
+            "only the identity": f"RELEASE_SHA={self.FROZEN[0]}\nPLATFORM_IMAGE={self.FROZEN[1]}\n",
+            "mutable gateway image": frozen_record.replace(f"@sha256:{'d' * 64}", ":latest"),
+            "short release sha": frozen_record.replace(f"RELEASE_SHA={self.FROZEN[0]}", "RELEASE_SHA=abc"),
+            "wrong migration policy": frozen_record.replace("expand-contract", "destructive"),
+            "no rollback eligibility": frozen_record.replace("ROLLBACK_ELIGIBLE=1\n", ""),
+        }
+        for which in ("current-release.env", "candidate-release.env"):
+            for label, text in corrupt.items():
+                with self.subTest(which=which, case=label), tempfile.TemporaryDirectory() as td:
+                    base = Path(td)
+                    # Valid records: the frozen release is current and the requested release is the candidate.
+                    self.assertEqual(self.gate(base, "postgres", window, True, candidate=self.NEXT).returncode, 0)
+                    (base / "state" / which).write_text(text.replace(self.FROZEN[0], self.NEXT)
+                                                        if which.startswith("candidate") else text)
+                    result = self.gate(base, "postgres")
+                    self.assertNotEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("not a valid release record", result.stderr)
+        for which in ("current-release.env", "candidate-release.env"):
+            with self.subTest(which=which, case="link"), tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                self.assertEqual(self.gate(base, "postgres", window, True, candidate=self.NEXT).returncode, 0)
+                record = base / "state" / which
+                record.rename(base / "elsewhere.env")
+                record.symlink_to(base / "elsewhere.env")
+                result = self.gate(base, "postgres")
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertIn("not a regular file", result.stderr)
+
+    def test_an_unreadable_compose_file_after_retirement_fails_closed(self) -> None:
+        # grep status 2 (a read error) is never taken as "the compose file no longer defines mariadb".
+        retired = ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "SMOKE", "REENABLE_STARTED", "NATIVE_SMOKE", "DECLARED_DONE",
+                   "RETIRE_STARTED", "MARIADB_RETIRED")
+        for steps in (retired, retired[:-1]):
+            with self.subTest(steps=steps[-1]), tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                result = self.gate(base, "postgres", steps, True, unreadable=base / "compose.yml")
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertIn("cannot be read to prove", result.stderr)
+                # The same state with a readable compose file without mariadb passes.
+                self.assertEqual(self.gate(base, "postgres", steps, True).returncode, 0)
+
+    @staticmethod
+    def gate_at(root: Path, compose: Path, engine: str = "mariadb") -> subprocess.CompletedProcess[str]:
+        """Runs the gate on a state root the fixture does not create."""
+        compose.write_text("services:\n  platform:\n    image: x\n")
+        env = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/tmp"), "OTERYN_STATE_DIR": str(root)}
+        return subprocess.run(
+            ["bash", "-c", f'source "$1"; OTERYN_PLATFORM_DB_ENGINE={engine}; oteryn_require_cutover_deploy_window "$2"',
+             "bash", str(LIB), str(compose)],
+            text=True, capture_output=True, check=False, env=env,
+        )
+
+    def test_an_absence_that_cannot_be_proven_fails_closed(self) -> None:
+        # -e is false on any stat error: a state root that is not a searchable directory hides the markers.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "state"
+            root.write_text("not a directory\n")
+            result = self.gate_at(root, Path(td) / "compose.yml")
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("cannot be inspected", result.stderr)
+        # A state root that does not exist yet below a searchable directory is a real absence.
+        with tempfile.TemporaryDirectory() as td:
+            result = self.gate_at(Path(td) / "missing/state", Path(td) / "compose.yml")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipIf(os.geteuid() == 0, "root searches a mode 000 directory")
+    def test_an_unsearchable_state_root_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "state"
+            (root / "postgres-cutover").mkdir(parents=True)
+            (root / "postgres-cutover/cutover-state.env").write_text("STEP_PREFLIGHT=x\nSTEP_FREEZE=x\n")
+            root.chmod(0o600)
+            try:
+                result = self.gate_at(root, Path(td) / "compose.yml")
+            finally:
+                root.chmod(0o700)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("cannot be inspected", result.stderr)
+
+    def test_links_and_unresolved_engines_are_refused(self) -> None:
+        self.assert_gate(False, "", needle="engine is not resolved")
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            self.gate(base, "postgres", ("PREFLIGHT",), True)
+            complete = base / "state/postgres-bootstrap/bootstrap-complete.env"
+            target = base / "elsewhere.env"
+            complete.rename(target)
+            complete.symlink_to(target)
+            self.assertNotEqual(self.gate(base, "postgres").returncode, 0)
+            state = base / "state/postgres-cutover/cutover-state.env"
+            state.rename(base / "state.env")
+            state.symlink_to(base / "state.env")
+            complete.unlink()
+            target.rename(complete)
+            result = self.gate(base, "postgres")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("not a regular file", result.stderr)
+
+    def test_an_unreadable_cutover_state_fails_closed(self) -> None:
+        cases = (
+            ("mariadb", ("PREFLIGHT", "FREEZE")),
+            ("postgres", ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "ROLLBACK_STARTED")),
+            ("postgres", ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "SMOKE", "REENABLE_STARTED", "NATIVE_SMOKE",
+                          "DECLARED_DONE", "RETIRE_STARTED", "MARIADB_RETIRED")),
+            # Even a state that would pass when readable: an unreadable one is never taken as an absent one.
+            ("mariadb", ("PREFLIGHT",)),
+            ("postgres", ("PREFLIGHT", "FREEZE", "BOOTSTRAP")),
+        )
+        with_mariadb = "services:\n  mariadb:\n    image: mariadb\n  platform:\n    image: x\n"
+        for engine, steps in cases:
+            with tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                state = base / "state/postgres-cutover/cutover-state.env"
+                result = self.gate(base, engine, steps, True, with_mariadb, unreadable=state)
+            self.assertNotEqual(result.returncode, 0, f"{engine} {steps}: {result.stderr}")
+            self.assertIn("cannot be read", result.stderr, f"{engine} {steps}")
+
+    @unittest.skipIf(os.geteuid() == 0, "root reads a mode 000 file")
+    def test_a_permission_denied_cutover_state_fails_closed(self) -> None:
+        for engine, steps in (("mariadb", ("PREFLIGHT", "FREEZE")),
+                              ("postgres", ("PREFLIGHT", "FREEZE", "BOOTSTRAP", "ROLLBACK_STARTED"))):
+            with tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                self.gate(base, engine, steps, True)
+                state = base / "state/postgres-cutover/cutover-state.env"
+                state.chmod(0)
+                try:
+                    result = self.gate(base, engine)
+                finally:
+                    state.chmod(0o600)
+            self.assertNotEqual(result.returncode, 0, f"{engine} {steps}: {result.stderr}")
+            self.assertIn("cannot be read", result.stderr, f"{engine} {steps}")
+
+    def test_a_cutover_state_directory_that_cannot_be_inspected_fails_closed(self) -> None:
+        for engine in ("mariadb", "postgres"):
+            with tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                state_dir = base / "state/postgres-cutover"
+                self.gate(base, engine, (), True)
+                state_dir.rmdir()
+                state_dir.write_text("STEP_FREEZE=2026-10-13T00:00:00Z\n")
+                result = self.gate(base, engine)
+            self.assertNotEqual(result.returncode, 0, f"{engine}: {result.stderr}")
+            self.assertIn("cannot be inspected", result.stderr, engine)
+
+    def test_a_linked_state_directory_fails_closed_before_any_marker_is_read(self) -> None:
+        # A linked directory whose target holds a passing state (or none) must still be refused.
+        for engine, steps in (("mariadb", ()), ("mariadb", ("PREFLIGHT",)),
+                              ("postgres", ("PREFLIGHT", "FREEZE", "BOOTSTRAP"))):
+            for linked in ("postgres-cutover", "postgres-bootstrap"):
+                with self.subTest(engine=engine, steps=steps, linked=linked), tempfile.TemporaryDirectory() as td:
+                    base = Path(td)
+                    self.assertEqual(self.gate(base, engine, steps, engine == "postgres").returncode, 0)
+                    directory = base / "state" / linked
+                    target = base / f"{linked}-target"
+                    directory.rename(target)
+                    directory.symlink_to(target, target_is_directory=True)
+                    result = self.gate(base, engine)
+                    self.assertNotEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("state directory is a link", result.stderr)
+
+    def test_a_state_directory_that_is_not_owner_only_fails_closed(self) -> None:
+        # As bootstrap-postgres.sh requires before it reads a record: a writable directory could carry planted
+        # records (a complete bootstrap, a verified rollback) that open the gate.
+        for engine, steps in (("mariadb", ()), ("postgres", ("PREFLIGHT", "FREEZE", "BOOTSTRAP"))):
+            for linked in ("postgres-cutover", "postgres-bootstrap"):
+                for mode in (0o720, 0o702, 0o777):
+                    with self.subTest(engine=engine, directory=linked, mode=oct(mode)), \
+                            tempfile.TemporaryDirectory() as td:
+                        base = Path(td)
+                        self.assertEqual(self.gate(base, engine, steps, engine == "postgres").returncode, 0)
+                        (base / "state" / linked).chmod(mode)
+                        result = self.gate(base, engine)
+                        self.assertNotEqual(result.returncode, 0, result.stderr)
+                        self.assertIn("must be an owner-only directory", result.stderr)
+
+    @unittest.skipUnless(os.geteuid() == 0, "only root can hand a directory to another owner")
+    def test_a_state_directory_owned_by_another_user_fails_closed(self) -> None:
+        for linked in ("postgres-cutover", "postgres-bootstrap"):
+            with self.subTest(directory=linked), tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                steps = ("PREFLIGHT", "FREEZE", "BOOTSTRAP")
+                self.assertEqual(self.gate(base, "postgres", steps, True).returncode, 0)
+                os.chown(base / "state" / linked, 65534, 65534)
+                result = self.gate(base, "postgres")
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertIn("must be an owner-only directory", result.stderr)
+
+    def test_a_held_or_stale_cutover_lock_refuses_every_deploy(self) -> None:
+        # A freeze interrupted after it stopped the stack leaves run.lock but no STEP_FREEZE.
+        for engine, steps, bootstrapped in (("mariadb", (), False), ("mariadb", ("PREFLIGHT",), False),
+                                            ("postgres", ("PREFLIGHT", "FREEZE", "BOOTSTRAP"), True)):
+            for kind in ("dir", "file", "link"):
+                with self.subTest(engine=engine, steps=steps, kind=kind), tempfile.TemporaryDirectory() as td:
+                    base = Path(td)
+                    self.assertEqual(self.gate(base, engine, steps, bootstrapped).returncode, 0)
+                    lock = base / "state/postgres-cutover/run.lock"
+                    if kind == "dir":
+                        lock.mkdir()
+                    elif kind == "file":
+                        lock.write_text("")
+                    else:
+                        lock.symlink_to(base / "missing")
+                    result = self.gate(base, engine)
+                    self.assertNotEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("run.lock", result.stderr)
+
+    def test_a_readable_but_corrupt_cutover_state_fails_closed(self) -> None:
+        window = ("PREFLIGHT", "FREEZE", "BOOTSTRAP")
+        frozen = cutover_state_text(("PREFLIGHT", "FREEZE"), self.FROZEN[1])
+        bootstrapped = cutover_state_text(window, self.FROZEN[1])
+        smoked = cutover_state_text(window + ("SMOKE",), self.FROZEN[1])
+        corrupt = {
+            "empty": "",
+            "only a newline": "\n",
+            "only the task id": "TASK_ID=OTERYN-20261013-test\n",
+            "truncated mid-line": frozen[:-10],
+            "truncated after the freeze marker": frozen.split("CLOSE_RUN_ID")[0],
+            "no TASK_ID": frozen.replace("TASK_ID=OTERYN-20261013-test\n", ""),
+            "TASK_ID after the first step": frozen.replace("TASK_ID=OTERYN-20261013-test\n", "") + "TASK_ID=OTERYN-20261013-test\n",
+            "second TASK_ID": frozen + "TASK_ID=OTERYN-20261013-other\n",
+            "malformed TASK_ID": frozen.replace("OTERYN-20261013-test", "x"),
+            "no PREFLIGHT": frozen.replace("STEP_PREFLIGHT=2026-10-13T00:00:00Z\n", ""),
+            "unknown step": frozen + "STEP_FROZE=2026-10-13T00:00:02Z\n",
+            "lowercase key": frozen + "step_freeze=2026-10-13T00:00:02Z\n",
+            "malformed timestamp": frozen.replace("STEP_FREEZE=2026-10-13T00:00:01Z", "STEP_FREEZE=yesterday"),
+            "earlier timestamp than the step before": frozen.replace("STEP_FREEZE=2026-10-13T00:00:01Z",
+                                                                     "STEP_FREEZE=2026-10-12T23:59:59Z"),
+            "blank line": frozen + "\n",
+            "foreign line": frozen + "# edited by hand\n",
+            "foreign key after a step": frozen + "OPERATOR_NOTE=ok\n",
+            "freeze without its volume": frozen.replace("MARIADB_VOLUME=oteryn-staging_mariadb_data\n", ""),
+            "freeze keys out of order": frozen.replace("CLOSE_RUN_ID=1\nMARIADB_VOLUME=oteryn-staging_mariadb_data\n",
+                                                       "MARIADB_VOLUME=oteryn-staging_mariadb_data\nCLOSE_RUN_ID=1\n"),
+            "freeze with an empty gateway image": frozen.replace(f"FREEZE_GATEWAY_IMAGE=ghcr.io/oteryn/gateway@sha256:{'d' * 64}",
+                                                                 "FREEZE_GATEWAY_IMAGE="),
+            "bootstrap without its IDs": bootstrapped.split("OAUTH_CLIENT_ID")[0],
+            "bootstrap without the freeze": cutover_state_text(("PREFLIGHT",)) + "STEP_BOOTSTRAP=2026-10-13T00:00:02Z\n",
+            "marker before its prerequisite": cutover_state_text(("PREFLIGHT",)).replace(
+                "STEP_PREFLIGHT", "STEP_FREEZE=2026-10-13T00:00:00Z\nCLOSE_RUN_ID=1\nMARIADB_VOLUME=v\n"
+                "FREEZE_PLATFORM_IMAGE=i\nFREEZE_GATEWAY_IMAGE=g\nSTEP_PREFLIGHT"),
+            "re-enable without the smoke": cutover_state_text(window + ("REENABLE_STARTED",), self.FROZEN[1]),
+            "re-enable after a started rollback": cutover_state_text(window + ("SMOKE", "ROLLBACK_STARTED", "REENABLE_STARTED")),
+            "rollback after re-enable": cutover_state_text(window + ("SMOKE", "REENABLE_STARTED", "ROLLBACK_STARTED")),
+            "verified rollback next to re-enable": cutover_state_text(
+                window + ("SMOKE", "ROLLBACK_STARTED", "ROLLBACK_VERIFIED", "REENABLE_STARTED")),
+            "verified without a started rollback": frozen + "STEP_ROLLBACK_VERIFIED=2026-10-13T00:00:03Z\n",
+            "second freeze": cutover_state_text(("PREFLIGHT", "FREEZE", "FREEZE")),
+            "preflight after the freeze": cutover_state_text(("PREFLIGHT", "FREEZE", "PREFLIGHT")),
+            "retired without declared done": cutover_state_text(
+                window + ("SMOKE", "REENABLE_STARTED", "NATIVE_SMOKE", "RETIRE_STARTED")),
+            "unfrozen while frozen": cutover_state_text(window + ("SMOKE", "UNFROZEN")),
+            "bootstrap after the smoke window": smoked + "STEP_BOOTSTRAP=2026-10-13T00:00:09Z\n",
+        }
+        for engine in ("mariadb", "postgres"):
+            for label, text in corrupt.items():
+                with self.subTest(engine=engine, case=label), tempfile.TemporaryDirectory() as td:
+                    base = Path(td)
+                    self.gate(base, engine, (), engine == "postgres")
+                    (base / "state/postgres-cutover/cutover-state.env").write_text(text)
+                    result = self.gate(base, engine)
+                    self.assertNotEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("empty, truncated or malformed", result.stderr)
+        # The well-formed records pass (postgres in the step 2 window, with the frozen release current).
+        for engine, text in (("mariadb", cutover_state_text(("PREFLIGHT",))), ("postgres", bootstrapped)):
+            with self.subTest(engine=engine, case="valid"), tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                self.gate(base, engine, (), engine == "postgres")
+                (base / "state/postgres-cutover/cutover-state.env").write_text(text)
+                result = self.gate(base, engine)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_the_state_validator_accepts_exactly_the_reachable_cutover_histories(self) -> None:
+        reachable = cutover_reachable(max_repeats=2)
+        self.assertIn(CUTOVER_STEPS[:4] + ("REENABLE_STARTED", "NATIVE_SMOKE", "DECLARED_DONE", "RETIRE_STARTED",
+                                           "MARIADB_RETIRED", "UNFROZEN"), reachable)
+        cases: dict[tuple[str, ...], bool] = {history: True for history in reachable}
+        # Every set of markers in step order, every single-marker drop and every adjacent swap of a reachable
+        # history: refused unless the cutover can record exactly that sequence.
+        for mask in range(1, 1 << len(CUTOVER_STEPS)):
+            history = tuple(step for bit, step in enumerate(CUTOVER_STEPS) if mask >> bit & 1)
+            cases.setdefault(history, history in reachable)
+        for history in reachable:
+            for index in range(len(history)):
+                dropped = history[:index] + history[index + 1:]
+                if dropped:
+                    cases.setdefault(dropped, dropped in reachable)
+                if index + 1 < len(history) and history[index] != history[index + 1]:
+                    swapped = history[:index] + (history[index + 1], history[index]) + history[index + 2:]
+                    cases.setdefault(swapped, swapped in reachable)
+        histories = list(cases)
+        verdicts = lib_state_verdicts([cutover_state_text(history) for history in histories])
+        wrong = [(history, cases[history]) for history, verdict in zip(histories, verdicts) if verdict != cases[history]]
+        self.assertEqual(wrong[:5], [], f"{len(wrong)} of {len(histories)} histories judged against the model")
+        self.assertGreater(sum(not expected for expected in cases.values()), 4000)
+
+    def test_the_gate_decides_every_reachable_history_as_the_model_says(self) -> None:
+        with_mariadb = "services:\n  mariadb:\n    image: mariadb\n  platform:\n    image: x\n"
+        for history in sorted(cutover_reachable(max_repeats=1)):
+            seen = set(history)
+            expected = {
+                ("mariadb", False): not ("FREEZE" in seen and "ROLLBACK_VERIFIED" not in seen),
+                # Postgres with the frozen release current and the next release requested.
+                ("postgres", False): "ROLLBACK_STARTED" not in seen
+                                     and ("REENABLE_STARTED" in seen or "FREEZE" in seen),
+            }
+            expected[("postgres", True)] = expected[("postgres", False)] and not seen & {"RETIRE_STARTED", "MARIADB_RETIRED"}
+            for (engine, mariadb_in_compose), ok in expected.items():
+                with self.subTest(history=history, engine=engine, compose_mariadb=mariadb_in_compose), \
+                        tempfile.TemporaryDirectory() as td:
+                    kwargs = {"compose": with_mariadb} if mariadb_in_compose else {}
+                    result = self.gate(Path(td), engine, history, engine == "postgres", **kwargs)
+                    self.assertEqual(result.returncode == 0, ok, result.stderr)
+
+    def test_mariadb_refuses_a_bootstrap_record_whatever_the_state_says(self) -> None:
+        # A verified rollback moves the bootstrap state aside; a record left on mariadb means a cutover is running.
+        for steps in ((), ("PREFLIGHT",)):
+            with self.subTest(steps=steps):
+                self.assert_gate(False, "mariadb", steps, True, needle="cutover record (")
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            self.gate(base, "mariadb")
+            complete = base / "state/postgres-bootstrap/bootstrap-complete.env"
+            complete.symlink_to(base / "missing")
+            result = self.gate(base, "mariadb")
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+
+    # What record-witness writes at the freeze, after the stack stopped and before STEP_FREEZE.
+    WITNESS = ("RECORD_VERSION=1\nWITNESS_DIRECTORY=/srv/witness\nWITNESS_STATE=empty\nWITNESS_STORE_ID=none\n"
+               "WITNESS_MANIFEST_SHA256=" + "0" * 64 + "\nFROZEN_AT=2026-10-13T00:00:00Z\n")
+
+    def test_mariadb_refuses_a_freeze_interrupted_after_its_witness_record(self) -> None:
+        # The freeze stopped the stack and record-witness wrote witness-freeze.env, then the step exited before
+        # STEP_FREEZE and removed run.lock: only the witness record shows the frozen stack.
+        def put(record: Path, form: str) -> None:
+            if form == "symlink":
+                record.symlink_to(record.parent / "missing")
+            elif form == "directory":
+                record.mkdir()
+            elif form == "unreadable":
+                record.write_text(self.WITNESS)
+                record.chmod(0)
+            else:
+                record.write_text({"valid": self.WITNESS, "empty": "", "garbage": "not a record\x00"}[form])
+
+        records = ("witness-freeze.env", "witness-moved-aside.env", "bootstrap-complete.env")
+        forms = ("valid", "empty", "garbage", "unreadable", "symlink", "directory")
+        for name in records:
+            for form in forms:
+                for steps in ((), ("PREFLIGHT",)):
+                    with self.subTest(record=name, form=form, steps=steps), tempfile.TemporaryDirectory() as td:
+                        base = Path(td)
+                        self.assertEqual(self.gate(base, "mariadb", steps).returncode, 0)
+                        put(base / "state/postgres-bootstrap" / name, form)
+                        result = self.gate(base, "mariadb", steps)
+                        self.assertNotEqual(result.returncode, 0, result.stderr)
+                        self.assertIn(f"cutover record ({base}/state/postgres-bootstrap/{name})", result.stderr)
+        # The verified rollback moved the bootstrap state aside: the deploy passes again.
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            self.gate(base, "mariadb", ("PREFLIGHT",))
+            bootstrap = base / "state/postgres-bootstrap"
+            (bootstrap / "witness-freeze.env").write_text(self.WITNESS)
+            bootstrap.rename(base / "state/postgres-bootstrap.rolled-back-20261013T000000Z")
+            result = self.gate(base, "mariadb", ("PREFLIGHT", "FREEZE", "ROLLBACK_STARTED", "ROLLBACK_VERIFIED"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # A bootstrap state directory whose entries cannot be listed never proves the witness absent.
+        if os.geteuid() != 0:
+            with tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                self.gate(base, "mariadb", ("PREFLIGHT",))
+                bootstrap = base / "state/postgres-bootstrap"
+                bootstrap.chmod(0o600)
+                try:
+                    result = self.gate(base, "mariadb", ("PREFLIGHT",))
+                finally:
+                    bootstrap.chmod(0o700)
+            self.assertNotEqual(result.returncode, 0, result.stderr)
+            self.assertIn("cutover record (", result.stderr)
+
+    def test_postgres_requires_a_complete_readable_bootstrap_record(self) -> None:
+        steps = ("PREFLIGHT", "FREEZE", "BOOTSTRAP")
+        self.assert_gate(True, "postgres", steps, self.RECORD)
+        # The last value wins, as in the cutover-postgres.sh adoption path.
+        self.assert_gate(True, "postgres", steps, self.RECORD.replace("OAUTH_CLIENT_ID=0199-oauth\n", "OAUTH_CLIENT_ID=\n")
+                         + "OAUTH_CLIENT_ID=0199-oauth\n")
+        incomplete = {
+            "empty": "\n",
+            "truncated": "BOOTSTRAPPED_AT=2026-10-13T00:00:00Z\n",
+            "no BOOTSTRAPPED_AT": self.RECORD.replace("BOOTSTRAPPED_AT=2026-10-13T00:00:00Z\n", ""),
+            "commented BOOTSTRAPPED_AT": "# " + self.RECORD,
+            "empty OAuth client": self.RECORD.replace("OAUTH_CLIENT_ID=0199-oauth", "OAUTH_CLIENT_ID="),
+            "empty Rust client": self.RECORD.replace("OAUTH_RUST_CLIENT_ID=0199-rust", "OAUTH_RUST_CLIENT_ID="),
+            "missing world": self.RECORD.replace("NATIVE_WORLD_ID=0199-world\n", ""),
+            "emptied by a later line": self.RECORD + "NATIVE_WORLD_ID=\n",
+        }
+        for label, record in incomplete.items():
+            with self.subTest(label):
+                self.assert_gate(False, "postgres", steps, record, needle="completion record")
+                self.assert_gate(False, "postgres", steps, record, needle="is incomplete")
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            complete = base / "state/postgres-bootstrap/bootstrap-complete.env"
+            result = self.gate(base, "postgres", steps, True, unreadable=complete)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("completion record", result.stderr)
+        self.assertIn("cannot be read", result.stderr)
+
+    def test_deploy_and_impact_call_the_gate_before_any_stack_change(self) -> None:
+        for path in (DEPLOY, SCRIPTS / "deploy-impact.sh"):
+            text = path.read_text()
+            self.assertEqual(text.count(self.GATE), 1, path.name)
+            self.assertLess(text.index(self.GATE), text.index('compose=(docker compose --env-file "$ENV_FILE"'), path.name)
+            self.assertLess(text.index("load_oteryn_env_file"), text.index(self.GATE), path.name)
+
+    def test_the_cutover_rollback_path_is_not_gated(self) -> None:
+        for name in ("rollback.sh", "health-check.sh", "cutover-postgres.sh", "bootstrap-postgres.sh"):
+            self.assertNotIn("oteryn_require_cutover_deploy_window", (SCRIPTS / name).read_text(), name)
 
 
 def fake_docker_env(td: Path) -> tuple[dict[str, str], Path]:
