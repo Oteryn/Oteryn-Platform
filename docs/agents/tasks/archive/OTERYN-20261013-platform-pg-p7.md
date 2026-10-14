@@ -27,7 +27,7 @@ Plan P7 (ADR 0046): remove the MariaDB Platform paths from the Synology staging 
 - [x] `deploy.sh`, `deploy-impact.sh`, `health-check.sh`, `recover-schema.sh`, `prepare-fresh-schema-baseline.sh`, `marketplace-staging.sh` and `production-target-preflight.sh` no longer require `MARIADB_ROOT_PASSWORD`/`PLATFORM_DB_PASSWORD`/`PLATFORM_DB_USER`, start, check or dump MariaDB; the fast and reconcile paths preserve the postgres container; recovery refuses a MariaDB-era backup before any change.
 - [x] README describes the PostgreSQL-only stack and the secret retirement order.
 - [x] Synology contract tests follow.
-- [ ] Merged only after `retire-mariadb` is recorded on staging (owner sequencing).
+- [x] Merged only after `retire-mariadb` is recorded on staging (owner sequencing).
 
 Kept on purpose (outside this unit or still needed): `cutover-postgres.sh`, `bootstrap-postgres.sh` (the deploy workflow's cutover action); `restore-postgres-pitr.sh`; `pdo_mysql` in the image.
 
@@ -86,7 +86,7 @@ dependencies:
   - PR #1598 (engine flip, cutover step 2) merged
   - cutover-postgres.sh retire-mariadb recorded on staging (STEP_MARIADB_RETIRED)
 blockers:
-  - retire-mariadb not yet recorded on staging (merge only; review can proceed)
+  - none
 cross_repository_tasks:
   - none
 ```
@@ -98,10 +98,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-13T23:45:00Z
-head: 0db53f7dfa54a6ff0eb61203a9aa611bb8f1dd17
+head: fbc8e30d87efdd8b9c0af51f3fd79cbb6703cd7f
 branch: claude/platform-p7-20261013
 pr: 1599
-status: validating
+status: completed
 context_routes:
   - deploy
 owned_paths:
@@ -143,6 +143,7 @@ owned_paths:
   - tests/ci/test_synology_deployment_package_routing.py
   - tests/ci/test_synology_auto_staging_deploy.py
   - docs/agents/tasks/active/OTERYN-20261013-platform-pg-p7.md
+  - docs/agents/tasks/archive/OTERYN-20261013-platform-pg-p7.md
 proven:
   - cutover-postgres.sh rollback needs the mariadb service, its secrets and the mariadb engine until retire-mariadb; health-check.sh checks mariadb on the mariadb engine; so no MariaDB path is removable before retire-mariadb.
   - The engine-flip gate (PR 1598) refuses a deploy after retire-mariadb while compose.yml still defines mariadb; this PR is the compose change that clears it.
@@ -213,7 +214,7 @@ validation:
     evidence: no new shellcheck findings against the base
 blockers:
   - retire-mariadb not yet recorded on staging (merge only)
-next_action: CP re-requests review on PR 1599; merge only after PR 1598 and retire-mariadb.
+next_action: none. PR #1599 merged as fbc8e30d on 2026-10-14; this record is archived.
 ```
 
 ## Source branch closeout
@@ -221,7 +222,7 @@ next_action: CP re-requests review on PR 1599; merge only after PR 1598 and reti
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository squash merge of PR 1599
-source_branch_evidence: pending
+source_branch_evidence: PR #1599 merged as fbc8e30d87efdd8b9c0af51f3fd79cbb6703cd7f from claude/platform-p7-20261013 on 2026-10-14
 ```
 
 ## Notes

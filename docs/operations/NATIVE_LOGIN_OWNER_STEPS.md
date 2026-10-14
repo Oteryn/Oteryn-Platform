@@ -2,9 +2,9 @@
 
 Plain checklist to bring native game login up end to end: Platform and Gateway on the Synology stack, the Game node on the same NAS, and the Windows client. Nothing here is a secret; the values you set are identifiers and addresses. Keys, certificates and passwords stay on their hosts. Examples use addresses already in the repository (`https://oteryn.molehill.cloud` Platform, `https://gateway.molehill.cloud` Gateway, Game port `7172`); use your NAS address.
 
-## Known limit that gates route publication
+## Route publication on the Synology store
 
-`game-auth:native-topology:issue` and `game-auth:native-route:publish` run only behind the disposable-store guard (`app/GameAuth/Worlds/DisposableNativeStore.php`, frozen design ARCH-PREPROD-ROUTE-PUBLISH-AUTH-V1 section 2). It admits the retained per-run SQLite file or the loopback test database and refuses the Synology MariaDB. So the deploy step ships switched off (`OTERYN_STAGING_NATIVE_ROUTE_PUBLISH_ENABLED` unset). With the switch on and the guard unchanged, the deploy stops at that step with an error and nothing is written. Leave the switch off until the owner decides how the guard admits the Synology preproduction database.
+`game-auth:native-topology:issue` and `game-auth:native-route:publish` reach the deployed Synology store only through the preproduction-store mode (`app/GameAuth/Worlds/PreproductionNativeRouteStore.php`, ADR 0044). Since the PostgreSQL cutover its code fence admits exactly the `pgsql` identity of ADR 0044 Amendment P4 (accepted 2026-10-14): host `postgres`, port `5432`, `sslmode=verify-full`, database `oteryn_platform`, connection `pgsql`, role `oteryn_platform_app`. Staging turns the deploy step on in `deploy/synology/native-defaults.env` (`OTERYN_STAGING_NATIVE_ROUTE_PUBLISH_ENABLED=true`); the step refuses unless the Registry issues exactly the configured `OTERYN_STAGING_NATIVE_WORLD_ID`, and a refusal writes nothing.
 
 ## A. GitHub repository variables (Oteryn-Platform, Settings, Secrets and variables, Actions, Variables)
 
@@ -28,7 +28,7 @@ Plain checklist to bring native game login up end to end: Platform and Gateway o
    | `OTERYN_STAGING_NATIVE_ROUTE_PORT` | `7172` (descriptor `[route] port`) |
    | `OTERYN_STAGING_NATIVE_ROUTE_TLS_SERVER_NAME` | `node-1.preprod.oteryn.internal` (descriptor `[route] tls_server_name`; DNS name, equals the gameplay certificate SAN) |
    | `OTERYN_STAGING_NATIVE_ROUTE_LOGIN_ENABLED` | `true` (default when unset) or `false` |
-   | `OTERYN_STAGING_NATIVE_ROUTE_PUBLISH_ENABLED` | `true` to publish on deploy; leave unset until the limit above is resolved |
+   | `OTERYN_STAGING_NATIVE_ROUTE_PUBLISH_ENABLED` | `true` to publish on deploy (the committed staging default; see the section above) |
 
 ## B. Platform deploy
 

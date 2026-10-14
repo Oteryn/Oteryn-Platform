@@ -10,7 +10,7 @@ Accepted — 2026-10-11 (owner decision, option a)
 - Applies to: the two existing operator commands `game-auth:native-topology:issue` and `game-auth:native-route:publish`, when they run against the Synology preproduction MariaDB store
 - Does not authorize: production or any other deployed environment, any database other than the allowlisted store, more than one native World route record, a change to `DisposableNativeStore` beyond Amendment D1023 below, a change to the gateway or admission contract, or any secret, credential or key handling
 - Amended: 2026-10-12 by owner decision D1023 (testing-only loopback PostgreSQL profile of `DisposableNativeStore`, ARCH-PREPROD-ROUTE-PUBLISH-AUTH-V1 §2 amendment)
-- Proposed amendment: P4 — PostgreSQL store identity of the preproduction-store mode (2026-10-12, below; status Proposed until the owner accepts it)
+- Amendment P4 — PostgreSQL store identity of the preproduction-store mode (2026-10-12, below; accepted by the owner 2026-10-14)
 
 ## Context
 
@@ -117,7 +117,7 @@ ARCH-PREPROD-ROUTE-PUBLISH-AUTH-V1 §2 is amended: `DisposableNativeStore::conne
 
 ### Status
 
-Proposed — 2026-10-12. Packet P4 of `docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md` (ADR 0046 §8). Takes effect when the owner accepts it; until then the deploy keeps it unreachable (below).
+Accepted — 2026-10-14 (owner decision). Proposed 2026-10-12 as packet P4 of `docs/operations/PLATFORM_POSTGRES_MIGRATION_PLAN.md` (ADR 0046 §8).
 
 ### Context
 
@@ -139,7 +139,7 @@ The database condition of the fence becomes one identity per driver, still fixed
 - Scope, idempotence, audit and output are unchanged.
 - `DisposableNativeStore` is unchanged by this amendment.
 
-Until this amendment is accepted and P6 lands, `deploy/synology/scripts/deploy.sh` refuses `PLATFORM_DB_ENGINE=postgres`, and refuses it together with `OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED=true` in any case, so no deployed run can enter the PostgreSQL identity.
+Before acceptance `deploy/synology/scripts/deploy.sh` refused `OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED=true` on the postgres engine. With the amendment accepted (2026-10-14) and P6 landed, that deploy refusal is removed; the code fence above is the only gate.
 
 ### Consequences
 

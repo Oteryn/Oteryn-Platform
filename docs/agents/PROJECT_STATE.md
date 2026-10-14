@@ -34,6 +34,7 @@ These phase statements do not claim benchmark product completeness. Issue #268 a
 - **Viewport/Browser Evidence Linkage: COMPLETE IN #347 / PR #349**
 - **Public Game-Data Stress/500 Slice: COMPLETE IN #350 / PR #351**
 - **Exhaustive Backend–Frontend Evidence: NOT COMPLETE; PARENT #326 REMAINS OPEN**
+- **Staging PostgreSQL cutover (P6, `OTERYN-20261013-pg-cutover`): EXECUTED 2026-10-14 THROUGH `retire-mariadb`; step 7 `unfreeze` NOT YET EXECUTED (dry run 38605943395 only)**; evidence in `docs/operations/PLATFORM_POSTGRES_CUTOVER_EVIDENCE.md`
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
