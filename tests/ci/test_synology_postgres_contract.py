@@ -1743,6 +1743,13 @@ class PostgresEngineBranchTest(unittest.TestCase):
         self.assertIn("DB_CONNECTION:pgsql DB_HOST:postgres DB_USERNAME:oteryn_platform_app DB_SSLMODE:verify-full", health)
         self.assertNotIn("container_env_value platform DB_PASSWORD", health)
 
+    def test_health_check_requires_mariadb_only_off_the_postgres_engine(self) -> None:
+        health = HEALTH.read_text()
+        self.assertIn("required_services=(platform internal-proxy gateway marketplace-scheduler)", health)
+        self.assertIn('if [[ "$OTERYN_PLATFORM_DB_ENGINE" != postgres ]]; then\n    required_services=(mariadb "${required_services[@]}")\nfi', health)
+        self.assertIn('for service in "${required_services[@]}"; do', health)
+        self.assertNotIn("for service in mariadb platform", health)
+
     def test_route_publication_stays_refused_on_the_postgres_engine(self) -> None:
         self.assertIn(
             'if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres && "${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}" == true ]]; then',
