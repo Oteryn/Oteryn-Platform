@@ -824,7 +824,6 @@ class DeployWiringTest(unittest.TestCase):
     def test_engine_and_secret_gates_run_before_any_stack_change(self) -> None:
         first_compose = self.deploy.index('compose=(docker compose --env-file "$ENV_FILE"')
         for gate in (
-            'OTERYN_PLATFORM_DB_ENGINE" == postgres && "${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}" == true',
             'postgres_secret_state="$(oteryn_postgres_secret_state)" || exit 1',
             'echo "PLATFORM_DB_ENGINE=postgres requires all five PostgreSQL secrets." >&2',
             'if [[ "$PLATFORM_DB_NAME" != oteryn_platform ]]; then',
@@ -1836,11 +1835,11 @@ class PostgresEngineBranchTest(unittest.TestCase):
         self.assertIn("for service in platform internal-proxy gateway marketplace-scheduler; do", health)
         self.assertNotIn("mariadb", health)
 
-    def test_route_publication_stays_refused_on_the_postgres_engine(self) -> None:
-        self.assertIn(
-            'if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres && "${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}" == true ]]; then',
-            self.deploy,
-        )
+    def test_route_publication_is_admitted_on_the_postgres_engine(self) -> None:
+        # ADR 0044 Amendment P4 is accepted (2026-10-14): the code fence admits the PostgreSQL identity,
+        # so the deploy no longer refuses route publication on the postgres engine.
+        self.assertNotIn('"${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}" == true ]]; then', self.deploy)
+        self.assertIn("ADR 0044 Amendment P4", self.deploy)
 
 
 class PreflightPostgresTest(unittest.TestCase):

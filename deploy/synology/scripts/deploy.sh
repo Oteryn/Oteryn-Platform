@@ -44,12 +44,9 @@ done
 # Platform database (lib.sh oteryn_platform_db_engine_settings, plan P7): PostgreSQL only. Platform and the
 # scheduler connect as the app role, migrations run as the owner role in a one-off container (lib.sh
 # oteryn_platform_migrate_postgres) and the pre-migration dump is a pg_dump by the dump role.
-# Route publication on the postgres engine needs the owner-accepted ADR 0044 amendment (PostgreSQL store
-# identity) first. Every gate here is refused before any stack change.
-if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres && "${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}" == true ]]; then
-    echo "OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED must stay false on the postgres engine until the ADR 0044 PostgreSQL store amendment is accepted." >&2
-    exit 1
-fi
+# Route publication on the postgres engine uses the PostgreSQL store identity of ADR 0044 Amendment P4
+# (accepted 2026-10-14), enforced in code by PreproductionNativeRouteStore. Every gate here is refused
+# before any stack change.
 # All five PostgreSQL secrets or none (lib.sh oteryn_postgres_secret_state); the postgres engine needs all.
 postgres_secret_state="$(oteryn_postgres_secret_state)" || exit 1
 if [[ "$OTERYN_PLATFORM_DB_ENGINE" == postgres ]]; then
