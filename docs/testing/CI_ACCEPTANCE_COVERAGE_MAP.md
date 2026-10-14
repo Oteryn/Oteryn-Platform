@@ -21,15 +21,16 @@ Read-only inventory of which workflow runs on which event, taken from `.github/w
 |---|---|---|---|---|
 | Core CI | `ci.yml` | all PRs | yes | all pushes |
 | Portal and content acceptance | `acceptance-validation`, `portal-acceptance-contract`, `announcements-`, `community-data-`, `content-scale-`, `downloads-`, `editorial-media-`, `error-state-`, `events-`, `support-legal-`, `support-moderation-`, `wiki-reconciliation-acceptance` | path-filtered | no | same path filter |
+| Portal audit (PR only) | `portal-e2e-audit` | path-filtered (its own workflow file) | no | not run after merge |
 | Runtime and contract | `playwright-runtime-validation`, `game-catalog-contract`, `game-gateway-ci`, `native-protocol-contract`, `native-protocol-contract-audits`, `codeql`, `agent-governance`, `branch-lifecycle`, `terminal-branch-lifecycle`, `parallel-coordinator-prompt-eval` | path-filtered | no | same path filter |
 | Whole-tree validation | `phase7-production-like-validation`, `platform-db-outage-validation`, `game-auth-ticket-concurrency`, `edge-security-emulation` | every PR except `paths-ignore` (agent docs and templates) | no | not run |
-| Deploy and edge | `synology-rollback-contract`, `character-bazaar-staging-validation`, `build-synology-staging-images`, `cloudflare-*`, `oteryn-public-edge-validation`, `synology-*` | path-filtered | no | mostly path-filtered, several not run |
+| Deploy and edge | `synology-rollback-contract`, `character-bazaar-staging-validation`, `build-synology-staging-images`, `cloudflare-*`, `oteryn-public-edge-validation`, `synology-*` | path-filtered | no | not run, same filter, or a narrower trigger-file filter (see below) |
 | Scheduled soak | `acceptance-soak`, `acceptance-stability` | no | no | no (weekly cron) |
 
 ## Reading the map
 
 - PR-critical scope: `ci.yml` plus the path-matched specialist workflows. They run on the PR head and are the only evidence for the specialist areas before merge.
-- Main scope: the same path filters evaluated on the squash commit, plus all of `ci.yml`. The squash SHA differs from the `merge_group` candidate, so the `main` run is a fresh run, not a copy of the queue run.
+- Main scope: `ci.yml` in full, plus the specialist workflows whose `push` filter matches the squash commit. The squash SHA differs from the `merge_group` candidate, so the `main` run is a fresh run, not a copy of the queue run. `push` filters equal the `pull_request` filters for most specialist workflows, but not for four: `cloudflare-oteryn-hsts-stage1` and `cloudflare-oteryn-public-edge-repair` (PR: workflow, implementation, tests and docs; push: only their `ops/triggers/*.md` file), `cloudflare-oteryn-endpoint-main-operation` (3 PR paths, 1 push path) and `oteryn-public-edge-validation` (6 PR paths, 1 push path). Others run on PRs only (see the table), and several deploy workflows have a `push` trigger without a `pull_request` one. Read each workflow's own `on:` block before relying on a `main` run.
 - The Whole-tree validation group runs on PRs only. It has no `push` or `merge_group` trigger, so after a merge nothing re-runs it until the next PR.
 - Specialist workflows have no `merge_group` trigger, so a Merge Queue candidate is not re-checked by them. Adding one requires the `merge_group` invocation and its required aggregation together; removing only the PR or `push` trigger leaves a gap.
 - A specialist workflow that is path-filtered and not required does not block `platform-gate`; a skipped one is invisible to the aggregate.
