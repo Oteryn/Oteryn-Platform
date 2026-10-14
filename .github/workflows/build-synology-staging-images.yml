@@ -462,7 +462,7 @@ jobs:
               docker run --rm --entrypoint /bin/sh "$IMAGE_REF" -ec 'test -x /usr/local/bin/game-gateway'
               ;;
             deploy-runner)
-              docker run --rm --entrypoint /bin/bash "$IMAGE_REF" -ec 'docker --version && docker compose version && test -x /usr/local/bin/oteryn-runner-entrypoint'
+              docker run --rm --entrypoint /bin/bash "$IMAGE_REF" -ec 'docker --version && docker compose version && gh --version && test -x /usr/local/bin/oteryn-runner-entrypoint'
               ;;
           esac
 

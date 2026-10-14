@@ -7,8 +7,9 @@ ENV RUNNER_VERSION=2.337.0 \
     DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates coreutils curl git gzip jq python3 sudo tar \
+    && apt-get install -y --no-install-recommends ca-certificates coreutils curl gh git gzip jq python3 sudo tar \
     && python3 --version \
+    && gh --version \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 1001 --shell /bin/bash runner \
     && mkdir -p /opt/actions-runner-dist /runner /work
