@@ -1,66 +1,72 @@
 # CI acceptance coverage map
 
-Read-only inventory of which workflow runs on which event, taken from `.github/workflows/*.yml` on `main` (2026-10-14). It records current behavior and changes none. Its purpose is to make the PR-critical scope and the post-merge `main` scope explicit before anyone proposes to narrow the full run on `main` or to move specialist checks into the Merge Queue.
+Read-only inventory of which workflow runs on which event, generated from `.github/workflows/*.yml` on `main` (2026-10-14, 53 workflows). It records current behavior and changes none. Its purpose is to make the PR-critical scope and the post-merge `main` scope explicit before anyone proposes to narrow the full run on `main` or to move specialist checks into the Merge Queue. The per-workflow table at the end is authoritative; the summaries are derived from it.
 
 ## Events
 
-| Event | What runs |
+| Event | Workflows |
 |---|---|
-| `pull_request` to `main` | `ci.yml` (all PRs) plus every specialist workflow whose `paths` (or `paths-ignore`) match the diff. |
-| `merge_group` | `ci.yml` only. No specialist workflow has a `merge_group` trigger. |
-| `push` to `main` | `ci.yml` (all pushes) plus every specialist workflow whose `paths` match the merged diff. |
-| `pull_request_target`, `issue_comment`, `workflow_call` | Five workflows use `pull_request_target`, `cloudflare-oteryn-endpoints.yml` also uses `issue_comment`, and some workflows are reusable (`workflow_call`); see the per-workflow table. |
-| `schedule` / `workflow_dispatch` | `acceptance-soak.yml` and `acceptance-stability.yml` (weekly, schedule only), `codeql.yml`, `historical-branch-audit.yml` and `github-actions-storage-hygiene.yml` (scheduled and also path-filtered on PRs), and manual runs. |
+| `pull_request` to `main` | 43 of 53: `ci.yml` (every PR) and the specialist workflows whose `paths` or `paths-ignore` match the diff. |
+| `merge_group` | 1 of 53: `ci`. No specialist workflow has this trigger. |
+| `push` to `main` | 35 of 53: `ci.yml` (every push) and the workflows whose `paths` match the merged diff. |
+| `pull_request_target` | 5: `cloudflare-oteryn-edge-audit`, `cloudflare-oteryn-endpoints`, `github-actions-storage-hygiene`, `historical-branch-audit`, `terminal-branch-lifecycle`. |
+| `issue_comment` | 1: `cloudflare-oteryn-endpoints`. |
+| `workflow_call` | 3: `acceptance-validation`, `terminal-branch-lifecycle-read-reusable`, `terminal-branch-lifecycle-reusable`. |
+| `schedule` | 5: `acceptance-soak`, `acceptance-stability`, `codeql`, `github-actions-storage-hygiene`, `historical-branch-audit`. 2 run only on a schedule or manually: `acceptance-soak`, `acceptance-stability`. |
+| `workflow_dispatch` | 41 of 53 (manual runs; see the table). |
 
 ## Required aggregate
 
-`platform-gate` (`ci.yml`) is the stable aggregate. It requires `classify-changes` and `test` to succeed, and `platform-postgres` and `php-coverage-report` to succeed or be skipped. `test` evaluates `runtime-tests` through `scripts/ci/required_test_gate.py`, which also accepts a classified reuse of a heavy run (`reuse_heavy`). The specialist workflows below are separate checks, not inputs of `platform-gate`.
+`platform-gate` (`ci.yml`) is the stable aggregate. It requires `classify-changes` and `test` to succeed, and `platform-postgres` and `php-coverage-report` to succeed or be skipped. `test` evaluates `runtime-tests` through `scripts/ci/required_test_gate.py`, which also accepts a classified reuse of a heavy run (`reuse_heavy`). The specialist workflows are separate checks, not inputs of `platform-gate`.
 
 ## Scope by workflow group
 
-| Group | Workflows | `pull_request` | `merge_group` | `push` to `main` |
-|---|---|---|---|---|
-| Core CI | `ci.yml` | all PRs | yes | all pushes |
-| Portal and content acceptance | `acceptance-validation`, `portal-acceptance-contract`, `announcements-`, `community-data-`, `content-scale-`, `downloads-`, `editorial-media-`, `error-state-`, `events-`, `support-legal-`, `support-moderation-`, `wiki-reconciliation-acceptance` | path-filtered | no | same path filter |
-| Portal audit (PR only) | `portal-e2e-audit` | path-filtered (its own workflow file) | no | not run after merge |
-| Runtime and contract | `playwright-runtime-validation`, `tibia-linux-live-reference` (PR only, no push), `game-catalog-contract`, `game-gateway-ci`, `native-protocol-contract`, `native-protocol-contract-audits`, `codeql`, `agent-governance`, `branch-lifecycle`, `terminal-branch-lifecycle`, `parallel-coordinator-prompt-eval`, `historical-branch-audit` (also weekly cron) | path-filtered | no | same path filter |
-| Whole-tree validation | `phase7-production-like-validation`, `platform-db-outage-validation`, `game-auth-ticket-concurrency`, `edge-security-emulation` | every PR except `paths-ignore` (agent docs and templates) | no | not run |
-| Deploy and edge | `synology-rollback-contract`, `character-bazaar-staging-validation`, `build-synology-staging-images`, `cloudflare-*`, `oteryn-public-edge-validation`, `synology-container-hygiene`, `synology-production-target-preflight` (PR only), `synology-diagnostics` (push and manual only, never a PR) | path-filtered | no | not run, same filter, or a narrower trigger-file filter (see below) |
-| Scheduled soak | `acceptance-soak`, `acceptance-stability` | no | no | no (weekly cron) |
+Every workflow is in exactly one group. The counts are how many workflows of the group have each trigger; the per-workflow table gives the filters.
+
+| Group | Workflows | Names | `pull_request` | `merge_group` | `push` | `schedule` |
+|---|---|---|---|---|---|---|
+| Core CI | 1 | `ci` | 1 | 1 | 1 | 0 |
+| Portal and content acceptance | 13 | `acceptance-validation`, `announcements-acceptance`, `community-data-acceptance`, `content-scale-acceptance`, `downloads-acceptance`, `editorial-media-acceptance`, `error-state-acceptance`, `events-acceptance`, `portal-acceptance-contract`, `portal-e2e-audit`, `support-legal-acceptance`, `support-moderation-acceptance`, `wiki-reconciliation-acceptance` | 13 | 0 | 12 | 0 |
+| Runtime, contract and repository governance | 13 | `agent-governance`, `branch-lifecycle`, `codeql`, `game-catalog-contract`, `game-gateway-ci`, `github-actions-storage-hygiene`, `historical-branch-audit`, `native-protocol-contract-audits`, `native-protocol-contract`, `parallel-coordinator-prompt-eval`, `playwright-runtime-validation`, `terminal-branch-lifecycle`, `tibia-linux-live-reference` | 13 | 0 | 11 | 3 |
+| Whole-tree validation | 4 | `edge-security-emulation`, `game-auth-ticket-concurrency`, `phase7-production-like-validation`, `platform-db-outage-validation` | 4 | 0 | 0 | 0 |
+| Deploy and edge | 18 | `build-synology-staging-images`, `character-bazaar-staging-control`, `character-bazaar-staging-validation`, `cloudflare-oteryn-edge-audit`, `cloudflare-oteryn-endpoint-main-operation`, `cloudflare-oteryn-endpoints`, `cloudflare-oteryn-hsts-stage1`, `cloudflare-oteryn-public-edge-repair`, `cloudflare-zone-edge-audit`, `deploy-synology-staging`, `oteryn-public-edge-validation`, `recover-synology-staging-schema`, `repair-synology-autostart`, `repair-synology-compose-orphans`, `synology-container-hygiene`, `synology-diagnostics`, `synology-production-target-preflight`, `synology-rollback-contract` | 12 | 0 | 11 | 0 |
+| Scheduled soak | 2 | `acceptance-soak`, `acceptance-stability` | 0 | 0 | 0 | 2 |
+| Reusable (`workflow_call` only) | 2 | `terminal-branch-lifecycle-read-reusable`, `terminal-branch-lifecycle-reusable` | 0 | 0 | 0 | 0 |
 
 ## Reading the map
 
-- PR-critical scope: `ci.yml` plus the path-matched specialist workflows. Checkout refs differ per workflow (see the checkout column); they are the only evidence for the specialist areas before merge. Of the 43 workflows with a `pull_request` trigger, 27 check out only the PR head, 13 only the default merge ref, 2 mix both, 1 has no checkout (counted from the table below).
-- Main scope: `ci.yml` in full, plus the specialist workflows whose `push` filter matches the squash commit. The squash SHA differs from the `merge_group` candidate, so the `main` run is a fresh run, not a copy of the queue run. `push` filters equal the `pull_request` filters for most specialist workflows, but not for four: `cloudflare-oteryn-hsts-stage1` and `cloudflare-oteryn-public-edge-repair` (PR: workflow, implementation, tests and docs; push: only their `ops/triggers/*.md` file), `cloudflare-oteryn-endpoint-main-operation` (3 PR paths, 1 push path) and `oteryn-public-edge-validation` (6 PR paths, 1 push path). Others run on PRs only (see the table), and several deploy workflows have a `push` trigger without a `pull_request` one. Read each workflow's own `on:` block before relying on a `main` run.
-- The Whole-tree validation group runs on PRs only. It has no `push` or `merge_group` trigger, so after a merge nothing re-runs it until the next PR.
+- PR-critical scope: `ci.yml` plus the path-matched specialist workflows. They are the only evidence for the specialist areas before merge. Checkout refs of the 43 workflows with a `pull_request` trigger, by the set of classes they use: only PR head: 15; only default/event merge ref: 9; PR head + default/event merge ref: 8; default/event merge ref + other ref: 4; PR head + other ref: 3; PR head + default/event merge ref + merge-group candidate: 1; PR head + base: 1; PR head + base + default/event merge ref: 1; no checkout: 1 (checkout classes by `ref:` expression, counted from the table below by `ref:` expression, not by which job runs on which event).
+- Evidence about the exact PR head SHA applies only to a workflow whose checkout is `PR head`. A default or `github.sha` checkout on `pull_request` is GitHub's synthetic merge commit of head and base, which can differ from the head once the base moves. In `ci.yml` the `merge-group candidate / pushed commit` checkouts belong to jobs that run on `merge_group` and `push`, not on `pull_request`.
+- Main scope: `ci.yml` in full, plus the workflows whose `push` filter matches the squash commit. The squash SHA differs from the `merge_group` candidate, so the `main` run is a fresh run, not a copy of the queue run.
+- Filters that differ between `pull_request` and `push`: `cloudflare-oteryn-endpoint-main-operation`, `cloudflare-oteryn-hsts-stage1`, `cloudflare-oteryn-public-edge-repair`, `oteryn-public-edge-validation` (the `push` filter is narrower; for example `cloudflare-oteryn-hsts-stage1` runs on a PR for its workflow, implementation, tests and docs, but on push only for its `ops/triggers` file).
+- Run on a PR but have no `push` trigger, so nothing re-runs them on `main` after merge (11): `cloudflare-oteryn-edge-audit`, `cloudflare-oteryn-endpoints`, `edge-security-emulation`, `game-auth-ticket-concurrency`, `github-actions-storage-hygiene`, `phase7-production-like-validation`, `platform-db-outage-validation`, `portal-e2e-audit`, `synology-container-hygiene`, `synology-production-target-preflight`, `tibia-linux-live-reference`. Of these, `github-actions-storage-hygiene` also runs on a schedule.
+- Run on `push` to `main` but have no `pull_request` trigger (3): `character-bazaar-staging-control`, `repair-synology-autostart`, `synology-diagnostics`; none of them has a schedule.
 - Specialist workflows have no `merge_group` trigger, so a Merge Queue candidate is not re-checked by them. Adding one requires the `merge_group` invocation and its required aggregation together; removing only the PR or `push` trigger leaves a gap.
-- A specialist workflow that is path-filtered and not required does not block `platform-gate`; a skipped one is invisible to the aggregate.
+- A path-filtered specialist workflow does not block `platform-gate`; a skipped one is invisible to the aggregate.
 
 ## Complete per-workflow triggers
 
-Generated from the `on:` block and every `actions/checkout` step of each file in `.github/workflows/` on `main`. `paths(n)` is a path filter with n entries; `narrower` means the `push` filter is a strict subset of the `pull_request` filter. "Other events" lists every remaining trigger (`pull_request_target`, `issue_comment`, `workflow_call`, and so on). "Checkout ref" is what the workflow checks out: `default (PR merge ref)` means no `ref:`, so a `pull_request` run tests GitHub's synthetic merge commit of head and base, not the PR head; `PR head` means an explicit head SHA or ref. This table, not the group summary above, is authoritative when the two differ.
-
-Evidence about the exact PR head SHA applies only to workflows whose checkout ref is `PR head`. A run on the default merge ref proves the merge result at that moment, and can differ from the head after the base moves.
+Generated from the `on:` block and every `actions/checkout` step of each workflow. `paths(n)` is a path filter with n entries; `narrower` means the `push` filter is a strict subset of the `pull_request` filter. "Other events" lists remaining triggers. "Checkout ref" lists each distinct `ref:` expression with its class; an empty `ref:` is the default ref.
 
 | Workflow | `pull_request` | `merge_group` | `push` to `main` | `schedule` | Manual | Other events | Checkout ref |
 |---|---|---|---|---|---|---|---|
 | `acceptance-soak.yml` | no | no | no | cron | yes | - | no checkout |
 | `acceptance-stability.yml` | no | no | no | cron | yes | - | no checkout |
 | `acceptance-validation.yml` | paths(11) | no | paths(11) (same) | no | yes | `workflow_call` | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
-| `agent-governance.yml` | paths(7) | no | paths(7) (same) | no | yes | - | default (PR merge ref); other: `1bfb5ff98c8aa156e73669a14e083a1d464c29fb` |
+| `agent-governance.yml` | paths(7) | no | paths(7) (same) | no | yes | - | default ref (merge ref on `pull_request`, pushed commit on `push`); other: `1bfb5ff98c8aa156e73669a14e083a1d464c29fb` |
 | `announcements-acceptance.yml` | paths(13) | no | paths(13) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
-| `branch-lifecycle.yml` | paths(6) | no | paths(6) (same) | no | yes | - | default (PR merge ref); other: `main` |
-| `build-synology-staging-images.yml` | paths(74) | no | paths(74) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; other: `${{ github.sha }}` |
-| `character-bazaar-staging-control.yml` | no | no | paths(5) | no | yes | - | other: `${{ github.sha }}` |
-| `character-bazaar-staging-validation.yml` | paths(9) | no | paths(9) (same) | no | yes | - | default (PR merge ref) |
-| `ci.yml` | all | all | all | no | no | - | PR head: `${{ github.event.merge_group.head_sha \|\| github.event.pull_request.head.sha \|\| github.sha }}`; PR head: `${{ github.event.merge_group.head_sha \|\| github.sha }}`; PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; default (PR merge ref) |
+| `branch-lifecycle.yml` | paths(6) | no | paths(6) (same) | no | yes | - | default ref (merge ref on `pull_request`, pushed commit on `push`); other: `main` |
+| `build-synology-staging-images.yml` | paths(74) | no | paths(74) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; event SHA (merge ref on `pull_request`, pushed commit on `push`): `${{ github.sha }}` |
+| `character-bazaar-staging-control.yml` | no | no | paths(5) | no | yes | - | event SHA (merge ref on `pull_request`, pushed commit on `push`): `${{ github.sha }}` |
+| `character-bazaar-staging-validation.yml` | paths(9) | no | paths(9) (same) | no | yes | - | default ref (merge ref on `pull_request`, pushed commit on `push`) |
+| `ci.yml` | all | all | all | no | no | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; default ref (merge ref on `pull_request`, pushed commit on `push`); merge-group candidate / pushed commit: `${{ github.event.merge_group.head_sha \|\| github.event.pull_request.head.sha \|\| github.sha }}`; merge-group candidate / pushed commit: `${{ github.event.merge_group.head_sha \|\| github.sha }}` |
 | `cloudflare-oteryn-edge-audit.yml` | paths(9) | no | no | no | no | `pull_request_target` | PR head: `${{ github.event.pull_request.head.sha }}`; base: `${{ github.event.pull_request.base.sha }}` |
-| `cloudflare-oteryn-endpoint-main-operation.yml` | paths(3) | no | paths(1) (narrower) | no | no | - | PR head: `${{ github.event.pull_request.head.sha }}`; other: `${{ github.sha }}` |
-| `cloudflare-oteryn-endpoints.yml` | paths(7) | no | no | no | yes | `issue_comment`, `pull_request_target` | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; base: `${{ github.event.pull_request.base.sha }}`; other: `${{ github.sha }}` |
-| `cloudflare-oteryn-hsts-stage1.yml` | paths(5) | no | paths(1) (narrower) | no | no | - | PR head: `${{ github.event.pull_request.head.sha }}`; other: `${{ github.sha }}` |
-| `cloudflare-oteryn-public-edge-repair.yml` | paths(5) | no | paths(1) (narrower) | no | no | - | PR head: `${{ github.event.pull_request.head.sha }}`; other: `${{ github.sha }}` |
-| `cloudflare-zone-edge-audit.yml` | paths(7) | no | paths(7) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; other: `${{ github.sha }}` |
-| `codeql.yml` | paths(14) | no | paths(14) (same) | cron | yes | - | default (PR merge ref) |
+| `cloudflare-oteryn-endpoint-main-operation.yml` | paths(3) | no | paths(1) (narrower) | no | no | - | PR head: `${{ github.event.pull_request.head.sha }}`; event SHA (merge ref on `pull_request`, pushed commit on `push`): `${{ github.sha }}` |
+| `cloudflare-oteryn-endpoints.yml` | paths(7) | no | no | no | yes | `issue_comment`, `pull_request_target` | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; base: `${{ github.event.pull_request.base.sha }}`; event SHA (merge ref on `pull_request`, pushed commit on `push`): `${{ github.sha }}` |
+| `cloudflare-oteryn-hsts-stage1.yml` | paths(5) | no | paths(1) (narrower) | no | no | - | PR head: `${{ github.event.pull_request.head.sha }}`; event SHA (merge ref on `pull_request`, pushed commit on `push`): `${{ github.sha }}` |
+| `cloudflare-oteryn-public-edge-repair.yml` | paths(5) | no | paths(1) (narrower) | no | no | - | PR head: `${{ github.event.pull_request.head.sha }}`; event SHA (merge ref on `pull_request`, pushed commit on `push`): `${{ github.sha }}` |
+| `cloudflare-zone-edge-audit.yml` | paths(7) | no | paths(7) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; event SHA (merge ref on `pull_request`, pushed commit on `push`): `${{ github.sha }}` |
+| `codeql.yml` | paths(14) | no | paths(14) (same) | cron | yes | - | default ref (merge ref on `pull_request`, pushed commit on `push`) |
 | `community-data-acceptance.yml` | paths(31) | no | paths(31) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
 | `content-scale-acceptance.yml` | paths(36) | no | paths(36) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
 | `deploy-synology-staging.yml` | no | no | no | no | yes | - | other: `${{ inputs.action == 'deploy' && inputs.release_sha \|\| inputs.action == 'cutover' && github.sha \|\| 'main' }}` |
@@ -69,21 +75,21 @@ Evidence about the exact PR head SHA applies only to workflows whose checkout re
 | `editorial-media-acceptance.yml` | paths(14) | no | paths(14) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
 | `error-state-acceptance.yml` | paths(17) | no | paths(17) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
 | `events-acceptance.yml` | paths(10) | no | paths(10) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
-| `game-auth-ticket-concurrency.yml` | all except 5 ignored | no | no | no | no | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; default (PR merge ref) |
-| `game-catalog-contract.yml` | paths(10) | no | paths(10) (same) | no | yes | - | default (PR merge ref) |
-| `game-gateway-ci.yml` | paths(2) | no | paths(2) (same) | no | no | - | default (PR merge ref) |
+| `game-auth-ticket-concurrency.yml` | all except 5 ignored | no | no | no | no | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; default ref (merge ref on `pull_request`, pushed commit on `push`) |
+| `game-catalog-contract.yml` | paths(10) | no | paths(10) (same) | no | yes | - | default ref (merge ref on `pull_request`, pushed commit on `push`) |
+| `game-gateway-ci.yml` | paths(2) | no | paths(2) (same) | no | no | - | default ref (merge ref on `pull_request`, pushed commit on `push`) |
 | `github-actions-storage-hygiene.yml` | paths(3) | no | no | cron | yes | `pull_request_target` | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; other: `refs/heads/main` |
-| `historical-branch-audit.yml` | paths(11) | no | paths(11) (same) | cron | yes | `pull_request_target` | default (PR merge ref); other: `${{ github.sha }}`; other: `main` |
-| `native-protocol-contract-audits.yml` | paths(8) | no | paths(8) (same) | no | no | - | default (PR merge ref) |
-| `native-protocol-contract.yml` | paths(5) | no | paths(5) (same) | no | no | - | default (PR merge ref) |
-| `oteryn-public-edge-validation.yml` | paths(6) | no | paths(1) (narrower) | no | no | - | PR head: `${{ github.event.pull_request.head.sha }}`; other: `${{ github.sha }}` |
-| `parallel-coordinator-prompt-eval.yml` | paths(3) | no | paths(3) (same) | no | yes | - | default (PR merge ref) |
+| `historical-branch-audit.yml` | paths(11) | no | paths(11) (same) | cron | yes | `pull_request_target` | default ref (merge ref on `pull_request`, pushed commit on `push`); event SHA (merge ref on `pull_request`, pushed commit on `push`): `${{ github.sha }}`; other: `main` |
+| `native-protocol-contract-audits.yml` | paths(8) | no | paths(8) (same) | no | no | - | default ref (merge ref on `pull_request`, pushed commit on `push`) |
+| `native-protocol-contract.yml` | paths(5) | no | paths(5) (same) | no | no | - | default ref (merge ref on `pull_request`, pushed commit on `push`) |
+| `oteryn-public-edge-validation.yml` | paths(6) | no | paths(1) (narrower) | no | no | - | PR head: `${{ github.event.pull_request.head.sha }}`; event SHA (merge ref on `pull_request`, pushed commit on `push`): `${{ github.sha }}` |
+| `parallel-coordinator-prompt-eval.yml` | paths(3) | no | paths(3) (same) | no | yes | - | default ref (merge ref on `pull_request`, pushed commit on `push`) |
 | `phase7-production-like-validation.yml` | all except 5 ignored | no | no | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
 | `platform-db-outage-validation.yml` | all except 5 ignored | no | no | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
-| `playwright-runtime-validation.yml` | paths(8) | no | paths(8) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; other: `${{ github.sha }}` |
+| `playwright-runtime-validation.yml` | paths(8) | no | paths(8) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; event SHA (merge ref on `pull_request`, pushed commit on `push`): `${{ github.sha }}` |
 | `portal-acceptance-contract.yml` | paths(17) | no | paths(17) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
 | `portal-e2e-audit.yml` | paths(1) | no | no | no | yes | - | no checkout |
-| `recover-synology-staging-schema.yml` | no | no | no | no | yes | - | other: `${{ github.sha }}` |
+| `recover-synology-staging-schema.yml` | no | no | no | no | yes | - | event SHA (merge ref on `pull_request`, pushed commit on `push`): `${{ github.sha }}` |
 | `repair-synology-autostart.yml` | no | no | paths(3) | no | yes | - | no checkout |
 | `repair-synology-compose-orphans.yml` | no | no | no | no | yes | - | other: `main` |
 | `support-legal-acceptance.yml` | paths(23) | no | paths(23) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
@@ -91,11 +97,11 @@ Evidence about the exact PR head SHA applies only to workflows whose checkout re
 | `synology-container-hygiene.yml` | paths(5) | no | no | no | yes | - | PR head: `${{ github.event.pull_request.head.sha }}`; other: `main` |
 | `synology-diagnostics.yml` | no | no | paths(1) | no | yes | - | no checkout |
 | `synology-production-target-preflight.yml` | paths(8) | no | no | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}`; other: `main` |
-| `synology-rollback-contract.yml` | paths(11) | no | paths(11) (same) | no | yes | - | default (PR merge ref) |
-| `terminal-branch-lifecycle-read-reusable.yml` | no | no | no | no | no | `workflow_call` | default (PR merge ref); other: `${{ inputs.platform_ref }}` |
+| `synology-rollback-contract.yml` | paths(11) | no | paths(11) (same) | no | yes | - | default ref (merge ref on `pull_request`, pushed commit on `push`) |
+| `terminal-branch-lifecycle-read-reusable.yml` | no | no | no | no | no | `workflow_call` | default ref (merge ref on `pull_request`, pushed commit on `push`); other: `${{ inputs.platform_ref }}` |
 | `terminal-branch-lifecycle-reusable.yml` | no | no | no | no | no | `workflow_call` | other: `${{ inputs.platform_ref }}`; other: `main` |
-| `terminal-branch-lifecycle.yml` | paths(15) | no | paths(15) (same) | no | yes | `pull_request_target` | default (PR merge ref); other: `main` |
-| `tibia-linux-live-reference.yml` | paths(2) | no | no | no | yes | - | default (PR merge ref) |
+| `terminal-branch-lifecycle.yml` | paths(15) | no | paths(15) (same) | no | yes | `pull_request_target` | default ref (merge ref on `pull_request`, pushed commit on `push`); other: `main` |
+| `tibia-linux-live-reference.yml` | paths(2) | no | no | no | yes | - | default ref (merge ref on `pull_request`, pushed commit on `push`) |
 | `wiki-reconciliation-acceptance.yml` | paths(23) | no | paths(23) (same) | no | yes | - | PR head: `${{ github.event.pull_request.head.sha \|\| github.sha }}` |
 
 ## Not decided here
