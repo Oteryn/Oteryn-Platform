@@ -10,12 +10,10 @@ use App\CharacterAuthority\CharacterCommandStatus;
 use App\CharacterAuthority\CharacterCommandUnavailable;
 use App\CharacterAuthority\CharacterCommandWire;
 use App\CharacterAuthority\CharacterTransferPurpose;
-use App\CharacterAuthority\Http\CharacterCommandRoutes;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use InvalidArgumentException;
 use LogicException;
@@ -45,7 +43,6 @@ final class CharacterCommandClientTest extends TestCase
     {
         parent::setUp();
         Carbon::setTestNow('2026-10-11T12:00:00Z');
-        Route::middleware('api')->group(fn () => CharacterCommandRoutes::register());
     }
 
     protected function tearDown(): void

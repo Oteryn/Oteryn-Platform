@@ -6,9 +6,9 @@ use App\CharacterAuthority\CharacterCommandWire;
 use Illuminate\Support\Facades\Route;
 
 /**
- * The three Game-initiated Character Authority command routes. Not mounted by this packet: the
- * enablement packet adds `CharacterCommandRoutes::register()` to the internal route stack, with
- * the server's TLS 1.3 mTLS listener for the character-command subjects (Game contract §3, §14).
+ * The three Game-initiated Character Authority command routes, mounted by `routes/internal.php`
+ * behind the default-off peer guard. Exposing them on the server's TLS 1.3 mTLS listener for the
+ * character-command subjects is part of enablement (Game contract §3, §14 step 4).
  */
 final class CharacterCommandRoutes
 {

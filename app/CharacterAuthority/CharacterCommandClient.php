@@ -62,6 +62,33 @@ final class CharacterCommandClient
         return $row instanceof stdClass ? $this->statusOf(CharacterCommandIntentRow::fromRow($row)) : null;
     }
 
+    /**
+     * A `CreateCharacter` command's status, only when its intent was issued for `$accountId`. An
+     * unknown, malformed or foreign operation id answers null, so a caller cannot probe others'.
+     */
+    public function createStatusFor(string $operationId, string $accountId): ?CharacterCommandStatus
+    {
+        if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/D', $operationId) !== 1) {
+            return null;
+        }
+        $row = DB::table(CharacterCommandIntentRow::TABLE)
+            ->where('issuer_authority', CharacterCommandWire::ISSUER_AUTHORITY)
+            ->where('operation_id', $operationId)
+            ->where('command', CharacterCommandWire::CREATE)
+            ->whereNotNull('intent_json')
+            ->first();
+        if (! $row instanceof stdClass) {
+            return null;
+        }
+        $intent = CharacterCommandIntentRow::fromRow($row);
+        $owner = $intent->intent()['account_id'] ?? null;
+        if (! is_string($owner) || ! hash_equals($owner, $accountId)) {
+            return null;
+        }
+
+        return $this->statusOf($intent);
+    }
+
     /** @param array<string, string> $binding */
     private function request(string $idempotencyKey, string $command, array $binding): CharacterCommandStatus
     {

@@ -126,6 +126,9 @@ Route::get('/account/characters/create', [CharacterCreationController::class, 'c
 Route::post('/account/characters', [CharacterCreationController::class, 'store'])
     ->middleware(['auth', 'throttle:character-create'])
     ->name('account.characters.store');
+Route::get('/account/characters/requests/{operation}', [CharacterCreationController::class, 'show'])
+    ->middleware(['auth', 'throttle:character-create-status'])
+    ->name('account.characters.requests.show');
 
 Route::middleware([SetIdentityLocale::class, 'auth'])->prefix('account/security')->group(function (): void {
     Route::get('/', [AccountSecurityController::class, 'show'])->name('identity.account-security.show');
