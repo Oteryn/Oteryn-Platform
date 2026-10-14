@@ -852,6 +852,7 @@ class DeployWiringTest(unittest.TestCase):
 # The cutover state model, written independently from the step guards of scripts/cutover-postgres.sh: a step's
 # marker is appended only when its guard holds for the markers already recorded (lib.sh mirrors it in bash).
 CUTOVER_STEP_KEYS = {
+    "PREFLIGHT": ("PRESERVED_RULES_HASH",),
     "FREEZE": ("CLOSE_RUN_ID", "MARIADB_VOLUME", "FREEZE_PLATFORM_IMAGE", "FREEZE_GATEWAY_IMAGE"),
     "BOOTSTRAP": ("OAUTH_CLIENT_ID", "OAUTH_RUST_CLIENT_ID", "NATIVE_WORLD_ID", "BOOTSTRAP_PLATFORM_IMAGE"),
     "REENABLE_STARTED": ("REENABLE_CLOSE_RUN_ID",),
@@ -901,18 +902,18 @@ def cutover_reachable(max_repeats: int) -> set[tuple[str, ...]]:
 
 
 def cutover_state_text(steps: tuple[str, ...], frozen_image: str = "ghcr.io/oteryn/platform@sha256:" + "a" * 64,
-                       freeze_image: bool = True) -> str:
+                       freeze_image: bool = True, legacy_preflight: bool = False) -> str:
     """The state text cutover-postgres.sh appends for the steps, in order."""
     values = {"CLOSE_RUN_ID": "1", "MARIADB_VOLUME": "oteryn-staging_mariadb_data",
               "FREEZE_PLATFORM_IMAGE": frozen_image, "FREEZE_GATEWAY_IMAGE": "ghcr.io/oteryn/gateway@sha256:" + "d" * 64,
               "OAUTH_CLIENT_ID": "0199-oauth", "OAUTH_RUST_CLIENT_ID": "0199-rust", "NATIVE_WORLD_ID": "0199-world",
               "BOOTSTRAP_PLATFORM_IMAGE": "ghcr.io/oteryn/platform@sha256:" + "b" * 64, "REENABLE_CLOSE_RUN_ID": "2",
-              "MARIADB_DELETED_AT": "2026-10-13T00:00:00Z", "UNFREEZE_AUDIT_RUN_ID": "3"}
+              "PRESERVED_RULES_HASH": "c" * 64, "MARIADB_DELETED_AT": "2026-10-13T00:00:00Z", "UNFREEZE_AUDIT_RUN_ID": "3"}
     text = "TASK_ID=OTERYN-20261013-test\n"
     for index, step in enumerate(steps):
         text += f"STEP_{step}=2026-10-13T00:{index // 60:02d}:{index % 60:02d}Z\n"
         for key in CUTOVER_STEP_KEYS.get(step, ()):
-            if key != "FREEZE_PLATFORM_IMAGE" or freeze_image:
+            if (key != "FREEZE_PLATFORM_IMAGE" or freeze_image) and not (legacy_preflight and step == "PREFLIGHT"):
                 text += f"{key}={values[key]}\n"
     return text
 
@@ -1318,7 +1319,7 @@ class CutoverDeployWindowTest(unittest.TestCase):
             "TASK_ID after the first step": frozen.replace("TASK_ID=OTERYN-20261013-test\n", "") + "TASK_ID=OTERYN-20261013-test\n",
             "second TASK_ID": frozen + "TASK_ID=OTERYN-20261013-other\n",
             "malformed TASK_ID": frozen.replace("OTERYN-20261013-test", "x"),
-            "no PREFLIGHT": frozen.replace("STEP_PREFLIGHT=2026-10-13T00:00:00Z\n", ""),
+            "no PREFLIGHT": frozen.replace(f"STEP_PREFLIGHT=2026-10-13T00:00:00Z\nPRESERVED_RULES_HASH={'c' * 64}\n", ""),
             "unknown step": frozen + "STEP_FROZE=2026-10-13T00:00:02Z\n",
             "lowercase key": frozen + "step_freeze=2026-10-13T00:00:02Z\n",
             "malformed timestamp": frozen.replace("STEP_FREEZE=2026-10-13T00:00:01Z", "STEP_FREEZE=yesterday"),
@@ -1367,6 +1368,49 @@ class CutoverDeployWindowTest(unittest.TestCase):
                 (base / "state/postgres-cutover/cutover-state.env").write_text(text)
                 result = self.gate(base, engine)
                 self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_the_state_cutover_postgres_writes_in_production_passes_the_gate(self) -> None:
+        # The exact records cutover-postgres.sh wrote through STEP_BOOTSTRAP (PRESERVED_RULES_HASH follows
+        # STEP_PREFLIGHT), with placeholders for the values.
+        h, g = "e" * 64, "ghcr.io/oteryn/gateway@sha256:" + "d" * 64
+        real = (
+            "TASK_ID=OTERYN-20261013-pg-cutover\nSTEP_PREFLIGHT=2026-10-14T06:18:17Z\n"
+            f"PRESERVED_RULES_HASH={h}\nSTEP_FREEZE=2026-10-14T06:41:34Z\nCLOSE_RUN_ID=11\n"
+            f"MARIADB_VOLUME=oteryn-staging_mariadb_data\nFREEZE_PLATFORM_IMAGE={self.FROZEN[1]}\n"
+            f"FREEZE_GATEWAY_IMAGE={g}\nSTEP_BOOTSTRAP=2026-10-14T07:28:54Z\nOAUTH_CLIENT_ID=0199-oauth\n"
+            "OAUTH_RUST_CLIENT_ID=0199-rust\nNATIVE_WORLD_ID=not-issued\n"
+            f"BOOTSTRAP_PLATFORM_IMAGE={self.IMAGE}{'b' * 64}\n")
+        legacy = real.replace(f"PRESERVED_RULES_HASH={h}\n", "")
+        ok_cases = {"as written": real, "legacy bare preflight": legacy,
+                    "preflight only": real.split("STEP_FREEZE")[0],
+                    "legacy preflight only": legacy.split("STEP_FREEZE")[0]}
+        bad_cases = {
+            "hash moved after the freeze marker": real.replace(f"PRESERVED_RULES_HASH={h}\nSTEP_FREEZE=2026-10-14T06:41:34Z\n",
+                                                               f"STEP_FREEZE=2026-10-14T06:41:34Z\nPRESERVED_RULES_HASH={h}\n"),
+            "hash before the preflight marker": real.replace(f"STEP_PREFLIGHT=2026-10-14T06:18:17Z\nPRESERVED_RULES_HASH={h}\n",
+                                                             f"PRESERVED_RULES_HASH={h}\nSTEP_PREFLIGHT=2026-10-14T06:18:17Z\n"),
+            "hash not 64 hex": real.replace(h, "e" * 63),
+            "empty hash": real.replace(h, ""),
+            "hash twice": real.replace(f"PRESERVED_RULES_HASH={h}\n", f"PRESERVED_RULES_HASH={h}\nPRESERVED_RULES_HASH={h}\n"),
+            "foreign key in place of the hash": real.replace("PRESERVED_RULES_HASH", "OPERATOR_NOTE"),
+        }
+        self.assertEqual(lib_state_verdicts(list(ok_cases.values())), [True] * len(ok_cases))
+        self.assertEqual(lib_state_verdicts(list(bad_cases.values())), [False] * len(bad_cases))
+        for label, text in {"as written": real, "legacy bare preflight": legacy}.items():
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                self.gate(base, "postgres", (), True)
+                (base / "state/postgres-cutover/cutover-state.env").write_text(text)
+                result = self.gate(base, "postgres")
+                self.assertEqual(result.returncode, 0, result.stderr)
+        for label, text in bad_cases.items():
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                self.gate(base, "postgres", (), True)
+                (base / "state/postgres-cutover/cutover-state.env").write_text(text)
+                result = self.gate(base, "postgres")
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertIn("empty, truncated or malformed", result.stderr)
 
     def test_the_state_validator_accepts_exactly_the_reachable_cutover_histories(self) -> None:
         reachable = cutover_reachable(max_repeats=2)

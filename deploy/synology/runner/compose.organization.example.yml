@@ -27,6 +27,9 @@ services:
       RUNNER_GROUP: platform-runners
       RUNNER_NAME: oteryn-synology-platform
       RUNNER_LABELS: oteryn-platform
+      # The deploy's nested Compose mounts the same evidence source into Platform (read-only);
+      # check-location refuses unless both sources match.
+      OTERYN_ATTEMPT_EVIDENCE_HOST_PATH: ${OTERYN_ATTEMPT_EVIDENCE_HOST_PATH:-/volume1/oteryn-attempt-evidence}
       RUNNER_TOKEN_FILE: /run/secrets/runner_token
       RUNNER_WORKDIR: /work
       RUNNER_CONFIG_DIR: /runner
@@ -38,6 +41,9 @@ services:
       - platform_runner_work:/work
       - /var/run/docker.sock:/var/run/docker.sock
       - ${PLATFORM_STATE_HOST_PATH:-/volume1/docker/oteryn/state}:/var/lib/oteryn-staging-state
+      # P6a D3: dedicated attempt-evidence share, written only by attempt_evidence.py (README). The cutover's
+      # native-reenable step runs on this runner and refuses while the mount is missing.
+      - ${OTERYN_ATTEMPT_EVIDENCE_HOST_PATH:-/volume1/oteryn-attempt-evidence}:/var/lib/oteryn-attempt-evidence
 
   atlas:
     image: ${RUNNER_IMAGE:?RUNNER_IMAGE must be an immutable canonical digest}

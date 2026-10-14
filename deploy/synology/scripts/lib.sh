@@ -429,9 +429,12 @@ _oteryn_cutover_step_allowed() {
 }
 
 # The keys record_step writes after a step's marker, in order (cutover-postgres.sh); every value is nonempty.
+# PREFLIGHT's PRESERVED_RULES_HASH is optional on read (_oteryn_cutover_state_valid): a state written before the
+# hash existed carries the bare marker, and cutover-postgres.sh itself refuses such a state at its audit gates.
 # Usage: _oteryn_cutover_step_keys <step>
 _oteryn_cutover_step_keys() {
     case "$1" in
+        PREFLIGHT) echo "PRESERVED_RULES_HASH" ;;
         FREEZE) echo "CLOSE_RUN_ID MARIADB_VOLUME FREEZE_PLATFORM_IMAGE FREEZE_GATEWAY_IMAGE" ;;
         BOOTSTRAP) echo "OAUTH_CLIENT_ID OAUTH_RUST_CLIENT_ID NATIVE_WORLD_ID BOOTSTRAP_PLATFORM_IMAGE" ;;
         REENABLE_STARTED) echo "REENABLE_CLOSE_RUN_ID" ;;
@@ -447,15 +450,21 @@ _oteryn_cutover_step_keys() {
 # truncated, reordered, contradictory or foreign file is never taken as "no step recorded".
 # Usage: _oteryn_cutover_state_valid <state text>
 _oteryn_cutover_state_valid() {
-    local text="$1" seen=" " last_time="" line step time key
+    local text="$1" seen=" " last_time="" line step time key optional=false
     local -a lines expected=()
     [[ "$text" == *$'\n' ]] || return 1
     mapfile -t lines <<<"${text%$'\n'}"
     [[ "${lines[0]:-}" =~ ^TASK_ID=OTERYN-[0-9]{8}-[a-z0-9][a-z0-9-]{0,80}$ ]] || return 1
     for line in "${lines[@]:1}"; do
+        # A bare legacy PREFLIGHT marker: the next line is already the next marker.
+        if [[ "$optional" == true && "$line" == STEP_* ]]; then
+            expected=()
+        fi
+        optional=false
         if ((${#expected[@]} > 0)); then
             key="${expected[0]}"
             [[ "$line" == "$key="?* ]] || return 1
+            [[ "$key" != PRESERVED_RULES_HASH || "$line" =~ ^PRESERVED_RULES_HASH=[0-9a-f]{64}$ ]] || return 1
             expected=("${expected[@]:1}")
             continue
         fi
@@ -465,9 +474,12 @@ _oteryn_cutover_state_valid() {
         [[ ! "$time" < "$last_time" ]] || return 1
         _oteryn_cutover_step_allowed "$step" "$seen" || return 1
         read -r -a expected <<<"$(_oteryn_cutover_step_keys "$step")"
+        [[ "$step" != PREFLIGHT ]] || optional=true
         seen+="$step "
         last_time="$time"
     done
+    # A state ending right after a legacy bare PREFLIGHT marker is complete too.
+    [[ "$optional" == true ]] && expected=()
     ((${#expected[@]} == 0)) && [[ "$seen" == *" PREFLIGHT "* ]]
 }
 

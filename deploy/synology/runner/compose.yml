@@ -12,6 +12,9 @@ services:
       RUNNER_GROUP: ${RUNNER_GROUP:-}
       RUNNER_NAME: ${RUNNER_NAME:-oteryn-synology-staging}
       RUNNER_LABELS: ${RUNNER_LABELS:-oteryn-staging}
+      # The deploy's nested Compose mounts the same evidence source into Platform (read-only);
+      # check-location refuses unless both sources match.
+      OTERYN_ATTEMPT_EVIDENCE_HOST_PATH: ${OTERYN_ATTEMPT_EVIDENCE_HOST_PATH:-/volume1/oteryn-attempt-evidence}
       RUNNER_TOKEN: ${RUNNER_TOKEN:-}
       RUNNER_TOKEN_FILE: ${RUNNER_TOKEN_FILE:-}
       RUNNER_WORKDIR: /work
