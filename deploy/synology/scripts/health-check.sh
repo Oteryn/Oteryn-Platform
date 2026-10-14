@@ -13,7 +13,12 @@ load_oteryn_env_file "$ENV_FILE"
 compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 
 declare -A container_ids=()
-for service in mariadb platform internal-proxy gateway marketplace-scheduler; do
+# On PLATFORM_DB_ENGINE=postgres the cutover retires the mariadb container; it is required only on mariadb.
+required_services=(platform internal-proxy gateway marketplace-scheduler)
+if [[ "$OTERYN_PLATFORM_DB_ENGINE" != postgres ]]; then
+    required_services=(mariadb "${required_services[@]}")
+fi
+for service in "${required_services[@]}"; do
     container_id="$("${compose[@]}" ps -q "$service")"
     if [[ -z "$container_id" ]]; then
         echo "Service is not created: $service" >&2
