@@ -213,7 +213,7 @@ validation:
     result: PASS
     evidence: no new shellcheck findings against the base
 blockers:
-  - retire-mariadb not yet recorded on staging (merge only)
+  - none
 next_action: none. PR #1599 merged as fbc8e30d on 2026-10-14; this record is archived.
 ```
 

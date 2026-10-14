@@ -7,7 +7,7 @@ Accepted — 2026-10-11 (owner decision, option a)
 - Decision record: `ARCH-PREPROD-ROUTE-PUBLISH-AUTH-V1` amendment
 - Decision owner: repository owner
 - Governing Issue: #1474
-- Applies to: the two existing operator commands `game-auth:native-topology:issue` and `game-auth:native-route:publish`, when they run against the Synology preproduction MariaDB store
+- Applies to: the two existing operator commands `game-auth:native-topology:issue` and `game-auth:native-route:publish`, when they run against the Synology preproduction MariaDB store and, under Amendment P4 below, the Synology preproduction PostgreSQL store that replaced it
 - Does not authorize: production or any other deployed environment, any database other than the allowlisted store, more than one native World route record, a change to `DisposableNativeStore` beyond Amendment D1023 below, a change to the gateway or admission contract, or any secret, credential or key handling
 - Amended: 2026-10-12 by owner decision D1023 (testing-only loopback PostgreSQL profile of `DisposableNativeStore`, ARCH-PREPROD-ROUTE-PUBLISH-AUTH-V1 §2 amendment)
 - Amendment P4 — PostgreSQL store identity of the preproduction-store mode (2026-10-12, below; accepted by the owner 2026-10-14)

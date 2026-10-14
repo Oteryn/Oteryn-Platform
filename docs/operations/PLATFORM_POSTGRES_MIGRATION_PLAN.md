@@ -6,7 +6,7 @@
 - Input: `docs/architecture/reviews/OTERYN_PLATFORM_ARCHITECTURE_AND_DATABASE_REVIEW_2026-10-12.md` (PR #1560), findings F-01, F-02, F-04, F-05, F-06, F-12 and F-13
 - Baseline: `main` at `b2e86fae` on 2026-10-12
 - Owner answers: Q1 to Q6 answered on 2026-10-12 (§6)
-- P6 status (2026-10-14): staging cutover task `OTERYN-20261013-pg-cutover` executed through `retire-mariadb` (MariaDB deleted 2026-10-14T16:12:26Z, cutover declared done, rollback not used). Step 7 `unfreeze` is not yet executed: its only dispatch, run 38605943395, was a dry run. Evidence: `docs/operations/PLATFORM_POSTGRES_CUTOVER_EVIDENCE.md`.
+- P6 status (2026-10-14): staging cutover task `OTERYN-20261013-pg-cutover` executed, steps 0 to 7 (MariaDB container deleted 2026-10-14T16:12:26Z, cutover declared done, rollback not used, `unfreeze` run 38607404066 done 2026-10-14T17:33:13Z). MariaDB retirement is not complete: the `oteryn-staging_mariadb_data` volume was recreated in the `retire-mariadb` run and was still present on the NAS on 2026-10-14 (after the unfreeze); it must be removed and verified absent before step 6 counts as done. Evidence: `docs/operations/PLATFORM_POSTGRES_CUTOVER_EVIDENCE.md`.
 
 ## 1. Scope and fixed rules
 
