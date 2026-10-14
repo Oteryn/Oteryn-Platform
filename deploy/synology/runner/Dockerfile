@@ -2,7 +2,7 @@ FROM docker:29.9.0-cli@sha256:1a4c7cb63513f349bdad01fcc6e0f3f2f67d37b9da86f14dc0
 
 # Stay on Ubuntu 24.04: the NAS kernel is 4.4, and the 26.04 userland (GNU tar 1.35 on glibc 2.43) extracts
 # through openat2(2), which that kernel lacks, so every action download fails with "Function not implemented".
-FROM ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
+FROM ubuntu:24.10@sha256:cdf755952ed117f6126ff4e65810bf93767d4c38f5c7185b50ec1f1078b464cc
 
 ENV RUNNER_VERSION=2.337.0 \
     RUNNER_SHA256=70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613 \
