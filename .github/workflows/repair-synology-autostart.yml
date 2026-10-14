@@ -37,8 +37,38 @@ jobs:
           PLATFORM_POSTGRES_APP_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_APP_PASSWORD }}
           PLATFORM_POSTGRES_BACKUP_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_BACKUP_PASSWORD }}
           PLATFORM_POSTGRES_DUMP_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_DUMP_PASSWORD }}
+          OTERYN_STATE_DIR_INPUT: ${{ vars.OTERYN_STAGING_STATE_DIR }}
         run: |
           set -Eeuo pipefail
+
+          # PostgreSQL cutover (ADR 0046, cutover-postgres.sh): the stack is deliberately frozen between the
+          # freeze and unfreeze steps, so restarting it here would undo the freeze, and after retire-mariadb no
+          # mariadb container exists by design.
+          state_root="${OTERYN_STATE_DIR_INPUT:-/var/lib/oteryn-staging-state}"
+          if [[ ! "$state_root" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
+            echo "OTERYN_STAGING_STATE_DIR must be an absolute simple path." >&2
+            exit 1
+          fi
+          cutover_state="$state_root/postgres-cutover/cutover-state.env"
+          if [[ -e "$cutover_state" && ! -r "$cutover_state" ]]; then
+            echo "The cutover state file ${cutover_state} exists but is unreadable." >&2
+            exit 1
+          fi
+          cutover_has() { [[ -f "$cutover_state" ]] && grep -q "^STEP_$1=" "$cutover_state"; }
+          if [[ -d "$state_root/postgres-cutover/run.lock" ]]; then
+            echo "::notice::A PostgreSQL cutover step is running; restart policies are left unchanged."
+            exit 0
+          fi
+          if cutover_has FREEZE && ! cutover_has UNFROZEN; then
+            echo "::notice::The stack is frozen for the PostgreSQL cutover; restart policies are left unchanged until unfreeze."
+            exit 0
+          fi
+          persistent_services=(platform internal-proxy gateway marketplace-scheduler)
+          if cutover_has RETIRE_STARTED || cutover_has MARIADB_RETIRED; then
+            echo "MariaDB is retired by the PostgreSQL cutover; it is not repaired."
+          else
+            persistent_services=(mariadb "${persistent_services[@]}")
+          fi
 
           resolve_one() {
             local project="$1"
@@ -57,7 +87,7 @@ jobs:
 
           declare -a containers=()
           containers+=("$(resolve_one oteryn-organization-runners platform)")
-          for service in mariadb platform internal-proxy gateway marketplace-scheduler; do
+          for service in "${persistent_services[@]}"; do
             # One-time rollout: the scheduler is created by the next deployment, so a stack
             # deployed before it became a base service legitimately has none yet.
             if [[ "$service" == marketplace-scheduler ]] && [[ -z "$(docker ps -aq \
