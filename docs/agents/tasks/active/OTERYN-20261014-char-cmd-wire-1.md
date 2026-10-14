@@ -44,6 +44,8 @@ owned_paths:
   - routes/internal.php
   - tests/Feature/Characters/**
   - tests/Feature/CharacterAuthority/CharacterCommandClientTest.php
+  - scripts/acceptance/coverage/portal-coverage-manifest.json
+  - docs/testing/ROUTE_VIEW_NAVIGATION_INVENTORY.json
   - docs/agents/tasks/active/OTERYN-20261014-char-cmd-wire-1.md
   - docs/agents/tasks/archive/OTERYN-20261014-char-cmd-wire-1.md
 modules:
@@ -60,10 +62,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-14T12:00:00Z
-head: UNKNOWN
+updated_at: 2026-10-14T22:45:00Z
+head: 3dbf4f66eabb8ad42c6cb025ef51a0c2452d12fb
 branch: claude/char-cmd-wire-1
-pr: none
+pr: 1622
 status: validating
 context_routes:
   - game-auth
@@ -82,6 +84,8 @@ owned_paths:
   - routes/internal.php
   - tests/Feature/Characters/**
   - tests/Feature/CharacterAuthority/CharacterCommandClientTest.php
+  - scripts/acceptance/coverage/portal-coverage-manifest.json
+  - docs/testing/ROUTE_VIEW_NAVIGATION_INVENTORY.json
   - docs/agents/tasks/active/OTERYN-20261014-char-cmd-wire-1.md
   - docs/agents/tasks/archive/OTERYN-20261014-char-cmd-wire-1.md
 proven:
@@ -97,6 +101,7 @@ first_failure:
   marker: none
   evidence: none
 rejected_hypotheses:
+  - Classifying the internal command routes as portal surfaces; they are mTLS machine endpoints, so the portal manifest excludes them by prefix like other framework/protocol routes.
   - Reusing commands.enabled as the web switch; Bazaar transfers and web creation need separate enablement.
 changed_paths:
   - app/Characters/Actions/CreateCharacter.php
@@ -116,8 +121,13 @@ changed_paths:
   - routes/internal.php
   - tests/Feature/Characters/CharacterCreationCommandTest.php
   - tests/Feature/CharacterAuthority/CharacterCommandClientTest.php
+  - scripts/acceptance/coverage/portal-coverage-manifest.json
+  - docs/testing/ROUTE_VIEW_NAVIGATION_INVENTORY.json
   - docs/agents/tasks/active/OTERYN-20261014-char-cmd-wire-1.md
 validation:
+  - command: node scripts/acceptance/coverage/validate-portal-coverage.mjs --manifest-only (plus product, backend-frontend, dimension and media validators)
+    result: PASS
+    evidence: manifest classifies account.characters.requests.show and excludes internal.character-authority.commands.*; strict route discovery needs artisan and runs in CI
   - command: php -l on changed PHP files
     result: PASS
     evidence: no syntax errors
