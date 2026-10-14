@@ -280,10 +280,12 @@ class AutostartRepairTest(unittest.TestCase):
             "FAKE_CONTAINERS": f"{self.BASE} {containers}",
             "FAKE_RUNNING": running,
             "FAKE_LOG": str(self.log),
+            # No cutover recorded: the repair reads the state through lib.sh, sourced from the checkout root.
+            "OTERYN_STATE_DIR_INPUT": str(self.tmp / "state"),
         }
         for name in ("SUPERUSER", "OWNER", "APP", "BACKUP", "DUMP"):
             env[f"PLATFORM_POSTGRES_{name}_PASSWORD"] = "x" * 24 if secrets else ""
-        return run(["bash", str(self.script)], env=env)
+        return run(["bash", str(self.script)], env=env, cwd=ROOT)
 
     def started(self) -> str:
         return self.log.read_text() if self.log.exists() else ""
