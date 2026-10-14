@@ -1,0 +1,156 @@
+name: Stage Synology Deploy Runner Image
+
+# The NAS Docker host holds no GHCR credentials, so it cannot pull a private deploy-runner image when the
+# organization runners in /volume1/docker/oteryn/organization-runners/compose.yaml are repinned. This job runs on
+# the current platform runner, logs in with its own short-lived job token, pulls the exact published digest into the
+# shared host daemon and logs out again. The digest is authenticated against the supply-chain provenance artifact of
+# a successful Build Synology Staging Images run on protected main, never against the image's self-asserted labels. The repin itself (compose image line, `docker compose up -d`) stays an
+# operator step; it then uses the locally present image.
+#
+# Lifecycle (docs/agents/CI_WORKFLOW_LIFECYCLE.json): distinct from the deploy workflow by its permission (packages:
+# read only, no environment, no runtime change). Review or retire it when the NAS runners get a credentialed image
+# pull of their own or the deploy-runner package becomes pullable without credentials.
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Run ID of the successful Build Synology Staging Images run on protected main that published the image
+        required: true
+        type: string
+      runner_image:
+        description: Exact ghcr.io/oteryn/oteryn-deploy-runner@sha256:<64 hex> recorded in that run's deploy-runner provenance
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: synology-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  authenticate:
+    name: Authenticate the digest against protected-main provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      image: ${{ steps.verify.outputs.image }}
+    steps:
+      - name: Checkout protected main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate the build run
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          RUNNER_IMAGE: ${{ inputs.runner_image }}
+          EXPECTED_REPOSITORY: ghcr.io/${{ github.repository_owner }}/oteryn-deploy-runner
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || { echo "Dispatch from protected main only." >&2; exit 1; }
+          [[ "$BUILD_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || { echo "build_run_id must be a positive run ID." >&2; exit 1; }
+          expected="${EXPECTED_REPOSITORY,,}"
+          [[ "$RUNNER_IMAGE" =~ ^${expected}@sha256:[0-9a-f]{64}$ ]] || {
+            echo "runner_image must be ${expected}@sha256:<64 hex>." >&2
+            exit 1
+          }
+          run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BUILD_RUN_ID}")"
+          check() { [[ "$(jq -r "$1" <<<"$run_json")" == "$2" ]] || { echo "Build run $BUILD_RUN_ID: $1 is not $2." >&2; exit 1; }; }
+          # The API may report the path with a ref suffix (".yml@main"); the head branch is checked separately.
+          check '.path | sub("@.*$"; "")' .github/workflows/build-synology-staging-images.yml
+          check .head_branch main
+          check .head_repository.full_name "$GITHUB_REPOSITORY"
+          check .status completed
+          check .conclusion success
+          event="$(jq -r .event <<<"$run_json")"
+          [[ "$event" == push || "$event" == workflow_dispatch ]] || { echo "Build run event $event is not push or workflow_dispatch." >&2; exit 1; }
+          head_sha="$(jq -r .head_sha <<<"$run_json")"
+          [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "Build run has no head SHA." >&2; exit 1; }
+          git merge-base --is-ancestor "$head_sha" origin/main || {
+            echo "Build run head $head_sha is not in the protected-main lineage." >&2
+            exit 1
+          }
+          # A re-run of failed jobs raises run_attempt without re-running the deploy-runner job, so the evidence keeps the
+          # attempt that built it; take the newest unexpired deploy-runner evidence this run holds for its head.
+          prefix="synology-supply-chain-deploy-runner-${head_sha}-"
+          artifact="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${BUILD_RUN_ID}/artifacts?per_page=100" \
+            --jq '.artifacts[] | [.name, .expired, .workflow_run.id] | @tsv' |
+            awk -F'\t' -v prefix="$prefix" -v run="$BUILD_RUN_ID" '
+              $2 == "false" && $3 == run && index($1, prefix) == 1 {
+                attempt = substr($1, length(prefix) + 1)
+                if (attempt ~ /^[1-9][0-9]*$/ && attempt + 0 > best) { best = attempt + 0; name = $1 }
+              }
+              END { if (name != "") print name }')"
+          [[ -n "$artifact" ]] || { echo "Build run $BUILD_RUN_ID holds no unexpired deploy-runner provenance for $head_sha." >&2; exit 1; }
+          echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Download the run's deploy-runner provenance
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ steps.run.outputs.artifact }}
+          path: provenance
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Match the digest to the provenance
+        id: verify
+        env:
+          RUNNER_IMAGE: ${{ inputs.runner_image }}
+          HEAD_SHA: ${{ steps.run.outputs.head_sha }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        run: |
+          set -euo pipefail
+          file=provenance/deploy-runner.provenance.json
+          [[ -f "$file" ]] || { echo "The build run carries no deploy-runner provenance." >&2; exit 1; }
+          recorded="$(jq -r .image_ref "$file")"
+          [[ "${recorded,,}" == "$RUNNER_IMAGE" ]] || {
+            echo "runner_image does not match the provenance image_ref $recorded." >&2
+            exit 1
+          }
+          echo "image=$RUNNER_IMAGE" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Deploy-runner digest authenticated"
+            echo "- image: \`$RUNNER_IMAGE\`"
+            echo "- build run: $BUILD_RUN_ID on protected main \`$HEAD_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  stage:
+    name: Pull the authenticated digest into the NAS daemon
+    needs: authenticate
+    runs-on:
+      group: platform-runners
+      labels: oteryn-platform
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Pull the exact digest with the job token
+        env:
+          RUNNER_IMAGE: ${{ needs.authenticate.outputs.image }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          [[ "$RUNNER_IMAGE" =~ ^ghcr\.io/[a-z0-9._-]+/oteryn-deploy-runner@sha256:[0-9a-f]{64}$ ]] || {
+            echo "Authenticated image output is missing." >&2
+            exit 1
+          }
+          docker_config="$(mktemp -d)"
+          trap 'rm -rf "$docker_config"' EXIT
+          export DOCKER_CONFIG="$docker_config"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin >/dev/null
+          docker pull "$RUNNER_IMAGE" >/dev/null
+          docker logout ghcr.io >/dev/null
+          echo "### Deploy-runner image staged: \`$RUNNER_IMAGE\`" >> "$GITHUB_STEP_SUMMARY"

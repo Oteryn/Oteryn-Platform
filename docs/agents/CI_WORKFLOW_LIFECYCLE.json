@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "workflow_budget": 53,
+  "workflow_budget": 54,
   "registered_workflows": [
     "acceptance-soak.yml",
     "acceptance-stability.yml",
@@ -44,6 +44,7 @@
     "recover-synology-staging-schema.yml",
     "repair-synology-autostart.yml",
     "repair-synology-compose-orphans.yml",
+    "stage-synology-deploy-runner-image.yml",
     "support-legal-acceptance.yml",
     "support-moderation-acceptance.yml",
     "synology-container-hygiene.yml",

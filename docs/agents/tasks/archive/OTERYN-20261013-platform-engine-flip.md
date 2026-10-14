@@ -26,7 +26,7 @@ P6 cutover step 2 (ADR 0046, plan P6, `deploy/synology/scripts/cutover-postgres.
 - [x] `lib.sh` `oteryn_require_cutover_deploy_window` refuses, read-only and before any stack change: the mariadb engine from the recorded freeze until a verified rollback; the postgres engine without a readable regular `bootstrap-complete.env` holding `BOOTSTRAPPED_AT` and nonempty OAuth and world IDs (the `cutover-postgres.sh` adoption rule), once a cutover rollback started, in the rollback window (bootstrap complete, `REENABLE_STARTED` absent) for any release other than the current one once the frozen MariaDB release (`FREEZE_PLATFORM_IMAGE`) left `current-release.env` or while a candidate of another release is pending or `current-release.env` is missing, and once `retire-mariadb` started (`RETIRE_STARTED`) or finished while `compose.yml` still defines `mariadb`; and any cutover state that exists but cannot be read or inspected, or a linked cutover or bootstrap state directory (Codex review on PR 1598).
 - [x] `deploy.sh` and `deploy-impact.sh` call it before their first compose command; `rollback.sh`, `health-check.sh`, `cutover-postgres.sh` and `bootstrap-postgres.sh` do not.
 - [x] README engine-switch paragraph states the merge timing (after the recorded freeze), the rollback revert and the gate.
-- [ ] Merged only after the cutover `freeze` step is recorded on staging (owner sequencing; preflight and freeze refuse a postgres contract).
+- [x] Merged only after the cutover `freeze` step is recorded on staging (owner sequencing; preflight and freeze refuse a postgres contract): PR #1598 merged as e6c6db6f on 2026-10-14 after the freeze.
 
 ## Ownership
 
@@ -57,11 +57,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-13T23:30:00Z
+updated_at: 2026-10-14T14:00:00Z
 head: 368afb010e6aa96e22059725ba6d76a87fe5c020
 branch: claude/platform-engine-flip-20261013
 pr: 1598
-status: validating
+status: completed
+terminal_pr_policy: archive_pending
 context_routes:
   - deploy
 owned_paths:
@@ -123,7 +124,7 @@ validation:
     evidence: 516 passed, 21 skipped (with deploy/synology/tests); test_synology_rollback_contract.py::test_marketplace_enable_and_verify_are_refused_without_transfer_contract fails on 82e15f4 too (committed postgres engine without secrets; pytest-only, the workflow runs the file's main()), outside owned paths
 blockers:
   - none
-next_action: CP re-requests review on PR 1598; merge only after the cutover freeze is recorded.
+next_action: none. PR #1598 is merged as e6c6db6f on 2026-10-14 and this record is archived.
 ```
 
 ## Source branch closeout
@@ -131,7 +132,7 @@ next_action: CP re-requests review on PR 1598; merge only after the cutover free
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository squash merge of PR 1598
-source_branch_evidence: pending
+source_branch_evidence: PR #1598 merged as e6c6db6f4d3974ef96d7e42fb960ead9e7e784dc; git ls-remote on 2026-10-14 shows claude/platform-engine-flip-20261013 no longer exists (auto-deleted after merge)
 ```
 
 ## Notes
