@@ -5,6 +5,10 @@ name: Stage Synology Deploy Runner Image
 # the current platform runner, logs in with its own short-lived job token, pulls the exact published digest into the
 # shared host daemon and logs out again. The repin itself (compose image line, `docker compose up -d`) stays an
 # operator step; it then uses the locally present image.
+#
+# Lifecycle (docs/agents/CI_WORKFLOW_LIFECYCLE.json): distinct from the deploy workflow by its permission (packages:
+# read only, no environment, no runtime change). Review or retire it when the NAS runners get a credentialed image
+# pull of their own or the deploy-runner package becomes pullable without credentials.
 
 on:
   workflow_dispatch:
