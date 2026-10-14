@@ -9,7 +9,7 @@
 # printed, logged, passed on a command line or written anywhere else. Only the key id and the PUBLIC
 # key (base64url, the encoding of the Platform trust registry and Game's trust config) are printed.
 #
-# Usage: generate-native-admission-key.sh [ensure|stage|promote|rotate|drop-retiring|show|check]
+# Usage: generate-native-admission-key.sh [ensure|stage|promote|rotate|drop-retiring|show|check|check-kid-history]
 #   stage          generate the NEXT key (never loaded by Platform, so nothing changes at runtime);
 #                  idempotent; prints its key id and public key for Game's trust configuration
 #   promote        staged rotation: with ingress stopped, next -> current and current -> retiring,
@@ -19,6 +19,9 @@
 #   rotate         current -> retiring, then a new current with a never-used key id
 #   drop-retiring  remove the retiring key once every attempt it signed has passed exp
 #   show           print the key ids and public keys, changing nothing
+#   check-kid-history [--kid <kid>...]
+#                  read-only (P6a D7): print how many used.kids records exist for each role key
+#                  (current, next, retiring) and each --kid; exit non-zero unless every count is 1
 #   check          run the Platform signing self-check in the running Platform container
 #
 # rotate moves the trusted current key to retiring and restarts Platform with a new current key whose
@@ -45,9 +48,9 @@ ACTION="${1:-ensure}"
 MAINTENANCE="${2:-}"
 
 case "$ACTION" in
-    ensure | stage | promote | rotate | drop-retiring | show | check) ;;
+    ensure | stage | promote | rotate | drop-retiring | show | check | check-kid-history) ;;
     *)
-        echo "Usage: $0 [ensure|stage|promote|rotate [--maintenance]|drop-retiring|show|check]" >&2
+        echo "Usage: $0 [ensure|stage|promote|rotate [--maintenance]|drop-retiring|show|check|check-kid-history [--kid <kid>...]]" >&2
         exit 2
         ;;
 esac
@@ -90,6 +93,11 @@ if [[ "$ACTION" == check ]]; then
     container="$(platform_containers | head -n 1)"
     oteryn_run_native_admission_self_check "$container"
     exit $?
+fi
+
+if [[ "$ACTION" == check-kid-history ]] && ! docker volume inspect "$VOLUME_NAME" >/dev/null 2>&1; then
+    echo "The native admission key volume '$VOLUME_NAME' does not exist; the read-only history check will not create it." >&2
+    exit 1
 fi
 
 docker volume create "$VOLUME_NAME" >/dev/null
@@ -154,12 +162,13 @@ function load(string $dir, string $role, int $uid): ?array
 {
     $keyFile = $dir . '/' . $role . '.key';
     $kidFile = $dir . '/' . $role . '.kid';
-    $haveKey = is_file($keyFile);
-    $haveKid = is_file($kidFile);
+    // A symlink counts as present (even a dangling one) so it is refused below, never skipped.
+    $haveKey = is_file($keyFile) || is_link($keyFile);
+    $haveKid = is_file($kidFile) || is_link($kidFile);
     if (! $haveKey && ! $haveKid) {
         return null;
     }
-    if (! $haveKey || ! $haveKid || is_link($keyFile) || is_link($kidFile)) {
+    if (! $haveKey || ! $haveKid || is_link($keyFile) || is_link($kidFile) || ! is_file($keyFile) || ! is_file($kidFile)) {
         fail("The $role key custody is incomplete; refusing to continue.");
     }
     foreach ([$keyFile, $kidFile] as $file) {
@@ -183,16 +192,24 @@ function load(string $dir, string $role, int $uid): ?array
     return [$kid, b64u($public)];
 }
 
-function usedKids(string $dir): array
+function usedKids(string $dir, int $uid): array
 {
     $file = $dir . '/used.kids';
+    if (! is_file($file) && ! is_link($file)) {
+        return [];
+    }
+    // Same custody rules as load(): a regular file (never a symlink) owned by the process user, 0600.
+    $stat = is_link($file) || ! is_file($file) ? false : stat($file);
+    if ($stat === false || ($stat['mode'] & 0o077) !== 0 || $stat['uid'] !== $uid) {
+        fail('The key id history has an unsafe type, ownership or permissions; refusing to continue.');
+    }
 
-    return is_file($file) ? array_filter(array_map('trim', file($file, FILE_IGNORE_NEW_LINES) ?: [])) : [];
+    return array_filter(array_map('trim', file($file, FILE_IGNORE_NEW_LINES) ?: []));
 }
 
 function generate(string $dir, string $role, int $uid, int $gid): void
 {
-    $used = usedKids($dir);
+    $used = usedKids($dir, $uid);
     do {
         $kid = 'oteryn-admission-' . gmdate('Ymd-His') . '-' . bin2hex(random_bytes(3));
     } while (in_array($kid, $used, true));
@@ -230,6 +247,34 @@ function report(string $dir, int $uid): void
 
 if (! is_dir($dir)) {
     fail('The key volume is not mounted.');
+}
+if ($action === 'check-kid-history') {
+    // Read-only (P6a D7): changes nothing on the volume. Each role key and each --kid must have
+    // exactly one used.kids record. Role key ids are read only through load() (regular non-symlink
+    // files, owner and mode, canonical seed, key id format) and every key id is validated before
+    // anything is printed, so custody content that fails validation never reaches the output.
+    $counts = array_count_values(usedKids($dir, $uid));
+    $kids = [];
+    foreach (['current', 'next', 'retiring'] as $role) {
+        $loaded = load($dir, $role, $uid);
+        if ($loaded !== null) {
+            $kids[$role] = $loaded[0];
+        }
+    }
+    $extra = array_slice($argv, 2);
+    for ($i = 0; $i < count($extra); $i += 2) {
+        if (($extra[$i] ?? '') !== '--kid' || ! isset($extra[$i + 1]) || preg_match('/\A[A-Za-z0-9._-]{1,64}\z/', $extra[$i + 1]) !== 1) {
+            fail('check-kid-history accepts only --kid <kid> arguments with a well-formed key id.');
+        }
+        $kids['kid:' . $extra[$i + 1]] = $extra[$i + 1];
+    }
+    $ok = $kids !== [];
+    foreach ($kids as $label => $kid) {
+        $count = $counts[$kid] ?? 0;
+        echo 'kid_history ' . $label . ' ' . $kid . ' count=' . $count . "\n";
+        $ok = $ok && $count === 1;
+    }
+    exit($ok ? 0 : 1);
 }
 secure($dir, $uid, $gid, 0700);
 
@@ -327,7 +372,7 @@ run_key_tool() {
         --security-opt no-new-privileges \
         --entrypoint php \
         --volume "$VOLUME_NAME:/keys" \
-        "$PLATFORM_IMAGE" -d display_errors=stderr -r "$PHP_TOOL" -- "$1"
+        "$PLATFORM_IMAGE" -d display_errors=stderr -r "$PHP_TOOL" -- "$@"
 }
 
 if [[ "$ACTION" == promote ]]; then
@@ -414,6 +459,11 @@ if [[ "$ACTION" == drop-retiring ]]; then
         fi
         echo "Retiring key revoked in the Platform trust registry." >&2
     fi
+fi
+
+if [[ "$ACTION" == check-kid-history ]]; then
+    run_key_tool "$ACTION" "${@:2}"
+    exit $?
 fi
 
 run_key_tool "$ACTION"

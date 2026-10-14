@@ -8,6 +8,12 @@ on:
       - deploy/synology/**
       - tests/ci/test_synology_rollback_contract.py
       - tests/ci/test_synology_rollback_recovery_contract.py
+      - tests/ci/test_synology_cutover_postgres.py
+      - tests/ci/test_synology_cutover_hooks.py
+      - tests/ci/test_synology_postgres_contract.py
+      - tests/ci/test_synology_attempt_evidence.py
+      - docs/operations/PLATFORM_POSTGRES_CUTOVER_EVIDENCE.md
+      - .github/workflows/deploy-synology-staging.yml
       - .github/workflows/recover-synology-staging-schema.yml
       - .github/workflows/synology-rollback-contract.yml
   push:
@@ -17,6 +23,12 @@ on:
       - deploy/synology/**
       - tests/ci/test_synology_rollback_contract.py
       - tests/ci/test_synology_rollback_recovery_contract.py
+      - tests/ci/test_synology_cutover_postgres.py
+      - tests/ci/test_synology_cutover_hooks.py
+      - tests/ci/test_synology_postgres_contract.py
+      - tests/ci/test_synology_attempt_evidence.py
+      - docs/operations/PLATFORM_POSTGRES_CUTOVER_EVIDENCE.md
+      - .github/workflows/deploy-synology-staging.yml
       - .github/workflows/recover-synology-staging-schema.yml
       - .github/workflows/synology-rollback-contract.yml
   workflow_dispatch:
@@ -54,3 +66,11 @@ jobs:
           python3 tests/ci/test_synology_rollback_contract.py
           python3 tests/ci/test_synology_rollback_recovery_contract.py
           python3 deploy/synology/tests/test_fresh_baseline_contract.py
+
+      - name: Validate PostgreSQL cutover contracts
+        run: |
+          set -euo pipefail
+          python3 tests/ci/test_synology_postgres_contract.py
+          python3 tests/ci/test_synology_attempt_evidence.py
+          python3 tests/ci/test_synology_cutover_postgres.py
+          python3 tests/ci/test_synology_cutover_hooks.py

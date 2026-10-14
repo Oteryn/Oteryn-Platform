@@ -75,6 +75,16 @@ else
     # shellcheck source=deploy/synology/scripts/lib.sh
     source "$SCRIPT_DIR/lib.sh"
     load_oteryn_env_file "$ENV_FILE"
+    # The environment file carries the owner role password as PLATFORM_POSTGRES_OWNER_PASSWORD, not as
+    # DB_MIGRATIONS_*: derive the migration owner credentials the way lib.sh oteryn_platform_migrate_postgres
+    # does. They are exported only into this shell, reach the one-off containers by name (`-e NAME`, never an
+    # argument) and are never written or printed. Explicit DB_MIGRATIONS_* values in the file are kept.
+    if [[ -z "${DB_MIGRATIONS_USERNAME:-}" && -z "${DB_MIGRATIONS_PASSWORD:-}" \
+        && -n "${PLATFORM_POSTGRES_OWNER_PASSWORD:-}" ]]; then
+        DB_MIGRATIONS_USERNAME=oteryn_platform_owner
+        DB_MIGRATIONS_PASSWORD="$PLATFORM_POSTGRES_OWNER_PASSWORD"
+        export DB_MIGRATIONS_USERNAME DB_MIGRATIONS_PASSWORD
+    fi
     compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
     state_dir="${OTERYN_PG_BOOTSTRAP_STATE_DIR:-${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}/postgres-bootstrap}"
 fi
@@ -737,7 +747,7 @@ case "${OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED:-false}" in
 esac
 if [[ "$local_mode" != true ]]; then
     [[ -n "${DB_MIGRATIONS_USERNAME:-}" && -n "${DB_MIGRATIONS_PASSWORD:-}" ]] \
-        || reasons+=("DB_MIGRATIONS_USERNAME and DB_MIGRATIONS_PASSWORD (the migration owner role) are not in the environment file.")
+        || reasons+=("DB_MIGRATIONS_USERNAME and DB_MIGRATIONS_PASSWORD (the migration owner role) are not in the environment file, and PLATFORM_POSTGRES_OWNER_PASSWORD is not set to derive them.")
 fi
 
 # The state records written after the first change must be writable now: a stale temporary path or an

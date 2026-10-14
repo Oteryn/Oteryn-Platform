@@ -28,7 +28,7 @@ The script enforces this:
 
 ## Before you start
 
-- P4 is merged: the `postgres` service, the runtime role and the migration owner role exist, and the environment file carries `DB_MIGRATIONS_USERNAME` and `DB_MIGRATIONS_PASSWORD` for the owner role. The script refuses without them (Compose mode).
+- P4 is merged: the `postgres` service, the runtime role and the migration owner role exist, and the environment file carries the owner role password as `PLATFORM_POSTGRES_OWNER_PASSWORD`. In Compose mode the script derives `DB_MIGRATIONS_USERNAME=oteryn_platform_owner` and `DB_MIGRATIONS_PASSWORD` from it, as the deploy's migration step does, unless the file sets `DB_MIGRATIONS_*` itself; it refuses when neither is available. The `postgres` service must already be running (the deploy starts it; the freeze does not stop it): the bootstrap's one-off containers run with `--no-deps` and never start it.
 - The target PostgreSQL database is empty, and the runtime (`pgsql`) and owner (`pgsql_migrations`) connections point at the same database. The script checks both.
 - `GAME_WORLD_ID`, `GAME_WORLD_SLUG`, `GAME_WORLD_NAME`, `GAME_WORLD_REGION`, `GAME_WORLD_HOST` and `GAME_WORLD_PORT` are set for the World Registry row. With `OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED=true`, `OTERYN_NATIVE_CHANNEL_KEY` is set too.
 - Native admission is off for the bootstrap. Trust is published in P6 step 4 through P6a (which owns the provenance-only init before the attempt), after this bootstrap completed.

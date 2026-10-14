@@ -199,7 +199,8 @@ class Harness:
             "schema": "oteryn.edge-audit-result.v1", "audit_run_id": json_run_id if json_run_id is not None else run_id,
             "run_attempt": 1, "task_id": task, "closure_run_id": close_run if state == "closed" else None,
             "gate_state": state, "edge_version": 5, "config_hash": "e" * 64, "tunnel_contract": "current",
-            "dns": "current", "other_origin_routes": 0,
+            "dns": "current", "other_origin_routes": 0, "oteryn_bypass_rules": 0,
+            "preserved_rules": {"count": 3, "hash": "f" * 64},
             "closure_match": "yes" if state == "closed" else "not_requested",
         }
         if mutate:
@@ -386,7 +387,14 @@ class AuditValidationTests(CutoverTestBase):
     def test_content_rules(self) -> None:
         self.check(task="OTERYN-20261013-someone-else")
         self.check(json_run_id=1)
-        self.check(mutate=lambda a: a.update(other_origin_routes=1))
+        self.check(mutate=lambda a: a.update(other_origin_routes=-1))
+        self.check(mutate=lambda a: a.update(other_origin_routes="8"))
+        self.check(mutate=lambda a: a.update(oteryn_bypass_rules=1))
+        self.check(mutate=lambda a: a.pop("oteryn_bypass_rules"))
+        self.check(mutate=lambda a: a.pop("preserved_rules"))
+        self.check(mutate=lambda a: a.update(preserved_rules={"count": 0, "hash": "f" * 64}))
+        self.check(mutate=lambda a: a.update(preserved_rules={"count": 3, "hash": "F" * 64}))
+        self.check(mutate=lambda a: a.update(preserved_rules={"count": 3}))
         self.check(mutate=lambda a: a.update(closure_match="yes"))
         self.check(mutate=lambda a: a.update(gate_state="closed"))
         self.check(mutate=lambda a: a.update(dns={"host": "internal.example.com"}))
@@ -395,6 +403,48 @@ class AuditValidationTests(CutoverTestBase):
     def test_canonical_hostnames_alone_are_accepted(self) -> None:
         run = self.h.make_audit("open", mutate=lambda a: a.update(dns={"hosts": ["oteryn.molehill.cloud", "gateway.molehill.cloud"]}))
         self.h.ok("preflight", OTERYN_CUTOVER_OWNER_GO=TASK, OTERYN_CUTOVER_AUDIT_RUN_ID=run)
+
+    def test_other_services_routes_are_accepted(self) -> None:
+        # The tunnel is shared: the gate preserves other services' rules, so their count is informational.
+        run = self.h.make_audit("open", mutate=lambda a: a.update(other_origin_routes=8))
+        self.h.ok("preflight", OTERYN_CUTOVER_OWNER_GO=TASK, OTERYN_CUTOVER_AUDIT_RUN_ID=run)
+        self.assertIn("PRESERVED_RULES_HASH=" + "f" * 64, self.h.state())
+
+    def test_preserved_rules_must_not_change_after_preflight(self) -> None:
+        h = self.h
+        h.advance_to("preflight")
+        changed = lambda a: a.update(preserved_rules={"count": 3, "hash": "a" * 64})  # noqa: E731
+        h.refused("freeze", "preserved ingress rules changed", OTERYN_CUTOVER_CLOSE_RUN_ID=CLOSE_RUN,
+                  OTERYN_CUTOVER_AUDIT_RUN_ID=h.make_audit("closed", mutate=changed))
+        self.assertFalse(h.has_state("FREEZE"))
+        h.advance_to("smoke")
+        h.set_engine("mariadb")
+        h.ok("rollback", **h.closed())
+        h.refused("unfreeze", "preserved ingress rules changed", STUB_CANONICAL_STATUS="200",
+                  OTERYN_CUTOVER_AUDIT_RUN_ID=h.make_audit("open", mutate=changed))
+        self.assertFalse(h.has_state("UNFROZEN"))
+        h.ok("unfreeze", OTERYN_CUTOVER_AUDIT_RUN_ID=h.make_audit("open"), STUB_CANONICAL_STATUS="200")
+
+    def test_missing_or_malformed_preserved_hash_fails_closed(self) -> None:
+        h = self.h
+        h.advance_to("preflight")
+        state_file = h.state_root / "postgres-cutover" / "cutover-state.env"
+        original = state_file.read_text()
+        for broken in ("", "PRESERVED_RULES_HASH=\n", "PRESERVED_RULES_HASH=" + "F" * 64 + "\n"):
+            kept = [line for line in original.splitlines(keepends=True) if not line.startswith("PRESERVED_RULES_HASH=")]
+            state_file.write_text("".join(kept) + broken)
+            h.refused("freeze", "no valid PRESERVED_RULES_HASH", **h.closed())
+            self.assertFalse(h.has_state("FREEZE"))
+        state_file.write_text(original)
+        h.advance_to("smoke")
+        h.set_engine("mariadb")
+        h.ok("rollback", **h.closed())
+        kept = [line for line in state_file.read_text().splitlines(keepends=True)
+                if not line.startswith("PRESERVED_RULES_HASH=")]
+        state_file.write_text("".join(kept))
+        h.refused("unfreeze", "no valid PRESERVED_RULES_HASH", STUB_CANONICAL_STATUS="200",
+                  OTERYN_CUTOVER_AUDIT_RUN_ID=h.make_audit("open"))
+        self.assertFalse(h.has_state("UNFROZEN"))
 
     def test_closed_audit_must_carry_the_close_run(self) -> None:
         self.h.preflight()

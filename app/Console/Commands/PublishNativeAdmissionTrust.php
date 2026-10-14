@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\GameAuth\NativeAdmission\NativeAdmissionKeyring;
 use App\GameAuth\NativeAdmission\NativeAdmissionUnavailable;
 use App\GameAuth\NativeEvidence\NativeEvidenceContract;
+use App\GameAuth\NativeEvidence\NativeEvidencePublicationFence;
 use App\GameAuth\NativeEvidence\NativeEvidenceUnavailable;
 use App\GameAuth\NativeEvidence\NativeSigningTrustRegistry;
 use Illuminate\Console\Command;
@@ -33,7 +34,8 @@ use Throwable;
  */
 final class PublishNativeAdmissionTrust extends Command
 {
-    protected $signature = 'game-auth:native-admission:publish-trust';
+    protected $signature = 'game-auth:native-admission:publish-trust
+        {--first-publication-fence= : base64url JSON {run_id, intent_sha256} naming the open attempt intent (PostgreSQL P6a)}';
 
     protected $description = 'Trust the configured current native admission signing public key in the signing trust registry (testing/preproduction only; prints key id and public key).';
 
@@ -53,7 +55,7 @@ final class PublishNativeAdmissionTrust extends Command
         return self::SUCCESS;
     }
 
-    /** @return array{result: string, issuer: string, profile: string, key_purpose: string, key_id: string, public_key: string} */
+    /** @return array{result: string, issuer: string, profile: string, key_purpose: string, key_id: string, public_key: string, fence?: array{run_id: string, attempt: int, intent_sha256: string}|null} */
     private function publish(NativeAdmissionKeyring $keys, NativeSigningTrustRegistry $trust): array
     {
         if (! app()->environment(['testing', 'preproduction'])) {
@@ -66,6 +68,9 @@ final class PublishNativeAdmissionTrust extends Command
         if (! is_string($keyPurpose) || $keyPurpose === '') {
             throw new NativeAdmissionUnavailable('The fresh admission key purpose is not configured.');
         }
+
+        $fenceOption = $this->option('first-publication-fence');
+        $fence = is_string($fenceOption) && $fenceOption !== '' ? NativeEvidencePublicationFence::fromEncoded($fenceOption) : null;
 
         $keyId = $keys->currentKeyId();
         if (preg_match('/\A[A-Za-z0-9._-]{1,64}\z/', $keyId) !== 1 || ! $keys->has($keyId)) {
@@ -90,6 +95,7 @@ final class PublishNativeAdmissionTrust extends Command
             $keyPurpose,
             $keyId,
             $publicKeyBytes,
+            $fence,
         );
         if (($stored->key_id ?? null) !== $keyId) {
             throw new LogicException('The trusted key does not read back.');
@@ -105,7 +111,7 @@ final class PublishNativeAdmissionTrust extends Command
             throw new InvalidArgumentException('Native admission key id is trusted for a different public key; a kid is bound to one public key forever.');
         }
 
-        return [
+        $published = [
             'result' => $result,
             'issuer' => NativeEvidenceContract::FRESH_ISSUER,
             'profile' => NativeEvidenceContract::FRESH_PROFILE,
@@ -113,6 +119,12 @@ final class PublishNativeAdmissionTrust extends Command
             'key_id' => $keyId,
             'public_key' => $publicKey,
         ];
+        if ($fence instanceof NativeEvidencePublicationFence) {
+            // Null when the fence was not needed (a profile already existed or the setting is off).
+            $published['fence'] = $fence->result();
+        }
+
+        return $published;
     }
 
     private function refuse(string $reason): int

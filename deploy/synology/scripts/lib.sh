@@ -105,9 +105,13 @@ oteryn_platform_db_engine_settings() {
     OTERYN_PLATFORM_DB_USERNAME=oteryn_platform_app
     OTERYN_PLATFORM_DB_PASSWORD="${PLATFORM_POSTGRES_APP_PASSWORD:-}"
     OTERYN_PLATFORM_DB_SSLMODE=verify-full
+    # P6a D8: on PostgreSQL the producer refuses a first trust publication without a fence that names an open,
+    # anchored attempt intent (attempt_evidence.py).
+    OTERYN_PLATFORM_FIRST_PUBLICATION_FENCE=required
     OTERYN_PLATFORM_DB_ENGINE="$engine"
     export OTERYN_PLATFORM_DB_ENGINE OTERYN_PLATFORM_DB_CONNECTION OTERYN_PLATFORM_DB_HOST \
-        OTERYN_PLATFORM_DB_PORT OTERYN_PLATFORM_DB_USERNAME OTERYN_PLATFORM_DB_PASSWORD OTERYN_PLATFORM_DB_SSLMODE
+        OTERYN_PLATFORM_DB_PORT OTERYN_PLATFORM_DB_USERNAME OTERYN_PLATFORM_DB_PASSWORD OTERYN_PLATFORM_DB_SSLMODE \
+        OTERYN_PLATFORM_FIRST_PUBLICATION_FENCE
 }
 
 # Refuses (returns 1) a partial PostgreSQL secret set, and on the postgres engine anything but all five: the
@@ -120,6 +124,90 @@ oteryn_require_postgres_secrets_for_engine() {
         echo "PLATFORM_DB_ENGINE=postgres requires all five PostgreSQL secrets." >&2
         return 1
     fi
+}
+
+# The read-only cutover state check shared by oteryn_require_cutover_deploy_window and the Synology autostart
+# repair (.github/workflows/repair-synology-autostart.yml), so both stay off the stack on the same evidence.
+# Refuses (returns 1, "<refusal>: ..." on stderr) a linked, unsearchable or not owner-only cutover or bootstrap
+# state directory, a state file that is not a regular file, cannot be proven absent or cannot be read, and a
+# state text cutover-postgres.sh cannot have written (_oteryn_cutover_state_valid). Returns 3 without a
+# message while $OTERYN_CUTOVER_STATE_LOCK (run.lock) exists, before the state is read: a running step may be
+# mid-append. Returns 0 with the validated state text in OTERYN_CUTOVER_STATE_TEXT ("" only when the state
+# file is provably absent).
+# Usage: oteryn_read_cutover_state <refusal prefix>
+oteryn_read_cutover_state() {
+    local refused="$1" root state_dir bootstrap_dir state_file state_text=""
+    OTERYN_CUTOVER_STATE_TEXT=""
+    root="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
+    state_dir="${OTERYN_CUTOVER_STATE_DIR:-$root/postgres-cutover}"
+    bootstrap_dir="${OTERYN_PG_BOOTSTRAP_STATE_DIR:-$root/postgres-bootstrap}"
+    state_file="$state_dir/cutover-state.env"
+    OTERYN_CUTOVER_STATE_LOCK="$state_dir/run.lock"
+    # Checked before any marker is read: -d and -x follow a link, and the cutover and bootstrap scripts refuse
+    # linked state directories, so a linked one is never inspected through its target.
+    if [[ -L "$state_dir" || -L "$bootstrap_dir" ]]; then
+        echo "$refused: a cutover or bootstrap state directory is a link ($state_dir, $bootstrap_dir)." >&2
+        return 1
+    fi
+    if [[ -e "$state_dir" ]] && [[ ! -d "$state_dir" || ! -x "$state_dir" ]]; then
+        echo "$refused: the cutover state directory $state_dir cannot be inspected." >&2
+        return 1
+    fi
+    # Every record in these directories decides the gate, so an existing one must be trusted as
+    # bootstrap-postgres.sh requires before it reads any record: owned by the caller (the workflows run the
+    # deploy, the repair and the cutover as the same user), not group- or world-writable.
+    local trusted_dir
+    for trusted_dir in "$state_dir" "$bootstrap_dir"; do
+        if [[ -e "$trusted_dir" ]] && ! _oteryn_state_dir_trusted "$trusted_dir"; then
+            echo "$refused: the cutover or bootstrap state directory $trusted_dir must be an owner-only directory (owned by the deploying user, not group- or world-writable)." >&2
+            return 1
+        fi
+    done
+    if [[ -L "$state_file" ]] || [[ -e "$state_file" && ! -f "$state_file" ]]; then
+        echo "$refused: the cutover state $state_file is not a regular file." >&2
+        return 1
+    fi
+    # -e is false on any stat error, not only on a missing file: absence counts only below a searchable directory.
+    if [[ ! -e "$state_file" ]] && ! _oteryn_state_path_absent "$state_file"; then
+        echo "$refused: the cutover state $state_file cannot be inspected; restore access to its directory first." >&2
+        return 1
+    fi
+    if [[ -e "$OTERYN_CUTOVER_STATE_LOCK" || -L "$OTERYN_CUTOVER_STATE_LOCK" ]]; then
+        return 3
+    fi
+    if [[ -e "$state_file" ]]; then
+        # The trailing "." keeps a missing final newline visible (command substitution strips newlines).
+        if ! state_text="$(_oteryn_read_state_file "$state_file" && printf .)"; then
+            echo "$refused: the cutover state $state_file cannot be read; restore its access first." >&2
+            return 1
+        fi
+        state_text="${state_text%.}"
+        if ! _oteryn_cutover_state_valid "$state_text"; then
+            echo "$refused: the cutover state $state_file is empty, truncated or malformed; inspect it first." >&2
+            return 1
+        fi
+    fi
+    OTERYN_CUTOVER_STATE_TEXT="$state_text"
+}
+
+# Prints the first PostgreSQL bootstrap state record (witness-freeze.env, witness-moved-aside.env,
+# bootstrap-complete.env) that exists in any form or whose absence cannot be proven, and returns 0; returns 1
+# when all three are provably absent. The freeze writes witness-freeze.env (record-witness) after it stopped the
+# stack and before STEP_FREEZE, so a freeze that exited in between (its run.lock removed on exit) is still seen;
+# the verified cutover rollback moves the whole bootstrap state directory aside.
+# Usage: oteryn_cutover_bootstrap_record
+oteryn_cutover_bootstrap_record() {
+    local root bootstrap_dir record
+    root="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
+    bootstrap_dir="${OTERYN_PG_BOOTSTRAP_STATE_DIR:-$root/postgres-bootstrap}"
+    for record in "$bootstrap_dir/witness-freeze.env" "$bootstrap_dir/witness-moved-aside.env" \
+        "$bootstrap_dir/bootstrap-complete.env"; do
+        if [[ -e "$record" || -L "$record" ]] || ! _oteryn_state_path_absent "$record"; then
+            printf '%s\n' "$record"
+            return 0
+        fi
+    done
+    return 1
 }
 
 # Cutover deploy window (ADR 0046, plan P6, scripts/cutover-postgres.sh). An ordinary deploy must not touch the
@@ -138,9 +226,10 @@ oteryn_require_postgres_secrets_for_engine() {
 #     "no step recorded";
 #   - the postgres engine before the clean-slate bootstrap finished: a merge-triggered deploy would migrate the
 #     empty database, which the bootstrap then refuses, or cut the stack over without the freeze. The completion
-#     record must be a readable regular file with BOOTSTRAPPED_AT and nonempty OAUTH_CLIENT_ID,
-#     OAUTH_RUST_CLIENT_ID and NATIVE_WORLD_ID, the rule the cutover-postgres.sh adoption path applies. The
-#     deploy after the bootstrap (plan step 2) and every later one pass;
+#     record must be a readable regular file with a valid UTC BOOTSTRAPPED_AT (YYYY-MM-DDTHH:MM:SSZ, a real
+#     date, as bootstrap-postgres.sh writes it) and nonempty OAUTH_CLIENT_ID, OAUTH_RUST_CLIENT_ID and
+#     NATIVE_WORLD_ID, the rule the cutover-postgres.sh adoption path applies. The deploy after the bootstrap
+#     (plan step 2) and every later one pass;
 #   - the postgres engine once a cutover rollback started;
 #   - the rollback window (bootstrap complete, native re-enable not started) for a release whose deploy would
 #     move a PostgreSQL release into last-good-release.env: the cutover rollback runs rollback.sh, which
@@ -154,59 +243,22 @@ oteryn_require_postgres_secrets_for_engine() {
 # The paths follow cutover-postgres.sh (OTERYN_STATE_DIR, OTERYN_CUTOVER_STATE_DIR, OTERYN_PG_BOOTSTRAP_STATE_DIR).
 # Usage: oteryn_require_cutover_deploy_window <compose file>
 oteryn_require_cutover_deploy_window() {
-    local compose_file="$1" root state_dir bootstrap_dir state_file complete_file state_text="" complete_text
+    local compose_file="$1" root bootstrap_dir complete_file state_text complete_text state_rc=0
     root="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
-    state_dir="${OTERYN_CUTOVER_STATE_DIR:-$root/postgres-cutover}"
     bootstrap_dir="${OTERYN_PG_BOOTSTRAP_STATE_DIR:-$root/postgres-bootstrap}"
-    state_file="$state_dir/cutover-state.env"
     complete_file="$bootstrap_dir/bootstrap-complete.env"
-    # Checked before any marker is read: -d and -x follow a link, and the cutover and bootstrap scripts refuse
-    # linked state directories, so a linked one is never inspected through its target.
-    if [[ -L "$state_dir" || -L "$bootstrap_dir" ]]; then
-        echo "Deploy refused: a cutover or bootstrap state directory is a link ($state_dir, $bootstrap_dir)." >&2
-        return 1
-    fi
-    if [[ -e "$state_dir" ]] && [[ ! -d "$state_dir" || ! -x "$state_dir" ]]; then
-        echo "Deploy refused: the cutover state directory $state_dir cannot be inspected." >&2
-        return 1
-    fi
-    # Every record in these directories decides the gate, so an existing one must be trusted as
-    # bootstrap-postgres.sh requires before it reads any record: owned by the caller (the workflow runs the
-    # deploy and the cutover as the same user), not group- or world-writable.
-    local trusted_dir
-    for trusted_dir in "$state_dir" "$bootstrap_dir"; do
-        if [[ -e "$trusted_dir" ]] && ! _oteryn_state_dir_trusted "$trusted_dir"; then
-            echo "Deploy refused: the cutover or bootstrap state directory $trusted_dir must be an owner-only directory (owned by the deploying user, not group- or world-writable)." >&2
+    oteryn_read_cutover_state "Deploy refused" || state_rc=$?
+    case "$state_rc" in
+        0) ;;
+        # cutover-postgres.sh holds run.lock while a step runs; a lock left behind marks a step interrupted before
+        # it recorded its marker (a freeze that stopped the stack before STEP_FREEZE).
+        3)
+            echo "Deploy refused: a cutover step holds or left $OTERYN_CUTOVER_STATE_LOCK; finish or inspect that step first." >&2
             return 1
-        fi
-    done
-    if [[ -L "$state_file" ]] || [[ -e "$state_file" && ! -f "$state_file" ]]; then
-        echo "Deploy refused: the cutover state $state_file is not a regular file." >&2
-        return 1
-    fi
-    # -e is false on any stat error, not only on a missing file: absence counts only below a searchable directory.
-    if [[ ! -e "$state_file" ]] && ! _oteryn_state_path_absent "$state_file"; then
-        echo "Deploy refused: the cutover state $state_file cannot be inspected; restore access to its directory before deploying." >&2
-        return 1
-    fi
-    # cutover-postgres.sh holds run.lock while a step runs; a lock left behind marks a step interrupted before it
-    # recorded its marker (a freeze that stopped the stack before STEP_FREEZE).
-    if [[ -e "$state_dir/run.lock" || -L "$state_dir/run.lock" ]]; then
-        echo "Deploy refused: a cutover step holds or left $state_dir/run.lock; finish or inspect that step first." >&2
-        return 1
-    fi
-    if [[ -e "$state_file" ]]; then
-        # The trailing "." keeps a missing final newline visible (command substitution strips newlines).
-        if ! state_text="$(_oteryn_read_state_file "$state_file" && printf .)"; then
-            echo "Deploy refused: the cutover state $state_file cannot be read; restore its access before deploying." >&2
-            return 1
-        fi
-        state_text="${state_text%.}"
-        if ! _oteryn_cutover_state_valid "$state_text"; then
-            echo "Deploy refused: the cutover state $state_file is empty, truncated or malformed; inspect it before deploying." >&2
-            return 1
-        fi
-    fi
+            ;;
+        *) return 1 ;;
+    esac
+    state_text="$OTERYN_CUTOVER_STATE_TEXT"
     case "${OTERYN_PLATFORM_DB_ENGINE:-}" in
         postgres)
             if [[ ! -f "$complete_file" || -L "$complete_file" ]]; then
@@ -217,11 +269,13 @@ oteryn_require_cutover_deploy_window() {
                 echo "Deploy refused: the PostgreSQL bootstrap completion record $complete_file cannot be read; restore its access before deploying." >&2
                 return 1
             fi
-            if [[ $'\n'"$complete_text" != *$'\n'BOOTSTRAPPED_AT=* ]] \
+            # bootstrap-postgres.sh writes BOOTSTRAPPED_AT as `date -u +%Y-%m-%dT%H:%M:%SZ`: an empty or
+            # malformed value is a torn or foreign record, never a finished bootstrap.
+            if ! _oteryn_utc_timestamp_valid "$(_oteryn_state_value "$complete_text" BOOTSTRAPPED_AT)" \
                 || [[ -z "$(_oteryn_state_value "$complete_text" OAUTH_CLIENT_ID)" ]] \
                 || [[ -z "$(_oteryn_state_value "$complete_text" OAUTH_RUST_CLIENT_ID)" ]] \
                 || [[ -z "$(_oteryn_state_value "$complete_text" NATIVE_WORLD_ID)" ]]; then
-                echo "Deploy refused: the PostgreSQL bootstrap completion record $complete_file is incomplete (BOOTSTRAPPED_AT and nonempty OAuth client and native world IDs required); inspect it or roll back." >&2
+                echo "Deploy refused: the PostgreSQL bootstrap completion record $complete_file is incomplete (a valid UTC BOOTSTRAPPED_AT, YYYY-MM-DDTHH:MM:SSZ, and nonempty OAuth client and native world IDs required); inspect it or roll back." >&2
                 return 1
             fi
             if _oteryn_cutover_step_recorded "$state_text" ROLLBACK_STARTED; then
@@ -391,9 +445,12 @@ _oteryn_cutover_step_allowed() {
 }
 
 # The keys record_step writes after a step's marker, in order (cutover-postgres.sh); every value is nonempty.
+# PREFLIGHT's PRESERVED_RULES_HASH is optional on read (_oteryn_cutover_state_valid): a state written before the
+# hash existed carries the bare marker, and cutover-postgres.sh itself refuses such a state at its audit gates.
 # Usage: _oteryn_cutover_step_keys <step>
 _oteryn_cutover_step_keys() {
     case "$1" in
+        PREFLIGHT) echo "PRESERVED_RULES_HASH" ;;
         FREEZE) echo "CLOSE_RUN_ID MARIADB_VOLUME FREEZE_PLATFORM_IMAGE FREEZE_GATEWAY_IMAGE" ;;
         BOOTSTRAP) echo "OAUTH_CLIENT_ID OAUTH_RUST_CLIENT_ID NATIVE_WORLD_ID BOOTSTRAP_PLATFORM_IMAGE" ;;
         REENABLE_STARTED) echo "REENABLE_CLOSE_RUN_ID" ;;
@@ -409,15 +466,21 @@ _oteryn_cutover_step_keys() {
 # truncated, reordered, contradictory or foreign file is never taken as "no step recorded".
 # Usage: _oteryn_cutover_state_valid <state text>
 _oteryn_cutover_state_valid() {
-    local text="$1" seen=" " last_time="" line step time key
+    local text="$1" seen=" " last_time="" line step time key optional=false
     local -a lines expected=()
     [[ "$text" == *$'\n' ]] || return 1
     mapfile -t lines <<<"${text%$'\n'}"
     [[ "${lines[0]:-}" =~ ^TASK_ID=OTERYN-[0-9]{8}-[a-z0-9][a-z0-9-]{0,80}$ ]] || return 1
     for line in "${lines[@]:1}"; do
+        # A bare legacy PREFLIGHT marker: the next line is already the next marker.
+        if [[ "$optional" == true && "$line" == STEP_* ]]; then
+            expected=()
+        fi
+        optional=false
         if ((${#expected[@]} > 0)); then
             key="${expected[0]}"
             [[ "$line" == "$key="?* ]] || return 1
+            [[ "$key" != PRESERVED_RULES_HASH || "$line" =~ ^PRESERVED_RULES_HASH=[0-9a-f]{64}$ ]] || return 1
             expected=("${expected[@]:1}")
             continue
         fi
@@ -427,9 +490,12 @@ _oteryn_cutover_state_valid() {
         [[ ! "$time" < "$last_time" ]] || return 1
         _oteryn_cutover_step_allowed "$step" "$seen" || return 1
         read -r -a expected <<<"$(_oteryn_cutover_step_keys "$step")"
+        [[ "$step" != PREFLIGHT ]] || optional=true
         seen+="$step "
         last_time="$time"
     done
+    # A state ending right after a legacy bare PREFLIGHT marker is complete too.
+    [[ "$optional" == true ]] && expected=()
     ((${#expected[@]} == 0)) && [[ "$seen" == *" PREFLIGHT "* ]]
 }
 
@@ -452,6 +518,20 @@ _oteryn_read_state_file() {
 # Usage: _oteryn_cutover_step_recorded <state text> <step>
 _oteryn_cutover_step_recorded() {
     [[ $'\n'"$1" == *$'\n'"STEP_$2="* ]]
+}
+
+# True only for a UTC timestamp as bootstrap-postgres.sh writes it (`date -u +%Y-%m-%dT%H:%M:%SZ`) that names a
+# real instant: the value must survive a round trip through date(1) unchanged (GNU -d, else BSD -j -f), so an
+# impossible date such as 2026-02-30T00:00:00Z or 24:00:00 is refused. A date(1) that can parse neither way
+# fails closed.
+# Usage: _oteryn_utc_timestamp_valid <value>
+_oteryn_utc_timestamp_valid() {
+    local value="$1" format='%Y-%m-%dT%H:%M:%SZ' parsed
+    [[ "$value" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || return 1
+    parsed="$(date -u -d "$value" "+$format" 2>/dev/null)" \
+        || parsed="$(date -u -j -f "$format" "$value" "+$format" 2>/dev/null)" \
+        || return 1
+    [[ "$parsed" == "$value" ]]
 }
 
 # Prints the last value of KEY= in a state text (the cutover-postgres.sh `sed | tail -n 1` rule).
@@ -1869,6 +1949,75 @@ docker() {
     command docker "${args[@]}"
 }
 
+# P6a D8 guard: on PostgreSQL, picks the open attempt intent for a first trust publication. Prints nothing
+# when no fence is needed (a profile already exists) and the base64url fence otherwise. It writes nothing;
+# the producer repeats every check from the evidence directory, so this is an early, clear refusal and not
+# the security boundary. Argument: the Platform container id.
+oteryn_first_publication_guard() {
+    local container_id="${1:-}"
+    local evidence_dir="${OTERYN_ATTEMPT_EVIDENCE_DIR:-/var/lib/oteryn-attempt-evidence}"
+    local tool observation parsed fence
+    tool="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/attempt_evidence.py"
+
+    if ! observation="$(docker exec "$container_id" /usr/local/bin/oteryn-platform-entrypoint \
+        php artisan game-auth:native-evidence:observe-trust --trust=fresh --no-interaction 2>&1)"; then
+        printf '%s\n' "$observation" >&2
+        echo "First-publication guard: the read-only trust observation failed." >&2
+        return 1
+    fi
+    observation="$(printf '%s\n' "$observation" | tail -n 1)"
+    if ! parsed="$(printf '%s' "$observation" | python3 -I -c '
+import json, sys
+o = json.load(sys.stdin)
+if o.get("result") != "observed":
+    print("refuse:observation " + str(o.get("result")))
+elif (o.get("profile") or {}).get("present") is True:
+    print("nofence")
+else:
+    inflight = ((o.get("database") or {}).get("in_flight")) or {}
+    ok = (
+        o.get("fence_required") is True
+        and (o.get("store") or {}).get("binding") == "match"
+        and (o.get("floor") or {}).get("value") is None
+        and o.get("database") is not None
+        and inflight.get("sessions") == 0
+        and inflight.get("prepared") == 0
+        and (o.get("key") or {}).get("configured_key_id")
+    )
+    if not ok:
+        print("refuse:state")
+    else:
+        print("fence")
+        print((o["store"]).get("marker") or "")
+        print(o["key"]["configured_key_id"])
+        print(json.dumps(o["scope"], sort_keys=True, separators=(",", ":")))
+        print(json.dumps(o["database"]["identity"], sort_keys=True, separators=(",", ":")))
+' 2>/dev/null)"; then
+        echo "First-publication guard: the trust observation is not valid JSON." >&2
+        return 1
+    fi
+    case "${parsed%%$'\n'*}" in
+        nofence) return 0 ;;
+        fence) ;;
+        *)
+            echo "First-publication guard refused (${parsed%%$'\n'*}): no profile exists and the fence setting, witness, floor, binding, database or key state does not allow a first publication." >&2
+            return 1
+            ;;
+    esac
+    local lines store key_id scope identity
+    mapfile -t lines <<<"$parsed"
+    store="${lines[1]}"
+    key_id="${lines[2]}"
+    scope="${lines[3]}"
+    identity="${lines[4]}"
+    if ! fence="$(python3 -I "$tool" require-open-attempt --dir "$evidence_dir" --store "$store" \
+        --key-id "$key_id" --scope "$scope" --identity "$identity")"; then
+        echo "First-publication guard: no open, anchored attempt intent for this store, key and scope (attempt_evidence.py require-open-attempt)." >&2
+        return 1
+    fi
+    python3 -I -c 'import base64, sys; print(base64.urlsafe_b64encode(sys.stdin.buffer.read().strip()).decode().rstrip("="))' <<<"$fence"
+}
+
 # Owner decision D1006: with native admission switched on, every Platform (re)creation for a
 # release, rollback or Marketplace switch trusts the PUBLIC half of the
 # Platform issuer's current signing key in the deployment's own signing trust registry (PostgreSQL),
@@ -1906,8 +2055,12 @@ oteryn_publish_native_admission_trust() {
     fi
     # Through the image entrypoint, exactly like the signing self-check: it exports the signing key id
     # and file path from the key volume, which a bare docker exec does not see.
+    # P6a D8 on the only engine since P7 (PostgreSQL): every publication passes the first-publication guard.
+    local fence="" fence_args=()
+    fence="$(oteryn_first_publication_guard "$container_id")" || return 1
+    [[ -z "$fence" ]] || fence_args=("--first-publication-fence=$fence")
     if ! output="$(docker exec "$container_id" /usr/local/bin/oteryn-platform-entrypoint \
-        php artisan game-auth:native-admission:publish-trust --no-interaction 2>&1)"; then
+        php artisan game-auth:native-admission:publish-trust --no-interaction ${fence_args[@]+"${fence_args[@]}"} 2>&1)"; then
         printf '%s\n' "$output" >&2
         echo "Native admission signing key trust publication refused; deploy stops before the signing self-check." >&2
         return 1

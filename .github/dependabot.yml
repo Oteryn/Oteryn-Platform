@@ -67,6 +67,11 @@ updates:
       time: "06:25"
       timezone: Europe/Warsaw
     open-pull-requests-limit: 5
+    ignore:
+      # The NAS kernel is 4.4; Ubuntu 25.10+ userland extracts with openat2(2), which it lacks (see the Dockerfile).
+      - dependency-name: ubuntu
+        versions:
+          - ">= 25"
     groups:
       docker-runner-minor-patch:
         update-types:

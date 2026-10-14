@@ -314,6 +314,10 @@ jobs:
           for service_name, service in data.get('services', {}).items():
               for mount in service.get('volumes', []) or []:
                   if mount.get('type') == 'bind':
+                      # The P6a attempt-evidence share is a dedicated host path, not a checkout; only the read-only platform mount is allowed.
+                      if (service_name == 'platform' and mount.get('target') == '/var/lib/oteryn-attempt-evidence'
+                              and mount.get('read_only') is True):
+                          continue
                       bind_mounts.append((service_name, mount.get('source'), mount.get('target')))
           if bind_mounts:
               raise SystemExit(f'runtime Compose must not depend on runner checkout bind mounts: {bind_mounts}')
@@ -455,7 +459,7 @@ jobs:
               docker run --rm --entrypoint /bin/sh "$IMAGE_REF" -ec 'test -x /usr/local/bin/game-gateway'
               ;;
             deploy-runner)
-              docker run --rm --entrypoint /bin/bash "$IMAGE_REF" -ec 'docker --version && docker compose version && test -x /usr/local/bin/oteryn-runner-entrypoint'
+              docker run --rm --entrypoint /bin/bash "$IMAGE_REF" -ec 'docker --version && docker compose version && gh --version && test -x /usr/local/bin/oteryn-runner-entrypoint'
               ;;
           esac
 
