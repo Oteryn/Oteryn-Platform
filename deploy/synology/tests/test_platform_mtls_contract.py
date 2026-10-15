@@ -645,9 +645,11 @@ def test_character_command_settings_refuse_a_surface_that_cannot_work() -> None:
         ({"CHARACTER_AUTHORITY_WEB_CREATE_ENABLED": "on"}, "CHARACTER_AUTHORITY_WEB_CREATE_ENABLED must be true or false"),
         ({"CHARACTER_AUTHORITY_WEB_CREATE_ENABLED": "true"}, "needs CHARACTER_AUTHORITY_COMMANDS_ENABLED=true"),
         ({"CHARACTER_AUTHORITY_COMMANDS_ENABLED": "true"}, "needs CHARACTER_AUTHORITY_COMMAND_IDENTITIES"),
-        ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "257"}, "from 1 to 256"),
-        ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "0"}, "from 1 to 256"),
-        ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "40s"}, "from 1 to 256"),
+        ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "41"}, "from 1 to 40"),
+        ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "256"}, "from 1 to 40"),
+        ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "0"}, "from 1 to 40"),
+        ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "040"}, "from 1 to 40"),
+        ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "40s"}, "from 1 to 40"),
     ]
     for env, message in refused:
         result, calls = _run_lib("oteryn_resolve_game_node_route_settings", **env)
@@ -655,7 +657,7 @@ def test_character_command_settings_refuse_a_surface_that_cannot_work() -> None:
     # An enabled surface without a source authority (none committed) is refused too.
     with tempfile.TemporaryDirectory() as tmp:
         defaults = pathlib.Path(tmp) / "d.env"
-        defaults.write_text("OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_MAX_PENDING_INTENTS=256\n")
+        defaults.write_text("OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_MAX_PENDING_INTENTS=40\n")
         result, calls = _run_lib("oteryn_resolve_game_node_route_settings", OTERYN_NATIVE_DEFAULTS_FILE=str(defaults), **enabled)
     assert result.returncode == 1 and "CHARACTER_AUTHORITY_COMMAND_SOURCE_AUTHORITY" in result.stderr and calls == []
 

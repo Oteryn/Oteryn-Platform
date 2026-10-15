@@ -931,8 +931,8 @@ oteryn_reconcile_postgres() {
 # no client identity, no binding, no TTL, no source authority, so Platform answers those routes 503
 # and the Create character form stays unavailable. Rate limits, the evidence source authority and the
 # pending-intent bound are never empty (an empty value would replace the Platform default or make
-# the command surface unavailable); the bound's built-in is the enablement value 40, not the Platform
-# code default 256 (runbook CHARACTER_AUTHORITY_COMMANDS_ENABLEMENT.md). Client identities are
+# the command surface unavailable); the bound's built-in is 40, the U-CC9 enabled-backlog bound and
+# the Platform code default (runbook CHARACTER_AUTHORITY_COMMANDS_ENABLEMENT.md). Client identities are
 # certificate subject names, never secrets.
 oteryn_resolve_game_node_route_settings() {
     local pair name default_name fallback value
@@ -966,12 +966,13 @@ oteryn_resolve_game_node_route_settings() {
             *) echo "$name must be true or false." >&2; return 1 ;;
         esac
     done
-    # Character Authority commands (Game contract §12: at most 256 unreceipted PENDING intents). Platform
-    # would read an incomplete command surface as unavailable, so a switch that cannot work refuses the
-    # run instead of deploying a silent 503 or an always-unavailable Create character form.
-    if [[ ! "$CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS" =~ ^[1-9][0-9]{0,2}$ ]] \
-        || (( CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS > 256 )); then
-        echo "CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS must be an integer from 1 to 256." >&2
+    # Character Authority commands (Game contract §4.1, gate U-CC9: the enabled backlog is at most 40
+    # unreceipted PENDING intents, and Platform reads a larger value as unavailable). Platform would read
+    # an incomplete command surface as unavailable, so a switch that cannot work refuses the run instead
+    # of deploying a silent 503 or an always-unavailable Create character form.
+    if [[ ! "$CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS" =~ ^[1-9][0-9]?$ ]] \
+        || (( CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS > 40 )); then
+        echo "CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS must be an integer from 1 to 40." >&2
         return 1
     fi
     if [[ "$CHARACTER_AUTHORITY_COMMANDS_ENABLED" == true ]] \
