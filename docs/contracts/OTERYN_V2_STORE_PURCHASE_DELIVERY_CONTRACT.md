@@ -13,7 +13,7 @@
   - `docs/architecture/ADR-0004-postgresql-and-data-ownership.md` §3-§5 (one owner per data set; cross-system effects through versioned API or outbox with idempotent consumers; no cross-database writes);
   - `docs/contracts/OTERYN_GAME_CHARACTER_AUTHORITY_COMMANDS_V1.md` §2, §4.3, §5 (Platform-authored intent keyed by `operation_id`, Game-initiated consumption, durable Game receipt, `recovery_generation`, restore reconciliation);
   - `docs/architecture/reviews/OTERYN_GAME_MECHANICS_COMPLETION_PLAN_2026-10-13.md` row STORE-ENT-1 and owner question Q4.
-- **Blocking rule.** STORE-ENT-1 is blocked on the §32 delivery decision. This contract does **not** take that decision. Every point the owner must decide is listed in §12 and marked `OPEN` where it appears. Until the owner decides them and this contract is accepted on an exact head, nothing here authorizes implementation.
+- **Blocking rule.** STORE-ENT-1 is blocked on the §32 delivery decision. This contract does **not** take that decision. The owner decided S-1..S-9 on 2026-10-15 (§12); each is cited as `DECIDED` where it applies. Until this contract is accepted on an exact head, nothing here authorizes implementation.
 
 This contract authorizes no payment provider, real charge, Wallet credit or debit, Store activation, inbox, item mint, cosmetic unlock, Platform or Oteryn-Game runtime/schema change, deployment or production mutation.
 
@@ -43,8 +43,8 @@ It leaves open, and Oteryn-Game §32 lists as open, the following. This contract
 ## 2. Authority (unchanged, restated for the Store)
 
 - **Platform is the single source of the purchase.** Platform alone records that a purchase happened: the order line, the Wallet debit of Tibia Coins (or a paid order), the price paid, the product/version bought, the entitlement it issued and every reversal. Game never records, infers or reconstructs a purchase. No Game record, receipt, inbox line, unlock fact or log proves that a purchase exists.
-- **Game owns the in-game effect.** Game alone decides and writes the gameplay effect: the account inbox entry when Game holds it (§4, `OPEN` S-1), the DUR-03 MINT of a claimed item, the usability of a Store cosmetic unlock on a world, and any in-game reclamation (§8).
-- **The catalog is Game content** (catalog decision §1). Platform binds each purchase to an exact Game catalog revision and offer key; it never edits the catalog. Who is price authority at purchase time is `OPEN` S-5.
+- **Game owns the in-game effect.** Game alone decides and writes the gameplay effect: the Store inbox display and the item issue at claim (§4, `DECIDED` S-1), the DUR-03 MINT of a claimed item, the usability of a Store cosmetic unlock on a world, and any in-game reclamation (§8).
+- **The catalog is Game content** (catalog decision §1). Platform binds each purchase to an exact Game catalog revision and offer key; it never edits the catalog. There is a single price list, authored in the Game catalog and imported verbatim by Platform (`DECIDED` S-5).
 - No distributed ACID transaction, no shared table, no cross-database write (ADR-0004 §4, §5).
 
 ## 3. Offer, product and fulfilment unit
@@ -53,10 +53,10 @@ A purchase of one Store offer creates one Platform order line and one Platform e
 
 | Store offer kind | Proposed profile | Game effect | Reversal class proposed (§8) |
 |---|---|---|---|
-| Item or consumable (D47, D49 inbox line) | C — durable gameplay grant | inbox line; claim mints through DUR-03 | before claim: reversible; after claim: `OPEN` S-3 |
-| Cosmetic unlock (outfit, addon, mount) | B — game-consumed account entitlement | usable on compatible worlds while the entitlement is usable (D49) | deny-future-use |
-| Premium time | B, existing `oteryn.premium_time` contract | Premium status (Premium activation §4.1) | deny-future-use (as that contract) |
-| Tibia Coin package | E — Platform Wallet | none in Game | Wallet policy, never a negative balance (§8.4) |
+| Item or consumable (D47, D49 inbox line) | C — durable gameplay grant | inbox line; claim mints through DUR-03 | before claim: reversible; after claim: exact-item revoke or shortfall (`DECIDED` S-3) |
+| Cosmetic unlock (outfit, addon, mount) | B — game-consumed account entitlement | usable on compatible worlds while the entitlement is usable (D49) | deny-future-use: stops working from next use (`DECIDED` S-8) |
+| Premium time | B, existing `oteryn.premium_time` contract | Premium status (Premium activation §4.1) | deny-future-use (as that contract): stops working from next use (`DECIDED` S-8) |
+| Tibia Coin package | E — Platform Wallet | none in Game | Wallet policy, never a negative balance (§8.4); spent coins follow S-4 (`DECIDED` S-8) |
 | Character service (rename, transfer, …) | D — Character Authority command | per its own command contract | per that contract |
 
 Rules:
@@ -65,12 +65,12 @@ Rules:
 - `quantity` is explicit per unit. A stack of N consumables is one fulfilment unit with quantity N, not N operations, unless the product version declares otherwise.
 - Every unit binds `product_id`, `product_version`, `catalog_revision`, `offer_key`, and for items the item key and content revision it was sold under (D49 provenance).
 
-## 4. Inbox line ownership — both options, one set of invariants
+## 4. Inbox line ownership
 
-Who holds the account inbox line is the §32 decision (`OPEN` S-1, plan Q4). This contract defines invariants that hold under either option:
+`DECIDED` S-1 (owner 2026-10-15): Platform is the source of truth for the "purchased, pending delivery" ledger; Game only shows it in the Store inbox and issues the item when it is claimed. This selects option (a) below; option (b) is not adopted and is kept only as the rejected alternative. The invariants hold as written:
 
-- **Option (a) Platform entitlement line that Game reads.** The inbox line *is* the Platform Profile-C entitlement in state `ACTIVE`/`UNCLAIMED`. Game lists it through the delivery feed (§6) and, at claim time, mints and returns a receipt; Platform then marks the line `CLAIMED`.
-- **Option (b) Game inbox record.** Platform delivers the fulfilment unit; Game creates an account inbox record in one transaction with its receipt; the claim later mints from that record under its own claim operation.
+- **Option (a), adopted: Platform entitlement line that Game reads.** The inbox line *is* the Platform Profile-C entitlement in state `ACTIVE`/`UNCLAIMED`. Game lists it through the delivery feed (§6) and, at claim time, mints and returns a receipt; Platform then marks the line `CLAIMED`.
+- **Option (b), not adopted: Game inbox record.** Platform delivers the fulfilment unit; Game creates an account inbox record in one transaction with its receipt; the claim later mints from that record under its own claim operation.
 
 Invariants for both:
 
@@ -109,7 +109,7 @@ Rules:
 - **Conflicting reuse.** The same key with a different binding writes nothing, publishes nothing new, keeps the stored receipt and alarms (generic contract: one operation ID cannot be reused for another entitlement, target, product version or intent).
 - **Byte identity.** Every publication of one receipt is byte-identical.
 - **Distinct identities.** In option (b) the Game claim has its own `operation_id`, correlated with, never equal to, the delivery `operation_id`. A Profile-D service keeps its Character Authority `operation_id` distinct, as the generic contract requires.
-- The exact member set, result codes, bounds and encoding are fixed by the wire contract that follows the §32 decision (`OPEN` S-2); the semantic members above are binding.
+- The exact member set, result codes, bounds and encoding are fixed by the wire contract that follows the §32 decision (transport `DECIDED` S-2: Game pulls); the semantic members above are binding.
 
 ## 6. Outbox and transport: at least once, idempotent apply
 
@@ -117,11 +117,11 @@ Rules:
 
 - Platform writes the order line, the Wallet debit (Profile E mutator), the entitlement and a **delivery intent outbox row** in one Platform transaction. No intent exists without its purchase; no purchase with a Game effect exists without its intent.
 - The intent is immutable once written. It stays `PENDING` until Platform holds a Game receipt for it. A timeout, a lost response, an expiry of a transport attempt or a missing receipt never marks it failed and never mints a new `operation_id` (generic contract: never mint X2 as a blind replacement).
-- Store delivery intents do **not** carry a short technical TTL that turns a paid delivery into a rejection. Whether an undelivered paid intent ever expires, and into what, is `OPEN` S-6.
+- Store delivery intents do **not** carry a short technical TTL that turns a paid delivery into a rejection. `DECIDED` S-6: a paid but unclaimed purchase never expires automatically; if it cannot be delivered, support reviews it and may refund it.
 
 ### 6.2 Transport direction
 
-Proposed default, to keep one integration pattern: Game-initiated pull over the existing Game→Platform mTLS client, as in commands contract §2 (list pending, read exact intent, publish receipt). Platform never calls Game and Game exposes no new inbound listener. The transport choice is `OPEN` S-2.
+`DECIDED` S-2 (owner 2026-10-15): Game pulls new purchases from Platform, polling the same way character commands work, over the existing Game→Platform mTLS client, as in commands contract §2 (list pending, read exact intent, publish receipt). Platform never calls Game and there is no inbound push endpoint on Game.
 
 ### 6.3 Game side
 
@@ -162,9 +162,9 @@ Platform:  PURCHASED ─► ENTITLEMENT_ACTIVE ─► DELIVERY_PENDING ─► DE
 | delivered, inbox line unclaimed | `REVOKE_UNCLAIMED`: the line becomes non-claimable; nothing is minted | reversible; the line stays as history |
 | cosmetic unlock | entitlement revoked through the Profile-B fence; the unlock becomes unusable at next use or login | deny-future-use; no appearance or character write beyond what the consumer contract already does |
 | Premium time | as `oteryn.premium_time` (deny-future-use) | unchanged |
-| item claimed, unit still present and untraded in the claiming character's possession | `RECLAIM` of exactly the minted unit identities, or `FLAG` only | which one is `OPEN` S-3 |
-| item claimed and consumed, traded, sold, destroyed or moved to another account | `FLAG` only: nothing is removed from any other player; the shortfall is recorded | `OPEN` S-3, S-4 for follow-up sanctions |
-| Tibia Coins already spent on Store goods (Profile E reversal) | no negative Wallet balance; Platform records a reversal shortfall and, if policy chooses, reverses the downstream Store deliveries under this table | `OPEN` S-4 |
+| item claimed, unit still present and untraded in the claiming character's possession | `RECLAIM` of exactly the minted unit identities (`DECIDED` S-3) | revoke the exact item if the player still holds it and has not transferred it |
+| item claimed and consumed, traded, sold, destroyed or moved to another account | `FLAG` only: nothing is removed from any other player; the shortfall is recorded (`DECIDED` S-3); account locked pending resolution and sent to manual support review (`DECIDED` S-4) | Tibia chargeback model |
+| Tibia Coins already spent on Store goods (Profile E reversal) | no negative Wallet balance; Platform records a reversal shortfall and, if policy chooses, reverses the downstream Store deliveries under this table; the account is locked pending resolution and sent to manual support review (`DECIDED` S-4) | Tibia chargeback model |
 
 ### 8.3 Invariants
 
@@ -173,7 +173,7 @@ Platform:  PURCHASED ─► ENTITLEMENT_ACTIVE ─► DELIVERY_PENDING ─► DE
 - **Fail closed, not destructive.** If Game cannot prove the exact unit is present and untouched, the result is `FLAG` with the shortfall, not a best-effort deletion.
 - **Idempotent.** A reversal operation reclaims at most once; a replay republishes its receipt.
 - **Ordered.** A reversal of a unit whose delivery is still `AMBIGUOUS` waits for the delivery receipt; Platform never sends `RECLAIM` for a claim it has no receipt for.
-- **Not automatic in-game sanctions.** Account restriction, ban or trade lock after a chargeback is a moderation/fraud decision outside this contract (`OPEN` S-4).
+- **Unreclaimable value.** `DECIDED` S-4: if the item cannot be reclaimed (consumed, sold or spent), the account is locked pending resolution and the case goes to manual support review (Tibia chargeback model). The lock and the review are carried out by support through the operation and receipt path of §8.4; nothing is taken from third parties.
 
 ### 8.4 Audit trail
 
@@ -190,7 +190,7 @@ Commands contract §5.4 and OPERABILITY ruling 10 apply, with one Store-specific
 
 - Every Store receipt carries `recovery_generation`. After a Game restore notice with restored generation H, Platform reopens as `PENDING` every Store intent (delivery, claim, reversal) whose receipt carries generation ≥ H, selected by generation only, never by clock.
 - A receipt that survived in the restored store is republished byte-identical: no-op.
-- **Difference from Character commands:** a paid Store delivery lost by the restore is decided again and normally **re-applied** under the new generation, because the customer still holds the purchase and the restored Game state proves the effect is absent. It is not expired into a rejection (subject to `OPEN` S-6).
+- **Difference from Character commands:** a paid Store delivery lost by the restore is decided again and normally **re-applied** under the new generation, because the customer still holds the purchase and the restored Game state proves the effect is absent. It is not expired into a rejection (S-6: it never expires automatically).
 - A claim lost by the restore leaves the line claimable again; a minted unit lost by the restore is not re-minted automatically outside a new claim.
 - A reversal lost by the restore is decided again against the restored state; if the reclaimed unit has reappeared it is reclaimed again under the same `reversal_operation_id`, otherwise flagged.
 - Platform acknowledges the restore notice only after every reopened Store intent has a new receipt; Game opens admission only after that acknowledgement (as commands contract §5.4).
@@ -200,7 +200,7 @@ Commands contract §5.4 and OPERABILITY ruling 10 apply, with one Store-specific
 - Platform is the purchase authority, so a Platform restore that loses purchases is a commercial incident, not a Game decision. Game never recreates a purchase from its receipts.
 - Game receipts whose `operation_id` Platform no longer knows are answered `404`; Game keeps them, stops republishing and alarms. The effect stays in Game until Platform re-establishes the purchase (from provider truth or its own ledger recovery) or issues an explicit reversal.
 - A Platform restore must not lower any Profile-B fence (generic contract) and must not re-issue an `operation_id` already used (UUIDv7, never recycled).
-- Whether Platform may re-import Game receipts to rebuild delivery state after its own restore is `OPEN` S-7.
+- `DECIDED` S-7: after a Platform restore the purchase ledger is rebuilt from Platform's own ledger plus the payment provider. Game data is used only for comparison and alerting, never as a source.
 
 ### 9.3 Periodic reconcile
 
@@ -218,7 +218,7 @@ Inherited from the generic contract (Security boundary) and commands contract §
 4. claim twice on two worlds concurrently: one mint;
 5. claim on an incompatible world: nothing minted, line still claimable;
 6. refund before claim: line non-claimable, nothing minted, audit rows on both sides;
-7. refund after claim, unit present: exactly that unit reclaimed or flagged (per S-3), once;
+7. refund after claim, unit present: exactly that unit reclaimed (S-3), once; if it cannot be reclaimed, shortfall recorded and the account locked for support review (S-4);
 8. refund after the unit was traded: nothing removed from the receiver; shortfall flagged; no negative balance anywhere;
 9. chargeback of a coin package whose coins were spent: Wallet never negative; shortfall recorded;
 10. Game PITR after a delivery: reopened by generation; surviving receipt republished; lost delivery re-applied once;
@@ -227,23 +227,26 @@ Inherited from the generic contract (Security boundary) and commands contract §
 13. dependency unavailable: no write, no receipt, intent stays `PENDING`;
 14. cosmetic unlock revoked: unusable at next use, fence not lowered by restore.
 
-## 12. Open owner decisions (not decided here)
+## 12. Owner decisions
 
-| ID | Question | Notes |
+All nine questions were decided by the owner on 2026-10-15, approving the architect's recommendations. This section is the record; the body sections cite each decision.
+
+| ID | Decided (owner 2026-10-15) | Rationale |
 |---|---|---|
-| S-1 | Who owns the account inbox line: (a) a Platform entitlement line that Game reads, or (b) a Game inbox record? | §32 delivery decision; plan Q4. §4 invariants hold either way. |
-| S-2 | Transport and wire: reuse the Game-initiated pull pattern of the Character commands contract, or another transport? Exact members, codes and bounds. | §6.2 proposes pull; not decided. |
-| S-3 | After a claim, on refund or chargeback: reclaim the exact unit when still present and untraded, or only flag? | §8.2 |
-| S-4 | Consequences of a shortfall (consumed, traded, spent coins): only record, account restriction, trade lock, or support review? Fraud policy. | moderation/fraud; outside this contract's authority |
-| S-5 | Price authority at purchase: the Game catalog revision's `price_coins` as imported by Platform, or a Platform-side price that may differ? | catalog decision §1-§2, follow-up 1 |
-| S-6 | Can an undelivered paid intent ever expire, and if so into refund, manual review or nothing? | §6.1, §9.1 |
-| S-7 | After a Platform restore, may Platform rebuild delivery state from Game receipts? | §9.2 |
-| S-8 | Per-product reversal class for each Store offer kind, and the confirmation of the §3 profile mapping. | generic contract requires it per product/version |
-| S-9 | Commercial activation order: which Store offer kinds ship first, and whether paid issuance waits for the Payments gate. | Premium snapshot contract keeps paid issuance unavailable |
+| S-1 | Platform is the source of truth for the "purchased, pending delivery" ledger. Game only shows it in the Store inbox and issues the item when it is claimed. | One purchase authority; Game never records a purchase (§2, §4). |
+| S-2 | Game pulls new purchases from Platform, polling the same way character commands work. There is no inbound push endpoint on Game. | One integration pattern, no new Game listener (§6.2). |
+| S-3 | On refund or chargeback after a claim, revoke the exact item if the player still holds it and has not transferred it. Otherwise record a shortfall; never take from third parties. | No collateral loss (§8.2, §8.3). |
+| S-4 | If the item cannot be reclaimed (consumed, sold or spent), lock the account pending resolution and send it to manual support review. | Follows the Tibia chargeback model (§8.2, §8.3). |
+| S-5 | There is a single price list, authored in Game's catalog; Platform imports it verbatim. | One price authority, no drift (§2). |
+| S-6 | Paid but unclaimed purchases never expire automatically. If one cannot be delivered, support reviews it and may refund it. | A paid delivery is never turned into a rejection (§6.1, §9.1). |
+| S-7 | After a Platform restore, the purchase ledger is rebuilt from Platform's own ledger plus the payment provider. Game data is only for comparison and alerting, never a source. | Platform stays the purchase authority (§9.2). |
+| S-8 | Revocation per product: Premium time and cosmetics (outfits, mounts) stop working from their next use. Items follow S-3. Spent coins follow S-4. | Matches the reversal classes in §3 and §8.2. |
+| S-9 | Launch order: Premium time and cosmetics first, items later. Real sales stay gated until payments are approved. | Premium snapshot contract keeps paid issuance unavailable until the Payments gate. |
 
 ## 13. Acceptance and rollout
 
-- Status stays **Proposed** until the owner takes the §32 delivery decision and answers §12, and an exact-head independent review accepts this contract.
+- Status stays **Proposed** until an exact-head independent review accepts this contract; the owner decisions in §12 are recorded.
+- Rollout order (`DECIDED` S-9): Premium time and cosmetics first, items later; real sales stay gated until payments are approved.
 - After acceptance: a wire contract (members, codes, bounds), then Game and Platform implementations, disabled by default, then a shared-fixture `testing` stack, per offer kind, never globally.
 - STORE-ENT-1 stays blocked until then.
 
