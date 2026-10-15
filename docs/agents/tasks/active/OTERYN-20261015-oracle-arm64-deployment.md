@@ -24,7 +24,8 @@ updated_at: 2026-10-15T20:54:00Z
 head: ef041fbaa3978d7bf6abd3ef70c47da1032cae49
 branch: codex/oracle-arm64-deployment-20261015
 pr: 1640
-status: implementing
+status: validating
+terminal_pr_policy: archive_pending
 context_routes:
   - deployment
 owned_paths:
@@ -63,7 +64,7 @@ validation:
     evidence: verified on Oracle through its remote agent
 blockers:
   - Account Center still needs its separate repair PR 1637; native client qualification pending
-next_action: integrate qualified deployment wiring, then deploy separate Account Center repair and qualify native client entry
+next_action: archive the delivered deployment packet after remaining operational acceptance and temporary-access cleanup
 ```
 
 ## Source branch closeout
@@ -141,3 +142,5 @@ Enabled systemd supervisor passed controlled restart: prior incarnation
 controller returned ready. Original source custody was never reset or replayed.
 Post-migration Platform physical backup 20261015T205226Z and logical dump
 20261015T205229Z passed. Full native client acceptance remains open.
+
+Protected integration: PR 1640 merged as 95ad4600a9f27ff3e8bf2c5ccad75939fde07bce after real merge_group CI/platform-gate success. Operational Issue 1639 remains open for the browser/client acceptance and access cleanup; no source writer may resume. The native gateway was reconciled with native_login_enabled=true, and its real login returned HTTP 200/code OK.
