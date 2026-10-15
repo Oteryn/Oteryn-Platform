@@ -15,7 +15,8 @@ RUN git init \
     && git add --force -- content/world content/houses content/creatures/definitions \
         content/items/definitions content/npcs/definitions content/dialogues/definitions \
         content/services tools/world-bundle-compiler crates/world-bundle \
-        Cargo.toml Cargo.lock rust-toolchain.toml .cargo \
+        Cargo.toml Cargo.lock rust-toolchain.toml \
+    && if [ -d .cargo ]; then git add --force -- .cargo; fi \
     && cargo build --locked --release --jobs 2 -p oteryn-world-bundle-compiler \
     && target/release/oteryn-world-bundle-compiler pin-check . /world-bundle
 
@@ -23,6 +24,8 @@ FROM scratch AS world-bundle
 COPY --from=world-bundle-build /world-bundle/ /
 
 FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS runtime
+LABEL org.opencontainers.image.source="https://github.com/Oteryn/Oteryn-Game" \
+    org.opencontainers.image.revision="87f770c87ce17518ba69f5effdbd04725d8a7d06"
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -31,4 +34,4 @@ COPY --from=build /src/target/release/oteryn-game-ops /usr/local/bin/oteryn-game
 COPY --from=build /src/target/release/oteryn-game-migrate /usr/local/bin/oteryn-game-migrate
 USER 1001:1001
 ENTRYPOINT ["/usr/local/bin/oteryn-game-server"]
-CMD ["--help"]
+CMD ["serve", "--config", "/etc/oteryn/node.toml"]
