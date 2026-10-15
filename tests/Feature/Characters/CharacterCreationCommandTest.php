@@ -164,6 +164,11 @@ final class CharacterCreationCommandTest extends TestCase
         $this->world();
         $identity = $this->identity();
         $this->login($identity);
+        // A native account has no legacy binding. Enter through the real Account Center action.
+        $this->get('/account?locale=pl')->assertOk()
+            ->assertSee(route('account.characters.create', ['locale' => 'pl']), false);
+        $this->get('/account/characters/create?locale=pl')->assertOk()
+            ->assertSee('name="submission"', false);
         $operationId = $this->submit();
 
         $this->publish($this->membersJson([
