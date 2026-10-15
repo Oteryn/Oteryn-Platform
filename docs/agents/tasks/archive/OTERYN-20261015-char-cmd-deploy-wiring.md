@@ -125,4 +125,5 @@ source_branch_evidence: PR 1633 opened from claude/cc-deploy-enable-20261015 aga
 ## Notes
 
 - This PR does not touch the files of PR #1629, #1631 or #1632. The runbook on #1632 still states the bound as an open question; the CP decision (40) needs a one-line edit there or a follow-up after it merges.
+- After merging main (U-CC7 restore notices from #1631), the four `CHARACTER_AUTHORITY_RESTORE_NOTICE_*` settings are listed as unmapped in the contract test: this packet does not wire them, so restore notices keep the Platform default (off) in the deployment. Wiring them is a separate packet.
 - `marketplace-scheduler` does not get the command settings; Bazaar transfers from the scheduler stay "commands unavailable" until a Bazaar enablement packet.

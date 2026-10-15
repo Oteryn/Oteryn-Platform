@@ -528,6 +528,12 @@ ROUTE_SETTINGS = {
 CHARACTER_COMMAND_UNMAPPED = {
     "CHARACTER_AUTHORITY_COMMAND_INTENT_TTL_SECONDS",
     "CHARACTER_AUTHORITY_COMMAND_REQUESTS_PER_MINUTE",
+    # Game restore notices (U-CC7, PR #1631) are not wired by this packet: they keep the Platform
+    # config default, so the restore-notice route stays off in the deployment.
+    "CHARACTER_AUTHORITY_RESTORE_NOTICE_ENABLED",
+    "CHARACTER_AUTHORITY_RESTORE_NOTICE_IDENTITIES",
+    "CHARACTER_AUTHORITY_RESTORE_NOTICE_SOURCE_AUTHORITY",
+    "CHARACTER_AUTHORITY_RESTORE_NOTICE_REQUESTS_PER_MINUTE",
 }
 # Subject DN (RFC 2253) of the preprod node 1 [platform] client certificate, named by the Game manifest
 # deploy/synology-game/preprod-topology.toml (certificates.node_native_evidence).
@@ -544,7 +550,7 @@ def test_game_node_route_settings_reach_platform_and_default_closed() -> None:
     mapped = set(re.findall(r"^      ((?:GAME_AUTH_NATIVE_EVIDENCE|GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT)_[A-Z_]+):", platform, re.M))
     assert read and read == mapped, read ^ mapped
     # Character Authority commands and web creation: every setting is mapped except the two that keep
-    # the Platform config default (TTL 300 s, 600 requests per minute).
+    # the Platform config default (TTL 300 s, 600 requests per minute) and the unwired restore notices.
     config = (ROOT / "config" / "character-authority.php").read_text()
     read = set(re.findall(r"env\('(CHARACTER_AUTHORITY_[A-Z_]+)'", config))
     mapped = set(re.findall(r"^      (CHARACTER_AUTHORITY_[A-Z_]+):", platform, re.M))
