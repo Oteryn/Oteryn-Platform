@@ -272,6 +272,8 @@ A reconciliation response that means "operation not found" is not automatically 
 
 Platform may additionally reconcile authoritative current character state, but state comparison alone must not erase the operation receipt when durable operation history is required for audit/business recovery.
 
+After a Game restore, Platform reopens affected operations by recovery generation and acknowledges Game's restore notice as defined in `OTERYN_V2_GAME_RESTORE_RECONCILIATION_CONTRACT.md`.
+
 ## Concurrency and mutual exclusion
 
 No distributed ACID transaction between Platform persistence and Oteryn-v2 persistence is assumed.

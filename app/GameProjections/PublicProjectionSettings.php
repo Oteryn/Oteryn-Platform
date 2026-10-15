@@ -2,6 +2,8 @@
 
 namespace App\GameProjections;
 
+use App\CharacterAuthority\CharacterCommandSettings;
+use App\CharacterAuthority\Restore\GameRestoreNoticeSettings;
 use App\GameAuth\NativeAccountCharacters\NativeAccountCharactersSettings;
 use App\GameAuth\NativeRuntimeStatus\NativeRuntimeStatusSettings;
 use App\GameAuth\NativeRuntimeStatus\NativeScopeAssignmentReport;
@@ -12,7 +14,8 @@ use JsonException;
  *
  * Off unless `game-projections.public.enabled` is exactly true. The public-projection identities are
  * dedicated: if any of them is also configured for another internal mTLS purpose (LCFA, runtime
- * status, scope assignment, native evidence, bootstrap intent, premium snapshot), the whole
+ * status, scope assignment, native evidence, bootstrap intent, premium snapshot, character
+ * commands, Game restore notice), the whole
  * consumer is unavailable, so a public-projection certificate is never accepted elsewhere and no
  * other certificate is accepted here.
  */
@@ -68,7 +71,11 @@ final readonly class PublicProjectionSettings
             return null;
         }
 
-        $other = NativeAccountCharactersSettings::configuredPublisherIdentities();
+        $other = [
+            ...NativeAccountCharactersSettings::configuredPublisherIdentities(),
+            ...CharacterCommandSettings::configuredIdentities(),
+            ...GameRestoreNoticeSettings::configuredIdentities(),
+        ];
         foreach ([
             config('game-auth.native_evidence.mtls_client_identity'),
             config('game-auth.character_bootstrap_intent.mtls_client_identity'),

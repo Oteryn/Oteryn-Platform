@@ -36,6 +36,10 @@
       "reason": "Game Character Authority command consumer endpoints are mTLS machine-to-machine contract routes, not portal pages; peer, disabled and receipt behavior remain covered by CharacterAuthority feature/security tests."
     },
     {
+      "exact": "internal.character-authority.restore.notice",
+      "reason": "Game restore notice is an mTLS machine-to-machine contract route, not a portal page; peer, disabled, reopen and acknowledgement behavior remain covered by CharacterAuthority feature tests."
+    },
+    {
       "exact": "storage.local",
       "reason": "Laravel local-storage delivery is a framework resource endpoint, not a standalone portal page; authorization and storage behavior remain covered by the consuming feature/security contracts."
     },

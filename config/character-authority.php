@@ -41,4 +41,24 @@ return [
         'enabled' => filter_var(env('CHARACTER_AUTHORITY_WEB_CREATE_ENABLED', false), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) === true,
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Game restore notice (Platform contract `oteryn-v2-game-restore-reconciliation-v1`)
+    |--------------------------------------------------------------------------
+    |
+    | After a Game restore, Game delivers one restore notice; Platform reopens every command whose
+    | receipt carries a recovery generation at or above the restored one and acknowledges once each
+    | has a new receipt. Game opens admission only after that acknowledgement, so a stack whose Game
+    | can be restored enables this. Off by default; not limited to an environment. `identities` is
+    | a JSON list of dedicated restore-notice client certificate subjects.
+    |
+    */
+
+    'restore' => [
+        'enabled' => filter_var(env('CHARACTER_AUTHORITY_RESTORE_NOTICE_ENABLED', false), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) === true,
+        'identities' => env('CHARACTER_AUTHORITY_RESTORE_NOTICE_IDENTITIES'),
+        'source_authority' => env('CHARACTER_AUTHORITY_RESTORE_NOTICE_SOURCE_AUTHORITY'),
+        'requests_per_minute' => env('CHARACTER_AUTHORITY_RESTORE_NOTICE_REQUESTS_PER_MINUTE', 60),
+    ],
+
 ];
