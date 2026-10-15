@@ -38,7 +38,7 @@ checkpoint_version: 1
 updated_at: 2026-10-15T22:00:00Z
 head: b288effb76480ce58f55c834010814ddb0b961a6
 branch: codex/fix-oracle-runner-context-20261015
-pr: null
+pr: 1646
 status: waiting
 terminal_pr_policy: archive_pending
 context_routes:
