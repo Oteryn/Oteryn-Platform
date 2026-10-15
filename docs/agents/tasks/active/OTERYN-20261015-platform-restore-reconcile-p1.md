@@ -151,7 +151,7 @@ validation:
     evidence: same sandbox limitation; CI runs them
 blockers:
   - none
-next_action: Split from #1627 after the round limit; the contract docs are in #1630. Round 2 (last) adopts the strict generation fence and keeps the exchange usable for reconciliation with commands disabled; drive #1629 to green CI with no P1 and enable squash auto-merge; on a new P1 close and split.
+next_action: Split from #1627 after the round limit; the contract docs are in #1631, which replaces the closed #1630. Round 2 (last) adopts the strict generation fence and keeps the exchange usable for reconciliation with commands disabled; drive #1629 to green CI with no new P1 and hand it to the owner for squash landing; on a new P1 close and split. Once #1629 has landed, archive this record with the landing SHA and source-branch closeout.
 terminal_pr_policy: archive_pending
 ```
 
