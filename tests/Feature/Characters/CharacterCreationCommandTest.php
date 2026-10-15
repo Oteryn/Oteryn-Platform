@@ -94,6 +94,9 @@ final class CharacterCreationCommandTest extends TestCase
         $pending->assertOk();
         $pending->assertSee('data-outcome="pending"', false);
         $pending->assertSee('Your character request is being processed.');
+        $pending->assertSee('js/character-request-status.js', false);
+        $pending->assertSee('data-character-request-check', false);
+        $pending->assertDontSee('Create another character');
     }
 
     public function test_the_selected_locale_carries_to_the_translated_result_page(): void
@@ -188,6 +191,8 @@ final class CharacterCreationCommandTest extends TestCase
         $page->assertOk();
         $page->assertSee('data-outcome="created"', false);
         $page->assertSee('Character Alice Moon created.');
+        $page->assertDontSee('js/character-request-status.js', false);
+        $page->assertSee('Create another character');
     }
 
     public function test_rejected_receipts_resolve_to_user_visible_outcomes(): void

@@ -2,6 +2,8 @@
 @section('title', __('portal.account.title'))
 @section('portal-family', 'account')
 @section('content')
+    @inject('localeFormatter', 'App\Localization\LocaleFormatter')
+    @inject('characterPresentation', 'App\PublicGameData\CharacterPresentation')
     <header class="page-header account-masthead">
         <div>
             <p class="eyebrow">{{ __('portal.account.workspace') }}</p>
@@ -12,32 +14,74 @@
             <a class="button" href="{{ route('account.characters.create', ['locale' => app()->getLocale()]) }}">{{ __('portal.account.create') }} <span aria-hidden="true">＋</span></a>
         @endif
     </header>
-    <section class="account-roster" aria-labelledby="account-characters-heading" data-characters-state="{{ $overview['characters_state'] }}">
+    @php
+        $badgeClass = match ($overview['state']) {
+            'ready' => 'badge-success',
+            default => 'badge-danger',
+        };
+        $charactersMessage = $overview['characters_state'] === 'available'
+            ? __($overview['character_count'] === 1
+                ? '1 of :limit active character slots is in use.'
+                : ':count of :limit active character slots are in use.', [
+                    'count' => $localeFormatter->number($overview['character_count']),
+                    'limit' => $localeFormatter->number($overview['character_limit']),
+                ])
+            : __($overview['characters_message']);
+    @endphp
+    @if ($overview['state'] === 'none')
+    <span hidden data-account-state="none"></span>
+    @else
+    <section class="account-connection" aria-labelledby="game-account-heading" data-account-state="{{ $overview['state'] }}">
+        <div>
+            <p class="eyebrow">{{ __('portal.account.game_account') }}</p>
+            <h2 id="game-account-heading">{{ __('portal.account.connection') }}</h2>
+        </div>
+        <div>
+            <span class="badge {{ $badgeClass }}">{{ __($overview['label']) }}</span>
+            <p>{{ __($overview['message']) }}</p>
+        </div>
+    </section>
+    <section class="account-roster" aria-labelledby="account-characters-heading">
         <div class="section-heading">
             <div><p class="eyebrow">{{ __('portal.account.game_account') }}</p><h2 id="account-characters-heading">{{ __('portal.account.characters') }}</h2></div>
-        </div>
-        @if ($overview['characters_state'] === 'ready')
-            @if (count($overview['characters']) > 0)
-                <div class="character-roster">
-                    @foreach ($overview['characters'] as $character)
-                        <article class="card character-roster-row">
-                            <div class="character-monogram" aria-hidden="true">{{ mb_substr($character->name, 0, 1) }}</div>
-                            <div class="character-roster-identity"><h3>{{ $character->name }}</h3></div>
-                        </article>
-                    @endforeach
-                </div>
-            @else
-                <div class="empty-state"><p>{{ __('portal.account.empty') }}</p>
-                    @if ($overview['character_creation_allowed'])<a class="button" href="{{ route('account.characters.create', ['locale' => app()->getLocale()]) }}">{{ __('portal.account.first') }}</a>@endif
-                </div>
+            @if (in_array($overview['characters_state'], ['available', 'empty'], true))
+                <span class="roster-count">{{ $localeFormatter->number($overview['character_count']) }} / {{ $localeFormatter->number($overview['character_limit']) }}</span>
             @endif
+        </div>
+        @if ($overview['characters_state'] !== 'empty')<p class="muted">{{ $charactersMessage }}</p>@endif
+        @if ($overview['characters_state'] === 'available')
+            <div class="character-roster">
+                @foreach ($overview['characters'] as $character)
+                    @php($profilePreference = $profilePreferences->get((int) $character->id))
+                    <article class="card character-roster-row">
+                        <div class="character-monogram" aria-hidden="true">{{ mb_substr($character->name, 0, 1) }}</div>
+                        <div class="character-roster-identity">
+                            <h3><a href="{{ route('game.characters.show', ['name' => $character->name]) }}">{{ $character->name }}</a></h3>
+                            <p>{{ $characterPresentation->vocationName((int) $character->vocation) }} <span aria-hidden="true">·</span> {{ __('portal.account.level') }} {{ $localeFormatter->number($character->level) }}</p>
+                            @if ($profilePreference?->is_main_character)<span class="badge badge-success">{{ __('character_profiles.main_badge') }}</span>@endif
+                            <p class="muted">{{ $profilePreference === null ? __('character_profiles.defaults') : __('character_profiles.customized') }}</p>
+                        </div>
+                        <div class="action-row">
+                            <a class="button button-secondary" href="{{ route('game.characters.show', ['name' => $character->name]) }}">{{ __('portal.account.profile') }}</a>
+                            <a class="button button-ghost" href="{{ route('account.characters.profile.edit', ['name' => $character->name, 'locale' => app()->getLocale()]) }}">{{ __('character_profiles.manage') }}</a>
+                        </div>
+                    </article>
+                @endforeach
+            </div>
+        @elseif ($overview['characters_state'] === 'empty')
+            <div class="empty-state"><p>{{ $charactersMessage }}</p>
+                @if ($overview['character_creation_allowed'])<a class="button" href="{{ route('account.characters.create', ['locale' => app()->getLocale()]) }}">{{ __('portal.account.first') }}</a>@endif
+            </div>
+        @elseif ($overview['characters_state'] === 'unavailable')
+            <div class="notice alert-warning" role="status">{{ __('portal.account.unavailable') }}</div>
         @else
-            <p class="muted">{{ __('portal.account.native_'.$overview['characters_state']) }}</p>
+            <div class="notice" role="status">{{ __('portal.account.not_ready') }}</div>
         @endif
-        @unless ($overview['character_creation_allowed'])
-            <p class="muted">{{ __('portal.account.creation_unavailable') }}</p>
-        @endunless
+        @if ($overview['state'] === 'ready' && ! $overview['character_creation_allowed'] && $overview['character_count'] >= $overview['character_limit'])
+            <div class="notice alert-warning" role="status">{{ __('portal.account.limit', ['count' => $overview['character_limit']]) }}</div>
+        @endif
     </section>
+    @endif
     <div class="account-services">
         <section aria-labelledby="account-security-heading">
             <p class="eyebrow">{{ __('identity.security.eyebrow') }}</p>

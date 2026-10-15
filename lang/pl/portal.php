@@ -74,6 +74,7 @@ return [
         'world' => 'Świat',
         'request_title' => 'Zgłoszenie postaci',
         'request_heading' => 'Zgłoszenie postaci',
+        'request_check' => 'Sprawdź status zgłoszenia',
         'request_again' => 'Utwórz kolejną postać',
         'outcome' => [
             'pending' => 'Twoje zgłoszenie postaci jest przetwarzane. Odśwież tę stronę, aby zobaczyć wynik.',

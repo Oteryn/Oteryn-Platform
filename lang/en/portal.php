@@ -74,6 +74,7 @@ return [
         'world' => 'World',
         'request_title' => 'Character Request',
         'request_heading' => 'Character request',
+        'request_check' => 'Check request status',
         'request_again' => 'Create another character',
         'outcome' => [
             'pending' => 'Your character request is being processed. Refresh this page to see the result.',
