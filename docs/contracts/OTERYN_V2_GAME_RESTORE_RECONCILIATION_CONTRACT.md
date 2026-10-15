@@ -145,7 +145,7 @@ provisional 4 h Platform RTO) on 2026-10-15, to be reviewed after the first rest
 
 ## Platform restore (the other direction)
 
-A Platform restore to an earlier point needs no notice:
+A Platform restore to an earlier point has no notice in this contract. These cases are covered:
 
 - a lost receipt leaves the intent PENDING; Game lists it again and republishes its stored receipt,
   which Platform accepts as a first receipt;
@@ -153,6 +153,15 @@ A Platform restore to an earlier point needs no notice:
   `character_authority.command_receipt_without_intent`; Game keeps its own decision;
 - a reused `source_revision` or `operation_id` for a different intent is refused by Game with
   `CHAR_CMD_OPERATION_CONFLICT`, never committed as a different command.
+
+Open item (follow-up PLATFORM-PITR-FENCE-1): a restore can lose both an intent and its
+idempotency row while Game keeps the decision. Later requests can then move the restored
+sequence past Game's retained `source_revision` range, and a retry of the lost request gets a
+fresh revision and a fresh `operation_id`. Neither conflict above applies, so Game could execute
+the mutation twice. Closing this needs a restore epoch or fence, or reconciliation of lost
+operation identities, before Platform accepts new commands after the restore. That design
+belongs to the follow-up. Until it lands, a Platform point-in-time restore with character
+commands enabled is not covered by this contract.
 
 ## Deliveries (A4)
 
