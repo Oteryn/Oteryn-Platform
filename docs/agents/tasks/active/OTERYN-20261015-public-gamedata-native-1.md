@@ -79,7 +79,7 @@ checkpoint_version: 1
 updated_at: 2026-10-15T12:00:00Z
 head: UNKNOWN
 branch: fix/public-gamedata-native
-pr: none
+pr: 1645
 status: waiting
 context_routes:
   - game-auth
