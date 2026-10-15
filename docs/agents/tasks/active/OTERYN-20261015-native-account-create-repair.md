@@ -53,11 +53,11 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-15T16:43:35Z
-head: UNKNOWN
+updated_at: 2026-10-15T20:58:00Z
+head: b0acd73f0f89541fe2a4b9360fb9d2d825831e02
 branch: codex/fix-native-account-character-creation-20261015
 pr: 1637
-status: blocked
+status: implementing
 context_routes:
   - native-character-portfolio
   - native-characters
@@ -81,7 +81,7 @@ proven:
 derived:
   - This legacy gate prevents the native creation entry point from appearing.
 unknown:
-  - Successful real Game creation remains unproven; the owner confirms requests remain pending and the inspected Edge request is expired.
+  - Browser roster and automatic result polling on the repaired deployed candidate remain to be qualified.
 conflicts: []
 first_failure:
   marker: legacy-account-binding-gate
@@ -119,10 +119,8 @@ validation:
   - command: authenticated mTLS account-security read and process-local timing instrumentation
     result: PASS
     evidence: TLS 1.3 request returns observed and allowed=true in 5.034 seconds, exceeding the existing 3-second Game exchange bound. CLI observation is 2.835 to 3.868 seconds; one measured COMMIT is 1398 ms and file/directory fsync are 185 and 1207 ms. Query execution alone is 22 ms. Instrumentation forwards all original fsync calls unchanged and modifies no deployed source.
-blockers:
-  - Durable account-security evidence and Game custody cannot reliably meet existing freshness and transport bounds on the observed storage.
-  - CI also reports a pre-existing closed Issue 1623 and merged PR 1624 still recorded as active in the native-evidence activation packet; that unrelated record was preserved.
-next_action: Obtain the owner decision for the scoped protected storage relocation proposal.
+blockers: []
+next_action: qualify the repaired exact candidate and deploy it with the preserved migrated Oracle state
 ```
 
 ## Source branch closeout
@@ -183,3 +181,21 @@ VERIFIED: exact task-labelled Docker inventory and post-removal inventory; exact
 REMAINING: owner decision for the protected storage relocation, existing CI baseline task-record cleanup, and real Game qualification.
 
 The native roster is a partial in the existing Account Center view, not a new independently routed public view. This preserves the existing route/view coverage identity and shares the account security presentation. The strict portal closure gate also has pre-existing missing coverage entries; no unqualified browser evidence was marked complete.
+
+## Oracle migration removes the observed storage blocker
+
+The owner subsequently authorized and requested the complete Oracle migration,
+governed separately by Issue 1639 / PR 1640. Source writers were frozen; existing
+identity, Game data, signing history and independent custody moved coherently.
+An owner-authorized browser registration and login on oteryn.com succeeded. One
+real web request produced Game CHAR_CMD_OK with an accepted receipt in 202 ms
+and an accepted AccountCharacters snapshot. A controlled Game restart advanced
+ownership_generation 6 to 7 and returned ready; the owned Character remains in
+the fresh authoritative list with availability AVAILABLE. No timeout, freshness
+or trust fence was relaxed. Historical NAS latency above is retained as diagnosis,
+not a current Oracle blocker.
+
+The main Account Center still hides native portfolios, exactly the defect this
+PR repairs. Deployed browser roster and automatic polling acceptance remain open
+until this candidate is qualified and installed. Baseline activation packet
+Issue 1623 / PR 1624 is archived consistently with the separate Oracle task.
