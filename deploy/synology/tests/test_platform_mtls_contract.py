@@ -580,9 +580,11 @@ def test_game_node_route_settings_reach_platform_and_default_closed() -> None:
         "OTERYN_STAGING_NATIVE_EVIDENCE_CLOCK_UNCERTAINTY_SECONDS": "1",
         "OTERYN_STAGING_NATIVE_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY": NODE_PLATFORM_CLIENT_IDENTITY,
         "OTERYN_STAGING_NATIVE_BOOTSTRAP_INTENT_TTL_SECONDS": "300",
-        # Character Authority commands and web creation stay off until the runbook's enablement change;
-        # the pending-intent bound is the enablement value 40 (CP decision 2026-10-15).
-        "OTERYN_STAGING_NATIVE_CHARACTER_COMMANDS_ENABLED": "false",
+        # Character Authority commands are enabled for the preprod node 1 commands certificate; web
+        # creation stays off until the runbook's next enablement change. The pending-intent bound is
+        # the enablement value 40 (CP decision 2026-10-15).
+        "OTERYN_STAGING_NATIVE_CHARACTER_COMMANDS_ENABLED": "true",
+        "OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_IDENTITIES": '["CN=oteryn-preprod-node-1-character-commands"]',
         "OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_SOURCE_AUTHORITY": "oteryn:character-authority:primary",
         "OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_MAX_PENDING_INTENTS": "40",
         "OTERYN_STAGING_NATIVE_CHARACTER_WEB_CREATE_ENABLED": "false",
@@ -649,8 +651,14 @@ def test_character_command_settings_refuse_a_surface_that_cannot_work() -> None:
     refused = [
         ({"CHARACTER_AUTHORITY_COMMANDS_ENABLED": "1"}, "CHARACTER_AUTHORITY_COMMANDS_ENABLED must be true or false"),
         ({"CHARACTER_AUTHORITY_WEB_CREATE_ENABLED": "on"}, "CHARACTER_AUTHORITY_WEB_CREATE_ENABLED must be true or false"),
-        ({"CHARACTER_AUTHORITY_WEB_CREATE_ENABLED": "true"}, "needs CHARACTER_AUTHORITY_COMMANDS_ENABLED=true"),
-        ({"CHARACTER_AUTHORITY_COMMANDS_ENABLED": "true"}, "needs CHARACTER_AUTHORITY_COMMAND_IDENTITIES"),
+        (
+            {"CHARACTER_AUTHORITY_WEB_CREATE_ENABLED": "true", "CHARACTER_AUTHORITY_COMMANDS_ENABLED": "false"},
+            "needs CHARACTER_AUTHORITY_COMMANDS_ENABLED=true",
+        ),
+        (
+            {"CHARACTER_AUTHORITY_COMMANDS_ENABLED": "true", "OTERYN_NATIVE_DEFAULTS_FILE": "/dev/null"},
+            "needs CHARACTER_AUTHORITY_COMMAND_IDENTITIES",
+        ),
         ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "41"}, "from 1 to 40"),
         ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "256"}, "from 1 to 40"),
         ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "0"}, "from 1 to 40"),
