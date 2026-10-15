@@ -11,7 +11,16 @@ export OTERYN_ENV_FILE="$ROOT/platform.env"
 install -d -m 0700 "$ROOT" "$ROOT/state"
 # Restore-excluded evidence has its own top-level directory, outside application
 # state and Docker volumes; the producer sees it read-only.
-install -d -o root -g 82 -m 2750 /srv/oteryn-attempt-evidence
+python3 - <<'PY'
+import os
+from pathlib import Path
+path = Path('/srv/oteryn-attempt-evidence')
+if path.is_symlink():
+    raise SystemExit('The evidence directory must not be a symlink.')
+path.mkdir(mode=0o750, exist_ok=True)
+os.chown(path, 0, 82)
+os.chmod(path, 0o2750)
+PY
 if [[ ! -e "$OTERYN_ENV_FILE" ]]; then
     python3 - "$OTERYN_ENV_FILE" <<'PY'
 import base64, hashlib, os, secrets, sys

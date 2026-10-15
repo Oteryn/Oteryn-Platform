@@ -20,18 +20,22 @@ def main():
     }
     probe = '''set -euo pipefail
 psql -XqAt -v ON_ERROR_STOP=1 -c 'SELECT current_user, ssl, version FROM pg_stat_ssl WHERE pid = pg_backend_pid();'
-if psql -XqAt -v ON_ERROR_STOP=1 -c 'BEGIN; CREATE TABLE public.oracle_runtime_privilege_probe (id integer); ROLLBACK;' >/dev/null 2>&1; then
+if rejected=$(psql -XqAt -v ON_ERROR_STOP=1 -v VERBOSITY=sqlstate -c 'BEGIN; CREATE TABLE public.oracle_runtime_privilege_probe (id integer); ROLLBACK;' 2>&1); then
     echo runtime_ddl_rejection=FAIL; exit 1
 fi
+case "$rejected" in *42501*) ;; *) echo runtime_ddl_rejection=UNEXPECTED_FAILURE; exit 1;; esac
 echo runtime_ddl_rejection=PASS
-if PGSSLMODE=disable psql -XqAt -c 'SELECT 1' >/dev/null 2>&1; then
+if rejected=$(PGSSLMODE=disable psql -XqAt -c 'SELECT 1' 2>&1); then
     echo plaintext_rejection=FAIL; exit 1
 fi
+case "$rejected" in *'pg_hba.conf rejects connection'*'no encryption'*) ;; *) echo plaintext_rejection=UNEXPECTED_FAILURE; exit 1;; esac
 echo plaintext_rejection=PASS
-if PGSSLROOTCERT=/nonexistent.crt psql -XqAt -c 'SELECT 1' >/dev/null 2>&1; then
+if rejected=$(PGSSLROOTCERT=/nonexistent.crt psql -XqAt -c 'SELECT 1' 2>&1); then
     echo unknown_ca_rejection=FAIL; exit 1
 fi
+case "$rejected" in *'root certificate file'*'does not exist'*) ;; *) echo unknown_ca_rejection=UNEXPECTED_FAILURE; exit 1;; esac
 echo unknown_ca_rejection=PASS
+psql -XqAt -v ON_ERROR_STOP=1 -c 'SELECT 1' | grep -qx 1
 '''
     # Only the Docker CLI reads the secret input pipe. No credential is placed
     # in arguments, a temporary file, or output; the short-lived probe container
