@@ -65,4 +65,3 @@ Plain checklist to bring native game login up end to end: Platform and Gateway o
 ## What is tested where
 
 The deploy step is covered by `tests/ci/test_synology_native_route_publication.py`. The Gateway process, the Game node and its verification of the grant, TLS to the client and the client need the Game and Gateway repositories and real hosts, so only steps 9 and 12 prove them.
-
