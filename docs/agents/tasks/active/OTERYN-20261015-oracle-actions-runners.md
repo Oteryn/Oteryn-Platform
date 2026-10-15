@@ -39,7 +39,8 @@ updated_at: 2026-10-15T22:00:00Z
 head: 0628d229a53bf54d2d978a98b81204753ac1bf79
 branch: codex/oracle-actions-runners-20261015
 pr: 1644
-status: validating
+status: waiting
+terminal_pr_policy: archive_pending
 context_routes:
   - deployment
 owned_paths:
@@ -48,6 +49,7 @@ owned_paths:
   - .github/workflows/stage-synology-deploy-runner-image.yml
   - docs/agents/CI_WORKFLOW_LIFECYCLE.json
   - .github/workflows/oracle-operations.yml
+  - .github/workflows/ci.yml
   - docs/agents/tasks/active/OTERYN-20261015-oracle-actions-runners.md
 proven:
   - New component runners registered offline in existing repository-restricted groups
@@ -65,12 +67,12 @@ changed_paths: []
 validation:
   - command: python3 deploy/oracle/test_actions_deploy.py
     result: PASS
-    evidence: four focused authority-boundary tests
+    evidence: ten focused authority and recovery tests
   - command: python3 deploy/oracle/test_game_supervisor.py
     result: PASS
     evidence: six retained custody and reconciliation tests
 blockers: []
-next_action: qualify bounded deployment adapter and publish coherent candidate
+next_action: archive delivered source packet after protected Oracle workflow and native entry acceptance
 ```
 
 ## Source branch closeout
@@ -99,3 +101,14 @@ prove current branch protection, reauthorize after backups, persist durable Orac
 schema/release journals, refuse migration with a running old Game, and include
 scheduler health plus expected image/incarnation checks. Eight focused authority
 and recovery tests plus the actual workflow endpoint-guard regression pass.
+
+Second review findings 4288929731 (edge configuration deployment) and 4288929744
+(receipt drift) accepted and repaired. The candidate edge config is validated
+before disruption, atomically installed, recreated to acquire the bind-file inode
+when needed, and read back from the serving container. Receipt reuse now requires
+fresh workflow/main authority and actual image/config equality. Ten focused
+authority/recovery tests pass.
+
+The existing CI workflow runs all three Oracle authority, supervisor and runner
+boundary suites. The open CI proposal #1610 owns documentation only; this bounded
+validation step does not overlap its files or change routing or required gates.

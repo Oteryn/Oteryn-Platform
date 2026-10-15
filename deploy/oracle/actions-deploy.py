@@ -6,6 +6,7 @@ current protected main after its aggregate gate passes. Host secrets/configurati
 World content, custody and the incarnation controller remain separately installed.
 """
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -182,6 +183,49 @@ def status(component, *, allow_pending=False):
     print(component + '_ready=true', flush=True)
 
 
+def verify_current_release(component, sha):
+    record = json.loads((STATE / (component + '-current.json')).read_text())
+    if record.get('sha') != sha or record.get('phase') != 'ready':
+        raise ValueError('receipt differs from retained current release')
+    images = ({'oteryn-oracle-runtime-game-1': record['image']} if component == 'game' else
+              {'oteryn-oracle-platform-1': record['platform_image'],
+               'oteryn-oracle-gateway-1': record['gateway_image'],
+               'oteryn-oracle-marketplace-scheduler-1': record['platform_image']})
+    if any(inspect(name)['Image'] != identity for name, identity in images.items()):
+        raise ValueError('receipt differs from current runtime images')
+    if component == 'platform':
+        config = run(['docker', 'exec', 'oteryn-oracle-edge-edge-1', 'cat', '/etc/caddy/Caddyfile'], output=True)
+        if hashlib.sha256(config.encode()).hexdigest() != record['caddy_sha256']:
+            raise ValueError('receipt differs from current public edge configuration')
+
+
+def prepare_edge(directory, sha):
+    name = 'oteryn-oracle-edge-edge-1'
+    temporary = '/tmp/oracle-' + sha + '.Caddyfile'
+    run(['docker', 'cp', str(directory / 'deploy/oracle/Caddyfile'), name + ':' + temporary])
+    run(['docker', 'exec', name, 'caddy', 'validate', '--config', temporary, '--adapter', 'caddyfile'])
+
+
+def deploy_edge(directory, sha, run_id, attempt):
+    candidate = (directory / 'deploy/oracle/Caddyfile').read_text()
+    name = 'oteryn-oracle-edge-edge-1'
+    current = run(['docker', 'exec', name, 'cat', '/etc/caddy/Caddyfile'], output=True)
+    if current != candidate:
+        prepare_edge(directory, sha)
+        reauthorize('platform', sha, run_id, attempt)
+        info = inspect(name)
+        edge_compose = Path(info['Config']['Labels']['com.docker.compose.project.config_files'])
+        if edge_compose.parent != ROOT / 'edge':
+            raise ValueError('edge compose path differs from installed root-owned boundary')
+        # Recreate to acquire the new inode of the atomically replaced bind file.
+        atomic(ROOT / 'edge/Caddyfile', candidate)
+        run(['docker', 'compose', '-f', str(edge_compose), 'up', '-d', '--no-deps', '--force-recreate', 'edge'])
+    observed = run(['docker', 'exec', name, 'cat', '/etc/caddy/Caddyfile'], output=True)
+    if observed != candidate:
+        raise ValueError('running edge did not acquire the qualified configuration')
+    journal('platform', sha, 'schema_known', caddy_sha256=hashlib.sha256(candidate.encode()).hexdigest())
+
+
 def platform_deploy(directory, sha, run_id, attempt):
     image = 'oteryn-platform:' + sha + '-arm64'
     gateway = 'oteryn-gateway:' + sha + '-arm64'
@@ -194,6 +238,7 @@ def platform_deploy(directory, sha, run_id, attempt):
             raise ValueError('image architecture differs')
     reauthorize('platform', sha, run_id, attempt)
     schema = contract(directory)
+    prepare_edge(directory, sha)
     # Preserve every private setting; change only immutable image identities.
     path = ROOT / 'platform.env'
     before = path.read_text()
@@ -227,6 +272,7 @@ def platform_deploy(directory, sha, run_id, attempt):
     journal('platform', sha, 'schema_known')
     run(current + ['up', '-d', '--no-deps', '--force-recreate', 'platform', 'gateway', 'marketplace-scheduler'])
     run(current + ['exec', '-T', 'platform', 'php', 'artisan', 'up'])
+    deploy_edge(directory, sha, run_id, attempt)
     return {'oteryn-oracle-platform-1': inspect_image(image)['Id'],
             'oteryn-oracle-gateway-1': inspect_image(gateway)['Id'],
             'oteryn-oracle-marketplace-scheduler-1': inspect_image(image)['Id']}
@@ -284,11 +330,11 @@ def main():
             if (STATE / (component + '-pending.json')).exists():
                 raise ValueError('retained release requires explicit reconciliation')
             receipt = STATE / (sha + '-' + component + '.json')
+            reauthorize(component, sha, run_id, attempt)
             if receipt.exists():
+                verify_current_release(component, sha)
                 status(component)
                 return
-            qualify(component, sha)
-            qualify_workflow(component, sha, run_id, attempt)
             directory = source(component, sha)
             # Recheck after a long build/source transfer before accepting effects.
             qualify(component, sha)

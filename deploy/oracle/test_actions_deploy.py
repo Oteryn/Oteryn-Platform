@@ -12,6 +12,35 @@ spec.loader.exec_module(deploy)
 
 
 class AuthorityBoundary(unittest.TestCase):
+    def test_receipt_cannot_accept_a_different_healthy_image(self):
+        sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            (state / 'game-current.json').write_text(json.dumps({'sha': sha, 'phase': 'ready', 'image': 'expected'}))
+            with patch.object(deploy, 'STATE', state), patch.object(deploy, 'inspect', return_value={'Image': 'other'}):
+                with self.assertRaisesRegex(ValueError, 'runtime images'):
+                    deploy.verify_current_release('game', sha)
+
+    def test_running_edge_must_acquire_the_candidate_after_recreation(self):
+        sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / 'deploy/oracle'
+            source.mkdir(parents=True)
+            (source / 'Caddyfile').write_text('qualified configuration\n')
+            calls = []
+            def command(args, **kw):
+                calls.append(args)
+                if args[-2:] == ['cat', '/etc/caddy/Caddyfile']:
+                    return 'old configuration\n'
+            info = {'Config': {'Labels': {'com.docker.compose.project.config_files': str(root / 'edge/compose.yml')}}}
+            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'atomic'), patch.object(deploy, 'journal') as journal, patch.object(deploy, 'reauthorize'):
+                with self.assertRaisesRegex(ValueError, 'did not acquire'):
+                    deploy.deploy_edge(root, sha, 100, 1)
+                journal.assert_not_called()
+            self.assertTrue(any('validate' in args for args in calls))
+            self.assertTrue(any('--force-recreate' in args for args in calls))
+
     def test_platform_rechecks_authority_after_backup_before_disruption(self):
         sha = 'a' * 40
         with tempfile.TemporaryDirectory() as temporary:
