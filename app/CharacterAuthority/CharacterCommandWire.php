@@ -46,8 +46,15 @@ final class CharacterCommandWire
 
     public const MAX_LIST_ENTRIES = 32;
 
-    /** `CHARCMD-PENDING-BACKLOG`: unreceipted PENDING intents Platform may hold. */
-    public const MAX_PENDING_BACKLOG = 256;
+    /** `CHARCMD-PENDING-BACKLOG`: the wire ceiling on unreceipted PENDING intents (Game contract §4.1). */
+    public const WIRE_PENDING_BACKLOG = 256;
+
+    /**
+     * The highest `max_pending_intents` Platform accepts (gate U-CC9, Game contract §4.1): the
+     * 300 s TTL covers 41 unseen keys after a 30 s rescan and 24 s of listing at 6 s per read and
+     * receipt, so a larger backlog could let the newest intent expire unread. The default is 40.
+     */
+    public const MAX_PENDING_BACKLOG = 41;
 
     public const MAX_TTL_SECONDS = 300;
 

@@ -28,7 +28,8 @@ This task closes Game gate U-CC9 of `oteryn-game-character-authority-commands-v1
 - [x] Enablement runbook `docs/operations/CHARACTER_AUTHORITY_COMMANDS_ENABLEMENT.md` lists:
   - the Platform switches;
   - the Game `[platform.character_commands]` node table;
-  - the preconditions (U-CC7, certificates, the nginx mTLS route list, compose environment, smoke check), the order, rollback and the open question.
+  - the preconditions (U-CC7, certificates, the nginx mTLS route list, compose environment, smoke check), the order, rollback and the backlog decision (40, enforced by Platform).
+- [x] The pending backlog defaults to 40, and a configured value above 41 disables commands (`CharacterCommandBacklogBoundTest`).
 - [x] No production or deploy configuration changed.
 
 ## Ownership
@@ -39,6 +40,9 @@ owned_paths:
   - tests/Feature/CharacterAuthority/CharacterCommandIssuanceOrderTest.php
   - tests/Feature/CharacterAuthority/Concurrency/CharacterCommandIssuanceOrderPgsqlTest.php
   - docs/operations/CHARACTER_AUTHORITY_COMMANDS_ENABLEMENT.md
+  - config/character-authority.php
+  - app/CharacterAuthority/CharacterCommandWire.php
+  - tests/Feature/CharacterAuthority/CharacterCommandBacklogBoundTest.php
   - docs/agents/tasks/archive/OTERYN-20261015-char-cmd-ucc9.md
 modules:
   - app/CharacterAuthority
@@ -68,15 +72,19 @@ owned_paths:
   - tests/Feature/CharacterAuthority/CharacterCommandIssuanceOrderTest.php
   - tests/Feature/CharacterAuthority/Concurrency/CharacterCommandIssuanceOrderPgsqlTest.php
   - docs/operations/CHARACTER_AUTHORITY_COMMANDS_ENABLEMENT.md
+  - config/character-authority.php
+  - app/CharacterAuthority/CharacterCommandWire.php
+  - tests/Feature/CharacterAuthority/CharacterCommandBacklogBoundTest.php
   - docs/agents/tasks/archive/OTERYN-20261015-char-cmd-ucc9.md
 proven:
   - lockedPendingCount() runs before insertGetId in issue(). Its PostgreSQL advisory xact lock and MariaDB locking count last until the outermost transaction ends, so fresh intents commit in source_revision order.
   - With pg_advisory_xact_lock_shared in place of the exclusive lock, the forward-only consumer test fails; with the exclusive lock it passes.
 derived:
   - The Game cursor is a committed listed key, so fresh issuance commits 0 intents behind it per 30 s interval.
+  - A forward burst is bounded by the backlog; 300 s TTL less 30 s rescan and 24 s listing at 6 s per key covers 41 keys. Control plane decision (Codex P1 on Game PR 2211) - max_pending_intents defaults to 40, and a value above 41 disables commands (CharacterCommandBacklogBoundTest).
   - §5.4 reopens (U-CC7, PR #1629) are per restore notice and outside the cap.
 unknown:
-  - Owner choice of CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS at enablement (forward-path wait at 256 × 6 s).
+  - none
 conflicts: []
 first_failure:
   marker: none
@@ -88,17 +96,20 @@ changed_paths:
   - tests/Feature/CharacterAuthority/CharacterCommandIssuanceOrderTest.php
   - tests/Feature/CharacterAuthority/Concurrency/CharacterCommandIssuanceOrderPgsqlTest.php
   - docs/operations/CHARACTER_AUTHORITY_COMMANDS_ENABLEMENT.md
+  - config/character-authority.php
+  - app/CharacterAuthority/CharacterCommandWire.php
+  - tests/Feature/CharacterAuthority/CharacterCommandBacklogBoundTest.php
   - docs/agents/tasks/archive/OTERYN-20261015-char-cmd-ucc9.md
 validation:
   - command: vendor/bin/phpunit tests/Feature/CharacterAuthority tests/Feature/Characters
     result: PASS
-    evidence: 33 tests OK (2 PostgreSQL-only skipped on SQLite)
+    evidence: 36 tests OK (2 PostgreSQL-only skipped on SQLite), including CharacterCommandBacklogBoundTest
   - command: vendor/bin/phpunit --configuration phpunit.pgsql.xml tests/Feature/CharacterAuthority
     result: PASS
     evidence: 18 tests OK on local PostgreSQL 16 with PGSQL_INTEGRATION_HOST set
   - command: vendor/bin/pint --test and vendor/bin/phpstan analyse on the changed PHP files
     result: PASS
-    evidence: no findings
+    evidence: no findings on the first head; the backlog-bound fix round is checked by CI
 blockers:
   - none
 next_action: none. Review and merge PR 1632; the owner then follows the enablement runbook.

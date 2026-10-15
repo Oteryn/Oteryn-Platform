@@ -69,7 +69,7 @@ defaults to off. The owner flips them on one stack at a time: first `testing` wi
 | `CHARACTER_AUTHORITY_COMMAND_SOURCE_AUTHORITY` | `oteryn:character-authority:primary` | must equal Game `[platform.character_commands].source_authority` |
 | `CHARACTER_AUTHORITY_WEB_CREATE_ENABLED` | `true` | account page "Create character"; flip last, after the smoke check |
 | `CHARACTER_AUTHORITY_COMMAND_INTENT_TTL_SECONDS` | unset (300) | 1..300 |
-| `CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS` | unset (256) | 1..256; see the open question below |
+| `CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS` | unset (40) | 1..41; a value above 41 disables commands (see the backlog decision below) |
 | `CHARACTER_AUTHORITY_COMMAND_REQUESTS_PER_MINUTE` | unset (600) | per consumer identity |
 
 The restore-notice switches arrive with #1629: `CHARACTER_AUTHORITY_RESTORE_NOTICE_ENABLED`,
@@ -108,10 +108,14 @@ Rollback: set `CHARACTER_AUTHORITY_WEB_CREATE_ENABLED=false` first, which stops 
 table. Leave `CHARACTER_AUTHORITY_COMMANDS_ENABLED` on until the pending list is empty, so every stored intent
 gets its receipt. The migration rollback is refused while intents exist.
 
-## Open question
+## Backlog decision
 
-The forward path is a backlog that the consumer has not yet seen, with no rescan involved. At the 256 bound
-and 6 s per unseen key (read plus receipt), the last intent would wait far beyond 300 s and be decided
-`CHAR_CMD_INTENT_EXPIRED`. This is safe, since it never commits late, but a user sees a failed creation. The
-§4.1 arithmetic keeps 41 keys inside the TTL. `CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS=40` at
-enablement would bound that wait. This is an owner decision; the default stays 256.
+Decision: 40, enforced by Platform (values above 41 disable commands).
+
+The forward path is a backlog that the consumer has not yet seen, with no rescan involved. At 6 s per unseen
+key (read plus receipt), the contract §4.1 arithmetic (300 s TTL less 30 s rescan and 24 s listing) keeps 41
+keys inside the intent TTL. A larger backlog would let the last intent of a burst wait past 300 s and be
+decided `CHAR_CMD_INTENT_EXPIRED`. `max_pending_intents` therefore defaults to 40, and
+`CharacterCommandSettings` makes the whole command surface unavailable for a configured value above 41
+(`CharacterCommandWire::MAX_PENDING_BACKLOG`, test `CharacterCommandBacklogBoundTest`). The wire ceiling
+`CHARCMD-PENDING-BACKLOG` stays 256.
