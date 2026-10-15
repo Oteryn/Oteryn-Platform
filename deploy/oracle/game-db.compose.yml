@@ -19,7 +19,7 @@ services:
         ipv4_address: 172.30.84.10
         aliases: [game-postgres]
     healthcheck:
-      test: [CMD-SHELL, 'pg_isready -q -h /var/run/postgresql -U postgres -d postgres && test "$$(head -n 1 "$$PGDATA/postmaster.pid")" = 1']
+      test: [CMD-SHELL, 'gosu postgres pg_isready -q -h /var/run/postgresql -U postgres -d postgres && test "$$(head -n 1 "$$PGDATA/postmaster.pid")" = 1']
       interval: 10s
       timeout: 5s
       retries: 12

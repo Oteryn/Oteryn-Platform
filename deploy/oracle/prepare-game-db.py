@@ -32,6 +32,10 @@ def main():
     try:
         for name in ('signer', 'server', 'client', 'config', 'init', 'secrets'):
             (staged / name).mkdir(mode=0o755 if name != 'signer' else 0o700)
+            # mkdir's mode is masked by the owner-only process umask. Mounted
+            # directories must remain searchable by PostgreSQL / Game UIDs;
+            # secret files themselves retain their individual 0600 ownership.
+            (staged / name).chmod(0o700 if name in ('signer', 'secrets') else 0o755)
         ca = staged / 'signer'
         server = staged / 'server'
         run('openssl', 'req', '-x509', '-newkey', 'rsa:3072', '-nodes', '-sha256',
