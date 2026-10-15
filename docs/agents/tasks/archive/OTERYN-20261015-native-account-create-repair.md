@@ -57,7 +57,7 @@ updated_at: 2026-10-15T20:58:00Z
 head: 95ad4600a9f27ff3e8bf2c5ccad75939fde07bce
 branch: codex/native-account-oracle-final-20261015
 pr: 1642
-status: implementing
+status: completed
 context_routes:
   - native-character-portfolio
   - native-characters
@@ -126,9 +126,9 @@ next_action: qualify the repaired exact candidate and deploy it with the preserv
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
+source_branch_disposition: auto_delete_after_merge
 source_branch_reason: retain the repair candidate for review and qualification
-source_branch_evidence: pending
+source_branch_evidence: protected PR merged through Merge Queue; source ref readback follows operational closeout
 ```
 
 ## Verification limits and resources
@@ -205,3 +205,14 @@ Issue 1623 / PR 1624 is archived consistently with the separate Oracle task.
 The source candidate in PR 1637 is retained. After deployment PR 1640 reached protected main, adding its terminal packet transition on the older repair branch created a real add/add conflict. The control plane selected a new API-native candidate on current main 95ad4600a9f27ff3e8bf2c5ccad75939fde07bce, preserving the complete reviewed application delta and the required terminal deployment transition. No history was reset, rebased, force-pushed or silently relabelled. This branch is the single active writer; the earlier candidate will close as superseded once this PR is allocated.
 
 Replacement PR: https://github.com/Oteryn/Oteryn-Platform/pull/1642. Previous PR 1637 is superseded, not merged.
+
+## Delivered PR closeout
+
+PR #1642 merged through the governed exact-head Merge Queue route.
+Protected main readback: 0628d229a53bf54d2d978a98b81204753ac1bf79.
+Source branch disposition: auto-delete after merge; branch readback belongs to
+operational closeout. Remaining deployment/native-client acceptance is owned by
+active Oracle Actions task under #1639, not this delivered candidate.
+Real browser acceptance passed: owner-only fresh Character roster, normal Game
+receipt-backed creation and automatic duplicate-name rejection refresh.
+Aggregate Issue #1474 remains open for its other programme acceptance.
