@@ -94,10 +94,12 @@ DEPLOYMENT_RUNTIME_PREFIXES = (
 # Operator package inputs are validated but do not require automatic runtime
 # reconciliation by themselves.
 DEPLOYMENT_OPERATOR_EXACT = {
+    "deploy/synology/offsite-backup.env.example",
     "deploy/synology/runner/.env.example",
     "deploy/synology/runner/compose.yml",
     "deploy/synology/scripts/cutover-postgres.sh",
     "deploy/synology/scripts/marketplace-staging.sh",
+    "deploy/synology/scripts/offsite-postgres-backup.sh",
     "deploy/synology/scripts/restore-postgres-pitr.sh",
 }
 
