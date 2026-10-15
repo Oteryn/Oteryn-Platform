@@ -24,7 +24,7 @@ services:
       timeout: 5s
       retries: 12
   migrate:
-    image: oteryn-game:87f770c87ce1-arm64
+    image: oteryn-game:77af046ce14c-arm64
     profiles: [operations]
     restart: 'no'
     entrypoint: [/usr/local/bin/oteryn-game-migrate]

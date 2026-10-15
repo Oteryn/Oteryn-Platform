@@ -10,9 +10,9 @@ optional_reads: []
 
 Governing Issue: https://github.com/Oteryn/Oteryn-Platform/issues/1639
 
-The owner authorized installing and qualifying Game, Platform, gateway and their databases on the existing Oracle A1 host before migrating NAS data and switching traffic. No cutover before the real login/create/list path passes. Preserve all production trust, freshness, fencing and durability boundaries. No paid resources.
+The owner authorized installing and qualifying Game, Platform, gateway and their databases on the existing Oracle A1 host before migrating NAS data and switching traffic. The later explicit owner instruction authorizes completing the direct cutover. Preserve all production trust, freshness, fencing and durability boundaries. No paid resources.
 
-Owned paths: deploy/oracle/** and this packet. Game source is read-only, at 87f770c87ce17518ba69f5effdbd04725d8a7d06. Platform source base: 1194d5548760d9d773a1cebb182bc5986a6a42bf. Existing account repair PR #1637 is a separate candidate and is not silently included.
+Owned paths: deploy/oracle/** and this packet. Game source is read-only; current runtime pin is 77af046ce14c81df6ed6cab03ae693a68acff32c. Platform source base: 1194d5548760d9d773a1cebb182bc5986a6a42bf. Existing account repair PR #1637 is a separate candidate and is not silently included.
 
 Native image builds are target-host acceptance of the ARM64 deployment using immutable public source archives; no repository checkout is edited or published through Remote Desktop. Runtime wiring is authored in this isolated task worktree. The host is accessed only through exact-call validated host exceptions. Native ARM64 deployment qualification has no existing equivalent CI job.
 
@@ -20,8 +20,8 @@ Native image builds are target-host acceptance of the ARM64 deployment using imm
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-15T20:15:00Z
-head: 237aaadcc0a8aa8a8b65285c71462337919e7c55
+updated_at: 2026-10-15T20:54:00Z
+head: ef041fbaa3978d7bf6abd3ef70c47da1032cae49
 branch: codex/oracle-arm64-deployment-20261015
 pr: 1640
 status: implementing
@@ -43,7 +43,7 @@ proven:
   - Own task checkpoint validates; remaining liveness failure names baseline task issue 1623
 derived: []
 unknown:
-  - Full native login/create/list and restore qualification results
+  - Native client entry and browser Account Center qualification with separate PR 1637
 conflicts: []
 first_failure:
   marker: none
@@ -62,9 +62,8 @@ validation:
     result: PASS
     evidence: verified on Oracle through its remote agent
 blockers:
-  - Final coherent source freeze, transfer and real native path remain unqualified
-  - none; terminal baseline packet is archived in this candidate
-next_action: qualify source snapshot restores, preserve target qualification state, then freeze and transfer existing NAS state without resetting trust or independent custody
+  - Account Center still needs its separate repair PR 1637; native client qualification pending
+next_action: integrate qualified deployment wiring, then deploy separate Account Center repair and qualify native client entry
 ```
 
 ## Source branch closeout
@@ -77,7 +76,7 @@ source_branch_evidence: pending
 
 Owner explicitly approved temporarily removing only sudo from the Oracle agent blockedCommands for this deployment. Original list is preserved; restore it when deployment work stops. No other agent control is changed.
 
-Cloudflare: the subsequent explicit owner instruction authorizes direct public DNS and HTTPS on oteryn.com; the rollout below supersedes the original isolated-edge assumption. NAS data has not migrated.
+Cloudflare: the subsequent explicit owner instruction authorizes direct public DNS and HTTPS on oteryn.com; the rollout below supersedes the original isolated-edge assumption. The coherent frozen-source data transfer is complete.
 
 ## Direct oteryn.com edge rollout
 
@@ -115,5 +114,30 @@ key oteryn-admission-20261011-165131-58b205. No new trust publication occurred.
 Game supervisor candidate retains durable phase/cycle identity, reconciles retained
 ops files, refuses registration gaps and unresolved assignment/report outcomes, and
 owns each Docker incarnation at boot. Six focused custody/uncertainty tests pass.
-Native systemd and real restart acceptance remain pending. Public certificates are
+Native systemd validation and real controlled restart acceptance passed. Public certificates are
 renewed by Caddy and refreshed through this controller. No full readiness claim.
+
+## Completed coherent cutover and real receipt qualification
+
+Final archive SHA256 f52f41c5fea21b2d02e9ef1f4080d9f2fed06b037e66b605c9d4a00d98e544c3
+was transferred after all seven source writers/runners were frozen and their restart
+policies disabled. Both source databases restored with six identities and two
+authoritative Characters; all independently retained custody and source signing
+history moved coherently. Qualification databases and snapshot scratch restores are
+retained separately. Source World and Channel identities, deployed World content,
+trust marker and independent floors were preserved. Producer descriptor revision
+advanced through shipped ops to 2 and projection epoch advanced forward.
+
+Native admission and web creation are enabled after actual signing self-check and
+Game pending-list HTTP 200. Owner-authorized browser registration/login succeeded;
+a real CreateCharacter receipt returned CHAR_CMD_OK and its AccountCharacters
+snapshot was accepted. The browser displayed the committed success message.
+Account Center still uses the retired numeric binding until separate PR 1637 is
+integrated; creation success alone does not qualify portfolio display or gameplay.
+
+Enabled systemd supervisor passed controlled restart: prior incarnation
+01a1414b-17d2-70c2-89fc-beb71505e656 was superseded by
+01a14155-f327-72e1-ba76-1b27275c2ccb, ownership_generation advanced 6 to 7, and
+controller returned ready. Original source custody was never reset or replayed.
+Post-migration Platform physical backup 20261015T205226Z and logical dump
+20261015T205229Z passed. Full native client acceptance remains open.

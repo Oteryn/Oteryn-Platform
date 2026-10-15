@@ -21,6 +21,6 @@ docker run --rm --network none \
     --entrypoint bash postgres:17.11@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3 \
     -ec 'install -d -o postgres -g postgres -m 0700 /var/lib/oteryn-postgres-backup/wal'
 "${compose[@]}" up -d --wait postgres
-docker image inspect oteryn-game:87f770c87ce1-arm64 >/dev/null
+docker image inspect oteryn-game:77af046ce14c-arm64 >/dev/null
 "${compose[@]}" --profile operations run --rm --no-deps migrate
 echo 'Game database migrated over verify-full TLS; native node startup remains a separate gated operation.'

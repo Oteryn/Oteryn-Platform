@@ -1,12 +1,13 @@
 # Oracle ARM64 qualification
 
-Governed by Platform issue #1639 and draft PR #1640. No NAS database, private key or independent witness has been moved. The
-owner subsequently authorized direct oteryn.com DNS and HTTPS on Oracle.
+Governed by Platform issue #1639 and PR #1640. The owner authorized the complete
+existing-state migration and direct oteryn.com DNS/HTTPS on Oracle, without Tunnel.
 
 ## Pinned inputs
 
 - Platform/gateway: `1194d5548760d9d773a1cebb182bc5986a6a42bf`
-- Game: `87f770c87ce17518ba69f5effdbd04725d8a7d06`
+- Current Game runtime: `77af046ce14c81df6ed6cab03ae693a68acff32c`
+- Initial isolated Game qualification: `87f770c87ce17518ba69f5effdbd04725d8a7d06`
 - Game runtime and PostgreSQL base images are digest-pinned in these files.
 
 Use `game.Dockerfile` with the immutable Game source archive as context. Its
@@ -50,14 +51,17 @@ plaintext and an unknown CA, without printing credentials.
 - Platform PostgreSQL, scheduler and backup sidecar are healthy.
 - Forced Platform WAL archive, physical base backup and logical dump passed.
 - Game PostgreSQL TLS 1.3 / verify-full passed; 77 migrations applied.
-- Pinned World digest: `7429f13b9a6caf3bc6017d5c710076d76d6f1394a11b550f46dc2c620d88f806`.
+- Migrated deployed World digest: `1b04cc35a65bcced64dbc933fcb5ac9adad426a369149bb8c170b1aa80d04406`.
 - Gameplay manifest and NPC catalogue staged with their shipped digest checks.
 
 ## Native bootstrap boundary
 
-This is not a full-stack readiness claim. Game launch/assignment, native login,
-web Character creation, restore qualification and final data migration
-remain unqualified. Never start a second authoritative writer against NAS data.
+The coherent frozen-source migration and both isolated logical restores passed.
+Game launch, scope assignment, readiness, receipt-backed web Character creation
+and a real controlled restart passed. Platform post-migration physical and logical
+backups passed. Browser Account Center repair remains PR #1637, and native client
+entry remains a separate acceptance item. Never start a second authoritative writer
+against retained NAS data.
 
 The fresh-store first-publication route is Synology-specific. It is not used for
 this existing-state migration: transfer source trust and its independently
@@ -114,3 +118,19 @@ durable controller only when bytes changed. A refresh failure retains the servin
 node and reports failure. Focused controller custody tests:
 `python3 deploy/oracle/test_game_supervisor.py`. Real launch/restart acceptance is
 separate from those unit tests and must be recorded against the target host.
+
+Migration extraction must restore original numeric UID/GID and ordinary directory
+mode bits from the verified source archive after safe extraction. Python's data
+filter deliberately removes directory metadata; retaining its default 0700 on
+root-owned World/runtime parents blocks the non-root service. Keep root-owned
+state/fence parents at 0755, service runtime directories at 0700 and private files
+at 0600. No ownership or mode bypass in Game is authorized.
+
+The frozen final archive SHA256 is
+`f52f41c5fea21b2d02e9ef1f4080d9f2fed06b037e66b605c9d4a00d98e544c3`.
+Source writer containers and deployment runners are stopped with restart disabled.
+Existing source database/backup containers remain available as retained evidence.
+Oracle has accepted new writes: rollback requires a controlled reverse transfer,
+not simply restarting the stale NAS writers. Fresh Oracle qualification databases
+remain separately retained. `migrated-storage.compose.yml` selects the canonical
+migrated Platform volume; include it on every subsequent Platform reconciliation.
