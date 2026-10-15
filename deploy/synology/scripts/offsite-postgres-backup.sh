@@ -4,7 +4,7 @@
 # archive, logical dumps of the postgres_backup volume) is copied with restic, which encrypts and
 # authenticates every object on the NAS before it leaves (AES-256 + Poly1305): the destination stores
 # ciphertext only. The destination is configuration: any restic repository URL (s3:, b2:, azure:, gs:,
-# sftp:, rest:, rclone:). Neither a provider nor a secret is in the repository.
+# sftp:, rest:). Neither a provider nor a secret is in the repository.
 #
 #   offsite-postgres-backup.sh init     create the encrypted repository at the destination (once)
 #   offsite-postgres-backup.sh push     snapshot the spool to the destination (DSM Task Scheduler, every
@@ -85,8 +85,27 @@ PROJECT="${COMPOSE_PROJECT_NAME:-oteryn-staging}"
 [[ "$PROJECT" =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]] || config_error "COMPOSE_PROJECT_NAME must be a Compose project name"
 
 [[ -n "${OTERYN_OFFSITE_CONFIG:-}" ]] || config_error "OTERYN_OFFSITE_CONFIG names no configuration file"
+# <variable> <path>: a root-only secret file, never a link, never readable by group or others.
+secret_file() {
+    local mode
+    [[ "$2" == /* && "$2" != *[[:space:],]* ]] || config_error "$1 must be an absolute path without spaces or commas"
+    [[ -f "$2" && ! -L "$2" ]] || config_error "$1: $2 is not a regular file"
+    [[ "$(stat -c %u -- "$2")" == "$(id -u)" ]] || config_error "$1: $2 is not owned by $(id -un)"
+    mode="$(stat -c %a -- "$2")"
+    [[ "$mode" =~ ^[0-7]?[0-7]00$ ]] || config_error "$1: $2 has mode $mode, expected 0600 or stricter"
+}
 config_file="$OTERYN_OFFSITE_CONFIG"
-[[ -f "$config_file" && ! -L "$config_file" ]] || config_error "$config_file is not a regular file"
+# The script runs as root: the configuration is root-only too, and sets only its own keys, never a global
+# of this script (RESTIC_IMAGE, PITR, ...) or of the environment.
+secret_file OTERYN_OFFSITE_CONFIG "$config_file"
+CONFIG_KEYS=" OTERYN_OFFSITE_REPOSITORY OTERYN_OFFSITE_PASSWORD_FILE OTERYN_OFFSITE_CREDENTIALS_FILE OTERYN_OFFSITE_STATE_DIR"
+CONFIG_KEYS+=" OTERYN_OFFSITE_TARGET_RPO_SECONDS OTERYN_OFFSITE_KEEP_WITHIN_HOURLY OTERYN_OFFSITE_KEEP_WITHIN_DAILY"
+CONFIG_KEYS+=" OTERYN_OFFSITE_KEEP_WITHIN_WEEKLY OTERYN_OFFSITE_CHECK_SUBSET OTERYN_OFFSITE_LOCK_RETRY OTERYN_OFFSITE_SPOOL_VOLUME "
+while IFS= read -r config_line || [[ -n "$config_line" ]]; do
+    config_line="${config_line%$'\r'}"
+    [[ -z "$config_line" || "$config_line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$CONFIG_KEYS" == *" ${config_line%%=*} "* ]] || config_error "$config_file sets ${config_line%%=*}, which is not an OTERYN_OFFSITE_ setting"
+done < "$config_file"
 load_oteryn_env_file "$config_file" || config_error "cannot read $config_file"
 
 REPOSITORY="${OTERYN_OFFSITE_REPOSITORY:-}"
@@ -103,10 +122,14 @@ SPOOL_VOLUME="${OTERYN_OFFSITE_SPOOL_VOLUME:-}"
 
 # A restic URL with a scheme (or an absolute local path, for tests and a mounted second disk). Credentials
 # never ride in the URL: they belong to the credentials file (RESTIC_REST_USERNAME, AWS_*, B2_*, ...).
-[[ "$REPOSITORY" =~ ^(s3|b2|azure|gs|sftp|rest|rclone|swift):[^[:space:]]+$ || "$REPOSITORY" =~ ^/[^[:space:]]+$ ]] \
-    || config_error "OTERYN_OFFSITE_REPOSITORY must be a restic repository URL (s3:, b2:, azure:, gs:, sftp:, rest:, rclone:, swift:)"
+[[ "$REPOSITORY" =~ ^(s3|b2|azure|gs|sftp|rest|swift):[^[:space:]]+$ || "$REPOSITORY" =~ ^/[^[:space:]]+$ ]] \
+    || config_error "OTERYN_OFFSITE_REPOSITORY must be a restic repository URL (s3:, b2:, azure:, gs:, sftp:, rest:, swift:)"
 [[ ! "$REPOSITORY" =~ ://[^/@]*:[^/@]*@ ]] \
     || config_error "OTERYN_OFFSITE_REPOSITORY carries a password: put it in the credentials file"
+# A NAS-local copy (owner decision D-3) lives on its own shared folder: never in the Docker data root, where
+# the live database and the spool volumes are.
+[[ ! "$REPOSITORY" =~ ^(/volume[0-9]+/@docker|/var/lib/docker)(/|$) ]] \
+    || config_error "OTERYN_OFFSITE_REPOSITORY is inside the Docker data root: use a separate shared folder"
 [[ "$TARGET_RPO_SECONDS" =~ ^[1-9][0-9]{0,6}$ ]] || config_error "OTERYN_OFFSITE_TARGET_RPO_SECONDS must be a positive integer"
 for value in "$KEEP_WITHIN_HOURLY" "$KEEP_WITHIN_DAILY" "$KEEP_WITHIN_WEEKLY"; do
     [[ "$value" =~ ^([1-9][0-9]{0,3}[ymdh])+$ ]] || config_error "retention durations are restic durations such as 48h, 14d or 56d"
@@ -118,15 +141,6 @@ done
     || config_error "OTERYN_OFFSITE_SPOOL_VOLUME must be a Docker volume name"
 [[ "$STATE_DIR" == /* && "$STATE_DIR" != *[[:space:]]* ]] || config_error "OTERYN_OFFSITE_STATE_DIR must be an absolute path"
 
-# <variable> <path>: a root-only secret file, never a link, never readable by group or others.
-secret_file() {
-    local mode
-    [[ "$2" == /* && "$2" != *[[:space:],]* ]] || config_error "$1 must be an absolute path without spaces or commas"
-    [[ -f "$2" && ! -L "$2" ]] || config_error "$1: $2 is not a regular file"
-    [[ "$(stat -c %u -- "$2")" == "$(id -u)" ]] || config_error "$1: $2 is not owned by $(id -un)"
-    mode="$(stat -c %a -- "$2")"
-    [[ "$mode" =~ ^[0-7]?[0-7]00$ ]] || config_error "$1: $2 has mode $mode, expected 0600 or stricter"
-}
 secret_file OTERYN_OFFSITE_PASSWORD_FILE "$PASSWORD_FILE"
 [[ -z "$CREDENTIALS_FILE" ]] || secret_file OTERYN_OFFSITE_CREDENTIALS_FILE "$CREDENTIALS_FILE"
 [[ "$(head -c 64 -- "$PASSWORD_FILE" | tr -d '\n' | wc -c)" -ge 32 ]] \

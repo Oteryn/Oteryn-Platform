@@ -8,7 +8,7 @@ Classification:
 - `STAGING_PROVEN`: the `pitr-drill` mode of the *Recover Synology staging schema* workflow on the Synology staging stack, on an exact `main` SHA.
 - `PRODUCTION_PROVEN`: not applicable until the encrypted off-NAS copy exists (`PRODUCTION_READINESS_CHECKLIST.md` §5).
 
-Provisional staging targets: RPO 86400 s (24 h), RTO 14400 s (4 h).
+Targets: RPO 300 s (5 min, owner decision D-2, 2026-10-15), RTO 14400 s (4 h). Drills recorded before 2026-10-15 were checked against the then-provisional RPO of 86400 s (24 h).
 
 ## Staging drill
 

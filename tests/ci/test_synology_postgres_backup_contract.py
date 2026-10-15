@@ -855,7 +855,7 @@ class DrillRpoTest(unittest.TestCase):
             f"target={target}; target_time=''; chosen=20261005T020000Z; archiver_healthy={str(archiver_healthy).lower()}",
             f"offline={str(offline).lower()}; target_label='the target'",
             f"archive_timeout=60; started_epoch=$(date +%s); base_end_epoch=$((started_epoch - {base_age}))",
-            "restore_seconds=5; checks_passed=3; RTO_SECONDS=14400; RPO_SECONDS=86400",
+            "restore_seconds=5; checks_passed=3; RTO_SECONDS=14400; RPO_SECONDS=300",
             tail,
             'for key in "${evidence_order[@]}"; do printf "%s=%s\\n" "$key" "${evidence[$key]}"; done',
         ])

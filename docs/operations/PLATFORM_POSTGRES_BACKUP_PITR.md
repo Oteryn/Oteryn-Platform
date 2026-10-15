@@ -1,6 +1,6 @@
 # Platform PostgreSQL backups and point-in-time recovery on the NAS
 
-Status: staging mechanism (plan P5, `PLATFORM_POSTGRES_MIGRATION_PLAN.md`; ADR 0046 §7). Provisional staging targets: RPO 24 hours, RTO 4 hours. The owner sets the production values. Backups are taken on the Synology NAS, and `offsite-postgres-backup.sh` copies them, encrypted, to a configured off-NAS destination (*Off-NAS copy*). **A configured off-NAS copy and a passing drill restored from it are required before any production use, real player, wallet or Bazaar value, or payment activation** (`PRODUCTION_READINESS_CHECKLIST.md` §5).
+Status: staging mechanism (plan P5, `PLATFORM_POSTGRES_MIGRATION_PLAN.md`; ADR 0046 §7). Targets: RPO 5 minutes (owner decision D-2, 2026-10-15), RTO 4 hours, the Game database targets. Backups are taken on the Synology NAS, and `offsite-postgres-backup.sh` copies them, encrypted, to a configured restic repository (*Off-NAS copy*). Until production that repository is on the NAS itself (owner decision D-3), which is **pre-production and NOT disaster-proof**. **A configured off-NAS copy and a passing drill restored from it are required before any production use, real player, wallet or Bazaar value, or payment activation** (`PRODUCTION_READINESS_CHECKLIST.md` §5).
 
 This runbook covers the PostgreSQL Platform database only. It holds no secret, password, dump or backup.
 
@@ -118,7 +118,7 @@ The restore runs in a scratch container from the same image. The container has n
 - the dump's checksums and table of contents;
 - with the running Platform image: `migrate:status` with nothing pending, and `production:verify-configuration`.
 
-It records the restore time against the 4 h RTO, and the data-loss bound against the 24 h RPO, in `<state dir>/pitr-drills/<stamp>/evidence.env` and in the workflow summary, then discards the scratch instance. The data-loss bound is what a restore to now would lose. It is `archive_timeout` with a healthy archiver, and the age of the restored base backup otherwise. A `--target immediate` drill restores one chosen base backup to its own end, so it records the bound as `not_applicable` and is not checked against the RPO. The drill exits non-zero on any failed check. It also fails when recovery stops before the target, for example because WAL is missing, or when promotion does not come within the RTO. The RTO covers the whole restore, from the base backup choice to promotion. A drill that leaves its scratch container or volume behind, or cannot write its `evidence.env` or workflow summary, is a failed drill: its result reads `failed`, with failure `cleanup: …` or `evidence: …`. An earlier failure stays the reported one, and the late one is added as `cleanup_failure` or `evidence_failure`.
+It records the restore time against the 4 h RTO, and the data-loss bound against the 5 min RPO, in `<state dir>/pitr-drills/<stamp>/evidence.env` and in the workflow summary, then discards the scratch instance. The data-loss bound is what a restore to now would lose. It is `archive_timeout` with a healthy archiver, and the age of the restored base backup otherwise. A `--target immediate` drill restores one chosen base backup to its own end, so it records the bound as `not_applicable` and is not checked against the RPO. The drill exits non-zero on any failed check. It also fails when recovery stops before the target, for example because WAL is missing, or when promotion does not come within the RTO. The RTO covers the whole restore, from the base backup choice to promotion. A drill that leaves its scratch container or volume behind, or cannot write its `evidence.env` or workflow summary, is a failed drill: its result reads `failed`, with failure `cleanup: …` or `evidence: …`. An earlier failure stays the reported one, and the late one is added as `cleanup_failure` or `evidence_failure`.
 
 The staging drill runs from **Actions → Recover Synology staging schema → mode `pitr-drill`** on `main`, with an optional `pitr_target_time`. It uses no secret: it reads the running containers through Docker. The job times out after 420 minutes. That covers up to 2 hours waiting for the job lock, the 4 h RTO, and an hour for the probe, the checks after promotion and the cleanup. A change to the lock wait or the RTO needs a matching job timeout. Record each dated result in `PLATFORM_POSTGRES_RESTORE_DRILL_EVIDENCE.md`. Run a drill after every change to this mechanism and after the P6 cutover.
 
@@ -175,7 +175,7 @@ Then re-run the deploy. Delete a retired directory only on an owner decision, on
 
 ## Off-NAS copy
 
-`deploy/synology/scripts/offsite-postgres-backup.sh` copies the whole spool (`base/`, `wal/`, `dump/`) to a destination outside the NAS with [restic](https://restic.net) 0.18.0, pinned by digest. restic encrypts and authenticates every object on the NAS before it leaves (AES-256 + Poly1305), so the destination stores ciphertext only. This follows the Game database approach (Game ADR 0004, operability review 2026-10-06: RPO 5 min, RTO 4 h). Neither the provider nor any secret is in the repository: the destination is a restic repository URL in an owner-held configuration file.
+`deploy/synology/scripts/offsite-postgres-backup.sh` copies the whole spool (`base/`, `wal/`, `dump/`) to a configured restic repository with [restic](https://restic.net) 0.18.0, pinned by digest. restic encrypts and authenticates every object on the NAS before it leaves (AES-256 + Poly1305), so the destination stores ciphertext only. The destination is configuration: before production it is a NAS-local repository (*Owner decisions*, D-3), and the same script copies off the NAS once an off-NAS target is set. This follows the Game database approach (Game ADR 0004, operability review 2026-10-06: RPO 5 min, RTO 4 h). Neither the provider nor any secret is in the repository: the destination is a restic repository URL in an owner-held configuration file.
 
 ### Configuration and secret custody
 
@@ -183,17 +183,17 @@ Copy `deploy/synology/offsite-backup.env.example` to a root-only file outside th
 
 | Key | Meaning |
 | --- | --- |
-| `OTERYN_OFFSITE_REPOSITORY` | The restic repository URL: `s3:`, `b2:`, `azure:`, `gs:`, `sftp:`, `rest:`, `rclone:`, `swift:` or an absolute path. A URL with an embedded password is refused: credentials go in the credentials file. |
+| `OTERYN_OFFSITE_REPOSITORY` | The restic repository URL: `s3:`, `b2:`, `azure:`, `gs:`, `sftp:`, `rest:`, `swift:` or an absolute path (`rclone:` is refused: the pinned image has no rclone binary). The documented default is the NAS-local `/volume1/oteryn-backup-copy/restic/oteryn-platform-postgres` on its own shared folder (D-3); a path inside the Docker data root is refused. A URL with an embedded password is refused: credentials go in the credentials file. |
 | `OTERYN_OFFSITE_PASSWORD_FILE` | The repository password (at least 32 random characters). It encrypts the copy. |
-| `OTERYN_OFFSITE_CREDENTIALS_FILE` | Optional `KEY=VALUE` provider credentials passed to restic as environment, scoped to the destination bucket or path only. |
+| `OTERYN_OFFSITE_CREDENTIALS_FILE` | Optional, for an off-NAS destination only: `KEY=VALUE` provider credentials passed to restic as environment, scoped to the destination bucket or path only. |
 | `OTERYN_OFFSITE_STATE_DIR` | Local state: the last push result, the restic cache and the drill evidence. |
-| `OTERYN_OFFSITE_TARGET_RPO_SECONDS` | Off-NAS data-loss target, default 300 (the Game target). The Platform value is owner decision D-2. |
+| `OTERYN_OFFSITE_TARGET_RPO_SECONDS` | Data-loss target of the copy, 300: the Platform RPO (D-2), equal to the Game target. |
 | `OTERYN_OFFSITE_KEEP_WITHIN_HOURLY` / `_DAILY` / `_WEEKLY` | Retention, defaults `48h` / `14d` / `56d`. |
 | `OTERYN_OFFSITE_CHECK_SUBSET` | Share of the stored data `check` reads back, default `5%`. |
 | `OTERYN_OFFSITE_LOCK_RETRY` | How long a run waits for another run's repository lock, default `5m`. |
 | `OTERYN_OFFSITE_SPOOL_VOLUME` | Optional spool volume name, when no `postgres-backup` or `postgres` container exists to find it by Compose labels. |
 
-The script refuses (exit 2) a placeholder or malformed value, and a password or credentials file that is a symlink, not owned by the running user, or readable by group or others (mode 0600 or stricter). Custody:
+The script refuses (exit 2) a placeholder or malformed value, a configuration file that sets any key other than the `OTERYN_OFFSITE_` settings above, and a configuration, password or credentials file that is a symlink, not owned by the running user, or readable by group or others (mode 0600 or stricter). Custody:
 
 - The password and the credentials never enter an argument, a container environment variable, a log or the evidence. The password file is bind-mounted read-only into the restic container, and the credentials file is passed with `--env-file`.
 - **Keep a second copy of the password off the NAS** (owner password manager or sealed escrow). If the NAS is lost, the copy cannot be read without it. Losing every copy of the password loses the off-NAS backups.
@@ -243,8 +243,8 @@ When the spool or the whole NAS is lost, on the replacement host:
 
 ### Owner decisions
 
-- **D-2, Platform RPO.** The off-NAS target defaults to 300 seconds, the Game target; the local spool target is still 24 hours. Set `OTERYN_OFFSITE_TARGET_RPO_SECONDS` to the owner's value.
-- **D-3, destination.** Any restic repository: AWS S3, an S3-compatible store (Backblaze B2, Wasabi, Hetzner Object Storage, Cloudflare R2), Azure Blob, or a second-site NAS running `rest-server --append-only` or SFTP. Until a destination is configured, there is no off-NAS copy and production remains blocked.
+- **D-2, Platform RPO.** Decided 2026-10-15: RPO 5 minutes (300 s), RTO 4 hours, as for the Game database. `OTERYN_OFFSITE_TARGET_RPO_SECONDS` is 300, and `restore-postgres-pitr.sh` checks the drill's data-loss bound against 300 s (a healthy archiver bounds it at `archive_timeout`, 60 s).
+- **D-3, destination.** Decided 2026-10-15: no off-site target for now. The copy is a restic repository on the same Synology NAS, on a separate shared folder from the live database and the spool (on another volume or disk group where the NAS has one), default `/volume1/oteryn-backup-copy/restic/oteryn-platform-postgres`. This is **pre-production and NOT disaster-proof**: it survives a lost or corrupted database volume or spool and a bad deploy, not the loss, theft, fire or ransomware of the NAS. An off-NAS target (likely Backblaze B2; any restic repository works: S3, S3-compatible, Azure Blob, or a second site with `rest-server --append-only` or SFTP) is chosen before production by changing the configuration only, then `init`, `push` and a passing `drill` from it.
 
 ### Follow-ups
 
@@ -259,8 +259,8 @@ Set `archive_mode = off` in `deploy/synology/postgres/postgresql.conf` (this nee
 
 ## Before production
 
-- The off-NAS copy configured at an owner-chosen destination (D-3), scheduled, with the password escrowed outside the NAS (*Off-NAS copy*).
+- The copy moved from the NAS-local repository to an owner-chosen off-NAS destination (D-3, likely B2), scheduled, with the password escrowed outside the NAS (*Off-NAS copy*).
 - A passing `offsite-postgres-backup.sh drill` recorded in `PLATFORM_POSTGRES_RESTORE_DRILL_EVIDENCE.md`.
-- Owner-set RPO and RTO (D-2).
+- RPO 5 min and RTO 4 h (D-2) met by the off-NAS drill.
 - A decision on pgBackRest or WAL-G.
 - The native evidence witness and admission-key backup. Decided custody: a follow-up adds a separate root-only job that writes an encrypted copy. It never uses this spool or the `postgres-backup` sidecar, whose roles must not read Platform storage or keys (see `INCIDENT_RECOVERY_RUNBOOK.md`).

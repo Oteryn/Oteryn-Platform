@@ -118,6 +118,7 @@ class OffsiteTestCase(unittest.TestCase):
             **overrides,
         }
         self.config.write_text("".join(f"{key}={value}\n" for key, value in values.items() if value is not None))
+        self.config.chmod(0o600)
 
     def offsite(self, *args: str, **env: str) -> subprocess.CompletedProcess[str]:
         return run(["bash", str(self.script), *args], env={**self.env, **env})
@@ -138,18 +139,28 @@ class ConfigurationTest(OffsiteTestCase):
             ({"OTERYN_OFFSITE_REPOSITORY": "REQUIRED_RESTIC_REPOSITORY_URL"}, "restic repository URL"),
             ({"OTERYN_OFFSITE_REPOSITORY": "rest:https://user:pw@backup.example.invalid/repo"}, "carries a password"),
             ({"OTERYN_OFFSITE_REPOSITORY": "s3:https://x/bucket --no-lock"}, "restic repository URL"),
+            ({"OTERYN_OFFSITE_REPOSITORY": "/volume1/@docker/volumes/copy"}, "Docker data root"),
+            ({"OTERYN_OFFSITE_REPOSITORY": "/var/lib/docker/volumes/copy"}, "Docker data root"),
             ({"OTERYN_OFFSITE_PASSWORD_FILE": "relative/password"}, "absolute path"),
             ({"OTERYN_OFFSITE_STATE_DIR": "state"}, "absolute path"),
             ({"OTERYN_OFFSITE_TARGET_RPO_SECONDS": "5m"}, "positive integer"),
             ({"OTERYN_OFFSITE_KEEP_WITHIN_DAILY": "14d --keep-last 0"}, "restic durations"),
             ({"OTERYN_OFFSITE_CHECK_SUBSET": "500%"}, "percentage"),
             ({"OTERYN_OFFSITE_SPOOL_VOLUME": "a,readonly=false"}, "Docker volume name"),
+            ({"OTERYN_OFFSITE_REPOSITORY": "rclone:remote:repo"}, "restic repository URL"),
+            ({"RESTIC_IMAGE": "attacker/restic:latest"}, "not an OTERYN_OFFSITE_ setting"),
+            ({"PITR": "/tmp/attacker.sh"}, "not an OTERYN_OFFSITE_ setting"),
         ):
             with self.subTest(overrides=overrides):
                 self.write_config(**overrides)
                 result = self.offsite("status")
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertIn(message, result.stderr)
+        self.write_config()
+        self.config.chmod(0o664)
+        result = self.offsite("status")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("expected 0600 or stricter", result.stderr)
         self.assertEqual(self.calls(), [])
 
     def test_the_secret_files_are_owner_only_and_the_password_is_long(self) -> None:
@@ -341,7 +352,7 @@ class StaticContractTest(unittest.TestCase):
         for key in keys:
             self.assertTrue(key.startswith("OTERYN_OFFSITE_"), key)
             self.assertNotRegex(key, r"KEY|SECRET|TOKEN|PASSWORD$")
-        self.assertIn("OTERYN_OFFSITE_REPOSITORY=REQUIRED_RESTIC_REPOSITORY_URL\n", template)
+        self.assertIn("OTERYN_OFFSITE_REPOSITORY=/volume1/oteryn-backup-copy/restic/oteryn-platform-postgres\n", template)
         self.assertIn("OTERYN_OFFSITE_TARGET_RPO_SECONDS=300\n", template)
 
     def test_routing_syntax_check_and_runbook_cover_the_off_nas_copy(self) -> None:
@@ -358,6 +369,7 @@ class StaticContractTest(unittest.TestCase):
         for needle in (
             "## Off-NAS copy", "offsite-postgres-backup.sh push", "offsite-postgres-backup.sh drill",
             "offsite-postgres-backup.sh forget", "offsite-postgres-backup.sh check", "--spool-volume",
+            "NOT disaster-proof", "**D-2, Platform RPO.** Decided", "**D-3, destination.** Decided",
         ):
             self.assertIn(needle, runbook)
 

@@ -120,7 +120,7 @@ validation:
     evidence: routing and workflow contracts unchanged
 blockers:
   - none
-next_action: Drive the PR to green CI and a clean Codex review, then report to CP with the D-2/D-3 decision question.
+next_action: Drive PR #1628 to green CI with no Codex P1 (owner decisions D-2 RPO 5 min and D-3 NAS-local pre-production copy applied), merge by squash auto-merge, then report to CP.
 terminal_pr_policy: archive_pending
 ```
 

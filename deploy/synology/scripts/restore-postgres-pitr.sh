@@ -33,7 +33,7 @@
 # snapshot, the wallet ledger invariant, the migrations head, then with the running Platform image
 # `migrate:status` (nothing pending) and `production:verify-configuration`. It reports the restore time
 # against RTO 4h and, except for a --target immediate drill of one chosen base backup or an --offline restore,
-# the data-loss bound against RPO 24h. Containers are found by Compose labels of
+# the data-loss bound against RPO 5 min (owner decision D-2). Containers are found by Compose labels of
 # COMPOSE_PROJECT_NAME (default oteryn-staging). Nothing here removes a named volume: the scratch
 # container runs with --rm, which removes it and its anonymous data volume when it is stopped.
 set -euo pipefail
@@ -44,7 +44,7 @@ SPOOL=/var/lib/oteryn-postgres-backup
 DRILL=/tmp/oteryn-drill
 DATA=/var/lib/postgresql/data
 RTO_SECONDS=14400
-RPO_SECONDS=86400
+RPO_SECONDS=300
 ARCHIVE_WAIT_SECONDS="${OTERYN_ARCHIVE_WAIT_SECONDS:-180}"
 # How long the scratch instance waits for a running backup job before it takes the spool lock.
 LOCK_WAIT_SECONDS="${OTERYN_DRILL_LOCK_WAIT_SECONDS:-7200}"
