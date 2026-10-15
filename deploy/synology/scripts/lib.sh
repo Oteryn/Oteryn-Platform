@@ -923,13 +923,17 @@ oteryn_reconcile_postgres() {
 }
 
 # Platform settings of the Game-node routes behind the mTLS listener that compose.yml maps into the
-# platform service (native evidence, character bootstrap intents; README: Platform internal mTLS
-# listener). The deploy workflow renders the environment file from a fixed key list without them, so
-# each comes from the environment file (or the caller's environment) when set, otherwise from the
-# committed non-secret OTERYN_STAGING_NATIVE_* value in deploy/synology/native-defaults.env, otherwise
-# a fail-closed built-in: not activated, no client identity, no binding, no TTL, so Platform answers
-# both routes 503. Rate limit and source authority mirror the Platform config defaults (an empty
-# value would replace them). Client identities are certificate subject names, never secrets.
+# platform service (native evidence, character bootstrap intents, Character Authority commands and
+# web Character creation; README: Platform internal mTLS listener). The deploy workflow renders the
+# environment file from a fixed key list without them, so each comes from the environment file (or the
+# caller's environment) when set, otherwise from the committed non-secret OTERYN_STAGING_NATIVE_* value
+# in deploy/synology/native-defaults.env, otherwise a fail-closed built-in: not activated or enabled,
+# no client identity, no binding, no TTL, no source authority, so Platform answers those routes 503
+# and the Create character form stays unavailable. Rate limits, the evidence source authority and the
+# pending-intent bound are never empty (an empty value would replace the Platform default or make
+# the command surface unavailable); the bound's built-in is the enablement value 40, not the Platform
+# code default 256 (runbook CHARACTER_AUTHORITY_COMMANDS_ENABLEMENT.md). Client identities are
+# certificate subject names, never secrets.
 oteryn_resolve_game_node_route_settings() {
     local pair name default_name fallback value
     for pair in \
@@ -941,7 +945,12 @@ oteryn_resolve_game_node_route_settings() {
         GAME_AUTH_NATIVE_EVIDENCE_SOURCE_AUTHORITY:EVIDENCE_SOURCE_AUTHORITY:platform \
         GAME_AUTH_NATIVE_EVIDENCE_REQUESTS_PER_MINUTE:EVIDENCE_REQUESTS_PER_MINUTE:120 \
         GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY:BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY: \
-        GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS:BOOTSTRAP_INTENT_TTL_SECONDS:; do
+        GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS:BOOTSTRAP_INTENT_TTL_SECONDS: \
+        CHARACTER_AUTHORITY_COMMANDS_ENABLED:CHARACTER_COMMANDS_ENABLED:false \
+        CHARACTER_AUTHORITY_COMMAND_IDENTITIES:CHARACTER_COMMAND_IDENTITIES: \
+        CHARACTER_AUTHORITY_COMMAND_SOURCE_AUTHORITY:CHARACTER_COMMAND_SOURCE_AUTHORITY: \
+        CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS:CHARACTER_COMMAND_MAX_PENDING_INTENTS:40 \
+        CHARACTER_AUTHORITY_WEB_CREATE_ENABLED:CHARACTER_WEB_CREATE_ENABLED:false; do
         name="${pair%%:*}"
         default_name="OTERYN_STAGING_NATIVE_$(cut -d: -f2 <<<"$pair")"
         fallback="${pair#*:*:}"
@@ -951,10 +960,29 @@ oteryn_resolve_game_node_route_settings() {
     done
     # Platform reads anything but a boolean here as a configuration error, also when it revokes an
     # identity's game authorizations, so a malformed switch refuses the run before any stack change.
-    case "$GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED" in
-        true|false) ;;
-        *) echo "GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED must be true or false." >&2; return 1 ;;
-    esac
+    for name in GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED CHARACTER_AUTHORITY_COMMANDS_ENABLED CHARACTER_AUTHORITY_WEB_CREATE_ENABLED; do
+        case "${!name}" in
+            true|false) ;;
+            *) echo "$name must be true or false." >&2; return 1 ;;
+        esac
+    done
+    # Character Authority commands (Game contract §12: at most 256 unreceipted PENDING intents). Platform
+    # would read an incomplete command surface as unavailable, so a switch that cannot work refuses the
+    # run instead of deploying a silent 503 or an always-unavailable Create character form.
+    if [[ ! "$CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS" =~ ^[1-9][0-9]{0,2}$ ]] \
+        || (( CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS > 256 )); then
+        echo "CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS must be an integer from 1 to 256." >&2
+        return 1
+    fi
+    if [[ "$CHARACTER_AUTHORITY_COMMANDS_ENABLED" == true ]] \
+        && [[ -z "$CHARACTER_AUTHORITY_COMMAND_IDENTITIES" || -z "$CHARACTER_AUTHORITY_COMMAND_SOURCE_AUTHORITY" ]]; then
+        echo "CHARACTER_AUTHORITY_COMMANDS_ENABLED=true needs CHARACTER_AUTHORITY_COMMAND_IDENTITIES and CHARACTER_AUTHORITY_COMMAND_SOURCE_AUTHORITY." >&2
+        return 1
+    fi
+    if [[ "$CHARACTER_AUTHORITY_WEB_CREATE_ENABLED" == true && "$CHARACTER_AUTHORITY_COMMANDS_ENABLED" != true ]]; then
+        echo "CHARACTER_AUTHORITY_WEB_CREATE_ENABLED=true needs CHARACTER_AUTHORITY_COMMANDS_ENABLED=true." >&2
+        return 1
+    fi
 }
 
 # Platform internal mTLS listener for the Game node (compose.yml internal-mtls, README: Platform
