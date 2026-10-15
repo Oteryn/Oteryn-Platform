@@ -24,7 +24,7 @@ The deployed main enables native commands and web creation, but Account Center s
 - [x] The application HTTP regression proves Account Center -> form -> pending intent -> simulated Game receipt for an account with no retired binding; physical Game qualification remains open.
 - [x] Only the authenticated account's fresh native roster is rendered; missing/stale/invalid/unavailable evidence is distinct from authoritative empty.
 - [x] Disabled creation stays unavailable and PL/EN locale is preserved.
-- [ ] Focused tests, formatting and static checks pass; exact-candidate CI and runtime qualification are recorded.
+- [x] Focused tests, formatting and static checks pass; exact-candidate CI is recorded (PR 1642 merged to main as 0628d22). Deployed-runtime qualification of the browser roster and polling is deferred past merge to the deployment owner and is not recorded as complete.
 
 ## Ownership
 
@@ -42,7 +42,7 @@ owned_paths:
   - lang/pl/portal.php
   - tests/Feature/Accounts/NativeAccountOverviewTest.php
   - tests/Feature/Characters/CharacterCreationCommandTest.php
-  - docs/agents/tasks/active/OTERYN-20261015-native-account-create-repair.md
+  - docs/agents/tasks/archive/OTERYN-20261015-native-account-create-repair.md
 modules: [Accounts, Characters]
 dependencies: [LCFA, CharacterAuthority]
 blockers: []
@@ -53,11 +53,11 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-15T20:58:00Z
+updated_at: 2026-10-15T23:00:00Z
 head: 95ad4600a9f27ff3e8bf2c5ccad75939fde07bce
 branch: codex/native-account-oracle-final-20261015
 pr: 1642
-status: implementing
+status: completed
 context_routes:
   - native-character-portfolio
   - native-characters
@@ -74,7 +74,7 @@ owned_paths:
   - lang/pl/portal.php
   - tests/Feature/Accounts/NativeAccountOverviewTest.php
   - tests/Feature/Characters/CharacterCreationCommandTest.php
-  - docs/agents/tasks/active/OTERYN-20261015-native-account-create-repair.md
+  - docs/agents/tasks/archive/OTERYN-20261015-native-account-create-repair.md
 proven:
   - Main 98edeee02cf2be81e0aac4d47e33f6c25630ca52 enables command and web-create deployment defaults.
   - Legacy AccountOverviewReadModel suppresses native accounts without retired numeric account binding.
@@ -120,15 +120,15 @@ validation:
     result: PASS
     evidence: TLS 1.3 request returns observed and allowed=true in 5.034 seconds, exceeding the existing 3-second Game exchange bound. CLI observation is 2.835 to 3.868 seconds; one measured COMMIT is 1398 ms and file/directory fsync are 185 and 1207 ms. Query execution alone is 22 ms. Instrumentation forwards all original fsync calls unchanged and modifies no deployed source.
 blockers: []
-next_action: qualify the repaired exact candidate and deploy it with the preserved migrated Oracle state
+next_action: none for this packet; PR 1642 is merged. Deployment owner installs the merged build and qualifies the deployed Account Center roster and polling.
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: retain the repair candidate for review and qualification
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository squash merge of PR 1642
+source_branch_evidence: PR 1642 merged to main as 0628d22 from codex/native-account-oracle-final-20261015; the remote ref no longer exists
 ```
 
 ## Verification limits and resources

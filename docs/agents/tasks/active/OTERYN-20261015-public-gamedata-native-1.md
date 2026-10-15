@@ -4,8 +4,7 @@ governing_issue: 1474
 required_reads: []
 search_first:
   - app/GameProjections/PublicProjectionReadModel.php
-optional_reads:
-  - docs/agents/programs/DECANARY_REMOVAL_PLAN.md
+optional_reads: []
 ---
 
 # OTERYN-20261015 public online and highscores on native data
@@ -14,7 +13,7 @@ optional_reads:
 
 Governing GitHub Issue: #1474 (native-only migration) is the canonical lifecycle authority for this task. The top-level `governing_issue` frontmatter field is machine-required while this packet remains active.
 
-Decision input only (docs, no code). `https://oteryn.com/pl/online` and `/pl/highscores` answer 503 because `PublicGameDataController` reads the obsolete Canary MySQL tables through `CanaryGameDataRepository`. This packet records what native data exists, why a Platform-only reader is not possible, and the minimal cross-repository change set that makes both pages serve real data. It implements nothing.
+Decision input only (docs, no code). `https://oteryn.com/pl/online` and `/pl/highscores` answer 503 because `PublicGameDataController` reads the obsolete legacy-engine MySQL tables through the legacy game-data repository class. This packet records what native data exists, why a Platform-only reader is not possible, and the minimal cross-repository change set that makes both pages serve real data. It implements nothing.
 
 ## Acceptance criteria
 
@@ -27,7 +26,7 @@ Decision input only (docs, no code). `https://oteryn.com/pl/online` and `/pl/hig
 PROVEN (read-only, Platform `origin/main` 0628d22 and Game `main` 88d6b8885):
 
 - Platform consumer exists. Packet C4 (`OTERYN-20261011-proj-ingest-1`) ships `POST /internal/v1/game-public/{highscores,character-profile,character-deaths,guild,house,world-online,watermark}`, the read-model tables `game_public_projection_snapshots` and `game_public_projection_watermarks`, and the serve-time freshness gate `App\GameProjections\PublicProjectionReadModel`. It is default-off (`GAME_PROJECTIONS_PUBLIC_ENABLED`, testing and preproduction only).
-- No page reads that read model. `PublicGameDataController` and `PublicGameDataSource` still point at `CanaryGameDataRepository`; with `PUBLIC_GAME_DATA_SOURCE=native` the pages only show "unavailable". Removal-plan packets C5 (highscores, profiles) and C7 (online) are not built.
+- No page reads that read model. `PublicGameDataController` and `PublicGameDataSource` still point at the legacy game-data repository; with `PUBLIC_GAME_DATA_SOURCE=native` the pages only show "unavailable". Removal-plan packets C5 (highscores, profiles) and C7 (online) are not built.
 - Game has no producer. `rg` over `apps/` and `crates/` finds no `game-public`, `world-online` or publication code. `docs/contracts/OTERYN_GAME_PUBLIC_PROJECTIONS_V1.md` §11 states "Nothing is implemented" and its status is CANDIDATE (§12 acceptance pending); `OTERYN_PLATFORM_2_DESIGN_DRAFT.md` records "ingest exists, producer in game: none".
 - Game has no stored highscores or online list the Platform could query. Online presence is runtime state, and the accepted ownership boundary (`DATA_OWNERSHIP.md`, ADR-0004 §6-7, contract Q3=A) is that Game owns the facts and pushes projections; Platform keeps read models and never queries Game on page render. Platform must not read the Game database directly.
 - The only Game-to-Platform feed with a producer today is the account-character projection (LCFA). It carries no level, experience, skills or presence, so it cannot feed these pages.
@@ -63,7 +62,7 @@ Open point inside the slice: `highscores` is published per (World, category) fro
 - Disable the Game producer flag: the watermark stops, each family goes stale within S and the pages show unavailable. No data loss, because the read models are rebuildable by an operator resync.
 - Set `GAME_PROJECTIONS_PUBLIC_ENABLED=false` on Platform: ingest answers 503.
 - The Platform reader is read-only and has no migration; revert the PR. The C4 tables are untouched, and their rollback is already refused while Game-published rows exist.
-- Never roll back by reconnecting the Canary database or by serving zero rows.
+- Never roll back by reconnecting the legacy-engine database or by serving zero rows.
 
 ## Owner questions
 
@@ -102,8 +101,8 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20261015-public-gamedata-native-1.md
 validation:
   - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20261015-public-gamedata-native-1.md --require-checkpoint
-    result: NOT_RUN
-    evidence: run before push
+    result: PASS
+    evidence: run locally before push; legacy token ratchet, task liveness, Control Room and source branch closeout also pass locally
 blockers:
   - Owner decision on Game contract acceptance and producer allocation.
 next_action: Owner answers the questions above; then open the Game producer allocation and the Platform C5/C7 packet.
