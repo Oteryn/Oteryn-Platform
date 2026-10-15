@@ -59,17 +59,11 @@ This is not a full-stack readiness claim. Game launch/assignment, native login,
 web Character creation, restore qualification and final data migration
 remain unqualified. Never start a second authoritative writer against NAS data.
 
-The current operational native trust bootstrap is bound to the protected
-Synology GitHub Actions workflow and its cutover state. It requires a dedicated
-restore-excluded evidence mount, provenance-only initialization, durable attempt
-records anchored by `github-actions[bot]`, then first trust publication with the
-fence enabled. See `deploy/synology/scripts/cutover-hooks/provenance-init.sh` and
-`common.sh`, and `deploy/synology/scripts/attempt_evidence.py`.
-
-An Oracle bootstrap executor must be integrated and reviewed before activating
-native admission here. Do not substitute manual database/trust writes, forge
-Synology cutover state or anchors, or disable the first-publication fence. The
-same gates must precede the real login/create/list qualification and NAS cutover.
+The fresh-store first-publication route is Synology-specific. It is not used for
+this existing-state migration: transfer source trust and its independently
+retained custody coherently, then validate them through the shipped read-only
+observation and signing self-check. Never manufacture a fresh trust profile,
+replace canonical source identities or reset independent floors.
 
 ## Direct public edge
 
@@ -94,3 +88,29 @@ Game ops commands, advancing descriptor/assignment/projection revisions as requi
 A migration is not complete until real account, Character and native client checks
 pass. The earlier fresh-store bootstrap candidate is retained in Git history only;
 it is not used to replace migrated NAS state.
+
+## Game runtime and restart ownership
+
+`game-runtime.compose.yml` runs the non-root native Game node and a separate
+root-only one-off ops container. Only Game TCP 7172 is published. Internal mTLS
+uses `internal-mtls.compose.yml` to remove the NAS host port and give the listener
+private Docker address 172.18.0.12. Existing NAS file paths remain container paths;
+the host mounts `/opt/oteryn-game` and the separate root ops directory there.
+
+Install the shipped `oteryn-game.service` only after the final coherent source
+transfer, new endpoint descriptor issuance, forward projection resync and the
+root-owned migration baseline are qualified. `game-supervisor.py` issues a new
+durable launch authorization superseding the retained node, records the new
+registered incarnation, replaces/reports its assignment, and waits for readiness.
+A retained ambiguous request is reconciled by its exact file. A registration gap
+or unresolved outcome leaves a reconciliation marker and stops; no floor reset,
+authorization replay or blind Docker restart is permitted. Docker restart is off
+for the node; systemd owns the controller at boot. Other services retain their
+normal Docker restart policies.
+
+The certificate timer checks Caddy's renewed `game.oteryn.com` certificate daily,
+installs its private pair as UID 1001 mode 0600 and restarts through that same
+durable controller only when bytes changed. A refresh failure retains the serving
+node and reports failure. Focused controller custody tests:
+`python3 deploy/oracle/test_game_supervisor.py`. Real launch/restart acceptance is
+separate from those unit tests and must be recorded against the target host.

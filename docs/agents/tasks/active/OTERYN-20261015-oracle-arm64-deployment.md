@@ -20,11 +20,11 @@ Native image builds are target-host acceptance of the ARM64 deployment using imm
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-15T19:18:00Z
-head: 6ce37f057c23599529d7784cd91e023583338d57
+updated_at: 2026-10-15T20:15:00Z
+head: 237aaadcc0a8aa8a8b65285c71462337919e7c55
 branch: codex/oracle-arm64-deployment-20261015
 pr: 1640
-status: blocked
+status: implementing
 context_routes:
   - deployment
 owned_paths:
@@ -62,9 +62,9 @@ validation:
     result: PASS
     evidence: verified on Oracle through its remote agent
 blockers:
-  - Native provenance bootstrap is bound to protected Synology workflow; Oracle executor is not integrated
-  - Repository liveness checks fail on the existing active packet for closed issue 1623 / merged PR 1624
-next_action: implement and review the Oracle native bootstrap executor with protected Actions anchors and the first-publication fence; keep native admission and NAS cutover off until qualified
+  - Final coherent source freeze, transfer and real native path remain unqualified
+  - none; terminal baseline packet is archived in this candidate
+next_action: qualify source snapshot restores, preserve target qualification state, then freeze and transfer existing NAS state without resetting trust or independent custody
 ```
 
 ## Source branch closeout
@@ -98,3 +98,22 @@ is not substituted for them. Game main advanced to 77af046ce14c81df6ed6cab03ae69
 rebuild native runtime before source state is opened on Oracle. The deployed NAS
 World digest 1b04cc35a65bcced64dbc933fcb5ac9adad426a369149bb8c170b1aa80d04406
 is distinct from the main pin and must be preserved and validated as deployed state.
+
+## Restore feasibility and restart candidate
+
+Source snapshot SHA256 109feed7b35307271d3f4799035d2e1e9f55894367a5407522453e2f26fe98b4
+was transferred with a one-file restricted SSH key and strict independently checked
+host keys. Private data and keys never enter repository files or logs. Both custom
+PostgreSQL dumps restored into isolated scratch databases. Source Platform default
+ACLs require the PostgreSQL administrator, while ordinary schema/data restores run
+as the schema owner; the six default ACL entries were restored separately. Readback:
+6 identities, 2 projected Characters and 2 authoritative Game Character roots.
+Read-only trust observation and actual signing self-check passed against the source
+snapshot on Oracle, retaining store marker, profile version/revision 1 and trusted
+key oteryn-admission-20261011-165131-58b205. No new trust publication occurred.
+
+Game supervisor candidate retains durable phase/cycle identity, reconciles retained
+ops files, refuses registration gaps and unresolved assignment/report outcomes, and
+owns each Docker incarnation at boot. Six focused custody/uncertainty tests pass.
+Native systemd and real restart acceptance remain pending. Public certificates are
+renewed by Caddy and refreshed through this controller. No full readiness claim.
