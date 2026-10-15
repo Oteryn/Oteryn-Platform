@@ -42,6 +42,8 @@ RUN chmod 0755 /usr/local/bin/oteryn-platform-entrypoint \
 # terminator (never on TCP), so no other container can speak FastCGI and forge the SSL_CLIENT_*
 # parameters the internal mTLS middleware trusts. The image default pools (TCP 9000) are removed.
 # clear_env=no keeps the entrypoint-exported runtime environment, exactly as `artisan serve` sees it.
+# Static workers: the Game node polls character commands about once a second through this pool, and a
+# native-evidence read queued behind those polls missed the node's 3 s exchange deadline with 4 ondemand workers.
 RUN rm -f /usr/local/etc/php-fpm.d/*.conf \
     && printf '%s\n' \
         '[global]' \
@@ -53,9 +55,8 @@ RUN rm -f /usr/local/etc/php-fpm.d/*.conf \
         '[internal-mtls]' \
         'listen = /run/oteryn-fastcgi/php-fpm.sock' \
         'listen.mode = 0666' \
-        'pm = ondemand' \
-        'pm.max_children = 4' \
-        'pm.process_idle_timeout = 30s' \
+        'pm = static' \
+        'pm.max_children = 12' \
         'pm.max_requests = 500' \
         'request_terminate_timeout = 30s' \
         'clear_env = no' \
