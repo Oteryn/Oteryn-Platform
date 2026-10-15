@@ -72,6 +72,9 @@ load_oteryn_env_file "$OTERYN_ENV_FILE"
 [[ $COMPOSE_PROJECT_NAME == oteryn-oracle && $OTERYN_NATIVE_ADMISSION_ENABLED == false ]] \
     || { echo 'This preparation requires the isolated project and native admission off.' >&2; exit 1; }
 compose=(docker compose --env-file "$OTERYN_ENV_FILE" -f "$DEPLOY_DIR/compose.yml")
+if [[ -f $ROOT/public-platform.compose.yml && ! -L $ROOT/public-platform.compose.yml ]]; then
+    compose+=(-f "$ROOT/public-platform.compose.yml")
+fi
 # The existing Compose contract expects this external volume even while admission
 # is off. Creating it does not generate or publish a signing key.
 docker volume create oteryn-native-admission-keys >/dev/null

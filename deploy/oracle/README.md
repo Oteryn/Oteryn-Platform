@@ -1,7 +1,7 @@
 # Oracle ARM64 qualification
 
-Governed by Platform issue #1639 and draft PR #1640. No NAS database, private key,
-independent witness or public traffic has been moved. The Oracle stack is isolated.
+Governed by Platform issue #1639 and draft PR #1640. No NAS database, private key or independent witness has been moved. The
+owner subsequently authorized direct oteryn.com DNS and HTTPS on Oracle.
 
 ## Pinned inputs
 
@@ -56,7 +56,7 @@ plaintext and an unknown CA, without printing credentials.
 ## Native bootstrap boundary
 
 This is not a full-stack readiness claim. Game launch/assignment, native login,
-web Character creation, restore qualification, public HTTPS and final migration
+web Character creation, restore qualification and final data migration
 remain unqualified. Never start a second authoritative writer against NAS data.
 
 The current operational native trust bootstrap is bound to the protected
@@ -70,3 +70,33 @@ An Oracle bootstrap executor must be integrated and reviewed before activating
 native admission here. Do not substitute manual database/trust writes, forge
 Synology cutover state or anchors, or disable the first-publication fence. The
 same gates must precede the real login/create/list qualification and NAS cutover.
+
+## Direct public edge
+
+Apply `public-platform.compose.yml` with the pinned Platform Compose contract,
+and `edge.compose.yml` with `Caddyfile`. Only Caddy publishes 80/443; database,
+PHP and internal proxy listeners remain private. The trusted edge and internal
+proxy have exact addresses 172.18.0.10 and 172.18.0.5. Canonical APP_URL is
+https://oteryn.com with Secure cookies. Certificates persist in named volumes.
+Apex DNS is proxied to 158.180.58.90; www, gateway, login and game use DNS-only
+records for that address. Existing mail records are preserved. Native Game uses
+TLS TCP 7172; the HTTPS explanatory response is not gameplay readiness.
+
+## Protected fresh-store executor
+
+`oracle-native-bootstrap.yml` runs only from protected main, in environment
+`oracle-preproduction`. Configure its `ORACLE_SSH_PRIVATE_KEY` and independently
+verified `ORACLE_SSH_KNOWN_HOSTS` secrets before dispatch. It verifies and locks the
+dedicated ledger #1641, uses the actual short-lived Actions bot token on SSH
+stdin and never writes that token to a host file or an artifact. The existing
+attempt record, anchor and location validators own the evidence semantics.
+
+`bootstrap-native-host.sh inspect` reads target location/key/trust only. Actions
+`preflight` also verifies locked real anchors but opens no run. `initialize`
+refuses existing evidence, witness, trust profile or in-flight work; then records
+and anchors intent before provenance and fenced first trust publication. HTTP
+native admission stays disabled. An interrupted or refused write retains its
+actual durable evidence and needs explicit forward reconciliation. Never retry
+by deleting evidence, resetting a floor, changing a key or fabricating a run.
+This is qualification of a fresh isolated store; it does not migrate existing
+NAS accounts, Game state, trust or witnesses.
