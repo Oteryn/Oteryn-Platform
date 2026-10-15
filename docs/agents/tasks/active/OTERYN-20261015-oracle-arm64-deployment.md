@@ -20,8 +20,8 @@ Native image builds are target-host acceptance of the ARM64 deployment using imm
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-15T19:12:00Z
-head: c16108a20e64256964e96f1e51d6ced65c48a08a
+updated_at: 2026-10-15T19:18:00Z
+head: 6ce37f057c23599529d7784cd91e023583338d57
 branch: codex/oracle-arm64-deployment-20261015
 pr: 1640
 status: blocked
@@ -37,7 +37,10 @@ proven:
   - Game ARM64 build, 77 migrations, pinned World and NPC staging passed
   - Platform HTTP 200 and gateway readiness HTTP 200
   - Platform forced WAL archive, base backup and logical dump passed
-  - Game PostgreSQL verify-full TLS 1.3; plaintext and unknown CA rejected
+  - Game PostgreSQL verify-full TLS 1.3; runtime DDL, plaintext and unknown CA rejected
+  - Game WAL archive has 3 archived segments and zero failures
+  - Candidate CodeQL passed after atomic owner-only credential creation
+  - Own task checkpoint validates; remaining liveness failure names baseline task issue 1623
 derived: []
 unknown:
   - Full native login/create/list and restore qualification results
@@ -60,8 +63,8 @@ validation:
     evidence: verified on Oracle through its remote agent
 blockers:
   - Native provenance bootstrap is bound to protected Synology workflow; Oracle executor is not integrated
-  - Exact-head CI is not green; candidate and baseline findings remain under reconciliation
-next_action: integrate an Oracle native bootstrap executor preserving protected Actions anchors and the first-publication fence before enabling native admission
+  - Repository liveness checks fail on the existing active packet for closed issue 1623 / merged PR 1624
+next_action: implement and review the Oracle native bootstrap executor with protected Actions anchors and the first-publication fence; keep native admission and NAS cutover off until qualified
 ```
 
 ## Source branch disposition
@@ -73,3 +76,5 @@ source_branch_evidence: pending
 ```
 
 Owner explicitly approved temporarily removing only sudo from the Oracle agent blockedCommands for this deployment. Original list is preserved; restore it when deployment work stops. No other agent control is changed.
+
+Cloudflare: owner asked whether it can be repointed. Main DNS has not been changed. Platform remains bound to Oracle loopback; public HTTPS / a dedicated authenticated Cloudflare Tunnel must be qualified before any production hostname cutover.
