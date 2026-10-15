@@ -16,9 +16,16 @@ def run(*args):
 
 
 def write(path, value, mode=0o600, uid=0):
-    path.write_text(value)
-    path.chmod(mode)
-    os.chown(path, uid, uid)
+    # Game's shipped node/ops contracts require password files. Create those
+    # files owner-only from the first byte, never follow or truncate a path,
+    # and sync before exposing the completed root-private configuration tree.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
+    with os.fdopen(fd, 'w') as handle:
+        os.fchmod(handle.fileno(), mode)
+        os.fchown(handle.fileno(), uid, uid)
+        handle.write(value)
+        handle.flush()
+        os.fsync(handle.fileno())
 
 
 def main():

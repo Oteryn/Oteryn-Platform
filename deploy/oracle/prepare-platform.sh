@@ -8,7 +8,10 @@ SOURCE=/opt/oteryn-build/Oteryn-Platform-1194d5548760d9d773a1cebb182bc5986a6a42b
 ROOT=/opt/oteryn-oracle
 export OTERYN_ENV_FILE="$ROOT/platform.env"
 [[ -f "$SOURCE/deploy/synology/compose.yml" ]] || { echo 'Pinned Platform source is missing.' >&2; exit 1; }
-install -d -m 0700 "$ROOT" "$ROOT/state" "$ROOT/attempt-evidence"
+install -d -m 0700 "$ROOT" "$ROOT/state"
+# Restore-excluded evidence has its own top-level directory, outside application
+# state and Docker volumes; the producer sees it read-only.
+install -d -o root -g 82 -m 2750 /srv/oteryn-attempt-evidence
 if [[ ! -e "$OTERYN_ENV_FILE" ]]; then
     python3 - "$OTERYN_ENV_FILE" <<'PY'
 import base64, hashlib, os, secrets, sys
@@ -31,7 +34,7 @@ env = {
     'GAME_WORLD_NAME': 'Oteryn Oracle Qualification', 'GAME_WORLD_REGION': 'FRA',
     'GAME_WORLD_HOST': '127.0.0.1', 'GAME_WORLD_PORT': '7172',
     'OTERYN_STATE_DIR': '/opt/oteryn-oracle/state',
-    'OTERYN_ATTEMPT_EVIDENCE_HOST_PATH': '/opt/oteryn-oracle/attempt-evidence',
+    'OTERYN_ATTEMPT_EVIDENCE_HOST_PATH': '/srv/oteryn-attempt-evidence',
     'OTERYN_NATIVE_ADMISSION_ENABLED': 'false',
     'OTERYN_PLATFORM_MTLS_ENABLED': 'false',
     'GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED': 'false',

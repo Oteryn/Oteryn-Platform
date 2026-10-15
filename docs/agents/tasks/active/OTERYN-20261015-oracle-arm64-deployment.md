@@ -16,13 +16,15 @@ Owned paths: deploy/oracle/** and this packet. Game source is read-only, at 87f7
 
 Native image builds are target-host acceptance of the ARM64 deployment using immutable public source archives; no repository checkout is edited or published through Remote Desktop. Runtime wiring is authored in this isolated task worktree. The host is accessed only through exact-call validated host exceptions. Native ARM64 deployment qualification has no existing equivalent CI job.
 
+## Context checkpoint
+
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-15T18:35:01Z
-head: 1194d5548760d9d773a1cebb182bc5986a6a42bf
+updated_at: 2026-10-15T19:12:00Z
+head: c16108a20e64256964e96f1e51d6ced65c48a08a
 branch: codex/oracle-arm64-deployment-20261015
 pr: 1640
-status: implementing
+status: blocked
 context_routes:
   - deployment
 owned_paths:
@@ -32,9 +34,13 @@ proven:
   - Oracle ARM64 4 OCPU 24 GB RAM 200 GB disk and persistent remote agent
   - Docker 29.1.3 Compose 2.40.3 and buildx 0.30.1 installed
   - Platform and gateway ARM64 builds passed from immutable source 1194d5548760
+  - Game ARM64 build, 77 migrations, pinned World and NPC staging passed
+  - Platform HTTP 200 and gateway readiness HTTP 200
+  - Platform forced WAL archive, base backup and logical dump passed
+  - Game PostgreSQL verify-full TLS 1.3; plaintext and unknown CA rejected
 derived: []
 unknown:
-  - Game ARM64 image build and full-stack qualification results
+  - Full native login/create/list and restore qualification results
 conflicts: []
 first_failure:
   marker: none
@@ -44,14 +50,21 @@ changed_paths:
   - deploy/oracle/game.Dockerfile
   - deploy/oracle/prepare-platform.sh
   - deploy/oracle/README.md
+  - deploy/oracle/prepare-game-db.py
+  - deploy/oracle/game-db.compose.yml
+  - deploy/oracle/prepare-game.sh
+  - deploy/oracle/check-game-db.py
 validation:
   - command: target docker version and docker compose version
     result: PASS
     evidence: verified on Oracle through its remote agent
 blockers:
-  - none
-next_action: finish native ARM64 image builds and wire the isolated stack
+  - Native provenance bootstrap is bound to protected Synology workflow; Oracle executor is not integrated
+  - Exact-head CI is not green; candidate and baseline findings remain under reconciliation
+next_action: integrate an Oracle native bootstrap executor preserving protected Actions anchors and the first-publication fence before enabling native admission
 ```
+
+## Source branch disposition
 
 ```yaml
 source_branch_disposition: pending
