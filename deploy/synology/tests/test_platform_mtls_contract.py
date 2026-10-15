@@ -580,14 +580,14 @@ def test_game_node_route_settings_reach_platform_and_default_closed() -> None:
         "OTERYN_STAGING_NATIVE_EVIDENCE_CLOCK_UNCERTAINTY_SECONDS": "1",
         "OTERYN_STAGING_NATIVE_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY": NODE_PLATFORM_CLIENT_IDENTITY,
         "OTERYN_STAGING_NATIVE_BOOTSTRAP_INTENT_TTL_SECONDS": "300",
-        # Character Authority commands are enabled for the preprod node 1 commands certificate; web
-        # creation stays off until the runbook's next enablement change. The pending-intent bound is
-        # the enablement value 40 (CP decision 2026-10-15).
+        # Character Authority commands are enabled for the preprod node 1 commands certificate, and
+        # web creation is on after the Game node's pending-list smoke check. The pending-intent bound
+        # is the enablement value 40 (CP decision 2026-10-15).
         "OTERYN_STAGING_NATIVE_CHARACTER_COMMANDS_ENABLED": "true",
         "OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_IDENTITIES": '["CN=oteryn-preprod-node-1-character-commands"]',
         "OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_SOURCE_AUTHORITY": "oteryn:character-authority:primary",
         "OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_MAX_PENDING_INTENTS": "40",
-        "OTERYN_STAGING_NATIVE_CHARACTER_WEB_CREATE_ENABLED": "false",
+        "OTERYN_STAGING_NATIVE_CHARACTER_WEB_CREATE_ENABLED": "true",
     }
     for _, (default_name, _) in ROUTE_SETTINGS.items():
         assert values.get(default_name, "") == committed.get(default_name, ""), default_name
