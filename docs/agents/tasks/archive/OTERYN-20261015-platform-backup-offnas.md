@@ -26,7 +26,7 @@ Close the P5 gap "backups stay on the NAS" (ADR 0046 §7, review 2026-10-12 F-02
 - [x] `drill` restores a snapshot into a discarded scratch volume and runs `restore-postgres-pitr.sh --offline --spool-volume … --target latest`, with evidence against the 4 h RTO; nothing removes a Docker volume.
 - [x] `restore VOLUME` and `restore-postgres-pitr.sh --spool-volume` support a disaster restore on a new host.
 - [x] Runbook *Off-NAS copy* section; contract tests wired into ci.yml through the release identity hook.
-- [ ] Exact-head CI passes.
+- [x] Exact-head CI passes.
 
 ## Ownership
 
@@ -58,11 +58,11 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-15T12:00:00Z
-head: 12f9050f935fcc944df20b900c57980c12ebd15a
+updated_at: 2026-10-15T09:00:00Z
+head: 1e5fe438b9c629063cd5aab9a80977272c444c45
 branch: feat/platform-backup-offnas
 pr: 1628
-status: validating
+status: completed
 context_routes:
   - deploy
 owned_paths:
@@ -120,14 +120,14 @@ validation:
     evidence: routing and workflow contracts unchanged
 blockers:
   - none
-next_action: Drive PR #1628 to green CI with no Codex P1 (owner decisions D-2 RPO 5 min and D-3 NAS-local pre-production copy applied), merge by squash auto-merge, then report to CP.
+next_action: none. PR #1628 squash-merged as 1e5fe438 on 2026-10-15; this record is archived.
 terminal_pr_policy: archive_pending
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository PR path
+source_branch_evidence: PR #1628 merged as 1e5fe438b9c629063cd5aab9a80977272c444c45 from feat/platform-backup-offnas; the GitHub branches API on 2026-10-15 returns 404 for the branch (auto-deleted after merge)
 ```
