@@ -11,7 +11,7 @@ optional_reads: []
 Governing Issue: https://github.com/Oteryn/Oteryn-Platform/issues/1639.
 The owner explicitly authorized moving both organization runners and deployment
 workflows to Oracle, preserving direct oteryn.com and all migrated authority.
-One writer: this Codex task, branch codex/fix-oracle-runner-context-20261015.
+One writer: this Codex task, branch codex/fix-oracle-build-source-modes-20261015.
 Game deployment coordination: Oteryn/Oteryn-Game#2217; no protocol changes.
 
 ## Acceptance criteria
@@ -36,9 +36,9 @@ Dependencies: existing installed durable controller and coherent migration.
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-15T22:00:00Z
-head: b288effb76480ce58f55c834010814ddb0b961a6
-branch: codex/fix-oracle-runner-context-20261015
-pr: 1646
+head: 156c9f73ecef3cf34cd908562508dc5cceb79cce
+branch: codex/fix-oracle-build-source-modes-20261015
+pr: null
 status: waiting
 terminal_pr_policy: archive_pending
 context_routes:
@@ -129,3 +129,41 @@ separately coordinated under Game2219.
 The actual GitHub dispatch parser and actionlint1.7.7 reproduce the job-env
 runner-context error on b288eff. Actionlint passes for both corrected sibling
 workflows; the existing endpoint guard and ten adapter regressions also pass.
+
+## Physical deployment incident and bounded repair
+
+Platform1646 merged at156c9f73ecef3cf34cd908562508dc5cceb79cce through real
+merge_group38823837786; the GitHub Oracle status run38824509629 passed on the
+expected Oracle runner. Game2222 merged atb021969169d9cd695d5cfdf137b2ab228b9aaa42
+through real merge_group38824307201. Both legacy workflow families are disabled.
+
+The first deployment attempt stopped before effects because host Git was missing;
+Git2.53.0 was installed. The next attempt38824952250 built its images and stopped
+writers, then PHP refused to open artisan before loading the application. The
+root operator umask077 had made checked-out public executable inputs0700 and
+ordinary inputs0600; Docker COPY retained root-only permissions for www-data.
+
+Operator recovery independently proved candidate artisan mode0700 and unreadable
+under its actual image USER, the exact failure before framework entry, and all69
+live Platform migration rows equal to the verified predeployment logical backup
+20261015T234051Z. The retained previous schema contract matches the candidate.
+The exact prior environment and original Oracle containers were restored. Public
+login/gateway returned200, scheduler healthy, Game durable readiness passed.
+Failed schema_unknown evidence is retained as a reconciled historical record.
+Current release state explicitly has phase operator_reconciled and sha:null,
+with independently verified schema and actual prior image IDs; it is not a source
+qualification or success receipt for the failed candidate. No NAS writer restarted.
+
+Repair: apply umask022 only to child Git clone/fetch/checkout processes for public
+tracked build inputs, preserving the parent/private writer umask077. Add an
+isolated image probe inheriting real USER/WORKDIR, without network/mounts/keys,
+that requires readable artisan/bootstrap/autoloader before any backup or outage.
+Real Git checkout RED reproduces0700; the preflight RED proves the old adapter
+would disrupt first. Both GREEN plus all12 authority/recovery,6 controller and1
+runner boundary tests pass. The PHP direct-source consumer was affected; compiled
+Game/gateway binaries are built as root and retain normal build output modes.
+No permission normalization touches runtime configuration, keys, custody or dumps.
+
+Physical rollout remains open. This material host-execution repair requires fresh
+exact-candidate CI and independent review before manually upgrading the root
+adapter or attempting another Platform deployment.
