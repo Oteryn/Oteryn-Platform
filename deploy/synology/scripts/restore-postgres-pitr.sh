@@ -22,6 +22,9 @@
 #                                                 No marker is written: a --target-time restore needs a commit
 #                                                 after T in the archive, and --target latest replays every
 #                                                 archived segment, then promotes
+#            --spool-volume NAME (with --offline only) reads the spool from that Docker volume instead of the
+#                                                 one the container mounts: a spool restored from the off-NAS
+#                                                 copy (offsite-postgres-backup.sh drill, or a new host)
 #   Options: --skip-platform-checks (no Platform image on this host; never in the staging drill)
 #            --evidence-dir DIR (default $OTERYN_STATE_DIR/pitr-drills when OTERYN_STATE_DIR is set)
 #
@@ -57,13 +60,14 @@ target_time=''
 backup_stamp=''
 offline=false
 system_identifier_arg=''
+spool_volume_arg=''
 platform_checks=true
 evidence_dir="${OTERYN_STATE_DIR:+$OTERYN_STATE_DIR/pitr-drills}"
 
 usage() {
     echo "usage: restore-postgres-pitr.sh [--target-time 'YYYY-MM-DD HH:MM:SS[.ffffff]' | --target immediate --backup STAMP]" >&2
     echo "                                [--skip-platform-checks] [--evidence-dir DIR]" >&2
-    echo "       restore-postgres-pitr.sh --offline [--system-identifier ID]" >&2
+    echo "       restore-postgres-pitr.sh --offline [--system-identifier ID] [--spool-volume NAME]" >&2
     echo "                                (--target latest | --target-time '...' | --target immediate --backup STAMP)" >&2
     echo "                                [--skip-platform-checks] [--evidence-dir DIR]" >&2
     exit 2
@@ -76,6 +80,7 @@ while (( $# )); do
         --backup) backup_stamp="${2:-}"; (( $# >= 2 )) || usage; shift 2 ;;
         --offline) offline=true; shift ;;
         --system-identifier) system_identifier_arg="${2:-}"; (( $# >= 2 )) || usage; shift 2 ;;
+        --spool-volume) spool_volume_arg="${2:-}"; [[ -n "$spool_volume_arg" ]] || usage; shift 2 ;;
         --skip-platform-checks) platform_checks=false; shift ;;
         --evidence-dir) evidence_dir="${2:-}"; [[ -n "$evidence_dir" ]] || usage; shift 2 ;;
         *) usage ;;
@@ -93,9 +98,10 @@ fi
 if [[ "$offline" == true ]]; then
     [[ "$target" != probe ]] || usage
 else
-    [[ "$target" != latest && -z "$system_identifier_arg" ]] || usage
+    [[ "$target" != latest && -z "$system_identifier_arg" && -z "$spool_volume_arg" ]] || usage
 fi
 [[ -z "$system_identifier_arg" || "$system_identifier_arg" =~ ^[0-9]{1,20}$ ]] || usage
+[[ -z "$spool_volume_arg" || "$spool_volume_arg" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$ ]] || usage
 [[ -f "$RESTORE_WAL" ]] || { echo "Missing $RESTORE_WAL" >&2; exit 1; }
 # The project name reaches Docker label filters: Compose project names only.
 [[ "$PROJECT" =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]] || { echo "COMPOSE_PROJECT_NAME must be a Compose project name" >&2; exit 2; }
@@ -291,14 +297,20 @@ else
     source_container="$pg"
 fi
 image="$(docker inspect --format '{{.Config.Image}}' "$source_container")"
-spool_volume="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "'"$SPOOL"'"}}{{.Name}}{{end}}{{end}}' "$source_container")"
-[[ -n "$spool_volume" ]] || fail "the postgres container mounts no backup spool at $SPOOL"
+if [[ -n "$spool_volume_arg" ]]; then
+    spool_volume="$spool_volume_arg"
+    docker volume inspect "$spool_volume" > /dev/null 2>&1 || fail "no Docker volume $spool_volume (--spool-volume)"
+else
+    spool_volume="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "'"$SPOOL"'"}}{{.Name}}{{end}}{{end}}' "$source_container")"
+    [[ -n "$spool_volume" ]] || fail "the postgres container mounts no backup spool at $SPOOL"
+fi
 # The name reaches a --mount option list: a Docker volume name only, never extra options.
 [[ "$spool_volume" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$ ]] || fail "unexpected backup spool volume name"
 record drill "$stamp"
 record project "$PROJECT"
 record target_mode "$target"
 record postgres_image "$image"
+record spool_volume "$spool_volume${spool_volume_arg:+ (--spool-volume)}"
 cluster_id=''
 archiver_healthy=false
 if [[ "$offline" == true ]]; then

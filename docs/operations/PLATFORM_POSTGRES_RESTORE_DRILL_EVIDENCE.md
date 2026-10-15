@@ -69,4 +69,4 @@ What the rehearsal does not prove:
 - NAS space, NAS Docker behaviour, or the `platform-runners` runner.
 - The Platform image checks.
 - A 24-hour archiver record.
-- A restore from an off-NAS copy.
+- A restore from an off-NAS copy at a real destination. The 2026-10-15 rehearsal of `offsite-postgres-backup.sh` used a local restic repository in an authoring sandbox (init, push, check, forget, restore, and a drill whose offline PITR passed with its scratch volume discarded); the first NAS drill against the owner's destination goes here.

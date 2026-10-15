@@ -1,6 +1,6 @@
 # Platform PostgreSQL backups and point-in-time recovery on the NAS
 
-Status: staging mechanism (plan P5, `PLATFORM_POSTGRES_MIGRATION_PLAN.md`; ADR 0046 §7). Provisional staging targets: RPO 24 hours, RTO 4 hours. The owner sets the production values. Backups stay on the Synology NAS. **An encrypted off-NAS copy and a drill restored from it are required before any production use, real player, wallet or Bazaar value, or payment activation** (`PRODUCTION_READINESS_CHECKLIST.md` §5).
+Status: staging mechanism (plan P5, `PLATFORM_POSTGRES_MIGRATION_PLAN.md`; ADR 0046 §7). Provisional staging targets: RPO 24 hours, RTO 4 hours. The owner sets the production values. Backups are taken on the Synology NAS, and `offsite-postgres-backup.sh` copies them, encrypted, to a configured off-NAS destination (*Off-NAS copy*). **A configured off-NAS copy and a passing drill restored from it are required before any production use, real player, wallet or Bazaar value, or payment activation** (`PRODUCTION_READINESS_CHECKLIST.md` §5).
 
 This runbook covers the PostgreSQL Platform database only. It holds no secret, password, dump or backup.
 
@@ -12,7 +12,8 @@ This runbook covers the PostgreSQL Platform database only. It holds no secret, p
 | `restore_command` | `deploy/synology/postgres/backup/restore-wal.sh` | Restores a segment for recovery. An absent file exits 1, the normal end of the archive. A missing archive directory, a missing checksum, a checksum mismatch or a decompression failure exits 199, which aborts recovery, so a damaged archive never ends recovery early and silently. |
 | `postgres-backup` sidecar | `compose.yml`, profile `postgres`, same pinned image as `postgres`, private network only, no port | Runs `backup-job.sh service`: a daily base backup and logical dump at `OTERYN_BACKUP_HOUR_UTC` (default 02:00 UTC), retention after each success, and a heartbeat every 60 seconds for its healthcheck. A failed job is retried after one hour at the earliest. |
 | `backup-postgres.sh` | `deploy/synology/scripts/` | `reconcile` (every deploy), `check` (every health check), `run <job>` (operator). |
-| `restore-postgres-pitr.sh` | `deploy/synology/scripts/` | The restore drill into a scratch instance. With `--offline` it restores without the live server (see *Offline drill*). |
+| `restore-postgres-pitr.sh` | `deploy/synology/scripts/` | The restore drill into a scratch instance. With `--offline` it restores without the live server (see *Offline drill*), and with `--offline --spool-volume` from a spool restored off the NAS. |
+| `offsite-postgres-backup.sh` | `deploy/synology/scripts/`, config `offsite-backup.env.example` | The encrypted off-NAS copy of the spool, its retention, check and restore drill (see *Off-NAS copy*). |
 
 Roles (plan P4):
 
@@ -133,7 +134,7 @@ The probe and `--target-time` drills need a running live server: they read its s
 
 ## Real point-in-time restore
 
-Use this for corruption or loss of the database. The spool itself is on the same NAS. Losing it is not recoverable on staging until the off-NAS copy exists (*Before production*). Follow `INCIDENT_RECOVERY_RUNBOOK.md` (Platform database) for fencing, escalation and the native evidence order.
+Use this for corruption or loss of the database. The spool itself is on the same NAS. When the spool or the NAS is lost too, restore the spool from the off-NAS copy first (*Off-NAS copy*, *Disaster restore*), then continue here with `--offline --spool-volume`. Follow `INCIDENT_RECOVERY_RUNBOOK.md` (Platform database) for fencing, escalation and the native evidence order.
 
 1. Fence writes: close the edge gate and stop `platform`, the scheduler and every Platform consumer. Record the last known healthy time T in UTC.
    - When `postgres_data` is lost or damaged, or PostgreSQL does not start, also stop `postgres` and `postgres-backup` at once: `docker compose --profile postgres stop postgres postgres-backup`. Do not deploy and do not start `postgres` until the restore. The image initialises an empty data volume as a new cluster. That cluster archives into the same spool, and the sidecar backs it up there.
@@ -172,14 +173,94 @@ docker compose --profile postgres exec -u postgres postgres-backup sh -c '
 
 Then re-run the deploy. Delete a retired directory only on an owner decision, once nothing needs it.
 
+## Off-NAS copy
+
+`deploy/synology/scripts/offsite-postgres-backup.sh` copies the whole spool (`base/`, `wal/`, `dump/`) to a destination outside the NAS with [restic](https://restic.net) 0.18.0, pinned by digest. restic encrypts and authenticates every object on the NAS before it leaves (AES-256 + Poly1305), so the destination stores ciphertext only. This follows the Game database approach (Game ADR 0004, operability review 2026-10-06: RPO 5 min, RTO 4 h). Neither the provider nor any secret is in the repository: the destination is a restic repository URL in an owner-held configuration file.
+
+### Configuration and secret custody
+
+Copy `deploy/synology/offsite-backup.env.example` to a root-only file outside the checkout and outside the spool, for example `/volume1/docker/oteryn-offsite/offsite.env`, and name it with `OTERYN_OFFSITE_CONFIG`. It holds no secret. It names:
+
+| Key | Meaning |
+| --- | --- |
+| `OTERYN_OFFSITE_REPOSITORY` | The restic repository URL: `s3:`, `b2:`, `azure:`, `gs:`, `sftp:`, `rest:`, `rclone:`, `swift:` or an absolute path. A URL with an embedded password is refused: credentials go in the credentials file. |
+| `OTERYN_OFFSITE_PASSWORD_FILE` | The repository password (at least 32 random characters). It encrypts the copy. |
+| `OTERYN_OFFSITE_CREDENTIALS_FILE` | Optional `KEY=VALUE` provider credentials passed to restic as environment, scoped to the destination bucket or path only. |
+| `OTERYN_OFFSITE_STATE_DIR` | Local state: the last push result, the restic cache and the drill evidence. |
+| `OTERYN_OFFSITE_TARGET_RPO_SECONDS` | Off-NAS data-loss target, default 300 (the Game target). The Platform value is owner decision D-2. |
+| `OTERYN_OFFSITE_KEEP_WITHIN_HOURLY` / `_DAILY` / `_WEEKLY` | Retention, defaults `48h` / `14d` / `56d`. |
+| `OTERYN_OFFSITE_CHECK_SUBSET` | Share of the stored data `check` reads back, default `5%`. |
+| `OTERYN_OFFSITE_LOCK_RETRY` | How long a run waits for another run's repository lock, default `5m`. |
+| `OTERYN_OFFSITE_SPOOL_VOLUME` | Optional spool volume name, when no `postgres-backup` or `postgres` container exists to find it by Compose labels. |
+
+The script refuses (exit 2) a placeholder or malformed value, and a password or credentials file that is a symlink, not owned by the running user, or readable by group or others (mode 0600 or stricter). Custody:
+
+- The password and the credentials never enter an argument, a container environment variable, a log or the evidence. The password file is bind-mounted read-only into the restic container, and the credentials file is passed with `--env-file`.
+- **Keep a second copy of the password off the NAS** (owner password manager or sealed escrow). If the NAS is lost, the copy cannot be read without it. Losing every copy of the password loses the off-NAS backups.
+- Use credentials that reach only the destination bucket or path. Where the provider supports it, deny delete to the push credentials and enable object lock or versioning, or use `rest-server --append-only` on a second site (see *Follow-ups*).
+
+### Modes and schedule
+
+Run as root on the NAS (DSM **Control Panel → Task Scheduler → User-defined script**, user `root`) from the deploy directory, with `COMPOSE_PROJECT_NAME` set when the project is not `oteryn-staging`:
+
+```bash
+OTERYN_OFFSITE_CONFIG=/volume1/docker/oteryn-offsite/offsite.env bash deploy/synology/scripts/offsite-postgres-backup.sh init     # once
+OTERYN_OFFSITE_CONFIG=/volume1/docker/oteryn-offsite/offsite.env bash deploy/synology/scripts/offsite-postgres-backup.sh push     # every minute
+OTERYN_OFFSITE_CONFIG=/volume1/docker/oteryn-offsite/offsite.env bash deploy/synology/scripts/offsite-postgres-backup.sh forget   # daily
+OTERYN_OFFSITE_CONFIG=/volume1/docker/oteryn-offsite/offsite.env bash deploy/synology/scripts/offsite-postgres-backup.sh check    # weekly
+OTERYN_OFFSITE_CONFIG=/volume1/docker/oteryn-offsite/offsite.env bash deploy/synology/scripts/offsite-postgres-backup.sh drill    # monthly
+OTERYN_OFFSITE_CONFIG=/volume1/docker/oteryn-offsite/offsite.env bash deploy/synology/scripts/offsite-postgres-backup.sh status   # any time, no network
+```
+
+Exit status: 0 ok, 1 failure, 2 usage or configuration, 3 degraded (the newest copy is older than the target RPO).
+
+- **`init`** creates the encrypted repository when none exists. It is idempotent, and refuses on a wrong password or an unreachable destination instead of creating a second repository.
+- **`push`** snapshots the spool, mounted read-only, with host `$COMPOSE_PROJECT_NAME` and tag `postgres-spool`. It skips the in-flight `.*.partial` directories and `.*.tmp.*` files. restic uploads only changed data, so a push after a new WAL segment sends about that segment. It takes no spool job lock, so a long base backup never holds the copy back. A snapshot that saw a file disappear (retention ran during it, restic exit 3) is retried once. A host lock skips a push while the previous one still runs. The result is written to `<state dir>/status/push.last`.
+- **Off-NAS lag.** With `archive_timeout = 60s` and a push every minute, the off-NAS copy lags the database by about two minutes plus the push time, inside the 5-minute Game target. A daily base backup push takes longer: the next pushes are skipped meanwhile, and `status` reports degraded if it exceeds the target.
+- **`forget`** applies retention to this host's snapshots: the newest snapshot always, then every hourly snapshot of the last 48 hours, every daily of 14 days and every weekly of 8 weeks, and prunes the data no kept snapshot references. Each snapshot holds the whole spool, so every kept snapshot also keeps the about 7 days of WAL before it for point-in-time recovery.
+- **`check`** reads the newest snapshot time at the destination and exits 3 when it is older than the target RPO, then runs `restic check --read-data-subset` (5% by default), which downloads and authenticates that share of the stored data. Exit 1 means a damaged repository: run `check` with `OTERYN_OFFSITE_CHECK_SUBSET=100%` and treat the copy as lost until it passes.
+- **`status`** reads the local `push.last` only. Wire it into monitoring with the backup `check` (follow-up).
+
+### Restore drill from the off-NAS copy
+
+`drill [--snapshot ID] [--skip-platform-checks]` proves that the copy restores, without touching the live spool:
+
+1. Creates a holder container (`--rm`, `--network none`, `--cap-drop ALL`) with an anonymous scratch volume.
+2. Restores the newest snapshot (or `--snapshot ID`) into it with `restic restore --verify`, and recreates the empty `status/job.lock` owned by uid 999.
+3. Runs `restore-postgres-pitr.sh --offline --spool-volume <scratch volume> --target latest`, which runs every check of the offline drill (checksums, `pg_verifybackup`, promotion, wallet invariant, migrations, dump, Platform checks) on a scratch instance.
+4. Stops the holder, which discards the scratch volume, and fails the drill if the volume remains.
+
+Evidence is written to `<state dir>/drills/<stamp>/offsite.env` (`SNAPSHOT`, `SNAPSHOT_TIME`, `DOWNLOAD_SECONDS`, `PITR_EXIT`, `TOTAL_SECONDS` against `RTO_SECONDS=14400`, `RESULT`) and the PITR evidence to `<state dir>/drills/<stamp>/pitr/`. The repository URL is not recorded: only its scheme. The total time, download plus PITR, must stay inside the 4 h RTO. Record each dated result in `PLATFORM_POSTGRES_RESTORE_DRILL_EVIDENCE.md`.
+
+### Disaster restore
+
+When the spool or the whole NAS is lost, on the replacement host:
+
+1. Install Docker and the deploy checkout, put back the configuration, the password (from the off-NAS escrow) and the credentials files.
+2. Create, without starting, a container whose labels name the project: `docker compose --profile postgres create postgres-backup`. Never start `postgres` before the restore (*Real point-in-time restore*, step 1).
+3. Restore the spool into a new named volume: `offsite-postgres-backup.sh restore postgres_backup_restore_<stamp> [--snapshot ID]`. It refuses an existing volume.
+4. Drill and restore from it: `restore-postgres-pitr.sh --offline --spool-volume postgres_backup_restore_<stamp> --target latest` (or `--target-time 'T'`), then follow *Real point-in-time restore* from step 3, mounting that volume as the spool. Repoint the `postgres_backup` volume of the Compose project to it with an owner-reviewed change.
+
+### Owner decisions
+
+- **D-2, Platform RPO.** The off-NAS target defaults to 300 seconds, the Game target; the local spool target is still 24 hours. Set `OTERYN_OFFSITE_TARGET_RPO_SECONDS` to the owner's value.
+- **D-3, destination.** Any restic repository: AWS S3, an S3-compatible store (Backblaze B2, Wasabi, Hetzner Object Storage, Cloudflare R2), Azure Blob, or a second-site NAS running `rest-server --append-only` or SFTP. Until a destination is configured, there is no off-NAS copy and production remains blocked.
+
+### Follow-ups
+
+- Append-only or object-locked destination, with a separate credential that alone may prune.
+- `status` in `health-check.sh` and alerting on exit 1 or 3.
+- The native evidence witness and admission-key encrypted copy (separate root-only job, *Before production*).
+- A decision on pgBackRest or WAL-G replacing the spool plus restic.
+
 ## Rollback of this mechanism
 
 Set `archive_mode = off` in `deploy/synology/postgres/postgresql.conf` (this needs a `postgres` restart) and stop the `postgres-backup` sidecar. Backups are additive: live data is unaffected and the spool stays.
 
 ## Before production
 
-- An encrypted off-NAS copy of `base/` and `wal/`, with a key held outside the NAS.
-- A drill restored from that copy.
-- Owner-set RPO and RTO.
+- The off-NAS copy configured at an owner-chosen destination (D-3), scheduled, with the password escrowed outside the NAS (*Off-NAS copy*).
+- A passing `offsite-postgres-backup.sh drill` recorded in `PLATFORM_POSTGRES_RESTORE_DRILL_EVIDENCE.md`.
+- Owner-set RPO and RTO (D-2).
 - A decision on pgBackRest or WAL-G.
 - The native evidence witness and admission-key backup. Decided custody: a follow-up adds a separate root-only job that writes an encrypted copy. It never uses this spool or the `postgres-backup` sidecar, whose roles must not read Platform storage or keys (see `INCIDENT_RECOVERY_RUNBOOK.md`).
