@@ -21,7 +21,7 @@ checkpoint_version: 1
 updated_at: 2026-10-15T18:35:01Z
 head: 1194d5548760d9d773a1cebb182bc5986a6a42bf
 branch: codex/oracle-arm64-deployment-20261015
-pr: none
+pr: 1640
 status: implementing
 context_routes:
   - deployment
@@ -31,9 +31,10 @@ owned_paths:
 proven:
   - Oracle ARM64 4 OCPU 24 GB RAM 200 GB disk and persistent remote agent
   - Docker 29.1.3 Compose 2.40.3 and buildx 0.30.1 installed
+  - Platform and gateway ARM64 builds passed from immutable source 1194d5548760
 derived: []
 unknown:
-  - ARM64 image build and full-stack qualification results
+  - Game ARM64 image build and full-stack qualification results
 conflicts: []
 first_failure:
   marker: none
@@ -41,6 +42,8 @@ first_failure:
 rejected_hypotheses: []
 changed_paths:
   - deploy/oracle/game.Dockerfile
+  - deploy/oracle/prepare-platform.sh
+  - deploy/oracle/README.md
 validation:
   - command: target docker version and docker compose version
     result: PASS
@@ -55,3 +58,5 @@ source_branch_disposition: pending
 source_branch_reason: task is active
 source_branch_evidence: pending
 ```
+
+Owner explicitly approved temporarily removing only sudo from the Oracle agent blockedCommands for this deployment. Original list is preserved; restore it when deployment work stops. No other agent control is changed.
