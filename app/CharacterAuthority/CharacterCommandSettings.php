@@ -24,9 +24,27 @@ final readonly class CharacterCommandSettings
         public int $requestsPerMinute,
     ) {}
 
+    /** Issuing new commands: only while the command switch itself is on. */
     public static function current(): ?self
     {
-        if (config('character-authority.commands.enabled') !== true || ! app()->environment(['testing', 'preproduction'])) {
+        return config('character-authority.commands.enabled') === true ? self::configured() : null;
+    }
+
+    /**
+     * The three Game-initiated exchange routes. They also stay open while issuance is off but Game
+     * restore notices are on, so Game can still answer every intent a restore reopened or that was
+     * PENDING when issuance was turned off; nothing new is issued through them (§5.4).
+     */
+    public static function exchange(): ?self
+    {
+        return config('character-authority.commands.enabled') === true || config('character-authority.restore.enabled') === true
+            ? self::configured()
+            : null;
+    }
+
+    private static function configured(): ?self
+    {
+        if (! app()->environment(['testing', 'preproduction'])) {
             return null;
         }
 

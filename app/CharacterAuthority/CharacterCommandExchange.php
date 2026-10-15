@@ -153,15 +153,14 @@ final class CharacterCommandExchange
     }
 
     /**
-     * A generation strictly between a recorded notice's restored and new generation was decided
-     * after that restore's snapshot and before the restore: Game no longer holds it, so it can
-     * answer no operation. A decision within the restored generation itself may predate the
-     * snapshot and stays acceptable (§5.4).
+     * A receipt below the latest recorded notice's new generation was decided before that restore,
+     * possibly after its snapshot within the restored generation itself, so Game may no longer hold
+     * it: it answers no operation. Game publishes what it still holds again at its current
+     * generation (§5.4). Notice generations only rise, so any higher notice is the latest's bound.
      */
     private function lostToRestore(string $generation): bool
     {
         return DB::table(GameRestoreReconciler::NOTICES)
-            ->where('restored_generation', '<', $generation)
             ->where('new_recovery_generation', '>', $generation)
             ->exists();
     }

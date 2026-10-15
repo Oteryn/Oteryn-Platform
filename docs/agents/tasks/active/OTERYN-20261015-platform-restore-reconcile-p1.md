@@ -23,14 +23,15 @@ Platform side of a Game restore: accept Game's restore notice, reopen as PENDING
 - [x] `POST /internal/v1/game-auth/game-restore/notice` behind a dedicated default-off TLS 1.3 mTLS peer guard with rate limit; disabled answers 503; responses are no-store.
 - [x] Notice wire is exact (400 on malformed, 401 on another source authority, 409 on same event with other bytes or a stale generation, 413 above 512 bytes).
 - [x] Reopen selects by `recovery_generation` ≥ H only; generation < H stays decided; superseded receipt kept with `superseded_at`.
-- [x] Reopened intents are listed and read again under their unchanged operation identity and accepted with one new receipt, including an identical republication.
+- [x] Reopened intents are listed and read again under their unchanged operation identity and accepted with one new receipt at or above the notice's new generation.
 - [x] ACKNOWLEDGED only when every reopened operation has a new receipt; idempotent repeats; a later notice also waits for operations an earlier one left open.
 - [x] COMMITTED → REJECTED reversal raises `character_authority.restore_outcome_reversed`.
 - [x] Platform-restore self-heal (lost receipt) is tested; Platform's acknowledgement time is stated in the contract and was ratified by the owner (review after the first restore drill).
 - [x] Migration rollback is refused while notices exist.
 - [x] Receipt publication and notice recording share one restore lock; a receipt committing during a notice is reopened (PostgreSQL concurrency test).
 - [x] Restore, command and public-projection identities are mutually dedicated.
-- [x] A receipt decided in a generation a later restore lost (strictly between a notice's restored and new generation) is refused with 409 and answers no notice.
+- [x] A receipt below the latest notice's new generation, the restored generation itself included, is refused with 409 and answers no notice; Game republishes held decisions at its current generation.
+- [x] With command issuance disabled and restore notices enabled, Game can still list, read and answer reopened operations; a notice that would reopen operations the exchange cannot serve commits nothing (503).
 - [ ] Exact-head CI passes.
 
 ## Ownership
@@ -40,6 +41,8 @@ owned_paths:
   - app/CharacterAuthority/Restore/**
   - app/CharacterAuthority/CharacterCommandExchange.php
   - app/CharacterAuthority/CharacterCommandSettings.php
+  - app/CharacterAuthority/Http/CharacterCommandController.php
+  - app/CharacterAuthority/Http/GuardCharacterCommandPeer.php
   - app/GameProjections/PublicProjectionSettings.php
   - config/character-authority.php
   - routes/internal.php
@@ -77,6 +80,8 @@ owned_paths:
   - app/CharacterAuthority/Restore/**
   - app/CharacterAuthority/CharacterCommandExchange.php
   - app/CharacterAuthority/CharacterCommandSettings.php
+  - app/CharacterAuthority/Http/CharacterCommandController.php
+  - app/CharacterAuthority/Http/GuardCharacterCommandPeer.php
   - app/GameProjections/PublicProjectionSettings.php
   - config/character-authority.php
   - routes/internal.php
@@ -92,7 +97,8 @@ proven:
   - The intent/receipt store from #1532 already keeps receipt history (`superseded_at`) and stores `recovery_generation` zero-padded to 20 characters, so selection by generation is a text comparison.
   - Receipts have no unique constraint per operation, so one new receipt per reopened operation fits the existing table.
   - Platform never calls Game; every exchange is a Game-initiated mTLS POST, so the acknowledgement is the answer to a repeated notice.
-  - A receipt whose generation lies strictly between a recorded notice's restored and new generation was decided after that snapshot and before that restore, so Game no longer holds it; without a fence it answered every open reopen row (Codex P1 on #1629). Receipts in such an interval are refused with 409; a decision within the restored generation itself may predate the snapshot and stays acceptable.
+  - A receipt below a recorded notice's new generation was decided before that restore, possibly after its snapshot within the restored generation, so Game may no longer hold it; without a fence it answered open reopen rows (Codex P1s on #1629 and #1630). Such receipts are refused with 409 and Game republishes held decisions at its current generation.
+  - With commands.enabled off, the command routes answered 503, so a notice could reopen intents Game could never answer (Codex P1 on #1629); the exchange now also opens while restore notices are enabled, and issuance stays gated on commands.enabled.
   - Without a shared lock, a receipt still uncommitted when a notice selects is missed and the notice can be acknowledged with a stale outcome (Codex P1 on #1627); the one-row `character_restore_locks` lock (shared for receipts, exclusive for notices) closes it, as `native_assignment_epoch_locks` does for runtime status.
 derived:
   - The owner ratified the acknowledgement bound (no Platform wait; outage bounded by the provisional 4 h Platform RTO) on 2026-10-15, for review after the first restore drill (Oteryn/Oteryn-Game#1622 comment 6187301378 item 11).
@@ -109,9 +115,9 @@ first_failure:
 rejected_hypotheses:
   - Cross-database transaction or Platform calling Game; the contracts forbid both, so reconciliation runs through the unchanged command routes.
   - Selecting reopened intents by time, `decided_at` or the restore point; ruling 10 selects by generation only.
-  - Refusing a new receipt equal to the superseded bytes; Game may still hold a decision made before the snapshot within generation H.
   - Gating the restore route on character-authority.commands.enabled; that would leave Game admission closed after a restore on stacks without commands.
-  - Fencing on receipt generation ≥ the notice's new generation; it would refuse a decision Game still holds from before the snapshot within the restored generation.
+  - Accepting receipts within the restored generation H (only the interval strictly between H and the new generation fenced); generation H does not separate pre-snapshot from post-snapshot decisions (Codex P1 on #1630).
+  - Opening the command exchange without any switch while commands are disabled; it would expose the routes on stacks that use neither commands nor restore notices.
   - Relying on Game's ops lock alone to keep notices and receipts apart; a pre-restore receipt can still be in flight.
 changed_paths:
   - app/CharacterAuthority/Restore/GameRestoreNotice.php
@@ -122,6 +128,8 @@ changed_paths:
   - app/CharacterAuthority/Restore/Http/GuardGameRestoreNoticePeer.php
   - app/CharacterAuthority/CharacterCommandExchange.php
   - app/CharacterAuthority/CharacterCommandSettings.php
+  - app/CharacterAuthority/Http/CharacterCommandController.php
+  - app/CharacterAuthority/Http/GuardCharacterCommandPeer.php
   - app/GameProjections/PublicProjectionSettings.php
   - config/character-authority.php
   - routes/internal.php
@@ -143,7 +151,7 @@ validation:
     evidence: same sandbox limitation; CI runs them
 blockers:
   - none
-next_action: Split from #1627 after the round limit; the contract docs are in #1630. Round 1 adds the restore-generation fence; drive #1629 to green CI with no P1, enable squash auto-merge, then report to CP.
+next_action: Split from #1627 after the round limit; the contract docs are in #1630. Round 2 (last) adopts the strict generation fence and keeps the exchange usable for reconciliation with commands disabled; drive #1629 to green CI with no P1 and enable squash auto-merge; on a new P1 close and split.
 terminal_pr_policy: archive_pending
 ```
 

@@ -4,6 +4,7 @@ namespace App\CharacterAuthority\Restore;
 
 use App\CharacterAuthority\CharacterCommandIntentRow;
 use App\CharacterAuthority\CharacterCommandRefused;
+use App\CharacterAuthority\CharacterCommandSettings;
 use App\CharacterAuthority\CharacterCommandStoredReceipt;
 use App\CharacterAuthority\CharacterCommandUnavailable;
 use App\CharacterAuthority\CharacterCommandWire;
@@ -118,6 +119,12 @@ final class GameRestoreReconciler
 
             // No receipt commits while the restore lock is held, so both selections see one state.
             $reopened = $this->carryOpen($noticeId, $restored, $now) + $this->reopenTerminal($noticeId, $restored, $now);
+            if ($reopened > 0 && CharacterCommandSettings::exchange() === null) {
+                // Game could not list or answer what this notice reopens: commit nothing, Game retries.
+                $this->alarm('character_authority.restore_notice_exchange_unavailable', $notice);
+
+                throw new CharacterCommandUnavailable('Character command exchange is unavailable for reopened operations.');
+            }
             DB::table(self::NOTICES)->where('id', $noticeId)->update(['reopened_count' => $reopened]);
 
             Log::warning('character_authority.restore_notice_recorded', [

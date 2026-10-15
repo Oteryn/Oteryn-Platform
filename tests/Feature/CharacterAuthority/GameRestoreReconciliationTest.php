@@ -4,6 +4,7 @@ namespace Tests\Feature\CharacterAuthority;
 
 use App\CharacterAuthority\CharacterCommandClient;
 use App\CharacterAuthority\CharacterCommandState;
+use App\CharacterAuthority\CharacterCommandUnavailable;
 use App\CharacterAuthority\CharacterCommandWire;
 use App\CharacterAuthority\Restore\GameRestoreNoticeWire;
 use App\GameProjections\PublicProjectionSettings;
@@ -141,7 +142,7 @@ final class GameRestoreReconciliationTest extends TestCase
         self::assertSame([$status->operationId], $reversed->getArrayCopy());
     }
 
-    public function test_restored_game_may_republish_the_same_decision_as_the_new_receipt(): void
+    public function test_restored_game_republishes_a_held_decision_at_its_new_generation(): void
     {
         $this->enableCommands();
         $this->enableRestore();
@@ -150,11 +151,60 @@ final class GameRestoreReconciliationTest extends TestCase
         $this->publish($receipt)->assertOk();
         $this->notice($this->noticeBody(self::EVENT, '3', '4'))->assertOk();
 
-        // The decision predates the snapshot within generation 3, so Game still holds it.
-        $this->publish($receipt)->assertOk();
+        // A generation-3 receipt may be a decision from after the snapshot within generation 3.
+        $this->publish($receipt)->assertStatus(409);
+        $this->publish($this->rejected($status->operationId, '3'))->assertStatus(409);
+        self::assertSame(1, DB::table('character_command_receipts')->count());
+        self::assertStringContainsString('"RECONCILING"', (string) $this->notice($this->noticeBody(self::EVENT, '3', '4'))->getContent());
+
+        // Game still holds the decision and publishes it again at its current generation.
+        $this->publish($this->committedCreate($status->operationId, '4'))->assertOk();
         self::assertSame(2, DB::table('character_command_receipts')->count());
         self::assertSame(CharacterCommandState::Committed, $this->client()->status($status->operationId)?->state);
         self::assertStringContainsString('"ACKNOWLEDGED"', (string) $this->notice($this->noticeBody(self::EVENT, '3', '4'))->getContent());
+    }
+
+    public function test_reopened_operations_are_answered_while_command_issuance_is_disabled(): void
+    {
+        $this->enableCommands();
+        $this->enableRestore();
+        $status = $this->client()->requestCreate('submit-1', self::ACCOUNT, self::WORLD, 'Aldric');
+        $this->publish($this->committedCreate($status->operationId, '3'))->assertOk();
+        config(['character-authority.commands.enabled' => false]);
+
+        $reconciling = $this->notice($this->noticeBody(self::EVENT, '3', '4'));
+        self::assertSame(
+            '{"contract_version":1,"restore_event_id":"'.self::EVENT.'","status":"RECONCILING","reopened":1,"outstanding":1}',
+            $reconciling->getContent(),
+        );
+
+        // Issuance stays off, but Game can still list, read and answer the reopened operation.
+        $this->assertThrows(
+            fn () => $this->client()->requestCreate('submit-2', self::ACCOUNT, self::WORLD, 'Brannoc'),
+            CharacterCommandUnavailable::class,
+        );
+        self::assertStringContainsString($status->operationId, (string) $this->exchange(CharacterCommandWire::LIST_PATH, $this->listRequest())->getContent());
+        $this->publish($this->rejected($status->operationId, '4', 'CHAR_CMD_NAME_UNAVAILABLE'))->assertOk();
+        self::assertStringContainsString('"ACKNOWLEDGED"', (string) $this->notice($this->noticeBody(self::EVENT, '3', '4'))->getContent());
+
+        // With restore notices off as well, the exchange is closed again.
+        config(['character-authority.restore.enabled' => false]);
+        $this->exchange(CharacterCommandWire::LIST_PATH, $this->listRequest())->assertStatus(503);
+    }
+
+    public function test_notice_that_would_reopen_an_unreachable_operation_commits_nothing(): void
+    {
+        $this->enableCommands();
+        $this->enableRestore();
+        $status = $this->client()->requestCreate('submit-1', self::ACCOUNT, self::WORLD, 'Aldric');
+        $this->publish($this->committedCreate($status->operationId, '3'))->assertOk();
+        // The command exchange is misconfigured, so Game could not answer a reopened operation.
+        config(['character-authority.commands.enabled' => false, 'character-authority.commands.identities' => null]);
+
+        $this->notice($this->noticeBody(self::EVENT, '3', '4'))->assertStatus(503);
+        self::assertSame(0, DB::table('character_restore_notices')->count());
+        self::assertSame(0, DB::table('character_restore_reopens')->count());
+        self::assertSame(CharacterCommandState::Committed, $this->client()->status($status->operationId)?->state);
     }
 
     public function test_notice_without_affected_operations_is_acknowledged_at_once_even_with_commands_disabled(): void
