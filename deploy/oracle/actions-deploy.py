@@ -27,11 +27,11 @@ def parse(component, command):
     if component not in REPOS:
         raise ValueError('unknown component')
     if command == 'status':
-        return 'status', None
-    match = re.fullmatch(r'deploy (' + SHA + ')', command)
+        return 'status', None, None, None
+    match = re.fullmatch(r'deploy (' + SHA + r') ([1-9][0-9]{0,19}) ([1-9][0-9]{0,5})', command)
     if not match:
         raise ValueError('only status or deploy <full protected-main SHA> is allowed')
-    return 'deploy', match[1]
+    return 'deploy', match[1], int(match[2]), int(match[3])
 
 
 def run(args, *, output=False, env=None, cwd=None, timeout=1800):
@@ -61,6 +61,24 @@ def qualify(component, sha):
                and c['app']['slug'] == 'github-actions']
     if not matches or max(matches, key=lambda c: c['id'])['conclusion'] != 'success':
         raise ValueError('protected-main aggregate gate has not passed')
+
+
+def qualify_workflow(component, sha, run_id, attempt):
+    repo = REPOS[component]
+    workflow = api(repo + '/actions/runs/' + str(run_id))
+    expected = {'head_sha': sha, 'head_branch': 'main', 'event': 'workflow_dispatch',
+                'path': '.github/workflows/oracle-operations.yml', 'status': 'in_progress',
+                'run_attempt': attempt, 'display_title': 'Oracle deploy ' + sha}
+    if any(workflow.get(key) != value for key, value in expected.items()):
+        raise ValueError('deployment requires its exact active protected workflow request')
+    if workflow['repository']['full_name'] != 'Oteryn/' + repo or workflow['head_repository']['full_name'] != 'Oteryn/' + repo:
+        raise ValueError('workflow repository differs')
+    jobs = api(repo + '/actions/runs/' + str(run_id) + '/attempts/' + str(attempt) + '/jobs')['jobs']
+    # A job is in progress on this runner only after GitHub's deployment
+    # environment protections have released it. Status jobs cannot authorize deploy.
+    if not any(job['name'] == 'operate' and job['status'] == 'in_progress'
+               and job.get('runner_name') == 'oteryn-oracle-' + component for job in jobs):
+        raise ValueError('protected operation is not running on its bound runner')
 
 
 def source(component, sha):
@@ -122,7 +140,7 @@ def status(component):
     print(component + '_ready=true', flush=True)
 
 
-def platform_deploy(directory, sha):
+def platform_deploy(directory, sha, run_id, attempt):
     image = 'oteryn-platform:' + sha + '-arm64'
     gateway = 'oteryn-gateway:' + sha + '-arm64'
     for name, dockerfile in [(image, 'platform'), (gateway, 'gateway')]:
@@ -133,6 +151,7 @@ def platform_deploy(directory, sha):
         if inspect_image(name)['Architecture'] != 'arm64':
             raise ValueError('image architecture differs')
     qualify('platform', sha)
+    qualify_workflow('platform', sha, run_id, attempt)
     # Preserve every private setting; change only immutable image identities.
     path = ROOT / 'platform.env'
     before = path.read_text()
@@ -165,7 +184,7 @@ def inspect_image(image):
     return json.loads(run(['docker', 'image', 'inspect', image], output=True))[0]
 
 
-def game_deploy(directory, sha):
+def game_deploy(directory, sha, run_id, attempt):
     image = 'oteryn-game:' + sha + '-arm64'
     run(['docker', 'build', '--build-arg', 'GAME_SOURCE_SHA=' + sha,
          '-f', str(ROOT / 'game.Dockerfile'), '-t', image, str(directory)], timeout=7200)
@@ -173,6 +192,7 @@ def game_deploy(directory, sha):
     if info['Architecture'] != 'arm64' or info['Config']['Labels']['org.opencontainers.image.revision'] != sha:
         raise ValueError('Game image provenance differs')
     qualify('game', sha)
+    qualify_workflow('game', sha, run_id, attempt)
     status('game')
     override = STATE / (sha + '-game-migrate.json')
     atomic(override, json.dumps({'services': {'migrate': {'image': image}}}))
@@ -196,7 +216,7 @@ def main():
     if os.geteuid() != 0:
         raise ValueError('host root required')
     component = sys.argv[1] if len(sys.argv) == 2 else ''
-    action, sha = parse(component, os.environ.get('SSH_ORIGINAL_COMMAND', ''))
+    action, sha, run_id, attempt = parse(component, os.environ.get('SSH_ORIGINAL_COMMAND', ''))
     STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
     with (STATE / 'deployment.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -206,13 +226,14 @@ def main():
                 status(component)
                 return
             qualify(component, sha)
+            qualify_workflow(component, sha, run_id, attempt)
             directory = source(component, sha)
             # Recheck after a long build/source transfer before accepting effects.
             qualify(component, sha)
             if component == 'platform':
-                platform_deploy(directory, sha)
+                platform_deploy(directory, sha, run_id, attempt)
             else:
-                game_deploy(directory, sha)
+                game_deploy(directory, sha, run_id, attempt)
             for _ in range(90):
                 try:
                     status(component)

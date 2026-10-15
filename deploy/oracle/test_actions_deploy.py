@@ -41,6 +41,27 @@ class AuthorityBoundary(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'incarnation'):
                 deploy.status('game')
 
+    def test_key_cannot_bypass_workflow_or_environment_release(self):
+        sha = 'a' * 40
+        workflow = {'head_sha': sha, 'head_branch': 'main', 'event': 'workflow_dispatch',
+                    'path': '.github/workflows/oracle-operations.yml', 'status': 'in_progress',
+                    'run_attempt': 1, 'display_title': 'Oracle deploy ' + sha,
+                    'repository': {'full_name': 'Oteryn/Oteryn-Game'},
+                    'head_repository': {'full_name': 'Oteryn/Oteryn-Game'}}
+        job = {'name': 'operate', 'status': 'in_progress', 'runner_name': 'oteryn-oracle-game'}
+        for field, value in [('head_sha', 'b' * 40), ('head_branch', 'other'),
+                             ('event', 'pull_request'), ('path', '.github/workflows/other.yml'),
+                             ('status', 'completed'), ('run_attempt', 2),
+                             ('display_title', 'Oracle status '),
+                             ('head_repository', {'full_name': 'other/repo'})]:
+            with self.subTest(field=field), patch.object(deploy, 'api', return_value=dict(workflow, **{field: value})), self.assertRaises(ValueError):
+                deploy.qualify_workflow('game', sha, 100, 1)
+        for changed_job in [dict(job, status='waiting'), dict(job, runner_name='other')]:
+            with patch.object(deploy, 'api', side_effect=[workflow, {'jobs': [changed_job]}]), self.assertRaises(ValueError):
+                deploy.qualify_workflow('game', sha, 100, 1)
+        with patch.object(deploy, 'api', side_effect=[workflow, {'jobs': [job]}]):
+            deploy.qualify_workflow('game', sha, 100, 1)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -38,12 +38,13 @@ checkpoint_version: 1
 updated_at: 2026-10-15T22:00:00Z
 head: 0628d229a53bf54d2d978a98b81204753ac1bf79
 branch: codex/oracle-actions-runners-20261015
-pr: none
-status: implementing
+pr: 1644
+status: validating
 context_routes:
   - deployment
 owned_paths:
   - deploy/oracle/**
+  - docs/agents/tasks/archive/OTERYN-20261015-*
   - .github/workflows/oracle-operations.yml
   - docs/agents/tasks/active/OTERYN-20261015-oracle-actions-runners.md
 proven:
@@ -60,9 +61,12 @@ first_failure:
 rejected_hypotheses: []
 changed_paths: []
 validation:
-  - command: not-run
-    result: NOT_RUN
-    evidence: candidate under authoring
+  - command: python3 deploy/oracle/test_actions_deploy.py
+    result: PASS
+    evidence: four focused authority-boundary tests
+  - command: python3 deploy/oracle/test_game_supervisor.py
+    result: PASS
+    evidence: six retained custody and reconciliation tests
 blockers: []
 next_action: qualify bounded deployment adapter and publish coherent candidate
 ```
@@ -74,3 +78,9 @@ source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository delivery
 source_branch_evidence: verify after protected integration
 ```
+
+The component key additionally requires its exact active protected-main workflow
+run/attempt, deployment title/source SHA and expected in-progress runner job. This
+preserves the existing environment-release gate; a status run cannot authorize
+deployment. The owner approved one required independent Platform Codex review
+for PR #1644 in this chat. Game review uses its standing repository grant.
