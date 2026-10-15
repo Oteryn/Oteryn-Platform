@@ -24,7 +24,7 @@ Platform side of a Game restore: accept Game's restore notice, reopen as PENDING
 - [x] Notice wire is exact (400 on malformed, 401 on another source authority, 409 on same event with other bytes or a stale generation, 413 above 512 bytes).
 - [x] Reopen selects by `recovery_generation` ≥ H only; generation < H stays decided; superseded receipt kept with `superseded_at`.
 - [x] Reopened intents are listed and read again under their unchanged operation identity and accepted with one new receipt at or above the notice's new generation.
-- [x] ACKNOWLEDGED only when every reopened operation has a new receipt; idempotent repeats; a later notice also waits for operations an earlier one left open.
+- [x] ACKNOWLEDGED only when every reopened operation has a new receipt; idempotent repeats; a later notice also waits for every operation an earlier one left open, whatever the generation of its superseded receipt (chained restores, 3 and 4 notices, tested on SQLite and PostgreSQL).
 - [x] COMMITTED → REJECTED reversal raises `character_authority.restore_outcome_reversed`.
 - [x] Platform-restore self-heal (lost receipt) is tested; Platform's acknowledgement time is stated in the contract and was ratified by the owner (review after the first restore drill).
 - [x] Migration rollback is refused while notices exist.
@@ -69,10 +69,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-15T08:00:00Z
-head: 2184dfae996884f018f9073b1fba00743c5ba164
-branch: claude/platform-restore-reconcile-p1-code
-pr: 1629
+updated_at: 2026-10-15T16:00:00Z
+head: 129cc08e31e9a7788e774df92e8734e982d2da39
+branch: claude/platform-restore-reconcile-p1b
+pr: 1634
 status: validating
 context_routes:
   - game-auth
@@ -99,6 +99,7 @@ proven:
   - Platform never calls Game; every exchange is a Game-initiated mTLS POST, so the acknowledgement is the answer to a repeated notice.
   - A receipt below a recorded notice's new generation was decided before that restore, possibly after its snapshot within the restored generation, so Game may no longer hold it; without a fence it answered open reopen rows (Codex P1s on #1629 and #1630). Such receipts are refused with 409 and Game republishes held decisions at its current generation.
   - With commands.enabled off, the command routes answered 503, so a notice could reopen intents Game could never answer (Codex P1 on #1629); the exchange now also opens while restore notices are enabled, and issuance stays gated on commands.enabled.
+  - Carrying only open reopens whose superseded receipt has generation ≥ H acknowledged the newest notice early in a chain (H3→4 reopens a generation-3 receipt, H2→5 carries it, H5→6 dropped it as 3 < 5 although the H2 restore had already lost that decision; Codex P1 4281054235 on #1629). Every open reopen is now carried into each later notice, and the one new receipt, fenced at or above the latest notice's new generation, answers all of them.
   - Without a shared lock, a receipt still uncommitted when a notice selects is missed and the notice can be acknowledged with a stale outcome (Codex P1 on #1627); the one-row `character_restore_locks` lock (shared for receipts, exclusive for notices) closes it, as `native_assignment_epoch_locks` does for runtime status.
 derived:
   - The owner ratified the acknowledgement bound (no Platform wait; outage bounded by the provisional 4 h Platform RTO) on 2026-10-15, for review after the first restore drill (Oteryn/Oteryn-Game#1622 comment 6187301378 item 11).
@@ -107,7 +108,7 @@ derived:
   - Automated compensation of a reversed outcome is deferred to the first settling consumer; until then the reversal raises an alarm.
   - A4 (delivery reconciliation by generation) is recorded as accepted for the future delivery implementation; Platform has no delivery code yet.
 unknown:
-  - PHP suite, PHPStan and Pint results; composer cannot download packages in the authoring sandbox, so CI is the first run.
+  - Exact-head CI result of the split PR.
 conflicts: []
 first_failure:
   marker: none
@@ -119,6 +120,7 @@ rejected_hypotheses:
   - Accepting receipts within the restored generation H (only the interval strictly between H and the new generation fenced); generation H does not separate pre-snapshot from post-snapshot decisions (Codex P1 on #1630).
   - Opening the command exchange without any switch while commands are disabled; it would expose the routes on stacks that use neither commands nor restore notices.
   - Relying on Game's ops lock alone to keep notices and receipts apart; a pre-restore receipt can still be in flight.
+  - Re-evaluating an open reopen against each later notice's H by its superseded receipt's generation; an earlier restore already lost that decision, so it is carried whatever its generation (Codex P1 4281054235 on #1629).
 changed_paths:
   - app/CharacterAuthority/Restore/GameRestoreNotice.php
   - app/CharacterAuthority/Restore/GameRestoreNoticeSettings.php
@@ -143,12 +145,15 @@ validation:
   - command: php -l on changed PHP files
     result: PASS
     evidence: no syntax errors
-  - command: php artisan test tests/Feature/CharacterAuthority
-    result: NOT_RUN
-    evidence: vendor cannot be installed in the authoring sandbox (GitHub dist downloads refused); runs on the exact head in CI
+  - command: vendor/bin/phpunit tests/Feature/CharacterAuthority (SQLite)
+    result: PASS
+    evidence: 31 tests, 1 PostgreSQL-only skip; the two chained-restore tests fail without the carry fix
+  - command: vendor/bin/phpunit -c phpunit.pgsql.xml tests/Feature/CharacterAuthority (PostgreSQL 16, PGSQL_INTEGRATION_HOST set)
+    result: PASS
+    evidence: 32 tests including both forked restore-lock concurrency tests
   - command: vendor/bin/phpstan and vendor/bin/pint --test
-    result: NOT_RUN
-    evidence: same sandbox limitation; CI runs them
+    result: PASS
+    evidence: run locally on the split branch
 blockers:
   - none
 next_action: Split from #1627 after the round limit; the contract docs are in #1631, which replaces the closed #1630. Round 2 (last) adopts the strict generation fence and keeps the exchange usable for reconciliation with commands disabled; drive #1629 to green CI with no new P1 and hand it to the owner for squash landing; on a new P1 close and split. Once #1629 has landed, archive this record with the landing SHA and source-branch closeout.

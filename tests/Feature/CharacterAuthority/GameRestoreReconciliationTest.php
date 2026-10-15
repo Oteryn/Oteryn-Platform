@@ -40,6 +40,10 @@ final class GameRestoreReconciliationTest extends TestCase
 
     private const SECOND_EVENT = '01934f10-7c06-7001-805b-3b1122334401';
 
+    private const THIRD_EVENT = '01934f10-7c07-7001-805b-3b1122334401';
+
+    private const FOURTH_EVENT = '01934f10-7c08-7001-805b-3b1122334401';
+
     private const NIL = '00000000-0000-0000-0000-000000000000';
 
     protected function setUp(): void
@@ -242,6 +246,88 @@ final class GameRestoreReconciliationTest extends TestCase
         $this->publish($this->rejected($second->operationId, '5', 'CHAR_CMD_NAME_UNAVAILABLE'))->assertOk();
         self::assertStringContainsString('"ACKNOWLEDGED"', (string) $this->notice($this->noticeBody(self::SECOND_EVENT, '2', '5'))->getContent());
         self::assertStringContainsString('"ACKNOWLEDGED"', (string) $this->notice($this->noticeBody(self::EVENT, '3', '4'))->getContent());
+    }
+
+    public function test_every_open_reopen_is_carried_through_chained_restores_whatever_its_generation(): void
+    {
+        $this->enableCommands();
+        $this->enableRestore();
+        $status = $this->client()->requestCreate('submit-1', self::ACCOUNT, self::WORLD, 'Aldric');
+        $this->publish($this->committedCreate($status->operationId, '3'))->assertOk();
+
+        // H3→4 reopens the generation-3 receipt; H2→5 carries it; H5→6 must carry it too, although
+        // the superseded receipt (3) lies below 5: the H2 restore already lost that decision.
+        $this->notice($this->noticeBody(self::EVENT, '3', '4'))->assertOk();
+        $this->notice($this->noticeBody(self::SECOND_EVENT, '2', '5'))->assertOk();
+        $third = $this->notice($this->noticeBody(self::THIRD_EVENT, '5', '6'));
+        self::assertSame(
+            '{"contract_version":1,"restore_event_id":"'.self::THIRD_EVENT.'","status":"RECONCILING","reopened":1,"outstanding":1}',
+            $third->getContent(),
+        );
+        // Each notice holds its own row for the one operation, all naming the first superseded receipt.
+        self::assertSame(3, DB::table('character_restore_reopens')->whereNull('new_receipt_id')->count());
+        self::assertSame(1, DB::table('character_restore_reopens')->distinct()->count('superseded_receipt_id'));
+
+        // An answer from a generation the newest restore lost answers nothing; the newest stays open.
+        $this->publish($this->rejected($status->operationId, '5'))->assertStatus(409);
+        self::assertStringContainsString('"RECONCILING"', (string) $this->notice($this->noticeBody(self::THIRD_EVENT, '5', '6'))->getContent());
+        self::assertNull(DB::table('character_restore_notices')->where('restore_event_id', self::THIRD_EVENT)->value('acknowledged_at'));
+
+        // One new receipt at the newest generation answers every notice that carried the operation.
+        $this->publish($this->rejected($status->operationId, '6', 'CHAR_CMD_NAME_UNAVAILABLE'))->assertOk();
+        self::assertSame(0, DB::table('character_restore_reopens')->whereNull('new_receipt_id')->count());
+        foreach ([[self::THIRD_EVENT, '5', '6'], [self::SECOND_EVENT, '2', '5'], [self::EVENT, '3', '4']] as [$event, $restored, $new]) {
+            self::assertSame(
+                '{"contract_version":1,"restore_event_id":"'.$event.'","status":"ACKNOWLEDGED","reopened":1,"outstanding":0}',
+                $this->notice($this->noticeBody($event, $restored, $new))->getContent(),
+            );
+        }
+        self::assertSame(0, DB::table('character_restore_notices')->whereNull('acknowledged_at')->count());
+    }
+
+    public function test_a_chained_restore_waits_for_every_open_reopen_and_reopens_what_was_answered_since(): void
+    {
+        $this->enableCommands();
+        $this->enableRestore();
+        $carried = $this->client()->requestCreate('submit-1', self::ACCOUNT, self::WORLD, 'Aldric');
+        $answered = $this->client()->requestCreate('submit-2', self::ACCOUNT, self::WORLD, 'Brannoc');
+        $kept = $this->client()->requestCreate('submit-3', self::ACCOUNT, self::WORLD, 'Cedric');
+        $this->publish($this->committedCreate($carried->operationId, '3'))->assertOk();
+        $this->publish($this->committedCreate($answered->operationId, '3', 'Brannoc'))->assertOk();
+        $this->publish($this->rejected($kept->operationId, '2'))->assertOk();
+
+        $this->notice($this->noticeBody(self::EVENT, '3', '4'))->assertOk();
+        // Only one of the two reopened operations is answered before the next restore.
+        $this->publish($this->rejected($answered->operationId, '4'))->assertOk();
+        self::assertSame(
+            '{"contract_version":1,"restore_event_id":"'.self::SECOND_EVENT.'","status":"RECONCILING","reopened":2,"outstanding":2}',
+            $this->notice($this->noticeBody(self::SECOND_EVENT, '4', '5'))->getContent(),
+        );
+        // A third restore above every superseded receipt (3 and 4) still carries both open operations.
+        self::assertSame(
+            '{"contract_version":1,"restore_event_id":"'.self::THIRD_EVENT.'","status":"RECONCILING","reopened":2,"outstanding":2}',
+            $this->notice($this->noticeBody(self::THIRD_EVENT, '5', '6'))->getContent(),
+        );
+        $this->publish($this->rejected($answered->operationId, '6'))->assertOk();
+        self::assertStringContainsString('"outstanding":1}', (string) $this->notice($this->noticeBody(self::THIRD_EVENT, '5', '6'))->getContent());
+        // A fourth restore, before the last open operation is answered, carries it and reopens the
+        // receipt answered since; the generation-2 decision stays settled through every restore.
+        self::assertSame(
+            '{"contract_version":1,"restore_event_id":"'.self::FOURTH_EVENT.'","status":"RECONCILING","reopened":2,"outstanding":2}',
+            $this->notice($this->noticeBody(self::FOURTH_EVENT, '6', '7'))->getContent(),
+        );
+        self::assertSame(CharacterCommandState::Rejected, $this->client()->status($kept->operationId)?->state);
+
+        $this->publish($this->rejected($carried->operationId, '7'))->assertOk();
+        self::assertStringContainsString('"RECONCILING"', (string) $this->notice($this->noticeBody(self::FOURTH_EVENT, '6', '7'))->getContent());
+        foreach ([[self::THIRD_EVENT, '5', '6'], [self::SECOND_EVENT, '4', '5'], [self::EVENT, '3', '4']] as [$event, $restored, $new]) {
+            self::assertStringContainsString('"ACKNOWLEDGED"', (string) $this->notice($this->noticeBody($event, $restored, $new))->getContent());
+        }
+        $this->publish($this->rejected($answered->operationId, '7'))->assertOk();
+        self::assertSame(
+            '{"contract_version":1,"restore_event_id":"'.self::FOURTH_EVENT.'","status":"ACKNOWLEDGED","reopened":2,"outstanding":0}',
+            $this->notice($this->noticeBody(self::FOURTH_EVENT, '6', '7'))->getContent(),
+        );
     }
 
     public function test_a_receipt_decided_in_a_generation_a_later_restore_lost_answers_nothing(): void

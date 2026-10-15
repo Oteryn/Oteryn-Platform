@@ -18,7 +18,9 @@ use Tests\TestCase;
 
 /**
  * A receipt that is still committing when a Game restore notice arrives is never missed: the
- * notice waits on the restore lock, then reopens the receipt it would otherwise not have seen.
+ * notice waits on the restore lock, then reopens the receipt it would otherwise not have seen. In a
+ * chain of restores, an operation is either carried open or reopened from its new receipt, never
+ * dropped, so the newest notice is not acknowledged early.
  * Two real PHP processes against one PostgreSQL database. Skipped unless PGSQL_INTEGRATION_HOST
  * is configured.
  */
@@ -35,6 +37,10 @@ final class GameRestoreReceiptConcurrencyPgsqlTest extends TestCase
     private const WORLD = '01934f10-7c02-7001-805b-3b1122334401';
 
     private const EVENT = '01934f10-7c05-7001-805b-3b1122334401';
+
+    private const SECOND_EVENT = '01934f10-7c06-7001-805b-3b1122334401';
+
+    private const THIRD_EVENT = '01934f10-7c07-7001-805b-3b1122334401';
 
     private PgsqlConcurrencyDatabase $database;
 
@@ -130,6 +136,97 @@ final class GameRestoreReceiptConcurrencyPgsqlTest extends TestCase
         self::assertNull($row->current_receipt_id ?? null);
         self::assertSame(1, DB::table(GameRestoreReconciler::REOPENS)->whereNull('new_receipt_id')->count());
         self::assertSame(1, DB::table(CharacterCommandStoredReceipt::TABLE)->whereNotNull('superseded_at')->count());
+    }
+
+    public function test_a_carried_reopen_answered_while_a_chained_notice_waits_is_reopened_not_dropped(): void
+    {
+        $intent = app(CharacterCommandClient::class)->requestCreate('submit-1', self::ACCOUNT, self::WORLD, 'Aldric');
+        $exchange = app(CharacterCommandExchange::class);
+        $reconciler = app(GameRestoreReconciler::class);
+        $commands = CharacterCommandSettings::current() ?? throw new RuntimeException('Commands are not configured.');
+        $restore = GameRestoreNoticeSettings::current() ?? throw new RuntimeException('Restore notices are not configured.');
+        // H3→4 reopens the generation-3 receipt and H2→5 carries the still open operation.
+        $exchange->receipt($commands, $this->rejectedReceipt($intent->operationId, '3'));
+        $reconciler->notice($restore, $this->noticeJson(self::EVENT, '3', '4'));
+        $reconciler->notice($restore, $this->noticeJson(self::SECOND_EVENT, '2', '5'));
+
+        $receipt = $this->rejectedReceipt($intent->operationId, '5');
+        $notice = $this->noticeJson(self::THIRD_EVENT, '5', '6');
+        $results = ForkedWorkers::run(2, 'pgsql', function (int $worker) use ($receipt, $notice): array {
+            if ($worker === 0) {
+                // The generation-5 answer stays uncommitted while the H5→6 notice arrives.
+                DB::transaction(function () use ($receipt): void {
+                    app(CharacterCommandExchange::class)->receipt(
+                        CharacterCommandSettings::current() ?? throw new RuntimeException('Commands are not configured.'),
+                        $receipt,
+                    );
+                    usleep(1_500_000);
+                });
+
+                return ['outcome' => 'receipt_stored'];
+            }
+
+            usleep(500_000);
+
+            return ['outcome' => 'notice_answered', 'body' => app(GameRestoreReconciler::class)->notice(
+                GameRestoreNoticeSettings::current() ?? throw new RuntimeException('Restore notices are not configured.'),
+                $notice,
+            )];
+        });
+
+        $evidence = json_encode($results, JSON_THROW_ON_ERROR);
+        self::assertSame('receipt_stored', $results[0]['outcome'] ?? null, $evidence);
+        self::assertSame(
+            '{"contract_version":1,"restore_event_id":"'.self::THIRD_EVENT.'","status":"RECONCILING","reopened":1,"outstanding":1}',
+            $results[1]['body'] ?? null,
+            $evidence,
+        );
+
+        // The answer closed both earlier notices; the newest reopened it and waits for generation 6.
+        $row = DB::table(CharacterCommandIntentRow::TABLE)->where('operation_id', $intent->operationId)->first();
+        self::assertNotNull($row);
+        self::assertSame(CharacterCommandIntentRow::PENDING, $row->state ?? null);
+        $open = DB::table(GameRestoreReconciler::REOPENS.' as reopen')
+            ->join(GameRestoreReconciler::NOTICES.' as notice', 'notice.id', '=', 'reopen.notice_id')
+            ->whereNull('reopen.new_receipt_id')
+            ->pluck('notice.restore_event_id')
+            ->all();
+        self::assertSame([self::THIRD_EVENT], $open);
+        self::assertSame(2, DB::table(CharacterCommandStoredReceipt::TABLE)->whereNotNull('superseded_at')->count());
+
+        $exchange->receipt($commands, $this->rejectedReceipt($intent->operationId, '6'));
+        foreach ([[self::THIRD_EVENT, '5', '6'], [self::SECOND_EVENT, '2', '5'], [self::EVENT, '3', '4']] as [$event, $restored, $new]) {
+            self::assertStringContainsString('"ACKNOWLEDGED"', $reconciler->notice($restore, $this->noticeJson($event, $restored, $new)));
+        }
+    }
+
+    private function rejectedReceipt(string $operationId, string $generation): string
+    {
+        return $this->canonical([
+            'contract_version' => 1,
+            'operation' => 'PublishCharacterCommandReceiptV1',
+            'source_authority' => self::SOURCE,
+            'command' => CharacterCommandWire::CREATE,
+            'operation_id' => $operationId,
+            'outcome' => 'REJECTED',
+            'result_code' => 'CHAR_CMD_NAME_UNAVAILABLE',
+            'recovery_generation' => $generation,
+            'decided_at' => '1790000002',
+        ]);
+    }
+
+    private function noticeJson(string $eventId, string $restored, string $new): string
+    {
+        return $this->canonical([
+            'contract_version' => 1,
+            'operation' => 'PublishGameRestoreNoticeV1',
+            'source_authority' => self::SOURCE,
+            'restore_event_id' => $eventId,
+            'restored_generation' => $restored,
+            'new_recovery_generation' => $new,
+            'restore_point' => '1791976000',
+            'backup_label' => 'nas-2026-10-15T11:00Z',
+        ]);
     }
 
     /** @param array<string, int|string> $members */

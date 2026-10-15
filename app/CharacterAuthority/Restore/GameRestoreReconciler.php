@@ -8,7 +8,6 @@ use App\CharacterAuthority\CharacterCommandSettings;
 use App\CharacterAuthority\CharacterCommandStoredReceipt;
 use App\CharacterAuthority\CharacterCommandUnavailable;
 use App\CharacterAuthority\CharacterCommandWire;
-use Illuminate\Database\Query\Builder;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -21,8 +20,10 @@ use stdClass;
  * PENDING every intent whose current receipt carries `recovery_generation` ≥ H: the receipt is kept
  * as superseded history and the intent is listed to Game again under its unchanged operation
  * identity. Selection uses only the Game-issued generation, never a Platform time, `decided_at` or
- * T. Platform acknowledges, by answering ACKNOWLEDGED to the same notice, once every operation the
- * notice reopened has one new receipt. There is no cross-database transaction: Game answers each
+ * T. Every operation an earlier notice reopened that still has no new receipt is carried into the
+ * new notice too, whatever its superseded receipt's generation. Platform acknowledges, by answering
+ * ACKNOWLEDGED to the same notice, once every operation the notice reopened or carried has one new
+ * receipt. There is no cross-database transaction: Game answers each
  * reopened operation from its own restored store through the unchanged command routes.
  */
 final class GameRestoreReconciler
@@ -118,7 +119,7 @@ final class GameRestoreReconciler
             ]);
 
             // No receipt commits while the restore lock is held, so both selections see one state.
-            $reopened = $this->carryOpen($noticeId, $restored, $now) + $this->reopenTerminal($noticeId, $restored, $now);
+            $reopened = $this->carryOpen($noticeId, $now) + $this->reopenTerminal($noticeId, $restored, $now);
             if ($reopened > 0 && CharacterCommandSettings::exchange() === null) {
                 // Game could not list or answer what this notice reopens: commit nothing, Game retries.
                 $this->alarm('character_authority.restore_notice_exchange_unavailable', $notice);
@@ -195,31 +196,35 @@ final class GameRestoreReconciler
     }
 
     /**
-     * An intent an earlier notice reopened that still waits for its new receipt, whose superseded
-     * receipt also has generation ≥ H, is lost to this restore too: this notice waits for it as well.
+     * Every intent an earlier notice reopened that still waits for its new receipt is carried into
+     * this notice, whatever the generation of the receipt it superseded: that decision was already
+     * lost to an earlier restore, and the answer Game may have made since is at or above that
+     * notice's new generation, so this restore can lose it too. This notice waits for the same one
+     * new receipt, which the receipt route accepts only at or above this notice's new generation.
      */
-    private function carryOpen(int $noticeId, string $restored, mixed $now): int
+    private function carryOpen(int $noticeId, mixed $now): int
     {
-        $intentIds = $this->openReopens($noticeId, $restored)->pluck('reopen.intent_id')->unique()->sort()->values();
+        // All open rows of one intent name the receipt its first open reopen superseded.
+        $open = DB::table(self::REOPENS)
+            ->whereNull('new_receipt_id')
+            ->where('notice_id', '!=', $noticeId)
+            ->orderBy('intent_id')
+            ->orderBy('id')
+            ->get(['intent_id', 'superseded_receipt_id'])
+            ->unique('intent_id');
 
         $carried = 0;
-        foreach ($intentIds as $intentId) {
-            // An intent whose earlier reopen was answered is TERMINAL again; reopenTerminal() decides it.
-            $intent = DB::table(CharacterCommandIntentRow::TABLE)->where('id', $intentId)->lockForUpdate()->first();
+        foreach ($open as $reopen) {
+            // The restore lock excludes receipts, so an intent with an open reopen is still PENDING.
+            $intent = DB::table(CharacterCommandIntentRow::TABLE)->where('id', $reopen->intent_id)->lockForUpdate()->first();
             if (! $intent instanceof stdClass || CharacterCommandIntentRow::fromRow($intent)->state !== CharacterCommandIntentRow::PENDING) {
-                continue;
-            }
-            $open = $this->openReopens($noticeId, $restored)
-                ->where('reopen.intent_id', $intentId)
-                ->orderBy('reopen.id')
-                ->first(['reopen.superseded_receipt_id']);
-            if (! $open instanceof stdClass) {
+                // An answered intent is TERMINAL again with its reopens closed; reopenTerminal() decides it.
                 continue;
             }
             DB::table(self::REOPENS)->insert([
                 'notice_id' => $noticeId,
-                'intent_id' => $intentId,
-                'superseded_receipt_id' => $open->superseded_receipt_id,
+                'intent_id' => $reopen->intent_id,
+                'superseded_receipt_id' => $reopen->superseded_receipt_id,
                 'new_receipt_id' => null,
                 'created_at' => $now,
             ]);
@@ -227,16 +232,6 @@ final class GameRestoreReconciler
         }
 
         return $carried;
-    }
-
-    /** Reopen rows of earlier notices still waiting for a new receipt whose superseded receipt has generation ≥ H. */
-    private function openReopens(int $noticeId, string $restored): Builder
-    {
-        return DB::table(self::REOPENS.' as reopen')
-            ->join(CharacterCommandStoredReceipt::TABLE.' as receipt', 'receipt.id', '=', 'reopen.superseded_receipt_id')
-            ->whereNull('reopen.new_receipt_id')
-            ->where('reopen.notice_id', '!=', $noticeId)
-            ->where('receipt.recovery_generation', '>=', $restored);
     }
 
     private function status(stdClass $notice): string
