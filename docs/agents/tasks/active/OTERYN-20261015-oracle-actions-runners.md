@@ -38,7 +38,7 @@ checkpoint_version: 1
 updated_at: 2026-10-15T22:00:00Z
 head: 156c9f73ecef3cf34cd908562508dc5cceb79cce
 branch: codex/fix-oracle-build-source-modes-20261015
-pr: null
+pr: 1647
 status: waiting
 terminal_pr_policy: archive_pending
 context_routes:
