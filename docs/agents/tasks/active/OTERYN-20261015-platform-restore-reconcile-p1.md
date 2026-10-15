@@ -37,6 +37,7 @@ owned_paths:
   - app/CharacterAuthority/Restore/**
   - app/CharacterAuthority/CharacterCommandExchange.php
   - app/CharacterAuthority/CharacterCommandSettings.php
+  - app/GameProjections/PublicProjectionSettings.php
   - config/character-authority.php
   - routes/internal.php
   - database/migrations/2026_10_15_120000_create_character_restore_notices.php
@@ -72,6 +73,7 @@ owned_paths:
   - app/CharacterAuthority/Restore/**
   - app/CharacterAuthority/CharacterCommandExchange.php
   - app/CharacterAuthority/CharacterCommandSettings.php
+  - app/GameProjections/PublicProjectionSettings.php
   - config/character-authority.php
   - routes/internal.php
   - database/migrations/2026_10_15_120000_create_character_restore_notices.php
@@ -87,6 +89,7 @@ proven:
   - Platform never calls Game; every exchange is a Game-initiated mTLS POST, so the acknowledgement is the answer to a repeated notice.
 derived:
   - The owner ratified the acknowledgement bound (no Platform wait; outage bounded by the provisional 4 h Platform RTO) on 2026-10-15, for review after the first restore drill (Oteryn/Oteryn-Game#1622 comment 6187301378 item 11).
+  - Restore, command and public-projection identities are mutually dedicated; any shared subject disables the surfaces involved.
   - The restore surface has its own default-off switch without an environment limit, because Game admission waits on the acknowledgement even where commands are disabled.
   - Automated compensation of a reversed outcome is deferred to the first settling consumer; until then the reversal raises an alarm.
   - A4 (delivery reconciliation by generation) is recorded as accepted for the future delivery implementation; Platform has no delivery code yet.
@@ -110,6 +113,7 @@ changed_paths:
   - app/CharacterAuthority/Restore/Http/GuardGameRestoreNoticePeer.php
   - app/CharacterAuthority/CharacterCommandExchange.php
   - app/CharacterAuthority/CharacterCommandSettings.php
+  - app/GameProjections/PublicProjectionSettings.php
   - config/character-authority.php
   - routes/internal.php
   - database/migrations/2026_10_15_120000_create_character_restore_notices.php

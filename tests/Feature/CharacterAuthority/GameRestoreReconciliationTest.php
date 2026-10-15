@@ -6,6 +6,7 @@ use App\CharacterAuthority\CharacterCommandClient;
 use App\CharacterAuthority\CharacterCommandState;
 use App\CharacterAuthority\CharacterCommandWire;
 use App\CharacterAuthority\Restore\GameRestoreNoticeWire;
+use App\GameProjections\PublicProjectionSettings;
 use ArrayObject;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Log\Events\MessageLogged;
@@ -230,6 +231,16 @@ final class GameRestoreReconciliationTest extends TestCase
         $this->enableRestore(['character-authority.restore.identities' => json_encode([self::COMMAND_PEER])]);
         $this->notice($body, ['SSL_CLIENT_S_DN' => self::COMMAND_PEER])->assertStatus(503);
         $this->exchange(CharacterCommandWire::LIST_PATH, $this->listRequest())->assertStatus(503);
+
+        // So does one shared with the public-projection consumer.
+        $this->enableRestore();
+        config([
+            'game-projections.public.enabled' => true,
+            'game-projections.public.identities' => [self::RESTORE_PEER],
+            'game-projections.public.source_authority' => self::SOURCE,
+        ]);
+        $this->notice($body)->assertStatus(503);
+        self::assertNull(PublicProjectionSettings::current());
     }
 
     public function test_lost_platform_receipt_self_heals_from_the_game_republication(): void

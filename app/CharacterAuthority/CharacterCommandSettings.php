@@ -83,6 +83,7 @@ final readonly class CharacterCommandSettings
             config('game-auth.character_bootstrap_intent.mtls_client_identity'),
             config('products-entitlements.premium_snapshot.mtls_client_identity'),
             ...NativeAccountCharactersSettings::configuredPublisherIdentities(),
+            ...self::listedStrings(config('game-projections.public.identities')),
             ...$extraPurposes,
         ];
         foreach (['native_runtime_status', 'native_scope_assignment'] as $section) {
