@@ -1,6 +1,9 @@
 import importlib.util
 from pathlib import Path
 import unittest
+import json
+import tempfile
+import subprocess
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('oracle_deploy', Path(__file__).with_name('actions-deploy.py'))
@@ -9,6 +12,59 @@ spec.loader.exec_module(deploy)
 
 
 class AuthorityBoundary(unittest.TestCase):
+    def test_platform_rechecks_authority_after_backup_before_disruption(self):
+        sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'platform.env').write_text('PLATFORM_IMAGE=old\nGATEWAY_IMAGE=old\nGATEWAY_VERSION=old\n')
+            calls = []
+            old = {'Image': 'old-id', 'Config': {'Labels': {'com.docker.compose.project.config_files': '/old/deploy/synology/compose.yml'}}}
+            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'inspect', return_value=old), patch.object(deploy, 'inspect_image', return_value={'Architecture': 'arm64', 'Id': 'new-id'}), patch.object(deploy, 'contract', return_value='schema-v1'), patch.object(deploy, 'run', side_effect=lambda args, **kw: calls.append(args)), patch.object(deploy, 'reauthorize', side_effect=[None, ValueError('workflow canceled')]):
+                with self.assertRaisesRegex(ValueError, 'canceled'):
+                    deploy.platform_deploy(root, sha, 100, 1)
+            self.assertTrue(any('dump' in args for args in calls))
+            self.assertFalse(any('stop' in args or 'down' in args for args in calls))
+
+    def test_migration_failure_retains_unknown_schema_and_no_success_record(self):
+        sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state = root / 'actions'
+            state.mkdir()
+            (root / 'platform.env').write_text('PLATFORM_IMAGE=old\nGATEWAY_IMAGE=old\nGATEWAY_VERSION=old\n')
+            old = {'Image': 'old-id', 'Config': {'Labels': {'com.docker.compose.project.config_files': '/old/deploy/synology/compose.yml'}}}
+            def command(args, **kw):
+                if args[:2] == ['bash', '-euc']:
+                    raise subprocess.CalledProcessError(1, args)
+            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'STATE', state), patch.object(deploy, 'inspect', return_value=old), patch.object(deploy, 'inspect_image', return_value={'Architecture': 'arm64', 'Id': 'new-id'}), patch.object(deploy, 'contract', return_value='schema-v1'), patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'reauthorize'):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    deploy.platform_deploy(root, sha, 100, 1)
+                self.assertEqual(json.loads((state / 'platform-pending.json').read_text())['phase'], 'schema_unknown')
+                self.assertFalse((state / 'platform-current.json').exists())
+                with self.assertRaisesRegex(ValueError, 'reconciliation'):
+                    deploy.status('platform')
+
+    def test_game_refuses_migration_while_old_container_is_running(self):
+        sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            controller = root / 'state/game-controller'
+            controller.mkdir(parents=True)
+            (controller / 'current.json').write_text('{"cycle":"old-cycle"}')
+            calls = []
+            image = {'Architecture': 'arm64', 'Id': 'new-id', 'Config': {'Labels': {'org.opencontainers.image.revision': sha}}}
+            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'STATE', root), patch.object(deploy, 'inspect_image', return_value=image), patch.object(deploy, 'inspect', return_value={'State': {'Running': True}}), patch.object(deploy, 'status'), patch.object(deploy, 'atomic'), patch.object(deploy, 'journal'), patch.object(deploy, 'run', side_effect=lambda args, **kw: calls.append(args)), patch.object(deploy, 'reauthorize'):
+                with self.assertRaisesRegex(ValueError, 'still running'):
+                    deploy.game_deploy(root, sha, 100, 1)
+            self.assertFalse(any('migrate' in args for args in calls))
+
+    def test_failed_scheduler_blocks_platform_readiness(self):
+        def container(name):
+            return {'State': {'Running': True, 'Health': {'Status': 'unhealthy' if 'scheduler' in name else 'healthy'}}}
+        with patch.object(deploy, 'run'), patch.object(deploy, 'inspect', side_effect=container):
+            with self.assertRaisesRegex(ValueError, 'scheduler'):
+                deploy.status('platform')
+
     def test_component_cannot_select_another_component_or_general_shell(self):
         for component, command in [('other', 'status'), ('game', 'bash'),
                                    ('game', 'status; id'), ('game', 'deploy ' + 'a' * 40 + ' extra'),
@@ -21,16 +77,16 @@ class AuthorityBoundary(unittest.TestCase):
         good = {'id': 10, 'name': 'game-gate', 'head_sha': sha,
                 'app': {'slug': 'github-actions'}, 'conclusion': 'success'}
         # Change exactly one authority fact per negative case.
-        cases = [({'commit': {'sha': 'b' * 40}}, [good]),
-                 ({'commit': {'sha': sha}}, []),
-                 ({'commit': {'sha': sha}}, [dict(good, head_sha='b' * 40)]),
-                 ({'commit': {'sha': sha}}, [dict(good, app={'slug': 'other'})]),
-                 ({'commit': {'sha': sha}}, [dict(good, conclusion='failure')]),
-                 ({'commit': {'sha': sha}}, [good, dict(good, id=11, conclusion=None)])]
+        cases = [({'protected': False, 'commit': {'sha': sha}}, [good]), ({'protected': True, 'commit': {'sha': 'b' * 40}}, [good]),
+                 ({'protected': True, 'commit': {'sha': sha}}, []),
+                 ({'protected': True, 'commit': {'sha': sha}}, [dict(good, head_sha='b' * 40)]),
+                 ({'protected': True, 'commit': {'sha': sha}}, [dict(good, app={'slug': 'other'})]),
+                 ({'protected': True, 'commit': {'sha': sha}}, [dict(good, conclusion='failure')]),
+                 ({'protected': True, 'commit': {'sha': sha}}, [good, dict(good, id=11, conclusion=None)])]
         for main, checks in cases:
             with self.subTest(main=main, checks=checks), patch.object(deploy, 'api', side_effect=[main, {'check_runs': checks}]), self.assertRaises(ValueError):
                 deploy.qualify('game', sha)
-        with patch.object(deploy, 'api', side_effect=[{'commit': {'sha': sha}}, {'check_runs': [good]}]):
+        with patch.object(deploy, 'api', side_effect=[{'protected': True, 'commit': {'sha': sha}}, {'check_runs': [good]}]):
             deploy.qualify('game', sha)
 
     def test_running_container_must_match_retained_incarnation(self):

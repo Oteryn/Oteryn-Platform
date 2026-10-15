@@ -89,3 +89,13 @@ for PR #1644 in this chat. Game review uses its standing repository grant.
 
 CI repair: explicitly register Oracle Operations and retire the obsolete NAS runner-image
 stager within the existing 54-workflow budget; no budget or gate is weakened.
+
+Review finding 4288835355 accepted: add the negative Docker capability probe
+before SSH, covering custom socket/context and DOCKER_HOST endpoints as well as
+the canonical socket. Apply the same guard to the sibling Platform workflow.
+
+Independent review findings 4288848796/8802/8812/8819/8821 accepted and repaired:
+prove current branch protection, reauthorize after backups, persist durable Oracle
+schema/release journals, refuse migration with a running old Game, and include
+scheduler health plus expected image/incarnation checks. Eight focused authority
+and recovery tests plus the actual workflow endpoint-guard regression pass.

@@ -52,7 +52,8 @@ def api(path):
 
 def qualify(component, sha):
     repo = REPOS[component]
-    if api(repo + '/branches/main')['commit']['sha'] != sha:
+    branch = api(repo + '/branches/main')
+    if branch.get('protected') is not True or branch['commit']['sha'] != sha:
         raise ValueError('source must equal current protected main')
     checks = api(repo + '/commits/' + sha + '/check-runs?per_page=100')['check_runs']
     gate = component + '-gate'
@@ -104,6 +105,44 @@ def atomic(path, data):
         stream.flush()
         os.fsync(stream.fileno())
     os.replace(temporary, path)
+    parent = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(parent)
+    finally:
+        os.close(parent)
+
+
+def reauthorize(component, sha, run_id, attempt):
+    qualify(component, sha)
+    qualify_workflow(component, sha, run_id, attempt)
+
+
+def journal(component, sha, phase, **facts):
+    path = STATE / (component + '-pending.json')
+    previous = json.loads(path.read_text()) if path.exists() else {}
+    if previous and previous['sha'] != sha:
+        raise ValueError('another release requires reconciliation')
+    previous.update(component=component, sha=sha, phase=phase, **facts)
+    atomic(path, json.dumps(previous, sort_keys=True))
+
+
+def contract(directory):
+    values = {}
+    for line in (directory / 'deploy/synology/release-contract.env').read_text().splitlines():
+        if line and not line.startswith('#'):
+            key, value = line.split('=', 1)
+            values[key] = value
+    schema = values.get('OTERYN_SCHEMA_COMPATIBILITY_ID', '')
+    accepts = values.get('OTERYN_APP_ACCEPTS_SCHEMA_IDS', '').split(',')
+    if (values.get('OTERYN_MIGRATION_POLICY') != 'expand-contract'
+            or values.get('PLATFORM_DB_ENGINE') != 'postgres'
+            or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}', schema)
+            or schema not in accepts):
+        raise ValueError('invalid Platform schema contract')
+    current = STATE / 'platform-current.json'
+    if current.exists() and json.loads(current.read_text())['schema'] not in accepts:
+        raise ValueError('new application does not accept the retained current schema')
+    return schema
 
 
 def compose(source_dir):
@@ -118,7 +157,9 @@ def inspect(name):
     return json.loads(run(['docker', 'inspect', name], output=True))[0]
 
 
-def status(component):
+def status(component, *, allow_pending=False):
+    if not allow_pending and (STATE / (component + '-pending.json')).exists():
+        raise ValueError('release requires reconciliation')
     if component == 'game':
         state = json.loads((ROOT / 'state/game-controller/current.json').read_text())
         if (ROOT / 'state/game-controller/reconciliation-required').exists() or state['phase'] != 'ready':
@@ -127,7 +168,8 @@ def status(component):
         names = ['oteryn-oracle-runtime-game-1', 'oteryn-oracle-game-postgres-1']
     else:
         names = ['oteryn-oracle-platform-1', 'oteryn-oracle-gateway-1',
-                 'oteryn-oracle-postgres-1', 'oteryn-oracle-postgres-backup-1']
+                 'oteryn-oracle-marketplace-scheduler-1', 'oteryn-oracle-postgres-1',
+                 'oteryn-oracle-postgres-backup-1']
         for url in ['https://oteryn.com/login', 'https://gateway.oteryn.com/ready']:
             run(['curl', '--fail', '--silent', '--show-error', '--max-time', '20', '-o', '/dev/null', url])
     for name in names:
@@ -150,8 +192,8 @@ def platform_deploy(directory, sha, run_id, attempt):
              '-t', name, '.'], cwd=directory)
         if inspect_image(name)['Architecture'] != 'arm64':
             raise ValueError('image architecture differs')
-    qualify('platform', sha)
-    qualify_workflow('platform', sha, run_id, attempt)
+    reauthorize('platform', sha, run_id, attempt)
+    schema = contract(directory)
     # Preserve every private setting; change only immutable image identities.
     path = ROOT / 'platform.env'
     before = path.read_text()
@@ -161,8 +203,12 @@ def platform_deploy(directory, sha, run_id, attempt):
     current = compose(directory)
     env = dict(os.environ, OTERYN_ENV_FILE=str(path))
     run(['bash', str(old_source / 'deploy/synology/scripts/backup-postgres.sh'), 'run', 'dump'], env=env)
+    reauthorize('platform', sha, run_id, attempt)
+    journal('platform', sha, 'prepared', schema=schema,
+            previous_image=inspect('oteryn-oracle-platform-1')['Image'],
+            platform_image=inspect_image(image)['Id'], gateway_image=inspect_image(gateway)['Id'])
     run(previous + ['exec', '-T', 'platform', 'php', 'artisan', 'down', '--retry=60'])
-    run(previous + ['stop', 'gateway', 'marketplace-scheduler'])
+    run(previous + ['stop', 'platform', 'gateway', 'marketplace-scheduler'])
     # No automatic rollback across a possibly committed schema migration.
     atomic(STATE / (sha + '-platform.env.before'), before)
     settings = {'PLATFORM_IMAGE': image, 'GATEWAY_IMAGE': gateway, 'GATEWAY_VERSION': 'oracle-' + sha}
@@ -175,9 +221,15 @@ def platform_deploy(directory, sha, run_id, attempt):
     script = ('source "$1/deploy/synology/scripts/lib.sh"; '
               'load_oteryn_env_file "$OTERYN_ENV_FILE"; shift; '
               'oteryn_platform_migrate_postgres "$@"')
+    reauthorize('platform', sha, run_id, attempt)
+    journal('platform', sha, 'schema_unknown')
     run(['bash', '-euc', script, 'oracle-migrate', str(directory), *current], env=env)
+    journal('platform', sha, 'schema_known')
     run(current + ['up', '-d', '--no-deps', '--force-recreate', 'platform', 'gateway', 'marketplace-scheduler'])
     run(current + ['exec', '-T', 'platform', 'php', 'artisan', 'up'])
+    return {'oteryn-oracle-platform-1': inspect_image(image)['Id'],
+            'oteryn-oracle-gateway-1': inspect_image(gateway)['Id'],
+            'oteryn-oracle-marketplace-scheduler-1': inspect_image(image)['Id']}
 
 
 def inspect_image(image):
@@ -191,13 +243,17 @@ def game_deploy(directory, sha, run_id, attempt):
     info = inspect_image(image)
     if info['Architecture'] != 'arm64' or info['Config']['Labels']['org.opencontainers.image.revision'] != sha:
         raise ValueError('Game image provenance differs')
-    qualify('game', sha)
-    qualify_workflow('game', sha, run_id, attempt)
+    reauthorize('game', sha, run_id, attempt)
     status('game')
     override = STATE / (sha + '-game-migrate.json')
     atomic(override, json.dumps({'services': {'migrate': {'image': image}}}))
     run(['systemctl', 'start', 'oteryn-game-backup.service'])
+    reauthorize('game', sha, run_id, attempt)
+    previous = json.loads((ROOT / 'state/game-controller/current.json').read_text())
+    journal('game', sha, 'prepared', image=info['Id'], previous_cycle=previous['cycle'])
     run(['systemctl', 'stop', 'oteryn-game.service'])
+    if inspect('oteryn-oracle-runtime-game-1')['State']['Running']:
+        raise ValueError('old Game is still running; migration refused')
     # Existing configuration, content, custody and durable controller stay intact.
     path = ROOT / 'game-runtime.compose.yml'
     before = path.read_text()
@@ -205,10 +261,14 @@ def game_deploy(directory, sha, run_id, attempt):
     changed, count = re.subn(r'(?m)^(    image:) oteryn-game:[^\n]+$', r'\1 ' + image, before)
     if count != 2:
         raise ValueError('expected exactly Game and ops image declarations')
+    reauthorize('game', sha, run_id, attempt)
+    journal('game', sha, 'schema_unknown')
     run(['docker', 'compose', '-f', str(ROOT / 'game-db.compose.yml'), '-f', str(override),
          'run', '--rm', '-T', '--no-deps', 'migrate'])
+    journal('game', sha, 'schema_known')
     atomic(path, changed)
     run(['systemctl', 'start', 'oteryn-game.service'])
+    return {'oteryn-oracle-runtime-game-1': info['Id']}
 
 
 def main():
@@ -221,6 +281,8 @@ def main():
     with (STATE / 'deployment.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if action == 'deploy':
+            if (STATE / (component + '-pending.json')).exists():
+                raise ValueError('retained release requires explicit reconciliation')
             receipt = STATE / (sha + '-' + component + '.json')
             if receipt.exists():
                 status(component)
@@ -231,18 +293,29 @@ def main():
             # Recheck after a long build/source transfer before accepting effects.
             qualify(component, sha)
             if component == 'platform':
-                platform_deploy(directory, sha, run_id, attempt)
+                images = platform_deploy(directory, sha, run_id, attempt)
             else:
-                game_deploy(directory, sha, run_id, attempt)
+                images = game_deploy(directory, sha, run_id, attempt)
             for _ in range(90):
                 try:
-                    status(component)
+                    status(component, allow_pending=True)
+                    if any(inspect(name)['Image'] != identity for name, identity in images.items()):
+                        raise ValueError('running image differs from qualified build')
+                    if component == 'game':
+                        before = json.loads((STATE / 'game-pending.json').read_text())
+                        after = json.loads((ROOT / 'state/game-controller/current.json').read_text())
+                        if before['previous_cycle'] == after['cycle']:
+                            raise ValueError('Game incarnation did not advance')
                     break
                 except (ValueError, subprocess.SubprocessError):
                     time.sleep(2)
             else:
                 raise ValueError('deployment readiness deadline exceeded')
+            journal(component, sha, 'ready')
+            pending = STATE / (component + '-pending.json')
+            atomic(STATE / (component + '-current.json'), pending.read_text())
             atomic(STATE / (sha + '-' + component + '.json'), json.dumps({'component': component, 'sha': sha, 'ready': True}))
+            pending.unlink()
         else:
             status(component)
 

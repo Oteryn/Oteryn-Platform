@@ -179,3 +179,17 @@ verified with `pg_verifybackup`, including WAL; logical archives must pass
 `pg_restore --list`. Keep failed partials for diagnosis and retain completed
 migration-era backups until an explicit retention decision. The timer is enabled
 and persistent; the first verified backup completed 20261015T220119Z.
+
+
+Oracle releases use root-private component candidate/current JSON journals in
+`state/actions`, including exact source, image IDs, schema contract and durable
+prepared/schema_unknown/schema_known/ready phases. The migrated Oracle host has
+no legacy NAS release/schema-state files; no such history is invented. Before
+migration the journal is fsynced as unknown; on success it is fsynced as known.
+Only actual health, expected images and a new Game incarnation promote current
+and a success receipt. Any retained candidate blocks another deployment until
+explicit operator reconciliation; a successful receipt never authorizes retry
+through an unresolved candidate. Legacy NAS recovery workflows remain disabled.
+Main protection, aggregate success and the approved active workflow are rechecked
+after backup and before migration. A still-running old Game prevents migration.
+Platform readiness includes the scheduler as well as web/gateway/databases.
