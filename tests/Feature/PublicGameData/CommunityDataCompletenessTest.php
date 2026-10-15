@@ -31,26 +31,6 @@ class CommunityDataCompletenessTest extends TestCase
         $this->seedCanaryCommunityData();
     }
 
-    public function test_highscores_support_allowlisted_categories_vocation_filter_and_global_scope(): void
-    {
-        $this->get(route('game.highscores.index', [
-            'category' => 'magic',
-            'vocation' => 4,
-            'scope' => 'global',
-        ]))
-            ->assertOk()
-            ->assertSee('Highscores')
-            ->assertSee('Acceptance Hero')
-            ->assertSee('12')
-            ->assertDontSee('Acceptance Mage')
-            ->assertSee('Characters are global in the current Oteryn server model.');
-
-        $this->from(route('game.highscores.index'))
-            ->get(route('game.highscores.index', ['category' => 'unsupported']))
-            ->assertRedirect(route('game.highscores.index'))
-            ->assertSessionHasErrors('category');
-    }
-
     public function test_character_profile_applies_private_defaults_then_public_account_and_status_flags(): void
     {
         $identity = $this->bindIdentity(publicAssociation: false, publicStatus: false);
@@ -121,7 +101,6 @@ class CommunityDataCompletenessTest extends TestCase
         $this->bindIdentity(publicAssociation: true, publicStatus: true);
         DB::connection('canary')->statement('PRAGMA query_only = ON');
 
-        $this->get(route('game.highscores.index', ['category' => 'level']))->assertOk();
         $this->get(route('game.characters.show', ['name' => 'Acceptance Hero']))->assertOk();
         $this->get(route('game.deaths.index'))->assertOk();
         $this->get(route('game.guilds.index', ['q' => 'Acceptance']))->assertOk();

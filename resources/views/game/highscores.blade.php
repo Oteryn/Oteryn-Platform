@@ -65,7 +65,7 @@
                 <tbody>
                 @forelse ($players as $player)
                     <tr>
-                        <td class="rank-cell" data-rank="{{ ($players->firstItem() ?? 1) + $loop->index }}">{{ $localeFormatter->number(($players->firstItem() ?? 1) + $loop->index) }}</td>
+                        <td class="rank-cell" data-rank="{{ $player->rank }}">{{ $localeFormatter->number($player->rank) }}</td>
                         <td><a href="{{ route('game.characters.show', ['name' => $player->name]) }}">{{ $player->name }}</a></td>
                         <td>{{ $localeFormatter->number((int) $player->score) }}</td>
                         <td>{{ $localeFormatter->number((int) $player->level) }}</td>

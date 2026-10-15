@@ -21,7 +21,6 @@
                 <dl class="online-facts">
                     <dt>{{ __('public.game.level') }}:</dt><dd>{{ $localeFormatter->number($character->level) }}</dd>
                     <dt>{{ __('public.game.vocation') }}:</dt><dd>{{ $characterPresentation->vocationName((int) $character->vocation) }}</dd>
-                    <dt>{{ __('public.game.channel') }}:</dt><dd>{{ $character->channel_name }} ({{ __('public.game.channel_id') }} {{ $localeFormatter->number($character->channel_id) }})</dd>
                 </dl>
             </article>
         @empty

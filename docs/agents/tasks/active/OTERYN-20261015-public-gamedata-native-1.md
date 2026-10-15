@@ -13,13 +13,20 @@ optional_reads: []
 
 Governing GitHub Issue: #1474 (native-only migration) is the canonical lifecycle authority for this task. The top-level `governing_issue` frontmatter field is machine-required while this packet remains active.
 
-Decision input only (docs, no code). `https://oteryn.com/pl/online` and `/pl/highscores` answer 503 because `PublicGameDataController` reads the obsolete legacy-engine MySQL tables through the legacy game-data repository class. This packet records what native data exists, why a Platform-only reader is not possible, and the minimal cross-repository change set that makes both pages serve real data. It implements nothing.
+Decision input first, then the Platform page readers (packets C5 and C7), approved by the owner on 2026-10-15. `https://oteryn.com/pl/online` and `/pl/highscores` answer 503 because `PublicGameDataController` reads the obsolete legacy-engine MySQL tables through the legacy game-data repository class. This packet records what native data exists, why a Platform-only reader is not possible, the minimal cross-repository change set that makes both pages serve real data, and (after the owner decisions below) implements the Platform reader for both pages.
 
 ## Acceptance criteria
 
 - [x] The existing native data and contracts are inventoried with evidence.
 - [x] The minimal contract, ownership, order of changes and rollback are stated.
-- [ ] The owner decides the open questions below.
+- [x] The owner decides the open questions below (2026-10-15, see Owner decisions).
+- [x] `/{locale}/online` and `/{locale}/highscores` read only the native public projections (`NativePublicGameData` over `PublicProjectionReadModel`); neither page opens the legacy connection or reads `PUBLIC_GAME_DATA_SOURCE`, in PL and EN.
+- [x] A fresh projection answers 200 with rows; a stale, missing, epoch-fenced or disabled projection answers 503 with the unavailable view; a fresh but empty online list answers 200 with the empty state. No row is ever invented.
+- [x] Highscores rows join `character_profile` in the same World by character id (never by name), are shown under the profile name, are left out without a servable profile keeping the published rank, and serve nothing while `character_profile` is stale.
+- [x] The category and vocation filters select the published (World, category, filter) list; an unpublished list is unavailable, not empty.
+- [x] Feature tests cover fresh, stale, missing, empty, profile join and filters (`tests/Feature/PublicGameData/NativePublicGameDataTest.php`); the legacy online and highscores tests are removed.
+- [ ] Real HTTP check of both pages against the Oracle stack with live rows, and the unavailable state within S (30 s) after the producer stops (after the Game producer and the deployment steps).
+- [ ] Character profile page on native data: not in this slice. `/characters/{name}` exists but its view needs skills, deaths, preferences and kills that the profile family does not carry; it stays on the unavailable view until C8 and the deaths family land.
 
 ## Findings
 
@@ -64,33 +71,60 @@ Open point inside the slice: `highscores` is published per (World, category) fro
 - The Platform reader is read-only and has no migration; revert the PR. The C4 tables are untouched, and their rollback is already refused while Game-published rows exist.
 - Never roll back by reconnecting the legacy-engine database or by serving zero rows.
 
-## Owner questions
+## Owner decisions
 
-1. Approve Game contract acceptance and a producer allocation for `highscores`, `world_online` and the watermark? Recommendation: yes; it is the only route that respects the ownership boundary.
-2. Highscores page needs `character_profile` as well (joined by character id, contract §4.1). Options: (a) also build the profile family in the first slice, (b) amend the contract before acceptance so highscores rows carry the public name and vocation. Recommendation: (a), because it needs no contract change and unlocks the profile page.
-3. Until the producer ships, should the two pages return the unavailable view with 503 as now (recommended, honest) or a "coming soon" page with an explicit non-200 status?
-4. U-PP2: is coarse online public by default? The online list stays empty or hidden until the privacy preference default is decided.
+Decided by the owner on 2026-10-15 ("zbuduj to"):
+
+1. Q1 yes: Game contract acceptance and a producer for `highscores`, `character_profile`, `world_online` and the watermark are being built in parallel in Oteryn-Game.
+2. Q2 (a): highscores rows join `character_profile`.
+3. Q3: until a family is fresh the pages show the unavailable view with status 503.
+4. Q4: coarse online presence (name, level, vocation) is public by default (U-PP2 default).
+
+## Implementation notes (C5 and C7)
+
+- `App\PublicGameData\NativePublicGameData` is the only reader of both pages. `PublicProjectionReadModel` gained `worlds()` and `entries()` with the same serve-time epoch and watermark checks as `entry()`.
+- World: `PUBLIC_GAME_DATA_WORLD_ID` (config `public_game_data.world_id`) or, when empty, the only World that has published. Several Worlds without a value fail closed (503). The World id is never rendered.
+- Category ids follow the contract (1 experience, 2 magic, 3-9 fist, club, sword, axe, distance, shielding, fishing). The `level` category reads category 1 and shows the level, `experience` shows the value.
+- Vocation filter ids 1..5 are assumed to be sorcerer, druid, paladin, knight, monk (vocations 1, 2, 3, 4, 9, promoted ones map to their base and are then narrowed to the exact vocation). If Game numbers the base filters differently, only `CommunityDataPolicy::HIGHSCORE_VOCATION_FILTERS` changes.
+- The online page no longer shows the channel (the contract carries none).
+- Deployment is not part of this change: the Oracle compose does not yet forward `GAME_PROJECTIONS_PUBLIC_*` and the internal mTLS route for `game-public` is not wired (see the PR comment).
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-15T12:00:00Z
+updated_at: 2026-10-15T15:00:00Z
 head: UNKNOWN
 branch: fix/public-gamedata-native
 pr: 1645
-status: waiting
+status: validating
 context_routes:
   - game-auth
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261015-public-gamedata-native-1.md
+  - app/GameProjections/PublicProjectionReadModel.php
+  - app/PublicGameData/NativePublicGameData.php
+  - app/PublicGameData/CommunityDataPolicy.php
+  - app/Http/Controllers/PublicGameData/PublicGameDataController.php
+  - config/public_game_data.php
+  - resources/views/game/highscores.blade.php
+  - resources/views/game/online.blade.php
+  - tests/Feature/PublicGameData/NativePublicGameDataTest.php
+  - tests/Feature/PublicGameData/PublicGameDataSourceTest.php
+  - tests/Feature/PublicGameData/PublicGameDataTest.php
+  - tests/Feature/PublicGameData/CommunityDataCompletenessTest.php
+  - tests/Feature/PublicGameData/OnlinePaginationTest.php
+  - .env.example
+  - docs/agents/LEGACY_TOKEN_BASELINE.json
 proven:
   - Platform consumer and read model for Public Projections v1 exist on main (C4).
-  - Game has no producer for game-public routes; the contract is CANDIDATE and states nothing is implemented.
+  - Game has no producer for game-public routes yet; the contract is CANDIDATE. The owner decided Q1-Q4 on 2026-10-15 and the producer is being built in parallel in Oteryn-Game.
+  - The native reader and both pages are implemented with feature tests (fresh 200, stale or missing 503, empty 200, profile join, filters).
 derived:
-  - A Platform-only native reader cannot serve real data; it would only render unavailable.
+  - Until the producer publishes, both pages answer 503 unavailable, which is the honest fail-closed state.
 unknown:
-  - Whether the owner accepts the contract and allocates a Game producer.
+  - Whether Game numbers the vocation filters 1..5 as sorcerer, druid, paladin, knight, monk.
+  - The Oracle deployment wiring of the public-projection ingest (compose env and internal mTLS route).
 conflicts: []
 first_failure:
   marker: none
@@ -99,13 +133,23 @@ rejected_hypotheses:
   - Read Game Postgres directly from Platform; rejected by the ownership boundary (ADR-0004 6-7, contract Q3=A).
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20261015-public-gamedata-native-1.md
+  - app/GameProjections/PublicProjectionReadModel.php
+  - app/PublicGameData/NativePublicGameData.php
+  - app/PublicGameData/CommunityDataPolicy.php
+  - app/Http/Controllers/PublicGameData/PublicGameDataController.php
+  - config/public_game_data.php
+  - resources/views/game/highscores.blade.php
+  - resources/views/game/online.blade.php
+  - tests/Feature/PublicGameData
+  - .env.example
+  - docs/agents/LEGACY_TOKEN_BASELINE.json
 validation:
   - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20261015-public-gamedata-native-1.md --require-checkpoint
     result: PASS
     evidence: run locally before push; legacy token ratchet, task liveness, Control Room and source branch closeout also pass locally
 blockers:
-  - Owner decision on Game contract acceptance and producer allocation.
-next_action: Owner answers the questions above; then open the Game producer allocation and the Platform C5/C7 packet.
+  - Game producer (parallel) and Oracle deployment wiring before live rows can be accepted.
+next_action: Exact-head CI and independent architect review; the CP marks ready; after the Game producer and the deployment steps, run the acceptance HTTP check.
 ```
 
 ## Source branch closeout

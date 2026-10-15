@@ -219,8 +219,8 @@
       "enforce": true
     },
     "tests": {
-      "count": 349,
-      "files": 35,
+      "count": 326,
+      "files": 34,
       "enforce": true
     }
   }
