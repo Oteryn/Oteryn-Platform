@@ -569,11 +569,11 @@ def test_game_node_route_settings_reach_platform_and_default_closed() -> None:
 
     # Deploy inputs: the committed defaults name the preprod node 1 [platform] client certificate for
     # both routes (the Game node presents one certificate for evidence and bootstrap-intent reads) and
-    # keep the one-way evidence activation off. Anything not committed resolves to its fail-closed value.
+    # retain the owner's 2026-10-15 one-way activation. Unconfigured stacks still fail closed.
     values = dict(line.split("=", 1) for line in DEFAULTS.read_text().splitlines() if line and not line.startswith("#"))
-    assert values["OTERYN_STAGING_NATIVE_EVIDENCE_ACTIVATED"] == "false"
+    assert values["OTERYN_STAGING_NATIVE_EVIDENCE_ACTIVATED"] == "true"
     committed = {
-        "OTERYN_STAGING_NATIVE_EVIDENCE_ACTIVATED": "false",
+        "OTERYN_STAGING_NATIVE_EVIDENCE_ACTIVATED": "true",
         "OTERYN_STAGING_NATIVE_EVIDENCE_MTLS_CLIENT_IDENTITY": NODE_PLATFORM_CLIENT_IDENTITY,
         "OTERYN_STAGING_NATIVE_EVIDENCE_FRESH_ACCOUNT_PURPOSE": "platform_security",
         "OTERYN_STAGING_NATIVE_EVIDENCE_FRESH_ACCOUNT_SCOPE": "fresh_admission",
