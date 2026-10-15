@@ -6,6 +6,7 @@ use App\CharacterAuthority\CharacterCommandIntentRow;
 use App\CharacterAuthority\CharacterCommandRefused;
 use App\CharacterAuthority\CharacterCommandStoredReceipt;
 use App\CharacterAuthority\CharacterCommandWire;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -92,7 +93,9 @@ final class GameRestoreReconciler
                 'acknowledged_at' => null,
             ]);
 
-            $reopened = $this->reopenTerminal($noticeId, $restored, $now) + $this->carryOpen($noticeId, $restored, $now);
+            // Carried first: an earlier reopen answered while this runs is TERMINAL again with a
+            // generation ≥ H by the time reopenTerminal() selects, so it is reopened, never lost.
+            $reopened = $this->carryOpen($noticeId, $restored, $now) + $this->reopenTerminal($noticeId, $restored, $now);
             DB::table(self::NOTICES)->where('id', $noticeId)->update(['reopened_count' => $reopened]);
 
             Log::warning('character_authority.restore_notice_recorded', [
@@ -168,30 +171,45 @@ final class GameRestoreReconciler
      */
     private function carryOpen(int $noticeId, string $restored, mixed $now): int
     {
-        $open = DB::table(self::REOPENS.' as reopen')
-            ->join(CharacterCommandStoredReceipt::TABLE.' as receipt', 'receipt.id', '=', 'reopen.superseded_receipt_id')
-            ->whereNull('reopen.new_receipt_id')
-            ->where('reopen.notice_id', '!=', $noticeId)
-            ->where('receipt.recovery_generation', '>=', $restored)
-            ->orderBy('reopen.intent_id')
-            ->get(['reopen.intent_id', 'reopen.superseded_receipt_id']);
+        $intentIds = $this->openReopens($noticeId, $restored)->pluck('reopen.intent_id')->unique()->sort()->values();
 
-        $carried = [];
-        foreach ($open as $row) {
-            if (isset($carried[$row->intent_id])) {
+        $carried = 0;
+        foreach ($intentIds as $intentId) {
+            // Same lock as the receipt exchange: a receipt either answered the earlier reopen before
+            // this point (the intent is TERMINAL and reopenTerminal() decides) or waits and answers
+            // this notice's row too.
+            $intent = DB::table(CharacterCommandIntentRow::TABLE)->where('id', $intentId)->lockForUpdate()->first();
+            if (! $intent instanceof stdClass || CharacterCommandIntentRow::fromRow($intent)->state !== CharacterCommandIntentRow::PENDING) {
+                continue;
+            }
+            $open = $this->openReopens($noticeId, $restored)
+                ->where('reopen.intent_id', $intentId)
+                ->orderBy('reopen.id')
+                ->first(['reopen.superseded_receipt_id']);
+            if (! $open instanceof stdClass) {
                 continue;
             }
             DB::table(self::REOPENS)->insert([
                 'notice_id' => $noticeId,
-                'intent_id' => $row->intent_id,
-                'superseded_receipt_id' => $row->superseded_receipt_id,
+                'intent_id' => $intentId,
+                'superseded_receipt_id' => $open->superseded_receipt_id,
                 'new_receipt_id' => null,
                 'created_at' => $now,
             ]);
-            $carried[$row->intent_id] = true;
+            $carried++;
         }
 
-        return count($carried);
+        return $carried;
+    }
+
+    /** Reopen rows of earlier notices still waiting for a new receipt whose superseded receipt has generation ≥ H. */
+    private function openReopens(int $noticeId, string $restored): Builder
+    {
+        return DB::table(self::REOPENS.' as reopen')
+            ->join(CharacterCommandStoredReceipt::TABLE.' as receipt', 'receipt.id', '=', 'reopen.superseded_receipt_id')
+            ->whereNull('reopen.new_receipt_id')
+            ->where('reopen.notice_id', '!=', $noticeId)
+            ->where('receipt.recovery_generation', '>=', $restored);
     }
 
     private function status(stdClass $notice): string
