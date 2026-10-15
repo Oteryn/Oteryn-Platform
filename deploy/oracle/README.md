@@ -59,7 +59,7 @@ plaintext and an unknown CA, without printing credentials.
 The coherent frozen-source migration and both isolated logical restores passed.
 Game launch, scope assignment, readiness, receipt-backed web Character creation
 and a real controlled restart passed. Platform post-migration physical and logical
-backups passed. Browser Account Center repair remains PR #1637, and native client
+backups passed. Browser Account Center repair is merged as PR #1642 and the real owned roster passed; native client
 entry remains a separate acceptance item. Never start a second authoritative writer
 against retained NAS data.
 
@@ -134,3 +134,48 @@ Oracle has accepted new writes: rollback requires a controlled reverse transfer,
 not simply restarting the stale NAS writers. Fresh Oracle qualification databases
 remain separately retained. `migrated-storage.compose.yml` selects the canonical
 migrated Platform volume; include it on every subsequent Platform reconciliation.
+
+
+## Oracle Actions operations
+
+`oracle-operations.yml` replaces NAS deployment on Oracle. It is restricted to
+protected main, the component runner group, exact Oracle runner name, ARM64 and
+uid1001. Both runners use the pinned upstream 2.338.0 ARM64 distribution, retain
+separate private registration volumes and restart automatically with Docker.
+Neither runner has a Docker socket, host runtime mount, published port or host
+secret. A local SSH key has a root-owned forced command restricted to its single
+component, no shell/PTY/forwarding, with independently pinned SSH host identity.
+
+Install `actions-deploy.py` root-owned under `/opt/oteryn-oracle`, not in a runner
+writable mount. `status` only reads readiness. `deploy <40-character SHA>` requires
+exact current protected main and its latest GitHub Actions aggregate success,
+rechecks after build, builds native ARM64, backs up, preserves root-owned private
+configuration and migrates through the existing owner connection. Platform keeps
+all three Oracle overrides, including the canonical migrated storage volume.
+Game keeps deployed World/content and routes every restart through the durable
+controller. Failures remain closed for operator reconciliation; no automatic
+schema rollback, destructive volume operation or trust reset is performed.
+The runner never installs or upgrades the root wrapper/controller itself.
+
+Before enabling these runners, disable the retired Synology runtime workflows,
+Synology image/deploy-runner builders and Tunnel endpoint mutation workflows in
+GitHub Actions, retaining their source and historical runs. They are incompatible
+with Oracle's configuration and must not be re-enabled as an Oracle deployment
+path. Preserve unrelated hosted CI and Atlas runners. NAS writers and runners
+remain stopped with restart disabled. Re-registration tokens are one-use inputs,
+never persistent runner environment variables.
+
+Run `Oracle Operations` on main with action `status` for acceptance, then action
+`deploy` and an exact qualified main SHA for a release. The forced command checks
+that SHA independently of workflow inputs. Source/build provenance and failures
+are retained privately in `/opt/oteryn-oracle/state/actions`. A successful workflow
+is deployment/readiness evidence, not native gameplay acceptance.
+
+`oteryn-game-backup.timer` performs daily physical and logical backups in the
+separate Game backup spool. Install a local-only `local replication postgres peer`
+HBA rule and root-create the `daily` spool directory owned by PostgreSQL mode0700.
+This opens no network replication endpoint. Physical backups are extracted and
+verified with `pg_verifybackup`, including WAL; logical archives must pass
+`pg_restore --list`. Keep failed partials for diagnosis and retain completed
+migration-era backups until an explicit retention decision. The timer is enabled
+and persistent; the first verified backup completed 20261015T220119Z.
