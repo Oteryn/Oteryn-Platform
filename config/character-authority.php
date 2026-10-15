@@ -11,7 +11,9 @@ return [
     | the Game command consumer pulls intents over mTLS. Disabled by default and only honoured in
     | the testing and preproduction environments until the enablement packet. `identities` is a
     | JSON list of dedicated character-command client certificate subjects; a subject shared with
-    | any other internal purpose makes the whole surface unavailable.
+    | any other internal purpose makes the whole surface unavailable, and so does a
+    | `max_pending_intents` above 40, the enforced backlog bound inside the 300 s intent TTL
+    | (gate U-CC9).
     |
     */
 
@@ -20,7 +22,7 @@ return [
         'identities' => env('CHARACTER_AUTHORITY_COMMAND_IDENTITIES'),
         'source_authority' => env('CHARACTER_AUTHORITY_COMMAND_SOURCE_AUTHORITY'),
         'intent_ttl_seconds' => env('CHARACTER_AUTHORITY_COMMAND_INTENT_TTL_SECONDS', 300),
-        'max_pending_intents' => env('CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS', 256),
+        'max_pending_intents' => env('CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS', 40),
         'requests_per_minute' => env('CHARACTER_AUTHORITY_COMMAND_REQUESTS_PER_MINUTE', 600),
     ],
 
