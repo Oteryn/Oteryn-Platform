@@ -76,8 +76,11 @@ On the first delivery of a notice with restored generation H, one transaction:
 4. reopens every TERMINAL intent whose current receipt has `recovery_generation` ≥ H: the receipt
    gets `superseded_at`, the intent becomes PENDING with no current receipt, and a
    `character_restore_reopens` row links notice, intent and superseded receipt;
-5. also waits for every intent an earlier notice reopened that still has no new receipt and whose
-   superseded receipt has generation ≥ H (a second restore before the first was answered).
+5. carries every intent an earlier notice reopened that still has no new receipt, whatever the
+   generation of its superseded receipt: a reopen row of this notice links it to the receipt its
+   first open reopen superseded. An earlier restore already lost that decision, and any answer
+   Game made since can be lost to this restore too, so the operation is never re-evaluated
+   against H (chained restores, e.g. H3→4, H2→5, H5→6, all wait for the same operation).
 
 Game then lists and reads the reopened intents again under their unchanged `operation_id` and
 intent bytes, and publishes exactly one new receipt per operation. The receipt route stores it
@@ -95,7 +98,7 @@ publishes every decision it still holds, including one made before the snapshot,
 current generation.
 
 A repeated identical notice reopens nothing more; it answers the current status. Once every
-reopen row of the notice is answered, Platform sets `acknowledged_at` once and answers
+reopen row of the notice, reopened or carried, is answered, Platform sets `acknowledged_at` once and answers
 `ACKNOWLEDGED`. A notice that reopens nothing is acknowledged on its first delivery.
 
 ### Serialization
@@ -146,7 +149,7 @@ deployment change made with enablement, not part of this contract version.
 The acknowledgement is on Game's RTO path. Platform states:
 
 - Platform adds no wait of its own. Reopening is one transaction bounded by the number of intents
-  with generation ≥ H. Platform answers `ACKNOWLEDGED` on the first delivery after Game's last
+  with generation ≥ H plus the operations earlier notices left open. Platform answers `ACKNOWLEDGED` on the first delivery after Game's last
   reopened receipt is stored, so with Platform up the acknowledgement time is Game's own
   republication time plus one delivery interval.
 - With Platform unavailable, the acknowledgement waits for Platform's recovery. Platform's
