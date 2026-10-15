@@ -78,6 +78,13 @@ as the new current receipt and marks every open reopen row of that intent answer
 receipt may equal the superseded bytes (Game still held a decision made before the snapshot within
 generation H); after it is stored, any receipt with other bytes gets 409 as usual.
 
+A receipt whose `recovery_generation` lies strictly between a stored notice's
+`restored_generation` and `new_recovery_generation` was decided after that restore's snapshot and
+before that restore, so Game no longer holds it: the receipt route refuses it with 409 and the
+alarm `character_authority.command_receipt_lost_to_restore`, and it answers no reopen row. A
+receipt within the restored generation itself, or at or above the new generation, is accepted as
+above. Game publishes the restored decision again at its current generation.
+
 A repeated identical notice reopens nothing more; it answers the current status. Once every
 reopen row of the notice is answered, Platform sets `acknowledged_at` once and answers
 `ACKNOWLEDGED`. A notice that reopens nothing is acknowledged on its first delivery.
