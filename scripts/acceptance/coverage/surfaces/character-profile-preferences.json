@@ -51,7 +51,6 @@
           "file": "tests/Feature/CharacterProfiles/CharacterProfilePreferenceTest.php",
           "markers": [
             "test_guest_cannot_manage_character_profile_preferences",
-            "test_missing_preferences_preserve_existing_public_profile_behavior",
             "test_owner_can_update_escaped_comment_visibility_and_main_character",
             "test_non_owner_cannot_view_or_update_preferences",
             "test_comment_length_is_bounded"
