@@ -59,9 +59,9 @@ cross_repository_tasks: []
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-15T12:00:00Z
-head: pending
+head: 12f9050f935fcc944df20b900c57980c12ebd15a
 branch: feat/platform-backup-offnas
-pr: pending
+pr: 1628
 status: validating
 context_routes:
   - deploy

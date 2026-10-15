@@ -28,7 +28,7 @@ RUNBOOK = ROOT / "docs/operations/PLATFORM_POSTGRES_BACKUP_PITR.md"
 CLASSIFIER = ROOT / "scripts/ci/classify_synology_builds.py"
 BUILD_WORKFLOW = ROOT / ".github/workflows/build-synology-staging-images.yml"
 
-PASSWORD = "offsite-test-password-0123456789abcdef"
+KEY_PHRASE = "offsite-test-key-phrase-0123456789abcdef"
 SNAPSHOT = "331a4e01f0d811218914232d27a99925eaac0212d633a1ce0cc6ccf040c9ec6e"
 
 FAKE_DOCKER = r"""#!/bin/bash
@@ -91,14 +91,14 @@ class OffsiteTestCase(unittest.TestCase):
         bin_dir.mkdir()
         (bin_dir / "docker").write_text(FAKE_DOCKER)
         (bin_dir / "docker").chmod(0o755)
-        secrets = self.tmp / "secrets"
-        secrets.mkdir(mode=0o700)
-        self.password = secrets / "restic-password"
-        self.password.write_text(PASSWORD + "\n")
-        self.password.chmod(0o600)
-        self.credentials = secrets / "provider.env"
-        self.credentials.write_text("AWS_ACCESS_KEY_ID=test\nAWS_SECRET_ACCESS_KEY=test\n")
-        self.credentials.chmod(0o600)
+        owner_dir = self.tmp / "owner-only"
+        owner_dir.mkdir(mode=0o700)
+        self.key_file = owner_dir / "restic-password"
+        self.key_file.write_text(KEY_PHRASE + "\n")
+        self.key_file.chmod(0o600)
+        self.provider_file = owner_dir / "provider.env"
+        self.provider_file.write_text("PROVIDER_FIXTURE_ID=test\nPROVIDER_FIXTURE_VALUE=test\n")
+        self.provider_file.chmod(0o600)
         self.state = self.tmp / "state"
         self.log = self.tmp / "docker.log"
         self.config = self.tmp / "offsite.env"
@@ -112,8 +112,8 @@ class OffsiteTestCase(unittest.TestCase):
     def write_config(self, **overrides: str) -> None:
         values = {
             "OTERYN_OFFSITE_REPOSITORY": "s3:https://s3.example.invalid/bucket/oteryn-platform-postgres",
-            "OTERYN_OFFSITE_PASSWORD_FILE": str(self.password),
-            "OTERYN_OFFSITE_CREDENTIALS_FILE": str(self.credentials),
+            "OTERYN_OFFSITE_PASSWORD_FILE": str(self.key_file),
+            "OTERYN_OFFSITE_CREDENTIALS_FILE": str(self.provider_file),
             "OTERYN_OFFSITE_STATE_DIR": str(self.state),
             **overrides,
         }
@@ -136,7 +136,7 @@ class ConfigurationTest(OffsiteTestCase):
         self.assertEqual(result.returncode, 2, result.stderr)
         for overrides, message in (
             ({"OTERYN_OFFSITE_REPOSITORY": "REQUIRED_RESTIC_REPOSITORY_URL"}, "restic repository URL"),
-            ({"OTERYN_OFFSITE_REPOSITORY": "rest:https://user:secret@backup.example.invalid/repo"}, "carries a password"),
+            ({"OTERYN_OFFSITE_REPOSITORY": "rest:https://user:pw@backup.example.invalid/repo"}, "carries a password"),
             ({"OTERYN_OFFSITE_REPOSITORY": "s3:https://x/bucket --no-lock"}, "restic repository URL"),
             ({"OTERYN_OFFSITE_PASSWORD_FILE": "relative/password"}, "absolute path"),
             ({"OTERYN_OFFSITE_STATE_DIR": "state"}, "absolute path"),
@@ -153,15 +153,15 @@ class ConfigurationTest(OffsiteTestCase):
         self.assertEqual(self.calls(), [])
 
     def test_the_secret_files_are_owner_only_and_the_password_is_long(self) -> None:
-        self.password.chmod(0o640)
+        self.key_file.chmod(0o640)
         result = self.offsite("status")
         self.assertEqual(result.returncode, 2)
         self.assertIn("expected 0600 or stricter", result.stderr)
-        self.password.chmod(0o600)
-        self.credentials.chmod(0o644)
+        self.key_file.chmod(0o600)
+        self.provider_file.chmod(0o644)
         self.assertIn("expected 0600 or stricter", self.offsite("status").stderr)
-        self.credentials.chmod(0o600)
-        self.password.write_text("short\n")
+        self.provider_file.chmod(0o600)
+        self.key_file.write_text("short\n")
         result = self.offsite("status")
         self.assertEqual(result.returncode, 2)
         self.assertIn("fewer than 32 characters", result.stderr)
@@ -183,14 +183,14 @@ class PushTest(OffsiteTestCase):
         self.assertIn("--cap-drop ALL --security-opt no-new-privileges", backup)
         self.assertIn("--cap-add DAC_READ_SEARCH", backup)
         self.assertIn("type=volume,source=oteryn-staging_postgres_backup,target=/spool,readonly", backup)
-        self.assertIn(f"type=bind,source={self.password},target=/run/oteryn/restic-password,readonly", backup)
+        self.assertIn(f"type=bind,source={self.key_file},target=/run/oteryn/restic-password,readonly", backup)
         self.assertIn("RESTIC_PASSWORD_FILE=/run/oteryn/restic-password", backup)
-        self.assertIn(f"--env-file {self.credentials}", backup)
+        self.assertIn(f"--env-file {self.provider_file}", backup)
         self.assertIn("--host oteryn-staging --tag postgres-spool", backup)
         self.assertIn("--exclude .*.partial --exclude .*.tmp.*", backup)
         self.assertTrue(backup.endswith("/spool/base /spool/wal /spool/dump"), backup)
-        self.assertNotIn(PASSWORD, self.log.read_text())
-        self.assertNotIn("AWS_SECRET_ACCESS_KEY", self.log.read_text())
+        self.assertNotIn(KEY_PHRASE, self.log.read_text())
+        self.assertNotIn("PROVIDER_FIXTURE_VALUE", self.log.read_text())
         status = self.status()
         self.assertEqual(status["result"], "ok")
         self.assertEqual(status["snapshot"], SNAPSHOT)
