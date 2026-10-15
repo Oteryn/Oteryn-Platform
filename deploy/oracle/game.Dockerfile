@@ -3,6 +3,8 @@ FROM rust:1.94.0-bookworm@sha256:365468470075493dc4583f47387001854321c5a8583ea96
 RUN apt-get update \
     && apt-get install -y --no-install-recommends cmake pkg-config \
     && rm -rf /var/lib/apt/lists/*
+ARG GAME_SOURCE_SHA=87f770c87ce17518ba69f5effdbd04725d8a7d06
+ENV OTERYN_BUILD_SHA=${GAME_SOURCE_SHA}
 WORKDIR /src
 COPY . .
 RUN cargo build --locked --release --jobs 2 -p oteryn-game-server --bins
@@ -24,8 +26,9 @@ FROM scratch AS world-bundle
 COPY --from=world-bundle-build /world-bundle/ /
 
 FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS runtime
+ARG GAME_SOURCE_SHA=87f770c87ce17518ba69f5effdbd04725d8a7d06
 LABEL org.opencontainers.image.source="https://github.com/Oteryn/Oteryn-Game" \
-    org.opencontainers.image.revision="87f770c87ce17518ba69f5effdbd04725d8a7d06"
+    org.opencontainers.image.revision="${GAME_SOURCE_SHA}"
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*

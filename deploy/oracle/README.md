@@ -82,21 +82,15 @@ Apex DNS is proxied to 158.180.58.90; www, gateway, login and game use DNS-only
 records for that address. Existing mail records are preserved. Native Game uses
 TLS TCP 7172; the HTTPS explanatory response is not gameplay readiness.
 
-## Protected fresh-store executor
+## Existing NAS state migration
 
-`oracle-native-bootstrap.yml` runs only from protected main, in environment
-`oracle-preproduction`. Configure its `ORACLE_SSH_PRIVATE_KEY` and independently
-verified `ORACLE_SSH_KNOWN_HOSTS` secrets before dispatch. It verifies and locks the
-dedicated ledger #1641, uses the actual short-lived Actions bot token on SSH
-stdin and never writes that token to a host file or an artifact. The existing
-attempt record, anchor and location validators own the evidence semantics.
-
-`bootstrap-native-host.sh inspect` reads target location/key/trust only. Actions
-`preflight` also verifies locked real anchors but opens no run. `initialize`
-refuses existing evidence, witness, trust profile or in-flight work; then records
-and anchors intent before provenance and fenced first trust publication. HTTP
-native admission stays disabled. An interrupted or refused write retains its
-actual durable evidence and needs explicit forward reconciliation. Never retry
-by deleting evidence, resetting a floor, changing a key or fabricating a run.
-This is qualification of a fresh isolated store; it does not migrate existing
-NAS accounts, Game state, trust or witnesses.
+The source has existing signed trust, six identities and two Game Characters.
+Migrate the databases and independently retained custody together after freezing
+all source writers; never initialize new trust over the existing source history.
+Keep the fresh Oracle qualification databases as separate private rollback copies.
+Preserve source canonical AccountId, CharacterId, WorldId, floors, fences, signing
+keys and append-only evidence. Change endpoints only through shipped Registry and
+Game ops commands, advancing descriptor/assignment/projection revisions as required.
+A migration is not complete until real account, Character and native client checks
+pass. The earlier fresh-store bootstrap candidate is retained in Git history only;
+it is not used to replace migrated NAS state.

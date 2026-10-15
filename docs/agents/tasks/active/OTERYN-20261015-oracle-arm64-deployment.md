@@ -30,7 +30,6 @@ context_routes:
 owned_paths:
   - deploy/oracle/**
   - docs/agents/tasks/active/OTERYN-20261015-oracle-arm64-deployment.md
-  - .github/workflows/oracle-native-bootstrap.yml
 proven:
   - Oracle ARM64 4 OCPU 24 GB RAM 200 GB disk and persistent remote agent
   - Docker 29.1.3 Compose 2.40.3 and buildx 0.30.1 installed
@@ -86,8 +85,16 @@ Owner explicitly instructed moving all web/Game service hostnames of oteryn.com 
 
 Cloudflare apex A now targets 158.180.58.90 (proxied); www, gateway, login and game A records target that same address as DNS-only. The original apex tunnel target was 65dcd00f-3b26-424b-a01f-c476e133754c.cfargotunnel.com. All three MX records, DKIM and SPF were preserved. Game DNS is not a native gameplay readiness claim.
 
-## Protected Oracle executor candidate
+## Existing-state migration reconciliation
 
-The main-only oracle-preproduction workflow uses strict SSH host verification, actual short-lived Actions bot anchors in dedicated locked issue #1641, restore-excluded durable records and the existing first-publication fence. Inspect is read-only; preflight validates without opening a run; initialize refuses non-pristine stores or any previous evidence. Any partial attempt requires explicit forward reconciliation. This fresh-store route is not NAS state migration.
-
-CI lifecycle housekeeping archives the terminal #1623/#1624 packet, preserving historical operational notes and the independently unverified Game acceptance. Fresh GitHub read confirms its source ref is absent. No gate is weakened.
+Source inspection confirms six identities and two authoritative Game Characters;
+target qualification has two identities and no Characters. Preserve both target
+qualification databases privately before the actual NAS cutover. Transfer existing
+trust, custody and canonical identifiers instead of activating unrelated fresh
+trust. No new Actions workflow is needed for already-initialized trust. The unused
+fresh bootstrap candidate remains historical in ac73de2 only. The source Registry
+World and Channel remain the migration identities; the target's qualification scope
+is not substituted for them. Game main advanced to 77af046ce14c81df6ed6cab03ae693a68acff32c;
+rebuild native runtime before source state is opened on Oracle. The deployed NAS
+World digest 1b04cc35a65bcced64dbc933fcb5ac9adad426a369149bb8c170b1aa80d04406
+is distinct from the main pin and must be preserved and validated as deployed state.
