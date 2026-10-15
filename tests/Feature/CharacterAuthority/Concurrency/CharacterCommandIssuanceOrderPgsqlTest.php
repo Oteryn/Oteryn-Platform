@@ -8,6 +8,7 @@ use App\CharacterAuthority\CharacterCommandSettings;
 use App\CharacterAuthority\CharacterCommandUnavailable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use LogicException;
 use Mockery;
 use Tests\Support\Concurrency\ForkedWorkers;
 use Tests\Support\Concurrency\PgsqlConcurrencyDatabase;
@@ -67,7 +68,8 @@ final class CharacterCommandIssuanceOrderPgsqlTest extends TestCase
     {
         $total = self::ISSUERS * self::INTENTS_PER_ISSUER;
         // The consumer never receipts, so the whole race must fit the pending backlog ceiling.
-        self::assertLessThanOrEqual(CharacterCommandSettings::current()?->maxPendingIntents ?? 0, $total);
+        $settings = CharacterCommandSettings::current() ?? throw new LogicException('Fixture command settings are unavailable.');
+        self::assertLessThanOrEqual($settings->maxPendingIntents, $total);
 
         $results = ForkedWorkers::run(self::ISSUERS + 1, 'pgsql', fn (int $worker): array => $worker === self::ISSUERS
             ? $this->consume($total)

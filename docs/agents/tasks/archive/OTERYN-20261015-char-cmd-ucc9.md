@@ -23,7 +23,7 @@ This task closes Game gate U-CC9 of `oteryn-game-character-authority-commands-v1
   - the issuer lock is taken before the row id (`source_revision`) is drawn and held until the outermost transaction commits;
   - `issue()` refuses an intent whose id is not above every stored key of the issuer, with `CharacterCommandUnavailable` and the error log `character_authority.command_source_revision_behind`;
   - on MariaDB the guard is a locking (current) read.
-- [x] PostgreSQL concurrency test: 7 issuers × 24 intents, each inside an outer transaction, against a forward-only consumer that never rescans. The consumer lists every stored intent in key order. With the lock made shared, the test fails.
+- [x] PostgreSQL concurrency test: 7 issuers × 5 intents (35, below the default pending backlog of 40), each inside an outer transaction, against a forward-only consumer that never rescans. The consumer lists every stored intent in key order. With the lock made shared, the test fails.
 - [x] PostgreSQL regression: an intent drawn below a stored key (sequence re-seated by `setval`) is refused, stores nothing and logs once.
 - [x] Enablement runbook `docs/operations/CHARACTER_AUTHORITY_COMMANDS_ENABLEMENT.md` lists:
   - the Platform switches;
