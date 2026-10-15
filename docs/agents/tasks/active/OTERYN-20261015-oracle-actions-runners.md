@@ -11,7 +11,7 @@ optional_reads: []
 Governing Issue: https://github.com/Oteryn/Oteryn-Platform/issues/1639.
 The owner explicitly authorized moving both organization runners and deployment
 workflows to Oracle, preserving direct oteryn.com and all migrated authority.
-One writer: this Codex task, branch codex/oracle-actions-runners-20261015.
+One writer: this Codex task, branch codex/fix-oracle-runner-context-20261015.
 Game deployment coordination: Oteryn/Oteryn-Game#2217; no protocol changes.
 
 ## Acceptance criteria
@@ -36,9 +36,9 @@ Dependencies: existing installed durable controller and coherent migration.
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-10-15T22:00:00Z
-head: 0628d229a53bf54d2d978a98b81204753ac1bf79
-branch: codex/oracle-actions-runners-20261015
-pr: 1644
+head: b288effb76480ce58f55c834010814ddb0b961a6
+branch: codex/fix-oracle-runner-context-20261015
+pr: 1646
 status: waiting
 terminal_pr_policy: archive_pending
 context_routes:
@@ -112,3 +112,20 @@ authority/recovery tests pass.
 The existing CI workflow runs all three Oracle authority, supervisor and runner
 boundary suites. The open CI proposal #1610 owns documentation only; this bounded
 validation step does not overlap its files or change routing or required gates.
+
+## Main-only operational qualification
+
+PR1644 delivered source at b288effb76480ce58f55c834010814ddb0b961a6. Real merge_group
+38821354548 and platform-gate116720563780 passed; protected-main readback matched.
+The reviewed root adapter and component-constrained keys are installed on Oracle;
+continuous runners remain stopped. Legacy NAS/Tunnel workflows are disabled.
+Actual status dispatch exposed GitHub parser rejection of runner.name at job-env
+scope (HTTP422, line35). Move this binding to the operation step env, where the
+runner context is defined. No authority, environment protection or host command
+changes. Resume the same operational task under Issue1639; preserve independent
+review and exact qualification evidence from PR1644. Native server repair is
+separately coordinated under Game2219.
+
+The actual GitHub dispatch parser and actionlint1.7.7 reproduce the job-env
+runner-context error on b288eff. Actionlint passes for both corrected sibling
+workflows; the existing endpoint guard and ten adapter regressions also pass.
