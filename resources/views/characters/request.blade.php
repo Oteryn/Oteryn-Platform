@@ -19,7 +19,7 @@
     </div>
     <div class="identity-links">
         @if ($outcome->state === 'pending')
-            <a class="button" data-character-request-check href="{{ route('account.characters.requests.show', ['operation' => request()->route('operation'), 'locale' => app()->getLocale()]) }}">{{ __('portal.create.request_check') }}</a>
+            <a class="button" data-character-request-check href="{{ route('account.characters.requests.show', ['operation' => request()->route()->parameter('operation'), 'locale' => app()->getLocale()]) }}">{{ __('portal.create.request_check') }}</a>
         @else
             <a href="{{ route('account.characters.create', ['locale' => app()->getLocale()]) }}">{{ __('portal.create.request_again') }}</a>
         @endif
