@@ -29,7 +29,7 @@ This task closes Game gate U-CC9 of `oteryn-game-character-authority-commands-v1
   - the Platform switches;
   - the Game `[platform.character_commands]` node table;
   - the preconditions (U-CC7, certificates, the nginx mTLS route list, compose environment, smoke check), the order, rollback and the backlog decision (40, enforced by Platform).
-- [x] The pending backlog defaults to 40, and a configured value above 41 disables commands (`CharacterCommandBacklogBoundTest`).
+- [x] The pending backlog defaults to 40, and a configured value above 40 disables commands (`CharacterCommandBacklogBoundTest`).
 - [x] No production or deploy configuration changed.
 
 ## Ownership
@@ -81,7 +81,7 @@ proven:
   - With pg_advisory_xact_lock_shared in place of the exclusive lock, the forward-only consumer test fails; with the exclusive lock it passes.
 derived:
   - The Game cursor is a committed listed key, so fresh issuance commits 0 intents behind it per 30 s interval.
-  - A forward burst is bounded by the backlog; 300 s TTL less 30 s rescan and 24 s listing at 6 s per key covers 41 keys. Control plane decision (Codex P1 on Game PR 2211) - max_pending_intents defaults to 40, and a value above 41 disables commands (CharacterCommandBacklogBoundTest).
+  - A forward burst is bounded by the backlog; 300 s TTL less 30 s rescan and 24 s listing at 6 s per key covers 41 keys. Control plane decision (Codex P1 on Game PR 2211) - max_pending_intents defaults to 40, and a value above 41 disables commands (CharacterCommandBacklogBoundTest). Fix round 2 (Codex P1 on Game PR 2211, comment 4281392029): the enforced bound is 40, so `MAX_PENDING_BACKLOG` is 40 and a value above 40 disables commands; the PostgreSQL race test issues 35 intents (7 issuers x 5) to stay below the default ceiling (Codex P1 4281372570).
   - §5.4 reopens (U-CC7, PR #1629) are per restore notice and outside the cap.
 unknown:
   - none

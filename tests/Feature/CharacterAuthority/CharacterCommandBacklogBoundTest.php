@@ -12,8 +12,9 @@ use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
 /**
- * Gate U-CC9 (Game contract §4.1): the 300 s intent TTL covers 41 unseen keys, so Platform
- * defaults the unreceipted PENDING backlog to 40 and refuses any configured value above 41.
+ * Gate U-CC9 (Game contract §4.1): the 300 s intent TTL covers 41 unseen keys; 40 keeps one key of
+ * margin, so Platform defaults the unreceipted PENDING backlog to 40 and refuses any configured value
+ * above 40.
  */
 final class CharacterCommandBacklogBoundTest extends TestCase
 {
@@ -31,21 +32,21 @@ final class CharacterCommandBacklogBoundTest extends TestCase
     {
         $this->enable();
 
-        self::assertSame(41, CharacterCommandWire::MAX_PENDING_BACKLOG);
+        self::assertSame(40, CharacterCommandWire::MAX_PENDING_BACKLOG);
         self::assertSame(40, CharacterCommandSettings::current()?->maxPendingIntents);
     }
 
     public function test_the_ttl_safe_bound_itself_is_accepted(): void
     {
-        $this->enable(41);
+        $this->enable(40);
 
-        self::assertSame(41, CharacterCommandSettings::current()?->maxPendingIntents);
+        self::assertSame(40, CharacterCommandSettings::current()?->maxPendingIntents);
         $this->exchange()->assertOk();
     }
 
     public function test_a_backlog_above_the_ttl_safe_bound_makes_the_surface_unavailable(): void
     {
-        foreach ([42, '42', 256] as $value) {
+        foreach ([41, '41', 42, 256] as $value) {
             $this->enable($value);
 
             self::assertNull(CharacterCommandSettings::current(), 'max_pending_intents '.var_export($value, true));

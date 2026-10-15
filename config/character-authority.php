@@ -12,7 +12,8 @@ return [
     | the testing and preproduction environments until the enablement packet. `identities` is a
     | JSON list of dedicated character-command client certificate subjects; a subject shared with
     | any other internal purpose makes the whole surface unavailable, and so does a
-    | `max_pending_intents` above 41, the backlog the 300 s intent TTL covers (gate U-CC9).
+    | `max_pending_intents` above 40, the enforced backlog bound inside the 300 s intent TTL
+    | (gate U-CC9).
     |
     */
 

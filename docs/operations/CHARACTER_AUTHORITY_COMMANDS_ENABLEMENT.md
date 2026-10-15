@@ -69,7 +69,7 @@ defaults to off. The owner flips them on one stack at a time: first `testing` wi
 | `CHARACTER_AUTHORITY_COMMAND_SOURCE_AUTHORITY` | `oteryn:character-authority:primary` | must equal Game `[platform.character_commands].source_authority` |
 | `CHARACTER_AUTHORITY_WEB_CREATE_ENABLED` | `true` | account page "Create character"; flip last, after the smoke check |
 | `CHARACTER_AUTHORITY_COMMAND_INTENT_TTL_SECONDS` | unset (300) | 1..300 |
-| `CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS` | unset (40) | 1..41; a value above 41 disables commands (see the backlog decision below) |
+| `CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS` | unset (40) | 1..40; a value above 40 disables commands (see the backlog decision below) |
 | `CHARACTER_AUTHORITY_COMMAND_REQUESTS_PER_MINUTE` | unset (600) | per consumer identity |
 
 The restore-notice switches arrive with #1629: `CHARACTER_AUTHORITY_RESTORE_NOTICE_ENABLED`,
@@ -110,12 +110,12 @@ gets its receipt. The migration rollback is refused while intents exist.
 
 ## Backlog decision
 
-Decision: 40, enforced by Platform (values above 41 disable commands).
+Decision: 40, enforced by Platform (values above 40 disable commands).
 
 The forward path is a backlog that the consumer has not yet seen, with no rescan involved. At 6 s per unseen
 key (read plus receipt), the contract §4.1 arithmetic (300 s TTL less 30 s rescan and 24 s listing) keeps 41
-keys inside the intent TTL. A larger backlog would let the last intent of a burst wait past 300 s and be
-decided `CHAR_CMD_INTENT_EXPIRED`. `max_pending_intents` therefore defaults to 40, and
-`CharacterCommandSettings` makes the whole command surface unavailable for a configured value above 41
+keys inside the intent TTL, and 40 keeps one key of margin. A larger backlog would let the last intent of
+a burst wait past 300 s and be decided `CHAR_CMD_INTENT_EXPIRED`. `max_pending_intents` therefore defaults to 40, and
+`CharacterCommandSettings` makes the whole command surface unavailable for a configured value above 40
 (`CharacterCommandWire::MAX_PENDING_BACKLOG`, test `CharacterCommandBacklogBoundTest`). The wire ceiling
 `CHARCMD-PENDING-BACKLOG` stays 256.

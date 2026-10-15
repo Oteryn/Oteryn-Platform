@@ -23,7 +23,8 @@ final class CharacterCommandIssuanceOrderPgsqlTest extends TestCase
 {
     private const ISSUERS = 7;
 
-    private const INTENTS_PER_ISSUER = 24;
+    /** 7 x 5 = 35 unreceipted intents, below the default pending backlog of 40 (gate U-CC9). */
+    private const INTENTS_PER_ISSUER = 5;
 
     private const ACCOUNT = '0190f2a1-3b4c-7d5e-8f60-718293a4b5c6';
 
@@ -65,6 +66,8 @@ final class CharacterCommandIssuanceOrderPgsqlTest extends TestCase
     public function test_a_forward_only_consumer_lists_every_concurrently_issued_intent(): void
     {
         $total = self::ISSUERS * self::INTENTS_PER_ISSUER;
+        // The consumer never receipts, so the whole race must fit the pending backlog ceiling.
+        self::assertLessThanOrEqual(CharacterCommandSettings::current()?->maxPendingIntents ?? 0, $total);
 
         $results = ForkedWorkers::run(self::ISSUERS + 1, 'pgsql', fn (int $worker): array => $worker === self::ISSUERS
             ? $this->consume($total)
