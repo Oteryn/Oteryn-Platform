@@ -675,7 +675,7 @@
         },
         {
           "file": "tests/Feature/PublicGameData/CommunityDataCompletenessTest.php",
-          "marker": "test_character_profile_applies_private_defaults_then_public_account_and_status_flags",
+          "marker": "test_complete_community_surfaces_remain_read_only",
           "level": "feature_test"
         },
         {
@@ -705,7 +705,7 @@
         },
         {
           "file": "tests/Feature/PublicGameData/CommunityDataCompletenessTest.php",
-          "marker": "test_character_profile_applies_private_defaults_then_public_account_and_status_flags",
+          "marker": "test_complete_community_surfaces_remain_read_only",
           "level": "feature_test"
         },
         {
@@ -735,7 +735,7 @@
         },
         {
           "file": "tests/Feature/PublicGameData/CommunityDataCompletenessTest.php",
-          "marker": "test_character_profile_applies_private_defaults_then_public_account_and_status_flags",
+          "marker": "test_complete_community_surfaces_remain_read_only",
           "level": "feature_test"
         },
         {
@@ -765,7 +765,7 @@
         },
         {
           "file": "tests/Feature/PublicGameData/CommunityDataCompletenessTest.php",
-          "marker": "test_character_profile_applies_private_defaults_then_public_account_and_status_flags",
+          "marker": "test_complete_community_surfaces_remain_read_only",
           "level": "feature_test"
         },
         {
