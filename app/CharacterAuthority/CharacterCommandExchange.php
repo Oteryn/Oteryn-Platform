@@ -2,6 +2,7 @@
 
 namespace App\CharacterAuthority;
 
+use App\CharacterAuthority\Restore\GameRestoreReconciler;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -140,7 +141,42 @@ final class CharacterCommandExchange
                 'command' => $intent->command,
                 'result_code' => $receipt->resultCode,
             ]);
+            $this->answerReopens($intent, $receipt, $receiptId);
         }, 3);
+    }
+
+    /**
+     * The new receipt of an intent a Game restore reopened answers every notice still waiting for
+     * it. A COMMITTED outcome that came back REJECTED needs Platform compensation (§5.4): alarm.
+     */
+    private function answerReopens(CharacterCommandIntentRow $intent, CharacterCommandReceipt $receipt, int $receiptId): void
+    {
+        $superseded = DB::table(GameRestoreReconciler::REOPENS)
+            ->where('intent_id', $intent->id)
+            ->whereNull('new_receipt_id')
+            ->pluck('superseded_receipt_id');
+        if ($superseded->isEmpty()) {
+            return;
+        }
+
+        DB::table(GameRestoreReconciler::REOPENS)
+            ->where('intent_id', $intent->id)
+            ->whereNull('new_receipt_id')
+            ->update(['new_receipt_id' => $receiptId]);
+
+        $wasCommitted = DB::table(CharacterCommandStoredReceipt::TABLE)
+            ->whereIn('id', $superseded->all())
+            ->where('outcome', CharacterCommandWire::COMMITTED)
+            ->exists();
+        if ($wasCommitted && $receipt->outcome === CharacterCommandWire::REJECTED) {
+            $this->alarm('character_authority.restore_outcome_reversed', $intent->operationId, $intent->command, $receipt->resultCode);
+        } else {
+            Log::info('character_authority.restore_reopen_answered', [
+                'operation_id' => $intent->operationId,
+                'command' => $intent->command,
+                'result_code' => $receipt->resultCode,
+            ]);
+        }
     }
 
     private function bindingMatches(CharacterCommandIntentRow $intent, CharacterCommandReceipt $receipt): bool
