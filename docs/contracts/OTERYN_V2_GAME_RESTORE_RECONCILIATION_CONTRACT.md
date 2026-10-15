@@ -75,15 +75,17 @@ On the first delivery of a notice with restored generation H, one transaction:
 Game then lists and reads the reopened intents again under their unchanged `operation_id` and
 intent bytes, and publishes exactly one new receipt per operation. The receipt route stores it
 as the new current receipt and marks every open reopen row of that intent answered. The new
-receipt may equal the superseded bytes (Game still held a decision made before the snapshot within
-generation H); after it is stored, any receipt with other bytes gets 409 as usual.
+receipt carries a `recovery_generation` at or above the latest notice's `new_recovery_generation`;
+after it is stored, any receipt with other bytes gets 409 as usual.
 
-A receipt whose `recovery_generation` lies strictly between a stored notice's
-`restored_generation` and `new_recovery_generation` was decided after that restore's snapshot and
-before that restore, so Game no longer holds it: the receipt route refuses it with 409 and the
-alarm `character_authority.command_receipt_lost_to_restore`, and it answers no reopen row. A
-receipt within the restored generation itself, or at or above the new generation, is accepted as
-above. Game publishes the restored decision again at its current generation.
+A receipt whose `recovery_generation` is below the latest stored notice's
+`new_recovery_generation`, the restored generation H itself included, was decided before that
+restore, possibly after its snapshot within generation H, so Game may no longer hold it: the
+receipt route refuses it with 409 and the alarm
+`character_authority.command_receipt_lost_to_restore`, and it answers no reopen row. Only an exact
+republication of the stored current receipt of a still-decided intent answers as before. Game
+publishes every decision it still holds, including one made before the snapshot, again at its
+current generation.
 
 A repeated identical notice reopens nothing more; it answers the current status. Once every
 reopen row of the notice is answered, Platform sets `acknowledged_at` once and answers
@@ -95,8 +97,8 @@ Receipt publication and restore-notice recording share one serialization point, 
 `character_restore_locks`. A receipt publication takes it shared, before it locks the intent, and
 holds it until it commits; notice recording takes it exclusively before it checks for staleness
 or selects anything. So a receipt either commits before the notice selects, and is reopened if
-its generation is ≥ H, or waits until the notice has committed, and then answers the notice's
-reopen row. No PENDING→TERMINAL transition crosses a notice's selection. Receipts do not wait for
+its generation is ≥ H, or waits until the notice has committed, and then is refused with 409 if
+its generation is below the notice's new generation, or else answers the notice's reopen row. No PENDING→TERMINAL transition crosses a notice's selection. Receipts do not wait for
 each other, and notices are serialized with each other.
 
 ### Compensation
@@ -123,8 +125,13 @@ Unlike the command routes, the restore surface is not limited to an environment:
 admission after a restore only on Platform's acknowledgement, so a stack whose Game can be
 restored must be able to answer. The identity list is dedicated: sharing a subject with the
 command consumer, the public-projection consumer or any other internal purpose disables every
-surface involved. A reopened intent can only be answered while the command surface is enabled;
-with commands never enabled there are no intents and every notice is acknowledged at once. Exposing the path on the deployed mTLS listener is a
+surface involved. The command exchange routes (list, read, receipt) also open while the restore
+surface is enabled, within the command routes' environment limit and identity checks, so reopened
+intents stay answerable while command issuance (`character-authority.commands.enabled`) is off;
+issuing new commands still requires it. A notice that would reopen operations while the exchange
+cannot serve them answers 503 with the alarm
+`character_authority.restore_notice_exchange_unavailable` and commits nothing; Game repeats it.
+With commands never enabled there are no intents and every notice is acknowledged at once. Exposing the path on the deployed mTLS listener is a
 deployment change made with enablement, not part of this contract version.
 
 ## Acknowledgement time (RTO acceptance item)
