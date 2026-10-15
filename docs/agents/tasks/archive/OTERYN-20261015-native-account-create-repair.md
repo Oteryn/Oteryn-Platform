@@ -24,7 +24,7 @@ The deployed main enables native commands and web creation, but Account Center s
 - [x] The application HTTP regression proves Account Center -> form -> pending intent -> simulated Game receipt for an account with no retired binding; physical Game qualification remains open.
 - [x] Only the authenticated account's fresh native roster is rendered; missing/stale/invalid/unavailable evidence is distinct from authoritative empty.
 - [x] Disabled creation stays unavailable and PL/EN locale is preserved.
-- [x] Focused tests, formatting and static checks pass; exact-candidate CI is recorded (PR 1642 merged to main as 0628d22). Deployed-runtime qualification of the browser roster and polling is deferred past merge to the deployment owner and is not recorded as complete.
+- [ ] Focused tests, formatting and static checks pass; exact-candidate CI and runtime qualification are recorded.
 
 ## Ownership
 
@@ -42,7 +42,7 @@ owned_paths:
   - lang/pl/portal.php
   - tests/Feature/Accounts/NativeAccountOverviewTest.php
   - tests/Feature/Characters/CharacterCreationCommandTest.php
-  - docs/agents/tasks/archive/OTERYN-20261015-native-account-create-repair.md
+  - docs/agents/tasks/active/OTERYN-20261015-native-account-create-repair.md
 modules: [Accounts, Characters]
 dependencies: [LCFA, CharacterAuthority]
 blockers: []
@@ -53,7 +53,7 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-15T23:00:00Z
+updated_at: 2026-10-15T20:58:00Z
 head: 95ad4600a9f27ff3e8bf2c5ccad75939fde07bce
 branch: codex/native-account-oracle-final-20261015
 pr: 1642
@@ -74,7 +74,7 @@ owned_paths:
   - lang/pl/portal.php
   - tests/Feature/Accounts/NativeAccountOverviewTest.php
   - tests/Feature/Characters/CharacterCreationCommandTest.php
-  - docs/agents/tasks/archive/OTERYN-20261015-native-account-create-repair.md
+  - docs/agents/tasks/active/OTERYN-20261015-native-account-create-repair.md
 proven:
   - Main 98edeee02cf2be81e0aac4d47e33f6c25630ca52 enables command and web-create deployment defaults.
   - Legacy AccountOverviewReadModel suppresses native accounts without retired numeric account binding.
@@ -120,15 +120,15 @@ validation:
     result: PASS
     evidence: TLS 1.3 request returns observed and allowed=true in 5.034 seconds, exceeding the existing 3-second Game exchange bound. CLI observation is 2.835 to 3.868 seconds; one measured COMMIT is 1398 ms and file/directory fsync are 185 and 1207 ms. Query execution alone is 22 ms. Instrumentation forwards all original fsync calls unchanged and modifies no deployed source.
 blockers: []
-next_action: none for this packet; PR 1642 is merged. Deployment owner installs the merged build and qualifies the deployed Account Center roster and polling.
+next_action: qualify the repaired exact candidate and deploy it with the preserved migrated Oracle state
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: ordinary same-repository squash merge of PR 1642
-source_branch_evidence: PR 1642 merged to main as 0628d22 from codex/native-account-oracle-final-20261015; the remote ref no longer exists
+source_branch_reason: retain the repair candidate for review and qualification
+source_branch_evidence: protected PR merged through Merge Queue; source ref readback follows operational closeout
 ```
 
 ## Verification limits and resources
@@ -205,3 +205,14 @@ Issue 1623 / PR 1624 is archived consistently with the separate Oracle task.
 The source candidate in PR 1637 is retained. After deployment PR 1640 reached protected main, adding its terminal packet transition on the older repair branch created a real add/add conflict. The control plane selected a new API-native candidate on current main 95ad4600a9f27ff3e8bf2c5ccad75939fde07bce, preserving the complete reviewed application delta and the required terminal deployment transition. No history was reset, rebased, force-pushed or silently relabelled. This branch is the single active writer; the earlier candidate will close as superseded once this PR is allocated.
 
 Replacement PR: https://github.com/Oteryn/Oteryn-Platform/pull/1642. Previous PR 1637 is superseded, not merged.
+
+## Delivered PR closeout
+
+PR #1642 merged through the governed exact-head Merge Queue route.
+Protected main readback: 0628d229a53bf54d2d978a98b81204753ac1bf79.
+Source branch disposition: auto-delete after merge; branch readback belongs to
+operational closeout. Remaining deployment/native-client acceptance is owned by
+active Oracle Actions task under #1639, not this delivered candidate.
+Real browser acceptance passed: owner-only fresh Character roster, normal Game
+receipt-backed creation and automatic duplicate-name rejection refresh.
+Aggregate Issue #1474 remains open for its other programme acceptance.
