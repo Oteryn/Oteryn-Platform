@@ -116,8 +116,11 @@ The acknowledgement is on Game's RTO path. Platform states:
   republication time plus one delivery interval.
 - With Platform unavailable, the acknowledgement waits for Platform's recovery. Platform's
   provisional RTO is 4 h (NAS-only staging, per the PostgreSQL plan). Game's restore RTO
-  therefore includes up to Platform's RTO when both are down. This statement is pending owner
-  ratification.
+  therefore includes up to Platform's RTO when both are down.
+
+Owner ratification: the owner ratified this bound (no Platform wait; with Platform down, the
+provisional 4 h Platform RTO) on 2026-10-15, to be reviewed after the first restore drill
+(Oteryn/Oteryn-Game#1622, comment 6187301378, item 11).
 
 ## Platform restore (the other direction)
 

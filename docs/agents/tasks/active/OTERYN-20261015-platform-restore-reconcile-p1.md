@@ -26,7 +26,7 @@ Platform side of a Game restore: accept Game's restore notice, reopen as PENDING
 - [x] Reopened intents are listed and read again under their unchanged operation identity and accepted with one new receipt, including an identical republication.
 - [x] ACKNOWLEDGED only when every reopened operation has a new receipt; idempotent repeats; a later notice also waits for operations an earlier one left open.
 - [x] COMMITTED → REJECTED reversal raises `character_authority.restore_outcome_reversed`.
-- [x] Platform-restore self-heal (lost receipt) is tested; Platform's acknowledgement time is stated in the contract for owner ratification.
+- [x] Platform-restore self-heal (lost receipt) is tested; Platform's acknowledgement time is stated in the contract and was ratified by the owner (review after the first restore drill).
 - [x] Migration rollback is refused while notices exist.
 - [ ] Exact-head CI passes.
 
@@ -86,12 +86,12 @@ proven:
   - Receipts have no unique constraint per operation, so one new receipt per reopened operation fits the existing table.
   - Platform never calls Game; every exchange is a Game-initiated mTLS POST, so the acknowledgement is the answer to a repeated notice.
 derived:
+  - The owner ratified the acknowledgement bound (no Platform wait; outage bounded by the provisional 4 h Platform RTO) on 2026-10-15, for review after the first restore drill (Oteryn/Oteryn-Game#1622 comment 6187301378 item 11).
   - The restore surface has its own default-off switch without an environment limit, because Game admission waits on the acknowledgement even where commands are disabled.
   - Automated compensation of a reversed outcome is deferred to the first settling consumer; until then the reversal raises an alarm.
   - A4 (delivery reconciliation by generation) is recorded as accepted for the future delivery implementation; Platform has no delivery code yet.
 unknown:
   - PHP suite, PHPStan and Pint results; composer cannot download packages in the authoring sandbox, so CI is the first run.
-  - Owner ratification of the stated acknowledgement time (no Platform wait; outage bounded by the provisional 4 h Platform RTO).
 conflicts: []
 first_failure:
   marker: none
