@@ -61,10 +61,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-15T07:50:00Z
+updated_at: 2026-10-15T08:00:00Z
 head: 2184dfae996884f018f9073b1fba00743c5ba164
 branch: claude/platform-restore-reconcile-p1
-pr: pending
+pr: 1627
 status: validating
 context_routes:
   - game-auth
