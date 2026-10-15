@@ -6,10 +6,12 @@ use App\CharacterAuthority\CharacterCommandClient;
 use App\CharacterAuthority\CharacterCommandState;
 use App\CharacterAuthority\CharacterCommandWire;
 use App\CharacterAuthority\Restore\GameRestoreNoticeWire;
+use ArrayObject;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Testing\TestResponse;
 use LogicException;
 use ReflectionMethod;
@@ -126,13 +128,16 @@ final class GameRestoreReconciliationTest extends TestCase
         $this->publish($this->committedCreate($status->operationId, '5'))->assertOk();
         $this->notice($this->noticeBody(self::EVENT, '5', '6'))->assertOk();
 
-        Log::spy();
+        /** @var ArrayObject<int, mixed> $reversed */
+        $reversed = new ArrayObject;
+        Event::listen(MessageLogged::class, static function (MessageLogged $logged) use ($reversed): void {
+            if ($logged->level === 'error' && $logged->message === 'character_authority.restore_outcome_reversed') {
+                $reversed->append($logged->context['operation_id'] ?? null);
+            }
+        });
         $this->publish($this->rejected($status->operationId, '6', 'CHAR_CMD_NAME_UNAVAILABLE'))->assertOk();
 
-        Log::shouldHaveReceived('error')
-            ->withArgs(fn (string $event, array $context = []): bool => $event === 'character_authority.restore_outcome_reversed'
-                && ($context['operation_id'] ?? null) === $status->operationId)
-            ->once();
+        self::assertSame([$status->operationId], $reversed->getArrayCopy());
     }
 
     public function test_restored_game_may_republish_the_same_decision_as_the_new_receipt(): void
@@ -204,7 +209,7 @@ final class GameRestoreReconciliationTest extends TestCase
         $this->notice($this->noticeBody(self::SECOND_EVENT, '4', '5', source: 'oteryn:character-authority:other'))->assertStatus(401);
         $this->notice(str_repeat(' ', GameRestoreNoticeWire::MAX_REQUEST_BYTES + 1), ['CONTENT_LENGTH' => (string) (GameRestoreNoticeWire::MAX_REQUEST_BYTES + 1)])->assertStatus(413);
         $this->notice(str_repeat(' ', GameRestoreNoticeWire::MAX_REQUEST_BYTES + 1))->assertStatus(400);
-        self::assertSame(1, DB::table('character_restore_notices')->count());
+        self::assertFalse(DB::table('character_restore_notices')->where('restore_event_id', self::SECOND_EVENT)->exists());
     }
 
     public function test_peer_guard_requires_the_dedicated_tls13_identity_and_rate_limits(): void

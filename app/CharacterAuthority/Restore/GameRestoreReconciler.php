@@ -214,8 +214,12 @@ final class GameRestoreReconciler
 
     private function status(stdClass $notice): string
     {
-        $eventId = (string) $notice->restore_event_id;
-        $reopened = (int) $notice->reopened_count;
+        $eventId = $notice->restore_event_id ?? null;
+        $reopened = $notice->reopened_count ?? null;
+        if (! is_string($eventId) || ! is_numeric($reopened)) {
+            throw new CharacterCommandRefused(503, 'Stored Game restore notice is unreadable.');
+        }
+        $reopened = (int) $reopened;
         $outstanding = DB::table(self::REOPENS)->where('notice_id', $notice->id)->whereNull('new_receipt_id')->count();
 
         if ($outstanding === 0 && $notice->acknowledged_at === null) {
