@@ -1,0 +1,46 @@
+name: oteryn-oracle-game
+services:
+  postgres:
+    image: postgres:17.11@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-password
+      POSTGRES_INITDB_ARGS: --auth-local=peer --auth-host=scram-sha-256 --data-checksums --encoding=UTF8 --locale=C.UTF-8
+    command: [postgres, -c, config_file=/etc/oteryn/postgresql.conf]
+    volumes:
+      - game_data:/var/lib/postgresql/data
+      - game_backup:/var/lib/oteryn-postgres-backup
+      - /opt/oteryn-oracle/game-db/config:/etc/oteryn:ro
+      - /opt/oteryn-oracle/game-db/server:/run/oteryn-game-db-tls:ro
+      - /opt/oteryn-oracle/game-db/init:/docker-entrypoint-initdb.d:ro
+      - /opt/oteryn-oracle/game-db/secrets/postgres-password:/run/secrets/postgres-password:ro
+    networks:
+      game_private:
+        ipv4_address: 172.30.84.10
+        aliases: [game-postgres]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -q -h /var/run/postgresql -U postgres -d postgres && test "$$(head -n 1 "$$PGDATA/postmaster.pid")" = 1']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+  migrate:
+    image: oteryn-game:87f770c87ce1-arm64
+    profiles: [operations]
+    restart: 'no'
+    entrypoint: [/usr/local/bin/oteryn-game-migrate]
+    env_file: /opt/oteryn-oracle/game-db/migrate.env
+    volumes:
+      - /opt/oteryn-oracle/game-db/client:/run/game-ca:ro
+    networks: [game_private]
+    depends_on:
+      postgres:
+        condition: service_healthy
+volumes:
+  game_data:
+  game_backup:
+networks:
+  game_private:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.84.0/24

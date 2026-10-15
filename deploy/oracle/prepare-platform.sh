@@ -80,5 +80,6 @@ if [[ ! -e "$OTERYN_STATE_DIR/postgres-bootstrap/bootstrap-complete.env" ]]; the
     bash "$DEPLOY_DIR/scripts/bootstrap-postgres.sh" run
 fi
 "${compose[@]}" up -d --no-deps platform internal-proxy gateway marketplace-scheduler
+bash "$DEPLOY_DIR/scripts/backup-postgres.sh" reconcile
 "${compose[@]}" ps
 echo 'Platform prepared on loopback; native admission and Character creation remain gated.'
