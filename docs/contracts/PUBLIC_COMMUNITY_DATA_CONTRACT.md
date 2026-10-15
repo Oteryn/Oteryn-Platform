@@ -29,7 +29,7 @@ A public profile may expose:
 - name, level and vocation;
 - magic level and approved skill values;
 - public legacy engine comment and boss points;
-- guild name and rank;
+- guild name and rank, only when the Game `character_profile` carries `guild_visible: true` (a required boolean owned by Game; a profile without it is rejected at ingest, and `false` hides the guild row entirely);
 - house name and size only;
 - bounded recent deaths;
 - bounded player-kill count and recent victim summaries;

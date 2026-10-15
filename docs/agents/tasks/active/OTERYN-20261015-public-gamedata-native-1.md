@@ -188,3 +188,5 @@ source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository PR
 source_branch_evidence: pending
 ```
+
+Round 3: `character_profile` carries a required boolean `guild_visible` (ingest rejects a profile without it); the profile page shows the guild row only when it is true. The Oracle SOURCE/image pin cannot name its own head, so it is bumped to the merge commit in the CP slot commit after merge.

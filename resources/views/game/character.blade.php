@@ -29,7 +29,7 @@
                 <dt>{{ __('public.game.vocation') }}</dt>
                 <dd>{{ $characterPresentation->publishedVocationName($character->vocation) }}</dd>
             </div>
-            @if ($character->guild_name !== null || ! $character->guild_member)
+            @if ($character->guild_visible && ($character->guild_name !== null || ! $character->guild_member))
                 <div class="stat">
                     <dt>{{ __('public.game.guild') }}</dt>
                     <dd>

@@ -190,7 +190,7 @@ final class NativePublicGameDataTest extends TestCase
         $this->watermark(PublicProjectionFamily::Guild);
         $this->snapshot(PublicProjectionFamily::CharacterProfile, self::HERO, self::WORLD, 'Aldric', true, [
             'character_id' => self::HERO,
-            'profile' => [['guild' => [['guild_id' => $guild, 'rank_level' => 3]], 'level' => '412', 'name' => 'Aldric', 'vocation' => 2, 'world_id' => self::WORLD]],
+            'profile' => [['guild' => [['guild_id' => $guild, 'rank_level' => 3]], 'level' => '412', 'name' => 'Aldric', 'vocation' => 2, 'world_id' => self::WORLD, 'guild_visible' => true]],
         ]);
         $this->snapshot(PublicProjectionFamily::Guild, $guild, self::WORLD, 'Vanguard', true, [
             'guild' => [['founded_at' => '1', 'members' => [], 'name' => 'Vanguard', 'ranks' => [['level' => 1, 'name' => 'Recruit'], ['level' => 3, 'name' => 'Captain'], ['level' => 20, 'name' => 'Leader']], 'state' => 'ACTIVE', 'world_id' => self::WORLD]],
@@ -231,9 +231,22 @@ final class NativePublicGameDataTest extends TestCase
         // A member of a guild the guild family cannot name shows no guild instead of a wrong one.
         $this->snapshot(PublicProjectionFamily::CharacterProfile, self::HERO, self::WORLD, 'Aldric', true, [
             'character_id' => self::HERO,
-            'profile' => [['guild' => [['guild_id' => '01934f10-7c06-7001-805b-3b1122334409', 'rank_level' => 3]], 'level' => '412', 'name' => 'Aldric', 'vocation' => 2, 'world_id' => self::WORLD]],
+            'profile' => [['guild' => [['guild_id' => '01934f10-7c06-7001-805b-3b1122334409', 'rank_level' => 3]], 'level' => '412', 'name' => 'Aldric', 'vocation' => 2, 'world_id' => self::WORLD, 'guild_visible' => true]],
         ]);
         $this->get('/en/characters/Aldric')->assertOk()->assertDontSee('No guild');
+
+        // guild_visible=false hides the guild row altogether: no name, no rank, no "No guild".
+        $this->snapshot(PublicProjectionFamily::CharacterProfile, self::HERO, self::WORLD, 'Aldric', true, [
+            'character_id' => self::HERO,
+            'profile' => [['guild' => [['guild_id' => '01934f10-7c06-7001-805b-3b1122334401', 'rank_level' => 3]], 'guild_visible' => false, 'level' => '412', 'name' => 'Aldric', 'vocation' => 2, 'world_id' => self::WORLD]],
+        ]);
+        $this->snapshot(PublicProjectionFamily::Guild, '01934f10-7c06-7001-805b-3b1122334401', self::WORLD, 'Vanguard', true, [
+            'guild' => [['founded_at' => '1', 'members' => [], 'name' => 'Vanguard', 'ranks' => [['level' => 1, 'name' => 'Recruit'], ['level' => 3, 'name' => 'Captain'], ['level' => 20, 'name' => 'Leader']], 'state' => 'ACTIVE', 'world_id' => self::WORLD]],
+            'guild_id' => '01934f10-7c06-7001-805b-3b1122334401',
+        ]);
+        $this->watermark(PublicProjectionFamily::Guild);
+        $this->get('/en/characters/Aldric')->assertOk()->assertSee('Aldric')
+            ->assertDontSee('Vanguard')->assertDontSee('Captain')->assertDontSee('No guild');
 
         // A stale or missing family is unavailable (503), never a guess or a legacy read.
         $this->watermark(PublicProjectionFamily::CharacterProfile, self::NOW - 31);
@@ -307,7 +320,7 @@ final class NativePublicGameDataTest extends TestCase
     {
         $this->snapshot(PublicProjectionFamily::CharacterProfile, $character, $world, $name, $name !== null, [
             'character_id' => $character,
-            'profile' => $name === null ? [] : [['guild' => [], 'level' => '100', 'name' => $name, 'vocation' => 1, 'world_id' => $world]],
+            'profile' => $name === null ? [] : [['guild' => [], 'level' => '100', 'name' => $name, 'vocation' => 1, 'world_id' => $world, 'guild_visible' => true]],
         ]);
     }
 

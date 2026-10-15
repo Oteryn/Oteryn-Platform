@@ -104,11 +104,12 @@ final class NativePublicGameData
 
     /**
      * The public profile of a character by name in the served World, with exactly the fields
-     * `character_profile` carries (name, level, vocation, guild membership). The guild and rank
+     * `character_profile` carries (name, level, vocation, guild membership shown only
+     * when `guild_visible`). The guild and rank
      * names come from the `guild` family and are left out when that family cannot name them.
      * Null when no live character of that name is published.
      *
-     * @return stdClass|null name, level, vocation, guild_member, guild_name, guild_rank
+     * @return stdClass|null name, level, vocation, guild_visible, guild_member, guild_name, guild_rank
      *
      * @throws PublicGameDataUnavailable
      */
@@ -126,6 +127,12 @@ final class NativePublicGameData
         $guildRank = null;
         $memberships = $profile['guild'] ?? null;
         $membership = is_array($memberships) ? ($memberships[0] ?? null) : null;
+        // `guild_visible` is the owner's choice carried by Game: when it is not exactly true the
+        // page learns nothing about the membership, not even that one exists.
+        $guildVisible = ($profile['guild_visible'] ?? false) === true;
+        if (! $guildVisible) {
+            $membership = null;
+        }
         if (is_array($membership) && is_string($membership['guild_id'] ?? null)) {
             $guildId = $membership['guild_id'];
             $guildEntries = $this->readModel->entries(PublicProjectionFamily::Guild, [$guildId], $now)[$guildId]['guild'] ?? null;
@@ -144,6 +151,7 @@ final class NativePublicGameData
             'name' => $profile['name'],
             'level' => $this->count($profile['level'] ?? null),
             'vocation' => is_int($profile['vocation'] ?? null) ? $profile['vocation'] : 0,
+            'guild_visible' => $guildVisible,
             'guild_member' => is_array($membership),
             'guild_name' => $guildName,
             'guild_rank' => $guildRank,

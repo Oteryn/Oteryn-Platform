@@ -679,6 +679,11 @@
           "level": "feature_test"
         },
         {
+          "file": "tests/Feature/PublicGameData/NativePublicGameDataTest.php",
+          "marker": "test_profile_page_hides_unpublished_or_other_world_characters_and_fails_closed",
+          "level": "feature_test"
+        },
+        {
           "file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs",
           "marker": "@portal-community complete rankings, privacy-aware profile, deaths, guild search, localization, resilience and responsive lifecycle",
           "level": "browser_acceptance"

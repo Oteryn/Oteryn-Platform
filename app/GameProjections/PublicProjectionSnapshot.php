@@ -116,11 +116,12 @@ final readonly class PublicProjectionSnapshot
         $name = null;
         foreach (PublicProjectionWire::list($d['profile'] ?? null, 0, 1) as $entry) {
             $profile = PublicProjectionWire::object($entry);
-            PublicProjectionWire::exactKeys($profile, ['world_id', 'name', 'vocation', 'level', 'guild']);
+            PublicProjectionWire::exactKeys($profile, ['world_id', 'name', 'vocation', 'level', 'guild', 'guild_visible']);
             $worldId = PublicProjectionWire::uuid7($profile, 'world_id');
             $name = PublicProjectionWire::name($profile['name'] ?? null);
             PublicProjectionWire::int($profile, 'vocation', 0, 255);
             PublicProjectionWire::uint64($profile, 'level');
+            PublicProjectionWire::bool($profile, 'guild_visible');
             foreach (PublicProjectionWire::list($profile['guild'] ?? null, 0, 1) as $membership) {
                 $guild = PublicProjectionWire::object($membership);
                 PublicProjectionWire::exactKeys($guild, ['guild_id', 'rank_level']);
