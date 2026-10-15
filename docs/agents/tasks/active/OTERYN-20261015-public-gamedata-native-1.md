@@ -26,7 +26,8 @@ Decision input first, then the Platform page readers (packets C5 and C7), approv
 - [x] The category and vocation filters select the published (World, category, filter) list; an unpublished list is unavailable, not empty.
 - [x] Feature tests cover fresh, stale, missing, empty, profile join and filters (`tests/Feature/PublicGameData/NativePublicGameDataTest.php`); the legacy online and highscores tests are removed.
 - [ ] Real HTTP check of both pages against the Oracle stack with live rows, and the unavailable state within S (30 s) after the producer stops (after the Game producer and the deployment steps).
-- [ ] Character profile page on native data: not in this slice. `/characters/{name}` exists but its view needs skills, deaths, preferences and kills that the profile family does not carry; it stays on the unavailable view until C8 and the deaths family land.
+- [x] `/characters/{name}` is served only from `character_profile` (plus the `guild` family for the guild and rank names), with the carried fields only: name, level, vocation, guild. A stale or missing family is 503, an unknown, hidden or other-World character is 404. Skills, deaths, comment, status and house are not shown and have no placeholders. The per-character Platform preferences are keyed by the legacy player id and do not apply to a native character id; the guild shown is the one Game publishes.
+- [x] Deploy wiring in repo: `deploy/synology/compose.yml` forwards `GAME_PROJECTIONS_PUBLIC_*` and `PUBLIC_GAME_DATA_WORLD_ID` fail-closed, `deploy/oracle/prepare-platform.sh` seeds them off, and `deploy/synology/nginx/internal-mtls.conf` routes `/internal/v1/game-public/*` with its own 512 KiB body bound (`deploy/synology/tests/test_platform_mtls_contract.py`).
 
 ## Findings
 
@@ -85,9 +86,10 @@ Decided by the owner on 2026-10-15 ("zbuduj to"):
 - `App\PublicGameData\NativePublicGameData` is the only reader of both pages. `PublicProjectionReadModel` gained `worlds()` and `entries()` with the same serve-time epoch and watermark checks as `entry()`.
 - World: `PUBLIC_GAME_DATA_WORLD_ID` (config `public_game_data.world_id`) or, when empty, the only World that has published. Several Worlds without a value fail closed (503). The World id is never rendered.
 - Category ids follow the contract (1 experience, 2 magic, 3-9 fist, club, sword, axe, distance, shielding, fishing). The `level` category reads category 1 and shows the level, `experience` shows the value.
-- Vocation filter ids 1..5 are assumed to be sorcerer, druid, paladin, knight, monk (vocations 1, 2, 3, 4, 9, promoted ones map to their base and are then narrowed to the exact vocation). If Game numbers the base filters differently, only `CommunityDataPolicy::HIGHSCORE_VOCATION_FILTERS` changes.
+- Vocation ids: the contract only says `vocation` is the A13 build-state id (0..255) and `filter` 1..5 a base vocation, without numbers. Platform follows Game's reference enum (`apps/game-server/src/content/reference_playable.rs`): Druid 1, Knight 2, Monk 3, Paladin 4, Sorcerer 5, None 6; filter n lists base vocation n. The names are `CharacterPresentation::publishedVocationName()`; the legacy ids of `vocationName()` stay for the legacy pages. The producer must pin the same numbers.
 - The online page no longer shows the channel (the contract carries none).
-- Deployment is not part of this change: the Oracle compose does not yet forward `GAME_PROJECTIONS_PUBLIC_*` and the internal mTLS route for `game-public` is not wired (see the PR comment).
+- Profile: `PublicProjectionReadModel::entryByName()` reads the indexed `lookup_name` in the served World (exact first, then ASCII case-insensitive; an ambiguous name serves nothing). `PublicCharacterProfileService` and the legacy profile tests are removed.
+- Deployment wiring is in this PR (compose, Oracle prepare script, mTLS listener). Remaining on oteryn-vps: certificate, secrets and the flag flip (see the PR comment).
 
 ## Context checkpoint
 
@@ -106,9 +108,21 @@ owned_paths:
   - app/PublicGameData/NativePublicGameData.php
   - app/PublicGameData/CommunityDataPolicy.php
   - app/Http/Controllers/PublicGameData/PublicGameDataController.php
+  - app/PublicGameData/CharacterPresentation.php
+  - app/PublicGameData/PublicCharacterProfileService.php
   - config/public_game_data.php
   - resources/views/game/highscores.blade.php
   - resources/views/game/online.blade.php
+  - resources/views/game/character.blade.php
+  - lang/en/community.php
+  - lang/pl/community.php
+  - deploy/synology/compose.yml
+  - deploy/synology/nginx/internal-mtls.conf
+  - deploy/synology/README.md
+  - deploy/synology/tests/test_platform_mtls_contract.py
+  - deploy/oracle/prepare-platform.sh
+  - tests/Feature/CharacterProfiles/CharacterProfilePreferenceTest.php
+  - tests/Feature/PublicGameData/CharacterProfilePresentationTest.php
   - tests/Feature/PublicGameData/NativePublicGameDataTest.php
   - tests/Feature/PublicGameData/PublicGameDataSourceTest.php
   - tests/Feature/PublicGameData/PublicGameDataTest.php
@@ -119,12 +133,11 @@ owned_paths:
 proven:
   - Platform consumer and read model for Public Projections v1 exist on main (C4).
   - Game has no producer for game-public routes yet; the contract is CANDIDATE. The owner decided Q1-Q4 on 2026-10-15 and the producer is being built in parallel in Oteryn-Game.
-  - The native reader and both pages are implemented with feature tests (fresh 200, stale or missing 503, empty 200, profile join, filters).
+  - The native reader and the online, highscores and character pages, and the deploy wiring, are implemented with feature tests (fresh 200, stale or missing 503, empty 200, profile join, filters).
 derived:
   - Until the producer publishes, both pages answer 503 unavailable, which is the honest fail-closed state.
 unknown:
-  - Whether Game numbers the vocation filters 1..5 as sorcerer, druid, paladin, knight, monk.
-  - The Oracle deployment wiring of the public-projection ingest (compose env and internal mTLS route).
+  - Whether the Game producer pins the vocation ids to the reference enum (the contract gives no numbers).
 conflicts: []
 first_failure:
   marker: none
@@ -137,10 +150,26 @@ changed_paths:
   - app/PublicGameData/NativePublicGameData.php
   - app/PublicGameData/CommunityDataPolicy.php
   - app/Http/Controllers/PublicGameData/PublicGameDataController.php
+  - app/PublicGameData/CharacterPresentation.php
+  - app/PublicGameData/PublicCharacterProfileService.php
   - config/public_game_data.php
   - resources/views/game/highscores.blade.php
   - resources/views/game/online.blade.php
+  - resources/views/game/character.blade.php
+  - lang/en/community.php
+  - lang/pl/community.php
+  - deploy/synology/compose.yml
+  - deploy/synology/nginx/internal-mtls.conf
+  - deploy/synology/README.md
+  - deploy/synology/tests/test_platform_mtls_contract.py
+  - deploy/oracle/prepare-platform.sh
+  - tests/Feature/CharacterProfiles/CharacterProfilePreferenceTest.php
+  - tests/Feature/PublicGameData/CharacterProfilePresentationTest.php
   - tests/Feature/PublicGameData
+  - tests/Feature/CharacterProfiles/CharacterProfilePreferenceTest.php
+  - deploy
+  - lang
+  - resources/views/game/character.blade.php
   - .env.example
   - docs/agents/LEGACY_TOKEN_BASELINE.json
 validation:
@@ -148,7 +177,7 @@ validation:
     result: PASS
     evidence: run locally before push; legacy token ratchet, task liveness, Control Room and source branch closeout also pass locally
 blockers:
-  - Game producer (parallel) and Oracle deployment wiring before live rows can be accepted.
+  - Game producer (parallel), the certificate and secrets and the flag flip on oteryn-vps before live rows can be accepted.
 next_action: Exact-head CI and independent architect review; the CP marks ready; after the Game producer and the deployment steps, run the acceptance HTTP check.
 ```
 

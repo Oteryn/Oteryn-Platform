@@ -59,6 +59,48 @@ final class PublicProjectionReadModel
     }
 
     /**
+     * The stored content of the present entry of a family whose lookup name is `$name` in the
+     * World, matched exactly first and then ASCII case-insensitively, or null when the family is
+     * stale or no entry matches. Same epoch fence as {@see entry()}.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function entryByName(PublicProjectionFamily $family, string $worldId, string $name, int $now): ?array
+    {
+        $epoch = $this->freshEpoch($family, $now);
+        if ($epoch === null) {
+            return null;
+        }
+
+        $query = fn () => DB::table('game_public_projection_snapshots')
+            ->where('family', $family->value)
+            ->where('world_id', $worldId)
+            ->where('projection_epoch', $epoch)
+            ->where('present', true);
+        $rows = $query()->where('lookup_name', $name)->limit(2)->get();
+        if ($rows->isEmpty()) {
+            $rows = $query()->whereRaw('LOWER(lookup_name) = ?', [strtolower($name)])->limit(2)->get();
+        }
+        // An ambiguous name serves nothing rather than a guess.
+        $row = $rows->first();
+        if ($rows->count() !== 1 || $row === null || $this->highestEpoch() !== $epoch) {
+            return null;
+        }
+
+        try {
+            $payload = json_decode(PublicProjectionIngestion::string($row, 'payload'), true, 8, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            return null;
+        }
+        if (! is_array($payload) || array_is_list($payload)) {
+            return null;
+        }
+
+        /** @var array<string, mixed> $payload */
+        return $payload;
+    }
+
+    /**
      * The distinct world ids that have a present entry of the family at the fresh epoch, or null
      * when the family is stale. Used to resolve the one served world; never shown on a page.
      *

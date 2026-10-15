@@ -115,39 +115,6 @@ class PublicGameDataTest extends TestCase
         });
     }
 
-    public function test_character_profile_exposes_only_approved_fields_and_hides_deleted_characters(): void
-    {
-        DB::connection('canary')->table('players')->insert([
-            [
-                'id' => 1,
-                'name' => 'Active Knight',
-                'account_id' => 424242,
-                'level' => 120,
-                'vocation' => 4,
-                'deletion' => 0,
-            ],
-            [
-                'id' => 2,
-                'name' => 'Deleted Knight',
-                'account_id' => 525252,
-                'level' => 130,
-                'vocation' => 4,
-                'deletion' => 1,
-            ],
-        ]);
-        $this->makeCanaryConnectionReadOnly();
-
-        $this->get(route('game.characters.show', ['name' => 'Active Knight']))
-            ->assertOk()
-            ->assertSee('Active Knight')
-            ->assertSee('120')
-            ->assertSee('4')
-            ->assertDontSee('424242');
-
-        $this->get(route('game.characters.show', ['name' => 'Deleted Knight']))
-            ->assertNotFound();
-    }
-
     public function test_guild_read_model_escapes_content_excludes_deleted_members_and_avoids_n_plus_one_queries(): void
     {
         DB::connection('canary')->table('players')->insert([

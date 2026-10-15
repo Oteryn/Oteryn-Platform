@@ -161,17 +161,18 @@ final class NativePublicGameDataTest extends TestCase
         $this->watermark(PublicProjectionFamily::CharacterProfile);
         $this->profile(self::HERO, self::WORLD, 'Aldric');
         $this->profile(self::MAGE, self::WORLD, 'Mira');
-        $this->highscores(self::WORLD, 1, 0, [[self::HERO, 'Aldric', 4, '412', '11400000000'], [self::MAGE, 'Mira', 1, '280', '2000000']]);
-        // Magic level (2), all vocations and knights (filter 4) with a promoted knight (8).
-        $this->highscores(self::WORLD, 2, 0, [[self::MAGE, 'Mira', 1, '280', '95'], [self::HERO, 'Aldric', 8, '412', '12']]);
-        $this->highscores(self::WORLD, 2, 4, [[self::HERO, 'Aldric', 8, '412', '12']]);
+        // Game's reference base vocations: Druid 1, Knight 2, Monk 3, Paladin 4, Sorcerer 5.
+        $this->highscores(self::WORLD, 1, 0, [[self::HERO, 'Aldric', 2, '412', '11400000000'], [self::MAGE, 'Mira', 5, '280', '2000000']]);
+        $this->highscores(self::WORLD, 2, 0, [[self::MAGE, 'Mira', 5, '280', '95'], [self::HERO, 'Aldric', 2, '412', '12']]);
+        $this->highscores(self::WORLD, 2, 2, [[self::HERO, 'Aldric', 2, '412', '12']]);
 
-        $this->get('/en/highscores?category=magic')->assertOk()->assertSeeInOrder(['Mira', 'Aldric'])->assertSee('95');
-        $this->get('/en/highscores?category=magic&vocation=4')->assertOk()->assertDontSee('Mira');
-        // The base list of knights holds a promoted knight (8): selecting elite knight keeps only him,
-        // selecting knight keeps only exact knights.
-        $this->get('/en/highscores?category=magic&vocation=8')->assertOk()->assertSee('Aldric')->assertDontSee('Mira');
-        $this->get('/en/highscores?category=magic&vocation=4')->assertOk()->assertDontSee('Aldric');
+        $this->get('/en/highscores?category=magic')->assertOk()->assertSeeInOrder(['Mira', 'Sorcerer', 'Aldric', 'Knight'])->assertSee('95');
+        // Filter n is the published list of base vocation n; 0 and no value are the all list.
+        $this->get('/en/highscores?category=magic&vocation=2')->assertOk()->assertSee('Aldric')->assertDontSee('Mira');
+        $this->get('/en/highscores?category=magic&vocation=0')->assertOk()->assertSee('Mira');
+        $this->get('/pl/highscores?category=magic&vocation=2')->assertOk()->assertSee('Aldric')->assertSee('Knight');
+        // A filter the producer did not publish is unavailable, not an empty or invented list.
+        $this->get('/en/highscores?category=magic&vocation=4')->assertStatus(503);
         // Level and experience share category 1 and show level or value.
         $this->get('/en/highscores?category=level')->assertOk()->assertSee('412')->assertDontSee('11,400,000,000');
         $this->get('/en/highscores?category=experience')->assertOk()->assertSee('11,400,000,000');
@@ -179,6 +180,66 @@ final class NativePublicGameDataTest extends TestCase
         $this->get('/en/highscores?category=fishing')->assertStatus(503);
         // Contract-invalid input is still a validation error.
         $this->get('/en/highscores?category=unsupported')->assertSessionHasErrors('category');
+        $this->get('/en/highscores?vocation=9')->assertSessionHasErrors('vocation');
+    }
+
+    public function test_profile_page_shows_only_the_carried_fields(): void
+    {
+        $guild = '01934f10-7c06-7001-805b-3b1122334401';
+        $this->watermark(PublicProjectionFamily::CharacterProfile);
+        $this->watermark(PublicProjectionFamily::Guild);
+        $this->snapshot(PublicProjectionFamily::CharacterProfile, self::HERO, self::WORLD, 'Aldric', true, [
+            'character_id' => self::HERO,
+            'profile' => [['guild' => [['guild_id' => $guild, 'rank_level' => 3]], 'level' => '412', 'name' => 'Aldric', 'vocation' => 2, 'world_id' => self::WORLD]],
+        ]);
+        $this->snapshot(PublicProjectionFamily::Guild, $guild, self::WORLD, 'Vanguard', true, [
+            'guild' => [['founded_at' => '1', 'members' => [], 'name' => 'Vanguard', 'ranks' => [['level' => 1, 'name' => 'Recruit'], ['level' => 3, 'name' => 'Captain'], ['level' => 20, 'name' => 'Leader']], 'state' => 'ACTIVE', 'world_id' => self::WORLD]],
+            'guild_id' => $guild,
+        ]);
+        $this->profile(self::MAGE, self::WORLD, 'Mira');
+
+        $this->get('/en/characters/Aldric')
+            ->assertOk()
+            ->assertSee('Aldric')
+            ->assertSee('412')
+            ->assertSee('Knight')
+            ->assertSee('Vanguard')
+            ->assertSee('Captain')
+            ->assertDontSee(self::HERO)
+            ->assertDontSee(self::WORLD)
+            ->assertDontSee('Skills')
+            ->assertDontSee('Recent deaths')
+            ->assertDontSee('Magic level');
+        // Exact match first, then ASCII case-insensitive.
+        $this->get('/en/characters/aldric')->assertOk()->assertSee('Aldric');
+        $this->get('/pl/characters/Mira')->assertOk()->assertSee('Mira')->assertSee('Brak gildii');
+        $this->get('/en/characters/Nobody')->assertNotFound();
+    }
+
+    public function test_profile_page_hides_unpublished_or_other_world_characters_and_fails_closed(): void
+    {
+        $this->watermark(PublicProjectionFamily::CharacterProfile);
+        $this->profile(self::HERO, self::WORLD, 'Aldric');
+        $this->profile(self::GHOST, self::WORLD, null);
+        $this->profile(self::MAGE, self::OTHER_WORLD, 'Mira');
+        config(['public_game_data.world_id' => self::WORLD]);
+
+        $this->get('/en/characters/Aldric')->assertOk();
+        // A hidden character (profile []) and a character of another World are not found.
+        $this->get('/en/characters/Mira')->assertNotFound();
+
+        // A member of a guild the guild family cannot name shows no guild instead of a wrong one.
+        $this->snapshot(PublicProjectionFamily::CharacterProfile, self::HERO, self::WORLD, 'Aldric', true, [
+            'character_id' => self::HERO,
+            'profile' => [['guild' => [['guild_id' => '01934f10-7c06-7001-805b-3b1122334409', 'rank_level' => 3]], 'level' => '412', 'name' => 'Aldric', 'vocation' => 2, 'world_id' => self::WORLD]],
+        ]);
+        $this->get('/en/characters/Aldric')->assertOk()->assertDontSee('No guild');
+
+        // A stale or missing family is unavailable (503), never a guess or a legacy read.
+        $this->watermark(PublicProjectionFamily::CharacterProfile, self::NOW - 31);
+        $this->get('/en/characters/Aldric')->assertStatus(503)->assertSee('community-unavailable', false);
+        DB::table('game_public_projection_watermarks')->delete();
+        $this->get('/en/characters/Aldric')->assertStatus(503);
     }
 
     public function test_world_is_resolved_from_config_or_the_only_published_world(): void

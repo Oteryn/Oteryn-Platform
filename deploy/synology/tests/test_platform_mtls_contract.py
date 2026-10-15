@@ -81,13 +81,14 @@ def test_client_certificate_values_reach_php_only_from_the_tls_session() -> None
     assert "fastcgi_param SSL_PROTOCOL $ssl_protocol;" in directives
     assert "fastcgi_param SSL_CLIENT_S_DN $ssl_client_s_dn;" in directives
     ssl_params = [d for d in directives if re.match(r"fastcgi_param (HTTP_)?SSL_", d)]
-    assert len(ssl_params) == 3, ssl_params
+    # One explicit parameter set per location (game-auth and game-public), never a shared include.
+    assert len(ssl_params) == 6, ssl_params
     assert not [d for d in directives if d.startswith("include")]
     assert not [d for d in directives if d.startswith(("proxy_pass", "proxy_set_header"))]
     for header in ("HTTP_PROXY", "HTTP_FORWARDED", "HTTP_X_FORWARDED_FOR", "HTTP_X_REAL_IP"):
         assert f'fastcgi_param {header} "";' in directives
     assert f"fastcgi_pass unix:{SOCKET};" in directives
-    assert len([d for d in directives if d.startswith("fastcgi_pass ")]) == 1
+    assert [d for d in directives if d.startswith("fastcgi_pass ")] == [f"fastcgi_pass unix:{SOCKET};"] * 2
 
 
 def test_only_game_node_routes_are_exposed() -> None:
@@ -97,12 +98,14 @@ def test_only_game_node_routes_are_exposed() -> None:
         "~ ^/internal/v1/game-auth/(native-evidence|native-runtime-status|native-scope-assignments|"
         "native-account-characters|native-account-characters/watermark|character-bootstrap-intents/read|"
         "character-commands/pending|character-commands/read|character-commands/receipt)$",
+        "~ ^/internal/v1/game-public/(highscores|character-profile|character-deaths|guild|house|world-online|"
+        "watermark)$",
         "/",
     ]
     exposed = set(re.search(r"game-auth/\(([^)]*)\)\$", locations[0]).group(1).split("|"))
     assert exposed == GAME_NODE_ROUTES
     assert "native-admissions" not in exposed
-    assert "limit_except POST { deny all; }" in text
+    assert text.count("limit_except POST { deny all; }") == 2
     assert re.search(r"location / \{\s*return 404;\s*\}", text)
 
     routes = ROUTES.read_text()
@@ -111,6 +114,41 @@ def test_only_game_node_routes_are_exposed() -> None:
     assert "CharacterCommandRoutes::register();" in routes
     wire = set(re.findall(r"_PATH = '/internal/v1/game-auth/([a-z/-]+)';", WIRE.read_text()))
     assert wire == CHARACTER_COMMAND_ROUTES, wire
+
+
+def test_game_public_projection_routes_match_platform_and_allow_their_body_bounds() -> None:
+    text = NGINX.read_text()
+    block = re.search(r"location ~ \^/internal/v1/game-public/\(([^)]*)\)\$ \{(.*?)\n        \}", text, re.S)
+    assert block, "game-public location missing"
+    exposed = set(block.group(1).split("|"))
+    family = (ROOT / "app" / "GameProjections" / "PublicProjectionFamily.php").read_text()
+    cases = set(re.findall(r"case \w+ = '([a-z_]+)';", family))
+    assert exposed == {case.replace("_", "-") for case in cases} | {"watermark"}
+    routes = ROUTES.read_text()
+    assert "Route::post('/internal/v1/game-public/'.$publicProjectionFamily->path()," in routes
+    assert "Route::post('/internal/v1/game-public/'.PublicProjectionFamily::WATERMARK_PATH," in routes
+
+    # The largest family body (world-online) must fit the location; every other route stays at 64k.
+    largest = max(int(n) for n in re.findall(r"=> (\d+),", family) if int(n) > 1000)
+    size = re.search(r"client_max_body_size (\d+)k;", block.group(2))
+    assert size and int(size.group(1)) * 1024 >= largest
+    assert "client_max_body_size 64k;" in text.split("server {")[0]
+    assert "client_max_body_size" not in text.split("location ~ ^/internal/v1/game-public")[0].split("server {")[1]
+
+
+def test_platform_forwards_public_projection_settings_with_fail_closed_defaults() -> None:
+    platform = _service_block(COMPOSE.read_text(), "platform")
+    assert "      GAME_PROJECTIONS_PUBLIC_ENABLED: ${GAME_PROJECTIONS_PUBLIC_ENABLED:-false}\n" in platform
+    assert "      GAME_PROJECTIONS_PUBLIC_IDENTITIES: ${GAME_PROJECTIONS_PUBLIC_IDENTITIES:-}\n" in platform
+    assert "      GAME_PROJECTIONS_PUBLIC_SOURCE_AUTHORITY: ${GAME_PROJECTIONS_PUBLIC_SOURCE_AUTHORITY:-}\n" in platform
+    assert "GAME_PROJECTIONS_PUBLIC_REQUESTS_PER_MINUTE: ${GAME_PROJECTIONS_PUBLIC_REQUESTS_PER_MINUTE:-1200}" in platform
+    assert "      PUBLIC_GAME_DATA_WORLD_ID: ${PUBLIC_GAME_DATA_WORLD_ID:-}\n" in platform
+
+    prepare = (ROOT / "deploy" / "oracle" / "prepare-platform.sh").read_text()
+    assert prepare.count("'GAME_PROJECTIONS_PUBLIC_ENABLED': 'false',") == 2
+    assert prepare.count("'GAME_PROJECTIONS_PUBLIC_IDENTITIES': '',") == 2
+    assert prepare.count("'GAME_PROJECTIONS_PUBLIC_SOURCE_AUTHORITY': 'oteryn:game:primary',") == 2
+    assert "GAME_PROJECTIONS_PUBLIC_ENABLED': 'true'" not in prepare
 
 
 def test_terminator_mounts_host_files_read_only_and_never_uses_tls_init() -> None:

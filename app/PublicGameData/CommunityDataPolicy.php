@@ -37,15 +37,6 @@ final class CommunityDataPolicy
         'fishing' => 9,
     ];
 
-    /** Base vocation id to the published filter 1..5 (0 = all), promoted vocations count as their base. */
-    private const HIGHSCORE_VOCATION_FILTERS = [
-        1 => 1, 5 => 1,
-        2 => 2, 6 => 2,
-        3 => 3, 7 => 3,
-        4 => 4, 8 => 4,
-        9 => 5, 10 => 5,
-    ];
-
     /** @return list<string> */
     public static function highscoreCategories(): array
     {
@@ -70,22 +61,25 @@ final class CommunityDataPolicy
             ?? throw new InvalidArgumentException('Unsupported highscore category.');
     }
 
-    /** The published filter for a vocation; 0 (all) for an id with no base list. */
+    /**
+     * The published highscores filter of a base vocation. Game numbers filters 1..5 by its
+     * reference base-vocation ids (Druid 1, Knight 2, Monk 3, Paladin 4, Sorcerer 5); 0 is all.
+     */
     public static function highscoreVocationFilter(int $vocation): int
     {
-        return self::HIGHSCORE_VOCATION_FILTERS[$vocation] ?? 0;
+        return $vocation >= 1 && $vocation <= 5 ? $vocation : 0;
     }
 
-    /** @return list<int> */
+    /** @return list<int> the base vocations a highscores page can filter by */
     public static function highscoreVocationIds(): array
     {
-        return [1, 2, 3, 4, 9];
+        return [1, 2, 3, 4, 5];
     }
 
-    /** @return list<int> */
+    /** @return list<int> accepted `vocation` query values; 0 means all */
     public static function vocationIds(): array
     {
-        return range(0, 10);
+        return [0, 1, 2, 3, 4, 5];
     }
 
     public static function guildSearchLimit(): int

@@ -107,22 +107,6 @@ final class CharacterProfilePreferenceTest extends TestCase
         $this->put('/account/characters/Alpha/profile')->assertRedirect('/login');
     }
 
-    public function test_missing_preferences_preserve_existing_public_profile_behavior(): void
-    {
-        $identity = $this->identityWithBinding(7001, true, true);
-        $this->seedCharacters();
-
-        $this->get(route('game.characters.show', ['name' => 'Alpha Knight']))
-            ->assertOk()
-            ->assertSee('Canary comment')
-            ->assertSee('Beta Druid')
-            ->assertSee('Online')
-            ->assertDontSee('Main character');
-
-        self::assertSame(0, CharacterProfilePreference::query()->count());
-        self::assertTrue($identity->public_account_association);
-    }
-
     public function test_owner_can_update_escaped_comment_visibility_and_main_character(): void
     {
         $identity = $this->identityWithBinding(7001, true, true);
@@ -150,19 +134,6 @@ final class CharacterProfilePreferenceTest extends TestCase
         self::assertFalse($alpha->show_deaths);
         self::assertFalse($alpha->show_kills);
 
-        $public = $this->get(route('game.characters.show', ['name' => 'Alpha Knight']));
-        $public->assertOk()
-            ->assertSee('&lt;script&gt;alert(1)&lt;/script&gt; Owner text', false)
-            ->assertDontSee('<script>alert(1)</script>', false)
-            ->assertSee('Main character')
-            ->assertSee('Guild details are private.')
-            ->assertSee('House details are private.')
-            ->assertSee('Skills are private.')
-            ->assertSee('Death history is private.')
-            ->assertSee('Player-kill statistics are private.')
-            ->assertSee('Beta Druid')
-            ->assertSee('Online');
-
         $this->put(route('account.characters.profile.update', ['name' => 'Beta Druid']), [
             'public_comment' => 'Secondary',
             'show_guild' => '1',
@@ -176,11 +147,6 @@ final class CharacterProfilePreferenceTest extends TestCase
         $alpha->refresh();
         self::assertFalse($alpha->is_main_character);
         self::assertTrue(CharacterProfilePreference::query()->where('canary_player_id', 2)->firstOrFail()->is_main_character);
-
-        $this->get(route('game.characters.show', ['name' => 'Alpha Knight']))
-            ->assertOk()
-            ->assertDontSee('Beta Druid')
-            ->assertDontSee('Main character');
 
         $this->get(route('account.overview'))
             ->assertOk()
@@ -196,31 +162,6 @@ final class CharacterProfilePreferenceTest extends TestCase
             ->where('identity_id', $identity->id)
             ->where('event_type', CharacterProfileEventRecorder::MAIN_CHARACTER_SELECTED)
             ->count());
-    }
-
-    public function test_account_privacy_remains_the_upper_bound(): void
-    {
-        $identity = $this->identityWithBinding(7001, false, false);
-        $this->seedCharacters();
-        $this->loginAsCurrentIdentity($identity);
-
-        $this->put(route('account.characters.profile.update', ['name' => 'Alpha Knight']), [
-            'public_comment' => 'Account privacy upper bound',
-            'show_account_association' => '1',
-            'show_status' => '1',
-            'show_guild' => '1',
-            'show_house' => '1',
-            'show_skills' => '1',
-            'show_deaths' => '1',
-            'show_kills' => '1',
-        ])->assertRedirect();
-
-        $this->get(route('game.characters.show', ['name' => 'Alpha Knight']))
-            ->assertOk()
-            ->assertSee('Account association is private.')
-            ->assertSee('Status details are private.')
-            ->assertDontSee('Beta Druid')
-            ->assertDontSee('<strong>Online</strong>', false);
     }
 
     public function test_ownership_dependency_failure_returns_sanitized_unavailable_state(): void

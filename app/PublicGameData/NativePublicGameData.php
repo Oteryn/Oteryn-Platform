@@ -89,10 +89,6 @@ final class NativePublicGameData
                 continue;
             }
             $rowVocation = is_int($row['vocation'] ?? null) ? $row['vocation'] : 0;
-            // A promoted vocation selects its base list; keep only that exact vocation.
-            if ($vocation !== null && $rowVocation !== $vocation) {
-                continue;
-            }
 
             $players[] = $this->object([
                 'rank' => $this->count($row['rank'] ?? null),
@@ -104,6 +100,54 @@ final class NativePublicGameData
         }
 
         return $players;
+    }
+
+    /**
+     * The public profile of a character by name in the served World, with exactly the fields
+     * `character_profile` carries (name, level, vocation, guild membership). The guild and rank
+     * names come from the `guild` family and are left out when that family cannot name them.
+     * Null when no live character of that name is published.
+     *
+     * @return stdClass|null name, level, vocation, guild_member, guild_name, guild_rank
+     *
+     * @throws PublicGameDataUnavailable
+     */
+    public function profile(string $name, int $now): ?stdClass
+    {
+        $world = $this->world(PublicProjectionFamily::CharacterProfile, $now);
+        $payload = $this->readModel->entryByName(PublicProjectionFamily::CharacterProfile, $world, $name, $now);
+        $entries = $payload['profile'] ?? null;
+        $profile = is_array($entries) ? ($entries[0] ?? null) : null;
+        if (! is_array($profile) || ($profile['world_id'] ?? null) !== $world || ! is_string($profile['name'] ?? null)) {
+            return null;
+        }
+
+        $guildName = null;
+        $guildRank = null;
+        $memberships = $profile['guild'] ?? null;
+        $membership = is_array($memberships) ? ($memberships[0] ?? null) : null;
+        if (is_array($membership) && is_string($membership['guild_id'] ?? null)) {
+            $guildId = $membership['guild_id'];
+            $guildEntries = $this->readModel->entries(PublicProjectionFamily::Guild, [$guildId], $now)[$guildId]['guild'] ?? null;
+            $guild = is_array($guildEntries) ? ($guildEntries[0] ?? null) : null;
+            if (is_array($guild) && ($guild['world_id'] ?? null) === $world && is_string($guild['name'] ?? null)) {
+                $guildName = $guild['name'];
+                foreach (is_array($guild['ranks'] ?? null) ? $guild['ranks'] : [] as $rank) {
+                    if (is_array($rank) && ($rank['level'] ?? null) === ($membership['rank_level'] ?? false) && is_string($rank['name'] ?? null)) {
+                        $guildRank = $rank['name'];
+                    }
+                }
+            }
+        }
+
+        return $this->object([
+            'name' => $profile['name'],
+            'level' => $this->count($profile['level'] ?? null),
+            'vocation' => is_int($profile['vocation'] ?? null) ? $profile['vocation'] : 0,
+            'guild_member' => is_array($membership),
+            'guild_name' => $guildName,
+            'guild_rank' => $guildRank,
+        ]);
     }
 
     /**

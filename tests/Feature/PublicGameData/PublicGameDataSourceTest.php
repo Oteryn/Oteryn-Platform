@@ -19,7 +19,6 @@ final class PublicGameDataSourceTest extends TestCase
     public static function publicPages(): array
     {
         return [
-            ['game.characters.show', ['name' => 'Some Hero']],
             ['game.guilds.show', ['name' => 'Some Guild']],
             ['game.guilds.index', []],
             ['game.servers.index', []],
@@ -89,11 +88,13 @@ final class PublicGameDataSourceTest extends TestCase
     }
 
     /**
-     * Online and highscores are native-only: they never open the legacy connection, whatever
+     * Online, highscores and character pages are native-only: they never open the legacy connection, whatever
      * the source setting is, and answer 503 while no fresh projection exists.
+     *
+     * @param  array<string, string>  $parameters
      */
     #[DataProvider('nativeOnlyPages')]
-    public function test_native_only_pages_never_open_the_legacy_connection(string $route, ?string $source): void
+    public function test_native_only_pages_never_open_the_legacy_connection(string $route, ?string $source, array $parameters = []): void
     {
         $this->configureLegacyConnection();
         config()->set('public_game_data.source', $source);
@@ -101,14 +102,14 @@ final class PublicGameDataSourceTest extends TestCase
         $connection = DB::connection(PublicGameDataSource::CONNECTION);
         $connection->enableQueryLog();
 
-        $this->get(route($route))
+        $this->get(route($route, $parameters))
             ->assertStatus(503)
             ->assertSee('community-unavailable', false);
 
         $this->assertSame([], $connection->getQueryLog());
     }
 
-    /** @return list<array{string, ?string}> */
+    /** @return list<array{string, ?string}|array{string, ?string, array<string, string>}> */
     public static function nativeOnlyPages(): array
     {
         return [
@@ -116,6 +117,8 @@ final class PublicGameDataSourceTest extends TestCase
             ['game.highscores.index', PublicGameDataSource::NATIVE],
             ['game.online.index', null],
             ['game.online.index', PublicGameDataSource::NATIVE],
+            ['game.characters.show', null, ['name' => 'Some Hero']],
+            ['game.characters.show', PublicGameDataSource::NATIVE, ['name' => 'Some Hero']],
         ];
     }
 

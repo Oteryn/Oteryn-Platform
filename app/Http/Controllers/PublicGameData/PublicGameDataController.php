@@ -5,7 +5,6 @@ namespace App\Http\Controllers\PublicGameData;
 use App\PublicGameData\CanaryGameDataRepository;
 use App\PublicGameData\CommunityDataPolicy;
 use App\PublicGameData\NativePublicGameData;
-use App\PublicGameData\PublicCharacterProfileService;
 use App\PublicGameData\PublicGameDataSource;
 use App\PublicGameData\PublicGameDataUnavailable;
 use Illuminate\Contracts\View\View;
@@ -20,7 +19,6 @@ final class PublicGameDataController
 {
     public function __construct(
         private readonly CanaryGameDataRepository $gameData,
-        private readonly PublicCharacterProfileService $profiles,
         private readonly NativePublicGameData $native,
     ) {}
 
@@ -73,18 +71,17 @@ final class PublicGameDataController
 
     public function character(string $name): View|Response
     {
+        // The native character_profile family is the only source; a stale or missing family
+        // answers 503 and an unknown or hidden character 404.
         try {
-            PublicGameDataSource::assertAvailable();
-            $profile = $this->profiles->find($name);
-        } catch (PublicGameDataUnavailable) {
-            return $this->unavailable('community.profile.title', Response::HTTP_OK);
-        } catch (QueryException) {
+            $character = $this->native->profile($name, now()->getTimestamp());
+        } catch (PublicGameDataUnavailable|QueryException) {
             return $this->unavailable('community.profile.title');
         }
 
-        abort_if($profile === null, 404);
+        abort_if($character === null, 404);
 
-        return view('game.character', $profile);
+        return view('game.character', ['character' => $character]);
     }
 
     public function deaths(): View|Response
