@@ -56,7 +56,7 @@ checkpoint_version: 1
 updated_at: 2026-10-15T20:58:00Z
 head: 95ad4600a9f27ff3e8bf2c5ccad75939fde07bce
 branch: codex/native-account-oracle-final-20261015
-pr: none
+pr: 1642
 status: implementing
 context_routes:
   - native-character-portfolio
@@ -203,3 +203,5 @@ Issue 1623 / PR 1624 is archived consistently with the separate Oracle task.
 ## Replacement candidate after material upstream overlap
 
 The source candidate in PR 1637 is retained. After deployment PR 1640 reached protected main, adding its terminal packet transition on the older repair branch created a real add/add conflict. The control plane selected a new API-native candidate on current main 95ad4600a9f27ff3e8bf2c5ccad75939fde07bce, preserving the complete reviewed application delta and the required terminal deployment transition. No history was reset, rebased, force-pushed or silently relabelled. This branch is the single active writer; the earlier candidate will close as superseded once this PR is allocated.
+
+Replacement PR: https://github.com/Oteryn/Oteryn-Platform/pull/1642. Previous PR 1637 is superseded, not merged.
