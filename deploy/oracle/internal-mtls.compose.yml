@@ -1,0 +1,8 @@
+# Apply with the pinned Platform Compose contract and public-platform override.
+# Game reaches this listener only through the private Docker network.
+services:
+  internal-mtls:
+    ports: !reset []
+    networks:
+      private:
+        ipv4_address: 172.18.0.12
