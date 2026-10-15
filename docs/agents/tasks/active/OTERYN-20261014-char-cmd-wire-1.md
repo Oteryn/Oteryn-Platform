@@ -137,7 +137,7 @@ validation:
     evidence: vendor cannot be installed in the authoring sandbox (GitHub dist downloads refused); runs on the exact head in CI
 blockers:
   - none
-next_action: Drive the PR to green CI and a clean Codex review, then report to CP.
+next_action: Archive this task record; PR #1622 is terminal on main.
 terminal_pr_policy: archive_pending
 ```
 

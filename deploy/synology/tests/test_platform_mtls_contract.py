@@ -29,7 +29,13 @@ GAME_NODE_ROUTES = {
     "native-account-characters",
     "native-account-characters/watermark",
     "character-bootstrap-intents/read",
+    "character-commands/pending",
+    "character-commands/read",
+    "character-commands/receipt",
 }
+# Mounted by app/CharacterAuthority/Http/CharacterCommandRoutes.php from the CharacterCommandWire paths.
+CHARACTER_COMMAND_ROUTES = {"character-commands/pending", "character-commands/read", "character-commands/receipt"}
+WIRE = ROOT / "app" / "CharacterAuthority" / "CharacterCommandWire.php"
 STAGING_FILES = {
     "SERVER_CERT_FILE": "/volume1/oteryn/preprod-platform-tls/platform-internal-preprod.fullchain.pem",
     "SERVER_KEY_FILE": "/volume1/oteryn/preprod-platform-tls/platform-internal-preprod.key",
@@ -89,7 +95,8 @@ def test_only_game_node_routes_are_exposed() -> None:
     locations = re.findall(r"^\s*location\s+([^{]+)\{", text, re.M)
     assert [loc.strip() for loc in locations] == [
         "~ ^/internal/v1/game-auth/(native-evidence|native-runtime-status|native-scope-assignments|"
-        "native-account-characters|native-account-characters/watermark|character-bootstrap-intents/read)$",
+        "native-account-characters|native-account-characters/watermark|character-bootstrap-intents/read|"
+        "character-commands/pending|character-commands/read|character-commands/receipt)$",
         "/",
     ]
     exposed = set(re.search(r"game-auth/\(([^)]*)\)\$", locations[0]).group(1).split("|"))
@@ -99,8 +106,11 @@ def test_only_game_node_routes_are_exposed() -> None:
     assert re.search(r"location / \{\s*return 404;\s*\}", text)
 
     routes = ROUTES.read_text()
-    for route in GAME_NODE_ROUTES:
+    for route in GAME_NODE_ROUTES - CHARACTER_COMMAND_ROUTES:
         assert f"Route::post('/internal/v1/game-auth/{route}'," in routes, route
+    assert "CharacterCommandRoutes::register();" in routes
+    wire = set(re.findall(r"_PATH = '/internal/v1/game-auth/([a-z/-]+)';", WIRE.read_text()))
+    assert wire == CHARACTER_COMMAND_ROUTES, wire
 
 
 def test_terminator_mounts_host_files_read_only_and_never_uses_tls_init() -> None:
@@ -508,6 +518,22 @@ ROUTE_SETTINGS = {
         "",
     ),
     "GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS": ("OTERYN_STAGING_NATIVE_BOOTSTRAP_INTENT_TTL_SECONDS", ""),
+    "CHARACTER_AUTHORITY_COMMANDS_ENABLED": ("OTERYN_STAGING_NATIVE_CHARACTER_COMMANDS_ENABLED", "false"),
+    "CHARACTER_AUTHORITY_COMMAND_IDENTITIES": ("OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_IDENTITIES", ""),
+    "CHARACTER_AUTHORITY_COMMAND_SOURCE_AUTHORITY": ("OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_SOURCE_AUTHORITY", ""),
+    "CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": ("OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_MAX_PENDING_INTENTS", "40"),
+    "CHARACTER_AUTHORITY_WEB_CREATE_ENABLED": ("OTERYN_STAGING_NATIVE_CHARACTER_WEB_CREATE_ENABLED", "false"),
+}
+# Platform settings of the Character Authority commands that the deploy leaves at the config default.
+CHARACTER_COMMAND_UNMAPPED = {
+    "CHARACTER_AUTHORITY_COMMAND_INTENT_TTL_SECONDS",
+    "CHARACTER_AUTHORITY_COMMAND_REQUESTS_PER_MINUTE",
+    # Game restore notices (U-CC7, PR #1631) are not wired by this packet: they keep the Platform
+    # config default, so the restore-notice route stays off in the deployment.
+    "CHARACTER_AUTHORITY_RESTORE_NOTICE_ENABLED",
+    "CHARACTER_AUTHORITY_RESTORE_NOTICE_IDENTITIES",
+    "CHARACTER_AUTHORITY_RESTORE_NOTICE_SOURCE_AUTHORITY",
+    "CHARACTER_AUTHORITY_RESTORE_NOTICE_REQUESTS_PER_MINUTE",
 }
 # Subject DN (RFC 2253) of the preprod node 1 [platform] client certificate, named by the Game manifest
 # deploy/synology-game/preprod-topology.toml (certificates.node_native_evidence).
@@ -523,6 +549,12 @@ def test_game_node_route_settings_reach_platform_and_default_closed() -> None:
     platform = _service_block(COMPOSE.read_text(), "platform")
     mapped = set(re.findall(r"^      ((?:GAME_AUTH_NATIVE_EVIDENCE|GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT)_[A-Z_]+):", platform, re.M))
     assert read and read == mapped, read ^ mapped
+    # Character Authority commands and web creation: every setting is mapped except the two that keep
+    # the Platform config default (TTL 300 s, 600 requests per minute) and the unwired restore notices.
+    config = (ROOT / "config" / "character-authority.php").read_text()
+    read = set(re.findall(r"env\('(CHARACTER_AUTHORITY_[A-Z_]+)'", config))
+    mapped = set(re.findall(r"^      (CHARACTER_AUTHORITY_[A-Z_]+):", platform, re.M))
+    assert mapped and read == mapped | CHARACTER_COMMAND_UNMAPPED and not mapped & CHARACTER_COMMAND_UNMAPPED, read ^ mapped
     for name, (_, default) in ROUTE_SETTINGS.items():
         assert f"      {name}: ${{{name}:-{default}}}\n" in platform, name
     # The other Game-node routes: runtime status and scope assignment come from the rendered
@@ -548,6 +580,14 @@ def test_game_node_route_settings_reach_platform_and_default_closed() -> None:
         "OTERYN_STAGING_NATIVE_EVIDENCE_CLOCK_UNCERTAINTY_SECONDS": "1",
         "OTERYN_STAGING_NATIVE_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY": NODE_PLATFORM_CLIENT_IDENTITY,
         "OTERYN_STAGING_NATIVE_BOOTSTRAP_INTENT_TTL_SECONDS": "300",
+        # Character Authority commands are enabled for the preprod node 1 commands certificate, and
+        # web creation is on after the Game node's pending-list smoke check. The pending-intent bound
+        # is the enablement value 40 (CP decision 2026-10-15).
+        "OTERYN_STAGING_NATIVE_CHARACTER_COMMANDS_ENABLED": "true",
+        "OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_IDENTITIES": '["CN=oteryn-preprod-node-1-character-commands"]',
+        "OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_SOURCE_AUTHORITY": "oteryn:character-authority:primary",
+        "OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_MAX_PENDING_INTENTS": "40",
+        "OTERYN_STAGING_NATIVE_CHARACTER_WEB_CREATE_ENABLED": "true",
     }
     for _, (default_name, _) in ROUTE_SETTINGS.items():
         assert values.get(default_name, "") == committed.get(default_name, ""), default_name
@@ -587,6 +627,53 @@ def test_game_node_route_settings_reach_platform_and_default_closed() -> None:
     # Platform treats a non-boolean switch as a configuration error, so the run is refused.
     result, calls = _run_lib("oteryn_resolve_game_node_route_settings", GAME_AUTH_NATIVE_EVIDENCE_ACTIVATED="yes")
     assert result.returncode == 1 and "must be true or false" in result.stderr and calls == []
+
+
+def test_character_command_settings_refuse_a_surface_that_cannot_work() -> None:
+    enabled = {
+        "CHARACTER_AUTHORITY_COMMANDS_ENABLED": "true",
+        "CHARACTER_AUTHORITY_COMMAND_IDENTITIES": '["CN=oteryn-preprod-character-commands"]',
+    }
+    # The committed source authority and bound complete an enabled surface; web creation follows it.
+    result, calls = _run_lib(
+        f"oteryn_resolve_game_node_route_settings || exit 1; {PRINT_ROUTE_SETTINGS}",
+        CHARACTER_AUTHORITY_WEB_CREATE_ENABLED="true",
+        **enabled,
+    )
+    assert result.returncode == 0 and calls == [], result.stderr
+    resolved = dict(line.split("=", 1) for line in result.stdout.splitlines())
+    assert resolved["CHARACTER_AUTHORITY_COMMANDS_ENABLED"] == "true"
+    assert resolved["CHARACTER_AUTHORITY_COMMAND_IDENTITIES"] == '["CN=oteryn-preprod-character-commands"]'
+    assert resolved["CHARACTER_AUTHORITY_COMMAND_SOURCE_AUTHORITY"] == "oteryn:character-authority:primary"
+    assert resolved["CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS"] == "40"
+    assert resolved["CHARACTER_AUTHORITY_WEB_CREATE_ENABLED"] == "true"
+
+    refused = [
+        ({"CHARACTER_AUTHORITY_COMMANDS_ENABLED": "1"}, "CHARACTER_AUTHORITY_COMMANDS_ENABLED must be true or false"),
+        ({"CHARACTER_AUTHORITY_WEB_CREATE_ENABLED": "on"}, "CHARACTER_AUTHORITY_WEB_CREATE_ENABLED must be true or false"),
+        (
+            {"CHARACTER_AUTHORITY_WEB_CREATE_ENABLED": "true", "CHARACTER_AUTHORITY_COMMANDS_ENABLED": "false"},
+            "needs CHARACTER_AUTHORITY_COMMANDS_ENABLED=true",
+        ),
+        (
+            {"CHARACTER_AUTHORITY_COMMANDS_ENABLED": "true", "OTERYN_NATIVE_DEFAULTS_FILE": "/dev/null"},
+            "needs CHARACTER_AUTHORITY_COMMAND_IDENTITIES",
+        ),
+        ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "41"}, "from 1 to 40"),
+        ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "256"}, "from 1 to 40"),
+        ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "0"}, "from 1 to 40"),
+        ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "040"}, "from 1 to 40"),
+        ({"CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS": "40s"}, "from 1 to 40"),
+    ]
+    for env, message in refused:
+        result, calls = _run_lib("oteryn_resolve_game_node_route_settings", **env)
+        assert result.returncode == 1 and message in result.stderr and calls == [], (env, result.stderr)
+    # An enabled surface without a source authority (none committed) is refused too.
+    with tempfile.TemporaryDirectory() as tmp:
+        defaults = pathlib.Path(tmp) / "d.env"
+        defaults.write_text("OTERYN_STAGING_NATIVE_CHARACTER_COMMAND_MAX_PENDING_INTENTS=40\n")
+        result, calls = _run_lib("oteryn_resolve_game_node_route_settings", OTERYN_NATIVE_DEFAULTS_FILE=str(defaults), **enabled)
+    assert result.returncode == 1 and "CHARACTER_AUTHORITY_COMMAND_SOURCE_AUTHORITY" in result.stderr and calls == []
 
 
 def test_every_fail_closed_removal_also_removes_the_listener() -> None:
