@@ -194,6 +194,31 @@ final class GameRestoreReconciliationTest extends TestCase
         self::assertStringContainsString('"ACKNOWLEDGED"', (string) $this->notice($this->noticeBody(self::EVENT, '3', '4'))->getContent());
     }
 
+    public function test_a_receipt_decided_in_a_generation_a_later_restore_lost_answers_nothing(): void
+    {
+        $this->enableCommands();
+        $this->enableRestore();
+        $reopened = $this->client()->requestCreate('submit-1', self::ACCOUNT, self::WORLD, 'Aldric');
+        $undecided = $this->client()->requestCreate('submit-2', self::ACCOUNT, self::WORLD, 'Brannoc');
+        $this->publish($this->committedCreate($reopened->operationId, '3'))->assertOk();
+        $this->notice($this->noticeBody(self::EVENT, '3', '4'))->assertOk();
+        $this->notice($this->noticeBody(self::SECOND_EVENT, '2', '5'))->assertOk();
+
+        // Decided in generation 4, delivered only after the second restore rolled Game back past it.
+        $this->publish($this->rejected($reopened->operationId, '4'))->assertStatus(409);
+        $this->publish($this->rejected($undecided->operationId, '4'))->assertStatus(409);
+        self::assertSame(1, DB::table('character_command_receipts')->count());
+        self::assertSame(
+            '{"contract_version":1,"restore_event_id":"'.self::SECOND_EVENT.'","status":"RECONCILING","reopened":1,"outstanding":1}',
+            $this->notice($this->noticeBody(self::SECOND_EVENT, '2', '5'))->getContent(),
+        );
+
+        $this->publish($this->rejected($reopened->operationId, '5'))->assertOk();
+        $this->publish($this->rejected($undecided->operationId, '5'))->assertOk();
+        self::assertStringContainsString('"ACKNOWLEDGED"', (string) $this->notice($this->noticeBody(self::SECOND_EVENT, '2', '5'))->getContent());
+        self::assertStringContainsString('"ACKNOWLEDGED"', (string) $this->notice($this->noticeBody(self::EVENT, '3', '4'))->getContent());
+    }
+
     public function test_conflicting_stale_and_malformed_notices_are_refused(): void
     {
         $this->enableRestore();

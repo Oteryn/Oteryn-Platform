@@ -113,6 +113,12 @@ final class CharacterCommandExchange
                 $this->conflict($intent, $receipt, 'character_authority.command_receipt_conflict');
             }
 
+            // Fixed width so a restore can select `recovery_generation >= H` as text (§5.4).
+            $generation = str_pad($receipt->recoveryGeneration, 20, '0', STR_PAD_LEFT);
+            if ($this->lostToRestore($generation)) {
+                $this->conflict($intent, $receipt, 'character_authority.command_receipt_lost_to_restore');
+            }
+
             if ($receipt->outcome === CharacterCommandWire::COMMITTED && ! $this->bindingMatches($intent, $receipt)) {
                 $this->conflict($intent, $receipt, 'character_authority.command_receipt_binding_mismatch');
             }
@@ -125,8 +131,7 @@ final class CharacterCommandExchange
                 'command' => $intent->command,
                 'outcome' => $receipt->outcome,
                 'result_code' => $receipt->resultCode,
-                // Fixed width so a restore can select `recovery_generation >= H` as text (§5.4).
-                'recovery_generation' => str_pad($receipt->recoveryGeneration, 20, '0', STR_PAD_LEFT),
+                'recovery_generation' => $generation,
                 'receipt_json' => $raw,
                 'receipt_sha256' => hash('sha256', $raw),
                 'superseded_at' => null,
@@ -145,6 +150,20 @@ final class CharacterCommandExchange
             ]);
             $this->answerReopens($intent, $receipt, $receiptId);
         }, 3);
+    }
+
+    /**
+     * A generation strictly between a recorded notice's restored and new generation was decided
+     * after that restore's snapshot and before the restore: Game no longer holds it, so it can
+     * answer no operation. A decision within the restored generation itself may predate the
+     * snapshot and stays acceptable (§5.4).
+     */
+    private function lostToRestore(string $generation): bool
+    {
+        return DB::table(GameRestoreReconciler::NOTICES)
+            ->where('restored_generation', '<', $generation)
+            ->where('new_recovery_generation', '>', $generation)
+            ->exists();
     }
 
     /**

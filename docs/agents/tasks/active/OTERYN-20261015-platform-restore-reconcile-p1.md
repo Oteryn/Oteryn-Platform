@@ -30,6 +30,7 @@ Platform side of a Game restore: accept Game's restore notice, reopen as PENDING
 - [x] Migration rollback is refused while notices exist.
 - [x] Receipt publication and notice recording share one restore lock; a receipt committing during a notice is reopened (PostgreSQL concurrency test).
 - [x] Restore, command and public-projection identities are mutually dedicated.
+- [x] A receipt decided in a generation a later restore lost (strictly between a notice's restored and new generation) is refused with 409 and answers no notice.
 - [ ] Exact-head CI passes.
 
 ## Ownership
@@ -91,6 +92,7 @@ proven:
   - The intent/receipt store from #1532 already keeps receipt history (`superseded_at`) and stores `recovery_generation` zero-padded to 20 characters, so selection by generation is a text comparison.
   - Receipts have no unique constraint per operation, so one new receipt per reopened operation fits the existing table.
   - Platform never calls Game; every exchange is a Game-initiated mTLS POST, so the acknowledgement is the answer to a repeated notice.
+  - A receipt whose generation lies strictly between a recorded notice's restored and new generation was decided after that snapshot and before that restore, so Game no longer holds it; without a fence it answered every open reopen row (Codex P1 on #1629). Receipts in such an interval are refused with 409; a decision within the restored generation itself may predate the snapshot and stays acceptable.
   - Without a shared lock, a receipt still uncommitted when a notice selects is missed and the notice can be acknowledged with a stale outcome (Codex P1 on #1627); the one-row `character_restore_locks` lock (shared for receipts, exclusive for notices) closes it, as `native_assignment_epoch_locks` does for runtime status.
 derived:
   - The owner ratified the acknowledgement bound (no Platform wait; outage bounded by the provisional 4 h Platform RTO) on 2026-10-15, for review after the first restore drill (Oteryn/Oteryn-Game#1622 comment 6187301378 item 11).
@@ -109,6 +111,7 @@ rejected_hypotheses:
   - Selecting reopened intents by time, `decided_at` or the restore point; ruling 10 selects by generation only.
   - Refusing a new receipt equal to the superseded bytes; Game may still hold a decision made before the snapshot within generation H.
   - Gating the restore route on character-authority.commands.enabled; that would leave Game admission closed after a restore on stacks without commands.
+  - Fencing on receipt generation ≥ the notice's new generation; it would refuse a decision Game still holds from before the snapshot within the restored generation.
   - Relying on Game's ops lock alone to keep notices and receipts apart; a pre-restore receipt can still be in flight.
 changed_paths:
   - app/CharacterAuthority/Restore/GameRestoreNotice.php
@@ -126,7 +129,6 @@ changed_paths:
   - tests/Feature/CharacterAuthority/GameRestoreReconciliationTest.php
   - tests/Feature/CharacterAuthority/Concurrency/GameRestoreReceiptConcurrencyPgsqlTest.php
   - scripts/acceptance/coverage/portal-coverage-manifest.json
-  - app/GameProjections/PublicProjectionSettings.php
   - docs/agents/tasks/active/OTERYN-20261014-char-cmd-wire-1.md
   - docs/agents/tasks/active/OTERYN-20261015-platform-restore-reconcile-p1.md
 validation:
@@ -141,7 +143,7 @@ validation:
     evidence: same sandbox limitation; CI runs them
 blockers:
   - none
-next_action: Split from #1627 after the round limit; the contract docs are in #1630. Drive #1629 to green CI with no P1, enable squash auto-merge, then report to CP.
+next_action: Split from #1627 after the round limit; the contract docs are in #1630. Round 1 adds the restore-generation fence; drive #1629 to green CI with no P1, enable squash auto-merge, then report to CP.
 terminal_pr_policy: archive_pending
 ```
 

@@ -71,7 +71,7 @@ final class GameRestoreReceiptConcurrencyPgsqlTest extends TestCase
     public function test_a_receipt_committing_during_a_restore_notice_is_reopened(): void
     {
         $intent = app(CharacterCommandClient::class)->requestCreate('submit-1', self::ACCOUNT, self::WORLD, 'Aldric');
-        $receipt = $this->json([
+        $receipt = $this->canonical([
             'contract_version' => 1,
             'operation' => 'PublishCharacterCommandReceiptV1',
             'source_authority' => self::SOURCE,
@@ -82,7 +82,7 @@ final class GameRestoreReceiptConcurrencyPgsqlTest extends TestCase
             'recovery_generation' => '3',
             'decided_at' => '1790000002',
         ]);
-        $notice = $this->json([
+        $notice = $this->canonical([
             'contract_version' => 1,
             'operation' => 'PublishGameRestoreNoticeV1',
             'source_authority' => self::SOURCE,
@@ -133,7 +133,7 @@ final class GameRestoreReceiptConcurrencyPgsqlTest extends TestCase
     }
 
     /** @param array<string, int|string> $members */
-    private function json(array $members): string
+    private function canonical(array $members): string
     {
         return json_encode($members, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
