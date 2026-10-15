@@ -36,7 +36,8 @@ owned_paths:
   - scripts/acceptance/package.json
   - app/Accounts/ReadModels/NativeAccountOverviewReadModel.php
   - app/Http/Controllers/Accounts/AccountOverviewController.php
-  - resources/views/identity/account/native-overview.blade.php
+  - resources/views/identity/account/overview.blade.php
+  - resources/views/identity/account/partials/native-roster.blade.php
   - lang/en/portal.php
   - lang/pl/portal.php
   - tests/Feature/Accounts/NativeAccountOverviewTest.php
@@ -52,7 +53,7 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-15T16:28:46Z
+updated_at: 2026-10-15T16:43:35Z
 head: UNKNOWN
 branch: codex/fix-native-account-character-creation-20261015
 pr: 1637
@@ -67,7 +68,8 @@ owned_paths:
   - scripts/acceptance/package.json
   - app/Accounts/ReadModels/NativeAccountOverviewReadModel.php
   - app/Http/Controllers/Accounts/AccountOverviewController.php
-  - resources/views/identity/account/native-overview.blade.php
+  - resources/views/identity/account/overview.blade.php
+  - resources/views/identity/account/partials/native-roster.blade.php
   - lang/en/portal.php
   - lang/pl/portal.php
   - tests/Feature/Accounts/NativeAccountOverviewTest.php
@@ -92,7 +94,8 @@ changed_paths:
   - scripts/acceptance/package.json
   - app/Accounts/ReadModels/NativeAccountOverviewReadModel.php
   - app/Http/Controllers/Accounts/AccountOverviewController.php
-  - resources/views/identity/account/native-overview.blade.php
+  - resources/views/identity/account/overview.blade.php
+  - resources/views/identity/account/partials/native-roster.blade.php
   - lang/en/portal.php
   - lang/pl/portal.php
   - tests/Feature/Accounts/NativeAccountOverviewTest.php
@@ -119,7 +122,7 @@ validation:
 blockers:
   - Durable account-security evidence and Game custody cannot reliably meet existing freshness and transport bounds on the observed storage.
   - CI also reports a pre-existing closed Issue 1623 and merged PR 1624 still recorded as active in the native-evidence activation packet; that unrelated record was preserved.
-next_action: Qualify the updated Platform candidate and resolve the measured durable-storage latency before retrying a real Game creation.
+next_action: Obtain the owner decision for the scoped protected storage relocation proposal.
 ```
 
 ## Source branch closeout
@@ -132,9 +135,9 @@ source_branch_evidence: pending
 
 ## Verification limits and resources
 
-No Game repository mutation, credentials, live data or runtime changes. Existing command enablement gates remain intact. Native LCFA does not supply level, vocation or native profile-management capabilities, so Account Center renders only the authorized native names and stops using numeric legacy preferences.
+No Game repository mutation or manual runtime/data repair was performed. Authenticated diagnostic evidence reads advance normal observation revisions. Existing command enablement gates remain intact. Native LCFA does not supply level, vocation or native profile-management capabilities, so Account Center renders only the authorized native names and stops using numeric legacy preferences.
 
-Task container `oteryn-account-fix-php` is ephemeral, labelled `oteryn.task=account-create-fix-20261015`; remove after validation. Keep the task checkout and candidate branch for review. PHP development dependencies were installed locally with the unrelated `ext-gd` platform requirement ignored; touched behavior does not use GD.
+Task container `oteryn-account-fix-php` and `oteryn-account-fix-php-2` are ephemeral, labelled `oteryn.task=account-create-fix-20261015`; remove after validation. Keep the task checkout and candidate branch for review. PHP development dependencies were installed locally with the unrelated `ext-gd` platform requirement ignored; touched behavior does not use GD.
 
 ## Owner clarification and runtime evidence (2026-10-15)
 
@@ -174,7 +177,9 @@ This protected operational change needs the owner's separate task-specific produ
 
 ## Execution cleanup closeout
 
-REMOVED: both uniquely named storage-probe directories, verified absent by the probe. The PC screenshot and local validation container are removed after final checks. No temporary service, workflow, secret, or live configuration was installed.
+REMOVED: both uniquely named storage-probe directories, verified absent by the probe. The PC screenshot and both local validation containers were removed and absence verified after final checks. No temporary service, workflow, secret, or live configuration was installed.
 KEPT: the task checkout, ignored PHP dependencies, PHP base image cache, and PR branch for review/continuation.
 VERIFIED: exact task-labelled Docker inventory and post-removal inventory; exact PC temporary screenshot path; storage probe emitted absent=true for both directories.
 REMAINING: owner decision for the protected storage relocation, existing CI baseline task-record cleanup, and real Game qualification.
+
+The native roster is a partial in the existing Account Center view, not a new independently routed public view. This preserves the existing route/view coverage identity and shares the account security presentation. The strict portal closure gate also has pre-existing missing coverage entries; no unqualified browser evidence was marked complete.

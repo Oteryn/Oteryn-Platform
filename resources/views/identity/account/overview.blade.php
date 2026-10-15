@@ -14,6 +14,9 @@
             <a class="button" href="{{ route('account.characters.create', ['locale' => app()->getLocale()]) }}">{{ __('portal.account.create') }} <span aria-hidden="true">＋</span></a>
         @endif
     </header>
+    @if ($overview['native'] ?? false)
+        @include('identity.account.partials.native-roster')
+    @else
     @php
         $badgeClass = match ($overview['state']) {
             'ready' => 'badge-success',
@@ -81,6 +84,7 @@
             <div class="notice alert-warning" role="status">{{ __('portal.account.limit', ['count' => $overview['character_limit']]) }}</div>
         @endif
     </section>
+    @endif
     @endif
     <div class="account-services">
         <section aria-labelledby="account-security-heading">

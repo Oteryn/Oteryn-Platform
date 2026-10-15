@@ -18,6 +18,7 @@ final class NativeAccountOverviewReadModel
 
     /**
      * @return array{
+     *     native: true,
      *     character_creation_allowed: bool,
      *     characters_state: string,
      *     characters: list<NativeAccountCharacterSummary>
@@ -38,6 +39,7 @@ final class NativeAccountOverviewReadModel
         }
 
         return [
+            'native' => true,
             // This permits a command attempt only. Game decides slots, names and world eligibility.
             // Missing/stale list evidence must not prevent a new account's first create request.
             'character_creation_allowed' => $eligible && CreateCharacter::enabled(),

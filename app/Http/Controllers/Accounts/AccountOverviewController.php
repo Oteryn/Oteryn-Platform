@@ -19,7 +19,7 @@ final class AccountOverviewController
 
         // Select the explicit native deployment mode before any compatibility reads.
         if (config('game-auth.native_account_characters.enabled') === true || config('character-authority.create.enabled') === true) {
-            return view('identity.account.native-overview', [
+            return view('identity.account.overview', [
                 'identity' => $identity,
                 'overview' => $nativeOverview->forIdentity($identity),
             ]);
