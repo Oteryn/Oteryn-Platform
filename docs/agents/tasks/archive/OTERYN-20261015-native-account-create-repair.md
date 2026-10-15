@@ -126,9 +126,9 @@ next_action: qualify the repaired exact candidate and deploy it with the preserv
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
+source_branch_disposition: auto_delete_after_merge
 source_branch_reason: retain the repair candidate for review and qualification
-source_branch_evidence: pending
+source_branch_evidence: protected PR merged through Merge Queue; source ref readback follows operational closeout
 ```
 
 ## Verification limits and resources

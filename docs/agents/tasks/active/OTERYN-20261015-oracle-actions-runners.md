@@ -45,6 +45,8 @@ context_routes:
 owned_paths:
   - deploy/oracle/**
   - docs/agents/tasks/archive/OTERYN-20261015-*
+  - .github/workflows/stage-synology-deploy-runner-image.yml
+  - docs/agents/CI_WORKFLOW_LIFECYCLE.json
   - .github/workflows/oracle-operations.yml
   - docs/agents/tasks/active/OTERYN-20261015-oracle-actions-runners.md
 proven:
@@ -84,3 +86,6 @@ run/attempt, deployment title/source SHA and expected in-progress runner job. Th
 preserves the existing environment-release gate; a status run cannot authorize
 deployment. The owner approved one required independent Platform Codex review
 for PR #1644 in this chat. Game review uses its standing repository grant.
+
+CI repair: explicitly register Oracle Operations and retire the obsolete NAS runner-image
+stager within the existing 54-workflow budget; no budget or gate is weakened.

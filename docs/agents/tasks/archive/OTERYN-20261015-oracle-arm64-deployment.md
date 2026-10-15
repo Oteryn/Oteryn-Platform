@@ -69,9 +69,9 @@ next_action: archive the delivered deployment packet after remaining operational
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
+source_branch_disposition: auto_delete_after_merge
 source_branch_reason: task is active
-source_branch_evidence: pending
+source_branch_evidence: protected PR merged through Merge Queue; source ref readback follows operational closeout
 ```
 
 Owner explicitly approved temporarily removing only sudo from the Oracle agent blockedCommands for this deployment. Original list is preserved; restore it when deployment work stops. No other agent control is changed.
