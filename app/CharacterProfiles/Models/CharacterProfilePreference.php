@@ -38,6 +38,20 @@ final class CharacterProfilePreference extends Model
         'is_main_character',
     ];
 
+    /**
+     * Whether the identity hid its guild on a pre-native preference row. Such rows cannot be bound
+     * to a native CharacterId, so the opt-out keeps every character of the identity hidden until the
+     * owner saves the native form for that character.
+     */
+    public static function hasLegacyGuildOptOut(int $identityId): bool
+    {
+        return self::query()
+            ->where('identity_id', $identityId)
+            ->whereNull('character_id')
+            ->where('show_guild', false)
+            ->exists();
+    }
+
     /** @return BelongsTo<Identity, $this> */
     public function identity(): BelongsTo
     {

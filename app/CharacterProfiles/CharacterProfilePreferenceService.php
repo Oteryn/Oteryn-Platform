@@ -38,14 +38,15 @@ final class CharacterProfilePreferenceService
             $preference = CharacterProfilePreference::query()
                 ->where('identity_id', $identity->id)
                 ->where('character_id', $character->characterId)
-                ->first();
+                ->first()
+                ?? $this->newPreference($identity->id, $character->characterId);
         } catch (QueryException) {
             throw new CharacterProfileUnavailable;
         }
 
         return [
             'character' => $character,
-            'preference' => $preference ?? $this->newPreference($identity->id, $character->characterId),
+            'preference' => $preference,
         ];
     }
 
@@ -140,7 +141,8 @@ final class CharacterProfilePreferenceService
             'public_comment' => null,
             'show_account_association' => false,
             'show_status' => false,
-            'show_guild' => true,
+            // The form starts from what the public page shows, legacy opt-out included.
+            'show_guild' => ! CharacterProfilePreference::hasLegacyGuildOptOut($identityId),
             'show_house' => true,
             'show_skills' => true,
             'show_deaths' => true,

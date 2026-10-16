@@ -16,7 +16,8 @@ use UnexpectedValueException;
  * account-character read model (enabled consumer, fresh watermark at the highest epoch, valid
  * snapshot at that epoch). A native character that cannot be bound to exactly one live Platform
  * identity this way (disabled, stale, epoch-fenced, invalid, ambiguous or unreadable) fails closed:
- * the guild stays hidden. A bound character without a saved preference keeps the default (visible).
+ * the guild stays hidden. A bound character without a saved preference keeps the default (visible),
+ * unless the identity holds an unbound legacy guild opt-out, which keeps it hidden.
  */
 final class CharacterGuildVisibility
 {
@@ -47,7 +48,12 @@ final class CharacterGuildVisibility
                 ->where('character_id', $characterId)
                 ->first();
 
-            return $preference === null || $preference->show_guild;
+            if ($preference !== null) {
+                return $preference->show_guild;
+            }
+
+            // An unbound legacy opt-out stays fail-closed until the native form is saved.
+            return ! CharacterProfilePreference::hasLegacyGuildOptOut($identity->id);
         } catch (QueryException|UnexpectedValueException) {
             return false;
         }

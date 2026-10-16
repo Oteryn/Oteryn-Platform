@@ -343,6 +343,18 @@ final class NativePublicGameDataTest extends TestCase
         $this->get('/en/characters/Aldric')->assertOk()->assertDontSee('No guild');
     }
 
+    public function test_an_unbound_legacy_guild_opt_out_keeps_the_guild_hidden_until_the_native_form_is_saved(): void
+    {
+        $identity = $this->bindToIdentity(self::HERO, 'Aldric');
+        $this->guildedHero();
+        CharacterProfilePreference::query()->create(['identity_id' => $identity->id, 'canary_player_id' => 7, 'character_id' => null, 'show_guild' => false]);
+
+        $this->get('/en/characters/Aldric')->assertOk()->assertDontSee('Vanguard')->assertDontSee('Captain');
+
+        CharacterProfilePreference::query()->create(['identity_id' => $identity->id, 'character_id' => self::HERO, 'show_guild' => true]);
+        $this->get('/en/characters/Aldric')->assertOk()->assertSee('Vanguard');
+    }
+
     public function test_a_character_that_cannot_be_bound_to_an_identity_hides_the_guild(): void
     {
         $this->guildedHero();

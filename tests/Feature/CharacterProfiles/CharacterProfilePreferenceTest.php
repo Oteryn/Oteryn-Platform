@@ -4,6 +4,7 @@ namespace Tests\Feature\CharacterProfiles;
 
 use App\CharacterProfiles\CharacterGuildVisibility;
 use App\CharacterProfiles\CharacterProfileEventRecorder;
+use App\CharacterProfiles\CharacterProfilePreferenceService;
 use App\CharacterProfiles\Models\CharacterProfilePreference;
 use App\Identity\Models\Identity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -245,6 +246,18 @@ final class CharacterProfilePreferenceTest extends TestCase
         $this->get(route('account.characters.profile.edit', ['name' => 'aldric']))->assertNotFound();
         $this->put(route('account.characters.profile.update', ['name' => 'aldric']), ['show_guild' => '1'])->assertNotFound();
         self::assertSame(2, CharacterProfilePreference::query()->count());
+    }
+
+    public function test_edit_form_starts_from_an_unbound_legacy_guild_opt_out(): void
+    {
+        $identity = $this->identity();
+        $this->bindAccountCharacters($identity->account_id, [[self::ALPHA, self::WORLD, 'Alpha Knight']]);
+        $service = app(CharacterProfilePreferenceService::class);
+
+        self::assertTrue($service->editState($identity, 'Alpha Knight')['preference']->show_guild);
+
+        CharacterProfilePreference::query()->create(['identity_id' => $identity->id, 'canary_player_id' => 7, 'character_id' => null, 'show_guild' => false]);
+        self::assertFalse($service->editState($identity, 'Alpha Knight')['preference']->show_guild);
     }
 
     public function test_preference_read_failure_is_a_sanitized_503(): void
