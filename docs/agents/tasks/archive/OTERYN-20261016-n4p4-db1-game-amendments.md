@@ -19,7 +19,7 @@ Docs only. Apply the Game architect decisions D1076–D1080 and owner decisions 
 - [x] ADR 0045 carries A1–A4.
 - [x] Login contract carries A1, A3, the session-generation fence and the migration-number wording.
 - [x] Remembered-device candidate carries the DB-1 amendment and stays CANDIDATE, default OFF, not approved for production.
-- [ ] Exact-head CI and Agent Governance gates pass.
+- [x] Exact-head CI and Agent Governance gates pass (PR #1651 merged).
 
 ## Ownership
 
@@ -45,11 +45,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-10-16T12:00:00Z
-head: UNKNOWN
+updated_at: 2026-10-16T21:00:00Z
+head: 62f5962568aaf6a0656f95b77eb81008a90c9ef0
 branch: claude/n4p4-db1-game-amendments
 pr: 1651
-status: validating
+status: completed
 context_routes:
   - docs
 owned_paths:
@@ -58,10 +58,12 @@ owned_paths:
   - docs/contracts/NATIVE_REMEMBERED_DEVICE_SESSION_CONTRACT_CANDIDATE.md
   - docs/agents/tasks/active/OTERYN-20261016-n4p4-db1-game-amendments.md
   - docs/agents/tasks/archive/OTERYN-20261016-n4p4-db1-game-amendments.md
-proven: []
+proven:
+  - PR #1651 merged as db6ba28f182b6760d824d12a4bff9569c2f21a34 with exact-head CI green
+  - PR #1653 carries only the remaining docs delta (trust-publication gate scope and TTL maximums)
 derived: []
 unknown:
-  - exact-head CI result
+  - none
 conflicts: []
 first_failure:
   marker: none
@@ -73,11 +75,11 @@ changed_paths:
   - docs/contracts/NATIVE_REMEMBERED_DEVICE_SESSION_CONTRACT_CANDIDATE.md
 validation:
   - command: governance and documentation checks
-    result: NOT_RUN
-    evidence: see PR
+    result: PASS
+    evidence: PR #1651 CI and governance checks passed before merge
 blockers:
   - none
-next_action: wait for exact-head CI on draft PR #1651
+next_action: none; delivered by PR 1651 and archived; the remaining docs delta is PR 1653
 ```
 
 ## Source branch closeout
@@ -85,7 +87,7 @@ next_action: wait for exact-head CI on draft PR #1651
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: ordinary same-repository PR path
-source_branch_evidence: pending
+source_branch_evidence: PR 1651 merged as db6ba28f182b6760d824d12a4bff9569c2f21a34; the branch is retained for PR 1653 and its ref readback belongs to that PR's closeout
 ```
 
 ## Notes
