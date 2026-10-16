@@ -9,6 +9,7 @@ use App\Identity\Models\Identity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\SeedsNativeAccountCharacters;
 use Tests\TestCase;
@@ -225,6 +226,37 @@ final class CharacterProfilePreferenceTest extends TestCase
             ->assertSessionHasErrors('profile');
 
         self::assertSame(0, CharacterProfilePreference::query()->count());
+    }
+
+    public function test_case_variant_names_resolve_only_by_exact_name(): void
+    {
+        $identity = $this->identity();
+        $this->bindAccountCharacters($identity->account_id, [[self::ALPHA, self::WORLD, 'Aldric'], [self::BETA, self::WORLD, 'ALDRIC']]);
+        $this->login($identity);
+
+        $this->put(route('account.characters.profile.update', ['name' => 'ALDRIC']), ['show_guild' => '1'])->assertRedirect();
+        self::assertSame(self::BETA, CharacterProfilePreference::query()->sole()->character_id);
+
+        $this->put(route('account.characters.profile.update', ['name' => 'Aldric']), ['is_main_character' => '1'])->assertRedirect();
+        self::assertTrue(CharacterProfilePreference::query()->where('character_id', self::ALPHA)->sole()->is_main_character);
+        self::assertTrue(CharacterProfilePreference::query()->where('character_id', self::BETA)->sole()->show_guild);
+
+        // A folded name matching both is ambiguous: not found, nothing written.
+        $this->get(route('account.characters.profile.edit', ['name' => 'aldric']))->assertNotFound();
+        $this->put(route('account.characters.profile.update', ['name' => 'aldric']), ['show_guild' => '1'])->assertNotFound();
+        self::assertSame(2, CharacterProfilePreference::query()->count());
+    }
+
+    public function test_preference_read_failure_is_a_sanitized_503(): void
+    {
+        $identity = $this->identity();
+        $this->bindAccountCharacters($identity->account_id, [[self::ALPHA, self::WORLD, 'Alpha Knight']]);
+        $this->login($identity);
+        Schema::rename('character_profile_preferences', 'character_profile_preferences_gone');
+
+        $this->get(route('account.characters.profile.edit', ['name' => 'Alpha Knight']))
+            ->assertStatus(503)
+            ->assertDontSee('SQLSTATE');
     }
 
     private function identity(): Identity

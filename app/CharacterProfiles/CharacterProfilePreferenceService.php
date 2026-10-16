@@ -34,12 +34,18 @@ final class CharacterProfilePreferenceService
     {
         $character = $this->ownedCharacter($identity, $name, false);
 
-        return [
-            'character' => $character,
-            'preference' => CharacterProfilePreference::query()
+        try {
+            $preference = CharacterProfilePreference::query()
                 ->where('identity_id', $identity->id)
                 ->where('character_id', $character->characterId)
-                ->first() ?? $this->newPreference($identity->id, $character->characterId),
+                ->first();
+        } catch (QueryException) {
+            throw new CharacterProfileUnavailable;
+        }
+
+        return [
+            'character' => $character,
+            'preference' => $preference ?? $this->newPreference($identity->id, $character->characterId),
         ];
     }
 
@@ -107,13 +113,22 @@ final class CharacterProfilePreferenceService
             throw new CharacterProfileUnavailable;
         }
 
+        // An exact name wins; a case-folded name resolves only when exactly one owned character
+        // matches it, so case variants never read or write each other's preference.
+        $folded = [];
         foreach ($view->characters as $character) {
-            if (strtolower($character->name) === strtolower($name)) {
+            if ($character->name === $name) {
                 return $character;
             }
+            if (strtolower($character->name) === strtolower($name)) {
+                $folded[] = $character;
+            }
+        }
+        if (count($folded) !== 1) {
+            throw new CharacterProfileNotOwned;
         }
 
-        throw new CharacterProfileNotOwned;
+        return $folded[0];
     }
 
     private function newPreference(int $identityId, string $characterId): CharacterProfilePreference

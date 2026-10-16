@@ -141,10 +141,11 @@ final class NativePublicGameData
         $membership = is_array($memberships) ? ($memberships[0] ?? null) : null;
         // `guild_visible` is the owner's choice carried by Game: when it is not exactly true the
         // page learns nothing about the membership, not even that one exists.
-        // Game's flag and the owner's Platform preference must both allow the guild row.
+        // Game's flag and the owner's Platform preference must both allow the guild row, including
+        // the "no guild" row: an opt-out hides membership status, not only the guild name.
         $characterId = is_string($payload['character_id'] ?? null) ? $payload['character_id'] : '';
         $guildVisible = ($profile['guild_visible'] ?? false) === true
-            && (! is_array($membership) || $this->guildVisibility->allows($characterId));
+            && $this->guildVisibility->allows($characterId);
         if (! $guildVisible) {
             $membership = null;
         }

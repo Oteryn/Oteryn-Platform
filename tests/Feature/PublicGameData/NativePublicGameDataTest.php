@@ -218,6 +218,7 @@ final class NativePublicGameDataTest extends TestCase
             'guild_id' => $guild,
         ]);
         $this->profile(self::MAGE, self::WORLD, 'Mira');
+        $this->bindToIdentity(self::MAGE, 'Mira');
 
         $this->get('/en/characters/Aldric')
             ->assertOk()
@@ -330,6 +331,15 @@ final class NativePublicGameDataTest extends TestCase
             'profile' => [['guild' => [['guild_id' => '01934f10-7c06-7001-805b-3b1122334401', 'rank_level' => 3]], 'guild_visible' => false, 'level' => '412', 'name' => 'Aldric', 'vocation' => 2, 'world_id' => self::WORLD]],
         ]);
         $this->get('/en/characters/Aldric')->assertOk()->assertDontSee('Vanguard');
+
+        // Without a membership the opt-out also hides "No guild".
+        $this->snapshot(PublicProjectionFamily::CharacterProfile, self::HERO, self::WORLD, 'Aldric', true, [
+            'character_id' => self::HERO,
+            'profile' => [['guild' => [], 'guild_visible' => true, 'level' => '412', 'name' => 'Aldric', 'vocation' => 2, 'world_id' => self::WORLD]],
+        ]);
+        $this->get('/en/characters/Aldric')->assertOk()->assertSee('No guild');
+        $preference->forceFill(['show_guild' => false])->save();
+        $this->get('/en/characters/Aldric')->assertOk()->assertDontSee('No guild');
     }
 
     public function test_a_character_that_cannot_be_bound_to_an_identity_hides_the_guild(): void
