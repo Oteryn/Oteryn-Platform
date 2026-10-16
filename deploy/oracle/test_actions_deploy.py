@@ -65,7 +65,7 @@ class AuthorityBoundary(unittest.TestCase):
                 # the new isolated image probe, or the old late migration command.
                 if args[:2] == ['docker', 'run'] or args[:2] == ['bash', '-euc']:
                     raise subprocess.CalledProcessError(1, args, output='Could not open input file: artisan')
-            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'inspect', return_value=old), patch.object(deploy, 'inspect_image', return_value={'Architecture': 'arm64', 'Id': 'new-id'}), patch.object(deploy, 'contract', return_value='schema-v1'), patch.object(deploy, 'journal'), patch.object(deploy, 'atomic'), patch.object(deploy, 'reauthorize'), patch.object(deploy, 'run', side_effect=command):
+            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'inspect', return_value=old), patch.object(deploy, 'inspect_image', return_value={'Architecture': 'arm64', 'Id': 'new-id'}), patch.object(deploy, 'contract', return_value='schema-v1'), patch.object(deploy, 'prepare_mtls'), patch.object(deploy, 'journal'), patch.object(deploy, 'atomic'), patch.object(deploy, 'reauthorize'), patch.object(deploy, 'run', side_effect=command):
                 with self.assertRaises(subprocess.CalledProcessError):
                     deploy.platform_deploy(root, sha, 100, 1)
             self.assertFalse(any('dump' in args or 'stop' in args or 'down' in args for args in calls))
@@ -112,6 +112,40 @@ class AuthorityBoundary(unittest.TestCase):
             self.assertTrue(any('validate' in args for args in calls))
             self.assertTrue(any('--force-recreate' in args for args in calls))
 
+    def test_internal_mtls_listener_acquires_validated_repository_configuration(self):
+        sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'deploy/synology/nginx').mkdir(parents=True)
+            (root / 'deploy/synology/nginx/internal-mtls.conf').write_text('new routes\n')
+            volume = root / 'volume'
+            volume.mkdir()
+            (volume / 'internal-mtls-nginx.conf').write_text('old routes\n')
+            info = {'Mounts': [{'Destination': '/bootstrap', 'Type': 'volume',
+                                'Name': 'oteryn-oracle_bootstrap_files', 'Source': str(volume)}]}
+            calls = []
+            def command(args, **kw):
+                calls.append(args)
+                if args[-1] == deploy.MTLS_CONFIG and 'cat' in args:
+                    return (volume / 'internal-mtls-nginx.conf').read_text()
+            with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal') as journal:
+                deploy.prepare_mtls(root, sha)
+                self.assertEqual((volume / 'internal-mtls-nginx.conf').read_text(), 'old routes\n')
+                self.assertIn(['docker', 'exec', deploy.MTLS, 'nginx', '-t', '-q', '-c',
+                               '/bootstrap/internal-mtls-nginx.' + sha + '.conf'], calls)
+                deploy.deploy_mtls(root, sha)
+            self.assertEqual((volume / 'internal-mtls-nginx.conf').read_text(), 'new routes\n')
+            self.assertEqual(sorted(p.name for p in volume.iterdir()), ['internal-mtls-nginx.conf'])
+            self.assertIn(['docker', 'exec', deploy.MTLS, 'nginx', '-c', deploy.MTLS_CONFIG, '-s', 'reload'], calls)
+            journal.assert_called_once()
+
+    def test_internal_mtls_refuses_an_unexpected_bootstrap_mount(self):
+        info = {'Mounts': [{'Destination': '/bootstrap', 'Type': 'bind', 'Source': '/etc'}]}
+        with patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'run') as command:
+            with self.assertRaisesRegex(ValueError, 'bootstrap mount'):
+                deploy.prepare_mtls(Path('/nonexistent'), 'a' * 40)
+            command.assert_not_called()
+
     def test_platform_rechecks_authority_after_backup_before_disruption(self):
         sha = 'a' * 40
         with tempfile.TemporaryDirectory() as temporary:
@@ -119,7 +153,7 @@ class AuthorityBoundary(unittest.TestCase):
             (root / 'platform.env').write_text('PLATFORM_IMAGE=old\nGATEWAY_IMAGE=old\nGATEWAY_VERSION=old\n')
             calls = []
             old = {'Image': 'old-id', 'Config': {'Labels': {'com.docker.compose.project.config_files': '/old/deploy/synology/compose.yml'}}}
-            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'inspect', return_value=old), patch.object(deploy, 'inspect_image', return_value={'Architecture': 'arm64', 'Id': 'new-id'}), patch.object(deploy, 'contract', return_value='schema-v1'), patch.object(deploy, 'run', side_effect=lambda args, **kw: calls.append(args)), patch.object(deploy, 'reauthorize', side_effect=[None, ValueError('workflow canceled')]):
+            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'inspect', return_value=old), patch.object(deploy, 'inspect_image', return_value={'Architecture': 'arm64', 'Id': 'new-id'}), patch.object(deploy, 'contract', return_value='schema-v1'), patch.object(deploy, 'prepare_mtls'), patch.object(deploy, 'run', side_effect=lambda args, **kw: calls.append(args)), patch.object(deploy, 'reauthorize', side_effect=[None, ValueError('workflow canceled')]):
                 with self.assertRaisesRegex(ValueError, 'canceled'):
                     deploy.platform_deploy(root, sha, 100, 1)
             self.assertTrue(any('dump' in args for args in calls))
@@ -136,7 +170,7 @@ class AuthorityBoundary(unittest.TestCase):
             def command(args, **kw):
                 if args[:2] == ['bash', '-euc']:
                     raise subprocess.CalledProcessError(1, args)
-            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'STATE', state), patch.object(deploy, 'inspect', return_value=old), patch.object(deploy, 'inspect_image', return_value={'Architecture': 'arm64', 'Id': 'new-id'}), patch.object(deploy, 'contract', return_value='schema-v1'), patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'reauthorize'):
+            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'STATE', state), patch.object(deploy, 'inspect', return_value=old), patch.object(deploy, 'inspect_image', return_value={'Architecture': 'arm64', 'Id': 'new-id'}), patch.object(deploy, 'contract', return_value='schema-v1'), patch.object(deploy, 'prepare_mtls'), patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'reauthorize'):
                 with self.assertRaises(subprocess.CalledProcessError):
                     deploy.platform_deploy(root, sha, 100, 1)
                 self.assertEqual(json.loads((state / 'platform-pending.json').read_text())['phase'], 'schema_unknown')

@@ -200,6 +200,10 @@ def verify_current_release(component, sha):
         config = run(['docker', 'exec', 'oteryn-oracle-edge-edge-1', 'cat', '/etc/caddy/Caddyfile'], output=True)
         if hashlib.sha256(config.encode()).hexdigest() != record['caddy_sha256']:
             raise ValueError('receipt differs from current public edge configuration')
+        if 'mtls_sha256' in record:
+            config = run(['docker', 'exec', MTLS, 'cat', MTLS_CONFIG], output=True)
+            if hashlib.sha256(config.encode()).hexdigest() != record['mtls_sha256']:
+                raise ValueError('receipt differs from current internal mTLS configuration')
 
 
 def prepare_edge(directory, sha):
@@ -229,6 +233,49 @@ def deploy_edge(directory, sha, run_id, attempt):
     journal('platform', sha, 'schema_known', caddy_sha256=hashlib.sha256(candidate.encode()).hexdigest())
 
 
+MTLS = 'oteryn-oracle-internal-mtls-1'
+MTLS_CONFIG = '/bootstrap/internal-mtls-nginx.conf'
+
+
+def mtls_bootstrap():
+    # The listener mounts the bootstrap volume read-only; write its host directory instead.
+    mounts = [m for m in inspect(MTLS)['Mounts'] if m['Destination'] == '/bootstrap']
+    if (len(mounts) != 1 or mounts[0].get('Type') != 'volume'
+            or mounts[0].get('Name') != 'oteryn-oracle_bootstrap_files'):
+        raise ValueError('internal mTLS bootstrap mount differs from installed boundary')
+    return Path(mounts[0]['Source'])
+
+
+def prepare_mtls(directory, sha):
+    staged = mtls_bootstrap() / ('internal-mtls-nginx.' + sha + '.conf')
+    candidate = (directory / 'deploy/synology/nginx/internal-mtls.conf').read_text()
+    staged.unlink(missing_ok=True)
+    fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+    with os.fdopen(fd, 'w') as stream:
+        stream.write(candidate)
+        stream.flush()
+        os.fsync(stream.fileno())
+    run(['docker', 'exec', MTLS, 'nginx', '-t', '-q', '-c', '/bootstrap/' + staged.name])
+    return staged
+
+
+def deploy_mtls(directory, sha):
+    # Neither prepare-platform.sh nor this deploy otherwise refreshes the listener's
+    # nginx configuration, so new internal routes would stay unreachable (404).
+    candidate = (directory / 'deploy/synology/nginx/internal-mtls.conf').read_text()
+    staged = mtls_bootstrap() / ('internal-mtls-nginx.' + sha + '.conf')
+    if run(['docker', 'exec', MTLS, 'cat', MTLS_CONFIG], output=True) != candidate:
+        if staged.read_text() != candidate:
+            raise ValueError('staged internal mTLS configuration differs from qualified source')
+        os.replace(staged, staged.with_name(Path(MTLS_CONFIG).name))
+        run(['docker', 'exec', MTLS, 'nginx', '-t', '-q', '-c', MTLS_CONFIG])
+        run(['docker', 'exec', MTLS, 'nginx', '-c', MTLS_CONFIG, '-s', 'reload'])
+    staged.unlink(missing_ok=True)
+    if run(['docker', 'exec', MTLS, 'cat', MTLS_CONFIG], output=True) != candidate:
+        raise ValueError('internal mTLS listener did not acquire the qualified configuration')
+    journal('platform', sha, 'schema_known', mtls_sha256=hashlib.sha256(candidate.encode()).hexdigest())
+
+
 def platform_deploy(directory, sha, run_id, attempt):
     image = 'oteryn-platform:' + sha + '-arm64'
     gateway = 'oteryn-gateway:' + sha + '-arm64'
@@ -247,6 +294,7 @@ def platform_deploy(directory, sha, run_id, attempt):
     reauthorize('platform', sha, run_id, attempt)
     schema = contract(directory)
     prepare_edge(directory, sha)
+    prepare_mtls(directory, sha)
     # Preserve every private setting; change only immutable image identities.
     path = ROOT / 'platform.env'
     before = path.read_text()
@@ -281,6 +329,7 @@ def platform_deploy(directory, sha, run_id, attempt):
     run(current + ['up', '-d', '--no-deps', '--force-recreate', 'platform', 'gateway', 'marketplace-scheduler'])
     run(current + ['exec', '-T', 'platform', 'php', 'artisan', 'up'])
     deploy_edge(directory, sha, run_id, attempt)
+    deploy_mtls(directory, sha)
     return {'oteryn-oracle-platform-1': inspect_image(image)['Id'],
             'oteryn-oracle-gateway-1': inspect_image(gateway)['Id'],
             'oteryn-oracle-marketplace-scheduler-1': inspect_image(image)['Id']}
