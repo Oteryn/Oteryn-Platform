@@ -5,6 +5,7 @@ namespace Tests\Feature\PublicGameData;
 use App\CharacterProfiles\Models\CharacterProfilePreference;
 use App\GameProjections\PublicProjectionFamily;
 use App\Identity\Models\Identity;
+use App\PublicGameData\NativePublicGameData;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -467,6 +468,21 @@ final class NativePublicGameDataTest extends TestCase
         $this->get('/en/highscores')->assertStatus(429);
         $this->get('/en/characters/Aldric')->assertStatus(429);
         $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.9'])->get('/en/online')->assertStatus(503);
+    }
+
+    public function test_uint64_counters_saturate_only_above_php_int_max(): void
+    {
+        $count = new \ReflectionMethod(NativePublicGameData::class, 'count');
+        $reader = app(NativePublicGameData::class);
+
+        self::assertSame(0, $count->invoke($reader, '0'));
+        self::assertSame(999_999_999_999_999_999, $count->invoke($reader, '999999999999999999'));
+        self::assertSame(1_000_000_000_000_000_000, $count->invoke($reader, '1000000000000000000'));
+        self::assertSame(PHP_INT_MAX, $count->invoke($reader, (string) PHP_INT_MAX));
+        self::assertSame(PHP_INT_MAX, $count->invoke($reader, '9223372036854775808'));
+        self::assertSame(PHP_INT_MAX, $count->invoke($reader, '18446744073709551615'));
+        self::assertSame(0, $count->invoke($reader, '01'));
+        self::assertSame(0, $count->invoke($reader, 7));
     }
 
     private function watermark(PublicProjectionFamily $family, int $completeThrough = self::NOW): void

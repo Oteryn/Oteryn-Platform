@@ -219,7 +219,12 @@ final class NativePublicGameData
             return 0;
         }
 
-        return strlen($value) > 18 ? PHP_INT_MAX : (int) $value;
+        $max = (string) PHP_INT_MAX;
+        if (strlen($value) > strlen($max) || (strlen($value) === strlen($max) && strcmp($value, $max) > 0)) {
+            return PHP_INT_MAX;
+        }
+
+        return (int) $value;
     }
 
     /** @param array<string, mixed> $values */
