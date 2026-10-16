@@ -267,6 +267,17 @@ def prepare_mtls(directory, sha):
     return staged
 
 
+def mtls_workers():
+    # The listener's nginx master is PID 1; only its children still titled exactly
+    # 'nginx: worker process' serve requests (old ones become '... is shutting down').
+    workers = set()
+    for line in run(['docker', 'exec', MTLS, 'pgrep', '-a', '-P', '1'], output=True).splitlines():
+        pid, _, title = line.strip().partition(' ')
+        if title.strip() == 'nginx: worker process':
+            workers.add(pid)
+    return workers
+
+
 def deploy_mtls(directory, sha, run_id, attempt):
     # Neither prepare-platform.sh nor this deploy otherwise refreshes the listener's
     # nginx configuration, so new internal routes would stay unreachable (404).
@@ -291,9 +302,20 @@ def deploy_mtls(directory, sha, run_id, attempt):
     # Reload even when the file already matches: an earlier attempt may have replaced
     # it and failed before the running listener loaded it.
     reauthorize('platform', sha, run_id, attempt)
-    run(['docker', 'exec', MTLS, 'nginx', '-c', MTLS_CONFIG, '-s', 'reload'])
     if run(['docker', 'exec', MTLS, 'cat', MTLS_CONFIG], output=True) != candidate:
         raise ValueError('internal mTLS listener did not acquire the qualified configuration')
+    before = mtls_workers()
+    run(['docker', 'exec', MTLS, 'nginx', '-c', MTLS_CONFIG, '-s', 'reload'])
+    # The master applies a reload asynchronously and keeps the old workers serving if
+    # it rejects the configuration. Accepted means every previously serving worker was
+    # told to shut down and new ones serve; a respawn after a crash keeps the others.
+    for _ in range(30):
+        serving = mtls_workers()
+        if serving and not serving & before:
+            break
+        time.sleep(1)
+    else:
+        raise ValueError('internal mTLS listener did not start workers for the qualified configuration')
     journal('platform', sha, 'schema_known', mtls_sha256=hashlib.sha256(candidate.encode()).hexdigest())
 
 
