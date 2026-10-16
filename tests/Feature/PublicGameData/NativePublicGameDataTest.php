@@ -463,7 +463,9 @@ final class NativePublicGameDataTest extends TestCase
         for ($i = 0; $i < 120; $i++) {
             $this->get('/en/online');
         }
-        $this->get('/en/online')->assertStatus(429);
+        $limited = $this->get('/en/online')->assertStatus(429);
+        // The 429 is not stored either: no-store wraps the throttle.
+        self::assertStringContainsString('no-store', (string) $limited->headers->get('Cache-Control'));
         // The budget is shared by the three pages and keyed on the client IP.
         $this->get('/en/highscores')->assertStatus(429);
         $this->get('/en/characters/Aldric')->assertStatus(429);

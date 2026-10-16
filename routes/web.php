@@ -199,11 +199,11 @@ Route::get('/news', [PublicNewsController::class, 'index'])->name('news.index');
 Route::get('/news/{slug}', [PublicNewsController::class, 'show'])->name('news.show');
 Route::get('/pages/{slug}', [PublicPageController::class, 'show'])->name('pages.show');
 
-Route::get('/highscores', [PublicGameDataController::class, 'highscores'])->middleware(['throttle:public-game-data', NoStorePublicGameData::class])->name('game.highscores.index');
+Route::get('/highscores', [PublicGameDataController::class, 'highscores'])->middleware([NoStorePublicGameData::class, 'throttle:public-game-data'])->name('game.highscores.index');
 Route::get('/characters', [PublicGameDataController::class, 'characterSearch'])->name('game.characters.search');
-Route::get('/characters/{name}', [PublicGameDataController::class, 'character'])->middleware(['throttle:public-game-data', NoStorePublicGameData::class])->name('game.characters.show');
+Route::get('/characters/{name}', [PublicGameDataController::class, 'character'])->middleware([NoStorePublicGameData::class, 'throttle:public-game-data'])->name('game.characters.show');
 Route::get('/guilds/{name}', [PublicGameDataController::class, 'guild'])->name('game.guilds.show');
-Route::get('/online', [PublicGameDataController::class, 'online'])->middleware(['throttle:public-game-data', NoStorePublicGameData::class])->name('game.online.index');
+Route::get('/online', [PublicGameDataController::class, 'online'])->middleware([NoStorePublicGameData::class, 'throttle:public-game-data'])->name('game.online.index');
 Route::get('/servers', [PublicGameDataController::class, 'servers'])->name('game.servers.index');
 
 $moduleRouteFiles = glob(__DIR__.'/modules/*.php');

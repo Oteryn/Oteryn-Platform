@@ -9,7 +9,7 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Live projection pages (online, highscores, character) are never stored by a shared cache or the
  * browser, so a 30 s freshness bound cannot be stretched by an intermediary. Error responses
- * (404, 503) carry it too.
+ * (404, 429, 503) carry it too; it sits ahead of the throttle in the priority list (bootstrap/app.php).
  */
 final class NoStorePublicGameData
 {
