@@ -111,6 +111,11 @@ class AppServiceProvider extends ServiceProvider
 
     private function configureRateLimiters(): void
     {
+        // Anonymous live pages over the projection read model: bounded per source address.
+        RateLimiter::for('public-game-data', function (Request $request): Limit {
+            return Limit::perMinute(120)->by($request->ip() ?? 'unknown');
+        });
+
         RateLimiter::for('identity-registration', function (Request $request): Limit {
             return Limit::perMinute(5)->by($request->ip() ?? 'unknown');
         });

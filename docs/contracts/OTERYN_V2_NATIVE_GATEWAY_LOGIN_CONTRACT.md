@@ -409,7 +409,7 @@ A native failure never falls back to any of these, and a legacy engine request n
 ## 13. Security and logging
 
 - Never logged or traced: tickets, ticket hashes, grants, signing inputs, `jti`, private keys, OAuth tokens, `account_security_generation`, `scope_ownership_generation`, `assignment_epoch`, runtime `decision_identity` (it embeds the generation), Character names.
-- Character names are accepted only as NFC UTF-8 without control (Cc), format (Cf, including bidi overrides U+202A–U+202E and isolates U+2066–U+2069, zero-width characters), `"` or `\\` characters (Game candidate §2.1); Platform rejects other snapshots as malformed.
+- Character names are accepted only as NFC UTF-8 without control (Cc), format (Cf, including bidi overrides U+202A–U+202E and isolates U+2066–U+2069, zero-width characters), `"`, `\\` or `/` characters and other than `.` or `..` (Game candidate §2.1; names become URL path segments); Platform rejects other snapshots as malformed.
 - May be logged: `attempt_ref`, internal error code, `kid`, profile, `world_id`/`channel_id`, `route_revision`, timings. `AccountId`/`CharacterId` only pseudonymously where authorized; never as metric labels.
 - All native responses are `no-store, private`.
 - Platform authorization is never proof of admission; Game revalidates every bound fact (FND-04 §12).

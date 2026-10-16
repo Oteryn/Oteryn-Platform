@@ -188,6 +188,18 @@ services:
       CHARACTER_AUTHORITY_COMMAND_SOURCE_AUTHORITY: ${CHARACTER_AUTHORITY_COMMAND_SOURCE_AUTHORITY:-}
       CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS: ${CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS:-40}
       CHARACTER_AUTHORITY_WEB_CREATE_ENABLED: ${CHARACTER_AUTHORITY_WEB_CREATE_ENABLED:-false}
+      # Game Public Projections v1 consumer (/internal/v1/game-public/*) and the online, highscores and
+      # character pages that read it. Fail-closed defaults: off, no identity, no source authority, so
+      # the routes store nothing and those pages answer 503. The consumer runs only with
+      # APP_ENV=testing or preproduction. Enable it by setting GAME_PROJECTIONS_PUBLIC_ENABLED=true
+      # together with the dedicated certificate subject (a JSON list, for example
+      # '["CN=oteryn-preprod-public-projection"]') and the producer's source authority.
+      # PUBLIC_GAME_DATA_WORLD_ID names the served World; empty serves the only World that has published.
+      GAME_PROJECTIONS_PUBLIC_ENABLED: ${GAME_PROJECTIONS_PUBLIC_ENABLED:-false}
+      GAME_PROJECTIONS_PUBLIC_IDENTITIES: ${GAME_PROJECTIONS_PUBLIC_IDENTITIES:-}
+      GAME_PROJECTIONS_PUBLIC_SOURCE_AUTHORITY: ${GAME_PROJECTIONS_PUBLIC_SOURCE_AUTHORITY:-}
+      GAME_PROJECTIONS_PUBLIC_REQUESTS_PER_MINUTE: ${GAME_PROJECTIONS_PUBLIC_REQUESTS_PER_MINUTE:-1200}
+      PUBLIC_GAME_DATA_WORLD_ID: ${PUBLIC_GAME_DATA_WORLD_ID:-}
     ports:
       - ${PLATFORM_BIND_ADDRESS}:${PLATFORM_PORT}:8000
     volumes:

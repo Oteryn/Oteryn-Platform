@@ -21,7 +21,7 @@ if (! $identity instanceof Identity) {
 
 $preferences = CharacterProfilePreference::query()
     ->where('identity_id', $identity->id)
-    ->orderBy('canary_player_id')
+    ->orderBy('character_id')
     ->get();
 $main = $preferences->where('is_main_character', true)->values();
 
@@ -34,9 +34,9 @@ if ($preferences->count() !== 2 || $main->count() !== 1) {
     exit(3);
 }
 
-$mainPlayerId = $main->first()?->canary_player_id;
-if (! in_array($mainPlayerId, [9001, 9002], true)) {
-    fwrite(STDERR, "Unexpected main-character player identifier.\n");
+$mainCharacterId = $main->first()?->character_id;
+if (! is_string($mainCharacterId) || $mainCharacterId === '') {
+    fwrite(STDERR, "Main-character preference is not keyed by a native CharacterId.\n");
     exit(4);
 }
 
@@ -44,5 +44,5 @@ fwrite(STDOUT, json_encode([
     'result' => 'pass',
     'preference_count' => 2,
     'main_count' => 1,
-    'main_player_id' => $mainPlayerId,
+    'main_character_id' => $mainCharacterId,
 ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES).PHP_EOL);
