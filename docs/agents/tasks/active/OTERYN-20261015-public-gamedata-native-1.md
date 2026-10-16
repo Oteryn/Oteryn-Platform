@@ -207,7 +207,8 @@ validation:
     evidence: run locally before push; legacy token ratchet, task liveness, Control Room and source branch closeout also pass locally
 blockers:
   - Game producer (parallel), the certificate and secrets and the flag flip on oteryn-vps before live rows can be accepted.
-next_action: Exact-head CI and independent architect review; the CP marks ready; after the Game producer and the deployment steps, run the acceptance HTTP check.
+next_action: Archive this record after the acceptance HTTP check of /pl/online, /pl/highscores and /characters/{name} on the Oracle stack (Game producer Oteryn/Oteryn-Game#2224 and the Oracle deployment); PR #1645 is closed.
+terminal_pr_policy: archive_pending
 ```
 
 ## Source branch closeout
