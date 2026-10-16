@@ -34,9 +34,11 @@ final class CharacterProfilePreferenceConcurrencyTest extends TestCase
 
     protected function tearDown(): void
     {
-        // Native-keyed rows are retained evidence: the rollback of the keying migration refuses while they exist.
-        if (DB::getSchemaBuilder()->hasTable('character_profile_preferences')) {
-            DB::table('character_profile_preferences')->delete();
+        // The rollback guards of the keying and projection migrations refuse while their evidence rows exist.
+        foreach (['character_profile_preferences', 'native_account_character_rows', 'native_account_character_snapshots'] as $table) {
+            if (DB::getSchemaBuilder()->hasTable($table)) {
+                DB::table($table)->delete();
+            }
         }
 
         parent::tearDown();
