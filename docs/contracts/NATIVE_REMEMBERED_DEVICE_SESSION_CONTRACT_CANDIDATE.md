@@ -375,7 +375,8 @@ Sources: ADR 0045 §2a, `OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md` §19.3, §1
 
 ### DB-1.7 Revocation
 
-- Logout, owner revocation, replay and expiry revoke the family together with its handles, in one transaction.
+- Logout, owner revocation and replay revoke the family together with its handles, in one transaction.
+- Expiry needs no write. A family whose absolute or idle deadline has passed counts as revoked on every path, and so do its handles. This includes `/v1/recover`, which only reads the family (§19.4) and rejects it. A bearer operation or a cleanup sweep may later record the revocation; that record changes no outcome.
 - A change of the Character (§19.7) revokes only the handle.
 
 ### DB-1.8 Open evidence

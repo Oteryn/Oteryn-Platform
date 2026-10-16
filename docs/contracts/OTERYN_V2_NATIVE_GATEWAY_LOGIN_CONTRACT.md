@@ -898,10 +898,11 @@ Steps run in this order. Each code step is `backward-compatible` and default off
    - `device_proof` on `/v1/recover`.
 7. **Step S: staging channels on the oteryn-vps preproduction store.** This is an operator-run deploy step.
    - **S1. Deploy support** (Platform paths):
-     - The deploy target host is oteryn-vps, never a NAS. The oteryn-vps deploy (`deploy/oracle/prepare-platform.sh` and the `deploy/oracle/public-platform.compose.yml` overlay) consumes the pinned shared base under `deploy/synology/`. That base is a source directory name only, not a deploy target. The channel list is added there:
-       - `deploy/synology/scripts/lib.sh` (native-route publication logic) publishes a list of channels instead of the current single-channel values;
-       - `deploy/synology/native-defaults.env` holds the non-secret list: key, host, port and `tls_server_name` per channel, and each identity's scope list for runtime status, assignment and locator;
-       - `deploy/synology/compose.yml` (environment mapping) passes the list through, and the `deploy/oracle/public-platform.compose.yml` overlay keeps it unchanged;
+     - The deploy target host is oteryn-vps, never a NAS. The oteryn-vps deploy does not read `deploy/synology/native-defaults.env` and never calls `oteryn_publish_native_route`: `deploy/oracle/prepare-platform.sh` renders only `/opt/oteryn-oracle/platform.env` (with route publication `false`), and `deploy/oracle/actions-deploy.py::platform_deploy` keeps that environment and runs migration only. Step S therefore adds an Oracle path:
+       - **environment rendering:** `deploy/oracle/prepare-platform.sh` writes the non-secret channel list into `/opt/oteryn-oracle/platform.env`: key, host, port and `tls_server_name` per channel, and each identity's scope list for runtime status, assignment and locator. The current single-channel values stay as the first entry;
+       - **Compose:** `deploy/oracle/public-platform.compose.yml` passes the list to the Platform service;
+       - **publication:** an Oracle deploy step (in `deploy/oracle/actions-deploy.py`, or a script it calls) runs `game-auth:native-route:publish` once per channel (S3). It runs only when the operator turns route publication on for Step S;
+       - the step owner names the exact functions. `deploy/synology/*` is not changed for Step S;
      - `app/GameAuth/Worlds/PreproductionNativeRouteStore.php` carries the mode 34a widening from step 3.
      - The current single-channel values stay valid for `oteryn-staging-1`.
    - **S2. Topology.** `game-auth:native-topology:issue` in preproduction-store mode issues `antica`, `obscura` and `pythera` on the staging World. It is idempotent, and its receipts are audited under ADR 0044.
@@ -1144,7 +1145,7 @@ The path builds on the existing remembered-device family:
 | The credential is a rotating `otd1.` bearer, and a lost response costs a browser sign-in | The bearer keeps rotating for its own purposes (`NativeCharactersRead`, `NativeTicketIssue`). Recovery never presents it. Recovery proves possession of a new **device key** instead. The key does not rotate, so a retry with the same `attempt_ref` is safe. |
 | The family has no key, so the bearer is the whole credential | The family records one Ed25519 public key and its thumbprint at enrollment, fixed for the family's life. Enrollment requires a signature by that key (proof of possession). |
 | A ticket does not record a family | A ticket gains a nullable `device_family_id`. It is set by PKCE enrollment (the family the same OAuth access token enrolled, found through the unique `enrollment_access_token_id`) or by the `NativeTicketIssue` callback (the rotating family). |
-| Revocation ends only the family | Terminal family revocation also revokes that family's recovery handles in the same transaction: logout, owner revoke, replay detection and expiry. |
+| Revocation ends only the family | Terminal family revocation (logout, owner revoke, replay detection) also revokes that family's recovery handles in the same transaction. Expiry needs no write: a family past its absolute or idle deadline, and its handles, count as revoked on every path, including the read-only `/v1/recover` check (§19.4). |
 
 #### 19.15.2 Wire and cryptography
 
