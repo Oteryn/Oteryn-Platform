@@ -128,6 +128,8 @@ class AuthorityBoundary(unittest.TestCase):
                 calls.append(args)
                 if args[-1] == deploy.MTLS_CONFIG and 'cat' in args:
                     return (volume / 'internal-mtls-nginx.conf').read_text()
+                if 'pgrep' in args:
+                    return '112\n200\n' if any('reload' in c for c in calls) else '112\n'
             with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal') as journal, patch.object(deploy, 'reauthorize') as recheck:
                 deploy.prepare_mtls(root, sha)
                 self.assertEqual((volume / 'internal-mtls-nginx.conf').read_text(), 'old routes\n')
@@ -193,11 +195,29 @@ class AuthorityBoundary(unittest.TestCase):
                 calls.append(args)
                 if 'cat' in args:
                     return (volume / 'internal-mtls-nginx.conf').read_text()
+                if 'pgrep' in args:
+                    return '112\n200\n' if any('reload' in c for c in calls) else '112\n'
             with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal'), patch.object(deploy, 'reauthorize'):
                 deploy.prepare_mtls(root, sha)
                 deploy.deploy_mtls(root, sha, '1', '1')
             self.assertIn(['docker', 'exec', deploy.MTLS, 'nginx', '-c', deploy.MTLS_CONFIG, '-s', 'reload'], calls)
             self.assertEqual(sorted(p.name for p in volume.iterdir()), ['internal-mtls-nginx.conf'])
+
+    def test_rejected_mtls_reload_is_never_recorded(self):
+        sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            volume, info = self._mtls_fixture(root)
+            def command(args, **kw):
+                if 'cat' in args:
+                    return (volume / 'internal-mtls-nginx.conf').read_text()
+                if 'pgrep' in args:
+                    return '112\n'
+            with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal') as journal, patch.object(deploy, 'reauthorize'), patch.object(deploy.time, 'sleep'):
+                deploy.prepare_mtls(root, sha)
+                with self.assertRaisesRegex(ValueError, 'did not start workers'):
+                    deploy.deploy_mtls(root, sha, '1', '1')
+            journal.assert_not_called()
 
     def test_internal_mtls_refuses_an_unexpected_bootstrap_mount(self):
         info = {'Mounts': [{'Destination': '/bootstrap', 'Type': 'bind', 'Source': '/etc'}]}

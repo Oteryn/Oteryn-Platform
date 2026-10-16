@@ -267,6 +267,11 @@ def prepare_mtls(directory, sha):
     return staged
 
 
+def mtls_workers():
+    # The listener's nginx master is PID 1; its children are the serving workers.
+    return set(run(['docker', 'exec', MTLS, 'pgrep', '-P', '1'], output=True).split())
+
+
 def deploy_mtls(directory, sha, run_id, attempt):
     # Neither prepare-platform.sh nor this deploy otherwise refreshes the listener's
     # nginx configuration, so new internal routes would stay unreachable (404).
@@ -291,9 +296,18 @@ def deploy_mtls(directory, sha, run_id, attempt):
     # Reload even when the file already matches: an earlier attempt may have replaced
     # it and failed before the running listener loaded it.
     reauthorize('platform', sha, run_id, attempt)
-    run(['docker', 'exec', MTLS, 'nginx', '-c', MTLS_CONFIG, '-s', 'reload'])
     if run(['docker', 'exec', MTLS, 'cat', MTLS_CONFIG], output=True) != candidate:
         raise ValueError('internal mTLS listener did not acquire the qualified configuration')
+    before = mtls_workers()
+    run(['docker', 'exec', MTLS, 'nginx', '-c', MTLS_CONFIG, '-s', 'reload'])
+    # The master applies a reload asynchronously and keeps the old workers if it
+    # rejects the configuration; only a new worker generation proves it loaded.
+    for _ in range(30):
+        if mtls_workers() - before:
+            break
+        time.sleep(1)
+    else:
+        raise ValueError('internal mTLS listener did not start workers for the qualified configuration')
     journal('platform', sha, 'schema_known', mtls_sha256=hashlib.sha256(candidate.encode()).hexdigest())
 
 
