@@ -5,6 +5,7 @@ namespace App\CharacterAuthority;
 use App\Identity\Support\CanonicalAccountId;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use stdClass;
 
@@ -62,6 +63,33 @@ final class CharacterCommandClient
         return $row instanceof stdClass ? $this->statusOf(CharacterCommandIntentRow::fromRow($row)) : null;
     }
 
+    /**
+     * A `CreateCharacter` command's status, only when its intent was issued for `$accountId`. An
+     * unknown, malformed or foreign operation id answers null, so a caller cannot probe others'.
+     */
+    public function createStatusFor(string $operationId, string $accountId): ?CharacterCommandStatus
+    {
+        if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/D', $operationId) !== 1) {
+            return null;
+        }
+        $row = DB::table(CharacterCommandIntentRow::TABLE)
+            ->where('issuer_authority', CharacterCommandWire::ISSUER_AUTHORITY)
+            ->where('operation_id', $operationId)
+            ->where('command', CharacterCommandWire::CREATE)
+            ->whereNotNull('intent_json')
+            ->first();
+        if (! $row instanceof stdClass) {
+            return null;
+        }
+        $intent = CharacterCommandIntentRow::fromRow($row);
+        $owner = $intent->intent()['account_id'] ?? null;
+        if (! is_string($owner) || ! hash_equals($owner, $accountId)) {
+            return null;
+        }
+
+        return $this->statusOf($intent);
+    }
+
     /** @param array<string, string> $binding */
     private function request(string $idempotencyKey, string $command, array $binding): CharacterCommandStatus
     {
@@ -86,6 +114,9 @@ final class CharacterCommandClient
      * against the backlog bound. MariaDB takes next-key locks through a locking count.
      * PostgreSQL rejects FOR UPDATE with an aggregate and has no gap locks, so it takes a
      * transaction-scoped advisory lock per issuer before a plain count (ADR 0046).
+     *
+     * The same lock is held from before the row id (the `source_revision`) is drawn until the
+     * outermost transaction ends, so issuers commit in `source_revision` order (Game U-CC9).
      */
     private function lockedPendingCount(): int
     {
@@ -161,6 +192,7 @@ final class CharacterCommandClient
                 'created_at' => $timestamp,
                 'updated_at' => $timestamp,
             ]);
+            $this->assertAboveEveryStoredKey($id, $operationId, $command);
             $json = CharacterCommandWire::encodeIntent($command, CanonicalAccountId::generate(), $id, $operationId, $binding, $issuedAt, $expiresAt);
             DB::table(CharacterCommandIntentRow::TABLE)->where('id', $id)->update([
                 'intent_json' => $json,
@@ -169,6 +201,34 @@ final class CharacterCommandClient
 
             return new CharacterCommandStatus($operationId, $command, CharacterCommandState::Pending, null, $expiresAt, null);
         }, 3);
+    }
+
+    /**
+     * Game U-CC9: Platform issuance commits no intent behind the Game consumer's cursor. The
+     * consumer's cursor is always the key of an intent it has listed, so it is a committed key;
+     * an intent whose `source_revision` lies above every stored key of this issuer, committed
+     * while the issuer lock still serializes every other issuer, lands ahead of it. The sequence
+     * that draws the row id normally guarantees this; a sequence left behind its table (a copy or
+     * restore that skipped `setval`, a hand-written row) would not, so the intent is refused
+     * before it is listable and the operator is alarmed. The read must see every committed row:
+     * a plain read does under PostgreSQL READ COMMITTED; MariaDB needs a locking (current) read.
+     */
+    private function assertAboveEveryStoredKey(int $id, string $operationId, string $command): void
+    {
+        $query = DB::table(CharacterCommandIntentRow::TABLE)
+            ->where('issuer_authority', CharacterCommandWire::ISSUER_AUTHORITY)
+            ->where('id', '>', $id);
+        if (DB::connection()->getDriverName() !== 'pgsql') {
+            $query->sharedLock();
+        }
+        if ($query->value('id') !== null) {
+            Log::error('character_authority.command_source_revision_behind', [
+                'operation_id' => $operationId,
+                'command' => $command,
+            ]);
+
+            throw new CharacterCommandUnavailable('Character command source_revision would not lie above every stored key.');
+        }
     }
 
     private function statusOf(CharacterCommandIntentRow $intent): CharacterCommandStatus

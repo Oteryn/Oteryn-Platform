@@ -6,6 +6,7 @@ use App\Http\Middleware\EnsureConfirmedMfa;
 use App\Http\Middleware\EnsureIdentitySessionIsCurrent;
 use App\Http\Middleware\GameAuth\PreventSensitiveGameAuthResponseCaching;
 use App\Http\Middleware\NegotiatePublicLocale;
+use App\Http\Middleware\NoStorePublicGameData;
 use App\Http\Middleware\RequestCorrelation;
 use App\Http\Middleware\RequireAdminPermission;
 use App\Http\Middleware\SecurityHeaders;
@@ -18,6 +19,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\Route;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -51,6 +53,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->appendToGroup('web', EnsureIdentitySessionIsCurrent::class);
         $middleware->prependToPriorityList(Authenticate::class, SetIdentityLocale::class);
         $middleware->prependToPriorityList(Authenticate::class, EnsureIdentitySessionIsCurrent::class);
+        // Live projection pages: no-store wraps the throttle so a 429 is not stored either.
+        $middleware->prependToPriorityList(ThrottleRequests::class, NoStorePublicGameData::class);
         $middleware->appendToGroup('web', SecurityHeaders::class);
         $middleware->alias([
             'mfa.confirmed' => EnsureConfirmedMfa::class,

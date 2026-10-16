@@ -4,6 +4,7 @@ namespace App\Http\Controllers\CharacterProfiles;
 
 use App\CharacterProfiles\CharacterProfileNotOwned;
 use App\CharacterProfiles\CharacterProfilePreferenceService;
+use App\CharacterProfiles\CharacterProfileUnavailable;
 use App\Http\Requests\CharacterProfiles\UpdateCharacterProfilePreferenceRequest;
 use App\Identity\Models\Identity;
 use Illuminate\Contracts\View\View;
@@ -25,7 +26,7 @@ final class CharacterProfilePreferenceController
             $state = $preferences->editState($identity, $name);
         } catch (CharacterProfileNotOwned) {
             abort(404);
-        } catch (QueryException) {
+        } catch (CharacterProfileUnavailable) {
             abort(503, __('character_profiles.unavailable'));
         }
 
@@ -47,7 +48,7 @@ final class CharacterProfilePreferenceController
             $preferences->update($identity, $name, $request->preferences());
         } catch (CharacterProfileNotOwned) {
             abort(404);
-        } catch (QueryException) {
+        } catch (QueryException|CharacterProfileUnavailable) {
             return back()
                 ->withInput()
                 ->withErrors(['profile' => __('character_profiles.unavailable')]);

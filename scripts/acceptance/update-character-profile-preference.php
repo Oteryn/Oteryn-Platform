@@ -26,17 +26,7 @@ if (! $identity instanceof Identity) {
 }
 
 $service = $app->make(CharacterProfilePreferenceService::class);
-$service->update($identity, $name, [
-    'public_comment' => 'Concurrent acceptance selection for '.$name,
-    'show_account_association' => true,
-    'show_status' => true,
-    'show_guild' => true,
-    'show_house' => true,
-    'show_skills' => true,
-    'show_deaths' => true,
-    'show_kills' => true,
-    'is_main_character' => true,
-]);
+$service->update($identity, $name, ['show_guild' => true, 'is_main_character' => true]);
 
 fwrite(STDOUT, json_encode([
     'character' => $name,

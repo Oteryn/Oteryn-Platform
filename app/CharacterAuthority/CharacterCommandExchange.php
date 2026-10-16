@@ -2,6 +2,7 @@
 
 namespace App\CharacterAuthority;
 
+use App\CharacterAuthority\Restore\GameRestoreReconciler;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -83,6 +84,8 @@ final class CharacterCommandExchange
         $this->assertSourceAuthority($settings, $receipt->sourceAuthority);
 
         DB::transaction(function () use ($receipt, $raw): void {
+            // Shared restore lock first: a Game restore notice never selects while this commits.
+            GameRestoreReconciler::lock(false);
             $row = DB::table(CharacterCommandIntentRow::TABLE)
                 ->where('issuer_authority', CharacterCommandWire::ISSUER_AUTHORITY)
                 ->where('operation_id', $receipt->operationId)
@@ -110,6 +113,12 @@ final class CharacterCommandExchange
                 $this->conflict($intent, $receipt, 'character_authority.command_receipt_conflict');
             }
 
+            // Fixed width so a restore can select `recovery_generation >= H` as text (§5.4).
+            $generation = str_pad($receipt->recoveryGeneration, 20, '0', STR_PAD_LEFT);
+            if ($this->lostToRestore($generation)) {
+                $this->conflict($intent, $receipt, 'character_authority.command_receipt_lost_to_restore');
+            }
+
             if ($receipt->outcome === CharacterCommandWire::COMMITTED && ! $this->bindingMatches($intent, $receipt)) {
                 $this->conflict($intent, $receipt, 'character_authority.command_receipt_binding_mismatch');
             }
@@ -122,8 +131,7 @@ final class CharacterCommandExchange
                 'command' => $intent->command,
                 'outcome' => $receipt->outcome,
                 'result_code' => $receipt->resultCode,
-                // Fixed width so a restore can select `recovery_generation >= H` as text (§5.4).
-                'recovery_generation' => str_pad($receipt->recoveryGeneration, 20, '0', STR_PAD_LEFT),
+                'recovery_generation' => $generation,
                 'receipt_json' => $raw,
                 'receipt_sha256' => hash('sha256', $raw),
                 'superseded_at' => null,
@@ -140,7 +148,55 @@ final class CharacterCommandExchange
                 'command' => $intent->command,
                 'result_code' => $receipt->resultCode,
             ]);
+            $this->answerReopens($intent, $receipt, $receiptId);
         }, 3);
+    }
+
+    /**
+     * A receipt below the latest recorded notice's new generation was decided before that restore,
+     * possibly after its snapshot within the restored generation itself, so Game may no longer hold
+     * it: it answers no operation. Game publishes what it still holds again at its current
+     * generation (§5.4). Notice generations only rise, so any higher notice is the latest's bound.
+     */
+    private function lostToRestore(string $generation): bool
+    {
+        return DB::table(GameRestoreReconciler::NOTICES)
+            ->where('new_recovery_generation', '>', $generation)
+            ->exists();
+    }
+
+    /**
+     * The new receipt of an intent a Game restore reopened answers every notice still waiting for
+     * it. A COMMITTED outcome that came back REJECTED needs Platform compensation (§5.4): alarm.
+     */
+    private function answerReopens(CharacterCommandIntentRow $intent, CharacterCommandReceipt $receipt, int $receiptId): void
+    {
+        $superseded = DB::table(GameRestoreReconciler::REOPENS)
+            ->where('intent_id', $intent->id)
+            ->whereNull('new_receipt_id')
+            ->pluck('superseded_receipt_id');
+        if ($superseded->isEmpty()) {
+            return;
+        }
+
+        DB::table(GameRestoreReconciler::REOPENS)
+            ->where('intent_id', $intent->id)
+            ->whereNull('new_receipt_id')
+            ->update(['new_receipt_id' => $receiptId]);
+
+        $wasCommitted = DB::table(CharacterCommandStoredReceipt::TABLE)
+            ->whereIn('id', $superseded->all())
+            ->where('outcome', CharacterCommandWire::COMMITTED)
+            ->exists();
+        if ($wasCommitted && $receipt->outcome === CharacterCommandWire::REJECTED) {
+            $this->alarm('character_authority.restore_outcome_reversed', $intent->operationId, $intent->command, $receipt->resultCode);
+        } else {
+            Log::info('character_authority.restore_reopen_answered', [
+                'operation_id' => $intent->operationId,
+                'command' => $intent->command,
+                'result_code' => $receipt->resultCode,
+            ]);
+        }
     }
 
     private function bindingMatches(CharacterCommandIntentRow $intent, CharacterCommandReceipt $receipt): bool

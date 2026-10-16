@@ -125,7 +125,7 @@ def test_full_deploy_keeps_ingress_stopped_until_the_trust_gate_passes() -> None
         full,
         INGRESS_STOP,
         '"${compose[@]}" up -d platform',
-        '"${compose[@]}" exec -T platform php artisan migrate --force --no-interaction',
+        'oteryn_platform_migrate_postgres "${compose[@]}"',
         PUBLISH_CALL + " || exit 1",
         '"${compose[@]}" exec -T platform php artisan game-auth:oauth-client:ensure',
         '"${compose[@]}" up -d --no-deps --force-recreate internal-proxy',
@@ -228,7 +228,7 @@ def test_marketplace_switches_start_ingress_only_after_the_final_trust_gate() ->
         enable,
         INGRESS_STOP,
         "--force-recreate platform",
-        "artisan migrate --force --no-interaction",
+        "oteryn_platform_migrate_postgres",
         PUBLISH_CALL,
         "marketplace:reconcile",
         "export MARKETPLACE_ENABLED=true",
@@ -357,6 +357,9 @@ def run_publish(
         "FAKE_DOCKER_LOG": str(log),
         "FAKE_FLAG": "true",
         "FAKE_OUTPUT": TRUSTED,
+        # PostgreSQL is the only engine since P7, so every publication passes the first-publication guard; a
+        # registry with a trust history needs no fence (the guard tests below cover the fenced path).
+        "FAKE_OBSERVE": json.dumps(OBSERVED_WITH_PROFILE),
         **fake,
     }
     result = subprocess.run(
@@ -441,6 +444,9 @@ def run_gate(tmp: pathlib.Path, *compose: str, **fake: str) -> tuple[subprocess.
         "FAKE_DOCKER_LOG": str(log),
         "FAKE_FLAG": "true",
         "FAKE_OUTPUT": TRUSTED,
+        # PostgreSQL is the only engine since P7, so every publication passes the first-publication guard; a
+        # registry with a trust history needs no fence (the guard tests below cover the fenced path).
+        "FAKE_OBSERVE": json.dumps(OBSERVED_WITH_PROFILE),
         **fake,
     }
     result = subprocess.run(
@@ -518,6 +524,7 @@ def run_lib(tmp: pathlib.Path, script: str, *args: str, **fake: str) -> tuple[su
         "FAKE_DOCKER_LOG": str(log),
         "FAKE_FLAG": "true",
         "FAKE_OUTPUT": TRUSTED,
+        "FAKE_OBSERVE": json.dumps(OBSERVED_WITH_PROFILE),
         "ENV_FILE": "staging.env",
         "COMPOSE_FILE": "staging.yml",
         **fake,
@@ -614,6 +621,7 @@ OBSERVED_NO_PROFILE = {
         "in_flight": {"sessions": 0, "prepared": 0},
     },
 }
+OBSERVED_WITH_PROFILE = {**OBSERVED_NO_PROFILE, "profile": {"present": True}}
 FENCE_JSON = '{"run_id":"r","intent_sha256":"' + "b" * 64 + '"}'
 FAKE_TOOL = """#!/usr/bin/env python3
 import os, pathlib, sys
@@ -709,12 +717,13 @@ def test_guard_refuses_when_the_observation_fails(fake_docker: pathlib.Path) -> 
     assert not any("publish-trust" in call for call in calls)
 
 
-def test_guard_leaves_mariadb_untouched_and_the_engine_sets_the_fence_setting(fake_docker: pathlib.Path) -> None:
-    result, calls, tool = run_guarded(fake_docker, OBSERVED_NO_PROFILE, engine="mariadb")
+def test_guard_runs_on_every_deploy_and_the_engine_sets_the_fence_setting(fake_docker: pathlib.Path) -> None:
+    # PostgreSQL is the only engine since P7: no engine value skips the guard, and the fence setting is never off.
+    result, calls, tool = run_guarded(fake_docker, OBSERVED_NO_PROFILE, engine="")
     assert result.returncode == 0, result.stderr
-    assert tool == ""
-    assert not any("observe-trust" in call for call in calls)
+    assert any("observe-trust" in call for call in calls)
+    assert tool.startswith("require-open-attempt ")
     lib = LIB.read_text(encoding="utf-8")
     assert lib.count("OTERYN_PLATFORM_FIRST_PUBLICATION_FENCE=required") == 1
-    assert lib.count("OTERYN_PLATFORM_FIRST_PUBLICATION_FENCE=off") == 1
+    assert "OTERYN_PLATFORM_FIRST_PUBLICATION_FENCE=off" not in lib
     assert "GAME_AUTH_NATIVE_EVIDENCE_FIRST_PUBLICATION_FENCE: ${OTERYN_PLATFORM_FIRST_PUBLICATION_FENCE:-off}" in COMPOSE.read_text(encoding="utf-8")

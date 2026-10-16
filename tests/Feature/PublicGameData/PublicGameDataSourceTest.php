@@ -19,11 +19,8 @@ final class PublicGameDataSourceTest extends TestCase
     public static function publicPages(): array
     {
         return [
-            ['game.highscores.index', []],
-            ['game.characters.show', ['name' => 'Some Hero']],
             ['game.guilds.show', ['name' => 'Some Guild']],
             ['game.guilds.index', []],
-            ['game.online.index', []],
             ['game.servers.index', []],
             ['game.deaths.index', []],
         ];
@@ -88,6 +85,41 @@ final class PublicGameDataSourceTest extends TestCase
         }
 
         $this->assertSame([], $connection->getQueryLog());
+    }
+
+    /**
+     * Online, highscores and character pages are native-only: they never open the legacy connection, whatever
+     * the source setting is, and answer 503 while no fresh projection exists.
+     *
+     * @param  array<string, string>  $parameters
+     */
+    #[DataProvider('nativeOnlyPages')]
+    public function test_native_only_pages_never_open_the_legacy_connection(string $route, ?string $source, array $parameters = []): void
+    {
+        $this->configureLegacyConnection();
+        config()->set('public_game_data.source', $source);
+        Redis::shouldReceive('connection')->never();
+        $connection = DB::connection(PublicGameDataSource::CONNECTION);
+        $connection->enableQueryLog();
+
+        $this->get(route($route, $parameters))
+            ->assertStatus(503)
+            ->assertSee('community-unavailable', false);
+
+        $this->assertSame([], $connection->getQueryLog());
+    }
+
+    /** @return list<array{string, ?string}|array{string, ?string, array<string, string>}> */
+    public static function nativeOnlyPages(): array
+    {
+        return [
+            ['game.highscores.index', null],
+            ['game.highscores.index', PublicGameDataSource::NATIVE],
+            ['game.online.index', null],
+            ['game.online.index', PublicGameDataSource::NATIVE],
+            ['game.characters.show', null, ['name' => 'Some Hero']],
+            ['game.characters.show', PublicGameDataSource::NATIVE, ['name' => 'Some Hero']],
+        ];
     }
 
     public function test_homepage_is_ok_with_unavailable_world_state_when_source_is_native_or_absent(): void

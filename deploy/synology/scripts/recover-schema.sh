@@ -28,7 +28,8 @@ esac
 # Evidence is data, never shell input. Existing managed release backups omit the
 # kind and are treated as release baselines; fresh first-deploy baselines declare
 # BACKUP_BASELINE_KIND=fresh-empty explicitly. Backups taken on the PostgreSQL engine declare
-# BACKUP_DB_ENGINE=postgres; absent means mariadb (every backup written before the engine switch).
+# BACKUP_DB_ENGINE=postgres. A backup without it, or with another engine, is MariaDB-era: refused, since
+# the P6 cutover retired MariaDB and there is no MariaDB to restore into (plan P7).
 unset BACKUP_DB_ENGINE BACKUP_BASELINE_KIND BACKUP_FROM_RELEASE_SHA BACKUP_BEFORE_RELEASE_SHA BACKUP_SCHEMA_COMPATIBILITY_ID
 unset BACKUP_COMPOSE_PROJECT_NAME BACKUP_PLATFORM_DB_NAME BACKUP_SHA256
 seen='|'
@@ -52,7 +53,8 @@ done < "$evidence_file"
 
 backup_engine="${BACKUP_DB_ENGINE:-mariadb}"
 case "$backup_engine" in
-    mariadb|postgres) ;;
+    postgres) ;;
+    mariadb) echo "Recovery rejected: the backup is MariaDB-era; MariaDB was retired by the PostgreSQL cutover." >&2; exit 1 ;;
     *) echo "Recovery evidence has unsupported database engine: $backup_engine" >&2; exit 1 ;;
 esac
 # A backup is restored only into the engine that wrote it; crossing engines is the P6 cutover's job.
@@ -96,8 +98,7 @@ effective_compose_project="${COMPOSE_PROJECT_NAME:-oteryn-staging}"
 }
 
 backup_dir="$(dirname -- "$evidence_file")"
-backup_file="$backup_dir/platform.sql"
-[[ "$backup_engine" != postgres ]] || backup_file="$backup_dir/platform.dump"
+backup_file="$backup_dir/platform.dump"
 [[ -s "$backup_file" ]] || { echo "Recovery backup is missing or empty." >&2; exit 1; }
 actual_sha="$(sha256sum "$backup_file" | awk '{print $1}')"
 [[ "$actual_sha" == "$BACKUP_SHA256" ]] || { echo "Recovery backup digest mismatch." >&2; exit 1; }
@@ -170,25 +171,13 @@ fi
 
 # This is an explicit destructive staging recovery. It never runs implicitly from
 # deploy.sh or rollback.sh. The dump is restored into the verified Platform DB only.
-if [[ "$backup_engine" == postgres ]]; then
-    # Local superuser over the socket (peer, no password): DROP DATABASE ... WITH (FORCE), recreate it
-    # with the checked-out role script in --database-only mode, pg_restore as oteryn_platform_owner in
-    # one transaction, then re-apply the grants (lib.sh).
-    oteryn_postgres_restore_platform "${compose[@]}" "$DEPLOY_DIR/postgres/init/10-platform-roles.sh" "$backup_file"
-else
-    "${compose[@]}" exec -T -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb \
-        mariadb -uroot -e "DROP DATABASE IF EXISTS \`$PLATFORM_DB_NAME\`; CREATE DATABASE \`$PLATFORM_DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-    "${compose[@]}" exec -T -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb \
-        mariadb -uroot "$PLATFORM_DB_NAME" <"$backup_file"
-fi
+# Local superuser over the socket (peer, no password): DROP DATABASE ... WITH (FORCE), recreate it
+# with the checked-out role script in --database-only mode, pg_restore as oteryn_platform_owner in
+# one transaction, then re-apply the grants (lib.sh).
+oteryn_postgres_restore_platform "${compose[@]}" "$DEPLOY_DIR/postgres/init/10-platform-roles.sh" "$backup_file"
 
 if [[ "$baseline_kind" == fresh-empty ]]; then
-    if [[ "$backup_engine" == postgres ]]; then
-        restored_table_count="$(oteryn_postgres_relation_count "${compose[@]}")"
-    else
-        restored_table_count="$("${compose[@]}" exec -T -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb \
-            mariadb -uroot -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$PLATFORM_DB_NAME';")"
-    fi
+    restored_table_count="$(oteryn_postgres_relation_count "${compose[@]}")"
     [[ "$restored_table_count" == 0 ]] || {
         echo "Fresh-empty recovery failed closed: restored database is not empty." >&2
         exit 1

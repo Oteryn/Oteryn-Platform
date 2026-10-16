@@ -174,8 +174,8 @@
   ],
   "groups": {
     "ci_deploy": {
-      "count": 86,
-      "files": 22,
+      "count": 84,
+      "files": 21,
       "enforce": true
     },
     "config": {
@@ -189,8 +189,8 @@
       "enforce": true
     },
     "docs": {
-      "count": 248,
-      "files": 67,
+      "count": 243,
+      "files": 65,
       "enforce": true
     },
     "history": {
@@ -214,13 +214,13 @@
       "enforce": true
     },
     "runtime": {
-      "count": 163,
-      "files": 32,
+      "count": 139,
+      "files": 31,
       "enforce": true
     },
     "tests": {
-      "count": 349,
-      "files": 35,
+      "count": 261,
+      "files": 32,
       "enforce": true
     }
   }

@@ -409,7 +409,7 @@ A native failure never falls back to any of these, and a legacy engine request n
 ## 13. Security and logging
 
 - Never logged or traced: tickets, ticket hashes, grants, signing inputs, `jti`, private keys, OAuth tokens, `account_security_generation`, `scope_ownership_generation`, `assignment_epoch`, runtime `decision_identity` (it embeds the generation), Character names.
-- Character names are accepted only as NFC UTF-8 without control (Cc), format (Cf, including bidi overrides U+202A–U+202E and isolates U+2066–U+2069, zero-width characters), `"` or `\\` characters (Game candidate §2.1); Platform rejects other snapshots as malformed.
+- Character names are accepted only as NFC UTF-8 without control (Cc), format (Cf, including bidi overrides U+202A–U+202E and isolates U+2066–U+2069, zero-width characters), `"`, `\\` or `/` characters and other than `.` or `..` (Game candidate §2.1; names become URL path segments); Platform rejects other snapshots as malformed.
 - May be logged: `attempt_ref`, internal error code, `kid`, profile, `world_id`/`channel_id`, `route_revision`, timings. `AccountId`/`CharacterId` only pseudonymously where authorized; never as metric labels.
 - All native responses are `no-store, private`.
 - Platform authorization is never proof of admission; Game revalidates every bound fact (FND-04 §12).
@@ -474,15 +474,15 @@ Owner decisions D171 and D172 (Oteryn-Game #162; answers 33c/34b, comment 590526
 
 **Mode 34a (D172): Registry route record for testing/preproduction.** The §7.3 route record is stored on `game_channels` (`native_route_host`, `native_route_port`, `native_route_tls_server_name`, `native_route_version`, `native_route_revision`) with the §7.3 `route_revision` digest. It is published only through `NativeTopologyRegistry::publishRouteForPreproduction`, which is restricted to `testing`/`preproduction` like topology issuance (U8), and every read of the records refuses outside those environments on its own. An unchanged endpoint keeps its revision, and any endpoint change advances the version. `native_login_enabled` (default false) is the per-scope native login policy of §7.4 condition 2 in this mode. A stored record whose revision does not equal the one recomputed from its descriptor routes nowhere. The client verifies `tls_server_name` against the explicitly configured root used by `oteryn-dev-client` (§3.2). **Release gate:** U3 (gameplay CA), then D3 acceptance and U7 (production login policy), before any production route record exists.
 
-The operator path of this mode is `game-auth:native-route:publish` and, for the fresh admission key it trusts, `game-auth:native-trust:publish-key` (ARCH-PREPROD-ROUTE-PUBLISH-AUTH-V1 §2): both run only in `testing`/`preproduction` behind the shared `DisposableNativeStore` guard of topology issuance, on the retained per-run SQLite file, and refuse with nothing written otherwise. Owner amendment D1023 (ADR 0044, 2026-10-12) lets that guard also admit, for issuance and readback in tests only, the loopback PostgreSQL test database: `APP_ENV=testing`, database `oteryn_test`, host `127.0.0.1` or `localhost`, no read/write split. Every other PostgreSQL profile refuses, and the operator commands still require the retained per-run SQLite file.
+The operator path of this mode is `game-auth:native-route:publish` and, for the fresh admission key it trusts, `game-auth:native-trust:publish-key` (ARCH-PREPROD-ROUTE-PUBLISH-AUTH-V1 §2): both run only in `testing`/`preproduction` behind the shared `DisposableNativeStore` guard of topology issuance, on the retained per-run SQLite file, and refuse with nothing written otherwise. Owner amendment D1023 (ADR 0044, 2026-10-12) lets that guard also admit, for issuance and readback in tests only, the loopback PostgreSQL test database: `APP_ENV=testing`, database `oteryn_test`, host `127.0.0.1` or `localhost`, no read/write split. Every other PostgreSQL profile refuses this guard, and the operator commands still require the retained per-run SQLite file on it. The deployed oteryn-vps PostgreSQL store is reached only through the separate preproduction-store mode below (ADR 0044 Amendment P4).
 
-**Status (owner decision D1006, NATIVE-TRUST-PUBLISH-1):** a deployed `preproduction` stack with owner key custody trusts its issuer key in its own MariaDB trust registry with `game-auth:native-admission:publish-trust`. The command takes no input: it trusts only the public half of the configured current key loaded through the issuer keyring, runs only in `testing`/`preproduction` with native admission on and `GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE` set, writes only through `publishTrustedKey` (§9.2: a kid bound to one key forever, no re-trust after revocation, at most two trusted keys, the high-water witness on every write), is idempotent, and prints only the trust scope, key id and public key. Synology deploy runs it after migration and before the signing self-check, on every route that (re)creates Platform, while the internal proxy and Gateway (the only holders of the Gateway service credential that admission issuance requires) are stopped; it starts them only after publication passes, and a failed publication removes the Platform, internal proxy and Gateway containers. No route record or production trust is published by it.
+**Status (owner decision D1006, NATIVE-TRUST-PUBLISH-1):** a deployed `preproduction` stack with owner key custody trusts its issuer key in its own Platform database trust registry (MariaDB before the PostgreSQL cutover, PostgreSQL since) with `game-auth:native-admission:publish-trust`. The command takes no input: it trusts only the public half of the configured current key loaded through the issuer keyring, runs only in `testing`/`preproduction` with native admission on and `GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE` set, writes only through `publishTrustedKey` (§9.2: a kid bound to one key forever, no re-trust after revocation, at most two trusted keys, the high-water witness on every write), is idempotent, and prints only the trust scope, key id and public key. The oteryn-vps deploy runs it after migration and before the signing self-check, on every route that (re)creates Platform, while the internal proxy and Gateway (the only holders of the Gateway service credential that admission issuance requires) are stopped; it starts them only after publication passes, and a failed publication removes the Platform, internal proxy and Gateway containers. No route record or production trust is published by it.
 
 **Status (ADR 0044, ARCH-PREPROD-ROUTE-PUBLISH-AUTH-V1 amendment, owner option a, 2026-10-11):**
 
-- `game-auth:native-topology:issue` and `game-auth:native-route:publish` gain a separate preproduction-store mode for the deployed `preproduction` MariaDB store. The `DisposableNativeStore` guard above stays unchanged for every other path.
-- The mode is entered only by `GAME_AUTH_NATIVE_ROUTE_PREPRODUCTION_STORE_ENABLED` (default off, malformed refuses). Synology sets it from `OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED`.
-- It runs only with `APP_ENV=preproduction`, on the code-allowlisted store (`mysql`, host `mariadb`, port 3306, database `oteryn_platform`), with no outer transaction.
+- `game-auth:native-topology:issue` and `game-auth:native-route:publish` gain a separate preproduction-store mode for the deployed `preproduction` Platform store (PostgreSQL since the cutover; MariaDB before it). The `DisposableNativeStore` guard above stays unchanged for every other path.
+- The mode is entered only by `GAME_AUTH_NATIVE_ROUTE_PREPRODUCTION_STORE_ENABLED` (default off, malformed refuses). The oteryn-vps deploy sets it from `OTERYN_NATIVE_ROUTE_PUBLISH_ENABLED`.
+- It runs only with `APP_ENV=preproduction`, on a code-allowlisted store, with no outer transaction. ADR 0044 Amendment P4 (accepted 2026-10-14) fixes one identity per driver: `pgsql`, host `postgres`, port 5432, `sslmode` exactly `verify-full`, database `oteryn_platform`, default connection `pgsql` as role `oteryn_platform_app`; and `mysql`, host `mariadb`, port 3306, database `oteryn_platform`, which the code allowlist still admits although P7 no longer deploys MariaDB (removing this identity from the allowlist and the ADR row is P7 follow-up work; until then it stays part of this contract). Any other driver, host, port, connection or role refuses.
 - It publishes exactly one route record: the one for the World whose WorldId equals the configured native World (`GAME_AUTH_NATIVE_ADMISSION_UNVERIFIED_CHARACTER_WORLD_ID`). It refuses a foreign World or a foreign route.
 - It is idempotent under the version and revision rules above, and audit-logged in `admin_audit_events`.
 - It prints identifiers and route fields only, never a credential or host, and fails closed with a named `NATIVE_PREPROD_STORE_*` reason and nothing written.
@@ -552,7 +552,7 @@ The Registry issues three Channels for the first multichannel World. The keys us
 - Every record has `alpn = oteryn-game/1`, `protocol_major = 1` and `transport_profile = 1` (§7.3).
 - Each `<digest>` is computed from that channel's own descriptor, so the three revisions all differ.
 - Placeholders stand for real values: no host, port or identifier is fixed here.
-- **Staging.** The three channels are added to the staging World as three more Channels, under the widened mode 34a. Each gets its own route record on the NAS preproduction store (§19.11 step S).
+- **Staging.** The three channels are added to the staging World as three more Channels, under the widened mode 34a. Each gets its own route record on the oteryn-vps preproduction store (§19.11 step S).
 - The existing channel `oteryn-staging-1` and its route are not renamed, re-keyed or reused. It was issued first, so it has the lowest canonical `channel_id`. Automatic selection therefore picks it while it is a candidate, unless its login flag is turned off.
 
 **Display label:** the `label` is the key with its first ASCII letter upper-cased (`antica` becomes `Antica`). It is computed by Platform when the response is built, and nothing stores it. A later Registry label column may replace the rule without changing the protocol, because the client shows `label` and never derives it.
@@ -614,7 +614,7 @@ The handle is Platform's play-session credential for recovering one Character. I
   - the new `native_play_generation` (below);
   - the originating `attempt_ref`;
   - the `device_family_id` and `device_key_thumbprint` of the device family that issued the redeemed ticket (§19.15). These are required wherever §19.15 binding is on;
-  - `issued_at` and `expires_at = issued_at + H`. By owner decision U20, H is 12 h (43200 s). Configuration may shorten H to between 1 h and 12 h, but never lengthen it. Any other value refuses protocol 3 issuance and does not fall back.
+  - `issued_at` and `expires_at = min(issued_at + H, device family absolute deadline)`. By owner decision U20, H is 12 h (43200 s). Configuration may shorten H to between 1 h and 12 h, but never lengthen it. Any other value refuses protocol 3 issuance and does not fall back.
 - **Play generation fence:** Platform keeps one positive `native_play_generation` per `AccountId`.
   - Every committed fresh attempt advances it by one in the same transaction, under protocol 2 or 3. The new value is bound to the new handle.
   - Every older handle of that account then stops working.
@@ -622,11 +622,13 @@ The handle is Platform's play-session credential for recovering one Character. I
   - This fence is issuance-only. Game's own fences stay authoritative: `connection_generation`, `ControlLossEpoch`, the RecoveryGrantNonce and the healthy-controller rule.
 - **Retry of the fresh attempt:** a §6.2 replay re-signs the identical grant and replaces the handle. It mints a new handle with the same bindings and expiry, and revokes the handle that attempt issued before. No plaintext is ever stored. Replays serialize on the attempt row, and only the last handle returned is live.
 - **Fresh authentication (owner decision U21):** a device-bound handle counts as Platform fresh authentication for the recovery profile §1 ("Platform freshly authenticated AccountId"). It does so for these reasons:
-  - it is created only inside a fresh issuer transaction, after a Game Login Ticket was redeemed against the current `native_security_generation`;
+  - it is created only in a committed fresh issuer transaction that redeemed a Game Login Ticket against the current `native_security_generation`;
+  - the issuing device family is live, and the handle expires at min(H, family absolute deadline);
+  - a remembered-family rotation that issues a ticket without a browser sign-in counts as fresh while the family is live, under the same expiry (owner decision Q1, 2026-10-16);
   - §19.4 step 2 checks it again against the current generations and Identity state;
   - every use needs a fresh proof from the device key held by the family that issued the ticket (§19.15).
 
-  Game records this reading in the profile clarification G2.
+  Game records this reading in the profile clarification G2. Game consumes only the Platform recovery grant and never reads a handle or a device key.
 - **Without device binding:** where binding is required and the redeemed ticket names no device family, the login response carries `"recovery": null`, and no handle is created.
 - **Authority:** the handle authorizes only §19.4 for its bound Character and World. It never yields a fresh grant, a ticket, a character list, an OAuth token, or access to another Character or World.
 - **No rotation (Decision R2):** using the handle does not rotate it or extend its expiry.
@@ -752,6 +754,7 @@ Without a locator, Platform's routing hint is the channel bound at the account's
   - a `ClientResume` COMMIT within grace or after grace (FND-04B §20, §21);
   - the actor becoming `ABSENT`;
   - a future accepted channel-transition or handoff COMMIT.
+- **Writer fences:** the producer writes under the Character guard, the `RuntimeScopeAuthority` generation, `connection_generation`, `ControlLossEpoch` and the Character session-generation fence. A write that fails any of them leaves no row.
 - **Transport:** `ReportRecoveryLocatorV1` → `POST /internal/v1/game-auth/native-recovery-locators`. It uses HTTP/1.1 over TLS 1.3 with a client certificate, and follows the transport rules, bounds and capacity rules of the Game `OTERYN_GAME_NATIVE_RUNTIME_STATUS_PRODUCER_V1.md` §3.
 - **Identity:**
   - Each node host has its own **locator** client certificate. It is never the runtime-status, native-evidence, projection or ownership-authority certificate.
@@ -893,19 +896,21 @@ Steps run in this order. Each code step is `backward-compatible` and default off
    - `label` shown for each channel;
    - device-key generation and session or remembered enrollment;
    - `device_proof` on `/v1/recover`.
-7. **Step S: staging channels on the NAS preproduction store.** This is an operator-run deploy step.
+7. **Step S: staging channels on the oteryn-vps preproduction store.** This is an operator-run deploy step.
    - **S1. Deploy support** (Platform paths):
-     - `deploy/synology/scripts/lib.sh` publishes a list of channels instead of the current single-channel values;
-     - `deploy/synology/native-defaults.env` holds the non-secret list: key, host, port and `tls_server_name` per channel, and each identity's scope list for runtime status, assignment and locator;
-     - `deploy/synology/compose.yml` passes the list through;
+     - The deploy target host is oteryn-vps, never a NAS. The oteryn-vps deploy does not read `deploy/synology/native-defaults.env` and never calls `oteryn_publish_native_route`: `deploy/oracle/prepare-platform.sh` renders only `/opt/oteryn-oracle/platform.env` (with route publication `false`), and `deploy/oracle/actions-deploy.py::platform_deploy` keeps that environment and runs migration only. Step S therefore adds an Oracle path:
+       - **environment rendering:** `deploy/oracle/prepare-platform.sh` writes the non-secret channel list into `/opt/oteryn-oracle/platform.env`: key, host, port and `tls_server_name` per channel, and each identity's scope list for runtime status, assignment and locator. The current single-channel values stay as the first entry;
+       - **Compose:** `deploy/oracle/public-platform.compose.yml` passes the list to the Platform service;
+       - **publication:** an Oracle deploy step (in `deploy/oracle/actions-deploy.py`, or a script it calls) runs `game-auth:native-route:publish` once per channel (S3). It runs only when the operator turns route publication on for Step S;
+       - the step owner names the exact functions. `deploy/synology/*` is not changed for Step S;
      - `app/GameAuth/Worlds/PreproductionNativeRouteStore.php` carries the mode 34a widening from step 3.
      - The current single-channel values stay valid for `oteryn-staging-1`.
    - **S2. Topology.** `game-auth:native-topology:issue` in preproduction-store mode issues `antica`, `obscura` and `pythera` on the staging World. It is idempotent, and its receipts are audited under ADR 0044.
-   - **S3. Routes.** `game-auth:native-route:publish` runs once per channel. Each channel gets a distinct `(host, port)` on the NAS (Decision M1), its own `tls_server_name`, and login turned on.
+   - **S3. Routes.** `game-auth:native-route:publish` runs once per channel. Each channel gets a distinct `(host, port)` on the oteryn-vps host (Decision M1), its own `tls_server_name`, and login turned on.
      - `OTERYN_STAGING_NATIVE_ROUTE_PUBLISH_ENABLED` stays `true`.
      - Each published `route_revision` is recorded as that channel's node-declared value.
    - **S4. Game side** (listed, not written here):
-     - one game node per channel on the NAS;
+     - one game node per channel on the oteryn-vps host;
      - an `oteryn-game-ops` assignment per scope;
      - each node declares its channel's published `route_revision`;
      - runtime-status and locator reporting is turned on.
@@ -1015,7 +1020,7 @@ Rollback:
 
 ### 19.14 Game implementation packet G1: recovery locator producer (ready to dispatch)
 
-This is a dispatch-ready packet for `Oteryn/Oteryn-Game`. Platform does not write it. The Game lead copies it into a Game task record built from the Game `docs/agents/tasks/TASK_TEMPLATE.md`. Paths were checked against Game `origin/main` at `08e13f7de`; the writer re-checks them at dispatch.
+This is a dispatch-ready packet for `Oteryn/Oteryn-Game`. Platform does not write it. The Game lead copies it into a Game task record built from the Game `docs/agents/tasks/TASK_TEMPLATE.md`. Paths were checked against Game `origin/main` at `08e13f7de`, and the Game architect re-reviewed them at `24fc332f` on 2026-10-16; the writer re-checks them at dispatch.
 
 ```yaml
 task_id: OTV2-20261012-recovery-locator-producer
@@ -1030,7 +1035,7 @@ owned_paths:
   - docs/contracts/OTERYN_GAME_RECOVERY_LOCATOR_PRODUCER_V1.md
   - docs/contracts/RESOURCE_LIMITS_REGISTRY.json (NRL-* rows only)
   - docs/contracts/CROSS_REPOSITORY_CONTRACT_LOCK.json (recovery locator row only)
-  - apps/game-server/migrations/<next free number>_recovery_locator_outbox.sql (0080 at 08e13f7de)
+  - apps/game-server/migrations/<next free number>_recovery_locator_outbox.sql (next free Game migration, assigned by Game CP at slot; Game main latest 0091 as of 2026-10-16)
   - apps/game-server/src/durability/recovery_locator_outbox.rs
   - apps/game-server/src/durability/mod.rs (module registration only)
   - apps/game-server/src/durability/fresh_admission.rs (outbox write in the fresh admission COMMIT only)
@@ -1087,7 +1092,8 @@ blocks:
 - **Durable atomicity.** The outbox row is written in the same transaction as the placement change, under its existing fences:
   - Character guard;
   - `RuntimeScopeAuthority` generation;
-  - `connection_generation` and `ControlLossEpoch`.
+  - `connection_generation` and `ControlLossEpoch`;
+  - the Character session-generation fence.
 
   A rolled-back placement leaves no row, and a committed placement always leaves one.
 - **No authority from the row.** The reporter reads only committed rows. Neither the reporter nor the row can raise a generation.
@@ -1135,11 +1141,11 @@ The path builds on the existing remembered-device family:
 | Current design | Change |
 |---|---|
 | Disabled by default and refused outside `testing`/`preproduction` | Unchanged as a switch. Wherever protocol 3 recovery runs with binding on, `game-auth.device_sessions.enabled` must be on. The issuer refuses to start otherwise. Production stays separately authorized. |
-| Opt-in only: an unchecked "Remember this device" choice, and enrollment requires `explicitConsent: true` | Two persistence classes. A **session** family is enrolled on every protocol 3 native login: its bearer is never written to disk, and its absolute and idle deadlines both equal H. The **remembered** family stays as it is, opt-in and default off. Explicit consent stays required for remembered only, because a session family keeps nothing beyond the process. |
+| Opt-in only: an unchecked "Remember this device" choice, and enrollment requires `explicitConsent: true` | Two persistence classes. A **session** family is enrolled on every protocol 3 native login unless the user opts into **remembered** on that login, which replaces it (one family per login): its bearer is never written to disk, and its absolute and idle deadlines both equal H. The **remembered** family stays as it is, opt-in and default off. Explicit consent stays required for remembered only, because a session family keeps nothing beyond the process. |
 | The credential is a rotating `otd1.` bearer, and a lost response costs a browser sign-in | The bearer keeps rotating for its own purposes (`NativeCharactersRead`, `NativeTicketIssue`). Recovery never presents it. Recovery proves possession of a new **device key** instead. The key does not rotate, so a retry with the same `attempt_ref` is safe. |
 | The family has no key, so the bearer is the whole credential | The family records one Ed25519 public key and its thumbprint at enrollment, fixed for the family's life. Enrollment requires a signature by that key (proof of possession). |
 | A ticket does not record a family | A ticket gains a nullable `device_family_id`. It is set by PKCE enrollment (the family the same OAuth access token enrolled, found through the unique `enrollment_access_token_id`) or by the `NativeTicketIssue` callback (the rotating family). |
-| Revocation ends only the family | Terminal family revocation also revokes that family's recovery handles in the same transaction: logout, owner revoke, replay detection and expiry. |
+| Revocation ends only the family | Terminal family revocation (logout, owner revoke, replay detection) also revokes that family's recovery handles in the same transaction. Expiry needs no write: a family past its absolute or idle deadline, and its handles, count as revoked on every path, including the read-only `/v1/recover` check (§19.4). |
 
 #### 19.15.2 Wire and cryptography
 

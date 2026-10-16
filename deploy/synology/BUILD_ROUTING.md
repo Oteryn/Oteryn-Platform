@@ -11,7 +11,7 @@
 
 ## Deployment-package-only changes
 
-Runtime deployment-package inputs such as the staging Compose manifest, runtime environment contract, MariaDB initialization, internal Nginx/TLS bootstrap, and deployment/health/recovery scripts can require protected-main staging reconciliation without creating a new Platform or Gateway image identity.
+Runtime deployment-package inputs such as the staging Compose manifest, runtime environment contract, PostgreSQL configuration and initialization, internal Nginx/TLS bootstrap, and deployment/health/recovery scripts can require protected-main staging reconciliation without creating a new Platform or Gateway image identity.
 
 When neither runtime component changed, protected main allocates zero runtime image build jobs and dispatches staging with both changed flags false. `Deploy Synology Staging` then accepts reuse only from persisted current-release component provenance after validating release lineage, immutable digest form, and each image's OCI source revision.
 

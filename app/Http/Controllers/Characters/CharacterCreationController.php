@@ -2,7 +2,10 @@
 
 namespace App\Http\Controllers\Characters;
 
+use App\CharacterAuthority\CharacterCommandClient;
+use App\CharacterAuthority\CharacterCommandUnavailable;
 use App\Characters\Actions\CreateCharacter;
+use App\Characters\CharacterCreationOutcome;
 use App\Characters\Exceptions\CharacterAccountMissing;
 use App\Characters\Exceptions\CharacterBindingNotReady;
 use App\Characters\Exceptions\CharacterCreationUnavailable;
@@ -14,12 +17,21 @@ use App\Http\Requests\Characters\CreateCharacterRequest;
 use App\Identity\Models\Identity;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 final class CharacterCreationController
 {
     public function create(): View
     {
-        return view('characters.create');
+        $enabled = CreateCharacter::enabled();
+
+        return view('characters.create', [
+            'commandsEnabled' => $enabled,
+            'worlds' => $enabled ? CreateCharacter::worlds() : collect(),
+            // One key per rendered form: a double submit reuses the same command operation.
+            'submission' => $enabled ? (string) Str::uuid() : null,
+        ]);
     }
 
     public function store(CreateCharacterRequest $request, CreateCharacter $createCharacter): RedirectResponse
@@ -34,6 +46,8 @@ final class CharacterCreationController
                 $request->characterName(),
                 $request->vocation(),
                 $request->sex(),
+                $request->world(),
+                $request->submission(),
             );
         } catch (CharacterNameInvalid $exception) {
             return back()->withInput()->withErrors(['name' => $exception->getMessage()]);
@@ -51,12 +65,29 @@ final class CharacterCreationController
             return back()->withInput()->withErrors(['character' => 'Character creation is temporarily unavailable.']);
         }
 
-        $status = $result->created
-            ? "Character {$result->canonicalName} created."
-            : "Character {$result->canonicalName} already exists on your account.";
+        // The account routes take their locale from the query string, so carry it to the result page.
+        return redirect()->route('account.characters.requests.show', [
+            'operation' => $result->operationId,
+            'locale' => app()->getLocale(),
+        ]);
+    }
 
-        return redirect()
-            ->route('account.characters.create')
-            ->with('status', $status);
+    /** The outcome of one of the signed-in Identity's create requests, from Game's receipt. */
+    public function show(Request $request, string $operation, CharacterCommandClient $commands): View
+    {
+        $identity = $request->user();
+
+        abort_unless($identity instanceof Identity, 403);
+        $accountId = $identity->getAttribute('account_id');
+        abort_unless(is_string($accountId), 404);
+
+        try {
+            $status = $commands->createStatusFor($operation, $accountId);
+        } catch (CharacterCommandUnavailable) {
+            abort(503);
+        }
+        abort_if($status === null, 404);
+
+        return view('characters.request', ['outcome' => CharacterCreationOutcome::of($status)]);
     }
 }

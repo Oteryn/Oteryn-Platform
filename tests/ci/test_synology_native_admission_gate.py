@@ -167,7 +167,7 @@ def test_deploy_ensures_the_key_before_changes_and_self_checks_before_the_gatewa
     script = DEPLOY.read_text(encoding="utf-8")
     ensure = script.index("oteryn_ensure_native_admission_key || exit 1")
     assert ensure < script.index("fast_candidate_rc=0")
-    assert ensure < script.index('"${compose[@]}" up -d mariadb')
+    assert ensure < script.index('"${compose[@]}" up -d --force-recreate tls-init')
     self_check = script.index('oteryn_run_native_admission_self_check "$("${compose[@]}" ps -q platform)" || exit 1')
     assert script.index("game-auth:oauth-client:ensure") < self_check < script.index('"${compose[@]}" up -d gateway')
     # The fast path recreates Platform only, so it re-proves signing before it can finish.
@@ -532,19 +532,24 @@ def test_every_route_runs_the_self_check_gate_before_ingress() -> None:
 def test_native_defaults_file_is_non_secret_complete_and_overridable_by_variables() -> None:
     defaults = (ROOT / "deploy" / "synology" / "native-defaults.env").read_text(encoding="utf-8")
     values = dict(line.split("=", 1) for line in defaults.splitlines() if line and not line.startswith("#"))
-    # The D171 World tie is dropped: the client directory lists the World from the native route record.
-    assert "OTERYN_STAGING_NATIVE_WORLD_ID" not in values
     world = re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", values["OTERYN_STAGING_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES"]).group(0)
+    # The World id feeds only the route publication step (ADR 0044 Amendment P4), and it is the scoped World.
+    assert values["OTERYN_STAGING_NATIVE_WORLD_ID"] == world
+    assert values["OTERYN_STAGING_NATIVE_ROUTE_PUBLISH_ENABLED"] == "true"
     assert values["OTERYN_STAGING_NATIVE_ADMISSION_ENABLED"] == "true"
     for name in ("RUNTIME_STATUS_IDENTITIES", "SCOPE_ASSIGNMENT_IDENTITIES"):
         identities = json.loads(values[f"OTERYN_STAGING_NATIVE_{name}"])
         assert identities and all(s.startswith("CN=") and scopes for s, scopes in identities.items())
         assert all(scope.startswith(f"{world}/") for scopes in identities.values() for scope in scopes)
     assert re.search(r"(?i)secret|password|token|private", "\n".join(f"{k}={v}" for k, v in values.items())) is None
+    # Both workflows that run deploy.sh render the same native settings, route publication included.
     for name in ("deploy-synology-staging.yml", "character-bazaar-staging-control.yml"):
         workflow = (WORKFLOWS / name).read_text(encoding="utf-8")
-        assert workflow.count('oteryn_native_default OTERYN_STAGING_NATIVE_') == 4
+        assert workflow.count('oteryn_native_default OTERYN_STAGING_NATIVE_') == 9
         assert "vars.OTERYN_STAGING_NATIVE_WORLD_ID" in workflow
+        for key in ("PUBLISH_ENABLED", "HOST", "PORT", "TLS_SERVER_NAME", "LOGIN_ENABLED"):
+            assert f"OTERYN_NATIVE_ROUTE_{key}=" in workflow
+        assert "OTERYN_NATIVE_CHANNEL_KEY=" in workflow
 
 
 def test_native_default_resolver_prefers_the_variable_then_the_file(tmp_path: pathlib.Path) -> None:

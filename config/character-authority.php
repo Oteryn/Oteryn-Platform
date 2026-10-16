@@ -11,7 +11,9 @@ return [
     | the Game command consumer pulls intents over mTLS. Disabled by default and only honoured in
     | the testing and preproduction environments until the enablement packet. `identities` is a
     | JSON list of dedicated character-command client certificate subjects; a subject shared with
-    | any other internal purpose makes the whole surface unavailable.
+    | any other internal purpose makes the whole surface unavailable, and so does a
+    | `max_pending_intents` above 40, the enforced backlog bound inside the 300 s intent TTL
+    | (gate U-CC9).
     |
     */
 
@@ -20,8 +22,43 @@ return [
         'identities' => env('CHARACTER_AUTHORITY_COMMAND_IDENTITIES'),
         'source_authority' => env('CHARACTER_AUTHORITY_COMMAND_SOURCE_AUTHORITY'),
         'intent_ttl_seconds' => env('CHARACTER_AUTHORITY_COMMAND_INTENT_TTL_SECONDS', 300),
-        'max_pending_intents' => env('CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS', 256),
+        'max_pending_intents' => env('CHARACTER_AUTHORITY_COMMAND_MAX_PENDING_INTENTS', 40),
         'requests_per_minute' => env('CHARACTER_AUTHORITY_COMMAND_REQUESTS_PER_MINUTE', 600),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Web character creation (Game contract §14 step 3)
+    |--------------------------------------------------------------------------
+    |
+    | When on, and the command surface above is usable, the Account Center form records a
+    | `CreateCharacter` intent and shows the outcome from Game's receipt. Off by default: the form
+    | keeps answering "temporarily unavailable". Enablement (step 4) waits on U-CC7 and U-CC9.
+    |
+    */
+
+    'create' => [
+        'enabled' => filter_var(env('CHARACTER_AUTHORITY_WEB_CREATE_ENABLED', false), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) === true,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Game restore notice (Platform contract `oteryn-v2-game-restore-reconciliation-v1`)
+    |--------------------------------------------------------------------------
+    |
+    | After a Game restore, Game delivers one restore notice; Platform reopens every command whose
+    | receipt carries a recovery generation at or above the restored one and acknowledges once each
+    | has a new receipt. Game opens admission only after that acknowledgement, so a stack whose Game
+    | can be restored enables this. Off by default; not limited to an environment. `identities` is
+    | a JSON list of dedicated restore-notice client certificate subjects.
+    |
+    */
+
+    'restore' => [
+        'enabled' => filter_var(env('CHARACTER_AUTHORITY_RESTORE_NOTICE_ENABLED', false), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) === true,
+        'identities' => env('CHARACTER_AUTHORITY_RESTORE_NOTICE_IDENTITIES'),
+        'source_authority' => env('CHARACTER_AUTHORITY_RESTORE_NOTICE_SOURCE_AUTHORITY'),
+        'requests_per_minute' => env('CHARACTER_AUTHORITY_RESTORE_NOTICE_REQUESTS_PER_MINUTE', 60),
     ],
 
 ];

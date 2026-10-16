@@ -160,9 +160,8 @@ jobs:
     env:
       CANONICAL_PUBLIC_APP_URL: https://oteryn.molehill.cloud
       APP_KEY: ${{ secrets.OTERYN_STAGING_APP_KEY }}
-      MARIADB_ROOT_PASSWORD: ${{ secrets.OTERYN_STAGING_MARIADB_ROOT_PASSWORD }}
-      PLATFORM_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_DB_PASSWORD }}
-      # PostgreSQL beside MariaDB (plan P4): optional, all five or none; deploy.sh refuses a partial set.
+      # PostgreSQL is the Platform database (plan P7; MariaDB retired by the P6 cutover): all five are required.
+      # The retired OTERYN_STAGING_MARIADB_ROOT_PASSWORD and OTERYN_STAGING_PLATFORM_DB_PASSWORD are not read.
       PLATFORM_POSTGRES_SUPERUSER_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_SUPERUSER_PASSWORD }}
       PLATFORM_POSTGRES_OWNER_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_OWNER_PASSWORD }}
       PLATFORM_POSTGRES_APP_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_POSTGRES_APP_PASSWORD }}
@@ -275,8 +274,6 @@ jobs:
 
           required_names=(
             APP_KEY
-            MARIADB_ROOT_PASSWORD
-            PLATFORM_DB_PASSWORD
             OTERYN_PLATFORM_SERVICE_TOKEN
             GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256
           )
@@ -288,8 +285,6 @@ jobs:
           done
 
           safe_names=(
-            MARIADB_ROOT_PASSWORD
-            PLATFORM_DB_PASSWORD
             OTERYN_PLATFORM_SERVICE_TOKEN
           )
           for name in "${safe_names[@]}"; do
@@ -307,7 +302,7 @@ jobs:
             fi
           done
 
-          # All five PostgreSQL secrets or none, for every action (rollback included): a partial set must stop
+          # All five PostgreSQL secrets, for every action (rollback included): a missing or partial set must stop
           # the run here, before any stack change, not later in a health check after ingress was stopped.
           postgres_configured=0
           for name in \
@@ -315,8 +310,8 @@ jobs:
             PLATFORM_POSTGRES_BACKUP_PASSWORD PLATFORM_POSTGRES_DUMP_PASSWORD; do
             if [[ -n "${!name:-}" ]]; then postgres_configured=$((postgres_configured + 1)); fi
           done
-          if (( postgres_configured != 0 && postgres_configured != 5 )); then
-            echo "PostgreSQL secrets are partially configured ($postgres_configured of 5); set all of them or none." >&2
+          if (( postgres_configured != 5 )); then
+            echo "PostgreSQL is the Platform database but only $postgres_configured of its 5 secrets are configured." >&2
             exit 1
           fi
 
@@ -487,6 +482,11 @@ jobs:
           NATIVE_ADMISSION_INPUT="$(oteryn_native_default OTERYN_STAGING_NATIVE_ADMISSION_ENABLED "$NATIVE_ADMISSION_INPUT")"
           NATIVE_RUNTIME_IDENTITIES_INPUT="$(oteryn_native_default OTERYN_STAGING_NATIVE_RUNTIME_STATUS_IDENTITIES "$NATIVE_RUNTIME_IDENTITIES_INPUT")"
           NATIVE_SCOPE_IDENTITIES_INPUT="$(oteryn_native_default OTERYN_STAGING_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES "$NATIVE_SCOPE_IDENTITIES_INPUT")"
+          NATIVE_ROUTE_PUBLISH_INPUT="$(oteryn_native_default OTERYN_STAGING_NATIVE_ROUTE_PUBLISH_ENABLED "$NATIVE_ROUTE_PUBLISH_INPUT")"
+          NATIVE_CHANNEL_KEY_INPUT="$(oteryn_native_default OTERYN_STAGING_NATIVE_CHANNEL_KEY "$NATIVE_CHANNEL_KEY_INPUT")"
+          NATIVE_ROUTE_HOST_INPUT="$(oteryn_native_default OTERYN_STAGING_NATIVE_ROUTE_HOST "$NATIVE_ROUTE_HOST_INPUT")"
+          NATIVE_ROUTE_PORT_INPUT="$(oteryn_native_default OTERYN_STAGING_NATIVE_ROUTE_PORT "$NATIVE_ROUTE_PORT_INPUT")"
+          NATIVE_ROUTE_TLS_NAME_INPUT="$(oteryn_native_default OTERYN_STAGING_NATIVE_ROUTE_TLS_SERVER_NAME "$NATIVE_ROUTE_TLS_NAME_INPUT")"
           app_url="$CANONICAL_PUBLIC_APP_URL"
           release_sha="${RELEASE_SHA:-rollback-placeholder}"
           platform_source_sha="${PLATFORM_SOURCE_SHA_RESOLVED:-rollback-placeholder}"
@@ -520,10 +520,7 @@ jobs:
           APP_URL=$app_url
           LOG_LEVEL=info
           SESSION_SECURE_COOKIE=true
-          MARIADB_ROOT_PASSWORD=$MARIADB_ROOT_PASSWORD
           PLATFORM_DB_NAME=oteryn_platform
-          PLATFORM_DB_USER=oteryn_platform
-          PLATFORM_DB_PASSWORD=$PLATFORM_DB_PASSWORD
           PLATFORM_POSTGRES_SUPERUSER_PASSWORD=$PLATFORM_POSTGRES_SUPERUSER_PASSWORD
           PLATFORM_POSTGRES_OWNER_PASSWORD=$PLATFORM_POSTGRES_OWNER_PASSWORD
           PLATFORM_POSTGRES_APP_PASSWORD=$PLATFORM_POSTGRES_APP_PASSWORD

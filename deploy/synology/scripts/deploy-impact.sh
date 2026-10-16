@@ -18,7 +18,7 @@ required_vars=(
     PLATFORM_BIND_ADDRESS GATEWAY_BIND_ADDRESS
     PLATFORM_PORT GATEWAY_PORT
     GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT
-    APP_KEY MARIADB_ROOT_PASSWORD PLATFORM_DB_NAME PLATFORM_DB_USER PLATFORM_DB_PASSWORD
+    APP_KEY PLATFORM_DB_NAME
     OTERYN_PLATFORM_SERVICE_TOKEN GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256
 )
 for name in "${required_vars[@]}"; do
@@ -30,7 +30,7 @@ for name in "${required_vars[@]}"; do
 done
 
 safe_credential_vars=(
-    PLATFORM_DB_NAME PLATFORM_DB_USER PLATFORM_DB_PASSWORD
+    PLATFORM_DB_NAME
     OTERYN_PLATFORM_SERVICE_TOKEN
 )
 for name in "${safe_credential_vars[@]}"; do
@@ -163,7 +163,11 @@ _oteryn_non_runtime_path() {
 
 _oteryn_running_service_id() {
     local service="$1" expected_image="${2:-}" container_id running image_id expected_image_id
-    container_id="$("${compose[@]}" ps -q "$service" 2>/dev/null || true)"
+    if [[ "$service" == postgres ]]; then
+        container_id="$("${compose[@]}" --profile postgres ps -q postgres 2>/dev/null || true)"
+    else
+        container_id="$("${compose[@]}" ps -q "$service" 2>/dev/null || true)"
+    fi
     [[ -n "$container_id" ]] || { echo "Platform reconcile rejected: $service is not created." >&2; return 1; }
     running="$(docker inspect --format '{{.State.Running}}' "$container_id" 2>/dev/null || true)"
     [[ "$running" == true ]] || { echo "Platform reconcile rejected: $service is not running." >&2; return 1; }
@@ -187,7 +191,7 @@ RECONCILE_OLD_GATEWAY_SOURCE_SHA=''
 RECONCILE_OLD_PLATFORM_IMAGE=''
 RECONCILE_OLD_GATEWAY_IMAGE=''
 RECONCILE_SCHEMA_ID=''
-RECONCILE_MARIADB_ID=''
+RECONCILE_POSTGRES_ID=''
 RECONCILE_PROXY_ID=''
 RECONCILE_GATEWAY_ID=''
 RECONCILE_OLD_PLATFORM_ID=''
@@ -305,7 +309,7 @@ _oteryn_platform_reconcile_candidate() {
         RECONCILE_REASON='native admission projection settings incomplete'
         return 1
     fi
-    RECONCILE_MARIADB_ID="$(_oteryn_running_service_id mariadb)" || return 2
+    RECONCILE_POSTGRES_ID="$(_oteryn_running_service_id postgres)" || return 2
     RECONCILE_PROXY_ID="$(_oteryn_running_service_id internal-proxy)" || return 2
 
     RECONCILE_REASON='schema-stable Platform-only accumulated runtime impact'
@@ -360,7 +364,11 @@ _oteryn_reconcile_restore_on_exit() {
 
 _oteryn_assert_preserved_service() {
     local service="$1" expected_id="$2" actual_id running
-    actual_id="$("${compose[@]}" ps -q "$service" 2>/dev/null || true)"
+    if [[ "$service" == postgres ]]; then
+        actual_id="$("${compose[@]}" --profile postgres ps -q postgres 2>/dev/null || true)"
+    else
+        actual_id="$("${compose[@]}" ps -q "$service" 2>/dev/null || true)"
+    fi
     [[ "$actual_id" == "$expected_id" ]] || { echo "Platform reconcile changed $service container identity." >&2; return 1; }
     running="$(docker inspect --format '{{.State.Running}}' "$actual_id" 2>/dev/null || true)"
     [[ "$running" == true ]] || { echo "Platform reconcile left $service non-running." >&2; return 1; }
@@ -417,7 +425,7 @@ _oteryn_platform_reconcile() {
     # staging health contract while all unrelated service containers remain warm.
     OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/health-check.sh"
 
-    _oteryn_assert_preserved_service mariadb "$RECONCILE_MARIADB_ID"
+    _oteryn_assert_preserved_service postgres "$RECONCILE_POSTGRES_ID"
     _oteryn_assert_preserved_service internal-proxy "$RECONCILE_PROXY_ID"
     _oteryn_assert_preserved_service gateway "$RECONCILE_GATEWAY_ID"
 
@@ -431,7 +439,7 @@ _oteryn_platform_reconcile() {
     rm -f "$RECONCILE_PREVIOUS_LAST_GOOD"
     RECONCILE_SWAP_STARTED=0
     trap - EXIT
-    echo "Oteryn Synology staging Platform reconcile is healthy in $((SECONDS - started))s; MariaDB, internal proxy and Gateway were preserved."
+    echo "Oteryn Synology staging Platform reconcile is healthy in $((SECONDS - started))s; PostgreSQL, internal proxy and Gateway were preserved."
 }
 
 reconcile_rc=0

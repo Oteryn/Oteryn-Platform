@@ -2,18 +2,18 @@
 
 This file records the dated, non-secret results of the staging MariaDB to PostgreSQL cutover (plan P6, `PLATFORM_POSTGRES_MIGRATION_PLAN.md`). The cutover is driven one step per dispatch by the `cutover` action of the *Deploy Synology Staging* workflow, which runs `deploy/synology/scripts/cutover-postgres.sh`. It records no password, dump, token, cookie or connection string.
 
-Status: **pending – not executed**. Every field below is a placeholder until the owner-approved cutover window runs. Dry-run dispatches (`cutover_dry_run=true`, the default) are not evidence and are not recorded here.
+Status: **executed on 2026-10-14, steps 0 to 7 (`unfreeze` run 38607404066); MariaDB retired (the recreated step 6 volume was removed on 2026-10-14, see below).** All steps ran for real (task `OTERYN-20261013-pg-cutover`); no archived owner decision verifies the window, see Approval below. One `unfreeze` dry run (38605943395, `OTERYN_CUTOVER_DRY_RUN: 1`, `nothing was executed or recorded`) preceded the real one and is not evidence. Dry-run dispatches (`cutover_dry_run=true`, the default) are not evidence. Every value below comes from the logs of the runs named in it; a value no log proves is `not recorded`. Failed and retried dispatches are not listed; only the successful run of each step is.
 
 ## Run header
 
 | Field | Value |
 | --- | --- |
-| Task id | `OTERYN-YYYYMMDD-<slug>` (pending) |
-| Window (UTC) | pending |
-| Repository head (`main`) | pending, 40-hex SHA |
-| Platform image | pending, `ghcr.io/oteryn/oteryn-platform@sha256:…` |
-| Gateway image | pending, `ghcr.io/oteryn/oteryn-gateway@sha256:…` |
-| Runner | pending |
+| Task id | `OTERYN-20261013-pg-cutover` |
+| Window (UTC) | 2026-10-14T06:18:14Z (preflight start) to 2026-10-14T17:33:13Z (`unfreeze` end) |
+| Repository head (`main`) | Per step, as checked out by the run: `087c149cae0891af07aa1b118682eb86a55564a7` (preflight, freeze), `033886ee1175ff4a3e162f71b5e094ae0a064a99` (bootstrap), `243246a152d06f95b088b439f405bea2bd3f9130` (smoke), `309038e9b2a6205e5689726ced90190fedc5ec90` (native-reenable, native-smoke, declare-done, retire-mariadb). `fbc8e30d87efdd8b9c0af51f3fd79cbb6703cd7f` (unfreeze, real run 38607404066 and the earlier dry run). |
+| Platform image | `ghcr.io/oteryn/oteryn-platform@sha256:8b2a2cfbdaedf94f16dec91560414bdfc1d40d705e3099a4e6b4e98eabf7a59d` as the input of smoke, native-reenable, native-smoke, declare-done and retire-mariadb. Preflight, freeze and bootstrap were dispatched with no image input (not recorded). |
+| Gateway image | `ghcr.io/oteryn/oteryn-game-gateway@sha256:5a58034c60581a1f1dc888c8d8f4f12fcb4e51ae7f5447987ddd06452b7b05aa` for the same steps; none for preflight, freeze and bootstrap (not recorded) |
+| Runner | `oteryn-synology-platform` (group `platform-runners`, runner version 2.337.0) |
 | `MARKETPLACE_ENABLED` | `false` (checked by preflight) |
 
 ## Cutover hooks
@@ -92,59 +92,68 @@ Each failure of the hook ends with a `next:` line that names the step for the st
 
 | Check | Run id | Result |
 | --- | --- | --- |
-| Open-gate audit before preflight (`oteryn-edge-audit-result`, `gate_state=open`) | pending | pending |
-| Maintenance-close run (`closure_run_id`) | pending | pending |
-| Closed-gate audit (`closure_match=yes`) before freeze | pending | pending |
-| External check: both canonical hosts return 503, a random label gets no 2xx/3xx | n/a | pending |
-| Closed-gate audit before native re-enable / declare-done / retire | pending | pending |
-| Maintenance-open run | pending | pending |
-| Open-gate audit before unfreeze; both hosts reach their origins | pending | pending |
-| `platform-cutover-gate-evidence` artifact (`cutover_complete` or `rollback_verified`) | pending | pending |
+| Open-gate audit before preflight (`oteryn-edge-audit-result`, `gate_state=open`) | 38519629846 | `gate_state=open`, `closure_match=not_requested`; preflight run 38521372820 logged `Audit 38519629846 verified: gate_state=open.` |
+| Maintenance-close run (`closure_run_id`) | 38521536252 | success (2026-10-14T06:19:29Z to 06:25:28Z); passed as `close_run_id` to every later step |
+| Closed-gate audit (`closure_match=yes`) before freeze | 38522229083 | `gate_state=closed`, `closure_match=yes`; freeze run 38523378106 logged `Audit 38522229083 verified: gate_state=closed.` |
+| External check: both canonical hosts return 503, a random label gets no 2xx/3xx | n/a | freeze run 38523378106 logged `External check passed: both canonical hostnames return 503.`; the random-label result is not recorded in the log |
+| Closed-gate audit before native re-enable / declare-done / retire | 38522229083 | `gate_state=closed` verified in run 38588269252 (native-reenable), 38595000727 (declare-done) and 38595760762 (retire-mariadb) |
+| Maintenance-open run | 38601451317 | success (2026-10-14T16:50:13Z to 16:56:11Z); logged `mode=maintenance-open`, `gate_state=open` |
+| Open-gate audit before unfreeze; both hosts reach their origins | 38602856648 | `gate_state=open`, `closure_match=not_requested`. The real unfreeze 38607404066 logged `Audit 38602856648 verified: gate_state=open.` and `External check passed: both canonical hostnames reach their origins.` (as did the earlier dry run 38605943395). |
+| `platform-cutover-gate-evidence` artifact (`cutover_complete` or `rollback_verified`) | 38595000727 | `gate_evidence_written=cutover_complete`; artifact id 11908977304 (319 bytes, retention 30 days) |
 
 ## Steps
 
+Times are the start and end of the *Run cutover step* step of the successful run, in UTC, to the second as GitHub records them.
+
 | Step | Subcommand | Started (UTC) | Finished (UTC) | Duration (s) | Result |
 | --- | --- | --- | --- | --- | --- |
-| 0. Preflight | `preflight` | pending | pending | pending | pending |
-| 1. Freeze | `freeze` | pending | pending | pending | pending |
-| 2. Bootstrap (engine flipped to `postgres` by reviewed PR) | `bootstrap` | pending | pending | pending | pending |
-| 3. Smoke | `smoke` | pending | pending | pending | pending |
-| 4. Native re-enable (last rollback point passed when it starts) | `native-reenable` | pending | pending | pending | pending |
-| 5. Native smoke | `native-smoke` | pending | pending | pending | pending |
-| 6. Declare done | `declare-done` | pending | pending | pending | pending |
-| 6. Retire MariaDB (owner-gated, destructive) | `retire-mariadb` | pending | pending | pending | pending |
-| 7. Unfreeze | `unfreeze` | pending | pending | pending | pending |
+| 0. Preflight | `preflight` | 2026-10-14T06:18:14Z | 2026-10-14T06:18:17Z | 3 | `preflight_result=passed` (run 38521372820) |
+| 1. Freeze | `freeze` | 2026-10-14T06:38:38Z | 2026-10-14T06:41:34Z | 176 | `freeze_result=done` (run 38523378106) |
+| 2. Bootstrap (engine flipped to `postgres` by reviewed PR) | `bootstrap` | 2026-10-14T07:23:14Z | 2026-10-14T07:28:54Z | 340 | `bootstrap_result=complete` (run 38527939812) |
+| 3. Smoke | `smoke` | 2026-10-14T12:16:50Z | 2026-10-14T12:21:59Z | 309 | `smoke_result=passed`, `web_smoke_result=passed` (run 38562536892) |
+| 4. Native re-enable (last rollback point passed when it starts) | `native-reenable` | 2026-10-14T15:34:13Z | 2026-10-14T15:37:33Z | 200 | `native_reenable_result=provenance_recorded` (run 38588269252) |
+| 5. Native smoke | `native-smoke` | 2026-10-14T16:02:40Z | 2026-10-14T16:03:50Z | 70 | `native_smoke_result=passed`, `native_smoke_login=owner-waived` (run 38594579918) |
+| 6. Declare done | `declare-done` | 2026-10-14T16:05:26Z | 2026-10-14T16:05:29Z | 3 | `declare_done_result=recorded` (run 38595000727) |
+| 6. Retire MariaDB (owner-gated, destructive) | `retire-mariadb` | 2026-10-14T16:10:41Z | 2026-10-14T16:12:26Z | 105 | `retire_mariadb_result=done` (run 38595760762) |
+| 7. Unfreeze | `unfreeze` | 2026-10-14T17:32:15Z | 2026-10-14T17:33:13Z | 58 | `unfreeze_result=done`, `marketplace-scheduler` recreated and started (run 38607404066). The earlier dry run 38605943395 is not evidence. |
 | Rollback (only before step 4) | `rollback` | not used | not used | not used | not used |
 
-Total frozen window (freeze to maintenance-open): pending. Rollback outcome, if any: pending.
+The native-smoke dispatch passed `native_smoke_waiver=OTERYN-20261013-pg-cutover` (the owner's waiver, logged as `OTERYN_CUTOVER_NATIVE_SMOKE_WAIVER`). It checked only that the Platform issuer refuses an unknown ticket (`native_smoke_unknown_ticket=refused`). The attempt classified `committed` and the self-check passed.
+
+Smoke details (run 38562536892): `web_smoke_admin_access=granted`, `web_smoke_admin_mfa=confirmed`, `web_smoke_admin_page=read`, `web_smoke_wallet=read-reconciled` (0 accounts, 0 ledger entries), `web_smoke_account=registered-signed-in-signed-out`, `web_smoke_admin_boundary=refused-without-mfa`, `web_smoke_marketplace=off`.
+
+Total frozen window (freeze to maintenance-open): 2026-10-14T06:38:38Z (freeze step start) to 2026-10-14T16:56:11Z (maintenance-open run end), 10 h 17 min 33 s (37053 s). The edge itself was closed earlier, by the maintenance-close run 38521536252 (06:19:29Z to 06:25:28Z). Rollback outcome: rollback not used.
 
 ## Bootstrap results
 
 | Field | Value |
 | --- | --- |
-| `WorldId` (native world) | pending |
-| OAuth client id (web) | pending, UUID |
-| OAuth client id (Rust) | pending, UUID |
-| Witness store id | pending, 64-hex |
-| MariaDB-era witness moved aside to | pending, `<dir>.mariadb-era-<ts>` |
-| Provenance init (P6a hook) | pending |
-| First trust publication | pending |
+| `WorldId` (native world) | not issued (`native_world_id=not-issued`, run 38527939812) |
+| OAuth client id (web) | `01a1394f-18c1-7241-a21c-d9e1abd75b17` (`oauth_client_id`, run 38527939812) |
+| OAuth client id (Rust) | `01a1394f-1e08-701c-92d0-25629057faca` (`oauth_rust_client_id`, run 38527939812) |
+| Witness store id | `44b47f1a5ebd07311de57502329ffae2e186da8a237a9cf42c2b33afc2dd3936` (PostgreSQL era, `witness_store_id` of native-reenable run 38588269252). The MariaDB-era store id, recorded at freeze (run 38523378106), was `f00aad784e0b1c62796bea784a0e8105db40b6d176363e01604d7d7c9c622bfc`. |
+| MariaDB-era witness moved aside to | `/var/www/html/storage/app/native-evidence-witness.mariadb-era-20261014T072456Z` (`witness_moved_aside_to`, run 38527939812); `witness_aside_deleted=true` at `retire-mariadb` |
+| Provenance init (P6a hook) | `provenance_preflight=passed`, `provenance_init_result=unchanged`, `attempt_run_id=2bb6c150-6a42-4af5-882b-cb9263c51382`, `attempt_intent_line_sha256=3f551c1be4df67df4ca676bcac9135d42eb4c51eb808e8dc94fde7de44de7c34` (run 38588269252) |
+| First trust publication | `attempt_classification=committed`, `attempt_result=committed`, `self_check=passed`, key id `oteryn-admission-20261011-165131-58b205` (run 38594579918). The binding, floor and WAL position values are not recorded in the log. |
 
 ## MariaDB retirement
 
+All values are from run 38595760762.
+
 | Field | Value |
 | --- | --- |
-| Owner delete confirmation supplied (phrase value is not recorded) | pending |
-| `owner_delete_ack` names the task id | pending |
-| Prerequisites: native smoke and declare-done recorded | pending |
-| Volume deleted | pending, `<project>_mariadb_data` |
-| Container removed | pending |
-| MariaDB-era witness directory deleted | pending |
-| MariaDB deleted at (UTC) | pending |
+| Owner delete confirmation supplied (phrase value is not recorded) | yes (`OTERYN_OWNER_DELETE_CONFIRMATION` was set; value not recorded) |
+| `owner_delete_ack` names the task id | yes (`OTERYN_OWNER_DELETE_ACK` was `OTERYN-20261013-pg-cutover`) |
+| Prerequisites: native smoke and declare-done recorded | yes: native-smoke run 38594579918 (`native_smoke_result=passed`) and declare-done run 38595000727 (`declare_done_result=recorded`) precede it; the step ran only after the closed-gate audit 38522229083 verified |
+| Volume deleted | Done after a second removal. The delete step removed `oteryn-staging_mariadb_data` (`retire_mariadb_result=done`), but a later compose line in the same log shows a volume of that name `Created` for the witness-deletion container, and `docker volume ls` on the NAS still listed it on 2026-10-14 (created 16:11:43Z, no container attached). Done outside the run, as a manual operator step that is not evidence from run 38595760762. On 2026-10-14 at about 21:20Z the owner-authorized `docker volume rm oteryn-staging_mariadb_data` ran on the NAS with no container attached; `docker volume ls` then listed no MariaDB volume. Source: operator record https://github.com/Oteryn/Oteryn-Platform/issues/1474#issuecomment-6179296065. |
+| Container removed | `oteryn-staging-mariadb-1` (`Container … Removed`) |
+| MariaDB-era witness directory deleted | yes (`witness_aside_deleted=true`) |
+| MariaDB deleted at (UTC) | 2026-10-14T16:12:26Z (`mariadb_deleted_at`) |
 
 ## Notes and deferrals
 
 - Rollback is forward-only once step 4 starts; the recorded marker, not operator memory, enforces it.
-- Until P7 removes `mariadb` from the compose and deploy path, an ordinary staging deploy would recreate the retired service and an empty volume; run none between retirement and P7.
-- `health-check.sh` requires the MariaDB service, so health checks cannot run after retirement.
-- Pending: record who approved the window and where the owner decision is archived (no personal data).
+- P7 (PR #1599, merged 2026-10-14 as `fbc8e30d`) removed `mariadb` from the compose and deploy path, so an ordinary staging deploy no longer recreates the retired service, and `health-check.sh` no longer checks MariaDB.
+- Approval: unverified by this record. The runs prove only that the confirmation phrase, the acknowledgement and the waiver passed their gates; no archived owner decision for the window, the `native_smoke_waiver` or `retire-mariadb` is linked here.
+- Closed: the recreated `oteryn-staging_mariadb_data` volume was removed and verified absent (see step 6 above).
+- Gap found after the cutover: the PostgreSQL store started with no `native_scope_assignments` row, so the Platform refused every `ReportRuntimeStatusV1` from the running node (409 `PLATFORM_CONFLICT`). The site showed "Dane niedostępne" and the client directory listed no world. Fixed on 2026-10-14 at about 21:49Z. As root, the operator ran the Game ops `assignment report` from the Game README "Epoch raise" note. It re-reports the committed Game assignment without writing a new one; the binary was the previous `oteryn-game-ops` in the game runner container, the host that has the needed glibc. The answer was `result=accepted` with ownership generation 3. Runtime reports then answered 200, and `GET /v1/client/directory` listed `Oteryn Staging`. A later cutover must re-report the scope assignment right after the native re-enable step. Source: operator record https://github.com/Oteryn/Oteryn-Platform/issues/1474#issuecomment-6179296065.

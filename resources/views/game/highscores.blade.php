@@ -34,7 +34,7 @@
                     <option value="">{{ __('community.highscores.all_vocations') }}</option>
                     @foreach ($vocations as $vocationOption)
                         <option value="{{ $vocationOption }}" @selected($vocation === $vocationOption)>
-                            {{ $characterPresentation->vocationName($vocationOption) }}
+                            {{ $characterPresentation->publishedVocationName($vocationOption) }}
                         </option>
                     @endforeach
                 </select>
@@ -65,11 +65,11 @@
                 <tbody>
                 @forelse ($players as $player)
                     <tr>
-                        <td class="rank-cell" data-rank="{{ ($players->firstItem() ?? 1) + $loop->index }}">{{ $localeFormatter->number(($players->firstItem() ?? 1) + $loop->index) }}</td>
+                        <td class="rank-cell" data-rank="{{ $player->rank }}">{{ $localeFormatter->number($player->rank) }}</td>
                         <td><a href="{{ route('game.characters.show', ['name' => $player->name]) }}">{{ $player->name }}</a></td>
                         <td>{{ $localeFormatter->number((int) $player->score) }}</td>
                         <td>{{ $localeFormatter->number((int) $player->level) }}</td>
-                        <td>{{ $characterPresentation->vocationName((int) $player->vocation) }}</td>
+                        <td>{{ $characterPresentation->publishedVocationName((int) $player->vocation) }}</td>
                     </tr>
                 @empty
                     <tr><td colspan="5">{{ __('public.game.no_characters') }}</td></tr>
