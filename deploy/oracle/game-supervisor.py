@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -25,6 +26,7 @@ INSIDE = '/volume1/oteryn/game-preprod'
 REPORT = '/volume1/oteryn/game-preprod-root/ops/report.toml'
 STOP = False
 UUID = r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}'
+STEP_WAIT_ENV = 'OTERYN_STEP_WAIT_RECEIPTS'
 
 
 def atomic(path, data, uid=0):
@@ -99,6 +101,24 @@ def copy_certificate():
     return changed
 
 
+def step_wait_receipts():
+    """Owner marker BASE/run/step-wait-receipts: on only for a regular file holding 1.
+
+    Anything else (absent, symlink, directory, other bytes) keeps Game's default off.
+    """
+    try:
+        fd = os.open(BASE / 'run' / 'step-wait-receipts', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return '0'
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return '0'
+        data = os.read(fd, 16)
+    finally:
+        os.close(fd)
+    return '1' if data.replace(b'\n', b'') == b'1' else '0'
+
+
 def stop_game(*_):
     global STOP
     STOP = True
@@ -151,6 +171,9 @@ def start(state, baseline):
     if state['phase'] == 'starting':
         current = inspect()
         if current is None or current['Config']['Labels'].get('io.oteryn.launch-cycle') != state['cycle']:
+            # Game reads the switch once per process, so the marker applies per incarnation.
+            os.environ[STEP_WAIT_ENV] = step_wait_receipts()
+            print('oracle_game_step_wait_receipts=' + os.environ[STEP_WAIT_ENV], flush=True)
             invoke(COMPOSE + ['up', '-d', '--no-deps', '--force-recreate', 'game'])
         if not wait_registration(state):
             return

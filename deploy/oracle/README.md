@@ -112,6 +112,17 @@ authorization replay or blind Docker restart is permitted. Docker restart is off
 for the node; systemd owns the controller at boot. Other services retain their
 normal Docker restart policies.
 
+Step-pacing receipts (Game `OTERYN_STEP_WAIT_RECEIPTS`) stay off by default.
+For each new incarnation the controller reads the owner marker
+`/opt/oteryn-game/run/step-wait-receipts` (Game `BASE/run/step-wait-receipts`)
+and exports `OTERYN_STEP_WAIT_RECEIPTS=1` to the `game` service only when that
+path is a regular, non-symlink file holding exactly `1` (a trailing newline is
+ignored); otherwise it exports `0`. The value is logged as
+`oracle_game_step_wait_receipts=<0|1>` and visible as the container label
+`io.oteryn.step-wait-receipts`. Game reads the switch once per process, so enable
+or roll back by writing or removing the marker and then
+`systemctl restart oteryn-game.service`, which issues a fresh durable incarnation.
+
 The certificate timer checks Caddy's renewed `game.oteryn.com` certificate daily,
 installs its private pair as UID 1001 mode 0600 and restarts through that same
 durable controller only when bytes changed. A refresh failure retains the serving
